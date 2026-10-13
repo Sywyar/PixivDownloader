@@ -38,12 +38,17 @@ public class PixivDatabase {
      */
     private final AtomicLong lastIssuedTime = new AtomicLong(0);
 
+    public boolean isUnavailable() {
+        return databaseInitializer.isUnavailable();
+    }
+
     /**
      * 非 DDL 初始化：建表 / 补列 / 索引已统一由 {@link DatabaseInitializer} 执行，
      * 这里只保留种子数据与幂等数据迁移。
      */
     @PostConstruct
     public void init() {
+        if (databaseInitializer.isUnavailable()) return;
         pixivMapper.ensureDefaultFileNameTemplate(PixivWorkFileNameFormatter.DEFAULT_TEMPLATE);
         pixivMapper.initStatistics();
         pixivMapper.migrateArtworkTimestampsToMillis();
@@ -59,10 +64,12 @@ public class PixivDatabase {
      * 获取一个不与现有记录冲突的唯一时间戳（毫秒级）
      */
     public long getUniqueTime() {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return getUniqueTime(System.currentTimeMillis());
     }
 
     public long getUniqueTime(long preferredTime) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         long normalizedPreferred = EpochMillisNormalizer.normalize(preferredTime);
         long base = normalizedPreferred > 0 ? normalizedPreferred : System.currentTimeMillis();
         long candidate;
@@ -83,6 +90,7 @@ public class PixivDatabase {
 
     @Transactional
     public void insertArtwork(InsertArtworkArgument argument) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         insertArtworkRow(argument);
         pixivMapper.deleteUnusedArtworkMedia(argument.artworkId());
     }
@@ -102,6 +110,7 @@ public class PixivDatabase {
     /** 完整下载的落盘事实可替换存量记录；普通导入仍沿用 insertArtwork 的不覆盖语义。 */
     @Transactional
     public void recordDownloadedArtwork(InsertArtworkArgument argument) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         insertArtworkRow(argument);
         pixivMapper.updateDownloadedFiles(argument.artworkId(), encodePath(argument.folder()),
                 argument.count(), argument.extensions(), argument.time());
@@ -111,16 +120,19 @@ public class PixivDatabase {
     /** 保存下载时实际采用的逐页基名，不随展示元数据变化。 */
     @Transactional
     public void replaceArtworkFileNames(long artworkId, List<String> names) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         pixivMapper.deleteArtworkFileNames(artworkId);
         if (!names.isEmpty()) pixivMapper.insertArtworkFileNames(artworkId, names);
     }
 
     public List<String> getArtworkFileNames(long artworkId) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.findArtworkFileNames(artworkId);
     }
 
     @Transactional
     public long getOrCreateFileNameTemplateId(String template) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         String normalized = PixivWorkFileNameFormatter.normalizeTemplate(template);
         pixivMapper.insertFileNameTemplateIfAbsent(normalized);
         Long id = pixivMapper.findFileNameTemplateId(normalized);
@@ -128,17 +140,20 @@ public class PixivDatabase {
     }
 
     public String getFileNameTemplate(long id) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         String template = pixivMapper.findFileNameTemplateById(id);
         return PixivWorkFileNameFormatter.normalizeTemplate(template);
     }
 
     public int getFileNameMaxLength(long id, boolean novel) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         Integer length = novel ? pixivMapper.findNovelFileNameMaxLength(id) : pixivMapper.findFileNameMaxLength(id);
         return length == null || length < 1 || length > PixivWorkFileNameFormatter.MAX_BASENAME_LENGTH
                 ? PixivWorkFileNameFormatter.MAX_BASENAME_LENGTH : length;
     }
 
     public void updateFileNameMaxLength(long id, int length) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         if (length < 1 || length > PixivWorkFileNameFormatter.MAX_BASENAME_LENGTH) {
             throw new IllegalArgumentException("Invalid filename length");
         }
@@ -146,6 +161,7 @@ public class PixivDatabase {
     }
 
     public Map<Long, String> getFileNameTemplates(Collection<Long> ids) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         if (ids == null || ids.isEmpty()) {
             return Map.of();
         }
@@ -164,6 +180,7 @@ public class PixivDatabase {
      */
     @Transactional
     public long getOrCreateFileAuthorNameId(String name) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         if (name == null || name.isEmpty()) {
             return 0L;
         }
@@ -176,6 +193,7 @@ public class PixivDatabase {
      * 按 ID 查询合规化作者名。
      */
     public String getFileAuthorName(long id) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.findFileAuthorNameById(id);
     }
 
@@ -220,6 +238,7 @@ public class PixivDatabase {
     }
 
     public ArtworkRecord getArtworkByMoveFolder(String moveFolder) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         if (moveFolder == null) return null;
         String stripped = stripTrailingSlash(moveFolder);
         ArtworkRecord direct = pixivMapper.findByNormalizedMoveFolder(stripped);
@@ -233,6 +252,7 @@ public class PixivDatabase {
     }
 
     public void updateArtworkMove(long artworkId, String movePath, long moveTime) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         updateArtworkMove(artworkId, movePath, moveTime, null);
     }
 
@@ -245,6 +265,7 @@ public class PixivDatabase {
      */
     public void updateArtworkMove(long artworkId, String movePath, long moveTime,
                                   String classifierTargetFolder) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         String stripped = stripTrailingSlash(movePath);
         String encoded;
         if (stripped == null) {
@@ -268,6 +289,7 @@ public class PixivDatabase {
      */
     @Transactional
     public void deleteArtwork(long artworkId) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         pixivMapper.deleteArtworkFileNames(artworkId);
         pixivMapper.deleteArtworkMedia(artworkId);
         pixivMapper.deleteImageHashesByArtwork(artworkId);
@@ -283,6 +305,7 @@ public class PixivDatabase {
      */
     @Transactional
     public void markArtworkDeleted(long artworkId) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         pixivMapper.deleteArtworkFileNames(artworkId);
         pixivMapper.deleteArtworkMedia(artworkId);
         pixivMapper.deleteImageHashesByArtwork(artworkId);
@@ -298,6 +321,7 @@ public class PixivDatabase {
      */
     public void fillArtworkMetadataIfMissing(long artworkId, String title, Integer xRestrict,
                                               Boolean isAi, Long authorId, String description) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         pixivMapper.updateMetadataIfMissing(artworkId, title, xRestrict, isAi, authorId, description);
     }
 
@@ -309,29 +333,35 @@ public class PixivDatabase {
                                                      Boolean isAi, Long authorId, String description,
                                                      long fileName, Long fileAuthorNameId,
                                                      Long seriesId, Long seriesOrder) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         pixivMapper.refreshMetadataAfterDownload(artworkId, title, xRestrict, isAi, authorId,
                 description, fileName, fileAuthorNameId, seriesId, seriesOrder);
     }
 
     public boolean hasArtwork(long artworkId) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.countById(artworkId) > 0;
     }
 
     /** 是否存在未被软删除的记录；deleted 行视为不存在（可重新下载）。 */
     public boolean hasActiveArtwork(long artworkId) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.countActiveById(artworkId) > 0;
     }
 
     /** 是否为软删除残留行（已下载过，但被画廊删除）。 */
     public boolean isArtworkDeleted(long artworkId) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.countDeletedById(artworkId) > 0;
     }
 
     public ArtworkRecord getArtwork(long artworkId) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return resolveRecord(pixivMapper.findById(artworkId));
     }
 
     public List<ArtworkRecord> getArtworks(Collection<Long> artworkIds) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         if (artworkIds == null || artworkIds.isEmpty()) {
             return List.of();
         }
@@ -341,48 +371,59 @@ public class PixivDatabase {
     }
 
     public List<Long> getAllArtworkIds() {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.findAllIds();
     }
 
     public List<Long> getArtworkIdsSortedByTimeDesc() {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.findAllIdsSortedByTimeDesc();
     }
 
     public List<Long> getArtworkIdsSortedByAuthorIdAsc() {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.findAllIdsSortedByAuthorIdAsc();
     }
 
     public List<ArtworkRecord> getArtworksOlderThan(long beforeTimeMillis) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.findByTimeBefore(beforeTimeMillis).stream()
                 .map(this::resolveRecord)
                 .toList();
     }
 
     public long countArtworks() {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.countAll();
     }
 
     public List<Long> getArtworkIdsSortedByTimeDescPaged(int offset, int size) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.findIdsSortedByTimeDescPaged(size, offset);
     }
 
     public List<Long> getArtworkIdsSortedByAuthorIdAscPaged(int offset, int size) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.findIdsSortedByAuthorIdAscPaged(size, offset);
     }
 
     public void updateAuthorId(long artworkId, long authorId) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         pixivMapper.updateAuthorId(artworkId, authorId);
     }
 
     public List<Long> getArtworkIdsMissingAuthor() {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.findIdsMissingAuthor();
     }
 
     public void updateSeriesInfo(long artworkId, Long seriesId, Long seriesOrder) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         pixivMapper.updateSeriesInfo(artworkId, seriesId, seriesOrder);
     }
 
     public List<Long> getArtworkIdsMissingSeries() {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.findIdsMissingSeries();
     }
 
@@ -393,6 +434,7 @@ public class PixivDatabase {
      */
     @Transactional
     public void saveArtworkTags(long artworkId, List<TagDto> tags) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         if (tags == null || tags.isEmpty()) return;
         for (TagDto t : tags) {
             if (t == null) continue;
@@ -408,6 +450,7 @@ public class PixivDatabase {
     /** 有效的新标签列表整体替换旧关联；空列表视为不可信输入并保留旧标签。 */
     @Transactional
     public void replaceArtworkTagsAfterDownload(long artworkId, List<TagDto> tags) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         if (tags == null || tags.stream().noneMatch(t -> t != null
                 && t.getName() != null && !t.getName().isBlank())) {
             return;
@@ -422,6 +465,7 @@ public class PixivDatabase {
      */
     @Transactional
     public Long upsertTagAndGetId(String name, String translatedName) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         if (name == null || name.isBlank()) return null;
         String translated = (translatedName != null && translatedName.isBlank()) ? null : translatedName;
         pixivMapper.upsertTag(name, translated);
@@ -429,10 +473,12 @@ public class PixivDatabase {
     }
 
     public List<TagDto> getArtworkTags(long artworkId) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.findTagsByArtworkId(artworkId);
     }
 
     public Map<Long, List<TagDto>> getArtworkTags(Collection<Long> artworkIds) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         if (artworkIds == null || artworkIds.isEmpty()) {
             return Map.of();
         }
@@ -446,18 +492,22 @@ public class PixivDatabase {
     }
 
     public boolean hasArtworkTags(long artworkId) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.existsTagsForArtwork(artworkId) != null;
     }
 
     public void recordCompletedDownload(int imageCount, String date) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         pixivMapper.recordCompletedDownload(imageCount, date);
     }
 
     public void recordFailedDownload(String date) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         pixivMapper.recordFailedDownload(date);
     }
 
     public void incrementMoved() {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         pixivMapper.incrementMoved();
     }
 
@@ -467,10 +517,12 @@ public class PixivDatabase {
     }
 
     public StatisticsData getStatisticsData() {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.getStats();
     }
 
     public void setStats(int totalArtworks, int totalImages, int totalMoved) {
+        if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         pixivMapper.setStats(totalArtworks, totalImages, totalMoved);
     }
 

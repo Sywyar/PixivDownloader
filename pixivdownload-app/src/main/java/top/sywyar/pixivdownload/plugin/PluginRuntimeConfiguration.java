@@ -34,7 +34,7 @@ import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeGate;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
-import top.sywyar.pixivdownload.plugin.storage.AppPluginDataSource;
+import top.sywyar.pixivdownload.plugin.storage.PluginDatabaseFactory;
 
 /**
  * 核心壳侧装配 PF4J 外置插件运行时。{@link PluginBootstrapSession} 负责恢复、构造唯一管理器与一次扫描启动；
@@ -219,12 +219,16 @@ public class PluginRuntimeConfiguration {
     public PluginApplicationContextFactory pluginApplicationContextFactory(
             PluginCredentialPropertySourceService propertySourceService,
             PluginStreamRegistry pluginStreamRegistry,
-            PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry) {
+            PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry,
+            PluginDatabaseFactory databaseFactory,
+            org.springframework.beans.factory.ObjectProvider<top.sywyar.pixivdownload.core.db.MainDatabase> mainDatabase) {
         return new PluginApplicationContextFactory(
                 propertySourceService::snapshotFor,
                 pluginStreamRegistry,
                 pluginRuntimeTaskRegistry,
                 AppRuntimePathProvider::new,
-                AppPluginDataSource::new);
+                null,
+                module -> databaseFactory.create(module.sourcePluginId(), module.privateSchema(), module.storageMigrations()),
+                module -> mainDatabase.getObject().forOwner(module.sourcePluginId(), module.sharedMainStorage()));
     }
 }

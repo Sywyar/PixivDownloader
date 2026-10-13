@@ -60,8 +60,7 @@ internal fun AboutPlatformFact(fact: AboutFact, text: (TextToken) -> String) {
 private fun AboutFactDisclosure(fact: AboutFact, text: (TextToken) -> String) {
     val palette = LocalExperiencePalette.current
     val tag = "about.platform.${fact.id()}"
-    val value = text(fact.value())
-    val entries = remember(value) { value.lines().filter(String::isNotBlank) }
+    val entries = fact.plugins()
     var expanded by rememberSaveable(fact.id()) { mutableStateOf(false) }
     val angle by animateFloatAsState(if (expanded) 90f else 0f, spring(dampingRatio = 1f))
     val state = text(TextToken(
@@ -88,7 +87,7 @@ private fun AboutFactDisclosure(fact: AboutFact, text: (TextToken) -> String) {
                     tint = palette.secondaryText
                 )
                 CupertinoText(
-                    text(TextToken("gui-compose", "gui.compose.about.plugin-count", "", listOf(entries.size.toString()))),
+                    text(fact.value()),
                     fontSize = 12.sp
                 )
             }
@@ -112,7 +111,7 @@ private fun AboutFactDisclosure(fact: AboutFact, text: (TextToken) -> String) {
                     ) {
                         entries.forEachIndexed { index, entry ->
                             CupertinoText(
-                                entry,
+                                "${entry.version()} | ${text(entry.status())}",
                                 Modifier.fillMaxWidth().testTag("$tag.entry.$index"),
                                 fontSize = 12.sp,
                                 lineHeight = 18.sp

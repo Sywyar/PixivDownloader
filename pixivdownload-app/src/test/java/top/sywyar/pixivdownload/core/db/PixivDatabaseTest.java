@@ -40,18 +40,16 @@ class PixivDatabaseTest {
         Environment env = new Environment("test", new SpringManagedTransactionFactory(), dataSource);
         Configuration config = new Configuration(env);
         config.setMapUnderscoreToCamelCase(true);
-        config.addMapper(PixivMapper.class);
-        config.addMapper(PathPrefixMapper.class);
 
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
         sqlSession = new SqlSessionTemplate(factory);
-        PixivMapper mapper = sqlSession.getMapper(PixivMapper.class);
-        PathPrefixMapper pathPrefixMapper = sqlSession.getMapper(PathPrefixMapper.class);
+        PixivMapper mapper = new PixivMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
+        PathPrefixMapper pathPrefixMapper = new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
 
         // 建表 / 补列 / 索引统一由 DatabaseInitializer 执行（含 deleteArtwork 清理的 artwork_collections）
         top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry registry =
                 top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry.forBuiltInPlugins();
-        DatabaseInitializer initializer = new DatabaseInitializer(
+        DatabaseInitializer initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(
                 new org.springframework.jdbc.core.JdbcTemplate(dataSource),
                 registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {});

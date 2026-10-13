@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -37,14 +38,18 @@ class DownloadWorkbenchRequiredContextTest {
     }
 
     @Test
-    @DisplayName("未发布插件描述符统一要求首个核心 API 1.0")
-    void descriptorRequiresInitialApi10() throws Exception {
+    @DisplayName("描述符声明的最低 SDK 要求可由实际构建 SDK 满足")
+    void descriptorRequirementIsCompatibleWithBuildSdk() throws Exception {
         Properties descriptor = new Properties();
         try (InputStream input = getClass().getResourceAsStream("/plugin.properties")) {
             assertThat(input).isNotNull();
             descriptor.load(input);
         }
-        assertThat(descriptor.getProperty("plugin.requires")).isEqualTo("1.0");
+        String requires = descriptor.getProperty("plugin.requires");
+        assertThat(requires).matches("(0|[1-9]\\d*)\\.(0|[1-9]\\d*)");
+        String[] version = requires.split("\\.");
+        assertThat(SdkVersion.isCompatibleWith(Integer.parseInt(version[0]), Integer.parseInt(version[1])))
+                .as("实际构建 SDK 应满足插件声明的最低要求").isTrue();
     }
 
     @Test

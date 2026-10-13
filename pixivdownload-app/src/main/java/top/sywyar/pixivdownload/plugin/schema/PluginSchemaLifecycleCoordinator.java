@@ -42,10 +42,12 @@ public final class PluginSchemaLifecycleCoordinator implements PluginSchemaLifec
         List<SchemaContribution> contributions = List.copyOf(declared);
         try (DatabaseSchemaRegistry.OwnerSchemaReservation reservation =
                      schemaRegistry.reserveOwnerEvolution(registered.id(), contributions)) {
-            transactionTemplate.executeWithoutResult(status -> databaseInitializer.applyRuntimeOwnerSchema(
-                    reservation.ownerContributions(),
-                    reservation.ownerSchema(),
-                    reservation.ownerTableNames()));
+            if (!reservation.ownerTableNames().isEmpty()) {
+                transactionTemplate.executeWithoutResult(status -> databaseInitializer.applyRuntimeOwnerSchema(
+                        reservation.ownerContributions(),
+                        reservation.ownerSchema(),
+                        reservation.ownerTableNames()));
+            }
             reservation.publish();
         }
     }

@@ -75,13 +75,11 @@ class CoreWorkQueryServiceTest {
         Environment env = new Environment("test", new JdbcTransactionFactory(), dataSource);
         Configuration config = new Configuration(env);
         config.setMapUnderscoreToCamelCase(true);
-        config.addMapper(PixivMapper.class);
-        config.addMapper(PathPrefixMapper.class);
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
         sqlSession = factory.openSession(true);
 
         DatabaseSchemaRegistry registry = DatabaseSchemaRegistry.forBuiltInPlugins();
-        DatabaseInitializer initializer = new DatabaseInitializer(
+        DatabaseInitializer initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(
                 jdbc, registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
@@ -89,21 +87,21 @@ class CoreWorkQueryServiceTest {
         DownloadConfig downloadConfig = new DownloadConfig();
         downloadConfig.setRootFolder(Path.of("pixiv-download").toAbsolutePath().normalize().toString());
         PathPrefixCodec codec = new PathPrefixCodec(
-                sqlSession.getMapper(PathPrefixMapper.class), downloadConfig, TestI18nBeans.appMessages());
+                new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)), downloadConfig, TestI18nBeans.appMessages());
         codec.init();
 
         pixivDatabase = new PixivDatabase(
-                sqlSession.getMapper(PixivMapper.class), TestI18nBeans.appMessages(), codec, initializer);
+                new PixivMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)), TestI18nBeans.appMessages(), codec, initializer);
         pixivDatabase.init();
-        novelMetadataRepository = new NovelMetadataRepository(dataSource, codec);
+        novelMetadataRepository = new NovelMetadataRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), codec);
 
         authorService = mock(AuthorService.class);
         service = new CoreWorkQueryService(
-                new GalleryRepository(dataSource),
-                new NovelGalleryRepository(dataSource),
+                new GalleryRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)),
+                new NovelGalleryRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)),
                 pixivDatabase,
                 novelMetadataRepository,
-                authorService);
+                authorService, () -> true);
     }
 
     @AfterEach

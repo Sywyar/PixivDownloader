@@ -46,16 +46,19 @@ public class PixivImageDownloadService implements PixivImageDownloader {
             throw new IOException("Pixiv image transfer byte limit exhausted");
         }
 
+        observer.checkCancelled();
         Path parent = target.toAbsolutePath().normalize().getParent();
         if (parent != null) {
             Files.createDirectories(parent);
         }
         try {
+            observer.checkCancelled();
             Boolean downloaded = downloadRestTemplate.execute(
                     source,
                     HttpMethod.GET,
                     request -> PixivRequestHeaders.applyImage(request.getHeaders(), referer.toString(), cookie),
                     response -> {
+                        observer.checkCancelled();
                         if (!response.getStatusCode().is2xxSuccessful()) {
                             return Boolean.FALSE;
                         }
@@ -108,6 +111,7 @@ public class PixivImageDownloadService implements PixivImageDownloader {
         Path partial = target.resolveSibling(target.getFileName() + ".part");
         try {
             copy(inputStream, partial, maximumBytes, observer);
+            observer.checkCancelled();
             Files.move(partial, target, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException | RuntimeException failure) {
             try {

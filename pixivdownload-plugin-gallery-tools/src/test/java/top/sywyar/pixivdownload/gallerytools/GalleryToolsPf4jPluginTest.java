@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.duplicate.DuplicatePluginConfiguration;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
+import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.stats.StatsPluginConfiguration;
 
 import java.io.InputStream;
@@ -22,7 +23,11 @@ class GalleryToolsPf4jPluginTest {
         assertThat(properties.getProperty("plugin.id")).isEqualTo("gallery-tools");
         assertThat(properties.getProperty("plugin.version"))
                 .matches("\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?");
-        assertThat(properties.getProperty("plugin.requires")).isEqualTo("1.0");
+        String requires = properties.getProperty("plugin.requires");
+        assertThat(requires).matches("(0|[1-9]\\d*)\\.(0|[1-9]\\d*)");
+        String[] version = requires.split("\\.");
+        assertThat(SdkVersion.isCompatibleWith(Integer.parseInt(version[0]), Integer.parseInt(version[1])))
+                .as("实际构建 SDK 应满足插件声明的最低要求").isTrue();
         assertThat(properties.getProperty("plugin.class"))
                 .isEqualTo("top.sywyar.pixivdownload.gallerytools.GalleryToolsPf4jPlugin");
         assertThat(properties.getProperty("pixiv.display-namespace")).isEqualTo("gallery-tools");

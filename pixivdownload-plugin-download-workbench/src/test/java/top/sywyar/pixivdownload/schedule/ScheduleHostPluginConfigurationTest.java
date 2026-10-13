@@ -139,7 +139,7 @@ class ScheduleHostPluginConfigurationTest {
         ScheduleService service = configuration.scheduleService(
                 store, executor, config, runState, runQueue,
                 objectMapper, credentialService,
-                mock(PlatformTransactionManager.class), registry, hostIdentity);
+                mock(PlatformTransactionManager.class), registry, hostIdentity, () -> true);
 
         assertThat(ReflectionTestUtils.getField(executor, "scheduleCapabilityRegistry"))
                 .isSameAs(registry);

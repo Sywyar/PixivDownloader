@@ -7,6 +7,9 @@ import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.ai.AiClientException;
 import top.sywyar.pixivdownload.ai.model.AiChatOptions;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
+import top.sywyar.pixivdownload.ai.model.AiChatMessage;
+import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
+import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 import top.sywyar.pixivdownload.novel.translation.ai.GlossaryTerm;
 import top.sywyar.pixivdownload.novel.translation.ai.LangProbeRequest;
 import top.sywyar.pixivdownload.novel.translation.ai.LangProbeResponse;
@@ -50,6 +53,7 @@ public class NovelTranslationService {
     private final NovelDatabase novelDatabase;
     private final NovelGlossaryService glossaryService;
     private final MessageResolver messages;
+    private final DatabaseAvailability database;
 
     public enum Status { OK, SKIPPED, SAME_LANGUAGE, INVALID_LANGUAGE, EMPTY, NOT_FOUND, ERROR }
 
@@ -84,6 +88,7 @@ public class NovelTranslationService {
                                    boolean overwrite, String langHint, Long glossaryId,
                                    boolean translateBody, boolean translateTitle,
                                    boolean translateDescription) {
+        database.requireAvailable();
         if (!translateBody && !translateTitle && !translateDescription) {
             return new Result(Status.ERROR, null,
                     messages.get("novel.translate.no-scope"), false);
@@ -140,7 +145,7 @@ public class NovelTranslationService {
                 // 自动复用同一映射表与上下文，保证术语一致。仅在用户勾选对应字段时附带 + 保存。
                 String segmentTitle = (i == 0 && translateTitle) ? record.title() : null;
                 String segmentDescription = (i == 0 && translateDescription) ? record.description() : null;
-                AiChatResult chat = aiChatClient.chat(
+                AiChatResult chat = chat(
                         TranslationRequest.CALL_TYPE,
                         new TranslationRequest(targetLanguage, segments.get(i),
                                 segmentTitle, segmentDescription, glossaryTerms).toMessages(),
@@ -194,8 +199,10 @@ public class NovelTranslationService {
         }
 
         String translated = String.join("\n", translatedSegments);
+        database.requireAvailable();
         novelDatabase.saveTranslation(novelId, langCode, translated, translatedTitle, translatedDescription);
         mergeNewTerms(glossaryId, langCode, newTerms.values());
+        database.requireAvailable();
         String message = truncated
                 ? messages.get("novel.translate.truncated")
                 : messages.get("novel.translate.success");
@@ -257,7 +264,9 @@ public class NovelTranslationService {
             return new Result(Status.ERROR, null,
                     messages.get("novel.translate.invalid-language"), false);
         }
+        database.requireAvailable();
         novelDatabase.saveTranslationMetadata(novelId, langCode, savedTitle, savedDescription);
+        database.requireAvailable();
         return new Result(Status.OK, langCode, messages.get("novel.translate.success"), false);
     }
 
@@ -278,6 +287,7 @@ public class NovelTranslationService {
      */
     public String translateSeriesTitle(long seriesId, String targetLanguage, String langHint, Long glossaryId,
                                        boolean translateTitle, boolean translateDescription) {
+        database.requireAvailable();
         if (!translateTitle && !translateDescription) return "";
         NovelSeries series = novelDatabase.getSeries(seriesId);
         if (series == null) return "";
@@ -314,14 +324,17 @@ public class NovelTranslationService {
             return "";
         }
         if (savedTitle != null && !savedTitle.isBlank()) {
+            database.requireAvailable();
             novelDatabase.saveSeriesTitleTranslation(seriesId, code, savedTitle, savedDescription);
         } else {
             // 只想补译简介：复用既有系列名（如果有），否则回退原文系列名以保留行的 NOT NULL 约束
             String existingTitle = novelDatabase.getSeriesTitleTranslation(seriesId, code);
             String titleToWrite = (existingTitle != null && !existingTitle.isBlank())
                     ? existingTitle : title;
+            database.requireAvailable();
             novelDatabase.saveSeriesTitleTranslation(seriesId, code, titleToWrite, savedDescription);
         }
+        database.requireAvailable();
         return code;
     }
 
@@ -389,7 +402,7 @@ public class NovelTranslationService {
                                                          List<GlossaryTerm> terms,
                                                          List<TitleTranslationRequest.TitleReference> references) {
         try {
-            AiChatResult chat = aiChatClient.chat(
+            AiChatResult chat = chat(
                     TitleTranslationRequest.CALL_TYPE,
                     new TitleTranslationRequest(targetLanguage, sourceTitle, sourceDescription,
                             terms == null ? List.of() : terms,
@@ -410,11 +423,12 @@ public class NovelTranslationService {
      * @return 探测得到的 BCP-47 代码；输入非真实语言、AI 关闭、调用失败等情况返回空字符串
      */
     public String resolveLangCode(String targetLanguage) {
+        database.requireAvailable();
         if (targetLanguage == null || targetLanguage.isBlank()) {
             return "";
         }
         try {
-            AiChatResult chat = aiChatClient.chat(
+            AiChatResult chat = chat(
                     LangProbeRequest.CALL_TYPE,
                     new LangProbeRequest(targetLanguage).toMessages(),
                     AiChatOptions.json().withTemperature(0.0));
@@ -436,7 +450,7 @@ public class NovelTranslationService {
             return false;
         }
         try {
-            AiChatResult chat = aiChatClient.chat(
+            AiChatResult chat = chat(
                     SourceLanguageProbeRequest.CALL_TYPE,
                     new SourceLanguageProbeRequest(targetCode, sample).toMessages(),
                     AiChatOptions.json().withTemperature(0.0));
@@ -536,6 +550,7 @@ public class NovelTranslationService {
     /** 把模型回报的新名词按解析出的语言代码自动并入映射表（已存在条目不覆盖）。 */
     private void mergeNewTerms(Long glossaryId, String langCode,
                               java.util.Collection<TranslationResponse.NewTerm> newTerms) {
+        database.requireAvailable();
         if (glossaryId == null || newTerms.isEmpty() || langCode == null || langCode.isBlank()) {
             return;
         }
@@ -545,10 +560,25 @@ public class NovelTranslationService {
         }
         try {
             glossaryService.mergeAiTerms(glossaryId, langCode, toMerge);
+        } catch (DatabaseUnavailableException unavailable) {
+            throw unavailable;
         } catch (Exception e) {
             // 名词回写是 best-effort：失败不影响已保存的译文
             log.warn("merge AI glossary terms failed: glossaryId={}, lang={}, err={}",
                     glossaryId, langCode, e.getMessage());
+        }
+    }
+
+    private AiChatResult chat(String callType, List<AiChatMessage> messages, AiChatOptions options)
+            throws AiClientException {
+        database.requireAvailable();
+        try {
+            AiChatResult result = aiChatClient.chat(callType, messages, options);
+            database.requireAvailable();
+            return result;
+        } catch (AiClientException failure) {
+            database.requireAvailable();
+            throw failure;
         }
     }
 

@@ -91,7 +91,7 @@ class RecoveryModeGateTest {
         PluginRegistry registry = new PluginRegistry(
                 List.of(plugins), new PluginToggleProperties(), inventory.toDiscoveryResult());
         return new RecoveryModeService(
-                new PluginStatusService(registry, inventory, policy), policy);
+                new PluginStatusService(registry, inventory, policy), policy, org.mockito.Mockito.mock(javax.sql.DataSource.class));
     }
 
     private static PluginInventory startedDownloadWorkbenchInventory() {
@@ -207,13 +207,13 @@ class RecoveryModeGateTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "/actuator/health", "/actuator/health/readiness", "/actuator/info",
-            "/api/plugins/status", "/api/gui/plugins", "/api/i18n/web",
+            "/api/plugins/status", "/api/gui/plugins/status", "/api/gui/status", "/api/i18n/web",
             "/plugin-market.html", "/plugin-market/plugin-market.css", "/api/plugin-market/repositories",
-            "/plugin-manage.html", "/plugin-manage/plugin-manage.js", "/api/plugins/recovery",
+            "/api/plugins/recovery",
             "/api/navigation",
             "/error/404.html", "/error/error.css", "/error/error.js",
             "/js/pixiv-theme.js", "/css/app.css", "/vendor/fonts/fonts.css",
-            "/favicon.ico", "/login.html", "/"})
+            "/favicon.ico", "/login.html"})
     @DisplayName("恢复模式下诊断 / 修复 / 健康 / 基础静态入口放行")
     void allowsRecoveryEntries(String path) throws Exception {
         request.setMethod("GET");
@@ -222,6 +222,30 @@ class RecoveryModeGateTest {
         activeGate().doFilterInternal(request, response, chain);
 
         verify(chain).doFilter(request, response);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/", "/index.html", "/plugin-manage.html", "/sdk.html", "/pixiv-gallery.html"})
+    @DisplayName("恢复模式中业务页面仅路由到市场，不新增 SDK 页面例外")
+    void redirectsAllBusinessPages(String path) throws Exception {
+        request.setMethod("GET");
+        request.setRequestURI(path);
+        activeGate().doFilterInternal(request, response, chain);
+        assertThat(response.getRedirectedUrl()).isEqualTo("/plugin-market.html");
+        verify(chain, never()).doFilter(any(), any());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"/api/gui/path-prefixes,GET", "/api/gui/path-prefixes/pin,POST",
+            "/api/gui/control-center/directory,POST", "/api/gui/config/reload,POST",
+            "/api/gui/status,POST", "/api/gui/restart,GET", "/api/sdk/storage,POST"})
+    @DisplayName("GUI 与 SDK 调用不能借宽前缀绕过恢复模式")
+    void blocksBusinessAndWrongMethodGuiCalls(String path, String method) throws Exception {
+        request.setMethod(method);
+        request.setRequestURI(path);
+        activeGate().doFilterInternal(request, response, chain);
+        assertThat(response.getStatus()).isEqualTo(503);
+        verify(chain, never()).doFilter(any(), any());
     }
 
     @ParameterizedTest

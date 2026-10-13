@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.core.db.schema;
 
-import top.sywyar.pixivdownload.core.db.sqlite.SqliteDatabase;
-import top.sywyar.pixivdownload.core.db.DatabaseEngine;
+import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import java.nio.file.Path;
@@ -18,26 +17,24 @@ import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 /**
- * 读取磁盘上的 SQLite schema，并与期望的 {@link ManagedDatabaseSchema.DatabaseSchema}
+ * 读取当前提供者的物理 schema，并与期望的 {@link ManagedDatabaseSchema.DatabaseSchema}
  * （通常为 {@code plugin.DatabaseSchemaRegistry} 的合并结果）比对。
  */
 public final class DatabaseSchemaInspector {
 
     private DatabaseSchemaInspector() {}
 
-    public static SchemaComparison compare(Path databasePath,
+    public static SchemaComparison compare(DatabaseTarget target,
                                            ManagedDatabaseSchema.DatabaseSchema expectedSchema) throws SQLException {
-        try (Connection connection = SqliteDatabase.openConnection(databasePath)) {
-            return compare(connection, expectedSchema);
+        try (Connection connection = target.openConnection()) {
+            return compare(connection, target, expectedSchema);
         }
     }
 
-    public static SchemaComparison compare(Connection connection,
+    public static SchemaComparison compare(Connection connection, DatabaseTarget target,
                                            ManagedDatabaseSchema.DatabaseSchema expectedSchema) throws SQLException {
-        boolean postgres = DatabaseEngine.detect(connection) == DatabaseEngine.POSTGRESQL;
-        if (postgres) expectedSchema = PostgresSchema.physicalSchema(expectedSchema);
-        Map<String, ManagedDatabaseSchema.TableSpec> actualTables = postgres
-                ? PostgresSchema.readActualTables(connection) : SqliteSchema.readActualTables(connection);
+        expectedSchema = target.physicalSchema(expectedSchema);
+        Map<String, ManagedDatabaseSchema.TableSpec> actualTables = target.readSchema(connection);
         return compareTables(expectedSchema, actualTables, expectedSchema.tables().keySet(), true);
     }
 
@@ -46,7 +43,7 @@ public final class DatabaseSchemaInspector {
      * 运行期插件 schema 在事务提交前使用此入口，保证 DDL 与验证观察同一事务连接。
      */
     public static SchemaComparison compareTables(
-            Connection connection,
+            Connection connection, DatabaseTarget target,
             ManagedDatabaseSchema.DatabaseSchema expectedSchema,
             Set<String> tableNames) throws SQLException {
         Objects.requireNonNull(connection, "connection");
@@ -60,9 +57,7 @@ public final class DatabaseSchemaInspector {
                 throw new IllegalArgumentException("owner table is absent from expected schema: " + tableName);
             }
         }
-        boolean postgres = DatabaseEngine.detect(connection) == DatabaseEngine.POSTGRESQL;
-        return compareTables(postgres ? PostgresSchema.physicalSchema(expectedSchema) : expectedSchema,
-                postgres ? PostgresSchema.readActualTables(connection) : SqliteSchema.readActualTables(connection),
+        return compareTables(target.physicalSchema(expectedSchema), target.readSchema(connection),
                 normalizedTableNames, false);
     }
 

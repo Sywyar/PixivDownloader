@@ -54,7 +54,6 @@ import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPlugi
 import top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustDecision;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
-import top.sywyar.pixivdownload.plugin.signature.PluginTrustStores;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
 import top.sywyar.pixivdownload.plugin.signature.VerificationStatus;
@@ -506,7 +505,7 @@ class DouyinExternalPluginBootContextTest {
         Files.createDirectories(PLUGINS_DIR);
 
         SignatureMetadata signature = null;
-        PluginSupplyChainVerifier verifier = new PluginSupplyChainVerifier();
+        PluginSupplyChainVerifier verifier = PluginTestProvenance.verifier();
         if (mode.equals("signed")) {
             Path signatureFile = Path.of(System.getProperty(THIRD_PARTY_SIGNATURE_PROPERTY, ""));
             signature = new ObjectMapper().readValue(signatureFile.toFile(), SignatureMetadata.class);
@@ -519,7 +518,7 @@ class DouyinExternalPluginBootContextTest {
                     "Douyin Third-Party CI",
                     "Douyin third-party compatibility canary",
                     false);
-            verifier = new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(key)));
+            verifier = PluginTestProvenance.verifierWith(key);
         }
 
         String sha256 = PluginPackageIntegrity.sha256Hex(source);
@@ -581,6 +580,8 @@ class DouyinExternalPluginBootContextTest {
 
         @Override
         public void initialize(ConfigurableApplicationContext context) {
+            try { PluginTestProvenance.stageSqliteProvider(PLUGINS_DIR); }
+            catch (IOException failure) { throw new java.io.UncheckedIOException(failure); }
             PluginTestProvenance.registerBootstrapSession(
                     context, PluginEnabledSnapshot.empty(), STAGE.verifier());
         }

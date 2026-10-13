@@ -27,6 +27,7 @@ public class ArtworkHashIndexAdapter implements ArtworkHashIndexQuery, ArtworkHa
 
     @Override
     public List<ArtworkHashEntry> findAllEntries() {
+        if (pixivDatabase.isUnavailable()) return List.of();
         return imageHashMapper.findAll().stream()
                 .map(row -> new ArtworkHashEntry(
                         row.artworkId(), row.page(), row.dHash(), row.aHash(), row.title(),
@@ -36,37 +37,44 @@ public class ArtworkHashIndexAdapter implements ArtworkHashIndexQuery, ArtworkHa
 
     @Override
     public ArtworkHashFingerprint fingerprint() {
+        if (pixivDatabase.isUnavailable()) return new ArtworkHashFingerprint(0, null);
         return new ArtworkHashFingerprint(
                 imageHashMapper.countAllHashRows(), imageHashMapper.maxCreatedTime());
     }
 
     @Override
     public long artworkCount() {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivDatabase.countArtworks();
     }
 
     @Override
     public int missingArtworkCount() {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return imageHashMapper.countArtworksMissingHashes();
     }
 
     @Override
     public List<Long> artworkIdsNewestFirst() {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return List.copyOf(pixivDatabase.getArtworkIdsSortedByTimeDesc());
     }
 
     @Override
     public List<Long> artworkIdsMissingHashes(int limit) {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return List.copyOf(imageHashMapper.artworkIdsMissingHashes(limit));
     }
 
     @Override
     public void clearAllHashes() {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         imageHashMapper.deleteAll();
     }
 
     @Override
     public OptionalInt rebuildArtwork(long artworkId) {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
         if (artwork == null) {
             return OptionalInt.empty();

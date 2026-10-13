@@ -1,42 +1,38 @@
 package top.sywyar.pixivdownload.tools;
 
-import top.sywyar.pixivdownload.core.db.sqlite.SqliteDatabase;
-import top.sywyar.pixivdownload.core.db.DatabaseEngine;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
-import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import javax.sql.DataSource;
-import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.*;
+import top.sywyar.pixivdownload.core.db.schema.CoreMigrationSchema;
+import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.*;
 
 /**
  * 管理作品回填工具的主库连接、候选查询与元数据写入。
  */
 final class ArtworksBackFillDatabase implements AutoCloseable {
 
+    private static final top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema SCHEMA =
+            CoreMigrationSchema.create(DatabaseSchemaRegistry.forBuiltInPlugins(), true);
     private final Connection connection;
+    private final DatabaseTarget target;
 
-    private ArtworksBackFillDatabase(Connection connection) {
+    private ArtworksBackFillDatabase(Connection connection, DatabaseTarget target) {
         this.connection = connection;
-    }
-
-    static ArtworksBackFillDatabase open(String dbPath) throws SQLException {
-        Connection connection = SqliteDatabase.openConnection(Path.of(dbPath));
-        return prepare(connection);
+        this.target = target;
     }
 
     static ArtworksBackFillDatabase open(DatabaseTarget target) throws SQLException {
-        return prepare(target.openConnection());
-    }
-
-    static ArtworksBackFillDatabase open(DataSource dataSource, String expectedDbPath) throws SQLException {
-        return open(dataSource, DatabaseTarget.sqlite(Path.of(expectedDbPath)));
+        return prepare(target.openConnection(), target);
     }
 
     static ArtworksBackFillDatabase open(DataSource dataSource, DatabaseTarget target) throws SQLException {
@@ -51,12 +47,12 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
             }
             throw e;
         }
-        return prepare(connection);
+        return prepare(connection, target);
     }
 
-    private static ArtworksBackFillDatabase prepare(Connection connection) throws SQLException {
+    private static ArtworksBackFillDatabase prepare(Connection connection, DatabaseTarget target) throws SQLException {
         try {
-            ArtworksBackFillDatabase database = new ArtworksBackFillDatabase(connection);
+            ArtworksBackFillDatabase database = new ArtworksBackFillDatabase(connection, target);
             database.ensureSchema();
             return database;
         } catch (SQLException | RuntimeException e) {
@@ -73,46 +69,43 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
         return findCandidates(limit, unreachable).candidates().size();
     }
 
+    /** 复核已经借出的连接租约，不新借连接或改投其它目标。 */
+    void requireAvailable() throws SQLException {
+        connection.getAutoCommit();
+    }
+
     FilteredCandidates findCandidates(
             int limit,
             ArtworksBackFillUnreachableStore unreachable
     ) throws SQLException {
-        // 在内存中过滤已知不可达 ID，避免 SQL IN 受 SQLite 参数上限约束；为了在 limit 截断前剔除它们，这里不再下推 LIMIT。
-        String sql = "SELECT a.artwork_id, a.author_id, a.r18, a.is_ai, a.description,"
-                + " a.series_id,"
-                + " (SELECT 1 FROM artwork_tags t WHERE t.artwork_id = a.artwork_id LIMIT 1) AS has_tags"
-                + " FROM artworks a"
-                + " WHERE a.deleted = 0"
-                + " AND (a.author_id IS NULL OR a.r18 IS NULL OR a.is_ai IS NULL OR a.description IS NULL"
-                + " OR a.series_id IS NULL"
-                + " OR NOT EXISTS (SELECT 1 FROM artwork_tags t WHERE t.artwork_id = a.artwork_id))"
-                + " ORDER BY a.artwork_id";
-
+        var tags = new Expression.Exists(new Query(new Query.Table("artwork_tags", "t"), List.of(),
+                Map.of("present", value(1)), call(EQUAL, column("t", "artwork_id"), column("a", "artwork_id")),
+                List.of(), null, List.of(), false, 1, 0));
+        var fields = new LinkedHashMap<String, Expression>();
+        for (String name : List.of("artwork_id", "author_id", "r18", "is_ai", "description", "series_id"))
+            fields.put(name, column("a", name));
+        fields.put("has_tags", tags);
+        var missing = new ArrayList<Expression>();
+        for (String name : List.of("author_id", "r18", "is_ai", "description", "series_id"))
+            missing.add(call(IS_NULL, column("a", name)));
+        missing.add(call(NOT, tags));
+        var query = new Query(new Query.Table("artworks", "a"), List.of(), fields,
+                call(AND, call(EQUAL, column("a", "deleted"), value(0)), call(OR, missing.toArray(Expression[]::new))),
+                List.of(), null, List.of(new Query.Order(column("a", "artwork_id"), false, true)), false, Integer.MAX_VALUE, 0);
         List<Candidate> candidates = new ArrayList<>();
-        int skippedUnreachable = 0;
-        try (PreparedStatement statement = connection.prepareStatement(sql);
-             ResultSet resultSet = statement.executeQuery()) {
-            while (resultSet.next()) {
-                long artworkId = resultSet.getLong(1);
-                if (unreachable.contains(artworkId)) {
-                    skippedUnreachable++;
-                    continue;
-                }
-                candidates.add(new Candidate(
-                        artworkId,
-                        resultSet.getObject(2) == null,
-                        resultSet.getObject(3) == null,
-                        resultSet.getObject(4) == null,
-                        resultSet.getObject(5) == null,
-                        resultSet.getObject(7) == null,
-                        resultSet.getObject(6) == null
-                ));
-                if (limit > 0 && candidates.size() >= limit) {
-                    break;
-                }
-            }
+        int[] skippedUnreachable = {0};
+        // 逐行过滤后再应用用户上限，不累计所有候选，也不把不可达集合展开为数据库参数。
+        try (var session = target.storageSession(connection, SCHEMA)) {
+            session.scan(query, row -> {
+                long id = (Long) row.get("artwork_id");
+                if (unreachable.contains(id)) { skippedUnreachable[0]++; return true; }
+                candidates.add(new Candidate(id, row.get("author_id") == null, row.get("r18") == null,
+                        row.get("is_ai") == null, row.get("description") == null,
+                        Long.valueOf(0).equals(row.get("has_tags")), row.get("series_id") == null));
+                return limit <= 0 || candidates.size() < limit;
+            });
         }
-        return new FilteredCandidates(candidates, skippedUnreachable);
+        return new FilteredCandidates(candidates, skippedUnreachable[0]);
     }
 
     void applyUpdates(
@@ -129,6 +122,7 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
         if (autoCommit) connection.setAutoCommit(false);
         var savepoint = autoCommit ? null : connection.setSavepoint();
         try {
+            if (autoCommit) target.prepareTransaction(connection, false);
             applyUpdatesInTransaction(candidate, result, updateAuthor, updateR18, updateAi,
                     updateDescription, updateTags, updateSeries);
             if (autoCommit) connection.commit();
@@ -145,191 +139,71 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
     private void applyUpdatesInTransaction(Candidate candidate, ArtworksBackFillPixivClient.LookupResult result,
             boolean updateAuthor, boolean updateR18, boolean updateAi, boolean updateDescription,
             boolean updateTags, boolean updateSeries) throws SQLException {
-        List<String> sets = new ArrayList<>(6);
-        if (updateAuthor) sets.add("author_id = ?");
-        if (updateR18) sets.add("r18 = ?");
-        if (updateAi) sets.add("is_ai = ?");
-        if (updateDescription) sets.add("description = ?");
+        var changes = new LinkedHashMap<String, Expression>();
+        if (updateAuthor) changes.put("author_id", value(result.authorId));
+        if (updateR18) changes.put("r18", value(result.xRestrict));
+        if (updateAi) changes.put("is_ai", value(result.isAi ? 1 : 0));
+        if (updateDescription) changes.put("description", value(result.description));
         if (updateSeries) {
-            sets.add("series_id = ?");
-            sets.add("series_order = ?");
+            changes.put("series_id", value(result.seriesId));
+            changes.put("series_order", value(result.seriesOrder));
         }
-
-        if (!sets.isEmpty()) {
-            String sql = "UPDATE artworks SET " + String.join(", ", sets) + " WHERE artwork_id = ?";
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                int index = 1;
-                if (updateAuthor) statement.setLong(index++, result.authorId);
-                if (updateR18) statement.setInt(index++, result.xRestrict);
-                if (updateAi) statement.setInt(index++, result.isAi ? 1 : 0);
-                if (updateDescription) statement.setString(index++, result.description);
-                if (updateSeries) {
-                    statement.setLong(index++, result.seriesId);
-                    statement.setLong(index++, result.seriesOrder);
-                }
-                statement.setLong(index, candidate.artworkId());
-                statement.executeUpdate();
-            }
-        }
-
-        if (updateAuthor && result.authorId > 0) {
-            upsertAuthor(result.authorId, result.authorName);
-        }
-        if (updateTags && result.tags != null && !result.tags.isEmpty()) {
-            saveTags(candidate.artworkId(), result.tags);
-        }
-        if (updateSeries && result.seriesId > 0 && result.seriesTitle != null) {
-            upsertSeries(
-                    result.seriesId,
-                    result.seriesTitle,
-                    result.authorId > 0 ? result.authorId : null
-            );
+        try (var session = target.storageSession(connection, SCHEMA)) {
+            if (!changes.isEmpty()) session.update("artworks", changes, identity("artworks", "artwork_id", candidate.artworkId()));
+            if (updateAuthor && result.authorId > 0) upsertAuthor(session, result.authorId, result.authorName);
+            if (updateTags && result.tags != null && !result.tags.isEmpty()) saveTags(session, candidate.artworkId(), result.tags);
+            if (updateSeries && result.seriesId > 0 && result.seriesTitle != null)
+                upsertSeries(session, result.seriesId, result.seriesTitle, result.authorId > 0 ? result.authorId : null);
         }
     }
 
     void applyR18Only(long artworkId) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE artworks SET r18 = 1 WHERE artwork_id = ?")) {
-            statement.setLong(1, artworkId);
-            statement.executeUpdate();
+        try (var session = target.storageSession(connection, SCHEMA)) {
+            session.update("artworks", Map.of("r18", value(1)), identity("artworks", "artwork_id", artworkId));
         }
     }
 
     private void ensureSchema() throws SQLException {
-        if (DatabaseEngine.detect(connection) == DatabaseEngine.POSTGRESQL) {
-            // 独立工具只维护已有主库，错误目标不能变成另一个空库。
-            execute("SELECT 1 FROM artworks LIMIT 0");
-            DatabaseInitializer.prepareOffline(connection);
-            return;
-        }
-        execute("CREATE TABLE IF NOT EXISTS authors ("
-                + "author_id INTEGER PRIMARY KEY,"
-                + "name TEXT NOT NULL,"
-                + "updated_time INTEGER NOT NULL)");
-        execute("CREATE TABLE IF NOT EXISTS tags ("
-                + "tag_id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                + "name TEXT NOT NULL UNIQUE,"
-                + "translated_name TEXT)");
-        execute("CREATE TABLE IF NOT EXISTS artwork_tags ("
-                + "artwork_id INTEGER NOT NULL,"
-                + "tag_id INTEGER NOT NULL,"
-                + "PRIMARY KEY (artwork_id, tag_id))");
-        execute("CREATE INDEX IF NOT EXISTS idx_artwork_tags_tag_id ON artwork_tags(tag_id)");
-        execute("CREATE TABLE IF NOT EXISTS manga_series ("
-                + "series_id INTEGER PRIMARY KEY,"
-                + "title TEXT NOT NULL,"
-                + "author_id INTEGER,"
-                + "updated_time INTEGER NOT NULL)");
-        addColumnIfMissing("ALTER TABLE artworks ADD COLUMN author_id INTEGER DEFAULT NULL");
-        addColumnIfMissing("ALTER TABLE artworks ADD COLUMN r18 INTEGER DEFAULT NULL");
-        addColumnIfMissing("ALTER TABLE artworks ADD COLUMN is_ai INTEGER DEFAULT NULL");
-        addColumnIfMissing("ALTER TABLE artworks ADD COLUMN description TEXT DEFAULT NULL");
-        addColumnIfMissing("ALTER TABLE artworks ADD COLUMN series_id INTEGER DEFAULT NULL");
-        addColumnIfMissing("ALTER TABLE artworks ADD COLUMN series_order INTEGER DEFAULT NULL");
-        addColumnIfMissing("ALTER TABLE artworks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0");
+        if (!target.readSchema(connection).containsKey("artworks")) throw new SQLException("DATABASE_EXISTING_MAIN_REQUIRED", "42P01");
+        DatabaseInitializer.prepareOffline(connection, target);
     }
 
-    private void execute(String sql) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.execute();
+    private static Expression identity(String table, String key, long id) {
+        return call(EQUAL, column(table, key), value(id));
+    }
+
+    private static void saveTags(DatabaseSession session, long artworkId,
+            List<ArtworksBackFillPixivClient.TagEntry> tags) throws SQLException {
+        for (var tag : tags) {
+            var values = new LinkedHashMap<String, Object>();
+            values.put("name", tag.name()); values.put("translated_name", tag.translatedName());
+            session.insert("tags", values, new DatabaseSession.Conflict(DatabaseSession.Mode.UPDATE, List.of("name"),
+                    Map.of("translated_name", call(COALESCE, column("tags", "translated_name"), new Incoming("translated_name")))));
+            var rows = session.query(new Query("tags", Map.of("id", column("tags", "tag_id")),
+                    call(EQUAL, column("tags", "name"), value(tag.name())), List.of(), List.of(), 1, 0));
+            if (!rows.isEmpty()) session.insert("artwork_tags", Map.of("artwork_id", artworkId, "tag_id", rows.get(0).get("id")),
+                    DatabaseSession.Conflict.ignore());
         }
     }
 
-    private void addColumnIfMissing(String ddl) {
-        try {
-            execute(ddl);
-        } catch (SQLException ignored) {
-            // 列已存在时直接忽略，行为与运行时迁移保持一致。
-        }
+    private static void upsertSeries(DatabaseSession session, long seriesId, String title, Long authorId) throws SQLException {
+        long now = System.currentTimeMillis();
+        var values = new LinkedHashMap<String, Object>();
+        values.put("series_id", seriesId); values.put("title", title); values.put("author_id", authorId); values.put("updated_time", now);
+        session.insert("manga_series", values, DatabaseSession.Conflict.ignore());
+        var changed = call(NOT_EQUAL, column("manga_series", "title"), value(title));
+        if (authorId != null) changed = call(OR, changed, call(IS_NULL, column("manga_series", "author_id")),
+                call(NOT_EQUAL, column("manga_series", "author_id"), value(authorId)));
+        session.update("manga_series", Map.of("title", value(title), "updated_time", value(now),
+                        "author_id", call(COALESCE, value(authorId), column("manga_series", "author_id"))),
+                call(AND, identity("manga_series", "series_id", seriesId), changed));
     }
 
-    private void saveTags(
-            long artworkId,
-            List<ArtworksBackFillPixivClient.TagEntry> tags
-    ) throws SQLException {
-        try (PreparedStatement upsertTag = connection.prepareStatement(
-                "INSERT INTO tags(name, translated_name) VALUES(?, ?)"
-                        + " ON CONFLICT(name) DO UPDATE SET"
-                        + " translated_name = COALESCE(tags.translated_name, excluded.translated_name)");
-             PreparedStatement selectTag = connection.prepareStatement(
-                     "SELECT tag_id FROM tags WHERE name = ?");
-             PreparedStatement linkTag = connection.prepareStatement(
-                     "INSERT INTO artwork_tags(artwork_id, tag_id) VALUES(?, ?) ON CONFLICT DO NOTHING")) {
-            for (ArtworksBackFillPixivClient.TagEntry tag : tags) {
-                upsertTag.setString(1, tag.name());
-                if (tag.translatedName() == null) {
-                    upsertTag.setNull(2, java.sql.Types.VARCHAR);
-                } else {
-                    upsertTag.setString(2, tag.translatedName());
-                }
-                upsertTag.executeUpdate();
-
-                selectTag.setString(1, tag.name());
-                try (ResultSet resultSet = selectTag.executeQuery()) {
-                    if (!resultSet.next()) {
-                        continue;
-                    }
-                    linkTag.setLong(1, artworkId);
-                    linkTag.setLong(2, resultSet.getLong(1));
-                    linkTag.executeUpdate();
-                }
-            }
-        }
-    }
-
-    private void upsertSeries(long seriesId, String title, Long authorId) throws SQLException {
-        long nowMillis = System.currentTimeMillis();
-        // 与 MangaSeriesService.observe 对齐：title 或 author 任一变化都触发 update。
-        try (PreparedStatement insertSeries = connection.prepareStatement(
-                "INSERT INTO manga_series(series_id, title, author_id, updated_time) VALUES(?, ?, ?, ?) ON CONFLICT DO NOTHING");
-             PreparedStatement updateSeries = connection.prepareStatement(
-                     "UPDATE manga_series SET title = ?, author_id = COALESCE(?, author_id),"
-                             + " updated_time = ? WHERE series_id = ?"
-                             + " AND (title <> ? OR (? IS NOT NULL AND (author_id IS NULL OR author_id <> ?)))")) {
-            insertSeries.setLong(1, seriesId);
-            insertSeries.setString(2, title);
-            if (authorId == null) {
-                insertSeries.setNull(3, java.sql.Types.INTEGER);
-            } else {
-                insertSeries.setLong(3, authorId);
-            }
-            insertSeries.setLong(4, nowMillis);
-            insertSeries.executeUpdate();
-
-            updateSeries.setString(1, title);
-            if (authorId == null) {
-                updateSeries.setNull(2, java.sql.Types.INTEGER);
-                updateSeries.setNull(6, java.sql.Types.INTEGER);
-                updateSeries.setNull(7, java.sql.Types.INTEGER);
-            } else {
-                updateSeries.setLong(2, authorId);
-                updateSeries.setLong(6, authorId);
-                updateSeries.setLong(7, authorId);
-            }
-            updateSeries.setLong(3, nowMillis);
-            updateSeries.setLong(4, seriesId);
-            updateSeries.setString(5, title);
-            updateSeries.executeUpdate();
-        }
-    }
-
-    private void upsertAuthor(long authorId, String authorName) throws SQLException {
-        long nowMillis = System.currentTimeMillis();
-        try (PreparedStatement insertAuthor = connection.prepareStatement(
-                "INSERT INTO authors(author_id, name, updated_time) VALUES(?, ?, ?) ON CONFLICT DO NOTHING");
-             PreparedStatement updateAuthor = connection.prepareStatement(
-                     "UPDATE authors SET name = ?, updated_time = ? WHERE author_id = ? AND name <> ?")) {
-            insertAuthor.setLong(1, authorId);
-            insertAuthor.setString(2, authorName);
-            insertAuthor.setLong(3, nowMillis);
-            insertAuthor.executeUpdate();
-
-            updateAuthor.setString(1, authorName);
-            updateAuthor.setLong(2, nowMillis);
-            updateAuthor.setLong(3, authorId);
-            updateAuthor.setString(4, authorName);
-            updateAuthor.executeUpdate();
-        }
+    private static void upsertAuthor(DatabaseSession session, long authorId, String authorName) throws SQLException {
+        long now = System.currentTimeMillis();
+        session.insert("authors", Map.of("author_id", authorId, "name", authorName, "updated_time", now), DatabaseSession.Conflict.ignore());
+        session.update("authors", Map.of("name", value(authorName), "updated_time", value(now)),
+                call(AND, identity("authors", "author_id", authorId), call(NOT_EQUAL, column("authors", "name"), value(authorName))));
     }
 
     @Override

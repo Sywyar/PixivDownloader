@@ -213,7 +213,7 @@ public final class FieldRenderer {
         JPasswordField pf = new JPasswordField(24);
         pf.putClientProperty(CREDENTIAL_CLEAR_REQUESTED, Boolean.FALSE);
         JLabel status = null;
-        if (spec.pluginContributed()) {
+        if (spec.type() == FieldType.PASSWORD) {
             status = new JLabel();
             status.setFont(status.getFont().deriveFont(Font.PLAIN, 11f));
             status.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0));
@@ -263,7 +263,7 @@ public final class FieldRenderer {
         }
         RenderedPanel p = renderFieldPanel(spec, controlRow);
         return new RenderedField(p.panel(),
-                () -> new String(pf.getPassword()).trim(),
+                () -> new String(pf.getPassword()),
                 v -> {
                     pf.setText(v == null ? "" : v);
                     pf.putClientProperty(CREDENTIAL_CLEAR_REQUESTED, Boolean.FALSE);

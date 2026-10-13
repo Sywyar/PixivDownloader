@@ -26,11 +26,54 @@ SDK 采用 [AGPL-3.0](https://github.com/Sywyar/PixivDownloader/blob/master/LICE
 
 ## 数据迁移与启动失败
 
-插件私有数据库通过当前 owner 的 `PluginDataSource` 访问，插件负责格式版本和迁移。把相关 DDL、数据变更与版本标记放在同一个 JDBC 事务内，成功后提交；遇到不认识的格式或迁移失败时回滚并停止启动受影响能力。不得删除数据库后重新建库，也不得把异常当成空数据继续运行。宿主安装事务保护插件包，不负责回滚插件业务数据；重新安装旧包也不能撤销已提交的数据迁移。
+插件通过 `PixivFeaturePlugin.privateSchema()` 声明当前 owner 的表、列、类型、主键、索引和约束，通过注入的 `PluginDatabase` 读写。宿主在 child context 创建业务 Bean 前交给所选提供者建表、安全补列和核验；声明不加入宿主主库。owner 来自可信插件身份，插件不选择物理路径、服务端 schema 或其它 owner。`PluginDatabase` 不继承 `DataSource`，业务代码不按 `databaseId()` 编写分支。
+
+通过 `read` 与 `transaction` 使用同线程、回调结束即失效的 `DatabaseSession`。操作失败后即使捕获异常，事务也只能回滚；read 拒绝写入，不支持嵌套回调。私库事务不参加宿主主库或 Spring 默认事务。先检查 `available()`，仍须处理执行中的数据库失效；语义查询返回带不可用状态的空结果，写入明确失败并停止后续下载、文件删除或任务推进。不可用时不创建替代数据库。宿主共享服务通过 `DatabaseAvailability` 暴露主库状态。旧 `PluginDataSource` 仅保留 SQLite 兼容入口，其它方言以 SQLState `0A000` 拒绝；已安装的旧插件需要作者改用新契约并重新构建，安装提供者不会翻译第三方 SQL。
+
+使用 `Query` / `Expression` 表达投影、过滤、分组聚合、排序、分页、别名、内 / 左关联、派生查询、UNION 和关联子查询。写入支持 insert / update / delete、生成键、从查询插入及返回条件更新后的行，可用于领取任务与 CAS。冲突可报错、仅忽略唯一键冲突，或针对声明的唯一键合并已有值与 `Incoming` 值。LIKE 使用 `%` / `_` 通配符、`!` 转义及 ASCII 大小写折叠；排序须显式指定 NULL 位置，需要稳定分页时加入唯一键。`scan` 逐行消费完整结果，可由回调提前停止。当前契约不提供任意 SQL、外键声明或任意结构重建；未知操作、结构和有损类型转换明确失败。
+
+LIKE 模式由业务调用方按 SDK 语义构造：字面 `!` 写成 `!!`，字面 `%` / `_` 写成 `!%` / `!_`；需要通配时保留 `%` / `_`。提供者负责翻译 SQL 方言和转义声明，不再次转义已经构造好的模式。
+
+需要参与宿主已有主库协作的插件使用 `PluginMainDatabase`。它加入当前 Spring 主库事务，仅能访问宿主为该 owner 登记的主库表，以及通过 `sharedMainStorage()` 请求的核心公开域；读写权限由核心声明决定。未知域、跨 owner 访问和对只读域写入均拒绝，child context 关闭后句柄永久失效。普通插件私有事实仍使用 `PluginDatabase`，不能通过主库接口连接任意表。主库和私库采用相同的中性操作模型。
+
+可再生正文索引通过 `StorageFeatures.TextIndex` 声明来源、身份与可见条件；软删除关联清理通过 `StorageFeatures.Cleanup` 声明。提供者创建并核验辅助对象，索引模式明确区分 `MATERIALIZED` 与 `SOURCE_QUERY`。需要让索引失败不影响权威写入时，用主库 `NESTED` 保存点隔离辅助调用；失败不会被接口自动忽略。未知辅助能力明确返回不支持。
+
+必要的业务数据转换通过 `privateStorageMigrations()` 按顺序声明稳定 ID 和仅使用会话的转换回调。启动时结构变更、转换与 `_storage_migrations` 完成记录在一个事务中提交。已应用 ID 必须是声明的精确前缀，不得重命名、重排或复用 ID 改变含义。回调不得执行文件、网络或其它不可回滚副作用，也不能依赖尚未创建的业务 Bean。失败停止该能力，保留数据；重新安装旧包不能撤销已提交的升级。自动结构演进只支持经过核验的建表、补索引及安全补列，删除、重命名、改类型或不兼容约束明确拒绝。
+
+停机迁移复用同一声明。SQLite 只升级工作副本并执行尚未应用的转换；PostgreSQL 导出要求源结构和转换记录已处于声明版本，待应用转换明确拒绝，须先在源提供者上成功启动相应插件。迁移不改写源业务数据，不替操作者切配置。已有私库缺声明会阻止迁移；包含转换历史的保留私库需要可信插件提供回调。切换与启动检查要求有效私库收据，并由可信源提供者复核源变化。主库与各私库分别提交，没有跨库原子性。
+
+以下操作用于已声明 `(work_type, work_id)` 复合主键的表，不包含引擎判断：
+
+```java
+database.transaction(session -> {
+    session.insert("imported_works", Map.of("work_type", "artwork",
+            "work_id", workId, "imported_at", System.currentTimeMillis()),
+            DatabaseSession.Conflict.ignore("work_type", "work_id"));
+    return null;
+});
+long count = database.read(session ->
+        (Long) session.query(Query.count("imported_works", null)).get(0).get("count"));
+```
+
+提供者实现 `DatabaseConnectionTarget` 的结构应用、自省、物理类型映射、维护与会话操作。`applySchema` / `initializeStorage` 必须遵守调用方事务，不得隐式提交；不支持事务性 DDL 时须在任何修改前拒绝。业务转换不能被 DDL 提前提交。可选的 `storage.relational.jdbc.JdbcDatabaseSession` 复用参数绑定与校验，提供者可覆盖完整语句或自行实现会话；宿主和业务插件不增加引擎分支。新增提供者仍须通过真实数据库的行为、隔离、失败和迁移测试。
+
+`DatabaseConnectionSettings` 传递应用数据根与历史目录，文件名、WAL 等附属文件及服务端 schema 均由提供者映射。`resolve` 只定位；`prepareStorage` 在实例锁与提供者选择固定后准备位置；`localFileSettings` 解释管理员显式指定的文件，非文件提供者应拒绝。owner 私库仍通过宿主绑定的 `DatabasePrivateStorageSettings` 定位，不向业务插件开放这些管理入口。
+
+数据库提供者必须实现 `DatabaseMigrationProvider` 的必需迁移方法，不得返回假成功。`inspectReplacement` / `replaceDatabase` 是可选的非空目标替换能力，默认抛出 `TARGET_REPLACEMENT_UNSUPPORTED`；宿主不能自行清空目标来替代它们。
+
+必需方法包括只读预检 `inspectMigration`、完整回读核验 `verifyImported`，以及以下迁出、迁入和私库发现方法：
+
+- `privateDatabaseOwners` 枚举当前安装的既有 owner 私库，包括声明已缺失的 owner；`retainedLocalPrivateDatabases` 只读发现本提供者拥有的本地私库，远程提供者无本地存储时返回空映射。
+- `exportDatabase` 锁定源，拒绝未知对象，生成耐久一致备份，返回 `DatabaseExportSession`。结构升级和种子行只能作用于副本；会话关闭释放源锁，保留备份。`verifySource` 根据提供者自己的版本化凭据核对原源，不能假设源一定是本地文件。
+- `importDatabase` 先核验完全空的目标及支持的格式，返回未提交的 `DatabaseImportSession`。`write` 消费类型化行流，`verify` 回读结构、每表行数与摘要、引用警告和序列高水位。只有核验成功后才允许 `commit`；`abort` 与未提交会话的 `close` 中止事务。创建会话失败也须释放已取得的资源。
+
+交换格式 1 使用 `MigrationSchema` 的结构声明、`MigrationSnapshot` 的验证事实和逐表 `MigrationRows`，不传递源引擎 dump 或 SQL。支持带符号 64 位 INTEGER、有限双精度 REAL、Unicode TEXT、BLOB 和 NULL；时间单位保持不变，不能静默转换或丢失精度。提供者按复合主键列序逐列升序输出，NULL 在前，数值按数值、TEXT 按 Unicode 标量、BLOB 按无符号字节比较；文本顺序不得依赖数据库编码或 locale。字段按声明顺序排列，游标每次只交付当前行；值只能在下一次 `next` 或关闭前使用。摘要按类型标签、四字节长度和内容计算，序列值是禁止复用的历史高水位。默认值使用受限字面量；新 CHECK 通过 `TableSpec.withCheck(Expression)` 声明同表比较、长度、集合和布尔条件，`LOWER_HEX` 表达 ASCII 小写十六进制，长度须另行约束。已发布的字符串 CHECK 入口保留，由提供者限定支持范围，不保证跨引擎翻译。提供者须在写入前拒绝自身无法实现的语义。未知格式版本拒绝读取。
+
+`MigrationControl.checkpoint` 用于合作取消和进度报告。提供者须在逐行复制与验证中调用，并传播取消或报告失败；宿主随后中止尚未尝试提交的目标并关闭两端。提交抛错时结果按未知处理，不能报告回滚成功。报告先持久化 `COMMITTING`，逐库记录实际结果，最后才记录整体成功；报告落盘或资源释放失败同样阻止整体成功。引擎事务、目录、备份格式与隔离操作属于提供者，宿主只通过这些合同编排。`database.migration.jdbc` 提供可选的中性 JDBC 帮助类，提供者可以自行实现会话而不使用它们。
 
 | 数据 | 维护约定 |
 | --- | --- |
-| 私有数据库 | 只访问本 owner 的 `PluginDataSource`；迁移可重试，版本标记只随成功事务提交。不要关闭宿主拥有的数据源。 |
+| 私有数据库 | 只通过本 owner 的 `PluginDatabase` 访问；声明结构和转换，事务完成后才执行依赖其结果的副作用。 |
 | 普通配置、状态与文件 | 通过 owner-bound `RuntimePathProvider` 定位；先写同目录临时文件，验证成功后替换。清理旧来源前回读目标，冲突时保留原件。 |
 | 凭证 | 使用宿主的 owner-scoped 凭证贡献与存储，不写进普通配置、日志、任务定义或 checkpoint。 |
 | 计划定义、pending 与 checkpoint | 只迁移所属 schema/version；无法解释时保留旧输入并报告失败，不推进已完成位置。 |
@@ -227,4 +270,4 @@ Windows 下已实测 IntelliJ Application 一键 Debug 和当前源码断点，�
 
 稳定契约覆盖 route、static、i18n、navigation、Web UI slot、GUI 配置、下载类型、队列、计划来源和通知模板。`examples/download-type-plugin/README.md` 说明五类取得模式、取消与 drain、凭证策略、Guard 和 `gallery.type-switch`。各插件独立拥有画廊页面、API、静态资源和数据操作。
 
-配置使用 `GuiConfigContribution`；私有路径使用 owner-bound `RuntimePathProvider`，数据库使用 `PluginDataSource`，出站 HTTP / WebSocket 使用稳定 factory 与 route 契约。不要依赖 app、plugin-runtime、installer、签名内部实现、宿主数据库或具体 GUI provider。禁用、卸载及 reload 的贡献撤回需在真实宿主中验证。
+配置使用 `GuiConfigContribution`；私有路径使用 owner-bound `RuntimePathProvider`，数据库使用 `PluginDatabase`，出站 HTTP / WebSocket 使用稳定 factory 与 route 契约。不要依赖 app、plugin-runtime、installer、签名内部实现、宿主数据库或具体 GUI provider。禁用、卸载及 reload 的贡献撤回需在真实宿主中验证。

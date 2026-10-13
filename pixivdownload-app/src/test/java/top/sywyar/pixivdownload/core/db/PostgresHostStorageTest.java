@@ -1,10 +1,5 @@
 package top.sywyar.pixivdownload.core.db;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.Configuration;
-import org.apache.ibatis.session.SqlSessionFactoryBuilder;
-import org.mybatis.spring.SqlSessionTemplate;
-import org.mybatis.spring.transaction.SpringManagedTransactionFactory;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
@@ -40,7 +35,6 @@ class PostgresHostStorageTest {
     @TempDir Path directory;
     private PostgresTestDatabase database;
     private JdbcTemplate jdbc;
-    private SqlSessionTemplate sessions;
     private DatabaseInitializer initializer;
     private DatabaseSchemaRegistry registry;
 
@@ -49,19 +43,9 @@ class PostgresHostStorageTest {
         database = new PostgresTestDatabase();
         jdbc = new JdbcTemplate(database.pool());
         registry = DatabaseSchemaRegistry.forBuiltInPlugins();
-        initializer = new DatabaseInitializer(jdbc, registry.contributions(), registry.mergedSchema(),
+        initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(jdbc, registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
-        var configuration = new Configuration(new Environment("postgres-test",
-                new SpringManagedTransactionFactory(), database.pool()));
-        configuration.setDatabaseId(new DatabaseConfig(null, null, null).databaseIdProvider()
-                .getDatabaseId(database.pool()));
-        configuration.setMapUnderscoreToCamelCase(true);
-        for (Class<?> mapper : List.of(PixivMapper.class, AuthorMapper.class, MangaSeriesMapper.class,
-                CollectionMapper.class, GuestInviteMapper.class, PathPrefixMapper.class, ImageHashMapper.class)) {
-            configuration.addMapper(mapper);
-        }
-        sessions = new SqlSessionTemplate(new SqlSessionFactoryBuilder().build(configuration));
     }
 
     @AfterEach
@@ -72,7 +56,7 @@ class PostgresHostStorageTest {
     @Test
     @DisplayName("文件名池、作品、标签、哈希及统计保留生成键、三态布尔和毫秒时间")
     void artworkAndInternedValuesRoundTrip() {
-        var mapper = sessions.getMapper(PixivMapper.class);
+        var mapper = new PixivMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));
         mapper.ensureDefaultFileNameTemplate("fixture-default");
         mapper.insertFileNameTemplateIfAbsent("fixture-custom");
         assertThat(mapper.findFileNameTemplateById(1)).isEqualTo("fixture-default");
@@ -89,7 +73,8 @@ class PostgresHostStorageTest {
             assertThat(row.isAi()).isNull();
             assertThat(row.time()).isEqualTo(1_700_000_000_123L);
         });
-        mapper.updateMetadataIfMissing(5_000_000_001L, "kept", 1, true, 5_000_000_002L, "正文");
+        mapper.updateMetadataIfMissing(5_000_000_001L, "kept", 1, true, 5_000_000_002L, "正\0文\r\n\t🌸");
+        assertThat(mapper.findById(5_000_000_001L).description()).isEqualTo("正文\r\n\t🌸");
         assertThat(mapper.findById(5_000_000_001L).isAi()).isTrue();
         mapper.refreshMetadataAfterDownload(5_000_000_001L, null, null, false, null, null, 1, null, null, null);
         assertThat(mapper.findById(5_000_000_001L).isAi()).isFalse();
@@ -101,14 +86,14 @@ class PostgresHostStorageTest {
         mapper.insertArtworkTag(5_000_000_001L, tag);
         assertThat(mapper.findTagsByArtworkId(5_000_000_001L)).hasSize(1);
         assertThat(jdbc.queryForObject("SELECT translated_name FROM tags", String.class)).isEqualTo("Flower");
-        var hashes = sessions.getMapper(ImageHashMapper.class);
+        var hashes = new ImageHashMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));
         hashes.upsert(5_000_000_001L, 0, "png", Long.MIN_VALUE, null, 1_700_000_000_125L);
         hashes.markPageNoHash(5_000_000_001L, 1, 1_700_000_000_126L);
         assertThat(hashes.findAll()).hasSize(1);
         assertThat(hashes.countArtworksMissingHashes()).isZero();
         mapper.initStatistics();
         mapper.recordCompletedDownload(2, "2023-11-14");
-        var stats = new StatsQueryStoreImpl(database.pool());
+        var stats = new StatsQueryStoreImpl(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));
         assertThat(stats.overview().totalImages()).isEqualTo(2);
         assertThat(stats.monthlyArtworkCounts()).hasSize(1);
         mapper.markDeletedById(5_000_000_001L);
@@ -119,15 +104,15 @@ class PostgresHostStorageTest {
     @Test
     @DisplayName("作者、系列、收藏与邀请实际读写并保持重复插入和条件更新")
     void catalogsCollectionsAndInvites() {
-        var authors = sessions.getMapper(AuthorMapper.class);
+        var authors = new AuthorMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));
         assertThat(authors.insertIfAbsent(42, "作者", 1_700_000_000_123L)).isOne();
         assertThat(authors.insertIfAbsent(42, "ignored", 1_700_000_000_124L)).isZero();
         assertThat(authors.findById(42).name()).isEqualTo("作者");
-        var series = sessions.getMapper(MangaSeriesMapper.class);
+        var series = new MangaSeriesMapper(DatabaseProviderTestFixtures.main(database.pool()));
         assertThat(series.insertIfAbsent(43, "系列", null, 1_700_000_000_123L)).isOne();
         series.updateInfo(43, "系列二", 42L, 1_700_000_000_124L);
         assertThat(series.findAll()).hasSize(1);
-        var collections = sessions.getMapper(CollectionMapper.class);
+        var collections = new CollectionMapper(DatabaseProviderTestFixtures.main(database.pool()));
         var collection = new CollectionInsert();
         collection.setName("收藏 🌸");
         collection.setCreatedTime(1_700_000_000_125L);
@@ -136,7 +121,7 @@ class PostgresHostStorageTest {
         assertThat(collections.addArtwork(collection.getId(), 44, 1_700_000_000_126L)).isOne();
         assertThat(collections.addArtwork(collection.getId(), 44, 1_700_000_000_127L)).isZero();
         assertThat(collections.findById(collection.getId()).name()).isEqualTo("收藏 🌸");
-        var invites = sessions.getMapper(GuestInviteMapper.class);
+        var invites = new GuestInviteMapper(DatabaseProviderTestFixtures.main(database.pool()));
         var invite = new GuestInviteRow();
         invite.setCode("fixture-invite");
         invite.setName("来访 🌸");
@@ -159,7 +144,7 @@ class PostgresHostStorageTest {
     @Test
     @DisplayName("路径互换与反斜杠 token 改写在真实事务中一致完成")
     void pathSwapAndRollback() throws Exception {
-        var mapper = sessions.getMapper(PathPrefixMapper.class);
+        var mapper = new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));
         var codec = new PathPrefixCodec(mapper, new DownloadConfig(), TestI18nBeans.appMessages());
         codec.init();
         Path a = Files.createDirectory(directory.resolve("a"));
@@ -168,14 +153,14 @@ class PostgresHostStorageTest {
         long second = codec.forceCreatePrefixId(b.toString());
         var transaction = new TransactionTemplate(database.transactionManager());
         var service = new PathPrefixMigrationService(codec, mapper, registry.pathPrefixColumns(),
-                new DownloadConfig(), TestI18nBeans.appMessages(), database.transactionManager(), database.pool());
+                new DownloadConfig(), TestI18nBeans.appMessages(), database.transactionManager(), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));
         assertThat(service.apply(List.of(new PathPrefixMigrationService.PathPrefixUpdate(first, b.toString()),
                 new PathPrefixMigrationService.PathPrefixUpdate(second, a.toString())), List.of()).success()).isTrue();
         assertThat(mapper.findPathById(first)).isEqualTo(b.toString());
         assertThat(mapper.findPathById(second)).isEqualTo(a.toString());
         jdbc.update("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time) VALUES(1,'fixture',?,1,'jpg',?)",
                 "{0}\\花", 1_700_000_000_123L);
-        var named = new NamedParameterJdbcTemplate(database.pool());
+        var named = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool());
         assertThat(registry.pathPrefixColumns().hasSymbolicRootRows(named)).isTrue();
         assertThatThrownBy(() -> transaction.executeWithoutResult(status -> {
             PathPrefixColumns.retargetColumn(named, "artworks", "folder", "{0}", "{" + first + "}");
@@ -197,7 +182,7 @@ class PostgresHostStorageTest {
         jdbc.update("INSERT INTO novels(novel_id,title,folder,count,extensions,time,r18,series_id)"
                 + " VALUES(2,'Novel','{0}/novel',1,'txt',1700000000124,0,1)");
         jdbc.update("INSERT INTO novel_tags(novel_id,tag_id) VALUES(2,?)", tag);
-        var gallery = new top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository(database.pool());
+        var gallery = new top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));
         for (String search : List.of("apple", "C:\\花")) {
             var query = top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery.builder()
                     .page(0).size(10).sort("date").order("desc").searchType("title")
@@ -206,14 +191,15 @@ class PostgresHostStorageTest {
         }
         assertThat(gallery.findTagsWithCounts("flower", 10)).hasSize(1);
         assertThat(gallery.findTagByExactName("FLOWER", null)).isNotNull();
-        var novels = new top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository(database.pool());
+        var novels = new top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));
         var restriction = new top.sywyar.pixivdownload.core.metadata.GuestRestriction(
                 java.util.Set.of(0), true, List.of(), true, List.of());
         assertThat(novels.findVisibleNovelIds(restriction)).containsExactly(2L);
         assertThat(novels.findVisibleNovelTagCounts(restriction, "flower", 10)).hasSize(1);
         assertThat(novels.findTagByExactName("FLOWER", null)).isNotNull();
         assertThat(novels.findNovelIdsBySeries(1, 0, 10)).containsExactly(2L);
-        new top.sywyar.pixivdownload.maintenance.tasks.DatabaseOptimizeTask(database.pool())
+        new top.sywyar.pixivdownload.maintenance.tasks.DatabaseOptimizeTask(database.pool(),
+                DatabaseProviderTestFixtures.target(database.pool()))
                 .execute(new top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceContext("manual", 1));
         assertThat(jdbc.queryForObject("""
                 SELECT reltuples FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -228,12 +214,12 @@ class PostgresHostStorageTest {
         var attributes = new org.springframework.transaction.annotation.AnnotationTransactionAttributeSource();
         var advice = new org.springframework.transaction.interceptor.TransactionInterceptor(transactions, attributes);
         var factory = new org.springframework.aop.framework.ProxyFactory(
-                new top.sywyar.pixivdownload.core.metadata.WorkMetadataStore(database.pool(), initializer));
+                new top.sywyar.pixivdownload.core.metadata.WorkMetadataStore(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()), initializer));
         factory.addAdvice(advice);
         var store = (top.sywyar.pixivdownload.core.metadata.WorkMetadataStore) factory.getProxy();
         var json = new com.fasterxml.jackson.databind.ObjectMapper();
         var capture = new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService(
-                new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(json), store, json);
+                new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(json), store, json, () -> true);
         jdbc.execute("ALTER TABLE artworks ADD CONSTRAINT fixture_metadata CHECK (is_original <> 0)");
         new TransactionTemplate(transactions).executeWithoutResult(status -> {
             jdbc.update("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time)"
@@ -251,7 +237,7 @@ class PostgresHostStorageTest {
     @Test
     @DisplayName("逐页媒体并发 UPSERT 保留各页且失败事务不留半批记录")
     void mediaPagesAndFailedTransaction() throws Exception {
-        var media = new ArtworkMediaStoreImpl(database.pool(), initializer);
+        var media = new ArtworkMediaStoreImpl(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()), initializer);
         var workers = Executors.newFixedThreadPool(2);
         try {
             var first = workers.submit(() -> { media.save(99, 0, new ArtworkMediaManifest("png", List.of("png", "webp"), true)); return null; });
@@ -278,11 +264,11 @@ class PostgresHostStorageTest {
     void filePublicationRollsBackAndRetries() throws Exception {
         var config = new DownloadConfig();
         config.setRootFolder(directory.toString());
-        var paths = new PathPrefixCodec(sessions.getMapper(PathPrefixMapper.class), config,
+        var paths = new PathPrefixCodec(new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool())), config,
                 TestI18nBeans.appMessages());
         paths.init();
         var journal = new top.sywyar.pixivdownload.core.asset.FileOperationJournal(
-                database.pool(), database.transactionManager(), paths, initializer);
+                top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()), database.transactionManager(), paths, initializer);
         var files = new top.sywyar.pixivdownload.core.asset.StagedFileDeletion(
                 TestI18nBeans.appMessages(), journal);
         Path target = Files.writeString(directory.resolve("正文.txt"), "旧正文");

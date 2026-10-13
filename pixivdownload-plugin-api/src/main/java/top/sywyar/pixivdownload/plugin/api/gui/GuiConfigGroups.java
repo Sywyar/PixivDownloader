@@ -5,6 +5,8 @@ public final class GuiConfigGroups {
 
     /** 服务配置分组。 */
     public static final String SERVER = "server";
+    /** 主数据库配置分组。 */
+    public static final String DATABASE = "database";
     /** 下载配置分组。 */
     public static final String DOWNLOAD = "download";
     /** 插件配置分组。 */

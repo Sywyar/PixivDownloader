@@ -57,10 +57,18 @@ public class LocalWorkAssetService implements WorkAssetService {
     private final StagedFileDeletion stagedFileDeletion;
     private final top.sywyar.pixivdownload.core.asset.ExternalWorkFiles externalFiles;
 
-    @Override public boolean isReadOnly(WorkType type, long id) { return externalFiles.contains(type, id); }
+    @Override public boolean isReadOnly(WorkType type, long id) {
+        requireDatabase();
+        return externalFiles.contains(type, id);
+    }
+
+    private void requireDatabase() {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+    }
 
     @Override
     public void publishFiles(WorkType type, long id, java.util.Map<Path, Path> files, Runnable records) throws IOException {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         try (var ignored = WorkFileLock.acquire(type, id)) {
             stagedFileDeletion.publishFiles(files, records);
         }
@@ -68,6 +76,7 @@ public class LocalWorkAssetService implements WorkAssetService {
 
     @Override
     public boolean hasCompleteFiles(WorkType type, long id) {
+        requireDatabase();
         try (var ignored = WorkFileLock.acquire(type, id)) {
             if (type == WorkType.ARTWORK) {
                 ArtworkRecord record = pixivDatabase.getArtwork(id);
@@ -117,6 +126,7 @@ public class LocalWorkAssetService implements WorkAssetService {
 
     @Override
     public Optional<LocalWorkAsset> findAsset(WorkType workType, long workId) {
+        if (pixivDatabase.isUnavailable()) return Optional.empty();
         return switch (workType) {
             case ARTWORK -> findArtworkAsset(workId);
             case NOVEL -> findNovelAsset(workId);
@@ -125,6 +135,7 @@ public class LocalWorkAssetService implements WorkAssetService {
 
     @Override
     public Optional<WorkAssetFile> existingThumbnail(WorkType workType, long workId, int page) throws IOException {
+        if (pixivDatabase.isUnavailable()) return Optional.empty();
         if (workType == WorkType.NOVEL) return novelCover(workId);
         var file = artworkFileService.existingThumbnail(workId, page);
         return file == null ? Optional.empty() : Optional.of(new WorkAssetFile(page, file.path(), file.extension()));
@@ -132,6 +143,7 @@ public class LocalWorkAssetService implements WorkAssetService {
 
     @Override
     public Optional<WorkAssetFile> thumbnail(WorkType workType, long workId, int page) throws IOException {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return switch (workType) {
             case ARTWORK -> artworkThumbnail(workId, page);
             case NOVEL -> novelCover(workId);
@@ -140,6 +152,7 @@ public class LocalWorkAssetService implements WorkAssetService {
 
     @Override
     public Optional<WorkAssetFile> thumbnail(WorkType workType, long workId, int page, int maximumEdge) throws IOException {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         if (workType != WorkType.ARTWORK) return thumbnail(workType, workId, page);
         ArtworkFileService.ThumbnailFile file = artworkFileService.getThumbnailFile(workId, page, maximumEdge);
         return file == null ? Optional.empty() : Optional.of(new WorkAssetFile(page, file.path(), file.extension()));
@@ -147,6 +160,7 @@ public class LocalWorkAssetService implements WorkAssetService {
 
     @Override
     public Optional<WorkAssetFile> rawFile(WorkType workType, long workId, int page) {
+        if (pixivDatabase.isUnavailable()) return Optional.empty();
         return switch (workType) {
             case ARTWORK -> artworkRawFile(workId, page);
             case NOVEL -> novelRawFile(workId, page);
@@ -155,6 +169,7 @@ public class LocalWorkAssetService implements WorkAssetService {
 
     @Override
     public Optional<WorkAssetFile> coverThumbnail(WorkType workType, long workId, int page, int maximumEdge) throws IOException {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         if (workType != WorkType.ARTWORK) return Optional.empty();
         var file = artworkFileService.getThumbnailFile(workId, page, maximumEdge, true);
         return file == null ? Optional.empty() : Optional.of(new WorkAssetFile(page, file.path(), file.extension()));
@@ -162,11 +177,13 @@ public class LocalWorkAssetService implements WorkAssetService {
 
     @Override
     public boolean deleteLocalFiles(WorkType workType, long workId) {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return deleteLocalFiles(workType, workId, () -> {});
     }
 
     /** 宿主删除编排在文件备份尚未释放时完成记录事务。 */
     public boolean deleteLocalFiles(WorkType workType, long workId, Runnable commitRecord) {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         try (var workFileLease = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(workType, workId)) {
             if (isReadOnly(workType, workId)) {
                 commitRecord.run();

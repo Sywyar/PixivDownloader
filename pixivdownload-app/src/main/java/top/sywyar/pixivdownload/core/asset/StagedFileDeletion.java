@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
+import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.io.IOException;
@@ -26,13 +27,18 @@ public class StagedFileDeletion {
 
     @PostConstruct
     public void recoverPending() {
+        if (journal.isUnavailable()) return;
         for (String operation : journal.operations()) {
             try {
+                requireDatabase();
                 Path directory = stagingDirectory(operation);
                 List<FileOperationJournal.Entry> entries = journal.entries(operation);
+                boolean committed = journal.committed(operation);
+                requireDatabase();
                 cleanInstallTemporaries(entries, directory);
-                if (!journal.committed(operation)) restore(entries, directory);
+                if (!committed) restore(entries, directory);
                 cleanStaging(directory);
+                requireDatabase();
                 journal.forget(operation);
             } catch (IOException failure) {
                 throw new IllegalStateException("File operation recovery failed: " + operation, failure);
@@ -78,6 +84,7 @@ public class StagedFileDeletion {
     }
 
     private void changeFiles(Map<Path, Path> targets, Runnable commitRecord) throws IOException {
+        requireDatabase();
         Objects.requireNonNull(commitRecord);
         if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
             throw new IllegalStateException("File publication must own its database transaction");
@@ -85,10 +92,12 @@ public class StagedFileDeletion {
         if (targets.size() > MAX_FILES) throw new IOException("Too many files in one file operation");
         String operation = UUID.randomUUID().toString();
         if (targets.isEmpty()) {
+            requireDatabase();
             journal.commit(operation, commitRecord);
             return;
         }
         Path directory = stagingDirectory(operation);
+        requireDatabase();
         Files.createDirectories(directory);
         PlainFilePathGuard.requirePlainParent(directory.resolve("check"), false);
         var entries = new ArrayList<FileOperationJournal.Entry>();
@@ -96,6 +105,7 @@ public class StagedFileDeletion {
         boolean committed = false;
         try {
             for (var target : targets.entrySet()) {
+                requireDatabase();
                 Path file = target.getKey();
                 PlainFilePathGuard.requirePlainParent(file, true);
                 String oldHash = null;
@@ -114,20 +124,26 @@ public class StagedFileDeletion {
                 }
                 entries.add(new FileOperationJournal.Entry(index, file, oldHash, newHash));
             }
+            requireDatabase();
             journal.prepare(operation, entries);
             prepared = true;
             for (var entry : entries) {
                 requireContent(entry.target(), entry.oldHash());
+                requireDatabase();
                 if (entry.newHash() == null) deleteFile(entry.target());
                 else install(directory.resolve(entry.index() + ".new"), entry.target());
             }
+            requireDatabase();
             journal.commit(operation, commitRecord);
             committed = true;
         } catch (IOException | RuntimeException | Error failure) {
             try {
+                // 无法读取提交事实时保留全部备份，交给下次数据库可用时恢复。
+                requireDatabase();
                 // COMMIT 响应异常时重新读取耐久标记，不能把已提交的文件复原。
                 if (prepared && !journal.committed(operation)) restore(entries, directory);
                 cleanStaging(directory);
+                requireDatabase();
                 journal.forget(operation);
             } catch (Exception recoveryFailure) {
                 failure.addSuppressed(recoveryFailure);
@@ -138,6 +154,7 @@ public class StagedFileDeletion {
         if (committed) {
             try {
                 cleanStaging(directory);
+                requireDatabase();
                 journal.forget(operation);
             } catch (IOException | RuntimeException failure) {
                 // 提交已完成，残留只作清理，不把成功反报为失败或复原文件。
@@ -151,6 +168,7 @@ public class StagedFileDeletion {
         IOException failure = null;
         for (var entry : entries) {
             try {
+                requireDatabase();
                 String current = currentDigest(entry.target());
                 if (Objects.equals(current, entry.oldHash())) continue;
                 if (current != null && !Objects.equals(current, entry.newHash())) {
@@ -173,6 +191,7 @@ public class StagedFileDeletion {
 
     protected void deleteFile(Path original) throws IOException {
         requireSafeDeleteTarget(original);
+        requireDatabase();
         Files.delete(original);
     }
 
@@ -180,15 +199,17 @@ public class StagedFileDeletion {
         install(staged, original);
     }
 
-    private static void install(Path staged, Path target) throws IOException {
+    private void install(Path staged, Path target) throws IOException {
         PlainFilePathGuard.requirePlainRegularFile(staged);
         PlainFilePathGuard.requirePlainParent(target, true);
         Path temporary = installTemporary(staged, target);
+        requireDatabase();
         Files.createFile(temporary);
         try {
             Files.copy(staged, temporary, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
             force(temporary);
             // 不支持原子替换的文件系统拒绝发布，不能退化为可能留下半个文件的覆盖复制。
+            requireDatabase();
             Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } finally {
             Files.deleteIfExists(temporary);
@@ -201,20 +222,22 @@ public class StagedFileDeletion {
     }
 
     /** 清理同卷发布中断留下的本操作临时文件；备份仍在独立数据目录。 */
-    private static void cleanInstallTemporaries(List<FileOperationJournal.Entry> entries, Path directory) throws IOException {
+    private void cleanInstallTemporaries(List<FileOperationJournal.Entry> entries, Path directory) throws IOException {
         for (var entry : entries) {
             for (String suffix : List.of(".old", ".new")) {
                 Path file = installTemporary(directory.resolve(entry.index() + suffix), entry.target());
                 if (!Files.notExists(file, LinkOption.NOFOLLOW_LINKS)) {
                     PlainFilePathGuard.requirePlainRegularFile(file);
+                    requireDatabase();
                     Files.delete(file);
                 }
             }
         }
     }
 
-    private static void durableCopy(Path source, Path target) throws IOException {
+    private void durableCopy(Path source, Path target) throws IOException {
         PlainFilePathGuard.requirePlainRegularFile(source);
+        requireDatabase();
         Files.copy(source, target, StandardCopyOption.COPY_ATTRIBUTES, LinkOption.NOFOLLOW_LINKS);
         force(target);
     }
@@ -250,16 +273,23 @@ public class StagedFileDeletion {
         return RuntimeFiles.deleteStagingDirectory().resolve(operation);
     }
 
-    private static void cleanStaging(Path directory) throws IOException {
+    private void cleanStaging(Path directory) throws IOException {
+        requireDatabase();
         if (Files.notExists(directory, LinkOption.NOFOLLOW_LINKS)) return;
         if (!PlainFilePathGuard.isPlainDirectory(directory)) throw new IOException("Unsafe staging directory");
         try (var files = Files.list(directory)) {
             for (Path file : files.toList()) {
                 PlainFilePathGuard.requirePlainRegularFile(file);
+                requireDatabase();
                 Files.delete(file);
             }
         }
+        requireDatabase();
         Files.delete(directory);
+    }
+
+    private void requireDatabase() {
+        if (journal.isUnavailable()) throw new DatabaseUnavailableException();
     }
 
     private static void requireSafeDeleteTarget(Path path) {

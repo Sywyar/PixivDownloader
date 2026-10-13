@@ -60,6 +60,28 @@ import static org.mockito.Mockito.when;
 class PluginScheduleContributionRegistrarMigrationTest extends PluginScheduleContributionRegistrarTestSupport {
 
     @Test
+    @DisplayName("无库恢复仍发布计划能力声明，不执行旧任务迁移或读取持久化事实")
+    void recoveryPublishesDeclarationsWithoutDatabaseMigration() {
+        var registry = new ScheduleCapabilityRegistry();
+        var plugins = new PluginRegistry(List.of());
+        var migrations = mock(LegacyScheduledTaskMigrationService.class);
+        var registrar = new PluginScheduleContributionRegistrar(registry, migrations, plugins,
+                mock(top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator.class), () -> false);
+        ACTIVE_REGISTRIES.put(registrar, plugins);
+        try (var child = new AnnotationConfigApplicationContext()) {
+            var descriptor = sourceDescriptor("alpha", "alpha-work", "ALPHA");
+            registerCompleteBeans(child, List.of(descriptor));
+            child.registerBean("legacy-persistence", LegacySchedulePersistenceDescriptorProvider.class,
+                    () -> () -> List.of(new LegacySchedulePersistenceDescriptor(
+                            "alpha", "alpha.definition", 1, Set.of("alpha-work"), descriptor.credentialPolicyIds())));
+            child.refresh();
+            assertThat(register(registrar, registeredFeature("ext-a", "ext-a", 9L, List.of(descriptor)), child)).isPresent();
+            assertThat(registry.resolveSourceDescriptor("ALPHA")).isPresent();
+            org.mockito.Mockito.verifyNoInteractions(migrations);
+        }
+    }
+
+    @Test
     @DisplayName("迁移必须先用宿主 alias 路由完成任务隔离再发布 owner，且不缓存报告与插件引用")
     void migratesFromPreparedBundleBeforePublication() {
         ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();

@@ -65,23 +65,18 @@ class GuestCollectionVisibilityTest {
         }
         jdbc = new JdbcTemplate(source);
         var registry = DatabaseSchemaRegistry.forBuiltInPlugins();
-        initializer = new DatabaseInitializer(jdbc, registry.contributions(), registry.mergedSchema(),
+        initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(jdbc, registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
-        var factory = new SqlSessionFactoryBean();
-        factory.setDataSource(source);
-        factory.setDatabaseIdProvider(new DatabaseConfig(null, null, null).databaseIdProvider());
-        var sessions = factory.getObject();
-        sessions.getConfiguration().addMapper(GuestInviteMapper.class);
-        mapper = new SqlSessionTemplate(sessions).getMapper(GuestInviteMapper.class);
+        mapper = new GuestInviteMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(source));
         ServerAddressProvider address = mock(ServerAddressProvider.class);
         when(address.uri(anyString())).thenReturn(URI.create("http://localhost/invite"));
         var proxy = new ProxyFactory(new GuestInviteService(mapper, address, initializer));
         proxy.addAdvice(new TransactionInterceptor(new DataSourceTransactionManager(source),
                 new AnnotationTransactionAttributeSource()));
         invites = (GuestInviteService) proxy.getProxy();
-        artworks = new GalleryRepository(source);
-        novels = new NovelGalleryRepository(source);
+        artworks = new GalleryRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(source));
+        novels = new NovelGalleryRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(source));
 
         // 1、2 同属 haha；2 超出年龄范围；3 同属可见与隐藏收藏夹；4 未收藏；5 已删除。
         for (String table : List.of("artworks", "novels")) {

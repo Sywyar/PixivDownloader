@@ -50,6 +50,7 @@ public class ArtworkFileLocator {
     }
 
     public boolean isReadOnly(ArtworkRecord artwork) {
+        requireDatabase();
         return artwork != null && externalFiles.contains(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artwork.artworkId());
     }
 
@@ -69,6 +70,7 @@ public class ArtworkFileLocator {
 
     /** 判重必须检查正式产物，不能以缩略图代替下载页面。 */
     public File resolveImageFile(ArtworkRecord artwork, int page, boolean allowThumbnail) {
+        requireDatabase();
         if (artwork == null) return null;
         if (externalFiles.contains(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artwork.artworkId())) {
             Path file = externalFiles.file(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artwork.artworkId(), page);
@@ -97,6 +99,7 @@ public class ArtworkFileLocator {
     }
 
     private File resolveImageFile(ArtworkRecord artwork, int page, boolean allowThumbnail, String baseName) {
+        requireDatabase();
         String directoryPath = resolveArtworkDirectory(artwork);
         if (!StringUtils.hasText(directoryPath)) return null;
         String[] extensions = artwork.extensions() == null ? new String[0] : artwork.extensions().split(",");
@@ -110,6 +113,7 @@ public class ArtworkFileLocator {
         } catch (IOException invalid) {
             log.debug("Cannot read media manifest for {}", artwork.artworkId(), invalid);
         }
+        requireDatabase();
         if (!hasManifest && extensions.length == 1 && StringUtils.hasText(extensions[0])) priority.add(extensions[0]);
         priority.addAll(List.of("webp", "png", "jpg", "jpeg", "gif", "apng", "mp4", "webm", "zip"));
         for (String extension : priority) {
@@ -120,6 +124,10 @@ public class ArtworkFileLocator {
         if (!allowThumbnail) return null;
         Path thumbnail = Paths.get(directoryPath, baseName + "_thumb.jpg");
         return Files.isRegularFile(thumbnail) ? thumbnail.toFile() : null;
+    }
+
+    private void requireDatabase() {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
     }
 
     public LocatedArtworkFile resolveHashSourceFile(ArtworkRecord artwork, int page) {

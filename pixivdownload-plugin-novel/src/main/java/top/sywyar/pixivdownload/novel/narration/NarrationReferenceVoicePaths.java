@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.novel.narration;
 
 import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
+import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -22,14 +23,17 @@ public final class NarrationReferenceVoicePaths {
     private static final String DATA_DIRECTORY_NAME = "narration-voice";
 
     private final RuntimePathProvider runtimePathProvider;
+    private final DatabaseAvailability database;
 
-    public NarrationReferenceVoicePaths(RuntimePathProvider runtimePathProvider) {
+    public NarrationReferenceVoicePaths(RuntimePathProvider runtimePathProvider, DatabaseAvailability database) {
         this.runtimePathProvider = Objects.requireNonNull(runtimePathProvider, "runtimePathProvider");
+        this.database = Objects.requireNonNull(database, "database");
     }
 
     public Path castDirectory(long castId) {
         Path directory = rootDirectory().resolve(Long.toString(castId)).normalize();
         try {
+            database.requireAvailable();
             Files.createDirectories(directory);
         } catch (IOException e) {
             throw new UncheckedIOException("resolve narration reference voice directory failed: " + directory, e);
@@ -54,6 +58,7 @@ public final class NarrationReferenceVoicePaths {
     }
 
     private Path rootDirectory() {
+        database.requireAvailable();
         Path pluginDataDirectory = runtimePathProvider.dataDirectory().normalize();
         Path target = pluginDataDirectory.resolve(DATA_DIRECTORY_NAME).normalize();
         Path dataRoot = pluginDataDirectory.getParent();
@@ -68,23 +73,26 @@ public final class NarrationReferenceVoicePaths {
         }
     }
 
-    private static void migrateLegacyDirectory(Path target, Path legacy) throws IOException {
+    private void migrateLegacyDirectory(Path target, Path legacy) throws IOException {
         if (!Files.isDirectory(legacy, LinkOption.NOFOLLOW_LINKS)
                 || target.toAbsolutePath().normalize().equals(legacy.toAbsolutePath().normalize())) {
             return;
         }
+        database.requireAvailable();
         Files.createDirectories(target);
         List<Path> sources;
         try (Stream<Path> stream = Files.walk(legacy)) {
             sources = stream.sorted(Comparator.comparingInt(Path::getNameCount)).toList();
         }
         for (Path source : sources) {
+            database.requireAvailable();
             if (source.equals(legacy)) {
                 continue;
             }
             Path destination = target.resolve(legacy.relativize(source)).normalize();
             if (Files.isDirectory(source, LinkOption.NOFOLLOW_LINKS)) {
                 if (!Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
+                    database.requireAvailable();
                     Files.createDirectories(destination);
                 }
                 continue;
@@ -98,15 +106,16 @@ public final class NarrationReferenceVoicePaths {
         deleteEmptyDirectories(legacy);
     }
 
-    private static boolean ensureDirectory(Path directory) throws IOException {
+    private boolean ensureDirectory(Path directory) throws IOException {
         if (Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
             return Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS);
         }
+        database.requireAvailable();
         Files.createDirectories(directory);
         return true;
     }
 
-    private static void adoptLegacyFile(Path target, Path legacy) throws IOException {
+    private void adoptLegacyFile(Path target, Path legacy) throws IOException {
         if (!Files.isRegularFile(legacy, LinkOption.NOFOLLOW_LINKS)) {
             return;
         }
@@ -117,12 +126,14 @@ public final class NarrationReferenceVoicePaths {
                 && Files.isRegularFile(legacy, LinkOption.NOFOLLOW_LINKS)
                 && Files.size(target) == Files.size(legacy)
                 && Files.mismatch(target, legacy) == -1) {
+            database.requireAvailable();
             Files.deleteIfExists(legacy);
         }
     }
 
-    private static void moveWithoutOverwrite(Path source, Path target) throws IOException {
+    private void moveWithoutOverwrite(Path source, Path target) throws IOException {
         try {
+            database.requireAvailable();
             Files.move(source, target);
             return;
         } catch (FileAlreadyExistsException ignored) {
@@ -132,17 +143,21 @@ public final class NarrationReferenceVoicePaths {
         }
     }
 
-    private static void copyThroughTemporaryFile(Path source, Path target, IOException moveFailure) throws IOException {
+    private void copyThroughTemporaryFile(Path source, Path target, IOException moveFailure) throws IOException {
+        database.requireAvailable();
         Path temporary = Files.createTempFile(
                 target.getParent(), target.getFileName().toString() + ".migration-", ".tmp");
         try {
+            database.requireAvailable();
             Files.copy(source, temporary, StandardCopyOption.REPLACE_EXISTING);
             try {
+                database.requireAvailable();
                 Files.move(temporary, target);
             } catch (FileAlreadyExistsException ignored) {
                 return;
             }
             if (Files.size(target) == Files.size(source) && Files.mismatch(target, source) == -1) {
+                database.requireAvailable();
                 Files.delete(source);
             }
         } catch (IOException copyFailure) {
@@ -153,7 +168,7 @@ public final class NarrationReferenceVoicePaths {
         }
     }
 
-    private static void deleteEmptyDirectories(Path legacy) throws IOException {
+    private void deleteEmptyDirectories(Path legacy) throws IOException {
         List<Path> directories;
         try (Stream<Path> stream = Files.walk(legacy)) {
             directories = stream
@@ -163,6 +178,7 @@ public final class NarrationReferenceVoicePaths {
         }
         for (Path directory : directories) {
             try {
+                database.requireAvailable();
                 Files.deleteIfExists(directory);
             } catch (DirectoryNotEmptyException ignored) {
                 // 保留未知文件或与 canonical 内容冲突的旧文件，避免迁移时丢失数据。

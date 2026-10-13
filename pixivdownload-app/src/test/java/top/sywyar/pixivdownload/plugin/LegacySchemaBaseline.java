@@ -1,10 +1,10 @@
 package top.sywyar.pixivdownload.plugin;
 
-import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema.ColumnSpec;
-import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema.DatabaseSchema;
-import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema.IndexOrigin;
-import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema.IndexSpec;
-import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema.TableSpec;
+import top.sywyar.pixivdownload.plugin.api.database.migration.jdbc.PhysicalDatabaseSchema.ColumnSpec;
+import top.sywyar.pixivdownload.plugin.api.database.migration.jdbc.PhysicalDatabaseSchema.DatabaseSchema;
+import top.sywyar.pixivdownload.plugin.api.database.migration.jdbc.PhysicalDatabaseSchema.IndexOrigin;
+import top.sywyar.pixivdownload.plugin.api.database.migration.jdbc.PhysicalDatabaseSchema.IndexSpec;
+import top.sywyar.pixivdownload.plugin.api.database.migration.jdbc.PhysicalDatabaseSchema.TableSpec;
 
 import java.util.LinkedHashMap;
 import java.util.List;

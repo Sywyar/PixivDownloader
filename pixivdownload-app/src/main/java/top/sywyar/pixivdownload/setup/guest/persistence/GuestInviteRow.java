@@ -6,7 +6,7 @@ import lombok.NoArgsConstructor;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
 
 /**
- * MyBatis 与 guest_invites 表对应的可变行对象。{@code Boolean} 字段允许 SQLite 0/1 自动映射。
+ * 与 guest_invites 表对应的可变行对象；布尔值按中性整数事实映射。
  * 不直接对外暴露——供 {@link GuestInviteMapper} 与 {@link GuestInviteService} 内部使用。
  *
  * <p>{@code novelTagUnrestricted} / {@code novelAuthorUnrestricted} 使用包装类型，

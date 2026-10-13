@@ -13,6 +13,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
+import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -32,6 +34,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
 import top.sywyar.pixivdownload.novel.download.NovelQueueTaskOwners;
@@ -44,6 +47,7 @@ class NovelAutoTranslateServiceTest {
     private final NovelGlossaryService glossaryService = mock(NovelGlossaryService.class);
     private final NovelMergeService mergeService = mock(NovelMergeService.class);
     private final AiChatClient aiChatClient = mock(AiChatClient.class);
+    private final AtomicBoolean databaseAvailable = new AtomicBoolean(true);
     // 同步执行器：让 submit 内联完成，测试可对终态做确定性断言（无需等待异步线程）。
     private final TaskExecutor directExecutor = Runnable::run;
 
@@ -55,7 +59,8 @@ class NovelAutoTranslateServiceTest {
         QueueTaskTracker taskTracker = new QueueTaskTracker("novel");
         return new ServiceFixture(
                 new NovelAutoTranslateService(
-                        translationService, glossaryService, mergeService, aiChatClient, executor, taskTracker),
+                        translationService, glossaryService, mergeService, aiChatClient, executor, taskTracker,
+                        databaseAvailable::get),
                 taskTracker);
     }
 
@@ -72,6 +77,78 @@ class NovelAutoTranslateServiceTest {
 
     private NovelTranslationService.Result ok(String lang) {
         return new NovelTranslationService.Result(NovelTranslationService.Status.OK, lang, "ok", false);
+    }
+
+    @Test
+    @DisplayName("无数据库时拒绝翻译提交，不进入队列或调用 AI")
+    void refusesSubmissionWithoutDatabase() {
+        TaskExecutor executor = mock(TaskExecutor.class);
+        var fixture = fixture(executor);
+        databaseAvailable.set(false);
+
+        assertThrows(DatabaseUnavailableException.class,
+                () -> fixture.service().submit(42L, null, "English", 10, false, "txt"));
+
+        verifyNoInteractions(executor, translationService, glossaryService, mergeService, aiChatClient);
+        assertNull(fixture.service().getStatus(42L));
+        assertTrue(quiesce(fixture).isDrained());
+    }
+
+    @Test
+    @DisplayName("已排队翻译在执行前失去数据库，明确失败且不探测语言或创建词表")
+    void queuedJobStopsBeforeAiWhenDatabaseDisappears() {
+        java.util.List<Runnable> queued = new java.util.ArrayList<>();
+        var fixture = fixture(queued::add);
+        var completion = fixture.service().submit(42L, null, "English", 10, false, "txt");
+        databaseAvailable.set(false);
+
+        queued.get(0).run();
+        completion.join();
+
+        var status = fixture.service().getStatus(42L);
+        assertEquals("FAILED", status.phase());
+        assertEquals("DATABASE_UNAVAILABLE", status.failureReason());
+        assertFalse(status.done());
+        verifyNoInteractions(translationService, glossaryService, mergeService, aiChatClient);
+        assertTrue(quiesce(fixture).isDrained());
+    }
+
+    @Test
+    @DisplayName("章节翻译返回时数据库失效，不翻系列名、不合订且不标完成")
+    void stopsFollowupAfterChapterInvalidatesDatabase() {
+        when(aiChatClient.isConfigured()).thenReturn(true);
+        when(translationService.resolveLangCode("English")).thenReturn("en");
+        when(translationService.translateChapter(eq(42L), anyString(), anyInt(), anyBoolean(),
+                any(), any(), anyBoolean(), anyBoolean(), anyBoolean())).thenAnswer(call -> {
+                    databaseAvailable.set(false);
+                    return ok("en");
+                });
+        var service = service();
+
+        service.submit(42L, 7L, "English", 10, true, "txt").join();
+
+        assertEquals("DATABASE_UNAVAILABLE", service.getStatus(42L).failureReason());
+        assertFalse(service.getStatus(42L).done());
+        verify(translationService, never()).translateSeriesTitle(anyLong(), any(), any(), any(), anyBoolean(), anyBoolean());
+        verifyNoInteractions(mergeService);
+    }
+
+    @Test
+    @DisplayName("系列名翻译报告数据库不可用时，不以尽力而为吞掉后继续合订")
+    void unavailableSeriesTranslationStopsMerge() {
+        when(aiChatClient.isConfigured()).thenReturn(true);
+        when(translationService.resolveLangCode("English")).thenReturn("en");
+        when(translationService.translateChapter(eq(42L), anyString(), anyInt(), anyBoolean(),
+                any(), any(), anyBoolean(), anyBoolean(), anyBoolean())).thenReturn(ok("en"));
+        when(translationService.translateSeriesTitle(eq(7L), any(), any(), any(), anyBoolean(), anyBoolean()))
+                .thenThrow(new DatabaseUnavailableException());
+        var service = service();
+
+        service.submit(42L, 7L, "English", 10, true, "txt").join();
+
+        assertEquals("DATABASE_UNAVAILABLE", service.getStatus(42L).failureReason());
+        assertFalse(service.getStatus(42L).done());
+        verifyNoInteractions(mergeService);
     }
 
     @Test

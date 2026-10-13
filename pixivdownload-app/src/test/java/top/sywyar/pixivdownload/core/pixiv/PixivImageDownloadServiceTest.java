@@ -272,4 +272,30 @@ class PixivImageDownloadServiceTest {
             }
         };
     }
+
+    @Test
+    @DisplayName("传输结束后失库仍拒绝发布，原文件保持且部分文件删除")
+    void databaseLossBeforePublishPreservesOriginal() throws Exception {
+        URI source = URI.create("https://i.pximg.net/image.jpg");
+        Path target = tempDir.resolve("image.jpg");
+        Files.writeString(target, "original");
+        var available = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var response = mock(ClientHttpResponse.class);
+        when(response.getStatusCode()).thenReturn(HttpStatus.OK);
+        when(response.getHeaders()).thenReturn(new HttpHeaders());
+        when(response.getBody()).thenReturn(new ByteArrayInputStream(new byte[]{1, 2, 3}));
+        when(restTemplate.execute(eq(source), eq(HttpMethod.GET), any(RequestCallback.class), any(ResponseExtractor.class)))
+                .thenAnswer(call -> call.<ResponseExtractor<?>>getArgument(3).extractData(response));
+        var observer = new PixivImageTransferObserver() {
+            @Override public void onBytesTransferred(long bytes) { available.set(false); }
+            @Override public void checkCancelled() {
+                if (!available.get()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+            }
+        };
+        assertThatThrownBy(() -> new PixivImageDownloadService(restTemplate).download(source,
+                URI.create("https://www.pixiv.net/artworks/42"), target, null, observer))
+                .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+        assertThat(Files.readString(target)).isEqualTo("original");
+        assertThat(target.resolveSibling("image.jpg.part")).doesNotExist();
+    }
 }

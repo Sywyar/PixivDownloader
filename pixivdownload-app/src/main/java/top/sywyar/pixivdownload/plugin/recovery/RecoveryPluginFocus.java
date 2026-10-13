@@ -13,7 +13,7 @@ import java.util.Set;
 
 /** 用结构化诊断定位检查对象；候选不等于已确认故障。 */
 public record RecoveryPluginFocus(Map<String, String> plugins, List<String> categories) {
-    static RecoveryPluginFocus from(boolean safeToScan, boolean noGui,
+    static RecoveryPluginFocus from(boolean safeToScan, boolean noGui, boolean databaseUnavailable, String databaseOwner,
             PluginStatusReport report, Set<String> failures) {
         if (!safeToScan) return new RecoveryPluginFocus(Map.of(), List.of());
         var focus = new LinkedHashMap<String, String>();
@@ -29,6 +29,8 @@ public record RecoveryPluginFocus(Map<String, String> plugins, List<String> cate
             }
         }
         failures.forEach(id -> focus.put(id, "failed"));
+        if (databaseUnavailable && databaseOwner != null && !databaseOwner.isBlank())
+            focus.putIfAbsent(databaseOwner, "database");
         var pending = new ArrayDeque<>(focus.keySet());
         var visited = new java.util.HashSet<String>();
         var byId = new LinkedHashMap<String, PluginDiagnostic>();
@@ -56,6 +58,9 @@ public record RecoveryPluginFocus(Map<String, String> plugins, List<String> cate
                 }
             }
         }
-        return new RecoveryPluginFocus(java.util.Collections.unmodifiableMap(focus), noGui ? List.of("ui") : List.of());
+        var categories = new java.util.ArrayList<String>();
+        if (databaseUnavailable) categories.add("database");
+        if (noGui) categories.add("ui");
+        return new RecoveryPluginFocus(java.util.Collections.unmodifiableMap(focus), List.copyOf(categories));
     }
 }

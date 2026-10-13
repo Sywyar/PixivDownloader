@@ -27,7 +27,7 @@ class NovelDatabaseReadProjectionTest {
         database = new NovelDatabase(
                 mapper,
                 mock(WorkTagCatalog.class),
-                pathCodec);
+                pathCodec, () -> true);
     }
 
     @Test

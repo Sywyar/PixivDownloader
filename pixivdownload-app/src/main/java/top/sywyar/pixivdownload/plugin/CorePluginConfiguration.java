@@ -34,22 +34,23 @@ public class CorePluginConfiguration {
 
     @Bean
     public DatabaseInitializer databaseInitializer(DatabaseSchemaRegistry databaseSchemaRegistry,
+                                                   top.sywyar.pixivdownload.core.db.DatabaseTarget target,
                                                    JdbcTemplate jdbcTemplate,
                                                    AppMessages messages,
                                                    ApplicationEventPublisher eventPublisher) {
-        return new DatabaseInitializer(jdbcTemplate, databaseSchemaRegistry.contributions(),
+        return new DatabaseInitializer(target, jdbcTemplate, databaseSchemaRegistry.contributions(),
                 databaseSchemaRegistry.mergedSchema(), messages, eventPublisher);
     }
 
     @Bean
     public LegacyScheduledTaskMigrationCoordinator legacyScheduledTaskMigrationCoordinator(
             DatabaseInitializer databaseInitializer,
-            JdbcTemplate jdbcTemplate,
+            top.sywyar.pixivdownload.core.db.MainDatabase database,
             ObjectMapper objectMapper,
             PlatformTransactionManager transactionManager,
             ScheduleCapabilityRegistry scheduleCapabilityRegistry) {
         // 显式依赖 initializer：插件 registrar 取得协调器时，canonical 列与新事实表已就绪。
         return new LegacyScheduledTaskMigrationCoordinator(
-                jdbcTemplate, objectMapper, transactionManager, scheduleCapabilityRegistry);
+                database, objectMapper, transactionManager, scheduleCapabilityRegistry);
     }
 }

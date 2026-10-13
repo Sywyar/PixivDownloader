@@ -7,7 +7,7 @@ import java.util.Optional;
  * 插件市场分类词表（与高保真设计对齐）。每个 catalog 条目声明一个分类 id；页面侧栏按分类筛选，分类计数由数据派生。
  *
  * <p>聚合项 {@code all}（{@link #AGGREGATE_ID}）只是「全部」的页面筛选入口，<b>不</b>作为某个条目的分类值、不入此枚举。
- * 条目分类 ∈ {@code translate / download-type / download / convert / notify / backup / security / ui / utility /
+ * 条目分类 ∈ {@code translate / download-type / download / convert / notify / backup / security / ui / database / utility /
  * dependency}。
  *
  * <p><b>稳定回退</b>：清单里出现未知 / 缺省分类 id 时，{@link #resolve(String)} 一律回落到 {@link #FALLBACK}
@@ -25,6 +25,7 @@ public enum PluginCatalogCategory {
     BACKUP("backup"),
     SECURITY("security"),
     UI("ui"),
+    DATABASE("database"),
     UTILITY("utility"),
     DEPENDENCY("dependency");
 

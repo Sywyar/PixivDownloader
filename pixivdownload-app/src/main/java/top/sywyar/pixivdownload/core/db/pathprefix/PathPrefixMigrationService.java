@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.core.db.pathprefix;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import top.sywyar.pixivdownload.core.db.MainDatabase;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionOperations;
@@ -12,7 +12,6 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
-import javax.sql.DataSource;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
@@ -52,30 +51,30 @@ public class PathPrefixMigrationService {
     private final DownloadConfig downloadConfig;
     private final AppMessages messages;
     private final TransactionOperations transactionOperations;
-    private final NamedParameterJdbcTemplate jdbc;
+    private final MainDatabase database;
 
     @Autowired
     public PathPrefixMigrationService(PathPrefixCodec codec, PathPrefixMapper mapper,
                                       PathPrefixColumns pathPrefixColumns,
                                       DownloadConfig downloadConfig, AppMessages messages,
                                       PlatformTransactionManager transactionManager,
-                                      DataSource dataSource) {
+                                      MainDatabase database) {
         this(codec, mapper, pathPrefixColumns, downloadConfig, messages,
-                new TransactionTemplate(transactionManager), dataSource);
+                new TransactionTemplate(transactionManager), database);
     }
 
     PathPrefixMigrationService(PathPrefixCodec codec, PathPrefixMapper mapper,
                                PathPrefixColumns pathPrefixColumns,
                                DownloadConfig downloadConfig, AppMessages messages,
                                TransactionOperations transactionOperations,
-                               DataSource dataSource) {
+                               MainDatabase database) {
         this.codec = codec;
         this.mapper = mapper;
         this.pathPrefixColumns = pathPrefixColumns;
         this.downloadConfig = downloadConfig;
         this.messages = messages;
         this.transactionOperations = transactionOperations;
-        this.jdbc = new NamedParameterJdbcTemplate(dataSource);
+        this.database = database;
     }
 
     /**
@@ -115,7 +114,7 @@ public class PathPrefixMigrationService {
      * {@code suggestedOldPath} —— {@code download_root_marker} 记录的上次解析结果（修复建议，可能为 null）。
      */
     public SymbolicRootStatus symbolicRootStatus() {
-        boolean referenced = pathPrefixColumns.hasSymbolicRootRows(jdbc);
+        boolean referenced = pathPrefixColumns.hasSymbolicRootRows(database);
         boolean active = codec.isSymbolicRootActive();
         String suggested = readMarker();
         // marker 与当前解析结果相同说明它已被覆盖 / 不含旧路径信息（如修复早于本版本的覆盖 bug），
@@ -149,7 +148,7 @@ public class PathPrefixMigrationService {
                 long newId = codec.forceCreatePrefixId(stripped);
                 for (PathPrefixColumns.TableColumns tc : pathPrefixColumns.all()) {
                     for (String column : tc.columns()) {
-                        PathPrefixColumns.retargetColumn(jdbc, tc.table(), column,
+                        PathPrefixColumns.retargetColumn(database, tc.table(), column,
                                 PathPrefixCodec.SYMBOLIC_ROOT_TOKEN, "{" + newId + "}");
                     }
                 }
@@ -307,7 +306,7 @@ public class PathPrefixMigrationService {
         long newId = codec.getOrCreatePrefixId(targetPath);
         for (PathPrefixColumns.TableColumns tc : pathPrefixColumns.all()) {
             for (String column : tc.columns()) {
-                PathPrefixColumns.retargetColumn(jdbc, tc.table(), column,
+                PathPrefixColumns.retargetColumn(database, tc.table(), column,
                         PathPrefixCodec.SYMBOLIC_ROOT_TOKEN, "{" + newId + "}");
             }
         }

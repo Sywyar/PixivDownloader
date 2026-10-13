@@ -34,6 +34,7 @@ public class CoreWorkDeletionService implements WorkDeletionService {
 
     @Override
     public boolean delete(WorkType workType, long workId) {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         try (var workFileLease = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(workType, workId)) {
             if (!workQueryService.hasActiveWork(workType, workId)) {
                 return false;
@@ -51,6 +52,7 @@ public class CoreWorkDeletionService implements WorkDeletionService {
 
     @Override
     public int deleteAll(WorkType workType, Collection<Long> workIds) {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         if (workIds == null || workIds.isEmpty()) {
             return 0;
         }
@@ -59,6 +61,8 @@ public class CoreWorkDeletionService implements WorkDeletionService {
             if (id == null) continue;
             try {
                 if (delete(workType, id)) deleted++;
+            } catch (top.sywyar.pixivdownload.core.database.DatabaseUnavailableException e) {
+                throw e;
             } catch (UnsafeDeletionPathException e) {
                 throw e;
             } catch (Exception e) {

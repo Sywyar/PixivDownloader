@@ -55,6 +55,21 @@ class ArtworkFileLocatorTest {
         assertFalse(Files.exists(dir.resolve("42_p0.media.properties")));
     }
 
+    @Test
+    @DisplayName("媒体查询期间数据库失效时不把空结果当作可用旧文件")
+    void rejectsFallbackAfterMediaDatabaseBecomesUnavailable() throws Exception {
+        Path dir = Files.createDirectories(tempDir.resolve("43"));
+        Files.writeString(dir.resolve("43_p0.jpg"), "existing");
+        when(pixivDatabase.getArtworkFileNames(43L)).thenReturn(java.util.List.of("43_p0"));
+        when(mediaStore.find(43L, 0)).thenAnswer(call -> {
+            when(pixivDatabase.isUnavailable()).thenReturn(true);
+            return java.util.Optional.empty();
+        });
+        assertThrows(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class,
+                () -> locator.resolveImageFile(artwork(43L, dir.toString(), 1), 0));
+        assertTrue(Files.exists(dir.resolve("43_p0.jpg")));
+    }
+
     @TempDir
     Path tempDir;
 

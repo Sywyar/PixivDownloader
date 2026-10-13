@@ -9,7 +9,6 @@ import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
-import top.sywyar.pixivdownload.migration.JsonToSqliteMigration;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -59,10 +58,14 @@ class DatabaseConfigTest {
         DatabasePoolProperties poolProperties = new DatabasePoolProperties();
         poolProperties.setMaximumPoolSize(34);
 
-        try (HikariDataSource dataSource = (HikariDataSource) new DatabaseConfig(
-                downloadConfig, poolProperties, mock(AppMessages.class)).dataSource()) {
-            assertThat(dataSource.getMaximumPoolSize()).isEqualTo(34);
+        var target = org.mockito.Mockito.spy(DatabaseProviderTestFixtures.resolve(poolProperties, downloadConfig.getRootFolder()));
+        var pool = mock(HikariDataSource.class);
+        org.mockito.Mockito.doReturn(pool).when(target).openPool(org.mockito.ArgumentMatchers.anyInt());
+        try (var source = (top.sywyar.pixivdownload.core.db.provider.ProviderDataSource) new DatabaseConfig(
+                downloadConfig, poolProperties, mock(AppMessages.class)).dataSource(target, DatabaseProviderTestFixtures.registry(target), DatabaseProviderTestFixtures.session())) {
+            org.mockito.Mockito.verify(target).openPool(34);
         }
+        org.mockito.Mockito.verify(pool).close();
     }
 
     @Test
@@ -78,12 +81,11 @@ class DatabaseConfigTest {
         download.setRootFolder(downloads.toString());
         DatabaseConfig config = new DatabaseConfig(download, new DatabasePoolProperties(), mock(AppMessages.class));
 
-        try (HikariDataSource pool = (HikariDataSource) config.dataSource();
+        var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(new DatabasePoolProperties(), download.getRootFolder());
+        try (var pool = (top.sywyar.pixivdownload.core.db.provider.ProviderDataSource) config.dataSource(target, DatabaseProviderTestFixtures.registry(target), DatabaseProviderTestFixtures.session());
              Connection first = pool.getConnection();
              Connection second = pool.getConnection();
              Connection third = pool.getConnection()) {
-            assertThat(pool.getMaximumPoolSize()).isEqualTo(DatabasePoolProperties.DEFAULT_MAXIMUM_POOL_SIZE);
-            assertThat(pool.getMinimumIdle()).isEqualTo(1);
             for (Connection connection : java.util.List.of(first, second, third)) {
                 assertThat(query(connection, "PRAGMA journal_mode")).isEqualTo("wal");
                 assertThat(query(connection, "PRAGMA busy_timeout")).isEqualTo("5000");
@@ -93,15 +95,14 @@ class DatabaseConfigTest {
                 statement.executeUpdate("UPDATE original_data SET value = 'updated'");
             }
         }
-        try (HikariDataSource pool = (HikariDataSource) config.dataSource();
+        try (var pool = (top.sywyar.pixivdownload.core.db.provider.ProviderDataSource) config.dataSource(target, DatabaseProviderTestFixtures.registry(target), DatabaseProviderTestFixtures.session());
              Connection connection = pool.getConnection()) {
             assertThat(query(connection, "SELECT value FROM original_data")).isEqualTo("updated");
         }
         try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + downloads.resolve("pixiv_download.db"))) {
             assertThat(query(connection, "SELECT value FROM original_data")).isEqualTo("legacy");
         }
-        assertThat(Path.of(JsonToSqliteMigration.Options.fromRootFolder(downloads.toString()).dbPath()))
-                .isEqualTo(database);
+        assertThat(target.localFile()).contains(database);
     }
 
     @Test
@@ -113,8 +114,9 @@ class DatabaseConfigTest {
         DownloadConfig download = new DownloadConfig();
         download.setRootFolder(downloads.toString());
         DatabaseConfig config = new DatabaseConfig(download, new DatabasePoolProperties(), mock(AppMessages.class));
+        var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(new DatabasePoolProperties(), download.getRootFolder());
         for (int restart = 0; restart < 2; restart++) {
-            try (HikariDataSource pool = (HikariDataSource) config.dataSource();
+            try (var pool = (top.sywyar.pixivdownload.core.db.provider.ProviderDataSource) config.dataSource(target, DatabaseProviderTestFixtures.registry(target), DatabaseProviderTestFixtures.session());
                  Connection connection = pool.getConnection()) {
                 assertThat(query(connection, "SELECT value FROM original_data")).isEqualTo("retained");
             }
@@ -145,10 +147,12 @@ class DatabaseConfigTest {
     void readThenWriteTransactionsWaitWithoutBlockingQueries() throws Exception {
         var workers = Executors.newSingleThreadExecutor();
         var config = new DatabaseConfig(new DownloadConfig(), new DatabasePoolProperties(), mock(AppMessages.class));
-        try (var source = (HikariDataSource) config.dataSource()) {
+        var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(tempDir.resolve("data/transactions.db"));
+        try (var source = (top.sywyar.pixivdownload.core.db.provider.ProviderDataSource)
+                config.dataSource(target, DatabaseProviderTestFixtures.registry(target), DatabaseProviderTestFixtures.session())) {
             var jdbc = new JdbcTemplate(source);
             jdbc.execute("CREATE TABLE records (id INTEGER PRIMARY KEY, value TEXT)");
-            var manager = config.transactionManager(source);
+            var manager = config.transactionManager(source, target);
             var first = new TransactionTemplate(manager);
             Future<?> second = first.execute(status -> {
                 assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM records", Integer.class)).isZero();

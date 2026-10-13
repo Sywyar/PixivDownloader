@@ -103,6 +103,14 @@
     </dependencies>
 
     <build>
+        <resources>
+            <resource><directory>src/main/resources</directory></resource>
+            <resource>
+                <directory>${project.build.directory}/generated-resources/runtime-libs</directory>
+                <includes><include>lib/*.jar</include></includes>
+                <filtering>false</filtering>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -111,7 +119,7 @@
                 <executions>
                     <execution>
                         <id>copy-private-runtime-libs</id>
-                        <phase>process-resources</phase>
+                        <phase>generate-resources</phase>
                         <goals>
                             <goal>copy-dependencies</goal>
                         </goals>
@@ -120,7 +128,7 @@
                             <excludeScope>provided</excludeScope>
                             <excludeTransitive>false</excludeTransitive>
                             <excludeArtifactIds>pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-plugin-signature,pf4j,slf4j-api,lombok</excludeArtifactIds>
-                            <outputDirectory>${project.build.outputDirectory}/lib</outputDirectory>
+                            <outputDirectory>${project.build.directory}/generated-resources/runtime-libs/lib</outputDirectory>
                             <overWriteReleases>true</overWriteReleases>
                             <overWriteSnapshots>true</overWriteSnapshots>
                         </configuration>

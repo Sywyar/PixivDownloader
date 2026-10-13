@@ -36,7 +36,7 @@ class GalleryRepositoryTest {
         dataSource.setSuppressClose(true);
 
         jdbc = new JdbcTemplate(dataSource);
-        repository = new GalleryRepository(dataSource);
+        repository = new GalleryRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
 
         createTables();
         seedArtworks();

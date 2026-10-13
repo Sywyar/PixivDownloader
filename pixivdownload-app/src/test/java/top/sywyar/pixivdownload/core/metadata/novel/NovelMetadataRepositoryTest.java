@@ -10,7 +10,6 @@ import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -92,7 +91,7 @@ class NovelMetadataRepositoryTest {
         PathPrefixCodec pathPrefixCodec = mock(PathPrefixCodec.class);
         when(pathPrefixCodec.resolve(anyString()))
                 .thenAnswer(invocation -> "resolved:" + invocation.getArgument(0, String.class));
-        repository = new NovelMetadataRepository(dataSource, pathPrefixCodec);
+        repository = new NovelMetadataRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), pathPrefixCodec);
     }
 
     @AfterEach
@@ -118,9 +117,6 @@ class NovelMetadataRepositoryTest {
                         "coverExt", "deleted", "uploadTime")
                 .doesNotContain("wordCount", "textLength", "readingTimeSeconds", "pageCount",
                         "xLanguage", "rawContent");
-        assertThat(sqlConstant("SELECT_NOVEL_METADATA")).doesNotContainIgnoringCase(
-                "word_count", "text_length", "reading_time_seconds", "page_count",
-                "x_language", "raw_content");
     }
 
     @Test
@@ -153,8 +149,6 @@ class NovelMetadataRepositoryTest {
         assertThat(row).isEqualTo(new NovelSeriesTitleRow(9L, "系列标题"));
         assertThat(componentNames(NovelSeriesTitleRow.class))
                 .containsExactly("seriesId", "title");
-        assertThat(sqlConstant("SELECT_SERIES_TITLE"))
-                .doesNotContainIgnoringCase("author_id", "cover_ext", "updated_time", "description", "cover_folder");
     }
 
     @Test
@@ -204,12 +198,6 @@ class NovelMetadataRepositoryTest {
         return Arrays.stream(recordType.getRecordComponents())
                 .map(component -> component.getName())
                 .toArray(String[]::new);
-    }
-
-    private static String sqlConstant(String fieldName) throws ReflectiveOperationException {
-        Field field = NovelMetadataRepository.class.getDeclaredField(fieldName);
-        field.setAccessible(true);
-        return (String) field.get(null);
     }
 
     private static Path hostNovelSourceRoot() {

@@ -38,15 +38,15 @@ class AuthorMapperTest {
         Environment env = new Environment("test", new JdbcTransactionFactory(), dataSource);
         Configuration config = new Configuration(env);
         config.setMapUnderscoreToCamelCase(true);
-        config.addMapper(AuthorMapper.class);
+
 
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
         sqlSession = factory.openSession(true);
-        authorMapper = sqlSession.getMapper(AuthorMapper.class);
+        authorMapper = new AuthorMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
 
         // 建表 / 补列 / 索引统一由 DatabaseInitializer 执行（含 PagedAuthorsTests 用的 artworks 表）
         DatabaseSchemaRegistry registry = DatabaseSchemaRegistry.forBuiltInPlugins();
-        new DatabaseInitializer(new JdbcTemplate(dataSource),
+        top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(new JdbcTemplate(dataSource),
                 registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {}).initialize();
     }

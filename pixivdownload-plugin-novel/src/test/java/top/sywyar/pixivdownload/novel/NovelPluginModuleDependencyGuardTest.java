@@ -7,7 +7,6 @@ import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
-import org.apache.ibatis.annotations.Delete;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
@@ -222,15 +221,12 @@ class NovelPluginModuleDependencyGuardTest {
                 .map(Method::getName))
                 .doesNotContain("deleteNovel", "markNovelDeleted");
 
-        for (Method method : NovelMapper.class.getDeclaredMethods()) {
-            Delete delete = method.getAnnotation(Delete.class);
-            if (delete == null) {
-                continue;
-            }
-            assertThat(delete.value())
-                    .as(method.getName() + " 不得直接删除 novels 主行")
-                    .noneMatch(sql -> sql.matches("(?is).*\\bDELETE\\s+FROM\\s+novels\\b.*"));
-        }
+        assertThat(Arrays.stream(NovelMapper.class.getDeclaredMethods()).map(Method::getName))
+                .doesNotContain("deleteNovel", "markNovelDeleted");
+        noClasses().should().dependOnClassesThat().resideInAnyPackage(
+                "org.apache.ibatis..", "org.mybatis..", "org.springframework.jdbc..",
+                "top.sywyar.pixivdownload.databasesqlite..", "top.sywyar.pixivdownload.databasepostgresql..")
+                .check(CLASSES);
     }
 
     @Test

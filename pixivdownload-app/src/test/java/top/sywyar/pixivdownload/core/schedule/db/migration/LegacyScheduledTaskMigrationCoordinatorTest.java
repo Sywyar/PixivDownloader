@@ -411,7 +411,7 @@ class LegacyScheduledTaskMigrationCoordinatorTest {
         dataSource.setSuppressClose(true);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         executeScript(dataSource, readFixture());
-        new DatabaseInitializer(jdbc, REGISTRY.contributions(), REGISTRY.mergedSchema(),
+        top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(jdbc, REGISTRY.contributions(), REGISTRY.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {}).initialize();
         return new Database(dataSource, jdbc);
     }
@@ -769,7 +769,8 @@ class LegacyScheduledTaskMigrationCoordinatorTest {
                     ScheduleCapabilityRegistryTestAccess.reserve(registry, ownerBundle);
             DataSourceTransactionManager transactionManager = new DataSourceTransactionManager(dataSource);
             LegacyScheduledTaskMigrationCoordinator coordinator =
-                    new LegacyScheduledTaskMigrationCoordinator(jdbc, new ObjectMapper(),
+                    new LegacyScheduledTaskMigrationCoordinator(
+                            top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), new ObjectMapper(),
                             new TransactionTemplate(transactionManager), faultInjector, registry);
             return new AuthorizedMigration(coordinator, registry, reservation);
         }

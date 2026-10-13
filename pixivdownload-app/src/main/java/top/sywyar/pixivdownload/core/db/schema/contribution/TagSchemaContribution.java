@@ -34,6 +34,7 @@ public final class TagSchemaContribution {
                 )
         );
 
-        return new SchemaContribution(tables, List.of(), List.of());
+        return new SchemaContribution(tables, List.of(), List.of(),
+                new SchemaContribution.SharedAccess("pixiv-tags", true));
     }
 }

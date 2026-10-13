@@ -1,317 +1,123 @@
 package top.sywyar.pixivdownload.core.metadata.novel;
 
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
-
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
+import top.sywyar.pixivdownload.core.db.MainDatabase;
+import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.core.work.query.AuthorSummary;
 import top.sywyar.pixivdownload.core.work.query.TagOption;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.Expression;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.Query;
+import java.util.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.*;
+import static top.sywyar.pixivdownload.core.metadata.query.WorkQueryPredicates.*;
 
-import javax.sql.DataSource;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-/**
- * 访客小说画廊的 SQL 仓库。复用 {@link GuestRestriction} 的 OR 语义，对应 artworks
- * 侧的 {@code GalleryRepository.appendVisibilityClauses}，避免在 Service 层做 N+1 过滤。
- *
- * <p>所有 SQL 都在 {@code novels} 表别名 {@code n} 上拼装，并使用 {@code novel_tags} 子表。
- * <p>
- * 已收编进核心数据层（卸载投影：小说画廊插件未装时核心查询仍要读 {@code novels}），
- * 作为根包扫描的核心 Bean；由核心查询服务注入，小说画廊插件侧经稳定核心接口间接消费。
- */
-@Slf4j
+/** 核心小说元数据查询，在数据库内应用访客可见范围与聚合。 */
 @Repository
 public class NovelGalleryRepository {
-
-    private final NamedParameterJdbcTemplate jdbc;
-    private final String likeEscape;
-
-    public NovelGalleryRepository(DataSource dataSource) {
-        this.jdbc = new NamedParameterJdbcTemplate(dataSource);
-        likeEscape = jdbc.getJdbcTemplate().execute(
-                (org.springframework.jdbc.core.ConnectionCallback<top.sywyar.pixivdownload.core.db.DatabaseEngine>)
-                        top.sywyar.pixivdownload.core.db.DatabaseEngine::detect)
-                == top.sywyar.pixivdownload.core.db.DatabaseEngine.POSTGRESQL ? " ESCAPE ''" : "";
+    private final MainDatabase database;
+    public NovelGalleryRepository(MainDatabase database) { this.database = database; }
+    private static Expression n(String name) { return column("n", name); }
+    private static Expression visibility(GuestRestriction r) {
+        return and(eq(n("deleted"), 0), visible("n", "novel_id", "novel_tags", "novel_collections", r));
     }
+    private static Query.Order order(Expression expression, boolean descending) {
+        return new Query.Order(expression, descending, !descending);
+    }
+    private static Query.Join join(String table, String alias, Expression on) {
+        return new Query.Join(Query.JoinKind.INNER, new Query.Table(table, alias), on);
+    }
+    private static Query query(Map<String, Expression> select, Expression where, List<Query.Join> joins,
+                               List<Expression> groups, List<Query.Order> order, int limit) {
+        return new Query(new Query.Table("novels", "n"), joins, select, where, groups, null, order, false, limit, 0);
+    }
+    private List<Map<String, Object>> rows(Query query) { return database.read(s -> s.query(query)); }
+    private List<Long> ids(Query query) { return rows(query).stream().map(row -> (Long) row.get("novel_id")).toList(); }
 
-    /** 按当前作品可见范围聚合收藏夹计数，排除软删除作品。 */
-    public Map<Long, Long> countVisibleWorksByCollection(GuestRestriction restriction) {
-        StringBuilder sql = new StringBuilder(
-                "SELECT c.collection_id, COUNT(*) AS cnt FROM novel_collections c"
-                        + " JOIN novels n ON n.novel_id = c.novel_id WHERE n.deleted = 0");
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        appendVisibilityClauses(sql, params, restriction, "CollectionCount");
-        sql.append(" GROUP BY c.collection_id");
-        Map<Long, Long> counts = new java.util.LinkedHashMap<>();
-        jdbc.query(sql.toString(), params, rs -> {
-            counts.put(rs.getLong("collection_id"), rs.getLong("cnt"));
-        });
+    public Map<Long, Long> countVisibleWorksByCollection(GuestRestriction r) {
+        var counts = new LinkedHashMap<Long, Long>();
+        rows(query(Map.of("id", column("c", "collection_id"), "cnt", call(COUNT)), visibility(r),
+                List.of(join("novel_collections", "c", call(EQUAL, column("c", "novel_id"), n("novel_id")))),
+                List.of(column("c", "collection_id")), List.of(), Integer.MAX_VALUE))
+                .forEach(row -> counts.put((Long) row.get("id"), (Long) row.get("cnt")));
         return counts;
     }
-
-    /** 对该访客可见的所有 novelId，按 time 倒序。 */
     public List<Long> findVisibleNovelIds(GuestRestriction r) {
-        if (r == null) return Collections.emptyList();
-        StringBuilder sql = new StringBuilder("SELECT n.novel_id FROM novels n WHERE n.deleted = 0");
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        appendVisibilityClauses(sql, params, r, "Main");
-        sql.append(" ORDER BY n.time DESC");
-        return jdbc.query(sql.toString(), params, (rs, rowNum) -> rs.getLong("novel_id"));
+        return r == null ? List.of() : ids(query(Map.of("novel_id", n("novel_id")), visibility(r),
+                List.of(), List.of(), List.of(order(n("time"), true)), Integer.MAX_VALUE));
     }
-
-    /** 该访客可见的所有 novelId 的数量。 */
+    public Set<Long> findVisibleNovelIdSet(GuestRestriction r) { return new LinkedHashSet<>(findVisibleNovelIds(r)); }
     public long countVisibleNovels(GuestRestriction r) {
-        if (r == null) return 0;
-        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM novels n WHERE n.deleted = 0");
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        appendVisibilityClauses(sql, params, r, "Count");
-        Long total = jdbc.queryForObject(sql.toString(), params, Long.class);
-        return total == null ? 0 : total;
+        return r == null ? 0 : (Long) rows(query(Map.of("cnt", call(COUNT)), visibility(r), List.of(),
+                List.of(), List.of(), 1)).get(0).get("cnt");
     }
-
-    /**
-     * 作者 ID 与对应可见小说数。{@code r == null} 表示无访客限制（管理员 / 非访客），
-     * 统计全部未删除行——「无限制」只豁免可见性投影，{@code deleted = 1} 仍然过滤。
-     */
+    private List<Map<String, Object>> dimensionCounts(String column, GuestRestriction r) {
+        return rows(query(Map.of("id", n(column), "cnt", call(COUNT)),
+                and(visibility(r), call(GREATER, n(column), value(0))), List.of(),
+                List.of(n(column)), List.of(order(n(column), false)), Integer.MAX_VALUE));
+    }
     public List<AuthorSummary> findVisibleNovelAuthorCounts(GuestRestriction r) {
-        StringBuilder sql = new StringBuilder(
-                "SELECT n.author_id AS author_id, COUNT(*) AS cnt FROM novels n"
-                        + " WHERE n.author_id IS NOT NULL AND n.author_id > 0 AND n.deleted = 0");
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        appendVisibilityClauses(sql, params, r, "Author");
-        sql.append(" GROUP BY n.author_id");
-        return jdbc.query(sql.toString(), params, (rs, rowNum) -> new AuthorSummary(
-                rs.getLong("author_id"),
-                null,
-                rs.getLong("cnt")));
+        return dimensionCounts("author_id", r).stream()
+                .map(row -> new AuthorSummary((Long) row.get("id"), null, (Long) row.get("cnt"))).toList();
     }
-
-    /**
-     * 正数系列 ID 与对应可见小说数；{@code r == null} 只跳过访客裁剪，仍排除软删除行。
-     */
     public Map<Long, Long> countVisibleNovelsBySeries(GuestRestriction r) {
-        StringBuilder sql = new StringBuilder(
-                "SELECT n.series_id AS series_id, COUNT(*) AS cnt FROM novels n"
-                        + " WHERE n.series_id IS NOT NULL AND n.series_id > 0 AND n.deleted = 0");
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        appendVisibilityClauses(sql, params, r, "Series");
-        sql.append(" GROUP BY n.series_id ORDER BY n.series_id");
-        Map<Long, Long> counts = new LinkedHashMap<>();
-        jdbc.query(sql.toString(), params, rs -> {
-            counts.put(rs.getLong("series_id"), rs.getLong("cnt"));
-        });
+        var counts = new LinkedHashMap<Long, Long>();
+        dimensionCounts("series_id", r).forEach(row -> counts.put((Long) row.get("id"), (Long) row.get("cnt")));
         return Collections.unmodifiableMap(counts);
     }
-
-    /** 标签 ID 与对应可见小说数；{@code r == null} 语义同 {@link #findVisibleNovelAuthorCounts}。 */
     public List<TagOption> findVisibleNovelTagCounts(GuestRestriction r, String search, int limit) {
-        StringBuilder sql = new StringBuilder(
-                "SELECT t.tag_id AS tag_id, t.name AS name, t.translated_name AS translated_name,"
-                        + " COUNT(*) AS cnt"
-                        + " FROM novel_tags nt"
-                        + " JOIN novels n ON n.novel_id = nt.novel_id"
-                        + " JOIN tags t ON t.tag_id = nt.tag_id"
-                        + " WHERE n.deleted = 0");
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        appendVisibilityClauses(sql, params, r, "Tag");
+        Expression where = visibility(r);
+        Expression name = column("t", "name"), translated = column("t", "translated_name"), tagId = column("t", "tag_id");
         if (search != null && !search.isBlank()) {
-            sql.append(" AND (LOWER(t.name) LIKE :tagSearch").append(likeEscape)
-                    .append(" OR LOWER(COALESCE(t.translated_name, '')) LIKE :tagSearch")
-                    .append(likeEscape).append(")");
-            params.addValue("tagSearch", "%" + search.trim().toLowerCase() + "%");
+            String term = search.trim().toLowerCase(Locale.ROOT);
+            where = and(where, or(like(call(LOWER_ASCII, name), term),
+                    like(call(LOWER_ASCII, call(COALESCE, translated, value(""))), term)));
         }
-        sql.append(" GROUP BY t.tag_id, t.name, t.translated_name");
-        sql.append(" ORDER BY cnt DESC, LOWER(t.name) ASC");
-        sql.append(" LIMIT :limit");
-        params.addValue("limit", Math.min(Math.max(1, limit), 5000));
-        return jdbc.query(sql.toString(), params, (rs, rowNum) -> new TagOption(
-                rs.getLong("tag_id"),
-                rs.getString("name"),
-                rs.getString("translated_name"),
-                rs.getLong("cnt")));
+        return rows(query(Map.of("id", tagId, "name", name, "translated_name", translated, "cnt", call(COUNT)), where,
+                List.of(join("novel_tags", "nt", call(EQUAL, column("nt", "novel_id"), n("novel_id"))),
+                        join("tags", "t", call(EQUAL, tagId, column("nt", "tag_id")))),
+                List.of(tagId, name, translated), List.of(order(call(COUNT), true), order(call(LOWER_ASCII, name), false)),
+                Math.min(Math.max(1, limit), 5000))).stream().map(NovelGalleryRepository::tag).toList();
     }
-
-    /**
-     * 在 {@code novels} 别名 {@code n} 上拼装"对该访客可见"的 SQL 片段。
-     * 语义与 {@code GalleryRepository.appendVisibilityClauses} 完全一致。
-     */
-    public void appendVisibilityClauses(StringBuilder sql, MapSqlParameterSource params,
-                                        GuestRestriction r, String paramSuffix) {
-        if (r == null) return;
-        Set<Integer> allowed = r.allowedXRestricts();
-        if (allowed == null || allowed.isEmpty()) {
-            sql.append(" AND 1 = 0");
-            return;
-        }
-        List<String> ratingClauses = new ArrayList<>();
-        if (allowed.contains(0)) ratingClauses.add("n.r18 = 0 OR n.r18 IS NULL");
-        if (allowed.contains(1)) ratingClauses.add("n.r18 = 1");
-        if (allowed.contains(2)) ratingClauses.add("n.r18 = 2");
-        sql.append(" AND (").append(String.join(" OR ", ratingClauses)).append(")");
-
-        if (r.collectionRestrictsWorks() && !r.collectionUnrestricted()) {
-            sql.append(" AND NOT EXISTS (SELECT 1 FROM novel_collections vc"
-                    + " WHERE vc.novel_id = n.novel_id");
-            if (!r.collectionIds().isEmpty()) {
-                String key = "vCollectionIds" + paramSuffix;
-                sql.append(" AND vc.collection_id NOT IN (:").append(key).append(")");
-                params.addValue(key, r.collectionIds());
-            }
-            sql.append(")");
-        }
-
-        // (1) 不可见维度排除（跨维度优先于 OR 匹配）
-        if (!r.tagUnrestricted()) {
-            if (r.tagIds() != null && !r.tagIds().isEmpty()) {
-                String key = "vNovelTagIds" + paramSuffix;
-                sql.append(" AND NOT EXISTS (SELECT 1 FROM novel_tags nt_h"
-                        + " WHERE nt_h.novel_id = n.novel_id"
-                        + " AND nt_h.tag_id NOT IN (:" + key + "))");
-                params.addValue(key, r.tagIds());
-            } else {
-                sql.append(" AND NOT EXISTS (SELECT 1 FROM novel_tags nt_h"
-                        + " WHERE nt_h.novel_id = n.novel_id)");
-            }
-        }
-        if (!r.authorUnrestricted()) {
-            if (r.authorIds() != null && !r.authorIds().isEmpty()) {
-                String key = "vNovelAuthorIds" + paramSuffix;
-                sql.append(" AND (n.author_id IS NULL OR n.author_id IN (:" + key + "))");
-                params.addValue(key, r.authorIds());
-            } else {
-                sql.append(" AND n.author_id IS NULL");
-            }
-        }
-
-        // (2) OR 正向匹配
-        if (r.tagUnrestricted() && r.authorUnrestricted()) return;
-        List<String> orClauses = new ArrayList<>();
-        if (r.tagUnrestricted()) {
-            orClauses.add("1 = 1");
-        } else if (r.tagIds() != null && !r.tagIds().isEmpty()) {
-            String key = "pNovelTagIds" + paramSuffix;
-            orClauses.add("EXISTS (SELECT 1 FROM novel_tags nt_p"
-                    + " WHERE nt_p.novel_id = n.novel_id"
-                    + " AND nt_p.tag_id IN (:" + key + "))");
-            params.addValue(key, r.tagIds());
-        }
-        if (r.authorUnrestricted()) {
-            orClauses.add("1 = 1");
-        } else if (r.authorIds() != null && !r.authorIds().isEmpty()) {
-            String key = "pNovelAuthorIds" + paramSuffix;
-            orClauses.add("n.author_id IN (:" + key + ")");
-            params.addValue(key, r.authorIds());
-        }
-        if (orClauses.isEmpty()) {
-            sql.append(" AND 1 = 0");
-        } else {
-            sql.append(" AND (").append(String.join(" OR ", orClauses)).append(")");
-        }
-    }
-
-    /** 把对该访客可见的 novelId 限制条件附加到 SQL 中（带 LinkedHashSet 兼容）。 */
-    public Set<Long> findVisibleNovelIdSet(GuestRestriction r) {
-        return new LinkedHashSet<>(findVisibleNovelIds(r));
-    }
-
-    /** 同作者其他小说 ID，按 time 倒序，排除指定小说；软删除行过滤。 */
     public List<Long> findNovelIdsByAuthor(long authorId, long excludeNovelId, int limit) {
-        String sql = "SELECT novel_id FROM novels"
-                + " WHERE author_id = :authorId AND novel_id <> :excludeId AND deleted = 0"
-                + " ORDER BY time DESC LIMIT :limit";
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("authorId", authorId)
-                .addValue("excludeId", excludeNovelId)
-                .addValue("limit", limit);
-        return jdbc.query(sql, params, (rs, rowNum) -> rs.getLong("novel_id"));
+        if (limit == 0) return List.of();
+        return ids(query(Map.of("novel_id", n("novel_id")), and(visibility(null), eq(n("author_id"), authorId),
+                not(eq(n("novel_id"), excludeNovelId))), List.of(), List.of(), List.of(order(n("time"), true)), limit));
     }
-
-    /**
-     * 同系列其他小说 ID，排除指定小说；排序与 {@code NovelDatabase.getNovelsBySeriesId}
-     * 一致（{@code series_order ASC, time ASC}），软删除行过滤。
-     */
     public List<Long> findNovelIdsBySeries(long seriesId, long excludeNovelId, int limit) {
-        String sql = "SELECT novel_id FROM novels"
-                + " WHERE series_id = :seriesId AND series_id > 0 AND novel_id <> :excludeId AND deleted = 0"
-                + " ORDER BY series_order ASC NULLS FIRST, time ASC LIMIT :limit";
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("seriesId", seriesId)
-                .addValue("excludeId", excludeNovelId)
-                .addValue("limit", limit);
-        return jdbc.query(sql, params, (rs, rowNum) -> rs.getLong("novel_id"));
+        if (limit == 0) return List.of();
+        return ids(query(Map.of("novel_id", n("novel_id")), and(visibility(null), eq(n("series_id"), seriesId),
+                call(GREATER, n("series_id"), value(0)), not(eq(n("novel_id"), excludeNovelId))), List.of(), List.of(),
+                List.of(order(n("series_order"), false), order(n("time"), false)), limit));
     }
-
-    /**
-     * 与给定小说共享至少一个标签的其他小说 ID，按共享标签数降序、时间倒序；
-     * 语义镜像插画侧 {@code GalleryRepository.findRelatedByTags}。
-     */
     public List<Long> findRelatedByTags(long novelId, int limit) {
-        String sql = "SELECT n.novel_id FROM novels n"
-                + " JOIN novel_tags nt ON nt.novel_id = n.novel_id"
-                + " WHERE nt.tag_id IN (SELECT tag_id FROM novel_tags WHERE novel_id = :id)"
-                + " AND n.novel_id <> :id AND n.deleted = 0"
-                + " GROUP BY n.novel_id"
-                + " ORDER BY COUNT(nt.tag_id) DESC, n.time DESC"
-                + " LIMIT :limit";
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("id", novelId)
-                .addValue("limit", limit);
-        return jdbc.query(sql, params, (rs, rowNum) -> rs.getLong("novel_id"));
+        if (limit == 0) return List.of();
+        Expression related = exists("novel_tags", "original_tag", and(eq(column("original_tag", "novel_id"), novelId),
+                call(EQUAL, column("original_tag", "tag_id"), column("related_tag", "tag_id"))));
+        return ids(query(Map.of("novel_id", n("novel_id")), and(visibility(null), not(eq(n("novel_id"), novelId)), related),
+                List.of(join("novel_tags", "related_tag", call(EQUAL, column("related_tag", "novel_id"), n("novel_id")))),
+                List.of(n("novel_id"), n("time")), List.of(order(call(COUNT), true), order(n("time"), true)), limit));
     }
-
-    /**
-     * 按名称 / 翻译名精确查找小说标签（大小写不敏感，原名命中优先）；
-     * 语义镜像插画侧 {@code GalleryRepository.findTagByExactName}，计数为使用数。
-     */
     public TagOption findTagByExactName(String name, String translatedName) {
-        String normalizedName = normalizeLookup(name);
-        String normalizedTranslatedName = normalizeLookup(translatedName);
-        if (normalizedName == null && normalizedTranslatedName == null) {
-            return null;
+        var predicates = new ArrayList<Expression>(); var orders = new ArrayList<Query.Order>();
+        for (var entry : List.of(new AbstractMap.SimpleEntry<>("name", name), new AbstractMap.SimpleEntry<>("translated_name", translatedName))) {
+            if (entry.getValue() == null || entry.getValue().isBlank()) continue;
+            Expression match = eq(call(LOWER_ASCII, call(COALESCE, column("t", entry.getKey()), value(""))),
+                    entry.getValue().trim().toLowerCase(Locale.ROOT));
+            predicates.add(match); orders.add(order(new Conditional(match, value(0), value(1)), false));
         }
-
-        List<String> clauses = new ArrayList<>();
-        List<String> orderBy = new ArrayList<>();
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        if (normalizedName != null) {
-            clauses.add("LOWER(t.name) = :name");
-            orderBy.add("CASE WHEN LOWER(t.name) = :name THEN 0 ELSE 1 END");
-            params.addValue("name", normalizedName);
-        }
-        if (normalizedTranslatedName != null) {
-            clauses.add("LOWER(COALESCE(t.translated_name, '')) = :translatedName");
-            orderBy.add("CASE WHEN LOWER(COALESCE(t.translated_name, '')) = :translatedName THEN 0 ELSE 1 END");
-            params.addValue("translatedName", normalizedTranslatedName);
-        }
-
-        String sql = "SELECT t.tag_id AS tag_id, t.name AS name, t.translated_name AS translated_name,"
-                + " COUNT(nt.novel_id) AS novel_count"
-                + " FROM tags t"
-                + " LEFT JOIN novel_tags nt ON nt.tag_id = t.tag_id"
-                + " WHERE " + String.join(" OR ", clauses)
-                + " GROUP BY t.tag_id, t.name, t.translated_name"
-                + " HAVING COUNT(nt.novel_id) > 0"
-                + " ORDER BY " + String.join(", ", orderBy) + ", novel_count DESC, t.tag_id ASC"
-                + " LIMIT 1";
-        List<TagOption> items = jdbc.query(sql, params, (rs, rowNum) -> new TagOption(
-                rs.getLong("tag_id"),
-                rs.getString("name"),
-                rs.getString("translated_name"),
-                rs.getLong("novel_count")));
-        return items.isEmpty() ? null : items.get(0);
+        if (predicates.isEmpty()) return null;
+        Expression id = column("t", "tag_id"), tagName = column("t", "name"), translated = column("t", "translated_name");
+        Expression count = call(COUNT_DISTINCT, column("nt", "novel_id"));
+        orders.add(order(count, true)); orders.add(order(id, false));
+        var rows = rows(new Query(new Query.Table("tags", "t"),
+                List.of(new Query.Join(Query.JoinKind.LEFT, new Query.Table("novel_tags", "nt"),
+                        call(EQUAL, column("nt", "tag_id"), id))),
+                Map.of("id", id, "name", tagName, "translated_name", translated, "cnt", count),
+                combine(OR, predicates), List.of(id, tagName, translated), call(GREATER, count, value(0)), orders, false, 1, 0));
+        return rows.isEmpty() ? null : tag(rows.get(0));
     }
-
-    private static String normalizeLookup(String value) {
-        if (value == null) return null;
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed.toLowerCase(java.util.Locale.ROOT);
+    private static TagOption tag(Map<String, Object> row) {
+        return new TagOption((Long) row.get("id"), (String) row.get("name"), (String) row.get("translated_name"), (Long) row.get("cnt"));
     }
 }

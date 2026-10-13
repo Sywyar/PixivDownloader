@@ -77,6 +77,7 @@ class RecoveryActionControllerTest {
                 new StaticListableBeanFactory().getBeanProvider(MaintenanceCoordinator.class),
                 invites, mock(GuiTokenProvider.class), routes);
         var controller = new RecoveryActionController(mode, plugins, application, messages, locales,
+                mock(top.sywyar.pixivdownload.core.db.DatabaseTarget.class),
                 () -> noGui.get() ? new top.sywyar.pixivdownload.gui.DesktopUiFailure(
                         top.sywyar.pixivdownload.gui.DesktopUiFailure.Reason.NO_PROVIDER, null) : null);
         when(recovery.decision()).thenReturn(new RecoveryModeDecision(false, List.of()));
@@ -142,7 +143,7 @@ class RecoveryActionControllerTest {
     @Test
     @DisplayName("真实恢复判定异常不能阻断无 GUI 操作，也不能授权状态未知的普通进程")
     void failingRecoveryEvaluationKeepsGuiFallbackAndFailsClosedOtherwise() throws Exception {
-        mvc = createMvc(new RecoveryModeService(plugins, RequiredPluginPolicy.empty()));
+        mvc = createMvc(new RecoveryModeService(plugins, RequiredPluginPolicy.empty(), org.mockito.Mockito.mock(javax.sql.DataSource.class)));
         when(plugins.report()).thenThrow(new IllegalStateException("diagnostic unavailable"));
         when(application.requestRestart()).thenReturn(true);
         noGui.set(true);

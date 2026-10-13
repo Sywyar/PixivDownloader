@@ -1,10 +1,5 @@
 package top.sywyar.pixivdownload.novel.db.series;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.Configuration;
-import org.apache.ibatis.session.SqlSession;
-import org.apache.ibatis.session.SqlSessionFactoryBuilder;
-import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -23,7 +18,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 class NovelSeriesCatalogRepositoryTest {
 
     private SingleConnectionDataSource dataSource;
-    private SqlSession sqlSession;
     private JdbcTemplate jdbc;
     private NovelSeriesCatalogRepository repository;
 
@@ -37,19 +31,13 @@ class NovelSeriesCatalogRepositoryTest {
         jdbc.execute("CREATE TABLE novels (novel_id INTEGER PRIMARY KEY, series_id INTEGER, deleted INTEGER NOT NULL)");
         jdbc.execute("CREATE TABLE novel_series (series_id INTEGER PRIMARY KEY, title TEXT, author_id INTEGER, cover_ext TEXT)");
         jdbc.execute("CREATE TABLE tags (tag_id INTEGER PRIMARY KEY, name TEXT, translated_name TEXT)");
-        jdbc.execute("CREATE TABLE novel_series_tags (series_id INTEGER, tag_id INTEGER)");
+        jdbc.execute("CREATE TABLE novel_series_tags (series_id INTEGER, tag_id INTEGER, PRIMARY KEY(series_id, tag_id))");
 
-        Configuration configuration = new Configuration(new Environment(
-                "test", new JdbcTransactionFactory(), dataSource));
-        configuration.setMapUnderscoreToCamelCase(true);
-        configuration.addMapper(NovelMapper.class);
-        sqlSession = new SqlSessionFactoryBuilder().build(configuration).openSession(true);
-        repository = new NovelSeriesCatalogRepository(sqlSession.getMapper(NovelMapper.class));
+        repository = new NovelSeriesCatalogRepository(top.sywyar.pixivdownload.novel.db.NovelMapperTestFixture.mapper(dataSource));
     }
 
     @AfterEach
     void tearDown() {
-        sqlSession.close();
         dataSource.destroy();
     }
 

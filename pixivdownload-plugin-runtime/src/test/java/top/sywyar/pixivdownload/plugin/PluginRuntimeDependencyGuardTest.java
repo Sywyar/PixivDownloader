@@ -103,7 +103,7 @@ class PluginRuntimeDependencyGuardTest {
                         "top.sywyar.pixivdownload.plugin.signature.community",
                         "top.sywyar.pixivdownload.core.schedule.capability..",
                         "top.sywyar.pixivdownload.core.schedule.migration..",
-                        "java..", "org.springframework..", "org.pf4j..", "org.slf4j..")
+                        "java..", "javax.sql", "org.springframework..", "org.pf4j..", "org.slf4j..")
                 .because("plugin-runtime 是插件框架的 Spring 耦合启用运行时 + PF4J 外置插件运行时骨架 / 发现桥接 / "
                         + "描述符 / 兼容性 / 状态模型 / 计划能力租约与迁移协议：只能依赖 JDK、Spring（条件 / 绑定）、"
                         + "PF4J（PluginManager 等）、slf4j、"
@@ -113,6 +113,14 @@ class PluginRuntimeDependencyGuardTest {
                         + "不得依赖任何 app 业务包或具体插件实现包（本规则主语已排除 plugin.api / plugin.signature 自身，"
                         + "只约束本模块拥有的运行时类）")
                 .check(CLASSES);
+    }
+
+    @Test
+    @DisplayName("JDK 数据源仅用于旧私库兼容适配，不进入中性运行时接缝")
+    void jdbcDataSourceOnlyBelongsToLegacyAdapter() {
+        noClasses().that().resideInAPackage("top.sywyar.pixivdownload.plugin.runtime..")
+                .and().doNotHaveFullyQualifiedName("top.sywyar.pixivdownload.plugin.runtime.context.LegacyPluginDataSource")
+                .should().dependOnClassesThat().resideInAPackage("javax.sql").check(CLASSES);
     }
 
     @Test

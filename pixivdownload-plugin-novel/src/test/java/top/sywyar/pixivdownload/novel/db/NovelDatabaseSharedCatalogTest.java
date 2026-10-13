@@ -31,7 +31,7 @@ class NovelDatabaseSharedCatalogTest {
 
     @BeforeEach
     void setUp() {
-        database = new NovelDatabase(novelMapper, workTagCatalog, storedPathCodec);
+        database = new NovelDatabase(novelMapper, workTagCatalog, storedPathCodec, () -> true);
     }
 
     @Test

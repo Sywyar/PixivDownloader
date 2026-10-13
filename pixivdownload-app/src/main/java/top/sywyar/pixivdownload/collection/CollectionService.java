@@ -46,6 +46,7 @@ public class CollectionService {
     /** 非 DDL 初始化：建表 / 补列 / 索引已统一由 {@link DatabaseInitializer} 执行，这里只保留幂等数据迁移。 */
     @PostConstruct
     public void init() {
+        if (databaseInitializer.isUnavailable()) return;
         collectionMapper.migrateCollectionTimestampsToMillis();
         collectionMapper.migrateArtworkCollectionTimestampsToMillis();
     }
@@ -72,10 +73,12 @@ public class CollectionService {
     }
 
     public Collection create(String name) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return create(name, null);
     }
 
     public Collection create(String name, String downloadRoot) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         String clean = validateName(name);
         if (collectionMapper.countByName(clean) > 0) {
             throw LocalizedException.badRequest("collection.name.duplicate", "同名收藏夹已存在");
@@ -101,6 +104,7 @@ public class CollectionService {
     }
 
     public Collection rename(long id, String name) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         requireExists(id);
         String clean = validateName(name);
         if (collectionMapper.countByNameExcludingId(clean, id) > 0) {
@@ -111,6 +115,7 @@ public class CollectionService {
     }
 
     public Collection updateDownloadRoot(long id, String downloadRoot) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         Collection collection = requireCollection(id);
         String cleanDownloadRoot = validateDownloadRoot(downloadRoot, collection.name(), collection.id());
         collectionMapper.updateDownloadRoot(id, pathPrefixCodec.encode(cleanDownloadRoot));
@@ -118,12 +123,14 @@ public class CollectionService {
     }
 
     public Collection updateSortOrder(long id, int sortOrder) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         requireExists(id);
         collectionMapper.updateSortOrder(id, sortOrder);
         return resolve(collectionMapper.findById(id));
     }
 
     public void delete(long id) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         requireExists(id);
         collectionMapper.deleteArtworkLinksByCollection(id);
         collectionMapper.deleteById(id);
@@ -132,6 +139,7 @@ public class CollectionService {
     }
 
     public Collection setIcon(long id, byte[] data) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         requireExists(id);
         try {
             String ext = iconService.saveIcon(id, data);
@@ -148,6 +156,7 @@ public class CollectionService {
     }
 
     public Collection clearIcon(long id) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         requireExists(id);
         iconService.deleteAll(id);
         collectionMapper.updateIconExt(id, null);
@@ -155,17 +164,20 @@ public class CollectionService {
     }
 
     public boolean addArtwork(long collectionId, long artworkId) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         requireExists(collectionId);
         int changed = collectionMapper.addArtwork(collectionId, artworkId, System.currentTimeMillis());
         return changed > 0;
     }
 
     public boolean removeArtwork(long collectionId, long artworkId) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         requireExists(collectionId);
         return collectionMapper.removeArtwork(collectionId, artworkId) > 0;
     }
 
     public void removeArtworkFromAll(long artworkId) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         collectionMapper.removeAllArtworkLinks(artworkId);
     }
 
@@ -185,11 +197,13 @@ public class CollectionService {
     }
 
     public boolean addNovel(long collectionId, long novelId) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         requireExists(collectionId);
         return novelMetadataRepository.addToCollection(collectionId, novelId);
     }
 
     public boolean removeNovel(long collectionId, long novelId) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         requireExists(collectionId);
         return novelMetadataRepository.removeFromCollection(collectionId, novelId);
     }

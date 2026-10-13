@@ -130,7 +130,7 @@ class ScheduleServiceTest {
         return new ScheduleService(
                 store, executor, new ScheduleConfig(), runState, runQueue,
                 objectMapper, credentialService, transactionTemplate,
-                capabilityRegistry, new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID));
+                capabilityRegistry, new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID), () -> true);
     }
 
     private static ScheduledWork queueWork(String workType, String workId, String title) {
@@ -1411,7 +1411,7 @@ class ScheduleServiceTest {
         ScheduleService service = new ScheduleService(
                 store, executor, new ScheduleConfig(), new ScheduleRunState(), runQueue,
                 objectMapper, credentialService, transactionTemplate,
-                capabilityRegistry, new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID));
+                capabilityRegistry, new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID), () -> true);
 
         service.applyCurrentCredentialPolicyAction(
                 ownerPluginId, policyId, "account-42", "resume", Map.of("delay", "60"));
@@ -1429,7 +1429,7 @@ class ScheduleServiceTest {
         ScheduleService service = new ScheduleService(
                 store, executor, new ScheduleConfig(), new ScheduleRunState(), runQueue,
                 objectMapper, credentialService, transactionTemplate,
-                emptyCapabilityRegistry(), new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID));
+                emptyCapabilityRegistry(), new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID), () -> true);
         ScheduleCredentialPolicyActionRequest request =
                 new ScheduleCredentialPolicyActionRequest();
         request.setOwnerPluginId("third-party");

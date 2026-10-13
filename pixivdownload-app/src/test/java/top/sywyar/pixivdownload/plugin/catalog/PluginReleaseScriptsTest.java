@@ -322,22 +322,28 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("默认安装保留桌面插件，导入支持按需安装且随离线全量包分发，验证夹具须显式包含")
+    @DisplayName("默认安装包含桌面与 SQLite，PostgreSQL 和导入按需分发，验证夹具须显式包含")
     void distributionSeparatesDefaultInstalledOptionalAndValidationPlugins() throws Exception {
-        assertThat(officialPluginIds("Get-OfficialDefaultInstalledPlugins"))
-                .containsExactly(
-                        "download-workbench", "gui-compose", "gui-swing", "gallery-tools", "posthog", "gallery",
-                        "novel", "notification", "multi-mode-decision-survey", "push", "mail", "tts", "ai");
-        assertThat(officialPluginIds("Get-OfficialOptionalPlugins"))
-                .containsExactly("pixiv-batch-downloader-import");
-        assertThat(officialPluginIds("Get-OfficialDistributionPlugins"))
-                .containsExactlyElementsOf(officialPluginIds("Get-OfficialDefaultInstalledPlugins"));
-        assertThat(officialPluginIds())
+        Set<String> defaults = officialPluginIds("Get-OfficialDefaultInstalledPlugins");
+        Set<String> optional = officialPluginIds("Get-OfficialOptionalPlugins");
+        assertThat(defaults)
+                .containsAll(officialPluginIds("Get-OfficialRequiredPlugins"))
+                .contains("gui-compose", "gui-swing", "database-sqlite")
+                .doesNotContain("database-postgresql", "pixiv-batch-downloader-import", "recovery-sentinel");
+        assertThat(optional)
+                .contains("database-postgresql", "pixiv-batch-downloader-import")
                 .doesNotContain("recovery-sentinel")
-                .contains("pixiv-batch-downloader-import")
-                .containsAll(officialPluginIds("Get-OfficialDefaultInstalledPlugins"));
+                .doesNotContainAnyElementsOf(defaults);
+        assertThat(officialPluginIds("Get-OfficialDistributionPlugins"))
+                .containsExactlyElementsOf(defaults);
+        Set<String> all = new LinkedHashSet<>(defaults);
+        all.addAll(optional);
+        assertThat(officialPluginIds())
+                .containsExactlyElementsOf(all);
+        Set<String> withValidation = new LinkedHashSet<>(optional);
+        withValidation.add("recovery-sentinel");
         assertThat(officialPluginIds("Get-OfficialOptionalPlugins -IncludeSentinel"))
-                .containsExactly("pixiv-batch-downloader-import", "recovery-sentinel");
+                .containsExactlyElementsOf(withValidation);
     }
 
     @Test

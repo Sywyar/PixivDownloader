@@ -148,6 +148,8 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
         } catch (PixivFetchService.PixivFetchException failure) {
             throw failure(ScheduledFailure.Category.CREDENTIAL_INVALID,
                     "pixiv.illust.access-unavailable");
+        } catch (top.sywyar.pixivdownload.core.database.DatabaseUnavailableException unavailable) {
+            throw unavailable;
         } catch (Exception failure) {
             throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK,
                     "pixiv.illust.fetch-failed");
@@ -264,6 +266,7 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
                     "pixiv.illust.download-failed");
         }
         captureMetadata(artworkId, capture.body(), pagesBody);
+        context.cancellation().throwIfCancellationRequested();
         return new ScheduledWorkResult(
                 ScheduledWorkResult.Outcome.COMPLETED,
                 "pixiv.illust.completed", attributes);
@@ -376,6 +379,8 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
                     rawJson(artworkBody),
                     rawJson(pagesBody),
                     "schedule");
+        } catch (top.sywyar.pixivdownload.core.database.DatabaseUnavailableException unavailable) {
+            throw unavailable;
         } catch (RuntimeException failure) {
             log.warn("Scheduled artwork metadata capture failed: artworkId={}, errorType={}",
                     artworkId, failure.getClass().getSimpleName());

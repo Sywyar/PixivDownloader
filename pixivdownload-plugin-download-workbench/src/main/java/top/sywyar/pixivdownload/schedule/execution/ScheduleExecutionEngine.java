@@ -59,6 +59,7 @@ public final class ScheduleExecutionEngine {
     public static final int MAX_WORK_IN_FLIGHT = ScheduleExecutionPlanGate.MAX_IN_FLIGHT;
 
     private final ScheduledTaskStore store;
+    private final top.sywyar.pixivdownload.core.database.DatabaseAvailability database;
     private final ScheduleCapabilityAccess registry;
     private final ScheduleRunState runState;
     private final ScheduleRunQueue runQueue;
@@ -79,9 +80,9 @@ public final class ScheduleExecutionEngine {
             ScheduleWorkPersistenceCodec persistenceCodec,
             ScheduleNetworkRouteResolver routeResolver,
             TaskExecutor workTaskExecutor,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper, top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
         this(store, registry, runState, runQueue, config, persistenceCodec, routeResolver,
-                workTaskExecutor, new ScheduleWorkConcurrencyLimiter(), objectMapper);
+                workTaskExecutor, new ScheduleWorkConcurrencyLimiter(), objectMapper, database);
     }
 
     public ScheduleExecutionEngine(
@@ -94,7 +95,8 @@ public final class ScheduleExecutionEngine {
             ScheduleNetworkRouteResolver routeResolver,
             TaskExecutor workTaskExecutor,
             ScheduleWorkConcurrencyLimiter workConcurrencyLimiter,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper, top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
+        this.database = Objects.requireNonNull(database, "database");
         this.store = Objects.requireNonNull(store, "store");
         this.registry = Objects.requireNonNull(registry, "registry");
         this.runState = Objects.requireNonNull(runState, "runState");
@@ -110,6 +112,7 @@ public final class ScheduleExecutionEngine {
     }
 
     public boolean canResolve(ScheduledTask task) {
+        if (!database.available()) return false;
         SchedulePlanningLease planning = registry.prepareSource(task.sourceType()).orElse(null);
         try (planning) {
             if (planning == null || !registry.activate(planning)
@@ -142,6 +145,7 @@ public final class ScheduleExecutionEngine {
             ScheduleExecutorUnavailableException,
             ScheduleDefinitionException,
             ScheduledExecutionException {
+        database.requireAvailable();
         Objects.requireNonNull(task, "task");
         SchedulePlanningLease planning = registry.prepareSource(task.sourceType()).orElse(null);
         if (planning != null
@@ -240,7 +244,7 @@ public final class ScheduleExecutionEngine {
             ScheduledNetworkRoute route = resolveRoute(task, plan);
             return new ScheduleCredentialBindingLease(
                     credentialSupport, task.id(), policyOwner.featurePluginId(), plan.credentialPolicyId(),
-                    execution, definition, route);
+                    execution, definition, route, database);
         } catch (ScheduleExecutorUnavailableException failure) {
             execution.close();
             planning.close();
@@ -262,6 +266,7 @@ public final class ScheduleExecutionEngine {
             ScheduleDefinitionException,
             ScheduleExecutionControlException,
             ScheduledExecutionException {
+        database.requireAvailable();
         return execute(task, ignored -> {
         }, ignored -> {
         });
@@ -275,6 +280,7 @@ public final class ScheduleExecutionEngine {
             ScheduleDefinitionException,
             ScheduleExecutionControlException,
             ScheduledExecutionException {
+        database.requireAvailable();
         return execute(task, pendingExhaustedListener, ignored -> {
         });
     }
@@ -294,6 +300,7 @@ public final class ScheduleExecutionEngine {
             ScheduleDefinitionException,
             ScheduleExecutionControlException,
             ScheduledExecutionException {
+        database.requireAvailable();
         Objects.requireNonNull(pendingExhaustedListener, "pendingExhaustedListener");
         Objects.requireNonNull(
                 policyAccountSuspensionPublisher, "policyAccountSuspensionPublisher");
@@ -384,7 +391,7 @@ public final class ScheduleExecutionEngine {
                         task.sourceType(), plan.requiredWorkTypes());
             }
             ScheduledCancellation leaseCancellation = execution.cancellation();
-            ScheduledCancellation cancellation = () -> leaseCancellation.isCancellationRequested()
+            ScheduledCancellation cancellation = () -> !database.available() || leaseCancellation.isCancellationRequested()
                     || runState.isCancelRequested(task.id());
             cancellation.throwIfCancellationRequested();
             Map<String, Integer> workConcurrencyLimits = resolveWorkConcurrencyLimits(

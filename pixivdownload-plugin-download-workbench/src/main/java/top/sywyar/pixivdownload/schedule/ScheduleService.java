@@ -93,6 +93,7 @@ public class ScheduleService implements DesktopAutomationSource {
     /** 作品类型执行器注册中心；队列只经短租约读取插件主动开放的中性实时状态。 */
     private final ScheduleCapabilityAccess scheduleCapabilityRegistry;
     private final ScheduleHostIdentity hostIdentity;
+    private final top.sywyar.pixivdownload.core.database.DatabaseAvailability database;
 
     public ScheduleSourceManifestView sources() {
         ScheduleCapabilitySnapshot snapshot = scheduleCapabilityRegistry.snapshot();
@@ -105,6 +106,7 @@ public class ScheduleService implements DesktopAutomationSource {
     }
 
     public List<ScheduleTaskView> list() {
+        if (!database.available()) return List.of();
         Map<SourceActivationKey, SourceProjection> activations = sourceActivations(
                 scheduleCapabilityRegistry.snapshot());
         return store.findAll().stream()
@@ -125,6 +127,8 @@ public class ScheduleService implements DesktopAutomationSource {
 
     DesktopAutomationSnapshot snapshot(Instant observedAt) {
         Objects.requireNonNull(observedAt, "observedAt");
+        if (!database.available()) return new DesktopAutomationSnapshot(
+                List.of(), DesktopControlCenterAvailability.UNAVAILABLE, observedAt);
         Instant horizon = observedAt.plusSeconds(AUTOMATION_WINDOW_SECONDS);
         List<DesktopAutomationTaskContribution> tasks = new ArrayList<>();
         for (ScheduledTask task : store.findAll()) {
@@ -255,6 +259,7 @@ public class ScheduleService implements DesktopAutomationSource {
     }
 
     public ScheduleTaskView create(ScheduleTaskRequest req) {
+        database.requireAvailable();
         if (req.getExpectedStateVersion() != null) {
             throw LocalizedException.badRequest(
                     "schedule.error.create-state-version",
@@ -292,6 +297,7 @@ public class ScheduleService implements DesktopAutomationSource {
     }
 
     public ScheduleTaskView update(long id, ScheduleTaskRequest req) {
+        database.requireAvailable();
         long expectedStateVersion = requireExpectedStateVersion(req);
         ScheduledTask expected = requireExisting(id);
         requireNotBusy(expected);
@@ -325,6 +331,7 @@ public class ScheduleService implements DesktopAutomationSource {
 
     @Transactional
     public ScheduleTaskView setEnabled(long id, boolean enabled) {
+        database.requireAvailable();
         ScheduledTask task = requireExisting(id);
         requireNotBusy(task);
         requireChanged(store.updateEnabled(id, task.stateVersion(), enabled));
@@ -333,6 +340,7 @@ public class ScheduleService implements DesktopAutomationSource {
 
     @Transactional
     public void delete(long id) {
+        database.requireAvailable();
         ScheduledTask task = requireExisting(id);
         requireNotBusy(task);
         if (!store.deleteAggregate(id, task.stateVersion())) {
@@ -398,18 +406,21 @@ public class ScheduleService implements DesktopAutomationSource {
             long id,
             String secret,
             String expectedActivationToken) {
+        database.requireAvailable();
         credentialService.bind(id, secret, expectedActivationToken);
         return get(id);
     }
 
     /** 解除任务持久化记录的凭证策略绑定；即使策略插件暂时缺席也可完成。 */
     public ScheduleTaskView revokeCredential(long id) {
+        database.requireAvailable();
         credentialService.revoke(id);
         return get(id);
     }
 
     /** 在当前策略 publication 上规划并以精确事务 CAS 应用账号级动作。 */
     public void applyCredentialPolicyAction(ScheduleCredentialPolicyActionRequest request) {
+        database.requireAvailable();
         if (request == null || request.getPublicationId() == null) {
             throw credentialPolicyPublicationChanged();
         }
@@ -428,6 +439,7 @@ public class ScheduleService implements DesktopAutomationSource {
             String accountKey,
             String actionId,
             Map<String, String> parameters) {
+        database.requireAvailable();
         long publicationId = scheduleCapabilityRegistry.snapshot().owners().stream()
                 .filter(owner -> owner.owner().featurePluginId().equals(ownerPluginId))
                 .filter(owner -> owner.credentialPolicyIds().contains(policyId))
@@ -445,6 +457,7 @@ public class ScheduleService implements DesktopAutomationSource {
      */
     @Transactional
     public ScheduleTaskView updateProxy(long id, String proxy) {
+        database.requireAvailable();
         ScheduledTask task = requireExisting(id);
         requireNotBusy(task);
         String normalized = emptyToNull(proxy);
@@ -461,6 +474,7 @@ public class ScheduleService implements DesktopAutomationSource {
      * 且未处于暂停 / 挂起态才允许手动触发。前端会据此禁用按钮，这里是后端防护（防陈旧 UI / 直连 API）。
      */
     public void manualRun(long id) {
+        database.requireAvailable();
         ScheduledTask task = store.findById(id);
         if (task == null) {
             throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
@@ -482,6 +496,7 @@ public class ScheduleService implements DesktopAutomationSource {
      * 已在运行 / 排队（有 Claim）时静默跳过，靠 next_run 兜底由 tick 接管。
      */
     public void runOnce(long id) {
+        database.requireAvailable();
         ScheduleCapabilityLease<ScheduleCapabilityOwner> hostLease = prepareHostLease();
         if (hostLease == null) {
             log.debug("Scheduled task {} manual run ignored: schedule host is quiesced", id);
@@ -756,6 +771,7 @@ public class ScheduleService implements DesktopAutomationSource {
      */
     @Transactional
     public ScheduleTaskView resume(long id) {
+        database.requireAvailable();
         ScheduledTask task = store.findById(id);
         if (task == null) {
             throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
@@ -785,6 +801,7 @@ public class ScheduleService implements DesktopAutomationSource {
     @Transactional
     public ScheduleTaskView resolvePending(long id, long expectedVersion, String workType,
                                            String workId, String userAction, boolean rememberForRun) {
+        database.requireAvailable();
         ScheduledTask task = requireExisting(id);
         requireNotBusy(task);
         if (task.stateVersion() != expectedVersion
@@ -804,6 +821,7 @@ public class ScheduleService implements DesktopAutomationSource {
     /** 手动清除隔离表中某个「需人工」条目（运行 / 排队中拒绝，避免与本轮的隔离表读写竞态）。 */
     @Transactional
     public void clearPending(long id, String workType, String workId) {
+        database.requireAvailable();
         ScheduledTask task = requireExisting(id);
         requireNotBusy(task);
         requireChanged(store.clearPendingWork(

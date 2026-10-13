@@ -17,6 +17,27 @@ class DatabaseTargetTest {
     @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory;
 
     @Test
+    @DisplayName("未知标识可绑定目标；仅迁移提供者自行拒绝未实现的连接且不创建存储")
+    void bindsUnknownProviderForMigrationWithoutClaimingRuntimeSupport() throws Exception {
+        var provider = new migrationfixture.NeutralMigrationPlugin.Provider();
+        var selection = new top.sywyar.pixivdownload.plugin.runtime.bootstrap.database.DatabaseProviderSelection.Result(
+                provider.id(), provider.databaseId(), java.util.Optional.of(provider),
+                top.sywyar.pixivdownload.plugin.runtime.bootstrap.database.DatabaseProviderSelection.Failure.NONE);
+        var file = directory.resolve("independent.ledger");
+        var settings = new top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionSettings(
+                "ledger:" + file, "", "", directory.resolve("unused.db"));
+        var target = DatabaseTarget.inspect(selection, settings);
+        assertThat(target.available()).isTrue();
+        assertThat(target.migrationEndpoint().provider()).isSameAs(provider);
+        assertThat(target.migrationEndpoint().target().localFile()).contains(file);
+        assertThat(target.sameConfiguration(DatabaseTarget.inspect(selection, settings))).isTrue();
+        assertThat(target.toString()).isEqualTo("ledger-v1");
+        assertThat(target.databaseId()).isEqualTo(provider.databaseId());
+        assertThatThrownBy(target::openConnection).isInstanceOf(java.sql.SQLException.class);
+        assertThat(file).doesNotExist();
+    }
+
+    @Test
     @DisplayName("启动检查使用 Boot 配置文件、profile 和命令行优先级")
     void startupResolutionUsesBootConfigAndOverrides() throws Exception {
         var config = directory.resolve("application.yaml");
@@ -31,14 +52,14 @@ class DatabaseTargetTest {
                 database.username: ''
                 """, java.nio.charset.StandardCharsets.UTF_8);
         String location = "--spring.config.location=" + config.toUri();
-        assertThat(DatabaseTarget.fromConfiguration(location).engine()).isEqualTo(DatabaseEngine.POSTGRESQL);
-        var profile = DatabaseTarget.fromConfiguration(location, "--spring.profiles.active=isolated");
-        assertThat(profile.sqlitePath()).isEqualTo(java.nio.file.Path.of("profile.db").toAbsolutePath());
-        var override = DatabaseTarget.fromConfiguration(location, "--database.engine=sqlite",
+        assertThat(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.fromConfiguration(location).databaseId()).isEqualTo("postgresql");
+        var profile = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.fromConfiguration(location, "--spring.profiles.active=isolated");
+        assertThat(profile.localFile().orElseThrow()).isEqualTo(java.nio.file.Path.of("profile.db").toAbsolutePath());
+        var override = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.fromConfiguration(location, "--database.engine=sqlite",
                 "--database.username=", "--database.jdbc-url=jdbc:sqlite:" + directory.resolve("override.db"));
-        assertThat(override.sqlitePath()).isEqualTo(directory.resolve("override.db"));
-        assertThat(java.nio.file.Files.exists(override.sqlitePath())).isFalse();
-        assertThatThrownBy(() -> DatabaseTarget.fromConfiguration(location, "--database.jdbc-url="))
+        assertThat(override.localFile().orElseThrow()).isEqualTo(directory.resolve("override.db"));
+        assertThat(java.nio.file.Files.exists(override.localFile().orElseThrow())).isFalse();
+        assertThatThrownBy(() -> top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.fromConfiguration(location, "--database.jdbc-url="))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -49,10 +70,10 @@ class DatabaseTargetTest {
                 "database.engine", "postgresql", "database.jdbc-url", "jdbc:postgresql://example.invalid/app",
                 "database.username", "account", "database.password", "private-value")))
                 .bind("database", Bindable.of(DatabasePoolProperties.class)).orElseThrow(IllegalStateException::new);
-        var target = DatabaseTarget.resolve(config, "unused");
-        assertThat(target.engine()).isEqualTo(DatabaseEngine.POSTGRESQL);
+        var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(config, "unused");
+        assertThat(target.databaseId()).isEqualTo("postgresql");
         assertThat(target.toString()).doesNotContain("account", "private-value", "example.invalid");
-        assertThatThrownBy(target::sqlitePath).isInstanceOf(IllegalArgumentException.class);
+        assertThat(target.localFile()).isEmpty();
     }
 
     @ParameterizedTest
@@ -71,7 +92,7 @@ class DatabaseTargetTest {
         config.setEngine("postgresql");
         config.setJdbcUrl(url);
         config.setUsername("fixture");
-        assertThatThrownBy(() -> DatabaseTarget.resolve(config, "unused"))
+        assertThatThrownBy(() -> top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(config, "unused"))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageNotContaining("private");
     }
 }

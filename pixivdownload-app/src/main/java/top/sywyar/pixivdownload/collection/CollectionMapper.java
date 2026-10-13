@@ -1,101 +1,111 @@
 package top.sywyar.pixivdownload.collection;
 
-import org.apache.ibatis.annotations.*;
+import org.springframework.stereotype.Repository;
+import top.sywyar.pixivdownload.core.db.MainDatabase;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.*;
+import java.util.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.*;
 
-import java.util.Collection;
-import java.util.List;
+@Repository
+public class CollectionMapper {
+    private static final String TABLE = "collections";
+    private static final String LINKS = "artwork_collections";
+    private final MainDatabase database;
+    public CollectionMapper(MainDatabase database) { this.database = database; }
 
-@Mapper
-public interface CollectionMapper {
-
-    @Update("UPDATE collections SET created_time = created_time * 1000"
-            + " WHERE created_time > 0 AND created_time < 1000000000000")
-    int migrateCollectionTimestampsToMillis();
-
-    @Update("UPDATE artwork_collections SET added_time = added_time * 1000"
-            + " WHERE added_time > 0 AND added_time < 1000000000000")
-    int migrateArtworkCollectionTimestampsToMillis();
-
-    @Select("SELECT c.id, c.name, c.icon_ext AS iconExt, c.download_root AS downloadRoot,"
-            + " c.sort_order AS sortOrder, c.created_time AS createdTime,"
-            + " COALESCE((SELECT COUNT(*) FROM artwork_collections ac WHERE ac.collection_id = c.id), 0) AS artworkCount,"
-            + " COALESCE((SELECT COUNT(*) FROM novel_collections nc WHERE nc.collection_id = c.id), 0) AS novelCount"
-            + " FROM collections c ORDER BY c.sort_order, c.id")
-    List<top.sywyar.pixivdownload.collection.Collection> findAll();
-
-    @Select("SELECT c.id, c.name, c.icon_ext AS iconExt, c.download_root AS downloadRoot,"
-            + " c.sort_order AS sortOrder, c.created_time AS createdTime,"
-            + " COALESCE((SELECT COUNT(*) FROM artwork_collections ac WHERE ac.collection_id = c.id), 0) AS artworkCount,"
-            + " COALESCE((SELECT COUNT(*) FROM novel_collections nc WHERE nc.collection_id = c.id), 0) AS novelCount"
-            + " FROM collections c WHERE c.id = #{id}")
-    top.sywyar.pixivdownload.collection.Collection findById(@Param("id") long id);
-
-    @Insert("INSERT INTO collections(name, icon_ext, download_root, sort_order, created_time)"
-            + " VALUES(#{name}, #{iconExt}, #{downloadRoot}, #{sortOrder}, #{createdTime})")
-    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
-    void insert(CollectionInsert insert);
-
-    @Update("UPDATE collections SET name = #{name} WHERE id = #{id}")
-    int updateName(@Param("id") long id, @Param("name") String name);
-
-    @Update("UPDATE collections SET icon_ext = #{iconExt} WHERE id = #{id}")
-    int updateIconExt(@Param("id") long id, @Param("iconExt") String iconExt);
-
-    @Update("UPDATE collections SET download_root = #{downloadRoot} WHERE id = #{id}")
-    int updateDownloadRoot(@Param("id") long id, @Param("downloadRoot") String downloadRoot);
-
-    @Update("UPDATE collections SET sort_order = #{sortOrder} WHERE id = #{id}")
-    int updateSortOrder(@Param("id") long id, @Param("sortOrder") int sortOrder);
-
-    @Delete("DELETE FROM collections WHERE id = #{id}")
-    int deleteById(@Param("id") long id);
-
-    @Delete("DELETE FROM artwork_collections WHERE collection_id = #{id}")
-    int deleteArtworkLinksByCollection(@Param("id") long id);
-
-    @Insert("INSERT OR IGNORE INTO artwork_collections(collection_id, artwork_id, added_time)"
-            + " VALUES(#{collectionId}, #{artworkId}, #{addedTime})")
-    @Insert(value = "INSERT INTO artwork_collections(collection_id, artwork_id, added_time)"
-            + " VALUES(#{collectionId}, #{artworkId}, #{addedTime}) ON CONFLICT DO NOTHING", databaseId = "postgresql")
-    int addArtwork(@Param("collectionId") long collectionId,
-                   @Param("artworkId") long artworkId,
-                   @Param("addedTime") long addedTime);
-
-    @Delete("DELETE FROM artwork_collections"
-            + " WHERE collection_id = #{collectionId} AND artwork_id = #{artworkId}")
-    int removeArtwork(@Param("collectionId") long collectionId,
-                      @Param("artworkId") long artworkId);
-
-    @Delete("DELETE FROM artwork_collections WHERE artwork_id = #{artworkId}")
-    int removeAllArtworkLinks(@Param("artworkId") long artworkId);
-
-    @Select("SELECT collection_id FROM artwork_collections WHERE artwork_id = #{artworkId}")
-    List<Long> findCollectionIdsByArtwork(@Param("artworkId") long artworkId);
-
-    @Select({
-            "<script>",
-            "SELECT artwork_id AS \"artworkId\", collection_id AS \"collectionId\" FROM artwork_collections",
-            "WHERE artwork_id IN",
-            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
-            "</script>"
-    })
-    List<java.util.Map<String, Object>> findLinksByArtworks(@Param("ids") Collection<Long> artworkIds);
-
-    @Select({
-            "<script>",
-            "SELECT DISTINCT artwork_id FROM artwork_collections",
-            "WHERE collection_id IN",
-            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>",
-            "</script>"
-    })
-    List<Long> findArtworkIdsInCollections(@Param("ids") Collection<Long> collectionIds);
-
-    @Select("SELECT COUNT(*) FROM collections WHERE id = #{id}")
-    int countById(@Param("id") long id);
-
-    @Select("SELECT COUNT(*) FROM collections WHERE LOWER(name) = LOWER(#{name}) AND id <> #{excludeId}")
-    int countByNameExcludingId(@Param("name") String name, @Param("excludeId") long excludeId);
-
-    @Select("SELECT COUNT(*) FROM collections WHERE LOWER(name) = LOWER(#{name})")
-    int countByName(@Param("name") String name);
+    private int migrateTime(String table, String field) {
+        var time = column(table, field);
+        return database.transaction(s -> s.update(table, Map.of(field, call(MULTIPLY, time, value(1000))),
+                call(AND, call(GREATER, time, value(0)), call(LESS, time, value(1_000_000_000_000L)))));
+    }
+    public int migrateCollectionTimestampsToMillis() { return migrateTime(TABLE, "created_time"); }
+    public int migrateArtworkCollectionTimestampsToMillis() { return migrateTime(LINKS, "added_time"); }
+    private static Expression identity(long id) { return call(EQUAL, column(TABLE, "id"), value(id)); }
+    private List<top.sywyar.pixivdownload.collection.Collection> find(Expression where, int limit) {
+        var fields = new LinkedHashMap<String, Expression>();
+        for (String field : List.of("id", "name", "icon_ext", "download_root", "sort_order", "created_time"))
+            fields.put(field, column(TABLE, field));
+        fields.put("artwork_count", new Scalar(Query.count(LINKS,
+                call(EQUAL, column(LINKS, "collection_id"), column(TABLE, "id")))));
+        fields.put("novel_count", new Scalar(Query.count("novel_collections",
+                call(EQUAL, column("novel_collections", "collection_id"), column(TABLE, "id")))));
+        return database.read(s -> s.query(new Query(TABLE, fields, where, List.of(),
+                List.of(new Query.Order(column(TABLE, "sort_order"), false, true),
+                        new Query.Order(column(TABLE, "id"), false, true)), limit, 0))).stream()
+                .map(row -> new top.sywyar.pixivdownload.collection.Collection((Long) row.get("id"), (String) row.get("name"),
+                        (String) row.get("icon_ext"), (String) row.get("download_root"), number(row, "sort_order"),
+                        (Long) row.get("created_time"), number(row, "artwork_count"), number(row, "novel_count"))).toList();
+    }
+    private static int number(Map<String, Object> row, String name) {
+        return row.get(name) == null ? 0 : Math.toIntExact((Long) row.get(name));
+    }
+    public List<top.sywyar.pixivdownload.collection.Collection> findAll() { return find(null, Integer.MAX_VALUE); }
+    public top.sywyar.pixivdownload.collection.Collection findById(long id) {
+        return find(identity(id), 1).stream().findFirst().orElse(null);
+    }
+    public void insert(CollectionInsert insert) {
+        var row = new LinkedHashMap<String, Object>();
+        row.put("name", insert.getName()); row.put("icon_ext", insert.getIconExt());
+        row.put("download_root", insert.getDownloadRoot()); row.put("sort_order", insert.getSortOrder());
+        row.put("created_time", insert.getCreatedTime());
+        insert.setId(database.transaction(s -> s.insertGenerated(TABLE, row, "id")));
+    }
+    private int update(long id, String field, Object value) {
+        return database.transaction(s -> s.update(TABLE, Map.of(field, value(value)), identity(id)));
+    }
+    public int updateName(long id, String name) { return update(id, "name", name); }
+    public int updateIconExt(long id, String iconExt) { return update(id, "icon_ext", iconExt); }
+    public int updateDownloadRoot(long id, String downloadRoot) { return update(id, "download_root", downloadRoot); }
+    public int updateSortOrder(long id, int sortOrder) { return update(id, "sort_order", sortOrder); }
+    public int deleteById(long id) { return database.transaction(s -> s.delete(TABLE, identity(id))); }
+    public int deleteArtworkLinksByCollection(long id) {
+        return database.transaction(s -> s.delete(LINKS, call(EQUAL, column(LINKS, "collection_id"), value(id))));
+    }
+    public int addArtwork(long collectionId, long artworkId, long addedTime) {
+        return database.transaction(s -> s.insert(LINKS, Map.of("collection_id", collectionId, "artwork_id", artworkId,
+                "added_time", addedTime), DatabaseSession.Conflict.ignore()));
+    }
+    public int removeArtwork(long collectionId, long artworkId) {
+        return database.transaction(s -> s.delete(LINKS, call(AND,
+                call(EQUAL, column(LINKS, "collection_id"), value(collectionId)),
+                call(EQUAL, column(LINKS, "artwork_id"), value(artworkId)))));
+    }
+    public int removeAllArtworkLinks(long artworkId) {
+        return database.transaction(s -> s.delete(LINKS, call(EQUAL, column(LINKS, "artwork_id"), value(artworkId))));
+    }
+    public List<Long> findCollectionIdsByArtwork(long artworkId) {
+        return database.read(s -> s.query(new Query(LINKS, Map.of("id", column(LINKS, "collection_id")),
+                call(EQUAL, column(LINKS, "artwork_id"), value(artworkId)), List.of(), List.of(), Integer.MAX_VALUE, 0)))
+                .stream().map(row -> (Long) row.get("id")).toList();
+    }
+    private static Expression in(String field, java.util.Collection<Long> ids) {
+        var arguments = new ArrayList<Expression>();
+        arguments.add(column(LINKS, field)); ids.forEach(id -> arguments.add(value(id)));
+        return new Call(IN, arguments);
+    }
+    public List<Map<String, Object>> findLinksByArtworks(java.util.Collection<Long> artworkIds) {
+        if (artworkIds.isEmpty()) return List.of();
+        return database.read(s -> s.query(new Query(LINKS, Map.of("artwork_id", column(LINKS, "artwork_id"),
+                "collection_id", column(LINKS, "collection_id")), in("artwork_id", artworkIds),
+                List.of(), List.of(), Integer.MAX_VALUE, 0))).stream()
+                .map(row -> Map.<String, Object>of("artworkId", row.get("artwork_id"), "collectionId", row.get("collection_id"))).toList();
+    }
+    public List<Long> findArtworkIdsInCollections(java.util.Collection<Long> collectionIds) {
+        if (collectionIds.isEmpty()) return List.of();
+        return database.read(s -> s.query(new Query(new Query.Table(LINKS), List.of(),
+                Map.of("id", column(LINKS, "artwork_id")), in("collection_id", collectionIds),
+                List.of(), null, List.of(), true, Integer.MAX_VALUE, 0))).stream().map(row -> (Long) row.get("id")).toList();
+    }
+    private int count(Expression where) {
+        return Math.toIntExact((Long) database.read(s -> s.query(Query.count(TABLE, where))).get(0).get("count"));
+    }
+    public int countById(long id) { return count(identity(id)); }
+    public int countByNameExcludingId(String name, long excludeId) {
+        return count(call(AND, call(EQUAL, call(LOWER_ASCII, column(TABLE, "name")), call(LOWER_ASCII, value(name))),
+                call(NOT_EQUAL, column(TABLE, "id"), value(excludeId))));
+    }
+    public int countByName(String name) {
+        return count(call(EQUAL, call(LOWER_ASCII, column(TABLE, "name")), call(LOWER_ASCII, value(name))));
+    }
 }

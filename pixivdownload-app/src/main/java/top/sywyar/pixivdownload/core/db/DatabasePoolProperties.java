@@ -13,11 +13,14 @@ public class DatabasePoolProperties {
 
     private int maximumPoolSize = DEFAULT_MAXIMUM_POOL_SIZE;
     private String engine = "sqlite";
+    private String provider = "";
     private String jdbcUrl = "";
     private String username = "";
     private String password = "";
 
     public String getEngine() { return engine; }
+    public String getProvider() { return provider; }
+    public void setProvider(String provider) { this.provider = provider == null ? "" : provider.trim(); }
     public void setEngine(String engine) { this.engine = engine; }
     public String getJdbcUrl() { return jdbcUrl; }
     public void setJdbcUrl(String jdbcUrl) { this.jdbcUrl = jdbcUrl == null ? "" : jdbcUrl; }

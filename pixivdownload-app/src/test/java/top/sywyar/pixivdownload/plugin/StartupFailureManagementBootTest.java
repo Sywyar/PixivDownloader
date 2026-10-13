@@ -94,6 +94,7 @@ class StartupFailureManagementBootTest {
                     Files.createDirectories(data.getParent());
                     Files.writeString(data, "retained plugin data", StandardCharsets.UTF_8);
                 }
+                PluginTestProvenance.stageSqliteProvider(home.resolve("plugins"));
                 PluginTestProvenance.registerBootstrapSession(context, PluginEnabledSnapshot.empty(), PluginTestProvenance.verifier());
             } catch (Exception failure) { throw new IllegalStateException(failure); }
         }

@@ -57,7 +57,12 @@ public class ArtworksBackFill {
             printUsage();
             return;
         }
-        run(options);
+        var environment = DatabaseTarget.configurationEnvironment();
+        try (var plugins = top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap.openToolSession(environment)) {
+            var target = top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap.inspect(plugins, environment);
+            if (java.util.Arrays.asList(args).contains("--db")) target = target.withLocalFile(Path.of(options.dbPath()));
+            run(options.withTarget(target));
+        }
     }
 
     public static boolean supportsDatabaseColumn(String tableName, String columnName) {
@@ -123,6 +128,7 @@ public class ArtworksBackFill {
         }
 
         ObjectMapper mapper = new ObjectMapper();
+        database.requireAvailable();
         Path unreachablePath = RuntimeFiles.resolveBackfillUnreachablePath();
         ArtworksBackFillUnreachableStore unreachable = ArtworksBackFillUnreachableStore.load(
                 unreachablePath,
@@ -162,8 +168,10 @@ public class ArtworksBackFill {
             for (int i = 0; i < candidates.size(); i++) {
                 reportProgress(progress, i, candidates.size());
                 ArtworksBackFillDatabase.Candidate candidate = candidates.get(i);
+                database.requireAvailable();
                 ArtworksBackFillPixivClient.LookupResult result = pixivClient.query(candidate.artworkId());
                 reportProgress(progress, i, candidates.size());
+                database.requireAvailable();
                 String prefix = "[" + (i + 1) + "/" + candidates.size() + "] artwork="
                         + candidate.artworkId() + " missing=[" + describeMissing(candidate) + "]";
 
@@ -241,7 +249,7 @@ public class ArtworksBackFill {
                         if (!alreadyKnown) {
                             newlyUnreachable++;
                         }
-                        persistUnreachable(unreachable, unreachablePath);
+                        persistUnreachable(database, unreachable, unreachablePath);
                     }
                     case SKIP -> {
                         log.info(logMessage("artworks-backfill.log.skip", prefix, result.message));
@@ -256,7 +264,7 @@ public class ArtworksBackFill {
                         if (options.dryRun()) {
                             log.info(logMessage("artworks-backfill.log.dry-run"));
                         }
-                        persistUnreachable(unreachable, unreachablePath);
+                        persistUnreachable(database, unreachable, unreachablePath);
                         Summary summary = new Summary(
                                 candidates.size(),
                                 i,
@@ -284,7 +292,7 @@ public class ArtworksBackFill {
                 }
             }
 
-            persistUnreachable(unreachable, unreachablePath);
+            persistUnreachable(database, unreachable, unreachablePath);
             Summary summary = new Summary(
                     candidates.size(),
                     candidates.size(),
@@ -312,7 +320,9 @@ public class ArtworksBackFill {
         progress.accept(processed, total);
     }
 
-    private static void persistUnreachable(ArtworksBackFillUnreachableStore store, Path path) {
+    private static void persistUnreachable(ArtworksBackFillDatabase database,
+                                           ArtworksBackFillUnreachableStore store, Path path) throws java.sql.SQLException {
+        database.requireAvailable();
         try {
             store.save();
         } catch (IOException e) {
@@ -371,7 +381,7 @@ public class ArtworksBackFill {
         public Options(String dbPath, String proxyHost, int proxyPort, boolean useProxy,
                        long delayMs, int limit, boolean dryRun) {
             this(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun,
-                    DatabaseTarget.sqlite(Path.of(dbPath)));
+                    DatabaseTarget.unavailable());
         }
 
         public Options withTarget(DatabaseTarget databaseTarget) {
@@ -381,7 +391,7 @@ public class ArtworksBackFill {
 
         public static Options defaults() {
             return new Options(
-                    RuntimeFiles.dataDirectory().resolve(RuntimeFiles.PIXIV_DOWNLOAD_DB).toString(),
+                    "DATABASE_UNAVAILABLE",
                     "127.0.0.1",
                     7890,
                     true,
@@ -419,12 +429,7 @@ public class ArtworksBackFill {
                 }
             }
             Options options = new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun);
-            if (java.util.Arrays.asList(args).contains("--db")) return options;
-            try {
-                return options.withTarget(DatabaseTarget.fromConfiguration());
-            } catch (IOException failure) {
-                throw new IllegalArgumentException(failure.getMessage(), failure);
-            }
+            return options;
         }
 
         private static String requireValue(String[] args, int index, String option) {

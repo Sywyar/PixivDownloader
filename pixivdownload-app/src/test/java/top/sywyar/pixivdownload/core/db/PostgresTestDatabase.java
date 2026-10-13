@@ -11,6 +11,7 @@ public final class PostgresTestDatabase implements AutoCloseable {
     private final Connection admin;
     private final HikariDataSource pool;
     private final DatabasePoolProperties properties;
+    private final DatabaseTarget target;
 
     public PostgresTestDatabase() throws Exception {
         String url = System.getenv("PIXIV_TEST_POSTGRES_URL");
@@ -26,7 +27,8 @@ public final class PostgresTestDatabase implements AutoCloseable {
         properties.setUsername(username);
         properties.setPassword(password);
         try {
-            pool = DatabaseTarget.resolve(properties, "unused").openPool(DatabasePoolProperties.MINIMUM_POOL_SIZE);
+            target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(properties, "unused");
+            pool = target.openPool(DatabasePoolProperties.MINIMUM_POOL_SIZE);
         } catch (Exception failure) {
             try (admin; var statement = admin.createStatement()) {
                 statement.execute("DROP SCHEMA " + schema + " CASCADE");
@@ -41,7 +43,7 @@ public final class PostgresTestDatabase implements AutoCloseable {
     public DatabasePoolProperties properties() { return properties; }
 
     public org.springframework.jdbc.support.JdbcTransactionManager transactionManager() {
-        return new DatabaseConfig(null, null, null).transactionManager(pool);
+        return new DatabaseConfig(null, null, null).transactionManager(pool, target);
     }
 
     @Override

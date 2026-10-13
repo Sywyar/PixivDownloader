@@ -171,6 +171,7 @@ final class DesktopConfigurationView {
                 orderedGroups,
                 Set.of(
                         GuiConfigGroups.SERVER,
+                        GuiConfigGroups.DATABASE,
                         GuiConfigGroups.PROXY,
                         GuiConfigGroups.HTTPS,
                         GuiConfigGroups.UPDATE
@@ -231,7 +232,8 @@ final class DesktopConfigurationView {
         int pendingChanges = model.pendingConfigurationChangeCount();
         List<DesktopUiNode> actions = new ArrayList<>();
         nextActions.put("config.save", model::saveConfiguration);
-        actions.add(new DesktopUiNode.Button("config.save", "config.save", key("gui.button.save"), null,
+        actions.add(new DesktopUiNode.Button("config.save", "config.save", key(model.databaseChanged()
+                ? "gui.config.database.migrate" : "gui.button.save"), null,
                 ButtonStyle.PRIMARY, !owner.busy() && pendingChanges > 0));
         if (pendingChanges > 0) {
             actions.add(new DesktopUiNode.Text("settings.unsaved-count",
@@ -267,6 +269,7 @@ final class DesktopConfigurationView {
         return Set.of(
                 GuiConfigGroups.DOWNLOAD,
                 GuiConfigGroups.SERVER,
+                GuiConfigGroups.DATABASE,
                 GuiConfigGroups.PROXY,
                 GuiConfigGroups.HTTPS,
                 GuiConfigGroups.UPDATE,
@@ -536,6 +539,9 @@ final class DesktopConfigurationView {
         }
         if (GuiConfigGroups.PLUGINS.equals(group.groupId())) {
             nodes.add(repositories.section(nextActions));
+        }
+        if (GuiConfigGroups.DATABASE.equals(group.groupId())) {
+            nodes.addAll(model.database.nodes(nextActions));
         }
         return nodes;
     }

@@ -41,10 +41,11 @@ public final class PluginTestProvenance {
     private static final String PUBLISHER = "App External Plugin Tests";
     private static final String TRUST_LABEL = "App Test Trust";
     private static final KeyPair KEY_PAIR = createKeyPair();
-    private static final PluginSupplyChainVerifier VERIFIER = new PluginSupplyChainVerifier(PluginTrustStores.of(
-            List.of(new TrustedPluginKey(KEY_ID, SignatureMetadata.ED25519,
-                    Base64.getEncoder().encodeToString(KEY_PAIR.getPublic().getEncoded()),
-                    TrustedPluginKey.State.ACTIVE, PUBLISHER, TRUST_LABEL, true))));
+    private static final TrustedPluginKey TRUSTED_KEY = new TrustedPluginKey(KEY_ID, SignatureMetadata.ED25519,
+            Base64.getEncoder().encodeToString(KEY_PAIR.getPublic().getEncoded()),
+            TrustedPluginKey.State.ACTIVE, PUBLISHER, TRUST_LABEL, true);
+    private static final PluginSupplyChainVerifier VERIFIER =
+            new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(TRUSTED_KEY)));
 
     private PluginTestProvenance() {
     }
@@ -84,6 +85,40 @@ public final class PluginTestProvenance {
 
     public static PluginSupplyChainVerifier verifier() {
         return VERIFIER;
+    }
+
+    public static PluginSupplyChainVerifier verifierWith(TrustedPluginKey key) {
+        return new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(TRUSTED_KEY, key)));
+    }
+
+    /** 为需要真实存储的启动夹具打包当前 SQLite classes 与私有驱动，并沿用测试签名。 */
+    public static void stageSqliteProvider(Path pluginsDir) throws IOException {
+        Path classes = Path.of(java.util.Objects.requireNonNull(
+                System.getProperty("database-sqlite.plugin.classes"), "database-sqlite.plugin.classes"));
+        if (!Files.isRegularFile(classes.resolve("plugin.properties"))) {
+            throw new IOException("SQLite provider classes are missing");
+        }
+        Files.createDirectories(pluginsDir);
+        Path artifact = pluginsDir.resolve("database-sqlite-plugin.jar");
+        try (var files = Files.walk(classes);
+             var zip = new java.util.zip.ZipOutputStream(Files.newOutputStream(artifact))) {
+            for (Path file : files.filter(Files::isRegularFile).sorted().toList()) {
+                zip.putNextEntry(new java.util.zip.ZipEntry(classes.relativize(file).toString().replace('\\', '/')));
+                Files.copy(file, zip);
+                zip.closeEntry();
+            }
+        }
+        writeVerifiedLocalUpload(pluginsDir, artifact);
+    }
+
+    public static final class VerifiedLocalSqliteBootstrapInitializer
+            implements ApplicationContextInitializer<ConfigurableApplicationContext> {
+        @Override
+        public void initialize(ConfigurableApplicationContext context) {
+            try { stageSqliteProvider(RuntimeFiles.pluginsDirectory()); }
+            catch (IOException failure) { throw new java.io.UncheckedIOException(failure); }
+            registerBootstrapSession(context, PluginEnabledSnapshot.empty());
+        }
     }
 
     public static final class VerifiedLocalPluginBootstrapInitializer

@@ -41,6 +41,234 @@ class ConfigPanelRestartTest {
 
     @TempDir
     Path tempDir;
+    private top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings databaseSettings;
+
+    @Test
+    @DisplayName("地址与凭据按声明联动，切回本地库和重新加载均隐藏字段")
+    void connectionFieldsFollowSelectionAndReload() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            var config = installHost(Map.of("database.provider", "remote"),
+                    new DesktopUiHost.UiLocale("en-US", "English", ""));
+            String group = "Database";
+            var specs = new java.util.ArrayList<ConfigFieldSpec>();
+            specs.add(ConfigFieldSpec.builder("database.provider", "Provider", FieldType.ENUM, group)
+                    .enumValues("file", "remote").build());
+            for (String key : List.of("jdbc-url", "username", "password")) {
+                specs.add(ConfigFieldSpec.builder("database." + key, key,
+                                key.equals("password") ? FieldType.PASSWORD : FieldType.STRING, group)
+                        .visibleWhen(snapshot -> snapshot.equals("database.provider", "remote")).build());
+            }
+            var panel = new ConfigPanel(tempDir.resolve("config.yaml"), 6999, path -> path,
+                    new ConfigFieldSnapshot(List.of(group), specs, List.of()), null, null, new LinkedHashMap<>());
+            assertThat(fieldRow(panel, "jdbc-url").isVisible()).isTrue();
+            panel.setFieldValue("database.jdbc-url", "draft-target");
+            panel.setFieldValue("database.provider", "file");
+            for (String key : List.of("jdbc-url", "username", "password"))
+                assertThat(fieldRow(panel, key).isVisible()).isFalse();
+            panel.setFieldValue("database.provider", "remote");
+            assertThat(fieldRow(panel, "jdbc-url").isVisible()).isTrue();
+            assertThat(panel.currentFieldValue("database.jdbc-url")).isEqualTo("draft-target");
+            config.values.put("database.provider", "file");
+            panel.reloadFromDisk();
+            assertThat(fieldRow(panel, "jdbc-url").isVisible()).isFalse();
+        });
+    }
+
+    private static Container fieldRow(Container root, String labelText) {
+        for (Component child : root.getComponents()) {
+            if (child instanceof JComponent component
+                    && ("database." + labelText).equals(component.getClientProperty("pixivdownload.guiConfig.fieldRowKey")))
+                return component;
+            if (child instanceof Container container) {
+                var found = fieldRow(container, labelText);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    @Test
+    @DisplayName("保存按钮仅在数据库草稿变化时切换动作，撤销编辑恢复保存")
+    void databaseSaveLabelFollowsDraft() throws Exception {
+        databaseSettings = new top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings() {
+            public List<ProviderChoice> providers() { return List.of(); }
+            public Map<String, String> prepare(Map<String, String> values) { throw new AssertionError(); }
+            public CheckResult check(Map<String, String> values) { throw new AssertionError(); }
+            public State state() { return new State("", "", List.of(), false); }
+            public java.net.URI migrationGuide() { return java.net.URI.create("https://example.invalid/guide"); }
+        };
+        SwingUtilities.invokeAndWait(() -> {
+            installHost(Map.of("database.jdbc-url", "saved-target"));
+            var group = top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups.DATABASE;
+            var field = ConfigFieldSpec.builder("database.jdbc-url", "URL", FieldType.STRING, group).build();
+            var panel = new ConfigPanel(tempDir.resolve("config.yaml"), 6999, path -> path,
+                    ConfigFieldSnapshot.withGroupSpecs(List.of(new top.sywyar.pixivdownload.gui.config.ConfigGroupSpec(
+                            group, group, 0, true)), List.of(field), List.of(), List.of()), null, null,
+                    () -> false, () -> false, () -> false, () -> false);
+            var save = findButton(panel, GuiMessages.get("gui.button.save"));
+            panel.setFieldValue("database.jdbc-url", "draft-target");
+            assertThat(save.getText()).isEqualTo("gui.config.database.migrate");
+            panel.setFieldValue("database.jdbc-url", "saved-target");
+            assertThat(save.getText()).isEqualTo(GuiMessages.get("gui.button.save"));
+            panel.reloadFromDisk();
+            assertThat(save.getText()).isEqualTo(GuiMessages.get("gui.button.save"));
+        });
+    }
+
+    @Test
+    @DisplayName("迁移核验不占用 EDT，新草稿不被覆盖，宿主派生键随重试保存")
+    void preparesDatabaseSettingsInBackground() throws Exception {
+        var started = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var finished = new java.util.concurrent.CountDownLatch(1);
+        var onEdt = new java.util.concurrent.atomic.AtomicBoolean(true);
+        databaseSettings = new top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings() {
+            @Override public List<ProviderChoice> providers() { return List.of(); }
+            @Override public Map<String, String> prepare(Map<String, String> values) throws java.io.IOException {
+                onEdt.set(SwingUtilities.isEventDispatchThread());
+                started.countDown();
+                try {
+                    if (!release.await(10, java.util.concurrent.TimeUnit.SECONDS)) throw new java.io.IOException("fixture timed out");
+                } catch (InterruptedException failure) { throw new java.io.IOException(failure); }
+                var prepared = new LinkedHashMap<>(values);
+                prepared.put("database.engine", "postgresql");
+                return prepared;
+            }
+            @Override public CheckResult check(Map<String, String> values) { throw new AssertionError(); }
+            @Override public State state() { return new State("", "", List.of(), false); }
+            @Override public java.net.URI migrationGuide() { return java.net.URI.create("https://example.test/guide"); }
+        };
+        var panel = new java.util.concurrent.atomic.AtomicReference<ConfigPanel>();
+        var file = new java.util.concurrent.atomic.AtomicReference<MemoryConfigFile>();
+        SwingUtilities.invokeAndWait(() -> {
+            file.set(installHost(Map.of("database.username", "original")));
+            var field = ConfigFieldSpec.builder("database.username", "Username", FieldType.STRING, "Database")
+                    .effect(GuiConfigEffect.PROCESS_RESTART).build();
+            panel.set(new ConfigPanel(tempDir.resolve("config.yaml"), 6999, path -> path,
+                    new ConfigFieldSnapshot(List.of("Database"), List.of(field), List.of()), null, null,
+                    () -> false, () -> false, () -> false, () -> false));
+            var save = findButton(panel.get(), GuiMessages.get("gui.button.save"));
+            save.addPropertyChangeListener("enabled", change -> {
+                if (Boolean.TRUE.equals(change.getNewValue())) finished.countDown();
+            });
+            panel.get().setFieldValue("database.username", "first draft");
+            save.doClick();
+        });
+        try {
+            assertThat(started.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(onEdt).isFalse();
+            SwingUtilities.invokeAndWait(() -> {
+                assertThat(findButton(panel.get(), GuiMessages.get("gui.button.save")).isEnabled()).isFalse();
+                panel.get().setFieldValue("database.username", "new draft");
+                assertThat(file.get().writes).isZero();
+            });
+        } finally { release.countDown(); }
+        assertThat(finished.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        var saved = new java.util.concurrent.CountDownLatch(1);
+        SwingUtilities.invokeAndWait(() -> {
+            assertThat(file.get().values).containsEntry("database.username", "original");
+            assertThat(panel.get().currentFieldValue("database.username")).isEqualTo("new draft");
+            var save = findButton(panel.get(), GuiMessages.get("gui.button.save"));
+            save.addPropertyChangeListener("enabled", change -> {
+                if (Boolean.TRUE.equals(change.getNewValue())) saved.countDown();
+            });
+            save.doClick();
+        });
+        assertThat(saved.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        SwingUtilities.invokeAndWait(() -> assertThat(file.get().values)
+                .containsEntry("database.username", "new draft")
+                .containsEntry("database.engine", "postgresql"));
+    }
+
+    @Test
+    @DisplayName("市场在 Swing 预检后更新密码，空输入保存保留锁内最新秘密且不占用 EDT")
+    void passwordKeepDoesNotRestoreConcurrentOldSecret() throws Exception {
+        var prepared = new java.util.concurrent.CountDownLatch(1);
+        var resume = new java.util.concurrent.CountDownLatch(1);
+        var saved = new java.util.concurrent.CountDownLatch(1);
+        var file = new java.util.concurrent.atomic.AtomicReference<MemoryConfigFile>();
+        var calls = new AtomicInteger();
+        databaseSettings = new top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings() {
+            public List<ProviderChoice> providers() { return List.of(); }
+            public Map<String, String> prepare(Map<String, String> values) throws java.io.IOException {
+                assertThat(SwingUtilities.isEventDispatchThread()).isFalse();
+                var result = new LinkedHashMap<>(values);
+                assertThat(result).doesNotContainKey("database.password");
+                result.put("database.password", file.get().values.get("database.password"));
+                if (calls.incrementAndGet() == 1) {
+                    prepared.countDown();
+                    try {
+                        if (!resume.await(10, java.util.concurrent.TimeUnit.SECONDS)) throw new java.io.IOException("fixture timed out");
+                    } catch (InterruptedException failure) { throw new java.io.IOException(failure); }
+                } else assertThat(Thread.holdsLock(file.get())).isTrue();
+                return result;
+            }
+            public CheckResult check(Map<String, String> values) { throw new AssertionError(); }
+            public State state() { return new State("", "", List.of(), false); }
+            public java.net.URI migrationGuide() { return java.net.URI.create("https://example.invalid/guide"); }
+        };
+        SwingUtilities.invokeAndWait(() -> {
+            file.set(installHost(Map.of("database.username", "before", "database.password", "old-secret")));
+            var fields = List.of(
+                    ConfigFieldSpec.builder("database.username", "Username", FieldType.STRING, "Database").build(),
+                    ConfigFieldSpec.builder("database.password", "Password", FieldType.PASSWORD, "Database").build());
+            var panel = new ConfigPanel(tempDir.resolve("config.yaml"), 6999, path -> path,
+                    new ConfigFieldSnapshot(List.of("Database"), fields, List.of()), null, null,
+                    () -> false, () -> false, () -> false, () -> false);
+            panel.setFieldValue("database.username", "after");
+            var save = findButton(panel, GuiMessages.get("gui.button.save"));
+            save.addPropertyChangeListener("enabled", change -> {
+                if (Boolean.TRUE.equals(change.getNewValue())) saved.countDown();
+            });
+            save.doClick();
+        });
+        try {
+            assertThat(prepared.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            file.get().withWriteLock(() -> file.get().writeAll(Map.of("database.password", "market-secret")));
+        } finally { resume.countDown(); }
+        assertThat(saved.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        assertThat(calls).hasValue(2);
+        assertThat(file.get().values).containsEntry("database.password", "market-secret").containsEntry("database.username", "after");
+        assertThat(file.get().writesOnEdt).isFalse();
+    }
+
+    @Test
+    @DisplayName("后台停止时主库密码不回填，编辑保留空格，清除只在保存后生效且要求进程重启")
+    void savesCoreDatabasePasswordWithoutEchoingIt() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            MemoryConfigFile config = installHost(Map.of("database.username", "before", "database.password", "stored-secret"));
+            AtomicInteger processRestarts = new AtomicInteger();
+            AtomicInteger backendRestarts = new AtomicInteger();
+            var fields = List.of(
+                    ConfigFieldSpec.builder("database.username", "Username", FieldType.STRING, "Database")
+                            .effect(GuiConfigEffect.PROCESS_RESTART).build(),
+                    ConfigFieldSpec.builder("database.password", "Password", FieldType.PASSWORD, "Database")
+                            .effect(GuiConfigEffect.PROCESS_RESTART).build());
+            ConfigPanel panel = new ConfigPanel(tempDir.resolve("config.yaml"), 6999, path -> path,
+                    new ConfigFieldSnapshot(List.of("Database"), fields, List.of()), null, null,
+                    () -> { backendRestarts.incrementAndGet(); return false; }, () -> false,
+                    () -> { processRestarts.incrementAndGet(); return false; }, () -> false);
+            assertThat(panel.currentFieldValue("database.password")).isEmpty();
+            panel.setFieldValue("database.username", "after");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.values).containsEntry("database.password", "stored-secret");
+            panel.setFieldValue("database.password", " spaced secret ");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.values).containsEntry("database.password", " spaced secret ");
+            assertThat(panel.currentFieldValue("database.password")).isEmpty();
+            panel.setFieldValue("database.password", "spaced secret");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(processRestarts).hasValue(3);
+            panel.setFieldValue("database.password", "   ");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            panel.requestCredentialClear("database.password");
+            assertThat(config.values).containsEntry("database.password", "   ");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.values).containsEntry("database.password", "");
+            assertThat(processRestarts).hasValue(5);
+            assertThat(backendRestarts).hasValue(0);
+        });
+    }
 
     @Test
     @DisplayName("凭据必填识别新输入和已存值，显式清除或外部删除后拒绝保存")
@@ -500,6 +728,7 @@ class ConfigPanelRestartTest {
                 new Class<?>[]{DesktopUiHost.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "applicationConfig" -> config;
+                    case "databaseSettings" -> Optional.ofNullable(databaseSettings);
                     case "pluginConfig" -> plugin == null ? config : plugin;
                     case "coreConfigGroups", "coreConfigFields" -> List.of();
                     case "visibleLocales" -> List.of(locale);
@@ -569,6 +798,7 @@ class ConfigPanelRestartTest {
     }
 
     private static Object defaultValue(Class<?> type) {
+        if (type == Optional.class) return Optional.empty();
         if (!type.isPrimitive()) return null;
         if (type == boolean.class) return false;
         if (type == char.class) return '\0';
@@ -608,6 +838,7 @@ class ConfigPanelRestartTest {
     private static final class MemoryConfigFile implements DesktopUiHost.ConfigFile {
         private final Map<String, String> values = new LinkedHashMap<>();
         private int writes;
+        private boolean writesOnEdt;
 
         private MemoryConfigFile(Map<String, String> values) {
             this.values.putAll(values);
@@ -624,6 +855,7 @@ class ConfigPanelRestartTest {
 
         @Override public void writeAll(Map<String, String> updates) {
             writes++;
+            writesOnEdt |= SwingUtilities.isEventDispatchThread();
             values.putAll(updates);
         }
         @Override public void removeAll(Collection<String> keys) { keys.forEach(values::remove); }

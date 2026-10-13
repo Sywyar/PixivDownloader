@@ -29,6 +29,18 @@ import static org.mockito.Mockito.when;
 @DisplayName("ScheduleRunner 宿主 owner 租约")
 class ScheduleRunnerLeaseTest {
 
+    @Test
+    @DisplayName("无库时不恢复 claim、不读取待执行任务，也不请求插件租约")
+    void unavailableDatabaseDoesNotTouchPersistentStateOrPlugins() {
+        var store = mock(ScheduledTaskStore.class);
+        var executor = mock(ScheduleExecutor.class);
+        var registry = mock(top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess.class);
+        var runner = new ScheduleRunner(store, executor, new ScheduleConfig(), new ScheduleRunState(),
+                registry, HOST_IDENTITY, () -> false);
+        runner.tick();
+        org.mockito.Mockito.verifyNoInteractions(store, executor, registry);
+    }
+
     private static final ScheduleHostIdentity HOST_IDENTITY = new ScheduleHostIdentity(
             ScheduleCapabilityTestFixture.DOWNLOAD_WORKBENCH_OWNER.featurePluginId());
 
@@ -42,7 +54,7 @@ class ScheduleRunnerLeaseTest {
                 new ScheduleConfig(),
                 new ScheduleRunState(),
                 new FakeScheduleCapabilityAccess(),
-                HOST_IDENTITY);
+                HOST_IDENTITY, () -> true);
 
         runner.tick();
 
@@ -68,7 +80,7 @@ class ScheduleRunnerLeaseTest {
                 new ScheduleConfig(),
                 new ScheduleRunState(),
                 registry,
-                HOST_IDENTITY);
+                HOST_IDENTITY, () -> true);
         Thread tick = new Thread(runner::tick, "schedule-runner-lease-test");
         tick.start();
         try {
@@ -106,7 +118,7 @@ class ScheduleRunnerLeaseTest {
         FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
-                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY);
+                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY, () -> true);
 
         runner.tick();
 
@@ -147,7 +159,7 @@ class ScheduleRunnerLeaseTest {
         FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
-                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY);
+                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY, () -> true);
 
         runner.tick();
 
@@ -183,7 +195,7 @@ class ScheduleRunnerLeaseTest {
                     return Optional.of(queuedToken);
                 });
         ScheduleRunner runner = new ScheduleRunner(
-                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY);
+                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY, () -> true);
 
         runner.tick();
 
@@ -269,7 +281,7 @@ class ScheduleRunnerLeaseTest {
             }
         };
         ScheduleRunner runner = new ScheduleRunner(
-                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY);
+                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY, () -> true);
 
         runner.tick();
 
@@ -298,7 +310,7 @@ class ScheduleRunnerLeaseTest {
         FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         ScheduleCapabilityTestFixture.publishDownloadWorkbench(registry);
         ScheduleRunner runner = new ScheduleRunner(
-                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY);
+                store, executor, new ScheduleConfig(), runState, registry, HOST_IDENTITY, () -> true);
 
         runner.tick();
 

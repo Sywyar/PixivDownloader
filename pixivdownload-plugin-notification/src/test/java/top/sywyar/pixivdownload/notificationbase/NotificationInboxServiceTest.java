@@ -31,7 +31,7 @@ class NotificationInboxServiceTest {
     @DisplayName("公告与调查共用受控分类和安全链接模型")
     void publishesAnnouncementAndSurveyWithSafeLinks() {
         MemoryMapper mapper = new MemoryMapper();
-        NotificationInboxService service = new NotificationInboxService(mapper);
+        NotificationInboxService service = new NotificationInboxService(mapper, () -> true);
 
         NotificationMessage announcement = service.publish(
                 NotificationCategory.ANNOUNCEMENT, NotificationSeverity.INFO, null,
@@ -50,7 +50,7 @@ class NotificationInboxServiceTest {
     @Test
     @DisplayName("危险或非规范链接在持久化前被拒绝")
     void rejectsUnsafeActionUrls() {
-        NotificationInboxService service = new NotificationInboxService(new MemoryMapper());
+        NotificationInboxService service = new NotificationInboxService(new MemoryMapper(), () -> true);
 
         for (String url : List.of("javascript:alert(1)", "//evil.example/path", "/a/../admin", "file:///tmp/x")) {
             assertThatThrownBy(() -> service.publish(
@@ -64,7 +64,7 @@ class NotificationInboxServiceTest {
     @Test
     @DisplayName("公告与调查复用本地 HTML 对象且远程来源受固定项目约束")
     void storesReusableHtmlContentFromControlledSources() {
-        NotificationInboxService service = new NotificationInboxService(new MemoryMapper());
+        NotificationInboxService service = new NotificationInboxService(new MemoryMapper(), () -> true);
 
         NotificationMessage message = service.publishHtml(
                 NotificationCategory.SURVEY, NotificationSeverity.INFO, null,
@@ -100,7 +100,7 @@ class NotificationInboxServiceTest {
     @DisplayName("读取时隐藏数据库中被篡改的远程正文地址")
     void hidesTamperedStoredContentUrl() {
         MemoryMapper mapper = new MemoryMapper();
-        NotificationInboxService service = new NotificationInboxService(mapper);
+        NotificationInboxService service = new NotificationInboxService(mapper, () -> true);
         mapper.insert(new NotificationMessage(
                 "tampered", "announcement", "INFO", null, "Title", "Body",
                 "https://evil.example/a.html", "<!doctype html><p>Tampered</p>", null, 1, null));
@@ -118,7 +118,7 @@ class NotificationInboxServiceTest {
     @DisplayName("已读标记幂等并更新未读数量")
     void marksMessageReadIdempotently() {
         MemoryMapper mapper = new MemoryMapper();
-        NotificationInboxService service = new NotificationInboxService(mapper);
+        NotificationInboxService service = new NotificationInboxService(mapper, () -> true);
         NotificationMessage created = service.publish(
                 NotificationCategory.SYSTEM, NotificationSeverity.WARNING, null,
                 "Notice", "Body", null);
@@ -135,7 +135,7 @@ class NotificationInboxServiceTest {
     @DisplayName("远程公告刷新主元数据和翻译时保留发布时间与已读状态")
     void refreshesRemoteAnnouncementWithoutResettingLocalState() {
         MemoryMapper mapper = new MemoryMapper();
-        NotificationInboxService service = new NotificationInboxService(mapper);
+        NotificationInboxService service = new NotificationInboxService(mapper, () -> true);
         List<RemoteAnnouncementTranslation> initial = List.of(
                 new RemoteAnnouncementTranslation(
                         "en-US", "Initial", "Initial body", CONTENT_URL,
@@ -174,7 +174,7 @@ class NotificationInboxServiceTest {
     @DisplayName("远程公告稳定编号不允许改变发布时间")
     void rejectsRemoteAnnouncementPublishedTimeChanges() {
         MemoryMapper mapper = new MemoryMapper();
-        NotificationInboxService service = new NotificationInboxService(mapper);
+        NotificationInboxService service = new NotificationInboxService(mapper, () -> true);
         List<RemoteAnnouncementTranslation> translations = List.of(new RemoteAnnouncementTranslation(
                 "en-US", "Title", "Body", CONTENT_URL,
                 "0".repeat(64), "<!doctype html><p>Body</p>"));
@@ -198,7 +198,7 @@ class NotificationInboxServiceTest {
     @DisplayName("显式删除远程公告后同一稳定编号不会被重新拉取复活")
     void keepsRemoteAnnouncementDismissedAcrossRefetch() {
         MemoryMapper mapper = new MemoryMapper();
-        NotificationInboxService service = new NotificationInboxService(mapper);
+        NotificationInboxService service = new NotificationInboxService(mapper, () -> true);
         List<RemoteAnnouncementTranslation> firstTranslations = List.of(new RemoteAnnouncementTranslation(
                 "en-US", "Title", "Body", CONTENT_URL,
                 "0".repeat(64), "<!doctype html><p>First</p>"));
@@ -225,7 +225,7 @@ class NotificationInboxServiceTest {
         MemoryMapper mapper = new MemoryMapper();
         AtomicReference<List<WebUiSlotContribution>> slots = new AtomicReference<>(List.of(surveySlot()));
         NotificationInboxService service = new NotificationInboxService(
-                mapper, () -> 500, () -> 90, slots::get,
+                mapper, () -> true, () -> 500, () -> 90, slots::get,
                 (namespace, locale, key) -> java.util.Optional.of(
                         ("en".equals(locale.getLanguage()) ? "EN " : "ZH ") + key),
                 locale -> locale);
@@ -261,7 +261,7 @@ class NotificationInboxServiceTest {
         MemoryMapper mapper = new MemoryMapper();
         AtomicReference<List<WebUiSlotContribution>> slots = new AtomicReference<>(List.of(surveySlot()));
         NotificationInboxService service = new NotificationInboxService(
-                mapper, () -> 500, () -> 90, slots::get,
+                mapper, () -> true, () -> 500, () -> 90, slots::get,
                 (namespace, locale, key) -> java.util.Optional.empty(), locale -> locale);
         String id = "persistent-survey:download-workbench.layout-survey:instance-a";
 
@@ -285,7 +285,7 @@ class NotificationInboxServiceTest {
         AtomicReference<List<WebUiSlotContribution>> slots = new AtomicReference<>(List.of(
                 surveySlot("instance-a", "/pixiv-layout-feedback/embed.html?pixivBridgeGet=/api/old")));
         NotificationInboxService service = new NotificationInboxService(
-                mapper, () -> 500, () -> 90, slots::get,
+                mapper, () -> true, () -> 500, () -> 90, slots::get,
                 (namespace, locale, key) -> java.util.Optional.empty(), locale -> locale);
         String id = "persistent-survey:download-workbench.layout-survey:instance-a";
         NotificationMessage read = service.markRead(id);
@@ -306,7 +306,7 @@ class NotificationInboxServiceTest {
     void tombstonesUnavailablePersistentSurvey() {
         MemoryMapper mapper = new MemoryMapper();
         NotificationInboxService service = new NotificationInboxService(
-                mapper, () -> 500, () -> 90, () -> List.of(surveySlot()),
+                mapper, () -> true, () -> 500, () -> 90, () -> List.of(surveySlot()),
                 (namespace, locale, key) -> java.util.Optional.empty(), locale -> locale);
         String id = "persistent-survey:download-workbench.layout-survey:instance-a";
 
@@ -317,7 +317,7 @@ class NotificationInboxServiceTest {
         assertThat(service.find(id)).isNull();
 
         new NotificationInboxService(
-                mapper, () -> 500, () -> 90, () -> List.of(surveySlot()),
+                mapper, () -> true, () -> 500, () -> 90, () -> List.of(surveySlot()),
                 (namespace, locale, key) -> java.util.Optional.empty(), locale -> locale);
         assertThat(mapper.findById(id)).isNull();
     }
@@ -329,7 +329,7 @@ class NotificationInboxServiceTest {
         AtomicReference<List<WebUiSlotContribution>> slots =
                 new AtomicReference<>(List.of(surveySlot("instance-a")));
         NotificationInboxService service = new NotificationInboxService(
-                mapper, () -> 500, () -> 90, slots::get,
+                mapper, () -> true, () -> 500, () -> 90, slots::get,
                 (namespace, locale, key) -> java.util.Optional.empty(), locale -> locale);
         String oldId = "persistent-survey:download-workbench.layout-survey:instance-a";
         String newId = "persistent-survey:download-workbench.layout-survey:instance-b";
@@ -364,7 +364,7 @@ class NotificationInboxServiceTest {
         logger.addAppender(appender);
         try {
             new NotificationInboxService(
-                    mapper, () -> 500, () -> 90, () -> List.of(unsafe),
+                    mapper, () -> true, () -> 500, () -> 90, () -> List.of(unsafe),
                     (namespace, locale, key) -> java.util.Optional.empty(), locale -> locale);
 
             assertThat(mapper.messages).isEmpty();
@@ -382,7 +382,7 @@ class NotificationInboxServiceTest {
     @DisplayName("写入下载或系统消息后立即限制共享保留池")
     void prunesSharedPoolAfterPublish() {
         MemoryMapper mapper = new MemoryMapper();
-        NotificationInboxService service = new NotificationInboxService(mapper, () -> 2, () -> 90);
+        NotificationInboxService service = new NotificationInboxService(mapper, () -> true, () -> 2, () -> 90);
 
         service.publish(NotificationCategory.ANNOUNCEMENT, NotificationSeverity.INFO, null,
                 "Announcement", "Body", null);

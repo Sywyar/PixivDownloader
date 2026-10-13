@@ -58,17 +58,16 @@ class PathPrefixStartupMigrationEventTest {
         Environment env = new Environment("test", new JdbcTransactionFactory(), dataSource);
         Configuration config = new Configuration(env);
         config.setMapUnderscoreToCamelCase(true);
-        config.addMapper(PathPrefixMapper.class);
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
         sqlSession = factory.openSession(true);
 
         DatabaseSchemaRegistry registry = DatabaseSchemaRegistry.forBuiltInPlugins();
-        new DatabaseInitializer(new JdbcTemplate(dataSource),
+        top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(new JdbcTemplate(dataSource),
                 registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {}).initialize();
 
         // 默认相对 root → 符号根启用，migrate() 运行后必然写出 marker（可观察效果）
-        codec = new PathPrefixCodec(sqlSession.getMapper(PathPrefixMapper.class),
+        codec = new PathPrefixCodec(new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)),
                 new DownloadConfig(), TestI18nBeans.appMessages());
         codec.init();
     }
@@ -105,7 +104,7 @@ class PathPrefixStartupMigrationEventTest {
             // 发布方先于监听器注册，复现「事件先于监听 bean 实例化」的生产时序
             ctx.registerBean("earlyPublisher", EarlyDatabaseReadyPublisher.class);
             ctx.registerBean(PathPrefixStartupMigration.class,
-                    () -> new PathPrefixStartupMigration(dataSource, codec,
+                    () -> new PathPrefixStartupMigration(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), codec,
                             DatabaseSchemaRegistry.forBuiltInPlugins().pathPrefixColumns(),
                             new DownloadConfig(), TestI18nBeans.appMessages(),
                             TransactionOperations.withoutTransaction()));

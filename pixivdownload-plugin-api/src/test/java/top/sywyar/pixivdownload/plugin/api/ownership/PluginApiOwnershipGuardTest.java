@@ -121,6 +121,7 @@ class PluginApiOwnershipGuardTest {
     );
     private static final Map<String, String> APPROVED_GUI_CONFIG_GROUPS = Map.ofEntries(
             Map.entry("SERVER", "server"),
+            Map.entry("DATABASE", "database"),
             Map.entry("DOWNLOAD", "download"),
             Map.entry("PLUGINS", "plugins"),
             Map.entry("PROXY", "proxy"),
@@ -140,6 +141,17 @@ class PluginApiOwnershipGuardTest {
             .importPackages("top.sywyar.pixivdownload.plugin.api");
 
     private static final Map<String, Set<String>> APPROVED_TYPES_BY_OWNER = Map.ofEntries(
+            Map.entry("中性私库操作", types(API_PREFIX + "storage.relational",
+                    "Expression", "Query", "DatabaseSession", "PrivateStorageSchema", "StorageMigration", "StorageFeatures", "StorageValues")),
+            Map.entry("私库 JDBC 实现支持", types(API_PREFIX + "storage.relational.jdbc", "JdbcDatabaseSession")),
+            Map.entry("数据库 provider 契约", types(API_PREFIX + "database",
+                    "DatabaseProvider", "DatabaseConnectionField", "DatabaseConnectionSettings", "DatabaseConnectionTarget", "DatabasePrivateStorageSettings")),
+            Map.entry("数据库迁移合同", types(API_PREFIX + "database.migration",
+                    "DatabaseMigrationProvider", "DatabaseExportSession", "DatabaseImportSession", "MigrationControl",
+                    "MigrationRequest", "MigrationReplacement", "MigrationRows", "MigrationSchema", "MigrationSnapshot", "MigrationVerification",
+                    "MigrationValues", "MigrationFiles")),
+            Map.entry("数据库迁移 JDBC 支持", types(API_PREFIX + "database.migration.jdbc",
+                    "PhysicalDatabaseSchema", "JdbcMigrationSupport", "JdbcImportSession", "JdbcSchemaCheck")),
             Map.entry("插件入口与生命周期", types(API_PREFIX + "plugin",
                     "PixivFeaturePlugin", "PixivPluginProvider", "PluginKind", "PluginManagedBean")),
             Map.entry("GUI contribution 与桌面宿主契约", union(
@@ -147,7 +159,7 @@ class PluginApiOwnershipGuardTest {
                     "DesktopAutomationSnapshot", "DesktopAutomationSource", "DesktopAutomationTaskContribution",
                     "DesktopControlCenterAvailability", "DesktopDashboardCardContribution", "DesktopDashboardSnapshot",
                     "DesktopDashboardSource", "DesktopRunningTaskContribution",
-                    "DesktopDirectorySuggestion", "DesktopDirectorySuggestionSource",
+                    "DesktopDirectorySuggestion", "DesktopDirectorySuggestionSource", "DesktopDatabaseSettings",
                     "DesktopUiContext", "DesktopUiHost", "DesktopUiIcon", "DesktopUiPluginSnapshot",
                     "DesktopUiProvider", "DesktopUiSession", "DesktopUiText", "DesktopUiTone", "DesktopUiToolHost",
                     "GuiActionInvocationHeaders",
@@ -202,7 +214,7 @@ class PluginApiOwnershipGuardTest {
                     "PluginRuntimeTask", "PluginRuntimeTaskDrain", "PluginRuntimeTaskRegistrar",
                     "PluginRuntimeTaskRejectedException")),
             Map.entry("插件 owner-scoped 存储协议", types(API_PREFIX + "storage",
-                    "PluginDataSource", "RuntimePathProvider")),
+                    "PluginDataSource", "PluginDatabase", "PluginMainDatabase", "RuntimePathProvider")),
             Map.entry("出站 HTTP 传输协议", types(API_PREFIX + "http",
                     "OutboundHttpClient", "OutboundHttpClientFactory", "OutboundHttpClientProfile",
                     "OutboundHttpCookiePolicy", "OutboundHttpProxyProvider", "OutboundHttpRedirectPolicy",
@@ -254,8 +266,13 @@ class PluginApiOwnershipGuardTest {
     );
 
     private static final Map<String, Integer> APPROVED_TYPE_COUNTS = Map.ofEntries(
+            Map.entry("中性私库操作", 7),
+            Map.entry("私库 JDBC 实现支持", 1),
+            Map.entry("数据库 provider 契约", 5),
+            Map.entry("数据库迁移合同", 12),
+            Map.entry("数据库迁移 JDBC 支持", 4),
             Map.entry("插件入口与生命周期", 4),
-            Map.entry("GUI contribution 与桌面宿主契约", 56),
+            Map.entry("GUI contribution 与桌面宿主契约", 57),
             Map.entry("Web 与请求身份协议", 21),
             Map.entry("油猴脚本宿主目录协议", 2),
             Map.entry("下载类型描述协议", 2),
@@ -268,7 +285,7 @@ class PluginApiOwnershipGuardTest {
             Map.entry("通知贡献协议", 5),
             Map.entry("插件推流生命周期协议", 2),
             Map.entry("插件运行期后台任务协议", 4),
-            Map.entry("插件 owner-scoped 存储协议", 2),
+            Map.entry("插件 owner-scoped 存储协议", 4),
             Map.entry("出站 HTTP 传输协议", 12),
             Map.entry("出站 WebSocket 传输协议", 4),
             Map.entry("计划任务协议", 57),
@@ -276,6 +293,10 @@ class PluginApiOwnershipGuardTest {
     );
 
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
+            API_PREFIX + "database.migration.jdbc.JdbcMigrationSupport$RowSource",
+            API_PREFIX + "database.DatabaseConnectionTarget$OpenMode",
+            API_PREFIX + "database.DatabaseConnectionTarget$SchemaApplyResult",
+            API_PREFIX + "database.migration.DatabaseMigrationProvider$Inspection",
             API_PREFIX + "gui.media.DesktopMediaTool$Identity",
             API_PREFIX + "gui.media.DesktopMediaTool$Description",
             API_PREFIX + "gui.media.DesktopMediaTool$Source",
@@ -306,6 +327,13 @@ class PluginApiOwnershipGuardTest {
             API_PREFIX + "gui.DesktopUiHost$GuiBodyFormat",
             API_PREFIX + "gui.DesktopUiHost$GuiRequest",
             API_PREFIX + "gui.DesktopUiHost$GuiResponse",
+            API_PREFIX + "gui.DesktopDatabaseSettings$CheckResult",
+            API_PREFIX + "gui.DesktopDatabaseSettings$Outcome",
+            API_PREFIX + "gui.DesktopDatabaseSettings$ProviderChoice",
+            API_PREFIX + "gui.DesktopDatabaseSettings$MigrationPlan",
+            API_PREFIX + "gui.DesktopDatabaseSettings$MigrationState",
+            API_PREFIX + "gui.DesktopDatabaseSettings$MigrationStore",
+            API_PREFIX + "gui.DesktopDatabaseSettings$State",
             API_PREFIX + "gui.DesktopUiHost$GuiValue",
             API_PREFIX + "gui.DesktopUiHost$IoOperation",
             API_PREFIX + "gui.DesktopUiHost$OnboardingSnapshot",
@@ -322,6 +350,39 @@ class PluginApiOwnershipGuardTest {
             API_PREFIX + "gui.DesktopUiToolHost$FfmpegInstallation",
             API_PREFIX + "gui.DesktopUiToolHost$FfmpegProgressListener",
             API_PREFIX + "gui.DesktopUiToolHost$FfmpegProxy",
+            API_PREFIX + "database.migration.MigrationSchema$Seed",
+            API_PREFIX + "schema.SchemaContribution$SharedAccess",
+            API_PREFIX + "storage.relational.Expression$Column",
+            API_PREFIX + "storage.relational.Expression$Incoming",
+            API_PREFIX + "storage.relational.Expression$Value",
+            API_PREFIX + "storage.relational.Expression$Call",
+            API_PREFIX + "storage.relational.Expression$Exists",
+            API_PREFIX + "storage.relational.Expression$Scalar",
+            API_PREFIX + "storage.relational.Expression$Conditional",
+            API_PREFIX + "storage.relational.Expression$Operator",
+            API_PREFIX + "storage.relational.Query$Order",
+            API_PREFIX + "storage.relational.Query$Source",
+            API_PREFIX + "storage.relational.Query$Table",
+            API_PREFIX + "storage.relational.Query$Derived",
+            API_PREFIX + "storage.relational.Query$Union",
+            API_PREFIX + "storage.relational.Query$Join",
+            API_PREFIX + "storage.relational.Query$JoinKind",
+            API_PREFIX + "storage.relational.DatabaseSession$Conflict",
+            API_PREFIX + "storage.relational.DatabaseSession$Mode",
+            API_PREFIX + "storage.relational.DatabaseSession$Work",
+            API_PREFIX + "storage.relational.DatabaseSession$RowVisitor",
+            API_PREFIX + "storage.relational.StorageFeatures$TextIndex",
+            API_PREFIX + "storage.relational.StorageFeatures$TextIndexMode",
+            API_PREFIX + "storage.relational.StorageFeatures$Cleanup",
+            API_PREFIX + "storage.relational.StorageFeatures$Dependent",
+            API_PREFIX + "database.migration.MigrationSchema$Reference",
+            API_PREFIX + "database.migration.MigrationSchema$Encoding",
+            API_PREFIX + "database.migration.MigrationVerification$TableDigest",
+            API_PREFIX + "database.migration.jdbc.PhysicalDatabaseSchema$DatabaseSchema",
+            API_PREFIX + "database.migration.jdbc.PhysicalDatabaseSchema$TableSpec",
+            API_PREFIX + "database.migration.jdbc.PhysicalDatabaseSchema$ColumnSpec",
+            API_PREFIX + "database.migration.jdbc.PhysicalDatabaseSchema$IndexSpec",
+            API_PREFIX + "database.migration.jdbc.PhysicalDatabaseSchema$IndexOrigin",
             API_PREFIX + "gui.DesktopUiToolHost$FfmpegSource",
             API_PREFIX + "gui.DesktopUiToolHost$FolderArtwork",
             API_PREFIX + "gui.DesktopUiToolHost$FolderCheckResult",
@@ -411,8 +472,26 @@ class PluginApiOwnershipGuardTest {
                 }
                 return;
             }
-            if (origin.equals(PluginDataSource.class.getName())
+            if ((origin.equals(PluginDataSource.class.getName()) || origin.equals(API_PREFIX + "storage.PluginDatabase"))
                     && target.equals(javax.sql.DataSource.class.getName())) {
+                return;
+            }
+            if ((origin.equals(API_PREFIX + "database.DatabaseProvider")
+                    || origin.equals(API_PREFIX + "database.DatabaseConnectionTarget"))
+                    && Set.of("java.sql.Connection", "java.sql.SQLException").contains(target)) {
+                return;
+            }
+            if (Set.of(API_PREFIX + "storage.PluginDatabase", API_PREFIX + "storage.relational.DatabaseSession",
+                    API_PREFIX + "storage.relational.DatabaseSession$Work", API_PREFIX + "storage.relational.DatabaseSession$RowVisitor",
+                    API_PREFIX + "storage.relational.StorageMigration").contains(origin)
+                    && target.equals("java.sql.SQLException")) return;
+            if (origin.equals(API_PREFIX + "storage.relational.jdbc.JdbcDatabaseSession")
+                    && Set.of("java.sql.Connection", "java.sql.SQLException", "java.sql.PreparedStatement", "java.sql.ResultSet").contains(target)) return;
+            if (Set.of(API_PREFIX + "database.migration.jdbc.JdbcMigrationSupport",
+                    API_PREFIX + "database.migration.jdbc.JdbcMigrationSupport$1",
+                    API_PREFIX + "database.migration.jdbc.JdbcImportSession").contains(origin)
+                    && Set.of("java.sql.Connection", "java.sql.SQLException", "java.sql.Statement",
+                    "java.sql.PreparedStatement", "java.sql.ResultSet").contains(target)) {
                 return;
             }
             if (!isJdkOrPluginApi(target)) {
@@ -500,16 +579,17 @@ class PluginApiOwnershipGuardTest {
         assertThat(SchemaContribution.class.isRecord()).isTrue();
         assertThat(Arrays.stream(SchemaContribution.class.getRecordComponents())
                 .map(component -> component.getName()).toList())
-                .containsExactly("tables", "columnMigrations", "pathColumns");
+                .containsExactly("tables", "columnMigrations", "pathColumns", "sharedAccess");
         assertThat(Arrays.stream(SchemaContribution.class.getRecordComponents())
                 .map(component -> component.getType().getName()).toList())
-                .containsExactly(List.class.getName(), List.class.getName(), List.class.getName());
+                .containsExactly(List.class.getName(), List.class.getName(), List.class.getName(), SchemaContribution.SharedAccess.class.getName());
         assertThat(Arrays.stream(SchemaContribution.class.getRecordComponents())
                 .map(component -> component.getGenericType().getTypeName()).toList())
                 .containsExactly(
                         listOf(TableSpec.class),
                         listOf(ColumnMigrationSpec.class),
-                        listOf(PathColumnSpec.class)
+                        listOf(PathColumnSpec.class),
+                        SchemaContribution.SharedAccess.class.getName()
                 );
         assertThat(Arrays.stream(SchemaContribution.class.getDeclaredMethods())
                 .map(method -> method.getName()).toList())

@@ -42,7 +42,7 @@ class GuiLauncherStartupSchemaTest {
             exec(connection, "CREATE TABLE external_schema_history (id TEXT PRIMARY KEY)");
 
             DatabaseSchemaInspector.SchemaComparison builtInOnlyComparison =
-                    DatabaseSchemaInspector.compare(database,
+                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database),
                             DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema());
             assertThat(builtInOnlyComparison.details())
                     .anySatisfy(difference -> {
@@ -52,7 +52,7 @@ class GuiLauncherStartupSchemaTest {
                     });
 
             DatabaseSchemaInspector.SchemaComparison startupComparison =
-                    DatabaseSchemaInspector.compare(database, startupSchema);
+                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database), startupSchema);
             assertThat(startupComparison.details())
                     .noneSatisfy(difference -> {
                         assertThat(difference.kind()).isEqualTo(

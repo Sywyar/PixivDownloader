@@ -1,10 +1,5 @@
 package top.sywyar.pixivdownload.notificationbase;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.SqlSession;
-import org.apache.ibatis.session.SqlSessionFactory;
-import org.apache.ibatis.session.SqlSessionFactoryBuilder;
-import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -19,7 +14,7 @@ import java.sql.DriverManager;
 import javax.sql.DataSource;
 import java.util.List;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.*;
 
 @DisplayName("站内信数据库 Mapper")
 class NotificationInboxMapperTest {
@@ -28,11 +23,14 @@ class NotificationInboxMapperTest {
     Path tempDir;
     private Connection postgres;
     private String schema;
+    private top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionTarget target;
 
     private DataSource dataSource(String engine) throws Exception {
         if ("sqlite".equals(engine)) {
             var result = new SQLiteDataSource();
             result.setUrl("jdbc:sqlite:" + tempDir.resolve("notifications.db"));
+            target = new top.sywyar.pixivdownload.databasesqlite.SqliteDatabasePlugin().resolve(
+                    new top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionSettings("", "", "", tempDir.resolve("notifications.db")));
             return result;
         }
         String url = System.getenv("PIXIV_TEST_POSTGRES_URL");
@@ -45,6 +43,10 @@ class NotificationInboxMapperTest {
             statement.execute("CREATE SCHEMA " + schema);
             statement.execute("SET search_path TO " + schema);
         }
+        target = new top.sywyar.pixivdownload.databasepostgresql.PostgresDatabasePlugin().resolve(
+                new top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionSettings(
+                        url + (url.contains("?") ? "&" : "?") + "currentSchema=" + schema,
+                        System.getenv("PIXIV_TEST_POSTGRES_USER"), System.getenv("PIXIV_TEST_POSTGRES_PASSWORD"), tempDir));
         return new org.springframework.jdbc.datasource.SingleConnectionDataSource(postgres, true);
     }
 
@@ -63,14 +65,8 @@ class NotificationInboxMapperTest {
         DataSource dataSource = dataSource(engine);
         createSchema(dataSource);
 
-        org.apache.ibatis.session.Configuration configuration = new org.apache.ibatis.session.Configuration(
-                new Environment("test", new JdbcTransactionFactory(), dataSource));
-        configuration.setMapUnderscoreToCamelCase(true);
-        configuration.addMapper(NotificationInboxMapper.class);
-        SqlSessionFactory sessions = new SqlSessionFactoryBuilder().build(configuration);
-
-        try (SqlSession session = sessions.openSession(true)) {
-            NotificationInboxMapper mapper = session.getMapper(NotificationInboxMapper.class);
+        {
+            NotificationInboxMapper mapper = mapper(dataSource);
             mapper.insert(message("older", "download", 10));
             mapper.insert(message("newer", "announcement", 20));
 
@@ -170,13 +166,8 @@ class NotificationInboxMapperTest {
         DataSource dataSource = dataSource(engine);
         createSchema(dataSource);
 
-        org.apache.ibatis.session.Configuration configuration = new org.apache.ibatis.session.Configuration(
-                new Environment("test", new JdbcTransactionFactory(), dataSource));
-        configuration.setMapUnderscoreToCamelCase(true);
-        configuration.addMapper(NotificationInboxMapper.class);
-
-        try (SqlSession session = new SqlSessionFactoryBuilder().build(configuration).openSession(true)) {
-            NotificationInboxMapper mapper = session.getMapper(NotificationInboxMapper.class);
+        {
+            NotificationInboxMapper mapper = mapper(dataSource);
             mapper.insert(message("old-download", "download", 10));
             mapper.insert(message("kept-download", "download", 100));
             mapper.insert(message("kept-system", "system", 90));
@@ -211,6 +202,38 @@ class NotificationInboxMapperTest {
         }
     }
 
+    @ParameterizedTest @ValueSource(strings = {"sqlite", "postgresql"})
+    @DisplayName("中性 CHECK 在真实提供者上保留所有通知、翻译与远程序号约束")
+    void enforcesNeutralChecks(String engine) throws Exception {
+        var source = dataSource(engine);
+        createSchema(source);
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(source);
+        jdbc.update("INSERT INTO notification_messages(id,category,severity,title,body,created_time) VALUES('fixture','system','INFO','Title','Body',100)");
+        for (String assignment : List.of("category='unknown'", "severity='debug'", "title='  '", "body=' '",
+                "content_html=''", "created_time=-1", "active=2", "read_time=99", "deleted_time=99")) {
+            assertThatThrownBy(() -> jdbc.update("UPDATE notification_messages SET " + assignment))
+                    .as(assignment).isInstanceOf(org.springframework.dao.DataAccessException.class)
+                    .rootCause().satisfies(cause -> assertThat(cause.getMessage()).containsIgnoringCase("check constraint"));
+        }
+        jdbc.update("INSERT INTO notification_announcement_translations VALUES('a','en','Title','Summary','https://example.test',NULL,'html')");
+        jdbc.update("UPDATE notification_announcement_translations SET content_sha256=?", "0123456789abcdef".repeat(4));
+        for (String field : List.of("announcement_id", "locale", "title", "summary", "content_url", "content_html"))
+            assertThatThrownBy(() -> jdbc.update("UPDATE notification_announcement_translations SET " + field + "=''"))
+                    .as(field).isInstanceOf(org.springframework.dao.DataAccessException.class)
+                    .rootCause().satisfies(cause -> assertThat(cause.getMessage()).containsIgnoringCase("check constraint"));
+        for (String digest : List.of("A".repeat(64), "g".repeat(64), "a".repeat(63), "a".repeat(65), "a".repeat(63) + "🌸"))
+            assertThatThrownBy(() -> jdbc.update("UPDATE notification_announcement_translations SET content_sha256=?", digest))
+                    .isInstanceOf(org.springframework.dao.DataAccessException.class)
+                    .rootCause().satisfies(cause -> assertThat(cause.getMessage()).containsIgnoringCase("check constraint"));
+        jdbc.update("INSERT INTO notification_remote_index_state(id,sequence,manifest_sha256,generated_time,expires_time) VALUES(1,1,?,0,1)", "a".repeat(64));
+        for (String assignment : List.of("id=2", "sequence=0", "manifest_sha256='bad'", "generated_time=-1", "expires_time=0"))
+            assertThatThrownBy(() -> jdbc.update("UPDATE notification_remote_index_state SET " + assignment))
+                    .as(assignment).isInstanceOf(org.springframework.dao.DataAccessException.class)
+                    .rootCause().satisfies(cause -> assertThat(cause.getMessage()).containsIgnoringCase("check constraint"));
+        // 初始化和只读目录核验必须接受同一中性声明。
+        createSchema(source);
+    }
+
     private static NotificationMessage message(String id, String category, long createdTime) {
         return new NotificationMessage(id, category, "INFO", null,
                 "Title " + id, "Body " + id,
@@ -218,48 +241,45 @@ class NotificationInboxMapperTest {
                 "<!doctype html><p>" + id + "</p>", null, createdTime, null);
     }
 
-    private static void createSchema(DataSource dataSource) throws Exception {
-        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
-            statement.execute("""
-                    CREATE TABLE notification_messages (
-                        id TEXT NOT NULL PRIMARY KEY,
-                        category TEXT NOT NULL,
-                        severity TEXT NOT NULL,
-                        scenario_id TEXT,
-                        title TEXT NOT NULL,
-                        body TEXT NOT NULL,
-                        content_url TEXT,
-                        content_html TEXT,
-                        action_url TEXT,
-                        created_time INTEGER NOT NULL,
-                        read_time INTEGER,
-                        deleted_time INTEGER,
-                        active INTEGER NOT NULL DEFAULT 1
-                    )
-                    """);
-            statement.execute("""
-                    CREATE TABLE notification_announcement_translations (
-                        announcement_id TEXT NOT NULL,
-                        locale TEXT NOT NULL,
-                        title TEXT NOT NULL,
-                        summary TEXT NOT NULL,
-                        content_url TEXT NOT NULL,
-                        content_sha256 TEXT NOT NULL,
-                        content_html TEXT NOT NULL,
-                        PRIMARY KEY (announcement_id, locale)
-                    )
-                    """);
-            statement.execute("""
-                    CREATE TABLE notification_remote_index_state (
-                        id INTEGER NOT NULL PRIMARY KEY,
-                        sequence INTEGER NOT NULL,
-                        manifest_sha256 TEXT NOT NULL,
-                        generated_time INTEGER NOT NULL,
-                        expires_time INTEGER NOT NULL,
-                        etag TEXT,
-                        last_modified TEXT
-                    )
-                    """);
+    private static final top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema DECLARATION =
+            top.sywyar.pixivdownload.plugin.api.storage.relational.PrivateStorageSchema.merge(List.of(NotificationInboxSchema.CONTRIBUTION));
+
+    private void createSchema(DataSource source) throws Exception {
+        try (var connection = source.getConnection()) {
+            connection.setAutoCommit(false);
+            target.prepareTransaction(connection, false);
+            target.applySchema(connection, DECLARATION, true);
+            connection.commit();
+            connection.setAutoCommit(true);
         }
+    }
+
+    private NotificationInboxMapper mapper(DataSource source) {
+        return new RelationalNotificationInboxMapper(new top.sywyar.pixivdownload.plugin.api.storage.PluginMainDatabase() {
+            @Override public boolean available() { return true; }
+            @Override public <T> T read(top.sywyar.pixivdownload.plugin.api.storage.relational.DatabaseSession.Work<T> work) {
+                return execute(work, true);
+            }
+            @Override public <T> T transaction(top.sywyar.pixivdownload.plugin.api.storage.relational.DatabaseSession.Work<T> work) {
+                return execute(work, false);
+            }
+            private <T> T execute(top.sywyar.pixivdownload.plugin.api.storage.relational.DatabaseSession.Work<T> work, boolean readOnly) {
+                try (var connection = source.getConnection()) {
+                    connection.setAutoCommit(false);
+                    try {
+                        target.prepareTransaction(connection, readOnly);
+                        try (var session = target.storageSession(connection, DECLARATION)) {
+                            T result = work.run(session);
+                            if (session.rollbackOnly()) throw new java.sql.SQLException("STORAGE_TRANSACTION_FAILED");
+                            connection.commit();
+                            return result;
+                        }
+                    } catch (Exception | Error failure) {
+                        connection.rollback();
+                        throw failure;
+                    } finally { connection.setAutoCommit(true); }
+                } catch (java.sql.SQLException failure) { throw new IllegalStateException(failure); }
+            }
+        });
     }
 }

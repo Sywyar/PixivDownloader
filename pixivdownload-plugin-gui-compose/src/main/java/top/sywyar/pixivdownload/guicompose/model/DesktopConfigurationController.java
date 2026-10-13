@@ -80,6 +80,8 @@ final class DesktopConfigurationController {
     volatile String invalidRow = "";
     volatile long credentialRevision;
     final Map<FieldKey, Long> credentialRevisions = new ConcurrentHashMap<>();
+    final Set<FieldKey> clearedCoreCredentials = ConcurrentHashMap.newKeySet();
+    final DesktopDatabaseSettingsView database = new DesktopDatabaseSettingsView(this);
 
     DesktopConfigurationController(
             ComposeDesktopUiModel owner,
@@ -153,6 +155,8 @@ final class DesktopConfigurationController {
                 choices.action().spec().resultSummary().selectionFieldKey()
         ))) clearActionChoices();
         values.put(field.key(), value);
+        clearedCoreCredentials.remove(field.key());
+        if (field.owner() == null) database.edited();
         if (invalidRow.equals(DesktopConfigurationFieldView.bindingId(field.key()) + ".row")) invalidRow = "";
         return true;
     }
@@ -396,6 +400,11 @@ final class DesktopConfigurationController {
         owner.runBusy(() -> saveConfiguration(false));
     }
 
+    boolean databaseChanged() {
+        return changedConfigurationFields().stream().anyMatch(field -> field.owner() == null
+                && top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.CONNECTION_KEYS.contains(field.spec().key()));
+    }
+
     private void saveConfiguration(boolean symbolicRootPinned) {
         List<ConfigField> changed = changedConfigurationFields();
         boolean repositoriesChanged = repositories.changed();
@@ -430,7 +439,22 @@ final class DesktopConfigurationController {
                     return;
                 }
             }
-            persist(
+            if (databaseChanged() && host.databaseSettings().isPresent()) {
+                var submitted = Map.copyOf(values);
+                var submittedInterface = Map.copyOf(interfaceValues);
+                var submittedRepositories = List.copyOf(repositories.entries());
+                database.prepareMigration(() -> submitted.equals(values)
+                        && submittedInterface.equals(pendingInterfaceValues())
+                        && submittedRepositories.equals(repositories.entries()), () -> {
+                    try { persist(
+                        changed.stream().filter(field -> field.owner() != null
+                                || !top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.CONNECTION_KEYS.contains(field.spec().key())).toList(),
+                        repositoriesChanged, interfaceChanged ? interfaceValues : Map.of()); }
+                    catch (Exception failure) { throw new java.io.IOException("CONFIG_SAVE_FAILED"); }
+                });
+                return;
+            }
+            Map<String, String> persistedCore = persist(
                     changed,
                     repositoriesChanged,
                     interfaceChanged ? interfaceValues : Map.of()
@@ -457,6 +481,18 @@ final class DesktopConfigurationController {
                     savedValues.put(field.key(), values.get(field.key()));
                 }
             }
+            for (ConfigField field : configFields) {
+                if (field.owner() != null || !persistedCore.containsKey(field.spec().key())) continue;
+                String value = persistedCore.get(field.spec().key());
+                if (field.spec().sensitive()) {
+                    values.put(field.key(), "");
+                    Set<FieldKey> stored = new LinkedHashSet<>(storedCredentialFields);
+                    if (value.isEmpty()) stored.remove(field.key()); else stored.add(field.key());
+                    storedCredentialFields = Set.copyOf(stored);
+                } else coreValueSaved(field.spec().key(), value);
+            }
+            clearedCoreCredentials.clear();
+            database.refresh();
             if (repositoriesChanged) repositories.markSaved();
             if (interfaceChanged) {
                 interfaceValues.forEach((key, value) -> savedValues.put(
@@ -492,7 +528,7 @@ final class DesktopConfigurationController {
         return configFields.stream().filter(field -> !field.spec().sensitive() ? !Objects.equals(
                 values.get(field.key()),
                 savedValues.get(field.key())
-        ) : !values.getOrDefault(field.key(), "").isBlank()).toList();
+        ) : !values.getOrDefault(field.key(), "").isEmpty() || clearedCoreCredentials.contains(field.key())).toList();
     }
 
     private static GuiConfigEffect strongestEffect(List<GuiConfigEffect> effects) {
@@ -523,7 +559,8 @@ final class DesktopConfigurationController {
                     DesktopConfigurationFieldView.bindingId(field.key()) + ".row",
                     token(field.namespace(), field.spec().labelKey(), field.spec().key()),
                     secret ? composeText("gui.compose.settings.secret-hidden") : changeValue(savedValues.getOrDefault(field.key(), "")),
-                    secret ? composeText("gui.compose.settings.secret-replaced") : changeValue(values.getOrDefault(field.key(), "")),
+                    secret ? clearedCoreCredentials.contains(field.key()) ? key("gui.credential.status.clear-pending")
+                            : composeText("gui.compose.settings.secret-replaced") : changeValue(values.getOrDefault(field.key(), "")),
                     DesktopConfigurationFieldView.effectNode("change", field.spec().effect()).text()));
         }
         Map<String, String> labels = Map.of(
@@ -736,11 +773,21 @@ final class DesktopConfigurationController {
         owner.rebuild();
     }
 
-    private void persist(
+    private Map<String, String> persist(
             List<ConfigField> changed,
             boolean repositoriesChanged,
             Map<String, String> interfaceValues
     ) throws Exception {
+        Map<String, String> result = new LinkedHashMap<>();
+        host.applicationConfig().withWriteLock(() -> result.putAll(persistLocked(changed, repositoriesChanged, interfaceValues)));
+        return result;
+    }
+
+    private Map<String, String> persistLocked(
+            List<ConfigField> changed,
+            boolean repositoriesChanged,
+            Map<String, String> interfaceValues
+    ) throws java.io.IOException {
         Map<DesktopUiHost.ConfigFile, Map<String, String>> normal = new LinkedHashMap<>();
         Map<String, Map<String, String>> secrets = new LinkedHashMap<>();
         for (ConfigField field : changed) {
@@ -778,6 +825,10 @@ final class DesktopConfigurationController {
         if (repositoriesChanged) {
             host.readPluginRepositories(applicationConfig);
             normal.computeIfAbsent(applicationConfig, ignored -> new LinkedHashMap<>());
+        }
+        var databaseSettings = host.databaseSettings();
+        if (databaseSettings.isPresent() && normal.containsKey(applicationConfig)) {
+            normal.put(applicationConfig, databaseSettings.get().prepare(normal.get(applicationConfig)));
         }
         Map<DesktopUiHost.ConfigFile, DesktopUiHost.ConfigSnapshot> snapshots = new LinkedHashMap<>();
         for (DesktopUiHost.ConfigFile file : normal.keySet()) snapshots.put(
@@ -822,6 +873,7 @@ final class DesktopConfigurationController {
             if (rollbackFailure != null) failure.addSuppressed(rollbackFailure);
             throw failure;
         }
+        return normal.getOrDefault(applicationConfig, Map.of());
     }
 
     private void validate(List<ConfigField> fields) throws Exception {
@@ -880,7 +932,15 @@ final class DesktopConfigurationController {
     }
 
     void clearCredential(ConfigField field) {
-        if (field.owner() == null || !field.spec().sensitive()) return;
+        if (!field.spec().sensitive()) return;
+        if (field.owner() == null) {
+            values.put(field.key(), "");
+            clearedCoreCredentials.add(field.key());
+            credentialRevisions.merge(field.key(), 1L, Long::sum);
+            database.edited();
+            owner.rebuild();
+            return;
+        }
         owner.runBusy(() -> {
             try {
                 host.updateCredentials(field.owner(), Map.of(field.spec().key(), ""));
@@ -1031,6 +1091,8 @@ final class DesktopConfigurationController {
     }
 
     private void discardAndReloadConfiguration() {
+        clearedCoreCredentials.clear();
+        database.edited();
         List.of("interface.language", "interface.provider", "interface.theme")
                 .forEach(formValues::remove);
         invalidRow = "";

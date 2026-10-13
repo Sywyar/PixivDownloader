@@ -218,6 +218,7 @@ public final class NovelSchemaContribution {
                 new PathColumnSpec("novel_series", "series_id", List.of("cover_folder"))
         );
 
-        return new SchemaContribution(tables, List.of(), pathColumns);
+        return new SchemaContribution(tables, List.of(), pathColumns,
+                new SchemaContribution.SharedAccess("pixiv-novels", false));
     }
 }

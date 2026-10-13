@@ -1,10 +1,5 @@
 package top.sywyar.pixivdownload.core.db;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.Configuration;
-import org.apache.ibatis.session.SqlSessionFactoryBuilder;
-import org.mybatis.spring.SqlSessionTemplate;
-import org.mybatis.spring.transaction.SpringManagedTransactionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
@@ -16,8 +11,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
-import top.sywyar.pixivdownload.core.db.schema.SqliteToPostgresMigration;
-import top.sywyar.pixivdownload.core.db.sqlite.SqliteDatabase;
+
+import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
 import top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskMapper;
 import top.sywyar.pixivdownload.core.work.service.WorkTagCatalog;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
@@ -44,7 +39,10 @@ class PluginDatabaseIntegrationTest {
     private com.zaxxer.hikari.HikariDataSource sqlite;
     private URLClassLoader loader;
     private JdbcTemplate jdbc;
-    private SqlSessionTemplate sessions;
+    private Object novelMapper;
+    private Object notificationMapper;
+    private org.springframework.transaction.PlatformTransactionManager transactions;
+    private final java.util.List<MainDatabase.OwnerStorage> handles = new java.util.ArrayList<>();
     private DataSource source;
     private DatabaseInitializer initializer;
     private DatabaseSchemaRegistry registry;
@@ -65,7 +63,7 @@ class PluginDatabaseIntegrationTest {
         } else {
             var properties = new DatabasePoolProperties();
             properties.setJdbcUrl("jdbc:sqlite:" + directory.resolve("fixture.db"));
-            sqlite = DatabaseTarget.resolve(properties, "unused").openPool(DatabasePoolProperties.MINIMUM_POOL_SIZE);
+            sqlite = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(properties, "unused").openPool(DatabasePoolProperties.MINIMUM_POOL_SIZE);
             source = sqlite;
         }
         jdbc = new JdbcTemplate(source);
@@ -73,21 +71,67 @@ class PluginDatabaseIntegrationTest {
         registry.register("notification", (SchemaContribution) loader
                 .loadClass("top.sywyar.pixivdownload.notificationbase.NotificationInboxSchema")
                 .getField("CONTRIBUTION").get(null));
-        initializer = new DatabaseInitializer(jdbc, registry.contributions(), registry.mergedSchema(),
+        initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(jdbc, registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
         createSessions();
     }
 
     private void createSessions() throws Exception {
-        var configuration = new Configuration(new Environment("plugin-database",
-                new SpringManagedTransactionFactory(), source));
-        configuration.setDatabaseId(new DatabaseConfig(null, null, null).databaseIdProvider().getDatabaseId(source));
-        configuration.setMapUnderscoreToCamelCase(true);
-        configuration.addMapper(loader.loadClass("top.sywyar.pixivdownload.novel.db.NovelMapper"));
-        configuration.addMapper(loader.loadClass("top.sywyar.pixivdownload.notificationbase.NotificationInboxMapper"));
-        configuration.addMapper(ScheduledTaskMapper.class);
-        sessions = new SqlSessionTemplate(new SqlSessionFactoryBuilder().build(configuration));
+        handles.forEach(MainDatabase.OwnerStorage::close);
+        handles.clear();
+        var target = DatabaseProviderTestFixtures.target(source);
+        transactions = new DatabaseConfig(null, null, null).transactionManager(source, target);
+        var main = new MainDatabase(source, target, registry, transactions);
+        var novels = main.forOwner("novel", List.of("pixiv-novels", "pixiv-tags"));
+        var notifications = main.forOwner("notification", List.of());
+        handles.add(novels);
+        handles.add(notifications);
+        novelMapper = transactional(loader.loadClass("top.sywyar.pixivdownload.novel.db.RelationalNovelMapper")
+                .getConstructor(top.sywyar.pixivdownload.plugin.api.storage.PluginMainDatabase.class).newInstance(novels));
+        notificationMapper = loader.loadClass("top.sywyar.pixivdownload.notificationbase.RelationalNotificationInboxMapper")
+                .getConstructor(top.sywyar.pixivdownload.plugin.api.storage.PluginMainDatabase.class).newInstance(notifications);
+    }
+
+    private Object transactional(Object bean) {
+        var proxy = new org.springframework.aop.framework.ProxyFactory(bean);
+        proxy.setProxyTargetClass(true);
+        proxy.addAdvice(new org.springframework.transaction.interceptor.TransactionInterceptor(transactions,
+                new org.springframework.transaction.annotation.AnnotationTransactionAttributeSource()));
+        return proxy.getProxy(loader);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"sqlite", "postgresql"})
+    @DisplayName("提供者接管既有小说触发器和全文索引，保留正文并继续清理关联")
+    void adoptsExistingNovelAuxiliaryObjects(String engine) throws Exception {
+        initialize(engine);
+        String deletes = "DELETE FROM novel_tags WHERE novel_id = NEW.novel_id; "
+                + "DELETE FROM novel_collections WHERE novel_id = NEW.novel_id; "
+                + "DELETE FROM novel_images WHERE novel_id = NEW.novel_id; "
+                + "DELETE FROM novel_translations WHERE novel_id = NEW.novel_id; "
+                + "DELETE FROM novel_narration_scripts WHERE novel_id = NEW.novel_id; ";
+        // 已发布对象的原始定义是升级夹具，不依赖当前提供者的 DDL 生成器。
+        if (engine.equals("sqlite")) {
+            jdbc.execute("CREATE VIRTUAL TABLE IF NOT EXISTS novels_fts USING fts5(content, tokenize='trigram')");
+            jdbc.execute("CREATE TRIGGER IF NOT EXISTS novel_soft_delete_cleanup AFTER UPDATE OF deleted ON novels"
+                    + " WHEN NEW.deleted = 1 BEGIN " + deletes + "END");
+        } else {
+            jdbc.execute("CREATE OR REPLACE FUNCTION novel_soft_delete_cleanup() RETURNS trigger LANGUAGE plpgsql"
+                    + " SET search_path FROM CURRENT AS $body$ BEGIN " + deletes + "RETURN NEW; END $body$");
+            jdbc.execute("CREATE OR REPLACE TRIGGER novel_soft_delete_cleanup AFTER UPDATE OF deleted ON novels"
+                    + " FOR EACH ROW WHEN (NEW.deleted = 1) EXECUTE FUNCTION novel_soft_delete_cleanup()");
+        }
+        jdbc.update("INSERT INTO novels(novel_id,title,folder,count,extensions,time,raw_content)"
+                + " VALUES(77,'existing','{0}/novel',1,'txt',1700000000777,'保留既有正文')");
+        jdbc.update("INSERT INTO novel_images(novel_id,image_id,ext) VALUES(77,'retained','png')");
+        Object database = novelDatabase(mapper());
+        call(database, "init");
+        assertThat((Set<Long>) call(database, "searchNovelContentIds", "既有正文")).containsExactly(77L);
+        jdbc.update("UPDATE novels SET deleted=1 WHERE novel_id=77");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM novel_images WHERE novel_id=77", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT raw_content FROM novels WHERE novel_id=77", String.class)).isEqualTo("保留既有正文");
+        assertThat((Set<Long>) call(database, "searchNovelContentIds", "既有正文")).isEmpty();
     }
 
     @Test
@@ -111,7 +155,7 @@ class PluginDatabaseIntegrationTest {
         }
         Path privateDb = directory.resolve("owner/plugin.db");
         Files.createDirectories(privateDb.getParent());
-        try (var connection = SqliteDatabase.openConnection(privateDb); var statement = connection.createStatement()) {
+        try (var connection = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.openConnection(privateDb); var statement = connection.createStatement()) {
             statement.execute("CREATE TABLE private_history(value TEXT)");
             statement.execute("INSERT INTO private_history VALUES('owner 私有记录')");
         }
@@ -121,12 +165,12 @@ class PluginDatabaseIntegrationTest {
         byte[] mediaBefore = Files.readAllBytes(media);
         sqlite.close();
         postgres = new PostgresTestDatabase();
-        var result = SqliteToPostgresMigration.migrate(directory.resolve("fixture.db"), directory.resolve("backup.db"),
-                DatabaseTarget.resolve(postgres.properties(), "unused"), registry.contributions(), registry.mergedSchema(),
+        var result = DatabaseProviderTestFixtures.migrate(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("fixture.db")), directory.resolve("backup.db"),
+                top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(postgres.properties(), "unused"), registry, true,
                 Set.of("novels_fts", "novel_soft_delete_cleanup"));
-        assertThat(result.tables().keySet()).containsExactlyInAnyOrderElementsOf(sourceCounts.keySet());
-        result.tables().forEach((table, value) -> assertThat(value.rows()).as(table).isEqualTo(sourceCounts.get(table)));
-        assertThat(result.referenceWarnings()).isEmpty();
+        assertThat(result.verification().tables().keySet()).containsExactlyInAnyOrderElementsOf(sourceCounts.keySet());
+        result.verification().tables().forEach((table, value) -> assertThat(value.rows()).as(table).isEqualTo(sourceCounts.get(table)));
+        assertThat(result.verification().referenceWarnings()).isEmpty();
         assertThat(Files.readAllBytes(privateDb)).isEqualTo(privateBefore);
         assertThat(Files.readAllBytes(media)).isEqualTo(mediaBefore);
         source = postgres.pool();
@@ -135,7 +179,7 @@ class PluginDatabaseIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT collection_restricts_works FROM guest_invites WHERE id=104", Integer.class)).isOne();
         assertThat(jdbc.queryForList("SELECT collection_id FROM guest_invite_collections WHERE invite_id=104", Long.class))
                 .containsExactly(103L);
-        initializer = new DatabaseInitializer(jdbc, registry.contributions(), registry.mergedSchema(),
+        initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(jdbc, registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
         createSessions();
@@ -144,13 +188,12 @@ class PluginDatabaseIntegrationTest {
         for (String term : List.of("冒险旅程", "école", "%", "_")) {
             assertThat((Set<Long>) call(novel, "searchNovelContentIds", term)).containsExactly(5000000001L);
         }
-        var schedule = sessions.getMapper(ScheduledTaskMapper.class);
+        var schedule = new ScheduledTaskMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(source));
         assertThat(schedule.updateEnabled(108, 7, false)).isEqualTo(8L);
         assertThat(schedule.updateEnabled(108, 7, true)).isNull();
         assertThat(jdbc.queryForObject("SELECT checkpoint_json FROM scheduled_tasks", String.class))
                 .isEqualTo("{\"after\":\"5000000001\"}");
-        Object notifications = sessions.getMapper(loader.loadClass(
-                "top.sywyar.pixivdownload.notificationbase.NotificationInboxMapper"));
+        Object notifications = notificationMapper;
         assertThat(call(notifications, "blocksRemoteAnnouncementImport", "deleted-fixture")).isEqualTo(true);
         assertThat(call(notifications, "acceptRemoteAnnouncementIndex", 122L, "b".repeat(64),
                 1700000000123L, 1701000000123L)).isEqualTo(0);
@@ -172,7 +215,7 @@ class PluginDatabaseIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT tag_id FROM tags WHERE name='迁移后'", Long.class)).isGreaterThan(101L);
         insert(novel, 5000000003L, 1700000000125L, null, "迁移后新增正文");
         assertThat((Set<Long>) call(novel, "searchNovelContentIds", "新增正文")).containsExactly(5000000003L);
-        try (var connection = SqliteDatabase.openExisting(result.backup()); var statement = connection.createStatement();
+        try (var connection = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.openExisting(result.backup()); var statement = connection.createStatement();
              var rows = statement.executeQuery("SELECT deleted FROM novels WHERE novel_id=5000000001")) {
             assertThat(rows.next()).isTrue();
             assertThat(rows.getInt(1)).isZero();
@@ -181,23 +224,24 @@ class PluginDatabaseIntegrationTest {
 
     @AfterEach
     void close() throws Exception {
+        handles.forEach(MainDatabase.OwnerStorage::close);
         if (postgres != null) postgres.close();
         if (sqlite != null) sqlite.close();
         if (loader != null) loader.close();
     }
 
     private Object mapper() throws Exception {
-        return sessions.getMapper(loader.loadClass("top.sywyar.pixivdownload.novel.db.NovelMapper"));
+        return novelMapper;
     }
 
     private Object novelDatabase(Object mapper) throws Exception {
         var codec = mock(StoredPathCodec.class);
         when(codec.encode(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
         when(codec.resolve(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
-        return loader.loadClass("top.sywyar.pixivdownload.novel.db.NovelDatabase")
+        return transactional(loader.loadClass("top.sywyar.pixivdownload.novel.db.NovelDatabase")
                 .getConstructor(loader.loadClass("top.sywyar.pixivdownload.novel.db.NovelMapper"),
-                        WorkTagCatalog.class, StoredPathCodec.class)
-                .newInstance(mapper, mock(WorkTagCatalog.class), codec);
+                        WorkTagCatalog.class, StoredPathCodec.class, DatabaseAvailability.class)
+                .newInstance(mapper, mock(WorkTagCatalog.class), codec, (DatabaseAvailability) () -> true));
     }
 
     private Object call(Object receiver, String method, Object... arguments) {
@@ -218,7 +262,9 @@ class PluginDatabaseIntegrationTest {
         Object mapper = mapper();
         Object database = novelDatabase(mapper);
         call(database, "init");
-        var transaction = new TransactionTemplate(new DatabaseConfig(null, null, null).transactionManager(source));
+        var target = postgres != null ? top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(postgres.properties(), "unused")
+                : top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("fixture.db"));
+        var transaction = new TransactionTemplate(new DatabaseConfig(null, null, null).transactionManager(source, target));
         transaction.executeWithoutResult(status -> {
             insert(database, 10, 1_700_000_000_110L, 2L, "冒险旅程 Apple 100% A_B C:\\花 🌸 École \"quoted\"");
             insert(database, 11, 1_700_000_000_111L, null, "猫と犬");
@@ -296,6 +342,75 @@ class PluginDatabaseIntegrationTest {
         jdbc.update(sql, "a".repeat(64));
         assertThat(jdbc.queryForObject("SELECT manifest_sha256 FROM notification_remote_index_state", String.class))
                 .isEqualTo("a".repeat(64));
+    }
+
+
+    @ParameterizedTest
+    @ValueSource(strings = {"sqlite", "postgresql"})
+    @DisplayName("小说生成键、关联投影、手工角色覆盖与参考音在真实数据库中保持一致")
+    void novelGeneratedKeysAndReferences(String engine) throws Exception {
+        initialize(engine);
+        Object mapper = mapper();
+        Object database = novelDatabase(mapper);
+        call(database, "init");
+        insert(database, 51, 1_700_000_000_051L, 1L, "原始正文");
+        Object glossary = loader.loadClass("top.sywyar.pixivdownload.novel.db.NovelGlossaryInsert")
+                .getConstructor().newInstance();
+        call(glossary, "setName", "术语");
+        call(glossary, "setSeriesId", 7L);
+        call(glossary, "setCreatedTime", 1_700_000_000_000L);
+        call(glossary, "setUpdatedTime", 1_700_000_000_001L);
+        call(mapper, "insertGlossary", glossary);
+        long glossaryId = (Long) call(glossary, "getId");
+        assertThat(glossaryId).isPositive();
+        call(mapper, "upsertGlossaryEntry", glossaryId, "勇者", "en", "Hero", 1_700_000_000_002L);
+        assertThat(call(call(mapper, "findGlossaryBySeriesId", 7L), "entryCount")).isEqualTo(1);
+        assertThat((List<?>) call(mapper, "findAllGlossaries")).hasSize(1);
+        Object cast = loader.loadClass("top.sywyar.pixivdownload.novel.db.NovelNarrationCastInsert")
+                .getConstructor().newInstance();
+        call(cast, "setName", "角色");
+        call(cast, "setNovelId", 51L);
+        call(cast, "setCreatedTime", 1_700_000_000_000L);
+        call(cast, "setUpdatedTime", 1_700_000_000_001L);
+        call(mapper, "insertNarrationCast", cast);
+        long castId = (Long) call(cast, "getId");
+        call(mapper, "insertNarrationVoiceIfAbsent", castId, 0, "旁白", "female", "adult", "old", false, 1_700_000_000_002L);
+        call(mapper, "updateNarrationVoiceReference", castId, 0, "wav", "参考正文", "upload", 1_700_000_000_003L);
+        Object reference = call(mapper, "findNarrationVoiceRef", castId, 0);
+        call(mapper, "upsertNarrationVoice", castId, 0, "新旁白", "male", "adult", "new", true, 1_700_000_000_004L);
+        assertThat(call(mapper, "findNarrationVoiceRef", castId, 0)).isEqualTo(reference);
+        assertThat(call(call(mapper, "findNarrationCastByNovelId", 51L), "voiceCount")).isEqualTo(1);
+        Object voice = ((List<?>) call(mapper, "findNarrationVoices", castId)).get(0);
+        assertThat(call(voice, "name")).isEqualTo("新旁白");
+        assertThat(call(voice, "editedByUser")).isEqualTo(true);
+        assertThat(jdbc.queryForObject("SELECT created_time FROM novel_narration_voices", Long.class))
+                .isEqualTo(1_700_000_000_002L);
+        call(mapper, "insertOrReplaceTranslation", 51L, "en", "body", "title", "description", 1_700_000_000_005L);
+        assertThat((List<String>) call(mapper, "findSeriesTranslatedLangs", 7L)).containsExactly("en");
+        assertThat((List<?>) call(mapper, "findTranslationLangsByIds", List.of(51L))).hasSize(1);
+        call(mapper, "insertNovelImage", 51L, "image-1", "png");
+        assertThat((List<?>) call(mapper, "findNovelImageIdsByIds", List.of(51L))).hasSize(1);
+        assertThat((List<?>) call(mapper, "findWorkDetailsByIds", List.of(51L))).hasSize(1);
+        assertThat((List<?>) call(mapper, "findWordCountsByIds", List.of(51L))).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("SQLite 辅助索引真实 SQL 失败只回滚保存点，小说下载与后续字段仍能提交")
+    void missingTextIndexDoesNotRollBackDownload() throws Exception {
+        initialize("sqlite");
+        Object database = novelDatabase(mapper());
+        call(database, "init");
+        jdbc.execute("DROP TABLE novels_fts");
+        new TransactionTemplate(transactions).executeWithoutResult(status -> {
+            insert(database, 61, 1_700_000_000_061L, null, "索引重建后仍在");
+            call(novelMapper, "updateFileBaseName", 61L, "saved-name");
+        });
+        assertThat(jdbc.queryForObject("SELECT raw_content FROM novels WHERE novel_id=61", String.class))
+                .isEqualTo("索引重建后仍在");
+        assertThat(jdbc.queryForObject("SELECT file_base_name FROM novels WHERE novel_id=61", String.class))
+                .isEqualTo("saved-name");
+        call(database, "init");
+        assertThat((Set<Long>) call(database, "searchNovelContentIds", "重建后")).containsExactly(61L);
     }
 
     private void assertConstraint(Runnable action, String engine, String state) {

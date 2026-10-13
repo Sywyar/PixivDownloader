@@ -11,7 +11,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import top.sywyar.pixivdownload.core.db.DatabasePoolProperties;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
-import top.sywyar.pixivdownload.core.db.sqlite.SqliteDatabase;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
@@ -45,14 +44,14 @@ class PluginSchemaLifecycleCoordinatorTest {
     private List<Object> events;
 
     @BeforeEach
-    void setUp(TestInfo testInfo) {
+    void setUp(TestInfo testInfo) throws Exception {
         // 多连接文件库确保提交前的自省只能在 DDL 所在事务连接上看到新结构。
         Path databasePath = tempDir.resolve(testInfo.getTestMethod().orElseThrow().getName() + ".db");
-        dataSource = SqliteDatabase.openPool(databasePath, DatabasePoolProperties.MINIMUM_POOL_SIZE);
+        dataSource = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.openPool(databasePath, DatabasePoolProperties.MINIMUM_POOL_SIZE);
         jdbc = new JdbcTemplate(dataSource);
         registry = new DatabaseSchemaRegistry(new PluginRegistry(List.of()));
         events = new ArrayList<>();
-        DatabaseInitializer initializer = new DatabaseInitializer(
+        DatabaseInitializer initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(
                 jdbc,
                 registry.contributions(),
                 registry.mergedSchema(),
@@ -183,7 +182,7 @@ class PluginSchemaLifecycleCoordinatorTest {
 
         assertThatThrownBy(() -> coordinator.activate(registered("dynamic", 1L, List.of(expected))))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("does not match the physical database");
+                .hasMessageContaining("STORAGE_SCHEMA_MISMATCH");
 
         assertThat(jdbc.queryForList("SELECT lower(name) FROM pragma_table_info('dynamic_items')", String.class))
                 .containsExactly("id", "value");
@@ -202,7 +201,7 @@ class PluginSchemaLifecycleCoordinatorTest {
 
         assertThatThrownBy(() -> coordinator.activate(registered("dynamic", 1L, List.of(expected))))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("cannot append safely")
+                .hasMessageContaining("STORAGE_UNSAFE_COLUMN_CHANGE")
                 .hasMessageContaining("dynamic_items.required_value");
 
         assertThat(jdbc.queryForList("SELECT lower(name) FROM pragma_table_info('dynamic_items')", String.class))

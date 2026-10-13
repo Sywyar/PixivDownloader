@@ -35,7 +35,7 @@ class PostgresInfrastructureTest {
             initializer.initialize();
             try (var connection = database.pool().getConnection()) {
                 assertThat(DatabaseEngine.detect(connection)).isEqualTo(DatabaseEngine.POSTGRESQL);
-                assertThat(DatabaseSchemaInspector.compare(connection, registry.mergedSchema()).differences()).isEmpty();
+                assertThat(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(connection, registry.mergedSchema()).differences()).isEmpty();
                 try (var statement = connection.prepareStatement(
                         "INSERT INTO tags(name) VALUES (?)", new String[]{"tag_id"})) {
                     statement.setString(1, "中文 日本語 🌸");
@@ -56,13 +56,13 @@ class PostgresInfrastructureTest {
             assertThat(jdbc.queryForObject("SELECT author_id FROM authors", Long.class)).isEqualTo(5_000_000_000L);
             assertThat(jdbc.queryForObject("SELECT name FROM authors", String.class)).isEqualTo("作者 🌸");
             assertThat(jdbc.queryForObject("SELECT updated_time FROM authors", Long.class)).isEqualTo(1_700_000_000_123L);
-            try (var connection = DatabaseTarget.resolve(database.properties(), "unused").openConnection()) {
-                assertThat(DatabaseSchemaInspector.compare(connection, registry.mergedSchema()).differences()).isEmpty();
+            try (var connection = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(database.properties(), "unused").openConnection()) {
+                assertThat(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(connection, registry.mergedSchema()).differences()).isEmpty();
             }
             jdbc.execute("ALTER TABLE authors ALTER COLUMN name TYPE VARCHAR(20)");
             assertThatThrownBy(initializer::initialize).isInstanceOf(IllegalStateException.class);
             try (var connection = database.pool().getConnection()) {
-                assertThat(DatabaseSchemaInspector.compare(connection, registry.mergedSchema()).matches()).isFalse();
+                assertThat(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(connection, registry.mergedSchema()).matches()).isFalse();
             }
         }
     }
@@ -112,7 +112,8 @@ class PostgresInfrastructureTest {
             assertThat(jdbc.queryForObject("SELECT count(*) FROM information_schema.tables WHERE table_schema = current_schema()",
                     Long.class)).isZero();
             database.properties().setPassword("deliberately-wrong-password");
-            assertThatThrownBy(() -> DatabaseTarget.resolve(database.properties(), "unused").openConnection())
+            database.properties().setUsername("missing_" + java.util.UUID.randomUUID().toString().replace("-", ""));
+            assertThatThrownBy(() -> top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(database.properties(), "unused").openConnection())
                     .isInstanceOf(java.sql.SQLException.class)
                     .hasMessageNotContaining("deliberately-wrong-password");
         }
@@ -161,7 +162,7 @@ class PostgresInfrastructureTest {
                     connection.setAutoCommit(false);
                     statement.execute("SET LOCAL ROLE " + role);
                     var registry = DatabaseSchemaRegistry.forBuiltInPlugins();
-                    assertThatThrownBy(() -> DatabaseInitializer.offline(connection, registry.contributions(),
+                    assertThatThrownBy(() -> top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.offline(connection, registry.contributions(),
                             registry.mergedSchema()).applySchema(registry.contributions(), registry.mergedSchema()))
                             .isInstanceOfSatisfying(org.springframework.jdbc.BadSqlGrammarException.class,
                                     error -> assertThat(error.getSQLException().getSQLState()).isEqualTo("42501"));
@@ -179,7 +180,7 @@ class PostgresInfrastructureTest {
             }
             database.properties().setJdbcUrl(database.properties().getJdbcUrl()
                     .replace("currentSchema=" + schema, "currentSchema=" + role));
-            assertThatThrownBy(() -> DatabaseTarget.resolve(database.properties(), "unused").openConnection())
+            assertThatThrownBy(() -> top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(database.properties(), "unused").openConnection())
                     .isInstanceOf(java.sql.SQLException.class);
         }
     }
@@ -226,7 +227,7 @@ class PostgresInfrastructureTest {
                     AND table_name = 'artworks' AND column_name = 'metadata_json'
                     """, Long.class)).isZero();
             try (var connection = database.pool().getConnection()) {
-                assertThat(DatabaseSchemaInspector.compare(connection, registry.mergedSchema()).matches()).isFalse();
+                assertThat(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(connection, registry.mergedSchema()).matches()).isFalse();
             }
             jdbc.execute("ALTER TABLE artworks ALTER COLUMN artwork_id SET GENERATED BY DEFAULT");
             initializer.initialize();
@@ -245,7 +246,7 @@ class PostgresInfrastructureTest {
     }
 
     private DatabaseInitializer initializer(JdbcTemplate jdbc, DatabaseSchemaRegistry registry) {
-        return new DatabaseInitializer(jdbc, registry.contributions(), registry.mergedSchema(),
+        return top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(jdbc, registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {});
     }
 }

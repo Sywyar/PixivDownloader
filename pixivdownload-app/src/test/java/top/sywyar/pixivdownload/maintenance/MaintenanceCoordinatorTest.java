@@ -28,6 +28,34 @@ import static org.mockito.Mockito.when;
 class MaintenanceCoordinatorTest {
 
     @Test
+    @DisplayName("缺库不打开维护窗口也不消费时段，运行中失效停止后续任务和通知")
+    void unavailableDatabaseDoesNotRunOrNotify() {
+        var available = new java.util.concurrent.atomic.AtomicBoolean(false);
+        var notifications = mock(NotificationDispatcher.class);
+        var runs = new AtomicInteger();
+        MaintenanceTask first = new MaintenanceTask() {
+            public String name() { return "first"; }
+            public void execute(MaintenanceContext context) {
+                runs.incrementAndGet();
+                available.set(false);
+                throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+            }
+        };
+        var coordinator = new MaintenanceCoordinator(new MaintenanceTaskRegistry(List.of(first, countingTask(runs))),
+                new MaintenanceProperties(), notifications, null, available::get);
+        var slot = LocalDateTime.of(2026, 5, 25, 10, 0);
+        assertThat(coordinator.runScheduledIfDue(slot)).isFalse();
+        assertThat(coordinator.getLastStartedAt()).isNull();
+        org.assertj.core.api.Assertions.assertThatThrownBy(coordinator::runManually)
+                .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+        available.set(true);
+        assertThat(coordinator.runScheduledIfDue(slot)).isTrue();
+        assertThat(runs).hasValue(1);
+        assertThat(coordinator.isPaused()).isFalse();
+        org.mockito.Mockito.verifyNoInteractions(notifications);
+    }
+
+    @Test
     @DisplayName("维护上下文进度回调更新当前任务快照并在窗口结束后清理")
     void maintenanceContextReportsProgressToCurrentSnapshot() {
         AtomicReference<MaintenanceStatusHolder.Snapshot> reported = new AtomicReference<>();

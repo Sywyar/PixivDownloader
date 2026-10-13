@@ -51,6 +51,7 @@ class ConfigItemTemplateCoverageGuardTest {
      *   <li>{@code app.gui-provider} —— 桌面 UI 启动前完成提供者选择，只能通过配置文件修改并重启进程；</li>
      *   <li>{@code plugin-catalog.repositories} —— 自定义仓库<b>列表</b>型配置，由「插件」分组的仓库列表编辑器
      *       （{@code PluginMarketConfigSection}，经 {@code PluginRepositoryConfigEditor} 结构化读写）管理，不入字段网格；</li>
+     *   <li>{@code database.engine} —— 只供尚未保存 provider 的配置选择默认方言，GUI 直接选择 provider；</li>
      *   <li>{@code multi-mode.*} —— 配置支持保留、但 GUI 不再提供设置页（配置页已移除该分组），
      *       配置项仍由 {@code MultiModeConfig} / {@code RuntimeConfigReloadService} 承载，仅在需要调整时手工编辑
      *       {@code config.yaml}。</li>
@@ -58,7 +59,7 @@ class ConfigItemTemplateCoverageGuardTest {
      */
     private static final Set<String> TEMPLATE_KEYS_WITHOUT_GUI_FIELD = Set.of(
             "app.language", "app.theme", "app.config-menu-expand-all", "app.gui-provider",
-            "plugin-catalog.repositories",
+            "plugin-catalog.repositories", "database.engine",
             "multi-mode.quota.enabled", "multi-mode.quota.max-artworks", "multi-mode.quota.reset-period-hours",
             "multi-mode.quota.archive-expire-minutes", "multi-mode.quota.limit-image",
             "multi-mode.quota.max-proxy-requests", "multi-mode.quota.archive-max-concurrent",
@@ -75,6 +76,9 @@ class ConfigItemTemplateCoverageGuardTest {
      */
     private static final Set<String> CONFIGURATION_PROPERTIES_PREFIXES_WITHOUT_TEMPLATE_KEYS = Set.of(
             "narration-tts", "notification", "plugins");
+
+    // provider 由可信默认选择或用户保存后写入；模板中的空值会把首次启动变成明确的无库选择。
+    private static final Set<String> GUI_KEYS_WITHOUT_TEMPLATE_DEFAULT = Set.of("database.provider");
 
     @Test
     @DisplayName("每个 @ConfigurationProperties 前缀在 config.yaml 模板中至少有一个键")
@@ -100,6 +104,7 @@ class ConfigItemTemplateCoverageGuardTest {
         Set<String> templateKeys = templateKeys();
         Set<String> guiMissingFromTemplate = new TreeSet<>(guiFieldKeys());
         guiMissingFromTemplate.removeAll(templateKeys);
+        guiMissingFromTemplate.removeAll(GUI_KEYS_WITHOUT_TEMPLATE_DEFAULT);
         assertThat(guiMissingFromTemplate)
                 .as("以下 GUI 配置字段在 config.yaml 模板中无对应键（GUI 有字段就必须在模板可写）")
                 .isEmpty();
@@ -157,6 +162,11 @@ class ConfigItemTemplateCoverageGuardTest {
 
     /** App-owned Schema 中声明的全部核心配置字段键。 */
     private static Set<String> guiFieldKeys() {
+        var settings = org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.class);
+        org.mockito.Mockito.when(settings.providers()).thenReturn(
+                top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.providers().stream()
+                        .map(provider -> new top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.ProviderChoice(
+                                provider.owner(), provider.databaseId(), provider.provider().orElseThrow().connectionFields())).toList());
         DesktopUiHost host = (DesktopUiHost) Proxy.newProxyInstance(
                 DesktopUiHost.class.getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class},
@@ -166,6 +176,7 @@ class ConfigItemTemplateCoverageGuardTest {
                     case "defaultMaintenanceTime" -> "04:00";
                     case "defaultUpdateManifestUrl", "defaultNightlyUpdateManifestUrl" -> "https://example.invalid";
                     case "currentVersionNightly" -> false;
+                    case "databaseSettings" -> java.util.Optional.of(settings);
                     default -> throw new AssertionError("unexpected DesktopUiHost call: " + method.getName());
                 });
         return DesktopCoreConfigCatalog.fields(host).stream()

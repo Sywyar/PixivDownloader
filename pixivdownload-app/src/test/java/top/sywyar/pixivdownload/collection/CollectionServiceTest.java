@@ -59,7 +59,7 @@ class CollectionServiceTest {
                 downloadConfig,
                 novelMetadataRepository,
                 pathPrefixCodec,
-                null
+                org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.class)
         );
     }
 

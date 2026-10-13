@@ -46,14 +46,13 @@ class ScheduledTaskMapperTest {
             configuration.setDatabaseId(top.sywyar.pixivdownload.core.db.DatabaseEngine.detect(connection).databaseId());
         }
         configuration.setMapUnderscoreToCamelCase(true);
-        configuration.addMapper(ScheduledTaskMapper.class);
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(configuration);
         session = factory.openSession(true);
-        mapper = session.getMapper(ScheduledTaskMapper.class);
+        mapper = new ScheduledTaskMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
         jdbc = new JdbcTemplate(dataSource);
 
         DatabaseSchemaRegistry registry = DatabaseSchemaRegistry.forBuiltInPlugins();
-        new DatabaseInitializer(jdbc, registry.contributions(), registry.mergedSchema(),
+        top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(jdbc, registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {}).initialize();
     }
 

@@ -11,6 +11,7 @@ import org.junit.jupiter.api.condition.OS;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion.UnsafeDeletionPathException;
+import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
 import java.io.IOException;
@@ -18,6 +19,15 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -73,6 +83,80 @@ class StagedFileDeletionTest {
         assertFalse(Files.exists(b));
         assertFalse(Files.exists(c));
         assertEquals(0, stagingResidueCount(), "成功删除后暂存目录应无残留");
+    }
+
+    @Test
+    @DisplayName("删除中数据库失效：停止后续文件并保留备份供下次恢复")
+    void stopsAfterDatabaseLossAndRetainsRecoverableFiles() throws Exception {
+        Path first = Files.writeString(tempDir.resolve("first.jpg"), "first");
+        Path second = Files.writeString(tempDir.resolve("second.jpg"), "second");
+        var guardedJournal = spy(journal);
+        AtomicBoolean unavailable = new AtomicBoolean();
+        AtomicBoolean records = new AtomicBoolean();
+        doAnswer(ignored -> unavailable.get()).when(guardedJournal).isUnavailable();
+        var interrupted = new StagedFileDeletion(TestI18nBeans.appMessages(), guardedJournal) {
+            @Override protected void deleteFile(Path file) throws IOException {
+                super.deleteFile(file);
+                if (file.equals(first)) unavailable.set(true);
+            }
+        };
+
+        assertThrows(DatabaseUnavailableException.class,
+                () -> interrupted.deleteAtomically(List.of(first, second), () -> records.set(true)));
+
+        assertFalse(records.get());
+        assertFalse(Files.exists(first));
+        assertEquals("second", Files.readString(second));
+        Path staging = stagingSubdirectories().get(0);
+        assertEquals("first", Files.readString(staging.resolve("0.old")));
+        assertEquals("second", Files.readString(staging.resolve("1.old")));
+        assertEquals(1, journal.operations().size());
+        verify(guardedJournal, never()).committed(anyString());
+        verify(guardedJournal, never()).forget(anyString());
+
+        new StagedFileDeletion(TestI18nBeans.appMessages(), journal).recoverPending();
+
+        assertEquals("first", Files.readString(first));
+        assertEquals("second", Files.readString(second));
+        assertTrue(journal.operations().isEmpty());
+        assertEquals(0, stagingResidueCount());
+    }
+
+    @Test
+    @DisplayName("发布准备后数据库失效：旧文件不替换且新旧备份均保留")
+    void doesNotPublishFilesAfterDatabaseLoss() throws Exception {
+        Path first = Files.writeString(tempDir.resolve("first.txt"), "old first");
+        Path second = Files.writeString(tempDir.resolve("second.txt"), "old second");
+        Path firstNew = Files.writeString(tempDir.resolve("first.part"), "new first");
+        Path secondNew = Files.writeString(tempDir.resolve("second.part"), "new second");
+        var guardedJournal = spy(journal);
+        AtomicBoolean unavailable = new AtomicBoolean();
+        AtomicBoolean records = new AtomicBoolean();
+        doAnswer(ignored -> unavailable.get()).when(guardedJournal).isUnavailable();
+        doAnswer(invocation -> {
+            invocation.callRealMethod();
+            unavailable.set(true);
+            return null;
+        }).when(guardedJournal).prepare(anyString(), anyList());
+        var publication = new LinkedHashMap<Path, Path>();
+        publication.put(first, firstNew);
+        publication.put(second, secondNew);
+
+        assertThrows(DatabaseUnavailableException.class, () ->
+                new StagedFileDeletion(TestI18nBeans.appMessages(), guardedJournal)
+                        .publishFiles(publication, () -> records.set(true)));
+
+        assertFalse(records.get());
+        assertEquals("old first", Files.readString(first));
+        assertEquals("old second", Files.readString(second));
+        Path staging = stagingSubdirectories().get(0);
+        assertEquals("old first", Files.readString(staging.resolve("0.old")));
+        assertEquals("new first", Files.readString(staging.resolve("0.new")));
+        assertEquals("old second", Files.readString(staging.resolve("1.old")));
+        assertEquals("new second", Files.readString(staging.resolve("1.new")));
+        assertEquals(1, journal.operations().size());
+        verify(guardedJournal, never()).committed(anyString());
+        verify(guardedJournal, never()).forget(anyString());
     }
 
     @Test

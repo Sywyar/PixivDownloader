@@ -192,11 +192,17 @@ public final class PixivPluginDiscoveryBridge {
             return;
         }
 
+        try {
+            var module = new PluginContextModule(sourcePluginId, classLoader, configurationClasses,
+                    featurePlugin.privateSchema(), featurePlugin.privateStorageMigrations(), featurePlugin.sharedMainStorage());
+            if (module.requiresContext()) contextModules.add(module);
+        } catch (Throwable failure) {
+            throwIfJvmFatal(failure);
+            failures.add(fail(sourcePluginId, "storage declaration failed: " + describe(failure)));
+            return;
+        }
         installations.add(new PluginInstallation(
                 descriptor, PluginStatus.STARTED, classLoader, featurePlugin));
-        if (!configurationClasses.isEmpty()) {
-            contextModules.add(new PluginContextModule(sourcePluginId, classLoader, configurationClasses));
-        }
     }
 
     /**
@@ -295,15 +301,15 @@ public final class PixivPluginDiscoveryBridge {
         }
 
         PluginContextModule contextModule = null;
-        if (!configurationClasses.isEmpty()) {
-            try {
-                contextModule = new PluginContextModule(sourcePluginId, classLoader, configurationClasses);
-            } catch (Throwable failure) {
-                throwIfJvmFatal(failure);
-                failures.add(fail(sourcePluginId, "configurationClasses() produced an invalid module: "
-                        + describe(failure)));
-                return;
-            }
+        try {
+            var declaredModule = new PluginContextModule(sourcePluginId, classLoader, configurationClasses,
+                    featurePlugin.privateSchema(), featurePlugin.privateStorageMigrations(), featurePlugin.sharedMainStorage());
+            if (declaredModule.requiresContext()) contextModule = declaredModule;
+        } catch (Throwable failure) {
+            throwIfJvmFatal(failure);
+            failures.add(fail(sourcePluginId, "configurationClasses() produced an invalid module: "
+                    + describe(failure)));
+            return;
         }
         installations.add(new PluginInstallation(
                 descriptor, PluginStatus.STARTED, classLoader, featurePlugin));

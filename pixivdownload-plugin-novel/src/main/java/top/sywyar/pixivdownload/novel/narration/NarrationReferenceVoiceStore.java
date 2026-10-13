@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.novel.narration;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -37,10 +38,12 @@ public class NarrationReferenceVoiceStore {
     private static final List<String> REF_EXTENSIONS = List.of("wav", "mp3", "pcm");
 
     private final NarrationReferenceVoicePaths paths;
+    private final DatabaseAvailability database;
     private final ConcurrentMap<String, Object> locks = new ConcurrentHashMap<>();
 
-    public NarrationReferenceVoiceStore(NarrationReferenceVoicePaths paths) {
+    public NarrationReferenceVoiceStore(NarrationReferenceVoicePaths paths, DatabaseAvailability database) {
         this.paths = paths;
+        this.database = database;
     }
 
     /** 取某角色文件操作的串行锁（稳定的每键监视器）；调用方在其上 {@code synchronized} 串起文件 + DB 变更。 */
@@ -53,27 +56,38 @@ public class NarrationReferenceVoiceStore {
      * {@link UncheckedIOException}（不会留下半截目标文件）。
      */
     public void write(long castId, int characterId, byte[] data, String ext) {
+        database.requireAvailable();
         Path target = paths.file(castId, characterId, ext);
         Path tmp = target.resolveSibling(target.getFileName() + ".tmp");
         try {
+            database.requireAvailable();
             Files.write(tmp, data);
+            database.requireAvailable();
             moveReplace(tmp, target);
         } catch (IOException e) {
-            deleteQuietly(tmp);
             throw new UncheckedIOException("write narration reference voice failed: " + target, e);
+        } finally {
+            // 本次临时文件不承载旧参考音，失效后仍可释放。
+            try {
+                Files.deleteIfExists(tmp);
+            } catch (IOException e) {
+                log.warn("delete narration reference voice temporary file failed: {} ({})", tmp, e.getMessage());
+            }
         }
         deleteOtherExtensions(castId, characterId, ext);
     }
 
-    /** 删除某角色的全部扩展名参考音文件（最大努力，绝不抛出）。 */
+    /** 删除某角色的全部参考音文件；普通 IO 失败记日志，数据库不可用时停止。 */
     public void deleteCharacterFiles(long castId, int characterId) {
+        database.requireAvailable();
         for (String e : REF_EXTENSIONS) {
             deleteQuietly(paths.file(castId, characterId, e));
         }
     }
 
-    /** 删除整册参考音目录 {@code data/novel/narration-voice/{castId}/}（删除花名册时；最大努力，绝不抛出）。 */
+    /** 删除整册参考音目录；普通 IO 失败记日志，数据库不可用时停止。 */
     public void deleteCastDirectory(long castId) {
+        database.requireAvailable();
         Path dir = paths.castDirectory(castId);
         if (!Files.isDirectory(dir)) {
             return;
@@ -95,16 +109,19 @@ public class NarrationReferenceVoiceStore {
         }
     }
 
-    private static void moveReplace(Path tmp, Path target) throws IOException {
+    private void moveReplace(Path tmp, Path target) throws IOException {
         try {
+            database.requireAvailable();
             Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException atomicUnsupported) {
             // 部分平台（含 Windows 覆盖已存在文件）不支持原子移动，回退为非原子覆盖。
+            database.requireAvailable();
             Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 
     private void deleteQuietly(Path file) {
+        database.requireAvailable();
         try {
             Files.deleteIfExists(file);
         } catch (IOException e) {

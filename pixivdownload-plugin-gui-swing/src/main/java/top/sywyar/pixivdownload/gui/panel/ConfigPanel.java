@@ -84,9 +84,11 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     /** key → 渲染后的字段（含取值/赋值方法） */
     private final Map<String, FieldRenderer.RenderedField> renderedFields = new LinkedHashMap<>();
+    private Map<String, String> loadedDatabaseValues = Map.of();
 
     /** 提示条（保存后显示） */
     private final JLabel noticeBar = new JLabel(" ");
+    private JButton saveButton;
 
     /** 配置导航只遍历这棵显式树，避免把 section 内部的切换控件误当成菜单。 */
     private final JTabbedPane topTabs = new JTabbedPane(JTabbedPane.TOP);
@@ -95,6 +97,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     private ConfigMenuTree<JComponent> configMenuTree = new ConfigMenuTree<>(List.of());
     private boolean expandAllConfigMenus;
     private InterfacePreferencesPanel interfacePreferencesPanel;
+    private top.sywyar.pixivdownload.gui.panel.configtab.DatabaseSettingsPanel databasePanel;
 
     /** 调试模式解锁监听：彩蛋触发后在 EDT 上刷新可见性并提示。面板加入/移出窗口时随之注册/注销，避免泄漏。 */
     private final Runnable debugUnlockListener = () -> SwingUtilities.invokeLater(this::onDebugUnlocked);
@@ -333,7 +336,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 new TopCategory("download", message("gui.config.group.download"),
                         Set.of(GuiConfigGroups.DOWNLOAD), false, false),
                 new TopCategory("runtime-network", message("gui.config.category.runtime-network"),
-                        Set.of(GuiConfigGroups.SERVER, GuiConfigGroups.PROXY,
+                        Set.of(GuiConfigGroups.SERVER, GuiConfigGroups.DATABASE, GuiConfigGroups.PROXY,
                                 GuiConfigGroups.HTTPS, GuiConfigGroups.UPDATE), false, true),
                 new TopCategory("access-control", message("gui.config.category.access-control"),
                         Set.of(GuiConfigGroups.GUEST_INVITE, GuiConfigGroups.SECURITY), false, true),
@@ -687,10 +690,31 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             content.add(autoStartPanel);
             content.add(Box.createVerticalStrut(2));
         }
+        if (GuiConfigGroups.DATABASE.equals(group.spec().id()) && group.scope() == ConfigScope.HOST) {
+            SwingHost.host().databaseSettings().ifPresent(settings -> {
+                databasePanel = new top.sywyar.pixivdownload.gui.panel.configtab.DatabaseSettingsPanel(
+                        SwingHost.host(), settings, this::databaseDraft);
+                content.add(databasePanel);
+            });
+        }
         if (includeGlue) {
             content.add(Box.createVerticalGlue());
         }
         return content;
+    }
+
+    private Map<String, String> databaseDraft() {
+        Map<String, String> values = new LinkedHashMap<>();
+        for (ConfigFieldSpec spec : allFields) {
+            if (spec.pluginContributed()) continue;
+            FieldRenderer.RenderedField field = renderedFields.get(spec.key());
+            if (field == null) continue;
+            String value = field.getValue().get();
+            if (spec.type() != FieldType.PASSWORD || !value.isEmpty() || field.credentialClearRequested()) {
+                values.put(spec.key(), value);
+            }
+        }
+        return values;
     }
 
     /**
@@ -815,8 +839,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         noticeBar.setVisible(false);
 
         // 按钮行
-        JButton save = new JButton(message("gui.button.save"));
-        save.addActionListener(e -> saveConfig());
+        saveButton = new JButton(message("gui.button.save"));
+        saveButton.addActionListener(e -> saveConfig());
 
         JButton reset = new JButton(message("gui.button.reset-defaults"));
         reset.addActionListener(e -> resetToDefaults());
@@ -827,7 +851,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
         btnRow.add(openFile);
         btnRow.add(reset);
-        btnRow.add(save);
+        btnRow.add(saveButton);
 
         JPanel bottom = new JPanel(new BorderLayout());
         bottom.add(noticeBar, BorderLayout.NORTH);
@@ -858,9 +882,9 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                         missing.put(spec.key(), spec.defaultValue());
                     }
                 }
-                if (isPluginCredential(spec)) {
+                if (spec.type() == FieldType.PASSWORD) {
                     rf.setCredentialStored(values.containsKey(spec.key())
-                            && !normalizeValue(values.get(spec.key())).isBlank());
+                            && values.get(spec.key()) != null && !values.get(spec.key()).isEmpty());
                 }
             }
 
@@ -884,6 +908,11 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             for (ConfigSection s : sections) {
                 s.onValuesLoaded();
             }
+            loadedDatabaseValues = new HashMap<>();
+            for (String key : top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.CONNECTION_KEYS) {
+                var field = renderedFields.get(key);
+                if (field != null) loadedDatabaseValues.put(key, field.getValue().get());
+            }
             updateEnabledStates();
         } catch (IOException e) {
             log.warn(logMessage("gui.config.log.read-failed", e.getMessage()));
@@ -900,6 +929,13 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     @Override
     public void updateEnabledStates() {
         ConfigSnapshot snap = buildSnapshot();
+        if (saveButton != null) {
+            boolean databaseChanged = databasePanel != null && loadedDatabaseValues.entrySet().stream().anyMatch(entry ->
+                    !java.util.Objects.equals(entry.getValue(), snap.get(entry.getKey()))
+                            || renderedFields.get(entry.getKey()).credentialClearRequested());
+            saveButton.setText(databaseChanged
+                    ? SwingHost.host().message("gui.config.database.migrate") : message("gui.button.save"));
+        }
         boolean layoutChanged = false;
         for (ConfigFieldSpec spec : allFields) {
             FieldRenderer.RenderedField rf = renderedFields.get(spec.key());
@@ -1015,11 +1051,11 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         for (ConfigFieldSpec spec : allFields) {
             FieldRenderer.RenderedField rf = renderedFields.get(spec.key());
             if (rf == null) continue;
-            if (isPluginCredential(spec)) {
+            if (spec.type() == FieldType.PASSWORD) {
                 String entered = rf.getValue().get();
                 if (rf.credentialClearRequested()) {
                     values.put(spec.key(), "");
-                } else if (entered != null && !entered.isBlank()) {
+                } else if (entered != null && !entered.isEmpty()) {
                     values.put(spec.key(), entered);
                 }
                 continue;
@@ -1028,6 +1064,144 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         }
 
         Map<String, String> interfaceValues = interfacePreferencesPanel.pendingChanges(interfaceBefore);
+        var database = SwingHost.host().databaseSettings();
+        if (database.isEmpty()) {
+            savePreparedValues(before, values, interfaceValues);
+            return;
+        }
+        Set<String> clearedCredentials = clearedCredentialKeys();
+        if (databasePanel != null && changedKeys(before, values).stream().anyMatch(
+                top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.CONNECTION_KEYS::contains)) {
+            if (changedKeys(before, values).contains("download.root-folder")
+                    && !confirmAndPinSymbolicRoot(before.get("download.root-folder"), values.get("download.root-folder"))) return;
+            StoredValuesSplit split;
+            try { split = splitStoredValues(values); }
+            catch (IOException invalid) { showNotice(SwingHost.host().message("gui.config.database.invalid")); return; }
+            Map<String, String> otherCore = new LinkedHashMap<>(split.coreValues());
+            top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.CONNECTION_KEYS.forEach(otherCore::remove);
+            databasePanel.previewMigration(split.coreValues(),
+                    () -> draft.equals(buildSnapshot()) && clearedCredentials.equals(clearedCredentialKeys())
+                            && interfaceValues.equals(interfacePreferencesPanel.pendingChanges(interfaceBefore)),
+                    () -> {
+                        writeStoredValuesLocked(new StoredValuesSplit(otherCore, split.pluginValues(), split.credentialValues()), interfaceValues);
+                        for (ConfigSection section : sections) section.onSave();
+                        interfacePreferencesPanel.changesSaved();
+                    });
+            return;
+        }
+        saveButton.setEnabled(false);
+        showNotice(SwingHost.host().message("gui.config.notice.preparing-save"));
+        new SwingWorker<Void, Void>() {
+            @Override protected Void doInBackground() throws IOException {
+                StoredValuesSplit split = splitStoredValues(values);
+                database.orElseThrow().prepare(split.coreValues());
+                return null;
+            }
+
+            @Override protected void done() {
+                boolean saving = false;
+                try {
+                    get();
+                    if (!draft.equals(buildSnapshot()) || !clearedCredentials.equals(clearedCredentialKeys())
+                            || !interfaceValues.equals(interfacePreferencesPanel.pendingChanges(interfaceBefore))) {
+                        showNotice(SwingHost.host().message("gui.config.notice.save-draft-changed"));
+                        return;
+                    }
+                    if (changedKeys(before, values).contains("download.root-folder")
+                            && !confirmAndPinSymbolicRoot(before.get("download.root-folder"), values.get("download.root-folder"))) return;
+                    saveDatabaseValues(before, values, interfaceValues, draft, clearedCredentials, interfaceBefore);
+                    saving = true;
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    showNotice(SwingHost.host().message("gui.config.database.invalid"));
+                } catch (java.util.concurrent.ExecutionException failed) {
+                    Throwable cause = failed.getCause();
+                    if (cause instanceof VirtualMachineError fatal) throw fatal;
+                    if (cause instanceof ThreadDeath fatal) throw fatal;
+                    showNotice(cause instanceof IOException ? cause.getMessage()
+                            : SwingHost.host().message("gui.config.database.invalid"));
+                } finally {
+                    if (!saving) saveButton.setEnabled(true);
+                }
+            }
+        }.execute();
+    }
+
+    private void saveDatabaseValues(
+            Map<String, String> before,
+            Map<String, String> values,
+            Map<String, String> interfaceValues,
+            ConfigSnapshot draft,
+            Set<String> clearedCredentials,
+            Map<String, String> interfaceBefore
+    ) {
+        var enabledBeforeSave = new java.util.IdentityHashMap<Component, Boolean>();
+        freezeControls(this, enabledBeforeSave);
+        new SwingWorker<Map<String, String>, Void>() {
+            @Override protected Map<String, String> doInBackground() throws IOException {
+                var normalized = new LinkedHashMap<String, String>();
+                editor.withWriteLock(() -> {
+                    StoredValuesSplit split = splitStoredValues(values);
+                    var core = SwingHost.host().databaseSettings().orElseThrow().prepare(split.coreValues());
+                    writeStoredValuesLocked(new StoredValuesSplit(core, split.pluginValues(), split.credentialValues()), interfaceValues);
+                    values.forEach((key, value) -> normalized.put(key, core.getOrDefault(key, value)));
+                });
+                return normalized;
+            }
+
+            @Override protected void done() {
+                enabledBeforeSave.forEach(Component::setEnabled);
+                try {
+                    var saved = get();
+                    if (!draft.equals(buildSnapshot()) || !clearedCredentials.equals(clearedCredentialKeys())
+                            || !interfaceValues.equals(interfacePreferencesPanel.pendingChanges(interfaceBefore))) {
+                        showNotice(SwingHost.host().message("gui.config.notice.save-draft-changed"));
+                        return;
+                    }
+                    savePreparedValues(before, saved, interfaceValues, true);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    showNotice(SwingHost.host().message("gui.config.database.invalid"));
+                } catch (java.util.concurrent.ExecutionException failed) {
+                    Throwable cause = failed.getCause();
+                    if (cause instanceof VirtualMachineError fatal) throw fatal;
+                    if (cause instanceof ThreadDeath fatal) throw fatal;
+                    showNotice(cause instanceof IOException ? cause.getMessage()
+                            : SwingHost.host().message("gui.config.database.invalid"));
+                } finally {
+                    saveButton.setEnabled(true);
+                }
+            }
+        }.execute();
+    }
+
+    private void freezeControls(Container container, Map<Component, Boolean> enabled) {
+        for (Component child : container.getComponents()) {
+            enabled.put(child, child.isEnabled());
+            child.setEnabled(false);
+            if (child instanceof Container nested) freezeControls(nested, enabled);
+        }
+    }
+
+    private Set<String> clearedCredentialKeys() {
+        return renderedFields.entrySet().stream().filter(entry -> entry.getValue().credentialClearRequested())
+                .map(Map.Entry::getKey).collect(java.util.stream.Collectors.toSet());
+    }
+
+    private void savePreparedValues(
+            Map<String, String> before,
+            Map<String, String> values,
+            Map<String, String> interfaceValues
+    ) {
+        savePreparedValues(before, values, interfaceValues, false);
+    }
+
+    private void savePreparedValues(
+            Map<String, String> before,
+            Map<String, String> values,
+            Map<String, String> interfaceValues,
+            boolean persisted
+    ) {
         Set<String> interfaceChangedKeys = interfaceValues.keySet();
         Set<String> changedKeys = changedKeys(before, values);
         Set<String> hotReloadKeys = changedFieldKeys(changedKeys, GuiConfigEffect.HOT_RELOAD);
@@ -1040,15 +1214,21 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
         // 下载根目录原本以符号根（跟随软件目录）方式记录时，改目录前必须先把旧记录固定为绝对路径，
         // 否则旧作品会随新配置解析到错误位置。用户取消或固定失败 → 整个保存中止。
-        if (changedKeys.contains("download.root-folder")
+        if (!persisted && changedKeys.contains("download.root-folder")
                 && !confirmAndPinSymbolicRoot(before.get("download.root-folder"),
                         values.get("download.root-folder"))) {
             return;
         }
 
         try {
-            writeStoredValues(values, interfaceValues);
+            if (!persisted) editor.withWriteLock(() -> writeStoredValuesLocked(splitStoredValues(values), interfaceValues));
             refreshCredentialFieldsAfterSave(values);
+            for (String key : List.of("database.jdbc-url", "database.username")) {
+                if (values.containsKey(key) && renderedFields.containsKey(key)) {
+                    renderedFields.get(key).setValue().accept(values.get(key));
+                }
+            }
+            if (databasePanel != null) databasePanel.refreshState();
             // 各 section 持久化自有的非字段网格状态（如插件市场仓库列表）；任一写入改动均为需重启项。
             boolean sectionRestartChange = false;
             for (ConfigSection s : sections) {
@@ -1182,7 +1362,9 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             }
             String oldValue = before.containsKey(spec.key()) ? before.get(spec.key()) : spec.defaultValue();
             String newValue = after.get(spec.key());
-            if (!Objects.equals(normalizeValue(oldValue), normalizeValue(newValue))) {
+            if (spec.type() == FieldType.PASSWORD
+                    ? !Objects.equals(oldValue, newValue)
+                    : !Objects.equals(normalizeValue(oldValue), normalizeValue(newValue))) {
                 changed.add(spec.key());
             }
         }
@@ -1402,7 +1584,11 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     private void writeStoredValues(Map<String, String> values,
                                    Map<String, String> interfaceValues) throws IOException {
-        StoredValuesSplit split = splitStoredValues(values);
+        editor.withWriteLock(() -> writeStoredValuesLocked(splitStoredValues(values), interfaceValues));
+    }
+
+    private void writeStoredValuesLocked(StoredValuesSplit split,
+                                         Map<String, String> interfaceValues) throws IOException {
         if (interfaceValues != null && !interfaceValues.isEmpty()) {
             Map<String, String> coreValues = new LinkedHashMap<>(split.coreValues());
             for (Map.Entry<String, String> entry : interfaceValues.entrySet()) {
@@ -1742,7 +1928,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     }
 
     private static String displayValueForLoad(ConfigFieldSpec spec, String storedValue) {
-        if (isPluginCredential(spec)) {
+        if (spec.type() == FieldType.PASSWORD) {
             return "";
         }
         String safe = storedValue == null ? "" : storedValue;
@@ -1765,7 +1951,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     private void refreshCredentialFieldsAfterSave(Map<String, String> values) {
         for (ConfigFieldSpec spec : allFields) {
-            if (!isPluginCredential(spec)) {
+            if (spec.type() != FieldType.PASSWORD) {
                 continue;
             }
             FieldRenderer.RenderedField rf = renderedFields.get(spec.key());
@@ -1773,7 +1959,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 continue;
             }
             boolean stored = values.containsKey(spec.key())
-                    ? !normalizeValue(values.get(spec.key())).isBlank()
+                    ? values.get(spec.key()) != null && !values.get(spec.key()).isEmpty()
                     : rf.credentialStored();
             rf.setValue().accept("");
             rf.setCredentialStored(stored);
@@ -1921,6 +2107,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     }
 
     private void handleFieldChanged(String key) {
+        if (databasePanel != null && key.startsWith("database.")) databasePanel.edited();
         FieldRenderer.RenderedField rf = renderedFields.get(key);
         if (rf != null) {
             rf.setValidationError(null);
@@ -2279,7 +2466,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     public void requestCredentialClear(String key) {
         FieldRenderer.RenderedField rf = renderedFields.get(key);
         ConfigFieldSpec spec = findSpec(key);
-        if (rf != null && isPluginCredential(spec)) {
+        if (rf != null && spec != null && spec.type() == FieldType.PASSWORD) {
             rf.requestCredentialClear();
         }
     }

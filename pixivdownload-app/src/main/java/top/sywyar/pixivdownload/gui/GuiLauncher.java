@@ -206,6 +206,7 @@ public class GuiLauncher {
 
         // 开发进程允许并存；CLI 管理命令仍需单实例检查，避免并发修改初始化配置。
         boolean singleInstanceRequired = !PluginDevelopmentArtifacts.enabled()
+                || top.sywyar.pixivdownload.gui.config.DatabaseSwitchService.pending()
                 || CliSetupCommand.containsCliCommand(args);
 
         SingleInstanceManager singleInstanceManager;
@@ -242,6 +243,10 @@ public class GuiLauncher {
         if (singleInstanceManager != null) {
             registerSingleInstanceShutdown(singleInstanceManager);
         }
+
+        if (top.sywyar.pixivdownload.gui.config.DatabaseSwitchService.pending())
+            splash.showStatus(message("gui.config.database.migration.status.running"));
+        top.sywyar.pixivdownload.gui.config.DatabaseSwitchService.runPending(filterArgs(args));
 
         // ── 0c. CLI 管理命令（--setup / --change-password / --reset-password）─────
         //    必须在单实例锁取得之后执行：避免与正在运行的实例并发写 setup_config.json。
@@ -319,6 +324,10 @@ public class GuiLauncher {
                 buildStartupManagedSchema(pluginSession.enabledSnapshot(), pluginSession.startupDiscovery());
 
         String[] backendArgs = filterArgs(args);
+        var databaseEnvironment = top.sywyar.pixivdownload.core.db.DatabaseTarget.configurationEnvironment(backendArgs);
+        var databaseBinding = top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap.bind(
+                pluginSession, databaseEnvironment);
+        var databaseTarget = top.sywyar.pixivdownload.core.db.DatabaseTarget.fromBinding(databaseBinding);
         final int port = resolveServerPort(serverPort, backendArgs);
         final String root = rootFolder;
 
@@ -332,7 +341,7 @@ public class GuiLauncher {
         // ── 3. 选择并启动外置桌面 UI ─────────────────────────────────────────
         splash.showStatus(message("gui.launcher.splash.interface"));
         try {
-            AppDesktopUiHost desktopUiHost = new AppDesktopUiHost(port, backendArgs);
+            AppDesktopUiHost desktopUiHost = new AppDesktopUiHost(port, backendArgs, pluginSession, databaseTarget);
             desktopUiHost.resetIncompleteOnboardingState(root);
             Supplier<List<DesktopUiPluginSource>> currentDesktopSources = memoizedDesktopUiSources(
                     () -> pluginSession.manager().discoverFeaturePlugins(),
@@ -391,7 +400,7 @@ public class GuiLauncher {
             ui.start(readConfigScalar(configPath, "app.gui-provider"));
             pluginSession.releaseStartupSnapshot();
             if (ACTIVE_UI.get() != null) {
-                maybeScheduleStartupBackfillFlow(ui, configPath, root, startupManagedSchema, backendArgs);
+                maybeScheduleStartupBackfillFlow(ui, configPath, root, startupManagedSchema, databaseTarget);
             }
         } catch (Throwable failure) {
             splash.close();
@@ -500,6 +509,7 @@ public class GuiLauncher {
                 desktopRecoveryFailure,
                 report,
                 errors,
+                false,
                 status.failures()
         );
         var summaries = guidance.localizedErrors(GuiLauncher::message);
@@ -546,11 +556,14 @@ public class GuiLauncher {
 
     private static void maybeScheduleStartupBackfillFlow(DesktopUiSession frame, Path configPath, String rootFolder,
                                                          ManagedDatabaseSchema.DatabaseSchema expectedSchema,
-                                                         String[] backendArgs) {
+                                                         top.sywyar.pixivdownload.core.db.DatabaseTarget target) {
 
         Thread worker = new Thread(() -> {
             try {
-                var target = top.sywyar.pixivdownload.core.db.DatabaseTarget.fromConfiguration(backendArgs);
+                if (!target.available()) {
+                    BackendLifecycleManager.startAsync();
+                    return;
+                }
                 ArtworksBackFill.Options options = buildStartupBackfillOptions(configPath, rootFolder).withTarget(target);
                 runStartupSchemaBackfill(frame, options, expectedSchema);
             } catch (Throwable fatal) {
@@ -565,8 +578,7 @@ public class GuiLauncher {
     private static void runStartupSchemaBackfill(DesktopUiSession frame, ArtworksBackFill.Options options,
                                                  ManagedDatabaseSchema.DatabaseSchema expectedSchema) {
         var target = options.target();
-        if (target.engine() == top.sywyar.pixivdownload.core.db.DatabaseEngine.SQLITE
-                && !hasInspectableDatabase(target.sqlitePath())) {
+        if (target.localFile().filter(file -> !hasInspectableDatabase(file)).isPresent()) {
             log.info(logMessage("gui.launcher.log.startup.schema-check.skipped", target.displayName()));
             BackendLifecycleManager.startAsync();
             return;
@@ -574,7 +586,7 @@ public class GuiLauncher {
 
         DatabaseSchemaInspector.SchemaComparison comparison;
         try (var connection = target.openConnection()) {
-            comparison = DatabaseSchemaInspector.compare(connection, expectedSchema);
+            comparison = DatabaseSchemaInspector.compare(connection, target, expectedSchema);
         } catch (Throwable error) {
             log.warn(logMessage("gui.launcher.log.startup.schema-check.compare-failed"), error);
             DesktopUiDialogs.invokeLater(() -> DesktopUiDialogs.showMessageDialog(

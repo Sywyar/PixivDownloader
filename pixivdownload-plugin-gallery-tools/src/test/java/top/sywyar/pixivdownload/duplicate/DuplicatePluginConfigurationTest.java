@@ -57,7 +57,8 @@ class DuplicatePluginConfigurationTest {
                 top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance.class,
                 DuplicateService.class,
                 top.sywyar.pixivdownload.i18n.MessageResolver.class,
-                org.springframework.core.task.TaskExecutor.class);
+                org.springframework.core.task.TaskExecutor.class,
+                top.sywyar.pixivdownload.core.database.DatabaseAvailability.class);
         Qualifier qualifier = serviceFactory.getParameters()[3].getAnnotation(Qualifier.class);
         assertThat(qualifier).isNotNull();
         assertThat(qualifier.value()).isEqualTo("duplicateScanTaskExecutor");

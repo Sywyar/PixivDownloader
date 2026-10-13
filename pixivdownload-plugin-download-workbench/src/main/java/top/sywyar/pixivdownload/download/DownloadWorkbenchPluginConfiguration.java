@@ -118,8 +118,9 @@ public class DownloadWorkbenchPluginConfiguration {
             top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository metadata,
             top.sywyar.pixivdownload.core.work.service.WorkQueryService query,
             top.sywyar.pixivdownload.download.media.ImageOutputService images,
-            UgoiraService animations, top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore) {
-        return new top.sywyar.pixivdownload.download.media.MediaMaintenanceService(assets, metadata, query, images, animations, mediaStore);
+            UgoiraService animations, top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
+        return new top.sywyar.pixivdownload.download.media.MediaMaintenanceService(assets, metadata, query, images, animations, mediaStore, database);
     }
 
     @Bean
@@ -236,7 +237,8 @@ public class DownloadWorkbenchPluginConfiguration {
                                                            ArtworkHashIndexMaintenance artworkHashIndexMaintenance,
                                                            WorkMetadataCapture workMetadataCapture,
                                                            @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
-                                                           top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle downloadLifecycle) {
+                                                           top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle downloadLifecycle,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
         return new ArtworkDownloadExecutor(downloadSettings, eventPublisher,
                 artworkDownloadHistory, artworkDownloadLookup, artworkDownloadStatistics,
                 visitorDownloadQuotaService,
@@ -245,7 +247,7 @@ public class DownloadWorkbenchPluginConfiguration {
                 artworkAuthorLookup, downloadPathGuard,
                 collectionDownloadRootResolver, workCollectionMembership,
                 artworkSeriesObserver, artworkHashIndexMaintenance, workMetadataCapture,
-                messages, downloadLifecycle);
+                messages, downloadLifecycle, database);
     }
 
     @Bean

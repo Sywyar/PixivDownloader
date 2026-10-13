@@ -4,6 +4,8 @@ import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 
 import java.util.List;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.*;
 
 import static top.sywyar.pixivdownload.core.db.schema.SchemaSpecs.column;
 
@@ -30,10 +32,8 @@ public final class StatisticsSchemaContribution {
                                 column("daily_completed", "INTEGER", false, "0", 0),
                                 column("daily_failed", "INTEGER", false, "0", 0)
                         ),
-                        List.of(),
-                        // 单行表守卫：id 恒为 1（与历史 DDL 的列内 CHECK 等价，表级表达）
-                        "id = 1"
-                )
+                        List.of()
+                ).withCheck(call(EQUAL, new top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Column("statistics", "id"), value(1)))
         );
 
         return new SchemaContribution(tables, List.of(), List.of());

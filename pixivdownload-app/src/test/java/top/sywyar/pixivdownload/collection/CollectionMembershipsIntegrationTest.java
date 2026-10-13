@@ -14,7 +14,6 @@ import top.sywyar.pixivdownload.core.db.DatabaseConfig;
 import top.sywyar.pixivdownload.core.db.DatabasePoolProperties;
 import top.sywyar.pixivdownload.core.db.PostgresTestDatabase;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
-import top.sywyar.pixivdownload.core.db.sqlite.SqliteDatabase;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 
@@ -31,7 +30,7 @@ class CollectionMembershipsIntegrationTest {
     @Test
     @DisplayName("SQLite 收藏归属保留作品和收藏夹身份")
     void sqliteMemberships() throws Exception {
-        try (var pool = SqliteDatabase.openPool(directory.resolve("collections.db"),
+        try (var pool = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.openPool(directory.resolve("collections.db"),
                 DatabasePoolProperties.MINIMUM_POOL_SIZE)) {
             verifyMemberships(pool);
         }
@@ -49,16 +48,10 @@ class CollectionMembershipsIntegrationTest {
     private void verifyMemberships(DataSource pool) throws Exception {
         var registry = DatabaseSchemaRegistry.forBuiltInPlugins();
         var jdbc = new JdbcTemplate(pool);
-        var initializer = new DatabaseInitializer(jdbc, registry.contributions(), registry.mergedSchema(),
+        var initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(jdbc, registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
-        var configuration = new Configuration(new Environment("collections-test",
-                new SpringManagedTransactionFactory(), pool));
-        configuration.setDatabaseId(new DatabaseConfig(null, null, null).databaseIdProvider().getDatabaseId(pool));
-        configuration.setMapUnderscoreToCamelCase(true);
-        configuration.addMapper(CollectionMapper.class);
-        var mapper = new SqlSessionTemplate(new SqlSessionFactoryBuilder().build(configuration))
-                .getMapper(CollectionMapper.class);
+        var mapper = new CollectionMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(pool));
         var service = new CollectionService(mapper, null, TestI18nBeans.appMessages(), null, null, null, initializer);
         jdbc.update("INSERT INTO collections(id,name,created_time) VALUES(?,?,?)",
                 5_000_000_001L, "收藏一 🌸", 1_700_000_000_123L);

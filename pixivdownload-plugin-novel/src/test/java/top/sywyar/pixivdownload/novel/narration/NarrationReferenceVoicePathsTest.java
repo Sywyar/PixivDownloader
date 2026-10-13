@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.novel.TestRuntimePathProvider;
+import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -13,6 +14,7 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -27,7 +29,7 @@ class NarrationReferenceVoicePathsTest {
     void keepsPathResolutionLazyDuringConstruction() {
         RuntimePathProvider runtimePathProvider = mock(RuntimePathProvider.class);
 
-        new NarrationReferenceVoicePaths(runtimePathProvider);
+        new NarrationReferenceVoicePaths(runtimePathProvider, () -> true);
 
         verifyNoInteractions(runtimePathProvider);
         assertThat(tempDir.resolve("data/novel/narration-voice")).doesNotExist();
@@ -37,7 +39,7 @@ class NarrationReferenceVoicePathsTest {
     @DisplayName("参考音使用小说插件数据布局并拒绝不安全扩展名")
     void resolvesOwnerLayoutAndRejectsUnsafeExtensions() {
         NarrationReferenceVoicePaths paths = new NarrationReferenceVoicePaths(
-                new TestRuntimePathProvider(tempDir));
+                new TestRuntimePathProvider(tempDir), () -> true);
 
         assertThat(paths.file(7L, 3, " WAV "))
                 .isEqualTo(tempDir.resolve("data/novel/narration-voice/7/3.wav"));
@@ -58,7 +60,7 @@ class NarrationReferenceVoicePathsTest {
         Files.createDirectories(legacy.getParent());
         Files.writeString(legacy, "voice", StandardCharsets.UTF_8);
         NarrationReferenceVoicePaths paths = new NarrationReferenceVoicePaths(
-                new TestRuntimePathProvider(tempDir));
+                new TestRuntimePathProvider(tempDir), () -> true);
 
         Path first = paths.file(7L, 3, "wav");
         Path second = paths.file(7L, 3, "wav");
@@ -78,11 +80,26 @@ class NarrationReferenceVoicePathsTest {
         Files.writeString(canonical, "canonical", StandardCharsets.UTF_8);
         Files.writeString(legacy, "legacy", StandardCharsets.UTF_8);
         NarrationReferenceVoicePaths paths = new NarrationReferenceVoicePaths(
-                new TestRuntimePathProvider(tempDir));
+                new TestRuntimePathProvider(tempDir), () -> true);
 
         Path resolved = paths.file(7L, 3, "wav");
 
         assertThat(Files.readString(resolved, StandardCharsets.UTF_8)).isEqualTo("canonical");
         assertThat(Files.readString(legacy, StandardCharsets.UTF_8)).isEqualTo("legacy");
+    }
+
+    @Test
+    @DisplayName("无数据库时不迁移旧参考音，也不创建当前目录")
+    void leavesLegacyFilesUntouchedWithoutDatabase() throws IOException {
+        Path legacy = tempDir.resolve("data/narration-voice/7/3.wav");
+        Files.createDirectories(legacy.getParent());
+        Files.writeString(legacy, "voice", StandardCharsets.UTF_8);
+        var paths = new NarrationReferenceVoicePaths(new TestRuntimePathProvider(tempDir), () -> false);
+
+        assertThatThrownBy(() -> paths.file(7L, 3, "wav"))
+                .isInstanceOf(DatabaseUnavailableException.class);
+
+        assertThat(Files.readString(legacy, StandardCharsets.UTF_8)).isEqualTo("voice");
+        assertThat(tempDir.resolve("data/novel/narration-voice")).doesNotExist();
     }
 }

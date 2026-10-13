@@ -203,6 +203,33 @@ class PixivScheduledNovelWorkExecutorTest {
     }
 
     @Test
+    @DisplayName("小说计划下载缺库时透传不可用且不提交后置工作")
+    void downloadUnavailableDoesNotBecomeRetryableNetworkFailure() throws Exception {
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull())).thenReturn(minimalNovelResponse());
+        when(novelDownloader.downloadBlocking(any(), isNull()))
+                .thenThrow(new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> executor().execute(work("123"),
+                context(definition(false, false), ScheduledNetworkRoute.direct(), null).context()))
+                .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+        verifyNoInteractions(workMetaCaptureService, novelAutoTranslateService);
+    }
+
+    @Test
+    @DisplayName("小说计划元数据写入缺库时不返回完成结果")
+    void metadataUnavailableDoesNotCompleteScheduledWork() throws Exception {
+        when(pixivAjaxProxyClient.get(any(URI.class), isNull())).thenReturn(minimalNovelResponse());
+        when(novelDownloader.downloadBlocking(any(), isNull())).thenReturn(true);
+        org.mockito.Mockito.doThrow(new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException())
+                .when(workMetaCaptureService).capture(eq(WorkType.NOVEL), eq(123L), any(), eq("schedule"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> executor().execute(work("123"),
+                context(definition(false, false), ScheduledNetworkRoute.direct(), null).context()))
+                .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+        verifyNoInteractions(novelAutoTranslateService);
+    }
+
+    @Test
     @DisplayName("代理路由覆盖详情系列和阻塞下载并完整映射请求后捕获 sidecar")
     void mapsCompleteRequestInsideProxyRouteAndCapturesSidecar() throws Exception {
         char[] secret = "PHPSESSID=test".toCharArray();

@@ -59,6 +59,7 @@ public class GuestInviteService {
     /** 非 DDL 初始化：建表 / 补列 / 索引已统一由 {@link DatabaseInitializer} 执行，这里只保留一次性数据迁移。 */
     @PostConstruct
     public void init() {
+        if (databaseInitializer.isUnavailable()) return;
         // 一次性迁移：把漫画侧的白名单内容/开关复制到小说侧；只对 novel_* 仍为 NULL 的行生效。
         try {
             int copiedTags = mapper.copyTagsToNovelSide();

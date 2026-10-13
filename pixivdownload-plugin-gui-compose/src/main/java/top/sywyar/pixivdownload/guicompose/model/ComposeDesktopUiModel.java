@@ -172,6 +172,12 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
                 if (snapshot.state() != previousState)
                     backendStateChangedAt = System.currentTimeMillis();
                 backend = snapshot;
+                if (snapshot.state() != previousState) {
+                    executeAsync(() -> {
+                        configuration.database.refresh();
+                        rebuild();
+                    });
+                }
                 if (snapshot.state() != DesktopUiHost.BackendState.RUNNING) {
                     statusController.resetConnection();
                 }
@@ -798,7 +804,12 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     }
 
     List<DesktopUiNode.AboutFact> platformFacts() {
-        return ComposeApplicationInfo.platformFacts(host, pluginStatus.buildInfo(), pluginStatus.noticeKey());
+        return ComposeApplicationInfo.platformFacts(
+                host,
+                pluginStatus.buildInfo(),
+                pluginStatus.noticeKey(),
+                configuration.database.activeTarget()
+        );
     }
 
     DesktopUiNode.TextToken pluginSummary() {

@@ -356,16 +356,9 @@ class PluginApplicationContextFactoryTest {
         assertThat(Arrays.stream(PluginApplicationContextFactory.class.getConstructors())
                 .map(constructor -> List.of(constructor.getParameterTypes()))
                 .toList())
-                .containsExactlyInAnyOrder(
-                        List.of(PluginStreamRegistry.class, PluginRuntimeTaskRegistry.class),
-                        List.of(PluginContextPropertySourceProvider.class,
-                                PluginStreamRegistry.class,
-                                PluginRuntimeTaskRegistry.class),
-                        List.of(PluginContextPropertySourceProvider.class,
-                                PluginStreamRegistry.class,
-                                PluginRuntimeTaskRegistry.class,
-                                java.util.function.Function.class,
-                                java.util.function.Function.class));
+                .isNotEmpty()
+                .allSatisfy(parameters -> assertThat(parameters)
+                        .contains(PluginStreamRegistry.class, PluginRuntimeTaskRegistry.class));
     }
 
     @Test

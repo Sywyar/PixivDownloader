@@ -271,3 +271,29 @@ test('明确失败插件优先排序且不被默认隐藏，未知安装态不�
     await f.market.recovery.refresh();
     assert.equal(f.market.data.selectedInstallStatus(failed, pkg), 'RECOVERY_BLOCKED');
 });
+
+
+test('缺少数据库时显示默认数据库候选，数据库和 GUI 补查共享累计预算', async () => {
+    const f = fixture();
+    f.setReport({active: true, focus: {plugins: {selected: 'database'}, categories: ['database', 'ui']}});
+    await f.market.recovery.refresh();
+    const candidate = {pluginId: 'file-provider', market: {category: 'database', defaultInstalled: true}};
+    assert.equal(f.market.data.cardModel(candidate).focusReason, 'database');
+    assert.equal(f.market.data.filterAndSort([candidate], {hideDefaultInstalled: true, hideDependencies: true}).length, 1);
+    Object.assign(f.sandbox, {AbortController, setTimeout, clearTimeout});
+    const calls = [];
+    f.sandbox.fetch = async url => {
+        calls.push(url);
+        const data = url.includes('category=database') ? {generation: 'same', entries: Array.from({length: 60}, (_, i) => ({pluginId: 'db-' + i}))}
+            : url.includes('category=ui') ? {generation: 'same', entries: Array.from({length: 40}, (_, i) => ({pluginId: 'ui-' + i})), nextCursor: 'more'}
+            : url.includes('/plugins/') ? {pluginId: 'selected'}
+            : {enabled: true, repositoryId: 'repo', generation: 'same', entries: []};
+        return {ok: true, json: async () => data};
+    };
+    vm.runInContext(fs.readFileSync(path.join(staticRoot, 'plugin-market/plugin-market-api.js'), 'utf8'), f.sandbox);
+    const catalog = await f.market.api.fetchCatalog('repo');
+    assert.ok(calls.some(url => url.includes('category=database&limit=100')));
+    assert.ok(calls.some(url => url.includes('category=ui&limit=40')));
+    assert.equal(catalog.entries.length, 101);
+    assert.equal(catalog.focusIncomplete, true);
+});

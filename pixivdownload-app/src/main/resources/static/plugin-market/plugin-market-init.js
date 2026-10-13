@@ -27,6 +27,7 @@
                 PMK.state.i18n.client = nextClient;
                 applyStaticTranslations();
                 if (PMK.recovery) PMK.recovery.refresh();
+                if (PMK.database) PMK.database.render();
                 if (PMK.operations) {
                     PMK.operations.render();
                     PMK.operations.refresh();
@@ -70,6 +71,7 @@
         PixivActions.bind(document, { click: { pmkLogout: global.pmkLogout } });
         await ensureI18n();   // 初始 i18n（plugin-market + common）+ 挂载语言 / 主题切换
         if (PMK.recovery) PMK.recovery.mount();
+        if (PMK.database) PMK.database.mount();
         if (PMK.operations) PMK.operations.mount();
         var root = document.getElementById('pmk-app-root');
         var mounted = false;

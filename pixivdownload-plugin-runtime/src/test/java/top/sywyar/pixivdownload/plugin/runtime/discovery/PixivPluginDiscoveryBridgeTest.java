@@ -417,6 +417,34 @@ class PixivPluginDiscoveryBridgeTest {
     }
 
     @Test
+    @DisplayName("无业务配置类的私库声明在开发和安装入口均保留，声明故障隔离整包")
+    void storageOnlyPackageRetainsContext() {
+        var feature = org.mockito.Mockito.spy(new TestFeaturePlugin("storage-only"));
+        var schema = new top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution(List.of(
+                new top.sywyar.pixivdownload.plugin.api.schema.TableSpec("entries", List.of(
+                        new top.sywyar.pixivdownload.plugin.api.schema.ColumnSpec("id", "INTEGER", false, null, 1)), List.of())),
+                List.of(), List.of());
+        org.mockito.Mockito.doReturn(List.of(schema)).when(feature).privateSchema();
+        var wrapper = startedWrapper("storage-only", new GoodProviderPlugin(feature), getClass().getClassLoader());
+        var manager = managerWith(wrapper);
+        when(manager.getPlugin("storage-only")).thenReturn(wrapper);
+        var descriptor = verifiedDescriptor("storage-only", List.of());
+        for (var inventory : List.of(bridge.inspect(manager), bridge.inspectLoadedPackage(manager, descriptor))) {
+            assertThat(inventory.failures()).isEmpty();
+            assertThat(inventory.contextModules()).singleElement().satisfies(module -> {
+                assertThat(module.configurationClasses()).isEmpty();
+                assertThat(module.privateSchema()).containsExactly(schema);
+            });
+        }
+        org.mockito.Mockito.doThrow(new IllegalStateException("fixture declaration failure")).when(feature).privateSchema();
+        for (var inventory : List.of(bridge.inspect(manager), bridge.inspectLoadedPackage(manager, descriptor))) {
+            assertThat(inventory.installations()).isEmpty();
+            assertThat(inventory.contextModules()).isEmpty();
+            assertThat(inventory.failures()).hasSize(1);
+        }
+    }
+
+    @Test
     @DisplayName("inspect：SDK 不兼容的插件包不参与子 context 装配")
     void inspectContextModulesRejectsIncompatiblePackage() {
         DefaultPluginDescriptor incompatible = new DefaultPluginDescriptor(

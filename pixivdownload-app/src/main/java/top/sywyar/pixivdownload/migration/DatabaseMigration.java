@@ -7,7 +7,13 @@ import org.springframework.core.env.StandardEnvironment;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
-import top.sywyar.pixivdownload.core.db.schema.SqliteToPostgresMigration;
+import top.sywyar.pixivdownload.core.db.schema.CoreMigrationSchema;
+import top.sywyar.pixivdownload.migration.database.*;
+import top.sywyar.pixivdownload.plugin.api.database.DatabasePrivateStorageSettings;
+import top.sywyar.pixivdownload.plugin.api.database.migration.*;
+import top.sywyar.pixivdownload.core.db.schema.PrivateDatabaseMigrationState;
+import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
+import top.sywyar.pixivdownload.plugin.storage.PluginDatabaseFactory;
 import top.sywyar.pixivdownload.gui.SingleInstanceManager;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
@@ -39,10 +45,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-/** 显式停机 SQLite → PostgreSQL 入口，不保存配置、不启动业务、不改动作品或私有插件库。 */
+/** 显式停机迁移入口；可信源与目标分别迁出和迁入，主库和私库使用同一合同。 */
 public final class DatabaseMigration {
     private static final int MAX_SCHEMA_BYTES = 8 * 1024 * 1024;
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = top.sywyar.pixivdownload.migration.database.MigrationSchemaJson.mapper();
 
     private DatabaseMigration() {}
 
@@ -65,87 +71,146 @@ public final class DatabaseMigration {
         Map<String, String> options = parse(args);
         try (var instance = SingleInstanceManager.acquire()) {
             if (instance == null) throw new IllegalStateException("INSTANCE_BUSY");
-            RuntimeFiles.resolveConfigYamlPath();
             var environment = new StandardEnvironment();
             ConfigDataEnvironmentPostProcessor.applyTo(environment);
-            var properties = Binder.get(environment).bind("plugin-catalog", PluginCatalogProperties.class)
-                    .orElseGet(PluginCatalogProperties::new);
-            var repositories = new PluginRepositoryRegistry(properties);
-            try (var session = PluginBootstrapSession.createProcess(RuntimeFiles.pluginsDirectory(),
-                    PluginEnabledSnapshot.empty(), PluginCatalogTrustStores.verifierResolver(repositories))) {
-                session.updateAdmissionPolicy(new PluginCatalogRevocationAdmissionPolicy(repositories, new PluginCatalogTrustStateStore()));
-                session.start();
+            try (var session = top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap.openToolSession(environment)) {
                 if (!session.startupDiscovery().failures().isEmpty()) {
                     throw new IllegalStateException("PLUGIN_DISCOVERY_FAILED");
                 }
-                var plugins = new PluginRegistry(BuiltInPlugins.createAll(), new PluginToggleProperties(), session.startupDiscovery());
-                var registry = new DatabaseSchemaRegistry(new PluginRegistry(List.of()));
-                List<OwnedSchema> declarations = new ArrayList<>();
-                List<PluginIdentity> identities = new ArrayList<>();
-                for (var plugin : plugins.allRegisteredPlugins()) {
-                    List<SchemaContribution> contributions = new ArrayList<>();
-                    plugins.runBootContribution(plugin, () -> contributions.addAll(plugin.plugin().schema()));
-                    if (plugins.lifecycleFailure(plugin).isPresent()) throw new IllegalStateException("PLUGIN_SCHEMA_FAILED");
-                    contributions.forEach(contribution -> registry.register(plugin.id(), contribution));
-                    declarations.add(new OwnedSchema(plugin.id(), contributions));
-                    String version = session.startupInventory().installations().stream()
-                            .filter(installed -> installed.id().equals(plugin.id()))
-                            .map(installed -> installed.descriptor().version()).findFirst().orElse(SdkVersion.VERSION);
-                    identities.add(new PluginIdentity(plugin.id(), plugin.packageId(), plugin.source().name(), version));
-                }
-                if (options.containsKey("--retained-schema")) {
-                    SchemaManifest retained = readManifest(Path.of(options.get("--retained-schema")));
-                    Set<String> installed = declarations.stream().map(OwnedSchema::owner).collect(java.util.stream.Collectors.toSet());
-                    for (var owner : retained.owners()) {
-                        if (installed.contains(owner.owner())) continue;
-                        for (var contribution : owner.contributions()) registry.register(owner.owner(), contribution);
-                        declarations.add(owner);
-                    }
-                    retained.plugins().stream().filter(plugin -> !installed.contains(plugin.id())).forEach(identities::add);
-                }
-                SchemaManifest manifest = new SchemaManifest(SdkVersion.VERSION, List.copyOf(declarations), List.copyOf(identities));
+                var catalog = declarations(session, options.containsKey("--retained-schema")
+                        ? Path.of(options.get("--retained-schema")) : null);
+                var manifest = catalog.manifest();
                 if (options.containsKey("--export-schema")) {
                     writeNew(Path.of(options.get("--export-schema")), manifest);
                     return;
                 }
-                Path source = Path.of(required(options, "--source"));
+                Path sourceConfig = Path.of(required(options, "--source-config")).toAbsolutePath();
                 Path targetConfig = Path.of(required(options, "--target-config")).toAbsolutePath();
-                if (!Files.isRegularFile(targetConfig)) throw new IOException("TARGET_CONFIG_MISSING");
-                DatabaseTarget target = DatabaseTarget.fromConfiguration("--spring.config.location=" + targetConfig.toUri());
+                Path sourceData = RuntimeFiles.dataDirectory();
+                Path targetData = RuntimeFiles.dataDirectory();
                 Path runDirectory = RuntimeFiles.databaseMigrationDirectory().resolve(UUID.randomUUID().toString());
-                Path backup = options.containsKey("--backup") ? Path.of(options.get("--backup")) : runDirectory.resolve("source.db");
+                Path backup = options.containsKey("--backup") ? Path.of(options.get("--backup")) : runDirectory.resolve("source.backup");
                 Path report = options.containsKey("--report") ? Path.of(options.get("--report")) : runDirectory.resolve("report.json");
-                if (Files.exists(report)) throw new IOException("REPORT_EXISTS");
                 Set<String> rebuild = options.containsKey("--rebuild-objects")
                         ? Set.of(options.get("--rebuild-objects").split(",", -1)) : Set.of();
-                writeNew(report, new MigrationReport("IN_PROGRESS", manifest, null, null));
-                SqliteToPostgresMigration.Result result;
+                writeNew(report, new MigrationReport(1, "IN_PROGRESS", manifest, Map.of(), null, List.of()));
+                boolean orchestrationStarted = false;
                 try {
-                    result = SqliteToPostgresMigration.migrate(source, backup, target,
-                            registry.contributions(), registry.mergedSchema(), rebuild);
+                    if (!Files.isRegularFile(sourceConfig) || !Files.isRegularFile(targetConfig))
+                        throw new IllegalStateException("DATABASE_CONFIG_MISSING");
+                    var available = session.databaseProviders();
+                    var source = MigrationEndpoint.resolve(available, DatabaseTarget.configurationEnvironment(
+                            "--spring.config.location=" + sourceConfig.toUri()));
+                    var target = MigrationEndpoint.resolve(available, DatabaseTarget.configurationEnvironment(
+                            "--spring.config.location=" + targetConfig.toUri()));
+                    var sourceConfiguration = PrivateDatabaseMigrationState.sourceConfiguration(sourceConfig, sourceData);
+                    var stores = stores(catalog, source, target, runDirectory, backup, rebuild, true);
+                    orchestrationStarted = true;
+                    ProviderDatabaseMigration.migrate(stores, progress -> replaceReport(report,
+                            new MigrationReport(progress.formatVersion(), progress.status(), manifest,
+                                    progress.stores(), progress.failure(), progress.releaseFailures())),
+                            (store, snapshot) -> {
+                                if (!store.owner().equals("main")) PrivateDatabaseMigrationState.recordVerified(store.owner().substring("private:".length()),
+                                        store.source(), target, store.target(), sourceConfiguration, snapshot);
+                            }, (table, rows) -> {
+                                if (Thread.currentThread().isInterrupted())
+                                    throw new java.util.concurrent.CancellationException("MIGRATION_CANCELLED");
+                            });
                 } catch (Exception failure) {
-                    try {
-                        replaceReport(report, new MigrationReport("FAILED_TARGET_NOT_VERIFIED", manifest, null,
-                                safeFailure(failure)));
-                    } catch (IOException reportFailure) { failure.addSuppressed(reportFailure); }
+                    if (!orchestrationStarted) {
+                        try { replaceReport(report, new MigrationReport(1, "FAILED_TARGET_NOT_VERIFIED", manifest,
+                                Map.of(), ProviderDatabaseMigration.safeFailure(failure), List.of())); }
+                        catch (IOException reportFailure) { failure.addSuppressed(reportFailure); }
+                    }
                     System.err.println(MessageBundles.get("core.db.migration-cli-failed-report", report.toAbsolutePath()));
                     throw failure;
                 }
-                // 提交后报告落盘失败时保留 IN_PROGRESS，不把已提交目标误报为已回滚或自动重试。
-                replaceReport(report, new MigrationReport("DATA_VERIFIED", manifest, result, null));
                 System.out.println(MessageBundles.get("core.db.migration-completed", report.toAbsolutePath()));
             }
         }
     }
 
-    private static String safeFailure(Exception failure) {
-        String message = failure.getMessage();
-        return failure instanceof IllegalStateException && message != null && !message.contains("\n")
-                ? message : failure.getClass().getSimpleName();
+
+    public record Declarations(SchemaManifest manifest, DatabaseSchemaRegistry registry,
+            Map<String, List<top.sywyar.pixivdownload.plugin.api.storage.relational.StorageMigration>> privateMigrations) {}
+
+    public static Declarations declarations(PluginBootstrapSession session, Path retainedPath) throws IOException {
+        var inventory = session.manager().inspectPlugins();
+        var discovery = session.manager().toDiscoveryResult(inventory);
+        if (!discovery.failures().isEmpty()) throw new IllegalStateException("PLUGIN_DISCOVERY_FAILED");
+        var plugins = new PluginRegistry(BuiltInPlugins.createAll(), new PluginToggleProperties(), discovery);
+        var registry = new DatabaseSchemaRegistry(new PluginRegistry(List.of()));
+        List<OwnedSchema> declarations = new ArrayList<>();
+        List<PluginIdentity> identities = new ArrayList<>();
+        Map<String, List<top.sywyar.pixivdownload.plugin.api.storage.relational.StorageMigration>> privateMigrations = new java.util.HashMap<>();
+        for (var plugin : plugins.allRegisteredPlugins()) {
+            List<SchemaContribution> contributions = new ArrayList<>();
+            List<SchemaContribution> privateContributions = new ArrayList<>();
+            plugins.runBootContribution(plugin, () -> {
+                contributions.addAll(plugin.plugin().schema());
+                privateContributions.addAll(plugin.plugin().privateSchema());
+                var upgrades = List.copyOf(plugin.plugin().privateStorageMigrations());
+                top.sywyar.pixivdownload.plugin.api.storage.relational.PrivateStorageSchema.merge(privateContributions, upgrades);
+                privateMigrations.put(plugin.id(), upgrades);
+                if (!upgrades.isEmpty()) privateContributions.add(new SchemaContribution(
+                        List.of(top.sywyar.pixivdownload.plugin.api.storage.relational.StorageMigration.historyTable()),
+                        List.of(), List.of()));
+            });
+            if (plugins.lifecycleFailure(plugin).isPresent()) throw new IllegalStateException("PLUGIN_SCHEMA_FAILED");
+            contributions.forEach(contribution -> registry.register(plugin.id(), contribution));
+            declarations.add(new OwnedSchema(plugin.id(), contributions, privateContributions));
+            String version = inventory.installations().stream()
+                    .filter(installed -> installed.id().equals(plugin.id()))
+                    .map(installed -> installed.descriptor().version()).findFirst().orElse(SdkVersion.VERSION);
+            identities.add(new PluginIdentity(plugin.id(), plugin.packageId(), plugin.source().name(), version));
+        }
+        if (retainedPath != null) {
+            SchemaManifest retained = readManifest(retainedPath);
+            Set<String> installed = declarations.stream().map(OwnedSchema::owner).collect(java.util.stream.Collectors.toSet());
+            for (var owner : retained.owners()) {
+                if (installed.contains(owner.owner())) continue;
+                if (owner.privateContributions().stream().flatMap(c -> c.tables().stream())
+                        .anyMatch(t -> t.name().equals("_storage_migrations")))
+                    throw new IllegalStateException("PRIVATE_MIGRATION_PLUGIN_REQUIRED");
+                for (var contribution : owner.contributions()) registry.register(owner.owner(), contribution);
+                declarations.add(owner);
+            }
+            retained.plugins().stream().filter(plugin -> !installed.contains(plugin.id())).forEach(identities::add);
+        }
+        return new Declarations(new SchemaManifest(SdkVersion.VERSION, declarations, identities), registry, Map.copyOf(privateMigrations));
     }
 
+    public static List<ProviderDatabaseMigration.Store> stores(Declarations catalog, MigrationEndpoint source,
+            MigrationEndpoint target, Path runDirectory, Path backup, Set<String> rebuild,
+            boolean createCredentials) throws Exception {
+        Path sourceData = RuntimeFiles.dataDirectory();
+        Path targetData = sourceData;
+        String installation = top.sywyar.pixivdownload.config.InstallIdentity.get();
+        Set<String> owners = source.provider().privateDatabaseOwners(source.target(), sourceData, installation);
+        List<ProviderDatabaseMigration.Store> stores = new ArrayList<>();
+        stores.add(new ProviderDatabaseMigration.Store("main", source, target,
+                new MigrationRequest(CoreMigrationSchema.create(catalog.registry(), true), backup, rebuild)));
+        var credentials = owners.isEmpty() ? null : new PluginCredentialStore();
+        for (String owner : owners.stream().sorted().toList()) {
+            OwnedSchema declaration = catalog.manifest().owners().stream().filter(value -> value.owner().equals(owner))
+                    .findFirst().orElseThrow(() -> new IllegalStateException("PRIVATE_SCHEMA_MISSING"));
+            if (declaration.privateContributions().isEmpty()) throw new IllegalStateException("PRIVATE_SCHEMA_MISSING");
+            var privateRegistry = new DatabaseSchemaRegistry(new PluginRegistry(List.of()));
+            for (var contribution : declaration.privateContributions()) privateRegistry.register(owner, contribution);
+            var settings = PluginDatabaseFactory.privateSettings(owner, credentials, createCredentials);
+            var privateSource = source.privateStorage(new DatabasePrivateStorageSettings(owner,
+                    sourceData.resolve(owner), settings.installationId(), settings.password()));
+            var privateTarget = target.privateStorage(new DatabasePrivateStorageSettings(owner,
+                    targetData.resolve(owner), settings.installationId(), settings.password()));
+            stores.add(new ProviderDatabaseMigration.Store("private:" + owner, privateSource, privateTarget,
+                    new MigrationRequest(CoreMigrationSchema.create(privateRegistry, false),
+                            runDirectory.resolve("private").resolve(owner + ".backup"), Set.of(),
+                            catalog.privateMigrations().getOrDefault(owner, List.of()))));
+        }
+        return List.copyOf(stores);
+    }
     private static Map<String, String> parse(String[] args) {
-        Set<String> known = Set.of("--source", "--target-config", "--backup", "--report", "--retained-schema",
+        Set<String> known = Set.of("--source-config", "--target-config", "--backup", "--report", "--retained-schema",
                 "--export-schema", "--rebuild-objects");
         Map<String, String> result = new LinkedHashMap<>();
         for (int i = 0; i < args.length; i += 2) {
@@ -177,9 +242,9 @@ public final class DatabaseMigration {
     }
 
     private static void writeNew(Path path, Object value) throws IOException {
-        Files.createDirectories(path.toAbsolutePath().getParent());
+        MigrationFiles.createPrivateFile(path);
         byte[] json = JSON.writerWithDefaultPrettyPrinter().writeValueAsString(value).getBytes(StandardCharsets.UTF_8);
-        try (var output = FileChannel.open(path, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+        try (var output = FileChannel.open(path, StandardOpenOption.WRITE)) {
             ByteBuffer bytes = ByteBuffer.wrap(json);
             while (bytes.hasRemaining()) output.write(bytes);
             output.force(true);
@@ -194,13 +259,20 @@ public final class DatabaseMigration {
         } finally { Files.deleteIfExists(temporary); }
     }
 
-    public record OwnedSchema(String owner, List<SchemaContribution> contributions) {
-        public OwnedSchema { contributions = List.copyOf(contributions); }
+    public record OwnedSchema(String owner, List<SchemaContribution> contributions,
+                              List<SchemaContribution> privateContributions) {
+        public OwnedSchema {
+            contributions = List.copyOf(contributions);
+            privateContributions = List.copyOf(privateContributions);
+        }
     }
     public record PluginIdentity(String id, String packageId, String source, String version) {}
     public record SchemaManifest(String sdkVersion, List<OwnedSchema> owners, List<PluginIdentity> plugins) {
         public SchemaManifest { owners = List.copyOf(owners); plugins = List.copyOf(plugins); }
     }
-    public record MigrationReport(String status, SchemaManifest schema,
-                                  SqliteToPostgresMigration.Result result, String failure) {}
+    public record MigrationReport(int formatVersion, String status, SchemaManifest schema,
+                                  Map<String, ProviderDatabaseMigration.StoreReport> stores, String failure,
+                                  List<String> releaseFailures) {
+        public MigrationReport { stores = Map.copyOf(stores); releaseFailures = List.copyOf(releaseFailures); }
+    }
 }

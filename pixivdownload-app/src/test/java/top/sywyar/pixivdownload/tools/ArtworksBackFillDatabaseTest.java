@@ -28,10 +28,11 @@ class ArtworksBackFillDatabaseTest {
         String jdbcUrl = "jdbc:sqlite:" + databasePath;
         try (Connection connection = DriverManager.getConnection(jdbcUrl);
              Statement statement = connection.createStatement()) {
-            statement.executeUpdate("CREATE TABLE artworks (artwork_id INTEGER PRIMARY KEY)");
-            statement.executeUpdate("INSERT INTO artworks(artwork_id) VALUES(1), (2), (3), (4)");
+            statement.executeUpdate(legacyArtworks());
+            for (int id = 1; id <= 4; id++) statement.executeUpdate("INSERT INTO artworks"
+                    + "(artwork_id,title,folder,count,extensions,time) VALUES(" + id + ",'fixture','folder',1,'png'," + id + ")");
         }
-        try (ArtworksBackFillDatabase ignored = ArtworksBackFillDatabase.open(databasePath.toString())) {
+        try (ArtworksBackFillDatabase ignored = ArtworksBackFillDatabase.open(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(databasePath))) {
             // 初始化工具兼容的 schema。
         }
         try (Connection connection = DriverManager.getConnection(jdbcUrl);
@@ -49,7 +50,7 @@ class ArtworksBackFillDatabaseTest {
         );
         unreachable.record(1, "HTTP 404");
 
-        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(databasePath.toString())) {
+        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(databasePath))) {
             ArtworksBackFillDatabase.FilteredCandidates filtered = database.findCandidates(1, unreachable);
             assertEquals(1, filtered.skippedUnreachable());
             assertEquals(1, filtered.candidates().size());
@@ -106,12 +107,12 @@ class ArtworksBackFillDatabaseTest {
         try (HikariDataSource dataSource = new HikariDataSource(config)) {
             try (Connection connection = dataSource.getConnection();
                  Statement statement = connection.createStatement()) {
-                statement.executeUpdate("CREATE TABLE artworks (artwork_id INTEGER PRIMARY KEY)");
+                statement.executeUpdate(legacyArtworks());
             }
 
             try (ArtworksBackFillDatabase ignored = ArtworksBackFillDatabase.open(
                     dataSource,
-                    databasePath.toString()
+                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(databasePath)
             )) {
                 // close 只归还借用连接，不关闭宿主池。
             }
@@ -121,7 +122,7 @@ class ArtworksBackFillDatabaseTest {
 
             assertThrows(
                     java.sql.SQLException.class,
-                    () -> ArtworksBackFillDatabase.open(dataSource, tempDir.resolve("other.db").toString())
+                    () -> ArtworksBackFillDatabase.open(dataSource, top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(tempDir.resolve("other.db")))
             );
         }
     }
@@ -130,6 +131,26 @@ class ArtworksBackFillDatabaseTest {
         try (ResultSet resultSet = statement.executeQuery(sql)) {
             assertTrue(resultSet.next());
             return resultSet.getString(1);
+        }
+    }
+
+    private static String legacyArtworks() {
+        return "CREATE TABLE artworks (artwork_id INTEGER PRIMARY KEY, title TEXT NOT NULL, folder TEXT NOT NULL,"
+                + " count INTEGER NOT NULL, extensions TEXT NOT NULL, time INTEGER NOT NULL UNIQUE)";
+    }
+
+    @Test
+    @DisplayName("无法解释的缺损主库拒绝回填且保留既有行")
+    void rejectsIncompleteMainSchema(@TempDir Path directory) throws Exception {
+        var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("incomplete.db"));
+        try (var connection = target.openConnection(); var statement = connection.createStatement()) {
+            statement.execute("CREATE TABLE artworks (artwork_id INTEGER PRIMARY KEY)");
+            statement.execute("INSERT INTO artworks VALUES (7)");
+        }
+        assertThrows(java.sql.SQLException.class, () -> ArtworksBackFillDatabase.open(target));
+        try (var connection = target.openConnection(); var statement = connection.createStatement()) {
+            assertEquals(7, queryInt(statement, "SELECT artwork_id FROM artworks"));
+            assertEquals(1, queryInt(statement, "SELECT count(*) FROM pragma_table_info('artworks')"));
         }
     }
 

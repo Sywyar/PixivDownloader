@@ -220,6 +220,21 @@ class AuthorServiceTest {
         }
     }
 
+    @Test
+    @DisplayName("无数据库时直接作者命令与已排队后台任务均不请求网络或写入")
+    void unavailableStopsAuthorSideEffects() {
+        when(pixivDatabase.isUnavailable()).thenReturn(true);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> authorService.observe(1, "name"))
+                .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> authorService.asyncLookupMissing(1, "fixture"))
+                .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> authorService.asyncValidateRename(1))
+                .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+        authorService.lookupMissingAuthor(1, "fixture");
+        authorService.validateRename(1);
+        org.mockito.Mockito.verifyNoInteractions(authorMapper, restTemplate, taskScheduler);
+    }
+
     private JsonNode json(String text) throws Exception {
         return objectMapper.readTree(text);
     }

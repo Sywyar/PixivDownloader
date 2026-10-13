@@ -28,6 +28,46 @@ class ConfigFileEditorTest {
     }
 
     @Test
+    @DisplayName("桌面保存失败回滚与市场保存串行，回滚不覆盖另一句柄的成功写入")
+    void rollbackCannotOverwriteConcurrentSave() throws Exception {
+        Path file = writeTemplate("database.provider: original", "database.password: keep");
+        var desktop = new ConfigFileEditor(file).asConfigFile();
+        var market = new ConfigFileEditor(file).asConfigFile();
+        var written = new java.util.concurrent.CountDownLatch(1);
+        var restore = new java.util.concurrent.CountDownLatch(1);
+        var saving = new java.util.concurrent.CountDownLatch(1);
+        var workers = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var failedSave = workers.submit(() -> {
+                desktop.withWriteLock(() -> {
+                    var snapshot = desktop.snapshot();
+                    desktop.write("database.provider", "desktop-draft");
+                    written.countDown();
+                    try {
+                        if (!restore.await(5, java.util.concurrent.TimeUnit.SECONDS)) throw new IOException("fixture timeout");
+                    } catch (InterruptedException stop) { Thread.currentThread().interrupt(); throw new IOException(stop); }
+                    desktop.restore(snapshot);
+                });
+                return null;
+            });
+            assertThat(written.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            var saved = workers.submit(() -> {
+                saving.countDown();
+                market.withWriteLock(() -> market.write("database.provider", "market-choice"));
+                return null;
+            });
+            assertThat(saving.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> saved.get(100, java.util.concurrent.TimeUnit.MILLISECONDS))
+                    .isInstanceOf(java.util.concurrent.TimeoutException.class);
+            restore.countDown();
+            failedSave.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            saved.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(market.read("database.provider")).isEqualTo("market-choice");
+            assertThat(market.read("database.password")).isEqualTo("keep");
+        } finally { restore.countDown(); workers.shutdownNow(); }
+    }
+
+    @Test
     @DisplayName("含特殊字符的 Webhook JSON 模板写入后能原样读回，且是合法 YAML")
     void jsonTemplateRoundTrips() throws IOException {
         Path file = writeTemplate("push.webhook.body-template:  # 请求体模板");

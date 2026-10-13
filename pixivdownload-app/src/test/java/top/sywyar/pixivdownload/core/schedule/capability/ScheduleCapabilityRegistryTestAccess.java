@@ -146,6 +146,7 @@ public final class ScheduleCapabilityRegistryTestAccess {
                 migrationService,
                 pluginRegistry,
                 new PluginOwnedWebAssetValidator(staticResources),
+                () -> true,
                 rollbackCleanupProbe);
     }
 

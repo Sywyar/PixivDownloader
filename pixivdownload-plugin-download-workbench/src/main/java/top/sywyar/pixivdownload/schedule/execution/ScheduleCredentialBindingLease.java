@@ -13,6 +13,7 @@ public final class ScheduleCredentialBindingLease implements AutoCloseable {
 
     private final ScheduleCredentialSupport credentialSupport;
     private final long taskId;
+    private final top.sywyar.pixivdownload.core.database.DatabaseAvailability database;
     private final String policyOwnerPluginId;
     private final String policyId;
 
@@ -28,7 +29,8 @@ public final class ScheduleCredentialBindingLease implements AutoCloseable {
             String policyId,
             ScheduleExecutionLease execution,
             ScheduledTaskDefinition definition,
-            ScheduledNetworkRoute route) {
+            ScheduledNetworkRoute route, top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
+        this.database = database;
         this.credentialSupport = credentialSupport;
         this.taskId = taskId;
         this.policyOwnerPluginId = policyOwnerPluginId;
@@ -80,6 +82,7 @@ public final class ScheduleCredentialBindingLease implements AutoCloseable {
     }
 
     private void ensureActive() {
+        database.requireAvailable();
         if (execution == null) {
             throw new IllegalStateException("schedule credential binding lease is closed");
         }

@@ -17,12 +17,15 @@ import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
  * 必选策略声明 {@code download-workbench} 必选且不允许禁用。
  */
 @SpringBootTest(properties = {
+        "database.provider=database-sqlite",
         "pixivdownload.config-dir=target/test-runtime/config",
         "pixivdownload.state-dir=target/test-runtime/state",
         "pixivdownload.data-dir=target/test-runtime/data",
-        "pixivdownload.plugins-dir=target/test-runtime/plugins-absent",
+        "pixivdownload.plugins-dir=target/test-runtime/plugins-workbench-absent",
         "setup.browser.auto-open=false"
 })
+@org.springframework.test.context.ContextConfiguration(initializers = PluginTestProvenance.VerifiedLocalSqliteBootstrapInitializer.class)
+@org.springframework.test.annotation.DirtiesContext(classMode = org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("恢复模式真实上下文：缺少外置 download-workbench 时进入恢复模式、必选策略禁止禁用")
 class RecoveryModeBootContextTest {
 
@@ -30,7 +33,7 @@ class RecoveryModeBootContextTest {
         System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, "target/test-runtime/config");
         System.setProperty(RuntimeFiles.STATE_DIR_PROPERTY, "target/test-runtime/state");
         System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, "target/test-runtime/data");
-        System.setProperty(RuntimeFiles.PLUGINS_DIR_PROPERTY, "target/test-runtime/plugins-absent");
+        System.setProperty(RuntimeFiles.PLUGINS_DIR_PROPERTY, "target/test-runtime/plugins-workbench-absent");
     }
 
     @AfterAll

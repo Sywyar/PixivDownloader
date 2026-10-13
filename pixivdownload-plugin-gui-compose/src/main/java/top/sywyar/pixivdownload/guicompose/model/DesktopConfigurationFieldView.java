@@ -284,6 +284,7 @@ final class DesktopConfigurationFieldView {
                             ) : -1;
                             if (index >= 0 && index < spec.enumValues().size()) {
                                 values.put(field.key(), spec.enumValues().get(index));
+                                if (field.owner() == null) model.database.edited();
                                 if (field.affectsConditions()) owner.rebuild();
                             }
                         }
@@ -322,7 +323,7 @@ final class DesktopConfigurationFieldView {
             node = new DesktopUiNode.TextInput(input.id(), input.bindingId(), input.label(), input.help(),
                     InputKind.PASSWORD, "", input.columns(), input.rows(), input.enabled(), model.credentialRevisions.getOrDefault(field.key(), 0L));
         }
-        if (spec.sensitive() && field.owner() != null) {
+        if (spec.sensitive()) {
             String actionId = binding + ".clear";
             node = new DesktopUiNode.Dock(
                     binding + ".credential",
@@ -331,7 +332,8 @@ final class DesktopConfigurationFieldView {
                     node,
                     text(
                             binding + ".credential-status",
-                            model.storedCredentialFields.contains(field.key()) ? "gui.credential.status.saved" : "gui.credential.status.not-saved",
+                            model.clearedCoreCredentials.contains(field.key()) ? "gui.credential.status.clear-pending"
+                                    : model.storedCredentialFields.contains(field.key()) ? "gui.credential.status.saved" : "gui.credential.status.not-saved",
                             TextStyle.CAPTION
                     ),
                     null,

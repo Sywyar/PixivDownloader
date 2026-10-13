@@ -61,7 +61,7 @@ class AboutOverviewTest {
             if (it.expandable()) {
                 onNodeWithTag("about.platform.${it.id()}").assertDoesNotExist()
                 val nested = "- ${resolve(it.label())}:\n" +
-                    resolve(it.value()).lines().joinToString("\n") { entry -> "  - $entry" }
+                    pluginLines(it).joinToString("\n") { entry -> "  - $entry" }
                 assertTrue(clipboard.getText()!!.text.contains(nested))
             } else {
                 onNodeWithTag("about.platform.${it.id()}").assertTextEquals(resolve(it.value()))
@@ -82,7 +82,7 @@ class AboutOverviewTest {
         onNodeWithTag("about.platform.plugins").assertDoesNotExist()
         screenshot("plugins-collapsed", "about.overview")
         onNodeWithTag("about.platform.plugins.toggle").performClick()
-        resolve(node.facts().first { it.id() == "plugins" }.value()).lines().forEachIndexed { index, entry ->
+        pluginLines(node.facts().first { it.id() == "plugins" }).forEachIndexed { index, entry ->
             onNodeWithTag("about.platform.plugins.entry.$index").assertTextEquals(entry)
         }
         val list = onNodeWithTag("about.platform.plugins").getUnclippedBoundsInRoot()
@@ -180,7 +180,7 @@ class AboutOverviewTest {
         onNodeWithTag("about.platform.plugins.entry.2").performScrollTo()
         screenshot("plugins-large-text", "about.overview")
         onNodeWithTag("about.platform.copy").performScrollTo().performClick()
-        resolve(node.facts().first { it.id() == "plugins" }.value()).lines()
+        pluginLines(node.facts().first { it.id() == "plugins" })
             .forEach { assertTrue(clipboard.getText()!!.text.contains(it)) }
     }
 
@@ -228,6 +228,9 @@ class AboutOverviewTest {
         private fun resolve(token: TextToken): String = if (token.key().isBlank()) token.fallback()
             else MessageFormat.format(messages.getProperty(token.key(), token.key()), *token.arguments().toTypedArray())
 
+        private fun pluginLines(fact: AboutFact) =
+            fact.plugins().map { "${it.version()} | ${resolve(it.status())}" }
+
         private fun sample(): AboutOverview =
             DesktopConfigurationControllerTest.model(HashMap(), mapOf(
                 "applicationVersion" to java.util.function.Function { _: Array<Any>? -> "2.3.4-fixture" },
@@ -255,10 +258,17 @@ class AboutOverviewTest {
                     model.facts().map { fact ->
                         if (fact.id() == "plugins") AboutFact(
                             fact.id(), fact.label(),
-                            TextToken.raw((1..14).joinToString("\n") { index ->
-                                "fixture-plugin-with-a-long-identifier-$index-2.3.4-dev.ab123456.dirty(8.2.0)"
-                            }),
-                            true
+                            TextToken("gui-compose", "gui.compose.about.plugin-count", "", listOf("14")),
+                            (1..14).map { index ->
+                                AboutPlugin(
+                                    "fixture-plugin-with-a-long-identifier-$index-2.3.4-dev.ab123456.dirty(8.2.0)",
+                                    TextToken.key("gui.plugins.status." + if (index % 2 == 0) "FAILED" else "STARTED")
+                                )
+                            }
+                        ) else if (fact.id() == "database") AboutFact(
+                            fact.id(),
+                            fact.label(),
+                            TextToken.raw("postgresql: database.example.test:5432/library [public]")
                         ) else fact
                     },
                 )

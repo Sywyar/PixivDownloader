@@ -5,6 +5,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.ai.AiChatClient;
+import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
+import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueNotAcceptingException;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 
@@ -22,7 +24,8 @@ import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 
 /**
  * 「新下载小说自动翻译」的服务端编排队列：下载落库后由 {@link NovelDownloadService} 提交，把新下小说整章翻译成
- * 目标语言并（系列且开启时）重生译文合订本。全程 best-effort —— 任何失败只记日志、绝不抛回调用方，绝不让小说下载失败。
+ * 目标语言并（系列且开启时）重生译文合订本。业务失败保留在任务状态中，不回滚已完成的下载；
+ * 数据库不可用时拒绝新提交，并停止已排队或执行中的后续步骤。
  *
  * <p><b>同系列串行、跨系列并发</b>：同一 {@code seriesId} 的章节用一条 {@link CompletableFuture} 链按提交序串接，
  * 一次只译一本以保术语一致（对齐详情页系列批量翻译）；不同系列 / 独立单章并发提交到专用线程池
@@ -60,19 +63,22 @@ public class NovelAutoTranslateService {
     private final AiChatClient aiChatClient;
     private final TaskExecutor executor;
     private final QueueTaskTracker taskTracker;
+    private final DatabaseAvailability database;
 
     public NovelAutoTranslateService(NovelTranslationService translationService,
                                      NovelGlossaryService glossaryService,
                                      NovelMergeService mergeService,
                                      AiChatClient aiChatClient,
                                      @Qualifier("novelTranslateTaskExecutor") TaskExecutor executor,
-                                     @Qualifier("novelQueueTaskTracker") QueueTaskTracker taskTracker) {
+                                     @Qualifier("novelQueueTaskTracker") QueueTaskTracker taskTracker,
+                                     DatabaseAvailability database) {
         this.translationService = translationService;
         this.glossaryService = glossaryService;
         this.mergeService = mergeService;
         this.aiChatClient = aiChatClient;
         this.executor = executor;
         this.taskTracker = taskTracker;
+        this.database = database;
     }
 
     // 目标语言文本（归一化小写）→ 已解析的 BCP-47 代码；只缓存非空结果（失败可重试）。
@@ -166,7 +172,8 @@ public class NovelAutoTranslateService {
                 try {
                     log.warn("Auto-translate novel {} submission rejected [{}]: {}",
                             novelId, rejection.getClass().getSimpleName(), rejection.getMessage());
-                    fail(status, "executor-rejected");
+                    fail(status, rejection instanceof DatabaseUnavailableException
+                            ? "DATABASE_UNAVAILABLE" : "executor-rejected");
                 } catch (Throwable statusFailure) {
                     bookkeepingFailure = statusFailure;
                 }
@@ -240,6 +247,7 @@ public class NovelAutoTranslateService {
      */
     public CompletableFuture<Void> submit(long novelId, Long seriesId, String targetLanguage, int segmentSize,
                                           boolean mergeAfter, String mergeFormat) {
+        database.requireAvailable();
         pruneExpiredTerminal(System.currentTimeMillis());
         Long series = seriesId != null && seriesId > 0 ? seriesId : null;
         long seq = series == null ? 0
@@ -307,6 +315,7 @@ public class NovelAutoTranslateService {
             return;
         }
         try {
+            database.requireAvailable();
             executor.execute(attempt.task);
         } catch (RuntimeException | Error submissionFailure) {
             Throwable propagation = attempt.rejectSubmission(submissionFailure);
@@ -425,6 +434,8 @@ public class NovelAutoTranslateService {
                     }
                     translationService.translateSeriesTitle(status.seriesId, targetLanguage,
                             resolvedLang, glossaryId, true, true);
+                } catch (DatabaseUnavailableException unavailable) {
+                    throw unavailable;
                 } catch (Exception e) {
                     log.debug("Auto-translate series title failed for series {}: {}",
                             status.seriesId, e.getMessage());
@@ -442,6 +453,8 @@ public class NovelAutoTranslateService {
             }
             status.done = true;
             status.enter(Phase.DONE);
+        } catch (DatabaseUnavailableException unavailable) {
+            fail(status, "DATABASE_UNAVAILABLE");
         } catch (Exception e) {
             log.warn("Auto-translate novel {} failed [{}]: {}",
                     novelId, e.getClass().getSimpleName(), e.getMessage());
@@ -449,7 +462,8 @@ public class NovelAutoTranslateService {
         }
     }
 
-    private static boolean cancelled(QueueTaskTracker.Task task, JobStatus status) {
+    private boolean cancelled(QueueTaskTracker.Task task, JobStatus status) {
+        database.requireAvailable();
         if (!task.isCancellationRequested()) {
             return false;
         }
@@ -465,8 +479,12 @@ public class NovelAutoTranslateService {
 
     private void mergeSeriesBestEffort(JobStatus status, String mergeFormat) {
         try {
+            database.requireAvailable();
             mergeService.merge(status.seriesId,
                     NovelDownloadService.NovelFormat.parse(mergeFormat));
+            database.requireAvailable();
+        } catch (DatabaseUnavailableException unavailable) {
+            throw unavailable;
         } catch (Exception e) {
             // 合订失败不算翻译失败：译文 / 原文已落库，仅记日志。
             log.warn("Auto-translate series merge failed for series {}: {}",
@@ -475,6 +493,7 @@ public class NovelAutoTranslateService {
     }
 
     private static void fail(JobStatus status, String reason) {
+        status.done = false;
         status.failed = true;
         status.failureReason = reason;
         status.enter(Phase.FAILED);
@@ -491,6 +510,7 @@ public class NovelAutoTranslateService {
             return cached;
         }
         String code = translationService.resolveLangCode(targetLanguage);
+        database.requireAvailable();
         if (code != null && !code.isBlank()) {
             langCodeCache.put(key, code);
             return code;

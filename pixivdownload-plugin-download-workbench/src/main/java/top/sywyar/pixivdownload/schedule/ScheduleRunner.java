@@ -38,6 +38,7 @@ public class ScheduleRunner {
     private final ScheduleRunState runState;
     private final ScheduleCapabilityAccess scheduleCapabilityRegistry;
     private final ScheduleHostIdentity hostIdentity;
+    private final top.sywyar.pixivdownload.core.database.DatabaseAvailability database;
 
     /** 单飞：上一轮 tick 仍在跑（任务多 / 抓取慢）时直接跳过本轮，避免重入。 */
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -46,6 +47,7 @@ public class ScheduleRunner {
             fixedDelayString = "${schedule.tick-interval-ms:60000}",
             scheduler = "downloadWorkbenchTaskScheduler")
     public void tick() {
+        if (!database.available()) return;
         ScheduleCapabilityLease<ScheduleCapabilityOwner> hostLease =
                 scheduleCapabilityRegistry.prepareOwner(hostIdentity.featurePluginId()).orElse(null);
         try (hostLease) {
@@ -57,6 +59,7 @@ public class ScheduleRunner {
     }
 
     private void tickLeased(ScheduledCancellation cancellation) {
+        if (!database.available()) return;
         if (!config.isEnabled()) {
             return;
         }
@@ -74,7 +77,7 @@ public class ScheduleRunner {
             // 「同一时刻只跑一个」串行约束：本轮全部到期任务先标记排队中，再逐个转为运行中。
             queued = new ArrayList<>(due.size());
             for (ScheduledTask task : due) {
-                if (cancellation.isCancellationRequested()) {
+                if (!database.available() || cancellation.isCancellationRequested()) {
                     break;
                 }
                 ScheduleRunState.Claim claim = runState.tryMarkQueued(task.id());
@@ -114,7 +117,7 @@ public class ScheduleRunner {
             }
             while (!queued.isEmpty()) {
                 QueuedTask queuedTask = queued.remove(0);
-                if (cancellation.isCancellationRequested()) {
+                if (!database.available() || cancellation.isCancellationRequested()) {
                     releaseQueuedTask(queuedTask);
                     continue;
                 }
@@ -186,7 +189,7 @@ public class ScheduleRunner {
 
     private void recoverOrphanedClaims(ScheduledCancellation cancellation) {
         for (ScheduledTask task : store.findAll()) {
-            if (cancellation.isCancellationRequested()) {
+            if (!database.available() || cancellation.isCancellationRequested()) {
                 return;
             }
             if (task.runState() == null || runState.get(task.id()) != null) {
@@ -203,7 +206,7 @@ public class ScheduleRunner {
 
     private void recoverAvailableTasks(ScheduledCancellation cancellation, long now) {
         for (ScheduledTask task : store.findAll()) {
-            if (cancellation.isCancellationRequested()) {
+            if (!database.available() || cancellation.isCancellationRequested()) {
                 return;
             }
             ScheduleSuspendReason reason = task.suspendReason();

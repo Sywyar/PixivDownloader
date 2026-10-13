@@ -98,15 +98,20 @@ public class NotificationInboxController {
         long categoryUnreadCount = selectedCategory == null
                 ? globalUnreadCount
                 : inbox.unreadCount(selectedCategory);
-        return noStore(new InboxSnapshot(globalUnreadCount, categoryUnreadCount,
-                inbox.latest(selectedCategory, unreadOnly, limit, lang)));
+        List<NotificationMessage> messages = inbox.latest(selectedCategory, unreadOnly, limit, lang);
+        boolean databaseAvailable = inbox.isDatabaseAvailable();
+        return noStore(databaseAvailable
+                ? new InboxSnapshot(globalUnreadCount, categoryUnreadCount, messages, true)
+                : new InboxSnapshot(0, 0, List.of(), false));
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<NotificationMessage> detail(@PathVariable String id,
                                                       @RequestParam(required = false) String lang) {
         inbox.synchronizePersistentSurveys();
-        return noStore(requireMessage(inbox.find(id, lang)));
+        NotificationMessage message = inbox.find(id, lang);
+        inbox.requireDatabaseAvailable();
+        return noStore(requireMessage(message));
     }
 
     @GetMapping(value = "/{id}/content", produces = MediaType.TEXT_HTML_VALUE)
@@ -114,6 +119,7 @@ public class NotificationInboxController {
                                               @RequestParam(required = false) String lang,
                                               HttpServletResponse response) {
         NotificationHtmlContent content = inbox.htmlContent(id, lang);
+        inbox.requireDatabaseAvailable();
         if (content == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND);
         }
@@ -205,7 +211,8 @@ public class NotificationInboxController {
                 .replace(">", "&gt;");
     }
 
-    public record InboxSnapshot(long unreadCount, long categoryUnreadCount, List<NotificationMessage> messages) {
+    public record InboxSnapshot(long unreadCount, long categoryUnreadCount,
+                                List<NotificationMessage> messages, boolean databaseAvailable) {
         public InboxSnapshot {
             messages = List.copyOf(messages);
         }

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.metadata;
 
+import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
+
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
@@ -46,6 +48,7 @@ import java.util.Set;
 @Component
 public class CoreWorkQueryService implements WorkQueryService {
 
+    private final DatabaseAvailability database;
     private final GalleryRepository galleryRepository;
     private final NovelGalleryRepository novelGalleryRepository;
     private final PixivDatabase pixivDatabase;
@@ -57,7 +60,8 @@ public class CoreWorkQueryService implements WorkQueryService {
                                 NovelGalleryRepository novelGalleryRepository,
                                 PixivDatabase pixivDatabase,
                                 NovelMetadataRepository novelMetadataRepository,
-                                AuthorService authorService) {
+                                AuthorService authorService, DatabaseAvailability database) {
+        this.database = database;
         this.galleryRepository = galleryRepository;
         this.novelGalleryRepository = novelGalleryRepository;
         this.pixivDatabase = pixivDatabase;
@@ -68,6 +72,7 @@ public class CoreWorkQueryService implements WorkQueryService {
 
     @Override
     public PagedResult<WorkSummary> search(WorkQuery query) {
+        if (!database.available()) return new PagedResult<>(List.of(), 0, query.page(), query.size(), 0);
         return switch (query.workType()) {
             case ARTWORK -> artworkSearch(query);
             case NOVEL -> novelSearch(query);
@@ -76,6 +81,7 @@ public class CoreWorkQueryService implements WorkQueryService {
 
     @Override
     public List<WorkSummary> searchAll(WorkQuery query) {
+        if (!database.available()) return List.of();
         return switch (query.workType()) {
             case ARTWORK -> toSummaries(query.workType(),
                     galleryRepository.findAllArtworkIds(toGalleryQuery(query)));
@@ -86,6 +92,7 @@ public class CoreWorkQueryService implements WorkQueryService {
 
     @Override
     public boolean hasWork(WorkType workType, long workId) {
+        if (!database.available()) return false;
         return switch (workType) {
             case ARTWORK -> pixivDatabase.hasArtwork(workId);
             case NOVEL -> novelMetadataRepository.hasNovel(workId);
@@ -94,6 +101,7 @@ public class CoreWorkQueryService implements WorkQueryService {
 
     @Override
     public boolean hasActiveWork(WorkType workType, long workId) {
+        if (!database.available()) return false;
         return switch (workType) {
             case ARTWORK -> pixivDatabase.hasActiveArtwork(workId);
             case NOVEL -> novelMetadataRepository.hasActiveNovel(workId);
@@ -102,6 +110,7 @@ public class CoreWorkQueryService implements WorkQueryService {
 
     @Override
     public List<WorkSummary> relatedByTags(WorkType workType, long workId, int limit) {
+        if (!database.available()) return List.of();
         return switch (workType) {
             case ARTWORK -> toSummaries(workType, galleryRepository.findRelatedByTags(workId, limit));
             case NOVEL -> toSummaries(workType, novelGalleryRepository.findRelatedByTags(workId, limit));
@@ -110,6 +119,7 @@ public class CoreWorkQueryService implements WorkQueryService {
 
     @Override
     public List<WorkSummary> byAuthor(WorkType workType, long authorId, long excludeWorkId, int limit) {
+        if (!database.available()) return List.of();
         return switch (workType) {
             case ARTWORK -> toSummaries(workType,
                     galleryRepository.findByAuthor(authorId, excludeWorkId, limit));
@@ -120,6 +130,7 @@ public class CoreWorkQueryService implements WorkQueryService {
 
     @Override
     public List<WorkSummary> bySeries(WorkType workType, long seriesId, long excludeWorkId, int limit) {
+        if (!database.available()) return List.of();
         return switch (workType) {
             case ARTWORK -> toSummaries(workType,
                     galleryRepository.findBySeries(seriesId, excludeWorkId, limit));
@@ -130,6 +141,7 @@ public class CoreWorkQueryService implements WorkQueryService {
 
     @Override
     public Optional<SeriesNeighbors> seriesNeighbors(WorkType workType, long workId) {
+        if (!database.available()) return Optional.empty();
         return switch (workType) {
             case ARTWORK -> artworkSeriesNeighbors(workId);
             case NOVEL -> novelSeriesNeighbors(workId);
@@ -138,6 +150,7 @@ public class CoreWorkQueryService implements WorkQueryService {
 
     @Override
     public List<TagOption> tags(TagQuery query) {
+        if (!database.available()) return List.of();
         return switch (query.workType()) {
             case ARTWORK -> artworkTags(query);
             case NOVEL -> novelTags(query);
@@ -146,6 +159,7 @@ public class CoreWorkQueryService implements WorkQueryService {
 
     @Override
     public Optional<TagOption> tagByName(WorkType workType, String name, String translatedName) {
+        if (!database.available()) return Optional.empty();
         return switch (workType) {
             case ARTWORK -> {
                 GalleryRepository.TagOption tag = galleryRepository.findTagByExactName(name, translatedName);
@@ -163,6 +177,7 @@ public class CoreWorkQueryService implements WorkQueryService {
 
     @Override
     public List<AuthorSummary> authors(AuthorQuery query) {
+        if (!database.available()) return List.of();
         return switch (query.workType()) {
             case ARTWORK -> artworkAuthors(query);
             case NOVEL -> novelAuthors(query);
@@ -171,6 +186,7 @@ public class CoreWorkQueryService implements WorkQueryService {
 
     @Override
     public Map<Long, String> authorNames(Collection<Long> authorIds) {
+        if (!database.available()) return Map.of();
         if (authorIds == null || authorIds.isEmpty()) {
             return Map.of();
         }
@@ -179,6 +195,7 @@ public class CoreWorkQueryService implements WorkQueryService {
 
     @Override
     public Map<Long, Long> countBySeries(WorkType workType, WorkRestriction restriction) {
+        if (!database.available()) return Map.of();
         Map<Long, Long> counts = new LinkedHashMap<>();
         switch (workType) {
             case ARTWORK -> galleryRepository.findSeriesCounts(toGuestRestriction(restriction))

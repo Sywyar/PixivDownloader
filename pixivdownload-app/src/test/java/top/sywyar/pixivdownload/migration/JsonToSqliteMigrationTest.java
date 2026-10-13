@@ -26,7 +26,7 @@ class JsonToSqliteMigrationTest {
                 """, StandardCharsets.UTF_8);
         Files.writeString(downloads.resolve(JsonToSqliteMigration.STATISTICS_FILE),
                 "{\"totalArtworks\":1,\"totalImages\":2,\"totalMoved\":1}", StandardCharsets.UTF_8);
-        var options = new JsonToSqliteMigration.Options(database.toString(), downloads.toString());
+        var options = new JsonToSqliteMigration.Options(database.toString(), downloads.toString(), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database));
 
         assertThat(JsonToSqliteMigration.countCandidates(options)).isEqualTo(1);
         assertThat(JsonToSqliteMigration.run(options, null).migrated()).isEqualTo(1);

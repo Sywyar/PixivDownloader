@@ -22,6 +22,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.ExecutionException;
+import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 import javax.imageio.ImageIO;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -287,6 +290,74 @@ class ArtworkFileServiceTest {
             assertThat(recovered.get(5, TimeUnit.SECONDS)).isNotNull();
             try (var paths = Files.walk(cache)) {
                 assertThat(paths.noneMatch(file -> file.getFileName().toString().startsWith("thumb-"))).isTrue();
+            }
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+            assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    @DisplayName("缩略图等待锁或并发额度时失去数据库：不继续解码或替换原缓存")
+    void stopsWaitingThumbnailsWhenDatabaseIsLost(boolean sameArtwork) throws Exception {
+        Path source = Files.writeString(tempDir.resolve("source.png"), "original image");
+        Path cache = tempDir.resolve("thumbnails");
+        var database = mock(PixivDatabase.class);
+        var locator = mock(ArtworkFileLocator.class);
+        var artwork = mock(ArtworkRecord.class);
+        var decoder = mock(top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder.class);
+        AtomicBoolean unavailable = new AtomicBoolean();
+        when(database.isUnavailable()).thenAnswer(ignored -> unavailable.get());
+        when(database.getArtwork(anyLong())).thenReturn(artwork);
+        when(artwork.count()).thenReturn(1);
+        int active = sameArtwork ? 1 : ArtworkFileService.MAX_CONCURRENT_THUMBNAILS;
+        var decoding = new CountDownLatch(active);
+        var release = new CountDownLatch(1);
+        var waiting = new CountDownLatch(1);
+        var lookups = new AtomicInteger();
+        when(locator.resolveImageFile(artwork, 0)).thenAnswer(ignored -> {
+            if (lookups.incrementAndGet() > active) waiting.countDown();
+            return source.toFile();
+        });
+        when(decoder.read(source, 512)).thenAnswer(ignored -> {
+            decoding.countDown();
+            assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
+            return new BufferedImage(4, 4, BufferedImage.TYPE_INT_RGB);
+        });
+        var service = new ArtworkFileService(database, locator, decoder);
+        var pool = Executors.newFixedThreadPool(active + 1);
+        var jobs = new ArrayList<Future<?>>();
+        var existing = new ArrayList<Path>();
+        try {
+            for (int index = 0; index <= active; index++) {
+                long id = sameArtwork ? 0L : index;
+                Path prior = cache.resolve(id + "/p0-512-fit-v2.png");
+                Files.createDirectories(prior.getParent());
+                Files.writeString(prior, "prior thumbnail");
+                Files.setLastModifiedTime(prior, java.nio.file.attribute.FileTime.fromMillis(0));
+                existing.add(prior);
+                jobs.add(pool.submit(() -> {
+                    try (var files = mockStatic(RuntimeFiles.class)) {
+                        files.when(RuntimeFiles::galleryThumbnailDirectory).thenReturn(cache);
+                        return service.getThumbnailFile(id, 0);
+                    }
+                }));
+                if (index == active - 1) assertThat(decoding.await(10, TimeUnit.SECONDS)).isTrue();
+            }
+            assertThat(waiting.await(10, TimeUnit.SECONDS)).isTrue();
+            unavailable.set(true);
+            release.countDown();
+            for (var job : jobs) {
+                assertThatThrownBy(() -> job.get(10, TimeUnit.SECONDS))
+                        .isInstanceOf(ExecutionException.class).hasCauseInstanceOf(DatabaseUnavailableException.class);
+            }
+            org.mockito.Mockito.verify(decoder, org.mockito.Mockito.times(active)).read(source, 512);
+            assertThat(Files.readString(source)).isEqualTo("original image");
+            for (Path prior : existing) assertThat(Files.readString(prior)).isEqualTo("prior thumbnail");
+            try (var files = Files.walk(cache)) {
+                assertThat(files.noneMatch(path -> path.getFileName().toString().startsWith("thumb-"))).isTrue();
             }
         } finally {
             release.countDown();

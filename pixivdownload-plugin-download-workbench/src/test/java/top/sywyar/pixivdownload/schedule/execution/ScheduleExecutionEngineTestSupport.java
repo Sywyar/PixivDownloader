@@ -190,7 +190,7 @@ abstract class ScheduleExecutionEngineTestSupport {
         return new ScheduleExecutionEngine(
                 store, registry, runState, new ScheduleRunQueue(), config,
                 new ScheduleWorkPersistenceCodec(objectMapper),
-                new ScheduleNetworkRouteResolver(direct), taskExecutor, objectMapper);
+                new ScheduleNetworkRouteResolver(direct), taskExecutor, objectMapper, () -> true);
     }
 
     protected static ScheduledWorkExecutor finalizingExecutor(

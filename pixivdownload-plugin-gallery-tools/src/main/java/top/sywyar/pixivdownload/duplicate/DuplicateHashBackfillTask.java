@@ -21,6 +21,7 @@ public class DuplicateHashBackfillTask implements MaintenanceTask {
     private final ArtworkHashIndexMaintenance hashIndexMaintenance;
     private final DuplicateService duplicateService;
     private final MessageResolver messages;
+    private final top.sywyar.pixivdownload.core.database.DatabaseAvailability database;
 
     @Override
     public String name() {
@@ -29,6 +30,7 @@ public class DuplicateHashBackfillTask implements MaintenanceTask {
 
     @Override
     public void execute(MaintenanceContext context) {
+        database.requireAvailable();
         // 一次性补齐全部缺哈希作品（不限批量）；「已尝试但无结果」的作品已被哨兵行标记，不会反复重试。
         List<Long> artworkIds = hashIndexMaintenance.artworkIdsMissingHashes(Integer.MAX_VALUE);
         int total = artworkIds.size();
@@ -38,6 +40,7 @@ public class DuplicateHashBackfillTask implements MaintenanceTask {
         // 进度按「作品」粒度上报：GUI 据此显示已处理/总数，并按已用时 / 已处理量线性外推出自我修正的 ETA。
         context.updateProgress(0, total);
         for (Long artworkId : artworkIds) {
+            database.requireAvailable();
             OptionalInt result = artworkId == null
                     ? OptionalInt.empty()
                     : hashIndexMaintenance.rebuildArtwork(artworkId);
@@ -48,6 +51,7 @@ public class DuplicateHashBackfillTask implements MaintenanceTask {
             scanned++;
             context.updateProgress(scanned, total);
         }
+        database.requireAvailable();
         if (processed > 0) {
             duplicateService.invalidate();
         }

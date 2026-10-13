@@ -7,6 +7,9 @@ import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
 import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 
 import java.util.List;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.Expression;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.*;
 
 /** 站内信插件自有持久化模型；宿主 schema registry 统一执行 DDL。 */
 public final class NotificationInboxSchema {
@@ -31,15 +34,7 @@ public final class NotificationInboxSchema {
                     List.of(
                             index("idx_notification_messages_created_time", "created_time"),
                             index("idx_notification_messages_unread_created", "read_time", "created_time")),
-                    "category IN ('download','announcement','survey','system')"
-                            + " AND severity IN ('INFO','WARNING','ERROR')"
-                            + " AND length(trim(title)) > 0"
-                            + " AND length(trim(body)) > 0"
-                            + " AND (content_html IS NULL OR length(content_html) > 0)"
-                            + " AND created_time >= 0"
-                            + " AND active IN (0,1)"
-                            + " AND (read_time IS NULL OR read_time >= created_time)"
-                            + " AND (deleted_time IS NULL OR deleted_time >= created_time)"),
+                    null).withCheck(messagesCheck()),
                     new TableSpec(
                             "notification_announcement_translations",
                             List.of(
@@ -51,14 +46,7 @@ public final class NotificationInboxSchema {
                                     column("content_sha256", "TEXT", false, null, 0),
                                     column("content_html", "TEXT", true, null, 0)),
                             List.of(),
-                            "length(trim(announcement_id)) > 0"
-                                    + " AND length(trim(locale)) > 0"
-                                    + " AND length(trim(title)) > 0"
-                                    + " AND length(trim(summary)) > 0"
-                                    + " AND length(trim(content_url)) > 0"
-                                    + " AND length(content_sha256) = 64"
-                                    + " AND content_sha256 NOT GLOB '*[^0-9a-f]*'"
-                                    + " AND length(content_html) > 0"),
+                            null).withCheck(translationsCheck()),
                     new TableSpec(
                             "notification_remote_index_state",
                             List.of(
@@ -70,15 +58,49 @@ public final class NotificationInboxSchema {
                                     column("etag", "TEXT", false, null, 0),
                                     column("last_modified", "TEXT", false, null, 0)),
                             List.of(),
-                            "id = 1 AND sequence > 0"
-                                    + " AND length(manifest_sha256) = 64"
-                                    + " AND manifest_sha256 NOT GLOB '*[^0-9a-f]*'"
-                                    + " AND generated_time >= 0"
-                                    + " AND expires_time > generated_time")),
+                            null).withCheck(remoteCheck())),
             List.of(),
             List.of());
 
     private NotificationInboxSchema() {
+    }
+
+    private static Expression messagesCheck() {
+        String t = "notification_messages";
+        return call(AND,
+                call(IN, Expression.column(t, "category"), value("download"), value("announcement"), value("survey"), value("system")),
+                call(IN, Expression.column(t, "severity"), value("INFO"), value("WARNING"), value("ERROR")),
+                nonblank(t, "title"), nonblank(t, "body"),
+                call(OR, call(IS_NULL, Expression.column(t, "content_html")), positiveLength(t, "content_html")),
+                call(GREATER_EQUAL, Expression.column(t, "created_time"), value(0)),
+                call(IN, Expression.column(t, "active"), value(0), value(1)),
+                call(OR, call(IS_NULL, Expression.column(t, "read_time")), call(GREATER_EQUAL, Expression.column(t, "read_time"), Expression.column(t, "created_time"))),
+                call(OR, call(IS_NULL, Expression.column(t, "deleted_time")), call(GREATER_EQUAL, Expression.column(t, "deleted_time"), Expression.column(t, "created_time"))));
+    }
+
+    private static Expression translationsCheck() {
+        String t = "notification_announcement_translations";
+        return call(AND, nonblank(t, "announcement_id"), nonblank(t, "locale"), nonblank(t, "title"),
+                nonblank(t, "summary"), nonblank(t, "content_url"),
+                call(EQUAL, call(LENGTH, Expression.column(t, "content_sha256")), value(64)),
+                call(LOWER_HEX, Expression.column(t, "content_sha256")), positiveLength(t, "content_html"));
+    }
+
+    private static Expression remoteCheck() {
+        String t = "notification_remote_index_state";
+        return call(AND, call(EQUAL, Expression.column(t, "id"), value(1)), call(GREATER, Expression.column(t, "sequence"), value(0)),
+                call(EQUAL, call(LENGTH, Expression.column(t, "manifest_sha256")), value(64)),
+                call(LOWER_HEX, Expression.column(t, "manifest_sha256")),
+                call(GREATER_EQUAL, Expression.column(t, "generated_time"), value(0)),
+                call(GREATER, Expression.column(t, "expires_time"), Expression.column(t, "generated_time")));
+    }
+
+    private static Expression nonblank(String table, String name) {
+        return call(GREATER, call(LENGTH, call(TRIM, Expression.column(table, name))), value(0));
+    }
+
+    private static Expression positiveLength(String table, String name) {
+        return call(GREATER, call(LENGTH, Expression.column(table, name)), value(0));
     }
 
     private static ColumnSpec column(String name, String type, boolean notNull,

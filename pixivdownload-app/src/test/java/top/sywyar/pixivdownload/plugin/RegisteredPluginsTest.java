@@ -15,11 +15,13 @@ import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 class RegisteredPluginsTest {
+    @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory;
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
-            // CorePluginConfiguration 的 databaseInitializer bean 需要 JdbcTemplate / AppMessages：
-            // 用内存 SQLite 与测试 i18n 兜底（@PostConstruct 会真实建表，库随上下文丢弃）；
-            // 外置插件不参与内置组合根切片；这里仅为 core / plugin-market 依赖提供兜底。
+            // 组合根切片使用同一真实 SQLite 目标与连接池，结构随临时目录丢弃。
+            .withBean(top.sywyar.pixivdownload.core.db.DatabaseTarget.class,
+                    () -> top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("main.db")))
+            .withUserConfiguration(StorageConfiguration.class, top.sywyar.pixivdownload.core.db.MainDatabase.class)
             .withBean("applicationTaskExecutor", org.springframework.core.task.TaskExecutor.class,
                     org.springframework.core.task.SyncTaskExecutor::new)
             .withBean(top.sywyar.pixivdownload.core.hash.ImageHashMapper.class,
@@ -30,8 +32,6 @@ class RegisteredPluginsTest {
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator.class))
             .withBean(top.sywyar.pixivdownload.core.db.PixivDatabase.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.db.PixivDatabase.class))
-            .withBean(org.springframework.transaction.PlatformTransactionManager.class,
-                    () -> org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class))
             .withBean(top.sywyar.pixivdownload.core.work.service.WorkQueryService.class,
                     () -> org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.work.service.WorkQueryService.class))
             .withBean(top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository.class,
@@ -52,20 +52,6 @@ class RegisteredPluginsTest {
                     top.sywyar.pixivdownload.core.appconfig.MultiModeConfig::new)
             .withBean(com.fasterxml.jackson.databind.ObjectMapper.class,
                     com.fasterxml.jackson.databind.ObjectMapper::new)
-            .withBean(javax.sql.DataSource.class, () -> {
-                org.springframework.jdbc.datasource.SingleConnectionDataSource ds =
-                        new org.springframework.jdbc.datasource.SingleConnectionDataSource(
-                                "jdbc:sqlite::memory:", true);
-                ds.setDriverClassName("org.sqlite.JDBC");
-                return ds;
-            })
-            .withBean(org.springframework.jdbc.core.JdbcTemplate.class, () -> {
-                org.springframework.jdbc.datasource.SingleConnectionDataSource ds =
-                        new org.springframework.jdbc.datasource.SingleConnectionDataSource(
-                                "jdbc:sqlite::memory:", true);
-                ds.setDriverClassName("org.sqlite.JDBC");
-                return new org.springframework.jdbc.core.JdbcTemplate(ds);
-            })
             .withBean(top.sywyar.pixivdownload.i18n.AppMessages.class,
                     top.sywyar.pixivdownload.i18n.TestI18nBeans::appMessages)
             .withBean(top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCaptureService.class,
@@ -126,6 +112,24 @@ class RegisteredPluginsTest {
                     PluginRegistry.class,
                     top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry.class,
                     DatabaseSchemaRegistry.class);
+
+    @org.springframework.boot.test.context.TestConfiguration(proxyBeanMethods = false)
+    static class StorageConfiguration {
+        @org.springframework.context.annotation.Bean
+        com.zaxxer.hikari.HikariDataSource dataSource(top.sywyar.pixivdownload.core.db.DatabaseTarget target)
+                throws java.io.IOException {
+            return target.openPool(top.sywyar.pixivdownload.core.db.DatabasePoolProperties.MINIMUM_POOL_SIZE);
+        }
+        @org.springframework.context.annotation.Bean
+        org.springframework.jdbc.core.JdbcTemplate jdbcTemplate(javax.sql.DataSource source) {
+            return new org.springframework.jdbc.core.JdbcTemplate(source);
+        }
+        @org.springframework.context.annotation.Bean
+        org.springframework.transaction.PlatformTransactionManager transactions(javax.sql.DataSource source,
+                top.sywyar.pixivdownload.core.db.DatabaseTarget target) {
+            return new top.sywyar.pixivdownload.core.db.DatabaseConfig(null, null, null).transactionManager(source, target);
+        }
+    }
 
     @Test
     @DisplayName("内置插件经各自 Configuration 注册进 PluginRegistry（功能插件已外置、不在内置清单）")

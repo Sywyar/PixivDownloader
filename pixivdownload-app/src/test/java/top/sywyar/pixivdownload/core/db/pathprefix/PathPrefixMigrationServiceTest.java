@@ -57,17 +57,17 @@ class PathPrefixMigrationServiceTest {
         Environment env = new Environment("test", new JdbcTransactionFactory(), dataSource);
         Configuration config = new Configuration(env);
         config.setMapUnderscoreToCamelCase(true);
-        config.addMapper(PathPrefixMapper.class);
 
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
         sqlSession = factory.openSession(true); // auto-commit
-        mapper = sqlSession.getMapper(PathPrefixMapper.class);
+        mapper = new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
 
         // 默认相对 root → 符号根 {0} 启用
         codec = new PathPrefixCodec(mapper, new DownloadConfig(), TestI18nBeans.appMessages());
         codec.init();
 
         // 符号根改写需要触达全部路径前缀列：补建最小化的内容表
+        top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializePathPrefixes(dataSource);
         createPathColumnTables();
 
         // 真实存在的目录：validatePath 要求目标必须是已存在的绝对目录
@@ -83,13 +83,14 @@ class PathPrefixMigrationServiceTest {
 
         // 不依赖真实事务管理器：withoutTransaction 直接执行回调，足以验证两阶段写入避免瞬时 UNIQUE 冲突
         service = new PathPrefixMigrationService(codec, mapper, PATH_COLUMNS, new DownloadConfig(),
-                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), dataSource);
+                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
     }
 
     private void createPathColumnTables() {
         try (var conn = dataSource.getConnection(); var st = conn.createStatement()) {
             for (var table : PATH_COLUMNS.all()) {
-                st.execute("CREATE TABLE " + table.table() + " (" + table.idColumn() + " TEXT PRIMARY KEY, "
+                st.execute("CREATE TABLE " + table.table() + " (" + table.idColumn() + (table.idColumn().equals("reference_id") || table.idColumn().equals("entry_id")
+                        ? " TEXT PRIMARY KEY, " : " INTEGER PRIMARY KEY, ")
                         + String.join(", ", table.columns().stream().map(column -> column + " TEXT").toList()) + ")");
             }
         } catch (Exception e) {
@@ -213,7 +214,7 @@ class PathPrefixMigrationServiceTest {
         PathPrefixCodec absCodec = new PathPrefixCodec(mapper, absConfig, TestI18nBeans.appMessages());
         absCodec.init();
         PathPrefixMigrationService absService = new PathPrefixMigrationService(absCodec, mapper, PATH_COLUMNS, absConfig,
-                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), dataSource);
+                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
 
         PathPrefixMigrationResult result = absService.apply(List.of(
                 new PathPrefixUpdate(0L, dirD.toString())), List.of());
@@ -249,7 +250,7 @@ class PathPrefixMigrationServiceTest {
         PathPrefixCodec relCodec = new PathPrefixCodec(mapper, relConfig, TestI18nBeans.appMessages());
         relCodec.init();
         PathPrefixMigrationService relService = new PathPrefixMigrationService(relCodec, mapper, PATH_COLUMNS, relConfig,
-                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), dataSource);
+                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
         String rootPath = relCodec.getSymbolicRootPath();
         execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(9, '{0}/900', NULL)");
 
@@ -271,7 +272,7 @@ class PathPrefixMigrationServiceTest {
         PathPrefixCodec relCodec = new PathPrefixCodec(mapper, relConfig, TestI18nBeans.appMessages());
         relCodec.init();
         PathPrefixMigrationService relService = new PathPrefixMigrationService(relCodec, mapper, PATH_COLUMNS, relConfig,
-                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), dataSource);
+                TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
         String rootPath = relCodec.getSymbolicRootPath();
         execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(9, '{0}/900', NULL)");
         assertThat(relCodec.isSymbolicRootActive()).isTrue();

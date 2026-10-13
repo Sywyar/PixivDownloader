@@ -20,7 +20,7 @@ class RecoveryPluginFocusTest {
     @Test
     @DisplayName("必装项不可用时包含必装候选与明确故障，不误选主动停用的可选插件")
     void requiredAndFailures() {
-        var focus = RecoveryPluginFocus.from(true, false, report(
+        var focus = RecoveryPluginFocus.from(true, false, false, "", report(
                 plugin("missing", PluginStatus.MISSING_REQUIRED, true),
                 plugin("running-required", PluginStatus.STARTED, true),
                 plugin("disabled-required", PluginStatus.DISABLED, true),
@@ -39,7 +39,7 @@ class RecoveryPluginFocusTest {
         var root = described("root", PluginStatus.MISSING_REQUIRED, "1.0", "middle,optional?@1.0,old@2.0");
         var middle = described("middle", PluginStatus.DISABLED, "1.0", "root,absent");
         var old = described("old", PluginStatus.STARTED, "1.0", "");
-        var focus = RecoveryPluginFocus.from(true, false, report(root, middle, old), Set.of());
+        var focus = RecoveryPluginFocus.from(true, false, false, "", report(root, middle, old), Set.of());
         assertThat(focus.plugins()).containsOnlyKeys("root", "middle", "absent", "old");
         assertThat(focus.plugins()).containsEntry("old", "dependency").containsEntry("absent", "dependency");
     }
@@ -47,9 +47,9 @@ class RecoveryPluginFocusTest {
     @Test
     @DisplayName("没有 GUI 按分类给候选，扫描受阻时不将目录故障归咎于所有 GUI")
     void guiAndBlockedInventory() {
-        assertThat(RecoveryPluginFocus.from(true, true, PluginStatusReport.empty(), Set.of()).categories())
+        assertThat(RecoveryPluginFocus.from(true, true, false, "", PluginStatusReport.empty(), Set.of()).categories())
                 .containsExactly("ui");
-        var blocked = RecoveryPluginFocus.from(false, true,
+        var blocked = RecoveryPluginFocus.from(false, true, true, "selected",
                 report(plugin("missing", PluginStatus.MISSING_REQUIRED, true)), Set.of("failed"));
         assertThat(blocked.plugins()).isEmpty();
         assertThat(blocked.categories()).isEmpty();
@@ -58,9 +58,26 @@ class RecoveryPluginFocusTest {
     @Test
     @DisplayName("健康必装项和主动停止的可选项本身不产生恢复检查对象")
     void healthyAndIntentionalStop() {
-        assertThat(RecoveryPluginFocus.from(true, false, report(
+        assertThat(RecoveryPluginFocus.from(true, false, false, "", report(
                 plugin("required", PluginStatus.STARTED, true),
                 plugin("stopped", PluginStatus.STOPPED, false)), Set.of()).plugins()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("所选数据库缺失或主动禁用时进入检查对象，不替换选择且不过滤默认安装候选")
+    void selectedDatabaseUnavailable() {
+        for (var status : List.of(PluginStatus.DISABLED, PluginStatus.FAILED, PluginStatus.INCOMPATIBLE)) {
+            var focus = RecoveryPluginFocus.from(true, false, true, "selected",
+                    report(plugin("selected", status, false), plugin("other", PluginStatus.DISABLED, false)), Set.of());
+            assertThat(focus.plugins()).containsOnlyKeys("selected");
+            assertThat(focus.categories()).containsExactly("database");
+        }
+        var missing = RecoveryPluginFocus.from(true, true, true, "absent", PluginStatusReport.empty(), Set.of());
+        assertThat(missing.plugins()).containsEntry("absent", "database");
+        assertThat(missing.categories()).containsExactly("database", "ui");
+        var noSelection = RecoveryPluginFocus.from(true, false, true, "", PluginStatusReport.empty(), Set.of());
+        assertThat(noSelection.plugins()).isEmpty();
+        assertThat(noSelection.categories()).containsExactly("database");
     }
 
     private static PluginStatusReport report(PluginDiagnostic... plugins) {

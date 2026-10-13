@@ -47,7 +47,8 @@ class DesktopAboutViewTest {
             assertFalse(facts.get("cpu").fallback().isBlank() && facts.get("cpu").key().isBlank());
             assertEquals(java.util.Set.of("version", "channel", "mode", "os", "os-version", "architecture",
                     "cpu", "processors", "memory", "heap", "java", "java-vendor", "vm", "interface", "kotlin", "launch",
-                    "plugins", "directory", "branch"), facts.keySet());
+                    "plugins", "database", "directory", "branch"), facts.keySet());
+            assertEquals("gui.compose.about.unknown", facts.get("database").key());
             var endpoints = DesktopUiEventProtocol.index(model.snapshot().document());
             assertTrue(endpoints.keySet().containsAll(about.links().stream().map(DesktopUiNode.Link::id).toList()));
             about.maintainers().forEach(person -> assertTrue(endpoints.containsKey(person.link().id())));
@@ -81,10 +82,12 @@ class DesktopAboutViewTest {
                 "sdkVersion", "8.2.3-dev.ab123456",
                 "development", Map.of("directory", "D:/fixture", "branch", "fixture/about"),
                 "plugins", List.of(
-                        Map.of("id", "plugin-z", "source", "external", "version", "4.5.6",
+                        Map.of("id", "plugin-z", "source", "external", "version", "4.5.6", "status", "STARTED",
                                 "displayVersion", "4.5.6-dev.ab123456",
                                 "sdkRequirement", Map.of("specified", true, "required", "8.2")),
-                        Map.of("id", "plugin-a", "source", "external", "version", "2.3.4"),
+                        Map.of("id", "plugin-a", "source", "external", "version", "2.3.4", "status", "DISABLED"),
+                        Map.of("id", "plugin-b", "source", "external", "version", "2.3.4", "status", "FAILED"),
+                        Map.of("id", "plugin-c", "source", "external", "version", "2.3.4"),
                         Map.of("id", "missing", "source", "not-installed"))
         ));
         try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
@@ -99,8 +102,20 @@ class DesktopAboutViewTest {
             assertFalse(facts.containsKey("directory"));
             assertFalse(facts.containsKey("branch"));
             assertTrue(facts.get("version").value().fallback().endsWith("(8.2.3-dev.ab123456)"));
-            assertEquals("plugin-a-2.3.4(*)\nplugin-z-4.5.6-dev.ab123456(8.2.0)", facts.get("plugins").value().fallback());
+            var plugins = facts.get("plugins").plugins();
+            assertEquals(List.of("plugin-a-2.3.4(*)", "plugin-b-2.3.4(*)", "plugin-c-2.3.4(*)",
+                    "plugin-z-4.5.6-dev.ab123456(8.2.0)"),
+                    plugins.stream().map(DesktopUiNode.AboutPlugin::version).toList());
+            assertEquals(List.of("gui.plugins.status.DISABLED", "gui.plugins.status.FAILED",
+                    "gui.compose.about.unknown", "gui.plugins.status.STARTED"),
+                    plugins.stream().map(plugin -> plugin.status().key()).toList());
             assertTrue(facts.get("plugins").expandable());
+            snapshot.set(Map.of("plugins", List.of(Map.of("id", "plugin-z", "source", "external",
+                    "version", "4.5.6", "status", "STOPPED"))));
+            model.loadPluginStatus();
+            model.rebuildStatus();
+            assertEquals("gui.plugins.status.STOPPED", overview(model).facts().stream()
+                    .filter(f -> f.id().equals("plugins")).findFirst().orElseThrow().plugins().get(0).status().key());
             snapshot.set(Map.of("plugins", List.of()));
             model.loadPluginStatus();
             model.rebuildStatus();

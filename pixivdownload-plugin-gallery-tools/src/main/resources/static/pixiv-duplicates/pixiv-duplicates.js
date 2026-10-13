@@ -122,6 +122,9 @@
         if (scan.state === 'FAILED') {
             return t('scan.failed', '扫描失败');
         }
+        if (scan.state === 'UNAVAILABLE') {
+            return t('scan.unavailable', '数据库不可用，扫描已停止');
+        }
         return scan.state;
     }
 

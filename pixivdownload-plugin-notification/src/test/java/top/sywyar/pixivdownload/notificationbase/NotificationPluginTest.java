@@ -184,12 +184,8 @@ class NotificationPluginTest {
                     assertThat(table.indexes()).extracting(index -> index.name())
                             .containsExactly("idx_notification_messages_created_time",
                                     "idx_notification_messages_unread_created");
-                    assertThat(table.checkExpression())
-                            .contains("category IN ('download','announcement','survey','system')")
-                            .contains("severity IN ('INFO','WARNING','ERROR')")
-                            .contains("content_html IS NULL OR length(content_html) > 0")
-                            .contains("active IN (0,1)")
-                            .contains("deleted_time IS NULL OR deleted_time >= created_time");
+                    assertThat(table.checkExpression()).isNull();
+                    assertThat(table.check()).isInstanceOf(top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Call.class);
                     });
             assertThat(schema.tables())
                     .filteredOn(table -> table.name().equals("notification_announcement_translations"))

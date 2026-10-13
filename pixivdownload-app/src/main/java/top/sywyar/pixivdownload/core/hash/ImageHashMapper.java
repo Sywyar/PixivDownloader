@@ -1,100 +1,93 @@
 package top.sywyar.pixivdownload.core.hash;
 
-import org.apache.ibatis.annotations.Delete;
-import org.apache.ibatis.annotations.Insert;
-import org.apache.ibatis.annotations.Mapper;
-import org.apache.ibatis.annotations.Param;
-import org.apache.ibatis.annotations.Select;
+import org.springframework.stereotype.Repository;
+import top.sywyar.pixivdownload.core.db.MainDatabase;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.*;
+import java.util.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.*;
 
-import java.util.List;
+@Repository
+public class ImageHashMapper {
+    private static final String TABLE = "artwork_image_hashes";
+    private final MainDatabase database;
+    public ImageHashMapper(MainDatabase database) { this.database = database; }
 
-@Mapper
-public interface ImageHashMapper {
-
-    @Insert("INSERT INTO artwork_image_hashes(artwork_id, page, ext, dhash, ahash, created_time)"
-            + " VALUES(#{artworkId}, #{page}, #{ext}, #{dHash}, #{aHash}, #{createdTime})"
-            + " ON CONFLICT(artwork_id, page) DO UPDATE SET"
-            + " ext = excluded.ext,"
-            + " dhash = excluded.dhash,"
-            + " ahash = excluded.ahash,"
-            + " created_time = excluded.created_time")
-    void upsert(@Param("artworkId") long artworkId,
-                @Param("page") int page,
-                @Param("ext") String ext,
-                @Param("dHash") long dHash,
-                @Param("aHash") Long aHash,
-                @Param("createdTime") long createdTime);
-
-    /**
-     * 「已尝试但无结果」标记：对解码失败 / 文件缺失 / 无可哈希页的作品写入哨兵行（page = -1），
-     * 使其在 {@link #artworkIdsMissingHashes(int)} 中不再被视为缺哈希、避免每次维护窗口反复重试。
-     * 哨兵行的 dhash 固定为 0，{@link #findAll()} 已用 {@code page >= 0} 将其排除在分组之外。
-     */
-    @Insert("INSERT INTO artwork_image_hashes(artwork_id, page, ext, dhash, ahash, created_time)"
-            + " VALUES(#{artworkId}, -1, '', 0, NULL, #{createdTime})"
-            + " ON CONFLICT(artwork_id, page) DO UPDATE SET created_time = excluded.created_time")
-    void markNoHash(@Param("artworkId") long artworkId, @Param("createdTime") long createdTime);
-
-    /**
-     * 页级「已尝试但无结果」标记：用 {@code page = -sourcePage - 2} 表示对应页已经尝试过但不可哈希。
-     * {@link #findAll()} 只读取 {@code page >= 0}，因此这些哨兵行不会进入相似分组。
-     */
-    @Insert("INSERT INTO artwork_image_hashes(artwork_id, page, ext, dhash, ahash, created_time)"
-            + " VALUES(#{artworkId}, (0 - #{page} - 2), '', 0, NULL, #{createdTime})"
-            + " ON CONFLICT(artwork_id, page) DO UPDATE SET created_time = excluded.created_time")
-    void markPageNoHash(@Param("artworkId") long artworkId,
-                        @Param("page") int page,
-                        @Param("createdTime") long createdTime);
-
-    @Select("SELECT h.artwork_id AS artworkId, h.page AS page, h.ext AS ext,"
-            + " h.dhash AS dHash, h.ahash AS aHash, h.created_time AS createdTime,"
-            + " a.title AS title, a.author_id AS authorId, au.name AS authorName,"
-            + " a.r18 AS xRestrict"
-            + " FROM artwork_image_hashes h"
-            + " JOIN artworks a ON a.artwork_id = h.artwork_id"
-            + " LEFT JOIN authors au ON au.author_id = a.author_id"
-            + " WHERE h.page >= 0"
-            + " ORDER BY h.artwork_id, h.page")
-    List<ImageHashRow> findAll();
-
-    @Select("SELECT COUNT(*) FROM artwork_image_hashes")
-    long countAllHashRows();
-
-    @Select("SELECT MAX(created_time) FROM artwork_image_hashes")
-    Long maxCreatedTime();
-
-    @Select("WITH RECURSIVE expected_pages(artwork_id, page, max_page) AS ("
-            + " SELECT artwork_id, 0, count - 1 FROM artworks WHERE count > 0 AND deleted = 0"
-            + " UNION ALL"
-            + " SELECT artwork_id, page + 1, max_page FROM expected_pages WHERE page < max_page"
-            + ")"
-            + " SELECT COUNT(DISTINCT p.artwork_id) FROM expected_pages p"
-            + " WHERE NOT EXISTS ("
-            + " SELECT 1 FROM artwork_image_hashes h"
-            + " WHERE h.artwork_id = p.artwork_id"
-            + " AND (h.page = p.page OR h.page = -p.page - 2 OR h.page = -1)"
-            + ")")
-    int countArtworksMissingHashes();
-
-    @Select("WITH RECURSIVE expected_pages(artwork_id, page, max_page, time) AS ("
-            + " SELECT artwork_id, 0, count - 1, time FROM artworks WHERE count > 0 AND deleted = 0"
-            + " UNION ALL"
-            + " SELECT artwork_id, page + 1, max_page, time FROM expected_pages WHERE page < max_page"
-            + ")"
-            + " SELECT p.artwork_id FROM expected_pages p"
-            + " WHERE NOT EXISTS ("
-            + " SELECT 1 FROM artwork_image_hashes h"
-            + " WHERE h.artwork_id = p.artwork_id"
-            + " AND (h.page = p.page OR h.page = -p.page - 2 OR h.page = -1)"
-            + ")"
-            + " GROUP BY p.artwork_id"
-            + " ORDER BY MAX(p.time) DESC"
-            + " LIMIT #{limit}")
-    List<Long> artworkIdsMissingHashes(@Param("limit") int limit);
-
-    @Delete("DELETE FROM artwork_image_hashes WHERE artwork_id = #{artworkId}")
-    void deleteByArtwork(@Param("artworkId") long artworkId);
-
-    @Delete("DELETE FROM artwork_image_hashes")
-    void deleteAll();
+    private void write(long artworkId, int page, String ext, long dHash, Long aHash, long createdTime, boolean marker) {
+        var row = new LinkedHashMap<String, Object>();
+        row.put("artwork_id", artworkId); row.put("page", page); row.put("ext", ext);
+        row.put("dhash", dHash); row.put("ahash", aHash); row.put("created_time", createdTime);
+        Map<String, Expression> changes = marker ? Map.of("created_time", new Incoming("created_time"))
+                : Map.of("ext", new Incoming("ext"), "dhash", new Incoming("dhash"),
+                        "ahash", new Incoming("ahash"), "created_time", new Incoming("created_time"));
+        database.transaction(s -> s.insert(TABLE, row,
+                new DatabaseSession.Conflict(DatabaseSession.Mode.UPDATE, List.of("artwork_id", "page"), changes)));
+    }
+    public void upsert(long artworkId, int page, String ext, long dHash, Long aHash, long createdTime) {
+        write(artworkId, page, ext, dHash, aHash, createdTime, false);
+    }
+    /** 作品级哨兵排除全部页面的重复尝试，但不参与相似分组。 */
+    public void markNoHash(long artworkId, long createdTime) {
+        write(artworkId, -1, "", 0, null, createdTime, true);
+    }
+    /** 页级哨兵与真实页一一对应；相似分组只读取非负页号。 */
+    public void markPageNoHash(long artworkId, int page, long createdTime) {
+        write(artworkId, Math.toIntExact(-((long) page) - 2L), "", 0, null, createdTime, true);
+    }
+    public List<ImageHashRow> findAll() {
+        var select = new LinkedHashMap<String, Expression>();
+        for (String name : List.of("artwork_id", "page", "ext", "dhash", "ahash", "created_time"))
+            select.put(name, column("h", name));
+        select.put("title", column("a", "title")); select.put("author_id", column("a", "author_id"));
+        select.put("author_name", column("au", "name")); select.put("r18", column("a", "r18"));
+        var query = new Query(new Query.Table(TABLE, "h"), List.of(
+                new Query.Join(Query.JoinKind.INNER, new Query.Table("artworks", "a"),
+                        call(EQUAL, column("a", "artwork_id"), column("h", "artwork_id"))),
+                new Query.Join(Query.JoinKind.LEFT, new Query.Table("authors", "au"),
+                        call(EQUAL, column("au", "author_id"), column("a", "author_id")))),
+                select, call(GREATER_EQUAL, column("h", "page"), value(0)), List.of(), null,
+                List.of(new Query.Order(column("h", "artwork_id"), false, true), new Query.Order(column("h", "page"), false, true)),
+                false, Integer.MAX_VALUE, 0);
+        return database.read(s -> s.query(query)).stream().map(row -> new ImageHashRow(
+                (Long) row.get("artwork_id"), Math.toIntExact((Long) row.get("page")), (String) row.get("ext"),
+                (Long) row.get("dhash"), (Long) row.get("ahash"), (Long) row.get("created_time"), (String) row.get("title"),
+                (Long) row.get("author_id"), (String) row.get("author_name"),
+                row.get("r18") == null ? null : Math.toIntExact((Long) row.get("r18")))).toList();
+    }
+    public long countAllHashRows() {
+        return (Long) database.read(s -> s.query(Query.count(TABLE, null))).get(0).get("count");
+    }
+    public Long maxCreatedTime() {
+        return (Long) database.read(s -> s.query(new Query(TABLE, Map.of("time", call(MAX, column(TABLE, "created_time"))),
+                null, List.of(), List.of(), 1, 0))).get(0).get("time");
+    }
+    private Expression missing() {
+        var id = column("artworks", "artwork_id");
+        var count = column("artworks", "count");
+        var hashId = call(EQUAL, column("h", "artwork_id"), id);
+        var page = column("h", "page");
+        var normalized = new Conditional(call(GREATER_EQUAL, page, value(0)), page, call(SUBTRACT, value(-2), page));
+        var covered = new Scalar(new Query(new Query.Table(TABLE, "h"), List.of(),
+                Map.of("covered", call(COUNT_DISTINCT, normalized)),
+                call(AND, hashId, call(GREATER_EQUAL, normalized, value(0)), call(LESS, normalized, count)),
+                List.of(), null, List.of(), false, 1, 0));
+        var marker = new Exists(new Query(new Query.Table(TABLE, "h"), List.of(), Map.of("found", value(1)),
+                call(AND, hashId, call(EQUAL, page, value(-1))), List.of(), null, List.of(), false, 1, 0));
+        return call(AND, call(GREATER, count, value(0)), call(EQUAL, column("artworks", "deleted"), value(0)),
+                call(NOT, marker), call(LESS, covered, count));
+    }
+    public int countArtworksMissingHashes() {
+        return Math.toIntExact((Long) database.read(s -> s.query(Query.count("artworks", missing()))).get(0).get("count"));
+    }
+    public List<Long> artworkIdsMissingHashes(int limit) {
+        var query = new Query("artworks", Map.of("id", column("artworks", "artwork_id")), missing(), List.of(),
+                List.of(new Query.Order(column("artworks", "time"), true, false)), limit, 0);
+        return database.read(s -> s.query(query)).stream().map(row -> (Long) row.get("id")).toList();
+    }
+    public void deleteByArtwork(long artworkId) {
+        database.transaction(s -> s.delete(TABLE, call(EQUAL, column(TABLE, "artwork_id"), value(artworkId))));
+    }
+    public void deleteAll() {
+        database.transaction(s -> s.delete(TABLE, call(EQUAL, value(1), value(1))));
+    }
 }

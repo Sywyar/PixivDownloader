@@ -53,8 +53,18 @@ public class PathPrefixCodec implements StoredPathCodec {
     private final DownloadConfig downloadConfig;
     private final AppMessages messages;
 
+    private boolean databaseUnavailable;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PathPrefixCodec(PathPrefixMapper mapper, DownloadConfig downloadConfig, AppMessages messages,
+                           javax.sql.DataSource dataSource) {
+        this(mapper, downloadConfig, messages);
+        databaseUnavailable = top.sywyar.pixivdownload.core.db.UnavailableDataSource.isUnavailable(dataSource);
+    }
+
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private volatile List<PathPrefix> cachedPrefixes = List.of();
+    private volatile boolean cacheLoaded;
     /** 编码候选：DB 前缀 + （启用时）符号根，按路径长度降序、id 升序排序。 */
     private volatile List<PathPrefix> encodeCandidates = List.of();
     /** 符号根是否启用（root-folder 为相对路径）。启动时确定，运行期不变。 */
@@ -64,9 +74,8 @@ public class PathPrefixCodec implements StoredPathCodec {
 
     @PostConstruct
     public void init() {
-        mapper.createTable();
+        if (databaseUnavailable) return;
         initSymbolicRoot();
-        reload();
     }
 
     private void initSymbolicRoot() {
@@ -118,6 +127,7 @@ public class PathPrefixCodec implements StoredPathCodec {
             candidates.sort(Comparator.comparingInt((PathPrefix p) -> p.path().length()).reversed()
                     .thenComparingLong(PathPrefix::id));
             encodeCandidates = List.copyOf(candidates);
+            cacheLoaded = true;
         } finally {
             lock.writeLock().unlock();
         }
@@ -296,6 +306,7 @@ public class PathPrefixCodec implements StoredPathCodec {
     }
 
     private List<PathPrefix> currentPrefixes() {
+        if (!cacheLoaded && !databaseUnavailable) reload();
         lock.readLock().lock();
         try {
             return cachedPrefixes;
@@ -305,6 +316,7 @@ public class PathPrefixCodec implements StoredPathCodec {
     }
 
     private List<PathPrefix> currentEncodeCandidates() {
+        if (!cacheLoaded && !databaseUnavailable) reload();
         lock.readLock().lock();
         try {
             return encodeCandidates;

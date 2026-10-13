@@ -26,8 +26,8 @@ class PostgresOfflineToolsTest {
     @DisplayName("PostgreSQL 回填使用配置目标且单作品失败全部回滚")
     void backfillUsesConfiguredTargetAndRollsBackTheWholeArtworkOnFailure() throws Exception {
         try (var database = new PostgresTestDatabase()) {
-            var target = DatabaseTarget.resolve(database.properties(), "unused");
-            try (var connection = target.openConnection()) { DatabaseInitializer.prepareOffline(connection); }
+            var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(database.properties(), "unused");
+            try (var connection = target.openConnection()) { top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.prepareOffline(connection); }
             var jdbc = new JdbcTemplate(database.pool());
             jdbc.update("INSERT INTO artworks(artwork_id, title, folder, count, extensions, time)"
                     + " VALUES(5000000001, '旧作品', '{0}/旧作品', 1, 'png', 1700000000123)");
@@ -59,7 +59,7 @@ class PostgresOfflineToolsTest {
     @DisplayName("旧 JSON 导入 PostgreSQL 可重复运行且不创建 SQLite")
     void legacyJsonImportsIntoPostgresWithoutCreatingSqliteAndCanBeRepeated() throws Exception {
         try (var database = new PostgresTestDatabase()) {
-            var target = DatabaseTarget.resolve(database.properties(), "unused");
+            var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(database.properties(), "unused");
             Files.writeString(directory.resolve("download_history.json"), """
                     {"downloaded":{"5000000001":{"title":"旧资料 🌸","folder":"{0}/旧资料","count":2,
                     "extensions":"png","time":1700000000123,"moved":true,"moveFolder":"{1}/迁移", "moveTime":1700000000456}}}
@@ -79,15 +79,15 @@ class PostgresOfflineToolsTest {
     @DisplayName("活动池导入失败不留下前半批记录，拒绝写入不匹配的 schema")
     void pooledJsonImportRollsBackAndRejectsMismatchedTarget() throws Exception {
         try (var database = new PostgresTestDatabase(); var other = new PostgresTestDatabase()) {
-            var target = DatabaseTarget.resolve(database.properties(), "unused");
-            try (var connection = target.openConnection()) { DatabaseInitializer.prepareOffline(connection); }
+            var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(database.properties(), "unused");
+            try (var connection = target.openConnection()) { top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.prepareOffline(connection); }
             Files.writeString(directory.resolve("download_history.json"), """
                     {"downloaded":{"1":{"title":"valid","folder":"{0}/one","count":1,"extensions":"png","time":1700000000001},
                     "2":{"title":"invalid","folder":"{0}/two","count":1,"time":1700000000002}}}
                     """, StandardCharsets.UTF_8);
             var options = new JsonToSqliteMigration.Options(target.displayName(), directory.toString(), target);
             assertThatThrownBy(() -> JsonToSqliteMigration.run(options, ignored -> {}, database.pool()))
-                    .isInstanceOf(SQLException.class);
+                    .isInstanceOf(IllegalArgumentException.class).hasMessage("STORAGE_OPERATION_INVALID");
             assertThat(new JdbcTemplate(database.pool()).queryForObject("SELECT count(*) FROM artworks", Long.class)).isZero();
             assertThatThrownBy(() -> JsonToSqliteMigration.run(options, ignored -> {}, other.pool()))
                     .isInstanceOf(SQLException.class);

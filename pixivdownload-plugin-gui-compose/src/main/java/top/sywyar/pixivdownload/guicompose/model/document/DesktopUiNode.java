@@ -743,8 +743,11 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     enum AboutUpdateState { UNKNOWN, CHECKING, CURRENT, AVAILABLE, DISABLED, ERROR }
     record AboutMaintainer(Image avatar, Link link, TextToken role) {}
-    record AboutFact(String id, TextToken label, TextToken value, boolean expandable) {
-        public AboutFact(String id, TextToken label, TextToken value) { this(id, label, value, false); }
+    record AboutPlugin(String version, TextToken status) {}
+    record AboutFact(String id, TextToken label, TextToken value, List<AboutPlugin> plugins) {
+        public AboutFact { plugins = List.copyOf(plugins); }
+        public AboutFact(String id, TextToken label, TextToken value) { this(id, label, value, List.of()); }
+        public boolean expandable() { return !plugins.isEmpty(); }
     }
 
     /** Compose 首页的任务、指标与系统状态。 */

@@ -29,7 +29,7 @@ class DuplicateHashBackfillTaskTest {
         when(maintenance.rebuildArtwork(2L)).thenReturn(OptionalInt.empty());
         when(maintenance.rebuildArtwork(3L)).thenReturn(OptionalInt.of(0));
         DuplicateHashBackfillTask task = new DuplicateHashBackfillTask(
-                maintenance, duplicateService, messages);
+                maintenance, duplicateService, messages, () -> true);
         List<String> progress = new ArrayList<>();
         MaintenanceContext context = new MaintenanceContext(
                 "manual", 123L, (done, total) -> progress.add(done + "/" + total));

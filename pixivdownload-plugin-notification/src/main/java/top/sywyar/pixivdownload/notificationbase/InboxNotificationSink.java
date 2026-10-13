@@ -50,7 +50,7 @@ public class InboxNotificationSink implements NotificationSink {
     @Override
     public void deliver(NotificationScenario scenario, Locale locale, Map<String, String> placeholders) {
         try {
-            if (!enabled.getAsBoolean()) {
+            if (!enabled.getAsBoolean() || !inbox.isDatabaseAvailable()) {
                 return;
             }
             deliverForTest(scenario, locale, placeholders);
@@ -61,6 +61,7 @@ public class InboxNotificationSink implements NotificationSink {
 
     NotificationMessage deliverForTest(NotificationScenario scenario, Locale locale,
                                        Map<String, String> placeholders) {
+        inbox.requireDatabaseAvailable();
         NotificationTemplateContribution template = template(scenario, locale);
         Map<String, String> values = placeholders == null ? Map.of() : placeholders;
         String title = substitute(template.titleTemplate(), key -> values.getOrDefault(key, ""));

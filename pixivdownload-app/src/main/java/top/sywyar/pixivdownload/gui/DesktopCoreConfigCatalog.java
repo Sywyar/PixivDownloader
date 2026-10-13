@@ -21,6 +21,7 @@ final class DesktopCoreConfigCatalog {
     private static final List<GuiConfigGroupContribution> GROUPS = List.of(
             group("interface", "gui.config.category.interface", 0),
             group(GuiConfigGroups.SERVER, "gui.config.group.server", 100),
+            group(GuiConfigGroups.DATABASE, "gui.config.group.database", 150),
             group(GuiConfigGroups.DOWNLOAD, "gui.config.group.download", 200),
             group(GuiConfigGroups.PLUGINS, "gui.config.group.plugins", 300),
             group(GuiConfigGroups.PROXY, "gui.config.group.proxy", 400),
@@ -41,6 +42,8 @@ final class DesktopCoreConfigCatalog {
 
     static List<GuiConfigFieldContribution> fields(DesktopUiHost host) {
         List<GuiConfigFieldContribution> fields = new ArrayList<>();
+        var databaseProviders = host.databaseSettings()
+                .map(top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings::providers).orElseGet(List::of);
         int order = 0;
         fields.add(core(
                 "server.port",
@@ -53,8 +56,48 @@ final class DesktopCoreConfigCatalog {
                 order++
         ));
         fields.add(core(
+                "database.provider",
+                GuiConfigGroups.DATABASE,
+                GuiConfigFieldType.ENUM,
+                "",
+                GuiConfigEffect.PROCESS_RESTART,
+                null,
+                null,
+                order++,
+                List.of(),
+                List.of(),
+                databaseProviders.stream().map(top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.ProviderChoice::owner).toList()
+        ));
+        var connectionFields = databaseProviders.stream().flatMap(provider -> provider.connectionFields().stream())
+                .distinct().toList();
+        for (var field : connectionFields) {
+            var declaredBy = databaseProviders.stream().filter(provider -> provider.connectionFields().contains(field))
+                    .map(top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.ProviderChoice::owner).toList();
+            List<GuiConfigCondition> visible = new ArrayList<>();
+            if (declaredBy.size() == 1) {
+                visible.add(GuiConfigCondition.equalsTo("database.provider", declaredBy.get(0)));
+            } else {
+                visible.add(GuiConfigCondition.notBlank("database.provider"));
+                databaseProviders.stream().filter(provider -> !declaredBy.contains(provider.owner()))
+                        .forEach(provider -> visible.add(GuiConfigCondition.notEqualsTo("database.provider", provider.owner())));
+            }
+            fields.add(core(
+                    field.key(),
+                    GuiConfigGroups.DATABASE,
+                    field.type(),
+                    "",
+                    GuiConfigEffect.PROCESS_RESTART,
+                    null,
+                    null,
+                    order++,
+                    visible,
+                    visible,
+                    List.of()
+            ));
+        }
+        fields.add(core(
                 "database.maximum-pool-size",
-                GuiConfigGroups.SERVER,
+                GuiConfigGroups.DATABASE,
                 GuiConfigFieldType.INT,
                 "28",
                 GuiConfigEffect.BACKEND_RESTART,

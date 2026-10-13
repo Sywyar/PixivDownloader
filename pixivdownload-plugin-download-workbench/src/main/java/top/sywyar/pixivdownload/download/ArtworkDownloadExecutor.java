@@ -26,6 +26,7 @@ import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle;
+import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardCardContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDashboardSnapshot;
@@ -105,6 +106,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     private final WorkMetadataCapture workMetadataCapture;
     private final MessageResolver messages;
     private final DownloadLifecycle downloadLifecycle;
+    private final DatabaseAvailability database;
 
     // 存储下载状态
     private final ConcurrentHashMap<String, DownloadStatus> downloadStatusMap = new ConcurrentHashMap<>();
@@ -132,7 +134,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                                    ArtworkHashIndexMaintenance artworkHashIndexMaintenance,
                                    WorkMetadataCapture workMetadataCapture,
                                    MessageResolver messages,
-                                   DownloadLifecycle downloadLifecycle) {
+                                   DownloadLifecycle downloadLifecycle, DatabaseAvailability database) {
         this.downloadSettings = downloadSettings;
         this.eventPublisher = eventPublisher;
         this.artworkDownloadHistory = artworkDownloadHistory;
@@ -155,6 +157,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         this.workMetadataCapture = workMetadataCapture;
         this.messages = messages;
         this.downloadLifecycle = downloadLifecycle;
+        this.database = database;
     }
 
     @Override
@@ -208,6 +211,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                                           Long artworkId, String title, List<String> imageUrls,
                                           String referer, DownloadRequest.Other other, String cookie,
                                           String userUuid, FileNamePlan fileNamePlan, DownloadAttempt attempt) {
+        downloadLifecycle.checkAdmission(attempt);
         boolean succeeded = false;
         boolean recorded = false;
         if (other == null) {
@@ -252,7 +256,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                     eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
                 };
                 successCount.set(ugoiraService.processUgoira(
-                        artworkId, other, downloadPath, referer, cookie, progressListener, status::isCancelled));
+                        artworkId, other, downloadPath, referer, cookie, progressListener, () -> !database.available() || status.isCancelled()));
 
                 status.setDownloadedCount(successCount.get());
                 eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
@@ -262,7 +266,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 AtomicLong remainingImageBytes = new AtomicLong(PixivImageTransferObserver.MAX_TASK_BYTES);
                 for (String url : imageUrls) validatePixivUrl(url);
                 var mediaSettings = other.resolveMediaOutputSettings();
-                try (var pipeline = new ImageOutputPipeline(!"original".equals(mediaSettings.getImageFormats()), status::isCancelled)) {
+                try (var pipeline = new ImageOutputPipeline(!"original".equals(mediaSettings.getImageFormats()), () -> !database.available() || status.isCancelled())) {
                     for (int i = 0; i < imageUrls.size(); i++) {
                         pipeline.awaitCapacity();
                         if (remainingImageBytes.get() <= 0) {
@@ -284,7 +288,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                                 eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
                             };
                             String extension = downloadImage(imageUrl, fileStem, referer, cookie,
-                                    imageNumber, imageUrls.size(), imageProgressListener, status::isCancelled,
+                                    imageNumber, imageUrls.size(), imageProgressListener, () -> !database.available() || status.isCancelled(),
                                     remainingImageBytes);
                             if (extension != null) {
                                 pipeline.submit(() -> processDownloadedImage(status, fileStem, extension, mediaSettings,
@@ -292,7 +296,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                                 status.setImageProgress(null);
                                 eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
                             }
-                            if (other.getDelayMs() > 0) sleepCancellable(other.getDelayMs(), status::isCancelled);
+                            if (other.getDelayMs() > 0) sleepCancellable(other.getDelayMs(), () -> !database.available() || status.isCancelled());
                         } catch (Exception e) {
                             if (e instanceof CancellationException) {
                                 throw e;
@@ -341,7 +345,9 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             recorded = true;
             downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.COMPLETED));
 
+            ensureNotCancelled(status);
             recordAuthorInfo(artworkId, other, cookie);
+            ensureNotCancelled(status);
             recordSeriesInfo(artworkId, other, cookie);
 
             status.setSuccessCount(successCount.get());
@@ -353,11 +359,13 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
 
             // 下载后收藏（可选，best-effort）
             if (other.isBookmark()) {
+                ensureNotCancelled(status);
                 status.setBookmarkResult(pixivBookmarkActions.bookmarkArtwork(artworkId, cookie));
             }
 
             // 下载后加入收藏夹（可选，best-effort）
             if (other.getCollectionId() != null) {
+                ensureNotCancelled(status);
                 try {
                     boolean added = workCollectionMembership.addWork(
                             WorkType.ARTWORK, other.getCollectionId(), artworkId);
@@ -370,6 +378,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 }
             }
 
+            ensureNotCancelled(status);
             try {
                 artworkHashIndexMaintenance.rebuildArtwork(artworkId);
             } catch (Exception e) {
@@ -382,19 +391,30 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             // 发送最终完成状态更新
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
             succeeded = true;
+            ensureNotCancelled(status);
             recordDownloadStatistics(successCount.get());
 
             // 前端转发的原始 meta（若有）：下载成功、作品行已落库后旁路归一化为 数据库快照 + 列投影。
-            // 零额外请求、best-effort，绝不反报已成功的下载。
+            // 普通辅助失败不影响下载；数据库失效会停止本次流程。
+            ensureNotCancelled(status);
             captureForwardedMeta(artworkId, other);
 
         } catch (CancellationException e) {
-            status.setCancelled(true);
+            boolean unavailable = !database.available();
+            status.setCancelled(!unavailable);
             status.setCompleted(true);
-            status.setFailed(false);
+            status.setFailed(unavailable);
             status.setEndTime(java.time.LocalDateTime.now());
-            status.setErrorMessage(messages.get("download.cancelled"));
+            status.setErrorMessage(messages.get(unavailable ? "plugin.recovery.database-unavailable" : "download.cancelled"));
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
+        } catch (top.sywyar.pixivdownload.core.database.DatabaseUnavailableException unavailable) {
+            succeeded = false;
+            status.setCompleted(true);
+            status.setFailed(true);
+            status.setErrorMessage(messages.get("plugin.recovery.database-unavailable"));
+            status.setEndTime(java.time.LocalDateTime.now());
+            eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
+            throw unavailable;
         } catch (Exception e) {
             log.error(logMessage("download.log.failed"), e);
             status.setCompleted(true);
@@ -407,7 +427,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 downloadLifecycle.publish(new DownloadEvent(attempt, status.isCancelled()
                         ? DownloadEvent.Phase.CANCELLED : DownloadEvent.Phase.FAILED));
             }
-            if (!succeeded && status.isCompleted() && status.isFailed() && !status.isCancelled()) {
+            if (database.available() && !succeeded && status.isCompleted() && status.isFailed() && !status.isCancelled()) {
                 recordDownloadFailureStatistics();
             }
             // 下载完成后保留状态 5 分钟；清理句柄也属于本 queue generation，热停时会被取消并移除。
@@ -424,7 +444,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                                         int number, int total, Set<String> extensions, AtomicInteger successes) {
         try {
             ensureNotCancelled(status);
-            extensions.addAll(imageOutputService.process(status.getArtworkId(), number - 1, stem, extension, settings, status::isCancelled, progress -> {
+            extensions.addAll(imageOutputService.process(status.getArtworkId(), number - 1, stem, extension, settings, () -> !database.available() || status.isCancelled(), progress -> {
                 synchronized (status) {
                     ensureNotCancelled(status);
                     status.updateProcessingImage(number, ImageDownloadProgress.builder()
@@ -670,12 +690,14 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     }
 
     private void ensureNotCancelled(DownloadStatus status) {
+        database.requireAvailable();
         if (Thread.currentThread().isInterrupted() || status != null && status.isCancelled()) {
             throw new CancellationException(messages.get("download.cancelled"));
         }
     }
 
     private void ensureNotCancelled(BooleanSupplier cancellationRequested) {
+        database.requireAvailable();
         if (cancellationRequested != null && cancellationRequested.getAsBoolean()) {
             throw new CancellationException(messages.get("download.cancelled"));
         }
@@ -1215,7 +1237,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     /**
      * 前端转发的原始 meta（{@code other.rawMetaJson}）落地：交由 {@link WorkMetadataCapture} 解析 + 归一化。
      * 仅前端交互下载链路填充该字段（计划任务走后端自抓 body，不填）。捕获已是下载成功后的旁路动作，
-     * 全程 best-effort、warn-continue——任何异常都不得反报已成功的下载（沿一致性模型，由下次下载或历史回填自愈）。
+     * 普通辅助故障只记日志；数据库失效必须停止后续动作。
      */
     private void captureForwardedMeta(Long artworkId, DownloadRequest.Other other) {
         if (other == null || !StringUtils.hasText(other.getRawMetaJson())) {
@@ -1223,6 +1245,8 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         }
         try {
             workMetadataCapture.captureForwarded(WorkType.ARTWORK, artworkId, other.getRawMetaJson());
+        } catch (top.sywyar.pixivdownload.core.database.DatabaseUnavailableException unavailable) {
+            throw unavailable;
         } catch (RuntimeException e) {
             log.warn("Failed to capture forwarded meta for {}: {}", artworkId, e.getMessage());
         }

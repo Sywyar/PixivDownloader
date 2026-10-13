@@ -24,6 +24,7 @@ import java.util.function.BooleanSupplier;
 @RequestMapping("/api/plugins/recovery")
 public class RecoveryActionController {
     private final RecoveryModeService recovery;
+    private final top.sywyar.pixivdownload.core.db.DatabaseTarget database;
     private final PluginStatusService plugins;
     private final ApplicationRestartService application;
     private final AppMessages messages;
@@ -32,14 +33,17 @@ public class RecoveryActionController {
 
     @Autowired
     public RecoveryActionController(RecoveryModeService recovery, PluginStatusService plugins,
-            ApplicationRestartService application, AppMessages messages, AppLocaleResolver locales) {
-        this(recovery, plugins, application, messages, locales, GuiLauncher::desktopRecoveryFailure);
+            ApplicationRestartService application, AppMessages messages, AppLocaleResolver locales,
+            top.sywyar.pixivdownload.core.db.DatabaseTarget database) {
+        this(recovery, plugins, application, messages, locales, database, GuiLauncher::desktopRecoveryFailure);
     }
 
     RecoveryActionController(RecoveryModeService recovery, PluginStatusService plugins,
             ApplicationRestartService application, AppMessages messages, AppLocaleResolver locales,
+            top.sywyar.pixivdownload.core.db.DatabaseTarget database,
             java.util.function.Supplier<DesktopUiFailure> desktopFailure) {
         this.recovery = recovery;
+        this.database = database;
         this.plugins = plugins;
         this.application = application;
         this.messages = messages;
@@ -75,14 +79,16 @@ public class RecoveryActionController {
                 errors.add(failure.toString());
             }
         }
-        var guidance = RecoveryGuidance.from(gate, guiFailure, report, errors, plugins.runtimeLoadFailures());
+        var guidance = RecoveryGuidance.from(gate, guiFailure, report, errors,
+                recovery.databaseUnavailable(), plugins.runtimeLoadFailures());
         return ResponseEntity.ok(new RecoveryView(active, recoveryMode, noGui,
                 active && NetworkUtils.isTrustedLocalRequest(request),
                 !gate.safeToScan(),
                 guidance.adviceKeys().stream().map(key -> messages.get(locales.resolveLocale(request), key))
                         .collect(java.util.stream.Collectors.joining("\n\n")),
                 guidance.localizedErrors(key -> messages.get(locales.resolveLocale(request), key)),
-                RecoveryPluginFocus.from(gate.safeToScan(), noGui, report, failures.keySet())));
+                RecoveryPluginFocus.from(gate.safeToScan(), noGui, recovery.databaseUnavailable(),
+                        database.providerOwner(), report, failures.keySet())));
     }
 
     @PostMapping("/restart")

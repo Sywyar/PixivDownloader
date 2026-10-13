@@ -284,9 +284,8 @@ public class ExternalPluginLifecycleCoordinator {
         String packageId = stagedResult.pluginId();
         ExternalPluginOperation operation = stagedResult.previousVersion() == null
                 ? ExternalPluginOperation.INSTALLING : ExternalPluginOperation.UPDATING;
-        // 进程重启插件不能安全进入当前 PF4J generation，只提交文件等待下次启动；后端重启策略在安装时仍
-        // 即时激活，其重启约束只应用于管理页启停，避免把已 activated 的安装结果误报为待重启生效。
-        if (activationBlockedByDevelopment(stagedResult.descriptor()) || stagedResult.descriptor().lifecyclePolicy().requiresProcessRestart()) {
+        // 新旧任一受影响代际要求进程重启时，只提交文件，不能通过更改策略或 replaces 热卸载旧实例。
+        if (activationBlockedByDevelopment(stagedResult.descriptor()) || requiresDeferredActivation(stagedResult.descriptor())) {
             return withLock(packageId, operation, prepared.transactionId(), () ->
                     withReplacementLocks(prepared, operation, () -> activatePreparedWithDependencies(
                             prepared, () -> commitWithoutActivation(prepared))));
@@ -294,6 +293,12 @@ public class ExternalPluginLifecycleCoordinator {
         return withLock(packageId, operation, prepared.transactionId(), () ->
                 withReplacementLocks(prepared, operation, () -> activatePreparedWithDependencies(
                         prepared, () -> activatePrepared(prepared))));
+    }
+
+    private boolean requiresDeferredActivation(PluginDescriptor descriptor) {
+        return descriptor.lifecyclePolicy().requiresProcessRestart()
+                || runtimeController.requiresProcessRestart(descriptor.id())
+                || descriptor.replaces().stream().anyMatch(runtimeController::requiresProcessRestart);
     }
 
     private PluginActivationResult activatePreparedWithDependencies(
@@ -535,6 +540,10 @@ public class ExternalPluginLifecycleCoordinator {
         List<RetiredRuntime> retired = new java.util.ArrayList<>();
         try {
             for (String replacedId : replacedIds) {
+                if (runtimeController.requiresProcessRestart(replacedId)) {
+                    runtimeController.requireNoActiveDependents(replacedId);
+                    continue;
+                }
                 Path artifact = installer.listInstalled().stream()
                         .filter(plugin -> replacedId.equals(plugin.id()))
                         .map(InstalledPlugin::path)

@@ -3,30 +3,31 @@ package top.sywyar.pixivdownload.pixivbatchdownloaderimport;
 import top.sywyar.pixivdownload.core.work.importing.WorkFileImportRequest;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.plugin.api.gui.*;
-import top.sywyar.pixivdownload.plugin.api.storage.PluginDataSource;
+import top.sywyar.pixivdownload.plugin.api.storage.PluginDatabase;
+import top.sywyar.pixivdownload.plugin.api.schema.*;
 
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.DatabaseSession;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.Query;
 
 /** 插件私有的累计导入记录；作品类型和 ID 共同去重，画廊删除不撤销已完成的导入。 */
 public final class PixivBatchDownloaderImportStatistics implements DesktopDashboardSource {
     private static final String NAMESPACE = "pixiv-batch-downloader-import";
-    private final PluginDataSource dataSource;
+    private final PluginDatabase dataSource;
     private ImportedWork pending;
 
-    public PixivBatchDownloaderImportStatistics(PluginDataSource dataSource) throws SQLException {
+    static List<SchemaContribution> schema() {
+        return List.of(new SchemaContribution(List.of(new TableSpec("imported_works", List.of(
+                new ColumnSpec("work_type", "TEXT", true, null, 1),
+                new ColumnSpec("work_id", "INTEGER", true, null, 2),
+                new ColumnSpec("imported_at", "INTEGER", true, null, 0)), List.of())), List.of(), List.of()));
+    }
+
+    public PixivBatchDownloaderImportStatistics(PluginDatabase dataSource) throws SQLException {
         this.dataSource = dataSource;
-        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
-            statement.executeUpdate("""
-                    CREATE TABLE IF NOT EXISTS imported_works (
-                        work_type TEXT NOT NULL,
-                        work_id INTEGER NOT NULL,
-                        imported_at INTEGER NOT NULL,
-                        PRIMARY KEY (work_type, work_id)
-                    )
-                    """);
-        }
     }
 
     synchronized void recordImported(WorkFileImportRequest request) throws SQLException {
@@ -37,32 +38,25 @@ public final class PixivBatchDownloaderImportStatistics implements DesktopDashbo
 
     /** 下次接收前补写上一笔成功记录；失败时暂停新导入，不积压作品元数据。 */
     synchronized void flushPending() throws SQLException {
+        if (!dataSource.available()) throw new SQLException("DATABASE_UNAVAILABLE", "08003");
         if (pending == null) return;
-        try (var connection = dataSource.getConnection();
-             var statement = connection.prepareStatement("""
-                     INSERT INTO imported_works (work_type, work_id, imported_at) VALUES (?, ?, ?)
-                     ON CONFLICT (work_type, work_id) DO NOTHING
-                     """)) {
-            statement.setString(1, pending.type().name());
-            statement.setLong(2, pending.id());
-            statement.setLong(3, pending.importedAt());
-            statement.executeUpdate();
-            pending = null;
-        }
+        dataSource.transaction(session -> session.insert("imported_works",
+                Map.of("work_type", pending.type().name(), "work_id", pending.id(), "imported_at", pending.importedAt()),
+                DatabaseSession.Conflict.ignore("work_type", "work_id")));
+        pending = null;
     }
 
     @Override
     public synchronized DesktopDashboardSnapshot snapshot() {
         if (pending != null) throw new IllegalStateException("IMPORT_STATISTICS_UNAVAILABLE");
-        try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
-             var result = statement.executeQuery("SELECT COUNT(*) FROM imported_works")) {
-            result.next();
+        try {
+            long count = dataSource.read(session -> (Long) session.query(Query.count("imported_works", null)).get(0).get("count"));
             var observedAt = Instant.now();
             var card = new DesktopDashboardCardContribution(
                     "imported-works",
                     75,
                     DesktopUiText.plugin(NAMESPACE, "overview.importedWorks", "Imported works"),
-                    DesktopUiText.raw(Long.toString(result.getLong(1))),
+                    DesktopUiText.raw(Long.toString(count)),
                     DesktopUiText.plugin(NAMESPACE, "overview.importedWorks.help", "Unique works imported by PixivBatchDownloader import support; retained after gallery deletion."),
                     DesktopUiTone.INFO,
                     DesktopUiIcon.STATISTICS,
