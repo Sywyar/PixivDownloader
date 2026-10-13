@@ -151,7 +151,7 @@ private fun RepositoryFields(
                 )
             }
         }
-        is Group -> {
+        is Group -> if (node.summary() != null) ComposeDesktopUiNodeRenderer.Render(node, text, emit, Modifier.fillMaxWidth()) else {
             var expanded by rememberSaveable(node.id()) { mutableStateOf(!node.collapsible()) }
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 CupertinoButton(

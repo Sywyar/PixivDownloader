@@ -66,7 +66,9 @@ class DatabaseSettingsServiceTest {
         file().writeAll(Map.of("database.provider", "removed-fixture"));
         var settings = service(null);
         assertThat(settings.state().nextTarget()).isEmpty();
-        assertThatThrownBy(() -> settings.check(Map.of())).isInstanceOf(java.io.IOException.class);
+        var failed = settings.check(Map.of());
+        assertThat(failed.outcome()).isEqualTo(DesktopDatabaseSettings.Outcome.FAILED);
+        assertThat(failed.sqlState()).isEqualTo("DATABASE_PROVIDER_UNAVAILABLE");
         assertThatThrownBy(() -> settings.prepare(Map.of("database.engine", "sqlite")))
                 .isInstanceOf(java.io.IOException.class);
         assertThat(file().readAll(java.util.Set.of("database.provider")))
@@ -127,6 +129,64 @@ class DatabaseSettingsServiceTest {
                     .hasMessageNotContaining("hidden-password");
         }
         assertThat(Files.readAllBytes(directory.resolve("config.yaml"))).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("检查与迁移草稿保留缺少用户名原因，非法地址不泄漏凭据")
+    void explainsInvalidConfigurationWithoutSaving() throws Exception {
+        file().writeAll(postgres());
+        byte[] before = Files.readAllBytes(directory.resolve("config.yaml"));
+        var settings = service(null);
+        var missingUser = settings.check(Map.of("database.username", ""));
+        assertThat(missingUser.outcome()).isEqualTo(DesktopDatabaseSettings.Outcome.FAILED);
+        assertThat(missingUser.sqlState()).isEqualTo("DATABASE_USERNAME_REQUIRED");
+        assertThatThrownBy(() -> settings.draft(Map.of("database.username", "")))
+                .isInstanceOf(java.io.IOException.class).hasMessage("DATABASE_USERNAME_REQUIRED").hasNoCause();
+        var invalid = settings.check(Map.of("database.jdbc-url", "jdbc:postgresql://user:private@localhost/db"));
+        assertThat(invalid.sqlState()).isEqualTo("DATABASE_CONFIGURATION_INVALID");
+        assertThat(invalid.target()).isEmpty();
+        assertThat(invalid.toString()).doesNotContain("private");
+        assertThat(Files.readAllBytes(directory.resolve("config.yaml"))).isEqualTo(before);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"28P01, authentication", "28000, authorization"})
+    @DisplayName("服务器认证拒绝经真实驱动投影为账号密码提示，驱动秘密不外泄")
+    void authenticationFailureHasActionableReason(String state, String reason) throws Exception {
+        file().writeAll(postgres());
+        try (var server = new java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress())) {
+            server.setSoTimeout(5000);
+            var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+            try {
+                var response = executor.submit(() -> {
+                    try (var connection = server.accept()) {
+                        connection.setSoTimeout(5000);
+                        var input = new java.io.DataInputStream(connection.getInputStream());
+                        int length = input.readInt();
+                        input.readNBytes(length - Integer.BYTES);
+                        byte[] fields = ("SFATAL\0C" + state + "\0Musername=private-user password=private-password\0\0")
+                                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                        var output = new java.io.DataOutputStream(connection.getOutputStream());
+                        output.writeByte('E');
+                        output.writeInt(fields.length + Integer.BYTES);
+                        output.write(fields);
+                        output.flush();
+                    }
+                    return null;
+                });
+                var failed = service(null).check(Map.of("database.jdbc-url",
+                        "jdbc:postgresql://127.0.0.1:" + server.getLocalPort() + "/fixture?sslmode=disable"));
+                response.get(5, java.util.concurrent.TimeUnit.SECONDS);
+                assertThat(failed.outcome()).isEqualTo(DesktopDatabaseSettings.Outcome.FAILED);
+                assertThat(failed.sqlState()).isEqualTo(state);
+                assertThat(DesktopDatabaseSettings.failureMessageKey(failed.sqlState()))
+                        .isEqualTo("gui.config.database.error." + reason);
+                assertThat(failed.toString()).doesNotContain("private-user", "private-password");
+                assertThat(file().readAll(postgres().keySet())).isEqualTo(postgres());
+            } finally {
+                executor.shutdownNow();
+            }
+        }
     }
 
     @Test

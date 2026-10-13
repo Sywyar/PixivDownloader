@@ -51,6 +51,20 @@ class PostgresConnectionTargetTest {
     }
 
     @Test
+    @DisplayName("未填用户名与不存在的存储空间分别报告可修正原因")
+    void distinguishesUsernameAndMissingSchema() {
+        assertThatThrownBy(() -> new PostgresConnectionTarget(new DatabaseConnectionSettings(
+                "jdbc:postgresql://fixture.invalid/library", "", "private-password", Path.of("unused"))))
+                .isInstanceOf(SQLException.class).hasMessage("DATABASE_USERNAME_REQUIRED").hasNoCause();
+        var values = new java.util.HashMap<String, Object>();
+        values.put("getMetaData", jdbc(DatabaseMetaData.class,
+                Map.of("getDatabaseProductName", "PostgreSQL", "getDatabaseMajorVersion", 17)));
+        values.put("getSchema", null);
+        assertThatThrownBy(() -> PostgresConnectionTarget.validate(jdbc(Connection.class, values)))
+                .isInstanceOf(SQLException.class).hasMessage("DATABASE_SCHEMA_MISSING").hasNoCause();
+    }
+
+    @Test
     @DisplayName("市场描述符与运行期身份一致，命名空间能实际解析展示文案")
     void marketIdentityMatchesRuntimeAndResolvesBundle() throws Exception {
         var plugin = new PostgresDatabasePlugin();

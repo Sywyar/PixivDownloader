@@ -53,7 +53,7 @@ class DesktopDatabaseSettingsTest {
             var passwordInput = nodes(model).filter(n -> n.id().equals("config.app.database.password.input"))
                     .findFirst().orElseThrow();
             assertEquals("gui.config.database.result.connected", checked.key());
-            assertTrue(text(model, "database.targets").arguments().contains("gui.config.database.stopped"));
+            assertEquals("gui.config.database.stopped", text(model, "database.targets").key());
             assertEquals("gui.config.database.stopped", aboutDatabase(model).key());
 
             probe.target.set("sqlite: active-target");
@@ -75,7 +75,7 @@ class DesktopDatabaseSettingsTest {
             probe.backendListener.get().accept(new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null));
             awaitTarget(model, "gui.config.database.unavailable");
             assertEquals("gui.config.database.unavailable", aboutDatabase(model).key());
-            assertFalse(text(model, "database.targets").arguments().contains("DATABASE_UNAVAILABLE"));
+            assertEquals("gui.config.database.unavailable", text(model, "database.targets").key());
             assertEquals(checked, text(model, "database.result"));
             activate(model, "database.check");
             ready(model);
@@ -101,8 +101,8 @@ class DesktopDatabaseSettingsTest {
                 var dialog = model.snapshot().document().dialogs().stream().filter(d -> d.id().equals("database.migration")).findFirst().orElseThrow();
                 assertTrue(descendants(dialog.content()).anyMatch(node -> node.id().equals("database.confirm.store.main")));
                 assertTrue(descendants(dialog.content()).filter(DesktopUiNode.Text.class::isInstance)
-                        .map(DesktopUiNode.Text.class::cast).anyMatch(node -> node.text().arguments()
-                                .contains("gui.config.database.migration.phase.replace-target")));
+                        .map(DesktopUiNode.Text.class::cast).anyMatch(node -> node.text().key()
+                                .equals("gui.config.database.migration.phase.replace-target")));
                 assertTrue(descendants(dialog.content()).anyMatch(node -> node.id().equals("database.confirm.store.private:fixture")));
                 if (password.equals("KEEP")) assertFalse(probe.planned.get().containsKey("database.password"));
                 else assertEquals(password, probe.planned.get().get("database.password"));
@@ -195,6 +195,70 @@ class DesktopDatabaseSettingsTest {
             assertTrue(nodes(model).anyMatch(n -> n instanceof DesktopUiNode.TextInput input
                     && input.value().equals("jdbc:postgresql://other/db")));
             assertEquals("gui.config.database.migration.failed", text(model, "database.result").key());
+            assertTrue(model.snapshot().document().dialogs().stream().flatMap(dialog -> descendants(dialog.content()))
+                    .filter(DesktopUiNode.Text.class::isInstance).map(DesktopUiNode.Text.class::cast)
+                    .anyMatch(node -> node.id().equals("database.confirmation-failure") && node.style() == DesktopUiNode.TextStyle.ERROR));
+        }
+    }
+
+    @Test
+    @DisplayName("认证失败显示可操作提示，错误码只在详情中，编辑后清除过期结果")
+    void authenticationFailureIsActionable() throws Exception {
+        Probe probe = new Probe();
+        probe.checkResult = new DesktopDatabaseSettings.CheckResult(DesktopDatabaseSettings.Outcome.FAILED, "fixture", "28P01");
+        try (var model = model(new HashMap<>(Map.of("database.engine", "postgresql")), probe)) {
+            activate(model, "database.check"); ready(model);
+            assertEquals("gui.config.database.error.authentication", text(model, "database.result").key());
+            assertFalse(nodes(model).anyMatch(node -> node.id().equals("database.check-error.code")));
+            activate(model, "database.inspect"); ready(model);
+            assertTrue(dialogNodes(model).anyMatch(node -> node.id().equals("database.history-empty")));
+            assertTrue(dialogNodes(model).filter(DesktopUiNode.Text.class::isInstance)
+                    .map(DesktopUiNode.Text.class::cast).anyMatch(node -> node.id().equals("database.check-error.code")
+                            && node.text().arguments().equals(List.of("28P01"))));
+            activate(model, "database.inspection-close");
+            edit(model, "database.username", "corrected-user");
+            assertFalse(nodes(model).anyMatch(node -> node.id().equals("database.result") || node.id().equals("database.check-error")));
+        }
+    }
+
+    @Test
+    @DisplayName("详情按需打开并保留草稿，失败或处理中逐库结果仍直接显示")
+    void inspectsDetailsWithoutHidingFailuresOrSavingDraft() throws Exception {
+        for (String status : List.of("SUCCEEDED", "FAILED", "PENDING", "RUNNING")) {
+            Probe probe = new Probe();
+            probe.target.set("sqlite: fixture/database.db");
+            probe.migrationState = new DesktopDatabaseSettings.MigrationState(status, "", List.of(
+                    new DesktopDatabaseSettings.MigrationStore("main", "source", "target", "COMMITTED", List.of()),
+                    new DesktopDatabaseSettings.MigrationStore("private:fixture", "source", "target",
+                            status.equals("SUCCEEDED") ? "COMMITTED" : "UNKNOWN", List.of())));
+            var saved = new HashMap<>(Map.of("database.engine", "postgresql"));
+            try (var model = model(saved, probe)) {
+                var before = Map.copyOf(saved);
+                edit(model, "database.username", "unsaved-user");
+                assertFalse(nodes(model).anyMatch(node -> node.id().equals("database.notice")));
+                assertEquals(!status.equals("SUCCEEDED"), nodes(model).anyMatch(node -> node.id().equals("database.migration-status")));
+                assertFalse(nodes(model).anyMatch(node -> Set.of("database.history", "database.connection-details",
+                        "database.refresh", "database.guide").contains(node.id())));
+                assertEquals(!status.equals("SUCCEEDED"), nodes(model)
+                        .anyMatch(node -> node.id().equals("database.previous.store.private:fixture.phase")));
+                if (!status.equals("SUCCEEDED")) {
+                    assertEquals("gui.config.database.migration.phase.unknown", text(model, "database.migration-uncertain").key());
+                }
+                activate(model, "database.inspect"); ready(model);
+                for (String id : List.of("database.active", "database.next", "database.history",
+                        "database.details.store.main", "database.details.store.private:fixture")) {
+                    assertTrue(dialogNodes(model).anyMatch(node -> node.id().equals(id)), id);
+                }
+                probe.target.set("sqlite: updated/database.db");
+                activate(model, "database.refresh"); ready(model);
+                assertTrue(dialogNodes(model).filter(DesktopUiNode.Text.class::isInstance)
+                        .map(DesktopUiNode.Text.class::cast).anyMatch(node -> node.text().fallback().equals("sqlite: updated/database.db")));
+                activate(model, "database.inspection-close");
+                assertTrue(model.snapshot().document().dialogs().isEmpty());
+                assertTrue(nodes(model).anyMatch(node -> node instanceof DesktopUiNode.TextInput input
+                        && input.id().equals("config.app.database.username.input") && input.value().equals("unsaved-user")));
+                assertEquals(before, saved);
+            }
         }
     }
 
@@ -246,7 +310,8 @@ class DesktopDatabaseSettingsTest {
                 var actions = dialogs.isEmpty() ? nodes(model).filter(n -> n.id().equals("database.check"))
                         : dialogs.stream().flatMap(d -> descendants(d.content()));
                 boolean enabled = actions.filter(DesktopUiNode.Button.class::isInstance)
-                        .map(DesktopUiNode.Button.class::cast).anyMatch(DesktopUiNode.Button::enabled);
+                        .map(DesktopUiNode.Button.class::cast)
+                        .anyMatch(button -> !button.id().equals("database.inspection-close") && button.enabled());
                 if (!model.busy() && enabled) return;
                 Thread.sleep(10);
             }
@@ -254,7 +319,7 @@ class DesktopDatabaseSettingsTest {
     }
     private static void awaitTarget(ComposeDesktopUiModel model, String expected) {
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
-            while (!text(model, "database.targets").arguments().contains(expected)) Thread.sleep(10);
+            while (!aboutDatabase(model).key().equals(expected) && !aboutDatabase(model).fallback().equals(expected)) Thread.sleep(10);
         });
     }
 
@@ -267,6 +332,9 @@ class DesktopDatabaseSettingsTest {
         return model.snapshot().document().pages().stream().filter(p -> p.id().equals("settings"))
                 .flatMap(p -> descendants(p.content()));
     }
+    private static Stream<DesktopUiNode> dialogNodes(ComposeDesktopUiModel model) {
+        return model.snapshot().document().dialogs().stream().flatMap(dialog -> descendants(dialog.content()));
+    }
     private static Stream<DesktopUiNode> descendants(DesktopUiNode node) {
         return Stream.concat(Stream.of(node), node.childNodes().stream().flatMap(DesktopDatabaseSettingsTest::descendants));
     }
@@ -275,6 +343,9 @@ class DesktopDatabaseSettingsTest {
         boolean wait;
         boolean reject;
         boolean failStart;
+        CheckResult checkResult = new CheckResult(Outcome.CONNECTED, "postgresql: fixture", "");
+        MigrationState migrationState = new MigrationState("", "", List.of());
+        @Override public MigrationState migrationState() { return migrationState; }
         int starts;
         final AtomicReference<Map<String, String>> planned = new AtomicReference<>();
         @Override public MigrationPlan previewMigration(Map<String, String> values) throws IOException {
@@ -304,7 +375,7 @@ class DesktopDatabaseSettingsTest {
             entered.countDown();
             try { if (wait && !release.await(3, TimeUnit.SECONDS)) throw new IOException("timeout"); }
             catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new IOException(interrupted); }
-            return new CheckResult(Outcome.CONNECTED, "postgresql: fixture", "");
+            return checkResult;
         }
         public State state() {
             stateReader.set(Thread.currentThread());

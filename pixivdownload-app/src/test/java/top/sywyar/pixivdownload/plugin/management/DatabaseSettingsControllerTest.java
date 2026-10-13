@@ -109,12 +109,14 @@ class DatabaseSettingsControllerTest {
         byte[] before = Files.readAllBytes(directory.resolve("config.yaml"));
         Path missing = directory.resolve("missing/source.db");
         var checked = controller.check(request(Map.of("provider", "fixture-file", "jdbcUrl", "jdbc:sqlite:" + missing)));
-        assertThat(((DesktopDatabaseSettings.CheckResult) checked.getBody()).outcome())
+        assertThat(((DatabaseSettingsController.Check) checked.getBody()).outcome())
                 .isEqualTo(DesktopDatabaseSettings.Outcome.NOT_CREATED);
         assertThat(missing.getParent()).doesNotExist();
         var failed = controller.check(request(Map.of("provider", "fixture-server")));
-        assertThat(((DesktopDatabaseSettings.CheckResult) failed.getBody()).outcome())
+        assertThat(((DatabaseSettingsController.Check) failed.getBody()).outcome())
                 .isEqualTo(DesktopDatabaseSettings.Outcome.FAILED);
+        assertThat(((DatabaseSettingsController.Check) failed.getBody()).errorKey()).startsWith("database.error.");
+        assertThat(((DatabaseSettingsController.Check) checked.getBody()).errorKey()).isEmpty();
         assertThat(json.writeValueAsString(failed.getBody())).doesNotContain("retained secret");
         assertThat(Files.readAllBytes(directory.resolve("config.yaml"))).isEqualTo(before);
     }

@@ -12,6 +12,53 @@ import java.util.Map;
 public interface DesktopDatabaseSettings {
     java.util.Set<String> CONNECTION_KEYS = java.util.Set.of("database.provider", "database.engine",
             "database.jdbc-url", "database.username", "database.password");
+
+    /**
+     * 将受控诊断码转换为核心文案键；未知值不作为文案或键的一部分回显。
+     * @param code 连接检查的 SQLSTATE、SQLSTATE_ 前缀码或迁移诊断码
+     * @return 不含凭据和驱动正文的核心 i18n key
+     */
+    static String failureMessageKey(String code) {
+        String value = code == null ? "" : code;
+        if (value.startsWith("SQLSTATE_")) value = value.substring("SQLSTATE_".length());
+        String reason = switch (value) {
+            case "28P01" -> "authentication";
+            case "28000" -> "authorization";
+            case "3D000" -> "database-missing";
+            case "3F000", "DATABASE_SCHEMA_MISSING" -> "schema-missing";
+            case "42501", "25006" -> "permission";
+            case "53300", "53400", "57P03", "MIGRATION_BUSY", "MIGRATION_SOURCE_STILL_RUNNING",
+                    "DATABASE_BUSY", "SOURCE_BUSY" -> "busy";
+            case "DATABASE_USERNAME_REQUIRED" -> "username-required";
+            case "DATABASE_CONFIGURATION_INVALID", "DATABASE_LOCAL_FILE_UNSUPPORTED" -> "configuration";
+            case "DATABASE_PRODUCT_UNSUPPORTED" -> "product";
+            case "0A000" -> "unsupported";
+            case "DATABASE_ENCODING_UNSUPPORTED" -> "encoding";
+            case "DATABASE_TARGET_MISMATCH", "MIGRATION_IDENTITY_CHANGED" -> "target-mismatch";
+            case "DATABASE_PROVIDER_UNAVAILABLE", "DATABASE_PROVIDER_NOT_SELECTED", "MIGRATION_UNAVAILABLE" -> "provider-unavailable";
+            case "DATABASE_FILE_NOT_FOUND", "DATABASE_FILE_UNAVAILABLE", "DATABASE_STORAGE_PREPARATION_FAILED" -> "file";
+            case "TARGET_NOT_EMPTY", "TARGET_REPLACEMENT_UNSUPPORTED" -> "target-not-empty";
+            case "TARGET_NOT_WRITABLE" -> "target-read-only";
+            case "SOURCE_MISSING", "SOURCE_CORRUPT" -> "source-unavailable";
+            case "BACKUP_EXISTS" -> "backup-exists";
+            case "DATA_MISMATCH", "MIGRATION_NOT_COMMITTED" -> "data-mismatch";
+            case "MIGRATION_SOURCE_CHANGED" -> "source-changed";
+            case "CONFIG_CHANGED", "MIGRATION_CONFIG_CHANGED", "MIGRATION_CONFIG_PATH_CHANGED",
+                    "MIGRATION_PLAN_CHANGED", "MIGRATION_PLUGINS_CHANGED", "MIGRATION_STORES_CHANGED" -> "plan-changed";
+            case "CONFIG_OVERRIDDEN" -> "overridden";
+            case "SCHEMA_MISMATCH", "MIGRATION_SCHEMA_MISMATCH", "DATABASE_SCHEMA_UNSUPPORTED",
+                    "STORAGE_SCHEMA_MISMATCH", "STORAGE_UNSAFE_COLUMN_CHANGE", "UNDECLARED_OBJECT",
+                    "UNDECLARED_TABLE", "REBUILD_OBJECT_MISSING", "NOT_REGENERABLE",
+                    "PRIVATE_SCHEMA_MISSING", "SCHEMA_CHECK_UNAVAILABLE", "COLUMN_TYPE",
+                    "SEQUENCE_MISSING", "SEQUENCE_UNSUPPORTED", "SEQUENCE_MISMATCH" -> "schema";
+            case "DATABASE_PRIVATE_STORAGE_UNAVAILABLE" -> "private-storage";
+            case "DATABASE_RESTART_REQUIRED", "RESTART_FAILED" -> "restart";
+            case "MIGRATION_CANCELLED", "MIGRATION_INTERRUPTED" -> "interrupted";
+            default -> value.matches("08[A-Z0-9]{3}") ? "connection"
+                    : value.matches("28[A-Z0-9]{3}") ? "authorization" : "unknown";
+        };
+        return "gui.config.database.error." + reason;
+    }
     /** {@return 本进程已加载且可选择的数据库插件；新安装的重启型插件需先完整重启} */
     List<ProviderChoice> providers();
 
@@ -90,7 +137,11 @@ public interface DesktopDatabaseSettings {
         BUSY
     }
 
-    /** @param target 不含用户名、密码和 URL 参数的目标说明 */
+    /**
+     * @param outcome 检查结果
+     * @param target 不含用户名、密码和 URL 参数的目标说明
+     * @param sqlState 受控 SQLSTATE 或诊断码，使用 failureMessageKey 转换为用户文案
+     */
     record CheckResult(Outcome outcome, String target, String sqlState) {}
 
     /**

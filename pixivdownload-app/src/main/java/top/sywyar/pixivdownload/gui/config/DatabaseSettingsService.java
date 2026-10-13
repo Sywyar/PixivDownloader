@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.db.DatabasePoolProperties;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
+import top.sywyar.pixivdownload.migration.database.ProviderDatabaseMigration;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionSettings;
@@ -86,7 +87,13 @@ public final class DatabaseSettingsService implements DesktopDatabaseSettings {
 
     @Override
     public Map<String, String> prepare(Map<String, String> updates) throws IOException {
-        return prepare(updates, true, saved());
+        try {
+            return prepare(updates, true, saved());
+        } catch (IOException failure) {
+            String key = DesktopDatabaseSettings.failureMessageKey(failure.getMessage());
+            if (key.equals("gui.config.database.error.unknown")) throw failure;
+            throw new IOException(MessageBundles.get(key));
+        }
     }
 
     private Map<String, String> prepare(Map<String, String> updates, boolean saving,
@@ -112,7 +119,7 @@ public final class DatabaseSettingsService implements DesktopDatabaseSettings {
         } catch (VirtualMachineError | ThreadDeath fatal) {
             throw fatal;
         } catch (Throwable invalid) {
-            throw new IOException(MessageBundles.get("gui.config.database.invalid"));
+            throw configurationFailure(invalid);
         }
         DatabaseTarget previous = saving && migration != null ? target(saved) : null;
         saved.putAll(normalized);
@@ -144,10 +151,12 @@ public final class DatabaseSettingsService implements DesktopDatabaseSettings {
                 target.checkConnection();
                 return new CheckResult(Outcome.CONNECTED, target.description(), "");
             } catch (SQLException failure) {
-                String state = failure.getSQLState();
+                String code = ProviderDatabaseMigration.safeFailure(failure);
                 return new CheckResult(Outcome.FAILED, target.description(),
-                        state != null && state.matches("[A-Z0-9]{5}") ? state : "unknown");
+                        code.startsWith("SQLSTATE_") ? code.substring("SQLSTATE_".length()) : code);
             }
+        } catch (IOException failure) {
+            return new CheckResult(Outcome.FAILED, "", ProviderDatabaseMigration.safeFailure(failure));
         } finally {
             checking.set(false);
         }
@@ -221,21 +230,34 @@ public final class DatabaseSettingsService implements DesktopDatabaseSettings {
                         ? value.owner().equals(values.get("database.provider"))
                         : value.databaseId().equals(values.get("database.engine")))
                 .toList();
-        if (candidates.size() != 1) throw new IOException(MessageBundles.get("gui.config.database.invalid"));
+        if (candidates.size() != 1) throw new IOException("DATABASE_PROVIDER_UNAVAILABLE");
         return candidates.get(0);
     }
 
     private DatabaseTarget target(Map<String, String> values) throws IOException {
         try {
             var selection = selected(values);
-            var binding = DatabaseProviderBinding.resolve(selection,
-                    () -> top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap.settings(values.get("database.jdbc-url"), values.get("database.username"),
-                            values.get("database.password"), values.get("download.root-folder")),
-                    java.util.function.UnaryOperator.identity());
-            if (!binding.available()) throw new IOException(MessageBundles.get("gui.config.database.invalid"));
+            var settings = top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap.settings(
+                    values.get("database.jdbc-url"), values.get("database.username"),
+                    values.get("database.password"), values.get("download.root-folder"));
+            var resolved = java.util.Objects.requireNonNull(selection.provider().orElseThrow().resolve(settings));
+            var binding = new DatabaseProviderBinding(selection, Optional.of(settings), Optional.of(resolved),
+                    java.util.Objects.requireNonNull(resolved.localFile()));
             return DatabaseTarget.fromBinding(binding);
-        } catch (IllegalArgumentException invalid) {
-            throw new IOException(MessageBundles.get("gui.config.database.invalid"));
+        } catch (IOException controlled) {
+            throw controlled;
+        } catch (VirtualMachineError | ThreadDeath fatal) {
+            throw fatal;
+        } catch (Throwable invalid) {
+            throw configurationFailure(invalid);
         }
+    }
+
+    private static IOException configurationFailure(Throwable failure) {
+        String code = failure instanceof Exception exception ? ProviderDatabaseMigration.safeFailure(exception) : "MIGRATION_FAILED";
+        if (DesktopDatabaseSettings.failureMessageKey(code).equals("gui.config.database.error.unknown")) {
+            code = "DATABASE_CONFIGURATION_INVALID";
+        }
+        return new IOException(code);
     }
 }

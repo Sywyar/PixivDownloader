@@ -48,7 +48,8 @@ final class PostgresConnectionTarget implements DatabaseConnectionTarget {
 
     PostgresConnectionTarget(DatabaseConnectionSettings settings) throws SQLException {
         String url = settings.jdbcUrl().trim();
-        if (!url.startsWith(PREFIX) || settings.username().isBlank()) throw invalid();
+        if (settings.username().isBlank()) throw new SQLException("DATABASE_USERNAME_REQUIRED", "08001");
+        if (!url.startsWith(PREFIX)) throw invalid();
         int query = url.indexOf('?');
         address = query < 0 ? url : url.substring(0, query);
         int pathStart = address.indexOf('/', PREFIX.length());
@@ -125,6 +126,10 @@ final class PostgresConnectionTarget implements DatabaseConnectionTarget {
         try {
             connection = new Driver().connect(address, configuration);
             if (connection == null) throw invalid();
+        } catch (SQLException failure) {
+            throw new SQLException("DATABASE_CONNECTION_FAILED", failure.getSQLState());
+        }
+        try {
             validate(connection);
             requireConnectionTarget(connection);
             if (readOnly) connection.setReadOnly(true);
@@ -133,7 +138,12 @@ final class PostgresConnectionTarget implements DatabaseConnectionTarget {
             if (connection != null) {
                 try { connection.close(); } catch (SQLException ignored) { }
             }
-            throw new SQLException("DATABASE_CONNECTION_FAILED", failure.getSQLState());
+            String code = switch (String.valueOf(failure.getMessage())) {
+                case "DATABASE_PRODUCT_UNSUPPORTED", "DATABASE_ENCODING_UNSUPPORTED",
+                        "DATABASE_SCHEMA_MISSING", "DATABASE_TARGET_MISMATCH" -> failure.getMessage();
+                default -> "DATABASE_CONNECTION_FAILED";
+            };
+            throw new SQLException(code, failure.getSQLState());
         }
     }
 
@@ -170,9 +180,10 @@ final class PostgresConnectionTarget implements DatabaseConnectionTarget {
 
     static void validate(Connection connection) throws SQLException {
         if (!"PostgreSQL".equals(connection.getMetaData().getDatabaseProductName())
-                || !SUPPORTED_MAJORS.contains(connection.getMetaData().getDatabaseMajorVersion()) || connection.getSchema() == null) {
+                || !SUPPORTED_MAJORS.contains(connection.getMetaData().getDatabaseMajorVersion())) {
             throw new SQLException("DATABASE_PRODUCT_UNSUPPORTED", "0A000");
         }
+        if (connection.getSchema() == null) throw new SQLException("DATABASE_SCHEMA_MISSING", "3F000");
         try (var statement = connection.createStatement(); var rows = statement.executeQuery("SHOW server_encoding")) {
             if (!rows.next() || !"UTF8".equals(rows.getString(1))) {
                 throw new SQLException("DATABASE_ENCODING_UNSUPPORTED", "0A000");

@@ -68,9 +68,18 @@ class DatabaseSettingsPanelTest {
             });
             assertEquals(1, started.getCount());
             SwingUtilities.invokeAndWait(() -> {
+                var visible = descendants(dialog.get()).filter(JTextArea.class::isInstance).map(JTextArea.class::cast)
+                        .filter(Component::isShowing).map(JTextArea::getText).toList();
+                assertTrue(visible.stream().anyMatch(text -> text.contains("gui.config.database.migration.main")));
+                assertTrue(visible.stream().anyMatch(text -> text.contains("gui.config.database.migration.plugin") && text.contains("fixture")));
+                assertTrue(visible.stream().anyMatch(text -> text.contains("gui.config.database.migration.phase.replace-target")));
+                assertTrue(visible.stream().anyMatch(text -> text.contains("gui.config.database.migration.replacement-notice")));
+                assertTrue(visible.stream().anyMatch(text -> text.contains("gui.config.database.migration.target") && text.contains("target")));
+                assertFalse(visible.stream().anyMatch(text -> text.contains("private-source") || text.contains("private-target")));
+                descendants(dialog.get()).filter(JToggleButton.class::isInstance).map(JToggleButton.class::cast)
+                        .forEach(AbstractButton::doClick);
                 assertTrue(descendants(dialog.get()).filter(JTextArea.class::isInstance).map(JTextArea.class::cast)
-                        .anyMatch(area -> area.getText().contains("main") && area.getText().contains("private:fixture")
-                                && area.getText().contains("gui.config.database.migration.phase.replace-target")));
+                        .anyMatch(area -> area.isShowing() && area.getText().contains("private-target")));
                 descendants(dialog.get()).filter(JButton.class::isInstance).map(JButton.class::cast)
                         .filter(button -> button.getText().startsWith("gui.config.database.migration.confirm"))
                         .findFirst().orElseThrow().doClick();
@@ -79,6 +88,41 @@ class DatabaseSettingsPanelTest {
         } finally {
             SwingUtilities.invokeAndWait(() -> { if (dialog.get() != null) dialog.get().dispose(); });
         }
+    }
+
+    @Test
+    @DisplayName("连接错误默认展示修正建议，诊断码折叠且手动刷新清除旧结果")
+    void explainsConnectionFailureWithoutDumpingCode() throws Exception {
+        var panel = new AtomicReference<DatabaseSettingsPanel>();
+        DesktopDatabaseSettings settings = new DesktopDatabaseSettings() {
+            public List<ProviderChoice> providers() { return List.of(); }
+            public Map<String, String> prepare(Map<String, String> values) { throw new AssertionError("unexpected save"); }
+            public CheckResult check(Map<String, String> values) { return new CheckResult(Outcome.FAILED, "remote: fixture", "28P01"); }
+            public State state() { return new State("remote: fixture", "remote: fixture", List.of(), false); }
+            public URI migrationGuide() { return URI.create("https://example.invalid/guide"); }
+        };
+        DesktopUiHost host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("message")) return args[0] + (args.length > 1
+                            ? java.util.Arrays.deepToString((Object[]) args[1]) : "");
+                    throw new AssertionError("unexpected host call: " + method.getName());
+                });
+        SwingUtilities.invokeAndWait(() -> {
+            panel.set(new DatabaseSettingsPanel(host, settings, Map::of));
+            ((JButton) descendants(panel.get()).filter(c -> "database.check".equals(c.getName()))
+                    .findFirst().orElseThrow()).doClick();
+        });
+        awaitText(panel.get(), "gui.config.database.error.authentication");
+        SwingUtilities.invokeAndWait(() -> {
+            var texts = descendants(panel.get()).filter(JTextArea.class::isInstance).map(JTextArea.class::cast).toList();
+            assertFalse(texts.stream().anyMatch(area -> area.getText().contains("gui.config.database.next")));
+            var diagnostic = texts.stream().filter(area -> area.getText().contains("28P01")).findFirst().orElseThrow();
+            assertFalse(diagnostic.getParent().isVisible());
+            ((JButton) descendants(panel.get()).filter(c -> "database.refresh".equals(c.getName()))
+                    .findFirst().orElseThrow()).doClick();
+            assertTrue(descendants(panel.get()).filter(JTextArea.class::isInstance).map(JTextArea.class::cast)
+                    .noneMatch(area -> area.getText().contains("28P01") || area.getText().contains("error.authentication")));
+        });
     }
 
     @Test

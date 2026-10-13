@@ -14,6 +14,27 @@ import static top.sywyar.pixivdownload.migration.database.ProviderDatabaseMigrat
 
 @DisplayName("中性迁移编排的失败、提交和资源生命周期")
 class ProviderDatabaseMigrationTest {
+    @Test
+    @DisplayName("保留受控连接诊断且不回显驱动正文、伪造诊断或秘密")
+    void keepsSafeReasonsWithoutDriverText() {
+        assertThat(safeFailure(new java.sql.SQLException("DATABASE_ENCODING_UNSUPPORTED", "0A000")))
+                .isEqualTo("DATABASE_ENCODING_UNSUPPORTED");
+        assertThat(safeFailure(new java.io.IOException("DATABASE_USERNAME_REQUIRED")))
+                .isEqualTo("DATABASE_USERNAME_REQUIRED");
+        assertThat(safeFailure(new java.sql.SQLException("user fixture password=private", "28P01")))
+                .isEqualTo("SQLSTATE_28P01");
+        assertThat(safeFailure(new java.sql.SQLException("PASSWORD_PRIVATE", "not-a-state")))
+                .isEqualTo("SQLSTATE_UNKNOWN");
+        assertThat(safeFailure(new java.io.IOException("PASSWORD_PRIVATE"))).isEqualTo("MIGRATION_FAILED");
+        assertThat(safeFailure(new java.io.IOException("SQLSTATE_28P01"))).isEqualTo("SQLSTATE_28P01");
+        assertThat(safeFailure(new java.io.IOException("SQLSTATE_28P01 private-password"))).isEqualTo("MIGRATION_FAILED");
+        for (String code : List.of("UNDECLARED_OBJECT", "COLUMN_TYPE", "REBUILD_OBJECT_MISSING")) {
+            assertThat(safeFailure(new java.sql.SQLException(code, "0A000"))).isEqualTo(code);
+            assertThat(top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.failureMessageKey(code))
+                    .isEqualTo("gui.config.database.error.schema");
+        }
+    }
+
     @TempDir Path directory;
     private final List<Report> reports = new ArrayList<>();
     private final MigrationControl control = (table, rows) -> {};

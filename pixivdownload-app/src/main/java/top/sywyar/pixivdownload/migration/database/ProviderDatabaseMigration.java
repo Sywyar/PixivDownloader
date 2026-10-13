@@ -204,11 +204,27 @@ public final class ProviderDatabaseMigration {
     public static String safeFailure(Exception failure) {
         if (failure instanceof java.util.concurrent.CancellationException || failure instanceof InterruptedException)
             return "MIGRATION_CANCELLED";
+        String message = failure.getMessage();
+        if (message != null && switch (message) {
+            case "DATABASE_CONFIGURATION_INVALID", "DATABASE_USERNAME_REQUIRED", "DATABASE_PROVIDER_UNAVAILABLE",
+                    "DATABASE_PRODUCT_UNSUPPORTED", "DATABASE_ENCODING_UNSUPPORTED", "DATABASE_SCHEMA_MISSING",
+                    "DATABASE_TARGET_MISMATCH", "DATABASE_FILE_NOT_FOUND", "DATABASE_FILE_UNAVAILABLE",
+                    "DATABASE_PRIVATE_STORAGE_UNAVAILABLE", "DATABASE_STORAGE_PREPARATION_FAILED",
+                    "DATABASE_LOCAL_FILE_UNSUPPORTED", "STORAGE_SCHEMA_MISMATCH", "STORAGE_UNSAFE_COLUMN_CHANGE",
+                    "SCHEMA_CHECK_UNAVAILABLE", "SCHEMA_MISMATCH", "MIGRATION_SCHEMA_MISMATCH",
+                    "UNDECLARED_OBJECT", "UNDECLARED_TABLE", "REBUILD_OBJECT_MISSING", "NOT_REGENERABLE",
+                    "PRIVATE_SCHEMA_MISSING", "COLUMN_TYPE", "SEQUENCE_MISSING", "SEQUENCE_UNSUPPORTED",
+                    "SEQUENCE_MISMATCH", "TARGET_NOT_WRITABLE", "SOURCE_MISSING", "SOURCE_CORRUPT", "BACKUP_EXISTS",
+                    "CONFIG_CHANGED", "MIGRATION_PLAN_CHANGED", "MIGRATION_BUSY",
+                    "RESTART_FAILED" -> true;
+            default -> false;
+        }) return message;
         if (failure instanceof java.sql.SQLException sql) {
             String state = sql.getSQLState();
             return "SQLSTATE_" + (state != null && state.matches("[A-Z0-9]{5}") ? state : "UNKNOWN");
         }
-        String message = failure.getMessage();
+        if (failure instanceof java.io.IOException && message != null && message.matches("SQLSTATE_[A-Z0-9]{5}"))
+            return message;
         return (failure instanceof IllegalArgumentException || failure instanceof IllegalStateException)
                 && message != null && message.matches("[A-Z][A-Z0-9_]*") ? message : "MIGRATION_FAILED";
     }

@@ -8,8 +8,8 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 
 /** 页面只纵向滚动，说明文字按分配宽度换行。 */
-final class ScrollablePagePanel extends JPanel implements Scrollable {
-    ScrollablePagePanel() {
+public final class ScrollablePagePanel extends JPanel implements Scrollable {
+    public ScrollablePagePanel() {
         setOpaque(false);
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
     }

@@ -134,8 +134,8 @@ test('预检列出主库与私库，只有确认精确计划后才安排一次�
     f.input('password', 'target-secret');
     f.save(); await tick();
     assert.deepEqual(f.calls.map(call => call[0]), ['preview']);
-    assert.ok(f.nodes(n => n.tag === 'strong').some(n => n.textContent === 'main'));
-    assert.ok(f.nodes(n => n.tag === 'strong').some(n => n.textContent === 'private:fixture'));
+    assert.ok(f.nodes(n => n.tag === 'strong').some(n => n.textContent.includes('database.migration.main')));
+    assert.ok(f.nodes(n => n.tag === 'strong').some(n => n.textContent.includes('database.migration.plugin') && n.textContent.includes('fixture')));
     assert.ok(f.nodes(n => n.tag === 'p').some(n => n.textContent.includes('database.migration.phase.replace-target')));
     f.button('database.migration.confirm').emit('click'); await tick();
     assert.deepEqual(f.calls.map(call => call[0]), ['preview', 'migrate']);
@@ -143,6 +143,107 @@ test('预检列出主库与私库，只有确认精确计划后才安排一次�
     assert.equal(f.get('password').value, '');
     assert.match(f.status(), /database.migration.status.pending/);
     assert.equal(f.button('database.migration.confirm'), undefined);
+});
+
+function visible(node) {
+    for (let child = node, parent = node.parentNode; parent; child = parent, parent = parent.parentNode)
+        if (parent.tag === 'details' && !parent.open && child.tag !== 'summary') return false;
+    return true;
+}
+
+test('确认清单显示数据归属、目标和替换风险，技术细节默认折叠，取消不丢草稿', async () => {
+    const f = fixture(); await tick();
+    f.input('password', 'retained draft');
+    f.save(); await tick();
+    const visibleText = () => f.nodes(visible).map(n => n.textContent || '').join('\n');
+    assert.match(visibleText(), /database.migration.replacement-notice/);
+    assert.match(visibleText(), /source-main/);
+    assert.match(visibleText(), /target-main/);
+    assert.doesNotMatch(visibleText(), /source-private|target-private|private:fixture/);
+    const technical = f.nodes(n => n.tag === 'details' && n.children.some(child =>
+        child.textContent?.includes('source-private')))[0];
+    assert.equal(technical.open, false);
+    technical.open = true; technical.emit('toggle');
+    assert.match(visibleText(), /source-private|target-private/);
+    f.locale('ja');
+    assert.match(visibleText(), /ja:database.migration.plugin/);
+    assert.match(visibleText(), /source-private/);
+    f.button('database.migration.cancel').emit('click');
+    assert.equal(f.get('password').value, 'retained draft');
+    assert.equal(f.button('database.migration.confirm'), undefined);
+    assert.deepEqual(f.calls.map(call => call[0]), ['preview']);
+});
+
+test('连接错误消费服务端文案键，诊断码按需查看且切换语言重新解析', async () => {
+    const f = fixture(); await tick();
+    f.market.api.checkDatabase = async () => ({outcome: 'FAILED', target: 'remote: fixture',
+        sqlState: '28P01', errorKey: 'database.error.authentication'});
+    f.button('database.check').emit('click'); await tick();
+    assert.match(f.status(), /database.error.authentication/);
+    assert.doesNotMatch(f.status(), /28P01/);
+    const code = f.nodes(n => n.textContent?.includes('28P01'))[0];
+    assert.equal(visible(code), false);
+    f.locale('ja');
+    assert.match(f.status(), /^ja:database.error.authentication/);
+    f.input('username', 'corrected');
+    assert.equal(f.status(), '');
+    assert.equal(f.nodes(n => n.textContent?.includes('28P01')).length, 0);
+});
+
+test('已完成记录默认收起，失败和部分提交始终可见，同一连接不重复展示下次启动', async () => {
+    const f = fixture(); await tick();
+    f.response().state = {activeTarget: 'remote: fixture', nextTarget: 'remote: fixture', overriddenKeys: [], restartRequired: true};
+    f.market.api.fetchDatabaseMigration = async () => ({status: 'SUCCEEDED', failure: '', stores: [
+        {owner: 'main', source: 'old-target', target: 'new-target', phase: 'COMMITTED'}]});
+    await f.market.database.refresh();
+    const store = f.nodes(n => n.tag === 'strong' && n.textContent.includes('database.migration.main'))[0];
+    assert.equal(visible(store), false);
+    assert.equal(f.nodes(n => n.textContent?.includes('database.next')).length, 0);
+    assert.equal(f.nodes(n => n.textContent?.includes('database.saved')).length, 1);
+    f.market.api.fetchDatabaseMigration = async () => ({status: 'FAILED', failure: 'DATA_MISMATCH',
+        failureKey: 'database.error.data-mismatch', stores: [
+            {owner: 'main', source: 'old-target', target: 'new-target', phase: 'COMMITTED'},
+            {owner: 'private:fixture', source: 'private-source', target: 'private-target', phase: 'UNKNOWN'}]});
+    await f.market.database.refresh();
+    const texts = f.nodes(visible).map(n => n.textContent || '').join('\n');
+    assert.match(texts, /database.migration.status.failed/);
+    assert.match(texts, /database.error.data-mismatch/);
+    assert.match(texts, /database.migration.phase.committed/);
+    assert.match(texts, /database.migration.phase.unknown/);
+    assert.doesNotMatch(texts, /DATA_MISMATCH/);
+});
+
+test('修复同一数据库连接的确认动作不称为迁移，取消恢复表单焦点', async () => {
+    const f = fixture(); await tick();
+    f.market.api.previewDatabaseMigration = async () => ({token: 'repair', ready: true, stores: [
+        {owner: 'main', source: 'same', target: 'same', phase: 'CONNECTION_REPAIR'},
+        {owner: 'private:fixture', source: 'same-private', target: 'same-private', phase: 'SAME_TARGET'}]});
+    f.save(); await tick();
+    assert.ok(f.button('database.migration.confirm-connection'));
+    assert.equal(f.root.querySelector('details').open, false);
+    f.button('database.migration.cancel').emit('click');
+    assert.equal(f.root.querySelector('details').open, true);
+});
+
+test('刷新用最新耐久结果替换已安排或待确认提示，保留草稿且不重放迁移', async () => {
+    for (const [confirmed, status] of [[false, 'SUCCEEDED'], [true, 'FAILED']]) {
+        const f = fixture(); await tick();
+        f.input('username', 'retained draft');
+        f.save(); await tick();
+        if (confirmed) { f.button('database.migration.confirm').emit('click'); await tick(); }
+        assert.match(f.status(), confirmed ? /database.migration.status.pending/ : /database.migration.ready/);
+        const callsBeforeRefresh = f.calls.length;
+        f.market.api.fetchDatabaseMigration = async () => ({status,
+            failure: confirmed ? 'DATA_MISMATCH' : '', failureKey: 'database.error.data-mismatch', stores: []});
+        await f.market.database.refresh();
+        const texts = f.nodes(visible).map(n => n.textContent || '').join('\n');
+        assert.doesNotMatch(texts, /database.migration.ready|database.migration.status.pending/);
+        assert.ok(texts.includes('database.migration.status.' + status.toLowerCase()));
+        if (confirmed) assert.match(texts, /database.error.data-mismatch/);
+        assert.equal(f.get('username').value, 'retained draft');
+        assert.equal(f.button('database.migration.confirm'), undefined);
+        assert.equal(f.calls.length, callsBeforeRefresh);
+    }
 });
 
 test('只启用诊断指定的当前插件，取消及离页后的确认不能提交，不重放启用', async () => {

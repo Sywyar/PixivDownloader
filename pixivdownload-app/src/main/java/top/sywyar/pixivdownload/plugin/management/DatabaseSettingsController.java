@@ -69,7 +69,11 @@ public class DatabaseSettingsController {
 
     @PostMapping(value = "/check", consumes = "application/json")
     public ResponseEntity<?> check(HttpServletRequest request) {
-        try { return ResponseEntity.ok(settings.check(readDraft(request))); }
+        try {
+            var checked = settings.check(readDraft(request));
+            return ResponseEntity.ok(new Check(checked.outcome(), checked.target(), checked.sqlState(),
+                    checked.outcome() == DesktopDatabaseSettings.Outcome.FAILED ? failureKey(checked.sqlState()) : ""));
+        }
         catch (DraftTooLarge failure) { return error(request, 413, "gui.config.database.draft-too-large"); }
         catch (IOException failure) { return error(request, 400, "gui.config.database.invalid"); }
     }
@@ -100,7 +104,11 @@ public class DatabaseSettingsController {
 
     @PostMapping(value = "/preview", consumes = "application/json")
     public ResponseEntity<?> preview(HttpServletRequest request) {
-        try { return ResponseEntity.ok(settings.previewMigration(readDraft(request))); }
+        try {
+            var plan = settings.previewMigration(readDraft(request));
+            return ResponseEntity.ok(new MigrationPlan(plan.token(), plan.ready(), plan.stores(), plan.failure(),
+                    plan.ready() ? "" : failureKey(plan.failure())));
+        }
         catch (DraftTooLarge failure) { return error(request, 413, "gui.config.database.draft-too-large"); }
         catch (IOException failure) { return error(request, 400, "gui.config.database.invalid"); }
     }
@@ -123,7 +131,11 @@ public class DatabaseSettingsController {
 
     @GetMapping("/migration")
     public ResponseEntity<?> migration(HttpServletRequest request) {
-        try { return ResponseEntity.ok(settings.migrationState()); }
+        try {
+            var state = settings.migrationState();
+            return ResponseEntity.ok(new MigrationState(state.status(), state.failure(), state.stores(),
+                    state.failure().isEmpty() ? "" : failureKey(state.failure())));
+        }
         catch (IOException failure) { return error(request, 503, "gui.config.database.invalid"); }
     }
 
@@ -162,6 +174,10 @@ public class DatabaseSettingsController {
         return ResponseEntity.status(status).body(ApiErrorResponse.of(key, messages.get(locales.resolveLocale(request), key)));
     }
 
+    private static String failureKey(String code) {
+        return DesktopDatabaseSettings.failureMessageKey(code).replace("gui.config.database.", "database.");
+    }
+
     private static final class DraftTooLarge extends IOException {}
     public enum PasswordAction { KEEP, REPLACE, CLEAR }
     public record Draft(String provider, String jdbcUrl, String username, PasswordAction passwordAction, String password) {
@@ -172,4 +188,9 @@ public class DatabaseSettingsController {
     public record SelectedProvider(String owner, boolean enableAllowed) {}
     public record Saved(boolean saved, boolean restartRequired) {}
     public record Confirmation(String token) {}
+    public record Check(DesktopDatabaseSettings.Outcome outcome, String target, String sqlState, String errorKey) {}
+    public record MigrationPlan(String token, boolean ready, List<DesktopDatabaseSettings.MigrationStore> stores,
+                                String failure, String failureKey) {}
+    public record MigrationState(String status, String failure, List<DesktopDatabaseSettings.MigrationStore> stores,
+                                 String failureKey) {}
 }

@@ -2,11 +2,12 @@
 /* 数据库修复表单与市场两种渲染器共用；目录请求失败时仍可检查和保存连接。 */
 (function (global) {
     var PMK = global.PixivPluginMarket;
-    var root, snapshot, draft, statusNode, checkButton, saveButton, migrationNode;
+    var root, snapshot, draft, statusNode, resultDetails, settingsDetails, checkButton, saveButton, migrationNode;
     var migrationPlan = null, migrationState = null, planRevision = -1;
     var dirty = false, busy = false, revision = 0, generation = 0, request = null;
     var enabledOwner = '';
     var feedback = 'database.loading', result = null;
+    var expanded = new Set();
     function el(tag, text, parent) {
         var node = document.createElement(tag);
         if (text) node.textContent = text;
@@ -19,11 +20,27 @@
         updateStatus();
     }
     function updateStatus() {
-        if (statusNode) statusNode.textContent = feedback ? PMK.t(feedback, null, result || {}) : '';
+        if (statusNode) statusNode.textContent = feedback ? PMK.t(feedback, null, result ? {target: result.target} : {}) : '';
+        if (resultDetails) {
+            resultDetails.replaceChildren();
+            if (result && result.sqlState) el('p', PMK.t('database.diagnostic-code', null, {code: result.sqlState}),
+                disclosure(resultDetails, 'database.migration.details', 'check'));
+        }
         if (checkButton) checkButton.disabled = busy || !snapshot;
         if (saveButton) saveButton.disabled = busy || !snapshot;
         if (root) root.setAttribute('aria-busy', String(busy));
     }
+    function disclosure(parent, key, id) {
+        var details = el('details', '', parent);
+        details.className = 'pmk-database-details';
+        details.open = expanded.has(id);
+        el('summary', PMK.t(key), details);
+        details.addEventListener('toggle', function () {
+            if (details.open) expanded.add(id); else expanded.delete(id);
+        });
+        return details;
+    }
+    function targetLabel(target) { return String(target || '').split(':')[0]; }
     function field(parent, key, type, value) {
         var row = el('label', '', parent);
         row.className = 'pmk-database-field';
@@ -37,11 +54,15 @@
     }
     function render() {
         if (!root) return;
-        var wasOpen = root.querySelector('details');
+        var wasOpen = settingsDetails;
         var open = wasOpen ? wasOpen.open : false;
         var activeId = document.activeElement && document.activeElement.id;
         root.replaceChildren();
+        statusNode = el('p', '', root);
+        statusNode.setAttribute('role', 'status'); statusNode.setAttribute('aria-live', 'polite');
+        resultDetails = el('div', '', root);
         var details = el('details', '', root);
+        settingsDetails = details;
         details.open = open;
         el('summary', PMK.t('database.title'), details);
         el('p', PMK.t('database.notice'), details);
@@ -49,12 +70,16 @@
         refresh.type = 'button'; refresh.className = 'pmk-btn pmk-btn--gray';
         refresh.disabled = busy;
         refresh.addEventListener('click', refreshSettings);
-        statusNode = el('p', '', details);
-        statusNode.setAttribute('role', 'status'); statusNode.setAttribute('aria-live', 'polite');
         if (snapshot && draft) {
             var state = snapshot.state || {};
-            el('p', PMK.t('database.current', null, {target: state.activeTarget && state.activeTarget !== 'DATABASE_UNAVAILABLE' ? state.activeTarget : PMK.t('database.unavailable')}), details);
-            el('p', PMK.t('database.next', null, {target: state.nextTarget || PMK.t('database.unavailable')}), details);
+            var active = state.activeTarget && state.activeTarget !== 'DATABASE_UNAVAILABLE';
+            var showNext = state.activeTarget !== state.nextTarget;
+            el('p', PMK.t('database.current', null, {target: active ? targetLabel(state.activeTarget) : PMK.t('database.unavailable')}), details);
+            if (showNext) el('p', PMK.t('database.next', null, {target: targetLabel(state.nextTarget) || PMK.t('database.unavailable')}), details);
+            if (state.restartRequired) el('p', PMK.t('database.saved'), details);
+            var targets = disclosure(details, 'database.details', 'connection');
+            if (active) el('p', PMK.t('database.current', null, {target: state.activeTarget}), targets);
+            if (showNext && state.nextTarget) el('p', PMK.t('database.next', null, {target: state.nextTarget}), targets);
             if (state.overriddenKeys && state.overriddenKeys.length)
                 el('p', PMK.t('database.overridden', null, {keys: state.overriddenKeys.join(', ')}), details);
             var selected = snapshot.selectedProvider;
@@ -121,13 +146,9 @@
             saveButton = el('button', PMK.t('database.migrate'), actions);
             saveButton.type = 'submit'; saveButton.className = 'pmk-btn pmk-btn--primary';
             form.addEventListener('submit', function (event) { event.preventDefault(); perform('save'); });
-            migrationNode = el('div', '', details);
+            migrationNode = el('div', '', root);
             migrationNode.setAttribute('aria-live', 'polite');
             renderMigration();
-            var guide = el('a', PMK.t('database.guide'), details);
-            var address = new URL(snapshot.migrationGuide, global.location.href);
-            if (address.protocol === 'https:' || address.protocol === 'http:') guide.href = address.href;
-            guide.target = '_blank'; guide.rel = 'noopener noreferrer';
         }
         updateStatus();
         var focused = activeId && document.getElementById(activeId);
@@ -138,23 +159,58 @@
         migrationNode.replaceChildren();
         var current = migrationPlan || migrationState;
         if (!current) return;
-        if (current.status) el('p', PMK.t('database.migration.status.' + current.status.toLowerCase().replaceAll('_', '-')), migrationNode);
+        var statusKey = current.status && 'database.migration.status.' + current.status.toLowerCase().replaceAll('_', '-');
+        if (statusKey && statusKey !== feedback) el('p', PMK.t(statusKey), migrationNode);
+        if (current.failure) el('p', PMK.t(current.failureKey || 'database.error.unknown'), migrationNode);
+        var parent = current.status === 'SUCCEEDED' && !current.failure
+            ? disclosure(migrationNode, 'database.history', 'history') : migrationNode;
+        if (migrationPlan) {
+            el('h3', PMK.t('database.migration.title'), parent);
+            el('p', PMK.t('database.migration.summary', null, {count: (current.stores || []).length}), parent);
+            var main = (current.stores || []).find(function (store) { return store.owner === 'main'; });
+            if (main) {
+                el('p', PMK.t('database.migration.source', null, {target: main.source}), parent);
+                el('p', PMK.t('database.migration.target', null, {target: main.target}), parent);
+            }
+            if ((current.stores || []).some(function (store) { return store.phase === 'REPLACE_TARGET'; }))
+                el('p', PMK.t('database.migration.replacement-notice'), parent);
+        }
         (current.stores || []).forEach(function (store) {
-            var item = el('div', '', migrationNode);
-            el('strong', store.owner, item);
-            el('p', PMK.t('database.migration.source', null, {target: store.source}), item);
-            el('p', PMK.t('database.migration.target', null, {target: store.target}), item);
-            el('p', PMK.t('database.migration.phase.' + store.phase.toLowerCase().replaceAll('_', '-')), item);
+            var item = el('div', '', parent);
+            item.className = 'pmk-database-store';
+            el('strong', store.owner === 'main' ? PMK.t('database.migration.main')
+                : PMK.t('database.migration.plugin', null, {owner: store.owner.replace(/^private:/, '')}), item);
+            var phase = migrationPlan && store.phase === 'COMMITTED' ? 'REUSE' : store.phase;
+            el('p', PMK.t('database.migration.phase.' + phase.toLowerCase().replaceAll('_', '-')), item);
+            var technical = disclosure(item, 'database.migration.details', 'store:' + store.owner);
+            el('p', PMK.t('database.migration.source', null, {target: store.source}), technical);
+            el('p', PMK.t('database.migration.target', null, {target: store.target}), technical);
             if (store.rebuildObjects && store.rebuildObjects.length)
-                el('p', PMK.t('database.migration.rebuild', null, {objects: store.rebuildObjects.join(', ')}), item);
+                el('p', PMK.t('database.migration.rebuild', null, {objects: store.rebuildObjects.join(', ')}), technical);
         });
-        if (current.failure) el('p', PMK.t('database.migration.failure', null, {code: current.failure}), migrationNode);
-        if (migrationPlan && migrationPlan.ready) {
-            el('p', PMK.t('database.migration.confirm-notice'), migrationNode);
-            var confirm = el('button', PMK.t('database.migration.confirm'), migrationNode);
-            confirm.type = 'button'; confirm.className = 'pmk-btn pmk-btn--primary';
-            confirm.disabled = busy || planRevision !== revision;
-            confirm.addEventListener('click', confirmMigration);
+        if (current.failure) el('p', PMK.t('database.diagnostic-code', null, {code: current.failure}),
+            disclosure(parent, 'database.migration.details', 'failure'));
+        if (migrationPlan) {
+            if (migrationPlan.ready) el('p', PMK.t('database.migration.confirm-notice'), migrationNode);
+            var actions = el('div', '', migrationNode);
+            actions.className = 'pmk-recovery-actions';
+            if (migrationPlan.ready) {
+                var connectionOnly = migrationPlan.stores.length && migrationPlan.stores.every(function (store) {
+                    return store.phase === 'SAME_TARGET' || store.phase === 'CONNECTION_REPAIR';
+                });
+                var confirm = el('button', PMK.t(connectionOnly ? 'database.migration.confirm-connection' : 'database.migration.confirm'), actions);
+                confirm.type = 'button'; confirm.className = 'pmk-btn pmk-btn--primary';
+                confirm.disabled = busy || planRevision !== revision;
+                confirm.addEventListener('click', confirmMigration);
+            }
+            var cancel = el('button', PMK.t('database.migration.cancel'), actions);
+            cancel.type = 'button'; cancel.className = 'pmk-btn pmk-btn--gray'; cancel.disabled = busy;
+            cancel.addEventListener('click', function () {
+                if (busy) return;
+                migrationPlan = null; feedback = ''; result = null;
+                if (settingsDetails) settingsDetails.open = true;
+                renderMigration(); updateStatus(); saveButton.focus();
+            });
         }
     }
     async function confirmMigration() {
@@ -206,7 +262,14 @@
             var value = await PMK.api.fetchDatabaseSettings(request.signal);
             if (token !== generation) return;
             snapshot = value;
-            try { migrationState = await PMK.api.fetchDatabaseMigration(request.signal); }
+            try {
+                var latestMigration = await PMK.api.fetchDatabaseMigration(request.signal);
+                if (token !== generation) return;
+                migrationState = latestMigration; migrationPlan = null; planRevision = -1;
+                if (feedback === 'database.migration.ready' || feedback === 'database.migration.status.pending') {
+                    feedback = ''; result = null;
+                }
+            }
             catch (failure) { /* 保留上次结果；连接恢复后由同一刷新操作重新读取。 */ }
             if (token !== generation) return;
             if (!dirty) draft = {provider: value.settings.provider, jdbcUrl: value.settings.jdbcUrl,
@@ -233,14 +296,15 @@
                 if (edited !== revision) feedback = 'database.stale';
                 else {
                     migrationPlan = value; planRevision = edited;
-                    feedback = value.ready ? 'database.migration.ready' : 'database.migration.failure';
-                    result = {code: value.failure};
+                    feedback = value.ready ? 'database.migration.ready' : '';
+                    if (settingsDetails && value.ready) settingsDetails.open = false;
                 }
             } else if (edited !== revision) feedback = 'database.stale';
             else {
                 var outcomes = {CONNECTED: 'connected', NOT_CREATED: 'not-created', FAILED: 'connection-failed', BUSY: 'busy'};
-                feedback = 'database.' + (outcomes[value.outcome] || 'failed');
-                result = {target: value.target, sqlState: value.sqlState};
+                feedback = value.outcome === 'FAILED' ? value.errorKey || 'database.error.unknown'
+                    : 'database.' + (outcomes[value.outcome] || 'failed');
+                result = {target: targetLabel(value.target), sqlState: value.outcome === 'FAILED' ? value.sqlState : ''};
             }
         } catch (failure) {
             if (token === generation) feedback = failure.body && failure.body.code === 'gui.config.database.save-invalid'
