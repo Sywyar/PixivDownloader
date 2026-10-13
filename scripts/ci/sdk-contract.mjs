@@ -3,10 +3,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { inspectSdkVersion, parseSdkVersion, readSdkIdentity, sdkModulesAtRef, SDK_GROUP_ID, SDK_MODULES } from './sdk-version.mjs';
+import { compareVersions, inspectSdkVersion, readSdkIdentity, sdkModulesAtRef, SDK_GROUP_ID, SDK_MODULES } from './sdk-version.mjs';
+import { resolveStableBaseline } from './sdk-published-base.mjs';
 
 function lines(text) {
     return new Set(text.split(/\r?\n/u).filter(Boolean));
@@ -79,22 +79,6 @@ export function consumerPomSurface(pom, sdkVersion) {
         ...dependencySurface(directPom, 'DEPENDENCY', sdkVersion),
         ...dependencySurface(management?.body ?? '', 'MANAGED_DEPENDENCY', sdkVersion)
     ].sort().join('\n');
-}
-
-export function compareVersions(left, right) {
-    for (const key of ['major', 'minor', 'patch']) {
-        if (left[key] !== right[key]) {
-            return left[key] < right[key] ? -1 : 1;
-        }
-    }
-    if (!left.prerelease && !right.prerelease) return 0;
-    if (!left.prerelease) return 1;
-    if (!right.prerelease) return -1;
-    const order = { alpha: 0, beta: 1, rc: 2 };
-    if (order[left.prereleaseChannel] !== order[right.prereleaseChannel]) {
-        return order[left.prereleaseChannel] < order[right.prereleaseChannel] ? -1 : 1;
-    }
-    return Math.sign(left.prereleaseSequence - right.prereleaseSequence);
 }
 
 export function evaluateContract({
@@ -173,59 +157,6 @@ export function changedMavenContracts(baseSdkRoot, candidateSdkRoot, baseSdkVers
     return changes;
 }
 
-function readAtRef(repoRoot, relativePath, ref) {
-    if (!ref) {
-        const file = path.join(repoRoot, ...relativePath.split('/'));
-        return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
-    }
-    try {
-        return execFileSync('git', ['-C', repoRoot, 'show', `${ref}:${relativePath}`], {
-            encoding: 'utf8',
-            stdio: ['ignore', 'pipe', 'ignore']
-        });
-    } catch {
-        return null;
-    }
-}
-
-export function readBaseline(repoRoot, directory, ref) {
-    const metadataText = readAtRef(repoRoot, `${directory}/metadata.json`, ref);
-    const surface = readAtRef(repoRoot, `${directory}/api-surface.txt`, ref);
-    if (!metadataText && !surface) return null;
-    if (!metadataText || !surface) throw new Error(`Stable SDK baseline is incomplete: ${directory}`);
-    const metadata = JSON.parse(metadataText);
-    if (metadata.schemaVersion !== 1 || typeof metadata.sdkVersion !== 'string') {
-        throw new Error(`Invalid stable SDK baseline metadata: ${directory}`);
-    }
-    const identity = parseSdkVersion(metadata.sdkVersion);
-    if (identity.prerelease) throw new Error(`Invalid stable SDK baseline identity: ${metadata.sdkVersion}`);
-    return { identity, metadataText, surface };
-}
-
-export function evaluateBaselineState({ base, candidate, candidateIdentity, candidateSurface, directory }) {
-    if (candidateIdentity.prerelease) {
-        if (!base && candidate) throw new Error('A prerelease cannot establish a stable SDK baseline');
-        if (base && (!candidate
-                || candidate.metadataText !== base.metadataText
-                || candidate.surface !== base.surface)) {
-            throw new Error('A prerelease cannot modify the stable SDK baseline');
-        }
-        return base;
-    }
-    if (!candidate) throw new Error(`Stable SDK ${candidateIdentity.version} must materialize ${directory}`);
-    if (candidate.identity.version !== candidateIdentity.version || candidate.surface !== candidateSurface) {
-        throw new Error(`Stable SDK ${candidateIdentity.version} must update ${directory}/api-surface.txt`);
-    }
-    return base;
-}
-
-function stableBaseline(repoRoot, candidateIdentity, baseRef, candidateRef, candidateSurface) {
-    const directory = `sdk-baselines/v${candidateIdentity.major}`;
-    const base = readBaseline(repoRoot, directory, baseRef);
-    const candidate = readBaseline(repoRoot, directory, candidateRef);
-    return evaluateBaselineState({ base, candidate, candidateIdentity, candidateSurface, directory });
-}
-
 function parseArguments(argv) {
     const options = { repoRoot: '.', baseRef: '', candidateRef: '', baseSurface: '', candidateSurface: '',
         baseSdkRoot: '', candidateSdkRoot: '', report: '', requireReleaseIdentity: 'false' };
@@ -252,7 +183,7 @@ function parseArguments(argv) {
     return options;
 }
 
-function main() {
+async function main() {
     const options = parseArguments(process.argv.slice(2));
     const repoRoot = path.resolve(options.repoRoot);
     const baseIdentity = readSdkIdentity(repoRoot, options.baseRef, true);
@@ -263,13 +194,9 @@ function main() {
         throw new Error('--require-release-identity must be true or false');
     }
     const requireReleaseIdentity = options.requireReleaseIdentity === 'true';
-    const baseline = requireReleaseIdentity ? stableBaseline(
-            repoRoot,
-            candidateIdentity,
-            options.baseRef,
-            options.candidateRef,
-            candidateSurface
-    ) : null;
+    const baseline = requireReleaseIdentity ? await resolveStableBaseline({
+        repoRoot, baseRef: options.baseRef, baseIdentity, baseSurface, candidateIdentity
+    }) : null;
     const result = evaluateContract({ baseIdentity, candidateIdentity, baseSurface, candidateSurface,
         mavenContractChanges: changedMavenContracts(
                 path.resolve(options.baseSdkRoot),
@@ -282,6 +209,7 @@ function main() {
         schemaVersion: 2,
         baseReleaseId: baseIdentity.releaseId,
         candidateReleaseId: candidateIdentity.releaseId,
+        stableBaseline: baseline ? { releaseId: baseline.identity.releaseId, sourceCommitSha: baseline.sourceSha } : null,
         ...result
     };
     fs.mkdirSync(path.dirname(path.resolve(options.report)), { recursive: true });
@@ -290,10 +218,8 @@ function main() {
 }
 
 if (path.resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
-    try {
-        main();
-    } catch (error) {
+    main().catch(error => {
         process.stderr.write(`${error.message}\n`);
         process.exitCode = 1;
-    }
+    });
 }

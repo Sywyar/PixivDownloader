@@ -22,6 +22,22 @@ const TEMPLATE_POMS = [
 export const SDK_GROUP_ID = 'io.github.sywyar.pixivdownloader';
 const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(alpha|beta|rc)\.?([1-9]\d*))?$/;
 
+export function compareVersions(left, right) {
+    for (const key of ['major', 'minor', 'patch']) {
+        if (left[key] !== right[key]) {
+            return left[key] < right[key] ? -1 : 1;
+        }
+    }
+    if (!left.prerelease && !right.prerelease) return 0;
+    if (!left.prerelease) return 1;
+    if (!right.prerelease) return -1;
+    const order = { alpha: 0, beta: 1, rc: 2 };
+    if (order[left.prereleaseChannel] !== order[right.prereleaseChannel]) {
+        return order[left.prereleaseChannel] < order[right.prereleaseChannel] ? -1 : 1;
+    }
+    return Math.sign(left.prereleaseSequence - right.prereleaseSequence);
+}
+
 export function sdkModulesAtRef(repoRoot, ref = '') {
     const pom = readText(repoRoot, 'pom.xml', ref);
     const modules = new Set([...pom.matchAll(/<module>\s*([^<]+?)\s*<\/module>/gu)].map(match => match[1]));
