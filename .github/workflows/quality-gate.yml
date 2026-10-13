@@ -147,7 +147,7 @@ jobs:
       - name: Upload verified SDK candidate
         id: sdk-candidate
         if: inputs.export_sdk_candidates == true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sdk-candidate-${{ github.sha }}-${{ github.run_attempt }}
           path: target/sdk-publication-inputs/
@@ -222,7 +222,7 @@ jobs:
       - name: Upload verified release candidates
         id: release-candidate
         if: inputs.export_release_candidates == true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-candidates-${{ github.sha }}-${{ github.run_attempt }}
           path: build/release-candidates/
