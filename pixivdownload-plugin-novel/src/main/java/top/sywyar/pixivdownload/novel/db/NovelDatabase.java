@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
+import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
 import top.sywyar.pixivdownload.core.time.EpochMillisNormalizer;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.work.service.WorkTagCatalog;
@@ -26,6 +27,7 @@ public class NovelDatabase {
     private final NovelMapper novelMapper;
     private final WorkTagCatalog workTagCatalog;
     private final StoredPathCodec pathPrefixCodec;
+    private final DatabaseAvailability database;
     /**
      * 进程内已分配但可能尚未持久化的最大 novel time。
      * 与共享作品时间唯一性同样的原因 —— 防止并发下载时多个 worker 拿到相同时间戳后被
@@ -35,21 +37,17 @@ public class NovelDatabase {
 
     /**
      * 非 DDL 初始化：宿主受管 schema 在外置插件 child context 创建前已经就绪，这里只保留
-     * FTS 虚拟表维护与幂等数据迁移；{@code novels_fts} 不入受管 schema，其 DDL 留在本类。
+     * 全文检索及清理意图与幂等数据迁移；提供者负责辅助索引和触发规则的物理实现。
      */
     @PostConstruct
     public void init() {
+        if (!database.available()) return;
         novelMapper.createNovelSoftDeleteCleanupTrigger();
         novelMapper.cleanupExistingDeletedNovelState();
-        // FTS 是可再生辅助数据，其 DDL、陈旧行回收或回填失败都不能阻断插件启动或主表软删除。
-        try { novelMapper.createNovelFtsTable(); } catch (Exception e) {
+        try { novelMapper.initializeContentSearch(); } catch (Exception e) {
             log.warn("Failed to initialize novel full-text index: {}", e.getMessage());
         }
-        try { novelMapper.deleteDeletedNovelFts(); } catch (Exception e) {
-            log.warn("Failed to remove deleted novels from full-text index: {}", e.getMessage());
-        }
-        // 回填尚未建索引的正文（辅助数据，失败不应阻断启动）
-        try { novelMapper.backfillNovelFts(); } catch (Exception e) {
+        try { novelMapper.refreshContentSearch(null); } catch (Exception e) {
             log.warn("Failed to backfill novel full-text index: {}", e.getMessage());
         }
         novelMapper.migrateNovelTimestampsToMillis();
@@ -99,7 +97,7 @@ public class NovelDatabase {
         if (previous != null && !Objects.equals(previous.rawContent(), rawContent)) {
             novelMapper.deleteNarrationScripts(novelId);
         }
-        syncNovelFts(novelId, rawContent);
+        syncNovelFts(novelId);
     }
 
     /** 保存下载事实及实际使用的文件名长度，供后续定位、导出与删除重建相同名称。 */
@@ -120,10 +118,9 @@ public class NovelDatabase {
     }
 
     /** 重建单本小说的全文索引行；正文索引是辅助数据，失败仅记日志、不影响下载落库。 */
-    private void syncNovelFts(long novelId, String rawContent) {
+    private void syncNovelFts(long novelId) {
         try {
-            novelMapper.deleteNovelFts(novelId);
-            novelMapper.insertNovelFts(novelId, rawContent == null ? "" : rawContent);
+            novelMapper.refreshContentSearch(novelId);
         } catch (Exception e) {
             log.warn("Failed to update novel full-text index for {}: {}", novelId, e.getMessage());
         }
@@ -143,22 +140,14 @@ public class NovelDatabase {
     }
 
     /**
-     * 正文全文检索，返回命中的小说 ID。trigram 索引要求查询串至少 3 个字符；更短关键词回退到
-     * {@code raw_content} 的 LIKE 子串扫描。正文读取与 FTS 查询均保持在小说插件持久化层。
+     * 正文字面子串检索；索引与字符匹配由提供者实现，软删除记录不参与结果。
      */
     public Set<Long> searchNovelContentIds(String term) {
         if (term == null) return Collections.emptySet();
         String trimmed = term.trim();
         if (trimmed.isEmpty()) return Collections.emptySet();
         try {
-            List<Long> ids;
-            if (trimmed.codePointCount(0, trimmed.length()) < 3) {
-                ids = novelMapper.findNovelIdsByContentLike("%" + escapeLikePattern(trimmed) + "%");
-            } else {
-                String phrase = "\"" + trimmed.replace("\"", "\"\"") + "\"";
-                ids = novelMapper.searchNovelFtsIds(phrase);
-            }
-            return new HashSet<>(ids);
+            return new HashSet<>(novelMapper.searchContent(trimmed));
         } catch (Exception e) {
             log.warn("Novel full-text search failed for term '{}': {}", trimmed, e.getMessage());
             return Collections.emptySet();
@@ -484,15 +473,4 @@ public class NovelDatabase {
                 pathPrefixCodec.resolve(series.coverFolder()));
     }
 
-    private static String escapeLikePattern(String value) {
-        StringBuilder out = new StringBuilder(value.length());
-        for (int i = 0; i < value.length(); i++) {
-            char ch = value.charAt(i);
-            if (ch == '\\' || ch == '%' || ch == '_') {
-                out.append('\\');
-            }
-            out.append(ch);
-        }
-        return out.toString();
-    }
 }

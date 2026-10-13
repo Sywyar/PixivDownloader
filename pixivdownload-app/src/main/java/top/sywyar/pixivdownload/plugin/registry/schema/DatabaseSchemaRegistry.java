@@ -172,6 +172,8 @@ public class DatabaseSchemaRegistry {
             throw new IllegalStateException("schema contribution without trusted ownerPluginId");
         }
         Objects.requireNonNull(contribution, "schema contribution");
+        if (contribution.sharedAccess() != null && !"core".equals(trustedOwnerPluginId))
+            throw new IllegalStateException("STORAGE_EXPORT_NOT_CORE");
         for (TableSpec table : contribution.tables()) {
             validateAutoIncrement(table, trustedOwnerPluginId);
         }
@@ -193,6 +195,10 @@ public class DatabaseSchemaRegistry {
     private static void validateAppend(
             List<RegisteredContribution> existing,
             RegisteredContribution candidate) {
+        var access = candidate.contribution().sharedAccess();
+        if (access != null && existing.stream().anyMatch(c -> c.contribution().sharedAccess() != null
+                && c.contribution().sharedAccess().storageId().equals(access.storageId())))
+            throw new IllegalStateException("STORAGE_EXPORT_DUPLICATE");
         Set<String> existingTables = existing.stream()
                 .flatMap(registered -> registered.tables().stream())
                 .map(ManagedDatabaseSchema.TableSpec::name)
@@ -245,6 +251,51 @@ public class DatabaseSchemaRegistry {
     /** 按注册顺序返回全部 contribution 的不可变快照。 */
     public List<SchemaContribution> contributions() {
         return snapshot.stream().map(RegisteredContribution::contribution).toList();
+    }
+
+    /** 只保留当前不可变注册快照的中性结构，避免每次查询重建全部表。 */
+    private volatile StorageSnapshot storageSnapshot;
+    private record StorageSnapshot(List<RegisteredContribution> source,
+            top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema schema) {}
+
+    public top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema storageSchema() {
+        var source = snapshot;
+        var cached = storageSnapshot;
+        if (cached != null && cached.source() == source) return cached.schema();
+        var schema = top.sywyar.pixivdownload.core.db.schema.CoreMigrationSchema.create(
+                source.stream().map(RegisteredContribution::contribution).toList(),
+                new ManagedDatabaseSchema.DatabaseSchema(mergedTables(source)), true);
+        storageSnapshot = new StorageSnapshot(source, schema);
+        return schema;
+    }
+
+    public record StorageScope(top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema schema,
+                               Set<String> writableTables) {}
+
+    /** 授权只来自可信 owner 和核心显式公开域，不接受调用方给出的表名或其他 owner。 */
+    public StorageScope storageScope(String owner, List<String> requested) {
+        if (owner == null || owner.isBlank() || "core".equals(owner))
+            throw new IllegalArgumentException("STORAGE_OWNER_INVALID");
+        var source = snapshot;
+        var remaining = new HashSet<>(requested);
+        var selected = new ArrayList<RegisteredContribution>();
+        var writable = new HashSet<String>();
+        for (var entry : source) {
+            var access = entry.contribution().sharedAccess();
+            boolean own = entry.ownerPluginId().equals(owner);
+            boolean shared = "core".equals(entry.ownerPluginId()) && access != null
+                    && remaining.remove(access.storageId());
+            if (own || shared) {
+                selected.add(entry);
+                if (own || !access.readOnly()) entry.tables().forEach(t -> writable.add(t.name()));
+            }
+        }
+        if (!remaining.isEmpty()) throw new IllegalArgumentException("STORAGE_DOMAIN_UNAVAILABLE");
+        var tables = mergedTables(selected);
+        var schema = top.sywyar.pixivdownload.core.db.schema.CoreMigrationSchema.create(
+                selected.stream().map(RegisteredContribution::contribution).toList(),
+                new ManagedDatabaseSchema.DatabaseSchema(tables), false);
+        return new StorageScope(schema, Set.copyOf(writable));
     }
 
     /**
@@ -364,7 +415,8 @@ public class DatabaseSchemaRegistry {
         for (Map.Entry<String, TableSpec> entry : rawTables(subset).entrySet()) {
             TableSpec candidateSuperset = supersetRawTables.get(entry.getKey());
             if (candidateSuperset == null
-                    || !Objects.equals(entry.getValue().checkExpression(), candidateSuperset.checkExpression())) {
+                    || (!Objects.equals(entry.getValue().checkExpression(), candidateSuperset.checkExpression())
+                    || !Objects.equals(entry.getValue().check(), candidateSuperset.check()))) {
                 return false;
             }
             Map<String, ColumnSpec> supersetRawColumns = candidateSuperset.columns().stream()
@@ -451,7 +503,8 @@ public class DatabaseSchemaRegistry {
         Map<String, TableSpec> replacementRawTables = rawTables(replacement);
         for (Map.Entry<String, TableSpec> entry : rawTables(previous).entrySet()) {
             TableSpec next = replacementRawTables.get(entry.getKey());
-            if (next == null || !Objects.equals(entry.getValue().checkExpression(), next.checkExpression())) {
+            if (next == null || (!Objects.equals(entry.getValue().checkExpression(), next.checkExpression())
+                    || !Objects.equals(entry.getValue().check(), next.check()))) {
                 throw nonMonotonic(ownerPluginId, "table check", entry.getKey());
             }
             Map<String, ColumnSpec> nextRawColumns = next.columns().stream()

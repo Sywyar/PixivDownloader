@@ -32,6 +32,11 @@ public class NovelPlugin implements PixivFeaturePlugin {
     public static final String ID = "novel";
 
     @Override
+    public List<String> sharedMainStorage() {
+        return List.of("pixiv-novels", "pixiv-tags");
+    }
+
+    @Override
     public String id() {
         return ID;
     }

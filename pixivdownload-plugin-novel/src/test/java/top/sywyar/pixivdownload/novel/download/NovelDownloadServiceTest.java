@@ -66,6 +66,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 @DisplayName("NovelDownloadService 交互式下载转发捕获")
 class NovelDownloadServiceTest {
+    private final java.util.concurrent.atomic.AtomicBoolean databaseAvailable = new java.util.concurrent.atomic.AtomicBoolean(true);
 
     private static final MessageResolver NOVEL_MESSAGES = NovelTestMessages.messageResolver();
     private static final String RAW_META = "{\"uploadDate\":\"2026-06-06T21:27:00+00:00\"}";
@@ -140,7 +141,7 @@ class NovelDownloadServiceTest {
                 novelSeriesService, authorObservationService, workCollectionMembership,
                 collectionDownloadRootResolver, pixivBookmarkActions, visitorDownloadQuotaService,
                 pixivImageDownloader, taskScheduler, executionLane, NOVEL_MESSAGES,
-                novelAutoTranslateService, workMetadataCapture, taskTracker, workAssets, runtimePaths, downloadLifecycle);
+                novelAutoTranslateService, workMetadataCapture, taskTracker, workAssets, runtimePaths, downloadLifecycle, databaseAvailable::get);
     }
 
     /** 构造一个最简的 TXT 交互式小说下载请求（无封面 / 无内嵌图 / 无系列 / 无收藏）。 */
@@ -154,6 +155,39 @@ class NovelDownloadServiceTest {
         other.setRawMetaJson(rawMetaJson);
         request.setOther(other);
         return request;
+    }
+
+    @Test
+    @DisplayName("内嵌图传输后数据库失效时停止后续图片和正文发布")
+    void databaseFailureStopsInFlightNovel() throws Exception {
+        var request = txtRequest(88L, null);
+        request.setContent("[uploadedimage:11] [uploadedimage:12]");
+        request.getOther().setEmbeddedImages(Map.of("11", "https://i.pximg.net/first.png", "12", "https://i.pximg.net/second.png"));
+        when(pixivImageDownloader.downloadImage(any(), any(), any(), any(), any())).thenAnswer(call -> {
+            databaseAvailable.set(false);
+            return "png";
+        });
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.downloadBlocking(request, null))
+                .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+        verify(pixivImageDownloader).downloadImage(any(), any(), any(), any(), any());
+        verify(workAssets, never()).publishFiles(any(), anyLong(), any(), any());
+        assertThat(service.getStatus(88L).isFailed()).isTrue();
+    }
+
+    @Test
+    @DisplayName("系列观察后数据库失效时停止收藏、配额和翻译")
+    void databaseFailureStopsPostDownloadActions() throws Exception {
+        var request = txtRequest(91L, null);
+        request.getOther().setSeriesId(42L);
+        request.getOther().setBookmark(true);
+        request.getOther().setAutoTranslate(true);
+        org.mockito.Mockito.doAnswer(call -> { databaseAvailable.set(false); return null; })
+                .when(novelDatabase).observeSeries(eq(42L), any(), any());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.downloadBlocking(request, null))
+                .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+        verify(novelDatabase).observeSeries(eq(42L), any(), any());
+        org.mockito.Mockito.verifyNoInteractions(pixivBookmarkActions, visitorDownloadQuotaService, novelAutoTranslateService);
+        assertThat(service.getStatus(91L).isFailed()).isTrue();
     }
 
     @Test
@@ -402,6 +436,20 @@ class NovelDownloadServiceTest {
 
         assertThat(ok).isTrue();
         verify(workMetadataCapture).captureForwarded(eq(WorkType.NOVEL), eq(103L), any());
+    }
+
+    @Test
+    @DisplayName("元数据明确缺库时下载不返回成功也不提交后续自动翻译")
+    void shouldStopAfterUnavailableMetadataCapture() {
+        doThrow(new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException())
+                .when(workMetadataCapture).captureForwarded(any(), anyLong(), any());
+        NovelDownloadRequest request = txtRequest(103L, RAW_META);
+        request.getOther().setAutoTranslate(true);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.downloadBlocking(request, null))
+                .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+        assertThat(service.getStatus(103L).isFailed()).isTrue();
+        org.mockito.Mockito.verifyNoInteractions(novelAutoTranslateService);
     }
 
     @Test

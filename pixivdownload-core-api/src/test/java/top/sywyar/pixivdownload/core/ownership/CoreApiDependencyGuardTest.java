@@ -111,6 +111,7 @@ class CoreApiDependencyGuardTest {
                         "top.sywyar.pixivdownload.core.asset..",
                         "top.sywyar.pixivdownload.core.artwork..",
                         "top.sywyar.pixivdownload.core.collection..",
+                        "top.sywyar.pixivdownload.core.database..",
                         "top.sywyar.pixivdownload.core.db.pathprefix..",
                         "top.sywyar.pixivdownload.core.download..",
                         "top.sywyar.pixivdownload.core.ffmpeg..",

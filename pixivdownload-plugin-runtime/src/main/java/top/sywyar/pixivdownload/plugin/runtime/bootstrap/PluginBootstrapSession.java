@@ -27,6 +27,10 @@ import java.util.List;
 import java.util.Objects;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
+import java.util.function.Supplier;
+import top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionSettings;
+import top.sywyar.pixivdownload.plugin.runtime.bootstrap.database.DatabaseProviderBinding;
+import top.sywyar.pixivdownload.plugin.runtime.bootstrap.database.DatabaseProviderSelection;
 
 /**
  * 进程级插件运行时 bootstrap 会话：把「恢复待处理安装事务 → 构造唯一 {@link PluginRuntimeManager} → 一次启动扫描与
@@ -77,6 +81,7 @@ public final class PluginBootstrapSession implements AutoCloseable {
     private volatile PluginDiscoveryResult startupDiscovery = PluginDiscoveryResult.empty();
     private volatile boolean started;
     private volatile boolean closed;
+    private DatabaseProviderBinding databaseBinding;
 
     private PluginBootstrapSession(Path pluginsRoot, Ownership ownership, PluginEnabledSnapshot enabledSnapshot,
                                    PluginSupplyChainVerifier verifier) {
@@ -397,6 +402,30 @@ public final class PluginBootstrapSession implements AutoCloseable {
         startupDiscovery = PluginDiscoveryResult.empty();
     }
 
+    /** 在 Spring 子上下文之前绑定数据库；后端重启不会重新读取已修改的选择或连接配置。 */
+    public synchronized DatabaseProviderBinding bindDatabase(String selectedOwner, String initialDatabaseId,
+                                                              Supplier<DatabaseConnectionSettings> settings) {
+        return bindDatabase(selectedOwner, initialDatabaseId, settings, java.util.function.UnaryOperator.identity());
+    }
+
+    public synchronized DatabaseProviderBinding bindDatabase(String selectedOwner, String initialDatabaseId,
+            Supplier<DatabaseConnectionSettings> settings,
+            java.util.function.UnaryOperator<DatabaseProviderBinding> prepare) {
+        if (closed || !started) throw new IllegalStateException("Plugin bootstrap session is not active");
+        if (databaseBinding == null) {
+            var selected = DatabaseProviderSelection.select(selectedOwner, initialDatabaseId,
+                    manager().inspectPlugins(), enabledSnapshot);
+            databaseBinding = DatabaseProviderBinding.resolve(selected, settings, prepare);
+        }
+        return databaseBinding;
+    }
+
+    /** 只投影本进程可信运行时已加载的能力，不加载新安装的重启型插件。 */
+    public synchronized List<DatabaseProviderSelection.Result> databaseProviders() {
+        if (closed || !started) return List.of();
+        return DatabaseProviderSelection.available(manager().inspectPlugins(), enabledSnapshot);
+    }
+
     public List<String> diagnostics() {
         return List.copyOf(diagnostics);
     }
@@ -431,6 +460,7 @@ public final class PluginBootstrapSession implements AutoCloseable {
             return;
         }
         closed = true;
+        databaseBinding = null;
         // 无条件清空启动期快照——它持有插件实例 / classloader 引用，关闭时不得残留钉住旧 generation。
         startupInventory = PluginInventory.empty();
         startupDiscovery = PluginDiscoveryResult.empty();

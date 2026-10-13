@@ -182,7 +182,7 @@ class SchedulePluginExceptionBoundaryTest {
                 store, registry, new ScheduleRunState(), new ScheduleRunQueue(), config,
                 new ScheduleWorkPersistenceCodec(objectMapper),
                 new ScheduleNetworkRouteResolver(direct),
-                new SyncTaskExecutor(), objectMapper);
+                new SyncTaskExecutor(), objectMapper, () -> true);
     }
 
     private static ScheduledTask task() {

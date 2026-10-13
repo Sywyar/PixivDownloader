@@ -7,12 +7,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.core.metadata.ArtworkMetadataQuality;
+import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
+import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 import top.sywyar.pixivdownload.core.metadata.WorkMetadataStore;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 
 
-/** 捕获经过裁剪的作品快照与查询列；入库失败不反报已经完成的下载失败。 */
+/** 捕获作品快照与查询列；普通入库失败不影响已完成下载，数据库不可用则明确拒绝。 */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -21,6 +23,7 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
     private final WorkMetaCurator curator;
     private final WorkMetadataStore metadataStore;
     private final ObjectMapper objectMapper;
+    private final DatabaseAvailability database;
 
     /**
      * 捕获插画 meta：归一化后原子更新数据库快照与查询列。
@@ -30,6 +33,7 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
      * @param source     捕获来源（{@code schedule}/{@code forward}/{@code backfill}）
      */
     public void captureArtwork(long artworkId, JsonNode illustBody, JsonNode pagesBody, String source) {
+        database.requireAvailable();
         if (illustBody == null || !illustBody.isObject()) {
             return;
         }
@@ -37,6 +41,7 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
         try {
             curated = curator.curateArtwork(artworkId, illustBody, pagesBody, source);
         } catch (RuntimeException e) {
+            database.requireAvailable();
             log.warn("Failed to curate artwork meta {}: {}", artworkId, e.getMessage());
             return;
         }
@@ -64,6 +69,7 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
      * @param rawMetaJson 轻剪枝后的 illust body JSON 串；{@code null} / 空白 / 非法时直接跳过
      */
     public void captureForwardedArtwork(long artworkId, String rawMetaJson) {
+        database.requireAvailable();
         if (!StringUtils.hasText(rawMetaJson)) {
             return;
         }
@@ -83,6 +89,7 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
      * @param novelBody {@code /ajax/novel/{id}} 的 body；为 {@code null} 时直接跳过
      */
     public void captureNovel(long novelId, JsonNode novelBody, String source) {
+        database.requireAvailable();
         if (novelBody == null || !novelBody.isObject()) {
             return;
         }
@@ -90,6 +97,7 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
         try {
             curated = curator.curateNovel(novelId, novelBody, source);
         } catch (RuntimeException e) {
+            database.requireAvailable();
             log.warn("Failed to curate novel meta {}: {}", novelId, e.getMessage());
             return;
         }
@@ -109,6 +117,7 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
             String supplementalJson,
             String source
     ) {
+        database.requireAvailable();
         if (type == null) {
             return;
         }
@@ -116,6 +125,7 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
             case ARTWORK -> captureArtworkJson(workId, workJson, supplementalJson, source);
             case NOVEL -> captureNovelJson(workId, workJson, source);
         }
+        database.requireAvailable();
     }
 
     /**
@@ -129,6 +139,7 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
      * @param rawMetaJson 轻剪枝后的 novel body JSON 串；{@code null} / 空白 / 非法时直接跳过
      */
     public void captureForwardedNovel(long novelId, String rawMetaJson) {
+        database.requireAvailable();
         if (!StringUtils.hasText(rawMetaJson)) {
             return;
         }
@@ -155,9 +166,14 @@ public class WorkMetaCaptureService implements WorkMetadataCapture {
     }
 
     private void persist(WorkType type, long id, CuratedWorkMeta meta, boolean replaceSnapshot) {
+        database.requireAvailable();
         try {
             metadataStore.save(type, id, meta, replaceSnapshot);
+            database.requireAvailable();
+        } catch (DatabaseUnavailableException unavailable) {
+            throw unavailable;
         } catch (Exception failure) {
+            database.requireAvailable();
             log.warn("Failed to persist {} metadata {}: {}", type, id, failure.getMessage());
         }
     }

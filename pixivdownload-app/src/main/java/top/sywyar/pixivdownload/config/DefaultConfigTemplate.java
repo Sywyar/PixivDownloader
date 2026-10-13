@@ -52,6 +52,10 @@ public final class DefaultConfigTemplate {
                 "config.template.ffmpeg.max-concurrent.comment");
         appendBlankLine(config);
 
+        appendSetting(config, messages, "database.engine: sqlite", "config.template.database.engine.comment");
+        appendSetting(config, messages, "database.jdbc-url: \"\"", "config.template.database.jdbc-url.comment");
+        appendSetting(config, messages, "database.username: \"\"", "config.template.database.username.comment");
+        appendSetting(config, messages, "database.password: \"\"", "config.template.database.password.comment");
         appendSetting(config, messages, "database.maximum-pool-size: 28", "config.template.database.maximum-pool-size.comment");
         appendBlankLine(config);
 

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import javax.sql.DataSource;
@@ -56,7 +57,12 @@ public class ArtworksBackFill {
             printUsage();
             return;
         }
-        run(options);
+        var environment = DatabaseTarget.configurationEnvironment();
+        try (var plugins = top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap.openToolSession(environment)) {
+            var target = top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap.inspect(plugins, environment);
+            if (java.util.Arrays.asList(args).contains("--db")) target = target.withLocalFile(Path.of(options.dbPath()));
+            run(options.withTarget(target));
+        }
     }
 
     public static boolean supportsDatabaseColumn(String tableName, String columnName) {
@@ -64,13 +70,13 @@ public class ArtworksBackFill {
     }
 
     public static int countCandidates(Options options) throws Exception {
-        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(options.dbPath())) {
+        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(options.target())) {
             return countCandidates(options, database);
         }
     }
 
     public static int countCandidates(Options options, DataSource dataSource) throws Exception {
-        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(dataSource, options.dbPath())) {
+        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(dataSource, options.target())) {
             return countCandidates(options, database);
         }
     }
@@ -84,7 +90,7 @@ public class ArtworksBackFill {
     }
 
     public static Summary run(Options options) throws Exception {
-        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(options.dbPath())) {
+        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(options.target())) {
             return run(options, database, true, (processed, total) -> {});
         }
     }
@@ -96,7 +102,7 @@ public class ArtworksBackFill {
     public static Summary run(Options options, DataSource dataSource,
             java.util.function.BiConsumer<Integer, Integer> progress) throws Exception {
         java.util.Objects.requireNonNull(progress, "progress");
-        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(dataSource, options.dbPath())) {
+        try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(dataSource, options.target())) {
             return run(options, database, false, progress);
         }
     }
@@ -122,6 +128,7 @@ public class ArtworksBackFill {
         }
 
         ObjectMapper mapper = new ObjectMapper();
+        database.requireAvailable();
         Path unreachablePath = RuntimeFiles.resolveBackfillUnreachablePath();
         ArtworksBackFillUnreachableStore unreachable = ArtworksBackFillUnreachableStore.load(
                 unreachablePath,
@@ -161,8 +168,10 @@ public class ArtworksBackFill {
             for (int i = 0; i < candidates.size(); i++) {
                 reportProgress(progress, i, candidates.size());
                 ArtworksBackFillDatabase.Candidate candidate = candidates.get(i);
+                database.requireAvailable();
                 ArtworksBackFillPixivClient.LookupResult result = pixivClient.query(candidate.artworkId());
                 reportProgress(progress, i, candidates.size());
+                database.requireAvailable();
                 String prefix = "[" + (i + 1) + "/" + candidates.size() + "] artwork="
                         + candidate.artworkId() + " missing=[" + describeMissing(candidate) + "]";
 
@@ -240,7 +249,7 @@ public class ArtworksBackFill {
                         if (!alreadyKnown) {
                             newlyUnreachable++;
                         }
-                        persistUnreachable(unreachable, unreachablePath);
+                        persistUnreachable(database, unreachable, unreachablePath);
                     }
                     case SKIP -> {
                         log.info(logMessage("artworks-backfill.log.skip", prefix, result.message));
@@ -255,7 +264,7 @@ public class ArtworksBackFill {
                         if (options.dryRun()) {
                             log.info(logMessage("artworks-backfill.log.dry-run"));
                         }
-                        persistUnreachable(unreachable, unreachablePath);
+                        persistUnreachable(database, unreachable, unreachablePath);
                         Summary summary = new Summary(
                                 candidates.size(),
                                 i,
@@ -283,7 +292,7 @@ public class ArtworksBackFill {
                 }
             }
 
-            persistUnreachable(unreachable, unreachablePath);
+            persistUnreachable(database, unreachable, unreachablePath);
             Summary summary = new Summary(
                     candidates.size(),
                     candidates.size(),
@@ -311,7 +320,9 @@ public class ArtworksBackFill {
         progress.accept(processed, total);
     }
 
-    private static void persistUnreachable(ArtworksBackFillUnreachableStore store, Path path) {
+    private static void persistUnreachable(ArtworksBackFillDatabase database,
+                                           ArtworksBackFillUnreachableStore store, Path path) throws java.sql.SQLException {
+        database.requireAvailable();
         try {
             store.save();
         } catch (IOException e) {
@@ -364,11 +375,23 @@ public class ArtworksBackFill {
                           boolean useProxy,
                           long delayMs,
                           int limit,
-                          boolean dryRun) {
+                          boolean dryRun,
+                          DatabaseTarget target) {
+
+        public Options(String dbPath, String proxyHost, int proxyPort, boolean useProxy,
+                       long delayMs, int limit, boolean dryRun) {
+            this(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun,
+                    DatabaseTarget.unavailable());
+        }
+
+        public Options withTarget(DatabaseTarget databaseTarget) {
+            return new Options(databaseTarget.displayName(), proxyHost, proxyPort, useProxy,
+                    delayMs, limit, dryRun, databaseTarget);
+        }
 
         public static Options defaults() {
             return new Options(
-                    RuntimeFiles.dataDirectory().resolve(RuntimeFiles.PIXIV_DOWNLOAD_DB).toString(),
+                    "DATABASE_UNAVAILABLE",
                     "127.0.0.1",
                     7890,
                     true,
@@ -405,7 +428,8 @@ public class ArtworksBackFill {
                     default -> throw new IllegalArgumentException(message("artworks-backfill.cli.error.unknown-option", args[i]));
                 }
             }
-            return new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun);
+            Options options = new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun);
+            return options;
         }
 
         private static String requireValue(String[] args, int index, String option) {

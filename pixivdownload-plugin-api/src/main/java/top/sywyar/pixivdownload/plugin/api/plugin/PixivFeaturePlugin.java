@@ -123,11 +123,40 @@ public interface PixivFeaturePlugin {
     /**
      * 插件参与稳定宿主协作契约时声明的宿主管理表、补列与路径列规则；所有权由宿主按已注册插件身份盖章。
      * 普通插件私有持久化不使用本入口，应注入
-     * {@link top.sywyar.pixivdownload.plugin.api.storage.PluginDataSource} 并在 owner 私有库内管理 schema。
+     * {@link top.sywyar.pixivdownload.plugin.api.storage.PluginDatabase} 并在 owner 私有库内管理 schema。
      *
      * @return 方法返回的列表
      */
     default List<SchemaContribution> schema() {
+        return List.of();
+    }
+
+    /**
+     * 请求宿主公开的逻辑主库存储域；未知域拒绝装配。自有主库表无需请求，其它 owner 的表不能请求。
+     * @return 请求访问的核心公开存储域身份，未请求时为空
+     */
+    default List<String> sharedMainStorage() {
+        return List.of();
+    }
+
+    /**
+     * owner 私有表的唯一结构声明；提供者在 child context 启动前建表、安全补列并核验结构。
+     * 使用既有中性列、索引和补列规格，私库不能声明宿主路径前缀列。
+     * 声明必须覆盖全部权威私有表；空列表表示未提供迁移合同，已有私库不得据此被忽略。
+     * 同一声明用于停机迁移；业务代码经 PluginDatabase 的中性操作访问，不编写方言 SQL。
+     * 安装态读取失败时停止迁移并保留原数据，不能把失败当作空声明。
+     *
+     * @return 用于核验和复制当前 owner 私库的不可变声明
+     */
+    default List<SchemaContribution> privateSchema() {
+        return List.of();
+    }
+
+    /**
+     * Ordered private-data conversions executed atomically at startup and on migration working copies.
+     * @return 按发布顺序排列的稳定转换声明
+     */
+    default List<top.sywyar.pixivdownload.plugin.api.storage.relational.StorageMigration> privateStorageMigrations() {
         return List.of();
     }
 

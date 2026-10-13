@@ -221,5 +221,7 @@ class PluginBootstrapHandoffTest {
         ctx.registerBean(
                 PluginCredentialPropertySourceService.class,
                 () -> mock(PluginCredentialPropertySourceService.class));
+        ctx.registerBean(top.sywyar.pixivdownload.plugin.storage.PluginDatabaseFactory.class,
+                () -> mock(top.sywyar.pixivdownload.plugin.storage.PluginDatabaseFactory.class));
     }
 }

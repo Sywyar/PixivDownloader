@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.gui;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseSchemaInspector;
 import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -14,6 +15,7 @@ import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
@@ -28,18 +30,19 @@ class GuiLauncherStartupSchemaTest {
     private static final String TABLE = "external_schema_history";
 
     @Test
-    @DisplayName("启动期 schema 应包含 bootstrap 已发现外置插件的受管表")
-    void startupSchemaIncludesExternalPluginTables() throws Exception {
+    @DisplayName("启动期独立连接检查应识别 bootstrap 已发现外置插件的磁盘表")
+    void startupSchemaIncludesExternalPluginTables(@TempDir Path tempDir) throws Exception {
         ManagedDatabaseSchema.DatabaseSchema startupSchema = GuiLauncher.buildStartupManagedSchema(
                 PluginEnabledSnapshot.empty(), discovery(new ExternalSchemaPlugin()));
 
         assertThat(startupSchema.tables().keySet()).contains(TABLE);
 
-        try (Connection connection = DriverManager.getConnection("jdbc:sqlite::memory:")) {
+        Path database = tempDir.resolve("startup.db");
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite:" + database)) {
             exec(connection, "CREATE TABLE external_schema_history (id TEXT PRIMARY KEY)");
 
             DatabaseSchemaInspector.SchemaComparison builtInOnlyComparison =
-                    DatabaseSchemaInspector.compare(connection,
+                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database),
                             DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema());
             assertThat(builtInOnlyComparison.details())
                     .anySatisfy(difference -> {
@@ -49,7 +52,7 @@ class GuiLauncherStartupSchemaTest {
                     });
 
             DatabaseSchemaInspector.SchemaComparison startupComparison =
-                    DatabaseSchemaInspector.compare(connection, startupSchema);
+                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database), startupSchema);
             assertThat(startupComparison.details())
                     .noneSatisfy(difference -> {
                         assertThat(difference.kind()).isEqualTo(

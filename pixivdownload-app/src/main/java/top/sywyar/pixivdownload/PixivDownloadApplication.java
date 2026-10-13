@@ -48,7 +48,7 @@ public class PixivDownloadApplication {
     public static ConfigurableApplicationContext start(String[] args) {
         Path configPath = RuntimeFiles.resolveConfigYamlPath();
         String rootFolder = RuntimeFiles.readDownloadRootFromConfig(configPath, RuntimeFiles.DEFAULT_DOWNLOAD_ROOT);
-        RuntimeFiles.prepareRuntimeFiles(rootFolder);
+        RuntimeFiles.prepareRuntimeFiles(rootFolder, false);
         return buildHeadlessApplication().run(args);
     }
 
@@ -67,7 +67,7 @@ public class PixivDownloadApplication {
     public static ConfigurableApplicationContext start(String[] args, PluginBootstrapSession session) {
         Path configPath = RuntimeFiles.resolveConfigYamlPath();
         String rootFolder = RuntimeFiles.readDownloadRootFromConfig(configPath, RuntimeFiles.DEFAULT_DOWNLOAD_ROOT);
-        RuntimeFiles.prepareRuntimeFiles(rootFolder);
+        RuntimeFiles.prepareRuntimeFiles(rootFolder, false);
         return buildGuiApplication(session).run(args);
     }
 

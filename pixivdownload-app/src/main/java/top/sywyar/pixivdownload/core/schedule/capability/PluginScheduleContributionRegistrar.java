@@ -45,6 +45,7 @@ public class PluginScheduleContributionRegistrar {
 
     private final ScheduleCapabilityRegistry registry;
     private final LegacyScheduledTaskMigrationService migrationService;
+    private final top.sywyar.pixivdownload.core.database.DatabaseAvailability database;
     private final PluginRegistry pluginRegistry;
     private final PluginOwnedWebAssetValidator webAssetValidator;
     private final Runnable rollbackCleanupProbe;
@@ -66,8 +67,9 @@ public class PluginScheduleContributionRegistrar {
             ScheduleCapabilityRegistry registry,
             LegacyScheduledTaskMigrationService migrationService,
             PluginRegistry pluginRegistry,
-            PluginOwnedWebAssetValidator webAssetValidator) {
-        this(registry, migrationService, pluginRegistry, webAssetValidator, () -> {
+            PluginOwnedWebAssetValidator webAssetValidator,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
+        this(registry, migrationService, pluginRegistry, webAssetValidator, database, () -> {
         });
     }
 
@@ -76,9 +78,11 @@ public class PluginScheduleContributionRegistrar {
             LegacyScheduledTaskMigrationService migrationService,
             PluginRegistry pluginRegistry,
             PluginOwnedWebAssetValidator webAssetValidator,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database,
             Runnable rollbackCleanupProbe) {
         this.registry = Objects.requireNonNull(registry, "registry");
         this.migrationService = Objects.requireNonNull(migrationService, "migrationService");
+        this.database = Objects.requireNonNull(database, "database");
         this.pluginRegistry = Objects.requireNonNull(pluginRegistry, "pluginRegistry");
         this.webAssetValidator = Objects.requireNonNull(webAssetValidator, "webAssetValidator");
         this.rollbackCleanupProbe = Objects.requireNonNull(
@@ -172,7 +176,8 @@ public class PluginScheduleContributionRegistrar {
             ScheduleCapabilityOwner owner,
             PublicationSlot slot,
             @Nullable LegacyScheduledTaskMigrationAdapter migrationAdapter) {
-        if (migrationAdapter != null) {
+        // 恢复启动只发布声明；旧任务迁移留待数据库恢复后的完整进程启动。
+        if (migrationAdapter != null && database.available()) {
             migrationService.migrateReservedOwner(slot.reservation, migrationAdapter);
         }
         return pluginRegistry.commitIfActiveIdentity(

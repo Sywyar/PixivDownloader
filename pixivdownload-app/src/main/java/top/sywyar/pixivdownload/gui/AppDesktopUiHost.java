@@ -4,6 +4,7 @@ import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.config.http.ServerAddressProvider;
+import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegInstaller;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegLocator;
@@ -49,6 +50,10 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private final ConfigFile applicationConfig;
     private final int startupPort;
     private final Supplier<DataSource> backfillDataSource;
+    private String[] startupArguments = new String[0];
+    private top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession pluginSession;
+    private DatabaseTarget processDatabaseTarget;
+    private final top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings databaseSettings;
     private final DesktopUiOnboardingState onboardingState = new DesktopUiOnboardingState();
     private final DesktopToolHistory toolHistory = new DesktopToolHistory(RuntimeFiles.guiStateDirectory());
     private final DesktopWindowStateStore windowState = new DesktopWindowStateStore(RuntimeFiles.guiStateDirectory());
@@ -57,16 +62,38 @@ final class AppDesktopUiHost implements DesktopUiHost {
         this(serverPort, yamlConfig(RuntimeFiles.resolveConfigYamlPath()));
     }
 
+    AppDesktopUiHost(int serverPort, String[] startupArguments,
+                     top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession pluginSession,
+                     DatabaseTarget processDatabaseTarget) {
+        this(serverPort, yamlConfig(RuntimeFiles.resolveConfigYamlPath()),
+                () -> BackendLifecycleManager.requiredBean(DataSource.class), pluginSession, processDatabaseTarget);
+        this.startupArguments = startupArguments.clone();
+    }
+
     AppDesktopUiHost(int serverPort, ConfigFile applicationConfig) {
         this(serverPort, applicationConfig, () -> BackendLifecycleManager.requiredBean(DataSource.class));
     }
 
     AppDesktopUiHost(int serverPort, ConfigFile applicationConfig, Supplier<DataSource> backfillDataSource) {
+        this(serverPort, applicationConfig, backfillDataSource, null, null);
+    }
+
+    AppDesktopUiHost(int serverPort, ConfigFile applicationConfig, Supplier<DataSource> backfillDataSource,
+                     top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession pluginSession,
+                     DatabaseTarget processDatabaseTarget) {
         this.localApiClient = new DesktopUiLocalApiClient(() -> BackendLifecycleManager.requiredBean(
                 top.sywyar.pixivdownload.config.http.LocalGuiWebServerCustomizer.class).connection());
         this.applicationConfig = applicationConfig;
         this.startupPort = serverPort;
         this.backfillDataSource = java.util.Objects.requireNonNull(backfillDataSource, "backfillDataSource");
+        this.pluginSession = pluginSession;
+        this.processDatabaseTarget = processDatabaseTarget;
+        this.databaseSettings = new top.sywyar.pixivdownload.gui.config.DatabaseSettingsService(
+                applicationConfig,
+                () -> DatabaseTarget.configurationEnvironment(this.startupArguments),
+                () -> BackendLifecycleManager.isRunning()
+                        ? Optional.of(BackendLifecycleManager.requiredBean(DatabaseTarget.class)) : Optional.empty(),
+                () -> this.pluginSession == null ? List.of() : this.pluginSession.databaseProviders(), this.pluginSession);
     }
 
     void resetIncompleteOnboardingState(String rootFolder) {
@@ -80,6 +107,9 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public String defaultUpdateManifestUrl(){return top.sywyar.pixivdownload.update.UpdateConfig.DEFAULT_MANIFEST_URL;}
     @Override public String defaultNightlyUpdateManifestUrl(){return top.sywyar.pixivdownload.update.UpdateConfig.DEFAULT_NIGHTLY_MANIFEST_URL;}
     @Override public ConfigFile applicationConfig(){return applicationConfig;}
+    @Override public Optional<top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings> databaseSettings() {
+        return Optional.of(databaseSettings);
+    }
     @Override public List<top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroupContribution> coreConfigGroups() {
         return DesktopCoreConfigCatalog.groups();
     }
@@ -178,17 +208,8 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private static UiLocale mapLocale(top.sywyar.pixivdownload.i18n.LocaleDescriptor descriptor){
         return new UiLocale(descriptor.tag(),descriptor.nativeName(),descriptor.resourceSuffix());
     }
-    private static ConfigFile yamlConfig(java.nio.file.Path path){
-        var editor=new top.sywyar.pixivdownload.gui.config.ConfigFileEditor(path);
-        return new ConfigFile(){
-            @Override public java.util.Map<String,String> readAll(java.util.Collection<String> keys)throws java.io.IOException{return editor.readAll(keys);}
-            @Override public void writeAll(java.util.Map<String,String> values)throws java.io.IOException{editor.writeAll(values);}
-            @Override public void removeAll(java.util.Collection<String> keys)throws java.io.IOException{editor.removeAll(keys);}
-            @Override public ConfigSnapshot snapshot()throws java.io.IOException{var snapshot=editor.snapshot();return new ConfigSnapshot(snapshot.existed(),snapshot.lines());}
-            @Override public void restore(ConfigSnapshot snapshot)throws java.io.IOException{
-                editor.restore(new top.sywyar.pixivdownload.gui.config.ConfigFileEditor.FileSnapshot(snapshot.existed(),snapshot.lines()));
-            }
-        };
+    private static ConfigFile yamlConfig(java.nio.file.Path path) {
+        return new top.sywyar.pixivdownload.gui.config.ConfigFileEditor(path).asConfigFile();
     }
     private static ConfigFile propertiesConfig(java.nio.file.Path path){
         var editor=new top.sywyar.pixivdownload.gui.config.PropertiesConfigFileEditor(path);
@@ -235,7 +256,10 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public Path resolvePluginConfigPath(String id, String extension) { return RuntimeFiles.resolvePluginConfigPath(id, extension); }
     @Override public Path resolveImageClassifierPath(String rootFolder) { return RuntimeFiles.resolveImageClassifierPath(rootFolder); }
     @Override public Path resolveSetupConfigPath(String rootFolder) { return RuntimeFiles.resolveSetupConfigPath(rootFolder); }
-    @Override public Path resolveDatabasePath(String rootFolder) { return RuntimeFiles.resolveDatabasePath(rootFolder); }
+    @Override public Path resolveDatabasePath(String rootFolder) {
+        return configuredDatabaseTarget().localFile()
+                .orElseThrow(() -> new IllegalStateException("DATABASE_LOCAL_FILE_UNSUPPORTED"));
+    }
     @Override public String readDownloadRootFromConfig(Path path, String fallback) { return RuntimeFiles.readDownloadRootFromConfig(path, fallback); }
     @Override public String normalizeRootFolder(String rootFolder) { return RuntimeFiles.normalizeRootFolder(rootFolder); }
     @Override public void openExternalUri(java.net.URI uri) throws Exception {
@@ -318,7 +342,39 @@ final class AppDesktopUiHost implements DesktopUiHost {
         return new MaintenanceSnapshot(value.active(), value.trigger(), value.index(), value.total(), value.taskName(),
                 value.taskStartedAt(), value.unitsDone(), value.unitsTotal());
     }
-    @Override public BackfillOptions defaultBackfillOptions() { return map(ArtworksBackFill.Options.defaults()); }
+    @Override public BackfillOptions defaultBackfillOptions() {
+        var defaults = ArtworksBackFill.Options.defaults();
+        try {
+            return map(defaults.withTarget(configuredDatabaseTarget()));
+        } catch (IllegalArgumentException | IllegalStateException invalid) {
+            // 无效连接不能阻断桌面配置入口，也不能显示一个并未选中的 SQLite 目标。
+            return new BackfillOptions("", defaults.proxyHost(), defaults.proxyPort(), defaults.useProxy(),
+                    defaults.delayMs(), defaults.limit(), defaults.dryRun());
+        }
+    }
+    @Override public boolean supportsDatabaseFileSelection() {
+        try { return configuredDatabaseTarget().localFile().isPresent(); }
+        catch (IllegalArgumentException | IllegalStateException invalid) { return false; }
+    }
+
+    private DatabaseTarget configuredDatabaseTarget() {
+        if (BackendLifecycleManager.isRunning()) {
+            return BackendLifecycleManager.requiredBean(DatabaseTarget.class);
+        }
+        if (processDatabaseTarget == null || !processDatabaseTarget.available()) {
+            throw new IllegalStateException("DATABASE_UNAVAILABLE");
+        }
+        return processDatabaseTarget;
+    }
+
+    private DatabaseTarget toolDatabaseTarget(String selected) {
+        DatabaseTarget configured = configuredDatabaseTarget();
+        if (configured.localFile().isPresent()) return configured.withLocalFile(Path.of(selected));
+        if (!configured.displayName().equals(selected)) {
+            throw new IllegalArgumentException(MessageBundles.get("core.db.invalid-config", "database target"));
+        }
+        return configured;
+    }
     @Override public boolean supportsBackfillColumn(DatabaseColumn column) {
         return ArtworksBackFill.supportsDatabaseColumn(column.tableName(), column.columnName());
     }
@@ -344,7 +400,9 @@ final class AppDesktopUiHost implements DesktopUiHost {
         return JsonToSqliteMigration.countCandidates(new JsonToSqliteMigration.Options(options.dbPath(), options.rootFolder()));
     }
     @Override public MigrationSummary runMigration(MigrationOptions options, Consumer<String> reporter) throws Exception {
-        var value = JsonToSqliteMigration.run(new JsonToSqliteMigration.Options(options.dbPath(), options.rootFolder()), reporter);
+        var value = JsonToSqliteMigration.run(new JsonToSqliteMigration.Options(options.dbPath(), options.rootFolder(),
+                toolDatabaseTarget(options.dbPath())), reporter,
+                BackendLifecycleManager.isRunning() ? requireBackfillDataSource() : null);
         return new MigrationSummary(value.totalCandidates(), value.migrated(), value.skipped(), value.historyFileMissing(), value.message());
     }
     @Override public ToolLogSession openToolLog(String stem) throws Exception {
@@ -393,10 +451,32 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private final DesktopUiTools desktopUiTools = new DesktopUiTools(() -> backendUri("").toASCIIString());
 
     @Override public FolderCheckResult checkArtworkFolders(Path databasePath) throws Exception {
-        return desktopUiTools.checkArtworkFolders(databasePath, folderCheckRoot());
+        var target = toolDatabaseTarget(databasePath.toString());
+        try (var connection = toolConnection(target)) {
+            return desktopUiTools.checkArtworkFolders(connection, target, folderCheckRoot());
+        }
     }
     @Override public void updateArtworkFolder(Path databasePath, long artworkId, boolean moved, String newPath) throws Exception {
-        desktopUiTools.updateArtworkFolder(databasePath, folderCheckRoot(), artworkId, moved, newPath);
+        var target = toolDatabaseTarget(databasePath.toString());
+        try (var connection = toolConnection(target)) {
+            desktopUiTools.updateArtworkFolder(connection, target, folderCheckRoot(), artworkId, moved, newPath);
+        }
+    }
+
+    private java.sql.Connection toolConnection(DatabaseTarget target) throws Exception {
+        if (!BackendLifecycleManager.isRunning()) return target.openConnection();
+        DatabaseTarget active = configuredDatabaseTarget();
+        if (!target.providerOwner().equals(active.providerOwner())) {
+            throw new IllegalArgumentException(MessageBundles.get("core.db.invalid-config", "database target"));
+        }
+        var connection = requireBackfillDataSource().getConnection();
+        try {
+            target.requireConnectionTarget(connection);
+            return connection;
+        } catch (Exception failure) {
+            try { connection.close(); } catch (Exception closeFailure) { failure.addSuppressed(closeFailure); }
+            throw failure;
+        }
     }
 
     private String folderCheckRoot() throws IOException {
@@ -440,7 +520,8 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private static BackfillOptions map(ArtworksBackFill.Options value) {
         return new BackfillOptions(value.dbPath(), value.proxyHost(), value.proxyPort(), value.useProxy(), value.delayMs(), value.limit(), value.dryRun());
     }
-    private static ArtworksBackFill.Options map(BackfillOptions value) {
-        return new ArtworksBackFill.Options(value.dbPath(), value.proxyHost(), value.proxyPort(), value.useProxy(), value.delayMs(), value.limit(), value.dryRun());
+    private ArtworksBackFill.Options map(BackfillOptions value) {
+        return new ArtworksBackFill.Options(value.dbPath(), value.proxyHost(), value.proxyPort(), value.useProxy(), value.delayMs(), value.limit(), value.dryRun())
+                .withTarget(toolDatabaseTarget(value.dbPath()));
     }
 }

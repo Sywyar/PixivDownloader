@@ -50,23 +50,20 @@ class LocalWorkFileImporterTest {
         dataSource = new SingleConnectionDataSource("jdbc:sqlite::memory:", true);
         var config = new Configuration(new Environment("test", new SpringManagedTransactionFactory(), dataSource));
         config.setMapUnderscoreToCamelCase(true);
-        config.addMapper(PixivMapper.class);
-        config.addMapper(top.sywyar.pixivdownload.author.AuthorMapper.class);
-        config.addMapper(PathPrefixMapper.class);
         var session = new SqlSessionTemplate(new SqlSessionFactoryBuilder().build(config));
         var registry = DatabaseSchemaRegistry.forBuiltInPlugins();
-        var initializer = new DatabaseInitializer(new org.springframework.jdbc.core.JdbcTemplate(dataSource),
+        var initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(new org.springframework.jdbc.core.JdbcTemplate(dataSource),
                 registry.contributions(), registry.mergedSchema(), TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
         settings = new DownloadConfig();
         settings.setRootFolder(output.toString());
-        var codec = new PathPrefixCodec(session.getMapper(PathPrefixMapper.class), settings, TestI18nBeans.appMessages());
+        var codec = new PathPrefixCodec(new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)), settings, TestI18nBeans.appMessages());
         codec.init();
-        database = new PixivDatabase(session.getMapper(PixivMapper.class), TestI18nBeans.appMessages(), codec, initializer);
+        database = new PixivDatabase(new PixivMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)), TestI18nBeans.appMessages(), codec, initializer);
         database.init();
         history = new ArtworkDownloadHistoryAdapter(database);
-        externalFiles = new ExternalWorkFiles(dataSource, codec, initializer);
-        authorMapper = session.getMapper(top.sywyar.pixivdownload.author.AuthorMapper.class);
+        externalFiles = new ExternalWorkFiles(DatabaseProviderTestFixtures.main(dataSource), codec, initializer);
+        authorMapper = new top.sywyar.pixivdownload.author.AuthorMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
         authors = new top.sywyar.pixivdownload.author.AuthorService(authorMapper, database,
                 org.mockito.Mockito.mock(org.springframework.web.client.RestTemplate.class),
                 org.mockito.Mockito.mock(org.springframework.scheduling.TaskScheduler.class),

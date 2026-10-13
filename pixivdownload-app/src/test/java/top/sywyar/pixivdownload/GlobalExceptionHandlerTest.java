@@ -28,6 +28,24 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DisplayName("GlobalExceptionHandler 单元测试")
 class GlobalExceptionHandlerTest {
 
+    @Test
+    @DisplayName("在途请求失库映射为可判定的 503，响应不暴露底层连接详情")
+    void unavailableDatabaseHasControlledResponse() throws Exception {
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(new UnavailableController())
+                .setControllerAdvice(handler).build();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/fixture/database-loss")
+                        .locale(Locale.ENGLISH))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isServiceUnavailable())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("DATABASE_UNAVAILABLE"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.error").isNotEmpty());
+    }
+
+    @org.springframework.web.bind.annotation.RestController
+    static class UnavailableController {
+        @org.springframework.web.bind.annotation.GetMapping("/fixture/database-loss")
+        String unavailable() { throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException(); }
+    }
+
     private final GlobalExceptionHandler handler = new GlobalExceptionHandler(TestI18nBeans.appMessages());
 
     @Test

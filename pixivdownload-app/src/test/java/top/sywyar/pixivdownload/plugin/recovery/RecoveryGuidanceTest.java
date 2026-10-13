@@ -22,6 +22,27 @@ import static org.mockito.Mockito.mock;
 
 @DisplayName("恢复建议按结构化事实分类")
 class RecoveryGuidanceTest {
+    @Test
+    @DisplayName("插件来源冲突使用结构化失败提供恢复建议")
+    void duplicateSourcesOfferRecoveryAdvice() {
+        var failure = new top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure(
+                "conflicting", "source-module/target/classes, plugins/installed.jar",
+                PluginStatus.FAILED, "plugin-conflict", 0L, "1.2.3", 1, null);
+        assertThat(RecoveryGuidance.from(SAFE, null, report(PluginStatus.FAILED), List.of(), false, List.of(failure))
+                .adviceKeys()).startsWith("recovery.advice.duplicate-plugin");
+        assertThat(RecoveryGuidance.from(blocked(FailureKind.UNSAFE_PATH), null,
+                report(PluginStatus.FAILED), List.of(), false, List.of(failure)).adviceKeys())
+                .doesNotContain("recovery.advice.duplicate-plugin");
+        assertThat(RecoveryGuidance.from(SAFE, null, report(PluginStatus.FAILED), List.of(), true, List.of(failure))
+                .adviceKeys()).contains("recovery.advice.duplicate-plugin", "plugin.recovery.database-unavailable");
+    }
+
+    @Test
+    @DisplayName("无库且插件正常时明确修复数据库，不推测插件崩溃")
+    void unavailableDatabaseHasSpecificAdvice() {
+        assertThat(RecoveryGuidance.from(SAFE, null, PluginStatusReport.empty(), List.of(), true, List.of()).adviceKeys())
+                .containsExactly("plugin.recovery.database-unavailable");
+    }
     private static final DesktopUiFailure NO_GUI = new DesktopUiFailure(DesktopUiFailure.Reason.ALL_FAILED, null);
     private static final PluginRecoveryGateSnapshot SAFE =
             PluginRecoveryGateSnapshot.safe(PluginTransactionRecoveryReport.success());

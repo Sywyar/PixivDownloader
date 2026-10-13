@@ -1,387 +1,392 @@
 package top.sywyar.pixivdownload.core.schedule.db;
 
-import org.apache.ibatis.annotations.Delete;
-import org.apache.ibatis.annotations.Insert;
-import org.apache.ibatis.annotations.Mapper;
-import org.apache.ibatis.annotations.Options;
-import org.apache.ibatis.annotations.Param;
-import org.apache.ibatis.annotations.Select;
-import org.apache.ibatis.annotations.Update;
-import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
-import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
-import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
-import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunCompletion;
-import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
-import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
+import org.springframework.stereotype.Repository;
+import top.sywyar.pixivdownload.core.db.MainDatabase;
+import top.sywyar.pixivdownload.core.schedule.*;
+import top.sywyar.pixivdownload.core.schedule.state.*;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.*;
+import java.util.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.*;
 
-import java.util.List;
+/** 核心计划事实的中性存储实现；claim 与版本必须在同一次 CAS 中返回。 */
+@Repository
+public class ScheduledTaskMapper {
+    private static final String TASK = "scheduled_tasks";
+    private static final String CREDENTIAL = "scheduled_task_credentials";
+    private static final String PENDING = "scheduled_task_pending_work";
+    private final MainDatabase database;
+    public ScheduledTaskMapper(MainDatabase database) { this.database = database; }
 
-/** 核心计划任务 Store 的 MyBatis 实现细节；插件代码不得直接依赖本 mapper。 */
-@Mapper
-public interface ScheduledTaskMapper {
-    @Update("UPDATE scheduled_task_pending_work SET reason_detail_json = #{detail}"
-            + " WHERE task_id = #{taskId} AND work_type = #{workType} AND work_id = #{workId}")
-    int resolvePendingWork(@Param("taskId") long taskId, @Param("workType") String workType,
-                           @Param("workId") String workId, @Param("detail") String detail);
+    private static Object stored(Object value) {
+        if (value instanceof Enum<?> e) return e.name();
+        if (value instanceof Boolean b) return b ? 1L : 0L;
+        if (value instanceof Integer n) return n.longValue();
+        return value;
+    }
+    private static Expression literal(Object value) { return value(stored(value)); }
+    private static Expression eq(String table, String name, Object value) {
+        return call(EQUAL, column(table, name), literal(value));
+    }
+    private static Expression eq(String name, Object value) { return eq(TASK, name, value); }
+    private static Expression nil(String name) { return call(IS_NULL, column(TASK, name)); }
+    private static Expression notNil(String name) { return call(NOT, nil(name)); }
+    private static Expression choices(String name, String... values) {
+        var args = new ArrayList<Expression>(); args.add(column(TASK, name));
+        for (String value : values) args.add(value(value));
+        return new Call(IN, args);
+    }
+    private static Expression state(long id, long expected) {
+        return call(AND, eq("id", id), eq("storage_version", ScheduledTask.CURRENT_STORAGE_VERSION), eq("state_version", expected));
+    }
+    private static Expression token(long id, ScheduleRunToken token, ScheduleRunState state) {
+        return call(AND, state(id, token.stateVersion()), eq("run_claim_token", token.claimToken()), eq("run_state", state));
+    }
+    private static Integer integer(Object value) { return value == null ? null : Math.toIntExact((Long) value); }
+    private static int number(Object value) { return value == null ? 0 : Math.toIntExact((Long) value); }
+    private static <E extends Enum<E>> E enumeration(Class<E> type, Object value) {
+        return value == null ? null : Enum.valueOf(type, (String) value);
+    }
+    private static Map<String, Expression> values(Object... pairs) {
+        var result = new LinkedHashMap<String, Expression>();
+        for (int i = 0; i < pairs.length; i += 2) result.put((String) pairs[i], literal(pairs[i + 1]));
+        return result;
+    }
+    private static Map<String, Expression> fields(String table, String... names) {
+        var result = new LinkedHashMap<String, Expression>();
+        for (String name : names) result.put(name, column(table, name));
+        return result;
+    }
+    private List<Map<String, Object>> query(Query query) { return database.read(s -> s.query(query)); }
+    private static void advance(Map<String, Expression> changes) {
+        changes.put("state_version", call(ADD, column(TASK, "state_version"), value(1)));
+    }
+    private List<Map<String, Object>> cas(Map<String, Expression> changes, Expression where, List<String> returning) {
+        advance(changes);
+        return database.transaction(s -> s.updateReturning(TASK, changes, where, returning));
+    }
+    private Long version(Map<String, Expression> changes, Expression where) {
+        var rows = cas(changes, where, List.of("state_version"));
+        return rows.isEmpty() ? null : (Long) rows.get(0).get("state_version");
+    }
+    private ScheduleRunToken claim(Map<String, Expression> changes, Expression where) {
+        var rows = cas(changes, where, List.of("run_claim_token", "state_version", "run_state"));
+        if (rows.isEmpty()) return null;
+        var row = rows.get(0);
+        return new ScheduleRunToken((String) row.get("run_claim_token"), (Long) row.get("state_version"),
+                enumeration(ScheduleRunState.class, row.get("run_state")));
+    }
+    public void insert(ScheduledTaskInsertRow task) {
+        var row = new LinkedHashMap<String, Object>();
+        row.put("name", stored(task.getName()));
+        row.put("enabled", stored(task.isEnabled()));
+        row.put("type", stored(task.getSourceType()));
+        row.put("source_owner_plugin_id", stored(task.getSourceOwnerPluginId()));
+        row.put("definition_schema", stored(task.getDefinitionSchema()));
+        row.put("definition_version", stored(task.getDefinitionVersion()));
+        row.put("params_json", stored(task.getDefinitionJson()));
+        row.put("presentation_json", stored(task.getPresentationJson()));
+        row.put("trigger_kind", stored(task.getTriggerKind()));
+        row.put("interval_minutes", stored(task.getIntervalMinutes()));
+        row.put("cron_expr", stored(task.getCronExpr()));
+        row.put("proxy_snapshot", stored(task.getProxySnapshot()));
+        row.put("next_run_time", stored(task.getNextRunTime()));
+        row.put("last_run_time", stored(task.getLastRunTime()));
+        row.put("checkpoint_schema", stored(task.getCheckpointSchema()));
+        row.put("checkpoint_version", stored(task.getCheckpointVersion()));
+        row.put("checkpoint_json", stored(task.getCheckpointJson()));
+        row.put("storage_version", stored(task.getStorageVersion()));
+        row.put("run_state", stored(task.getRunState()));
+        row.put("run_claim_token", stored(task.getRunClaimToken()));
+        row.put("last_outcome", stored(task.getLastOutcome()));
+        row.put("outcome_code", stored(task.getOutcomeCode()));
+        row.put("outcome_message", stored(task.getOutcomeMessage()));
+        row.put("suspend_reason", stored(task.getSuspendReason()));
+        row.put("suspend_code", stored(task.getSuspendCode()));
+        row.put("suspend_detail_json", stored(task.getSuspendDetailJson()));
+        row.put("state_version", stored(task.getStateVersion()));
+        row.put("created_time", stored(task.getCreatedTime()));
+        row.put("cookie_mode", "restricted");
+        task.setId(database.transaction(s -> s.insertGenerated(TASK, row, "id")));
+    }
 
-    /** 不含任何 credential secret 的任务投影。 */
-    String SELECT_TASK = "SELECT t.id, t.name, t.enabled,"
-            + " t.type AS sourceType, t.source_owner_plugin_id AS sourceOwnerPluginId,"
-            + " t.definition_schema AS definitionSchema, t.definition_version AS definitionVersion,"
-            + " t.params_json AS definitionJson, t.presentation_json AS presentationJson,"
-            + " t.trigger_kind AS triggerKind, t.interval_minutes AS intervalMinutes,"
-            + " t.cron_expr AS cronExpr, t.proxy_snapshot AS proxySnapshot,"
-            + " t.next_run_time AS nextRunTime, t.last_run_time AS lastRunTime,"
-            + " t.checkpoint_schema AS checkpointSchema, t.checkpoint_version AS checkpointVersion,"
-            + " t.checkpoint_json AS checkpointJson, t.storage_version AS storageVersion,"
-            + " t.run_state AS runState, t.run_claim_token AS runClaimToken,"
-            + " t.last_outcome AS lastOutcome, t.outcome_code AS outcomeCode,"
-            + " t.outcome_message AS outcomeMessage, t.suspend_reason AS suspendReason,"
-            + " t.suspend_code AS suspendCode, t.suspend_detail_json AS suspendDetailJson,"
-            + " t.state_version AS stateVersion,"
-            + " c.policy_owner_plugin_id AS credentialPolicyOwnerPluginId,"
-            + " c.policy_id AS credentialPolicyId, c.account_key AS credentialAccountKey,"
-            + " c.policy_state_json AS credentialPolicyStateJson,"
-            + " c.secret_reference AS credentialSecretReference,"
-            + " t.created_time AS createdTime"
-            + " FROM scheduled_tasks t"
-            + " LEFT JOIN scheduled_task_credentials c ON c.task_id = t.id";
-
-    @Insert("INSERT INTO scheduled_tasks(name, enabled, type, params_json,"
-            + " source_owner_plugin_id, definition_schema, definition_version, presentation_json,"
-            + " trigger_kind, interval_minutes, cron_expr, cookie_mode, proxy_snapshot,"
-            + " next_run_time, last_run_time, checkpoint_schema, checkpoint_version, checkpoint_json,"
-            + " storage_version, run_state, run_claim_token, last_outcome, outcome_code, outcome_message,"
-            + " suspend_reason, suspend_code, suspend_detail_json, state_version, created_time)"
-            + " VALUES(#{name}, #{enabled}, #{sourceType}, #{definitionJson},"
-            + " #{sourceOwnerPluginId}, #{definitionSchema}, #{definitionVersion}, #{presentationJson},"
-            + " #{triggerKind}, #{intervalMinutes}, #{cronExpr}, 'restricted', #{proxySnapshot},"
-            + " #{nextRunTime}, #{lastRunTime}, #{checkpointSchema}, #{checkpointVersion}, #{checkpointJson},"
-            + " #{storageVersion}, #{runState}, #{runClaimToken}, #{lastOutcome}, #{outcomeCode}, #{outcomeMessage},"
-            + " #{suspendReason}, #{suspendCode}, #{suspendDetailJson}, #{stateVersion}, #{createdTime})")
-    @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
-    void insert(ScheduledTaskInsertRow task);
-
-    @Select(SELECT_TASK + " ORDER BY t.id DESC")
-    List<ScheduledTask> findAll();
-
-    @Select(SELECT_TASK + " WHERE t.id = #{id}")
-    ScheduledTask findById(@Param("id") long id);
-
-    @Select("SELECT COUNT(*) FROM scheduled_tasks")
-    int countAll();
-
-    @Select(SELECT_TASK
-            + " WHERE t.storage_version = 1 AND t.enabled = 1"
-            + " AND t.suspend_reason IS NULL AND t.run_state IS NULL"
-            + " AND t.next_run_time IS NOT NULL AND t.next_run_time <= #{now}"
-            + " ORDER BY t.next_run_time, t.id")
-    List<ScheduledTask> findDue(@Param("now") long now);
-
-    @Select(SELECT_TASK
-            + " WHERE c.policy_owner_plugin_id = #{policyOwnerPluginId}"
-            + " AND c.policy_id = #{policyId} AND c.account_key = #{accountKey}"
-            + " ORDER BY t.id DESC")
-    List<ScheduledTask> findByCredentialAccount(
-            @Param("policyOwnerPluginId") String policyOwnerPluginId,
-            @Param("policyId") String policyId,
-            @Param("accountKey") String accountKey);
-
-    @Select(value = "UPDATE scheduled_tasks SET run_state = 'QUEUED',"
-            + " run_claim_token = #{claimToken}, state_version = state_version + 1"
-            + " WHERE id = #{id} AND storage_version = 1 AND state_version = #{expectedStateVersion}"
-            + " AND enabled = 1 AND suspend_reason IS NULL AND run_state IS NULL"
-            + " AND next_run_time IS NOT NULL AND next_run_time <= #{now}"
-            + " RETURNING run_claim_token AS claimToken, state_version AS stateVersion, run_state AS runState",
-            affectData = true)
-    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
-    ScheduleRunToken tryQueueDue(@Param("id") long id,
-                                 @Param("expectedStateVersion") long expectedStateVersion,
-                                 @Param("claimToken") String claimToken,
-                                 @Param("now") long now);
-
-    @Select(value = "UPDATE scheduled_tasks SET run_state = 'QUEUED',"
-            + " run_claim_token = #{claimToken}, state_version = state_version + 1"
-            + " WHERE id = #{id} AND storage_version = 1 AND state_version = #{expectedStateVersion}"
-            + " AND enabled = 1 AND suspend_reason IS NULL AND run_state IS NULL"
-            + " RETURNING run_claim_token AS claimToken, state_version AS stateVersion, run_state AS runState",
-            affectData = true)
-    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
-    ScheduleRunToken tryQueueNow(@Param("id") long id,
-                                 @Param("expectedStateVersion") long expectedStateVersion,
-                                 @Param("claimToken") String claimToken);
-
-    @Select(value = "UPDATE scheduled_tasks SET run_state = 'RUNNING', state_version = state_version + 1"
-            + " WHERE id = #{id} AND storage_version = 1"
-            + " AND state_version = #{queuedToken.stateVersion}"
-            + " AND run_state = 'QUEUED' AND run_claim_token = #{queuedToken.claimToken}"
-            + " AND enabled = 1 AND suspend_reason IS NULL"
-            + " RETURNING run_claim_token AS claimToken, state_version AS stateVersion, run_state AS runState",
-            affectData = true)
-    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
-    ScheduleRunToken startRun(@Param("id") long id,
-                              @Param("queuedToken") ScheduleRunToken queuedToken);
-
-    @Select(value = "UPDATE scheduled_tasks SET run_state = NULL, run_claim_token = NULL,"
-            + " last_run_time = #{completion.finishedTime}, last_outcome = #{completion.outcome},"
-            + " outcome_code = #{completion.outcomeCode}, outcome_message = #{completion.outcomeMessage},"
-            + " next_run_time = #{completion.nextRunTime},"
-            + " checkpoint_schema = CASE WHEN #{completion.checkpointSchema} IS NULL"
-            + "                          THEN checkpoint_schema ELSE #{completion.checkpointSchema} END,"
-            + " checkpoint_version = CASE WHEN #{completion.checkpointSchema} IS NULL"
-            + "                           THEN checkpoint_version ELSE #{completion.checkpointVersion} END,"
-            + " checkpoint_json = CASE WHEN #{completion.checkpointSchema} IS NULL"
-            + "                        THEN checkpoint_json ELSE #{completion.checkpointJson} END,"
-            + " state_version = state_version + 1"
-            + " WHERE id = #{id} AND storage_version = 1"
-            + " AND state_version = #{runningToken.stateVersion}"
-            + " AND run_state = 'RUNNING' AND run_claim_token = #{runningToken.claimToken}"
-            + " AND suspend_reason IS NULL"
-            + " RETURNING state_version",
-            affectData = true)
-    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
-    Long completeRun(@Param("id") long id,
-                     @Param("runningToken") ScheduleRunToken runningToken,
-                     @Param("completion") ScheduleRunCompletion completion);
-
-    @Select(value = "UPDATE scheduled_tasks SET run_state = NULL, run_claim_token = NULL,"
-            + " last_run_time = #{finishedTime},"
-            + " last_outcome = CASE"
-            + "   WHEN run_state = 'CANCEL_REQUESTED'"
-            + "        AND suspend_reason IN ('MANUAL','QUIESCED') THEN 'CANCELLED'"
-            + "   WHEN run_state = 'CANCEL_REQUESTED' AND suspend_reason IS NOT NULL THEN 'ERROR'"
-            + "   ELSE #{outcome} END,"
-            + " outcome_code = CASE"
-            + "   WHEN run_state = 'CANCEL_REQUESTED' AND suspend_reason IS NOT NULL THEN suspend_code"
-            + "   ELSE #{outcomeCode} END,"
-            + " outcome_message = CASE"
-            + "   WHEN run_state = 'CANCEL_REQUESTED' AND suspend_reason IS NOT NULL"
-            + "     THEN suspend_detail_json"
-            + "   ELSE #{outcomeMessage} END,"
-            + " next_run_time = #{nextRunTime}, state_version = state_version + 1"
-            + " WHERE id = #{id} AND storage_version = 1"
-            + " AND run_claim_token = #{activeToken.claimToken}"
-            + " AND ((state_version = #{activeToken.stateVersion}"
-            + "       AND run_state = #{activeToken.runState})"
-            + "   OR (state_version = #{activeToken.stateVersion} + 1"
-            + "       AND #{activeToken.runState} IN ('QUEUED','RUNNING')"
-            + "       AND run_state = 'CANCEL_REQUESTED' AND suspend_reason IS NOT NULL))"
-            + " RETURNING state_version",
-            affectData = true)
-    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
-    Long finishCancelled(@Param("id") long id,
-                         @Param("activeToken") ScheduleRunToken activeToken,
-                         @Param("outcome") ScheduleLastOutcome outcome,
-                         @Param("finishedTime") long finishedTime,
-                         @Param("outcomeCode") String outcomeCode,
-                         @Param("outcomeMessage") String outcomeMessage,
-                         @Param("nextRunTime") Long nextRunTime);
-
-    @Select(value = "UPDATE scheduled_tasks SET run_state = NULL, run_claim_token = NULL,"
-            + " next_run_time = COALESCE(#{nextRunTime}, next_run_time),"
-            + " state_version = state_version + 1"
-            + " WHERE id = #{id} AND storage_version = 1"
-            + " AND state_version = #{queuedToken.stateVersion}"
-            + " AND run_state = 'QUEUED' AND run_claim_token = #{queuedToken.claimToken}"
-            + " RETURNING state_version",
-            affectData = true)
-    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
-    Long releaseQueued(@Param("id") long id,
-                       @Param("queuedToken") ScheduleRunToken queuedToken,
-                       @Param("nextRunTime") Long nextRunTime);
-
-    @Select(value = "UPDATE scheduled_tasks SET suspend_reason = #{reason}, suspend_code = #{code},"
-            + " suspend_detail_json = #{detailJson},"
-            + " run_state = CASE WHEN run_state IN ('QUEUED','RUNNING')"
-            + "                  THEN 'CANCEL_REQUESTED' ELSE run_state END,"
-            + " state_version = state_version + 1"
-            + " WHERE id = #{id} AND storage_version = 1"
-            + " AND state_version = #{expectedStateVersion} AND suspend_reason IS NULL"
-            + " RETURNING state_version",
-            affectData = true)
-    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
-    Long suspend(@Param("id") long id,
-                 @Param("expectedStateVersion") long expectedStateVersion,
-                 @Param("reason") ScheduleSuspendReason reason,
-                 @Param("code") String code,
-                 @Param("detailJson") String detailJson);
-
-    @Select(value = "UPDATE scheduled_tasks SET suspend_reason = NULL, suspend_code = NULL,"
-            + " suspend_detail_json = NULL, next_run_time = #{nextRunTime},"
-            + " state_version = state_version + 1"
-            + " WHERE id = #{id} AND storage_version = 1 AND state_version = #{expectedStateVersion}"
-            + " AND run_state IS NULL AND suspend_reason = #{expectedReason}"
-            + " AND (suspend_code = #{expectedCode} OR (suspend_code IS NULL AND #{expectedCode} IS NULL))"
-            + " RETURNING state_version",
-            affectData = true)
-    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
-    Long resume(@Param("id") long id,
-                @Param("expectedStateVersion") long expectedStateVersion,
-                @Param("expectedReason") ScheduleSuspendReason expectedReason,
-                @Param("expectedCode") String expectedCode,
-                @Param("nextRunTime") Long nextRunTime);
-
-    @Select(value = "UPDATE scheduled_tasks SET name = #{update.name}, type = #{update.sourceType},"
-            + " source_owner_plugin_id = #{update.sourceOwnerPluginId},"
-            + " definition_schema = #{update.definitionSchema},"
-            + " definition_version = #{update.definitionVersion}, params_json = #{update.definitionJson},"
-            + " presentation_json = #{update.presentationJson}, trigger_kind = #{update.triggerKind},"
-            + " interval_minutes = #{update.intervalMinutes}, cron_expr = #{update.cronExpr},"
-            + " next_run_time = #{update.nextRunTime}, checkpoint_schema = NULL,"
-            + " checkpoint_version = NULL, checkpoint_json = NULL,"
-            + " suspend_reason = CASE WHEN suspend_reason IN"
-            + " ('MIGRATION_ERROR', 'SOURCE_UNAVAILABLE', 'EXECUTOR_UNAVAILABLE')"
-            + " THEN NULL ELSE suspend_reason END,"
-            + " suspend_code = CASE WHEN suspend_reason IN"
-            + " ('MIGRATION_ERROR', 'SOURCE_UNAVAILABLE', 'EXECUTOR_UNAVAILABLE')"
-            + " THEN NULL ELSE suspend_code END,"
-            + " suspend_detail_json = CASE WHEN suspend_reason IN"
-            + " ('MIGRATION_ERROR', 'SOURCE_UNAVAILABLE', 'EXECUTOR_UNAVAILABLE')"
-            + " THEN NULL ELSE suspend_detail_json END,"
-            + " state_version = state_version + 1"
-            + " WHERE id = #{id} AND storage_version = 1 AND state_version = #{expectedStateVersion}"
-            + " AND run_state IS NULL RETURNING state_version",
-            affectData = true)
-    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
-    Long updateDefinition(@Param("id") long id,
-                          @Param("expectedStateVersion") long expectedStateVersion,
-                          @Param("update") ScheduleTaskDefinitionUpdate update);
-
-    @Select(value = "UPDATE scheduled_tasks SET enabled = #{enabled}, state_version = state_version + 1"
-            + " WHERE id = #{id} AND storage_version = 1 AND state_version = #{expectedStateVersion}"
-            + " AND run_state IS NULL RETURNING state_version",
-            affectData = true)
-    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
-    Long updateEnabled(@Param("id") long id,
-                       @Param("expectedStateVersion") long expectedStateVersion,
-                       @Param("enabled") boolean enabled);
-
-    @Select(value = "UPDATE scheduled_tasks SET proxy_snapshot = #{proxySnapshot},"
-            + " state_version = state_version + 1"
-            + " WHERE id = #{id} AND storage_version = 1 AND state_version = #{expectedStateVersion}"
-            + " AND run_state IS NULL RETURNING state_version",
-            affectData = true)
-    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
-    Long updateProxy(@Param("id") long id,
-                     @Param("expectedStateVersion") long expectedStateVersion,
-                     @Param("proxySnapshot") String proxySnapshot);
-
-    @Delete("DELETE FROM scheduled_tasks WHERE id = #{id}"
-            + " AND state_version = #{expectedStateVersion} AND run_state IS NULL")
-    int deleteTaskByVersion(@Param("id") long id,
-                            @Param("expectedStateVersion") long expectedStateVersion);
-
-    @Update("UPDATE scheduled_tasks SET run_state = NULL, run_claim_token = NULL,"
-            + " last_run_time = #{now},"
-            + " last_outcome = CASE"
-            + "   WHEN suspend_reason IN ('MANUAL','QUIESCED') THEN 'CANCELLED'"
-            + "   WHEN suspend_reason IS NOT NULL THEN 'ERROR'"
-            + "   ELSE 'INTERRUPTED' END,"
-            + " outcome_code = CASE WHEN suspend_reason IS NOT NULL"
-            + "   THEN suspend_code ELSE 'host.restart' END,"
-            + " outcome_message = CASE WHEN suspend_reason IS NOT NULL"
-            + "   THEN suspend_detail_json ELSE NULL END,"
-            + " next_run_time = CASE WHEN suspend_reason IS NULL THEN #{now} ELSE next_run_time END,"
-            + " state_version = state_version + 1"
-            + " WHERE storage_version = 1 AND run_state IS NOT NULL")
-    int recoverInterruptedRuns(@Param("now") long now);
-
-    @Select(value = "UPDATE scheduled_tasks SET state_version = state_version + 1"
-            + " WHERE id = #{taskId} AND storage_version = 1"
-            + " AND state_version = #{expectedStateVersion} AND run_state IS NULL"
-            + " RETURNING state_version",
-            affectData = true)
-    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
-    Long advanceIdleStateVersion(@Param("taskId") long taskId,
-                                 @Param("expectedStateVersion") long expectedStateVersion);
-
-    @Insert("INSERT INTO scheduled_task_credentials(task_id, policy_owner_plugin_id, policy_id,"
-            + " account_key, policy_state_json, secret, secret_reference, updated_time)"
-            + " VALUES(#{taskId}, #{policyOwnerPluginId}, #{policyId}, #{accountKey}, #{policyStateJson},"
-            + " #{secret}, #{secretReference}, #{updatedTime})"
-            + " ON CONFLICT(task_id) DO UPDATE SET"
-            + " policy_owner_plugin_id = excluded.policy_owner_plugin_id,"
-            + " policy_id = excluded.policy_id, account_key = excluded.account_key,"
-            + " policy_state_json = excluded.policy_state_json,"
-            + " secret = excluded.secret, secret_reference = excluded.secret_reference,"
-            + " updated_time = excluded.updated_time")
-    int upsertCredential(@Param("taskId") long taskId,
-                         @Param("policyOwnerPluginId") String policyOwnerPluginId,
-                         @Param("policyId") String policyId,
-                         @Param("accountKey") String accountKey,
-                         @Param("policyStateJson") String policyStateJson,
-                         @Param("secret") String secret,
-                         @Param("secretReference") String secretReference,
-                         @Param("updatedTime") long updatedTime);
-
-    @Delete("DELETE FROM scheduled_task_credentials WHERE task_id = #{taskId}"
-            + " AND policy_owner_plugin_id = #{policyOwnerPluginId} AND policy_id = #{policyId}")
-    int deleteCredential(@Param("taskId") long taskId,
-                         @Param("policyOwnerPluginId") String policyOwnerPluginId,
-                         @Param("policyId") String policyId);
-
-    @Delete("DELETE FROM scheduled_task_credentials WHERE task_id = #{taskId}")
-    int deleteCredentialByTask(@Param("taskId") long taskId);
-
-    @Update("UPDATE scheduled_task_credentials SET policy_state_json = #{newPolicyStateJson},"
-            + " updated_time = #{updatedTime} WHERE task_id = #{taskId}"
-            + " AND policy_owner_plugin_id = #{policyOwnerPluginId} AND policy_id = #{policyId}"
-            + " AND policy_state_json = #{expectedPolicyStateJson}")
-    int updateCredentialPolicyState(@Param("taskId") long taskId,
-                                    @Param("policyOwnerPluginId") String policyOwnerPluginId,
-                                    @Param("policyId") String policyId,
-                                    @Param("expectedPolicyStateJson") String expectedPolicyStateJson,
-                                    @Param("newPolicyStateJson") String newPolicyStateJson,
-                                    @Param("updatedTime") long updatedTime);
-
-    @Select("SELECT policy_owner_plugin_id AS policyOwnerPluginId,"
-            + " policy_id AS policyId, policy_state_json AS policyStateJson"
-            + " FROM scheduled_task_credentials WHERE task_id = #{taskId}")
-    ScheduledCredentialBinding findCredentialBinding(@Param("taskId") long taskId);
-
-    @Select("SELECT secret FROM scheduled_task_credentials WHERE task_id = #{taskId}"
-            + " AND policy_owner_plugin_id = #{policyOwnerPluginId} AND policy_id = #{policyId}")
-    String findCredentialSecret(@Param("taskId") long taskId,
-                                @Param("policyOwnerPluginId") String policyOwnerPluginId,
-                                @Param("policyId") String policyId);
-
-    @Insert("INSERT INTO scheduled_task_pending_work(task_id, work_type, work_id, payload_schema,"
-            + " payload_version, payload_json, relations_json, presentation_json, reason_code,"
-            + " reason_detail_json, attempts, first_seen_time, last_attempt_time)"
-            + " VALUES(#{taskId}, #{workType}, #{workId}, #{payloadSchema}, #{payloadVersion},"
-            + " #{payloadJson}, #{relationsJson}, #{presentationJson}, #{reasonCode},"
-            + " #{reasonDetailJson}, #{attempts}, #{firstSeenTime}, #{lastAttemptTime})"
-            + " ON CONFLICT(task_id, work_type, work_id) DO UPDATE SET"
-            + " payload_schema = excluded.payload_schema, payload_version = excluded.payload_version,"
-            + " payload_json = excluded.payload_json, relations_json = excluded.relations_json,"
-            + " presentation_json = excluded.presentation_json, reason_code = excluded.reason_code,"
-            + " reason_detail_json = excluded.reason_detail_json,"
-            + " attempts = MAX(attempts, excluded.attempts),"
-            + " last_attempt_time = excluded.last_attempt_time")
-    int upsertPendingWork(ScheduledPendingWork pendingWork);
-
-    @Select("SELECT task_id AS taskId, work_type AS workType, work_id AS workId,"
-            + " payload_schema AS payloadSchema, payload_version AS payloadVersion,"
-            + " payload_json AS payloadJson, relations_json AS relationsJson,"
-            + " presentation_json AS presentationJson, reason_code AS reasonCode,"
-            + " reason_detail_json AS reasonDetailJson, attempts,"
-            + " first_seen_time AS firstSeenTime, last_attempt_time AS lastAttemptTime"
-            + " FROM scheduled_task_pending_work WHERE task_id = #{taskId}"
-            + " ORDER BY first_seen_time, work_type, work_id")
-    List<ScheduledPendingWork> listPendingWork(@Param("taskId") long taskId);
-
-    @Delete("DELETE FROM scheduled_task_pending_work"
-            + " WHERE task_id = #{taskId} AND work_type = #{workType} AND work_id = #{workId}")
-    int deletePendingWork(@Param("taskId") long taskId,
-                          @Param("workType") String workType,
-                          @Param("workId") String workId);
-
-    @Delete("DELETE FROM scheduled_task_pending_work WHERE task_id = #{taskId}")
-    int deleteAllPendingWork(@Param("taskId") long taskId);
-
-    /** 旧表只作为迁移输入；聚合删除任务时仍需清理它，避免孤儿。 */
-    @Delete("DELETE FROM scheduled_task_pending WHERE task_id = #{taskId}")
-    int deleteLegacyPendingByTask(@Param("taskId") long taskId);
-
+    private List<ScheduledTask> tasks(Expression where, List<Query.Order> order, int limit) {
+        var projection = new LinkedHashMap<String, Expression>();
+        projection.put("id", column("t", "id"));
+        projection.put("name", column("t", "name"));
+        projection.put("enabled", column("t", "enabled"));
+        projection.put("type", column("t", "type"));
+        projection.put("source_owner_plugin_id", column("t", "source_owner_plugin_id"));
+        projection.put("definition_schema", column("t", "definition_schema"));
+        projection.put("definition_version", column("t", "definition_version"));
+        projection.put("params_json", column("t", "params_json"));
+        projection.put("presentation_json", column("t", "presentation_json"));
+        projection.put("trigger_kind", column("t", "trigger_kind"));
+        projection.put("interval_minutes", column("t", "interval_minutes"));
+        projection.put("cron_expr", column("t", "cron_expr"));
+        projection.put("proxy_snapshot", column("t", "proxy_snapshot"));
+        projection.put("next_run_time", column("t", "next_run_time"));
+        projection.put("last_run_time", column("t", "last_run_time"));
+        projection.put("checkpoint_schema", column("t", "checkpoint_schema"));
+        projection.put("checkpoint_version", column("t", "checkpoint_version"));
+        projection.put("checkpoint_json", column("t", "checkpoint_json"));
+        projection.put("storage_version", column("t", "storage_version"));
+        projection.put("run_state", column("t", "run_state"));
+        projection.put("run_claim_token", column("t", "run_claim_token"));
+        projection.put("last_outcome", column("t", "last_outcome"));
+        projection.put("outcome_code", column("t", "outcome_code"));
+        projection.put("outcome_message", column("t", "outcome_message"));
+        projection.put("suspend_reason", column("t", "suspend_reason"));
+        projection.put("suspend_code", column("t", "suspend_code"));
+        projection.put("suspend_detail_json", column("t", "suspend_detail_json"));
+        projection.put("state_version", column("t", "state_version"));
+        projection.put("credential_policy_owner_plugin_id", column("c", "policy_owner_plugin_id"));
+        projection.put("credential_policy_id", column("c", "policy_id"));
+        projection.put("credential_account_key", column("c", "account_key"));
+        projection.put("credential_policy_state_json", column("c", "policy_state_json"));
+        projection.put("credential_secret_reference", column("c", "secret_reference"));
+        projection.put("created_time", column("t", "created_time"));
+        return query(new Query(new Query.Table(TASK, "t"),
+                List.of(new Query.Join(Query.JoinKind.LEFT, new Query.Table(CREDENTIAL, "c"),
+                        call(EQUAL, column("c", "task_id"), column("t", "id")))), projection, where,
+                List.of(), null, order, false, limit, 0)).stream().map(row -> new ScheduledTask(
+                (Long) row.get("id"),
+                (String) row.get("name"),
+                Long.valueOf(1).equals(row.get("enabled")),
+                (String) row.get("type"),
+                (String) row.get("source_owner_plugin_id"),
+                (String) row.get("definition_schema"),
+                integer(row.get("definition_version")),
+                (String) row.get("params_json"),
+                (String) row.get("presentation_json"),
+                (String) row.get("trigger_kind"),
+                integer(row.get("interval_minutes")),
+                (String) row.get("cron_expr"),
+                (String) row.get("proxy_snapshot"),
+                (Long) row.get("next_run_time"),
+                (Long) row.get("last_run_time"),
+                (String) row.get("checkpoint_schema"),
+                integer(row.get("checkpoint_version")),
+                (String) row.get("checkpoint_json"),
+                number(row.get("storage_version")),
+                enumeration(ScheduleRunState.class, row.get("run_state")),
+                (String) row.get("run_claim_token"),
+                enumeration(ScheduleLastOutcome.class, row.get("last_outcome")),
+                (String) row.get("outcome_code"),
+                (String) row.get("outcome_message"),
+                enumeration(ScheduleSuspendReason.class, row.get("suspend_reason")),
+                (String) row.get("suspend_code"),
+                (String) row.get("suspend_detail_json"),
+                (Long) row.get("state_version"),
+                (String) row.get("credential_policy_owner_plugin_id"),
+                (String) row.get("credential_policy_id"),
+                (String) row.get("credential_account_key"),
+                (String) row.get("credential_policy_state_json"),
+                (String) row.get("credential_secret_reference"),
+                (Long) row.get("created_time"))).toList();
+    }
+    public List<ScheduledTask> findAll() {
+        return tasks(null, List.of(new Query.Order(column("t", "id"), true, false)), Integer.MAX_VALUE);
+    }
+    public ScheduledTask findById(long id) {
+        return tasks(eq("t", "id", id), List.of(), 1).stream().findFirst().orElse(null);
+    }
+    public int countAll() { return number(query(Query.count(TASK, null)).get(0).get("count")); }
+    public List<ScheduledTask> findDue(long now) {
+        return tasks(call(AND, eq("t", "storage_version", ScheduledTask.CURRENT_STORAGE_VERSION), eq("t", "enabled", 1),
+                call(IS_NULL, column("t", "suspend_reason")), call(IS_NULL, column("t", "run_state")),
+                call(LESS_EQUAL, column("t", "next_run_time"), value(now))),
+                List.of(new Query.Order(column("t", "next_run_time"), false, true),
+                        new Query.Order(column("t", "id"), false, true)), Integer.MAX_VALUE);
+    }
+    public List<ScheduledTask> findByCredentialAccount(String policyOwnerPluginId, String policyId, String accountKey) {
+        return tasks(call(AND, eq("c", "policy_owner_plugin_id", policyOwnerPluginId),
+                eq("c", "policy_id", policyId), eq("c", "account_key", accountKey)),
+                List.of(new Query.Order(column("t", "id"), true, false)), Integer.MAX_VALUE);
+    }
+    private static Expression queueable(long id, long expected) {
+        return call(AND, state(id, expected), eq("enabled", 1), nil("suspend_reason"), nil("run_state"));
+    }
+    public ScheduleRunToken tryQueueDue(long id, long expectedStateVersion, String claimToken, long now) {
+        return claim(values("run_state", ScheduleRunState.QUEUED, "run_claim_token", claimToken),
+                call(AND, queueable(id, expectedStateVersion), call(LESS_EQUAL, column(TASK, "next_run_time"), value(now))));
+    }
+    public ScheduleRunToken tryQueueNow(long id, long expectedStateVersion, String claimToken) {
+        return claim(values("run_state", ScheduleRunState.QUEUED, "run_claim_token", claimToken), queueable(id, expectedStateVersion));
+    }
+    public ScheduleRunToken startRun(long id, ScheduleRunToken queuedToken) {
+        return claim(values("run_state", ScheduleRunState.RUNNING),
+                call(AND, token(id, queuedToken, ScheduleRunState.QUEUED), eq("enabled", 1), nil("suspend_reason")));
+    }
+    public Long completeRun(long id, ScheduleRunToken runningToken, ScheduleRunCompletion completion) {
+        var changes = values("run_state", null, "run_claim_token", null, "last_run_time", completion.finishedTime(),
+                "last_outcome", completion.outcome(), "outcome_code", completion.outcomeCode(), "outcome_message", completion.outcomeMessage(),
+                "next_run_time", completion.nextRunTime());
+        if (completion.checkpointSchema() != null) changes.putAll(values("checkpoint_schema", completion.checkpointSchema(),
+                "checkpoint_version", completion.checkpointVersion(), "checkpoint_json", completion.checkpointJson()));
+        return version(changes, call(AND, token(id, runningToken, ScheduleRunState.RUNNING), nil("suspend_reason")));
+    }
+    public Long finishCancelled(long id, ScheduleRunToken activeToken, ScheduleLastOutcome outcome, long finishedTime,
+                                String outcomeCode, String outcomeMessage, Long nextRunTime) {
+        var cancelled = eq("run_state", ScheduleRunState.CANCEL_REQUESTED);
+        var suspended = call(AND, cancelled, notNil("suspend_reason"));
+        var manual = call(AND, cancelled, choices("suspend_reason", "MANUAL", "QUIESCED"));
+        var changes = values("run_state", null, "run_claim_token", null, "last_run_time", finishedTime, "next_run_time", nextRunTime);
+        changes.put("last_outcome", new Conditional(manual, value("CANCELLED"),
+                new Conditional(suspended, value("ERROR"), literal(outcome))));
+        changes.put("outcome_code", new Conditional(suspended, column(TASK, "suspend_code"), value(outcomeCode)));
+        changes.put("outcome_message", new Conditional(suspended, column(TASK, "suspend_detail_json"), value(outcomeMessage)));
+        Expression exact = call(AND, eq("state_version", activeToken.stateVersion()), eq("run_state", activeToken.runState()));
+        Expression accepted = exact;
+        if (activeToken.runState() == ScheduleRunState.QUEUED || activeToken.runState() == ScheduleRunState.RUNNING)
+            accepted = call(OR, exact, call(AND, eq("state_version", Math.addExact(activeToken.stateVersion(), 1)),
+                    cancelled, notNil("suspend_reason")));
+        return version(changes, call(AND, eq("id", id), eq("storage_version", ScheduledTask.CURRENT_STORAGE_VERSION),
+                eq("run_claim_token", activeToken.claimToken()), accepted));
+    }
+    public Long releaseQueued(long id, ScheduleRunToken queuedToken, Long nextRunTime) {
+        var changes = values("run_state", null, "run_claim_token", null);
+        if (nextRunTime != null) changes.put("next_run_time", value(nextRunTime));
+        return version(changes, token(id, queuedToken, ScheduleRunState.QUEUED));
+    }
+    public Long suspend(long id, long expectedStateVersion, ScheduleSuspendReason reason, String code, String detailJson) {
+        var changes = values("suspend_reason", reason, "suspend_code", code, "suspend_detail_json", detailJson);
+        changes.put("run_state", new Conditional(choices("run_state", "QUEUED", "RUNNING"),
+                value("CANCEL_REQUESTED"), column(TASK, "run_state")));
+        return version(changes, call(AND, state(id, expectedStateVersion), nil("suspend_reason")));
+    }
+    public Long resume(long id, long expectedStateVersion, ScheduleSuspendReason expectedReason, String expectedCode, Long nextRunTime) {
+        return version(values("suspend_reason", null, "suspend_code", null, "suspend_detail_json", null, "next_run_time", nextRunTime),
+                call(AND, state(id, expectedStateVersion), nil("run_state"), eq("suspend_reason", expectedReason),
+                        expectedCode == null ? nil("suspend_code") : eq("suspend_code", expectedCode)));
+    }
+    public Long updateDefinition(long id, long expectedStateVersion, ScheduleTaskDefinitionUpdate update) {
+        var changes = values("name", update.name(), "type", update.sourceType(), "source_owner_plugin_id", update.sourceOwnerPluginId(),
+                "definition_schema", update.definitionSchema(), "definition_version", update.definitionVersion(),
+                "params_json", update.definitionJson(), "presentation_json", update.presentationJson(),
+                "trigger_kind", update.triggerKind(), "interval_minutes", update.intervalMinutes(), "cron_expr", update.cronExpr(),
+                "next_run_time", update.nextRunTime(), "checkpoint_schema", null, "checkpoint_version", null, "checkpoint_json", null);
+        var recoverable = choices("suspend_reason", "MIGRATION_ERROR", "SOURCE_UNAVAILABLE", "EXECUTOR_UNAVAILABLE");
+        for (String name : List.of("suspend_reason", "suspend_code", "suspend_detail_json"))
+            changes.put(name, new Conditional(recoverable, value(null), column(TASK, name)));
+        return version(changes, call(AND, state(id, expectedStateVersion), nil("run_state")));
+    }
+    public Long updateEnabled(long id, long expectedStateVersion, boolean enabled) {
+        return version(values("enabled", enabled), call(AND, state(id, expectedStateVersion), nil("run_state")));
+    }
+    public Long updateProxy(long id, long expectedStateVersion, String proxySnapshot) {
+        return version(values("proxy_snapshot", proxySnapshot), call(AND, state(id, expectedStateVersion), nil("run_state")));
+    }
+    public int deleteTaskByVersion(long id, long expectedStateVersion) {
+        return database.transaction(s -> s.delete(TASK, call(AND, eq("id", id), eq("state_version", expectedStateVersion), nil("run_state"))));
+    }
+    public int recoverInterruptedRuns(long now) {
+        var changes = values("run_state", null, "run_claim_token", null, "last_run_time", now);
+        changes.put("last_outcome", new Conditional(choices("suspend_reason", "MANUAL", "QUIESCED"), value("CANCELLED"),
+                new Conditional(notNil("suspend_reason"), value("ERROR"), value("INTERRUPTED"))));
+        changes.put("outcome_code", new Conditional(notNil("suspend_reason"), column(TASK, "suspend_code"), value("host.restart")));
+        changes.put("outcome_message", new Conditional(notNil("suspend_reason"), column(TASK, "suspend_detail_json"), value(null)));
+        changes.put("next_run_time", new Conditional(nil("suspend_reason"), value(now), column(TASK, "next_run_time")));
+        advance(changes);
+        return database.transaction(s -> s.update(TASK, changes,
+                call(AND, eq("storage_version", ScheduledTask.CURRENT_STORAGE_VERSION), notNil("run_state"))));
+    }
+    public Long advanceIdleStateVersion(long taskId, long expectedStateVersion) {
+        return version(new LinkedHashMap<>(), call(AND, state(taskId, expectedStateVersion), nil("run_state")));
+    }
+    private static Expression credential(long taskId, String owner, String policy) {
+        return call(AND, eq(CREDENTIAL, "task_id", taskId), eq(CREDENTIAL, "policy_owner_plugin_id", owner), eq(CREDENTIAL, "policy_id", policy));
+    }
+    public int upsertCredential(long taskId, String policyOwnerPluginId, String policyId, String accountKey,
+                                String policyStateJson, String secret, String secretReference, long updatedTime) {
+        var row = new LinkedHashMap<String, Object>();
+        row.put("task_id", taskId); row.put("policy_owner_plugin_id", policyOwnerPluginId); row.put("policy_id", policyId);
+        row.put("account_key", accountKey); row.put("policy_state_json", policyStateJson); row.put("secret", secret);
+        row.put("secret_reference", secretReference); row.put("updated_time", updatedTime);
+        var changes = new LinkedHashMap<String, Expression>();
+        row.keySet().stream().filter(name -> !name.equals("task_id")).forEach(name -> changes.put(name, new Incoming(name)));
+        return database.transaction(s -> s.insert(CREDENTIAL, row,
+                new DatabaseSession.Conflict(DatabaseSession.Mode.UPDATE, List.of("task_id"), changes)));
+    }
+    public int deleteCredential(long taskId, String policyOwnerPluginId, String policyId) {
+        return database.transaction(s -> s.delete(CREDENTIAL, credential(taskId, policyOwnerPluginId, policyId)));
+    }
+    public int deleteCredentialByTask(long taskId) {
+        return database.transaction(s -> s.delete(CREDENTIAL, eq(CREDENTIAL, "task_id", taskId)));
+    }
+    public int updateCredentialPolicyState(long taskId, String policyOwnerPluginId, String policyId,
+                                           String expectedPolicyStateJson, String newPolicyStateJson, long updatedTime) {
+        return database.transaction(s -> s.update(CREDENTIAL, values("policy_state_json", newPolicyStateJson, "updated_time", updatedTime),
+                call(AND, credential(taskId, policyOwnerPluginId, policyId), eq(CREDENTIAL, "policy_state_json", expectedPolicyStateJson))));
+    }
+    public ScheduledCredentialBinding findCredentialBinding(long taskId) {
+        var rows = query(new Query(CREDENTIAL, fields(CREDENTIAL, "policy_owner_plugin_id", "policy_id", "policy_state_json"),
+                eq(CREDENTIAL, "task_id", taskId), List.of(), List.of(), 1, 0));
+        if (rows.isEmpty()) return null;
+        var row = rows.get(0);
+        return new ScheduledCredentialBinding((String) row.get("policy_owner_plugin_id"),
+                (String) row.get("policy_id"), (String) row.get("policy_state_json"));
+    }
+    public String findCredentialSecret(long taskId, String policyOwnerPluginId, String policyId) {
+        var rows = query(new Query(CREDENTIAL, fields(CREDENTIAL, "secret"), credential(taskId, policyOwnerPluginId, policyId),
+                List.of(), List.of(), 1, 0));
+        return rows.isEmpty() ? null : (String) rows.get(0).get("secret");
+    }
+    private static Expression pending(long taskId, String workType, String workId) {
+        return call(AND, eq(PENDING, "task_id", taskId), eq(PENDING, "work_type", workType), eq(PENDING, "work_id", workId));
+    }
+    public int resolvePendingWork(long taskId, String workType, String workId, String detail) {
+        return database.transaction(s -> s.update(PENDING, values("reason_detail_json", detail), pending(taskId, workType, workId)));
+    }
+    public int upsertPendingWork(ScheduledPendingWork pendingWork) {
+        var row = new LinkedHashMap<String, Object>();
+        row.put("task_id", stored(pendingWork.taskId()));
+        row.put("work_type", stored(pendingWork.workType()));
+        row.put("work_id", stored(pendingWork.workId()));
+        row.put("payload_schema", stored(pendingWork.payloadSchema()));
+        row.put("payload_version", stored(pendingWork.payloadVersion()));
+        row.put("payload_json", stored(pendingWork.payloadJson()));
+        row.put("relations_json", stored(pendingWork.relationsJson()));
+        row.put("presentation_json", stored(pendingWork.presentationJson()));
+        row.put("reason_code", stored(pendingWork.reasonCode()));
+        row.put("reason_detail_json", stored(pendingWork.reasonDetailJson()));
+        row.put("attempts", stored(pendingWork.attempts()));
+        row.put("first_seen_time", stored(pendingWork.firstSeenTime()));
+        row.put("last_attempt_time", stored(pendingWork.lastAttemptTime()));
+        var changes = new LinkedHashMap<String, Expression>();
+        row.keySet().stream().filter(name -> !List.of("task_id", "work_type", "work_id", "first_seen_time").contains(name))
+                .forEach(name -> changes.put(name, new Incoming(name)));
+        changes.put("attempts", new Conditional(call(GREATER_EQUAL, column(PENDING, "attempts"), new Incoming("attempts")),
+                column(PENDING, "attempts"), new Incoming("attempts")));
+        return database.transaction(s -> s.insert(PENDING, row,
+                new DatabaseSession.Conflict(DatabaseSession.Mode.UPDATE, List.of("task_id", "work_type", "work_id"), changes)));
+    }
+    public List<ScheduledPendingWork> listPendingWork(long taskId) {
+        return query(new Query(PENDING, fields(PENDING, "task_id", "work_type", "work_id", "payload_schema", "payload_version", "payload_json", "relations_json", "presentation_json", "reason_code", "reason_detail_json", "attempts", "first_seen_time", "last_attempt_time"), eq(PENDING, "task_id", taskId), List.of(),
+                List.of(new Query.Order(column(PENDING, "first_seen_time"), false, true),
+                        new Query.Order(column(PENDING, "work_type"), false, true), new Query.Order(column(PENDING, "work_id"), false, true)),
+                Integer.MAX_VALUE, 0)).stream().map(row -> new ScheduledPendingWork((Long) row.get("task_id"),
+                (String) row.get("work_type"),
+                (String) row.get("work_id"),
+                (String) row.get("payload_schema"),
+                number(row.get("payload_version")),
+                (String) row.get("payload_json"),
+                (String) row.get("relations_json"),
+                (String) row.get("presentation_json"),
+                (String) row.get("reason_code"),
+                (String) row.get("reason_detail_json"),
+                number(row.get("attempts")),
+                (Long) row.get("first_seen_time"),
+                (Long) row.get("last_attempt_time"))).toList();
+    }
+    public int deletePendingWork(long taskId, String workType, String workId) {
+        return database.transaction(s -> s.delete(PENDING, pending(taskId, workType, workId)));
+    }
+    public int deleteAllPendingWork(long taskId) {
+        return database.transaction(s -> s.delete(PENDING, eq(PENDING, "task_id", taskId)));
+    }
+    /** 旧表只作为迁移输入，聚合删除仍须清理。 */
+    public int deleteLegacyPendingByTask(long taskId) {
+        return database.transaction(s -> s.delete("scheduled_task_pending", eq("scheduled_task_pending", "task_id", taskId)));
+    }
 }

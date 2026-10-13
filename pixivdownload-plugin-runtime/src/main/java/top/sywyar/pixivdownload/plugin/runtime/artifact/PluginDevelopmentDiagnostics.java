@@ -28,9 +28,7 @@ public final class PluginDevelopmentDiagnostics {
             PluginDevelopmentArtifacts.DevelopmentDiscovery discovery) {
         redLine("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
         redLine("PIXIVDOWNLOAD PLUGIN DEVELOPMENT MODE ENABLED");
-        if (!PluginDevelopmentArtifacts.standaloneProject(productionDirectory)) {
-            redLine("The plugins directory is ignored: " + productionDirectory);
-        }
+        redLine("Installed plugins are verified and loaded alongside source modules: " + productionDirectory);
         redLine("Development root: " + discovery.developmentRoot());
         redLine("Development cache: " + discovery.cacheRoot());
         redLine("Compiled plugin modules: " + discovery.artifacts().size()

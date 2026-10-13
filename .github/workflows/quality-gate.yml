@@ -142,6 +142,7 @@ jobs:
           cat "$RUNNER_TEMP/sdk-contract-report.json"
         env:
           SDK_RELEASE_IDENTITY_REQUIRED: ${{ env.SDK_PUBLICATION_MODE == 'current' || env.SDK_PUBLICATION_MODE == 'latest' }}
+          GH_TOKEN: ${{ github.token }}
 
       - name: Upload verified SDK candidate
         id: sdk-candidate

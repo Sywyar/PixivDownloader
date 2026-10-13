@@ -21,6 +21,7 @@ import java.util.regex.Pattern;
  * 安全持久化、且不会破坏 YAML 解析或本类自身的行尾注释识别。
  */
 public class ConfigFileEditor {
+    private static final Object WRITE_LOCK = new Object();
 
     /** YAML sexagesimal pattern: values like "23:50" are misinterpreted as integers by SnakeYAML. */
     private static final Pattern YAML_SEXAGESIMAL = Pattern.compile("^-?\\d+:\\d+$");
@@ -36,6 +37,26 @@ public class ConfigFileEditor {
         this.configPath = configPath;
     }
 
+    /** 桌面与市场配置入口复用同一 YAML 读写和快照合同。 */
+    public top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.ConfigFile asConfigFile() {
+        var editor = this;
+        return new top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.ConfigFile() {
+            @Override public void withWriteLock(top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.IoOperation operation) throws IOException {
+                synchronized (WRITE_LOCK) { operation.run(); }
+            }
+            @Override public Map<String, String> readAll(Collection<String> keys) throws IOException { return editor.readAll(keys); }
+            @Override public void writeAll(Map<String, String> values) throws IOException { editor.writeAll(values); }
+            @Override public void removeAll(Collection<String> keys) throws IOException { editor.removeAll(keys); }
+            @Override public top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.ConfigSnapshot snapshot() throws IOException {
+                var snapshot = editor.snapshot();
+                return new top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.ConfigSnapshot(snapshot.existed(), snapshot.lines());
+            }
+            @Override public void restore(top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.ConfigSnapshot snapshot) throws IOException {
+                editor.restore(new FileSnapshot(snapshot.existed(), snapshot.lines()));
+            }
+        };
+    }
+
     // ── 读 ──────────────────────────────────────────────────────────────────────
 
     /**
@@ -43,29 +64,33 @@ public class ConfigFileEditor {
      * 若 key 不存在或被注释掉则返回 null；调用方应自行回退到字段默认值。
      */
     public String read(String key) throws IOException {
-        String safeKey = requireSafeKey(key);
-        for (String line : readLines()) {
-            String trimmed = line.trim();
-            if (matchesActiveKey(trimmed, safeKey)) {
-                return requireSafeValue(extractValue(trimmed));
+        synchronized (WRITE_LOCK) {
+            String safeKey = requireSafeKey(key);
+            for (String line : readLines()) {
+                String trimmed = line.trim();
+                if (matchesActiveKey(trimmed, safeKey)) {
+                    return requireSafeValue(extractValue(trimmed));
+                }
             }
+            return null;
         }
-        return null;
     }
 
     /** 批量读取，仅匹配活跃行（未注释），返回 key→value 的 Map（不存在的 key 不包含在结果中）。 */
     public Map<String, String> readAll(Collection<String> keys) throws IOException {
-        Set<String> keySet = validatedKeySet(keys);
-        Map<String, String> result = new LinkedHashMap<>();
-        for (String line : readLines()) {
-            String trimmed = line.trim();
-            for (String key : keySet) {
-                if (!result.containsKey(key) && matchesActiveKey(trimmed, key)) {
-                    result.put(key, requireSafeValue(extractValue(trimmed)));
+        synchronized (WRITE_LOCK) {
+            Set<String> keySet = validatedKeySet(keys);
+            Map<String, String> result = new LinkedHashMap<>();
+            for (String line : readLines()) {
+                String trimmed = line.trim();
+                for (String key : keySet) {
+                    if (!result.containsKey(key) && matchesActiveKey(trimmed, key)) {
+                        result.put(key, requireSafeValue(extractValue(trimmed)));
+                    }
                 }
             }
+            return result;
         }
-        return result;
     }
 
     // ── 写 ──────────────────────────────────────────────────────────────────────
@@ -78,103 +103,113 @@ public class ConfigFileEditor {
      *   <li>未找到 → 追加到文件末尾</li>
      * </ul>
      */
-    public synchronized void write(String key, String value) throws IOException {
-        String safeKey = requireSafeKey(key);
-        String safeValue = requireSafeValue(value);
-        List<String> lines = new ArrayList<>(readLines());
-        boolean found = false;
-        for (int i = 0; i < lines.size(); i++) {
-            if (matchesKey(lines.get(i).trim(), safeKey)) {
-                lines.set(i, buildLine(lines.get(i), safeKey, safeValue));
-                found = true;
-                break;
+    public void write(String key, String value) throws IOException {
+        synchronized (WRITE_LOCK) {
+            String safeKey = requireSafeKey(key);
+            String safeValue = requireSafeValue(value);
+            List<String> lines = new ArrayList<>(readLines());
+            boolean found = false;
+            for (int i = 0; i < lines.size(); i++) {
+                if (matchesKey(lines.get(i).trim(), safeKey)) {
+                    lines.set(i, buildLine(lines.get(i), safeKey, safeValue));
+                    found = true;
+                    break;
+                }
             }
+            if (!found) {
+                lines.add(safeKey + ": " + formatValue(safeValue));
+            }
+            writeLinesAtomically(lines);
         }
-        if (!found) {
-            lines.add(safeKey + ": " + formatValue(safeValue));
-        }
-        writeLinesAtomically(lines);
     }
 
     /**
      * 批量写入，单次 I/O。
      * 所有 key 均写为活跃行，值为空时写入 "key: "（不注释）。
      */
-    public synchronized void writeAll(Map<String, String> values) throws IOException {
-        Map<String, String> safeValues = validatedValues(values);
-        if (safeValues.isEmpty()) {
-            return;
-        }
-        List<String> lines = new ArrayList<>(readLines());
-        Set<String> written = new HashSet<>();
+    public void writeAll(Map<String, String> values) throws IOException {
+        synchronized (WRITE_LOCK) {
+            Map<String, String> safeValues = validatedValues(values);
+            if (safeValues.isEmpty()) {
+                return;
+            }
+            List<String> lines = new ArrayList<>(readLines());
+            Set<String> written = new HashSet<>();
 
-        for (int i = 0; i < lines.size(); i++) {
-            String trimmed = lines.get(i).trim();
-            for (Map.Entry<String, String> entry : safeValues.entrySet()) {
-                String key = entry.getKey();
-                if (!written.contains(key) && matchesKey(trimmed, key)) {
-                    lines.set(i, buildLine(lines.get(i), key, entry.getValue()));
-                    written.add(key);
-                    break;
+            for (int i = 0; i < lines.size(); i++) {
+                String trimmed = lines.get(i).trim();
+                for (Map.Entry<String, String> entry : safeValues.entrySet()) {
+                    String key = entry.getKey();
+                    if (!written.contains(key) && matchesKey(trimmed, key)) {
+                        lines.set(i, buildLine(lines.get(i), key, entry.getValue()));
+                        written.add(key);
+                        break;
+                    }
                 }
             }
-        }
 
-        // 追加文件中不存在的 key（含 value 为空的字段，均写为活跃行）
-        for (Map.Entry<String, String> entry : safeValues.entrySet()) {
-            String key = entry.getKey();
-            if (!written.contains(key)) {
-                lines.add(key + ": " + formatValue(entry.getValue()));
+            // 追加文件中不存在的 key（含 value 为空的字段，均写为活跃行）
+            for (Map.Entry<String, String> entry : safeValues.entrySet()) {
+                String key = entry.getKey();
+                if (!written.contains(key)) {
+                    lines.add(key + ": " + formatValue(entry.getValue()));
+                }
             }
-        }
 
-        writeLinesAtomically(lines);
+            writeLinesAtomically(lines);
+        }
     }
 
     /**
      * 批量删除活跃配置行，保留其它注释、空行和未知配置。
      */
-    public synchronized void removeAll(Collection<String> keys) throws IOException {
-        Set<String> keySet = validatedKeySet(keys);
-        if (keySet.isEmpty() || !Files.exists(configPath)) {
-            return;
-        }
-        List<String> lines = new ArrayList<>(readLines());
-        List<String> kept = new ArrayList<>(lines.size());
-        boolean removed = false;
-        for (String line : lines) {
-            String trimmed = line.trim();
-            boolean match = false;
-            for (String key : keySet) {
-                if (matchesActiveKey(trimmed, key)) {
-                    match = true;
-                    break;
+    public void removeAll(Collection<String> keys) throws IOException {
+        synchronized (WRITE_LOCK) {
+            Set<String> keySet = validatedKeySet(keys);
+            if (keySet.isEmpty() || !Files.exists(configPath)) {
+                return;
+            }
+            List<String> lines = new ArrayList<>(readLines());
+            List<String> kept = new ArrayList<>(lines.size());
+            boolean removed = false;
+            for (String line : lines) {
+                String trimmed = line.trim();
+                boolean match = false;
+                for (String key : keySet) {
+                    if (matchesActiveKey(trimmed, key)) {
+                        match = true;
+                        break;
+                    }
+                }
+                if (match) {
+                    removed = true;
+                } else {
+                    kept.add(line);
                 }
             }
-            if (match) {
-                removed = true;
-            } else {
-                kept.add(line);
+            if (removed) {
+                writeLinesAtomically(kept);
             }
         }
-        if (removed) {
-            writeLinesAtomically(kept);
+    }
+
+    public FileSnapshot snapshot() throws IOException {
+        synchronized (WRITE_LOCK) {
+            return new FileSnapshot(Files.exists(configPath), new ArrayList<>(readLines()));
         }
     }
 
-    public synchronized FileSnapshot snapshot() throws IOException {
-        return new FileSnapshot(Files.exists(configPath), new ArrayList<>(readLines()));
-    }
-
-    public synchronized void restore(FileSnapshot snapshot) throws IOException {
-        if (snapshot == null) {
-            throw new IOException("Cannot restore config file without a snapshot");
+    public void restore(FileSnapshot snapshot) throws IOException {
+        synchronized (WRITE_LOCK) {
+            if (snapshot == null) {
+                throw new IOException("Cannot restore config file without a snapshot");
+            }
+            if (!snapshot.existed()) {
+                Files.deleteIfExists(configPath);
+                return;
+            }
+            writeLinesAtomically(snapshot.lines());
         }
-        if (!snapshot.existed()) {
-            Files.deleteIfExists(configPath);
-            return;
-        }
-        writeLinesAtomically(snapshot.lines());
     }
 
     // ── 私有工具方法 ──────────────────────────────────────────────────────────────

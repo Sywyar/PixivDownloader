@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.novel.narration;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
 import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
@@ -50,14 +51,16 @@ public class NarrationReferenceVoiceService {
     private final NarrationAudioService narrationAudioService;
     private final NarrationReferenceVoiceStore fileStore;
     private final NarrationReferenceVoicePaths paths;
+    private final DatabaseAvailability database;
 
     public NarrationReferenceVoiceService(NovelMapper novelMapper, NarrationAudioService narrationAudioService,
                                           NarrationReferenceVoiceStore fileStore,
-                                          NarrationReferenceVoicePaths paths) {
+                                          NarrationReferenceVoicePaths paths, DatabaseAvailability database) {
         this.novelMapper = novelMapper;
         this.narrationAudioService = narrationAudioService;
         this.fileStore = fileStore;
         this.paths = paths;
+        this.database = database;
     }
 
     /** 自动种子音生成结果。 */
@@ -124,12 +127,15 @@ public class NarrationReferenceVoiceService {
      * @throws top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException 引擎不可用 / 合成失败（控制器转 502）
      */
     public GenerateResult generateSeed(long castId, int characterId, String seedText) {
+        database.requireAvailable();
         String base = baseInstruction(castId, characterId);
         if (base == null || base.isBlank()) {
             return new GenerateResult(Outcome.NO_BASE, null);
         }
         String text = seedText == null ? "" : seedText.trim();
+        database.requireAvailable();
         NarrationAudio audio = narrationAudioService.synthesizeVoiceDesign(text, base);
+        database.requireAvailable();
         byte[] data = audio == null ? null : audio.data();
         String ext = extForContentType(audio == null ? null : audio.contentType());
         if (data == null || !acceptableSeed(data, ext)) {
@@ -152,7 +158,9 @@ public class NarrationReferenceVoiceService {
     /** 删除某角色的参考音（文件 + 库内元数据），并推进花名册 updated_time 使缓存失效。 */
     public void delete(long castId, int characterId) {
         synchronized (fileStore.lockFor(castId, characterId)) {
+            database.requireAvailable();
             fileStore.deleteCharacterFiles(castId, characterId);
+            database.requireAvailable();
             novelMapper.clearNarrationVoiceReference(castId, characterId);
             novelMapper.touchNarrationCast(castId, System.currentTimeMillis());
         }
@@ -168,12 +176,15 @@ public class NarrationReferenceVoiceService {
     private NovelNarrationVoiceRef store(long castId, int characterId, byte[] data, String ext,
                                          String refText, String source) {
         synchronized (fileStore.lockFor(castId, characterId)) {
+            database.requireAvailable();
             // 旁白行可能尚未持久化：先确保有行。其它角色必须已在该花名册，否则不落盘（避免孤儿文件）。
             ensureVoiceRow(castId, characterId);
             if (novelMapper.findNarrationVoiceRef(castId, characterId) == null) {
                 return null;
             }
+            database.requireAvailable();
             fileStore.write(castId, characterId, data, ext);
+            database.requireAvailable();
             long now = System.currentTimeMillis();
             String text = refText == null || refText.isBlank() ? null : refText.trim();
             int updated = novelMapper.updateNarrationVoiceReference(castId, characterId, ext, text, source, now);

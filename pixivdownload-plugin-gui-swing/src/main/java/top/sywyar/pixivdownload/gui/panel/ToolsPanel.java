@@ -171,6 +171,7 @@ public class ToolsPanel extends JPanel {
         g.gridx = 2;
         g.weightx = 0;
         JButton browseDbButton = new JButton(message("gui.button.browse"));
+        browseDbButton.setEnabled(SwingHost.host().supportsDatabaseFileSelection());
         browseDbButton.addActionListener(e -> browseDatabase());
         form.add(browseDbButton, g);
 
@@ -257,6 +258,7 @@ public class ToolsPanel extends JPanel {
         g.gridx = 2;
         g.weightx = 0;
         JButton browseDbButton = new JButton(message("gui.button.browse"));
+        browseDbButton.setEnabled(SwingHost.host().supportsDatabaseFileSelection());
         browseDbButton.addActionListener(e -> browseMigrationDatabase());
         form.add(browseDbButton, g);
 
@@ -314,7 +316,7 @@ public class ToolsPanel extends JPanel {
 
     private void loadDefaults() {
         String rootFolder = SwingHost.host().readDownloadRootFromConfig(configPath, SwingHost.context().rootFolder());
-        String resolvedDbPath = SwingHost.host().resolveDatabasePath(rootFolder).toString();
+        String resolvedDbPath = SwingHost.host().defaultBackfillOptions().dbPath();
         dbPathField.setText(resolvedDbPath);
         migrationDbPathField.setText(resolvedDbPath);
         migrationRootFolderField.setText(rootFolder);
@@ -866,7 +868,7 @@ public class ToolsPanel extends JPanel {
         migrationLogButton.setEnabled(currentMigrationLogSession != null || Files.exists(MIGRATION_LOG_PATH));
 
         boolean backfillEditable = !backfillRunning && !backendTransitioning;
-        dbPathField.setEnabled(backfillEditable);
+        dbPathField.setEnabled(backfillEditable && SwingHost.host().supportsDatabaseFileSelection());
         proxyEnabledCheck.setEnabled(backfillEditable);
         dryRunCheck.setEnabled(backfillEditable);
         delaySpinner.setEnabled(backfillEditable);
@@ -874,7 +876,7 @@ public class ToolsPanel extends JPanel {
         updateProxyFieldState();
 
         boolean migrationEditable = !migrationRunning && !backendTransitioning;
-        migrationDbPathField.setEnabled(migrationEditable);
+        migrationDbPathField.setEnabled(migrationEditable && SwingHost.host().supportsDatabaseFileSelection());
         migrationRootFolderField.setEnabled(migrationEditable);
 
         exclusiveToolLabel.setText(message("gui.tools.exclusive-tool",

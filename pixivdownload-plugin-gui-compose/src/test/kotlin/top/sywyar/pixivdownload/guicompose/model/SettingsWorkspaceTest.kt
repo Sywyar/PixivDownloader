@@ -34,6 +34,49 @@ import kotlin.test.*
 @OptIn(ExperimentalTestApi::class)
 class SettingsWorkspaceTest {
     @Test
+    @DisplayName("浅深色窄窗口中的保存警告换行且不遮挡设置正文")
+    fun savedWarningInCompactWindow() {
+        for (theme in listOf("light", "dark")) runComposeUiTest(
+            effectContext = object : MotionDurationScale { override val scaleFactor = 0f },
+        ) {
+            val stored = mutableMapOf<String, String>()
+            val model = createModel(stored)
+            var snapshot by mutableStateOf(model.snapshot())
+            val subscription = model.subscribeSnapshots { snapshot = it }
+            try {
+                setContent {
+                    CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 1.3f)) {
+                        PixivDownloaderTheme(theme) {
+                            Box(Modifier.size(530.dp, 500.dp).background(LocalExperiencePalette.current.surface)) {
+                                SettingsWorkspace(workspace(snapshot), { token ->
+                                    if (token.fallback() == "gui.config.notice.saved-hot-failed")
+                                        "Settings were saved, but the running service could not apply them. Restart the service to use the changes."
+                                    else resolve(token)
+                                }, { model.dispatch(snapshot, it) })
+                            }
+                        }
+                    }
+                }
+                onNodeWithTag("settings.categories").performClick()
+                onNodeWithText(resolve(workspace(snapshot).tabs().first { it.id() == "download" }.title())).performClick()
+                onNodeWithContentDescription("sample.address").performScrollTo().performTextReplacement("changed")
+                onNodeWithTag("config.save").performClick()
+                waitUntil(timeoutMillis = 5000) { !model.busy() && workspace(model.snapshot()).changes().isEmpty() }
+                assertEquals("changed", stored["sample.address"])
+                val notice = onNodeWithTag("config.notice")
+                notice.assertIsDisplayed().assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.Error))
+                val page = onNodeWithTag("settings.workspace").fetchSemanticsNode().boundsInRoot
+                val content = onNodeWithTag("settings.content").fetchSemanticsNode().boundsInRoot
+                assertTrue(content.height >= page.height * .4f, "page=$page content=$content")
+                assertTrue(notice.fetchSemanticsNode().boundsInRoot.bottom <= page.bottom)
+                capture("saved-warning-$theme")
+            } finally {
+                subscription.close()
+                model.close()
+            }
+        }
+    }
+    @Test
     @DisplayName("窄矮设置保留正文高度，分类菜单、搜索和带草稿的保存操作均可达")
     fun compactHeightKeepsContentUsable() = runComposeUiTest(
         effectContext = object : MotionDurationScale { override val scaleFactor = 0f },

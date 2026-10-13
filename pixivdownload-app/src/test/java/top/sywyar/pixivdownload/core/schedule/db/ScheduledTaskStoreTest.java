@@ -56,15 +56,14 @@ class ScheduledTaskStoreTest {
                 "test", new SpringManagedTransactionFactory(), dataSource);
         Configuration configuration = new Configuration(environment);
         configuration.setMapUnderscoreToCamelCase(true);
-        configuration.addMapper(ScheduledTaskMapper.class);
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(configuration);
-        mapper = new SqlSessionTemplate(factory).getMapper(ScheduledTaskMapper.class);
+        mapper = new ScheduledTaskMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
         jdbc = new JdbcTemplate(dataSource);
         transactionManager = new DataSourceTransactionManager(dataSource);
         transactionTemplate = new TransactionTemplate(transactionManager);
 
         DatabaseSchemaRegistry registry = DatabaseSchemaRegistry.forBuiltInPlugins();
-        initializer = new DatabaseInitializer(jdbc,
+        initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(jdbc,
                 registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
@@ -394,36 +393,26 @@ class ScheduledTaskStoreTest {
     }
 
     private ScheduledTaskMapper faultingMapper(String failingMethod) {
-        return (ScheduledTaskMapper) Proxy.newProxyInstance(
-                ScheduledTaskMapper.class.getClassLoader(),
-                new Class<?>[]{ScheduledTaskMapper.class},
-                (proxy, method, args) -> {
-                    if (method.getName().equals(failingMethod)) {
-                        throw new IllegalStateException("fixture mapper failure: " + failingMethod);
-                    }
-                    try {
-                        return method.invoke(mapper, args);
-                    } catch (InvocationTargetException e) {
-                        throw e.getCause();
-                    }
-                });
+        var proxy = new ProxyFactory(mapper);
+        proxy.setProxyTargetClass(true);
+        proxy.addAdvice((org.aopalliance.intercept.MethodInterceptor) invocation -> {
+            if (invocation.getMethod().getName().equals(failingMethod))
+                throw new IllegalStateException("fixture mapper failure: " + failingMethod);
+            return invocation.proceed();
+        });
+        return (ScheduledTaskMapper) proxy.getProxy();
     }
 
     private ScheduledTaskMapper missingGeneratedIdMapper() {
-        return (ScheduledTaskMapper) Proxy.newProxyInstance(
-                ScheduledTaskMapper.class.getClassLoader(),
-                new Class<?>[]{ScheduledTaskMapper.class},
-                (proxy, method, args) -> {
-                    try {
-                        Object result = method.invoke(mapper, args);
-                        if (method.getName().equals("insert")) {
-                            ((ScheduledTaskInsertRow) args[0]).setId(null);
-                        }
-                        return result;
-                    } catch (InvocationTargetException e) {
-                        throw e.getCause();
-                    }
-                });
+        var proxy = new ProxyFactory(mapper);
+        proxy.setProxyTargetClass(true);
+        proxy.addAdvice((org.aopalliance.intercept.MethodInterceptor) invocation -> {
+            Object result = invocation.proceed();
+            if (invocation.getMethod().getName().equals("insert"))
+                ((ScheduledTaskInsertRow) invocation.getArguments()[0]).setId(null);
+            return result;
+        });
+        return (ScheduledTaskMapper) proxy.getProxy();
     }
 
     private ScheduledTaskCreate create(String name) {

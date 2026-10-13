@@ -144,11 +144,12 @@ public class ScheduleHostPluginConfiguration {
             ScheduleNetworkRouteResolver routeResolver,
             @Qualifier("scheduleWorkTaskExecutor") TaskExecutor scheduleWorkTaskExecutor,
             ScheduleWorkConcurrencyLimiter workConcurrencyLimiter,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
         return new ScheduleExecutionEngine(
                 store, scheduleCapabilityRegistry, runState, runQueue, scheduleConfig,
                 persistenceCodec, routeResolver, scheduleWorkTaskExecutor,
-                workConcurrencyLimiter, objectMapper);
+                workConcurrencyLimiter, objectMapper, database);
     }
 
     @Bean
@@ -193,11 +194,12 @@ public class ScheduleHostPluginConfiguration {
                                            ScheduleCredentialService credentialService,
                                            PlatformTransactionManager transactionManager,
                                            ScheduleCapabilityAccess scheduleCapabilityRegistry,
-                                           ScheduleHostIdentity hostIdentity) {
+                                           ScheduleHostIdentity hostIdentity,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
         return new ScheduleService(store, executor, config, runState, runQueue,
                 objectMapper, credentialService,
                 new TransactionTemplate(transactionManager), scheduleCapabilityRegistry,
-                hostIdentity);
+                hostIdentity, database);
     }
 
     @Bean
@@ -206,9 +208,10 @@ public class ScheduleHostPluginConfiguration {
                                          ScheduleConfig config,
                                          ScheduleRunState runState,
                                          ScheduleCapabilityAccess scheduleCapabilityRegistry,
-                                         ScheduleHostIdentity hostIdentity) {
+                                         ScheduleHostIdentity hostIdentity,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
         return new ScheduleRunner(
-                store, executor, config, runState, scheduleCapabilityRegistry, hostIdentity);
+                store, executor, config, runState, scheduleCapabilityRegistry, hostIdentity, database);
     }
 
     @Bean

@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.gui;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.sqlite.SQLiteConfig;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -14,6 +13,7 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefix;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
+import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.core.metadata.sidecar.WorkSidecarFiles;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
@@ -24,11 +24,7 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -37,9 +33,16 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.*;
+import top.sywyar.pixivdownload.core.db.schema.CoreMigrationSchema;
+import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.*;
 
 final class DesktopUiTools {
 
+    private static final top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema SCHEMA =
+            CoreMigrationSchema.create(DatabaseSchemaRegistry.forBuiltInPlugins(), true);
     private static final Logger log = LoggerFactory.getLogger(DesktopUiTools.class);
     private final java.util.function.Supplier<String> serverUrl;
     private static final List<String> IMAGE_EXTENSIONS =
@@ -51,38 +54,55 @@ final class DesktopUiTools {
         this.serverUrl = serverUrl;
     }
 
-    DesktopUiHost.FolderCheckResult checkArtworkFolders(Path databasePath, String rootFolder) throws SQLException {
-        List<DesktopUiHost.FolderArtwork> all;
-        try (Connection connection = openDatabase(databasePath)) {
-            all = loadArtworks(connection, loadPathCodec(connection, rootFolder),
-                    "SELECT artwork_id, title, folder, moved, move_folder FROM artworks"
-                            + " WHERE deleted = 0 ORDER BY time DESC");
-        } catch (SQLException exception) {
-            if (!String.valueOf(exception.getMessage()).contains("no such column")) {
-                throw exception;
-            }
-            try (Connection connection = openDatabase(databasePath)) {
-                all = loadArtworks(connection, loadPathCodec(connection, rootFolder),
-                        "SELECT artwork_id, title, folder, moved, move_folder FROM artworks ORDER BY time DESC");
-            }
+    DesktopUiHost.FolderCheckResult checkArtworkFolders(DatabaseTarget target,
+                                                       String rootFolder) throws SQLException {
+        try (Connection connection = target.openConnection()) {
+            return checkArtworkFolders(connection, target, rootFolder);
         }
-
-        List<DesktopUiHost.FolderArtwork> inaccessible = all.stream()
-                .filter(artwork -> !isDirectory(artwork.path()))
-                .toList();
-        return new DesktopUiHost.FolderCheckResult(all.size(), inaccessible);
     }
 
-    void updateArtworkFolder(Path databasePath, String rootFolder, long artworkId, boolean moved, String newPath) throws SQLException {
-        String column = moved ? "move_folder" : "folder";
-        try (Connection connection = openDatabase(databasePath);
-             PreparedStatement statement = connection.prepareStatement(
-                     "UPDATE artworks SET " + column + " = ? WHERE artwork_id = ?")) {
-            statement.setString(1, loadPathCodec(connection, rootFolder).encode(newPath));
-            statement.setLong(2, artworkId);
-            if (statement.executeUpdate() == 0) {
-                throw new SQLException("Artwork " + artworkId + " was not found");
-            }
+    DesktopUiHost.FolderCheckResult checkArtworkFolders(Connection connection, DatabaseTarget target, String rootFolder) throws SQLException {
+        var actual = target.readSchema(connection);
+        var table = actual.get("artworks");
+        if (table == null) throw new SQLException("DATABASE_EXISTING_MAIN_REQUIRED", "42P01");
+        Expression filter = table.columns().stream().anyMatch(c -> c.name().equals("deleted"))
+                ? call(EQUAL, column("artworks", "deleted"), value(0)) : null;
+        var fields = new java.util.LinkedHashMap<String, Expression>();
+        for (String field : List.of("artwork_id", "title", "folder", "moved", "move_folder")) fields.put(field, column("artworks", field));
+        var query = new Query("artworks", fields, filter, List.of(),
+                List.of(new Query.Order(column("artworks", "time"), true, false)), Integer.MAX_VALUE, 0);
+        List<DesktopUiHost.FolderArtwork> inaccessible = new ArrayList<>();
+        int[] total = {0};
+        try (var session = target.storageSession(connection, SCHEMA)) {
+            var codec = loadPathCodec(session, actual.containsKey("path_prefixes"), rootFolder);
+            session.scan(query, row -> {
+                total[0] = Math.incrementExact(total[0]);
+                boolean moved = Long.valueOf(1).equals(row.get("moved"));
+                String stored = (String) (moved && row.get("move_folder") != null ? row.get("move_folder") : row.get("folder"));
+                String path = codec.resolve(stored);
+                if (!isDirectory(path)) inaccessible.add(new DesktopUiHost.FolderArtwork((Long) row.get("artwork_id"),
+                        (String) row.get("title"), path, moved));
+                return true;
+            });
+        }
+        return new DesktopUiHost.FolderCheckResult(total[0], inaccessible);
+    }
+
+    void updateArtworkFolder(DatabaseTarget target, String rootFolder,
+                             long artworkId, boolean moved, String newPath) throws SQLException {
+        try (Connection connection = target.openConnection()) {
+            updateArtworkFolder(connection, target, rootFolder, artworkId, moved, newPath);
+        }
+    }
+
+    void updateArtworkFolder(Connection connection, DatabaseTarget target, String rootFolder,
+                             long artworkId, boolean moved, String newPath) throws SQLException {
+        boolean hasPrefixes = target.readSchema(connection).containsKey("path_prefixes");
+        try (var session = target.storageSession(connection, SCHEMA)) {
+            String path = loadPathCodec(session, hasPrefixes, rootFolder).encode(newPath);
+            if (session.update("artworks", Map.of(moved ? "move_folder" : "folder", value(path)),
+                    call(EQUAL, column("artworks", "artwork_id"), value(artworkId))) == 0)
+                throw new SQLException("ARTWORK_NOT_FOUND", "02000");
         }
     }
 
@@ -297,39 +317,13 @@ final class DesktopUiTools {
         return destination;
     }
 
-    private static Connection openDatabase(Path databasePath) throws SQLException {
-        SQLiteConfig configuration = new SQLiteConfig();
-        configuration.setBusyTimeout(5000);
-        configuration.setJournalMode(SQLiteConfig.JournalMode.WAL);
-        configuration.setReadOnly(false);
-        return DriverManager.getConnection("jdbc:sqlite:" + databasePath, configuration.toProperties());
-    }
-
-    private static StoredPathCodec loadPathCodec(Connection connection, String rootFolder) throws SQLException {
+    private static StoredPathCodec loadPathCodec(DatabaseSession session, boolean hasPrefixes, String rootFolder) throws SQLException {
         List<PathPrefix> prefixes = new ArrayList<>();
-        try (ResultSet tables = connection.getMetaData().getTables(null, null, "path_prefixes", null)) {
-            if (tables.next()) {
-                try (Statement statement = connection.createStatement();
-                     ResultSet rows = statement.executeQuery("SELECT id, path FROM path_prefixes")) {
-                    while (rows.next()) prefixes.add(new PathPrefix(rows.getLong("id"), rows.getString("path")));
-                }
-            }
-        }
+        if (hasPrefixes) session.scan(new Query("path_prefixes", Map.of("id", column("path_prefixes", "id"),
+                "path", column("path_prefixes", "path")), null, List.of(), List.of(), Integer.MAX_VALUE, 0), row -> {
+            prefixes.add(new PathPrefix((Long) row.get("id"), (String) row.get("path"))); return true;
+        });
         return PathPrefixCodec.snapshot(rootFolder, prefixes);
-    }
-
-    private static List<DesktopUiHost.FolderArtwork> loadArtworks(Connection connection, StoredPathCodec codec, String sql) throws SQLException {
-        List<DesktopUiHost.FolderArtwork> artworks = new ArrayList<>();
-        try (Statement statement = connection.createStatement(); ResultSet result = statement.executeQuery(sql)) {
-            while (result.next()) {
-                boolean moved = result.getInt("moved") == 1;
-                String movedFolder = result.getString("move_folder");
-                String path = moved && movedFolder != null ? movedFolder : result.getString("folder");
-                artworks.add(new DesktopUiHost.FolderArtwork(
-                        result.getLong("artwork_id"), result.getString("title"), codec.resolve(path), moved));
-            }
-        }
-        return artworks;
     }
 
     private static boolean isDirectory(String path) {

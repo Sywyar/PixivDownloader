@@ -20,7 +20,7 @@ class DuplicateServiceTest {
 
     private final ArtworkHashIndexQuery hashIndexQuery = mock(ArtworkHashIndexQuery.class);
     private final MessageResolver messages = mock(MessageResolver.class);
-    private final DuplicateService duplicateService = new DuplicateService(hashIndexQuery, messages);
+    private final DuplicateService duplicateService = new DuplicateService(hashIndexQuery, messages, () -> true);
 
     @BeforeEach
     void setUpMessages() {

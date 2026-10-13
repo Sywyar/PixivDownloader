@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.novel.db;
 
-import org.apache.ibatis.annotations.Select;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -28,7 +27,7 @@ class NovelDatabaseReadProjectionTest {
         database = new NovelDatabase(
                 mapper,
                 mock(WorkTagCatalog.class),
-                pathCodec);
+                pathCodec, () -> true);
     }
 
     @Test
@@ -77,18 +76,12 @@ class NovelDatabaseReadProjectionTest {
     }
 
     @Test
-    @DisplayName("活动判重与系列章节 SQL 固定软删除及排序语义")
-    void mapperQueriesPinSoftDeleteAndOrderingSemantics() throws Exception {
+    @DisplayName("活动判重区分可用记录与不存在的记录")
+    void activeLookupUsesActiveCount() {
         when(mapper.countActiveById(42L)).thenReturn(1);
         assertThat(database.hasActiveNovel(42L)).isTrue();
-
-        Select select = NovelMapper.class
-                .getMethod("findBySeriesId", long.class)
-                .getAnnotation(Select.class);
-        assertThat(String.join(" ", select.value()))
-                .contains("raw_content AS rawContent")
-                .contains("deleted = 0")
-                .contains("ORDER BY series_order ASC, time ASC");
+        when(mapper.countActiveById(42L)).thenReturn(0);
+        assertThat(database.hasActiveNovel(42L)).isFalse();
     }
 
     private static NovelRecord novel(

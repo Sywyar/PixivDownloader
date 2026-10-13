@@ -277,7 +277,7 @@ class PluginRequiredVerificationRecoveryTest {
                 List::of,
                 manager::loadedDescriptors,
                 policy);
-        return new RecoveryModeService(statusService, policy);
+        return new RecoveryModeService(statusService, policy, org.mockito.Mockito.mock(javax.sql.DataSource.class));
     }
 
     private Scenario scenario(String name) throws IOException {

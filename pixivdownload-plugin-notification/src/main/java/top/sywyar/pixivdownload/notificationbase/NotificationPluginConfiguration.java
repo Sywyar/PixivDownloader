@@ -1,8 +1,7 @@
 package top.sywyar.pixivdownload.notificationbase;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.ibatis.session.SqlSessionFactory;
-import org.mybatis.spring.mapper.MapperFactoryBean;
+import top.sywyar.pixivdownload.plugin.api.storage.PluginMainDatabase;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -11,6 +10,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
+import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
 import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpClient;
@@ -35,22 +35,21 @@ public class NotificationPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled(NotificationPlugin.ID)
-    public MapperFactoryBean<NotificationInboxMapper> notificationInboxMapper(
-            SqlSessionFactory sqlSessionFactory) {
-        MapperFactoryBean<NotificationInboxMapper> factory = new MapperFactoryBean<>(NotificationInboxMapper.class);
-        factory.setSqlSessionFactory(sqlSessionFactory);
-        return factory;
+    public NotificationInboxMapper notificationInboxMapper(PluginMainDatabase database) {
+        return new RelationalNotificationInboxMapper(database);
     }
 
     @Bean
     @ConditionalOnPluginEnabled(NotificationPlugin.ID)
     public NotificationInboxService notificationInboxService(NotificationInboxMapper mapper,
+                                                              DatabaseAvailability database,
                                                               Environment environment,
                                                               WebUiSlotCatalog uiSlots,
                                                               NamespaceMessageResolver messages,
                                                               LocaleBundlePolicy localePolicy) {
         return new NotificationInboxService(
                 mapper,
+                database,
                 () -> environment.getProperty(
                         NotificationPlugin.INBOX_MAX_MESSAGES_KEY,
                         Integer.class,

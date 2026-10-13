@@ -48,6 +48,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
+        "database.provider=database-sqlite",
+        "database.jdbc-url=jdbc:sqlite:target/test-runtime/data/gallery-boot.db",
         "pixivdownload.config-dir=target/test-runtime/config",
         "pixivdownload.state-dir=target/test-runtime/state",
         "pixivdownload.data-dir=target/test-runtime/data",
@@ -130,10 +132,10 @@ class GalleryExternalPluginBootContextTest {
     }
 
     @Test
-    @DisplayName("双来源 PluginRegistry Bean：三内置 + 外置 gallery，gallery 来源 EXTERNAL")
+    @DisplayName("双来源 PluginRegistry Bean：内置核心与市场、外置数据库与画廊")
     void pluginRegistryBeanContainsGalleryAsExternal() {
         assertThat(pluginRegistry.plugins()).extracting(PixivFeaturePlugin::id)
-                .containsExactlyInAnyOrder("core", "plugin-market", "gallery");
+                .containsExactlyInAnyOrder("core", "plugin-market", "database-sqlite", "gallery");
         assertThat(pluginRegistry.source("gallery")).contains(PluginSource.EXTERNAL);
         assertThat(externalGalleryClassLoader()).isNotSameAs(getClass().getClassLoader());
     }
@@ -286,6 +288,7 @@ class GalleryExternalPluginBootContextTest {
             Path jar = PLUGINS_DIR.resolve("gallery-plugin.jar");
             zipDirectoryAsJar(galleryClasses, jar);
             PluginTestProvenance.writeVerifiedLocalUpload(PLUGINS_DIR, jar);
+            PluginTestProvenance.stageSqliteProvider(PLUGINS_DIR);
             return true;
         } catch (IOException | RuntimeException ex) {
             return false;

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.notificationbase;
 
+import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
+
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -137,16 +139,18 @@ public final class RemoteAnnouncementImporter {
             fixedDelay = POLL_TICK_MILLIS,
             scheduler = "notificationAnnouncementTaskScheduler")
     public void tick() {
-        if (claimDuePoll()) {
+        if (inbox.isDatabaseAvailable() && claimDuePoll()) {
             poll();
         }
     }
 
     void poll() {
+        if (!inbox.isDatabaseAvailable()) return;
         try {
             RemoteAnnouncementValidators validators =
                     inbox.remoteAnnouncementValidators(clock.millis());
             FetchedIndex fetched = fetchIndex(validators);
+            inbox.requireDatabaseAvailable();
             if (fetched.notModified()) {
                 scheduleSuccess();
                 return;
@@ -156,6 +160,7 @@ public final class RemoteAnnouncementImporter {
                 inbox.saveRemoteAnnouncementValidators(
                         outcome.manifestSha256(), fetched.etag(), fetched.lastModified());
             }
+            inbox.requireDatabaseAvailable();
             if (outcome.imported() > 0) {
                 LOG.info("Imported {} remote announcement(s)", outcome.imported());
             }
@@ -164,7 +169,10 @@ public final class RemoteAnnouncementImporter {
             } else {
                 scheduleSuccess();
             }
+        } catch (DatabaseUnavailableException unavailable) {
+            // 保留导入事实与轮询状态；数据库能力只能在完整进程重启后重新选择。
         } catch (RejectedIndex exception) {
+            if (!inbox.isDatabaseAvailable()) return;
             LOG.warn("Remote announcement index rejected [{}]", exception.code);
             if (exception.transientFailure) {
                 scheduleFailure(exception.retryAfterMillis);
@@ -172,6 +180,7 @@ public final class RemoteAnnouncementImporter {
                 scheduleSuccess();
             }
         } catch (RuntimeException exception) {
+            if (!inbox.isDatabaseAvailable()) return;
             LOG.warn("Remote announcement poll failed [{}]", exception.getClass().getSimpleName());
             scheduleFailure(-1);
         }
@@ -182,6 +191,7 @@ public final class RemoteAnnouncementImporter {
     }
 
     private ImportOutcome importIndexOutcome(byte[] bytes, byte[] signatureBytes) {
+        inbox.requireDatabaseAvailable();
         VerificationResult verification = verifier.verifyManifest(new ManifestVerificationRequest(
                 bytes, REPOSITORY_ID, signature(signatureBytes), VerificationPolicy.officialRepository()));
         if (!verification.accepted()) {
@@ -221,6 +231,7 @@ public final class RemoteAnnouncementImporter {
         long retryAfterMillis = -1;
         Set<String> seenIds = new HashSet<>();
         for (int position = 0; position < announcements.size(); position++) {
+            inbox.requireDatabaseAvailable();
             try {
                 Announcement announcement = announcement(
                         announcements.get(position), requiredLocales, seenIds);
@@ -250,6 +261,7 @@ public final class RemoteAnnouncementImporter {
                 }
             }
         }
+        inbox.requireDatabaseAvailable();
         return new ImportOutcome(
                 imported, complete, transientFailure, retryAfterMillis, verification.sha256());
     }
@@ -270,7 +282,9 @@ public final class RemoteAnnouncementImporter {
                 "GET",
                 headers,
                 new byte[0]);
+        inbox.requireDatabaseAvailable();
         try (OutboundHttpStreamResponse response = client.exchangeStream(request)) {
+            inbox.requireDatabaseAvailable();
             if (response.statusCode() == 304 && validators != null && headers.size() > 1) {
                 return FetchedIndex.notModifiedResponse();
             }
@@ -300,7 +314,9 @@ public final class RemoteAnnouncementImporter {
                 "GET",
                 Map.of("Accept", List.of("application/json")),
                 new byte[0]);
+        inbox.requireDatabaseAvailable();
         try (OutboundHttpStreamResponse response = client.exchangeStream(request)) {
+            inbox.requireDatabaseAvailable();
             if (response.statusCode() != 200) {
                 throw rejectedHttpStatus("signature-http-status", response);
             }
@@ -322,7 +338,9 @@ public final class RemoteAnnouncementImporter {
                 "GET",
                 Map.of("Accept", List.of("text/html")),
                 new byte[0]);
+        inbox.requireDatabaseAvailable();
         try (OutboundHttpStreamResponse response = client.exchangeStream(request)) {
+            inbox.requireDatabaseAvailable();
             if (response.statusCode() != 200) {
                 throw rejectedHttpStatus("content-http-status", response);
             }
@@ -351,6 +369,7 @@ public final class RemoteAnnouncementImporter {
     }
 
     private synchronized void scheduleSuccess() {
+        inbox.requireDatabaseAvailable();
         consecutiveFailures = 0;
         long spread = POLL_DELAY_MILLIS * POLL_JITTER_PERCENT / 100;
         nextPollTime = addDelay(
@@ -358,6 +377,7 @@ public final class RemoteAnnouncementImporter {
     }
 
     private synchronized void scheduleFailure(long retryAfterMillis) {
+        if (!inbox.isDatabaseAvailable()) return;
         long delay = RETRY_DELAYS_MILLIS[
                 Math.min(consecutiveFailures, RETRY_DELAYS_MILLIS.length - 1)];
         consecutiveFailures++;

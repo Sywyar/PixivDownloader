@@ -17,6 +17,9 @@ public final class PixivBatchDownloaderImportPlugin extends Plugin implements Pi
             @Override public String iconKey() { return "download"; }
             @Override public String colorToken() { return "blue"; }
             @Override public PluginKind kind() { return PluginKind.FEATURE; }
+            @Override public List<top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution> privateSchema() {
+                return PixivBatchDownloaderImportStatistics.schema();
+            }
             @Override public List<WebRouteContribution> routes() {
                 return List.of(new WebRouteContribution("/api/pixiv-batch-downloader-import", AccessPolicy.LOCAL,
                         Set.of(HttpMethod.POST), false, Set.of("https://www.pixiv.net", "https://pixiv.net")),

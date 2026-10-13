@@ -598,7 +598,7 @@ class ScheduleServiceDefinitionSaveTest {
                 credentialService,
                 transactions,
                 registry,
-                new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID));
+                new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID), () -> true);
     }
 
     private static ScheduleTaskRequest request(String activationToken) {

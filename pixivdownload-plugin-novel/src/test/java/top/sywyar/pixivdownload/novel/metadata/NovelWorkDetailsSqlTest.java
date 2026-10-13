@@ -1,10 +1,5 @@
 package top.sywyar.pixivdownload.novel.metadata;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.Configuration;
-import org.apache.ibatis.session.SqlSession;
-import org.apache.ibatis.session.SqlSessionFactoryBuilder;
-import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -21,7 +16,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 class NovelWorkDetailsSqlTest {
 
     private SingleConnectionDataSource dataSource;
-    private SqlSession sqlSession;
     private NovelMapper mapper;
     private JdbcTemplate jdbc;
 
@@ -32,12 +26,6 @@ class NovelWorkDetailsSqlTest {
         dataSource.setUrl("jdbc:sqlite::memory:");
         dataSource.setSuppressClose(true);
 
-        Environment environment = new Environment("test", new JdbcTransactionFactory(), dataSource);
-        Configuration configuration = new Configuration(environment);
-        configuration.setMapUnderscoreToCamelCase(true);
-        configuration.addMapper(NovelMapper.class);
-        sqlSession = new SqlSessionFactoryBuilder().build(configuration).openSession(true);
-        mapper = sqlSession.getMapper(NovelMapper.class);
         jdbc = new JdbcTemplate(dataSource);
 
         jdbc.execute("""
@@ -66,16 +54,16 @@ class NovelWorkDetailsSqlTest {
                     PRIMARY KEY (novel_id, lang_code)
                 )
                 """);
+        mapper = top.sywyar.pixivdownload.novel.db.NovelMapperTestFixture.mapper(dataSource);
     }
 
     @AfterEach
     void tearDown() {
-        sqlSession.close();
         dataSource.destroy();
     }
 
     @Test
-    @DisplayName("真实 MyBatis 查询映射全部详情列并排除软删除小说的派生行")
+    @DisplayName("真实提供者查询映射全部详情列并排除软删除小说的派生行")
     void mapsOwnedDetailsAndFiltersSoftDeletedRows() {
         insertNovel(1L, false);
         insertNovel(2L, true);
@@ -109,7 +97,7 @@ class NovelWorkDetailsSqlTest {
     }
 
     @Test
-    @DisplayName("可空数值与文本详情列经真实 MyBatis 查询保持为 null")
+    @DisplayName("可空数值与文本详情列经真实提供者查询保持为 null")
     void mapsNullableOwnedDetailColumns() {
         jdbc.update("""
                         INSERT INTO novels(

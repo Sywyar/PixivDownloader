@@ -30,13 +30,31 @@ class PixivBatchDownloaderImportObservationTest {
         return new PixivBatchDownloaderImportStatistics(dataSource(temporary.resolve("plugin.db")));
     }
 
-    private top.sywyar.pixivdownload.plugin.api.storage.PluginDataSource dataSource(Path file) {
+    private top.sywyar.pixivdownload.plugin.api.storage.PluginDatabase dataSource(Path file) throws Exception {
         var source = new org.sqlite.SQLiteDataSource();
         source.setUrl("jdbc:sqlite:" + file);
-        return (top.sywyar.pixivdownload.plugin.api.storage.PluginDataSource) java.lang.reflect.Proxy.newProxyInstance(
-                getClass().getClassLoader(), new Class<?>[]{top.sywyar.pixivdownload.plugin.api.storage.PluginDataSource.class},
+        var target = new top.sywyar.pixivdownload.databasesqlite.SqliteDatabasePlugin().resolve(
+                new top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionSettings("", "", "", file));
+        var schema = top.sywyar.pixivdownload.plugin.api.storage.relational.PrivateStorageSchema.merge(
+                PixivBatchDownloaderImportStatistics.schema());
+        try (var connection = source.getConnection()) { target.initializeStorage(connection, schema); }
+        return (top.sywyar.pixivdownload.plugin.api.storage.PluginDatabase) java.lang.reflect.Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[]{top.sywyar.pixivdownload.plugin.api.storage.PluginDatabase.class, javax.sql.DataSource.class},
                 (proxy, method, args) -> {
-                    try { return method.invoke(source, args); }
+                    if (method.getName().equals("available")) return true;
+                    if (method.getName().equals("databaseId")) return "sqlite";
+                    if (method.getName().equals("read") || method.getName().equals("transaction")) {
+                        try (var connection = source.getConnection()) {
+                            connection.setAutoCommit(false);
+                            try (var session = target.storageSession(connection, schema)) {
+                                @SuppressWarnings("unchecked")
+                                var work = (top.sywyar.pixivdownload.plugin.api.storage.relational.DatabaseSession.Work<Object>) args[0];
+                                try { var value = work.run(session); connection.commit(); return value; }
+                                catch (Exception failure) { connection.rollback(); throw failure; }
+                            }
+                        }
+                    }
+                    try { return source.getClass().getMethod(method.getName(), method.getParameterTypes()).invoke(source, args); }
                     catch (java.lang.reflect.InvocationTargetException failure) { throw failure.getCause(); }
                 });
     }
@@ -80,7 +98,7 @@ class PixivBatchDownloaderImportObservationTest {
         var calls = new java.util.concurrent.atomic.AtomicInteger();
         var controller = new PixivBatchDownloaderImportController(value -> calls.incrementAndGet() == 1,
                 (ns, locale, key) -> Optional.empty(), directory(ROOT.toString()), () -> "solo", statistics);
-        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+        try (var connection = ((javax.sql.DataSource) source).getConnection(); var statement = connection.createStatement()) {
             statement.executeUpdate("CREATE TRIGGER unavailable BEFORE INSERT ON imported_works BEGIN SELECT RAISE(ABORT, 'unavailable'); END");
             assertEquals(503, controller.importWork(http(input(0).toString(), token(controller), "127.0.0.1")).getStatusCode().value());
             assertThrows(IllegalStateException.class, statistics::snapshot);
@@ -96,7 +114,7 @@ class PixivBatchDownloaderImportObservationTest {
     void doesNotReportZeroOnStorageFailure() throws Exception {
         var source = dataSource(temporary.resolve("failed.db"));
         var statistics = new PixivBatchDownloaderImportStatistics(source);
-        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+        try (var connection = ((javax.sql.DataSource) source).getConnection(); var statement = connection.createStatement()) {
             statement.executeUpdate("DROP TABLE imported_works");
         }
         assertThrows(IllegalStateException.class, statistics::snapshot);

@@ -24,7 +24,7 @@ class InboxNotificationSinkTest {
     void rendersTemplateIntoPlainInboxMessage() {
         NotificationInboxServiceTest.MemoryMapper mapper = new NotificationInboxServiceTest.MemoryMapper();
         InboxNotificationSink sink = new InboxNotificationSink(
-                catalog(true), new NotificationInboxService(mapper), verifyLocales(), () -> true);
+                catalog(true), new NotificationInboxService(mapper, () -> true), verifyLocales(), () -> true);
 
         sink.deliver(SCENARIO, Locale.US, Map.of(
                 "task_name", "Daily *Task*",
@@ -45,9 +45,9 @@ class InboxNotificationSinkTest {
     void verifiesLocalesAndNeverThrowsOnMissingTemplate() {
         NotificationInboxServiceTest.MemoryMapper mapper = new NotificationInboxServiceTest.MemoryMapper();
         InboxNotificationSink complete = new InboxNotificationSink(
-                catalog(true), new NotificationInboxService(mapper), verifyLocales(), () -> true);
+                catalog(true), new NotificationInboxService(mapper, () -> true), verifyLocales(), () -> true);
         InboxNotificationSink incomplete = new InboxNotificationSink(
-                catalog(false), new NotificationInboxService(mapper), verifyLocales(), () -> true);
+                catalog(false), new NotificationInboxService(mapper, () -> true), verifyLocales(), () -> true);
 
         assertThatCode(() -> complete.verifyRenderable(SCENARIO)).doesNotThrowAnyException();
         assertThatThrownBy(() -> incomplete.verifyRenderable(SCENARIO))
@@ -61,7 +61,7 @@ class InboxNotificationSinkTest {
     void skipsDeliveryWhenDisabled() {
         NotificationInboxServiceTest.MemoryMapper mapper = new NotificationInboxServiceTest.MemoryMapper();
         InboxNotificationSink sink = new InboxNotificationSink(
-                catalog(true), new NotificationInboxService(mapper), verifyLocales(), () -> false);
+                catalog(true), new NotificationInboxService(mapper, () -> true), verifyLocales(), () -> false);
 
         sink.deliver(SCENARIO, Locale.US, Map.of());
 
@@ -74,7 +74,7 @@ class InboxNotificationSinkTest {
         NotificationScenario systemScenario = NotificationScenario.MAINTENANCE_TASK_FAILED;
         NotificationInboxServiceTest.MemoryMapper mapper = new NotificationInboxServiceTest.MemoryMapper();
         InboxNotificationSink sink = new InboxNotificationSink(
-                systemCatalog(systemScenario), new NotificationInboxService(mapper), verifyLocales(), () -> true);
+                systemCatalog(systemScenario), new NotificationInboxService(mapper, () -> true), verifyLocales(), () -> true);
 
         sink.deliver(systemScenario, Locale.US, Map.of());
 

@@ -51,7 +51,7 @@ class PluginStatusServiceTest {
         when(status.failureSnapshot()).thenReturn(Map.of());
         when(status.report()).thenReturn(new top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport(List.of(
                 new PluginDiagnostic("required", PluginStatus.STARTED, null, true, List.of()))));
-        RecoveryModeService recovery = new RecoveryModeService(status, policy);
+        RecoveryModeService recovery = new RecoveryModeService(status, policy, org.mockito.Mockito.mock(javax.sql.DataSource.class));
         assertThat(recovery.isActive()).isFalse();
 
         when(status.failureSnapshot()).thenReturn(Map.of("required", "CRASHED"));
@@ -175,7 +175,7 @@ class PluginStatusServiceTest {
         assertThat(diagnostic.status()).isEqualTo(PluginStatus.FAILED);
         assertThat(diagnostic.messages()).containsExactly("startup exploded");
         assertThat(service.startupFailuresById()).containsOnlyKeys("crashy");
-        RecoveryModeService recovery = new RecoveryModeService(service, RequiredPluginPolicy.empty());
+        RecoveryModeService recovery = new RecoveryModeService(service, RequiredPluginPolicy.empty(), org.mockito.Mockito.mock(javax.sql.DataSource.class));
         assertThat(recovery.isActive()).isFalse();
         assertThat(recovery.reasons()).isEmpty();
     }
@@ -207,7 +207,7 @@ class PluginStatusServiceTest {
         assertThat(diagnostic.status()).isEqualTo(PluginStatus.CRASHED);
         assertThat(diagnostic.messages()).containsExactly("worker exited");
         assertThat(service.startupFailuresById()).isEmpty();
-        assertThat(new RecoveryModeService(service, RequiredPluginPolicy.empty()).isActive()).isFalse();
+        assertThat(new RecoveryModeService(service, RequiredPluginPolicy.empty(), org.mockito.Mockito.mock(javax.sql.DataSource.class)).isActive()).isFalse();
     }
 
     @Test

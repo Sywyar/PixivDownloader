@@ -89,7 +89,7 @@ class DatabaseSchemaInspectorTest {
         ));
 
         DatabaseSchemaInspector.SchemaComparison result =
-                DatabaseSchemaInspector.compare(connection, expected);
+                top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(connection, expected);
 
         assertThat(result.matches()).isTrue();
         assertThat(result.details()).isEmpty();
@@ -109,7 +109,7 @@ class DatabaseSchemaInspectorTest {
             ));
 
             DatabaseSchemaInspector.SchemaComparison result =
-                    DatabaseSchemaInspector.compare(connection, expected);
+                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(connection, expected);
 
             assertThat(result.matches()).isFalse();
             assertThat(result.details())
@@ -130,7 +130,7 @@ class DatabaseSchemaInspectorTest {
             ));
 
             DatabaseSchemaInspector.SchemaComparison result =
-                    DatabaseSchemaInspector.compare(connection, expected);
+                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(connection, expected);
 
             assertThat(result.details())
                     .extracting(DatabaseSchemaInspector.SchemaDifference::kind)
@@ -151,7 +151,7 @@ class DatabaseSchemaInspectorTest {
             ));
 
             DatabaseSchemaInspector.SchemaComparison result =
-                    DatabaseSchemaInspector.compare(connection, expected);
+                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(connection, expected);
 
             assertThat(result.matches())
                     .as("FTS5 内部表不应产生漂移：%s", result.details())
@@ -172,7 +172,7 @@ class DatabaseSchemaInspectorTest {
             ));
 
             DatabaseSchemaInspector.SchemaComparison result =
-                    DatabaseSchemaInspector.compare(connection, expected);
+                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(connection, expected);
 
             assertThat(result.details())
                     .extracting(DatabaseSchemaInspector.SchemaDifference::kind,
@@ -196,7 +196,7 @@ class DatabaseSchemaInspectorTest {
             ));
 
             DatabaseSchemaInspector.SchemaComparison result =
-                    DatabaseSchemaInspector.compare(connection, expected);
+                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(connection, expected);
 
             assertThat(result.details())
                     .extracting(DatabaseSchemaInspector.SchemaDifference::kind,
@@ -218,7 +218,7 @@ class DatabaseSchemaInspectorTest {
             ));
 
             DatabaseSchemaInspector.SchemaComparison result =
-                    DatabaseSchemaInspector.compare(connection, expected);
+                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(connection, expected);
 
             assertThat(result.details())
                     .extracting(DatabaseSchemaInspector.SchemaDifference::kind,
@@ -245,7 +245,7 @@ class DatabaseSchemaInspectorTest {
             ));
 
             DatabaseSchemaInspector.SchemaComparison result =
-                    DatabaseSchemaInspector.compare(connection, expected);
+                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(connection, expected);
 
             assertThat(result.details())
                     .extracting(DatabaseSchemaInspector.SchemaDifference::kind)
@@ -268,7 +268,7 @@ class DatabaseSchemaInspectorTest {
             ));
 
             DatabaseSchemaInspector.SchemaComparison result =
-                    DatabaseSchemaInspector.compare(connection, expected);
+                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(connection, expected);
 
             assertThat(result.details())
                     .extracting(DatabaseSchemaInspector.SchemaDifference::kind)
@@ -291,7 +291,7 @@ class DatabaseSchemaInspectorTest {
             ));
 
             DatabaseSchemaInspector.SchemaComparison result =
-                    DatabaseSchemaInspector.compare(connection, expected);
+                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(connection, expected);
 
             assertThat(result.matches())
                     .as("差异: %s", result.details())
@@ -313,7 +313,7 @@ class DatabaseSchemaInspectorTest {
             ));
 
             DatabaseSchemaInspector.SchemaComparison result =
-                    DatabaseSchemaInspector.compare(connection, expected);
+                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(connection, expected);
 
             assertThat(result.details())
                     .extracting(DatabaseSchemaInspector.SchemaDifference::kind)
@@ -335,7 +335,7 @@ class DatabaseSchemaInspectorTest {
             ));
 
             DatabaseSchemaInspector.SchemaComparison result =
-                    DatabaseSchemaInspector.compare(connection, expected);
+                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(connection, expected);
 
             assertThat(result.matches())
                     .as("差异: %s", result.details())
@@ -387,7 +387,7 @@ class DatabaseSchemaInspectorTest {
         private DatabaseInitializer newInitializer(javax.sql.DataSource ds) {
             top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry registry =
                     top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry.forBuiltInPlugins();
-            return new DatabaseInitializer(
+            return top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(
                     new org.springframework.jdbc.core.JdbcTemplate(ds),
                     registry.contributions(), registry.mergedSchema(),
                     top.sywyar.pixivdownload.i18n.TestI18nBeans.appMessages(), event -> {});
@@ -406,14 +406,12 @@ class DatabaseSchemaInspectorTest {
                     "test", new org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory(), ds);
             org.apache.ibatis.session.Configuration config = new org.apache.ibatis.session.Configuration(env);
             config.setMapUnderscoreToCamelCase(true);
-            config.addMapper(PixivMapper.class);
-            config.addMapper(PathPrefixMapper.class);
             org.apache.ibatis.session.SqlSessionFactory factory =
                     new org.apache.ibatis.session.SqlSessionFactoryBuilder().build(config);
 
             try (org.apache.ibatis.session.SqlSession session = factory.openSession(true)) {
-                PixivMapper mapper = session.getMapper(PixivMapper.class);
-                PathPrefixMapper pathPrefixMapper = session.getMapper(PathPrefixMapper.class);
+                PixivMapper mapper = new PixivMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(ds));
+                PathPrefixMapper pathPrefixMapper = new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(ds));
                 DatabaseInitializer initializer = newInitializer(ds);
                 initializer.initialize();
                 PathPrefixCodec codec = new PathPrefixCodec(
@@ -433,7 +431,7 @@ class DatabaseSchemaInspectorTest {
 
                 try (Connection c = ds.getConnection()) {
                     DatabaseSchemaInspector.SchemaComparison comparison =
-                            DatabaseSchemaInspector.compare(c, sub);
+                            top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(c, sub);
 
                     // 受管 schema 之外的表（这里没有）才会被报为 UNMANAGED_TABLE；过滤掉以聚焦缺失/漂移
                     java.util.List<DatabaseSchemaInspector.SchemaDifference> drift =
@@ -474,7 +472,7 @@ class DatabaseSchemaInspectorTest {
 
                 try (Connection c = ds.getConnection()) {
                     DatabaseSchemaInspector.SchemaComparison comparison =
-                            DatabaseSchemaInspector.compare(c, sub);
+                            top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(c, sub);
 
                     java.util.List<DatabaseSchemaInspector.SchemaDifference> drift =
                             comparison.details().stream()
@@ -502,13 +500,12 @@ class DatabaseSchemaInspectorTest {
                     "test", new org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory(), ds);
             org.apache.ibatis.session.Configuration config = new org.apache.ibatis.session.Configuration(env);
             config.setMapUnderscoreToCamelCase(true);
-            config.addMapper(top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskMapper.class);
             org.apache.ibatis.session.SqlSessionFactory factory =
                     new org.apache.ibatis.session.SqlSessionFactoryBuilder().build(config);
 
             try (org.apache.ibatis.session.SqlSession session = factory.openSession(true)) {
                 top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskMapper mapper =
-                        session.getMapper(top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskMapper.class);
+                        new top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(ds));
                 DatabaseInitializer initializer = newInitializer(ds);
                 initializer.initialize();
                 top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskStoreImpl store =
@@ -520,7 +517,7 @@ class DatabaseSchemaInspectorTest {
 
                 try (Connection c = ds.getConnection()) {
                     DatabaseSchemaInspector.SchemaComparison comparison =
-                            DatabaseSchemaInspector.compare(c, sub);
+                            top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(c, sub);
 
                     java.util.List<DatabaseSchemaInspector.SchemaDifference> drift =
                             comparison.details().stream()

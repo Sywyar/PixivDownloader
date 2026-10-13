@@ -36,6 +36,8 @@
         <module>pixivdownload-sdk-info</module>
         <!-- 跨插件契约模块先构建（主程序依赖之），零业务依赖由编译期强制；产物仍打进主程序的单一 boot jar -->
         <module>pixivdownload-plugin-api</module>
+        <module>pixivdownload-plugin-database-sqlite</module>
+        <module>pixivdownload-plugin-database-postgresql</module>
         <!-- 核心 owned 语义端口 + 结果 DTO（core.stats.*），Spring-free 纯 JDK；主程序依赖之，产物打进 boot jar -->
         <module>pixivdownload-core-api</module>
         <!-- 第三方插件统一导入的 SDK 依赖版本清单；不进入运行时。 -->
@@ -101,7 +103,7 @@
         <app.release.version>${project.version}</app.release.version>
         <app.build.channel>local</app.build.channel>
         <!-- sdk-info 资源是 SDK 身份事实源；revision 只是 Maven CI-friendly 版本投影名。 -->
-        <revision>1.2.0</revision>
+        <revision>1.3.0</revision>
         <pixivdownload.sdk.version>${revision}</pixivdownload.sdk.version>
         <pixivdownload.source.sha>HEAD</pixivdownload.source.sha>
         <flatten.maven.version>1.7.3</flatten.maven.version>
@@ -115,6 +117,8 @@
         <jacoco.version>0.8.12</jacoco.version>
         <jna.version>5.17.0</jna.version>
         <pf4j.version>3.12.0</pf4j.version>
+        <postgresql.version>42.7.13</postgresql.version>
+        <sqlite.version>3.47.1.0</sqlite.version>
         <proguard.version>7.10.0</proguard.version>
         <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
         <pixivdownload.proguard.skip>true</pixivdownload.proguard.skip>

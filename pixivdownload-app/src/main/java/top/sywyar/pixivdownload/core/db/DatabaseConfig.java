@@ -1,23 +1,21 @@
 package top.sywyar.pixivdownload.core.db;
 
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.support.JdbcTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
-import org.sqlite.SQLiteConfig;
-import org.sqlite.SQLiteConnection;
-import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap;
+import top.sywyar.pixivdownload.core.db.provider.ProviderDataSource;
+import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
+import org.springframework.core.env.Environment;
 
 import javax.sql.DataSource;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.SQLException;
 
@@ -30,56 +28,63 @@ public class DatabaseConfig {
     private final DatabasePoolProperties databasePoolProperties;
     private final AppMessages messages;
 
-    @Bean
-    public DataSource dataSource() throws IOException {
-        Path databasePath = RuntimeFiles.resolveDatabasePath(downloadConfig.getRootFolder());
-        Files.createDirectories(databasePath.getParent());
-        String url = "jdbc:sqlite:" + databasePath;
-        log.info(messages.getForLog("download.db.log.path", url));
-
-        // 池中每条物理连接都会带上这些 PRAGMA：
-        // - busy_timeout=5000：等待其它写者释放锁的上限
-        // - journal_mode=WAL：与启动时设置一致，读不阻塞写
-        // HikariCP 的 dataSourceProperties 会经 DriverDataSource 传给驱动 driver.connect(url, props)
-        SQLiteConfig sqliteConfig = new SQLiteConfig();
-        sqliteConfig.setBusyTimeout(5000);
-        sqliteConfig.setJournalMode(SQLiteConfig.JournalMode.WAL);
-
-        HikariConfig hikari = new HikariConfig();
-        hikari.setPoolName("pixiv-sqlite");
-        hikari.setDriverClassName("org.sqlite.JDBC");
-        hikari.setJdbcUrl(url);
-        hikari.setDataSourceProperties(sqliteConfig.toProperties());
-        // 池容量由宿主数据库基础设施自己的设置控制。外置插件共享数据源，但插件业务并发数不参与
-        // 宿主池容量推导，避免核心基础设施反向依赖任一可选插件的配置。
-        // 否则宿主任务一旦把所有连接占满，HTTP 请求拿不到连接 → 等到 connectionTimeout（默认 30s）→ 页面观感"卡死"。
-        // 注意：SQLite 单写者由 PRAGMA busy_timeout 在 SQLite 层保证（一次只有一个 writer），与池大小
-        // 无关；增大池只是让读者和等写锁的线程有更多排队空间，不会出现多 writer 同时写。
-        hikari.setMaximumPoolSize(databasePoolProperties.getMaximumPoolSize());
-        hikari.setMinimumIdle(1);
-        // 兜底：万一某条连接没套到 PRAGMA，连接初始化时再设一次 busy_timeout（仅支持单条语句）
-        hikari.setConnectionInitSql("PRAGMA busy_timeout=5000");
-        return new HikariDataSource(hikari);
+    @Bean(destroyMethod = "close")
+    public DataSource dataSource(DatabaseTarget target, PluginRegistry registry, PluginBootstrapSession session) throws IOException {
+        if (!target.available()) return new UnavailableDataSource();
+        var owner = registry.registeredPlugins().stream()
+                .filter(plugin -> plugin.id().equals(target.providerOwner())).findFirst();
+        if (owner.isEmpty() || registry.lifecycleFailure(owner.orElseThrow()).isPresent()) {
+            target.invalidate();
+            return new UnavailableDataSource();
+        }
+        try {
+            registry.startFeature(owner.orElseThrow());
+        } catch (VirtualMachineError | ThreadDeath fatal) {
+            throw fatal;
+        } catch (Throwable failure) {
+            target.invalidate();
+            registry.recordLifecycleFailure(owner.orElseThrow(), new IllegalStateException("DATABASE_PROVIDER_START_FAILED"));
+            return new UnavailableDataSource();
+        }
+        log.info(messages.getForLog("core.db.log.engine", target.databaseId()));
+        try {
+            top.sywyar.pixivdownload.core.db.schema.PrivateDatabaseMigrationState.requireReady(target, session.databaseProviders());
+            var pool = target.openPool(databasePoolProperties.getMaximumPoolSize());
+            return new ProviderDataSource(pool, target, registry, owner.orElseThrow());
+        } catch (IOException failure) {
+            target.invalidate();
+            log.warn(messages.getForLog("plugin.recovery.database-unavailable"));
+            return new UnavailableDataSource();
+        }
     }
 
     @Bean
-    public JdbcTransactionManager transactionManager(DataSource dataSource) {
+    public DatabaseTarget databaseTarget(PluginBootstrapSession session, Environment environment) throws IOException {
+        var binding = DatabaseBootstrap.bind(session, environment);
+        return DatabaseTarget.fromBinding(binding);
+    }
+
+    @Bean
+    public top.sywyar.pixivdownload.core.database.DatabaseAvailability databaseAvailability(DataSource dataSource) {
+        return () -> !UnavailableDataSource.isUnavailable(dataSource);
+    }
+
+    @Bean
+    public JdbcTransactionManager transactionManager(DataSource dataSource, DatabaseTarget target) {
         return new JdbcTransactionManager(dataSource) {
+            @Override
+            protected void doBegin(Object transaction, TransactionDefinition definition) {
+                if (UnavailableDataSource.isUnavailable(dataSource)) {
+                    throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+                }
+                super.doBegin(transaction, definition);
+            }
+
             @Override
             protected void prepareTransactionalConnection(Connection connection, TransactionDefinition definition)
                     throws SQLException {
                 super.prepareTransactionalConnection(connection, definition);
-                if (definition.isReadOnly()) return;
-                var config = connection.unwrap(SQLiteConnection.class).getConnectionConfig();
-                var previousMode = config.getTransactionMode();
-                try {
-                    // 此钩子位于业务 SQL 之前；重新开启尚为空的事务，提前取得写入资格。
-                    // 只读事务仍用 DEFERRED，不能随写事务一起抢占 SQLite 的唯一写锁。
-                    config.setTransactionMode(SQLiteConfig.TransactionMode.IMMEDIATE);
-                    connection.rollback();
-                } finally {
-                    config.setTransactionMode(previousMode);
-                }
+                target.prepareTransaction(connection, definition.isReadOnly());
             }
         };
     }

@@ -15,6 +15,7 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.time.Duration;
@@ -59,6 +60,7 @@ public class AuthorService {
     /** 非 DDL 初始化：建表已统一由 {@link DatabaseInitializer} 执行，这里只保留幂等数据迁移。 */
     @PostConstruct
     public void init() {
+        if (databaseInitializer.isUnavailable()) return;
         authorMapper.migrateAuthorTimestampsToMillis();
     }
 
@@ -82,7 +84,7 @@ public class AuthorService {
                                                     java.util.Set<Long> filterIds) {
         int safePage = Math.max(0, page);
         int safeSize = Math.min(Math.max(1, size), 200);
-        String normalizedSearch = StringUtils.hasText(search) ? "%" + search.trim() + "%" : "%";
+        String normalizedSearch = StringUtils.hasText(search) ? "%" + search.trim().replace("!", "!!") + "%" : "%";
         String normalizedSort = "artworks".equals(sort) || "authorId".equals(sort) ? sort : "name";
         if (filterIds == null) {
             long total = authorMapper.countAuthorsWithArtworks(normalizedSearch);
@@ -121,6 +123,7 @@ public class AuthorService {
     }
 
     public void observe(long authorId, String hintName) {
+        requireDatabase();
         Author existing = authorMapper.findById(authorId);
         String normalizedHint = normalizeHintName(hintName);
 
@@ -143,6 +146,7 @@ public class AuthorService {
     }
 
     public void asyncValidateRename(long authorId) {
+        requireDatabase();
         long nowMs = System.currentTimeMillis();
         Long lastMs = lastRenameValidationAtMs.get(authorId);
         if (lastMs != null && nowMs - lastMs < RENAME_VALIDATE_COOLDOWN.toMillis()) {
@@ -153,10 +157,12 @@ public class AuthorService {
     }
 
     public void asyncLookupMissing(long artworkId, String cookie) {
+        requireDatabase();
         taskScheduler.schedule(() -> lookupMissingAuthor(artworkId, cookie), Instant.now());
     }
 
     void validateRename(long authorId) {
+        if (pixivDatabase.isUnavailable()) return;
         try {
             Author existing = authorMapper.findById(authorId);
             if (existing == null) {
@@ -178,6 +184,7 @@ public class AuthorService {
                 return;
             }
 
+            requireDatabase();
             authorMapper.updateName(authorId, actualName, System.currentTimeMillis());
             log.info(message(
                     "author.log.rename.updated",
@@ -185,6 +192,8 @@ public class AuthorService {
                     actualName,
                     authorId
             ));
+        } catch (DatabaseUnavailableException unavailable) {
+            throw unavailable;
         } catch (Exception e) {
             log.warn(message(
                     "author.log.rename.validation.failed.exception",
@@ -194,6 +203,7 @@ public class AuthorService {
     }
 
     void lookupMissingAuthor(long artworkId, String cookie) {
+        if (pixivDatabase.isUnavailable()) return;
         try {
             JsonNode root = fetchJson("https://www.pixiv.net/ajax/illust/" + artworkId, cookie);
             if (isErrorResponse(root)) {
@@ -218,6 +228,8 @@ public class AuthorService {
             String authorName = normalizeHintName(body.path("userName").asText(null));
             pixivDatabase.updateAuthorId(artworkId, authorId);
             observe(authorId, authorName);
+        } catch (DatabaseUnavailableException unavailable) {
+            throw unavailable;
         } catch (Exception e) {
             log.warn(message(
                     "author.log.lookup.failed.exception",
@@ -226,7 +238,12 @@ public class AuthorService {
         }
     }
 
+    private void requireDatabase() {
+        if (pixivDatabase.isUnavailable()) throw new DatabaseUnavailableException();
+    }
+
     private JsonNode fetchJson(String url, String cookie) {
+        requireDatabase();
         HttpHeaders headers = PixivRequestHeaders.ajax(cookie);
 
         ResponseEntity<JsonNode> response = downloadRestTemplate.exchange(

@@ -35,10 +35,10 @@ class ArtworkMediaStoreTest {
     void concurrentPagesSurviveReopen() throws Exception {
         var source = dataSource();
         var registry = DatabaseSchemaRegistry.forBuiltInPlugins();
-        var initializer = new DatabaseInitializer(new JdbcTemplate(source), registry.contributions(), registry.mergedSchema(),
+        var initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(new JdbcTemplate(source), registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
-        var store = new ArtworkMediaStoreImpl(source, initializer);
+        var store = new ArtworkMediaStoreImpl(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(source), initializer);
         var workers = Executors.newFixedThreadPool(2);
         try {
             var tasks = new java.util.ArrayList<java.util.concurrent.Future<?>>();
@@ -54,7 +54,7 @@ class ArtworkMediaStoreTest {
             workers.shutdownNow();
             assertTrue(workers.awaitTermination(5, TimeUnit.SECONDS));
         }
-        var reopened = new ArtworkMediaStoreImpl(dataSource(), initializer);
+        var reopened = new ArtworkMediaStoreImpl(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource()), initializer);
         for (int page = 0; page < 24; page++) {
             var saved = reopened.find(42L, page).orElseThrow();
             assertEquals(page % 2 == 0 ? "jpg" : "png", saved.originalExtension());

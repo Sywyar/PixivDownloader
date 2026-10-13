@@ -70,6 +70,7 @@ import static org.mockito.Mockito.*;
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ArtworkDownloadExecutor 单元测试")
 class ArtworkDownloadExecutorTest {
+    private final java.util.concurrent.atomic.AtomicBoolean databaseAvailable = new java.util.concurrent.atomic.AtomicBoolean(true);
     private static final MessageResolver MESSAGES = WorkbenchTestMessages.messages();
 
     @TempDir
@@ -143,7 +144,7 @@ class ArtworkDownloadExecutorTest {
                 authorObservationService, artworkAuthorLookup, downloadPathGuard,
                 collectionDownloadRootResolver, workCollectionMembership,
                 artworkSeriesObserver, artworkHashIndexMaintenance,
-                workMetadataCapture, MESSAGES, downloadLifecycle);
+                workMetadataCapture, MESSAGES, downloadLifecycle, databaseAvailable::get);
     }
 
     private ArtworkDownloadCompletion capturedDownloadCompletion() {
@@ -166,6 +167,37 @@ class ArtworkDownloadExecutorTest {
                     observer.onBytesTransferred(payload.length);
                     return "jpg";
                 });
+    }
+
+    @Test
+    @DisplayName("第一页后数据库失效时不下载下一页或记录成功")
+    void databaseFailureStopsInFlightPages() throws Exception {
+        when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
+        when(pixivImageDownloader.downloadImage(any(), any(), any(), nullable(String.class), any()))
+                .thenAnswer(call -> { databaseAvailable.set(false); return "jpg"; });
+        var executor = newExecutor(Runnable::run);
+        executor.downloadImages(77L, "title", List.of("https://i.pximg.net/first.jpg", "https://i.pximg.net/second.jpg"),
+                "https://www.pixiv.net/artworks/77", new DownloadRequest.Other(), null, "owner");
+        verify(pixivImageDownloader).downloadImage(any(), any(), any(), nullable(String.class), any());
+        verify(artworkDownloadHistory, never()).record(any());
+        assertThat(executor.getDownloadStatus(77L).isFailed()).isTrue();
+    }
+
+    @Test
+    @DisplayName("历史写入后数据库失效时不执行后置收藏或索引维护")
+    void databaseFailureStopsPostDownloadActions() throws Exception {
+        when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
+        when(pixivImageDownloader.downloadImage(any(), any(), any(), nullable(String.class), any())).thenReturn("jpg");
+        doAnswer(call -> { databaseAvailable.set(false); return null; }).when(artworkDownloadHistory).record(any());
+        var options = new DownloadRequest.Other();
+        options.setBookmark(true);
+        var executor = newExecutor(Runnable::run);
+        assertThatThrownBy(() -> executor.downloadImages(78L, "title", List.of("https://i.pximg.net/fixture.jpg"),
+                "https://www.pixiv.net/artworks/78", options, null, "owner"))
+                .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+        verify(artworkDownloadHistory).record(any());
+        verifyNoInteractions(pixivBookmarkActions, artworkHashIndexMaintenance, authorObservationService, artworkSeriesObserver);
+        assertThat(executor.getDownloadStatus(78L).isFailed()).isTrue();
     }
 
     @Nested
@@ -927,6 +959,20 @@ class ArtworkDownloadExecutorTest {
                     "https://www.pixiv.net/", ugoiraOther(), null, null);
 
             verify(workMetadataCapture, never()).captureForwarded(any(), anyLong(), any());
+        }
+
+        @Test
+        @DisplayName("元数据写入明确缺库时同步下载不返回成功且保留已写历史")
+        void shouldPropagateUnavailableMetadataAfterDownload() {
+            DownloadRequest.Other other = ugoiraOther();
+            other.setRawMetaJson("{\"illustTitle\":\"fixture\"}");
+            doThrow(new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException())
+                    .when(workMetadataCapture).captureForwarded(any(), anyLong(), any());
+
+            assertThatThrownBy(() -> artworkDownloadExecutor.downloadImagesBlocking(12345L, "title",
+                    List.of("https://public-img-zip.pximg.net/test.zip"), "https://www.pixiv.net/", other, null, null))
+                    .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+            assertThat(capturedDownloadCompletion().artworkId()).isEqualTo(12345L);
         }
     }
 

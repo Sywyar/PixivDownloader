@@ -167,14 +167,7 @@ internal fun ToolField(
 
 @Composable
 internal fun ToolNotice(message: String, warning: Boolean = false) {
-    val palette = LocalExperiencePalette.current
-    Row(
-        Modifier.fillMaxWidth().background(if (warning) palette.warning.copy(alpha = .08f) else palette.secondarySurface.copy(alpha = .55f), RoundedCornerShape(10.dp)).padding(14.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        DesktopIcon(Icons.Default.Info, null, Modifier.size(17.dp), tint = if (warning) palette.warning else palette.link)
-        CupertinoText(message, fontSize = 12.sp, color = palette.secondaryText, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-    }
+    DesktopNotice(message, if (warning) TextStyle.WARNING else TextStyle.BODY)
 }
 
 @Composable

@@ -58,7 +58,9 @@ internal fun platformReport(node: AboutOverview, text: (TextToken) -> String): S
         node.facts().forEach {
             if (it.expandable()) {
                 appendLine("- ${line(text(it.label()))}:")
-                text(it.value()).lines().forEach { entry -> appendLine("  - ${line(entry)}") }
+                it.plugins().forEach { plugin ->
+                    appendLine("  - ${line(plugin.version())} | ${line(text(plugin.status()))}")
+                }
             } else appendLine("- ${line(text(it.label()))}: ${line(text(it.value()))}")
         }
     }.trimEnd()

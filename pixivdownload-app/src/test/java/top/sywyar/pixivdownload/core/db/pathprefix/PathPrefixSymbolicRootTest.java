@@ -55,17 +55,17 @@ class PathPrefixSymbolicRootTest {
         Environment env = new Environment("test", new JdbcTransactionFactory(), dataSource);
         Configuration config = new Configuration(env);
         config.setMapUnderscoreToCamelCase(true);
-        config.addMapper(PathPrefixMapper.class);
 
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
         sqlSession = factory.openSession(true); // auto-commit
-        mapper = sqlSession.getMapper(PathPrefixMapper.class);
+        mapper = new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
 
         // 默认相对 root → 符号根启用
         codec = new PathPrefixCodec(mapper, new DownloadConfig(), TestI18nBeans.appMessages());
         codec.init();
         rootPath = codec.getSymbolicRootPath();
 
+        top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializePathPrefixes(dataSource);
         createPathColumnTables();
     }
 
@@ -80,7 +80,8 @@ class PathPrefixSymbolicRootTest {
     private void createPathColumnTables() {
         try (var conn = dataSource.getConnection(); var st = conn.createStatement()) {
             for (var table : PATH_COLUMNS.all()) {
-                st.execute("CREATE TABLE " + table.table() + " (" + table.idColumn() + " TEXT PRIMARY KEY, "
+                st.execute("CREATE TABLE " + table.table() + " (" + table.idColumn() + (table.idColumn().equals("reference_id") || table.idColumn().equals("entry_id")
+                        ? " TEXT PRIMARY KEY, " : " INTEGER PRIMARY KEY, ")
                         + String.join(", ", table.columns().stream().map(column -> column + " TEXT").toList()) + ")");
             }
         } catch (Exception e) {
@@ -169,7 +170,7 @@ class PathPrefixSymbolicRootTest {
     class StartupFoldTests {
 
         private PathPrefixStartupMigration migration() {
-            return new PathPrefixStartupMigration(dataSource, codec, PATH_COLUMNS, new DownloadConfig(),
+            return new PathPrefixStartupMigration(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), codec, PATH_COLUMNS, new DownloadConfig(),
                     TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction());
         }
 
@@ -252,7 +253,7 @@ class PathPrefixSymbolicRootTest {
         }
 
         private PathPrefixStartupMigration absMigration() {
-            return new PathPrefixStartupMigration(dataSource, absCodec, PATH_COLUMNS, absConfig,
+            return new PathPrefixStartupMigration(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), absCodec, PATH_COLUMNS, absConfig,
                     TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction());
         }
 
@@ -291,7 +292,7 @@ class PathPrefixSymbolicRootTest {
             Path oldRoot = Files.createDirectory(tempDir.resolve("old-root"));
             execute("INSERT INTO artworks(artwork_id, folder, move_folder) VALUES(1, '{0}/100', NULL)");
             PathPrefixMigrationService service = new PathPrefixMigrationService(absCodec, mapper, PATH_COLUMNS,
-                    absConfig, TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), dataSource);
+                    absConfig, TestI18nBeans.appMessages(), TransactionOperations.withoutTransaction(), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
             assertThat(service.symbolicRootStatus().orphan()).isTrue();
             assertThat(service.symbolicRootStatus().suggestedOldPath()).isEqualTo(rootPath);
 

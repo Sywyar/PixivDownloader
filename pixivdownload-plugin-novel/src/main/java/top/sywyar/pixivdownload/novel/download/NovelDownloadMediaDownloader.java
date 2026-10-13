@@ -24,12 +24,14 @@ final class NovelDownloadMediaDownloader {
 
     private final PixivImageDownloader pixivImageDownloader;
     private final MessageResolver messages;
+    private final top.sywyar.pixivdownload.core.database.DatabaseAvailability database;
 
     NovelDownloadMediaDownloader(
                                  PixivImageDownloader pixivImageDownloader,
-                                 MessageResolver messages) {
+                                 MessageResolver messages, top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
         this.pixivImageDownloader = pixivImageDownloader;
         this.messages = messages;
+        this.database = database;
     }
 
     /**
@@ -252,6 +254,7 @@ final class NovelDownloadMediaDownloader {
     }
 
     private void ensureNotCancelled(NovelDownloadStatus status) {
+        database.requireAvailable();
         if (status != null && status.isCancelled()) {
             throw new CancellationException(messages.get("download.cancelled"));
         }

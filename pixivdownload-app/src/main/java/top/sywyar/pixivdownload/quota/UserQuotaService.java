@@ -224,6 +224,7 @@ public class UserQuotaService {
      * 为指定用户创建压缩包 token，并在后台异步打包已下载文件。
      */
     public String triggerArchive(String uuid) {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         String token = UUID.randomUUID().toString();
         long expireTime = System.currentTimeMillis()
                 + (long) config.getQuota().getArchiveExpireMinutes() * 60_000;
@@ -240,6 +241,7 @@ public class UserQuotaService {
     }
 
     public String triggerAdminArchive(List<Path> folders) {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         String token = UUID.randomUUID().toString();
         long expireTime = System.currentTimeMillis()
                 + (long) config.getQuota().getArchiveExpireMinutes() * 60_000;
@@ -258,11 +260,13 @@ public class UserQuotaService {
      */
     public String triggerAdminFileArchive(List<ArchiveItem> items, String exportType, int workCount,
                                           Runnable afterReady) {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return triggerAdminFileArchive(items, exportType, workCount, afterReady, () -> () -> {});
     }
 
     public String triggerAdminFileArchive(List<ArchiveItem> items, String exportType, int workCount,
                                           Runnable afterReady, java.util.function.Supplier<AutoCloseable> sourceLease) {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         String token = UUID.randomUUID().toString();
         long expireTime = System.currentTimeMillis()
                 + (long) config.getQuota().getArchiveExpireMinutes() * 60_000;
@@ -292,6 +296,7 @@ public class UserQuotaService {
     }
 
     private void submitArchive(ArchiveEntry entry, Runnable task) {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         try {
             archiveTaskExecutor.execute(task);
         } catch (RuntimeException failure) {
@@ -307,6 +312,7 @@ public class UserQuotaService {
     }
 
     private void buildArchive(String token, String uuid) {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         UserQuota quota = quotaMap.get(uuid);
         List<Path> folders = quota == null ? List.of() : new ArrayList<>(quota.getDownloadedFolders());
         try (var artworks = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquireAll(WorkType.ARTWORK, folderWorkIds(folders, false));
@@ -341,10 +347,12 @@ public class UserQuotaService {
     }
 
     private void buildAdminArchive(String token, List<Path> folders) {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         buildFolderArchive(token, folders, null);
     }
 
     private void buildFolderArchive(String token, List<Path> folders, Runnable afterReady) {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         ArchiveEntry entry = archiveMap.get(token);
         if (entry == null) return;
         if (folders.isEmpty()) {
@@ -381,6 +389,7 @@ public class UserQuotaService {
     }
 
     private void buildAdminFileArchive(String token, List<ArchiveItem> items, Runnable afterReady) {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         ArchiveEntry entry = archiveMap.get(token);
         if (entry == null) return;
 
@@ -394,6 +403,7 @@ public class UserQuotaService {
             return;
         }
 
+        boolean completeArchive = false;
         try {
             Path archiveDir = Paths.get(downloadConfig.getRootFolder(), "_archives");
             Files.createDirectories(archiveDir);
@@ -410,6 +420,7 @@ public class UserQuotaService {
                 zos.setLevel(Deflater.BEST_COMPRESSION);
 
                 for (ArchiveItem item : items) {
+                    if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
                     if (archiveMap.get(token) != entry || "cancelled".equals(entry.getStatus()) || entry.getExpireTime() <= System.currentTimeMillis()) {
                         throw new IOException("Archive task is no longer active");
                     }
@@ -448,7 +459,9 @@ public class UserQuotaService {
                 return;
             }
 
+            completeArchive = true;
             synchronized (entry) {
+                if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
                 if (archiveMap.get(token) != entry || "cancelled".equals(entry.getStatus()) || entry.getExpireTime() <= System.currentTimeMillis()) {
                     deletePartialArchive(entry);
                     archiveMap.remove(token, entry);
@@ -457,12 +470,14 @@ public class UserQuotaService {
                 if (afterReady != null) {
                     try {
                         for (var source : sources.entrySet()) requireUnchangedSource(source.getKey(), source.getValue());
+                        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
                         afterReady.run();
                     } catch (Exception e) {
                         // ZIP 已完整关闭；删源失败必须保留这份可下载副本。
                         log.warn(message("archive.log.admin.post-action.failed", token), e);
                     }
                 }
+                if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
                 entry.setFileCount(written);
                 entry.setStatus("ready");
             }
@@ -470,7 +485,7 @@ public class UserQuotaService {
         } catch (Exception e) {
             boolean cancelled = "cancelled".equals(entry.getStatus()) || archiveMap.get(token) != entry;
             entry.setStatus(cancelled ? "cancelled" : "error");
-            deletePartialArchive(entry);
+            if (!completeArchive) deletePartialArchive(entry);
             log.error(message("archive.log.admin.create.failed", token), e);
         }
     }
@@ -524,6 +539,7 @@ public class UserQuotaService {
     }
 
     public void deleteArchive(String token) {
+        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         ArchiveEntry entry = archiveMap.get(token);
         if (entry == null) return;
         synchronized (entry) {
@@ -564,6 +580,7 @@ public class UserQuotaService {
     /** 启动时扫描并清理上次运行遗留的孤儿压缩包 */
     @PostConstruct
     public void cleanupOrphanArchivesOnStartup() {
+        if (pixivDatabase.isUnavailable()) return;
         Path archiveDir = Paths.get(downloadConfig.getRootFolder(), "_archives");
         if (!Files.isDirectory(archiveDir)) {
             return;
@@ -595,6 +612,7 @@ public class UserQuotaService {
     /** 每分钟清理过期压缩包 */
     @Scheduled(fixedRate = 60_000)
     public void cleanupExpiredArchives() {
+        if (pixivDatabase.isUnavailable()) return;
         long now = System.currentTimeMillis();
         for (ArchiveEntry entry : archiveMap.values()) {
             if (now > entry.getExpireTime() || "cancelled".equals(entry.getStatus())) {
@@ -606,6 +624,7 @@ public class UserQuotaService {
     /** timed-delete 模式：每小时扫描并删除超过 deleteAfterHours 的作品文件 */
     @Scheduled(fixedRate = 3_600_000)
     public void cleanupTimedDeleteArtworks() {
+        if (pixivDatabase.isUnavailable()) return;
         if (!"timed-delete".equals(config.getPostDownloadMode())) return;
         long cutoffMillis = System.currentTimeMillis() - (long) config.getDeleteAfterHours() * 3_600_000L;
         List<ArtworkRecord> oldArtworks = pixivDatabase.getArtworksOlderThan(cutoffMillis);

@@ -68,6 +68,11 @@ function Get-OfficialDefaultInstalledPlugins {
     $plugins = @(Get-OfficialRequiredPlugins)
     $plugins += @(
         [pscustomobject]@{
+            Id = "database-sqlite"; Module = "pixivdownload-plugin-database-sqlite"; Format = "jar"; PrivateLibs = $true;
+            ClassPrefix = "top/sywyar/pixivdownload/databasesqlite/";
+            RequiredLibPatterns = @("^sqlite-jdbc-[0-9].*\.jar$")
+        },
+        [pscustomobject]@{
             Id = "gui-compose"; Module = "pixivdownload-plugin-gui-compose"; Format = "jar"; PrivateLibs = $true;
             ClassPrefix = "top/sywyar/pixivdownload/guicompose/";
             RequiredLibPatterns = @(
@@ -123,6 +128,11 @@ function Get-OfficialOptionalPlugins {
     [CmdletBinding()]
     param([switch]$IncludeSentinel)
     $plugins = @(
+        [pscustomobject]@{
+            Id = "database-postgresql"; Module = "pixivdownload-plugin-database-postgresql"; Format = "jar"; PrivateLibs = $true;
+            ClassPrefix = "top/sywyar/pixivdownload/databasepostgresql/";
+            RequiredLibPatterns = @("^postgresql-[0-9].*\.jar$")
+        },
         [pscustomobject]@{ Id = "pixiv-batch-downloader-import"; Module = "pixivdownload-plugin-pixiv-batch-downloader-import"; Format = "jar"; PrivateLibs = $false }
     )
     if ($IncludeSentinel) {

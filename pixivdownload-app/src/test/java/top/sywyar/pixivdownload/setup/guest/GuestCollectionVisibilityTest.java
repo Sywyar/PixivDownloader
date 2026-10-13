@@ -1,9 +1,10 @@
 package top.sywyar.pixivdownload.setup.guest;
 
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mybatis.spring.SqlSessionFactoryBean;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.aop.framework.ProxyFactory;
@@ -13,6 +14,8 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
 import top.sywyar.pixivdownload.config.http.ServerAddressProvider;
+import top.sywyar.pixivdownload.core.db.DatabaseConfig;
+import top.sywyar.pixivdownload.core.db.PostgresTestDatabase;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
@@ -31,6 +34,7 @@ import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.sql.DataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -40,7 +44,9 @@ import static org.mockito.Mockito.when;
 
 @DisplayName("访客收藏夹持久化与真实数据库查询")
 class GuestCollectionVisibilityTest {
-    private SingleConnectionDataSource source;
+    private DataSource source;
+    private SingleConnectionDataSource sqlite;
+    private PostgresTestDatabase postgres;
     private JdbcTemplate jdbc;
     private DatabaseInitializer initializer;
     private GuestInviteMapper mapper;
@@ -48,34 +54,36 @@ class GuestCollectionVisibilityTest {
     private GalleryRepository artworks;
     private NovelGalleryRepository novels;
 
-    @BeforeEach
-    void setUp() throws Exception {
-        source = new SingleConnectionDataSource("jdbc:sqlite::memory:", true);
+    void setUp(String engine) throws Exception {
+        if (engine.equals("postgresql")) {
+            Assumptions.assumeTrue(System.getenv("PIXIV_TEST_POSTGRES_URL") != null);
+            postgres = new PostgresTestDatabase();
+            source = postgres.pool();
+        } else {
+            sqlite = new SingleConnectionDataSource("jdbc:sqlite::memory:", true);
+            source = sqlite;
+        }
         jdbc = new JdbcTemplate(source);
         var registry = DatabaseSchemaRegistry.forBuiltInPlugins();
-        initializer = new DatabaseInitializer(jdbc, registry.contributions(), registry.mergedSchema(),
+        initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(jdbc, registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
-        var factory = new SqlSessionFactoryBean();
-        factory.setDataSource(source);
-        var sessions = factory.getObject();
-        sessions.getConfiguration().addMapper(GuestInviteMapper.class);
-        mapper = new SqlSessionTemplate(sessions).getMapper(GuestInviteMapper.class);
+        mapper = new GuestInviteMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(source));
         ServerAddressProvider address = mock(ServerAddressProvider.class);
         when(address.uri(anyString())).thenReturn(URI.create("http://localhost/invite"));
         var proxy = new ProxyFactory(new GuestInviteService(mapper, address, initializer));
         proxy.addAdvice(new TransactionInterceptor(new DataSourceTransactionManager(source),
                 new AnnotationTransactionAttributeSource()));
         invites = (GuestInviteService) proxy.getProxy();
-        artworks = new GalleryRepository(source);
-        novels = new NovelGalleryRepository(source);
+        artworks = new GalleryRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(source));
+        novels = new NovelGalleryRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(source));
 
         // 1、2 同属 haha；2 超出年龄范围；3 同属可见与隐藏收藏夹；4 未收藏；5 已删除。
         for (String table : List.of("artworks", "novels")) {
             String id = table.equals("artworks") ? "artwork_id" : "novel_id";
             for (int i = 1; i <= 5; i++) {
                 jdbc.update("INSERT INTO " + table + "(" + id
-                                + ",title,folder,count,extensions,time,\"R18\",deleted) VALUES(?,?,'{0}/sample',1,'jpg',?,?,?)",
+                                + ",title,folder,count,extensions,time,r18,deleted) VALUES(?,?,'{0}/sample',1,'jpg',?,?,?)",
                         i, "work " + i, i, i == 2 ? 1 : 0, i == 5 ? 1 : 0);
             }
             String membership = table.equals("artworks") ? "artwork_collections" : "novel_collections";
@@ -87,13 +95,16 @@ class GuestCollectionVisibilityTest {
     }
 
     @AfterEach
-    void close() {
-        source.destroy();
+    void close() throws Exception {
+        if (postgres != null) postgres.close();
+        if (sqlite != null) sqlite.destroy();
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(strings = {"sqlite", "postgresql"})
     @DisplayName("收藏夹计数只含可见且未删除作品，列表与单作品作用域使用同一配置")
-    void countsAndQueriesRespectCollectionScope() {
+    void countsAndQueriesRespectCollectionScope(String engine) throws Exception {
+        setUp(engine);
         GuestRestriction filters = restriction(false, List.of(1L, 2L));
         assertThat(artworks.countVisibleWorksByCollection(filters)).isEqualTo(Map.of(1L, 1L, 2L, 1L, 3L, 1L));
         assertThat(novels.countVisibleWorksByCollection(filters)).isEqualTo(Map.of(1L, 1L, 2L, 1L, 3L, 1L));
@@ -109,9 +120,11 @@ class GuestCollectionVisibilityTest {
         assertThat(novels.findVisibleNovelIds(restriction(true, List.of()))).containsExactly(4L);
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(strings = {"sqlite", "postgresql"})
     @DisplayName("仅隐藏入口时也不能通过手工收藏夹筛选查询隐藏归属")
-    void hiddenCollectionCannotBeUsedAsFilter() {
+    void hiddenCollectionCannotBeUsedAsFilter(String engine) throws Exception {
+        setUp(engine);
         GuestRestriction filters = restriction(false, List.of(1L, 2L));
         assertThat(artworks.findArtworkIds(query(filters, List.of(3L))).totalElements()).isZero();
         assertThat(artworks.findArtworkIds(query(filters, List.of(1L))).ids()).containsExactly(1L);
@@ -119,9 +132,11 @@ class GuestCollectionVisibilityTest {
         assertThat(search.filteredIds(WorkQuery.builder(WorkType.NOVEL).collectionIds(List.of(3L)).build(), filters)).isEmpty();
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(strings = {"sqlite", "postgresql"})
     @DisplayName("邀请创建、编辑、会话恢复与删除完整保存收藏夹规则")
-    void inviteRulesRoundTrip() {
+    void inviteRulesRoundTrip(String engine) throws Exception {
+        setUp(engine);
         var request = request();
         request.setCollectionUnrestricted(false);
         request.setCollectionIds(List.of(1L, 2L, 1L));
@@ -147,12 +162,15 @@ class GuestCollectionVisibilityTest {
         assertThat(invites.resolveByCode(detail.code())).isEmpty();
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(strings = {"sqlite", "postgresql"})
     @DisplayName("旧邀请自动补列后保留原有范围，非法收藏夹输入拒绝且不修改现有规则")
-    void migrationAndInvalidInputPreservePermissions() {
+    void migrationAndInvalidInputPreservePermissions(String engine) throws Exception {
+        setUp(engine);
         long id = invites.createInvite(request());
         jdbc.execute("ALTER TABLE guest_invites DROP COLUMN collection_unrestricted");
         jdbc.execute("ALTER TABLE guest_invites DROP COLUMN collection_restricts_works");
+        jdbc.execute("DROP TABLE guest_invite_collections");
         initializer.initialize();
         assertThat(invites.detail(id).collectionUnrestricted()).isTrue();
         assertThat(invites.detail(id).collectionRestrictsWorks()).isFalse();
@@ -165,15 +183,21 @@ class GuestCollectionVisibilityTest {
         assertThat(invites.detail(id).collectionUnrestricted()).isTrue();
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(strings = {"sqlite", "postgresql"})
     @DisplayName("收藏夹关联写入失败时邀请属性与旧白名单一并回滚")
-    void failedUpdateRollsBackWholeInvite() {
+    void failedUpdateRollsBackWholeInvite(String engine) throws Exception {
+        setUp(engine);
         var original = request();
         original.setCollectionUnrestricted(false);
         original.setCollectionIds(List.of(1L));
         long id = invites.createInvite(original);
-        jdbc.execute("CREATE TRIGGER reject_collection BEFORE INSERT ON guest_invite_collections"
-                + " WHEN NEW.collection_id = 2 BEGIN SELECT RAISE(ABORT, 'fixture failure'); END");
+        if (postgres != null) {
+            jdbc.execute("ALTER TABLE guest_invite_collections ADD CONSTRAINT reject_collection CHECK(collection_id <> 2)");
+        } else {
+            jdbc.execute("CREATE TRIGGER reject_collection BEFORE INSERT ON guest_invite_collections"
+                    + " WHEN NEW.collection_id = 2 BEGIN SELECT RAISE(ABORT, 'fixture failure'); END");
+        }
         var update = request();
         update.setName("changed");
         update.setCollectionUnrestricted(false);
@@ -186,9 +210,11 @@ class GuestCollectionVisibilityTest {
         assertThat(detail.collectionRestrictsWorks()).isFalse();
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(strings = {"sqlite", "postgresql"})
     @DisplayName("邀请过期与维护清理同时移除收藏夹规则")
-    void expiredInvitesCleanCollectionRules() {
+    void expiredInvitesCleanCollectionRules(String engine) throws Exception {
+        setUp(engine);
         for (int mode = 0; mode < 3; mode++) {
             var request = request();
             request.setCollectionUnrestricted(false);

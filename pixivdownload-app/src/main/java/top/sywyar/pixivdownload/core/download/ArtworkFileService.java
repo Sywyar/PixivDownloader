@@ -78,6 +78,7 @@ public class ArtworkFileService {
     }
 
     public ThumbnailFile getThumbnailFile(Long artworkId, int page, int maximumEdge, boolean cover) throws IOException {
+        requireDatabase();
         // 有限尺寸档避免任意请求参数产生无限缓存变体；预览沿用桌面的 1600 像素预算。
         int edge = 128;
         while (edge < maximumEdge && edge < 1600) edge = Math.min(1600, edge * 2);
@@ -104,6 +105,7 @@ public class ArtworkFileService {
         });
         try {
             synchronized (lock) {
+                requireDatabase();
                 sourceTime = Files.getLastModifiedTime(imageFile.toPath());
                 if (isFreshThumbnailCache(cachePath, sourceTime)) {
                     return new ThumbnailFile(cachePath, writeFormat);
@@ -115,11 +117,14 @@ public class ArtworkFileService {
                     throw new InterruptedIOException("Thumbnail generation interrupted");
                 }
                 try {
+                    requireDatabase();
                     Files.createDirectories(cachePath.getParent());
+                    requireDatabase();
                     BufferedImage thumbnailImage = cover
                             ? mediaDecoder.readCover(imageFile.toPath(), edge)
                             : mediaDecoder.read(imageFile.toPath(), edge);
                     try {
+                        requireDatabase();
                         Path tempPath = Files.createTempFile(cachePath.getParent(), "thumb-", "." + writeFormat);
                         try {
                             try (OutputStream out = Files.newOutputStream(tempPath)) {
@@ -127,6 +132,7 @@ public class ArtworkFileService {
                                     throw new IOException("Unsupported thumbnail format: " + writeFormat);
                                 }
                             }
+                            requireDatabase();
                             moveReplacing(tempPath, cachePath);
                             Files.setLastModifiedTime(cachePath, sourceTime);
                         } finally {
@@ -143,6 +149,12 @@ public class ArtworkFileService {
             thumbnailCacheLocks.computeIfPresent(lockKey, (key, current) -> --current.users == 0 ? null : current);
         }
         return new ThumbnailFile(cachePath, writeFormat);
+    }
+
+    private void requireDatabase() {
+        if (pixivDatabase.isUnavailable()) {
+            throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+        }
     }
 
     private File resolveThumbnailSourceFile(ArtworkRecord artwork, int page) {
@@ -176,9 +188,11 @@ public class ArtworkFileService {
     }
 
     private void moveReplacing(Path source, Path target) throws IOException {
+        requireDatabase();
         try {
             Files.move(source, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException e) {
+            requireDatabase();
             Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
         }
     }

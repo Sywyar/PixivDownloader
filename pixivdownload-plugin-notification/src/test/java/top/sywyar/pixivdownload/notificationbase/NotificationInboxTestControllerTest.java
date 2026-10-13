@@ -7,27 +7,31 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.i18n.LocaleContextHolder;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
+import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 import top.sywyar.pixivdownload.plugin.api.notification.ImmutableNotificationTemplateCatalog;
 import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateContribution;
 
 import java.lang.reflect.Proxy;
 import java.util.Arrays;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("GUI 站内信测试端点")
 class NotificationInboxTestControllerTest {
 
     private NotificationInboxServiceTest.MemoryMapper mapper;
     private NotificationInboxTestController controller;
+    private final AtomicBoolean databaseAvailable = new AtomicBoolean(true);
 
     @BeforeEach
     void setUp() {
         LocaleContextHolder.setLocale(Locale.US);
         mapper = new NotificationInboxServiceTest.MemoryMapper();
         InboxNotificationSink sink = new InboxNotificationSink(
-                catalog(), new NotificationInboxService(mapper), java.util.List.of(Locale.US), () -> false);
+                catalog(), new NotificationInboxService(mapper, databaseAvailable::get), java.util.List.of(Locale.US), () -> false);
         controller = new NotificationInboxTestController(sink);
     }
 
@@ -59,6 +63,19 @@ class NotificationInboxTestControllerTest {
                     assertThat(body.total()).isEqualTo(NotificationScenario.values().length);
                 });
         assertThat(mapper.findLatest(null, false, 100)).hasSize(NotificationScenario.values().length + 1);
+    }
+
+    @Test
+    @DisplayName("数据库不可用时单条和全部测试均抛明确异常，不返回成功响应")
+    void refusesTestsWithoutDatabase() {
+        databaseAvailable.set(false);
+
+        assertThatThrownBy(() -> controller.test(request("127.0.0.1")))
+                .isInstanceOf(DatabaseUnavailableException.class);
+        assertThatThrownBy(() -> controller.testAll(request("127.0.0.1")))
+                .isInstanceOf(DatabaseUnavailableException.class);
+
+        assertThat(mapper.findLatest(null, false, 100)).isEmpty();
     }
 
     @Test

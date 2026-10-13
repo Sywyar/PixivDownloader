@@ -63,6 +63,9 @@ public final class DesktopMediaMaintenance implements DesktopMediaTool.Source {
         catch (java.util.concurrent.CancellationException cancelled) {
             return new DesktopMediaTool.Result<>(null, DesktopUiText.plugin("batch", "media.tools.state.cancelled", "media.tools.state.cancelled"));
         }
+        catch (top.sywyar.pixivdownload.core.database.DatabaseUnavailableException unavailable) {
+            return new DesktopMediaTool.Result<>(null, DesktopUiText.plugin("batch", "media.tools.state.unavailable", "media.tools.state.unavailable"));
+        }
         catch (LocalizedException failure) {
             return new DesktopMediaTool.Result<>(null, new DesktopUiText("batch", failure.messageCode().replace("download.media.", "media.error."),
                     failure.messageCode(), Arrays.stream(failure.messageArgs()).map(String::valueOf).toList()));

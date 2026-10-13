@@ -29,7 +29,7 @@ import java.util.Optional;
  *
  * <p>恢复模式下放行的最小入口：容器健康探针（{@code /actuator/health*}、{@code /actuator/info}）、插件状态 / 安装 /
  * 修复 API（{@code /api/plugins/**}）、插件市场页面 / 静态 / API（{@code /plugin-market.html}、{@code /plugin-market/**}、
- * {@code /api/plugin-market/**}）、本机 GUI（{@code /api/gui/**}，仍受 {@code AuthFilter} 的本地 + 令牌校验）、i18n
+ * {@code /api/plugin-market/**}）、本机 GUI 的状态、初始化与重启入口（仍受本地 + 令牌校验）、i18n
  * 文案（{@code /api/i18n/**}）、核心认证与 setup 入口（{@code /api/auth/**}、{@code /api/setup/**} 与 {@code /login.html}、
  * {@code /setup.html} 页面外壳及其同名目录静态资源）、状态页（{@code /error/**}）以及插件市场渲染所需的基础静态资源
  * （{@code /js/}、{@code /css/}、{@code /vendor/}）与导航端点（{@code /api/navigation}）。核心认证 / setup / 市场入口仅放行到后续 {@code AuthFilter} /
@@ -61,7 +61,7 @@ public class RecoveryModeGate extends OncePerRequestFilter {
             chain.doFilter(req, res);
             return;
         }
-        if (path.isPresent() && isAllowedInRecoveryMode(path.get())) {
+        if (path.isPresent() && isAllowedInRecoveryMode(path.get(), req.getMethod())) {
             // 诊断本身失败也不能阻断修复入口；后续身份与 CSRF 过滤仍照常执行。
             chain.doFilter(req, res);
             return;
@@ -74,15 +74,23 @@ public class RecoveryModeGate extends OncePerRequestFilter {
     }
 
     /** 恢复模式下仍放行的最小入口集合（诊断 / 修复 / 健康 / 核心认证与 setup / 基础静态）。 */
-    private boolean isAllowedInRecoveryMode(String path) {
+    private boolean isAllowedInRecoveryMode(String path, String method) {
         return isHealthProbe(path)
                 || path.startsWith("/api/plugins/")
                 || isPluginMarketEntry(path)
-                || path.startsWith("/api/gui/")
+                || isGuiRecoveryEntry(path, method)
                 || path.startsWith("/api/i18n/")
                 || path.equals("/api/navigation")
                 || isCoreAuthOrSetupApi(path)
                 || isRecoveryStaticResource(path);
+    }
+
+    private static boolean isGuiRecoveryEntry(String path, String method) {
+        if ("GET".equals(method) || "HEAD".equals(method)) {
+            return path.equals("/api/gui/status") || path.equals("/api/gui/plugins/status")
+                    || path.equals("/api/gui/onboarding");
+        }
+        return "POST".equals(method) && (path.equals("/api/gui/restart") || path.equals("/api/gui/setup/init"));
     }
 
     /**
@@ -102,8 +110,6 @@ public class RecoveryModeGate extends OncePerRequestFilter {
 
     private static boolean isPluginMarketEntry(String path) {
         return path.equals(PLUGIN_MARKET_PATH)
-                || path.equals("/plugin-manage.html")
-                || path.startsWith("/plugin-manage/")
                 || path.startsWith("/plugin-market/")
                 || path.equals("/api/plugin-market")
                 || path.startsWith("/api/plugin-market/");
@@ -111,14 +117,12 @@ public class RecoveryModeGate extends OncePerRequestFilter {
 
     /**
      * 渲染恢复提示与核心认证 / setup 所需的基础静态资源及页面外壳：登录 / setup 页面外壳与其同名目录静态资源
-     * （{@code /login.html}、{@code /login/}、{@code /setup.html}、{@code /setup/}）、首页外壳、站点图标与共享
+     * （{@code /login.html}、{@code /login/}、{@code /setup.html}、{@code /setup/}）、站点图标与共享
      * 状态页 {@code /error/}、{@code /js/}、{@code /css/}、{@code /vendor/}；不含业务页面 / 油猴脚本 /
      * {@code /userscripts/} 静态。
      */
     private static boolean isRecoveryStaticResource(String path) {
-        return path.equals("/")
-                || path.equals("/index.html")
-                || path.equals("/favicon.ico")
+        return path.equals("/favicon.ico")
                 || path.equals("/login.html")
                 || path.startsWith("/login/")
                 || path.equals("/setup.html")

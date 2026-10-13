@@ -50,7 +50,7 @@ class StatsQueryStoreImplTest {
         jdbc.execute("CREATE TABLE novel_tags (novel_id INTEGER, tag_id INTEGER)");
         jdbc.execute("INSERT INTO novel_tags(novel_id, tag_id) VALUES (1000,2),(1001,3)");
 
-        store = new StatsQueryStoreImpl(dataSource);
+        store = new StatsQueryStoreImpl(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
     }
 
     @AfterEach

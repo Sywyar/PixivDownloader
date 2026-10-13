@@ -115,6 +115,7 @@ public final class ImageOutputService {
             checkCancelled(cancelled);
             report(progress, "finalizing", null, null, outputCount);
             for (int index = 0; index < pending.size(); index++) {
+                checkCancelled(cancelled);
                 if (previous == null) publish(pending.get(index), destinations.get(index));
                 else {
                     try { Files.move(pending.get(index), destinations.get(index)); }
@@ -212,6 +213,7 @@ public final class ImageOutputService {
                                 temporary.toAbsolutePath().toString()), null, temporary,
                         PixivImageTransferObserver.MAX_IMAGE_BYTES, TIMEOUT, cancelled, progress);
             }
+            checkCancelled(cancelled);
             publish(temporary, stem.resolveSibling(stem.getFileName() + "_thumb.jpg"));
         } finally {
             Files.deleteIfExists(temporary);

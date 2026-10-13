@@ -62,6 +62,11 @@ public interface DesktopUiHost extends DesktopUiToolHost {
      */
     ConfigFile applicationConfig();
 
+    /** {@return 可选的进程级数据库配置能力；缺席时不提供连接检查} */
+    default Optional<DesktopDatabaseSettings> databaseSettings() {
+        return Optional.empty();
+    }
+
     /**
      * {@return 宿主拥有的核心配置分组语义}
      */
@@ -267,6 +272,16 @@ public interface DesktopUiHost extends DesktopUiToolHost {
      * 宿主拥有的配置持久化端口。
      */
     interface ConfigFile {
+        /**
+         * 串行执行短配置事务，覆盖快照、写入和失败回滚；回调不得启动异步工作。
+         * 宿主提供的同一文件各句柄共享锁，避免恢复旧快照覆盖另一入口已经保存的配置。
+         *
+         * @param operation 同步文件操作
+         * @throws IOException 操作失败时原样传播，回滚仍由调用方完成
+         */
+        default void withWriteLock(IoOperation operation) throws IOException {
+            synchronized (this) { operation.run(); }
+        }
         /**
          * 读取一个配置键对应的值。
          *
@@ -550,11 +565,14 @@ public interface DesktopUiHost extends DesktopUiToolHost {
     Path resolveSetupConfigPath(String rootFolder);
 
     /**
-     * 返回应用根目录对应的数据库路径。
+     * 返回当前提供者映射的本地主库文件，不创建或搬迁数据。
      *
-     * @param rootFolder 应用根目录
-     * @return 数据库路径
+     * @param rootFolder 旧调用方传入的应用根；实际位置由进程固定的提供者决定
+     * @return 当前主库文件
+     * @throws IllegalStateException 数据库不可用或当前目标不是本地文件
+     * @deprecated 使用数据库设置与工具默认值读取当前目标，并先检查是否支持文件选择
      */
+    @Deprecated
     Path resolveDatabasePath(String rootFolder);
 
     /**

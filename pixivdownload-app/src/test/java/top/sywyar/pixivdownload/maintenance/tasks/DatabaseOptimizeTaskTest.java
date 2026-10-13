@@ -30,7 +30,8 @@ class DatabaseOptimizeTaskTest {
         jdbc.update("INSERT INTO sample(id, value) VALUES (?, ?)", 1, "a");
         jdbc.update("INSERT INTO sample(id, value) VALUES (?, ?)", 2, "b");
 
-        task = new DatabaseOptimizeTask(dataSource);
+        task = new DatabaseOptimizeTask(dataSource,
+                top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.target(dataSource));
     }
 
     @AfterEach

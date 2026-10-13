@@ -2,14 +2,28 @@ package top.sywyar.pixivdownload.novel.narration;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
+import top.sywyar.pixivdownload.novel.TestRuntimePathProvider;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
 import top.sywyar.pixivdownload.novel.narration.audio.NarrationAudioService;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -60,7 +74,7 @@ class NarrationReferenceVoiceServiceTest {
         when(mapper.findNarrationVoiceRef(3L, 5)).thenReturn(null);
 
         NarrationReferenceVoiceService svc = new NarrationReferenceVoiceService(
-                mapper, mock(NarrationAudioService.class), store, mock(NarrationReferenceVoicePaths.class));
+                mapper, mock(NarrationAudioService.class), store, mock(NarrationReferenceVoicePaths.class), () -> true);
 
         NovelNarrationVoiceRef ref = svc.saveUpload(3L, 5, new byte[]{1, 2, 3}, "wav", null);
 
@@ -83,7 +97,7 @@ class NarrationReferenceVoiceServiceTest {
                 .thenReturn(1);
 
         NarrationReferenceVoiceService svc = new NarrationReferenceVoiceService(
-                mapper, mock(NarrationAudioService.class), store, mock(NarrationReferenceVoicePaths.class));
+                mapper, mock(NarrationAudioService.class), store, mock(NarrationReferenceVoicePaths.class), () -> true);
 
         byte[] data = {1, 2, 3};
         NovelNarrationVoiceRef ref = svc.saveUpload(3L, 1, data, "wav", " hi ");
@@ -91,6 +105,79 @@ class NarrationReferenceVoiceServiceTest {
         assertThat(ref).isSameAs(saved);
         verify(store).write(3L, 1, data, "wav");
         verify(mapper).touchNarrationCast(eq(3L), anyLong());
+    }
+
+    @Test
+    @DisplayName("等待参考音锁期间数据库失效，取得锁后拒绝删除且保留音频和元数据")
+    void rejectsDeletionAfterWaitingForLock(@TempDir Path temp) throws Exception {
+        AtomicBoolean available = new AtomicBoolean(true);
+        var paths = new NarrationReferenceVoicePaths(new TestRuntimePathProvider(temp), available::get);
+        var store = spy(new NarrationReferenceVoiceStore(paths, available::get));
+        store.write(7L, 1, new byte[]{1, 2, 3}, "wav");
+        Path original = paths.file(7L, 1, "wav");
+        NovelMapper mapper = mock(NovelMapper.class);
+        var service = new NarrationReferenceVoiceService(
+                mapper, mock(NarrationAudioService.class), store, paths, available::get);
+        Object lock = store.lockFor(7L, 1);
+        CountDownLatch requested = new CountDownLatch(1);
+        doAnswer(call -> { requested.countDown(); return lock; }).when(store).lockFor(7L, 1);
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            java.util.concurrent.Future<?> deletion;
+            synchronized (lock) {
+                deletion = executor.submit(() -> service.delete(7L, 1));
+                assertThat(requested.await(5, TimeUnit.SECONDS)).isTrue();
+                available.set(false);
+            }
+            assertThatThrownBy(() -> deletion.get(5, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(DatabaseUnavailableException.class);
+            verify(store, never()).deleteCharacterFiles(anyLong(), anyInt());
+            verifyNoInteractions(mapper);
+            assertThat(Files.readAllBytes(original)).containsExactly(1, 2, 3);
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    @DisplayName("上传校验角色后数据库失效，不发布新参考音")
+    void rejectsUploadAfterDatabaseReadInvalidates() {
+        AtomicBoolean available = new AtomicBoolean(true);
+        NovelMapper mapper = mock(NovelMapper.class);
+        NarrationReferenceVoiceStore store = mock(NarrationReferenceVoiceStore.class);
+        when(store.lockFor(anyLong(), anyInt())).thenReturn(new Object());
+        when(mapper.findNarrationVoiceRef(3L, 5)).thenAnswer(call -> {
+            available.set(false);
+            return new NovelNarrationVoiceRef(3L, 5, "wav", null, "upload", 1L);
+        });
+        var service = new NarrationReferenceVoiceService(mapper, mock(NarrationAudioService.class),
+                store, mock(NarrationReferenceVoicePaths.class), available::get);
+
+        assertThatThrownBy(() -> service.saveUpload(3L, 5, new byte[]{9}, "mp3", null))
+                .isInstanceOf(DatabaseUnavailableException.class);
+        verify(store, never()).write(anyLong(), anyInt(), any(), any());
+        verify(mapper, never()).updateNarrationVoiceReference(anyLong(), anyInt(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("种子音合成期间数据库失效，不采用返回音频")
+    void rejectsSeedReturnedAfterInvalidation() {
+        AtomicBoolean available = new AtomicBoolean(true);
+        NovelMapper mapper = mock(NovelMapper.class);
+        NarrationAudioService audio = mock(NarrationAudioService.class);
+        NarrationReferenceVoiceStore store = mock(NarrationReferenceVoiceStore.class);
+        when(audio.synthesizeVoiceDesign(any(), any())).thenAnswer(call -> {
+            available.set(false);
+            return new NarrationAudio(pcmWav(48000, 1, 16, 96000), "audio/wav");
+        });
+        var service = new NarrationReferenceVoiceService(mapper, audio, store,
+                mock(NarrationReferenceVoicePaths.class), available::get);
+
+        assertThatThrownBy(() -> service.generateSeed(3L, 0, "sample"))
+                .isInstanceOf(DatabaseUnavailableException.class);
+        verifyNoInteractions(store);
+        verify(mapper, never()).updateNarrationVoiceReference(anyLong(), anyInt(), any(), any(), any(), any());
     }
 
     /** 构造一个最小可解析的 PCM WAV（含 fmt + data 块）。 */

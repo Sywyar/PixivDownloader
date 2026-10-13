@@ -251,6 +251,8 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
             throw ScheduledExecutionException.cancelled();
         } catch (top.sywyar.pixivdownload.core.work.service.DownloadPathPlan.NeedsAction needed) {
             throw failure(ScheduledFailure.Category.USER_ACTION_REQUIRED, "DOWNLOAD_PATH_ACTION_REQUIRED");
+        } catch (top.sywyar.pixivdownload.core.database.DatabaseUnavailableException unavailable) {
+            throw unavailable;
         } catch (RuntimeException e) {
             throw failure(ScheduledFailure.Category.RETRYABLE_NETWORK, "pixiv.novel.download-retryable");
         }
@@ -260,10 +262,13 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         boolean liveStatusAvailable = submitAutoTranslate(novelId, metadata, definition);
         try {
             workMetadataCapture.capture(WorkType.NOVEL, novelId, body.toString(), "schedule");
+        } catch (top.sywyar.pixivdownload.core.database.DatabaseUnavailableException unavailable) {
+            throw unavailable;
         } catch (RuntimeException e) {
             log.warn("Scheduled novel metadata capture failed: novelId={}, errorType={}",
                     novelId, e.getClass().getSimpleName());
         }
+        context.cancellation().throwIfCancellationRequested();
         return new ScheduledWorkResult(
                 ScheduledWorkResult.Outcome.COMPLETED,
                 "work.completed",

@@ -1,0 +1,74 @@
+package top.sywyar.pixivdownload.plugin.storage;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.config.InstallIdentity;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
+import top.sywyar.pixivdownload.core.db.DatabaseEngine;
+import top.sywyar.pixivdownload.core.db.DatabaseTarget;
+import top.sywyar.pixivdownload.plugin.api.database.DatabasePrivateStorageSettings;
+
+import javax.sql.DataSource;
+import java.nio.file.Path;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+@DisplayName("私库凭据持久身份")
+class PluginDatabaseFactoryTest {
+    @TempDir Path directory;
+
+    @Test
+    @DisplayName("地址别名和 provider 改变不轮换同一安装 owner 密码，不同 owner 不共享密码")
+    void credentialsFollowInstallationAndOwner() throws Exception {
+        var credentials = mock(PluginCredentialStore.class);
+        Map<String, Map<String, String>> saved = new HashMap<>();
+        doAnswer(call -> {
+            ((PluginCredentialStore.IoOperation) call.getArgument(1)).run();
+            return null;
+        }).when(credentials).withOwnerLocks(anyCollection(), any());
+        when(credentials.readAll(anyString())).thenAnswer(call -> saved.getOrDefault(call.getArgument(0), Map.of()));
+        doAnswer(call -> {
+            saved.computeIfAbsent(call.getArgument(0), ignored -> new HashMap<>()).putAll(call.getArgument(1));
+            return null;
+        }).when(credentials).update(anyString(), anyMap());
+        List<DatabasePrivateStorageSettings> captured = new ArrayList<>();
+        try (var identity = mockStatic(InstallIdentity.class); var paths = mockStatic(RuntimeFiles.class)) {
+            identity.when(InstallIdentity::get).thenReturn("isolated-installation");
+            paths.when(() -> RuntimeFiles.resolvePluginDataDirectory(anyString()))
+                    .thenAnswer(call -> directory.resolve((String) call.getArgument(0)));
+            for (String address : List.of("localhost", "127.0.0.1")) {
+                var target = mock(DatabaseTarget.class);
+                when(target.available()).thenReturn(true);
+                when(target.databaseId()).thenReturn("postgresql");
+                when(target.description()).thenReturn("postgresql: " + address + "/fixture [main]");
+                when(target.providerOwner()).thenReturn("provider-" + address);
+                when(target.privateStorage(any())).thenAnswer(call -> {
+                    captured.add(call.getArgument(0));
+                    throw new SQLException("fixture stops before opening a pool");
+                });
+                var factory = new PluginDatabaseFactory(target, mock(DataSource.class), credentials);
+                for (String owner : List.of("first-owner", "second-owner")) {
+                    try (var database = (AppPluginDatabase) factory.create(owner)) {
+                        assertThatThrownBy(database::getConnection).isInstanceOf(SQLException.class);
+                    }
+                }
+            }
+        }
+        assertThat(captured).hasSize(4);
+        assertThat(captured.get(0).password()).isEqualTo(captured.get(2).password())
+                .isNotEqualTo(captured.get(1).password());
+        assertThat(captured.get(1).password()).isEqualTo(captured.get(3).password());
+        assertThat(saved).containsOnlyKeys("first-owner", "second-owner");
+        assertThat(saved.values()).allSatisfy(values -> assertThat(values).hasSize(1));
+        assertThat(directory.resolve("first-owner")).doesNotExist();
+    }
+}

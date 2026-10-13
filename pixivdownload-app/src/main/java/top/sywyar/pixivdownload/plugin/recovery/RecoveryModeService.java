@@ -9,6 +9,8 @@ import top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateSnapshot;
 import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
+import top.sywyar.pixivdownload.core.db.UnavailableDataSource;
+import javax.sql.DataSource;
 
 /**
  * 恢复模式判定服务（后端）：综合 {@link PluginStatusService} 的插件状态报告与必选插件策略
@@ -25,15 +27,17 @@ public class RecoveryModeService {
 
     private final PluginStatusService pluginStatusService;
     private final RequiredPluginPolicy requiredPluginPolicy;
+    private final DataSource dataSource;
     private final RecoveryModeEvaluator evaluator = new RecoveryModeEvaluator();
 
     private record CachedDecision(java.util.Map<String, String> failures, RecoveryModeDecision decision) {}
     private volatile CachedDecision cached;
 
     public RecoveryModeService(PluginStatusService pluginStatusService,
-                               RequiredPluginPolicy requiredPluginPolicy) {
+                               RequiredPluginPolicy requiredPluginPolicy, DataSource dataSource) {
         this.pluginStatusService = pluginStatusService;
         this.requiredPluginPolicy = requiredPluginPolicy;
+        this.dataSource = dataSource;
     }
 
     /** 当前恢复模式判定（首次评估后缓存）。 */
@@ -41,6 +45,11 @@ public class RecoveryModeService {
         PluginRecoveryGateSnapshot recovery = pluginStatusService.recoveryGateSnapshot();
         if (!recovery.safeToScan()) {
             return transactionRecoveryDecision(recovery);
+        }
+        if (databaseUnavailable()) {
+            return new RecoveryModeDecision(true, java.util.List.of(new RecoveryModeReason(
+                    "database", PluginStatus.FAILED, "plugin.recovery.database-unavailable",
+                    VersionRequirement.unspecified(), java.util.List.of("DATABASE_UNAVAILABLE"))));
         }
         java.util.Map<String, String> failures = pluginStatusService.failureSnapshot();
         CachedDecision current = cached;
@@ -62,6 +71,11 @@ public class RecoveryModeService {
         return new RecoveryModeDecision(true, java.util.List.of(new RecoveryModeReason(
                 "plugin-runtime", PluginStatus.FAILED, "plugin.recovery.transaction",
                 VersionRequirement.unspecified(), messages)));
+    }
+
+    /** 所选数据库当前不可用，不代表业务库为空。 */
+    public boolean databaseUnavailable() {
+        return UnavailableDataSource.isUnavailable(dataSource);
     }
 
     /** 核心壳当前是否应进入恢复模式。 */

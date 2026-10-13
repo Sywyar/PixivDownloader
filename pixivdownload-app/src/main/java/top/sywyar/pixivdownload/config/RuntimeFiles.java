@@ -55,7 +55,6 @@ public final class RuntimeFiles {
     public static final String CONFIG_YAML = "config.yaml";
     public static final String IMAGE_CLASSIFIER_PROPERTIES = "image_classifier.properties";
     public static final String SETUP_CONFIG_JSON = "setup_config.json";
-    public static final String PIXIV_DOWNLOAD_DB = "pixiv_download.db";
     public static final String COLLECTION_ICONS_DIR = "collection_icons";
     public static final String GALLERY_THUMBNAILS_DIR = "gallery_thumbs";
     public static final String GUI_STATE_DIR = "gui";
@@ -68,7 +67,6 @@ public final class RuntimeFiles {
     public static final String INSTALL_IDENTITY_FILE = "install_identity.txt";
     private static final String LEGACY_COLLECTION_ICONS_DIR = "_collection_icons";
     private static final String LEGACY_GUI_STATE_DIR = "_gui";
-    private static final List<String> SQLITE_COMPANION_SUFFIXES = List.of("-wal", "-shm");
 
     private RuntimeFiles() {
     }
@@ -159,6 +157,20 @@ public final class RuntimeFiles {
             throw new UncheckedIOException(message("runtime.error.resolve-directory.failed", target), e);
         }
         return target.normalize();
+    }
+
+    public static Path databaseMigrationDirectory() {
+        return dataDirectory().resolve("database-migrations");
+    }
+
+    public static Path databaseSwitchJournal() {
+        return databaseMigrationDirectory().resolve("switch.json");
+    }
+
+    public static Path privateDatabaseMigrationReceipt(String owner) {
+        // 复用 owner 路径校验，不接受调用方指定任意收据位置。
+        return databaseMigrationDirectory().resolve("private")
+                .resolve(safePathToken(owner, "owner")).resolve("verified.json").normalize();
     }
 
     public static Path resolveBackfillUnreachablePath() {
@@ -263,19 +275,19 @@ public final class RuntimeFiles {
         return resolveManagedFile(target, rootAndDownloadLegacyCandidates(target.getParent(), rootFolder, SETUP_CONFIG_JSON));
     }
 
-    public static Path resolveDatabasePath(String rootFolder) {
-        Path target = dataDirectory().resolve(PIXIV_DOWNLOAD_DB);
-        return resolveManagedFile(target, rootAndDownloadLegacyCandidates(target.getParent(), rootFolder, PIXIV_DOWNLOAD_DB), SQLITE_COMPANION_SUFFIXES);
+    public static void prepareRuntimeFiles(String rootFolder) {
+        prepareRuntimeFiles(rootFolder, true);
     }
 
-    public static void prepareRuntimeFiles(String rootFolder) {
+    public static void prepareRuntimeFiles(String rootFolder, boolean recoverPendingDeletes) {
         resolveConfigYamlPath();
         resolveImageClassifierPath(rootFolder);
         resolveSetupConfigPath(rootFolder);
-        resolveDatabasePath(rootFolder);
+        if (recoverPendingDeletes) {
+            recoverDeleteStagingLeftovers(rootFolder);
+        }
         collectionIconsDirectory();
         guiStateDirectory();
-        recoverDeleteStagingLeftovers(rootFolder);
     }
 
     public static String readDownloadRootFromConfig(Path configPath, String defaultRootFolder) {

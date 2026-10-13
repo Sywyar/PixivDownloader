@@ -18,6 +18,7 @@ import java.util.Locale;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.AboutFact;
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.AboutPlugin;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextToken;
 
 /** 关于页的受控平台事实；开发目录仅在开发模式下展示。 */
@@ -27,12 +28,14 @@ final class ComposeApplicationInfo {
     static List<AboutFact> platformFacts(
             DesktopUiHost host,
             DesktopUiHost.GuiValue buildInfo,
-            String pluginNotice
+            String pluginNotice,
+            TextToken database
     ) {
         var facts = new ArrayList<AboutFact>();
         facts.add(fact("version", value(host.applicationVersion() + "("
                 + buildInfo.path("sdkVersion").asText(SdkVersion.current()) + ")")));
-        var plugins = new ArrayList<String>();
+        facts.add(fact("database", database));
+        var plugins = new ArrayList<AboutPlugin>();
         for (var plugin : buildInfo.path("plugins")) {
             if ("not-installed".equals(plugin.path("source").asText(""))) continue;
             String version = plugin.path("displayVersion").asText(plugin.path("version").asText(""));
@@ -40,12 +43,19 @@ final class ComposeApplicationInfo {
             String required = plugin.path("sdkRequirement").path("specified").asBoolean(false)
                     ? plugin.path("sdkRequirement").path("required").asText("*") : "*";
             if (required.matches("[0-9]+\\.[0-9]+")) required += ".0";
-            plugins.add(plugin.path("id").asText("") + "-" + version + "(" + required + ")");
+            String status = plugin.path("status").asText("");
+            plugins.add(new AboutPlugin(
+                    plugin.path("id").asText("") + "-" + version + "(" + required + ")",
+                    status.isBlank() ? label("unknown")
+                            : new TextToken(null, "gui.plugins.status." + status, status, List.of())
+            ));
         }
-        plugins.sort(String::compareTo);
+        plugins.sort(java.util.Comparator.comparing(AboutPlugin::version));
         facts.add(plugins.isEmpty()
                 ? fact("plugins", TextToken.key(pluginNotice.isBlank() ? "gui.plugins.state.empty" : pluginNotice))
-                : new AboutFact("plugins", label("platform.plugins"), TextToken.raw(String.join("\n", plugins)), true));
+                : new AboutFact("plugins", label("platform.plugins"),
+                        new TextToken("gui-compose", "gui.compose.about.plugin-count", "",
+                                List.of(Integer.toString(plugins.size()))), plugins));
         if (host.developmentMode()) {
             facts.add(fact("directory", value(buildInfo.path("development").path("directory")
                     .asText(System.getProperty("user.dir", "")))));

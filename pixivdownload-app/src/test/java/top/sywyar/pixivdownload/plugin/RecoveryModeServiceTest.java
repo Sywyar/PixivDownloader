@@ -38,7 +38,19 @@ class RecoveryModeServiceTest {
         PluginRegistry registry = new PluginRegistry(
                 List.of(plugins), new PluginToggleProperties(), inventory.toDiscoveryResult());
         return new RecoveryModeService(
-                new PluginStatusService(registry, inventory, policy), policy);
+                new PluginStatusService(registry, inventory, policy), policy, org.mockito.Mockito.mock(javax.sql.DataSource.class));
+    }
+
+    @Test
+    @DisplayName("必选业务插件全部就绪时无库仍进入恢复模式")
+    void databaseAbsenceActivatesRecoveryIndependentlyOfRequiredPlugins() {
+        var registry = new PluginRegistry(List.of(new TestPlugin("core", PluginKind.CORE)));
+        var service = new RecoveryModeService(
+                new PluginStatusService(registry, startedDownloadWorkbenchInventory(), POLICY), POLICY,
+                new top.sywyar.pixivdownload.core.db.UnavailableDataSource());
+        assertThat(service.isActive()).isTrue();
+        assertThat(service.decision().firstReason().orElseThrow().messageKey())
+                .isEqualTo("plugin.recovery.database-unavailable");
     }
 
     @Test
@@ -86,7 +98,7 @@ class RecoveryModeServiceTest {
         registry.start();
         RecoveryModeService service = new RecoveryModeService(
                 new PluginStatusService(registry, PluginInventory.empty(), RequiredPluginPolicy.empty()),
-                RequiredPluginPolicy.empty());
+                RequiredPluginPolicy.empty(), org.mockito.Mockito.mock(javax.sql.DataSource.class));
 
         assertThat(service.isActive()).isFalse();
         assertThat(service.decision().reasons()).isEmpty();

@@ -156,7 +156,7 @@ class StartupSplashTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"headless", "disabled", "close", "window"})
-    @DisplayName("真实进程验证无头静默、预先关闭、幂等关闭、主窗交接与资源回收")
+    @DisplayName("真实进程验证启动窗口身份、无头静默、不抢焦点、主窗交接与资源回收")
     void nativeLifecycle(String mode) throws Exception {
         if (!mode.equals("headless")) assumeTrue(Boolean.getBoolean("pixivdownload.test.nativeSplash"));
         Path directory = Files.createTempDirectory("pixiv-splash-test-");
@@ -220,7 +220,15 @@ class StartupSplashTest {
                     EventQueue.invokeAndWait(() -> {
                         Window actual = Arrays.stream(Window.getWindows()).filter(window -> window.isVisible()
                                 && window.getName().equals("pixivdownload-startup-splash")).findFirst().orElseThrow();
-                        if (actual.isFocusableWindow() || actual.isAlwaysOnTop()) throw new AssertionError("Splash steals focus");
+                        if (!(actual instanceof Frame frame) || actual.getOwner() != null || actual.getType() != Window.Type.NORMAL) {
+                            throw new AssertionError("Splash is not an independent application window");
+                        }
+                        if (!frame.getTitle().equals(AppInfo.NAME) || frame.getIconImages().isEmpty()) {
+                            throw new AssertionError("Missing application taskbar identity");
+                        }
+                        if (!frame.isUndecorated() || frame.isResizable()) throw new AssertionError("Splash appearance changed");
+                        if (!actual.isFocusableWindow()) throw new AssertionError("Splash cannot be activated by the user");
+                        if (actual.isAutoRequestFocus() || actual.isAlwaysOnTop()) throw new AssertionError("Splash steals focus");
                         if (actual.getAccessibleContext().getAccessibleDescription().isBlank()) throw new AssertionError("Missing accessible status");
                         int background = actual.getBackground().getRGB() & 0xffffff;
                         if (background != StartupSplashColors.forAppearance(new StartupAppearance(true, false, false, 1)).surface()

@@ -23,6 +23,34 @@ import java.util.function.Function;
 @DisplayName("Compose 工具表单默认值")
 class DesktopToolsControllerTest {
     @Test
+    @DisplayName("远程主库在回填、导入和目录检查中保留宿主目标且禁止文件选择")
+    void remoteDatabaseTargetRemainsReadOnly() throws Exception {
+        String target = "postgresql:configured-database";
+        var overrides = new HashMap<String, Function<Object[], Object>>();
+        overrides.put("supportsDatabaseFileSelection", args -> false);
+        overrides.put("resolveDatabasePath", args -> { throw new AssertionError("remote target is not a file"); });
+        overrides.put("defaultBackfillOptions", args -> new DesktopUiHost.BackfillOptions(
+                target, "localhost", 8080, false, 1000, 0, false));
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+            awaitMediaReady(model);
+            for (String id : List.of("tools.backfill.db", "tools.migration.db")) {
+                var input = descendants(overview(model)).filter(DesktopUiNode.TextInput.class::isInstance)
+                        .map(DesktopUiNode.TextInput.class::cast).filter(node -> node.id().equals(id))
+                        .findFirst().orElseThrow();
+                assertEquals(target, input.value());
+                assertFalse(input.enabled());
+            }
+            activate(model, "tools.folder-checker.open");
+            var input = model.snapshot().document().pages().stream()
+                    .flatMap(page -> descendants(page.content())).filter(DesktopUiNode.TextInput.class::isInstance)
+                    .map(DesktopUiNode.TextInput.class::cast).filter(node -> node.id().equals("tools.folder.db"))
+                    .findFirst().orElseThrow();
+            assertEquals(target, input.value());
+            assertFalse(input.enabled());
+        }
+    }
+
+    @Test
     @DisplayName("分类器设置在工具工作区中打开、编辑并关闭时端点保持唯一")
     void classifierSettingsKeepUniqueEndpoints() throws Exception {
         try (var model = DesktopConfigurationControllerTest.model(new HashMap<>())) {

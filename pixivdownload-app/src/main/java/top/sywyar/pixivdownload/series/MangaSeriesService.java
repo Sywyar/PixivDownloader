@@ -20,6 +20,7 @@ import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.nio.file.Path;
@@ -101,6 +102,7 @@ public class MangaSeriesService {
     /** 非 DDL 初始化：建表 / 补列已统一由 {@link DatabaseInitializer} 执行，这里只保留幂等数据迁移。 */
     @PostConstruct
     public void init() {
+        if (databaseInitializer.isUnavailable()) return;
         mangaSeriesMapper.migrateSeriesTimestampsToMillis();
     }
 
@@ -130,7 +132,7 @@ public class MangaSeriesService {
                                                   Set<Long> filterIds) {
         int safePage = Math.max(0, page);
         int safeSize = Math.min(Math.max(1, size), 200);
-        String normalizedSearch = StringUtils.hasText(search) ? "%" + search.trim() + "%" : "%";
+        String normalizedSearch = StringUtils.hasText(search) ? "%" + search.trim().replace("!", "!!") + "%" : "%";
         String normalizedSort = "artworks".equals(sort) || "seriesId".equals(sort) ? sort : "title";
         if (filterIds == null) {
             long total = mangaSeriesMapper.countSeriesWithArtworks(normalizedSearch);
@@ -169,6 +171,7 @@ public class MangaSeriesService {
     }
 
     public void observe(long seriesId, String title, Long authorId) {
+        requireDatabase();
         if (seriesId <= 0) return;
         String normalizedTitle = StringUtils.hasText(title) ? title.trim() : null;
         long now = System.currentTimeMillis();
@@ -213,6 +216,7 @@ public class MangaSeriesService {
      */
     public void observeWithMetadata(long seriesId, String title, Long authorId,
                                     String description, String coverUrl, String cookie) {
+        requireDatabase();
         if (seriesId <= 0) return;
         try {
             observe(seriesId, title, authorId);
@@ -227,6 +231,7 @@ public class MangaSeriesService {
             if ((coverExt == null || coverExt.isBlank())
                     && coverUrl != null && !coverUrl.isBlank()) {
                 Path coverDir = resolveCoverDir(seriesId);
+                requireDatabase();
                 String downloadedExt = coverDownloader.download(coverUrl, coverDir, "cover", cookie);
                 if (downloadedExt != null) {
                     coverExt = downloadedExt;
@@ -241,6 +246,8 @@ public class MangaSeriesService {
                 mangaSeriesMapper.updateMetadata(seriesId, desiredDescription, coverExt,
                         pathPrefixCodec.encode(PathPrefixCodec.stripTrailingSeparators(coverFolder)));
             }
+        } catch (DatabaseUnavailableException unavailable) {
+            throw unavailable;
         } catch (Exception e) {
             log.warn(messages.getForLog("series.log.refresh.failed.exception", seriesId), e);
         }
@@ -256,10 +263,12 @@ public class MangaSeriesService {
     }
 
     public void asyncLookupMissingSeries(long artworkId, String cookie) {
+        requireDatabase();
         taskScheduler.schedule(() -> lookupMissingSeries(artworkId, cookie), Instant.now());
     }
 
     void lookupMissingSeries(long artworkId, String cookie) {
+        if (pixivDatabase.isUnavailable()) return;
         try {
             JsonNode root = fetchJson("https://www.pixiv.net/ajax/illust/" + artworkId, cookie);
             if (root == null || root.path("error").asBoolean(false)) {
@@ -282,6 +291,8 @@ public class MangaSeriesService {
             Long authorId = parsePositiveLong(body.path("userId").asText(null));
             pixivDatabase.updateSeriesInfo(artworkId, seriesId, order);
             observe(seriesId, title, authorId);
+        } catch (DatabaseUnavailableException unavailable) {
+            throw unavailable;
         } catch (Exception e) {
             log.warn(messages.getForLog("series.log.lookup.failed.exception", artworkId), e);
         }
@@ -297,7 +308,12 @@ public class MangaSeriesService {
         }
     }
 
+    private void requireDatabase() {
+        if (pixivDatabase.isUnavailable()) throw new DatabaseUnavailableException();
+    }
+
     private JsonNode fetchJson(String url, String cookie) {
+        requireDatabase();
         HttpHeaders headers = PixivRequestHeaders.ajax(cookie);
         ResponseEntity<JsonNode> response = downloadRestTemplate.exchange(
                 url, HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);

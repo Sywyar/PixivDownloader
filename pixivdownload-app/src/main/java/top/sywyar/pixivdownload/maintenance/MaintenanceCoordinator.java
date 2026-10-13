@@ -47,6 +47,7 @@ public class MaintenanceCoordinator {
     private final MaintenanceProperties properties;
     private final NotificationDispatcher notificationDispatcher;
     private final AppMessages messages;
+    private final top.sywyar.pixivdownload.core.database.DatabaseAvailability database;
     private final AtomicBoolean paused = new AtomicBoolean(false);
     private volatile Long lastStartedAt;
     private volatile Long lastFinishedAt;
@@ -65,15 +66,24 @@ public class MaintenanceCoordinator {
     }
 
     /** Spring 构造：每个维护窗口从 owner/publication-aware 注册中心取得一次稳定快照。 */
-    @Autowired
     public MaintenanceCoordinator(MaintenanceTaskRegistry taskRegistry,
                                   MaintenanceProperties properties,
                                   NotificationDispatcher notificationDispatcher,
                                   AppMessages messages) {
+        this(taskRegistry, properties, notificationDispatcher, messages, () -> true);
+    }
+
+    @Autowired
+    public MaintenanceCoordinator(MaintenanceTaskRegistry taskRegistry,
+                                  MaintenanceProperties properties,
+                                  NotificationDispatcher notificationDispatcher,
+                                  AppMessages messages,
+                                  top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
         this.taskRegistry = Objects.requireNonNull(taskRegistry, "maintenance task registry");
         this.properties = properties;
         this.notificationDispatcher = Objects.requireNonNull(notificationDispatcher, "notification dispatcher");
         this.messages = messages;
+        this.database = Objects.requireNonNull(database, "database");
     }
 
     public boolean isEnabled() {
@@ -102,6 +112,7 @@ public class MaintenanceCoordinator {
     }
 
     synchronized boolean runScheduledIfDue(LocalDateTime now) {
+        if (!database.available()) return false;
         if (!properties.isEnabled()) {
             log.debug(MessageBundles.getForLog("maintenance.log.scheduled.disabled"));
             return false;
@@ -141,6 +152,7 @@ public class MaintenanceCoordinator {
      * 手动触发；若禁用或已在运行返回 {@code false}。
      */
     public synchronized boolean runManually() {
+        database.requireAvailable();
         if (!properties.isEnabled()) return false;
         if (paused.get()) return false;
         runMaintenance("manual");
@@ -148,6 +160,7 @@ public class MaintenanceCoordinator {
     }
 
     private synchronized void runMaintenance(String trigger) {
+        database.requireAvailable();
         if (!paused.compareAndSet(false, true)) {
             log.warn(MessageBundles.getForLog("maintenance.log.already-running", trigger));
             return;
@@ -163,6 +176,7 @@ public class MaintenanceCoordinator {
                     trigger, started, MaintenanceStatusHolder::updateProgress);
             int index = 0;
             for (MaintenanceTask task : tasks) {
+                if (!database.available()) break;
                 index++;
                 long taskStart = System.currentTimeMillis();
                 String name = "maintenance-task-" + index;
@@ -176,6 +190,10 @@ public class MaintenanceCoordinator {
                     log.info(MessageBundles.getForLog("maintenance.log.task.ok", name,
                             System.currentTimeMillis() - taskStart));
                 } catch (Throwable t) {
+                    if (t instanceof VirtualMachineError fatal) throw fatal;
+                    if (t instanceof ThreadDeath fatal) throw fatal;
+                    if (!database.available()
+                            || t instanceof top.sywyar.pixivdownload.core.database.DatabaseUnavailableException) break;
                     if (!statusEntered) {
                         MaintenanceStatusHolder.enterTask(trigger, index, tasks.size(), name, taskStart);
                     }

@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
+import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.web.LocalRequestTrust;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
@@ -44,6 +45,8 @@ public class NotificationInboxTestController {
         try {
             sink.deliverForTest(scenario, LocaleContextHolder.getLocale(), samplePlaceholders());
             return ResponseEntity.ok(InboxTestResponse.success(1));
+        } catch (DatabaseUnavailableException unavailable) {
+            throw unavailable;
         } catch (RuntimeException exception) {
             return ResponseEntity.internalServerError()
                     .body(ApiErrorResponse.of("notification.inbox.test-failed", "Inbox test failed"));
@@ -62,6 +65,8 @@ public class NotificationInboxTestController {
         for (NotificationScenario scenario : NotificationScenario.values()) {
             try {
                 sink.deliverForTest(scenario, locale, placeholders);
+            } catch (DatabaseUnavailableException unavailable) {
+                throw unavailable;
             } catch (RuntimeException exception) {
                 failures.add(scenario.id());
             }

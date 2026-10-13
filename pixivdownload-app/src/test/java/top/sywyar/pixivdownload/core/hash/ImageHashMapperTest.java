@@ -35,11 +35,11 @@ class ImageHashMapperTest {
         Environment env = new Environment("test", new JdbcTransactionFactory(), dataSource);
         Configuration config = new Configuration(env);
         config.setMapUnderscoreToCamelCase(true);
-        config.addMapper(ImageHashMapper.class);
+
 
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
         sqlSession = factory.openSession(true);
-        mapper = sqlSession.getMapper(ImageHashMapper.class);
+        mapper = new ImageHashMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
         jdbc = new JdbcTemplate(dataSource);
         createTables();
     }

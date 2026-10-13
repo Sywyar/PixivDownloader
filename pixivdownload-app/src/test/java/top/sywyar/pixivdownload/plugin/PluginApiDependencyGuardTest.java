@@ -88,9 +88,11 @@ class PluginApiDependencyGuardTest {
                         top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver.class.getName())
                 .and().doNotHaveFullyQualifiedName(
                         top.sywyar.pixivdownload.plugin.api.storage.PluginDataSource.class.getName())
+                .and().doNotHaveFullyQualifiedName(
+                        top.sywyar.pixivdownload.plugin.api.storage.PluginDatabase.class.getName())
                 .should().onlyDependOnClassesThat()
                 .resideInAnyPackage("top.sywyar.pixivdownload.plugin.api..", "java..")
-                .because("jakarta.servlet 仅限 RequestOwnerIdentityResolver，javax.sql 仅限 PluginDataSource，"
+                .because("jakarta.servlet 仅限 RequestOwnerIdentityResolver，javax.sql 仅限 owner 存储接口，"
                         + "纯数据的 contribution / record / 事件类型必须保持零依赖")
                 .check(CLASSES);
     }

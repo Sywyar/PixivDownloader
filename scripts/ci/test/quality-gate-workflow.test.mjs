@@ -714,6 +714,7 @@ test('PR 使用真实已发布 SDK 严格校验，Nightly 保留独立构建合�
     assert.equal(predecessor.env.SDK_PUBLICATION_MODE, undefined);
     assert.equal(published.env.SDK_PUBLICATION_MODE, undefined);
     assert.equal(published.env.GH_TOKEN, '${{ github.token }}');
+    assert.equal(contract.env.GH_TOKEN, '${{ github.token }}');
     assert.deepEqual(Object.keys(load('.github/workflows/pr-quality-gate.yml').jobs['quality-gate']).sort(),
         ['if', 'uses']);
     assert.match(predecessor.run, /none\|current\|latest/u);

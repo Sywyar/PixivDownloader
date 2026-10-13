@@ -83,13 +83,11 @@ class WorkMetaBridgeConsistencyTest {
         Environment env = new Environment("test", new JdbcTransactionFactory(), dataSource);
         Configuration config = new Configuration(env);
         config.setMapUnderscoreToCamelCase(true);
-        config.addMapper(PixivMapper.class);
-        config.addMapper(PathPrefixMapper.class);
         SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
         sqlSession = factory.openSession(true);
 
         DatabaseSchemaRegistry registry = DatabaseSchemaRegistry.forBuiltInPlugins();
-        DatabaseInitializer initializer = new DatabaseInitializer(
+        DatabaseInitializer initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(
                 jdbc, registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
@@ -98,16 +96,16 @@ class WorkMetaBridgeConsistencyTest {
         DownloadConfig downloadConfig = new DownloadConfig();
         downloadConfig.setRootFolder(tempDir.toAbsolutePath().normalize().toString());
         PathPrefixCodec codec = new PathPrefixCodec(
-                sqlSession.getMapper(PathPrefixMapper.class), downloadConfig, TestI18nBeans.appMessages());
+                new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)), downloadConfig, TestI18nBeans.appMessages());
         codec.init();
 
         pixivDatabase = new PixivDatabase(
-                sqlSession.getMapper(PixivMapper.class), TestI18nBeans.appMessages(), codec, initializer);
+                new PixivMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)), TestI18nBeans.appMessages(), codec, initializer);
         pixivDatabase.init();
-        novelMetadataRepository = new NovelMetadataRepository(dataSource, codec);
+        novelMetadataRepository = new NovelMetadataRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), codec);
 
         captureService = new WorkMetaCaptureService(
-                new WorkMetaCurator(mapper), new top.sywyar.pixivdownload.core.metadata.WorkMetadataStore(dataSource, initializer), mapper);
+                new WorkMetaCurator(mapper), new top.sywyar.pixivdownload.core.metadata.WorkMetadataStore(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), initializer), mapper, () -> true);
 
         AuthorService authorService = mock(AuthorService.class);
         when(authorService.getAuthorNames(anyCollection())).thenReturn(java.util.Map.of());
@@ -115,7 +113,7 @@ class WorkMetaBridgeConsistencyTest {
         when(mangaSeriesService.getSeriesByIds(anyCollection())).thenReturn(java.util.List.of());
 
         metadataRepository = new CoreWorkMetadataRepository(
-                pixivDatabase, novelMetadataRepository, authorService, mangaSeriesService);
+                () -> true,                 pixivDatabase, novelMetadataRepository, authorService, mangaSeriesService);
     }
 
     @AfterEach
@@ -289,7 +287,7 @@ class WorkMetaBridgeConsistencyTest {
     @Test
     @DisplayName("软删硬删与重下载同步维护逐页媒体记录，新下载的媒体事实不被旧行清理误删")
     void mediaRecordsFollowWorkLifecycle() throws Exception {
-        var store = new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaStoreImpl(dataSource, null);
+        var store = new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaStoreImpl(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), null);
         var original = new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("jpg", java.util.List.of("jpg"));
         var converted = new top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest("jpg", java.util.List.of("webp"), false);
         var row = InsertArtworkArgument.builder().artworkId(55L).title("作品").folder(artworkDir(55).toString())

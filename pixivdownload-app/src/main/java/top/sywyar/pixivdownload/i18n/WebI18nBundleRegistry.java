@@ -9,7 +9,6 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
-import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 
 import java.io.IOException;
@@ -228,7 +227,7 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
     private static Supplier<List<InstalledPlugin>> installedPluginSupplier(
             ObjectProvider<ExternalPluginInstaller> installer) {
         ExternalPluginInstaller value = installer == null ? null : installer.getIfAvailable();
-        return () -> value != null && PluginDevelopmentArtifacts.usesInstalledArtifacts(value.pluginsDirectory())
+        return () -> value != null
                 ? value.listInstalled() : List.of();
     }
 

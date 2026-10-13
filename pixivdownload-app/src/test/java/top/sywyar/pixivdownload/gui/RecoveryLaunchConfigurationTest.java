@@ -84,7 +84,7 @@ class RecoveryLaunchConfigurationTest {
             var policy = new PluginRuntimeConfiguration().requiredPluginPolicy(new MockEnvironment()
                     .withProperty("pixivdownload.recovery-sentinel.required", "true"));
             var statuses = new PluginStatusService(registry, runtime.inspectPlugins(), policy);
-            var decision = new RecoveryModeService(statuses, policy).decision();
+            var decision = new RecoveryModeService(statuses, policy, org.mockito.Mockito.mock(javax.sql.DataSource.class)).decision();
             assertThat(decision.reasons()).singleElement().satisfies(reason -> {
                 assertThat(reason.pluginId()).isEqualTo("recovery-sentinel");
                 assertThat(reason.status()).isEqualTo(PluginStatus.MISSING_REQUIRED);

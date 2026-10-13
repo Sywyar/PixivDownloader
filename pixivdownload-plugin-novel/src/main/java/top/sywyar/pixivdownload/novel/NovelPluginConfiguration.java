@@ -1,8 +1,8 @@
 package top.sywyar.pixivdownload.novel;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.ibatis.session.SqlSessionFactory;
-import org.mybatis.spring.mapper.MapperFactoryBean;
+import top.sywyar.pixivdownload.plugin.api.storage.PluginMainDatabase;
+import top.sywyar.pixivdownload.novel.db.RelationalNovelMapper;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -115,10 +115,8 @@ public class NovelPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
-    public MapperFactoryBean<NovelMapper> novelMapper(SqlSessionFactory sqlSessionFactory) {
-        MapperFactoryBean<NovelMapper> factory = new MapperFactoryBean<>(NovelMapper.class);
-        factory.setSqlSessionFactory(sqlSessionFactory);
-        return factory;
+    public NovelMapper novelMapper(PluginMainDatabase database) {
+        return new RelationalNovelMapper(database);
     }
 
     @Bean
@@ -131,8 +129,9 @@ public class NovelPluginConfiguration {
     @ConditionalOnPluginEnabled("novel")
     public NovelDatabase novelDatabase(NovelMapper novelMapper,
                                        WorkTagCatalog workTagCatalog,
-                                       StoredPathCodec pathPrefixCodec) {
-        return new NovelDatabase(novelMapper, workTagCatalog, pathPrefixCodec);
+                                       StoredPathCodec pathPrefixCodec,
+                                       top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
+        return new NovelDatabase(novelMapper, workTagCatalog, pathPrefixCodec, database);
     }
 
     @Bean
@@ -146,8 +145,9 @@ public class NovelPluginConfiguration {
     public NovelSeriesService novelSeriesService(NovelDatabase novelDatabase,
                                                  DownloadSettings downloadConfig,
                                                  PixivImageDownloader pixivImageDownloader,
-                                                 @Qualifier("novelPluginMessages") MessageResolver messages) {
-        return new NovelSeriesService(novelDatabase, downloadConfig, pixivImageDownloader, messages);
+                                                 @Qualifier("novelPluginMessages") MessageResolver messages,
+                                                 top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
+        return new NovelSeriesService(novelDatabase, downloadConfig, pixivImageDownloader, messages, database);
     }
 
     @Bean
@@ -171,8 +171,9 @@ public class NovelPluginConfiguration {
     public NovelTranslationService novelTranslationService(AiChatClient aiChatClient,
                                                            NovelDatabase novelDatabase,
                                                            NovelGlossaryService glossaryService,
-                                                           @Qualifier("novelPluginMessages") MessageResolver messages) {
-        return new NovelTranslationService(aiChatClient, novelDatabase, glossaryService, messages);
+                                                           @Qualifier("novelPluginMessages") MessageResolver messages,
+                                                           top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
+        return new NovelTranslationService(aiChatClient, novelDatabase, glossaryService, messages, database);
     }
 
     @Bean
@@ -189,9 +190,10 @@ public class NovelPluginConfiguration {
             NovelMergeService mergeService,
             AiChatClient aiChatClient,
             @Qualifier("novelTranslateTaskExecutor") TaskExecutor executor,
-            @Qualifier("novelQueueTaskTracker") QueueTaskTracker taskTracker) {
+            @Qualifier("novelQueueTaskTracker") QueueTaskTracker taskTracker,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
         return new NovelAutoTranslateService(
-                translationService, glossaryService, mergeService, aiChatClient, executor, taskTracker);
+                translationService, glossaryService, mergeService, aiChatClient, executor, taskTracker, database);
     }
 
     @Bean
@@ -222,13 +224,14 @@ public class NovelPluginConfiguration {
             WorkMetadataCapture workMetadataCapture,
             @Qualifier("novelQueueTaskTracker") QueueTaskTracker taskTracker,
             top.sywyar.pixivdownload.core.work.service.WorkAssetService workAssets, RuntimePathProvider runtimePaths,
-            top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle downloadLifecycle) {
+            top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle downloadLifecycle,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
         return new NovelDownloadService(downloadConfig, workFileNameCatalog, downloadPathGuard,
                 novelDatabase, novelSeriesService,
                 authorObservationService, workCollectionMembership, collectionDownloadRootResolver,
                 pixivBookmarkActions, visitorDownloadQuotaService, pixivImageDownloader,
                 statusRetentionScheduler, downloadExecutionLane, messages, novelAutoTranslateService,
-                workMetadataCapture, taskTracker, workAssets, runtimePaths, downloadLifecycle);
+                workMetadataCapture, taskTracker, workAssets, runtimePaths, downloadLifecycle, database);
     }
 
     @Bean
@@ -263,14 +266,16 @@ public class NovelPluginConfiguration {
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
-    public NarrationReferenceVoicePaths narrationReferenceVoicePaths(RuntimePathProvider runtimePathProvider) {
-        return new NarrationReferenceVoicePaths(runtimePathProvider);
+    public NarrationReferenceVoicePaths narrationReferenceVoicePaths(RuntimePathProvider runtimePathProvider,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
+        return new NarrationReferenceVoicePaths(runtimePathProvider, database);
     }
 
     @Bean
     @ConditionalOnPluginEnabled("novel")
-    public NarrationReferenceVoiceStore narrationReferenceVoiceStore(NarrationReferenceVoicePaths paths) {
-        return new NarrationReferenceVoiceStore(paths);
+    public NarrationReferenceVoiceStore narrationReferenceVoiceStore(NarrationReferenceVoicePaths paths,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
+        return new NarrationReferenceVoiceStore(paths, database);
     }
 
     @Bean
@@ -286,9 +291,10 @@ public class NovelPluginConfiguration {
             NovelMapper novelMapper,
             NarrationAudioService narrationAudioService,
             NarrationReferenceVoiceStore fileStore,
-            NarrationReferenceVoicePaths paths) {
+            NarrationReferenceVoicePaths paths,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
         return new NarrationReferenceVoiceService(
-                novelMapper, narrationAudioService, fileStore, paths);
+                novelMapper, narrationAudioService, fileStore, paths, database);
     }
 
     @Bean

@@ -14,6 +14,11 @@ import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.type.classreading.SimpleMetadataReaderFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.transaction.annotation.Transactional;
+import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
+import top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionSettings;
+import top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionTarget;
+import top.sywyar.pixivdownload.plugin.api.database.DatabasePrivateStorageSettings;
+import top.sywyar.pixivdownload.plugin.api.database.DatabaseProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -38,6 +43,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.FileTime;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
@@ -50,6 +57,7 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 插件分发打包边界守卫：把「主程序 boot jar 只含核心 + 内置插件、外置插件单独分发」这一发布形态不变量
@@ -92,6 +100,8 @@ class DistributionPackagingBoundaryTest {
     private static final String ISOLATED_WORKER_RESOURCE =
             "BOOT-INF/classes/top/sywyar/pixivdownload/plugin/runtime/isolated-plugin-worker.jar";
     private static final Set<String> PROGUARD_RELEASE_ARTIFACT_IDS = Set.of(
+            "pixivdownload-plugin-database-sqlite",
+            "pixivdownload-plugin-database-postgresql",
             "pixivdownload-plugin-download-workbench",
             "pixivdownload-plugin-pixiv-batch-downloader-import",
             "pixivdownload-plugin-gui-compose",
@@ -108,6 +118,8 @@ class DistributionPackagingBoundaryTest {
             "pixivdownload-plugin-ai");
 
     private static final String DOWNLOAD_WORKBENCH_CLASSES_PROPERTY = "download-workbench.plugin.classes";
+    private static final String SQLITE_CLASSES_PROPERTY = "database-sqlite.plugin.classes";
+    private static final String POSTGRESQL_CLASSES_PROPERTY = "database-postgresql.plugin.classes";
     private static final String POSTHOG_CLASSES_PROPERTY = "posthog.plugin.classes";
     private static final String MULTI_MODE_DECISION_SURVEY_CLASSES_PROPERTY =
             "multi-mode-decision-survey.plugin.classes";
@@ -406,6 +418,12 @@ class DistributionPackagingBoundaryTest {
         assertContractClassesPresent(entries, "pixivdownload-sdk-info");
         assertContractClassesPresent(entries, "pixivdownload-plugin-api");
         assertContractClassesPresent(entries, "pixivdownload-core-api");
+        assertThat(entries).as("宿主不得携带数据库插件实现或私有 JDBC 驱动")
+                .noneMatch(name -> name.startsWith("BOOT-INF/classes/org/sqlite/")
+                        || name.startsWith("BOOT-INF/classes/org/postgresql/")
+                        || name.startsWith("BOOT-INF/classes/top/sywyar/pixivdownload/databasesqlite/")
+                        || name.startsWith("BOOT-INF/classes/top/sywyar/pixivdownload/databasepostgresql/")
+                        || name.matches("BOOT-INF/lib/(?:sqlite-jdbc|postgresql|pixivdownload-plugin-database-(?:sqlite|postgresql))-[^/]+\\.jar"));
         assertThat(entries).as("已合并处理的一方模块不得再以未处理依赖 JAR 进入 Boot classpath")
                 .noneMatch(name -> name.matches(
                         "BOOT-INF/lib/pixivdownload-(?:sdk-info|plugin-api|core-api|plugin-signature|plugin-worker|plugin-runtime)-[^/]+\\.jar"));
@@ -518,6 +536,13 @@ class DistributionPackagingBoundaryTest {
             }
         }
         try (URLClassLoader loader = new URLClassLoader(urls.toArray(URL[]::new), ClassLoader.getPlatformClassLoader())) {
+            for (String databaseClass : List.of("org.sqlite.JDBC", "org.postgresql.Driver",
+                    "top.sywyar.pixivdownload.databasesqlite.SqliteDatabasePlugin",
+                    "top.sywyar.pixivdownload.databasepostgresql.PostgresDatabasePlugin")) {
+                assertThat(loader.getResource(databaseClass.replace('.', '/') + ".class"))
+                        .as("宿主独立 classpath 不得包含 %s", databaseClass).isNull();
+                assertThatThrownBy(() -> loader.loadClass(databaseClass)).isInstanceOf(ClassNotFoundException.class);
+            }
             String consoleClass = "top.sywyar.pixivdownload.common.Utf8ConsoleStreams";
             assertThat(classes.resolve(consoleClass.replace('.', '/') + ".class")).isRegularFile();
             assertThat(loader.loadClass(consoleClass).getMethod("install")).isNotNull();
@@ -638,7 +663,9 @@ class DistributionPackagingBoundaryTest {
                         case "setActivePersistentSurveys" -> 0;
                         default -> throw new AssertionError("Unexpected mapper call: " + method.getName());
                     });
-            Object target = serviceType.getConstructor(mapperType).newInstance(mapper);
+            DatabaseAvailability database = () -> true;
+            Object target = serviceType.getConstructor(mapperType, DatabaseAvailability.class)
+                    .newInstance(mapper, database);
             ProxyFactory factory = new ProxyFactory(target);
             factory.setProxyTargetClass(true);
             factory.addAdvice((MethodInterceptor) invocation -> invocation.proceed());
@@ -688,6 +715,113 @@ class DistributionPackagingBoundaryTest {
     void recoverySentinelPackagesAsThinExternalPlugin() {
         assertThinExternalPlugin(SENTINEL_CLASSES_PROPERTY, "pixivdownload-plugin-recovery-sentinel",
                 "top/sywyar/pixivdownload/recoverysentinel/RecoverySentinelPf4jPlugin.class");
+    }
+
+    @Test
+    @DisplayName("SQLite 处理后外置产物通过共享数据库契约使用私有驱动并隔离主库与两个私库")
+    void sqliteArtifactOpensIsolatedDatabasesWithPrivateDriver(@TempDir Path tempDir) throws Exception {
+        String artifactId = "pixivdownload-plugin-database-sqlite";
+        assertJarWithPrivateLibraries(SQLITE_CLASSES_PROPERTY, artifactId,
+                "top/sywyar/pixivdownload/databasesqlite/SqlitePf4jPlugin.class", List.of("sqlite-jdbc-[^/]+\\.jar"));
+        Path jar = locateModuleJar(locateConfiguredDir(SQLITE_CLASSES_PROPERTY), artifactId);
+        requireAvailable(jar != null, "需要本次构建的 SQLite 数据库插件 JAR");
+        try (URLClassLoader loader = databaseArtifactClassLoader(jar, tempDir.resolve("artifact"))) {
+            org.pf4j.Plugin entry = loadDatabasePlugin(jar, loader, "database-sqlite", "org.sqlite.JDBC");
+            try {
+                DatabaseProvider provider = (DatabaseProvider) ((PixivPluginProvider) entry).featurePlugin();
+                assertThat(provider.databaseId()).isEqualTo("sqlite");
+                DatabaseConnectionTarget main = provider.resolve(new DatabaseConnectionSettings(
+                        "", "", "", tempDir.resolve("main.db")));
+                DatabaseConnectionTarget first = main.privateStorage(new DatabasePrivateStorageSettings(
+                        "fixture-one", tempDir.resolve("fixture-one"), "packaging-fixture", "fixture-password"));
+                DatabaseConnectionTarget second = main.privateStorage(new DatabasePrivateStorageSettings(
+                        "fixture-two", tempDir.resolve("fixture-two"), "packaging-fixture", "fixture-password"));
+                List<DatabaseConnectionTarget> targets = List.of(main, first, second);
+                assertThat(targets.stream().map(target -> target.localFile().orElseThrow()).toList())
+                        .doesNotHaveDuplicates();
+                for (DatabaseConnectionTarget target : targets) {
+                    assertThat(target.getClass().getClassLoader()).isSameAs(loader);
+                    assertThat(target.localFile().orElseThrow()).doesNotExist();
+                    assertThatThrownBy(target::checkConnection).isInstanceOf(SQLException.class);
+                    assertThat(target.localFile().orElseThrow()).as("草稿检查不得创建数据库文件").doesNotExist();
+                }
+                List<Connection> opened = new ArrayList<>();
+                try (Connection mainConnection = main.openConnection(DatabaseConnectionTarget.OpenMode.READ_WRITE);
+                     Connection firstConnection = first.openConnection(DatabaseConnectionTarget.OpenMode.READ_WRITE);
+                     Connection secondConnection = second.openConnection(DatabaseConnectionTarget.OpenMode.READ_WRITE)) {
+                    opened.addAll(List.of(mainConnection, firstConnection, secondConnection));
+                    for (int index = 0; index < targets.size(); index++) {
+                        assertThat(opened.get(index).getClass().getClassLoader()).isSameAs(loader);
+                        targets.get(index).requireConnectionTarget(opened.get(index));
+                    }
+                    firstConnection.setAutoCommit(false);
+                    first.prepareTransaction(firstConnection, false);
+                    try (var statement = firstConnection.createStatement()) {
+                        statement.executeUpdate("CREATE TABLE packaging_item (value TEXT NOT NULL)");
+                        statement.executeUpdate("INSERT INTO packaging_item VALUES ('owner-one')");
+                    }
+                    firstConnection.commit();
+                    assertThatThrownBy(() -> first.requireConnectionTarget(secondConnection))
+                            .isInstanceOfSatisfying(SQLException.class,
+                                    failure -> assertThat(failure.getSQLState()).isEqualTo("08001"));
+                    for (Connection isolated : List.of(mainConnection, secondConnection)) {
+                        try (var statement = isolated.createStatement();
+                             var result = statement.executeQuery(
+                                     "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='packaging_item'")) {
+                            assertThat(result.next()).isTrue();
+                            assertThat(result.getInt(1)).as("私库表不得出现在主库或另一 owner 私库").isZero();
+                        }
+                    }
+                }
+                for (Connection connection : opened) assertThat(connection.isClosed()).isTrue();
+                first.checkConnection();
+                try (Connection reopened = first.openConnection(DatabaseConnectionTarget.OpenMode.READ_ONLY);
+                     var statement = reopened.createStatement();
+                     var result = statement.executeQuery("SELECT value FROM packaging_item")) {
+                    assertThat(result.next()).isTrue();
+                    assertThat(result.getString(1)).isEqualTo("owner-one");
+                    assertThat(result.next()).isFalse();
+                }
+                for (DatabaseConnectionTarget target : targets) {
+                    Path file = target.localFile().orElseThrow();
+                    assertThat(Files.move(file, file.resolveSibling("closed-" + file.getFileName()))).isRegularFile();
+                }
+            } finally {
+                entry.stop();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("PostgreSQL 处理后外置产物通过共享数据库契约与私有驱动解析目标且不建立连接")
+    void postgresArtifactResolvesTargetWithPrivateDriver(@TempDir Path tempDir) throws Exception {
+        String artifactId = "pixivdownload-plugin-database-postgresql";
+        assertJarWithPrivateLibraries(POSTGRESQL_CLASSES_PROPERTY, artifactId,
+                "top/sywyar/pixivdownload/databasepostgresql/PostgresPf4jPlugin.class", List.of("postgresql-[^/]+\\.jar"));
+        Path jar = locateModuleJar(locateConfiguredDir(POSTGRESQL_CLASSES_PROPERTY), artifactId);
+        requireAvailable(jar != null, "需要本次构建的 PostgreSQL 数据库插件 JAR");
+        try (URLClassLoader loader = databaseArtifactClassLoader(jar, tempDir.resolve("artifact"))) {
+            org.pf4j.Plugin entry = loadDatabasePlugin(jar, loader, "database-postgresql", "org.postgresql.Driver");
+            try {
+                DatabaseProvider provider = (DatabaseProvider) ((PixivPluginProvider) entry).featurePlugin();
+                assertThat(provider.databaseId()).isEqualTo("postgresql");
+                Path unusedFile = tempDir.resolve("unused.db");
+                DatabaseConnectionTarget target = provider.resolve(new DatabaseConnectionSettings(
+                        "jdbc:postgresql://127.0.0.1:1/packaging_fixture?currentSchema=owner_fixture",
+                        "fixture-user", "fixture-password", unusedFile));
+                assertThat(target.getClass().getClassLoader()).isSameAs(loader);
+                assertThat(target.localFile()).isEmpty();
+                assertThat(target.description()).contains("packaging_fixture", "owner_fixture")
+                        .doesNotContain("fixture-user", "fixture-password");
+                assertThat(unusedFile).doesNotExist();
+                assertThatThrownBy(() -> provider.resolve(new DatabaseConnectionSettings(
+                        "jdbc:sqlite:" + unusedFile, "fixture-user", "fixture-password", unusedFile)))
+                        .isInstanceOfSatisfying(SQLException.class,
+                                failure -> assertThat(failure.getSQLState()).isEqualTo("08001"));
+            } finally {
+                entry.stop();
+            }
+        }
     }
 
     @Test
@@ -1273,6 +1407,66 @@ class DistributionPackagingBoundaryTest {
         Class<?> executorType = Class.forName("kotlinx.coroutines.DefaultExecutor", true, loader);
         Object executor = executorType.getField("INSTANCE").get(null);
         executorType.getMethod("shutdownForTests", long.class).invoke(executor, 5_000L);
+    }
+
+    private static URLClassLoader databaseArtifactClassLoader(Path jar, Path directory) throws IOException {
+        materializeJarWithPrivateLibs(jar, directory);
+        List<URL> urls = new ArrayList<>();
+        urls.add(directory.resolve("classes").toUri().toURL());
+        try (DirectoryStream<Path> libraries = Files.newDirectoryStream(directory.resolve("lib"), "*.jar")) {
+            for (Path library : libraries) urls.add(library.toUri().toURL());
+        }
+        return new DatabaseJarClassLoader(urls.toArray(URL[]::new));
+    }
+
+    private static org.pf4j.Plugin loadDatabasePlugin(Path jar, URLClassLoader loader,
+                                                     String expectedId, String driverName) throws Exception {
+        Properties descriptor = loadUtf8Properties(jar, "plugin.properties");
+        assertThat(descriptor.getProperty("plugin.id")).isEqualTo(expectedId);
+        assertThat(descriptor.getProperty("pixiv.lifecycle-policy")).isEqualTo("process-restart");
+        assertThat(loader.loadClass(DatabaseProvider.class.getName())).isSameAs(DatabaseProvider.class);
+        Class<?> entryClass = loader.loadClass(descriptor.getProperty("plugin.class"));
+        assertThat(entryClass.getClassLoader()).isSameAs(loader);
+        Class<?> driverClass = loader.loadClass(driverName);
+        assertThat(driverClass.getClassLoader()).isSameAs(loader);
+        Path driverJar = Path.of(driverClass.getProtectionDomain().getCodeSource().getLocation().toURI());
+        assertThat(driverJar.getParent().getFileName().toString()).isEqualTo("lib");
+        assertThat(driverJar).isRegularFile();
+        org.pf4j.Plugin entry = (org.pf4j.Plugin) entryClass.getDeclaredConstructor().newInstance();
+        PixivFeaturePlugin feature = ((PixivPluginProvider) entry).featurePlugin();
+        assertThat(feature.id()).isEqualTo(expectedId);
+        assertThat(feature.getClass().getClassLoader()).isSameAs(loader);
+        assertThat(feature).isInstanceOf(DatabaseProvider.class);
+        return entry;
+    }
+
+    private static final class DatabaseJarClassLoader extends URLClassLoader {
+        private DatabaseJarClassLoader(URL[] urls) {
+            super(urls, DistributionPackagingBoundaryTest.class.getClassLoader());
+        }
+
+        @Override public URL getResource(String name) {
+            // SQLite 原生库也必须来自插件私有 JAR，不能由父 classpath 补齐。
+            if (name.startsWith("org/sqlite/") || name.startsWith("org/postgresql/")) {
+                return findResource(name);
+            }
+            return super.getResource(name);
+        }
+
+        @Override protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+            synchronized (getClassLoadingLock(name)) {
+                // 不回退到测试 classpath 中的未处理 provider 和 JDBC 驱动。
+                if (name.startsWith("org.sqlite.") || name.startsWith("org.postgresql.")
+                        || name.startsWith("top.sywyar.pixivdownload.databasesqlite.")
+                        || name.startsWith("top.sywyar.pixivdownload.databasepostgresql.")) {
+                    Class<?> type = findLoadedClass(name);
+                    if (type == null) type = findClass(name);
+                    if (resolve) resolveClass(type);
+                    return type;
+                }
+                return super.loadClass(name, resolve);
+            }
+        }
     }
 
     private static final class GuiComposeJarClassLoader extends URLClassLoader {

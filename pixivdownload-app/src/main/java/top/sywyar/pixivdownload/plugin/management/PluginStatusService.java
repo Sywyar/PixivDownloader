@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.plugin.management;
 
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
-import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInventory;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
@@ -57,6 +56,7 @@ public class PluginStatusService {
     private final Supplier<PluginRecoveryGateSnapshot> recoveryGate;
     private final Supplier<List<PluginRuntimeVerificationSnapshot>> runtimeVerifications;
     private final Supplier<Map<String, String>> runtimeFailures;
+    private Supplier<List<PluginLoadFailure>> runtimeLoadFailures = List::of;
     private final Supplier<Map<String, PluginRuntimePackagePhase>> runtimePhases;
     private final RequiredPluginPolicy requiredPluginPolicy;
     private final PluginStatusEvaluator evaluator = new PluginStatusEvaluator();
@@ -118,9 +118,9 @@ public class PluginStatusService {
                                RequiredPluginPolicy requiredPluginPolicy) {
         this.pluginRegistry = pluginRegistry;
         this.pluginInventory = runtimeManager::inspectPlugins;
-        this.installedArtifacts = () -> PluginDevelopmentArtifacts.usesInstalledArtifacts(installer.pluginsDirectory())
-                ? installer.listInstalled() : List.of();
+        this.installedArtifacts = installer::listInstalled;
         this.loadedDescriptors = runtimeManager::loadedDescriptors;
+        this.runtimeLoadFailures = () -> runtimeManager.status().map(PluginRuntimeStatus::failures).orElseGet(List::of);
         this.recoveryGate = installer::recoveryGateSnapshot;
         this.runtimeVerifications = () -> runtimeManager.status()
                 .map(status -> status.verifications())
@@ -212,6 +212,10 @@ public class PluginStatusService {
 
     public PluginRecoveryGateSnapshot recoveryGateSnapshot() {
         return recoveryGate.get();
+    }
+
+    public List<PluginLoadFailure> runtimeLoadFailures() {
+        return runtimeLoadFailures.get();
     }
 
     /** 当前确实发生在插件启动 / 子上下文启动阶段的失败；普通坏包与验签失败不在此列。 */

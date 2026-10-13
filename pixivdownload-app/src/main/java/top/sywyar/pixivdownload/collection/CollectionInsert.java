@@ -4,7 +4,7 @@ import lombok.Data;
 
 /**
  * {@link CollectionMapper#insert(CollectionInsert)} 的参数载体。
- * MyBatis {@code useGeneratedKeys} 通过 {@code id} setter 回填自增主键。
+ * 提供者完成插入后通过 {@code id} setter 回填自增主键。
  */
 @Data
 public class CollectionInsert {

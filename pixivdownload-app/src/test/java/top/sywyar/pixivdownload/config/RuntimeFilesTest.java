@@ -86,10 +86,27 @@ class RuntimeFilesTest {
     }
 
     @Test
+    @DisplayName("数据库草稿沿用旧路径优先级，但不搬迁文件或创建数据目录")
+    void inspectsLegacyDatabaseWithoutMovingIt() throws IOException {
+        Path target = dataDir.resolve("pixiv_download.db");
+        assertThat(databaseFile(false)).isEqualTo(target);
+        assertThat(dataDir).doesNotExist();
+        Path legacy = downloadRoot.resolve("pixiv_download.db");
+        Files.writeString(legacy, "fixture", StandardCharsets.UTF_8);
+        assertThat(databaseFile(false)).isEqualTo(legacy);
+        assertThat(legacy).hasContent("fixture");
+        assertThat(dataDir).doesNotExist();
+        Files.createDirectories(dataDir);
+        Files.writeString(target, "current", StandardCharsets.UTF_8);
+        assertThat(databaseFile(false)).isEqualTo(target);
+        assertThat(legacy).exists();
+    }
+
+    @Test
     @DisplayName("应迁移宿主旧状态与数据库文件")
     void shouldMigrateLegacyHostFiles() throws IOException {
         Path legacySetup = downloadRoot.resolve(RuntimeFiles.SETUP_CONFIG_JSON);
-        Path legacyDb = downloadRoot.resolve(RuntimeFiles.PIXIV_DOWNLOAD_DB);
+        Path legacyDb = downloadRoot.resolve("pixiv_download.db");
         Path legacyDbWal = Path.of(legacyDb + "-wal");
         Path legacyDbShm = Path.of(legacyDb + "-shm");
         Files.writeString(legacySetup, "{\"mode\":\"solo\"}", StandardCharsets.UTF_8);
@@ -98,10 +115,10 @@ class RuntimeFilesTest {
         Files.writeString(legacyDbShm, "shm", StandardCharsets.UTF_8);
 
         Path setup = RuntimeFiles.resolveSetupConfigPath(downloadRoot.toString());
-        Path db = RuntimeFiles.resolveDatabasePath(downloadRoot.toString());
+        Path db = databaseFile(true);
 
         assertThat(setup).isEqualTo(stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON));
-        assertThat(db).isEqualTo(dataDir.resolve(RuntimeFiles.PIXIV_DOWNLOAD_DB));
+        assertThat(db).isEqualTo(dataDir.resolve("pixiv_download.db"));
         assertThat(setup).exists();
         assertThat(db).exists();
         assertThat(legacySetup).doesNotExist();
@@ -145,19 +162,20 @@ class RuntimeFilesTest {
     }
 
     @Test
-    @DisplayName("SQLite 主库相同但伴随文件冲突时应保留完整旧文件组")
+    @DisplayName("已有受管 SQLite 主库保持权威，伴随文件不同也不改写任一文件组")
     void shouldKeepLegacyDatabaseUnitWhenCompanionDiffers() throws IOException {
-        Path target = dataDir.resolve(RuntimeFiles.PIXIV_DOWNLOAD_DB);
-        Path legacy = downloadRoot.resolve(RuntimeFiles.PIXIV_DOWNLOAD_DB);
+        Path target = dataDir.resolve("pixiv_download.db");
+        Path legacy = downloadRoot.resolve("pixiv_download.db");
         Files.createDirectories(target.getParent());
         Files.writeString(target, "same-db", StandardCharsets.UTF_8);
         Files.writeString(legacy, "same-db", StandardCharsets.UTF_8);
         Files.writeString(Path.of(target + "-wal"), "new-wal", StandardCharsets.UTF_8);
         Files.writeString(Path.of(legacy + "-wal"), "legacy-wal", StandardCharsets.UTF_8);
 
-        RuntimeFiles.resolveDatabasePath(downloadRoot.toString());
+        assertThat(databaseFile(true)).isEqualTo(target);
 
-        assertThat(legacy).exists();
+        assertThat(legacy).hasContent("same-db");
+        assertThat(target).hasContent("same-db");
         assertThat(Path.of(legacy + "-wal")).hasContent("legacy-wal");
         assertThat(Path.of(target + "-wal")).hasContent("new-wal");
     }
@@ -399,4 +417,13 @@ class RuntimeFilesTest {
 
         assertThat(resolved).isEqualTo(Path.of("/home/tester", ".pixivdownload", "run"));
     }
+    private Path databaseFile(boolean prepare) throws IOException {
+        var provider = new top.sywyar.pixivdownload.databasesqlite.SqliteDatabasePlugin();
+        var settings = top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap.settings("", "", "", downloadRoot.toString());
+        try {
+            if (prepare) provider.prepareStorage(settings);
+            return provider.resolve(settings).localFile().orElseThrow();
+        } catch (java.sql.SQLException failure) { throw new IOException(failure); }
+    }
+
 }

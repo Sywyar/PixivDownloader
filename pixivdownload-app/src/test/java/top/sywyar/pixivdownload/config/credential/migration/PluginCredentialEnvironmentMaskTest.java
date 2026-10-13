@@ -13,6 +13,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("插件凭证父环境遮罩")
 class PluginCredentialEnvironmentMaskTest {
 
+    @Test
+    @DisplayName("数据库密码保留给宿主并加入插件环境遮罩")
+    void databasePasswordRemainsHostOwned() {
+        var registry = org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.registry.PluginRegistry.class);
+        org.mockito.Mockito.when(registry.allRegisteredPlugins()).thenReturn(java.util.List.of());
+        var resolution = new PluginCredentialDefinitionResolver(registry).resolveSnapshot();
+        var environment = new StandardEnvironment();
+        environment.getPropertySources().addFirst(new MapPropertySource("database-config",
+                Map.of("database.password", "fixture-password")));
+        var mask = new PluginCredentialEnvironmentMask(environment);
+        mask.replace(resolution.maskKeys(), resolution.hostConfigKeys());
+        assertThat(environment.getProperty("database.password")).isEqualTo("fixture-password");
+        assertThat(mask.maskKeys()).contains("database.password");
+    }
+
     private static final String AI_KEY = "ai.api-key";
     private static final String DECLARED_ONLY_KEY = "custom.private-value";
     private static final String HOST_SSL_KEY = "server.ssl.key-store-password";

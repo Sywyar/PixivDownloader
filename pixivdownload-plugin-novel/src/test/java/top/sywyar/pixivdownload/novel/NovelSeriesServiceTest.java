@@ -48,7 +48,7 @@ class NovelSeriesServiceTest {
         when(imageDownloader.downloadImage(any(), any(), any(), eq("PHPSESSID=test"), any()))
                 .thenReturn("webp");
         NovelSeriesService service = new NovelSeriesService(
-                novelDatabase, downloadSettings, imageDownloader, NovelTestMessages.messageResolver());
+                novelDatabase, downloadSettings, imageDownloader, NovelTestMessages.messageResolver(), () -> true);
 
         service.observeWithMetadata(
                 42L,
@@ -69,5 +69,23 @@ class NovelSeriesServiceTest {
         Path expectedFolder = tempDir.resolve("novel-series-42").toAbsolutePath().normalize();
         assertThat(target.getValue()).isEqualTo(expectedFolder.resolve("cover"));
         verify(novelDatabase).updateSeriesMetadata(42L, "简介", "webp", expectedFolder.toString());
+    }
+
+    @Test
+    @DisplayName("系列查询后失去数据库时不开始封面下载或继续写记录")
+    void rejectsLostDatabaseAfterSeriesQuery() throws Exception {
+        var available = new java.util.concurrent.atomic.AtomicBoolean(true);
+        when(novelDatabase.getSeries(42L)).thenAnswer(call -> {
+            available.set(false);
+            return new NovelSeries(42L, "系列", 7L, 1L, null, null, null);
+        });
+        var service = new NovelSeriesService(novelDatabase, downloadSettings, imageDownloader,
+                NovelTestMessages.messageResolver(), available::get);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.observeWithMetadata(42L, "系列", 7L,
+                "简介", "https://i.pximg.net/series/cover.webp", List.of(), ""))
+                .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+        org.mockito.Mockito.verifyNoInteractions(imageDownloader, downloadSettings);
+        org.mockito.Mockito.verify(novelDatabase, org.mockito.Mockito.never()).updateSeriesMetadata(
+                org.mockito.ArgumentMatchers.anyLong(), any(), any(), any());
     }
 }

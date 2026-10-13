@@ -4,8 +4,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationListener;
 import org.springframework.context.PayloadApplicationEvent;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import top.sywyar.pixivdownload.core.db.MainDatabase;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.*;
+import java.util.LinkedHashMap;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.*;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionOperations;
@@ -18,7 +21,6 @@ import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseReadyEvent;
 
-import javax.sql.DataSource;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -53,7 +55,7 @@ import java.util.stream.Stream;
 public class PathPrefixStartupMigration
         implements ApplicationListener<PayloadApplicationEvent<DatabaseReadyEvent>> {
 
-    private final DataSource dataSource;
+    private final MainDatabase database;
     private final PathPrefixCodec codec;
     private final PathPrefixColumns pathPrefixColumns;
     private final DownloadConfig downloadConfig;
@@ -61,19 +63,19 @@ public class PathPrefixStartupMigration
     private final TransactionOperations transactionOperations;
 
     @Autowired
-    public PathPrefixStartupMigration(DataSource dataSource, PathPrefixCodec codec,
+    public PathPrefixStartupMigration(MainDatabase database, PathPrefixCodec codec,
                                       PathPrefixColumns pathPrefixColumns,
                                       DownloadConfig downloadConfig, AppMessages messages,
                                       PlatformTransactionManager transactionManager) {
-        this(dataSource, codec, pathPrefixColumns, downloadConfig, messages,
+        this(database, codec, pathPrefixColumns, downloadConfig, messages,
                 new TransactionTemplate(transactionManager));
     }
 
-    public PathPrefixStartupMigration(DataSource dataSource, PathPrefixCodec codec,
+    public PathPrefixStartupMigration(MainDatabase database, PathPrefixCodec codec,
                                PathPrefixColumns pathPrefixColumns,
                                DownloadConfig downloadConfig, AppMessages messages,
                                TransactionOperations transactionOperations) {
-        this.dataSource = dataSource;
+        this.database = database;
         this.codec = codec;
         this.pathPrefixColumns = pathPrefixColumns;
         this.downloadConfig = downloadConfig;
@@ -93,16 +95,15 @@ public class PathPrefixStartupMigration
             log.warn(logMessage("download.db.log.prefix-init-failed", e.getMessage()), e);
             return;
         }
-        NamedParameterJdbcTemplate jdbc = new NamedParameterJdbcTemplate(dataSource);
         try {
-            reconcileSymbolicRoot(jdbc);
+            reconcileSymbolicRoot();
         } catch (Exception e) {
             log.warn(logMessage("download.db.log.symbolic-root-fold-failed", e.getMessage()), e);
         }
         try {
             int total = 0;
             for (PathPrefixColumns.TableColumns tc : pathPrefixColumns.all()) {
-                total += migrateTable(jdbc, tc.table(), tc.idColumn(), tc.columns());
+                total += migrateTable( tc.table(), tc.idColumn(), tc.columns());
             }
             if (total > 0) {
                 log.info(logMessage("download.db.log.migration-complete", total));
@@ -160,14 +161,14 @@ public class PathPrefixStartupMigration
 
     // ── 符号根 {0}：marker 比对 + {N} 折叠 ─────────────────────────────────────
 
-    private void reconcileSymbolicRoot(NamedParameterJdbcTemplate jdbc) {
+    private void reconcileSymbolicRoot() {
         String current = codec.getSymbolicRootPath();
-        boolean hasSymbolicRows = pathPrefixColumns.hasSymbolicRootRows(jdbc);
+        boolean hasSymbolicRows = pathPrefixColumns.hasSymbolicRootRows(database);
         if (codec.isSymbolicRootActive()) {
             // 解析位置疑似「改了配置 / 工作目录但没搬文件」时保留 marker：旧路径是后续修复的唯一线索，
             // 且保留后每次启动都会继续告警，直到使用者处理（搬文件或用迁移工具固定记录）。
             boolean keepMarker = warnIfRootMoved(current, hasSymbolicRows);
-            foldRootPrefixes(jdbc, current);
+            foldRootPrefixes(current);
             if (!keepMarker) {
                 writeMarker(current);
             }
@@ -207,7 +208,7 @@ public class PathPrefixStartupMigration
      * 把 {@code path_prefixes} 中与符号根同路径的 {@code {N}} 行折叠为 {@code {0}}：
      * 单个事务内改写全部路径前缀列并删除该前缀行，绝不留下悬空的 {@code {N}} 引用。
      */
-    private int foldRootPrefixes(NamedParameterJdbcTemplate jdbc, String rootPath) {
+    private int foldRootPrefixes(String rootPath) {
         String rootNorm = normalize(rootPath);
         List<PathPrefix> matches = codec.snapshot().stream()
                 .filter(p -> rootNorm.equals(normalize(p.path())))
@@ -219,12 +220,12 @@ public class PathPrefixStartupMigration
                 int n = 0;
                 for (PathPrefixColumns.TableColumns tc : pathPrefixColumns.all()) {
                     for (String column : tc.columns()) {
-                        n += PathPrefixColumns.retargetColumn(jdbc, tc.table(), column,
+                        n += PathPrefixColumns.retargetColumn(database, tc.table(), column,
                                 token, PathPrefixCodec.SYMBOLIC_ROOT_TOKEN);
                     }
                 }
-                jdbc.update("DELETE FROM path_prefixes WHERE id = :id",
-                        new MapSqlParameterSource("id", match.id()));
+                database.transaction(s -> s.delete("path_prefixes",
+                        call(EQUAL, column("path_prefixes", "id"), value(match.id()))));
                 return n;
             });
             total += rows == null ? 0 : rows;
@@ -289,54 +290,34 @@ public class PathPrefixStartupMigration
         return PathPrefixCodec.stripTrailingSeparators(value).replace('\\', '/').toLowerCase(Locale.ROOT);
     }
 
-    private int migrateTable(NamedParameterJdbcTemplate jdbc,
-                             String table,
-                             String idColumn,
-                             List<String> pathColumns) {
-        // 注意：表名/列名来自受管 schema 合并出的白名单，未来添加新列时仍需在所属领域
-        // contribution 声明 PathColumnSpec，
-        // 因此直接字符串拼接是安全的（无外部输入）。
-        StringBuilder sql = new StringBuilder("SELECT ").append(idColumn);
-        for (String c : pathColumns) sql.append(", ").append(c);
-        sql.append(" FROM ").append(table);
-
+    private int migrateTable(String table, String idColumn, List<String> pathColumns) {
+        var projection = new LinkedHashMap<String, Expression>();
+        projection.put(idColumn, column(table, idColumn));
+        pathColumns.forEach(name -> projection.put(name, column(table, name)));
         List<Map<String, Object>> rows;
         try {
-            rows = jdbc.queryForList(sql.toString(), new MapSqlParameterSource());
+            rows = database.read(s -> s.query(new Query(table, projection, null, List.of(), List.of(), Integer.MAX_VALUE, 0)));
         } catch (Exception e) {
             log.warn(logMessage("download.db.log.scan-failed", table, e.getMessage()));
             return 0;
         }
-
         int updated = 0;
         for (Map<String, Object> row : rows) {
-            Object idObj = row.get(idColumn);
-            if (idObj == null) continue;
-            MapSqlParameterSource params = new MapSqlParameterSource();
-            params.addValue("id", idObj);
-
-            StringBuilder set = new StringBuilder();
-            boolean changed = false;
-            for (String column : pathColumns) {
-                Object current = row.get(column);
-                String currentStr = current == null ? null : current.toString();
-                if (currentStr == null || currentStr.isEmpty()) continue;
-                if (codec.looksEncoded(currentStr)) continue;
-                String encoded = codec.encode(currentStr);
-                if (encoded.equals(currentStr)) continue; // 无前缀匹配
-                if (changed) set.append(", ");
-                set.append(column).append(" = :v_").append(column);
-                params.addValue("v_" + column, encoded);
-                changed = true;
+            Object id = row.get(idColumn);
+            if (id == null) continue;
+            var changes = new LinkedHashMap<String, Expression>();
+            for (String name : pathColumns) {
+                String current = (String) row.get(name);
+                if (current == null || current.isEmpty() || codec.looksEncoded(current)) continue;
+                String encoded = codec.encode(current);
+                if (!encoded.equals(current)) changes.put(name, value(encoded));
             }
-            if (!changed) continue;
-
-            String update = "UPDATE " + table + " SET " + set + " WHERE " + idColumn + " = :id";
+            if (changes.isEmpty()) continue;
             try {
-                jdbc.update(update, params);
+                database.transaction(s -> s.update(table, changes, call(EQUAL, column(table, idColumn), value(id))));
                 updated++;
             } catch (Exception e) {
-                log.warn(logMessage("download.db.log.migrate-row-failed", table, idColumn, idObj, e.getMessage()));
+                log.warn(logMessage("download.db.log.migrate-row-failed", table, idColumn, id, e.getMessage()));
             }
         }
         return updated;

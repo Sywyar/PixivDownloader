@@ -72,6 +72,7 @@ final class DesktopConfigurationController {
     volatile Map<String, ConfigField> fieldBindings = Map.of();
     volatile String configNotice = "";
     volatile TextToken configNoticeToken;
+    volatile TextStyle configNoticeStyle = TextStyle.BODY;
     volatile ActionChoices actionChoices;
     private volatile long actionRevision;
     volatile boolean autoStartSupported;
@@ -79,6 +80,8 @@ final class DesktopConfigurationController {
     volatile String invalidRow = "";
     volatile long credentialRevision;
     final Map<FieldKey, Long> credentialRevisions = new ConcurrentHashMap<>();
+    final Set<FieldKey> clearedCoreCredentials = ConcurrentHashMap.newKeySet();
+    final DesktopDatabaseSettingsView database = new DesktopDatabaseSettingsView(this);
 
     DesktopConfigurationController(
             ComposeDesktopUiModel owner,
@@ -152,6 +155,8 @@ final class DesktopConfigurationController {
                 choices.action().spec().resultSummary().selectionFieldKey()
         ))) clearActionChoices();
         values.put(field.key(), value);
+        clearedCoreCredentials.remove(field.key());
+        if (field.owner() == null) database.edited();
         if (invalidRow.equals(DesktopConfigurationFieldView.bindingId(field.key()) + ".row")) invalidRow = "";
         return true;
     }
@@ -172,6 +177,7 @@ final class DesktopConfigurationController {
     void unlockDebug() {
         if (debugUnlocked) return;
         debugUnlocked = true;
+        configNoticeStyle = TextStyle.BODY;
         configNotice = "";
         configNoticeToken = key("gui.config.notice.debug-unlocked");
         owner.rebuild();
@@ -189,6 +195,7 @@ final class DesktopConfigurationController {
     }
 
     void runConfigAction(ConfigAction action) {
+        configNoticeStyle = TextStyle.BODY;
         clearActionChoices();
         long revision = actionRevision;
         var source = actionSource(action);
@@ -207,6 +214,7 @@ final class DesktopConfigurationController {
                         action.owner()
                 );
                 configNoticeToken = actionNotice(action, response);
+                configNoticeStyle = response.is2xx() ? TextStyle.BODY : TextStyle.ERROR;
                 List<String> options = ActionResult.from(response, action.spec().resultSummary())
                         .selectionValues(action.spec().resultSummary());
                 if (!options.isEmpty() && revision == actionRevision && source != null
@@ -214,6 +222,7 @@ final class DesktopConfigurationController {
                     actionChoices = new ActionChoices(action, source, revision, options);
                 }
             } catch (Exception failure) {
+                configNoticeStyle = TextStyle.ERROR;
                 configNoticeToken = appToken(
                         "gui.config.action.notice.failed",
                         action.spec().actionId(),
@@ -248,6 +257,7 @@ final class DesktopConfigurationController {
             host.requireSafeConfigValue(value);
         } catch (java.io.IOException failure) {
             clearActionChoices();
+            configNoticeStyle = TextStyle.ERROR;
             configNoticeToken = appToken("gui.config.action.notice.failed", choices.action().spec().actionId(), "");
             owner.rebuild();
             return;
@@ -390,6 +400,11 @@ final class DesktopConfigurationController {
         owner.runBusy(() -> saveConfiguration(false));
     }
 
+    boolean databaseChanged() {
+        return changedConfigurationFields().stream().anyMatch(field -> field.owner() == null
+                && top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.CONNECTION_KEYS.contains(field.spec().key()));
+    }
+
     private void saveConfiguration(boolean symbolicRootPinned) {
         List<ConfigField> changed = changedConfigurationFields();
         boolean repositoriesChanged = repositories.changed();
@@ -402,7 +417,7 @@ final class DesktopConfigurationController {
             setConfigNotice(host.message(
                     "gui.config.market.repo.read-failed",
                     repositories.loadFailure()
-            ));
+            ), TextStyle.ERROR);
             return;
         }
         try {
@@ -424,7 +439,22 @@ final class DesktopConfigurationController {
                     return;
                 }
             }
-            persist(
+            if (databaseChanged() && host.databaseSettings().isPresent()) {
+                var submitted = Map.copyOf(values);
+                var submittedInterface = Map.copyOf(interfaceValues);
+                var submittedRepositories = List.copyOf(repositories.entries());
+                database.prepareMigration(() -> submitted.equals(values)
+                        && submittedInterface.equals(pendingInterfaceValues())
+                        && submittedRepositories.equals(repositories.entries()), () -> {
+                    try { persist(
+                        changed.stream().filter(field -> field.owner() != null
+                                || !top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.CONNECTION_KEYS.contains(field.spec().key())).toList(),
+                        repositoriesChanged, interfaceChanged ? interfaceValues : Map.of()); }
+                    catch (Exception failure) { throw new java.io.IOException("CONFIG_SAVE_FAILED"); }
+                });
+                return;
+            }
+            Map<String, String> persistedCore = persist(
                     changed,
                     repositoriesChanged,
                     interfaceChanged ? interfaceValues : Map.of()
@@ -451,6 +481,18 @@ final class DesktopConfigurationController {
                     savedValues.put(field.key(), values.get(field.key()));
                 }
             }
+            for (ConfigField field : configFields) {
+                if (field.owner() != null || !persistedCore.containsKey(field.spec().key())) continue;
+                String value = persistedCore.get(field.spec().key());
+                if (field.spec().sensitive()) {
+                    values.put(field.key(), "");
+                    Set<FieldKey> stored = new LinkedHashSet<>(storedCredentialFields);
+                    if (value.isEmpty()) stored.remove(field.key()); else stored.add(field.key());
+                    storedCredentialFields = Set.copyOf(stored);
+                } else coreValueSaved(field.spec().key(), value);
+            }
+            clearedCoreCredentials.clear();
+            database.refresh();
             if (repositoriesChanged) repositories.markSaved();
             if (interfaceChanged) {
                 interfaceValues.forEach((key, value) -> savedValues.put(
@@ -465,19 +507,20 @@ final class DesktopConfigurationController {
                     5_000
             ).is2xx();
             if (processRestart) {
-                setConfigNotice(host.message("gui.config.notice.saved-process"));
+                setConfigNotice(host.message("gui.config.notice.saved-process"), TextStyle.SUCCESS);
                 showConfigurationRestartDialog(true);
             } else if (backendRestart) {
-                setConfigNotice(host.message("gui.config.notice.saved"));
+                setConfigNotice(host.message("gui.config.notice.saved"), TextStyle.SUCCESS);
                 showConfigurationRestartDialog(false);
             } else {
-                setConfigNotice(host.message(hotReloaded ? "gui.config.notice.saved-hot" : "gui.config.notice.saved-hot-failed"));
+                setConfigNotice(host.message(hotReloaded ? "gui.config.notice.saved-hot" : "gui.config.notice.saved-hot-failed"),
+                        hotReloaded ? TextStyle.SUCCESS : TextStyle.WARNING);
             }
         } catch (Exception failure) {
             setConfigNotice(host.message(
                     "gui.config.dialog.save-failed.message",
                     safeMessage(failure)
-            ));
+            ), TextStyle.ERROR);
         }
     }
 
@@ -485,7 +528,7 @@ final class DesktopConfigurationController {
         return configFields.stream().filter(field -> !field.spec().sensitive() ? !Objects.equals(
                 values.get(field.key()),
                 savedValues.get(field.key())
-        ) : !values.getOrDefault(field.key(), "").isBlank()).toList();
+        ) : !values.getOrDefault(field.key(), "").isEmpty() || clearedCoreCredentials.contains(field.key())).toList();
     }
 
     private static GuiConfigEffect strongestEffect(List<GuiConfigEffect> effects) {
@@ -516,7 +559,8 @@ final class DesktopConfigurationController {
                     DesktopConfigurationFieldView.bindingId(field.key()) + ".row",
                     token(field.namespace(), field.spec().labelKey(), field.spec().key()),
                     secret ? composeText("gui.compose.settings.secret-hidden") : changeValue(savedValues.getOrDefault(field.key(), "")),
-                    secret ? composeText("gui.compose.settings.secret-replaced") : changeValue(values.getOrDefault(field.key(), "")),
+                    secret ? clearedCoreCredentials.contains(field.key()) ? key("gui.credential.status.clear-pending")
+                            : composeText("gui.compose.settings.secret-replaced") : changeValue(values.getOrDefault(field.key(), "")),
                     DesktopConfigurationFieldView.effectNode("change", field.spec().effect()).text()));
         }
         Map<String, String> labels = Map.of(
@@ -706,29 +750,44 @@ final class DesktopConfigurationController {
 
     private void restartApplicationAfterConfigSave() {
         owner.closeDialog();
-        owner.runBusy(() -> setConfigNotice(host.message(host.restartApplication() ? "gui.config.notice.process-restarting" : "desktop.ui.action.failed")));
+        owner.runBusy(() -> {
+            boolean accepted = host.restartApplication();
+            setConfigNotice(host.message(accepted ? "gui.config.notice.process-restarting" : "desktop.ui.action.failed"),
+                    accepted ? TextStyle.BODY : TextStyle.ERROR);
+        });
     }
 
     private void restartBackendAfterConfigSave() {
         owner.closeDialog();
         try {
             boolean accepted = host.restartBackend(owner::rebuild);
-            setConfigNotice(host.message(accepted ? "gui.config.notice.restarting" : "gui.message.backend-busy"));
+            setConfigNotice(host.message(accepted ? "gui.config.notice.restarting" : "gui.message.backend-busy"),
+                    accepted ? TextStyle.BODY : TextStyle.WARNING);
         } catch (RuntimeException failure) {
             LOG.warn(
                     host.message("gui.status.log.restart-request.failed", safeMessage(failure)),
                     failure
             );
-            setConfigNotice(host.message("gui.message.backend-busy"));
+            setConfigNotice(host.message("gui.message.backend-busy"), TextStyle.ERROR);
         }
         owner.rebuild();
     }
 
-    private void persist(
+    private Map<String, String> persist(
             List<ConfigField> changed,
             boolean repositoriesChanged,
             Map<String, String> interfaceValues
     ) throws Exception {
+        Map<String, String> result = new LinkedHashMap<>();
+        host.applicationConfig().withWriteLock(() -> result.putAll(persistLocked(changed, repositoriesChanged, interfaceValues)));
+        return result;
+    }
+
+    private Map<String, String> persistLocked(
+            List<ConfigField> changed,
+            boolean repositoriesChanged,
+            Map<String, String> interfaceValues
+    ) throws java.io.IOException {
         Map<DesktopUiHost.ConfigFile, Map<String, String>> normal = new LinkedHashMap<>();
         Map<String, Map<String, String>> secrets = new LinkedHashMap<>();
         for (ConfigField field : changed) {
@@ -766,6 +825,10 @@ final class DesktopConfigurationController {
         if (repositoriesChanged) {
             host.readPluginRepositories(applicationConfig);
             normal.computeIfAbsent(applicationConfig, ignored -> new LinkedHashMap<>());
+        }
+        var databaseSettings = host.databaseSettings();
+        if (databaseSettings.isPresent() && normal.containsKey(applicationConfig)) {
+            normal.put(applicationConfig, databaseSettings.get().prepare(normal.get(applicationConfig)));
         }
         Map<DesktopUiHost.ConfigFile, DesktopUiHost.ConfigSnapshot> snapshots = new LinkedHashMap<>();
         for (DesktopUiHost.ConfigFile file : normal.keySet()) snapshots.put(
@@ -810,6 +873,7 @@ final class DesktopConfigurationController {
             if (rollbackFailure != null) failure.addSuppressed(rollbackFailure);
             throw failure;
         }
+        return normal.getOrDefault(applicationConfig, Map.of());
     }
 
     private void validate(List<ConfigField> fields) throws Exception {
@@ -868,7 +932,15 @@ final class DesktopConfigurationController {
     }
 
     void clearCredential(ConfigField field) {
-        if (field.owner() == null || !field.spec().sensitive()) return;
+        if (!field.spec().sensitive()) return;
+        if (field.owner() == null) {
+            values.put(field.key(), "");
+            clearedCoreCredentials.add(field.key());
+            credentialRevisions.merge(field.key(), 1L, Long::sum);
+            database.edited();
+            owner.rebuild();
+            return;
+        }
         owner.runBusy(() -> {
             try {
                 host.updateCredentials(field.owner(), Map.of(field.spec().key(), ""));
@@ -879,12 +951,12 @@ final class DesktopConfigurationController {
                 Set<FieldKey> stored = new LinkedHashSet<>(storedCredentialFields);
                 stored.remove(field.key());
                 storedCredentialFields = Set.copyOf(stored);
-                setConfigNotice(host.message("desktop.ui.config.secret-cleared"));
+                setConfigNotice(host.message("desktop.ui.config.secret-cleared"), TextStyle.SUCCESS);
             } catch (Exception failure) {
                 setConfigNotice(host.message(
                         "gui.config.dialog.save-failed.message",
                         safeMessage(failure)
-                ));
+                ), TextStyle.ERROR);
             }
         });
     }
@@ -895,7 +967,8 @@ final class DesktopConfigurationController {
             try {
                 host.setAutoStartEnabled(enabled);
                 autoStartEnabled = enabled;
-                setConfigNotice(host.message(enabled ? "gui.config.autostart.notice.enabled" : "gui.config.autostart.notice.disabled"));
+                setConfigNotice(host.message(enabled ? "gui.config.autostart.notice.enabled" : "gui.config.autostart.notice.disabled"),
+                        TextStyle.SUCCESS);
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 LOG.warn(
@@ -906,7 +979,7 @@ final class DesktopConfigurationController {
                         ),
                         interrupted
                 );
-                setConfigNotice(host.message("desktop.ui.tools.operation-failed"));
+                setConfigNotice(host.message("desktop.ui.tools.operation-failed"), TextStyle.ERROR);
             } catch (Exception failure) {
                 LOG.warn(
                         host.message(
@@ -916,7 +989,7 @@ final class DesktopConfigurationController {
                         ),
                         failure
                 );
-                setConfigNotice(host.message("desktop.ui.tools.operation-failed"));
+                setConfigNotice(host.message("desktop.ui.tools.operation-failed"), TextStyle.ERROR);
             }
         });
     }
@@ -1018,6 +1091,8 @@ final class DesktopConfigurationController {
     }
 
     private void discardAndReloadConfiguration() {
+        clearedCoreCredentials.clear();
+        database.edited();
         List.of("interface.language", "interface.provider", "interface.theme")
                 .forEach(formValues::remove);
         invalidRow = "";
@@ -1160,6 +1235,11 @@ final class DesktopConfigurationController {
     }
 
     private void setConfigNotice(String value) {
+        setConfigNotice(value, TextStyle.BODY);
+    }
+
+    private void setConfigNotice(String value, TextStyle style) {
+        configNoticeStyle = style;
         configNotice = nullToEmpty(value);
         configNoticeToken = null;
     }

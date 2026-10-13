@@ -42,7 +42,7 @@ class CoreWorkMetadataRepositoryTest {
     private final MangaSeriesService mangaSeriesService = mock(MangaSeriesService.class);
 
     private final CoreWorkMetadataRepository repository = new CoreWorkMetadataRepository(
-            pixivDatabase, novelMetadataRepository, authorService, mangaSeriesService);
+                () -> true,             pixivDatabase, novelMetadataRepository, authorService, mangaSeriesService);
 
     private static ArtworkRecord artwork(long id, Long authorId, Long seriesId, Long fileName, boolean deleted) {
         return new ArtworkRecord(id, "标题" + id, "/folder/" + id, 3, "jpg", 1700L + id,

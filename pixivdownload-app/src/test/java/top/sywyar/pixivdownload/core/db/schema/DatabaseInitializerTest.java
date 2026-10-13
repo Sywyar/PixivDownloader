@@ -39,7 +39,7 @@ class DatabaseInitializerTest {
     }
 
     private DatabaseInitializer newInitializer(SingleConnectionDataSource ds, List<Object> events) {
-        return new DatabaseInitializer(new JdbcTemplate(ds),
+        return top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(new JdbcTemplate(ds),
                 REGISTRY.contributions(), REGISTRY.mergedSchema(),
                 TestI18nBeans.appMessages(), events::add);
     }
@@ -75,7 +75,7 @@ class DatabaseInitializerTest {
             newInitializer(ds).initialize();
             try (Connection c = ds.getConnection()) {
                 DatabaseSchemaInspector.SchemaComparison comparison =
-                        DatabaseSchemaInspector.compare(c, REGISTRY.mergedSchema());
+                        top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(c, REGISTRY.mergedSchema());
                 assertThat(comparison.matches())
                         .as("全新库与受管 schema 的差异：%s", comparison.details())
                         .isTrue();
@@ -142,7 +142,7 @@ class DatabaseInitializerTest {
                         "r18", "is_ai", "author_id", "description", "file_name",
                         "file_author_name_id", "series_id", "series_order", "deleted");
                 DatabaseSchemaInspector.SchemaComparison comparison =
-                        DatabaseSchemaInspector.compare(c, REGISTRY.mergedSchema());
+                        top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(c, REGISTRY.mergedSchema());
                 assertThat(comparison.matches())
                         .as("旧库补列后与受管 schema 的差异：%s", comparison.details())
                         .isTrue();
@@ -153,8 +153,8 @@ class DatabaseInitializerTest {
     }
 
     @Test
-    @DisplayName("主键列与 NOT NULL 无默认值的缺列不可安全补齐：跳过且不中断启动")
-    void shouldSkipUnsafeMissingColumns() throws Exception {
+    @DisplayName("无法安全补列时启动回滚且不发布就绪，修复入口只补安全列")
+    void shouldRejectUnsafeMissingColumns() throws Exception {
         SingleConnectionDataSource ds = newDataSource();
         try {
             try (Connection c = ds.getConnection(); Statement st = c.createStatement()) {
@@ -168,11 +168,18 @@ class DatabaseInitializerTest {
                             column("optional", "TEXT", false, null, 0)
                     ), List.of())
             ), List.of(), List.of()));
-            DatabaseInitializer initializer = new DatabaseInitializer(new JdbcTemplate(ds),
+            List<Object> events = new ArrayList<>();
+            DatabaseInitializer initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(new JdbcTemplate(ds),
                     registry.contributions(), registry.mergedSchema(),
-                    TestI18nBeans.appMessages(), event -> {});
+                    TestI18nBeans.appMessages(), events::add);
 
-            assertThatCode(initializer::initialize).doesNotThrowAnyException();
+            org.assertj.core.api.Assertions.assertThatThrownBy(initializer::initialize)
+                    .isInstanceOf(IllegalStateException.class);
+            assertThat(events).isEmpty();
+            try (Connection c = ds.getConnection()) {
+                assertThat(columnNames(c, "t")).containsExactly("id");
+            }
+            initializer.applySchema(registry.contributions(), registry.mergedSchema());
             try (Connection c = ds.getConnection()) {
                 assertThat(columnNames(c, "t"))
                         .contains("optional")
@@ -195,7 +202,7 @@ class DatabaseInitializerTest {
             assertThat(events).hasSize(2).allMatch(DatabaseReadyEvent.class::isInstance);
             try (Connection c = ds.getConnection()) {
                 DatabaseSchemaInspector.SchemaComparison comparison =
-                        DatabaseSchemaInspector.compare(c, REGISTRY.mergedSchema());
+                        top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(c, REGISTRY.mergedSchema());
                 assertThat(comparison.matches())
                         .as("重复执行后与受管 schema 的差异：%s", comparison.details())
                         .isTrue();
@@ -206,14 +213,19 @@ class DatabaseInitializerTest {
     }
 
     @Test
-    @DisplayName("AUTOINCREMENT 与 CHECK 形态应逐字保真进生成的 DDL")
-    void shouldRenderAutoIncrementAndCheckVerbatim() throws Exception {
+    @DisplayName("AUTOINCREMENT 与单行 CHECK 必须保留原有约束")
+    void shouldPreserveAutoIncrementAndCheck() throws Exception {
         SingleConnectionDataSource ds = newDataSource();
         try {
             newInitializer(ds).initialize();
             try (Connection c = ds.getConnection()) {
                 assertThat(createTableSql(c, "tags")).contains("AUTOINCREMENT");
-                assertThat(createTableSql(c, "statistics")).contains("CHECK (id = 1)");
+                try (var statement = c.createStatement()) {
+                    statement.execute("INSERT INTO statistics(id) VALUES(1)");
+                    org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                            statement.execute("INSERT INTO statistics(id) VALUES(2)"))
+                            .isInstanceOf(java.sql.SQLException.class).hasMessageContaining("CHECK constraint failed");
+                }
                 // 非自增主键不得被「顺手」加上 AUTOINCREMENT（行为语义不同：禁止 rowid 复用）
                 assertThat(createTableSql(c, "artworks")).doesNotContain("AUTOINCREMENT");
             }

@@ -18,6 +18,65 @@ import static org.mockito.Mockito.*;
 
 @DisplayName("作品回填进度和取消")
 class ArtworksBackFillProgressTest {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"before-query", "dry-run", "deleted", "skip"})
+    @DisplayName("原数据库租约失效后回填停止网络和不可达状态写入")
+    void stopsSideEffectsAfterDatabaseLeaseLoss(String scenario, @TempDir Path directory) throws Exception {
+        Path database = directory.resolve("lease-loss.db");
+        Path unreachable = directory.resolve("unreachable.json");
+        var config = new HikariConfig();
+        config.setJdbcUrl("jdbc:sqlite:" + database);
+        config.setMaximumPoolSize(1);
+        var available = new AtomicBoolean(true);
+        var client = mock(ArtworksBackFillPixivClient.class);
+        try (var pool = new HikariDataSource(config);
+             var files = mockStatic(RuntimeFiles.class);
+             var clients = mockStatic(ArtworksBackFillPixivClient.class)) {
+            files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(unreachable);
+            clients.when(() -> ArtworksBackFillPixivClient.open(any(), any())).thenReturn(client);
+            try (var connection = pool.getConnection(); var statement = connection.createStatement()) {
+                top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection,
+                        top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database));
+                statement.executeUpdate("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time)"
+                        + " VALUES (1,'first','folder',1,'jpg',1), (2,'second','folder',1,'jpg',2)");
+            }
+            var leases = new org.springframework.jdbc.datasource.DelegatingDataSource(pool) {
+                @Override public java.sql.Connection getConnection() throws java.sql.SQLException {
+                    return top.sywyar.pixivdownload.core.db.provider.DatabaseConnectionLease.wrap(
+                            super.getConnection(), available::get);
+                }
+            };
+            if (!scenario.equals("before-query")) {
+                when(client.query(org.mockito.ArgumentMatchers.anyLong())).thenAnswer(ignored -> {
+                    available.set(false);
+                    return switch (scenario) {
+                        case "deleted" -> ArtworksBackFillPixivClient.LookupResult.deleted("fixture");
+                        case "skip" -> ArtworksBackFillPixivClient.LookupResult.skip("fixture");
+                        default -> ArtworksBackFillPixivClient.LookupResult.found(42L, "author", 0, false,
+                                "description", List.of(), 0, 0, "");
+                    };
+                });
+            }
+            var options = new ArtworksBackFill.Options(database.toString(), "localhost", 1, false,
+                    0, 0, scenario.equals("dry-run"), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database));
+
+            var failure = assertThrows(java.sql.SQLNonTransientConnectionException.class,
+                    () -> ArtworksBackFill.run(options, leases, (processed, total) -> {
+                        if (scenario.equals("before-query")) available.set(false);
+                    }));
+
+            assertEquals("08003", failure.getSQLState());
+            verify(client, times(scenario.equals("before-query") ? 0 : 1)).query(org.mockito.ArgumentMatchers.anyLong());
+            assertFalse(java.nio.file.Files.exists(unreachable));
+            assertEquals(0, pool.getHikariPoolMXBean().getActiveConnections());
+            try (var connection = pool.getConnection(); var statement = connection.createStatement();
+                 var row = statement.executeQuery("SELECT COUNT(*) FROM artworks WHERE author_id IS NULL")) {
+                assertTrue(row.next());
+                assertEquals(2, row.getInt(1));
+            }
+        }
+    }
+
     @Test
     @DisplayName("请求完成后取消不再写入该作品，正常执行发布已完成计数")
     void cancelsBeforeWritingAndReportsCommittedProgress(@TempDir Path directory) throws Exception {
@@ -38,10 +97,12 @@ class ArtworksBackFillProgressTest {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(directory.resolve("unreachable.json"));
             clients.when(() -> ArtworksBackFillPixivClient.open(any(), any())).thenReturn(client);
             try (var connection = pool.getConnection(); var statement = connection.createStatement()) {
-                statement.executeUpdate("CREATE TABLE artworks (artwork_id INTEGER PRIMARY KEY)");
-                statement.executeUpdate("INSERT INTO artworks VALUES (1)");
+                top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection,
+                        top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database));
+                statement.executeUpdate("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time)"
+                        + " VALUES (1,'first','folder',1,'jpg',1)");
             }
-            var options = new ArtworksBackFill.Options(database.toString(), "localhost", 1, false, 0, 0, false);
+            var options = new ArtworksBackFill.Options(database.toString(), "localhost", 1, false, 0, 0, false, top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database));
             assertThrows(CancellationException.class, () -> ArtworksBackFill.run(options, pool, (processed, total) -> {
                 assertEquals(1, total);
                 assertEquals(0, processed);

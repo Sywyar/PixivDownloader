@@ -67,6 +67,71 @@ import static org.mockito.Mockito.when;
 class PluginBootstrapSessionTest extends PluginBootstrapSessionTestSupport {
 
     @Test
+    @DisplayName("可用 provider 与连接设置固定到完整进程，故障后不借后端重启恢复")
+    void availableDatabaseRemainsPinnedUntilProcessExit() throws Exception {
+        var feature = org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin.class,
+                org.mockito.Mockito.withSettings().extraInterfaces(top.sywyar.pixivdownload.plugin.api.database.DatabaseProvider.class));
+        when(feature.id()).thenReturn("fixture-database");
+        var provider = (top.sywyar.pixivdownload.plugin.api.database.DatabaseProvider) feature;
+        when(provider.databaseId()).thenReturn("sqlite");
+        var endpoint = mock(top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionTarget.class);
+        when(endpoint.localFile()).thenReturn(java.util.Optional.empty());
+        when(provider.resolve(org.mockito.ArgumentMatchers.any())).thenReturn(endpoint);
+        var descriptor = new top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor(
+                "fixture-database", "fixture-database", "7.2.0",
+                top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement.unspecified(), List.of(),
+                "fixture.Provider", null, "plugin.name", "plugin.summary", "database", "neutral",
+                top.sywyar.pixivdownload.plugin.api.plugin.PluginKind.FEATURE, List.of(),
+                top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy.PROCESS_RESTART,
+                top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode.HOST_PROCESS_FULL_TRUST);
+        var installation = new top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation(descriptor,
+                top.sywyar.pixivdownload.plugin.runtime.status.PluginStatus.STARTED, getClass().getClassLoader(), feature);
+        var manager = mock(PluginRuntimeManager.class);
+        var directory = tempDir.resolve("pinned-available");
+        when(manager.start()).thenReturn(new PluginRuntimeStatus(directory, PluginDirectoryState.EMPTY,
+                List.of(), List.of(), List.of()));
+        when(manager.inspectPlugins()).thenReturn(new PluginInventory(List.of(installation), List.of()));
+        try (var session = new PluginBootstrapSession(directory, PluginBootstrapSession.Ownership.PROCESS,
+                PluginEnabledSnapshot.empty(), ignored -> new PluginSupplyChainVerifier(),
+                (root, resolver, installer) -> manager)) {
+            session.start();
+            var settings = new top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionSettings(
+                    "jdbc:fixture:original", "original", "secret", tempDir.resolve("original.db"));
+            var binding = session.bindDatabase("fixture-database", "sqlite", () -> settings);
+            assertThat(binding.available()).isTrue();
+            session.closeForContext();
+            var restarted = session.bindDatabase("replacement", "postgresql", () -> {
+                throw new AssertionError("must not read changed configuration");
+            });
+            assertThat(restarted).isSameAs(binding);
+            assertThat(restarted.settings()).containsSame(settings);
+            assertThat(restarted.target()).containsSame(endpoint);
+            binding.invalidate();
+            assertThat(session.bindDatabase("fixture-database", "sqlite", () -> settings).available()).isFalse();
+            verify(provider).resolve(settings);
+        }
+    }
+
+    @Test
+    @DisplayName("无库选择也固定到进程退出，后端重启和新配置不能偷偷激活另一目标")
+    void databaseAbsenceRemainsPinnedUntilProcessExit() {
+        try (var session = createProcess(tempDir.resolve("database-pin"), PluginEnabledSnapshot.empty())) {
+            session.start();
+            var first = session.bindDatabase("missing", "sqlite", () -> {
+                throw new AssertionError("missing provider must not resolve or migrate files");
+            });
+            assertThat(first.available()).isFalse();
+            session.closeForContext();
+            assertThat(session.bindDatabase("replacement", "postgresql", () -> {
+                throw new AssertionError("backend restart must not read replacement configuration");
+            })).isSameAs(first);
+            session.close();
+            assertThatThrownBy(() -> session.bindDatabase("missing", "sqlite", () -> null))
+                    .isInstanceOf(IllegalStateException.class);
+        }
+    }
+
+    @Test
     @DisplayName("ownership：createProcess=PROCESS、createContext=CONTEXT")
     void ownershipFactoryMethods() {
         PluginBootstrapSession process = createProcess(

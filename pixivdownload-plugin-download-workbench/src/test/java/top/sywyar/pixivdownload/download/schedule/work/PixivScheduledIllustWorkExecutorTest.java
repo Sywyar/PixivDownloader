@@ -557,6 +557,24 @@ class PixivScheduledIllustWorkExecutorTest {
         assertThat(result.outcome()).isEqualTo(ScheduledWorkResult.Outcome.COMPLETED);
     }
 
+    @Test
+    @DisplayName("插画计划元数据写入缺库时不返回完成结果")
+    void metadataUnavailableDoesNotCompleteScheduledWork() throws Exception {
+        JsonNode body = objectMapper.createObjectNode();
+        when(fetchService.fetchArtworkMetaCapture("123", "PHPSESSID=8_secret"))
+                .thenReturn(new PixivFetchService.ArtworkMetaCapture(meta(null), body));
+        when(fetchService.resolveArtworkPages("123", "PHPSESSID=8_secret"))
+                .thenReturn(new PixivFetchService.ArtworkPages(List.of("https://i.pximg.net/original.jpg"), body));
+        when(artworkDownloader.downloadImagesBlocking(anyLong(), anyString(), anyList(), anyString(),
+                any(DownloadRequest.Other.class), eq("PHPSESSID=8_secret"), isNull())).thenReturn(true);
+        doThrow(new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException()).when(workMetadataCapture)
+                .capture(WorkType.ARTWORK, 123L, body.toString(), body.toString(), "schedule");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> executor().execute(work("123"),
+                context(task(), ScheduledNetworkRoute.direct()).context()))
+                .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+    }
+
     private void stubSeriesArtwork() throws Exception {
         JsonNode body = objectMapper.createObjectNode();
         when(fetchService.fetchArtworkMetaCapture(anyString(), eq("PHPSESSID=8_secret")))

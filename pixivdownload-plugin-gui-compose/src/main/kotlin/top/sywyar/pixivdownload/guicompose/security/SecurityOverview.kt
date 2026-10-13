@@ -229,11 +229,7 @@ internal fun SecurityButton(
 @Composable
 internal fun SecurityError(message: String?) {
     AnimatedVisibility(!message.isNullOrBlank(), enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-        val palette = LocalExperiencePalette.current
-        Box(Modifier.fillMaxWidth().background(palette.errorSurface, RoundedCornerShape(10.dp)).padding(12.dp)
-            .testTag("security.error").semantics { liveRegion = LiveRegionMode.Polite }) {
-            CupertinoText(message.orEmpty(), fontSize = 12.sp, color = palette.error)
-        }
+        DesktopNotice(message.orEmpty(), TextStyle.ERROR, Modifier.testTag("security.error"))
     }
 }
 

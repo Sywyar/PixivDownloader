@@ -2,7 +2,12 @@ package top.sywyar.pixivdownload.core.schedule.db.migration;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.jdbc.core.JdbcTemplate;
+import top.sywyar.pixivdownload.core.db.MainDatabase;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.DatabaseSession;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.Expression;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.Query;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.*;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
@@ -54,27 +59,27 @@ public final class LegacyScheduledTaskMigrationCoordinator implements LegacySche
     private static final String ADAPTER_FAILURE_CODE = "ADAPTER_FAILURE";
     private static final String EMPTY_DETAIL_JSON = "{}";
 
-    private final JdbcTemplate jdbcTemplate;
+    private final MainDatabase database;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
     private final MigrationFaultInjector faultInjector;
     private final ScheduleCapabilityRegistry capabilityRegistry;
 
-    public LegacyScheduledTaskMigrationCoordinator(JdbcTemplate jdbcTemplate,
+    public LegacyScheduledTaskMigrationCoordinator(MainDatabase database,
                                                    ObjectMapper objectMapper,
                                                    PlatformTransactionManager transactionManager,
                                                    ScheduleCapabilityRegistry capabilityRegistry) {
-        this(jdbcTemplate, objectMapper, new TransactionTemplate(transactionManager), taskId -> {},
+        this(database, objectMapper, new TransactionTemplate(transactionManager), taskId -> {},
                 capabilityRegistry);
     }
 
     /** 显式事务模板构造器供真实 SQLite 事务与故障注入测试使用。 */
-    public LegacyScheduledTaskMigrationCoordinator(JdbcTemplate jdbcTemplate,
+    public LegacyScheduledTaskMigrationCoordinator(MainDatabase database,
                                                    ObjectMapper objectMapper,
                                                    TransactionTemplate transactionTemplate,
                                                    MigrationFaultInjector faultInjector,
                                                    ScheduleCapabilityRegistry capabilityRegistry) {
-        this.jdbcTemplate = Objects.requireNonNull(jdbcTemplate, "jdbcTemplate");
+        this.database = Objects.requireNonNull(database, "database");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
         this.transactionTemplate = Objects.requireNonNull(transactionTemplate, "transactionTemplate");
         this.faultInjector = Objects.requireNonNull(faultInjector, "faultInjector");
@@ -170,83 +175,96 @@ public final class LegacyScheduledTaskMigrationCoordinator implements LegacySche
         verifyCredential(taskId, plan.credential(), legacySecret);
         verifyPending(taskId, plan.pending());
 
-        jdbcTemplate.update("UPDATE scheduled_tasks SET cookie_snapshot = NULL WHERE id = ?", taskId);
-        jdbcTemplate.update("DELETE FROM scheduled_task_pending WHERE task_id = ?", taskId);
-        int completed = jdbcTemplate.update(
-                "UPDATE scheduled_tasks SET storage_version = ? WHERE id = ? AND storage_version = ?",
-                CANONICAL_STORAGE_VERSION, taskId, LEGACY_STORAGE_VERSION);
+        database.transaction(s -> s.update("scheduled_tasks", Map.of("cookie_snapshot", value(null)),
+                eq("scheduled_tasks", "id", taskId)));
+        database.transaction(s -> s.delete("scheduled_task_pending", eq("scheduled_task_pending", "task_id", taskId)));
+        int completed = database.transaction(s -> s.update("scheduled_tasks",
+                Map.of("storage_version", value(CANONICAL_STORAGE_VERSION)), legacyTask(taskId)));
         if (completed != 1) {
             throw new IllegalStateException("legacy schedule storage version CAS failed");
         }
         return TaskOutcome.MIGRATED;
     }
 
+    private static Expression eq(String table, String key, Object value) {
+        return call(EQUAL, column(table, key), value(value));
+    }
+
+    private static Expression legacyTask(long taskId) {
+        return call(AND, eq("scheduled_tasks", "id", taskId),
+                eq("scheduled_tasks", "storage_version", LEGACY_STORAGE_VERSION));
+    }
+
+    private static Map<String, Object> values(Object... pairs) {
+        var result = new LinkedHashMap<String, Object>();
+        for (int i = 0; i < pairs.length; i += 2) result.put((String) pairs[i], value(pairs[i + 1]).value());
+        return result;
+    }
+
+    private static Map<String, Expression> changes(Map<String, Object> values) {
+        var result = new LinkedHashMap<String, Expression>();
+        values.forEach((name, v) -> result.put(name, value(v)));
+        return result;
+    }
+
+    private List<Map<String, Object>> rows(String table, Expression where, List<Query.Order> order, String... names) {
+        var select = new LinkedHashMap<String, Expression>();
+        for (String name : names) select.put(name, column(table, name));
+        return database.read(s -> s.query(new Query(table, select, where, List.of(), order, Integer.MAX_VALUE, 0)));
+    }
+
+    private static Query.Order ascending(String table, String name) {
+        return new Query.Order(column(table, name), false, true);
+    }
+
+    private static String text(Map<String, Object> row, String name) { return (String) row.get(name); }
+    private static Long number(Map<String, Object> row, String name) { return (Long) row.get(name); }
+    private static Integer integer(Map<String, Object> row, String name) {
+        Long result = number(row, name);
+        return result == null ? null : Math.toIntExact(result);
+    }
+
     private List<Long> findLegacyTaskIds(Set<String> aliases) {
-        List<String> ordered = aliases.stream().sorted().toList();
-        String placeholders = String.join(",", ordered.stream().map(alias -> "?").toList());
-        List<Object> args = new ArrayList<>();
-        args.add(LEGACY_STORAGE_VERSION);
-        args.addAll(ordered);
-        return jdbcTemplate.queryForList(
-                "SELECT id FROM scheduled_tasks WHERE storage_version = ? AND type IN ("
-                        + placeholders + ") ORDER BY id",
-                Long.class, args.toArray());
+        var types = new ArrayList<Expression>();
+        types.add(column("scheduled_tasks", "type"));
+        aliases.stream().sorted().forEach(alias -> types.add(value(alias)));
+        return rows("scheduled_tasks", call(AND,
+                eq("scheduled_tasks", "storage_version", LEGACY_STORAGE_VERSION), new Call(IN, types)),
+                List.of(ascending("scheduled_tasks", "id")), "id").stream().map(row -> number(row, "id")).toList();
     }
 
     private LegacyScheduledTaskSnapshot readSnapshot(long taskId) {
-        List<LegacyTaskFields> rows = jdbcTemplate.query(
-                "SELECT id, name, enabled, type, params_json, trigger_kind, interval_minutes, cron_expr,"
-                        + " cookie_mode, CASE WHEN cookie_snapshot IS NULL THEN 0 ELSE 1 END AS has_secret,"
-                        + " proxy_snapshot, next_run_time, last_run_time, last_status, last_message,"
-                        + " watermark_id, run_started_time, account_id, ack_warning_time,"
-                        + " pending_retry_armed, created_time"
-                        + " FROM scheduled_tasks WHERE id = ? AND storage_version = ?",
-                (rs, rowNum) -> new LegacyTaskFields(
-                        rs.getLong("id"),
-                        rs.getString("name"),
-                        rs.getInt("enabled") != 0,
-                        rs.getString("type"),
-                        rs.getString("params_json"),
-                        rs.getString("trigger_kind"),
-                        nullableInt(rs, "interval_minutes"),
-                        rs.getString("cron_expr"),
-                        rs.getString("cookie_mode"),
-                        rs.getInt("has_secret") != 0,
-                        rs.getString("proxy_snapshot"),
-                        nullableLong(rs, "next_run_time"),
-                        nullableLong(rs, "last_run_time"),
-                        rs.getString("last_status"),
-                        rs.getString("last_message"),
-                        nullableLong(rs, "watermark_id"),
-                        nullableLong(rs, "run_started_time"),
-                        rs.getString("account_id"),
-                        nullableLong(rs, "ack_warning_time"),
-                        rs.getInt("pending_retry_armed"),
-                        rs.getLong("created_time")),
-                taskId, LEGACY_STORAGE_VERSION);
-        return rows.isEmpty() ? null : rows.get(0).toSnapshot(readLegacyPending(taskId));
+        String table = "scheduled_tasks";
+        var select = new LinkedHashMap<String, Expression>();
+        for (String name : List.of("id", "name", "enabled", "type", "params_json", "trigger_kind", "interval_minutes",
+                "cron_expr", "cookie_mode", "proxy_snapshot", "next_run_time", "last_run_time", "last_status",
+                "last_message", "watermark_id", "run_started_time", "account_id", "ack_warning_time",
+                "pending_retry_armed", "created_time")) select.put(name, column(table, name));
+        select.put("has_secret", new Conditional(call(IS_NULL, column(table, "cookie_snapshot")), value(0), value(1)));
+        var rows = database.read(s -> s.query(new Query(table, select, legacyTask(taskId), List.of(), List.of(), 1, 0)));
+        if (rows.isEmpty()) return null;
+        var row = rows.get(0);
+        return new LegacyTaskFields(number(row, "id"), text(row, "name"), number(row, "enabled") != 0,
+                text(row, "type"), text(row, "params_json"), text(row, "trigger_kind"), integer(row, "interval_minutes"),
+                text(row, "cron_expr"), text(row, "cookie_mode"), number(row, "has_secret") != 0,
+                text(row, "proxy_snapshot"), number(row, "next_run_time"), number(row, "last_run_time"),
+                text(row, "last_status"), text(row, "last_message"), number(row, "watermark_id"),
+                number(row, "run_started_time"), text(row, "account_id"), number(row, "ack_warning_time"),
+                integer(row, "pending_retry_armed"), number(row, "created_time")).toSnapshot(readLegacyPending(taskId));
     }
 
     private List<PendingRow> readLegacyPending(long taskId) {
-        return jdbcTemplate.query(
-                "SELECT task_id, CAST(work_id AS TEXT) AS work_id, reason, attempts,"
-                        + " first_seen_time, last_attempt_time"
-                        + " FROM scheduled_task_pending WHERE task_id = ? ORDER BY work_id",
-                (rs, rowNum) -> new PendingRow(
-                        rs.getLong("task_id"),
-                        rs.getString("work_id"),
-                        rs.getString("reason"),
-                        rs.getInt("attempts"),
-                        nullableLong(rs, "first_seen_time"),
-                        nullableLong(rs, "last_attempt_time")),
-                taskId);
+        String table = "scheduled_task_pending";
+        return rows(table, eq(table, "task_id", taskId), List.of(ascending(table, "work_id")),
+                "task_id", "work_id", "reason", "attempts", "first_seen_time", "last_attempt_time").stream()
+                .map(row -> new PendingRow(number(row, "task_id"), number(row, "work_id").toString(),
+                        text(row, "reason"), integer(row, "attempts"), number(row, "first_seen_time"),
+                        number(row, "last_attempt_time"))).toList();
     }
 
     private String readLegacySecret(long taskId) {
-        List<String> values = jdbcTemplate.query(
-                "SELECT cookie_snapshot FROM scheduled_tasks WHERE id = ? AND storage_version = ?",
-                (rs, rowNum) -> rs.getString(1), taskId, LEGACY_STORAGE_VERSION);
-        return values.isEmpty() ? null : values.get(0);
+        var rows = rows("scheduled_tasks", legacyTask(taskId), List.of(), "cookie_snapshot");
+        return rows.isEmpty() ? null : text(rows.get(0), "cookie_snapshot");
     }
 
     private void validatePlan(String owner,
@@ -324,94 +342,64 @@ public final class LegacyScheduledTaskMigrationCoordinator implements LegacySche
                                     long taskId) {
         ScheduledTaskDefinition definition = plan.definition();
         ScheduledCheckpoint checkpoint = plan.checkpoint();
-        int updated = jdbcTemplate.update(
-                "UPDATE scheduled_tasks SET type = ?, params_json = ?, source_owner_plugin_id = ?,"
-                        + " definition_schema = ?, definition_version = ?, presentation_json = ?,"
-                        + " checkpoint_schema = ?, checkpoint_version = ?, checkpoint_json = ?,"
-                        + " next_run_time = CASE WHEN run_started_time IS NOT NULL AND enabled = 1"
-                        + " THEN 0 ELSE next_run_time END,"
-                        + " run_started_time = NULL, run_state = NULL, run_claim_token = NULL,"
-                        + " last_outcome = ?, outcome_code = ?, outcome_message = ?,"
-                        + " suspend_reason = ?, suspend_code = ?, suspend_detail_json = ?"
-                        + " WHERE id = ? AND storage_version = ?",
-                definition.sourceType(),
-                definition.definitionJson(),
-                owner,
-                definition.definitionSchema(),
-                definition.definitionVersion(),
-                serialize(definition.presentation()),
-                checkpoint == null ? null : checkpoint.schema(),
-                checkpoint == null ? null : checkpoint.version(),
-                checkpoint == null ? null : checkpoint.payloadJson(),
-                state.lastOutcome(),
-                state.outcomeCode(),
-                state.outcomeMessage(),
-                state.suspendReason(),
-                state.suspendCode(),
-                state.suspendDetailJson(),
-                taskId,
-                LEGACY_STORAGE_VERSION);
+        var updates = changes(values("type", definition.sourceType(), "params_json", definition.definitionJson(),
+                "source_owner_plugin_id", owner, "definition_schema", definition.definitionSchema(),
+                "definition_version", definition.definitionVersion(), "presentation_json", serialize(definition.presentation()),
+                "checkpoint_schema", checkpoint == null ? null : checkpoint.schema(),
+                "checkpoint_version", checkpoint == null ? null : checkpoint.version(),
+                "checkpoint_json", checkpoint == null ? null : checkpoint.payloadJson(),
+                "run_started_time", null, "run_state", null, "run_claim_token", null,
+                "last_outcome", state.lastOutcome(), "outcome_code", state.outcomeCode(),
+                "outcome_message", state.outcomeMessage(), "suspend_reason", state.suspendReason(),
+                "suspend_code", state.suspendCode(), "suspend_detail_json", state.suspendDetailJson()));
+        updates.put("next_run_time", new Conditional(call(AND,
+                call(NOT, call(IS_NULL, column("scheduled_tasks", "run_started_time"))),
+                eq("scheduled_tasks", "enabled", 1)), value(0), column("scheduled_tasks", "next_run_time")));
+        int updated = database.transaction(s -> s.update("scheduled_tasks", updates, legacyTask(taskId)));
         if (updated != 1) {
             throw new IllegalStateException("legacy schedule canonical update lost its row");
         }
     }
 
     private void writeCredential(long taskId, Credential credential, String legacySecret) {
-        if (credential == null) {
-            jdbcTemplate.update("DELETE FROM scheduled_task_credentials WHERE task_id = ?", taskId);
-            return;
-        }
-        jdbcTemplate.update(
-                "INSERT INTO scheduled_task_credentials(task_id, policy_owner_plugin_id, policy_id,"
-                        + " account_key, secret, secret_reference, policy_state_json, updated_time)"
-                        + " VALUES(?, ?, ?, ?, ?, ?, ?, ?)"
-                        + " ON CONFLICT(task_id) DO UPDATE SET"
-                        + " policy_owner_plugin_id = excluded.policy_owner_plugin_id,"
-                        + " policy_id = excluded.policy_id, account_key = excluded.account_key,"
-                        + " secret = excluded.secret, secret_reference = excluded.secret_reference,"
-                        + " policy_state_json = excluded.policy_state_json, updated_time = excluded.updated_time",
-                taskId, credential.policyOwnerPluginId(), credential.policyId(), credential.accountKey(),
-                legacySecret, credential.secretReference(), credential.policyStateJson(), credential.updatedTime());
+        database.transaction(s -> {
+            if (credential == null) return s.delete("scheduled_task_credentials",
+                    eq("scheduled_task_credentials", "task_id", taskId));
+            var row = values("task_id", taskId, "policy_owner_plugin_id", credential.policyOwnerPluginId(),
+                    "policy_id", credential.policyId(), "account_key", credential.accountKey(), "secret", legacySecret,
+                    "secret_reference", credential.secretReference(), "policy_state_json", credential.policyStateJson(),
+                    "updated_time", credential.updatedTime());
+            var updates = new LinkedHashMap<String, Expression>();
+            row.keySet().stream().filter(key -> !key.equals("task_id")).forEach(key -> updates.put(key, new Incoming(key)));
+            return s.insert("scheduled_task_credentials", row,
+                    new DatabaseSession.Conflict(DatabaseSession.Mode.UPDATE, List.of("task_id"), updates));
+        });
     }
 
     private void writePending(long taskId, List<PendingWork> pending) {
-        jdbcTemplate.update("DELETE FROM scheduled_task_pending_work WHERE task_id = ?", taskId);
-        for (PendingWork item : pending) {
-            jdbcTemplate.update(
-                    "INSERT INTO scheduled_task_pending_work(task_id, work_type, work_id,"
-                            + " payload_schema, payload_version, payload_json, presentation_json, relations_json,"
-                            + " reason_code, reason_detail_json, attempts, first_seen_time, last_attempt_time)"
-                            + " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    taskId,
-                    item.work().key().workType(),
-                    item.work().key().id(),
-                    item.work().payloadSchema(),
-                    item.work().payloadVersion(),
-                    item.work().payloadJson(),
-                    serialize(item.work().presentation()),
-                    serialize(item.work().relations()),
-                    item.reasonCode(),
-                    item.reasonDetailJson(),
-                    item.attempts(),
-                    item.firstSeenTime(),
-                    item.lastAttemptTime());
-        }
+        database.transaction(s -> {
+            s.delete("scheduled_task_pending_work", eq("scheduled_task_pending_work", "task_id", taskId));
+            for (PendingWork item : pending) {
+                s.insert("scheduled_task_pending_work", values("task_id", taskId,
+                        "work_type", item.work().key().workType(), "work_id", item.work().key().id(),
+                        "payload_schema", item.work().payloadSchema(), "payload_version", item.work().payloadVersion(),
+                        "payload_json", item.work().payloadJson(), "presentation_json", serialize(item.work().presentation()),
+                        "relations_json", serialize(item.work().relations()), "reason_code", item.reasonCode(),
+                        "reason_detail_json", item.reasonDetailJson(), "attempts", item.attempts(),
+                        "first_seen_time", item.firstSeenTime(), "last_attempt_time", item.lastAttemptTime()),
+                        DatabaseSession.Conflict.error());
+            }
+            return null;
+        });
     }
 
     private void verifyCredential(long taskId, Credential expected, String expectedSecret) {
-        List<CredentialRow> rows = jdbcTemplate.query(
-                "SELECT policy_owner_plugin_id, policy_id, account_key, secret, secret_reference,"
-                        + " policy_state_json, updated_time"
-                        + " FROM scheduled_task_credentials WHERE task_id = ?",
-                (rs, rowNum) -> new CredentialRow(
-                        rs.getString("policy_owner_plugin_id"),
-                        rs.getString("policy_id"),
-                        rs.getString("account_key"),
-                        rs.getString("secret"),
-                        rs.getString("secret_reference"),
-                        rs.getString("policy_state_json"),
-                        rs.getLong("updated_time")),
-                taskId);
+        List<CredentialRow> rows = rows("scheduled_task_credentials",
+                eq("scheduled_task_credentials", "task_id", taskId), List.of(),
+                "policy_owner_plugin_id", "policy_id", "account_key", "secret", "secret_reference", "policy_state_json",
+                "updated_time").stream().map(row -> new CredentialRow(text(row, "policy_owner_plugin_id"),
+                        text(row, "policy_id"), text(row, "account_key"), text(row, "secret"),
+                        text(row, "secret_reference"), text(row, "policy_state_json"), number(row, "updated_time"))).toList();
         if (expected == null) {
             if (!rows.isEmpty()) {
                 throw new IllegalStateException("unexpected migrated credential row");
@@ -434,25 +422,16 @@ public final class LegacyScheduledTaskMigrationCoordinator implements LegacySche
     }
 
     private void verifyPending(long taskId, List<PendingWork> expected) {
-        List<PendingStoredRow> actualRows = jdbcTemplate.query(
-                "SELECT work_type, work_id, payload_schema, payload_version, payload_json,"
-                        + " presentation_json, relations_json, reason_code, reason_detail_json, attempts,"
-                        + " first_seen_time, last_attempt_time"
-                        + " FROM scheduled_task_pending_work WHERE task_id = ? ORDER BY work_type, work_id",
-                (rs, rowNum) -> new PendingStoredRow(
-                        rs.getString("work_type"),
-                        rs.getString("work_id"),
-                        rs.getString("payload_schema"),
-                        rs.getInt("payload_version"),
-                        rs.getString("payload_json"),
-                        rs.getString("presentation_json"),
-                        rs.getString("relations_json"),
-                        rs.getString("reason_code"),
-                        rs.getString("reason_detail_json"),
-                        rs.getInt("attempts"),
-                        nullableLong(rs, "first_seen_time"),
-                        nullableLong(rs, "last_attempt_time")),
-                taskId);
+        String table = "scheduled_task_pending_work";
+        List<PendingStoredRow> actualRows = rows(table, eq(table, "task_id", taskId),
+                List.of(ascending(table, "work_type"), ascending(table, "work_id")),
+                "work_type", "work_id", "payload_schema", "payload_version", "payload_json", "presentation_json",
+                "relations_json", "reason_code", "reason_detail_json", "attempts", "first_seen_time", "last_attempt_time")
+                .stream().map(row -> new PendingStoredRow(text(row, "work_type"), text(row, "work_id"),
+                        text(row, "payload_schema"), integer(row, "payload_version"), text(row, "payload_json"),
+                        text(row, "presentation_json"), text(row, "relations_json"), text(row, "reason_code"),
+                        text(row, "reason_detail_json"), integer(row, "attempts"), number(row, "first_seen_time"),
+                        number(row, "last_attempt_time"))).toList();
         List<PendingStoredRow> expectedRows = expected.stream()
                 .map(item -> new PendingStoredRow(
                         item.work().key().workType(),
@@ -534,14 +513,14 @@ public final class LegacyScheduledTaskMigrationCoordinator implements LegacySche
     }
 
     private void markMigrationErrorInCurrentTransaction(long taskId, String code, String detailJson) {
-        jdbcTemplate.update(
-                "UPDATE scheduled_tasks SET suspend_reason = ?, suspend_code = ?, suspend_detail_json = ?,"
-                        + " state_version = state_version + 1"
-                        + " WHERE id = ? AND storage_version = ?"
-                        + " AND NOT (suspend_reason IS ? AND suspend_code IS ? AND suspend_detail_json IS ?)",
-                SUSPEND_MIGRATION_ERROR, code, detailJson,
-                taskId, LEGACY_STORAGE_VERSION,
-                SUSPEND_MIGRATION_ERROR, code, detailJson);
+        var updates = changes(values("suspend_reason", SUSPEND_MIGRATION_ERROR, "suspend_code", code,
+                "suspend_detail_json", detailJson));
+        updates.put("state_version", call(ADD, column("scheduled_tasks", "state_version"), value(1)));
+        // COALESCE 明确把未知值视为不同，保持拒绝结果幂等。
+        Expression same = call(AND, eq("scheduled_tasks", "suspend_reason", SUSPEND_MIGRATION_ERROR),
+                eq("scheduled_tasks", "suspend_code", code), eq("scheduled_tasks", "suspend_detail_json", detailJson));
+        database.transaction(s -> s.update("scheduled_tasks", updates,
+                call(AND, legacyTask(taskId), call(NOT, call(COALESCE, same, call(EQUAL, value(0), value(1)))))));
     }
 
     private String serialize(Object value) {
@@ -582,18 +561,6 @@ public final class LegacyScheduledTaskMigrationCoordinator implements LegacySche
         return MessageDigest.isEqual(
                 expected.getBytes(StandardCharsets.UTF_8),
                 actual.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private static Integer nullableInt(java.sql.ResultSet resultSet, String column)
-            throws java.sql.SQLException {
-        int value = resultSet.getInt(column);
-        return resultSet.wasNull() ? null : value;
-    }
-
-    private static Long nullableLong(java.sql.ResultSet resultSet, String column)
-            throws java.sql.SQLException {
-        long value = resultSet.getLong(column);
-        return resultSet.wasNull() ? null : value;
     }
 
     private static String requireText(String value, String label) {

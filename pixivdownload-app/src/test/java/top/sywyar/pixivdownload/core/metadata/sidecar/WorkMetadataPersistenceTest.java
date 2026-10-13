@@ -27,7 +27,7 @@ class WorkMetadataPersistenceTest {
         dataSource = new SingleConnectionDataSource("jdbc:sqlite::memory:", true);
         jdbc = new JdbcTemplate(dataSource);
         var registry = DatabaseSchemaRegistry.forBuiltInPlugins();
-        var initializer = new DatabaseInitializer(jdbc, registry.contributions(), registry.mergedSchema(),
+        var initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(jdbc, registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {});
         initializer.initialize();
         for (String table : new String[]{"artworks", "novels"}) {
@@ -35,7 +35,7 @@ class WorkMetadataPersistenceTest {
             jdbc.update("INSERT INTO " + table + "(" + id + ", title, folder, count, extensions, time)"
                     + " VALUES(7, 'fixture', ?, 1, 'jpg', 1000)", directory.toString());
         }
-        service = new WorkMetaCaptureService(new WorkMetaCurator(mapper), new WorkMetadataStore(dataSource, initializer), mapper);
+        service = new WorkMetaCaptureService(new WorkMetaCurator(mapper), new WorkMetadataStore(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), initializer), mapper, () -> true);
     }
 
     @AfterEach
@@ -45,6 +45,50 @@ class WorkMetadataPersistenceTest {
         return jdbc.queryForObject("SELECT metadata_json FROM " + table, String.class);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(WorkType.class)
+    @DisplayName("SDK 元数据捕获在缺库时明确拒绝且不调用存储")
+    void rejectsUnavailableCaptureWithoutWriting(WorkType type) {
+        var store = org.mockito.Mockito.mock(WorkMetadataStore.class);
+        var capture = new WorkMetaCaptureService(new WorkMetaCurator(mapper), store, mapper, () -> false);
+
+        assertThatThrownBy(() -> capture.capture(type, 7, "{\"title\":\"fixture\"}", "schedule"))
+                .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+        org.mockito.Mockito.verifyNoInteractions(store);
+        assertThat(snapshot("artworks")).isNull();
+        assertThat(snapshot("novels")).isNull();
+    }
+
+    @Test
+    @DisplayName("捕获写入期间数据库失效时不吞异常或正常返回")
+    void propagatesDatabaseLossDuringCapture() {
+        var available = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var store = org.mockito.Mockito.mock(WorkMetadataStore.class);
+        org.mockito.Mockito.doAnswer(ignored -> {
+            available.set(false);
+            throw new org.springframework.jdbc.CannotGetJdbcConnectionException("fixture unavailable");
+        }).when(store).save(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean());
+        var capture = new WorkMetaCaptureService(new WorkMetaCurator(mapper), store, mapper, available::get);
+
+        assertThatThrownBy(() -> capture.captureForwarded(WorkType.ARTWORK, 7, "{\"illustTitle\":\"fixture\"}"))
+                .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+        assertThat(snapshot("artworks")).isNull();
+    }
+
+    @Test
+    @DisplayName("存储明确拒绝数据库访问时不按普通辅助失败吞掉")
+    void propagatesTypedDatabaseRefusal() {
+        var store = org.mockito.Mockito.mock(WorkMetadataStore.class);
+        org.mockito.Mockito.doThrow(new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException())
+                .when(store).save(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean());
+        var capture = new WorkMetaCaptureService(new WorkMetaCurator(mapper), store, mapper, () -> true);
+
+        assertThatThrownBy(() -> capture.captureForwarded(WorkType.NOVEL, 7, "{\"title\":\"fixture\"}"))
+                .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+    }
+
     @Test
     @DisplayName("已有作品数据库自动补齐快照列和媒体表，原记录不变")
     void existingDatabaseAddsStorageWithoutLosingWorks() {
@@ -52,7 +96,7 @@ class WorkMetadataPersistenceTest {
         jdbc.execute("ALTER TABLE novels DROP COLUMN metadata_json");
         jdbc.execute("DROP TABLE artwork_media");
         var registry = DatabaseSchemaRegistry.forBuiltInPlugins();
-        new DatabaseInitializer(jdbc, registry.contributions(), registry.mergedSchema(),
+        top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(jdbc, registry.contributions(), registry.mergedSchema(),
                 TestI18nBeans.appMessages(), event -> {}).initialize();
         assertThat(jdbc.queryForObject("SELECT title FROM artworks WHERE artwork_id = 7", String.class)).isEqualTo("fixture");
         assertThat(jdbc.queryForObject("SELECT title FROM novels WHERE novel_id = 7", String.class)).isEqualTo("fixture");

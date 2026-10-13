@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { compareVersions, consumerPomSurface } from './sdk-contract.mjs';
-import { parseSdkVersion } from './sdk-version.mjs';
+import { consumerPomSurface } from './sdk-contract.mjs';
+import { compareVersions, parseSdkVersion } from './sdk-version.mjs';
 
 const compare = (left, right) => compareVersions(parseSdkVersion(left), parseSdkVersion(right));
 

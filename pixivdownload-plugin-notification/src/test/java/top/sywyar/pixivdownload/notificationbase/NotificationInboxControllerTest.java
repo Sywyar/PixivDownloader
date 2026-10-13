@@ -24,7 +24,7 @@ class NotificationInboxControllerTest {
     @DisplayName("消息响应禁止浏览器与共享代理缓存")
     void responsesArePrivateAndNotStored() {
         NotificationInboxServiceTest.MemoryMapper mapper = new NotificationInboxServiceTest.MemoryMapper();
-        NotificationInboxService service = new NotificationInboxService(mapper);
+        NotificationInboxService service = new NotificationInboxService(mapper, () -> true);
         service.publish(NotificationCategory.ANNOUNCEMENT, NotificationSeverity.INFO, null,
                 "Maintenance", "Tonight at 22:00", "/pixiv-batch.html");
         NotificationInboxController controller = new NotificationInboxController(service);
@@ -41,7 +41,7 @@ class NotificationInboxControllerTest {
     @DisplayName("分类未读筛选与当前分类全部已读互不影响其它分类")
     void filtersAndMarksCurrentCategoryRead() {
         NotificationInboxServiceTest.MemoryMapper mapper = new NotificationInboxServiceTest.MemoryMapper();
-        NotificationInboxService service = new NotificationInboxService(mapper);
+        NotificationInboxService service = new NotificationInboxService(mapper, () -> true);
         service.publish(NotificationCategory.DOWNLOAD, NotificationSeverity.INFO, null, "Download", "Body", null);
         service.publish(NotificationCategory.SYSTEM, NotificationSeverity.WARNING, null, "System", "Body", null);
         NotificationInboxController controller = new NotificationInboxController(service);
@@ -60,7 +60,7 @@ class NotificationInboxControllerTest {
     @DisplayName("显式删除消息后接口不再返回该消息")
     void deletesMessage() {
         NotificationInboxServiceTest.MemoryMapper mapper = new NotificationInboxServiceTest.MemoryMapper();
-        NotificationInboxService service = new NotificationInboxService(mapper);
+        NotificationInboxService service = new NotificationInboxService(mapper, () -> true);
         NotificationMessage message = service.publish(
                 NotificationCategory.ANNOUNCEMENT,
                 NotificationSeverity.INFO,
@@ -81,7 +81,7 @@ class NotificationInboxControllerTest {
     @DisplayName("任意分类的 HTML 正文通过本地隔离端点返回")
     void servesStoredHtmlForAnyCategory() {
         NotificationInboxServiceTest.MemoryMapper mapper = new NotificationInboxServiceTest.MemoryMapper();
-        NotificationInboxService service = new NotificationInboxService(mapper);
+        NotificationInboxService service = new NotificationInboxService(mapper, () -> true);
         NotificationMessage message = service.publishHtml(
                 NotificationCategory.SURVEY,
                 NotificationSeverity.INFO,
@@ -119,7 +119,7 @@ class NotificationInboxControllerTest {
     @DisplayName("远程公告正文端点按请求语言返回同一逻辑公告的翻译")
     void servesLocalizedRemoteAnnouncementHtml() {
         NotificationInboxServiceTest.MemoryMapper mapper = new NotificationInboxServiceTest.MemoryMapper();
-        NotificationInboxService service = new NotificationInboxService(mapper);
+        NotificationInboxService service = new NotificationInboxService(mapper, () -> true);
         String base = "https://sywyar.github.io/PixivDownloader-Remote-Content/announcements/localized/";
         assertThat(service.storeRemoteAnnouncement(
                 "localized", NotificationSeverity.INFO,
@@ -146,7 +146,7 @@ class NotificationInboxControllerTest {
     @DisplayName("消息 JSON 只公开 HTML 可用标记，不内联正文")
     void keepsHtmlOutOfMessageJson() throws JsonProcessingException {
         NotificationInboxService service = new NotificationInboxService(
-                new NotificationInboxServiceTest.MemoryMapper());
+                new NotificationInboxServiceTest.MemoryMapper(), () -> true);
         NotificationMessage message = service.publishHtml(
                 NotificationCategory.SURVEY,
                 NotificationSeverity.INFO,

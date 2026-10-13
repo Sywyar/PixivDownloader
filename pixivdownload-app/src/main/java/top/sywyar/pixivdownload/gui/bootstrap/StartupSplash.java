@@ -7,6 +7,7 @@ import java.awt.AWTEvent;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.EventQueue;
+import java.awt.Frame;
 import java.awt.GraphicsConfiguration;
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
@@ -35,7 +36,7 @@ public final class StartupSplash implements AutoCloseable {
     private volatile StartupAppearance systemAppearance;
     private volatile String theme;
     private volatile Timer timer;
-    private Window window;
+    private Frame window;
     private StartupSplashView view;
     private AWTEventListener handoff;
     private Rectangle workArea;
@@ -96,11 +97,12 @@ public final class StartupSplash implements AutoCloseable {
         var pointer = MouseInfo.getPointerInfo();
         GraphicsConfiguration configuration = pointer == null
                 ? environment.getDefaultScreenDevice().getDefaultConfiguration() : pointer.getDevice().getDefaultConfiguration();
-        window = new Window(null, configuration);
+        window = new Frame(AppInfo.NAME, configuration);
+        window.setUndecorated(true);
+        window.setResizable(false);
+        if (icon != null) window.setIconImage(icon);
         window.setName("pixivdownload-startup-splash");
-        window.setType(Window.Type.UTILITY);
         window.setAutoRequestFocus(false);
-        window.setFocusableWindowState(false);
         window.getAccessibleContext().setAccessibleName(AppInfo.NAME);
         view = new StartupSplashView(icon, systemAppearance.withTheme(theme), status);
         window.setLayout(new BorderLayout());

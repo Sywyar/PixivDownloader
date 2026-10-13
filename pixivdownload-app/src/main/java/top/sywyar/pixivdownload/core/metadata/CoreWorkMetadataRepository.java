@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.metadata;
 
+import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
+
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRow;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelSeriesTitleRow;
@@ -42,6 +44,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class CoreWorkMetadataRepository implements WorkMetadataRepository {
 
+    private final DatabaseAvailability database;
     private final PixivDatabase pixivDatabase;
     private final NovelMetadataRepository novelMetadataRepository;
     private final AuthorService authorService;
@@ -55,6 +58,7 @@ public class CoreWorkMetadataRepository implements WorkMetadataRepository {
 
     @Override
     public List<WorkMetadata> findAll(WorkType workType, List<Long> workIds) {
+        if (!database.available()) return List.of();
         if (workIds == null || workIds.isEmpty()) {
             return List.of();
         }

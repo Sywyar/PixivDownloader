@@ -21,16 +21,41 @@ import java.util.Objects;
  *                             由插件 classloader 加载但不触发类初始化
  */
 public record PluginContextModule(String sourcePluginId, ClassLoader classLoader,
-                                  List<Class<?>> configurationClasses) {
+                                  List<Class<?>> configurationClasses,
+                                  List<top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution> privateSchema,
+                                  List<top.sywyar.pixivdownload.plugin.api.storage.relational.StorageMigration> storageMigrations,
+                                  List<String> sharedMainStorage) {
+
+    public PluginContextModule(String sourcePluginId, ClassLoader classLoader, List<Class<?>> configurationClasses,
+                               List<top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution> privateSchema,
+                               List<top.sywyar.pixivdownload.plugin.api.storage.relational.StorageMigration> storageMigrations) {
+        this(sourcePluginId, classLoader, configurationClasses, privateSchema, storageMigrations, List.of());
+    }
+
+    public PluginContextModule(String sourcePluginId, ClassLoader classLoader, List<Class<?>> configurationClasses) {
+        this(sourcePluginId, classLoader, configurationClasses, List.of(), List.of());
+    }
 
     public PluginContextModule {
         Objects.requireNonNull(sourcePluginId, "sourcePluginId");
         Objects.requireNonNull(classLoader, "classLoader");
         configurationClasses = List.copyOf(configurationClasses);
+        privateSchema = List.copyOf(privateSchema);
+        storageMigrations = List.copyOf(storageMigrations);
+        sharedMainStorage = List.copyOf(sharedMainStorage);
+        if (sharedMainStorage.stream().distinct().count() != sharedMainStorage.size())
+            throw new IllegalArgumentException("STORAGE_REQUEST_DUPLICATE");
+        sharedMainStorage.forEach(id -> new top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution.SharedAccess(id, true));
+        top.sywyar.pixivdownload.plugin.api.storage.relational.PrivateStorageSchema.merge(privateSchema, storageMigrations);
     }
 
-    /** 是否声明了至少一个配置类（无配置类的插件包不需要子 context）。 */
+    /** 是否声明了至少一个业务配置类。 */
     public boolean hasConfigurationClasses() {
         return !configurationClasses.isEmpty();
+    }
+
+    /** 即使没有业务 Bean，私有结构的初始化和释放仍需受管生命周期。 */
+    public boolean requiresContext() {
+        return hasConfigurationClasses() || !privateSchema.isEmpty() || !storageMigrations.isEmpty() || !sharedMainStorage.isEmpty();
     }
 }

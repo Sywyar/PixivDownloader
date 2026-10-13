@@ -73,11 +73,12 @@ private fun SettingsContent(
     secrets: MutableMap<String, Pair<Long, TextFieldValue>>,
     text: (TextToken) -> String,
     emit: (Event) -> Unit,
+    groupDepth: Int = 0,
 ) {
     val palette = LocalExperiencePalette.current
     when (node) {
-        is Scroll -> SettingsContent(node.content(), workspace, secrets, text, emit)
-        is Surface -> SettingsContent(node.content(), workspace, secrets, text, emit)
+        is Scroll -> SettingsContent(node.content(), workspace, secrets, text, emit, groupDepth)
+        is Surface -> SettingsContent(node.content(), workspace, secrets, text, emit, groupDepth)
         is Container -> if (node.layout() == ContainerLayout.COLUMN) {
             val sectionTitle = node.children().filterIsInstance<Text>().firstOrNull { it.id() == node.id() + ".title" }
             val sectionHelp = node.children().filterIsInstance<Text>().firstOrNull { it.id() == node.id() + ".help" }
@@ -85,31 +86,44 @@ private fun SettingsContent(
                 node.children().filter { it != sectionHelp || sectionTitle == null }.forEach { child -> key(child.id()) {
                     if (child == sectionTitle && sectionHelp != null) Box(Modifier.padding(vertical = 10.dp)) {
                         SettingsFieldLabel(text(sectionTitle.text()), text(sectionHelp.text()), sectionTitle.id())
-                    } else SettingsContent(child, workspace, secrets, text, emit)
+                    } else SettingsContent(child, workspace, secrets, text, emit, groupDepth)
                 } }
             }
         } else ComposeDesktopUiNodeRenderer.Render(node, text, emit, Modifier.fillMaxWidth())
-        is Group -> {
+        is Group -> if (node.summary() != null) ComposeDesktopUiNodeRenderer.Render(node, text, emit, Modifier.fillMaxWidth()) else {
             var expanded by rememberSaveable(node.id()) { mutableStateOf(!node.collapsible()) }
             LaunchedEffect(workspace.locatedRow()) {
                 if (descendants(node).filterIsInstance<Form>().any { form -> form.rows().any { it.id() == workspace.locatedRow() } }) expanded = true
             }
-            Column(Modifier.fillMaxWidth().padding(bottom = 26.dp)) {
-                if (node.collapsible()) CupertinoButton({ expanded = !expanded }, contentPadding = PaddingValues(vertical = 10.dp),
+            Column(Modifier.fillMaxWidth().padding(bottom = if (groupDepth > 0) 8.dp else 26.dp)) {
+                if (node.collapsible()) CupertinoButton({ expanded = !expanded }, contentPadding = PaddingValues(vertical = if (groupDepth > 0) 4.dp else 10.dp),
                     colors = CupertinoButtonDefaults.plainButtonColors(contentColor = palette.secondaryText)) {
                     CupertinoText((if (expanded) "▾  " else "▸  ") + text(node.title()), fontSize = 13.sp)
                 } else CupertinoText(text(node.title()), fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(bottom = 7.dp).semantics { heading() })
-                androidx.compose.animation.AnimatedVisibility(expanded,
+                androidx.compose.animation.AnimatedVisibility(expanded || !node.collapsible(),
                     enter = androidx.compose.animation.fadeIn(tween(140)) + androidx.compose.animation.expandVertically(spring(dampingRatio = 1f)),
                     exit = androidx.compose.animation.fadeOut(tween(100)) + androidx.compose.animation.shrinkVertically(spring(dampingRatio = 1f))) {
-                    SettingsContent(node.content(), workspace, secrets, text, emit)
+                    SettingsContent(node.content(), workspace, secrets, text, emit, groupDepth + 1)
                 }
             }
         }
         is Form -> node.rows().forEach { row -> key(row.id()) { SettingsRow(row, workspace, secrets, text, emit) } }
-        is Text -> CupertinoText(text(node.text()), fontSize = if (node.style() == TextStyle.HEADING) 14.sp else 12.sp,
-            color = palette.secondaryText, modifier = Modifier.padding(vertical = 8.dp))
+        is Text -> CupertinoText(
+            text(node.text()),
+            fontSize = if (node.style() == TextStyle.HEADING) 14.sp else 12.sp,
+            fontWeight = if (node.style() == TextStyle.HEADING) FontWeight.SemiBold else FontWeight.Normal,
+            color = when (node.style()) {
+                TextStyle.ERROR -> palette.error
+                TextStyle.WARNING -> palette.warning
+                TextStyle.HEADING -> palette.text
+                else -> palette.secondaryText
+            },
+            modifier = Modifier.padding(vertical = if (groupDepth > 1) 3.dp else 8.dp).semantics {
+                if (node.style() == TextStyle.ERROR) error(text(node.text()))
+                if (node.style() == TextStyle.HEADING) heading()
+            },
+        )
         is Button -> Box(Modifier.padding(vertical = 8.dp)) {
             SettingsButton(node, text) { emit(Event(EventType.ACTIVATE, node.id(), Value.empty())) }
         }

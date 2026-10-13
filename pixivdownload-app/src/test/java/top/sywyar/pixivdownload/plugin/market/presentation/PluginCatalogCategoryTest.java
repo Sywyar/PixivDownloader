@@ -19,7 +19,7 @@ class PluginCatalogCategoryTest {
         assertThat(PluginCatalogCategory.AGGREGATE_ID).isEqualTo("all");
         assertThat(PluginCatalogCategory.values()).extracting(PluginCatalogCategory::id)
                 .containsExactlyInAnyOrder("translate", "download-type", "download", "convert", "notify",
-                        "backup", "security", "ui", "utility", "dependency")
+                        "backup", "security", "ui", "database", "utility", "dependency")
                 .doesNotContain("all");
     }
 

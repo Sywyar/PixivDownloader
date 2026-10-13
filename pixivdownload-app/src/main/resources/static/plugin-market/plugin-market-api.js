@@ -81,9 +81,9 @@
         var focus = PMK.recovery && PMK.recovery.focus && PMK.recovery.focus();
         if (!focus || !catalog.enabled || !catalog.repositoryId) return catalog;
         var ids = Object.keys(focus.plugins || {});
-        var categories = (focus.categories || []).filter(function (category) { return category === 'ui'; });
+        var categories = (focus.categories || []).filter(function (category) { return category === 'ui' || category === 'database'; });
         if (!ids.length && !categories.length) return catalog;
-        // shortcut: 每次仓库加载最多补查 32 个 ID 和 100 个 GUI 候选；更大仓库通过分页继续查看。
+        // shortcut: 每次仓库加载最多补查 32 个 ID 和合计 100 个数据库 / GUI 候选；更大仓库通过分页继续查看。
         var request = new AbortController();
         var abort = function () { request.abort(); };
         if (signal) {
@@ -94,13 +94,19 @@
         var additions = [];
         catalog.focusIncomplete = false;
         try {
-            if (categories.length) {
+            var categoryBudget = 100;
+            for (var category of categories) {
+                if (!categoryBudget || request.signal.aborted) { catalog.focusIncomplete = true; break; }
                 try {
-                    var gui = await getJson('/api/plugin-market/catalog?repositoryId=' + enc(catalog.repositoryId)
-                        + '&category=ui&limit=100', request.signal);
-                    if (gui.generation === catalog.generation) additions = gui.entries || [];
-                    else catalog.focusIncomplete = true;
-                    if (gui.nextCursor) catalog.focusIncomplete = true;
+                    var page = await getJson('/api/plugin-market/catalog?repositoryId=' + enc(catalog.repositoryId)
+                        + '&category=' + enc(category) + '&limit=' + categoryBudget, request.signal);
+                    if (page.generation === catalog.generation) {
+                        var entries = page.entries || [];
+                        additions = additions.concat(entries.slice(0, categoryBudget));
+                        if (entries.length > categoryBudget) catalog.focusIncomplete = true;
+                        categoryBudget -= Math.min(categoryBudget, entries.length);
+                    } else catalog.focusIncomplete = true;
+                    if (page.nextCursor) catalog.focusIncomplete = true;
                 } catch (failure) { catalog.focusIncomplete = true; }
             }
             var known = new Set((catalog.entries || []).concat(additions).map(function (entry) { return entry.pluginId; }));
@@ -167,9 +173,9 @@
         return detail;
     };
 
-    function postJson(url, body) {
+    function postJson(url, body, signal, method) {
         return fetch(url, {
-            method: 'POST', credentials: 'same-origin',
+            method: method || 'POST', credentials: 'same-origin', signal: signal,
             headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         }).then(function (res) {
@@ -182,6 +188,16 @@
             });
         });
     }
+
+    API.enableDatabaseProvider = function (owner, signal) {
+        return postJson('/api/plugins/' + enc(owner) + '/enabled', {enabled: true}, signal, 'PUT');
+    };
+    API.fetchDatabaseSettings = function (signal) { return getJson('/api/plugins/database', signal); };
+    API.checkDatabase = function (draft, signal) { return postJson('/api/plugins/database/check', draft, signal); };
+    API.saveDatabase = function (draft, signal) { return postJson('/api/plugins/database', draft, signal); };
+    API.previewDatabaseMigration = function (draft, signal) { return postJson('/api/plugins/database/preview', draft, signal); };
+    API.startDatabaseMigration = function (token, signal) { return postJson('/api/plugins/database/migrate', {token: token}, signal); };
+    API.fetchDatabaseMigration = function (signal) { return getJson('/api/plugins/database/migration', signal); };
 
     API.previewInstall = function (repositoryId, pluginId, version) {
         return getJson('/api/plugin-market/' + enc(repositoryId) + '/' + enc(pluginId)

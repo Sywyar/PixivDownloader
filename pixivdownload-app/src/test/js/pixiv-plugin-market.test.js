@@ -177,7 +177,7 @@ function entry(id, name, summary, iconToken, colorToken, category) {
 eq('未知图标 token → 默认 puzzle', PMK.iconClass('definitely-unknown'), 'fa-solid fa-puzzle-piece');
 eq('未知颜色 token → 默认 neutral', PMK.colorClass('pink'), 'pmk-accent--neutral');
 eq('分类顺序包含下载类型扩展与依赖', PMK.CATEGORY_ORDER.join(','),
-    'all,translate,download-type,download,convert,notify,backup,security,ui,utility,dependency');
+    'all,translate,download-type,download,convert,notify,backup,security,ui,database,utility,dependency');
 eq('下载类型扩展使用 plug 图标', PMK.iconClass(PMK.CATEGORY_ICON['download-type']), 'fa-solid fa-plug');
 eq('依赖分类使用 layer-group 图标', PMK.iconClass(PMK.CATEGORY_ICON.dependency), 'fa-solid fa-layer-group');
 eq('分类说明从 i18n 动态解析', PMK.categoryDescription('dependency'),

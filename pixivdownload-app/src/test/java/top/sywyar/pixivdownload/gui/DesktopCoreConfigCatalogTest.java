@@ -16,6 +16,63 @@ import static org.mockito.Mockito.when;
 class DesktopCoreConfigCatalogTest {
 
     @Test
+    @DisplayName("连接字段与类型由提供者声明，空声明隐藏地址及凭据")
+    void declaresDatabaseFieldsAndVisibility() {
+        var host = mock(DesktopUiHost.class);
+        var settings = mock(top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.class);
+        when(host.databaseSettings()).thenReturn(java.util.Optional.of(settings));
+        when(settings.providers()).thenReturn(java.util.List.of(
+                new top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.ProviderChoice("fixture-file", "unknown-file-engine",
+                        new top.sywyar.pixivdownload.databasesqlite.SqliteDatabasePlugin().connectionFields()),
+                new top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.ProviderChoice("fixture-server", "unknown-server-engine",
+                        new top.sywyar.pixivdownload.databasepostgresql.PostgresDatabasePlugin().connectionFields())));
+        var fields = DesktopCoreConfigCatalog.fields(host).stream()
+                .filter(field -> field.groupId().equals(GuiConfigGroups.DATABASE))
+                .collect(java.util.stream.Collectors.toMap(field -> field.key(), field -> field));
+        assertThat(fields.get("database.provider").enumValues()).containsExactly("fixture-file", "fixture-server");
+        assertThat(fields).doesNotContainKey("database.engine");
+        for (String name : java.util.List.of("provider", "jdbc-url", "username", "password")) {
+            assertThat(fields.get("database." + name).effect()).isEqualTo(GuiConfigEffect.PROCESS_RESTART);
+        }
+        for (String name : java.util.List.of("jdbc-url", "username", "password")) {
+            var conditions = fields.get("database." + name).visibleWhen();
+            assertThat(conditions).isNotEmpty();
+            assertThat(conditions.stream().allMatch(condition -> condition.matches(
+                    java.util.Map.of("database.provider", "fixture-file")))).isFalse();
+            assertThat(conditions.stream().allMatch(condition -> condition.matches(
+                    java.util.Map.of("database.provider", "fixture-server")))).isTrue();
+            assertThat(conditions.stream().allMatch(condition -> condition.matches(java.util.Map.of()))).isFalse();
+        }
+        assertThat(fields.get("database.password").sensitive()).isTrue();
+        assertThat(fields.get("database.password").defaultValue()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("未知提供者可以只声明地址，未加载提供者时不合成连接字段")
+    void declaresOnlyAvailableParameters(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        var host = mock(DesktopUiHost.class);
+        var provider = new top.sywyar.pixivdownload.plugin.storage.H2ContractProvider();
+        var selected = new top.sywyar.pixivdownload.plugin.runtime.bootstrap.database.DatabaseProviderSelection.Result(
+                provider.id(), provider.databaseId(), java.util.Optional.of(provider),
+                top.sywyar.pixivdownload.plugin.runtime.bootstrap.database.DatabaseProviderSelection.Failure.NONE);
+        var providers = new java.util.concurrent.atomic.AtomicReference<>(java.util.List.of(selected));
+        var settings = new top.sywyar.pixivdownload.gui.config.DatabaseSettingsService(
+                new top.sywyar.pixivdownload.gui.config.TestDesktopConfigFile(directory.resolve("config.yaml")),
+                org.springframework.mock.env.MockEnvironment::new, java.util.Optional::empty, providers::get);
+        when(host.databaseSettings()).thenReturn(java.util.Optional.of(settings));
+        assertThat(settings.providers()).singleElement().satisfies(choice ->
+                assertThat(choice.connectionFields()).isEqualTo(provider.connectionFields()));
+        assertThat(DesktopCoreConfigCatalog.fields(host)).extracting(field -> field.key())
+                .contains("database.jdbc-url").doesNotContain("database.username", "database.password");
+        assertThat(settings.check(java.util.Map.of("database.provider", provider.id(), "database.jdbc-url",
+                "contract:fields_" + java.util.UUID.randomUUID().toString().replace("-", ""))).outcome())
+                .isEqualTo(top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.Outcome.CONNECTED);
+        providers.set(java.util.List.of());
+        assertThat(DesktopCoreConfigCatalog.fields(host)).extracting(field -> field.key())
+                .doesNotContain("database.jdbc-url", "database.username", "database.password");
+    }
+
+    @Test
     @DisplayName("下载设置显示受限的 FFmpeg 并发并声明后端重启")
     void exposesFfmpegConcurrencyInDownloadSettings() {
         assertThat(DesktopCoreConfigCatalog.fields(mock(DesktopUiHost.class)))

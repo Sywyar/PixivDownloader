@@ -6,6 +6,8 @@ import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.core.pixiv.PixivDescriptionHtml;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageDownloader;
 import top.sywyar.pixivdownload.core.pixiv.PixivImageTransferObserver;
+import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
+import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 import top.sywyar.pixivdownload.config.DownloadSettings;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
@@ -30,15 +32,18 @@ public class NovelSeriesService {
     private final DownloadSettings downloadConfig;
     private final PixivImageDownloader imageDownloader;
     private final MessageResolver messages;
+    private final DatabaseAvailability database;
 
     public NovelSeriesService(NovelDatabase novelDatabase,
                               DownloadSettings downloadConfig,
                               PixivImageDownloader imageDownloader,
-                              MessageResolver messages) {
+                              MessageResolver messages,
+                              DatabaseAvailability database) {
         this.novelDatabase = novelDatabase;
         this.downloadConfig = downloadConfig;
         this.imageDownloader = imageDownloader;
         this.messages = messages;
+        this.database = database;
     }
 
     /**
@@ -56,10 +61,12 @@ public class NovelSeriesService {
                                     String description, String coverUrl,
                                     List<WorkTag> tags, String cookie,
                                     long maximumCoverBytes) {
+        database.requireAvailable();
         if (seriesId <= 0) return;
         try {
             novelDatabase.observeSeries(seriesId, StringUtils.hasText(title) ? title : null, authorId);
             NovelSeries existing = novelDatabase.getSeries(seriesId);
+            database.requireAvailable();
             if (existing == null) return;
 
             String desiredDescription = description != null && !description.isBlank()
@@ -81,13 +88,17 @@ public class NovelSeriesService {
             boolean coverChanged = !java.util.Objects.equals(coverExt, existing.coverExt())
                     || !java.util.Objects.equals(coverFolder, existing.coverFolder());
             if (descChanged || coverChanged) {
+                database.requireAvailable();
                 novelDatabase.updateSeriesMetadata(seriesId, desiredDescription, coverExt, coverFolder);
             }
 
             if (tags != null && !tags.isEmpty()) {
+                database.requireAvailable();
                 novelDatabase.clearNovelSeriesTags(seriesId);
                 novelDatabase.saveNovelSeriesTags(seriesId, tags);
             }
+        } catch (DatabaseUnavailableException unavailable) {
+            throw unavailable;
         } catch (Exception e) {
             log.warn(messages.getForLog("novel.series.log.refresh.failed.exception", seriesId), e);
         }
@@ -104,6 +115,7 @@ public class NovelSeriesService {
 
     private String downloadCover(long seriesId, String coverUrl, Path coverDir, String cookie,
                                  long maximumCoverBytes) {
+        database.requireAvailable();
         if (maximumCoverBytes <= 0) {
             return null;
         }
@@ -116,10 +128,16 @@ public class NovelSeriesService {
                     cookie,
                     new PixivImageTransferObserver() {
                         @Override
+                        public void checkCancelled() {
+                            database.requireAvailable();
+                        }
+                        @Override
                         public long maximumBytes() {
                             return Math.min(MAX_IMAGE_BYTES, maximumCoverBytes);
                         }
                     });
+        } catch (DatabaseUnavailableException unavailable) {
+            throw unavailable;
         } catch (Exception e) {
             log.warn(messages.getForLog("novel.series.log.refresh.failed.exception", seriesId), e);
             return null;

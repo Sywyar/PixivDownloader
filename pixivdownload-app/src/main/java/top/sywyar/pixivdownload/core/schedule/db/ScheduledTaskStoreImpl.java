@@ -33,26 +33,31 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
 
     @PostConstruct
     public void init() {
+        if (databaseInitializer.isUnavailable()) return;
         mapper.recoverInterruptedRuns(System.currentTimeMillis());
     }
 
     @Override
     public List<ScheduledTask> findAll() {
+        if (databaseInitializer.isUnavailable()) return List.of();
         return mapper.findAll();
     }
 
     @Override
     public ScheduledTask findById(long id) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return mapper.findById(id);
     }
 
     @Override
     public int countAll() {
+        if (databaseInitializer.isUnavailable()) return 0;
         return mapper.countAll();
     }
 
     @Override
     public List<ScheduledTask> findDue(long now) {
+        if (databaseInitializer.isUnavailable()) return List.of();
         return mapper.findDue(now);
     }
 
@@ -60,12 +65,14 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
     public List<ScheduledTask> findByCredentialAccount(String policyOwnerPluginId,
                                                        String policyId,
                                                        String accountKey) {
+        if (databaseInitializer.isUnavailable()) return List.of();
         return mapper.findByCredentialAccount(policyOwnerPluginId, policyId, accountKey);
     }
 
     @Override
     @Transactional
     public long create(ScheduledTaskCreate command) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         Objects.requireNonNull(command, "command");
         ScheduledTaskInsertRow row = new ScheduledTaskInsertRow();
         row.setName(command.name());
@@ -92,6 +99,7 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
                                                   long expectedStateVersion,
                                                   String claimToken,
                                                   long now) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         requireText(claimToken, "claim token");
         return Optional.ofNullable(mapper.tryQueueDue(id, expectedStateVersion, claimToken, now));
     }
@@ -100,12 +108,14 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
     public Optional<ScheduleRunToken> tryQueueNow(long id,
                                                   long expectedStateVersion,
                                                   String claimToken) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         requireText(claimToken, "claim token");
         return Optional.ofNullable(mapper.tryQueueNow(id, expectedStateVersion, claimToken));
     }
 
     @Override
     public Optional<ScheduleRunToken> startRun(long id, ScheduleRunToken queuedToken) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         requireTokenState(queuedToken, ScheduleRunState.QUEUED);
         return Optional.ofNullable(mapper.startRun(id, queuedToken));
     }
@@ -114,6 +124,7 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
     public OptionalLong completeRun(long id,
                                     ScheduleRunToken runningToken,
                                     ScheduleRunCompletion completion) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         requireTokenState(runningToken, ScheduleRunState.RUNNING);
         Objects.requireNonNull(completion, "completion");
         return optionalLong(mapper.completeRun(id, runningToken, completion));
@@ -127,6 +138,7 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
                                         String outcomeCode,
                                         String outcomeMessage,
                                         Long nextRunTime) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         Objects.requireNonNull(activeToken, "activeToken");
         if (activeToken.runState() != ScheduleRunState.RUNNING
                 && activeToken.runState() != ScheduleRunState.QUEUED
@@ -144,6 +156,7 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
 
     @Override
     public OptionalLong releaseQueued(long id, ScheduleRunToken queuedToken, Long nextRunTime) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         requireTokenState(queuedToken, ScheduleRunState.QUEUED);
         return optionalLong(mapper.releaseQueued(id, queuedToken, nextRunTime));
     }
@@ -154,6 +167,7 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
                                 ScheduleSuspendReason reason,
                                 String code,
                                 String detailJson) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         Objects.requireNonNull(reason, "reason");
         return optionalLong(mapper.suspend(id, expectedStateVersion, reason, code, detailJson));
     }
@@ -164,6 +178,7 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
                                ScheduleSuspendReason expectedReason,
                                String expectedCode,
                                Long nextRunTime) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         Objects.requireNonNull(expectedReason, "expectedReason");
         return optionalLong(mapper.resume(id, expectedStateVersion, expectedReason,
                 expectedCode, nextRunTime));
@@ -174,6 +189,7 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
     public OptionalLong updateDefinition(long id,
                                          long expectedStateVersion,
                                          ScheduleTaskDefinitionUpdate update) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         Objects.requireNonNull(update, "update");
         Long newVersion = mapper.updateDefinition(id, expectedStateVersion, update);
         if (newVersion == null) {
@@ -185,6 +201,7 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
 
     @Override
     public OptionalLong updateEnabled(long id, long expectedStateVersion, boolean enabled) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return optionalLong(mapper.updateEnabled(id, expectedStateVersion, enabled));
     }
 
@@ -192,12 +209,14 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
     public OptionalLong updateProxy(long id,
                                     long expectedStateVersion,
                                     String proxySnapshot) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return optionalLong(mapper.updateProxy(id, expectedStateVersion, proxySnapshot));
     }
 
     @Override
     @Transactional
     public boolean deleteAggregate(long id, long expectedStateVersion) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         if (mapper.deleteTaskByVersion(id, expectedStateVersion) != 1) {
             return false;
         }
@@ -218,6 +237,7 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
                                        String secret,
                                        String secretReference,
                                        long updatedTime) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         requireText(policyOwnerPluginId, "credential policy owner");
         requireText(policyId, "credential policy id");
         if (secret == null && secretReference == null) {
@@ -238,6 +258,7 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
                                          long expectedStateVersion,
                                          String expectedPolicyOwnerPluginId,
                                          String expectedPolicyId) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         ScheduledCredentialBinding current = mapper.findCredentialBinding(taskId);
         if (current == null
                 || !Objects.equals(current.policyOwnerPluginId(), expectedPolicyOwnerPluginId)
@@ -263,6 +284,7 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
                                                     String expectedPolicyStateJson,
                                                     String newPolicyStateJson,
                                                     long updatedTime) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         String expected = normalizePolicyState(expectedPolicyStateJson);
         ScheduledCredentialBinding current = mapper.findCredentialBinding(taskId);
         if (current == null
@@ -287,22 +309,26 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
     public String findCredentialSecret(long taskId,
                                        String policyOwnerPluginId,
                                        String policyId) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return mapper.findCredentialSecret(taskId, policyOwnerPluginId, policyId);
     }
 
     @Override
     public int upsertPendingWork(ScheduledPendingWork pendingWork) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         Objects.requireNonNull(pendingWork, "pendingWork");
         return mapper.upsertPendingWork(pendingWork);
     }
 
     @Override
     public List<ScheduledPendingWork> listPendingWork(long taskId) {
+        if (databaseInitializer.isUnavailable()) return List.of();
         return mapper.listPendingWork(taskId);
     }
 
     @Override
     public int deletePendingWork(long taskId, String workType, String workId) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return mapper.deletePendingWork(taskId, workType, workId);
     }
 
@@ -312,6 +338,7 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
                                          long expectedStateVersion,
                                          String workType,
                                          String workId) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         Long newVersion = mapper.advanceIdleStateVersion(taskId, expectedStateVersion);
         if (newVersion == null) {
             return OptionalLong.empty();
@@ -328,6 +355,7 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
     @Transactional
     public OptionalLong resolvePendingWork(long taskId, long expectedStateVersion, String workType, String workId,
                                            String userAction, boolean rememberForRun) {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         if (userAction == null || !userAction.matches("[A-Z][A-Z0-9_]{0,63}")) {
             throw new IllegalArgumentException("Invalid user action");
         }

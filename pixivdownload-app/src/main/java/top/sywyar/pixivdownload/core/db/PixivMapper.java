@@ -1,343 +1,277 @@
 package top.sywyar.pixivdownload.core.db;
 
-import org.apache.ibatis.annotations.*;
+import org.springframework.stereotype.Repository;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.*;
+import java.util.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.*;
 
-import java.util.Collection;
-import java.util.List;
+@Repository
+public class PixivMapper {
+    private static final String ARTWORKS = "artworks";
+    private final MainDatabase database;
+    public PixivMapper(MainDatabase database) { this.database = database; }
 
-@Mapper
-public interface PixivMapper {
-    @Select("SELECT base_name FROM artwork_file_names WHERE artwork_id = #{artworkId} ORDER BY page")
-    List<String> findArtworkFileNames(long artworkId);
+    private static Expression eq(String table, String name, Object value) {
+        return call(EQUAL, column(table, name), value(value));
+    }
+    private static Expression id(long id) { return eq(ARTWORKS, "artwork_id", id); }
+    private static Expression active() { return eq(ARTWORKS, "deleted", 0); }
+    private static Map<String, Expression> fields(String table, String... names) {
+        var result = new LinkedHashMap<String, Expression>();
+        for (String name : names) result.put(name, column(table, name));
+        return result;
+    }
+    private List<Map<String, Object>> select(String table, Map<String, Expression> fields, Expression where,
+                                             List<Query.Order> order, int limit, long offset) {
+        if (limit == 0) return List.of();
+        return database.read(s -> s.query(new Query(table, fields, where, List.of(), order, limit, offset)));
+    }
+    private Object scalar(String table, Expression field, Expression where) {
+        var rows = select(table, Map.of("result", field), where, List.of(), 1, 0);
+        return rows.isEmpty() ? null : rows.get(0).get("result");
+    }
+    private int update(String table, Map<String, Expression> values, Expression where) {
+        return database.transaction(s -> s.update(table, values, where));
+    }
+    private void deleteRelated(String table, long artworkId) {
+        database.transaction(s -> s.delete(table, eq(table, "artwork_id", artworkId)));
+    }
+    private static Expression in(String table, String name, Collection<Long> ids) {
+        var args = new ArrayList<Expression>(); args.add(column(table, name));
+        ids.forEach(id -> args.add(value(id)));
+        return new Call(IN, args);
+    }
+    private static Long bool(Boolean value) { return value == null ? null : value ? 1L : 0L; }
+    private static Boolean booleanValue(Object value) { return value == null ? null : (Long) value != 0; }
+    private static Integer integer(Object value) { return value == null ? null : Math.toIntExact((Long) value); }
+    private static int countValue(Object value) { return value == null ? 0 : Math.toIntExact((Long) value); }
 
-    @Delete("DELETE FROM artwork_file_names WHERE artwork_id = #{artworkId}")
-    void deleteArtworkFileNames(long artworkId);
+    public List<String> findArtworkFileNames(long artworkId) {
+        return select("artwork_file_names", fields("artwork_file_names", "base_name"),
+                eq("artwork_file_names", "artwork_id", artworkId),
+                List.of(new Query.Order(column("artwork_file_names", "page"), false, true)), Integer.MAX_VALUE, 0)
+                .stream().map(row -> (String) row.get("base_name")).toList();
+    }
+    public void deleteArtworkFileNames(long artworkId) { deleteRelated("artwork_file_names", artworkId); }
+    public void insertArtworkFileNames(long artworkId, List<String> names) {
+        database.transaction(s -> {
+            for (int page = 0; page < names.size(); page++) s.insert("artwork_file_names",
+                    Map.of("artwork_id", artworkId, "page", (long) page, "base_name", names.get(page)), DatabaseSession.Conflict.error());
+            return null;
+        });
+    }
+    public void deleteArtworkMedia(long artworkId) { deleteRelated("artwork_media", artworkId); }
+    public void deleteUnusedArtworkMedia(long artworkId) {
+        var count = new Scalar(new Query(ARTWORKS, fields(ARTWORKS, "count"), id(artworkId), List.of(), List.of(), 1, 0));
+        database.transaction(s -> s.delete("artwork_media", call(AND, eq("artwork_media", "artwork_id", artworkId),
+                call(GREATER_EQUAL, column("artwork_media", "page"), count))));
+    }
+    public void updateFileNameMaxLength(long id, int length) { update(ARTWORKS, Map.of("file_name_max_length", value(length)), id(id)); }
+    public Integer findFileNameMaxLength(long id) { return integer(scalar(ARTWORKS, column(ARTWORKS, "file_name_max_length"), id(id))); }
+    public Integer findNovelFileNameMaxLength(long id) {
+        return integer(scalar("novels", column("novels", "file_name_max_length"), eq("novels", "novel_id", id)));
+    }
 
-    @Insert({"<script>", "INSERT INTO artwork_file_names(artwork_id, page, base_name) VALUES",
-            "<foreach collection='names' item='name' index='page' separator=','>",
-            "(#{artworkId}, #{page}, #{name})", "</foreach>", "</script>"})
-    void insertArtworkFileNames(@Param("artworkId") long artworkId, @Param("names") List<String> names);
+    public void ensureDefaultFileNameTemplate(String template) {
+        database.transaction(s -> s.insert("file_name_templates", Map.of("id", 1L, "template", template), DatabaseSession.Conflict.ignore()));
+    }
+    public void initStatistics() {
+        database.transaction(s -> s.insert("statistics", Map.of("id", 1L, "total_artworks", 0L, "total_images", 0L, "total_moved", 0L),
+                DatabaseSession.Conflict.ignore()));
+    }
+    private int migrateTime(String name) {
+        var time = column(ARTWORKS, name);
+        return update(ARTWORKS, Map.of(name, call(MULTIPLY, time, value(1000))),
+                call(AND, call(GREATER, time, value(0)), call(LESS, time, value(1_000_000_000_000L))));
+    }
+    public int migrateArtworkTimestampsToMillis() { return migrateTime("time"); }
+    public int migrateArtworkMoveTimestampsToMillis() { return migrateTime("move_time"); }
+    public void insertFileNameTemplateIfAbsent(String template) {
+        database.transaction(s -> s.insert("file_name_templates", Map.of("template", template), DatabaseSession.Conflict.ignore()));
+    }
+    public Long findFileNameTemplateId(String template) {
+        return (Long) scalar("file_name_templates", column("file_name_templates", "id"), eq("file_name_templates", "template", template));
+    }
+    public String findFileNameTemplateById(long id) {
+        return (String) scalar("file_name_templates", column("file_name_templates", "template"), eq("file_name_templates", "id", id));
+    }
+    public List<FileNameTemplateRow> findFileNameTemplatesByIds(Collection<Long> ids) {
+        if (ids.isEmpty()) return List.of();
+        return select("file_name_templates", fields("file_name_templates", "id", "template"), in("file_name_templates", "id", ids),
+                List.of(), Integer.MAX_VALUE, 0).stream()
+                .map(row -> new FileNameTemplateRow((Long) row.get("id"), (String) row.get("template"))).toList();
+    }
+    public void insertFileAuthorNameIfAbsent(String name) {
+        database.transaction(s -> s.insert("file_author_names", Map.of("name", name), DatabaseSession.Conflict.ignore()));
+    }
+    public Long findFileAuthorNameId(String name) {
+        return (Long) scalar("file_author_names", column("file_author_names", "id"), eq("file_author_names", "name", name));
+    }
+    public String findFileAuthorNameById(long id) {
+        return (String) scalar("file_author_names", column("file_author_names", "name"), eq("file_author_names", "id", id));
+    }
 
-    @Delete("DELETE FROM artwork_media WHERE artwork_id = #{artworkId}")
-    void deleteArtworkMedia(@Param("artworkId") long artworkId);
-
-    @Delete("DELETE FROM artwork_media WHERE artwork_id = #{artworkId}"
-            + " AND page >= (SELECT count FROM artworks WHERE artwork_id = #{artworkId})")
-    void deleteUnusedArtworkMedia(@Param("artworkId") long artworkId);
-
-    @Update("UPDATE artworks SET file_name_max_length = #{length} WHERE artwork_id = #{id}")
-    void updateFileNameMaxLength(@Param("id") long id, @Param("length") int length);
-
-    @Select("SELECT file_name_max_length FROM artworks WHERE artwork_id = #{id}")
-    Integer findFileNameMaxLength(long id);
-
-    @Select("SELECT file_name_max_length FROM novels WHERE novel_id = #{id}")
-    Integer findNovelFileNameMaxLength(long id);
-
-    String SELECT_ARTWORK = "SELECT artwork_id, title, folder, count, extensions, time, moved,"
-            + " move_folder, move_time, \"R18\" AS x_restrict, is_ai, author_id, description, file_name, file_author_name_id,"
-            + " series_id, series_order, deleted, upload_time, is_original FROM artworks";
-
-    // ── 种子数据与幂等数据迁移（建表 / 补列 / 索引 DDL 统一由 DatabaseInitializer 执行）──
-
-    @Insert("INSERT OR IGNORE INTO file_name_templates(id, template) VALUES(1, #{template})")
-    void ensureDefaultFileNameTemplate(@Param("template") String template);
-
-    @Insert("INSERT OR IGNORE INTO statistics (id, total_artworks, total_images, total_moved)"
-            + " VALUES (1, 0, 0, 0)")
-    void initStatistics();
-
-    @Update("UPDATE artworks SET time = time * 1000"
-            + " WHERE time > 0 AND time < 1000000000000")
-    int migrateArtworkTimestampsToMillis();
-
-    @Update("UPDATE artworks SET move_time = move_time * 1000"
-            + " WHERE move_time IS NOT NULL AND move_time > 0 AND move_time < 1000000000000")
-    int migrateArtworkMoveTimestampsToMillis();
-
-    @Insert("INSERT OR IGNORE INTO file_name_templates(template) VALUES(#{template})")
-    void insertFileNameTemplateIfAbsent(@Param("template") String template);
-
-    @Select("SELECT id FROM file_name_templates WHERE template = #{template}")
-    Long findFileNameTemplateId(@Param("template") String template);
-
-    @Select("SELECT template FROM file_name_templates WHERE id = #{id}")
-    String findFileNameTemplateById(@Param("id") long id);
-
-    @Select({
-            "<script>",
-            "SELECT id, template FROM file_name_templates",
-            "WHERE id IN",
-            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>",
-            "#{id}",
-            "</foreach>",
-            "</script>"
-    })
-    List<FileNameTemplateRow> findFileNameTemplatesByIds(@Param("ids") Collection<Long> ids);
-
-    // ── Author names ────────────────────────────────────────────────────────────
-
-    @Insert("INSERT OR IGNORE INTO file_author_names(name) VALUES(#{name})")
-    void insertFileAuthorNameIfAbsent(@Param("name") String name);
-
-    @Select("SELECT id FROM file_author_names WHERE name = #{name}")
-    Long findFileAuthorNameId(@Param("name") String name);
-
-    @Select("SELECT name FROM file_author_names WHERE id = #{id}")
-    String findFileAuthorNameById(@Param("id") long id);
-
-    // ── Artworks ────────────────────────────────────────────────────────────────
-
-    @Select(SELECT_ARTWORK + " WHERE artwork_id = #{artworkId}")
-    ArtworkRecord findById(long artworkId);
-
-    @Select({
-            "<script>",
-            SELECT_ARTWORK,
-            "WHERE artwork_id IN",
-            "<foreach item='id' collection='ids' open='(' separator=',' close=')'>",
-            "#{id}",
-            "</foreach>",
-            "</script>"
-    })
-    List<ArtworkRecord> findByIds(@Param("ids") Collection<Long> ids);
-
-    @Insert("INSERT OR IGNORE INTO artworks"
-            + " (artwork_id, title, folder, count, extensions, time, \"R18\", is_ai, author_id, description, file_name, file_author_name_id,"
-            + " series_id, series_order)"
-            + " VALUES (#{artworkId}, #{title}, #{folder}, #{count}, #{extensions}, #{time}, #{xRestrict}, #{isAi}, #{authorId}, #{description},"
-            + " #{fileName}, #{fileAuthorNameId}, #{seriesId}, #{seriesOrder})")
-    void insertOrIgnore(@Param("artworkId") long artworkId,
-                        @Param("title") String title,
-                        @Param("folder") String folder,
-                        @Param("count") int count,
-                        @Param("extensions") String extensions,
-                        @Param("time") long time,
-                        @Param("xRestrict") Integer xRestrict,
-                        @Param("isAi") Boolean isAi,
-                        @Param("authorId") Long authorId,
-                        @Param("description") String description,
-                        @Param("fileName") long fileName,
-                        @Param("fileAuthorNameId") Long fileAuthorNameId,
-                        @Param("seriesId") Long seriesId,
-                        @Param("seriesOrder") Long seriesOrder);
-
+    private List<ArtworkRecord> artworks(Expression where, int limit) {
+        var projection = fields(ARTWORKS, "artwork_id", "title", "folder", "count", "extensions", "time", "moved",
+                "move_folder", "move_time", "r18", "is_ai", "author_id", "description", "file_name", "file_author_name_id",
+                "series_id", "series_order", "deleted", "upload_time", "is_original");
+        return select(ARTWORKS, projection, where, List.of(), limit, 0).stream().map(row -> new ArtworkRecord(
+                (Long) row.get("artwork_id"), (String) row.get("title"), (String) row.get("folder"), countValue(row.get("count")),
+                (String) row.get("extensions"), (Long) row.get("time"), Boolean.TRUE.equals(booleanValue(row.get("moved"))),
+                (String) row.get("move_folder"), (Long) row.get("move_time"), integer(row.get("r18")), booleanValue(row.get("is_ai")),
+                (Long) row.get("author_id"), (String) row.get("description"), (Long) row.get("file_name"), (Long) row.get("file_author_name_id"),
+                (Long) row.get("series_id"), (Long) row.get("series_order"), Boolean.TRUE.equals(booleanValue(row.get("deleted"))),
+                (Long) row.get("upload_time"), booleanValue(row.get("is_original")))).toList();
+    }
+    public ArtworkRecord findById(long artworkId) { return artworks(id(artworkId), 1).stream().findFirst().orElse(null); }
+    public List<ArtworkRecord> findByIds(Collection<Long> ids) { return ids.isEmpty() ? List.of() : artworks(in(ARTWORKS, "artwork_id", ids), Integer.MAX_VALUE); }
+    public void insertOrIgnore(long artworkId, String title, String folder, int count, String extensions, long time,
+                               Integer xRestrict, Boolean isAi, Long authorId, String description, long fileName,
+                               Long fileAuthorNameId, Long seriesId, Long seriesOrder) {
+        var row = new LinkedHashMap<String, Object>();
+        row.put("artwork_id", artworkId); row.put("title", title); row.put("folder", folder); row.put("count", (long) count);
+        row.put("extensions", extensions); row.put("time", time); row.put("r18", xRestrict == null ? null : xRestrict.longValue());
+        row.put("is_ai", bool(isAi)); row.put("author_id", authorId); row.put("description", description); row.put("file_name", fileName);
+        row.put("file_author_name_id", fileAuthorNameId); row.put("series_id", seriesId); row.put("series_order", seriesOrder);
+        database.transaction(s -> s.insert(ARTWORKS, row, DatabaseSession.Conflict.ignore()));
+    }
     /** 下载成功后替换落盘事实，清除已经失效的移动位置。 */
-    @Update("UPDATE artworks SET folder = #{folder}, count = #{count}, extensions = #{extensions},"
-            + " time = #{time}, moved = 0, move_folder = NULL, move_time = NULL"
-            + " WHERE artwork_id = #{artworkId} AND deleted = 0")
-    void updateDownloadedFiles(@Param("artworkId") long artworkId, @Param("folder") String folder,
-                               @Param("count") int count, @Param("extensions") String extensions,
-                               @Param("time") long time);
-
-    @Select(SELECT_ARTWORK + " WHERE RTRIM(RTRIM(move_folder, '/'), '\\') = #{moveFolder} AND deleted = 0")
-    ArtworkRecord findByNormalizedMoveFolder(String moveFolder);
-
-    @Update("UPDATE artworks SET moved = 1, move_folder = #{movePath}, move_time = #{moveTime}"
-            + " WHERE artwork_id = #{artworkId}")
-    void updateMove(@Param("artworkId") long artworkId,
-                    @Param("movePath") String movePath,
-                    @Param("moveTime") long moveTime);
-
-    // 仅补齐缺失的元数据字段：title 仅在当前为空字符串/NULL 时覆盖；
-    // 其余字段仅在当前为 NULL 时覆盖。用于 pixiv-batch 两阶段恢复的 metadata 回填。
-    @Update("UPDATE artworks SET"
-            + "  title = CASE WHEN title IS NULL OR title = '' THEN #{title} ELSE title END,"
-            + "  \"R18\" = COALESCE(\"R18\", #{xRestrict}),"
-            + "  is_ai = COALESCE(is_ai, #{isAi}),"
-            + "  author_id = COALESCE(author_id, #{authorId}),"
-            + "  description = CASE WHEN description IS NULL OR description = '' THEN #{description} ELSE description END"
-            + " WHERE artwork_id = #{artworkId}")
-    void updateMetadataIfMissing(@Param("artworkId") long artworkId,
-                                 @Param("title") String title,
-                                 @Param("xRestrict") Integer xRestrict,
-                                 @Param("isAi") Boolean isAi,
-                                 @Param("authorId") Long authorId,
-                                 @Param("description") String description);
-
+    public void updateDownloadedFiles(long artworkId, String folder, int count, String extensions, long time) {
+        update(ARTWORKS, Map.of("folder", value(folder), "count", value(count), "extensions", value(extensions), "time", value(time),
+                "moved", value(0), "move_folder", value(null), "move_time", value(null)), call(AND, id(artworkId), active()));
+    }
+    public ArtworkRecord findByNormalizedMoveFolder(String moveFolder) {
+        var normalized = call(RTRIM, call(RTRIM, column(ARTWORKS, "move_folder"), value("/")), value("\\"));
+        return artworks(call(AND, call(EQUAL, normalized, value(moveFolder)), active()), 1).stream().findFirst().orElse(null);
+    }
+    public void updateMove(long artworkId, String movePath, long moveTime) {
+        update(ARTWORKS, Map.of("moved", value(1), "move_folder", value(movePath), "move_time", value(moveTime)), id(artworkId));
+    }
+    /** 仅补齐缺失资料；标题和描述的空字符串也视为缺失。 */
+    public void updateMetadataIfMissing(long artworkId, String title, Integer xRestrict, Boolean isAi, Long authorId, String description) {
+        update(ARTWORKS, Map.of("title", call(COALESCE, call(NULL_IF, column(ARTWORKS, "title"), value("")), value(title)),
+                "r18", call(COALESCE, column(ARTWORKS, "r18"), value(xRestrict)),
+                "is_ai", call(COALESCE, column(ARTWORKS, "is_ai"), value(bool(isAi))),
+                "author_id", call(COALESCE, column(ARTWORKS, "author_id"), value(authorId)),
+                "description", call(COALESCE, call(NULL_IF, column(ARTWORKS, "description"), value("")), value(description))), id(artworkId));
+    }
     /** 成功重下后刷新有效元数据；null 表示保留已有字段。 */
-    @Update("UPDATE artworks SET"
-            + " title = COALESCE(#{title}, title),"
-            + " \"R18\" = COALESCE(#{xRestrict}, \"R18\"),"
-            + " is_ai = COALESCE(#{isAi}, is_ai),"
-            + " author_id = COALESCE(#{authorId}, author_id),"
-            + " description = COALESCE(#{description}, description),"
-            + " file_name = #{fileName},"
-            + " file_author_name_id = COALESCE(#{fileAuthorNameId}, file_author_name_id),"
-            + " series_id = COALESCE(#{seriesId}, series_id),"
-            + " series_order = COALESCE(#{seriesOrder}, series_order)"
-            + " WHERE artwork_id = #{artworkId} AND deleted = 0")
-    void refreshMetadataAfterDownload(@Param("artworkId") long artworkId,
-                                      @Param("title") String title,
-                                      @Param("xRestrict") Integer xRestrict,
-                                      @Param("isAi") Boolean isAi,
-                                      @Param("authorId") Long authorId,
-                                      @Param("description") String description,
-                                      @Param("fileName") long fileName,
-                                      @Param("fileAuthorNameId") Long fileAuthorNameId,
-                                      @Param("seriesId") Long seriesId,
-                                      @Param("seriesOrder") Long seriesOrder);
+    public void refreshMetadataAfterDownload(long artworkId, String title, Integer xRestrict, Boolean isAi, Long authorId,
+                                            String description, long fileName, Long fileAuthorNameId, Long seriesId, Long seriesOrder) {
+        var changes = new LinkedHashMap<String, Expression>();
+        changes.put("file_name", value(fileName));
+        var values = new LinkedHashMap<String, Object>();
+        values.put("title", title); values.put("r18", xRestrict); values.put("is_ai", bool(isAi)); values.put("author_id", authorId);
+        values.put("description", description); values.put("file_author_name_id", fileAuthorNameId);
+        values.put("series_id", seriesId); values.put("series_order", seriesOrder);
+        values.forEach((name, v) -> { if (v != null) changes.put(name, value(v)); });
+        update(ARTWORKS, changes, call(AND, id(artworkId), active()));
+    }
+    public void deleteById(long artworkId) { database.transaction(s -> s.delete(ARTWORKS, id(artworkId))); }
+    public void markDeletedById(long artworkId) {
+        update(ARTWORKS, Map.of("deleted", value(1), "metadata_json", value(null)), id(artworkId));
+    }
+    public int deleteIfMarkedDeleted(long artworkId) {
+        return database.transaction(s -> s.delete(ARTWORKS, call(AND, id(artworkId), eq(ARTWORKS, "deleted", 1))));
+    }
+    public void deleteImageHashesByArtwork(long artworkId) { deleteRelated("artwork_image_hashes", artworkId); }
+    public void deleteArtworkCollections(long artworkId) { deleteRelated("artwork_collections", artworkId); }
+    private long count(Expression where) { return (Long) scalar(ARTWORKS, call(COUNT), where); }
+    public int countById(long artworkId) { return Math.toIntExact(count(id(artworkId))); }
+    public int countActiveById(long artworkId) { return Math.toIntExact(count(call(AND, id(artworkId), active()))); }
+    public int countDeletedById(long artworkId) { return Math.toIntExact(count(call(AND, id(artworkId), eq(ARTWORKS, "deleted", 1)))); }
+    public int countByTime(long time) { return Math.toIntExact(count(eq(ARTWORKS, "time", time))); }
+    public Long findMaxTime() { return (Long) scalar(ARTWORKS, call(MAX, column(ARTWORKS, "time")), null); }
+    public long countAll() { return count(active()); }
+    private List<Long> ids(Expression where, boolean time, boolean author, int limit, int offset) {
+        var order = new ArrayList<Query.Order>();
+        if (author) order.add(new Query.Order(call(COALESCE, column(ARTWORKS, "author_id"), value(Long.MAX_VALUE)), false, true));
+        if (time) order.add(new Query.Order(column(ARTWORKS, "time"), true, false));
+        return select(ARTWORKS, fields(ARTWORKS, "artwork_id"), where, order, limit, offset)
+                .stream().map(row -> (Long) row.get("artwork_id")).toList();
+    }
+    public List<Long> findAllIds() { return ids(active(), false, false, Integer.MAX_VALUE, 0); }
+    public List<Long> findAllIdsSortedByTimeDesc() { return ids(active(), true, false, Integer.MAX_VALUE, 0); }
+    public List<Long> findAllIdsSortedByAuthorIdAsc() { return ids(active(), true, true, Integer.MAX_VALUE, 0); }
+    public List<Long> findIdsSortedByTimeDescPaged(int size, int offset) { return ids(active(), true, false, size, offset); }
+    public List<Long> findIdsSortedByAuthorIdAscPaged(int size, int offset) { return ids(active(), true, true, size, offset); }
+    public List<ArtworkRecord> findByTimeBefore(long beforeTime) {
+        return artworks(call(AND, call(LESS, column(ARTWORKS, "time"), value(beforeTime)), active()), Integer.MAX_VALUE);
+    }
+    public void updateAuthorId(long artworkId, long authorId) { update(ARTWORKS, Map.of("author_id", value(authorId)), id(artworkId)); }
+    public List<Long> findIdsMissingAuthor() {
+        return ids(call(AND, active(), call(IS_NULL, column(ARTWORKS, "author_id"))), false, false, Integer.MAX_VALUE, 0);
+    }
+    public void updateSeriesInfo(long artworkId, Long seriesId, Long seriesOrder) {
+        update(ARTWORKS, Map.of("series_id", value(seriesId), "series_order", value(seriesOrder)), id(artworkId));
+    }
+    /** 只供显式 CLI 回填；运行期批量请求需要先建立分页和速率限制。 */
+    public List<Long> findIdsMissingSeries() {
+        return ids(call(AND, active(), call(IS_NULL, column(ARTWORKS, "series_id"))), false, false, Integer.MAX_VALUE, 0);
+    }
 
-    @Delete("DELETE FROM artworks WHERE artwork_id = #{artworkId}")
-    void deleteById(long artworkId);
+    public void upsertTag(String name, String translatedName) {
+        var row = new LinkedHashMap<String, Object>(); row.put("name", name); row.put("translated_name", translatedName);
+        database.transaction(s -> s.insert("tags", row, new DatabaseSession.Conflict(DatabaseSession.Mode.UPDATE,
+                List.of("name"), Map.of("translated_name", call(COALESCE, column("tags", "translated_name"), new Incoming("translated_name"))))));
+    }
+    public Long findTagIdByName(String name) { return (Long) scalar("tags", column("tags", "tag_id"), eq("tags", "name", name)); }
+    public void insertArtworkTag(long artworkId, long tagId) {
+        database.transaction(s -> s.insert("artwork_tags", Map.of("artwork_id", artworkId, "tag_id", tagId), DatabaseSession.Conflict.ignore()));
+    }
+    public void deleteArtworkTags(long artworkId) { deleteRelated("artwork_tags", artworkId); }
+    private List<ArtworkTagRow> tags(Expression where) {
+        var projection = fields("t", "tag_id", "name", "translated_name");
+        projection.put("artwork_id", column("at", "artwork_id"));
+        return database.read(s -> s.query(new Query(new Query.Table("artwork_tags", "at"),
+                List.of(new Query.Join(Query.JoinKind.INNER, new Query.Table("tags", "t"),
+                        call(EQUAL, column("at", "tag_id"), column("t", "tag_id")))), projection, where,
+                List.of(), null, List.of(new Query.Order(column("at", "artwork_id"), false, true),
+                        new Query.Order(column("t", "tag_id"), false, true)), false, Integer.MAX_VALUE, 0)))
+                .stream().map(row -> new ArtworkTagRow((Long) row.get("artwork_id"), (Long) row.get("tag_id"),
+                        (String) row.get("name"), (String) row.get("translated_name"))).toList();
+    }
+    public List<TagDto> findTagsByArtworkId(long artworkId) {
+        return tags(eq("at", "artwork_id", artworkId)).stream()
+                .map(row -> new TagDto(row.getTagId(), row.getName(), row.getTranslatedName())).toList();
+    }
+    public List<ArtworkTagRow> findTagsByArtworkIds(Collection<Long> artworkIds) {
+        return artworkIds.isEmpty() ? List.of() : tags(in("at", "artwork_id", artworkIds));
+    }
+    public Integer existsTagsForArtwork(long artworkId) {
+        return integer(scalar("artwork_tags", value(1), eq("artwork_tags", "artwork_id", artworkId)));
+    }
 
-    /** 保留主行用于下载判重，同时清除元数据快照。 */
-    @Update("UPDATE artworks SET deleted = 1, metadata_json = NULL WHERE artwork_id = #{artworkId}")
-    void markDeletedById(long artworkId);
-
-    /** 仅清除软删除残留行：重新下载落库前调用，使 INSERT OR IGNORE 能写入全新行（deleted 复位）。 */
-    @Delete("DELETE FROM artworks WHERE artwork_id = #{artworkId} AND deleted = 1")
-    int deleteIfMarkedDeleted(long artworkId);
-
-    @Delete("DELETE FROM artwork_image_hashes WHERE artwork_id = #{artworkId}")
-    void deleteImageHashesByArtwork(long artworkId);
-
-    @Delete("DELETE FROM artwork_collections WHERE artwork_id = #{artworkId}")
-    void deleteArtworkCollections(long artworkId);
-
-    @Select("SELECT COUNT(*) FROM artworks WHERE artwork_id = #{artworkId}")
-    int countById(long artworkId);
-
-    /** 未被软删除的存量判定；deleted 行视为不存在。 */
-    @Select("SELECT COUNT(*) FROM artworks WHERE artwork_id = #{artworkId} AND deleted = 0")
-    int countActiveById(long artworkId);
-
-    @Select("SELECT COUNT(*) FROM artworks WHERE artwork_id = #{artworkId} AND deleted = 1")
-    int countDeletedById(long artworkId);
-
-    @Select("SELECT COUNT(*) FROM artworks WHERE time = #{time}")
-    int countByTime(long time);
-
-    @Select("SELECT MAX(time) FROM artworks")
-    Long findMaxTime();
-
-    @Select("SELECT COUNT(*) FROM artworks WHERE deleted = 0")
-    long countAll();
-
-    @Select("SELECT artwork_id FROM artworks WHERE deleted = 0")
-    List<Long> findAllIds();
-
-    @Select("SELECT artwork_id FROM artworks WHERE deleted = 0 ORDER BY time DESC")
-    List<Long> findAllIdsSortedByTimeDesc();
-
-    /**
-     * 按 author_id 升序、time 降序排列。NULL author_id 用 Long.MAX_VALUE 作为哨兵排到末尾。
-     */
-    @Select("SELECT artwork_id FROM artworks WHERE deleted = 0"
-            + " ORDER BY COALESCE(author_id, 9223372036854775807), time DESC")
-    List<Long> findAllIdsSortedByAuthorIdAsc();
-
-    @Select("SELECT artwork_id FROM artworks WHERE deleted = 0"
-            + " ORDER BY time DESC LIMIT #{size} OFFSET #{offset}")
-    List<Long> findIdsSortedByTimeDescPaged(@Param("size") int size, @Param("offset") int offset);
-
-    @Select("SELECT artwork_id FROM artworks WHERE deleted = 0"
-            + " ORDER BY COALESCE(author_id, 9223372036854775807), time DESC"
-            + " LIMIT #{size} OFFSET #{offset}")
-    List<Long> findIdsSortedByAuthorIdAscPaged(@Param("size") int size, @Param("offset") int offset);
-
-    @Select(SELECT_ARTWORK + " WHERE time < #{beforeTime} AND deleted = 0")
-    List<ArtworkRecord> findByTimeBefore(long beforeTime);
-
-    @Update("UPDATE artworks SET author_id = #{authorId} WHERE artwork_id = #{artworkId}")
-    void updateAuthorId(@Param("artworkId") long artworkId, @Param("authorId") long authorId);
-
-    @Select("SELECT artwork_id FROM artworks WHERE author_id IS NULL AND deleted = 0")
-    List<Long> findIdsMissingAuthor();
-
-    @Update("UPDATE artworks SET series_id = #{seriesId}, series_order = #{seriesOrder}"
-            + " WHERE artwork_id = #{artworkId}")
-    void updateSeriesInfo(@Param("artworkId") long artworkId,
-                          @Param("seriesId") Long seriesId,
-                          @Param("seriesOrder") Long seriesOrder);
-
-    /**
-     * 查询所有 {@code series_id IS NULL} 的作品 ID，用于 {@link top.sywyar.pixivdownload.tools.ArtworksBackFill}
-     * 一次性回填。
-     *
-     * <p><strong>仅供 CLI 回填工具调用。</strong>新增 series_id 列后，全部历史作品都是 NULL —— 在运行时
-     * 定时任务里调用本方法会瞬间产生大量 Pixiv 请求并被限流。如果未来需要运行时增量回填，必须先
-     * 添加分页/速率限制再使用。
-     *
-     * <p>NULL 与"无系列"哨兵 {@code 0} 的区分见 {@link top.sywyar.pixivdownload.series.MangaSeriesService#NO_SERIES_SENTINEL}。
-     */
-    @Select("SELECT artwork_id FROM artworks WHERE series_id IS NULL AND deleted = 0")
-    List<Long> findIdsMissingSeries();
-
-    // ── Tags ────────────────────────────────────────────────────────────────────
-
-    /**
-     * 写入或更新标签。已存在同名标签时仅补齐缺失的 {@code translated_name}，不覆盖已有翻译。
-     */
-    @Insert("INSERT INTO tags(name, translated_name) VALUES(#{name}, #{translatedName})"
-            + " ON CONFLICT(name) DO UPDATE SET"
-            + " translated_name = COALESCE(tags.translated_name, excluded.translated_name)")
-    void upsertTag(@Param("name") String name,
-                   @Param("translatedName") String translatedName);
-
-    @Select("SELECT tag_id FROM tags WHERE name = #{name}")
-    Long findTagIdByName(@Param("name") String name);
-
-    @Insert("INSERT OR IGNORE INTO artwork_tags(artwork_id, tag_id) VALUES(#{artworkId}, #{tagId})")
-    void insertArtworkTag(@Param("artworkId") long artworkId,
-                          @Param("tagId") long tagId);
-
-    @Delete("DELETE FROM artwork_tags WHERE artwork_id = #{artworkId}")
-    void deleteArtworkTags(@Param("artworkId") long artworkId);
-
-    @Select("SELECT t.tag_id AS tagId, t.name AS name, t.translated_name AS translatedName"
-            + " FROM artwork_tags at JOIN tags t ON t.tag_id = at.tag_id"
-            + " WHERE at.artwork_id = #{artworkId}"
-            + " ORDER BY t.tag_id")
-    List<TagDto> findTagsByArtworkId(@Param("artworkId") long artworkId);
-
-    @Select({
-            "<script>",
-            "SELECT at.artwork_id AS artworkId, t.tag_id AS tagId,",
-            "t.name AS name, t.translated_name AS translatedName",
-            "FROM artwork_tags at JOIN tags t ON t.tag_id = at.tag_id",
-            "WHERE at.artwork_id IN",
-            "<foreach item='id' collection='artworkIds' open='(' separator=',' close=')'>",
-            "#{id}",
-            "</foreach>",
-            "ORDER BY at.artwork_id, t.tag_id",
-            "</script>"
-    })
-    List<ArtworkTagRow> findTagsByArtworkIds(@Param("artworkIds") Collection<Long> artworkIds);
-
-    @Select("SELECT 1 FROM artwork_tags WHERE artwork_id = #{artworkId} LIMIT 1")
-    Integer existsTagsForArtwork(@Param("artworkId") long artworkId);
-
-    // ── Statistics ───────────────────────────────────────────────────────────────
-
-    @Select("SELECT total_artworks, total_images, total_moved, daily_date,"
-            + " daily_completed, daily_failed FROM statistics WHERE id = 1")
-    StatisticsData getStats();
-
-    @Update("UPDATE statistics SET total_artworks = total_artworks + 1,"
-            + " total_images = total_images + #{imageCount},"
-            + " daily_completed = CASE WHEN daily_date = #{date}"
-            + " THEN COALESCE(daily_completed, 0) + 1 ELSE 1 END,"
-            + " daily_failed = CASE WHEN daily_date = #{date}"
-            + " THEN COALESCE(daily_failed, 0) ELSE 0 END,"
-            + " daily_date = #{date} WHERE id = 1")
-    void recordCompletedDownload(@Param("imageCount") int imageCount, @Param("date") String date);
-
-    @Update("UPDATE statistics SET"
-            + " daily_completed = CASE WHEN daily_date = #{date}"
-            + " THEN COALESCE(daily_completed, 0) ELSE 0 END,"
-            + " daily_failed = CASE WHEN daily_date = #{date}"
-            + " THEN COALESCE(daily_failed, 0) + 1 ELSE 1 END,"
-            + " daily_date = #{date} WHERE id = 1")
-    void recordFailedDownload(@Param("date") String date);
-
-    @Update("UPDATE statistics SET total_moved = total_moved + 1 WHERE id = 1")
-    void incrementMoved();
-
-    @Update("UPDATE statistics SET total_artworks = #{totalArtworks},"
-            + " total_images = #{totalImages}, total_moved = #{totalMoved} WHERE id = 1")
-    void setStats(@Param("totalArtworks") int totalArtworks,
-                  @Param("totalImages") int totalImages,
-                  @Param("totalMoved") int totalMoved);
-
+    public StatisticsData getStats() {
+        var rows = select("statistics", fields("statistics", "total_artworks", "total_images", "total_moved",
+                "daily_date", "daily_completed", "daily_failed"), eq("statistics", "id", 1), List.of(), 1, 0);
+        if (rows.isEmpty()) return null;
+        var row = rows.get(0);
+        return new StatisticsData(countValue(row.get("total_artworks")), countValue(row.get("total_images")),
+                countValue(row.get("total_moved")), (String) row.get("daily_date"),
+                countValue(row.get("daily_completed")), countValue(row.get("daily_failed")));
+    }
+    private Expression daily(String name, String date, boolean increment) {
+        Expression current = call(COALESCE, column("statistics", name), value(0));
+        if (increment) current = call(ADD, current, value(1));
+        return new Conditional(eq("statistics", "daily_date", date), current, value(increment ? 1 : 0));
+    }
+    public void recordCompletedDownload(int imageCount, String date) {
+        update("statistics", Map.of("total_artworks", call(ADD, column("statistics", "total_artworks"), value(1)),
+                "total_images", call(ADD, column("statistics", "total_images"), value(imageCount)),
+                "daily_completed", daily("daily_completed", date, true), "daily_failed", daily("daily_failed", date, false),
+                "daily_date", value(date)), eq("statistics", "id", 1));
+    }
+    public void recordFailedDownload(String date) {
+        update("statistics", Map.of("daily_completed", daily("daily_completed", date, false),
+                "daily_failed", daily("daily_failed", date, true), "daily_date", value(date)), eq("statistics", "id", 1));
+    }
+    public void incrementMoved() {
+        update("statistics", Map.of("total_moved", call(ADD, column("statistics", "total_moved"), value(1))), eq("statistics", "id", 1));
+    }
+    public void setStats(int totalArtworks, int totalImages, int totalMoved) {
+        update("statistics", Map.of("total_artworks", value(totalArtworks), "total_images", value(totalImages), "total_moved", value(totalMoved)),
+                eq("statistics", "id", 1));
+    }
 }

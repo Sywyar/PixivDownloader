@@ -35,6 +35,59 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("Compose 配置未保存状态")
 class DesktopConfigurationControllerTest {
     @Test
+    @DisplayName("存储失败没有字段错误时仍显示错误提示并保留草稿")
+    void storageFailureHasErrorNoticeWithoutInvalidField() throws Exception {
+        DesktopUiHost.ConfigFile file = new DesktopUiHost.ConfigFile() {
+            public Map<String, String> readAll(Collection<String> keys) { return Map.of(); }
+            public void writeAll(Map<String, String> values) { throw new AssertionError("unexpected write"); }
+            public void removeAll(Collection<String> keys) { throw new AssertionError("unexpected removal"); }
+            public DesktopUiHost.ConfigSnapshot snapshot() {
+                throw new java.io.UncheckedIOException(new java.io.IOException("fixture storage unavailable"));
+            }
+            public void restore(DesktopUiHost.ConfigSnapshot snapshot) { throw new AssertionError("unexpected restore"); }
+        };
+        try (var model = model(new HashMap<>(), Map.of("applicationConfig", args -> file))) {
+            select(model, "theme", "dark");
+            activate(model, "config.save");
+            assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+                while (model.busy() || nodes(model).noneMatch(node -> node.id().equals("config.notice")))
+                    Thread.sleep(10);
+            });
+            assertEquals("", ((DesktopUiNode.SettingsWorkspace) workspace(model)).invalidRow());
+            assertTrue(pendingCount(model) > 0);
+            assertEquals(DesktopUiNode.TextStyle.ERROR, nodes(model)
+                    .filter(node -> node.id().equals("config.notice")).map(DesktopUiNode.Text.class::cast)
+                    .findFirst().orElseThrow().style());
+        }
+    }
+
+    @Test
+    @DisplayName("保存结果区分成功与已保存但热更新失败")
+    void saveNoticeReflectsApplicationResult() throws Exception {
+        assertSaveNotice(200, DesktopUiNode.TextStyle.SUCCESS);
+        assertSaveNotice(503, DesktopUiNode.TextStyle.WARNING);
+    }
+
+    private void assertSaveNotice(int status, DesktopUiNode.TextStyle style) throws Exception {
+        var stored = new HashMap<String, String>();
+        var field = new GuiConfigFieldContribution("fixture.value", "fixture", "Value", "",
+                GuiConfigFieldType.STRING, "initial", 0, false,
+                top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect.HOT_RELOAD);
+        try (var model = model(stored, Map.of(
+                "coreConfigFields", args -> List.of(field),
+                "coreConfigGroups", args -> List.of(new GuiConfigGroupContribution("fixture", "Fixture", 0)),
+                "validateCoreConfigValue", args -> null,
+                "guiPostJson", args -> new DesktopUiHost.GuiResponse(true, status, null, "", false)
+        ))) {
+            dispatch(model, new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "config.app.fixture.value.input", DesktopUiNode.Value.text("changed")));
+            save(model);
+            assertEquals("changed", stored.get("fixture.value"));
+            assertEquals(style, nodes(model).filter(node -> node.id().equals("config.notice"))
+                    .map(DesktopUiNode.Text.class::cast).findFirst().orElseThrow().style());
+        }
+    }
+    @Test
     @DisplayName("插件分组未指定语言命名空间时沿用插件展示命名空间")
     void inheritsGroupTranslationNamespace() throws Exception {
         var field = new GuiConfigFieldContribution("demo.enabled", "demo", "enabled", GuiConfigFieldType.BOOL, "false", 1);
@@ -226,6 +279,9 @@ class DesktopConfigurationControllerTest {
                 var workspace = nodes(model).filter(DesktopUiNode.SettingsWorkspace.class::isInstance)
                         .map(DesktopUiNode.SettingsWorkspace.class::cast).findFirst().orElseThrow();
                 assertEquals("config.app.demo.value.row", workspace.invalidRow());
+                assertEquals(DesktopUiNode.TextStyle.ERROR, nodes(model)
+                        .filter(node -> node.id().equals("config.notice")).map(DesktopUiNode.Text.class::cast)
+                        .findFirst().orElseThrow().style());
                 assertEquals(workspace.invalidRow(), workspace.locatedRow());
                 dispatch(model, new DesktopUiNode.Event(
                         DesktopUiNode.EventType.CHANGE,
@@ -609,6 +665,7 @@ class DesktopConfigurationControllerTest {
                         case "applicationBuildChannel": return DesktopUiHost.BuildChannel.UNKNOWN;
                         case "applicationConfig": return config;
                         case "resolveDatabasePath": return Path.of("data", "test.db");
+                        case "supportsDatabaseFileSelection": return true;
                         case "defaultBackfillOptions": return new DesktopUiHost.BackfillOptions(
                                 "data/test.db", "localhost", 8080, false, 1000, 0, false
                         );

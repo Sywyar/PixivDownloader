@@ -11,6 +11,7 @@ import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.MutablePropertySources;
 import org.springframework.core.env.PropertySource;
 import top.sywyar.pixivdownload.plugin.api.storage.PluginDataSource;
+import top.sywyar.pixivdownload.plugin.api.storage.PluginDatabase;
 import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
@@ -59,6 +60,8 @@ public final class PluginApplicationContextFactory {
     private final PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry;
     private final Function<String, RuntimePathProvider> runtimePathProviderFactory;
     private final Function<String, PluginDataSource> pluginDataSourceFactory;
+    private final Function<PluginContextModule, PluginDatabase> pluginDatabaseFactory;
+    private final Function<PluginContextModule, top.sywyar.pixivdownload.plugin.api.storage.PluginMainDatabase> mainDatabaseFactory;
 
     public PluginApplicationContextFactory(PluginStreamRegistry pluginStreamRegistry,
                                            PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry) {
@@ -78,12 +81,37 @@ public final class PluginApplicationContextFactory {
             PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry,
             Function<String, RuntimePathProvider> runtimePathProviderFactory,
             Function<String, PluginDataSource> pluginDataSourceFactory) {
+        this(propertySourceProvider, pluginStreamRegistry, pluginRuntimeTaskRegistry,
+                runtimePathProviderFactory, pluginDataSourceFactory, null);
+    }
+
+    public PluginApplicationContextFactory(
+            PluginContextPropertySourceProvider propertySourceProvider,
+            PluginStreamRegistry pluginStreamRegistry,
+            PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry,
+            Function<String, RuntimePathProvider> runtimePathProviderFactory,
+            Function<String, PluginDataSource> pluginDataSourceFactory,
+            Function<PluginContextModule, PluginDatabase> pluginDatabaseFactory) {
+        this(propertySourceProvider, pluginStreamRegistry, pluginRuntimeTaskRegistry, runtimePathProviderFactory,
+                pluginDataSourceFactory, pluginDatabaseFactory, null);
+    }
+
+    public PluginApplicationContextFactory(
+            PluginContextPropertySourceProvider propertySourceProvider,
+            PluginStreamRegistry pluginStreamRegistry,
+            PluginRuntimeTaskRegistry pluginRuntimeTaskRegistry,
+            Function<String, RuntimePathProvider> runtimePathProviderFactory,
+            Function<String, PluginDataSource> pluginDataSourceFactory,
+            Function<PluginContextModule, PluginDatabase> pluginDatabaseFactory,
+            Function<PluginContextModule, top.sywyar.pixivdownload.plugin.api.storage.PluginMainDatabase> mainDatabaseFactory) {
         this.propertySourceProvider = Objects.requireNonNull(propertySourceProvider, "propertySourceProvider");
         this.pluginStreamRegistry = Objects.requireNonNull(pluginStreamRegistry, "pluginStreamRegistry");
         this.pluginRuntimeTaskRegistry =
                 Objects.requireNonNull(pluginRuntimeTaskRegistry, "pluginRuntimeTaskRegistry");
         this.runtimePathProviderFactory = runtimePathProviderFactory;
         this.pluginDataSourceFactory = pluginDataSourceFactory;
+        this.pluginDatabaseFactory = pluginDatabaseFactory;
+        this.mainDatabaseFactory = mainDatabaseFactory;
     }
 
     /**
@@ -124,7 +152,16 @@ public final class PluginApplicationContextFactory {
                     RuntimePathProvider.class,
                     () -> runtimePathProviderFactory.apply(module.sourcePluginId()));
         }
-        if (pluginDataSourceFactory != null) {
+        if (pluginDatabaseFactory != null) {
+            child.registerBean("pluginDatabase", PluginDatabase.class,
+                    () -> pluginDatabaseFactory.apply(module), definition -> {
+                        definition.setLazyInit(module.privateSchema().isEmpty());
+                        definition.setDestroyMethodName("close");
+                    });
+            child.registerBean(PLUGIN_DATA_SOURCE_BEAN_NAME, PluginDataSource.class,
+                    () -> new LegacyPluginDataSource(child.getBean(PluginDatabase.class)),
+                    definition -> definition.setLazyInit(true));
+        } else if (pluginDataSourceFactory != null) {
             child.registerBean(
                     PLUGIN_DATA_SOURCE_BEAN_NAME,
                     PluginDataSource.class,
@@ -135,6 +172,12 @@ public final class PluginApplicationContextFactory {
                     });
         }
         child.register(PluginContextInfrastructureConfiguration.class);
+        if (mainDatabaseFactory != null) {
+            child.registerBean("pluginMainDatabase", top.sywyar.pixivdownload.plugin.api.storage.PluginMainDatabase.class,
+                    () -> mainDatabaseFactory.apply(module), definition -> definition.setDestroyMethodName("close"));
+        } else if (!module.sharedMainStorage().isEmpty()) {
+            throw new IllegalStateException("STORAGE_MAIN_UNAVAILABLE");
+        }
         for (Class<?> configurationClass : module.configurationClasses()) {
             child.register(configurationClass);
         }
@@ -168,6 +211,8 @@ public final class PluginApplicationContextFactory {
 
         LinkedHashSet<String> maskKeys =
                 new LinkedHashSet<>(propertySnapshot.sensitivePropertyKeys());
+        maskKeys.add("database.password");
+        maskKeys.add("DATABASE_PASSWORD");
         collectExistingMaskKeys(sources.get(maskSourceName), maskKeys);
         collectExistingMaskKeys(sources.get(updateMaskSourceName), maskKeys);
 

@@ -44,8 +44,9 @@ public class DuplicatePluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled("gallery-tools")
     public DuplicateService duplicateService(ArtworkHashIndexQuery hashIndexQuery,
-                                              @Qualifier("duplicatePluginMessages") MessageResolver messages) {
-        return new DuplicateService(hashIndexQuery, messages);
+                                              @Qualifier("duplicatePluginMessages") MessageResolver messages,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
+        return new DuplicateService(hashIndexQuery, messages, database);
     }
 
     @Bean(name = "duplicateScanTaskExecutor", destroyMethod = "shutdown")
@@ -64,8 +65,9 @@ public class DuplicatePluginConfiguration {
     public DuplicateScanService duplicateScanService(ArtworkHashIndexMaintenance hashIndexMaintenance,
                                                       DuplicateService duplicateService,
                                                       @Qualifier("duplicatePluginMessages") MessageResolver messages,
-                                                      @Qualifier("duplicateScanTaskExecutor") TaskExecutor taskExecutor) {
-        return new DuplicateScanService(hashIndexMaintenance, duplicateService, messages, taskExecutor);
+                                                      @Qualifier("duplicateScanTaskExecutor") TaskExecutor taskExecutor,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
+        return new DuplicateScanService(hashIndexMaintenance, duplicateService, messages, taskExecutor, database);
     }
 
     @Bean
@@ -80,7 +82,8 @@ public class DuplicatePluginConfiguration {
     public DuplicateHashBackfillTask duplicateHashBackfillTask(
             ArtworkHashIndexMaintenance hashIndexMaintenance,
             DuplicateService duplicateService,
-            @Qualifier("duplicatePluginMessages") MessageResolver messages) {
-        return new DuplicateHashBackfillTask(hashIndexMaintenance, duplicateService, messages);
+            @Qualifier("duplicatePluginMessages") MessageResolver messages,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
+        return new DuplicateHashBackfillTask(hashIndexMaintenance, duplicateService, messages, database);
     }
 }

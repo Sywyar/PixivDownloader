@@ -4,19 +4,16 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceContext;
 import top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceTask;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
-import java.sql.Statement;
 
 /**
- * 维护任务：刷新 SQLite 查询规划器统计信息（sqlite_stat1），让索引选择保持稳定。
- *
- * <p>用 {@code PRAGMA optimize} 而不是无脑 {@code ANALYZE}：它会自适应地仅对统计明显过时的表运行
- * {@code ANALYZE}，开销可控、更安全。
+ * 由当前提供者刷新主库的查询规划统计。
  *
  * <p>{@link Order} 值排在清理类任务之后，让统计能反映清理后的真实规模。
  */
@@ -27,6 +24,7 @@ import java.sql.Statement;
 public class DatabaseOptimizeTask implements MaintenanceTask {
 
     private final DataSource dataSource;
+    private final DatabaseTarget target;
 
     @Override
     public String name() {
@@ -35,9 +33,8 @@ public class DatabaseOptimizeTask implements MaintenanceTask {
 
     @Override
     public void execute(MaintenanceContext context) throws Exception {
-        try (Connection connection = dataSource.getConnection();
-             Statement statement = connection.createStatement()) {
-            statement.execute("PRAGMA optimize");
+        try (Connection connection = dataSource.getConnection()) {
+            target.optimize(connection);
             log.info(MessageBundles.getForLog("maintenance.log.database-optimize.done"));
         }
     }

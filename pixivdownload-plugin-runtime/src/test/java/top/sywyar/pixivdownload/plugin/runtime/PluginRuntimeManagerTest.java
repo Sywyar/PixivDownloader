@@ -965,13 +965,14 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
-    @DisplayName("开发模式：忽略 plugins 目录内容，并从模块 target/classes 加载与物理重载")
-    void developmentModeLoadsCompiledModuleClassesAndIgnoresPluginsDirectory() throws IOException {
+    @DisplayName("开发模式：校验安装包并从模块 target/classes 加载与物理重载")
+    void developmentModeLoadsCompiledModuleClassesAndRejectsInvalidPackages() throws IOException {
         Path repositoryRoot = tempDir.resolve("repo");
         Path pluginsRoot = repositoryRoot.resolve("plugins");
         Files.createDirectories(pluginsRoot);
         Files.writeString(pluginsRoot.resolve("broken-plugin.jar"),
-                "this should be ignored in development mode", StandardCharsets.UTF_8);
+                "invalid installed package", StandardCharsets.UTF_8);
+        writeDependencyOrderProbeJar(pluginsRoot.resolve("untrusted.jar"), "untrusted", List.of());
         Path moduleRoot = repositoryRoot.resolve("pixivdownload-plugin-bootstrap-probe");
         writeProbeSourceDescriptor(moduleRoot);
         Path classesDirectory = moduleRoot.resolve("target/classes");
@@ -991,10 +992,11 @@ class PluginRuntimeManagerTest {
             ClassLoader firstClassLoader = manager.pluginManagerForTest().orElseThrow().getPlugin(PROBE_ID)
                     .getPluginClassLoader();
             assertThat(status.state()).isEqualTo(PluginDirectoryState.POPULATED);
-            assertThat(status.directory()).isEqualTo(repositoryRoot.toAbsolutePath().normalize());
+            assertThat(status.directory()).isEqualTo(pluginsRoot.toAbsolutePath().normalize());
             assertThat(status.loadedPluginIds()).containsExactly(PROBE_ID);
             assertThat(status.startedPluginIds()).containsExactly(PROBE_ID);
-            assertThat(status.failures()).isEmpty();
+            assertThat(status.failures()).extracting(PluginLoadFailure::source)
+                    .containsExactlyInAnyOrder("broken-plugin.jar", "untrusted.jar");
             assertThat(manager.artifactPath(PROBE_ID)).contains(classesDirectory.toAbsolutePath().normalize());
             assertThat(manager.isDevelopmentArtifact(PROBE_ID)).isTrue();
             assertThat(pf4jPath).startsWith(repositoryRoot.resolve("target/pixivdownload-plugin-dev-runtime")
@@ -1050,16 +1052,18 @@ class PluginRuntimeManagerTest {
         assertThat(developmentSessionRoot).isNotNull().doesNotExist();
     }
 
-    @Test
-    @DisplayName("独立开发工程在宿主中加载当前编译输出并保留已验证插件")
-    void standaloneDevelopmentLoadsSourceAlongsidePackagedPlugins() throws IOException {
+    @ParameterizedTest
+    @CsvSource({"true", "false"})
+    @DisplayName("独立与多模块开发工程加载当前编译输出并保留已验证插件")
+    void developmentLoadsSourceAlongsidePackagedPlugins(boolean standalone) throws IOException {
         Path project = tempDir.resolve("standalone project");
         Path plugins = project.resolve(".dev/runtime/plugins");
         Path baseline = plugins.resolve("baseline.jar");
         writeDependencyOrderProbeJar(baseline, "baseline", List.of());
         writeLocalProvenance(plugins, baseline, "baseline", PROBE_VERSION);
-        writeDeclarativeProbeSourceDescriptor(project);
-        Path classes = project.resolve("target/classes");
+        Path module = standalone ? project : project.resolve("source-module");
+        writeDeclarativeProbeSourceDescriptor(module);
+        Path classes = module.resolve("target/classes");
         writeDeclarativeProbeClassesDirectory(classes);
         byte[] descriptor = Files.readAllBytes(classes.resolve("plugin.properties"));
         String previousEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
@@ -1095,7 +1099,58 @@ class PluginRuntimeManagerTest {
 
     @ParameterizedTest
     @CsvSource({"true", "false"})
-    @DisplayName("独立工程缺少编译输出或插件标识冲突时仍保留配套插件")
+    @DisplayName("开发源码与安装包共同排序依赖，冲突同时阻断两份来源及依赖方")
+    void mixedSourcesShareDependencyAndConflictPlan(boolean conflict) throws IOException {
+        Path project = tempDir.resolve("mixed");
+        Path plugins = project.resolve("plugins");
+        Path base = plugins.resolve("base.jar");
+        Path dependent = plugins.resolve("dependent.jar");
+        writeDependencyOrderProbeJar(base, "base", List.of());
+        writeDependencyOrderProbeJar(dependent, "dependent",
+                List.of(new PluginDependencyRef(PROBE_ID, PROBE_VERSION, false)));
+        writeLocalProvenance(plugins, base, "base", PROBE_VERSION);
+        writeLocalProvenance(plugins, dependent, "dependent", PROBE_VERSION);
+        Path module = project.resolve("source-module");
+        writeProbeSourceDescriptor(module);
+        Path classes = module.resolve("target/classes");
+        writeProbeClassesDirectory(classes, false);
+        Files.writeString(classes.resolve("plugin.properties"), "\nplugin.dependencies=base@" + PROBE_VERSION + "\n",
+                StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.APPEND);
+        if (conflict) {
+            Path duplicate = plugins.resolve("duplicate.jar");
+            writeProbeJar(duplicate, false);
+            writeLocalProvenance(plugins, duplicate);
+        }
+        String previousEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
+        String previousRoot = System.getProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
+        var manager = new PluginRuntimeManager(plugins);
+        try {
+            System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
+            System.setProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, project.toString());
+            var status = manager.start();
+            if (conflict) {
+                assertThat(status.startedPluginIds()).containsExactly("base");
+                assertThat(manager.loadedDescriptor(PROBE_ID)).isEmpty();
+                assertThat(manager.loadedDescriptor("dependent")).isEmpty();
+                assertThat(status.failures().stream().filter(failure -> "plugin-conflict".equals(failure.phase())))
+                        .hasSize(2);
+            } else {
+                assertThat(status.failures()).isEmpty();
+                assertThat(status.startedPluginIds()).containsExactly("base", PROBE_ID, "dependent");
+                assertThat(manager.isDevelopmentArtifact(PROBE_ID)).isTrue();
+                assertThat(manager.isDevelopmentArtifact("base")).isFalse();
+                assertThat(manager.isDevelopmentArtifact("dependent")).isFalse();
+            }
+        } finally {
+            manager.shutdown();
+            restoreProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, previousEnabled);
+            restoreProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, previousRoot);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true", "false"})
+    @DisplayName("独立工程报告缺少编译输出并拒绝加载冲突来源")
     void standaloneDevelopmentFailuresDoNotRemovePackagedPlugins(boolean compiled) throws IOException {
         Path project = tempDir.resolve("standalone failure");
         Path plugins = project.resolve(".dev/runtime/plugins");
@@ -1111,10 +1166,19 @@ class PluginRuntimeManagerTest {
             System.setProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY, "true");
             System.setProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY, project.toString());
             PluginRuntimeStatus status = manager.start();
-            assertThat(status.failures()).singleElement()
-                    .satisfies(failure -> assertThat(failure.source()).isEqualTo(PROBE_ID));
-            assertThat(status.startedPluginIds()).containsExactly(PROBE_ID);
-            assertThat(manager.artifactPath(PROBE_ID)).contains(baseline.toAbsolutePath());
+            assertThat(status.failures()).hasSize(compiled ? 2 : 1)
+                    .allSatisfy(failure -> assertThat(failure.source()).isEqualTo(PROBE_ID));
+            if (compiled) {
+                assertThat(status.startedPluginIds()).isEmpty();
+                assertThat(manager.artifactPath(PROBE_ID)).isEmpty();
+                assertThat(status.failures()).allSatisfy(failure -> {
+                    assertThat(failure.phase()).isEqualTo("plugin-conflict");
+                    assertThat(failure.reason()).contains(baseline.toString(), project.resolve("target/classes").toString());
+                });
+            } else {
+                assertThat(status.startedPluginIds()).containsExactly(PROBE_ID);
+                assertThat(manager.artifactPath(PROBE_ID)).contains(baseline.toAbsolutePath());
+            }
             assertThat(manager.isDevelopmentArtifact(PROBE_ID)).isFalse();
             assertThat(status.verifications()).extracting(PluginRuntimeVerificationSnapshot::pluginId)
                     .contains(PROBE_ID);
@@ -1130,7 +1194,7 @@ class PluginRuntimeManagerTest {
     void developmentModeManagersUseIsolatedCacheSessions() throws IOException {
         Path repositoryRoot = tempDir.resolve("repo-isolated-sessions");
         Path pluginsRoot = repositoryRoot.resolve("plugins");
-        Files.createDirectories(pluginsRoot);
+        assertThat(pluginsRoot).doesNotExist();
         Path moduleRoot = repositoryRoot.resolve("pixivdownload-plugin-bootstrap-probe");
         writeProbeSourceDescriptor(moduleRoot);
         writeProbeClassesDirectory(moduleRoot.resolve("target/classes"), false);
@@ -1228,7 +1292,7 @@ class PluginRuntimeManagerTest {
             PluginRuntimeStatus status = manager.start();
 
             assertThat(status.state()).isEqualTo(PluginDirectoryState.POPULATED);
-            assertThat(status.directory()).isEqualTo(repositoryRoot.toAbsolutePath().normalize());
+            assertThat(status.directory()).isEqualTo(pluginsRoot.toAbsolutePath().normalize());
             assertThat(status.loadedPluginIds()).containsExactly(PROBE_ID);
             assertThat(status.startedPluginIds()).containsExactly(PROBE_ID);
             assertThat(status.failures()).isEmpty();
@@ -1271,7 +1335,7 @@ class PluginRuntimeManagerTest {
         assertThat(stderr.toString(StandardCharsets.UTF_8))
                 .contains("\u001B[1;31m")
                 .contains("PIXIVDOWNLOAD PLUGIN DEVELOPMENT MODE ENABLED")
-                .contains("The plugins directory is ignored")
+                .contains(pluginsRoot.toString())
                 .contains("Source plugin modules without target/classes output")
                 .contains("pixivdownload-plugin-bootstrap-probe");
     }

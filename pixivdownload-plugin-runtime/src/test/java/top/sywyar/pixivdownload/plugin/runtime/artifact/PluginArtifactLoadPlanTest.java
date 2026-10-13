@@ -51,7 +51,11 @@ class PluginArtifactLoadPlanTest {
         assertThat(plan.orderedEntries()).isEmpty();
         assertThat(plan.skippedPluginIds()).containsExactlyInAnyOrder("base", "dependent");
         assertThat(plan.failures()).extracting(failure -> failure.source())
-                .contains("a-base.jar", "b-base.jar", "dependent.jar");
+                .containsExactly("base", "base", "dependent.jar");
+        assertThat(plan.failures().subList(0, 2)).allSatisfy(failure -> {
+            assertThat(failure.phase()).isEqualTo("plugin-conflict");
+            assertThat(failure.reason()).contains(first.artifactPath().toString(), second.artifactPath().toString());
+        });
     }
 
     private static PluginDescriptor descriptor(String id, List<PluginDependencyRef> dependencies) {

@@ -21,7 +21,8 @@
         if (!focus || !entry) return '';
         if (focus.plugins && Object.prototype.hasOwnProperty.call(focus.plugins, entry.pluginId))
             return focus.plugins[entry.pluginId];
-        return (focus.categories || []).indexOf(D.entryCategory(entry)) !== -1 ? 'gui' : '';
+        var category = D.entryCategory(entry);
+        return (focus.categories || []).indexOf(category) !== -1 ? category === 'ui' ? 'gui' : category : '';
     };
 
     D.artifactMismatch = function (entry, pkg) {

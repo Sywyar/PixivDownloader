@@ -114,7 +114,8 @@ class CoreWorkDeletionServiceTest {
         InOrder inOrder = inOrder(workAssetService, novelMetadataRepository);
         inOrder.verify(workAssetService).deleteLocalFiles(eq(WorkType.NOVEL), eq(20L), any());
         inOrder.verify(novelMetadataRepository).markNovelDeleted(20L);
-        verifyNoInteractions(pixivDatabase);
+        verify(pixivDatabase).isUnavailable();
+        org.mockito.Mockito.verifyNoMoreInteractions(pixivDatabase);
     }
 
     @Test
@@ -132,7 +133,8 @@ class CoreWorkDeletionServiceTest {
                 });
 
         verify(novelMetadataRepository, never()).markNovelDeleted(anyLong());
-        verifyNoInteractions(pixivDatabase);
+        verify(pixivDatabase).isUnavailable();
+        org.mockito.Mockito.verifyNoMoreInteractions(pixivDatabase);
     }
 
     @Test
@@ -181,6 +183,8 @@ class CoreWorkDeletionServiceTest {
         assertThat(service.deleteAll(WorkType.ARTWORK, null)).isZero();
         assertThat(service.deleteAll(WorkType.ARTWORK, List.of())).isZero();
 
-        verifyNoInteractions(workQueryService, workAssetService, pixivDatabase, novelMetadataRepository);
+        verify(pixivDatabase, org.mockito.Mockito.times(2)).isUnavailable();
+        org.mockito.Mockito.verifyNoMoreInteractions(pixivDatabase);
+        verifyNoInteractions(workQueryService, workAssetService, novelMetadataRepository);
     }
 }

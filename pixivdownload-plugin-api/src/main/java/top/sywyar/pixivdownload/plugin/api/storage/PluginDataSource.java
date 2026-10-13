@@ -10,6 +10,8 @@ import javax.sql.DataSource;
  * 或数据库配置。
  *
  * <p>该数据源的生命周期归宿主管理。插件不得关闭该数据源，也不得将其解包为宿主特定实现。
+ * 数据库能力缺席时借连接明确失败；选定其它方言时返回 SQLState 0A000，不能另建 SQLite。
+ * 需要支持可切换引擎的插件应使用 {@link PluginDatabase} 并适配自己的 SQL。
  */
 public interface PluginDataSource extends DataSource {
 }

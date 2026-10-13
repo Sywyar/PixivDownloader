@@ -94,11 +94,13 @@ public class FolderChecker {
 
         JPanel dbRow = new JPanel(new BorderLayout(5, 0));
         dbRow.add(new JLabel(message("gui.tools.form.database-path") + message("gui.punctuation.colon")), BorderLayout.WEST);
-        dbPathField = new JTextField(SwingHost.host().resolveDatabasePath(SwingHost.context().rootFolder()).toString());
+        dbPathField = new JTextField(SwingHost.host().defaultBackfillOptions().dbPath());
+        dbPathField.setEditable(SwingHost.host().supportsDatabaseFileSelection());
         dbRow.add(dbPathField, BorderLayout.CENTER);
 
         JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
         JButton browseBtn = new JButton(message("gui.button.browse"));
+        browseBtn.setEnabled(SwingHost.host().supportsDatabaseFileSelection());
         browseBtn.addActionListener(e -> browseDatabase());
         JButton checkBtn = new JButton(message("gui.folder-checker.button.check-folders"));
         checkBtn.addActionListener(e -> checkFolders());

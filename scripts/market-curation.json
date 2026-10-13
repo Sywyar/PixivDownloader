@@ -57,6 +57,34 @@
     "officialRequired": false,
     "changeNotes": ["新增多人模式去留调查站内信"]
   },
+  "database-sqlite": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
+    "description": {"zh":"提供宿主与 owner 隔离的私有 SQLite 存储，默认随发行包安装。选择、停用或替换后须完整重启；切换配置不迁移数据。", "en":"Provides SQLite storage for the host and isolated plugin owners. Installed by default. Selection, disabling or replacement requires a full restart; configuration changes do not migrate data."},
+    "author": "Sywyar",
+    "sourceType": "official",
+    "category": "database",
+    "tags": ["database", "sqlite", "storage"],
+    "homepageUrl": "https://sywyar.github.io/PixivDownloader/#/en/configuration?id=main-database-and-existing-data",
+    "license": "AGPL-3.0-only",
+    "recommended": true,
+    "officialRequired": false,
+    "changeNotes": ["以外置数据库插件提供 SQLite 连接"]
+  },
+  "database-postgresql": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
+    "description": {"zh":"连接 PostgreSQL 17 / UTF8，为私有存储创建独立受限角色与 schema。须配置具备所需管理权限的连接；安装和切换后须完整重启，切换不自动迁移数据。", "en":"Connects to PostgreSQL 17 / UTF8 and creates restricted roles and schemas for private storage. Requires connection credentials with the necessary management privileges. Installation and switching require a full restart; switching does not migrate data automatically."},
+    "author": "Sywyar",
+    "sourceType": "official",
+    "category": "database",
+    "tags": ["database", "postgresql", "storage"],
+    "homepageUrl": "https://sywyar.github.io/PixivDownloader/#/en/configuration?id=main-database-and-existing-data",
+    "license": "AGPL-3.0-only",
+    "recommended": false,
+    "officialRequired": false,
+    "changeNotes": ["以外置数据库插件提供 PostgreSQL 连接"]
+  },
   "gui-swing": {
     "defaultLocale": "zh-CN",
     "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},

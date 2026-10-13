@@ -69,7 +69,7 @@ abstract class RemoteAnnouncementImporterTestSupport {
         SigningFixture signing = SigningFixture.create();
         RecordingMapper mapper = new RecordingMapper();
         NotificationInboxService inbox = new NotificationInboxService(
-                mapper, () -> 500, () -> 90, List::of,
+                mapper, () -> true, () -> 500, () -> 90, List::of,
                 (namespace, requested, key) -> java.util.Optional.empty(), ignored -> locale.get());
         StubClient client = new StubClient(signing);
         return new Harness(
@@ -624,7 +624,7 @@ abstract class RemoteAnnouncementImporterTestSupport {
 
         @Bean
         NotificationInboxService inbox(RecordingMapper mapper) {
-            return new NotificationInboxService(mapper);
+            return new NotificationInboxService(mapper, () -> true);
         }
 
         @Bean

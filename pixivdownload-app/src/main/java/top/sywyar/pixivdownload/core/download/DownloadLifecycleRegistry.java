@@ -42,11 +42,14 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
     private final AtomicLong observerFailures = new AtomicLong();
     private volatile ExternalCapabilityOwner lastObserverFailure;
     private final DownloadTaskRegistry tasks;
+    private final top.sywyar.pixivdownload.core.database.DatabaseAvailability database;
 
-    public DownloadLifecycleRegistry() { this(new DownloadTaskRegistry()); }
+    public DownloadLifecycleRegistry() { this(new DownloadTaskRegistry(), () -> true); }
     @Autowired
-    public DownloadLifecycleRegistry(DownloadTaskRegistry tasks) {
+    public DownloadLifecycleRegistry(DownloadTaskRegistry tasks,
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
         this.tasks = Objects.requireNonNull(tasks, "tasks");
+        this.database = Objects.requireNonNull(database, "database");
     }
 
     public synchronized void register(ExternalCapabilityOwner owner, Contribution contribution) {
@@ -76,12 +79,14 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
 
     @Override
     public void register(DownloadAttempt attempt, String ownerUuid, String queueType, String title) {
+        database.requireAvailable();
         tasks.register(attempt, ownerUuid, queueType, title);
     }
 
     @Override
     public void track(DownloadAttempt attempt, QueueTaskTracker.Task task, String ownerUuid,
                       String queueType, String title, boolean queued) {
+        database.requireAvailable();
         tasks.register(attempt, ownerUuid, queueType, title);
         tasks.attach(attempt, task);
         task.onTermination(() -> publish(new DownloadEvent(attempt, task.isCancellationRequested()
@@ -91,6 +96,7 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
 
     @Override
     public Map<String, String> options(DownloadAttempt attempt, Map<String, String> options) {
+        database.requireAvailable();
         record Invocation(int order, String owner, String name, DownloadOptionsHook callback) {}
         var chain = new ArrayList<Invocation>();
         snapshot.forEach((owner, contribution) -> contribution.hooks().forEach(hook ->
@@ -99,8 +105,12 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
                 .thenComparing(Invocation::name));
         Map<String, String> current = DownloadSubmission.copyOptions(options);
         for (Invocation invocation : chain) {
+            database.requireAvailable();
             try {
                 current = DownloadSubmission.copyOptions(invocation.callback().customize(attempt, current));
+                database.requireAvailable();
+            } catch (top.sywyar.pixivdownload.core.database.DatabaseUnavailableException unavailable) {
+                throw unavailable;
             } catch (VirtualMachineError | ThreadDeath fatal) {
                 throw fatal;
             } catch (Throwable rejected) {
@@ -112,6 +122,7 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
 
     @Override
     public Receipt submit(DownloadSubmission submission, String credential, RequestOwnerIdentity owner) {
+        if (!database.available()) throw new DownloadTaskException(DownloadTaskException.Code.UNAVAILABLE);
         var reservation = tasks.reserve(submission, credential, owner);
         if (reservation.duplicate()) return new Receipt(reservation.task(), true);
         DownloadAttempt attempt = reservation.task().attempt();
@@ -121,7 +132,9 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
             if (handler == null) throw new DownloadTaskException(DownloadTaskException.Code.UNAVAILABLE);
             publish(new DownloadEvent(attempt, DownloadEvent.Phase.ACCEPTED));
             checkAdmission(attempt);
+            database.requireAvailable();
             handler.submit(submission, attempt, credential);
+            database.requireAvailable();
             var result = tasks.find(attempt.attemptId(), owner).orElseThrow();
             if (result.phase() == DownloadEvent.Phase.ACCEPTED)
                 throw new DownloadTaskException(DownloadTaskException.Code.REJECTED);
@@ -131,7 +144,8 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
         } catch (Throwable failure) {
             publish(new DownloadEvent(attempt, DownloadEvent.Phase.FAILED));
             if (failure instanceof DownloadTaskException known) throw known;
-            if (failure instanceof ExternalCapabilityUnavailableException)
+            if (failure instanceof ExternalCapabilityUnavailableException
+                    || failure instanceof top.sywyar.pixivdownload.core.database.DatabaseUnavailableException)
                 throw new DownloadTaskException(DownloadTaskException.Code.UNAVAILABLE);
             throw new DownloadTaskException(DownloadTaskException.Code.REJECTED);
         }
@@ -150,12 +164,18 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
 
     @Override
     public void checkAdmission(DownloadAttempt attempt) {
+        database.requireAvailable();
         for (Contribution contribution : snapshot.values()) {
             for (DownloadAdmissionPolicy policy : contribution.policies()) {
+                database.requireAvailable();
                 try {
-                    if (policy.evaluate(attempt) != DownloadAdmissionPolicy.Decision.ALLOW) {
+                    var decision = policy.evaluate(attempt);
+                    database.requireAvailable();
+                    if (decision != DownloadAdmissionPolicy.Decision.ALLOW) {
                         throw new DownloadAdmissionRejectedException();
                     }
+                } catch (top.sywyar.pixivdownload.core.database.DatabaseUnavailableException unavailable) {
+                    throw unavailable;
                 } catch (VirtualMachineError | ThreadDeath fatal) {
                     throw fatal;
                 } catch (Throwable rejected) {
@@ -167,9 +187,17 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
 
     @Override
     public void publish(DownloadEvent event) {
+        if (!database.available()) {
+            if (event.phase() == DownloadEvent.Phase.CANCELLED || event.phase() == DownloadEvent.Phase.FAILED) {
+                tasks.update(event);
+                return;
+            }
+            throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+        }
         if (!tasks.update(event)) return;
         for (var publication : snapshot.entrySet()) {
             for (DownloadObserver observer : publication.getValue().observers()) {
+                if (!database.available()) return;
                 try {
                     observer.onDownloadEvent(event);
                 } catch (VirtualMachineError | ThreadDeath fatal) {

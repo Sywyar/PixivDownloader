@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { changedMavenContracts, evaluateBaselineState, evaluateContract } from '../sdk-contract.mjs';
+import { changedMavenContracts, evaluateContract } from '../sdk-contract.mjs';
 import { inspectSdkVersion, parseSdkVersion } from '../sdk-version.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -84,11 +84,16 @@ function git(root, args) {
     }).trim();
 }
 
-function copy(root, relativePath) {
+function copy(root, relativePath, version = '27.3.0') {
     const target = path.join(root, ...relativePath.split('/'));
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.copyFileSync(path.join(ROOT, ...relativePath.split('/')), target);
+    const identity = parseSdkVersion(version);
+    const text = fs.readFileSync(path.join(ROOT, ...relativePath.split('/')), 'utf8')
+            .replaceAll(CURRENT.version, version)
+            .replace(/^plugin\.requires=.*$/mu, `plugin.requires=${identity.compatibilityVersion}`);
+    fs.writeFileSync(target, text, 'utf8');
 }
+
 
 test('日常维护记录公开表面变化，发行时要求更新 SDK 身份', () => {
     const maintenance = evaluateContract({
@@ -114,7 +119,7 @@ test('日常维护记录公开表面变化，发行时要求更新 SDK 身份', 
     }).outcome, 'PUBLISH');
 });
 
-test('Wrapper 纯权限变化不属于 SDK 语义合同', () => {
+test('无仓库快照时，发布合同仍允许 Wrapper 纯权限维护并完整读取大 API', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixivdownload-sdk-wrapper-mode-'));
     const baseSdk = path.join(root, 'base-sdk');
     const candidateSdk = path.join(root, 'candidate-sdk');
@@ -123,7 +128,7 @@ test('Wrapper 纯权限变化不属于 SDK 语义合同', () => {
         git(root, ['config', 'user.email', 'test@example.com']);
         git(root, ['config', 'user.name', 'test']);
         git(root, ['config', 'core.filemode', 'true']);
-        for (const relativePath of [
+        const identityFiles = [
             'pom.xml',
             'pixivdownload-sdk-info/pom.xml',
             'pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties',
@@ -135,7 +140,8 @@ test('Wrapper 纯权限变化不属于 SDK 语义合同', () => {
             'plugin-templates/download-type-plugin/pom.xml',
             'plugin-templates/minimal-feature-plugin/src/main/resources/plugin.properties',
             'plugin-templates/download-type-plugin/src/main/resources/plugin.properties'
-        ]) copy(root, relativePath);
+        ];
+        for (const relativePath of identityFiles) copy(root, relativePath);
         fs.writeFileSync(path.join(root, 'mvnw'), '#!/bin/sh\n', 'utf8');
         git(root, ['add', '-A']);
         git(root, ['commit', '-q', '-m', 'base']);
@@ -153,21 +159,52 @@ test('Wrapper 纯权限变化不属于 SDK 语义合同', () => {
         const baseSurface = path.join(root, 'base-surface.txt');
         const candidateSurface = path.join(root, 'candidate-surface.txt');
         const report = path.join(root, 'report.json');
-        fs.writeFileSync(baseSurface, 'type A\n', 'utf8');
-        fs.writeFileSync(candidateSurface, 'type A\n', 'utf8');
-        const result = spawnSync(process.execPath, [CLI,
+        const surface = Array.from({ length: 40_000 }, (_, index) => `type 示例公开接口${index}\n`).join('');
+        assert.ok(Buffer.byteLength(surface) > 1024 * 1024);
+        fs.writeFileSync(baseSurface, surface, 'utf8');
+        fs.writeFileSync(candidateSurface, surface, 'utf8');
+        const run = (strict = 'true') => spawnSync(process.execPath, [CLI,
             '--repo-root', root,
             '--base-ref', base,
-            '--candidate-ref', candidate,
+            '--candidate-ref', 'HEAD',
             '--base-surface', baseSurface,
             '--candidate-surface', candidateSurface,
             '--base-sdk-root', baseSdk,
             '--candidate-sdk-root', candidateSdk,
-            '--report', report
+            '--report', report,
+            '--require-release-identity', strict
         ], { cwd: root, encoding: 'utf8' });
+        const result = run();
         assert.equal(result.status, 0, result.stderr || result.stdout);
         assert.equal(result.stdout, `NO_PUBLISH: ${sdkIdentity.releaseId}\n`);
         assert.deepEqual(JSON.parse(fs.readFileSync(report, 'utf8')).mavenContractChanges, []);
+        assert.deepEqual(JSON.parse(fs.readFileSync(report, 'utf8')).stableBaseline,
+                { releaseId: sdkIdentity.releaseId, sourceCommitSha: base });
+        assert.equal(fs.existsSync(path.join(root, 'sdk-baselines')), false);
+        assert.equal(run('false').status, 0);
+        assert.equal(JSON.parse(fs.readFileSync(report, 'utf8')).stableBaseline, null);
+
+        for (const [version, api, expected] of [
+            ['27.3.0', surface + 'Draft\n', /without a new SDK release identity/u],
+            ['27.3.1', surface + 'Draft\n', /higher SDK minor/u],
+            ['27.4.0', surface + 'Draft\n', null],
+            ['27.4.0', surface + 'Final\n', null],
+            ['27.4.0', 'Final\n', /removes public API/u]
+        ]) {
+            for (const relativePath of identityFiles) copy(root, relativePath, version);
+            git(root, ['add', '--', ...identityFiles]);
+            git(root, ['commit', '--allow-empty', '-q', '-m', 'development API']);
+            writeConsumerPoms(candidateSdk, version, 'Candidate metadata');
+            fs.writeFileSync(candidateSurface, api, 'utf8');
+            const checked = run();
+            if (expected) {
+                assert.notEqual(checked.status, 0);
+                assert.match(checked.stderr, expected);
+            } else {
+                assert.equal(checked.status, 0, checked.stderr);
+                assert.equal(JSON.parse(fs.readFileSync(report, 'utf8')).outcome, 'PUBLISH');
+            }
+        }
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
     }
@@ -315,22 +352,4 @@ test('同主版本稳定基线禁止删除并要求兼容新增提升次版本',
         candidateSurface: 'A\nB\n',
         stableBaseline, requireReleaseIdentity: true
     }).outcome, 'PUBLISH');
-});
-
-test('预发布不能建立或改写稳定基线', () => {
-    const base = { identity: identity(STABLE), metadataText: '{}\n', surface: 'A\n' };
-    assert.throws(() => evaluateBaselineState({
-        base: null,
-        candidate: base,
-        candidateIdentity: identity(`${NEXT_MINOR}-rc.${SEQUENCE}`),
-        candidateSurface: 'A\n',
-        directory: `sdk-baselines/v${CURRENT.major}`
-    }), /cannot establish/u);
-    assert.throws(() => evaluateBaselineState({
-        base,
-        candidate: { ...base, surface: 'A\nB\n' },
-        candidateIdentity: identity(`${NEXT_MINOR}-rc.${SEQUENCE}`),
-        candidateSurface: 'A\nB\n',
-        directory: `sdk-baselines/v${CURRENT.major}`
-    }), /cannot modify/u);
 });

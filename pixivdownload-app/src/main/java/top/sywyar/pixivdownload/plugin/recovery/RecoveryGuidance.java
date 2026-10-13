@@ -21,6 +21,17 @@ public record RecoveryGuidance(List<String> adviceKeys, List<String> errors, Str
             PluginStatusReport plugins,
             List<String> failures
     ) {
+        return from(gate, desktopFailure, plugins, failures, false, List.of());
+    }
+
+    public static RecoveryGuidance from(
+            PluginRecoveryGateSnapshot gate,
+            DesktopUiFailure desktopFailure,
+            PluginStatusReport plugins,
+            List<String> failures,
+            boolean databaseUnavailable,
+            List<top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure> runtimeFailures
+    ) {
         boolean desktopUnavailable = desktopFailure != null;
         var advice = new LinkedHashSet<String>();
         var diagnostics = plugins.diagnostics().stream()
@@ -45,6 +56,10 @@ public record RecoveryGuidance(List<String> adviceKeys, List<String> errors, Str
             }));
             if (advice.isEmpty()) advice.add("recovery.advice.transaction");
         } else {
+            if (runtimeFailures.stream().anyMatch(failure -> "plugin-conflict".equals(failure.phase()))) {
+                advice.add("recovery.advice.duplicate-plugin");
+            }
+            if (databaseUnavailable) advice.add("plugin.recovery.database-unavailable");
             var knownPackages = plugins.diagnostics().stream()
                     .filter(plugin -> plugin.descriptor() != null || plugin.status() != PluginStatus.MISSING_REQUIRED)
                     .map(PluginDiagnostic::id).collect(java.util.stream.Collectors.toSet());

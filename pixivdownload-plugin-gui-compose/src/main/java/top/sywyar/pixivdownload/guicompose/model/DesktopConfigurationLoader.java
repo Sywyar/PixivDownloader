@@ -240,6 +240,9 @@ final class DesktopConfigurationLoader {
             }
             Map<String, String> missing = new LinkedHashMap<>();
             for (ConfigField field : entry.getValue()) {
+                if (field.spec().sensitive() && !stored.getOrDefault(field.spec().key(), "").isEmpty()) {
+                    storedCredentials.add(field.key());
+                }
                 String value = field.spec().sensitive() ? "" : stored.getOrDefault(
                         field.spec().key(),
                         field.spec().defaultValue()
@@ -310,6 +313,7 @@ final class DesktopConfigurationLoader {
         model.configSections = sections.values().stream().sorted(Comparator.comparingInt((ConfigSection section) -> section.group().order()).thenComparingInt(
                 ConfigSection::order).thenComparing(ConfigSection::id)).toList();
         repositories.load();
+        model.database.refresh();
 
         checkFieldDrift();
     }

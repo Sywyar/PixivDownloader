@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.notificationbase;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.transaction.annotation.Transactional;
+import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
 import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
@@ -44,6 +45,7 @@ public class NotificationInboxService {
                     + "[A-Za-z0-9][A-Za-z0-9._-]*\\.html");
 
     private final NotificationInboxMapper mapper;
+    private final DatabaseAvailability database;
     private final IntSupplier maxMessages;
     private final IntSupplier retentionDays;
     private final WebUiSlotCatalog uiSlots;
@@ -52,43 +54,47 @@ public class NotificationInboxService {
     private final Function<Locale, List<Locale>> localeFallbacks;
     private volatile List<PersistentSurvey> persistentSurveys;
 
-    public NotificationInboxService(NotificationInboxMapper mapper) {
-        this(mapper, () -> NotificationPlugin.DEFAULT_INBOX_MAX_MESSAGES,
+    public NotificationInboxService(NotificationInboxMapper mapper, DatabaseAvailability database) {
+        this(mapper, database, () -> NotificationPlugin.DEFAULT_INBOX_MAX_MESSAGES,
                 () -> NotificationPlugin.DEFAULT_INBOX_RETENTION_DAYS,
                 List::of, (namespace, locale, key) -> Optional.empty(),
                 locale -> locale == null ? Locale.getDefault() : locale);
     }
 
     NotificationInboxService(NotificationInboxMapper mapper,
+                             DatabaseAvailability database,
                              IntSupplier maxMessages,
                              IntSupplier retentionDays) {
-        this(mapper, maxMessages, retentionDays, List::of,
+        this(mapper, database, maxMessages, retentionDays, List::of,
                 (namespace, locale, key) -> Optional.empty(),
                 locale -> locale == null ? Locale.getDefault() : locale);
     }
 
     NotificationInboxService(NotificationInboxMapper mapper,
+                             DatabaseAvailability database,
                              IntSupplier maxMessages,
                              IntSupplier retentionDays,
                              WebUiSlotCatalog uiSlots,
                              NamespaceMessageResolver messages,
                              Function<Locale, Locale> normalizeLocale) {
-        this(mapper, maxMessages, retentionDays, uiSlots, messages, normalizeLocale,
+        this(mapper, database, maxMessages, retentionDays, uiSlots, messages, normalizeLocale,
                 requested -> List.of(normalizeLocale.apply(requested)));
     }
 
     NotificationInboxService(NotificationInboxMapper mapper,
+                             DatabaseAvailability database,
                              IntSupplier maxMessages,
                              IntSupplier retentionDays,
                              WebUiSlotCatalog uiSlots,
                              NamespaceMessageResolver messages,
                              LocaleBundlePolicy localePolicy) {
-        this(mapper, maxMessages, retentionDays, uiSlots, messages,
+        this(mapper, database, maxMessages, retentionDays, uiSlots, messages,
                 localePolicy::normalize,
                 requested -> localeFallbacks(localePolicy, requested));
     }
 
     private NotificationInboxService(NotificationInboxMapper mapper,
+                                     DatabaseAvailability database,
                                      IntSupplier maxMessages,
                                      IntSupplier retentionDays,
                                      WebUiSlotCatalog uiSlots,
@@ -96,6 +102,7 @@ public class NotificationInboxService {
                                      Function<Locale, Locale> normalizeLocale,
                                      Function<Locale, List<Locale>> localeFallbacks) {
         this.mapper = Objects.requireNonNull(mapper, "notification inbox mapper");
+        this.database = Objects.requireNonNull(database, "database availability");
         this.maxMessages = Objects.requireNonNull(maxMessages, "notification inbox max messages");
         this.retentionDays = Objects.requireNonNull(retentionDays, "notification inbox retention days");
         this.uiSlots = Objects.requireNonNull(uiSlots, "web UI slot catalog");
@@ -103,6 +110,15 @@ public class NotificationInboxService {
         this.normalizeLocale = Objects.requireNonNull(normalizeLocale, "locale normalizer");
         this.localeFallbacks = Objects.requireNonNull(localeFallbacks, "locale fallback policy");
         synchronizePersistentSurveys();
+    }
+
+    /** 展示查询的空值须结合此状态判断，不能视为有效空收件箱。 */
+    public boolean isDatabaseAvailable() {
+        return database.available();
+    }
+
+    void requireDatabaseAvailable() {
+        database.requireAvailable();
     }
 
     public NotificationMessage publish(NotificationCategory category,
@@ -121,6 +137,7 @@ public class NotificationInboxService {
                                            String body,
                                            String actionUrl,
                                            NotificationHtmlContent htmlContent) {
+        database.requireAvailable();
         return publish(category, severity, scenarioId, title, body, actionUrl,
                 validatedHtmlContent(htmlContent));
     }
@@ -132,6 +149,7 @@ public class NotificationInboxService {
                                         String body,
                                         String actionUrl,
                                         NotificationHtmlContent htmlContent) {
+        database.requireAvailable();
         NotificationCategory selectedCategory = Objects.requireNonNull(category, "notification category");
         long now = System.currentTimeMillis();
         NotificationMessage message = new NotificationMessage(
@@ -146,9 +164,11 @@ public class NotificationInboxService {
                 safeActionUrl(actionUrl),
                 now,
                 null);
+        database.requireAvailable();
         if (mapper.insert(message) == 1 && isRetentionPoolCategory(selectedCategory)) {
             pruneRetentionPool(now);
         }
+        database.requireAvailable();
         return message;
     }
 
@@ -157,13 +177,16 @@ public class NotificationInboxService {
                                            NotificationSeverity severity,
                                            List<RemoteAnnouncementTranslation> translations,
                                            long publishedAt) {
+        database.requireAvailable();
         String normalizedId = remoteAnnouncementId(remoteId);
         if (publishedAt < 0) {
             throw new IllegalArgumentException("remote announcement published time is invalid");
         }
         String messageId = REMOTE_ANNOUNCEMENT_ID_PREFIX + normalizedId;
         List<RemoteAnnouncementTranslation> validatedTranslations = validatedRemoteTranslations(translations, true);
-        if (mapper.blocksRemoteAnnouncementImport(messageId)) {
+        boolean blocked = mapper.blocksRemoteAnnouncementImport(messageId);
+        database.requireAvailable();
+        if (blocked) {
             return false;
         }
         RemoteAnnouncementTranslation primary = validatedTranslations.get(0);
@@ -179,23 +202,29 @@ public class NotificationInboxService {
                 null,
                 publishedAt,
                 null);
+        database.requireAvailable();
         int changed = mapper.insert(message);
         if (changed == 0) {
             NotificationMessage existing = mapper.findById(messageId);
+            database.requireAvailable();
             if (existing == null) {
                 return false;
             }
             requireSamePublishedAt(existing, publishedAt);
+            database.requireAvailable();
             if (mapper.updateRemoteAnnouncement(message) != 1) {
                 return false;
             }
             changed = 1;
         }
         for (RemoteAnnouncementTranslation translation : validatedTranslations) {
+            database.requireAvailable();
             changed += mapper.upsertRemoteAnnouncementTranslation(messageId, translation);
         }
+        database.requireAvailable();
         changed += mapper.deleteStaleRemoteAnnouncementTranslations(
                 messageId, validatedTranslations.stream().map(RemoteAnnouncementTranslation::locale).toList());
+        database.requireAvailable();
         return changed > 0;
     }
 
@@ -203,8 +232,11 @@ public class NotificationInboxService {
                                           NotificationSeverity severity,
                                           long publishedAt,
                                           List<RemoteAnnouncementTranslation> translations) {
+        database.requireAvailable();
         String messageId = REMOTE_ANNOUNCEMENT_ID_PREFIX + remoteAnnouncementId(remoteId);
-        if (mapper.blocksRemoteAnnouncementImport(messageId)) {
+        boolean blocked = mapper.blocksRemoteAnnouncementImport(messageId);
+        database.requireAvailable();
+        if (blocked) {
             return false;
         }
         if (publishedAt < 0) {
@@ -213,6 +245,7 @@ public class NotificationInboxService {
         String severityName = Objects.requireNonNull(severity, "notification severity").name();
         List<RemoteAnnouncementTranslation> expected = validatedRemoteTranslations(translations, false);
         NotificationMessage existing = mapper.findById(messageId);
+        database.requireAvailable();
         if (existing == null) {
             return true;
         }
@@ -220,6 +253,7 @@ public class NotificationInboxService {
         RemoteAnnouncementTranslation primary = expected.get(0);
         List<RemoteAnnouncementTranslation> stored = safeRemoteTranslations(
                 mapper.findRemoteAnnouncementTranslations(messageId));
+        database.requireAvailable();
         return !severityName.equals(existing.severity())
                 || !primary.title().equals(existing.title())
                 || !primary.summary().equals(existing.body())
@@ -232,6 +266,7 @@ public class NotificationInboxService {
                                           String manifestSha256,
                                           long generatedTime,
                                           long expiresTime) {
+        database.requireAvailable();
         if (sequence <= 0
                 || manifestSha256 == null
                 || !SHA256.matcher(manifestSha256).matches()
@@ -239,12 +274,16 @@ public class NotificationInboxService {
                 || expiresTime <= generatedTime) {
             throw new IllegalArgumentException("remote announcement index state is invalid");
         }
-        return mapper.acceptRemoteAnnouncementIndex(
-                sequence, manifestSha256, generatedTime, expiresTime) == 1;
+        int changed = mapper.acceptRemoteAnnouncementIndex(
+                sequence, manifestSha256, generatedTime, expiresTime);
+        database.requireAvailable();
+        return changed == 1;
     }
 
     RemoteAnnouncementValidators remoteAnnouncementValidators(long now) {
+        database.requireAvailable();
         RemoteAnnouncementValidators validators = mapper.findRemoteAnnouncementValidators();
+        database.requireAvailable();
         return validators == null || validators.expiresTime() <= now ? null : validators;
     }
 
@@ -252,13 +291,16 @@ public class NotificationInboxService {
     boolean saveRemoteAnnouncementValidators(String manifestSha256,
                                              String etag,
                                              String lastModified) {
+        database.requireAvailable();
         if (manifestSha256 == null || !SHA256.matcher(manifestSha256).matches()) {
             throw new IllegalArgumentException("remote announcement manifest SHA-256 is invalid");
         }
-        return mapper.saveRemoteAnnouncementValidators(
+        int changed = mapper.saveRemoteAnnouncementValidators(
                 manifestSha256,
                 optionalHeaderValue(etag),
-                optionalHeaderValue(lastModified)) == 1;
+                optionalHeaderValue(lastModified));
+        database.requireAvailable();
+        return changed == 1;
     }
 
     public List<NotificationMessage> latest(NotificationCategory category, boolean unreadOnly, int limit) {
@@ -267,18 +309,23 @@ public class NotificationInboxService {
 
     public List<NotificationMessage> latest(NotificationCategory category, boolean unreadOnly, int limit,
                                             String language) {
-        return mapper.findLatest(categoryToken(category), unreadOnly, Math.max(1, Math.min(100, limit))).stream()
+        if (!database.available()) return List.of();
+        List<NotificationMessage> result = mapper.findLatest(
+                        categoryToken(category), unreadOnly, Math.max(1, Math.min(100, limit))).stream()
                 .map(NotificationInboxService::safeStoredMessage)
                 .map(message -> localize(message, locale(language)))
                 .toList();
+        return database.available() ? result : List.of();
     }
 
     public long unreadCount() {
-        return mapper.countUnread(null);
+        return unreadCount(null);
     }
 
     public long unreadCount(NotificationCategory category) {
-        return mapper.countUnread(categoryToken(category));
+        if (!database.available()) return 0;
+        long count = mapper.countUnread(categoryToken(category));
+        return database.available() ? count : 0;
     }
 
     public NotificationMessage find(String id) {
@@ -286,8 +333,10 @@ public class NotificationInboxService {
     }
 
     public NotificationMessage find(String id, String language) {
-        return localize(safeStoredMessage(mapper.findById(Objects.requireNonNull(id, "notification id"))),
-                locale(language));
+        if (!database.available()) return null;
+        NotificationMessage message = localize(
+                safeStoredMessage(mapper.findById(Objects.requireNonNull(id, "notification id"))), locale(language));
+        return database.available() ? message : null;
     }
 
     public NotificationHtmlContent htmlContent(String id) {
@@ -295,21 +344,25 @@ public class NotificationInboxService {
     }
 
     public NotificationHtmlContent htmlContent(String id, String language) {
+        if (!database.available()) return null;
         String requiredId = Objects.requireNonNull(id, "notification id");
         NotificationMessage message = safeStoredMessage(mapper.findById(requiredId));
+        if (!database.available()) return null;
         NotificationHtmlContent content = null;
         if (remoteAnnouncement(message)) {
             RemoteAnnouncementTranslation translation = selectRemoteTranslation(
                     safeRemoteTranslations(mapper.findRemoteAnnouncementTranslations(requiredId)),
                     locale(language));
             if (translation != null) {
+                if (!database.available()) return null;
                 content = mapper.findRemoteAnnouncementHtml(requiredId, translation.locale());
             }
         }
         if (content == null) {
+            if (!database.available()) return null;
             content = mapper.findHtmlContent(requiredId);
         }
-        if (content == null) {
+        if (content == null || !database.available()) {
             return null;
         }
         try {
@@ -324,43 +377,61 @@ public class NotificationInboxService {
     }
 
     public NotificationMessage markRead(String id, String language) {
+        database.requireAvailable();
         mapper.markRead(Objects.requireNonNull(id, "notification id"), System.currentTimeMillis());
-        return localize(safeStoredMessage(mapper.findById(id)), locale(language));
+        database.requireAvailable();
+        NotificationMessage message = localize(safeStoredMessage(mapper.findById(id)), locale(language));
+        database.requireAvailable();
+        return message;
     }
 
     public int markAllRead(NotificationCategory category) {
-        return mapper.markAllRead(categoryToken(category), System.currentTimeMillis());
+        database.requireAvailable();
+        int changed = mapper.markAllRead(categoryToken(category), System.currentTimeMillis());
+        database.requireAvailable();
+        return changed;
     }
 
     @Transactional
     public boolean delete(String id) {
+        database.requireAvailable();
         String requiredId = Objects.requireNonNull(id, "notification id");
         NotificationMessage message = mapper.findById(requiredId);
+        database.requireAvailable();
         if (message == null) {
             return false;
         }
         if (message.persistentSurvey()) {
             return false;
         }
+        database.requireAvailable();
         if (NotificationCategory.ANNOUNCEMENT.token().equals(message.category())) {
             if (mapper.dismissAnnouncement(requiredId, System.currentTimeMillis()) != 1) {
                 return false;
             }
+            database.requireAvailable();
             mapper.deleteRemoteAnnouncementTranslations(requiredId);
+            database.requireAvailable();
             return true;
         }
-        return mapper.deleteNonAnnouncement(requiredId) == 1;
+        int changed = mapper.deleteNonAnnouncement(requiredId);
+        database.requireAvailable();
+        return changed == 1;
     }
 
     public boolean dismissUnavailableSurvey(String id) {
+        database.requireAvailable();
         String requiredId = Objects.requireNonNull(id, "notification id");
         if (!requiredId.startsWith(NotificationMessage.PERSISTENT_SURVEY_ID_PREFIX)) {
             return false;
         }
-        return mapper.dismissPersistentSurvey(requiredId, System.currentTimeMillis()) == 1;
+        int changed = mapper.dismissPersistentSurvey(requiredId, System.currentTimeMillis());
+        database.requireAvailable();
+        return changed == 1;
     }
 
     public synchronized void synchronizePersistentSurveys() {
+        if (!database.available()) return;
         List<PersistentSurvey> active = uiSlots.uiSlots().stream()
                 .map(NotificationInboxService::surveyInboxMessage)
                 .flatMap(Optional::stream)
@@ -370,14 +441,17 @@ public class NotificationInboxService {
         if (active.equals(persistentSurveys)) {
             return;
         }
+        database.requireAvailable();
         mapper.setActivePersistentSurveys(active.stream().map(PersistentSurvey::id).toList());
         long now = System.currentTimeMillis();
         for (PersistentSurvey survey : active) {
+            database.requireAvailable();
             mapper.insert(new NotificationMessage(
                     survey.id(), NotificationCategory.SURVEY.token(), NotificationSeverity.INFO.name(),
                     survey.slotId(), survey.titleKey(), survey.bodyKey(), null, null,
                     survey.embedUrl(), now, null));
         }
+        database.requireAvailable();
         persistentSurveys = active;
     }
 
@@ -397,12 +471,13 @@ public class NotificationInboxService {
     }
 
     int pruneRetentionPool(long now) {
+        database.requireAvailable();
         int days = positiveSetting(retentionDays, NotificationPlugin.DEFAULT_INBOX_RETENTION_DAYS);
+        int maximum = positiveSetting(maxMessages, NotificationPlugin.DEFAULT_INBOX_MAX_MESSAGES);
         long maxAgeMillis = TimeUnit.DAYS.toMillis(days);
         long cutoffTime = now > maxAgeMillis ? now - maxAgeMillis : 0;
-        return mapper.pruneRetentionPool(
-                cutoffTime,
-                positiveSetting(maxMessages, NotificationPlugin.DEFAULT_INBOX_MAX_MESSAGES));
+        database.requireAvailable();
+        return mapper.pruneRetentionPool(cutoffTime, maximum);
     }
 
     private static String categoryToken(NotificationCategory category) {
@@ -410,8 +485,8 @@ public class NotificationInboxService {
     }
 
     private NotificationMessage localize(NotificationMessage message, Locale locale) {
-        if (message == null) {
-            return message;
+        if (message == null || !database.available()) {
+            return null;
         }
         if (remoteAnnouncement(message)) {
             RemoteAnnouncementTranslation translation = selectRemoteTranslation(

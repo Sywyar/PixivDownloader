@@ -83,7 +83,7 @@ class PluginInstallServiceTest {
     }
 
     @Test
-    @DisplayName("开发模式上传合法解压目录形态 .zip：规范落盘，但当前模式不激活")
+    @DisplayName("上传与调试源码同名的合法 .zip：规范落盘并保留源码实例")
     void installsExplodedZip() {
         PluginInstallReport report = service.install(explodedUpload("upload.zip", "ext-demo", "1.0.0", null, null), false);
 
@@ -99,13 +99,15 @@ class PluginInstallServiceTest {
     }
 
     @Test
-    @DisplayName("开发模式保存插件及其依赖时检查落盘依赖，不要求启动模式忽略的依赖已激活")
+    @DisplayName("源码冲突时暂存插件及其依赖，按落盘依赖校验")
     void storesDependenciesWithoutRequiringActivationInDevelopmentMode() {
         service.install(explodedUpload("dep.zip", "stored-dep", "1.0.0", null, null), false);
         var lifecycle = mock(PluginLifecycleService.class);
         var resolver = new PluginDependencyResolver(installer,
                 mock(top.sywyar.pixivdownload.plugin.registry.PluginRegistry.class), lifecycle);
-        var coordinator = new ExternalPluginLifecycleCoordinator(mock(PluginRuntimeManager.class), lifecycle,
+        var runtime = mock(PluginRuntimeManager.class);
+        when(runtime.isDevelopmentArtifact("dependent")).thenReturn(true);
+        var coordinator = new ExternalPluginLifecycleCoordinator(runtime, lifecycle,
                 installer, mock(RecoveryModeService.class), resolver);
         var descriptor = new top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor(
                 "dependent", "dependent", "1.0.0",
@@ -344,6 +346,7 @@ class PluginInstallServiceTest {
         PluginLifecycleService lifecycleService = mock(PluginLifecycleService.class);
         RecoveryModeService recoveryModeService = mock(RecoveryModeService.class);
         PluginDependencyResolver dependencyResolver = new PluginDependencyResolver(installer);
+        when(runtimeManager.isDevelopmentArtifact(anyString())).thenReturn(developmentModeEnabled);
         when(runtimeManager.packagePhases()).thenReturn(Map.of());
         when(lifecycleService.phase(anyString())).thenReturn(Optional.of(PluginRuntimePhase.STARTED));
         when(runtimeManager.loadPlugin(any(Path.class))).thenAnswer(invocation ->

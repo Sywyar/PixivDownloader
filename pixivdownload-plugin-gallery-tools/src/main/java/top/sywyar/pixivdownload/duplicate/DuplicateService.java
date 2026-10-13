@@ -30,6 +30,7 @@ public class DuplicateService {
 
     private final ArtworkHashIndexQuery hashIndexQuery;
     private final MessageResolver messages;
+    private final top.sywyar.pixivdownload.core.database.DatabaseAvailability database;
 
     private volatile CacheEntry cache;
 
@@ -48,8 +49,10 @@ public class DuplicateService {
                                           int size,
                                           DuplicateDto.ScanStatus scanStatus) {
         Query query = normalize(threshold, aHashThreshold, scope, page, size);
+        if (!database.available()) return unavailable(query);
         ArtworkHashFingerprint fingerprint = hashIndexQuery.fingerprint();
         List<DuplicateDto.Group> allGroups = cachedGroups(query, fingerprint);
+        if (!database.available()) return unavailable(query);
         int totalGroups = allGroups.size();
         int from = Math.min(query.page() * query.size(), totalGroups);
         int to = Math.min(from + query.size(), totalGroups);
@@ -60,6 +63,11 @@ public class DuplicateService {
                 allGroups.subList(from, to),
                 scanStatus == null ? DuplicateDto.idleScanStatus() : scanStatus
         );
+    }
+
+    private DuplicateDto.GroupsPage unavailable(Query query) {
+        return new DuplicateDto.GroupsPage(query.page(), query.size(), 0, List.of(),
+                new DuplicateDto.ScanStatus("UNAVAILABLE", 0, 0, null));
     }
 
     public void invalidate() {
@@ -78,6 +86,7 @@ public class DuplicateService {
                 return current.groups();
             }
             List<DuplicateDto.Group> groups = buildGroups(query);
+            if (!database.available()) return List.of();
             cache = new CacheEntry(key, groups);
             return groups;
         }

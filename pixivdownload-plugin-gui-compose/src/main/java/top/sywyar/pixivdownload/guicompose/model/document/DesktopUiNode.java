@@ -272,14 +272,18 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
     }
 
     /** 带标题的分组容器。 */
-    record Group(String id, TextToken title, DesktopUiNode content, boolean collapsible) implements DesktopUiNode {
+    record Group(String id, TextToken title, DesktopUiNode content, boolean collapsible, Text summary) implements DesktopUiNode {
         public Group(String id, TextToken title, DesktopUiNode content) {
             this(id, title, content, false);
+        }
+        public Group(String id, TextToken title, DesktopUiNode content, boolean collapsible) {
+            this(id, title, content, collapsible, null);
         }
         /**
          * @param id 稳定节点标识
          * @param title 已本地化的分组标题
          * @param content 分组内容
+         * @param summary 可选的常显摘要，收起详情时仍可读取
          */
         public Group {
             id = requireId(id, "id");
@@ -288,7 +292,9 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
 
         @Override public Kind kind() { return Kind.GROUP; }
-        @Override public List<DesktopUiNode> childNodes() { return List.of(content); }
+        @Override public List<DesktopUiNode> childNodes() {
+            return summary == null ? List.of(content) : List.of(summary, content);
+        }
     }
 
     /**
@@ -743,8 +749,11 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
 
     enum AboutUpdateState { UNKNOWN, CHECKING, CURRENT, AVAILABLE, DISABLED, ERROR }
     record AboutMaintainer(Image avatar, Link link, TextToken role) {}
-    record AboutFact(String id, TextToken label, TextToken value, boolean expandable) {
-        public AboutFact(String id, TextToken label, TextToken value) { this(id, label, value, false); }
+    record AboutPlugin(String version, TextToken status) {}
+    record AboutFact(String id, TextToken label, TextToken value, List<AboutPlugin> plugins) {
+        public AboutFact { plugins = List.copyOf(plugins); }
+        public AboutFact(String id, TextToken label, TextToken value) { this(id, label, value, List.of()); }
+        public boolean expandable() { return !plugins.isEmpty(); }
     }
 
     /** Compose 首页的任务、指标与系统状态。 */

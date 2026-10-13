@@ -14,8 +14,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 
 /**
- * 真实 Spring 上下文：打开显式开关 {@code pixivdownload.recovery-sentinel.required=true}，并把插件目录指向一个不存在的
- * 目录（即未安装 recovery-sentinel 外置插件）。核心已把 recovery-sentinel 与 download-workbench 都声明为必选，因此启动时会检测到
+ * 真实 Spring 上下文：打开显式开关 {@code pixivdownload.recovery-sentinel.required=true}，插件目录仅安装测试签名的
+ * SQLite provider。核心已把 recovery-sentinel 与 download-workbench 都声明为必选，因此启动时会检测到
  * 两个必选缺失项并进入恢复模式。该用例用于验证配置开关、必选策略 Bean、插件状态服务与 {@link RecoveryModeService} 在真实容器里串起来后
  * 的失配行为。
  *
@@ -23,6 +23,7 @@ import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
  * {@link DirtiesContext} 在类结束后关闭这套上下文。
  */
 @SpringBootTest(properties = {
+        "database.provider=database-sqlite",
         "pixivdownload.recovery-sentinel.required=true",
         "pixivdownload.config-dir=target/test-runtime/config",
         "pixivdownload.state-dir=target/test-runtime/state",
@@ -30,6 +31,7 @@ import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
         "pixivdownload.plugins-dir=target/test-runtime/plugins-recovery-sentinel-absent",
         "setup.browser.auto-open=false"
 })
+@org.springframework.test.context.ContextConfiguration(initializers = PluginTestProvenance.VerifiedLocalSqliteBootstrapInitializer.class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @DisplayName("恢复模式真实上下文：要求 recovery-sentinel 但其缺失时，应用进入恢复模式")
 class RecoverySentinelRecoveryBootContextTest {

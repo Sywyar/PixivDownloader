@@ -40,6 +40,7 @@ import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadLifecycle;
+import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
@@ -98,6 +99,7 @@ public class NovelDownloadService implements NovelDownloader {
     private final NovelDownloadDocumentWriter documentWriter;
     private final NovelDownloadMediaDownloader mediaDownloader;
     private final DownloadLifecycle downloadLifecycle;
+    private final DatabaseAvailability database;
 
     private final ConcurrentHashMap<String, NovelDownloadStatus> statusMap = new ConcurrentHashMap<>();
     private final QueueTaskTracker taskTracker;
@@ -121,8 +123,9 @@ public class NovelDownloadService implements NovelDownloader {
                                 WorkMetadataCapture workMetadataCapture,
                                 @Qualifier("novelQueueTaskTracker") QueueTaskTracker taskTracker,
                                 WorkAssetService workAssets, RuntimePathProvider runtimePaths,
-                                DownloadLifecycle downloadLifecycle) {
+                                DownloadLifecycle downloadLifecycle, DatabaseAvailability database) {
         this.downloadLifecycle = downloadLifecycle;
+        this.database = database;
         this.workAssets = workAssets;
         this.runtimePaths = runtimePaths;
         this.downloadConfig = downloadConfig;
@@ -142,7 +145,7 @@ public class NovelDownloadService implements NovelDownloader {
         this.workMetadataCapture = workMetadataCapture;
         this.taskTracker = taskTracker;
         this.documentWriter = new NovelDownloadDocumentWriter(messages);
-        this.mediaDownloader = new NovelDownloadMediaDownloader(pixivImageDownloader, messages);
+        this.mediaDownloader = new NovelDownloadMediaDownloader(pixivImageDownloader, messages, database);
     }
 
     @Override
@@ -263,6 +266,7 @@ public class NovelDownloadService implements NovelDownloader {
     private boolean downloadTracked(QueueTaskTracker.Task task,
                                     NovelDownloadRequest request,
                                     String userUuid, FilePlan plan, DownloadAttempt attempt) {
+        downloadLifecycle.checkAdmission(attempt);
         boolean succeeded = false;
         boolean recorded = false;
         Long novelId = request.getNovelId();
@@ -368,10 +372,12 @@ public class NovelDownloadService implements NovelDownloader {
             });
 
             // Author + series
+            ensureNotCancelled(status);
             if (other.getAuthorId() != null && other.getAuthorId() > 0) {
                 authorObservationService.observe(other.getAuthorId(), other.getAuthorName());
             }
             if (other.getSeriesId() != null && other.getSeriesId() > 0) {
+                ensureNotCancelled(status);
                 // 前端/脚本若一并送来了系列简介/封面/tags，由 NovelSeriesService.observeWithMetadata 落库；
                 // 否则退回到原来仅 upsert 标题/作者的 observeSeries()。
                 boolean hasRichMeta = (other.getSeriesDescription() != null && !other.getSeriesDescription().isBlank())
@@ -389,17 +395,20 @@ public class NovelDownloadService implements NovelDownloader {
 
             // 多人模式游客配额归档
             if (userUuid != null && visitorDownloadQuotaService != null) {
+                ensureNotCancelled(status);
                 visitorDownloadQuotaService.recordFolder(userUuid, downloadPath);
             }
 
             // Best-effort bookmark
             if (other.isBookmark()) {
+                ensureNotCancelled(status);
                 status.setStage("bookmarking");
                 status.setBookmarkResult(pixivBookmarkActions.bookmarkNovel(novelId, request.getCookie()));
             }
 
             // Best-effort collection
             if (other.getCollectionId() != null) {
+                ensureNotCancelled(status);
                 status.setStage("collecting");
                 try {
                     boolean added = workCollectionMembership.addWork(
@@ -415,6 +424,7 @@ public class NovelDownloadService implements NovelDownloader {
                 }
             }
 
+            ensureNotCancelled(status);
             status.setStage("completed");
             status.setCompleted(true);
             status.setEndTime(java.time.LocalDateTime.now());
@@ -424,12 +434,14 @@ public class NovelDownloadService implements NovelDownloader {
             downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.COMPLETED));
 
             // 前端转发的原始 meta（若有）：下载成功、小说行已落库后旁路归一化为 数据库快照 + 列投影。
-            // 零额外请求、best-effort，绝不反报已成功的下载。
+            // 普通辅助失败不影响下载；数据库失效会停止本次流程。
+            ensureNotCancelled(status);
             captureForwardedMeta(novelId, other);
 
             // Best-effort 下载即自动翻译：提交到服务端翻译队列（独立线程池、同系列串行），
             // 不阻塞本次下载收尾，失败绝不影响已完成的下载。
             if (other.isAutoTranslate()) {
+                ensureNotCancelled(status);
                 try {
                     novelAutoTranslateService.submit(novelId, other.getSeriesId(),
                             other.getAutoTranslateLanguage(),
@@ -446,6 +458,13 @@ public class NovelDownloadService implements NovelDownloader {
             status.setStage("cancelled");
             status.setEndTime(java.time.LocalDateTime.now());
             status.setErrorMessage(messages.get("download.cancelled"));
+        } catch (top.sywyar.pixivdownload.core.database.DatabaseUnavailableException unavailable) {
+            succeeded = false;
+            status.setCompleted(true);
+            status.setFailed(true);
+            status.setErrorMessage(messages.get("plugin.recovery.database-unavailable"));
+            status.setEndTime(java.time.LocalDateTime.now());
+            throw unavailable;
         } catch (Exception e) {
             log.error("novel download failed: id={}", novelId, e);
             status.setCompleted(true);
@@ -481,7 +500,7 @@ public class NovelDownloadService implements NovelDownloader {
     /**
      * 前端转发的原始 meta（{@code other.rawMetaJson}）落地：交由 {@link WorkMetadataCapture} 解析 + 归一化。
      * 仅前端交互下载链路填充该字段（计划任务走后端自抓 body，不填）。捕获已是下载成功后的旁路动作，
-     * 全程 best-effort、warn-continue——任何异常都不得反报已成功的下载（沿一致性模型，由下次下载或历史回填自愈）。
+     * 普通辅助故障只记日志；数据库失效必须停止后续动作。
      */
     private void captureForwardedMeta(Long novelId, NovelDownloadRequest.Other other) {
         if (other == null || !StringUtils.hasText(other.getRawMetaJson())) {
@@ -489,6 +508,8 @@ public class NovelDownloadService implements NovelDownloader {
         }
         try {
             workMetadataCapture.captureForwarded(WorkType.NOVEL, novelId, other.getRawMetaJson());
+        } catch (top.sywyar.pixivdownload.core.database.DatabaseUnavailableException unavailable) {
+            throw unavailable;
         } catch (RuntimeException e) {
             log.warn("Failed to capture forwarded novel meta for {}: {}", novelId, e.getMessage());
         }
@@ -687,6 +708,7 @@ public class NovelDownloadService implements NovelDownloader {
     }
 
     private void ensureNotCancelled(NovelDownloadStatus status) {
+        database.requireAvailable();
         if (status != null && status.isCancelled()) {
             throw new CancellationException(messages.get("download.cancelled"));
         }

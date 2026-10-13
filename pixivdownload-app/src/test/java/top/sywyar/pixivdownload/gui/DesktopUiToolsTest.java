@@ -56,12 +56,12 @@ class DesktopUiToolsTest {
         }
 
         DesktopUiTools tools = new DesktopUiTools(() -> "http://localhost:8123");
-        DesktopUiToolHost.FolderCheckResult before = tools.checkArtworkFolders(database, tempDir.toString());
+        DesktopUiToolHost.FolderCheckResult before = tools.checkArtworkFolders(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database), tempDir.toString());
         assertThat(before.total()).isEqualTo(3);
         assertThat(before.inaccessible()).extracting(DesktopUiToolHost.FolderArtwork::artworkId).containsExactly(2L);
 
-        tools.updateArtworkFolder(database, tempDir.toString(), 2, false, existing.toString());
-        assertThat(tools.checkArtworkFolders(database, tempDir.toString()).inaccessible()).isEmpty();
+        tools.updateArtworkFolder(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database), tempDir.toString(), 2, false, existing.toString());
+        assertThat(tools.checkArtworkFolders(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database), tempDir.toString()).inaccessible()).isEmpty();
     }
 
     @Test
@@ -82,12 +82,12 @@ class DesktopUiToolsTest {
                     + "(5, 'deleted', '{0}/gone', 0, NULL, 1, 1)");
         }
         DesktopUiTools tools = new DesktopUiTools(() -> "http://localhost:8123");
-        var result = tools.checkArtworkFolders(database, tempDir.toString());
+        var result = tools.checkArtworkFolders(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database), tempDir.toString());
         assertThat(result.total()).isEqualTo(4);
         assertThat(result.inaccessible()).extracting(DesktopUiToolHost.FolderArtwork::artworkId).containsExactly(3L, 4L);
         assertThat(Path.of(result.inaccessible().get(0).path())).isEqualTo(tempDir.resolve("gone"));
         assertThat(result.inaccessible().get(1).path()).isEqualTo("{999}/gone");
-        tools.updateArtworkFolder(database, tempDir.toString(), 4, true, existing.toString());
+        tools.updateArtworkFolder(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database), tempDir.toString(), 4, true, existing.toString());
         try (var connection = DriverManager.getConnection("jdbc:sqlite:" + database);
              var statement = connection.createStatement();
              var rows = statement.executeQuery("SELECT folder, move_folder FROM artworks WHERE artwork_id = 4")) {
@@ -95,7 +95,7 @@ class DesktopUiToolsTest {
             assertThat(rows.getString("folder")).isEqualTo("{999}/gone");
             assertThat(rows.getString("move_folder")).isEqualTo("{2}");
         }
-        assertThat(tools.checkArtworkFolders(database, tempDir.toString()).inaccessible())
+        assertThat(tools.checkArtworkFolders(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database), tempDir.toString()).inaccessible())
                 .extracting(DesktopUiToolHost.FolderArtwork::artworkId).containsExactly(3L);
     }
 

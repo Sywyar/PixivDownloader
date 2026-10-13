@@ -23,6 +23,12 @@
 
     <dependencies>
         <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <version>2.5.252</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-common</artifactId>
             <version>${project.version}</version>
@@ -66,6 +72,18 @@
 
         <!-- 插件框架启用运行时：ConditionalOnPluginEnabled / OnPluginEnabledCondition / PluginToggleProperties
              （Spring 耦合，零 plugin-api、零 app/插件反向依赖） -->
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-database-sqlite</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-database-postgresql</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-runtime</artifactId>
@@ -156,15 +174,14 @@
         </dependency>
 
         <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.mybatis.spring.boot</groupId>
             <artifactId>mybatis-spring-boot-starter</artifactId>
             <version>3.0.4</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.xerial</groupId>
-            <artifactId>sqlite-jdbc</artifactId>
-            <version>3.47.1.0</version>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
@@ -179,6 +196,11 @@
             <filter>${plugin.credential.filter}</filter>
         </filters>
         <resources>
+            <resource>
+                <directory>${project.build.directory}/generated-resources/maintainers</directory>
+                <includes><include>pixivdownload/maintainers.json</include></includes>
+                <filtering>false</filtering>
+            </resource>
             <resource>
                 <directory>${maven.multiModuleProjectDirectory}/image</directory>
                 <targetPath>bootstrap</targetPath>
@@ -331,7 +353,7 @@
                                     <arg value="--repository"/>
                                     <arg value="Sywyar/PixivDownloader"/>
                                     <arg value="--output"/>
-                                    <arg value="${project.build.outputDirectory}/pixivdownload/maintainers.json"/>
+                                    <arg value="${project.build.directory}/generated-resources/maintainers/pixivdownload/maintainers.json"/>
                                 </exec>
                             </target>
                         </configuration>
@@ -388,6 +410,8 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <systemPropertyVariables>
+                        <database-sqlite.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-database-sqlite/target/classes</database-sqlite.plugin.classes>
+                        <database-postgresql.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-database-postgresql/target/classes</database-postgresql.plugin.classes>
                         <gallery-tools.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-gallery-tools/target/classes</gallery-tools.plugin.classes>
                         <notification.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-notification/target/classes</notification.plugin.classes>
                         <push.plugin.classes>${maven.multiModuleProjectDirectory}/pixivdownload-plugin-push/target/classes</push.plugin.classes>

@@ -21,6 +21,7 @@ public class DuplicateScanService implements QueueOperations {
     private final ArtworkHashIndexMaintenance hashIndexMaintenance;
     private final DuplicateService duplicateService;
     private final MessageResolver messages;
+    private final top.sywyar.pixivdownload.core.database.DatabaseAvailability database;
     private final TaskExecutor taskExecutor;
     private final QueueTaskTracker taskTracker = new QueueTaskTracker(SCAN_QUEUE_TYPE);
 
@@ -33,14 +34,16 @@ public class DuplicateScanService implements QueueOperations {
     public DuplicateScanService(ArtworkHashIndexMaintenance hashIndexMaintenance,
                                 DuplicateService duplicateService,
                                 MessageResolver messages,
-                                TaskExecutor taskExecutor) {
+                                TaskExecutor taskExecutor, top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
         this.hashIndexMaintenance = hashIndexMaintenance;
         this.duplicateService = duplicateService;
         this.messages = messages;
         this.taskExecutor = taskExecutor;
+        this.database = database;
     }
 
     public DuplicateDto.ScanStatus startScan(boolean force) {
+        database.requireAvailable();
         QueueTaskTracker.Task task = taskTracker.beginRunning(null);
         boolean scanClaimed = false;
         boolean handedOff = false;
@@ -71,7 +74,8 @@ public class DuplicateScanService implements QueueOperations {
             return status();
         } catch (RuntimeException | Error failure) {
             if (scanClaimed && !handedOff) {
-                if (task.isCancellationRequested()) {
+                database.requireAvailable();
+            if (task.isCancellationRequested()) {
                     resetCancelledState();
                 } else {
                     markFailed();
@@ -86,7 +90,7 @@ public class DuplicateScanService implements QueueOperations {
     }
 
     public DuplicateDto.ScanStatus status() {
-        return new DuplicateDto.ScanStatus(state, processed, total, startedTime);
+        return new DuplicateDto.ScanStatus(database.available() ? state : "UNAVAILABLE", processed, total, startedTime);
     }
 
     @Override
@@ -121,6 +125,7 @@ public class DuplicateScanService implements QueueOperations {
     private void runScan(boolean force, QueueTaskTracker.Task task) {
         log.info(messages.getForLog("duplicate.log.scan.started", force, total));
         try {
+            database.requireAvailable();
             if (task.isCancellationRequested()) {
                 resetCancelledState();
                 return;
@@ -128,7 +133,8 @@ public class DuplicateScanService implements QueueOperations {
             if (force) {
                 hashIndexMaintenance.clearAllHashes();
                 for (Long artworkId : hashIndexMaintenance.artworkIdsNewestFirst()) {
-                    if (task.isCancellationRequested()) {
+                    database.requireAvailable();
+            if (task.isCancellationRequested()) {
                         resetCancelledState();
                         return;
                     }
@@ -138,13 +144,15 @@ public class DuplicateScanService implements QueueOperations {
                 // 一次性快照缺哈希作品列表后遍历：若按批轮询，文件缺失/损坏/不可哈希的作品会
                 // 始终写入 0 行、永远留在"缺哈希"集合里，导致 artworkIdsMissingHashes 永不返回空、循环无法终止。
                 for (Long artworkId : hashIndexMaintenance.artworkIdsMissingHashes(Integer.MAX_VALUE)) {
-                    if (task.isCancellationRequested()) {
+                    database.requireAvailable();
+            if (task.isCancellationRequested()) {
                         resetCancelledState();
                         return;
                     }
                     recordArtwork(artworkId);
                 }
             }
+            database.requireAvailable();
             if (task.isCancellationRequested()) {
                 resetCancelledState();
                 return;
@@ -191,6 +199,7 @@ public class DuplicateScanService implements QueueOperations {
     }
 
     private void recordArtwork(Long artworkId) {
+        database.requireAvailable();
         if (artworkId == null) {
             return;
         }

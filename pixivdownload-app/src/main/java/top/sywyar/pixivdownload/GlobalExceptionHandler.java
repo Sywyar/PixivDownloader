@@ -42,6 +42,12 @@ public class GlobalExceptionHandler {
 
     private final AppMessages messages;
 
+    @ExceptionHandler(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class)
+    public ResponseEntity<ApiErrorResponse> handleDatabaseUnavailable(Locale locale) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(error("DATABASE_UNAVAILABLE",
+                messages.get(locale, "plugin.recovery.database-unavailable")));
+    }
+
     @ExceptionHandler(LocalizedException.class)
     public ResponseEntity<ApiErrorResponse> handleLocalized(LocalizedException e, Locale locale) {
         String message = messages.getOrDefault(locale, e.getMessageCode(), e.getDefaultMessage(), e.getMessageArgs());

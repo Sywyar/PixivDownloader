@@ -90,6 +90,6 @@ node scripts/ci/sdk-build-tools.mjs --sdk-repository target/sdk-staging --sbt-la
 
 已验证 <code>plugin.properties</code> 中的 <code>pixiv.kind</code>、<code>pixiv.execution-mode</code>、<code>pixiv.lifecycle-policy</code> 和可选的 <code>pixiv.configuration-classes</code> 是运行边界的权威来源。<code>minimal-feature-plugin</code> 不声明配置类，宿主只注册独立 worker 返回的声明式贡献；<code>download-type-plugin</code> 的配置类只会在完全受信准入后用于插件专属子 <code>ApplicationContext</code>。下载模板的 <code>configurationClasses()</code> 仅为旧版宿主与 SDK 工具兼容而保留，并与描述符保持一致。完全受信插件 Bean 必须在配置类中用 <code>@Bean</code> 显式创建，不得依赖宿主根包扫描。
 
-可用的稳定接缝限于 SDK Info、Plugin API、Core API 的公开契约、宿主提供的受控前端 context，以及宿主明确提供的规范依赖。以下内容不是本模板可用的第三方接缝：宿主 app/core 实现类、plugin-runtime/installer/signature 内部类、宿主 mapper、官方插件私有 service，以及依赖根上下文组件扫描的 Bean。插件私有持久化使用 owner-scoped <code>PluginDataSource</code>；不要连接宿主主库、给核心表加列或自行执行宿主 schema DDL。
+可用的稳定接缝限于 SDK Info、Plugin API、Core API 的公开契约、宿主提供的受控前端 context，以及宿主明确提供的规范依赖。以下内容不是本模板可用的第三方接缝：宿主 app/core 实现类、plugin-runtime/installer/signature 内部类、宿主 mapper、官方插件私有 service，以及依赖根上下文组件扫描的 Bean。插件私有持久化使用 owner-scoped <code>PluginDatabase</code>，通过 privateSchema 声明结构、通过 read / transaction 表达中性操作，并处理不可用状态；旧 <code>PluginDataSource</code> 只兼容 SQLite。参与已有主库协作时，仅通过 <code>PluginMainDatabase</code> 访问宿主授予的表或核心公开域；不要借用主库 JDBC、给核心表加列或自行执行宿主 schema DDL。
 
 默认产物是无 <code>BOOT-INF/</code>、无内嵌 <code>lib/*.jar</code> 的 thin JAR。若插件以后需要第三方私有库，应先采用宿主明确支持的 PF4J 私有依赖打包方式并增加包边界测试；不要 shade 或打入 plugin-api、PF4J、Spring 或任何宿主类。

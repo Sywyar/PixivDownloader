@@ -1,274 +1,158 @@
 package top.sywyar.pixivdownload.core.metadata.novel;
 
-import org.springframework.jdbc.core.ResultSetExtractor;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import top.sywyar.pixivdownload.core.db.MainDatabase;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.*;
+import java.util.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.*;
+import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.*;
 
-import javax.sql.DataSource;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-
-/**
- * 核心侧的小说数据访问仓库：把 {@code novels} 系核心表的窄行投影、标签、系列、
- * 收藏夹链接的读取与软删除主行标记从 {@code novel.db.NovelDatabase} 沿
- * 「查询 vs 持久化」边界拆出，使核心查询 / 资产 / 收藏 / 计划 / 访客可见性链路无需反向
- * import 小说插件包。宿主行投影不读取正文 {@code raw_content}；完整持久化行与正文读取由
- * 小说插件自己的 {@code NovelMapper} 负责。
- *
- * <p>卸载投影：{@code novels} 系表为核心所有（小说插件未安装时仍存在），故该读取面随核心
- * 永驻、作为根包扫描的核心 Bean；下载 / 正文 / 翻译 / TTS 的完整行读取、写入与 FTS
- * 索引维护均留小说插件。宿主软删除只更新主行；小说插件拥有的数据库触发器原子清理普通关系，
- * FTS 查询过滤软删除行并由小说插件启动时 best-effort 回收陈旧索引。
- */
+/** 核心只读取小说共享事实的窄投影；正文及其派生状态仍由小说插件维护。 */
 @Repository
 public class NovelMetadataRepository {
-
-    private static final String SELECT_NOVEL_METADATA =
-            "SELECT novel_id AS novelId, title, folder, count, extensions, time,"
-                    + " \"R18\" AS xRestrict, is_ai AS isAi, author_id AS authorId, description,"
-                    + " file_name AS fileName, file_author_name_id AS fileAuthorNameId,"
-                    + " series_id AS seriesId, series_order AS seriesOrder,"
-                    + " is_original AS isOriginal, cover_ext AS coverExt,"
-                    + " deleted, upload_time AS uploadTime"
-                    + " FROM novels";
-
-    private static final String SELECT_SERIES_TITLE =
-            "SELECT series_id AS seriesId, title FROM novel_series";
-
-    private final NamedParameterJdbcTemplate jdbc;
-    private final PathPrefixCodec pathPrefixCodec;
-
-    public NovelMetadataRepository(DataSource dataSource, PathPrefixCodec pathPrefixCodec) {
-        this.jdbc = new NamedParameterJdbcTemplate(dataSource);
-        this.pathPrefixCodec = pathPrefixCodec;
+    private final MainDatabase database;
+    private final PathPrefixCodec paths;
+    public NovelMetadataRepository(MainDatabase database, PathPrefixCodec paths) {
+        this.database = database;
+        this.paths = paths;
     }
-
-    // ── Novel rows ───────────────────────────────────────────────────────────────
-
+    private static Expression equal(String table, String name, Object value) {
+        return call(EQUAL, column(table, name), value(value));
+    }
+    private static Expression in(String table, String name, Collection<Long> values) {
+        var args = new ArrayList<Expression>();
+        args.add(column(table, name)); values.forEach(v -> args.add(value(v)));
+        return new Call(IN, args);
+    }
+    private static Map<String, Expression> fields(String table, String... names) {
+        var fields = new LinkedHashMap<String, Expression>();
+        for (var name : names) fields.put(name, column(table, name));
+        return fields;
+    }
+    private List<Map<String, Object>> rows(String table, Expression where, String... columns) {
+        return database.read(s -> s.query(new Query(table, fields(table, columns), where,
+                List.of(), List.of(), Integer.MAX_VALUE, 0)));
+    }
     public String getFileBaseName(long id) {
-        List<String> names = jdbc.queryForList("SELECT file_base_name FROM novels WHERE novel_id = :id",
-                Map.of("id", id), String.class);
-        return names.isEmpty() ? null : names.get(0);
+        var rows = rows("novels", equal("novels", "novel_id", id), "file_base_name");
+        return rows.isEmpty() ? null : (String) rows.get(0).get("file_base_name");
     }
-
     public List<String> getImageFileNames(long id) {
-        return jdbc.query("SELECT image_id, ext FROM novel_images WHERE novel_id = :id",
-                Map.of("id", id), (rs, row) -> "embed_" + rs.getString(1) + "." + rs.getString(2));
+        return rows("novel_images", equal("novel_images", "novel_id", id), "image_id", "ext").stream()
+                .map(row -> "embed_" + row.get("image_id") + "." + row.get("ext")).toList();
     }
-
-    public boolean hasNovel(long novelId) {
-        Long count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM novels WHERE novel_id = :novelId",
-                new MapSqlParameterSource("novelId", novelId), Long.class);
-        return count != null && count > 0;
+    private boolean exists(Expression where) {
+        return !database.read(s -> s.query(new Query("novels", Map.of("found", value(1)), where,
+                List.of(), List.of(), 1, 0))).isEmpty();
     }
-
-    /** 是否存在未被软删除的记录；deleted 行视为不存在（可重新下载）。 */
+    public boolean hasNovel(long novelId) { return exists(equal("novels", "novel_id", novelId)); }
     public boolean hasActiveNovel(long novelId) {
-        Long count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM novels WHERE novel_id = :novelId AND deleted = 0",
-                new MapSqlParameterSource("novelId", novelId), Long.class);
-        return count != null && count > 0;
+        return exists(call(AND, equal("novels", "novel_id", novelId), equal("novels", "deleted", 0)));
     }
-
+    private List<NovelMetadataRow> novels(Expression where, List<Query.Order> order, int limit) {
+        var columns = fields("novels", "novel_id", "title", "folder", "count", "extensions", "time", "r18", "is_ai",
+                "author_id", "description", "file_name", "file_author_name_id", "series_id", "series_order",
+                "is_original", "cover_ext", "deleted", "upload_time");
+        return database.read(s -> s.query(new Query("novels", columns, where, List.of(), order, limit, 0)))
+                .stream().map(this::novel).toList();
+    }
     public NovelMetadataRow getNovel(long novelId) {
-        List<NovelMetadataRow> rows = jdbc.query(SELECT_NOVEL_METADATA + " WHERE novel_id = :novelId",
-                new MapSqlParameterSource("novelId", novelId), this::mapNovelMetadata);
-        return rows.isEmpty() ? null : rows.get(0);
+        return novels(equal("novels", "novel_id", novelId), List.of(), 1).stream().findFirst().orElse(null);
     }
-
-    /** 批量取小说行（含软删除行，路径前缀已解析）；返回顺序不保证，由调用方按需重排。 */
     public List<NovelMetadataRow> getNovels(Collection<Long> novelIds) {
-        if (novelIds == null || novelIds.isEmpty()) {
-            return List.of();
-        }
-        return jdbc.query(SELECT_NOVEL_METADATA + " WHERE novel_id IN (:ids)",
-                new MapSqlParameterSource("ids", novelIds), this::mapNovelMetadata);
+        if (novelIds == null || novelIds.isEmpty()) return List.of();
+        return novels(in("novels", "novel_id", novelIds), List.of(), Integer.MAX_VALUE);
     }
-
-    /** 同系列其他小说（{@code series_order ASC, time ASC}），软删除行过滤。 */
     public List<NovelMetadataRow> getNovelsBySeriesId(long seriesId) {
-        return jdbc.query(SELECT_NOVEL_METADATA
-                        + " WHERE series_id = :seriesId AND series_id > 0 AND deleted = 0"
-                        + " ORDER BY series_order ASC, time ASC",
-                new MapSqlParameterSource("seriesId", seriesId), this::mapNovelMetadata);
+        return novels(call(AND, equal("novels", "series_id", seriesId), call(GREATER, column("novels", "series_id"), value(0)),
+                        equal("novels", "deleted", 0)),
+                List.of(new Query.Order(column("novels", "series_order"), false, true),
+                        new Query.Order(column("novels", "time"), false, true)), Integer.MAX_VALUE);
     }
-
     public List<Long> getAllNovelIdsSortedByTimeDesc() {
-        return jdbc.query("SELECT novel_id FROM novels WHERE deleted = 0 ORDER BY time DESC",
-                new MapSqlParameterSource(), (rs, rowNum) -> rs.getLong("novel_id"));
+        return database.read(s -> s.query(new Query("novels", fields("novels", "novel_id"), equal("novels", "deleted", 0),
+                List.of(), List.of(new Query.Order(column("novels", "time"), true, false)), Integer.MAX_VALUE, 0))).stream()
+                .map(row -> (Long) row.get("novel_id")).toList();
     }
-
-    private NovelMetadataRow mapNovelMetadata(ResultSet rs, int rowNum) throws SQLException {
-        return new NovelMetadataRow(
-                rs.getLong("novelId"),
-                rs.getString("title"),
-                pathPrefixCodec.resolve(rs.getString("folder")),
-                rs.getInt("count"),
-                rs.getString("extensions"),
-                rs.getLong("time"),
-                getInteger(rs, "xRestrict"),
-                getBoolean(rs, "isAi"),
-                getLongObj(rs, "authorId"),
-                rs.getString("description"),
-                getLongObj(rs, "fileName"),
-                getLongObj(rs, "fileAuthorNameId"),
-                getLongObj(rs, "seriesId"),
-                getLongObj(rs, "seriesOrder"),
-                getBoolean(rs, "isOriginal"),
-                rs.getString("coverExt"),
-                rs.getBoolean("deleted"),
-                getLongObj(rs, "uploadTime"));
+    private NovelMetadataRow novel(Map<String, Object> row) {
+        return new NovelMetadataRow((Long) row.get("novel_id"), (String) row.get("title"),
+                paths.resolve((String) row.get("folder")), integer(row, "count") == null ? 0 : integer(row, "count"),
+                (String) row.get("extensions"), row.get("time") == null ? 0 : (Long) row.get("time"),
+                integer(row, "r18"), bool(row, "is_ai"), (Long) row.get("author_id"), (String) row.get("description"),
+                (Long) row.get("file_name"), (Long) row.get("file_author_name_id"), (Long) row.get("series_id"),
+                (Long) row.get("series_order"), bool(row, "is_original"), (String) row.get("cover_ext"),
+                Boolean.TRUE.equals(bool(row, "deleted")), (Long) row.get("upload_time"));
     }
-
-    // ── Tags ──────────────────────────────────────────────────────────────────────
-
+    private List<Map<String, Object>> tags(Expression where) {
+        var columns = fields("tags", "tag_id", "name", "translated_name");
+        columns.put("novel_id", column("novel_tags", "novel_id"));
+        return database.read(s -> s.query(new Query(new Query.Table("novel_tags"), List.of(
+                new Query.Join(Query.JoinKind.INNER, new Query.Table("tags"),
+                        call(EQUAL, column("novel_tags", "tag_id"), column("tags", "tag_id")))), columns, where,
+                List.of(), null, List.of(new Query.Order(column("novel_tags", "novel_id"), false, true),
+                        new Query.Order(column("tags", "tag_id"), false, true)), false, Integer.MAX_VALUE, 0)));
+    }
     public List<TagDto> getNovelTags(long novelId) {
-        return jdbc.query(
-                "SELECT t.tag_id AS tagId, t.name AS name, t.translated_name AS translatedName"
-                        + " FROM novel_tags nt JOIN tags t ON t.tag_id = nt.tag_id"
-                        + " WHERE nt.novel_id = :novelId"
-                        + " ORDER BY t.tag_id",
-                new MapSqlParameterSource("novelId", novelId), NovelMetadataRepository::mapTag);
+        return tags(equal("novel_tags", "novel_id", novelId)).stream().map(NovelMetadataRepository::tag).toList();
     }
-
-    /** 批量取多本小说的标签，按 novelId 分组；无标签的小说不出现在结果中。 */
     public Map<Long, List<TagDto>> getNovelTagsBatch(Collection<Long> novelIds) {
-        if (novelIds == null || novelIds.isEmpty()) return Collections.emptyMap();
-        return jdbc.query(
-                "SELECT nt.novel_id AS novelId, t.tag_id AS tagId, t.name AS name,"
-                        + " t.translated_name AS translatedName"
-                        + " FROM novel_tags nt JOIN tags t ON t.tag_id = nt.tag_id"
-                        + " WHERE nt.novel_id IN (:ids)"
-                        + " ORDER BY nt.novel_id, t.tag_id",
-                new MapSqlParameterSource("ids", novelIds),
-                (ResultSetExtractor<Map<Long, List<TagDto>>>) rs -> groupTagsByKey(rs, "novelId"));
+        if (novelIds == null || novelIds.isEmpty()) return Map.of();
+        var result = new LinkedHashMap<Long, List<TagDto>>();
+        for (var row : tags(in("novel_tags", "novel_id", novelIds)))
+            result.computeIfAbsent((Long) row.get("novel_id"), ignored -> new ArrayList<>()).add(tag(row));
+        return result;
     }
-
-    // ── Series ─────────────────────────────────────────────────────────────────────
-
     public NovelSeriesTitleRow getSeries(long seriesId) {
-        List<NovelSeriesTitleRow> rows = jdbc.query(SELECT_SERIES_TITLE + " WHERE series_id = :id",
-                new MapSqlParameterSource("id", seriesId), this::mapSeriesTitle);
-        return rows.isEmpty() ? null : rows.get(0);
+        return rows("novel_series", equal("novel_series", "series_id", seriesId), "series_id", "title")
+                .stream().findFirst().map(NovelMetadataRepository::series).orElse(null);
     }
-
     public List<NovelSeriesTitleRow> getSeriesByIds(Collection<Long> ids) {
-        if (ids == null || ids.isEmpty()) return Collections.emptyList();
-        return jdbc.query(SELECT_SERIES_TITLE + " WHERE series_id IN (:ids)",
-                new MapSqlParameterSource("ids", ids), this::mapSeriesTitle);
+        if (ids == null || ids.isEmpty()) return List.of();
+        return rows("novel_series", in("novel_series", "series_id", ids), "series_id", "title")
+                .stream().map(NovelMetadataRepository::series).toList();
     }
-
-    private NovelSeriesTitleRow mapSeriesTitle(ResultSet rs, int rowNum) throws SQLException {
-        return new NovelSeriesTitleRow(rs.getLong("seriesId"), rs.getString("title"));
+    private static NovelSeriesTitleRow series(Map<String, Object> row) {
+        return new NovelSeriesTitleRow((Long) row.get("series_id"), (String) row.get("title"));
     }
-
-    // ── Collections ─────────────────────────────────────────────────────────────────
-
     public boolean addToCollection(long collectionId, long novelId) {
-        int rows = jdbc.update(
-                "INSERT OR IGNORE INTO novel_collections(collection_id, novel_id, added_time)"
-                        + " VALUES(:collectionId, :novelId, :addedTime)",
-                new MapSqlParameterSource()
-                        .addValue("collectionId", collectionId)
-                        .addValue("novelId", novelId)
-                        .addValue("addedTime", System.currentTimeMillis()));
-        return rows > 0;
+        return database.transaction(s -> s.insert("novel_collections", Map.of("collection_id", collectionId, "novel_id", novelId,
+                "added_time", System.currentTimeMillis()), DatabaseSession.Conflict.ignore())) > 0;
     }
-
     public boolean removeFromCollection(long collectionId, long novelId) {
-        int rows = jdbc.update(
-                "DELETE FROM novel_collections WHERE collection_id = :collectionId AND novel_id = :novelId",
-                new MapSqlParameterSource()
-                        .addValue("collectionId", collectionId)
-                        .addValue("novelId", novelId));
-        return rows > 0;
+        return database.transaction(s -> s.delete("novel_collections", call(AND, equal("novel_collections", "collection_id", collectionId),
+                equal("novel_collections", "novel_id", novelId)))) > 0;
     }
-
     public List<Long> getCollectionIdsForNovel(long novelId) {
-        return jdbc.query("SELECT collection_id FROM novel_collections WHERE novel_id = :novelId",
-                new MapSqlParameterSource("novelId", novelId),
-                (rs, rowNum) -> rs.getLong("collection_id"));
+        return rows("novel_collections", equal("novel_collections", "novel_id", novelId), "collection_id")
+                .stream().map(row -> (Long) row.get("collection_id")).toList();
     }
-
     public List<Map<String, Object>> findCollectionLinksByNovels(Collection<Long> novelIds) {
         if (novelIds == null || novelIds.isEmpty()) return List.of();
-        return jdbc.query(
-                "SELECT novel_id AS novelId, collection_id AS collectionId FROM novel_collections"
-                        + " WHERE novel_id IN (:ids)",
-                new MapSqlParameterSource("ids", novelIds),
-                (rs, rowNum) -> {
-                    Map<String, Object> row = new LinkedHashMap<>(2);
-                    row.put("novelId", rs.getLong("novelId"));
-                    row.put("collectionId", rs.getLong("collectionId"));
-                    return row;
-                });
+        return rows("novel_collections", in("novel_collections", "novel_id", novelIds), "novel_id", "collection_id").stream()
+                .map(row -> Map.<String, Object>of("novelId", row.get("novel_id"), "collectionId", row.get("collection_id"))).toList();
     }
-
     public List<Long> getNovelIdsInCollection(long collectionId) {
-        return jdbc.query("SELECT novel_id FROM novel_collections WHERE collection_id = :collectionId",
-                new MapSqlParameterSource("collectionId", collectionId),
-                (rs, rowNum) -> rs.getLong("novel_id"));
+        return rows("novel_collections", equal("novel_collections", "collection_id", collectionId), "novel_id")
+                .stream().map(row -> (Long) row.get("novel_id")).toList();
     }
-
-    // ── Soft delete ──────────────────────────────────────────────────────────────────
-
-    /**
-     * 软删除主行：主行保留并置 {@code deleted = 1}，使下载判重能识别「已下载过，但被删除」。
-     * 小说插件拥有的软删除触发器在同一 SQLite 语句内清理标签 / 收藏 / 内嵌图 / 译文 / 朗读脚本；
-     * FTS 作为可再生辅助数据过滤软删除行并由小说插件启动时 best-effort 回收。宿主不得读取或维护
-     * 这些私有正文及派生状态。
-     */
+    /** 仅标记共享主行；正文和派生数据的清理仍归声明其行为的 owner。 */
     @Transactional
     public void markNovelDeleted(long novelId) {
-        jdbc.update("UPDATE novels SET deleted = 1, metadata_json = NULL WHERE novel_id = :novelId",
-                new MapSqlParameterSource("novelId", novelId));
+        database.transaction(s -> s.update("novels", Map.of("deleted", value(1), "metadata_json", value(null)),
+                equal("novels", "novel_id", novelId)));
     }
-
-    // ── helpers ──────────────────────────────────────────────────────────────────────
-
-    private static TagDto mapTag(ResultSet rs, int rowNum) throws SQLException {
-        TagDto tag = new TagDto(rs.getString("name"), rs.getString("translatedName"));
-        long tagId = rs.getLong("tagId");
-        tag.setTagId(rs.wasNull() ? null : tagId);
+    private static TagDto tag(Map<String, Object> row) {
+        var tag = new TagDto((String) row.get("name"), (String) row.get("translated_name"));
+        tag.setTagId((Long) row.get("tag_id"));
         return tag;
     }
-
-    private static Map<Long, List<TagDto>> groupTagsByKey(ResultSet rs, String keyColumn)
-            throws SQLException {
-        Map<Long, List<TagDto>> out = new LinkedHashMap<>();
-        while (rs.next()) {
-            long key = rs.getLong(keyColumn);
-            TagDto tag = new TagDto(rs.getString("name"), rs.getString("translatedName"));
-            long tagId = rs.getLong("tagId");
-            tag.setTagId(rs.wasNull() ? null : tagId);
-            out.computeIfAbsent(key, k -> new ArrayList<>()).add(tag);
-        }
-        return out;
+    private static Integer integer(Map<String, Object> row, String name) {
+        return row.get(name) == null ? null : Math.toIntExact((Long) row.get(name));
     }
-
-    private static Integer getInteger(ResultSet rs, String col) throws SQLException {
-        int v = rs.getInt(col);
-        return rs.wasNull() ? null : v;
-    }
-
-    private static Long getLongObj(ResultSet rs, String col) throws SQLException {
-        long v = rs.getLong(col);
-        return rs.wasNull() ? null : v;
-    }
-
-    private static Boolean getBoolean(ResultSet rs, String col) throws SQLException {
-        boolean v = rs.getBoolean(col);
-        return rs.wasNull() ? null : v;
+    private static Boolean bool(Map<String, Object> row, String name) {
+        return row.get(name) == null ? null : (Long) row.get(name) != 0;
     }
 }

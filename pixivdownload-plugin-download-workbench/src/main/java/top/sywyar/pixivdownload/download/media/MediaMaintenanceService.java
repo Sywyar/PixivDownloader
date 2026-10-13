@@ -30,6 +30,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
     private final WorkMetadataRepository metadata;
     private final WorkQueryService query;
     private final ArtworkMediaStore mediaStore;
+    private final top.sywyar.pixivdownload.core.database.DatabaseAvailability database;
     private final ImageOutputService images;
     private final top.sywyar.pixivdownload.download.UgoiraService animations;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(task -> {
@@ -45,13 +46,15 @@ public final class MediaMaintenanceService implements AutoCloseable {
     private java.util.concurrent.CompletableFuture<Preview> pendingPreview;
 
     public MediaMaintenanceService(WorkAssetService assets, WorkMetadataRepository metadata, WorkQueryService query, ImageOutputService images,
-                                   top.sywyar.pixivdownload.download.UgoiraService animations, ArtworkMediaStore mediaStore) {
+                                   top.sywyar.pixivdownload.download.UgoiraService animations, ArtworkMediaStore mediaStore,
+                                   top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
         this.assets = assets;
         this.metadata = metadata;
         this.query = query;
         this.images = images;
         this.animations = animations;
         this.mediaStore = mediaStore;
+        this.database = java.util.Objects.requireNonNull(database);
     }
 
     public record Request(String imageFormats, String ugoiraFormats, boolean repairThumbnails) {}
@@ -64,6 +67,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
     private record Plan(String token, List<Candidate> files) {}
 
     public synchronized java.util.concurrent.CompletableFuture<Preview> preview(Request request) {
+        database.requireAvailable();
         requireIdle();
         preview = null;
         if (request == null) throw LocalizedException.badRequest("download.media.invalid-formats", null);
@@ -102,6 +106,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
                 checkCancelled();
                 var batch = query.search(WorkQuery.builder(WorkType.ARTWORK).page(page).size(100)
                         .sort("artworkId").order("asc").build());
+                checkCancelled();
                 if (page == 0) pages = batch.totalPages();
                 for (var work : batch.content()) {
                     checkCancelled();
@@ -138,7 +143,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
                                 item.formats(), item.thumbnail())).toList(), scanned, skipped, limited);
             }
         } finally {
-            status = new Status(cancelled ? "cancelled" : "idle", 0, 0, 0, List.of());
+            status = new Status(!database.available() ? "unavailable" : cancelled ? "cancelled" : "idle", 0, 0, 0, List.of());
         }
     }
 
@@ -150,6 +155,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
         String base = name.substring(0, dot).replaceFirst("_thumb$", "");
         Path stem = file.path().resolveSibling(base);
         var manifest = mediaStore.find(id, file.page());
+        checkCancelled();
         boolean animation = manifest.map(value -> value.originalExtension().equals("zip")).orElse(false)
                 || List.of("gif", "apng", "mp4", "zip").contains(file.extension());
         if (!animation && file.extension().equals("webp")) {
@@ -188,7 +194,10 @@ public final class MediaMaintenanceService implements AutoCloseable {
                 List.copyOf(missing), thumbnail, animation, unavailable);
     }
 
+    private boolean shouldStop() { return cancelled || !database.available(); }
+
     private void checkCancelled() {
+        database.requireAvailable();
         if (cancelled || Thread.currentThread().isInterrupted()) {
             cancelled = true;
             throw new CancellationException();
@@ -196,6 +205,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
     }
 
     public synchronized Status start(String token) {
+        database.requireAvailable();
         requireIdle();
         if (preview == null || !preview.token().equals(token)) throw LocalizedException.badRequest("download.media.preview-required", null);
         Plan plan = preview;
@@ -225,6 +235,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
                 if (cancelled || Thread.currentThread().isInterrupted()) break;
                 WorkAssetFile file = candidate.file();
                 try (var workFileLease = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(WorkType.ARTWORK, candidate.artworkId())) {
+                    checkCancelled();
                     requirePlain(file.path());
                     var current = assets.rawFile(WorkType.ARTWORK, candidate.artworkId(), file.page());
                     if (assets.isReadOnly(WorkType.ARTWORK, candidate.artworkId())
@@ -233,28 +244,34 @@ public final class MediaMaintenanceService implements AutoCloseable {
                             || Files.getLastModifiedTime(file.path()).toMillis() != candidate.modified()) {
                         throw new IOException("Source changed after preview");
                     }
+                    checkCancelled();
                     if (!candidate.formats().isEmpty()) {
                         String formats = String.join(",", candidate.formats());
                         if (candidate.animation()) {
-                            if (!animations.addMissingFormats(candidate.artworkId(), file.path(), formats, () -> cancelled)) {
+                            if (!animations.addMissingFormats(candidate.artworkId(), file.path(), formats, this::shouldStop)) {
                                 throw new IOException("Animation source unavailable");
                             }
-                        } else images.addMissingFormats(candidate.artworkId(), file.page(), file.path(), formats, () -> cancelled);
+                        } else images.addMissingFormats(candidate.artworkId(), file.page(), file.path(), formats, this::shouldStop);
                     }
+                    checkCancelled();
                     if (candidate.thumbnail()
                             && assets.thumbnail(WorkType.ARTWORK, candidate.artworkId(), file.page()).isEmpty()) {
                         throw new IOException("Thumbnail unavailable");
                     }
+                    checkCancelled();
+                } catch (top.sywyar.pixivdownload.core.database.DatabaseUnavailableException unavailable) {
+                    break;
                 } catch (CancellationException stop) {
                     cancelled = true;
                     break;
                 } catch (Exception failure) {
+                    if (!database.available()) break;
                     failures.add(new Failure(candidate.artworkId(), file.page()));
                 }
                 status = new Status("running", plan.files().size(), ++completed, failures.size(), List.copyOf(failures));
             }
         } finally {
-            status = new Status(cancelled ? "cancelled" : "completed", plan.files().size(), completed, failures.size(), List.copyOf(failures));
+            status = new Status(!database.available() ? "unavailable" : cancelled ? "cancelled" : "completed", plan.files().size(), completed, failures.size(), List.copyOf(failures));
         }
     }
 

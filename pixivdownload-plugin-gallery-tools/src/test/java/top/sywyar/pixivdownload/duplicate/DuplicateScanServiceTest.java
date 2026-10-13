@@ -177,7 +177,7 @@ class DuplicateScanServiceTest {
             return 0;
         });
         DuplicateScanService service = new DuplicateScanService(
-                hashIndexMaintenance, duplicateService, messages, submitted::set) {
+                hashIndexMaintenance, duplicateService, messages, submitted::set, () -> true) {
             @Override
             public void cancelQuiescedTasks() {
                 super.cancelQuiescedTasks();
@@ -217,7 +217,7 @@ class DuplicateScanServiceTest {
     }
 
     private DuplicateScanService service(TaskExecutor executor) {
-        return new DuplicateScanService(hashIndexMaintenance, duplicateService, messages, executor);
+        return new DuplicateScanService(hashIndexMaintenance, duplicateService, messages, executor, () -> true);
     }
 
     private static Object field(Object target, String name) throws ReflectiveOperationException {

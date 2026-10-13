@@ -125,6 +125,9 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -581,7 +584,38 @@ object ComposeDesktopUiNodeRenderer {
                       emit: (DesktopUiNode.Event) -> Unit, modifier: Modifier) {
         var expanded by rememberSaveable(node.id()) { mutableStateOf(!node.collapsible()) }
         Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (node.collapsible()) {
+            if (node.summary() != null) {
+                CupertinoButton(
+                    onClick = { if (node.collapsible()) expanded = !expanded },
+                    contentPadding = PaddingValues(vertical = 10.dp),
+                    colors = CupertinoButtonDefaults.plainButtonColors(contentColor = LocalExperiencePalette.current.text),
+                    modifier = Modifier.fillMaxWidth().testTag(node.id() + ".toggle").semantics {
+                        stateDescription = text(DesktopUiNode.TextToken(
+                            GuiComposePlugin.ID,
+                            if (expanded) "gui.compose.expanded" else "gui.compose.collapsed",
+                            "",
+                            emptyList()
+                        ))
+                    }
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            CupertinoText(resolve(node.title(), text), style = CupertinoTheme.typography.body, fontWeight = FontWeight.Medium)
+                            Node(node.summary(), text, emit, Modifier.fillMaxWidth())
+                        }
+                        if (node.collapsible()) DesktopIcon(
+                            Icons.Default.ChevronRight,
+                            null,
+                            Modifier.size(16.dp).graphicsLayer { rotationZ = if (expanded) 90f else 0f },
+                            tint = LocalExperiencePalette.current.secondaryText
+                        )
+                    }
+                }
+            } else if (node.collapsible()) {
                 CupertinoButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(0.dp),
                     colors = CupertinoButtonDefaults.plainButtonColors(contentColor = LocalExperiencePalette.current.text),
                     modifier = Modifier.semantics { stateDescription = text(DesktopUiNode.TextToken(

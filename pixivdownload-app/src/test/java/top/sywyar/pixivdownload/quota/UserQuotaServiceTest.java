@@ -458,6 +458,47 @@ class UserQuotaServiceTest {
     }
 
     @Test
+    @DisplayName("归档创建中数据库失效时不调用删源或发布成功")
+    void databaseFailureStopsArchiveAfterPreparation() throws Exception {
+        var available = new java.util.concurrent.atomic.AtomicBoolean(true);
+        when(pixivDatabase.isUnavailable()).thenAnswer(call -> !available.get());
+        when(downloadConfig.getRootFolder()).thenAnswer(call -> {
+            available.set(false);
+            return tempDir.toString();
+        });
+        Path source = Files.writeString(tempDir.resolve("source.txt"), "keep");
+        var afterReady = new java.util.concurrent.atomic.AtomicBoolean();
+        String token = userQuotaService.triggerAdminFileArchive(List.of(
+                UserQuotaService.ArchiveItem.file(source, "source.txt")), "artworks", 1,
+                () -> afterReady.set(true));
+        assertThat(userQuotaService.getArchive(token).getStatus()).isEqualTo("error");
+        assertThat(afterReady).isFalse();
+        assertThat(source).hasContent("keep");
+        assertThat(tempDir.resolve("_archives").resolve(token + ".zip")).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("删源中数据库失效时保留完整 ZIP 并明确失败")
+    void failureDuringSourceDeletionPreservesCompleteArchive() throws Exception {
+        var available = new java.util.concurrent.atomic.AtomicBoolean(true);
+        when(pixivDatabase.isUnavailable()).thenAnswer(call -> !available.get());
+        when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+        Path source = Files.writeString(tempDir.resolve("source.txt"), "keep in zip");
+        String token = userQuotaService.triggerAdminFileArchive(List.of(
+                UserQuotaService.ArchiveItem.file(source, "source.txt")), "artworks", 1, () -> {
+                    try { Files.delete(source); } catch (java.io.IOException failure) { throw new java.io.UncheckedIOException(failure); }
+                    available.set(false);
+                    throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+                });
+        assertThat(userQuotaService.getArchive(token).getStatus()).isEqualTo("error");
+        Path archive = tempDir.resolve("_archives").resolve(token + ".zip");
+        assertThat(archive).exists();
+        try (var zip = new java.util.zip.ZipFile(archive.toFile()); var input = zip.getInputStream(zip.getEntry("source.txt"))) {
+            assertThat(new String(input.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)).isEqualTo("keep in zip");
+        }
+    }
+
+    @Test
     @DisplayName("创建中的归档取消后不执行删源并清理迟到产物")
     void cancelledBuildCannotDeleteSources() throws Exception {
         List<Runnable> submitted = new ArrayList<>();

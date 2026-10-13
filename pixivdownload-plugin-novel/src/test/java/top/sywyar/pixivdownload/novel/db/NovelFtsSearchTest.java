@@ -1,11 +1,5 @@
 package top.sywyar.pixivdownload.novel.db;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.Configuration;
-import org.apache.ibatis.session.SqlSession;
-import org.apache.ibatis.session.SqlSessionFactory;
-import org.apache.ibatis.session.SqlSessionFactoryBuilder;
-import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -26,7 +20,6 @@ import static org.mockito.Mockito.verify;
 class NovelFtsSearchTest {
 
     private SingleConnectionDataSource dataSource;
-    private SqlSession sqlSession;
     private NovelMapper mapper;
     private JdbcTemplate jdbc;
 
@@ -37,25 +30,17 @@ class NovelFtsSearchTest {
         dataSource.setUrl("jdbc:sqlite::memory:");
         dataSource.setSuppressClose(true);
 
-        Environment env = new Environment("test", new JdbcTransactionFactory(), dataSource);
-        Configuration config = new Configuration(env);
-        config.setMapUnderscoreToCamelCase(true);
-        config.addMapper(NovelMapper.class);
-
-        SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
-        sqlSession = factory.openSession(true);
-        mapper = sqlSession.getMapper(NovelMapper.class);
         jdbc = new JdbcTemplate(dataSource);
         NovelSqliteTestSchema.createNovelRows(jdbc);
         NovelSqliteTestSchema.createSoftDeleteDerivedTables(jdbc);
-        mapper.createNovelFtsTable();
+        mapper = NovelMapperTestFixture.mapper(dataSource);
+        mapper.initializeContentSearch();
         mapper.createNovelSoftDeleteCleanupTrigger();
         mapper.cleanupExistingDeletedNovelState();
     }
 
     @AfterEach
     void tearDown() {
-        sqlSession.close();
         dataSource.destroy();
     }
 
@@ -71,9 +56,9 @@ class NovelFtsSearchTest {
     void shouldMatchCjkKeywordAfterBackfill() {
         insertNovel(1L, "这是第一章的正文，主角踏上了冒险旅程。");
         insertNovel(2L, "完全无关的另一篇小说内容。");
-        mapper.backfillNovelFts();
+        mapper.refreshContentSearch(null);
 
-        List<Long> hits = mapper.searchNovelFtsIds("\"冒险旅程\"");
+        List<Long> hits = mapper.searchContent("冒险旅程");
 
         assertThat(hits).containsExactly(1L);
     }
@@ -82,12 +67,13 @@ class NovelFtsSearchTest {
     @DisplayName("insert/delete 能增量维护索引")
     void shouldMaintainIndexIncrementally() {
         insertNovel(10L, "keyword apple banana cherry");
-        mapper.insertNovelFts(10L, "keyword apple banana cherry");
+        mapper.refreshContentSearch(10L);
 
-        assertThat(mapper.searchNovelFtsIds("\"banana\"")).containsExactly(10L);
+        assertThat(mapper.searchContent("banana")).containsExactly(10L);
 
-        mapper.deleteNovelFts(10L);
-        assertThat(mapper.searchNovelFtsIds("\"banana\"")).isEmpty();
+        jdbc.update("UPDATE novels SET raw_content = ? WHERE novel_id = ?", "replacement content", 10L);
+        mapper.refreshContentSearch(10L);
+        assertThat(mapper.searchContent("banana")).isEmpty();
     }
 
     @Test
@@ -96,7 +82,7 @@ class NovelFtsSearchTest {
         insertNovel(20L, "猫と犬");
         insertNovel(21L, "鳥のうた");
 
-        List<Long> hits = mapper.findNovelIdsByContentLike("%猫%");
+        List<Long> hits = mapper.searchContent("猫");
 
         assertThat(hits).containsExactly(20L);
     }
@@ -109,7 +95,7 @@ class NovelFtsSearchTest {
         insertNovel(32L, "A_B literal");
         insertNovel(33L, "ACB literal");
         NovelDatabase database = new NovelDatabase(
-                mapper, mock(WorkTagCatalog.class), mock(StoredPathCodec.class));
+                mapper, mock(WorkTagCatalog.class), mock(StoredPathCodec.class), () -> true);
 
         assertThat(database.searchNovelContentIds("%")).containsExactly(30L);
         assertThat(database.searchNovelContentIds("_")).containsExactly(32L);
@@ -119,7 +105,7 @@ class NovelFtsSearchTest {
     @DisplayName("软删除触发器只原子清理普通派生状态并由插件回收陈旧 FTS")
     void shouldCleanPluginOwnedDerivedStateOnSoftDelete() {
         insertNovel(40L, "需要从索引移除的正文");
-        mapper.insertNovelFts(40L, "需要从索引移除的正文");
+        mapper.refreshContentSearch(40L);
         jdbc.update("INSERT INTO novel_tags(novel_id, tag_id) VALUES (?, ?)", 40L, 7L);
         jdbc.update("INSERT INTO novel_collections(collection_id, novel_id, added_time) VALUES (?, ?, ?)",
                 9L, 40L, 1L);
@@ -147,9 +133,9 @@ class NovelFtsSearchTest {
         }
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM novels_fts WHERE rowid = 40", Integer.class)).isEqualTo(1);
-        assertThat(mapper.searchNovelFtsIds("\"需要从索引移除\"")).isEmpty();
+        assertThat(mapper.searchContent("需要从索引移除")).isEmpty();
 
-        mapper.deleteDeletedNovelFts();
+        mapper.refreshContentSearch(null);
 
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM novels_fts WHERE rowid = 40", Integer.class)).isZero();
@@ -177,16 +163,16 @@ class NovelFtsSearchTest {
     void shouldTreatDeletedFtsCleanupAsBestEffortDuringInitialization() {
         NovelMapper failingMapper = mock(NovelMapper.class);
         doThrow(new IllegalStateException("broken fts ddl"))
-                .when(failingMapper).createNovelFtsTable();
+                .when(failingMapper).initializeContentSearch();
         doThrow(new IllegalStateException("broken fts"))
-                .when(failingMapper).deleteDeletedNovelFts();
+                .when(failingMapper).refreshContentSearch(null);
         NovelDatabase database = new NovelDatabase(
-                failingMapper, mock(WorkTagCatalog.class), mock(StoredPathCodec.class));
+                failingMapper, mock(WorkTagCatalog.class), mock(StoredPathCodec.class), () -> true);
 
         assertThatCode(database::init).doesNotThrowAnyException();
 
         verify(failingMapper).createNovelSoftDeleteCleanupTrigger();
-        verify(failingMapper).backfillNovelFts();
+        verify(failingMapper).refreshContentSearch(null);
     }
 
 }

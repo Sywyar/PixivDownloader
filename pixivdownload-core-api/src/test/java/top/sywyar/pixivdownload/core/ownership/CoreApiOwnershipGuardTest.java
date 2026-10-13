@@ -121,6 +121,8 @@ class CoreApiOwnershipGuardTest {
             .importPackages("top.sywyar.pixivdownload");
 
     private static final Map<String, Set<String>> APPROVED_TYPES_BY_OWNER = Map.ofEntries(
+            Map.entry("数据库可用状态与未执行语义", types("top.sywyar.pixivdownload.core.database",
+                    "DatabaseAvailability", "DatabaseUnavailableException")),
             Map.entry("宿主运行时窄端口", union(
                     types("top.sywyar.pixivdownload.config",
                             "DebugSettings", "DownloadSettings", "MultiModeSettings",
