@@ -206,9 +206,13 @@ GUI 预览和确认描述符时会联网；保存包含新描述符快照的设�
 
 ## PostgreSQL 主数据库
 
-主库默认使用本机 SQLite，不发起数据库网络连接。管理员显式配置 `database.engine: postgresql` 后，应用宿主、GUI 启动检查和离线工具通过 PostgreSQL JDBC 连接 `database.jdbc-url` 指定的主机、端口、数据库和单一 schema；默认 PostgreSQL 端口为 5432，实际地址由管理员决定。连接用于建表、自省、维护和全部主库读写，会发送数据库账号认证材料、SQL 与主库数据，包括作品元数据、通知、计划状态及计划凭据。owner 私有 `PluginDataSource` 仍使用本地 SQLite。
+默认 SQLite 数据库插件只访问本机文件。管理员安装并选择 PostgreSQL 插件后，连接由该插件的 JDBC 驱动建立，目标是 `database.jdbc-url` 指定的服务器。默认端口为 5432，实际主机、端口、数据库和主库 schema 均由管理员决定。
 
-这些 TCP / TLS 连接直接由 JDBC 驱动建立，不经过 Pixiv HTTP 代理；TLS 行为由 `sslmode` 和可选 `sslrootcert` 控制，远程连接建议使用 `verify-full`。数据库密码通过独立配置项或 `DATABASE_PASSWORD` 环境变量提供，URL 不接受凭据。连接失败会停止操作，不改连 SQLite。停用远程连接须在停止写入后恢复 SQLite 配置；切换配置不会复制历史数据，已有数据应先按[配置参考](configuration.md)完成停机迁移。
+桌面设置或插件市场的「测试连接」访问未保存的草稿目标，发送草稿认证材料并读取版本、编码、schema 和身份，不建表或替换活动连接池。「检查并继续」还检查源库结构、全部私库，以及目标是否为空或支持安全备份替换；重试时读取已提交目标的实际数据，核对源变化和数据摘要。确认前不迁移数据、不创建私库凭据、角色或 schema。PostgreSQL 连接预检的连接、登录和 socket 等待各最多 10 秒，保留更短的已配置值；这不是整个迁移任务的执行时限。
+
+确认清单后，桌面设置先保存本页其它设置，宿主自动停止业务并通过完整进程重启编排迁移，源和目标数据库提供者负责读写与核验。支持替换的非空目标先保留旧数据备份，迁入核验后再逐库替换。连接会发送认证材料、SQL、作品元数据、通知、计划状态、计划凭据及已声明的插件私库数据。全部主私库核验成功才切换配置；失败保留源配置及已提交目标数据。SQLite 与 PostgreSQL 支持双向迁移，也可单独使用停机工具。日常启动、结构演进、业务读写和维护同样由所选 provider 连接配置目标。私库使用独立 owner schema 和受限登录身份，密码保存在本地加密凭据存储中，普通插件不能取得主库账号。
+
+JDBC 的 TCP / TLS 连接不经过 Pixiv HTTP 代理；TLS 由 `sslmode` 和可选 `sslrootcert` 控制，远程连接建议使用 `verify-full`。密码通过独立配置项或 `DATABASE_PASSWORD` 提供，URL 不接受凭据。连接或 provider 不可用时进入恢复模式，停止依赖数据库的业务及后台操作，不改连其它引擎。确认前可取消迁移；停用远程连接须停止应用，修正数据库选择后完整重启。直接编辑配置不会复制历史数据，使用方式见[配置参考](configuration.md)。
 
 ## 本机、同源及管理员配置的目标地址
 
@@ -232,7 +236,9 @@ GUI 预览和确认描述符时会联网；保存包含新描述符快照的设�
 
 ## 开发、构建和发布流程的网络访问
 
-PostgreSQL 支持的工程依赖由 Maven 获取：坐标 `org.postgresql:postgresql`，路径为 `org/postgresql/postgresql/<版本>/`，默认来源为 Maven Central，仓库 / 镜像和代理沿用 Maven 的配置。只在源码构建或依赖预取缺少缓存时下载，不发送应用数据库凭据。真实数据库验收由操作者显式提供隔离服务；使用 Docker `postgres:17` 时，Docker 按自身镜像源、代理和认证设置访问 Docker Hub registry / token 服务及其重定向的镜像层 CDN。测试只连接 `PIXIV_TEST_POSTGRES_URL` 指定的隔离服务并使用测试账号；停止测试和容器可停止这些访问，默认应用运行不会下载数据库镜像。
+数据库插件的 JDBC 依赖由 Maven 获取：PostgreSQL 为 `org.postgresql:postgresql`（`org/postgresql/postgresql/<版本>/`），SQLite 为 `org.xerial:sqlite-jdbc`（`org/xerial/sqlite-jdbc/<版本>/`），默认来源为 Maven Central，仓库 / 镜像和代理沿用 Maven 的配置。只在源码构建或依赖预取缺少缓存时下载，不发送应用数据库凭据。真实数据库验收由操作者显式提供隔离服务；使用 Docker `postgres:17` 时，Docker 按自身镜像源、代理和认证设置访问 Docker Hub registry / token 服务及其重定向的镜像层 CDN。测试只连接 `PIXIV_TEST_POSTGRES_URL` 指定的隔离服务并使用测试账号；停止测试和容器可停止这些访问，默认应用运行不会下载数据库镜像。
+
+中性私库的独立第三提供者测试另使用 `com.h2database:h2`（`com/h2database/h2/<版本>/`），同样由 Maven 仓库 / 镜像与代理获取。H2 仅为测试依赖，不随宿主或官方插件分发；测试在进程内使用隔离内存库，不连接用户数据库。
 
 插件版本检查通过 GitHub CLI 分页读取 `api.github.com/repos/Sywyar/PixivDownloader-plugins/releases`，取得已公开版本；请求使用 CI 的 GitHub 认证或本地 CLI 登录态及其代理设置。产物检查使用 Maven 下载插件声明的最低 SDK 对应的固定坐标，仓库与代理由 Maven settings 决定；声明当前源码 SDK 时直接使用本轮构建产物。这些请求由 Quality Gate 或显式检查命令触发，失败会阻止验证通过，停止命令或取消 workflow 可结束后续请求。
 
