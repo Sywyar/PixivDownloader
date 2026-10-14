@@ -158,7 +158,7 @@ public class ArtworkFileService {
     }
 
     private File resolveThumbnailSourceFile(ArtworkRecord artwork, int page) {
-        File imageFile = resolveImageFile(artwork, page);
+        File imageFile = artworkFileLocator.resolveImageFile(artwork, page);
         if (imageFile == null) {
             return null;
         }
@@ -166,8 +166,8 @@ public class ArtworkFileService {
         if (artworkFileLocator.isReadOnly(artwork) || !Set.of("mp4", "webm").contains(extension)) {
             return imageFile;
         }
-        String dirPath = resolveArtworkDirectory(artwork);
-        String baseName = resolveStoredFileBaseName(artwork, page);
+        String dirPath = artworkFileLocator.resolveArtworkDirectory(artwork);
+        String baseName = artworkFileLocator.resolveStoredFileBaseName(artwork, page);
         File thumbFile = Paths.get(dirPath, baseName + "_thumb.jpg").toFile();
         return thumbFile.exists() ? thumbFile : imageFile;
     }
@@ -204,7 +204,7 @@ public class ArtworkFileService {
         int count = artwork.count();
         if (count <= page || page < 0) return null;
 
-        return resolveImageFile(artwork, page);
+        return artworkFileLocator.resolveImageFile(artwork, page);
     }
 
     /**
@@ -214,7 +214,7 @@ public class ArtworkFileService {
     public boolean hasArtworkFiles(ArtworkRecord artwork) {
         if (artwork == null || artwork.count() <= 0) return false;
         if (!artworkFileLocator.isReadOnly(artwork)) {
-            String directory = resolveArtworkDirectory(artwork);
+            String directory = artworkFileLocator.resolveArtworkDirectory(artwork);
             if (!StringUtils.hasText(directory)) throw new IllegalStateException("Missing artwork directory record");
             Path path = Path.of(directory);
             if (Files.notExists(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return false;
@@ -235,18 +235,6 @@ public class ArtworkFileService {
             }
         }
         return true;
-    }
-
-    private File resolveImageFile(ArtworkRecord artwork, int page) {
-        return artworkFileLocator.resolveImageFile(artwork, page);
-    }
-
-    private String resolveStoredFileBaseName(ArtworkRecord artwork, int page) {
-        return artworkFileLocator.resolveStoredFileBaseName(artwork, page);
-    }
-
-    private String resolveArtworkDirectory(ArtworkRecord artwork) {
-        return artworkFileLocator.resolveArtworkDirectory(artwork);
     }
 
     public static File findFileByName(String directoryPath, String fileName) {

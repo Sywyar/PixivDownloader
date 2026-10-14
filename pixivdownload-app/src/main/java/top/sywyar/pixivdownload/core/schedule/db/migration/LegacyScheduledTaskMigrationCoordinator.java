@@ -153,7 +153,7 @@ public final class LegacyScheduledTaskMigrationCoordinator implements LegacySche
         }
 
         Migrated plan = (Migrated) result;
-        validatePlan(owner, snapshot, route, plan);
+        validatePlan(snapshot, route, plan);
 
         String legacySecret = readLegacySecret(taskId);
         if (snapshot.hasLegacySecret() != (legacySecret != null)) {
@@ -267,8 +267,7 @@ public final class LegacyScheduledTaskMigrationCoordinator implements LegacySche
         return rows.isEmpty() ? null : text(rows.get(0), "cookie_snapshot");
     }
 
-    private void validatePlan(String owner,
-                              LegacyScheduledTaskSnapshot snapshot,
+    private void validatePlan(LegacyScheduledTaskSnapshot snapshot,
                               LegacyScheduledTaskMigrationRoute route,
                               Migrated plan) {
         ScheduledTaskDefinition definition = plan.definition();

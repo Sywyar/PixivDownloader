@@ -25,7 +25,6 @@ import java.util.List;
 import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -236,18 +235,5 @@ class DownloadedArtworkServiceTest {
         List<String> result = downloadedArtworkService.getDownloadedRecord();
 
         assertThat(result).containsExactly("1", "2", "3");
-    }
-
-    private static InsertArtworkArgument recoveredArtwork(long artworkId, String folder,
-                                                            int count, String extensions) {
-        return InsertArtworkArgument.builder()
-                .artworkId(artworkId)
-                .title("")
-                .folder(folder)
-                .count(count)
-                .extensions(extensions)
-                .time(1700000200L)
-                .description("")
-                .build();
     }
 }

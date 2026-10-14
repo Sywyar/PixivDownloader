@@ -39,8 +39,6 @@ public class CollectionService {
     private final DownloadConfig downloadConfig;
     private final NovelMetadataRepository novelMetadataRepository;
     private final PathPrefixCodec pathPrefixCodec;
-    /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
-    @SuppressWarnings("unused")
     private final DatabaseInitializer databaseInitializer;
 
     /** 非 DDL 初始化：建表 / 补列 / 索引已统一由 {@link DatabaseInitializer} 执行，这里只保留幂等数据迁移。 */
@@ -73,12 +71,12 @@ public class CollectionService {
     }
 
     public Collection create(String name) {
-        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+        requireDatabase();
         return create(name, null);
     }
 
     public Collection create(String name, String downloadRoot) {
-        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+        requireDatabase();
         String clean = validateName(name);
         if (collectionMapper.countByName(clean) > 0) {
             throw LocalizedException.badRequest("collection.name.duplicate", "同名收藏夹已存在");
@@ -104,7 +102,7 @@ public class CollectionService {
     }
 
     public Collection rename(long id, String name) {
-        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+        requireDatabase();
         requireExists(id);
         String clean = validateName(name);
         if (collectionMapper.countByNameExcludingId(clean, id) > 0) {
@@ -115,7 +113,7 @@ public class CollectionService {
     }
 
     public Collection updateDownloadRoot(long id, String downloadRoot) {
-        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+        requireDatabase();
         Collection collection = requireCollection(id);
         String cleanDownloadRoot = validateDownloadRoot(downloadRoot, collection.name(), collection.id());
         collectionMapper.updateDownloadRoot(id, pathPrefixCodec.encode(cleanDownloadRoot));
@@ -123,14 +121,14 @@ public class CollectionService {
     }
 
     public Collection updateSortOrder(long id, int sortOrder) {
-        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+        requireDatabase();
         requireExists(id);
         collectionMapper.updateSortOrder(id, sortOrder);
         return resolve(collectionMapper.findById(id));
     }
 
     public void delete(long id) {
-        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+        requireDatabase();
         requireExists(id);
         collectionMapper.deleteArtworkLinksByCollection(id);
         collectionMapper.deleteById(id);
@@ -139,7 +137,7 @@ public class CollectionService {
     }
 
     public Collection setIcon(long id, byte[] data) {
-        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+        requireDatabase();
         requireExists(id);
         try {
             String ext = iconService.saveIcon(id, data);
@@ -156,7 +154,7 @@ public class CollectionService {
     }
 
     public Collection clearIcon(long id) {
-        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+        requireDatabase();
         requireExists(id);
         iconService.deleteAll(id);
         collectionMapper.updateIconExt(id, null);
@@ -164,20 +162,19 @@ public class CollectionService {
     }
 
     public boolean addArtwork(long collectionId, long artworkId) {
-        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+        requireDatabase();
         requireExists(collectionId);
-        int changed = collectionMapper.addArtwork(collectionId, artworkId, System.currentTimeMillis());
-        return changed > 0;
+        return collectionMapper.addArtwork(collectionId, artworkId, System.currentTimeMillis()) > 0;
     }
 
     public boolean removeArtwork(long collectionId, long artworkId) {
-        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+        requireDatabase();
         requireExists(collectionId);
         return collectionMapper.removeArtwork(collectionId, artworkId) > 0;
     }
 
     public void removeArtworkFromAll(long artworkId) {
-        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+        requireDatabase();
         collectionMapper.removeAllArtworkLinks(artworkId);
     }
 
@@ -186,24 +183,18 @@ public class CollectionService {
     }
 
     public Map<Long, List<Long>> membershipsOf(List<Long> artworkIds) {
-        Map<Long, List<Long>> result = new HashMap<>();
-        if (artworkIds == null || artworkIds.isEmpty()) return result;
-        for (Map<String, Object> row : collectionMapper.findLinksByArtworks(artworkIds)) {
-            Long artworkId = ((Number) row.get("artworkId")).longValue();
-            Long collectionId = ((Number) row.get("collectionId")).longValue();
-            result.computeIfAbsent(artworkId, k -> new ArrayList<>()).add(collectionId);
-        }
-        return result;
+        if (artworkIds == null || artworkIds.isEmpty()) return new HashMap<>();
+        return groupMemberships(collectionMapper.findLinksByArtworks(artworkIds), "artworkId");
     }
 
     public boolean addNovel(long collectionId, long novelId) {
-        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+        requireDatabase();
         requireExists(collectionId);
         return novelMetadataRepository.addToCollection(collectionId, novelId);
     }
 
     public boolean removeNovel(long collectionId, long novelId) {
-        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+        requireDatabase();
         requireExists(collectionId);
         return novelMetadataRepository.removeFromCollection(collectionId, novelId);
     }
@@ -213,12 +204,16 @@ public class CollectionService {
     }
 
     public Map<Long, List<Long>> novelMembershipsOf(List<Long> novelIds) {
+        if (novelIds == null || novelIds.isEmpty()) return new HashMap<>();
+        return groupMemberships(novelMetadataRepository.findCollectionLinksByNovels(novelIds), "novelId");
+    }
+
+    private Map<Long, List<Long>> groupMemberships(List<Map<String, Object>> rows, String workIdField) {
         Map<Long, List<Long>> result = new HashMap<>();
-        if (novelIds == null || novelIds.isEmpty()) return result;
-        for (Map<String, Object> row : novelMetadataRepository.findCollectionLinksByNovels(novelIds)) {
-            Long novelId = ((Number) row.get("novelId")).longValue();
+        for (Map<String, Object> row : rows) {
+            Long workId = ((Number) row.get(workIdField)).longValue();
             Long collectionId = ((Number) row.get("collectionId")).longValue();
-            result.computeIfAbsent(novelId, k -> new ArrayList<>()).add(collectionId);
+            result.computeIfAbsent(workId, k -> new ArrayList<>()).add(collectionId);
         }
         return result;
     }
@@ -245,6 +240,10 @@ public class CollectionService {
                 collection.id(),
                 defaultRoot
         );
+    }
+
+    private void requireDatabase() {
+        if (databaseInitializer.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
     }
 
     private void requireExists(long id) {
@@ -362,11 +361,7 @@ public class CollectionService {
 
     private String stripLeadingSeparators(String value) {
         int index = 0;
-        while (index < value.length()) {
-            char ch = value.charAt(index);
-            if (ch != '/' && ch != '\\') {
-                break;
-            }
+        while (index < value.length() && isPathSeparator(value.charAt(index))) {
             index++;
         }
         return value.substring(index);

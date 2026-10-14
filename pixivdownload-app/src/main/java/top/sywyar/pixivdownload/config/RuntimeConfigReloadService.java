@@ -37,7 +37,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.DayOfWeek;
-import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -86,7 +85,7 @@ public class RuntimeConfigReloadService {
         NarrationTtsConfig nextNarrationTts = bind(binder, "narration-tts", NarrationTtsConfig::new, NarrationTtsConfig.class);
         NotificationConfig nextNotification = bind(binder, "notification", NotificationConfig::new, NotificationConfig.class);
 
-        List<String> applied = new ArrayList<>();
+        Set<String> applied = new LinkedHashSet<>();
         applyDownloadConfig(nextDownload, applied);
         applyMultiModeConfig(nextMultiMode, applied);
         applyGuestInviteConfig(nextGuestInvite, applied);
@@ -142,7 +141,7 @@ public class RuntimeConfigReloadService {
         return binder.bind(prefix, Bindable.of(type)).orElseGet(fallback);
     }
 
-    private void applyDownloadConfig(DownloadConfig next, List<String> applied) {
+    private void applyDownloadConfig(DownloadConfig next, Set<String> applied) {
         applyIfChanged(applied,
                 "download.user-flat-folder",
                 downloadConfig.isUserFlatFolder(),
@@ -150,7 +149,7 @@ public class RuntimeConfigReloadService {
                 () -> downloadConfig.setUserFlatFolder(next.isUserFlatFolder()));
     }
 
-    private void applyMultiModeConfig(MultiModeConfig next, List<String> applied) {
+    private void applyMultiModeConfig(MultiModeConfig next, Set<String> applied) {
         MultiModeConfig.Quota currentQuota = ensureQuota(multiModeConfig);
         MultiModeConfig.Quota nextQuota = ensureQuota(next);
 
@@ -212,7 +211,7 @@ public class RuntimeConfigReloadService {
                 () -> multiModeConfig.setLimitPage(next.getLimitPage()));
     }
 
-    private void applyGuestInviteConfig(GuestInviteConfig next, List<String> applied) {
+    private void applyGuestInviteConfig(GuestInviteConfig next, Set<String> applied) {
         applyIfChanged(applied,
                 "guest-invite.request-limit-minute",
                 guestInviteConfig.getRequestLimitMinute(),
@@ -230,7 +229,7 @@ public class RuntimeConfigReloadService {
                 () -> guestInviteConfig.setTtsRequestLimitMinute(next.getTtsRequestLimitMinute()));
     }
 
-    private void applySetupConfig(SetupProperties next, List<String> applied) {
+    private void applySetupConfig(SetupProperties next, Set<String> applied) {
         applyIfChanged(applied,
                 "setup.login-rate-limit-minute",
                 setupProperties.getLoginRateLimitMinute(),
@@ -238,7 +237,7 @@ public class RuntimeConfigReloadService {
                 () -> setupProperties.setLoginRateLimitMinute(next.getLoginRateLimitMinute()));
     }
 
-    private void applySslConfig(SslConfig next, List<String> applied) {
+    private void applySslConfig(SslConfig next, Set<String> applied) {
         applyIfChanged(applied,
                 "ssl.domain",
                 sslConfig.getDomain(),
@@ -246,7 +245,7 @@ public class RuntimeConfigReloadService {
                 () -> sslConfig.setDomain(next.getDomain()));
     }
 
-    private void applyMaintenanceConfig(MaintenanceProperties next, List<String> applied) {
+    private void applyMaintenanceConfig(MaintenanceProperties next, Set<String> applied) {
         applyIfChanged(applied,
                 "maintenance.enabled",
                 maintenanceProperties.isEnabled(),
@@ -261,7 +260,7 @@ public class RuntimeConfigReloadService {
         applyMaintenanceSchedule(DayOfWeek.SUNDAY, "sunday", next, applied);
     }
 
-    private void applyMaintenanceSchedule(DayOfWeek day, String key, MaintenanceProperties next, List<String> applied) {
+    private void applyMaintenanceSchedule(DayOfWeek day, String key, MaintenanceProperties next, Set<String> applied) {
         MaintenanceProperties.DaySchedule currentSchedule = maintenanceProperties.mutableScheduleFor(day);
         MaintenanceProperties.DaySchedule nextSchedule = next.scheduleFor(day);
         applyIfChanged(applied,
@@ -276,7 +275,7 @@ public class RuntimeConfigReloadService {
                 () -> currentSchedule.setTime(nextSchedule.getTime()));
     }
 
-    private void applyProxyConfig(ProxyConfig next, List<String> applied) {
+    private void applyProxyConfig(ProxyConfig next, Set<String> applied) {
         applyIfChanged(applied,
                 "proxy.enabled",
                 proxyConfig.isEnabled(),
@@ -293,7 +292,7 @@ public class RuntimeConfigReloadService {
                 next.getPort(),
                 () -> proxyConfig.setPort(next.getPort()));
     }
-    private void applyNarrationTtsConfig(NarrationTtsConfig next, List<String> applied) {
+    private void applyNarrationTtsConfig(NarrationTtsConfig next, Set<String> applied) {
         applyIfChanged(applied,
                 "narration-tts.engine",
                 narrationTtsConfig.getEngine(),
@@ -301,7 +300,7 @@ public class RuntimeConfigReloadService {
                 () -> narrationTtsConfig.setEngine(next.getEngine()));
     }
 
-    private void applyUpdateConfig(UpdateConfig next, List<String> applied) {
+    private void applyUpdateConfig(UpdateConfig next, Set<String> applied) {
         applyIfChanged(applied,
                 "update.enabled",
                 updateConfig.isEnabled(),
@@ -338,7 +337,7 @@ public class RuntimeConfigReloadService {
         return quota;
     }
 
-    private void applyNotificationConfig(NotificationConfig next, List<String> applied) {
+    private void applyNotificationConfig(NotificationConfig next, Set<String> applied) {
         for (NotificationScenario scenario : NotificationScenario.values()) {
             String id = scenario.id();
             boolean current = notificationConfig.isScenarioEnabled(id);
@@ -351,7 +350,7 @@ public class RuntimeConfigReloadService {
         }
     }
 
-    private static void applyIfChanged(List<String> applied,
+    private static void applyIfChanged(Set<String> applied,
                                        String key,
                                        Object current,
                                        Object next,
@@ -360,10 +359,10 @@ public class RuntimeConfigReloadService {
             return;
         }
         apply.run();
-        addAppliedKey(applied, key);
+        applied.add(key);
     }
 
-    private void rebindPluginConfig(List<String> requestedChangedKeys, List<String> applied) throws IOException {
+    private void rebindPluginConfig(List<String> requestedChangedKeys, Set<String> applied) throws IOException {
         if (requestedChangedKeys.isEmpty()) {
             return;
         }
@@ -388,7 +387,7 @@ public class RuntimeConfigReloadService {
         }
         for (String key : requestedChangedKeys) {
             if (reboundKeys.contains(key)) {
-                addAppliedKey(applied, key);
+                applied.add(key);
             }
         }
     }
@@ -481,12 +480,6 @@ public class RuntimeConfigReloadService {
             }
         }
         return List.copyOf(safeKeys);
-    }
-
-    private static void addAppliedKey(List<String> applied, String key) {
-        if (!applied.contains(key)) {
-            applied.add(key);
-        }
     }
 
     private static String message(String code, Object... args) {

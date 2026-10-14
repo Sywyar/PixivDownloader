@@ -25,7 +25,7 @@ public final class PixivCookieUserResolver {
             int us = value.indexOf('_');
             if (us <= 0) continue;
             String uid = value.substring(0, us);
-            if (!uid.isEmpty() && uid.chars().allMatch(Character::isDigit)) return uid;
+            if (uid.chars().allMatch(Character::isDigit)) return uid;
         }
         return null;
     }

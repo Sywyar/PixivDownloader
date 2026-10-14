@@ -504,19 +504,6 @@ public final class RuntimeFiles {
         }
     }
 
-    private static void deleteDirectoryTree(Path directory) throws IOException {
-        if (!Files.exists(directory)) {
-            return;
-        }
-        try (Stream<Path> stream = Files.walk(directory)) {
-            for (Path path : stream
-                    .sorted(Comparator.comparingInt(Path::getNameCount).reversed())
-                    .toList()) {
-                Files.deleteIfExists(path);
-            }
-        }
-    }
-
     private static List<Path> rootAndDownloadLegacyCandidates(Path targetDirectory, String rootFolder, String fileName) {
         Set<Path> paths = new LinkedHashSet<>();
         addDownloadRootCandidate(paths, rootFolder, fileName);

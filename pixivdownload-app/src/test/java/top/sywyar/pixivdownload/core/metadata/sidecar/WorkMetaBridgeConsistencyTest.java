@@ -2,12 +2,6 @@ package top.sywyar.pixivdownload.core.metadata.sidecar;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.Configuration;
-import org.apache.ibatis.session.SqlSession;
-import org.apache.ibatis.session.SqlSessionFactory;
-import org.apache.ibatis.session.SqlSessionFactoryBuilder;
-import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -18,8 +12,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
-import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
-import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.InsertArtworkArgument;
 import top.sywyar.pixivdownload.core.db.PixivMapper;
@@ -63,7 +55,6 @@ class WorkMetaBridgeConsistencyTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     private SingleConnectionDataSource dataSource;
-    private SqlSession sqlSession;
     private PixivDatabase pixivDatabase;
     private NovelMetadataRepository novelMetadataRepository;
 
@@ -79,12 +70,6 @@ class WorkMetaBridgeConsistencyTest {
         dataSource.setUrl("jdbc:sqlite::memory:");
         dataSource.setSuppressClose(true);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
-
-        Environment env = new Environment("test", new JdbcTransactionFactory(), dataSource);
-        Configuration config = new Configuration(env);
-        config.setMapUnderscoreToCamelCase(true);
-        SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
-        sqlSession = factory.openSession(true);
 
         DatabaseSchemaRegistry registry = DatabaseSchemaRegistry.forBuiltInPlugins();
         DatabaseInitializer initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(
@@ -118,7 +103,6 @@ class WorkMetaBridgeConsistencyTest {
 
     @AfterEach
     void tearDown() {
-        sqlSession.close();
         dataSource.destroy();
     }
 

@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class UuidUtilsTest {
 
     /** 真实 UUID v4（version 4 / RFC 4122 variant）。 */
-    private static final String V4_ID = "11111111-2222-4333-8444-555555555555";
+    private static final String V4_ID = "abcdefab-cdef-4abc-8def-abcdefabcdef";
 
     @Nested
     @DisplayName("请求 UUID 读取与生成")

@@ -1,9 +1,5 @@
 package top.sywyar.pixivdownload.core.db;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.*;
-import org.mybatis.spring.transaction.SpringManagedTransactionFactory;
-import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
@@ -28,7 +24,6 @@ class PixivDatabaseTest {
 
     private PixivDatabase pixivDatabase;
     private SingleConnectionDataSource dataSource;
-    private SqlSession sqlSession;
 
     @BeforeEach
     void setUp() {
@@ -37,12 +32,6 @@ class PixivDatabaseTest {
         dataSource.setUrl("jdbc:sqlite::memory:");
         dataSource.setSuppressClose(true);
 
-        Environment env = new Environment("test", new SpringManagedTransactionFactory(), dataSource);
-        Configuration config = new Configuration(env);
-        config.setMapUnderscoreToCamelCase(true);
-
-        SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
-        sqlSession = new SqlSessionTemplate(factory);
         PixivMapper mapper = new PixivMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
         PathPrefixMapper pathPrefixMapper = new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
 

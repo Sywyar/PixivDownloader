@@ -264,19 +264,7 @@ public class PluginScheduleContributionRegistrar {
                         Thread.interrupted();
                     }
                 }
-                if (!slot.registryAcknowledged) {
-                    registry.acknowledgeRetired(drain);
-                    slot.registryAcknowledged = true;
-                }
-                if (!slot.registryForgotten) {
-                    boolean forgotten = registry.forgetRetirementAcknowledgement(drain);
-                    if (!forgotten && !slot.registryAcknowledged) {
-                        throw new IllegalStateException(
-                                "schedule retirement acknowledgement is missing: "
-                                        + drain.owner() + "#" + drain.publicationId());
-                    }
-                    slot.registryForgotten = true;
-                }
+                acknowledgeRegistryRetirement(slot, drain);
             }
             return null;
         } catch (Throwable failure) {
@@ -353,18 +341,18 @@ public class PluginScheduleContributionRegistrar {
                 throw new IllegalStateException("schedule generation is not retired: "
                         + drain.owner() + "#" + drain.publicationId());
             }
-            if (!slot.registryAcknowledged) {
-                registry.acknowledgeRetired(drain);
-                slot.registryAcknowledged = true;
-            }
-            if (!slot.registryForgotten) {
-                boolean forgotten = registry.forgetRetirementAcknowledgement(drain);
-                if (!forgotten && !slot.registryAcknowledged) {
-                    throw new IllegalStateException("schedule retirement acknowledgement is missing: "
-                            + drain.owner() + "#" + drain.publicationId());
-                }
-                slot.registryForgotten = true;
-            }
+            acknowledgeRegistryRetirement(slot, drain);
+        }
+    }
+
+    private void acknowledgeRegistryRetirement(PublicationSlot slot, ScheduleGenerationDrain drain) {
+        if (!slot.registryAcknowledged) {
+            registry.acknowledgeRetired(drain);
+            slot.registryAcknowledged = true;
+        }
+        if (!slot.registryForgotten) {
+            registry.forgetRetirementAcknowledgement(drain);
+            slot.registryForgotten = true;
         }
     }
 

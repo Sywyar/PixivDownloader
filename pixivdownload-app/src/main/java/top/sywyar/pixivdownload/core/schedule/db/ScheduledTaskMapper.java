@@ -111,35 +111,12 @@ public class ScheduledTaskMapper {
     }
 
     private List<ScheduledTask> tasks(Expression where, List<Query.Order> order, int limit) {
-        var projection = new LinkedHashMap<String, Expression>();
-        projection.put("id", column("t", "id"));
-        projection.put("name", column("t", "name"));
-        projection.put("enabled", column("t", "enabled"));
-        projection.put("type", column("t", "type"));
-        projection.put("source_owner_plugin_id", column("t", "source_owner_plugin_id"));
-        projection.put("definition_schema", column("t", "definition_schema"));
-        projection.put("definition_version", column("t", "definition_version"));
-        projection.put("params_json", column("t", "params_json"));
-        projection.put("presentation_json", column("t", "presentation_json"));
-        projection.put("trigger_kind", column("t", "trigger_kind"));
-        projection.put("interval_minutes", column("t", "interval_minutes"));
-        projection.put("cron_expr", column("t", "cron_expr"));
-        projection.put("proxy_snapshot", column("t", "proxy_snapshot"));
-        projection.put("next_run_time", column("t", "next_run_time"));
-        projection.put("last_run_time", column("t", "last_run_time"));
-        projection.put("checkpoint_schema", column("t", "checkpoint_schema"));
-        projection.put("checkpoint_version", column("t", "checkpoint_version"));
-        projection.put("checkpoint_json", column("t", "checkpoint_json"));
-        projection.put("storage_version", column("t", "storage_version"));
-        projection.put("run_state", column("t", "run_state"));
-        projection.put("run_claim_token", column("t", "run_claim_token"));
-        projection.put("last_outcome", column("t", "last_outcome"));
-        projection.put("outcome_code", column("t", "outcome_code"));
-        projection.put("outcome_message", column("t", "outcome_message"));
-        projection.put("suspend_reason", column("t", "suspend_reason"));
-        projection.put("suspend_code", column("t", "suspend_code"));
-        projection.put("suspend_detail_json", column("t", "suspend_detail_json"));
-        projection.put("state_version", column("t", "state_version"));
+        var projection = fields("t", "id", "name", "enabled", "type", "source_owner_plugin_id",
+                "definition_schema", "definition_version", "params_json", "presentation_json", "trigger_kind",
+                "interval_minutes", "cron_expr", "proxy_snapshot", "next_run_time", "last_run_time",
+                "checkpoint_schema", "checkpoint_version", "checkpoint_json", "storage_version",
+                "run_state", "run_claim_token", "last_outcome", "outcome_code", "outcome_message",
+                "suspend_reason", "suspend_code", "suspend_detail_json", "state_version");
         projection.put("credential_policy_owner_plugin_id", column("c", "policy_owner_plugin_id"));
         projection.put("credential_policy_id", column("c", "policy_id"));
         projection.put("credential_account_key", column("c", "account_key"));

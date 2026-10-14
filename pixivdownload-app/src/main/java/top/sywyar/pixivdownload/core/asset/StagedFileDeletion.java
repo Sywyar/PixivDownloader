@@ -102,7 +102,6 @@ public class StagedFileDeletion {
         PlainFilePathGuard.requirePlainParent(directory.resolve("check"), false);
         var entries = new ArrayList<FileOperationJournal.Entry>();
         boolean prepared = false;
-        boolean committed = false;
         try {
             for (var target : targets.entrySet()) {
                 requireDatabase();
@@ -135,7 +134,6 @@ public class StagedFileDeletion {
             }
             requireDatabase();
             journal.commit(operation, commitRecord);
-            committed = true;
         } catch (IOException | RuntimeException | Error failure) {
             try {
                 // 无法读取提交事实时保留全部备份，交给下次数据库可用时恢复。
@@ -151,15 +149,13 @@ public class StagedFileDeletion {
             }
             throw failure;
         }
-        if (committed) {
-            try {
-                cleanStaging(directory);
-                requireDatabase();
-                journal.forget(operation);
-            } catch (IOException | RuntimeException failure) {
-                // 提交已完成，残留只作清理，不把成功反报为失败或复原文件。
-                log.warn(messages.getForLog("download.delete.log.staging-cleanup-failed", directory), failure);
-            }
+        try {
+            cleanStaging(directory);
+            requireDatabase();
+            journal.forget(operation);
+        } catch (IOException | RuntimeException failure) {
+            // 提交已完成，残留只作清理，不把成功反报为失败或复原文件。
+            log.warn(messages.getForLog("download.delete.log.staging-cleanup-failed", directory), failure);
         }
     }
 

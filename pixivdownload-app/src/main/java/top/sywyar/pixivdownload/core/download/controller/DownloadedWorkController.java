@@ -199,19 +199,7 @@ public class DownloadedWorkController {
         List<Long> artWorkIds = "author_id".equals(sort)
                 ? downloadedArtworkService.getSortAuthorArtworkPaged(page, size)
                 : downloadedArtworkService.getSortTimeArtworkPaged(page, size);
-        List<ArtworkRecord> artworks = new LinkedList<>();
-
-        for (Long artworkId : artWorkIds) {
-            ArtworkRecord artwork = downloadedArtworkService.getDownloadedRecord(artworkId);
-            if (artwork != null) {
-                artworks.add(artwork);
-            }
-        }
-
-        Map<Long, String> authorNames = resolveAuthorNames(artworks);
-        List<DownloadedResponse> downloadedResponses = artworks.stream()
-                .map(artwork -> toDownloadedResponse(artwork, authorNames))
-                .toList();
+        List<DownloadedResponse> downloadedResponses = loadDownloadedResponses(artWorkIds);
         int totalPages = (int) Math.ceil((double) totalElements / size);
         return ResponseEntity.ok(new PagedHistoryResponse(downloadedResponses, totalElements, page, size, totalPages));
     }
@@ -249,20 +237,24 @@ public class DownloadedWorkController {
                 .guestRestriction(GuestRestriction.from(session))
                 .build();
         GalleryRepository.QueryResult result = galleryRepository.findArtworkIds(query);
+        List<DownloadedResponse> responses = loadDownloadedResponses(result.ids());
+        long total = result.totalElements();
+        int totalPages = (int) Math.ceil((double) total / safeSize);
+        return new PagedHistoryResponse(responses, total, safePage, safeSize, totalPages);
+    }
+
+    private List<DownloadedResponse> loadDownloadedResponses(List<Long> artworkIds) {
         List<ArtworkRecord> artworks = new LinkedList<>();
-        for (Long artworkId : result.ids()) {
+        for (Long artworkId : artworkIds) {
             ArtworkRecord artwork = downloadedArtworkService.getDownloadedRecord(artworkId);
             if (artwork != null) {
                 artworks.add(artwork);
             }
         }
         Map<Long, String> authorNames = resolveAuthorNames(artworks);
-        List<DownloadedResponse> responses = artworks.stream()
+        return artworks.stream()
                 .map(artwork -> toDownloadedResponse(artwork, authorNames))
                 .toList();
-        long total = result.totalElements();
-        int totalPages = (int) Math.ceil((double) total / safeSize);
-        return new PagedHistoryResponse(responses, total, safePage, safeSize, totalPages);
     }
 
     private List<Long> getVisibleArtworkIds(GuestInviteSession session) {

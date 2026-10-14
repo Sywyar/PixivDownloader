@@ -160,10 +160,6 @@ public class QueueOperationRegistry {
             if (owner != null) {
                 next.entrySet().removeIf(entry -> owner.equals(entry.getValue().owner()));
             }
-            if (operations == null || operations.isEmpty()) {
-                snapshot = new Snapshot(Collections.unmodifiableMap(next));
-                return;
-            }
             for (CapturedOperations captured : operations) {
                 QueueOperations raw = captured.rawOperations();
                 OwnedOperations candidate = new OwnedOperations(

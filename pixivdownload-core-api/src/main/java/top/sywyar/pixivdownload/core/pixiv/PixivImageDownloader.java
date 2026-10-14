@@ -106,7 +106,7 @@ public interface PixivImageDownloader {
         String pathExtension = extensionFromPath(source == null ? null : source.getPath());
         String responseExtension = extensionFromContentType(contentType);
         String magicExtension = extensionFromMagic(file);
-        if (responseExtension != null && !sameFormat(responseExtension, magicExtension)) {
+        if (responseExtension != null && !responseExtension.equals(magicExtension)) {
             throw new IOException("Pixiv image content type does not match its file signature");
         }
         return "jpg".equals(magicExtension) && "jpeg".equals(pathExtension)
@@ -168,14 +168,6 @@ public interface PixivImageDownloader {
             case "jpg", "jpeg", "png", "webp", "gif" -> extension;
             default -> null;
         };
-    }
-
-    private static boolean sameFormat(String left, String right) {
-        return normalizeJpeg(left).equals(normalizeJpeg(right));
-    }
-
-    private static String normalizeJpeg(String extension) {
-        return "jpeg".equals(extension) ? "jpg" : extension;
     }
 
     private static boolean startsWith(byte[] bytes, int... expected) {

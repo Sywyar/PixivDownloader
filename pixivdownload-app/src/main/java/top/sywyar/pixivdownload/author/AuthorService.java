@@ -38,8 +38,6 @@ public class AuthorService {
     private final RestTemplate downloadRestTemplate;
     private final TaskScheduler taskScheduler;
     private final AppMessages messages;
-    /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
-    @SuppressWarnings("unused")
     private final DatabaseInitializer databaseInitializer;
     private final ConcurrentHashMap<Long, Long> lastRenameValidationAtMs = new ConcurrentHashMap<>();
 

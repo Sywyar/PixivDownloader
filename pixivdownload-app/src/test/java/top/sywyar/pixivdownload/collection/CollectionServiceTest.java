@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
@@ -16,6 +18,7 @@ import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -247,23 +250,24 @@ class CollectionServiceTest {
     @DisplayName("memberships 合并")
     class MembershipsTests {
 
-        @Test
-        @DisplayName("应把扁平 row 合并为 artworkId → collectionIds 映射")
-        void shouldMergeFlatRowsIntoMap() {
-            java.util.Map<String, Object> row1 = new java.util.HashMap<>();
-            row1.put("artworkId", 100L);
-            row1.put("collectionId", 1L);
-            java.util.Map<String, Object> row2 = new java.util.HashMap<>();
-            row2.put("artworkId", 100L);
-            row2.put("collectionId", 2L);
-            java.util.Map<String, Object> row3 = new java.util.HashMap<>();
-            row3.put("artworkId", 200L);
-            row3.put("collectionId", 1L);
-            when(collectionMapper.findLinksByArtworks(List.of(100L, 200L)))
-                    .thenReturn(List.of(row1, row2, row3));
+        @ParameterizedTest
+        @ValueSource(booleans = {false, true})
+        @DisplayName("插画与小说归属均按作品分组并保留收藏夹顺序")
+        void shouldMergeFlatRowsIntoMap(boolean novel) {
+            String workIdField = novel ? "novelId" : "artworkId";
+            List<Map<String, Object>> rows = List.of(
+                    Map.of(workIdField, 100L, "collectionId", 1L),
+                    Map.of(workIdField, 100L, "collectionId", 2L),
+                    Map.of(workIdField, 200L, "collectionId", 1L));
+            if (novel) {
+                when(novelMetadataRepository.findCollectionLinksByNovels(List.of(100L, 200L))).thenReturn(rows);
+            } else {
+                when(collectionMapper.findLinksByArtworks(List.of(100L, 200L))).thenReturn(rows);
+            }
 
-            java.util.Map<Long, java.util.List<Long>> result =
-                    collectionService.membershipsOf(List.of(100L, 200L));
+            Map<Long, List<Long>> result = novel
+                    ? collectionService.novelMembershipsOf(List.of(100L, 200L))
+                    : collectionService.membershipsOf(List.of(100L, 200L));
 
             assertThat(result).hasSize(2);
             assertThat(result.get(100L)).containsExactly(1L, 2L);
@@ -273,11 +277,12 @@ class CollectionServiceTest {
         @Test
         @DisplayName("入参为空时应返回空 map 且不查询数据库")
         void shouldReturnEmptyMapForEmptyInput() {
-            java.util.Map<Long, java.util.List<Long>> result =
-                    collectionService.membershipsOf(java.util.List.of());
-
-            assertThat(result).isEmpty();
+            assertThat(collectionService.membershipsOf(List.of())).isEmpty();
+            assertThat(collectionService.membershipsOf(null)).isEmpty();
+            assertThat(collectionService.novelMembershipsOf(List.of())).isEmpty();
+            assertThat(collectionService.novelMembershipsOf(null)).isEmpty();
             verify(collectionMapper, never()).findLinksByArtworks(any());
+            verify(novelMetadataRepository, never()).findCollectionLinksByNovels(any());
         }
     }
 }

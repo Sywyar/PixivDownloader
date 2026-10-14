@@ -23,6 +23,9 @@ class ArchiveExportRulesTest {
         assertThat(ArchiveExportRules.normalizeIdSet(ids)).containsExactly(3L, 5L, 7L);
         assertThat(ArchiveExportRules.applyExclusions(ids, List.of(5L, 99L)))
                 .containsExactly(3L, 7L);
+        assertThat(ArchiveExportRules.applyExclusions(ids, null)).containsExactly(3L, 5L, 7L);
+        assertThat(ArchiveExportRules.applyExclusions(ids, Arrays.asList(null, 0L, 5L, 5L)))
+                .containsExactly(3L, 7L);
     }
 
     @Test
@@ -40,6 +43,10 @@ class ArchiveExportRulesTest {
     void sanitizesArchiveEntryPaths() {
         assertThat(ArchiveExportRules.safeSegment("a/b:c*d", "fallback")).isEqualTo("a_b_c_d");
         assertThat(ArchiveExportRules.safeSegment("name...", "fallback")).isEqualTo("name");
+        assertThat(ArchiveExportRules.safeSegment(".", "fallback")).isEqualTo("fallback");
+        assertThat(ArchiveExportRules.safeSegment("..", "fallback")).isEqualTo("fallback");
+        assertThat(ArchiveExportRules.safeSegment(" . . ", "fallback")).isEqualTo("fallback");
+        assertThat(ArchiveExportRules.safeSegment("name . . ", "fallback")).isEqualTo("name");
         assertThat(ArchiveExportRules.safeRelativePath("a\\..\\b")).isEqualTo("a/file/b");
         assertThat(ArchiveExportRules.authorSegment(7L, null)).isEqualTo("author-7");
         assertThat(ArchiveExportRules.workSegment(9L, "title/name")).isEqualTo("9 - title_name");

@@ -66,13 +66,7 @@ public class WorkMetaCurator {
         Long uploadTime = parseEpochMillis(illustBody, "uploadDate", "createDate");
         Boolean isOriginal = boolOrNull(illustBody, "isOriginal");
 
-        ObjectNode normalized = objectMapper.createObjectNode();
-        putEpoch(normalized, "uploadTime", uploadTime);
-        putEpoch(normalized, "createTime", parseEpochMillis(illustBody, "createDate"));
-        putEpoch(normalized, "reuploadTime", parseEpochMillis(illustBody, "reuploadDate"));
-        putBool(normalized, "isOriginal", isOriginal);
-        putBool(normalized, "isUnlisted", boolOrNull(illustBody, "isUnlisted"));
-        putTitleCaptionTranslation(normalized, illustBody);
+        ObjectNode normalized = normalizeCommonFields(illustBody, uploadTime, isOriginal);
         putIllustCommentIfDiffers(normalized, illustBody);
         putPages(normalized, pagesBody);
 
@@ -91,17 +85,22 @@ public class WorkMetaCurator {
         }
         Boolean isOriginal = boolOrNull(novelBody, "isOriginal");
 
-        ObjectNode normalized = objectMapper.createObjectNode();
-        putEpoch(normalized, "uploadTime", uploadTime);
-        putEpoch(normalized, "createTime", parseEpochMillis(novelBody, "createDate"));
-        putEpoch(normalized, "reuploadTime", parseEpochMillis(novelBody, "reuploadDate"));
-        putBool(normalized, "isOriginal", isOriginal);
-        putBool(normalized, "isUnlisted", boolOrNull(novelBody, "isUnlisted"));
-        putTitleCaptionTranslation(normalized, novelBody);
+        ObjectNode normalized = normalizeCommonFields(novelBody, uploadTime, isOriginal);
 
         ObjectNode raw = prune(novelBody, COMMON_STRIP);
         NOVEL_EXTRA_STRIP.forEach(raw::remove);
         return assemble(WorkType.NOVEL, workId, source, normalized, raw, uploadTime, isOriginal);
+    }
+
+    private ObjectNode normalizeCommonFields(JsonNode body, Long uploadTime, Boolean isOriginal) {
+        ObjectNode normalized = objectMapper.createObjectNode();
+        putEpoch(normalized, "uploadTime", uploadTime);
+        putEpoch(normalized, "createTime", parseEpochMillis(body, "createDate"));
+        putEpoch(normalized, "reuploadTime", parseEpochMillis(body, "reuploadDate"));
+        putBool(normalized, "isOriginal", isOriginal);
+        putBool(normalized, "isUnlisted", boolOrNull(body, "isUnlisted"));
+        putTitleCaptionTranslation(normalized, body);
+        return normalized;
     }
 
     private CuratedWorkMeta assemble(WorkType workType, long workId, String source,

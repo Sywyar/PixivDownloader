@@ -47,6 +47,29 @@ class PushFormatConverterTest {
     // ---- 转换 render ---------------------------------------------------------------------
 
     @Test
+    @DisplayName("空消息与已归一化的消息均可渲染，空目标使用纯文本")
+    void renderPreservesMessageDefaults() {
+        assertThat(converter.render(null, null))
+                .isEqualTo(new RenderedMessage("", "", PushFormat.PLAIN_TEXT, NotificationSeverity.INFO));
+        assertThat(converter.render(new PushMessage(null, null, null, null), PushFormat.HTML))
+                .isEqualTo(new RenderedMessage("", "", PushFormat.HTML, NotificationSeverity.INFO));
+        assertThat(converter.render(new PushMessage(null, "**内容**", PushFormat.CARD, null), null).body())
+                .isEqualTo("内容");
+        assertThat(converter.negotiate(List.of(PushFormat.HTML), null)).isEqualTo(PushFormat.HTML);
+        assertThat(converter.negotiate(List.of(PushFormat.HTML), PushFormat.CARD)).isEqualTo(PushFormat.HTML);
+    }
+
+    @Test
+    @DisplayName("相同文本格式协商后原样保留正文与严重程度")
+    void sameFormatPreservesContent() {
+        for (PushFormat format : List.of(PushFormat.PLAIN_TEXT, PushFormat.MARKDOWN, PushFormat.HTML)) {
+            assertThat(converter.negotiate(List.of(format), format)).isEqualTo(format);
+            assertThat(converter.render(new PushMessage("标题", "<b>& **内容**", format, NotificationSeverity.ERROR), format))
+                    .isEqualTo(new RenderedMessage("标题", "<b>& **内容**", format, NotificationSeverity.ERROR));
+        }
+    }
+
+    @Test
     @DisplayName("转换：Markdown → 纯文本，剥离粗体与链接标记")
     void renderMarkdownToPlainText() {
         RenderedMessage rm = converter.render(

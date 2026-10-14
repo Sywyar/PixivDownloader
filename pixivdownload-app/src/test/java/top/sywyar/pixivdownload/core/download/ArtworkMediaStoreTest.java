@@ -8,7 +8,6 @@ import org.sqlite.SQLiteConfig;
 import org.sqlite.SQLiteDataSource;
 import top.sywyar.pixivdownload.core.asset.ArtworkMediaManifest;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaStoreImpl;
-import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 

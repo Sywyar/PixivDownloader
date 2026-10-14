@@ -1,22 +1,16 @@
 package top.sywyar.pixivdownload.core.schedule.capability;
 
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityPublication;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistryTestAccess;
-import top.sywyar.pixivdownload.core.schedule.capability.ScheduleGenerationDrain;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
-import top.sywyar.pixivdownload.core.schedule.capability.SchedulePlanningLease;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacySchedulePersistenceDescriptor;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacySchedulePersistenceDescriptorProvider;
-import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledCredentialPolicyTarget;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationAdapter;
-import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationResult;
-import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationRoute;
 import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskMigrationService;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
@@ -33,9 +27,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.ScheduleContributionLifecycleAu
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 
-import java.lang.reflect.Modifier;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -45,13 +37,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.catchThrowable;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 

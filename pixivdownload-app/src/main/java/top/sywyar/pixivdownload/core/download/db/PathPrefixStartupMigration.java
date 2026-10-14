@@ -208,12 +208,11 @@ public class PathPrefixStartupMigration
      * 把 {@code path_prefixes} 中与符号根同路径的 {@code {N}} 行折叠为 {@code {0}}：
      * 单个事务内改写全部路径前缀列并删除该前缀行，绝不留下悬空的 {@code {N}} 引用。
      */
-    private int foldRootPrefixes(String rootPath) {
+    private void foldRootPrefixes(String rootPath) {
         String rootNorm = normalize(rootPath);
         List<PathPrefix> matches = codec.snapshot().stream()
                 .filter(p -> rootNorm.equals(normalize(p.path())))
                 .toList();
-        int total = 0;
         for (PathPrefix match : matches) {
             String token = "{" + match.id() + "}";
             Integer rows = transactionOperations.execute(status -> {
@@ -228,14 +227,12 @@ public class PathPrefixStartupMigration
                         call(EQUAL, column("path_prefixes", "id"), value(match.id()))));
                 return n;
             });
-            total += rows == null ? 0 : rows;
             log.info(logMessage("download.db.log.symbolic-root-folded",
                     match.id(), match.path(), rows == null ? 0 : rows));
         }
         if (!matches.isEmpty()) {
             codec.reload();
         }
-        return total;
     }
 
     /**

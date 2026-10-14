@@ -73,7 +73,7 @@ public class PushFormatConverter {
      */
     public RenderedMessage render(PushMessage message, PushFormat target) {
         PushMessage msg = message == null ? PushMessage.of("", "") : message;
-        PushFormat src = normalizeSource(msg.sourceFormat());
+        PushFormat src = msg.sourceFormat();
         PushFormat tgt = target == null ? PushFormat.PLAIN_TEXT : target;
 
         if (tgt == PushFormat.CARD) {
@@ -92,9 +92,6 @@ public class PushFormatConverter {
         if (to == PushFormat.CARD) {
             return reachable(from, PushFormat.MARKDOWN);
         }
-        if (from == to) {
-            return true;
-        }
         // 文本三格式间唯一不可达的转换：HTML → MARKDOWN。
         return !(from == PushFormat.HTML && to == PushFormat.MARKDOWN);
     }
@@ -106,19 +103,18 @@ public class PushFormatConverter {
 
     /** 文本三格式间的转换。{@code from == to} 已在调用前/此处短路。 */
     private String convert(String content, PushFormat from, PushFormat to) {
-        String c = content == null ? "" : content;
         if (from == to) {
-            return c;
+            return content;
         }
         switch (to) {
             case PLAIN_TEXT:
-                return from == PushFormat.HTML ? htmlToText(c) : markdownToText(c);
+                return from == PushFormat.HTML ? htmlToText(content) : markdownToText(content);
             case HTML:
-                return from == PushFormat.MARKDOWN ? markdownToHtml(c) : textToHtml(c);
+                return from == PushFormat.MARKDOWN ? markdownToHtml(content) : escapeHtml(content);
             case MARKDOWN:
             default:
                 // 仅 PLAIN_TEXT → MARKDOWN 可达（透传）；HTML → MARKDOWN 不支持，调用方已降级。
-                return c;
+                return content;
         }
     }
 
@@ -164,10 +160,6 @@ public class PushFormatConverter {
         }
         matcher.appendTail(sb);
         return sb.toString();
-    }
-
-    private static String textToHtml(String text) {
-        return escapeHtml(text);
     }
 
     private static String protectInlineCode(String text, List<String> protectedHtml) {

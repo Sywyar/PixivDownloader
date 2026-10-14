@@ -402,14 +402,7 @@ class DatabaseSchemaInspectorTest {
             ds.setUrl("jdbc:sqlite::memory:");
             ds.setSuppressClose(true);
 
-            org.apache.ibatis.mapping.Environment env = new org.apache.ibatis.mapping.Environment(
-                    "test", new org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory(), ds);
-            org.apache.ibatis.session.Configuration config = new org.apache.ibatis.session.Configuration(env);
-            config.setMapUnderscoreToCamelCase(true);
-            org.apache.ibatis.session.SqlSessionFactory factory =
-                    new org.apache.ibatis.session.SqlSessionFactoryBuilder().build(config);
-
-            try (org.apache.ibatis.session.SqlSession session = factory.openSession(true)) {
+            try {
                 PixivMapper mapper = new PixivMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(ds));
                 PathPrefixMapper pathPrefixMapper = new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(ds));
                 DatabaseInitializer initializer = newInitializer(ds);
@@ -496,14 +489,7 @@ class DatabaseSchemaInspectorTest {
             ds.setUrl("jdbc:sqlite::memory:");
             ds.setSuppressClose(true);
 
-            org.apache.ibatis.mapping.Environment env = new org.apache.ibatis.mapping.Environment(
-                    "test", new org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory(), ds);
-            org.apache.ibatis.session.Configuration config = new org.apache.ibatis.session.Configuration(env);
-            config.setMapUnderscoreToCamelCase(true);
-            org.apache.ibatis.session.SqlSessionFactory factory =
-                    new org.apache.ibatis.session.SqlSessionFactoryBuilder().build(config);
-
-            try (org.apache.ibatis.session.SqlSession session = factory.openSession(true)) {
+            try {
                 top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskMapper mapper =
                         new top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(ds));
                 DatabaseInitializer initializer = newInitializer(ds);

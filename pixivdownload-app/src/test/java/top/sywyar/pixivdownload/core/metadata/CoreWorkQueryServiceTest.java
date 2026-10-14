@@ -4,12 +4,6 @@ import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.Configuration;
-import org.apache.ibatis.session.SqlSession;
-import org.apache.ibatis.session.SqlSessionFactory;
-import org.apache.ibatis.session.SqlSessionFactoryBuilder;
-import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -57,7 +51,6 @@ class CoreWorkQueryServiceTest {
             new WorkRestriction(Set.of(0, 1, 2), true, List.of(), true, List.of());
 
     private SingleConnectionDataSource dataSource;
-    private SqlSession sqlSession;
     private JdbcTemplate jdbc;
     private PixivDatabase pixivDatabase;
     private NovelMetadataRepository novelMetadataRepository;
@@ -71,12 +64,6 @@ class CoreWorkQueryServiceTest {
         dataSource.setUrl("jdbc:sqlite::memory:");
         dataSource.setSuppressClose(true);
         jdbc = new JdbcTemplate(dataSource);
-
-        Environment env = new Environment("test", new JdbcTransactionFactory(), dataSource);
-        Configuration config = new Configuration(env);
-        config.setMapUnderscoreToCamelCase(true);
-        SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
-        sqlSession = factory.openSession(true);
 
         DatabaseSchemaRegistry registry = DatabaseSchemaRegistry.forBuiltInPlugins();
         DatabaseInitializer initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(
@@ -106,7 +93,6 @@ class CoreWorkQueryServiceTest {
 
     @AfterEach
     void tearDown() {
-        sqlSession.close();
         dataSource.destroy();
     }
 
@@ -533,6 +519,49 @@ class CoreWorkQueryServiceTest {
             assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
                     .size(1).authorIds(List.of(88L)).build())))
                     .containsExactly(12L, 11L);
+        }
+
+        @Test
+        @DisplayName("小说标签筛选保留全选、排除和任选的组合语义")
+        void shouldCombineNovelTagFilters() {
+            insertNovel(11L, 100L, null, null);
+            insertNovel(12L, 200L, null, null);
+            insertNovel(13L, 300L, null, null);
+            saveNovelTags(11L, List.of(new TagDto("魔法", null), new TagDto("冒险", null)));
+            saveNovelTags(12L, List.of(new TagDto("魔法", null)));
+            long magic = tagId("魔法");
+            long adventure = tagId("冒险");
+
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .tagIds(List.of(magic, adventure)).build()))).containsExactly(11L);
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .excludedTagIds(List.of(adventure)).build()))).containsExactly(13L, 12L);
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .optionalTagIds(List.of(adventure)).build()))).containsExactly(11L);
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .optionalTagIds(List.of(Long.MAX_VALUE)).build()))).isEmpty();
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .tagIds(List.of(magic)).excludedTagIds(List.of(adventure))
+                    .optionalTagIds(List.of(magic, adventure)).build()))).containsExactly(12L);
+        }
+
+        @Test
+        @DisplayName("小说作者和系列排除保持空值身份及组合筛选")
+        void shouldCombineNovelAuthorAndSeriesFilters() {
+            insertNovel(11L, 100L, 88L, 700L);
+            insertNovel(12L, 200L, 99L, 701L);
+            insertNovel(13L, 300L, null, null);
+
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .excludedAuthorIds(List.of(88L)).build()))).containsExactly(13L, 12L);
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .authorIds(List.of(88L, 99L)).optionalAuthorIds(List.of(99L))
+                    .excludedAuthorIds(List.of(88L)).build()))).containsExactly(12L);
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .excludedSeriesIds(List.of(700L)).build()))).containsExactly(13L, 12L);
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .seriesIds(List.of(700L, 701L)).excludedSeriesIds(List.of(700L)).build())))
+                    .containsExactly(12L);
         }
 
         @Test

@@ -28,7 +28,6 @@ public class PixivDatabase {
     private final PixivMapper pixivMapper;
     private final AppMessages messages;
     private final PathPrefixCodec pathPrefixCodec;
-    /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
     private final DatabaseInitializer databaseInitializer;
 
     /**
@@ -290,11 +289,7 @@ public class PixivDatabase {
     @Transactional
     public void deleteArtwork(long artworkId) {
         if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
-        pixivMapper.deleteArtworkFileNames(artworkId);
-        pixivMapper.deleteArtworkMedia(artworkId);
-        pixivMapper.deleteImageHashesByArtwork(artworkId);
-        pixivMapper.deleteArtworkTags(artworkId);
-        pixivMapper.deleteArtworkCollections(artworkId);
+        deleteArtworkRelations(artworkId);
         pixivMapper.deleteById(artworkId);
     }
 
@@ -306,12 +301,16 @@ public class PixivDatabase {
     @Transactional
     public void markArtworkDeleted(long artworkId) {
         if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+        deleteArtworkRelations(artworkId);
+        pixivMapper.markDeletedById(artworkId);
+    }
+
+    private void deleteArtworkRelations(long artworkId) {
         pixivMapper.deleteArtworkFileNames(artworkId);
         pixivMapper.deleteArtworkMedia(artworkId);
         pixivMapper.deleteImageHashesByArtwork(artworkId);
         pixivMapper.deleteArtworkTags(artworkId);
         pixivMapper.deleteArtworkCollections(artworkId);
-        pixivMapper.markDeletedById(artworkId);
     }
 
     /**

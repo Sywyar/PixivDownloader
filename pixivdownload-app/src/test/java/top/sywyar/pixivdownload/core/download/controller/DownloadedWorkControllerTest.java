@@ -21,8 +21,12 @@ import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.download.response.StatisticsResponse;
+import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
+import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
+import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.hamcrest.Matchers.*;
@@ -278,5 +282,40 @@ class DownloadedWorkControllerTest {
                 .andExpect(jsonPath("$.content[0].isAi").value(true))
                 .andExpect(jsonPath("$.content[1].isAi").value(false))
                 .andExpect(jsonPath("$.totalPages").value(3));
+    }
+
+    @Test
+    @DisplayName("访客分页只投影受限查询结果，保留顺序并跳过缺失记录")
+    void shouldProjectGuestHistoryWithinItsQueryScope() throws Exception {
+        GuestInviteSession session = new GuestInviteSession(1L, "test-invite", true, false, false,
+                false, Set.of(12L), false, Set.of(42L), true, Set.of(), true, Set.of(),
+                false, Set.of(3L), true);
+        GuestRestriction restriction = new GuestRestriction(Set.of(0), false, List.of(12L),
+                false, List.of(42L), false, List.of(3L), true);
+        when(galleryRepository.findArtworkIds(argThat(query -> query.getPage() == 0
+                && query.getSize() == 200 && "authorId".equals(query.getSort())
+                && "desc".equals(query.getOrder()) && restriction.equals(query.getGuestRestriction()))))
+                .thenReturn(new GalleryRepository.QueryResult(List.of(9L, 10L, 7L), 230L));
+        when(downloadedArtworkService.getDownloadedRecord(9L)).thenReturn(new ArtworkRecord(
+                9L, "A", "/a", 1, "jpg", 200L, false, null, null, 0, false, 42L, null));
+        when(downloadedArtworkService.getDownloadedRecord(10L)).thenReturn(null);
+        when(downloadedArtworkService.getDownloadedRecord(7L)).thenReturn(new ArtworkRecord(
+                7L, "B", "/b", 2, "png", 100L, false, null, null, 0, false, 42L, null));
+        when(authorService.getAuthorNames(Set.of(42L))).thenReturn(Map.of(42L, "Author"));
+
+        mockMvc.perform(get("/api/downloaded/history/paged")
+                        .requestAttr(GuestInviteSession.REQUEST_ATTR, session)
+                        .param("page", "-1").param("size", "500").param("sort", "author_id"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[*].artworkId", contains(9, 7)))
+                .andExpect(jsonPath("$.content[*].authorName", contains("Author", "Author")))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(200))
+                .andExpect(jsonPath("$.totalElements").value(230))
+                .andExpect(jsonPath("$.totalPages").value(2));
+
+        verify(downloadedArtworkService, never()).getArtworkCount();
+        verify(downloadedArtworkService, never()).getSortAuthorArtworkPaged(anyInt(), anyInt());
+        verify(downloadedArtworkService, never()).getSortTimeArtworkPaged(anyInt(), anyInt());
     }
 }

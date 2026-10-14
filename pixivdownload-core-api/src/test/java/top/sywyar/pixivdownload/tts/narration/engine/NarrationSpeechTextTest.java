@@ -22,6 +22,11 @@ class NarrationSpeechTextTest {
         assertThat(NarrationSpeechText.normalize(null)).isEmpty();
         assertThat(NarrationSpeechText.normalize("你好世界")).isEqualTo("你好世界");
         assertThat(NarrationSpeechText.normalize("啊？")).isEqualTo("啊？");
+        assertThat(NarrationSpeechText.normalize("「原句」")).isEqualTo("「原句」");
+        assertThat(NarrationSpeechText.normalize("Hi!…）")).isEqualTo("Hi!）");
+        assertThat(NarrationSpeechText.normalize("a\u2003」")).isEqualTo("a.」");
+        assertThat(NarrationSpeechText.normalize("𐐀…」")).isEqualTo("𐐀。」");
+        assertThat(NarrationSpeechText.normalize("… ）")).isEmpty();
     }
 
     @Test

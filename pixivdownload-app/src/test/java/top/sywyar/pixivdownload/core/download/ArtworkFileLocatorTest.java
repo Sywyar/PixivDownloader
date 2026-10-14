@@ -36,7 +36,6 @@ class ArtworkFileLocatorTest {
         Path dir = Files.createDirectories(tempDir.resolve("42"));
         when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
         when(pixivDatabase.getFileNameTemplate(anyLong())).thenReturn("{artwork_id}_p{page}");
-        Path stem = dir.resolve("42_p0");
         var record = artwork(42, dir.toString(), 1);
         for (String extension : java.util.List.of("jpg", "png", "webp")) {
             Files.writeString(dir.resolve("42_p0." + extension), "fixture");

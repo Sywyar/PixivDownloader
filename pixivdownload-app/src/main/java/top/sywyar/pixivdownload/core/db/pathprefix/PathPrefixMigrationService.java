@@ -144,15 +144,8 @@ public class PathPrefixMigrationService {
                     List.of(new PrefixError(PathPrefixCodec.SYMBOLIC_ROOT_ID, reason)));
         }
         try {
-            transactionOperations.executeWithoutResult(status -> {
-                long newId = codec.forceCreatePrefixId(stripped);
-                for (PathPrefixColumns.TableColumns tc : pathPrefixColumns.all()) {
-                    for (String column : tc.columns()) {
-                        PathPrefixColumns.retargetColumn(database, tc.table(), column,
-                                PathPrefixCodec.SYMBOLIC_ROOT_TOKEN, "{" + newId + "}");
-                    }
-                }
-            });
+            transactionOperations.executeWithoutResult(status ->
+                    rewriteSymbolicRoot(codec.forceCreatePrefixId(stripped)));
         } catch (DataAccessException e) {
             log.warn(messages.getForLog("download.db.log.prefix-migrate-failed", e.getMessage()), e);
             codec.reload();
@@ -281,7 +274,7 @@ public class PathPrefixMigrationService {
                 transactionOperations.executeWithoutResult(status -> {
                     applyPending(pending);
                     if (finalSymbolicTarget != null) {
-                        rewriteSymbolicRoot(finalSymbolicTarget);
+                        rewriteSymbolicRoot(codec.getOrCreatePrefixId(finalSymbolicTarget));
                     }
                 });
             } catch (DataAccessException e) {
@@ -299,11 +292,9 @@ public class PathPrefixMigrationService {
     }
 
     /**
-     * 把全部路径前缀列中的符号根 {@code {0}} 引用改写为指向 {@code targetPath} 的 {@code {N}}。
-     * 目标路径已存在同路径前缀行时直接复用其 id（合并）。必须在事务内调用。
+     * 把全部路径前缀列中的符号根 {@code {0}} 引用改写为指定前缀。必须在事务内调用。
      */
-    private void rewriteSymbolicRoot(String targetPath) {
-        long newId = codec.getOrCreatePrefixId(targetPath);
+    private void rewriteSymbolicRoot(long newId) {
         for (PathPrefixColumns.TableColumns tc : pathPrefixColumns.all()) {
             for (String column : tc.columns()) {
                 PathPrefixColumns.retargetColumn(database, tc.table(), column,

@@ -173,10 +173,7 @@ class ArtworkMetadataRecoveryServiceTest {
             long artworkId = 55555L;
             Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
             Files.write(dir.resolve("55555_p0.jpg"), new byte[]{1});
-            String absolute = dir.toAbsolutePath().toString();
-            ArtworkRecord inserted = new ArtworkRecord(artworkId, "", absolute,
-                    1, "jpg", 1700000300L, false, null, null, null, null, null, "", 1L, null, null, null);
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null, inserted);
+            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null);
 
             ArtworkRecord result = recoveryService.recoverMetadata(artworkId, null);
 

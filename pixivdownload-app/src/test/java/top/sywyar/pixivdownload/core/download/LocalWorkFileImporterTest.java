@@ -1,11 +1,7 @@
 package top.sywyar.pixivdownload.core.download;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.*;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
-import org.mybatis.spring.SqlSessionTemplate;
-import org.mybatis.spring.transaction.SpringManagedTransactionFactory;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
@@ -15,7 +11,6 @@ import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.asset.ExternalWorkFiles;
 import top.sywyar.pixivdownload.core.db.*;
 import top.sywyar.pixivdownload.core.db.pathprefix.*;
-import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.*;
 import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
@@ -48,9 +43,6 @@ class LocalWorkFileImporterTest {
         output = Files.createDirectory(temp.resolve("output"));
         ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "png", source.resolve("custom.png").toFile());
         dataSource = new SingleConnectionDataSource("jdbc:sqlite::memory:", true);
-        var config = new Configuration(new Environment("test", new SpringManagedTransactionFactory(), dataSource));
-        config.setMapUnderscoreToCamelCase(true);
-        var session = new SqlSessionTemplate(new SqlSessionFactoryBuilder().build(config));
         var registry = DatabaseSchemaRegistry.forBuiltInPlugins();
         var initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(new org.springframework.jdbc.core.JdbcTemplate(dataSource),
                 registry.contributions(), registry.mergedSchema(), TestI18nBeans.appMessages(), event -> {});

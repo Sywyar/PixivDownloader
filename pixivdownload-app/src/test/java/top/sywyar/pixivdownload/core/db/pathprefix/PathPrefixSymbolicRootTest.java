@@ -1,11 +1,5 @@
 package top.sywyar.pixivdownload.core.db.pathprefix;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.Configuration;
-import org.apache.ibatis.session.SqlSession;
-import org.apache.ibatis.session.SqlSessionFactory;
-import org.apache.ibatis.session.SqlSessionFactoryBuilder;
-import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -33,7 +27,6 @@ class PathPrefixSymbolicRootTest {
             DatabaseSchemaRegistry.forBuiltInPlugins().pathPrefixColumns();
 
     private SingleConnectionDataSource dataSource;
-    private SqlSession sqlSession;
     private PathPrefixMapper mapper;
     private PathPrefixCodec codec;
     private String rootPath;
@@ -52,12 +45,6 @@ class PathPrefixSymbolicRootTest {
         dataSource.setUrl("jdbc:sqlite::memory:");
         dataSource.setSuppressClose(true);
 
-        Environment env = new Environment("test", new JdbcTransactionFactory(), dataSource);
-        Configuration config = new Configuration(env);
-        config.setMapUnderscoreToCamelCase(true);
-
-        SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
-        sqlSession = factory.openSession(true); // auto-commit
         mapper = new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
 
         // 默认相对 root → 符号根启用
@@ -73,7 +60,6 @@ class PathPrefixSymbolicRootTest {
     void tearDown() {
         System.clearProperty(RuntimeFiles.STATE_DIR_PROPERTY);
         System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
-        sqlSession.close();
         dataSource.destroy();
     }
 

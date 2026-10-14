@@ -1,19 +1,12 @@
 package top.sywyar.pixivdownload.collection;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.Configuration;
-import org.apache.ibatis.session.SqlSessionFactoryBuilder;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
-import org.mybatis.spring.SqlSessionTemplate;
-import org.mybatis.spring.transaction.SpringManagedTransactionFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
-import top.sywyar.pixivdownload.core.db.DatabaseConfig;
 import top.sywyar.pixivdownload.core.db.DatabasePoolProperties;
 import top.sywyar.pixivdownload.core.db.PostgresTestDatabase;
-import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 

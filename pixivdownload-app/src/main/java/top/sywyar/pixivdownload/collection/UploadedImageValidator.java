@@ -118,14 +118,14 @@ final class UploadedImageValidator {
     }
 
     private static boolean isAnimatedPng(byte[] data) {
-        if (data.length < PNG_SIGNATURE_LENGTH || !startsWith(data, PNG_SIGNATURE)) {
+        if (!startsWith(data, PNG_SIGNATURE)) {
             return false;
         }
         int pos = PNG_SIGNATURE_LENGTH;
         while (pos + 12 <= data.length) {
             long length = readBEUInt(data, pos);
             long chunkEnd = pos + 12L + length;
-            if (length < 0 || chunkEnd > data.length) {
+            if (chunkEnd > data.length) {
                 return false;
             }
             if (data[pos + 4] == 'a' && data[pos + 5] == 'c'

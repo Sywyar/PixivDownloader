@@ -72,24 +72,28 @@ class PixivBookmarkServiceTest {
     @DisplayName("bookmarkArtwork - CSRF token 提取")
     class CsrfTokenTests {
 
-        @Test
-        @DisplayName("正常提取 CSRF token 后应发送收藏 POST 请求")
-        void shouldExtractCsrfAndPostBookmark() throws Exception {
+        @ParameterizedTest
+        @ValueSource(booleans = {false, true})
+        @DisplayName("插画与小说收藏保留各自端点和字段，并使用相同请求头")
+        void shouldExtractCsrfAndPostBookmark(boolean novel) throws Exception {
+            String bookmarkUrl = novel ? "https://www.pixiv.net/ajax/novels/bookmarks/add"
+                    : "https://www.pixiv.net/ajax/illusts/bookmarks/add";
             String pageHtml = "<html><script>pixiv.context = {\"token\":\"abc123def456\"};</script></html>";
             String bookmarkResponse = "{\"error\":false,\"body\":{\"last_bookmark_id\":\"999\"}}";
 
             when(restTemplate.exchange(eq("https://www.pixiv.net/"), eq(HttpMethod.GET), any(), eq(byte[].class)))
                     .thenReturn(ResponseEntity.ok(pageHtml.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
-            when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(byte[].class)))
+            when(restTemplate.exchange(eq(bookmarkUrl), eq(HttpMethod.POST), any(), eq(byte[].class)))
                     .thenReturn(ResponseEntity.ok(bookmarkResponse.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
-            WorkActionResult result = service.bookmarkArtwork(12345L, "PHPSESSID=test");
+            WorkActionResult result = novel ? service.bookmarkNovel(12345L, "PHPSESSID=test")
+                    : service.bookmarkArtwork(12345L, "PHPSESSID=test");
 
             assertThat(result.getStatus()).isEqualTo(WorkActionResult.SUCCESS);
 
             ArgumentCaptor<HttpEntity<String>> postCaptor = ArgumentCaptor.forClass(HttpEntity.class);
             verify(restTemplate).exchange(
-                    eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"),
+                    eq(bookmarkUrl),
                     eq(HttpMethod.POST),
                     postCaptor.capture(),
                     eq(byte[].class));
@@ -98,6 +102,13 @@ class PixivBookmarkServiceTest {
             assertThat(postHeaders.getFirst(HttpHeaders.USER_AGENT)).isEqualTo(PixivRequestHeaders.USER_AGENT);
             assertThat(postHeaders.getFirst(HttpHeaders.ACCEPT)).contains("application/json");
             assertThat(postHeaders.getFirst(HttpHeaders.ORIGIN)).isEqualTo(PixivRequestHeaders.PIXIV_ORIGIN);
+            assertThat(postHeaders.getFirst(HttpHeaders.COOKIE)).isEqualTo("PHPSESSID=test");
+            assertThat(postHeaders.getContentType()).isEqualTo(MediaType.APPLICATION_JSON);
+            String expectedBody = novel
+                    ? "{\"novel_id\":\"12345\",\"restrict\":0,\"comment\":\"\",\"tags\":[]}"
+                    : "{\"illust_id\":\"12345\",\"restrict\":0,\"comment\":\"\",\"tags\":[]}";
+            assertThat(new ObjectMapper().readTree(postCaptor.getValue().getBody()))
+                    .isEqualTo(new ObjectMapper().readTree(expectedBody));
         }
 
         @Test
@@ -163,14 +174,18 @@ class PixivBookmarkServiceTest {
             assertThat(result.getStatus()).isEqualTo(WorkActionResult.SUCCESS);
         }
 
-        @Test
-        @DisplayName("POST 返回 error=true 时 bookmarkArtwork 应吞掉异常")
-        void shouldSwallowExceptionWhenApiReturnsError() {
+        @ParameterizedTest
+        @ValueSource(booleans = {false, true})
+        @DisplayName("插画与小说收藏 API 返回错误时均返回受控失败结果")
+        void shouldSwallowExceptionWhenApiReturnsError(boolean novel) {
             mockPageWithToken("tok222");
-            when(restTemplate.exchange(eq("https://www.pixiv.net/ajax/illusts/bookmarks/add"), eq(HttpMethod.POST), any(), eq(byte[].class)))
+            String bookmarkUrl = novel ? "https://www.pixiv.net/ajax/novels/bookmarks/add"
+                    : "https://www.pixiv.net/ajax/illusts/bookmarks/add";
+            when(restTemplate.exchange(eq(bookmarkUrl), eq(HttpMethod.POST), any(), eq(byte[].class)))
                     .thenReturn(ResponseEntity.ok("{\"error\":true,\"message\":\"Not logged in\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
-            WorkActionResult result = service.bookmarkArtwork(99L, "cookie=val");
+            WorkActionResult result = novel ? service.bookmarkNovel(99L, "cookie=val")
+                    : service.bookmarkArtwork(99L, "cookie=val");
 
             assertThat(result.getStatus()).isEqualTo(WorkActionResult.FAILED);
             assertThat(result.getMessage()).isEqualTo(TestI18nBeans.appMessages().get("bookmark.result.failed"));

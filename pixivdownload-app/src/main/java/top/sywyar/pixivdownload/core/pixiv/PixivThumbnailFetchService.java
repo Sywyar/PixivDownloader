@@ -41,8 +41,6 @@ public class PixivThumbnailFetchService implements PixivThumbnailFetcher {
             }
             byte[] body = response.getBody();
             return body == null ? new byte[0] : body;
-        } catch (PixivThumbnailFetchException e) {
-            throw e;
         } catch (RestClientResponseException e) {
             throw new PixivThumbnailFetchException(
                     PixivThumbnailFailure.HTTP_STATUS,

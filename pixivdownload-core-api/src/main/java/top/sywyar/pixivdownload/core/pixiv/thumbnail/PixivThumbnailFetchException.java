@@ -24,18 +24,15 @@ public final class PixivThumbnailFetchException extends RuntimeException {
      */
     public PixivThumbnailFetchException(PixivThumbnailFailure failure, int statusCode) {
         super(message(failure, statusCode));
-        this.failure = Objects.requireNonNull(failure, "failure");
+        this.failure = failure;
         if (failure == PixivThumbnailFailure.HTTP_STATUS) {
             if (statusCode < 100 || statusCode > 599) {
                 throw new IllegalArgumentException("HTTP status code must be between 100 and 599");
             }
-            this.statusCode = statusCode;
-        } else {
-            if (statusCode != 0) {
-                throw new IllegalArgumentException("non-HTTP failure must use status code 0");
-            }
-            this.statusCode = 0;
+        } else if (statusCode != 0) {
+            throw new IllegalArgumentException("non-HTTP failure must use status code 0");
         }
+        this.statusCode = statusCode;
     }
 
     /**

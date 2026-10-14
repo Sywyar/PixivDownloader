@@ -743,7 +743,6 @@ class CoreApiOwnershipGuardTest {
         Method create = ScheduledTaskStore.class.getDeclaredMethod("create", ScheduledTaskCreate.class);
 
         assertThat(create.getReturnType()).isEqualTo(long.class);
-        assertThat(create.getReturnType().isPrimitive()).isTrue();
         assertThat(Modifier.isPublic(create.getModifiers())).isTrue();
         assertThat(Modifier.isAbstract(create.getModifiers())).isTrue();
         assertThat(Arrays.stream(ScheduledTaskStore.class.getDeclaredMethods())

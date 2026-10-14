@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.core.pixiv;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.io.IOException;
 import java.net.URI;
@@ -53,22 +55,23 @@ class PixivImageDownloaderTest {
         } finally { workers.shutdownNow(); }
     }
 
-    @Test
-    @DisplayName("查询参数中的点和非法文件名字符不会影响图片扩展名")
-    void queryDoesNotAffectImageExtension() throws Exception {
-        PixivImageDownloader downloader = downloader(JPEG_BYTES, "image/jpeg");
+    @ParameterizedTest
+    @CsvSource({"image/jpeg,jpg,jpg", "image/jpg,jpeg,jpeg", "IMAGE/JPEG; charset=binary,JPEG,jpeg"})
+    @DisplayName("JPEG 类型别名和路径后缀正确匹配且不受查询参数影响")
+    void queryDoesNotAffectImageExtension(String contentType, String pathExtension, String expectedExtension) throws Exception {
+        PixivImageDownloader downloader = downloader(JPEG_BYTES, contentType);
         Path stem = tempDir.resolve("page");
 
         String extension = downloader.downloadImage(
-                URI.create("https://i.pximg.net/img-original/page.jpg?name=evil.png&bad=%3C%3E%3A%22%7C%3F*"),
+                URI.create("https://i.pximg.net/img-original/page." + pathExtension + "?name=evil.png&bad=%3C%3E%3A%22%7C%3F*"),
                 URI.create("https://www.pixiv.net/artworks/1"),
                 stem,
                 null,
                 new PixivImageTransferObserver() {
                 });
 
-        assertThat(extension).isEqualTo("jpg");
-        assertThat(tempDir.resolve("page.jpg")).hasBinaryContent(JPEG_BYTES);
+        assertThat(extension).isEqualTo(expectedExtension);
+        assertThat(tempDir.resolve("page." + expectedExtension)).hasBinaryContent(JPEG_BYTES);
     }
 
     @Test

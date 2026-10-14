@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.work.query.WorkQuery;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -233,7 +234,7 @@ public class NovelWorkSearch {
     private static boolean matchAuthorFilter(Long authorId, Set<Long> must, Set<Long> not, Set<Long> or) {
         long a = authorId == null ? 0L : authorId;
         if (!must.isEmpty() && !must.contains(a)) return false;
-        if (!not.isEmpty() && not.contains(a)) return false;
+        if (not.contains(a)) return false;
         if (!or.isEmpty() && !or.contains(a)) return false;
         return true;
     }
@@ -241,7 +242,7 @@ public class NovelWorkSearch {
     private static boolean matchSeriesFilter(Long seriesId, Set<Long> must, Set<Long> not) {
         long s = seriesId == null ? 0L : seriesId;
         if (!must.isEmpty() && !must.contains(s)) return false;
-        if (!not.isEmpty() && not.contains(s)) return false;
+        if (not.contains(s)) return false;
         return true;
     }
 
@@ -251,13 +252,8 @@ public class NovelWorkSearch {
         for (var t : novelMetadataRepository.getNovelTags(novelId)) {
             if (t.getTagId() != null) ownedTagIds.add(t.getTagId());
         }
-        for (Long m : must) if (!ownedTagIds.contains(m)) return false;
-        for (Long n : not) if (ownedTagIds.contains(n)) return false;
-        if (!or.isEmpty()) {
-            boolean any = false;
-            for (Long o : or) if (ownedTagIds.contains(o)) { any = true; break; }
-            if (!any) return false;
-        }
-        return true;
+        return ownedTagIds.containsAll(must)
+                && Collections.disjoint(ownedTagIds, not)
+                && (or.isEmpty() || !Collections.disjoint(ownedTagIds, or));
     }
 }

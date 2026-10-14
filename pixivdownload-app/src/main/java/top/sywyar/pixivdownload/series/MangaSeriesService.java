@@ -56,8 +56,6 @@ public class MangaSeriesService {
     private final DownloadConfig downloadConfig;
     private final PixivCoverDownloader coverDownloader;
     private final PathPrefixCodec pathPrefixCodec;
-    /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
-    @SuppressWarnings("unused")
     private final DatabaseInitializer databaseInitializer;
 
     public MangaSeriesService(MangaSeriesMapper mangaSeriesMapper,

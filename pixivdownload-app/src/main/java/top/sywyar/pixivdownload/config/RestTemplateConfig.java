@@ -7,7 +7,6 @@ import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
 import org.apache.hc.client5.http.impl.routing.DefaultRoutePlanner;
-import org.apache.hc.client5.http.routing.HttpRoutePlanner;
 import org.apache.hc.core5.http.HttpException;
 import org.apache.hc.core5.http.HttpHost;
 import org.apache.hc.core5.http.protocol.HttpContext;
@@ -39,7 +38,7 @@ public class RestTemplateConfig {
      */
     @Bean("pixivCredentialRestTemplate")
     public RestTemplate pixivCredentialRestTemplate() {
-        return buildRestTemplate(15_000, 30_000, new DynamicProxyRoutePlanner(proxyConfig), false, false);
+        return buildRestTemplate(15_000, 30_000, false, false);
     }
 
     /**
@@ -47,7 +46,7 @@ public class RestTemplateConfig {
      */
     @Bean("downloadRestTemplate")
     public RestTemplate downloadRestTemplate() {
-        return buildRestTemplate(30_000, 60_000, new DynamicProxyRoutePlanner(proxyConfig));
+        return buildRestTemplate(30_000, 60_000);
     }
 
     /**
@@ -55,21 +54,16 @@ public class RestTemplateConfig {
      */
     @Bean("pixivImageRestTemplate")
     public RestTemplate pixivImageRestTemplate() {
-        return buildRestTemplate(30_000, 60_000, new DynamicProxyRoutePlanner(proxyConfig), false, false);
+        return buildRestTemplate(30_000, 60_000, false, false);
     }
 
     private RestTemplate buildRestTemplate(int connectTimeoutMs, int socketTimeoutMs) {
-        return buildRestTemplate(connectTimeoutMs, socketTimeoutMs, new DynamicProxyRoutePlanner(proxyConfig));
-    }
-
-    private RestTemplate buildRestTemplate(int connectTimeoutMs, int socketTimeoutMs, HttpRoutePlanner routePlanner) {
-        return buildRestTemplate(connectTimeoutMs, socketTimeoutMs, routePlanner, true, true);
+        return buildRestTemplate(connectTimeoutMs, socketTimeoutMs, true, true);
     }
 
     private RestTemplate buildRestTemplate(
             int connectTimeoutMs,
             int socketTimeoutMs,
-            HttpRoutePlanner routePlanner,
             boolean followRedirects,
             boolean manageCookies
     ) {
@@ -89,15 +83,13 @@ public class RestTemplateConfig {
 
         var httpClientBuilder = HttpClients.custom()
                 .setConnectionManager(connectionManager)
+                .setRoutePlanner(new DynamicProxyRoutePlanner(proxyConfig))
                 .setDefaultRequestConfig(requestConfig);
         if (!followRedirects) {
             httpClientBuilder.disableRedirectHandling();
         }
         if (!manageCookies) {
             httpClientBuilder.disableCookieManagement();
-        }
-        if (routePlanner != null) {
-            httpClientBuilder.setRoutePlanner(routePlanner);
         }
         HttpClient httpClient = httpClientBuilder.build();
 
