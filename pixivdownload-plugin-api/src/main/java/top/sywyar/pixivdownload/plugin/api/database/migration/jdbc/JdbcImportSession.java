@@ -20,7 +20,7 @@ public abstract class JdbcImportSession implements DatabaseImportSession {
      */
     protected final MigrationControl control;
     private final Set<String> written = new HashSet<>();
-    private boolean verified, commitAttempted, committed, aborted, closed;
+    private boolean verified, commitAttempted, aborted, closed;
     /**
      * 接管已经锁定并准备好的目标事务连接。
      * @param connection 非自动提交连接
@@ -98,10 +98,9 @@ public abstract class JdbcImportSession implements DatabaseImportSession {
         control.checkpoint("", 0);
         commitAttempted = true;
         connection.commit();
-        committed = true;
     }
     @Override public final void abort() throws Exception {
-        if (committed || commitAttempted) throw failure("MIGRATION_COMMIT_OUTCOME_UNKNOWN");
+        if (commitAttempted) throw failure("MIGRATION_COMMIT_OUTCOME_UNKNOWN");
         if (!aborted && !closed) { connection.rollback(); aborted = true; }
     }
     @Override public final void close() throws Exception {

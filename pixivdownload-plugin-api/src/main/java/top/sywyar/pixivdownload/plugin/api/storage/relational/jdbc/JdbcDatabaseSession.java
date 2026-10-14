@@ -185,9 +185,7 @@ public abstract class JdbcDatabaseSession implements DatabaseSession {
         try {
             Objects.requireNonNull(visitor);
             String sql = querySql(query, new Scope(Map.of()));
-            var scope = queryScope(query, new Scope(Map.of()));
-            var types = new LinkedHashMap<String, String>();
-            query.select().forEach((name, expression) -> types.put(name, type(expression, scope, null)));
+            var types = projectionTypes(query, new Scope(Map.of()));
             try (var statement = prepare(sql); var result = statement.executeQuery()) {
                 while (result.next()) {
                     if (!active || Thread.currentThread() != owner) throw new SQLException("STORAGE_SESSION_EXPIRED", "08003");
@@ -279,7 +277,7 @@ public abstract class JdbcDatabaseSession implements DatabaseSession {
     }
 
     private String insertSql(String table, Map<String, Object> values, Conflict conflict) {
-            var spec = schema.table(table);
+            schema.table(table);
             if (values.isEmpty()) throw invalid();
             var columns = new ArrayList<String>();
             for (var entry : values.entrySet()) {
@@ -500,12 +498,9 @@ public abstract class JdbcDatabaseSession implements DatabaseSession {
     private String expression(Expression e, Scope scope, String incomingTable) {
         String resultType = type(e, scope, incomingTable);
         if (e instanceof Expression.Column c) {
-            scope.column(c.table(), c.name());
             return quote(c.table()) + "." + quote(c.name());
         }
         if (e instanceof Expression.Incoming c) {
-            if (incomingTable == null) throw invalid();
-            column(incomingTable, c.name());
             return "excluded." + quote(c.name());
         }
         if (e instanceof Expression.Value v) { parameters.add(v.value()); return "?"; }
