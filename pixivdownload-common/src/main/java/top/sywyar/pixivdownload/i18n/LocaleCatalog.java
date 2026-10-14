@@ -113,7 +113,7 @@ public final class LocaleCatalog {
             throw new IllegalArgumentException("fallbackLocale not present in the catalog: "
                     + (fallback == null ? null : fallback.tag()));
         }
-        if (fallback.status() != LocaleStatus.SOURCE && fallback.status() != LocaleStatus.SUPPORTED) {
+        if (!fallback.visible()) {
             throw new IllegalArgumentException("fallbackLocale must be source or supported: "
                     + fallback.tag());
         }
@@ -268,7 +268,7 @@ public final class LocaleCatalog {
 
     private Optional<LocaleDescriptor> matchByLanguage(String candidate) {
         String language = languageOf(candidate);
-        if (language == null || language.isEmpty()) {
+        if (language.isEmpty()) {
             return Optional.empty();
         }
         List<LocaleDescriptor> languageMatches = locales.stream()
@@ -290,7 +290,7 @@ public final class LocaleCatalog {
             throw new IllegalArgumentException("locale tag is empty");
         }
         String normalized = canonicalTag(tag.trim().replace('_', '-'));
-        if (normalized == null || normalized.isEmpty()) {
+        if (normalized == null) {
             throw new IllegalArgumentException("invalid locale tag: " + tag);
         }
         return normalized;

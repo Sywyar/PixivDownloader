@@ -81,10 +81,6 @@ const ALLOWED_FILE_NAMES = [
 // 文件扩展名：仅检查代码 / 构建脚本，不检查 .properties 资源与生成 JSON
 const SCAN_EXTENSIONS = new Set(['.java', '.js', '.mjs', '.html', '.ps1', '.sh', '.yml', '.yaml', '.json']);
 
-function scanExtensions() {
-    return SCAN_EXTENSIONS;
-}
-
 function isAllowed(relPath) {
     const normalized = relPath.split(path.sep).join('/');
     if (Object.prototype.hasOwnProperty.call(EXPLICIT_ALLOWED_FILES, normalized)) {
@@ -98,14 +94,11 @@ function isAllowed(relPath) {
         return true;
     }
     const leaf = normalized.split('/').pop();
-    if (ALLOWED_FILE_NAMES.some((name) => leaf === name)) {
+    if (ALLOWED_FILE_NAMES.includes(leaf)) {
         return true;
     }
     // plugin-templates 目录整体允许：示例页面文案与仓库规范一致
-    if (normalized.startsWith('plugin-templates/')) {
-        return true;
-    }
-    return false;
+    return normalized.startsWith('plugin-templates/');
 }
 
 function buildPatterns(catalog) {
