@@ -98,9 +98,10 @@ public final class OwnershipTransfer {
         var prs = new LinkedHashMap<String, CommunityPr>(); putPr(prs, authority.proposalPr());
         for (var approval : approvals) {
             // Review 派生的角色说明只归档为证据，不能伪装成申请者提交的批准文件。
-            records.add(approval.review() != null ? OperationContext.archive(approval.document().bytes())
+            byte[] bytes = approval.document().bytes();
+            records.add(approval.review() != null ? OperationContext.archive(bytes)
                     : new Evidence(top.sywyar.pixivdownload.sdk.community.format.CommunityValues.Reference.of(
-                    approval.path(), approval.document().bytes()), approval.document().bytes()));
+                    approval.path(), bytes), bytes));
             if (approval.review() != null) records.add(approval.review().evidence());
             putPr(prs, approval.pr());
         }

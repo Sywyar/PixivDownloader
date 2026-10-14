@@ -25,8 +25,6 @@ class OperationAuditTest {
         var f = new Fixture(CommunityJson.Kind.ROTATION);
         f.pr = new CommunityPr("300", 7, "101", "400", HEAD, "ef".repeat(20), null);
         var old = f.pr;
-        f.pr = new CommunityPr(old.githubRepositoryId(), old.number(), old.authorAccountId(),
-                old.headRepositoryId(), old.headSha(), old.baseSha(), null);
         f.authority = new OperationAuthority(f.pr, f.authority.actualAuthor(), List.of(), f.authority.approval(), java.util.Set.of("202"));
         var document = f.create();
         var audit = OperationAudit.read(document);

@@ -55,9 +55,10 @@ public record OperationAuthority(CommunityPr proposalPr, Account actualAuthor, L
 
     /** 换钥和转移的自动授权必须检查请求内容，不能仅凭操作种类放行。 */
     public void requireAuthorization(CommunityJson.Document request, boolean recovery) {
-        String requestId = request.value().get("requestId").textValue();
+        var data = request.value();
+        String requestId = data.get("requestId").textValue();
         if (request.kind() == CommunityJson.Kind.TRANSFER && signedStatus != null) {
-            var payload = request.value().get("payload");
+            var payload = data.get("payload");
             var from = payload.get("from");
             var to = payload.get("to");
             if (!"REGULAR".equals(payload.get("mode").textValue())
@@ -73,10 +74,10 @@ public record OperationAuthority(CommunityPr proposalPr, Account actualAuthor, L
             requireAuthorization(request.kind(), requestId, recovery);
             return;
         }
-        var payload = request.value().get("payload");
+        var payload = data.get("payload");
         var account = payload.get("githubAccount");
         if (!"ROUTINE_ROTATION".equals(payload.get("reasonCode").textValue())
-                || !request.value().get("proofs").hasNonNull("oldKey")
+                || !data.get("proofs").hasNonNull("oldKey")
                 || !"User".equals(account.get("type").textValue())
                 || !actualAuthor.id().equals(account.get("id").textValue()) || !representations.isEmpty()) {
             throw new ContractException("APPROVAL_REQUIRED", "/authorization");

@@ -71,7 +71,8 @@ public final class CommunityBundle {
     }
 
     private static Manifest read(CommunityValues.Evidence evidence) {
-        Manifest manifest = CommunityJson.decode("bundleManifest", evidence.bytes(), evidence.bytes().length, Manifest.class);
+        byte[] bytes = evidence.bytes();
+        Manifest manifest = CommunityJson.decode("bundleManifest", bytes, bytes.length, Manifest.class);
         CommunityValues.unique(manifest.files, CommunityValues.Reference::path, "/files");
         manifest.files.forEach(CommunityValues.Reference::validate);
         if (!manifest.files.equals(manifest.files.stream().sorted(java.util.Comparator.comparing(CommunityValues.Reference::path)).toList())) {

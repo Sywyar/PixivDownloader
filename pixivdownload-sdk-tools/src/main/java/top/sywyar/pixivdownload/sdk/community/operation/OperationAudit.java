@@ -54,9 +54,9 @@ public record OperationAudit(int schemaVersion, String requestId, String action,
                        Long expectedSequence, List<Reference> expectedRelated, Map<String, Evidence> evidence) {
         String expectedId = CommunityJson.sha256(CommunityJson.canonicalBody(request));
         String expectedAction = action(request);
-        if (!requestId.equals(expectedId) || !requestId.equals(request.value().get("requestId").textValue())
-                || !action.equals(expectedAction)) throw new ContractException("REQUEST_ID_MISMATCH", "/requestId");
         var data = request.value();
+        if (!requestId.equals(expectedId) || !requestId.equals(data.get("requestId").textValue())
+                || !action.equals(expectedAction)) throw new ContractException("REQUEST_ID_MISMATCH", "/requestId");
         boolean recovery = switch (request.kind()) {
             case ROTATION -> !data.get("proofs").has("oldKey");
             case STATUS_REQUEST -> !data.get("proofs").has("activeKey");
