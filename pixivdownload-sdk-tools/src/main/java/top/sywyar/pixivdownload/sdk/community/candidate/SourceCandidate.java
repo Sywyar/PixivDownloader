@@ -8,12 +8,12 @@ import top.sywyar.pixivdownload.sdk.community.format.ContractException;
 import top.sywyar.pixivdownload.sdk.community.project.PluginProjectLocator;
 import top.sywyar.pixivdownload.sdk.community.submission.VersionSubmission.BuildProfile;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 
@@ -27,7 +27,7 @@ public record SourceCandidate(int schemaVersion, String repositoryId, String rep
     public static SourceCandidate read(byte[] bytes) {
         SourceCandidate candidate = CommunityJson.decode("sourceCandidate", bytes, MAX_BYTES, SourceCandidate.class);
         candidate.buildProfile.validate();
-        if (List.of(candidate.repository.split("/")).stream().anyMatch(part -> part.equals(".") || part.equals(".."))
+        if (Arrays.stream(candidate.repository.split("/")).anyMatch(part -> part.equals(".") || part.equals(".."))
                 || candidate.artifact.size > PluginPackageLimits.defaults().maxArchiveBytes()
                 || !candidate.artifact.file.equals("pixivdownload-plugin-" + candidate.pluginId + "-" + candidate.version
                     + (candidate.artifact.file.endsWith(".jar") ? ".jar" : ".zip"))) {

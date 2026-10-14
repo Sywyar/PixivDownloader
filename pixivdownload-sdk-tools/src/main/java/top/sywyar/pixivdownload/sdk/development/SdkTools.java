@@ -276,7 +276,7 @@ public final class SdkTools {
         Path current = project.resolve(".dev/current-run.json");
         if (!Files.exists(current, LinkOption.NOFOLLOW_LINKS)) return;
         var metadata = SdkRuntimeLock.readJson(current);
-        Path run = runPath(project, metadata);
+        runPath(project, metadata);
         var host = ProcessHandle.of(metadata.path("pid").longValue())
                 .filter(process -> process.info().startInstant().map(Object::toString).orElse("")
                         .equals(metadata.path("started").asText()));
