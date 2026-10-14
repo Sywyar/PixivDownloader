@@ -46,7 +46,7 @@ public record ScheduledCredentialAccountActionRequest(
      */
     public ScheduledCredentialAccountActionRequest {
         accountKey = validateAccountKey(accountKey);
-        actionId = validateActionId(actionId);
+        actionId = validateMachineCode(actionId, "credential account action id");
         parameters = new ScheduledGuardEvidence(parameters).attributes();
         if (requestedAt < 0) {
             throw new IllegalArgumentException("credential account action time must not be negative");
@@ -83,9 +83,6 @@ public record ScheduledCredentialAccountActionRequest(
         List<ScheduledCredentialTaskSnapshot> copy = List.copyOf(values);
         Set<Long> taskIds = new LinkedHashSet<>();
         for (ScheduledCredentialTaskSnapshot task : copy) {
-            if (task == null) {
-                throw new IllegalArgumentException(label + " contains a null task");
-            }
             if (!taskIds.add(task.taskId())) {
                 throw new IllegalArgumentException(label + " contains duplicate task ids");
             }
@@ -93,7 +90,4 @@ public record ScheduledCredentialAccountActionRequest(
         return copy;
     }
 
-    private static String validateActionId(String value) {
-        return validateMachineCode(value, "credential account action id");
-    }
 }

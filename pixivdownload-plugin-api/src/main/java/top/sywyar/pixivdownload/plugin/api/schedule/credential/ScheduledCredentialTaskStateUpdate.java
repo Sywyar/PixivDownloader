@@ -34,13 +34,11 @@ public record ScheduledCredentialTaskStateUpdate(
         expectedPolicyStateJson = ScheduledCredentialTaskSnapshot.validateSafeText(
                 expectedPolicyStateJson,
                 "expected credential policy state",
-                ScheduledCredentialTaskSnapshot.MAX_POLICY_STATE_BYTES,
-                false);
+                ScheduledCredentialTaskSnapshot.MAX_POLICY_STATE_BYTES);
         nextPolicyStateJson = ScheduledCredentialTaskSnapshot.validateSafeText(
                 nextPolicyStateJson,
                 "next credential policy state",
-                ScheduledCredentialTaskSnapshot.MAX_POLICY_STATE_BYTES,
-                false);
+                ScheduledCredentialTaskSnapshot.MAX_POLICY_STATE_BYTES);
         if (nextPolicyStateJson == null) {
             throw new IllegalArgumentException("next credential policy state must not be blank");
         }

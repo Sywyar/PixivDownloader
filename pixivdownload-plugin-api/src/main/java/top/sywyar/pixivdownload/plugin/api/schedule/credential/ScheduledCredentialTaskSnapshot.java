@@ -73,30 +73,28 @@ public record ScheduledCredentialTaskSnapshot(
                 ? null
                 : validateMachineCode(suspendCode, "credential task suspend code");
         suspendDetailJson = validateSafeText(
-                suspendDetailJson, "credential task suspend detail", MAX_DETAIL_BYTES, false);
+                suspendDetailJson, "credential task suspend detail", MAX_DETAIL_BYTES);
         policyStateJson = validateSafeText(
-                policyStateJson, "credential task policy state", MAX_POLICY_STATE_BYTES, false);
+                policyStateJson, "credential task policy state", MAX_POLICY_STATE_BYTES);
     }
 
     static String validateSafeText(
             String value,
             String label,
-            int maxBytes,
-            boolean trim) {
+            int maxBytes) {
         if (value == null || value.isBlank()) {
             return null;
         }
-        String normalized = trim ? value.trim() : value;
-        if (normalized.indexOf('\0') >= 0) {
+        if (value.indexOf('\0') >= 0) {
             throw new IllegalArgumentException(label + " must not contain NUL");
         }
-        if (ScheduledCredentialText.containsCredentialMaterial(normalized)) {
+        if (ScheduledCredentialText.containsCredentialMaterial(value)) {
             throw new IllegalArgumentException(label + " must not contain credential material");
         }
-        if (normalized.getBytes(StandardCharsets.UTF_8).length > maxBytes) {
+        if (value.getBytes(StandardCharsets.UTF_8).length > maxBytes) {
             throw new IllegalArgumentException(label + " exceeds size limit");
         }
-        return normalized;
+        return value;
     }
 
     static String validateMachineCode(String value, String label) {

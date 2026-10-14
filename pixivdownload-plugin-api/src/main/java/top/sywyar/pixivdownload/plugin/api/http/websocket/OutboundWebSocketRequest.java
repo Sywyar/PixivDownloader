@@ -4,7 +4,6 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
@@ -44,10 +43,7 @@ public record OutboundWebSocketRequest(
     private static URI validatedUri(URI value) {
         Objects.requireNonNull(value, "uri");
         String scheme = value.getScheme();
-        if (!value.isAbsolute()
-                || scheme == null
-                || (!"ws".equals(scheme.toLowerCase(Locale.ROOT))
-                && !"wss".equals(scheme.toLowerCase(Locale.ROOT)))
+        if ((!"ws".equalsIgnoreCase(scheme) && !"wss".equalsIgnoreCase(scheme))
                 || value.getRawAuthority() == null
                 || value.getRawAuthority().isBlank()
                 || value.getRawUserInfo() != null

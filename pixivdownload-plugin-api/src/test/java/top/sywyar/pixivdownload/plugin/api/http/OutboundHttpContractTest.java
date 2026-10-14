@@ -190,6 +190,35 @@ class OutboundHttpContractTest {
     }
 
     @Test
+    @DisplayName("响应或正文关闭失败后保留原异常且不重试底层关闭")
+    void failedCloseIsReportedOnceWithoutRetryingTheDelegate() throws IOException {
+        for (boolean bodyFirst : List.of(false, true)) {
+            AtomicInteger closeCount = new AtomicInteger();
+            IOException failure = new IOException("close failed");
+            InputStream delegate = new ByteArrayInputStream(new byte[0]) {
+                @Override
+                public void close() throws IOException {
+                    closeCount.incrementAndGet();
+                    throw failure;
+                }
+            };
+            OutboundHttpStreamResponse response =
+                    new OutboundHttpStreamResponse(200, "OK", Map.of(), delegate);
+
+            if (bodyFirst) {
+                assertThatThrownBy(() -> response.body().close()).isSameAs(failure);
+            } else {
+                assertThatThrownBy(response::close)
+                        .isInstanceOf(OutboundHttpTransportException.class)
+                        .hasCause(failure);
+            }
+            response.close();
+            response.body().close();
+            assertThat(closeCount).hasValue(1);
+        }
+    }
+
+    @Test
     @DisplayName("缓冲便捷方法在完整读取和读取失败时都精确关闭流式响应")
     void bufferedExchangeClosesStreamingResponseOnSuccessAndReadFailure() {
         AtomicInteger successCloseCount = new AtomicInteger();
@@ -283,11 +312,25 @@ class OutboundHttpContractTest {
     }
 
     @Test
+    @DisplayName("HTTP 协议忽略大小写并保留原始 URI 编码")
+    void requestPreservesAbsoluteHttpTargets() {
+        for (String scheme : List.of("http", "https", "HtTp", "HtTpS")) {
+            String target = scheme + "://example.test/path?signature=%2B#fragment";
+            assertThat(request(URI.create(target), "GET").uri().toASCIIString())
+                    .isEqualTo(target);
+        }
+    }
+
+    @Test
     @DisplayName("请求拒绝非 HTTP URI、userinfo 与非法方法")
     void requestRejectsInvalidTargetsAndMethods() {
-        assertThatThrownBy(() -> request(URI.create("file:///tmp/data"), "GET"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("HTTP(S)");
+        for (String invalid : List.of("file:///tmp/data", "/relative", "//example.test/path",
+                "https:/missing-authority", "https:opaque")) {
+            assertThatThrownBy(() -> request(URI.create(invalid), "GET"))
+                    .as("非法 HTTP URI: %s", invalid)
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("HTTP(S)");
+        }
         assertThatThrownBy(() -> request(URI.create("https://user@example.test/path"), "GET"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("user info");
