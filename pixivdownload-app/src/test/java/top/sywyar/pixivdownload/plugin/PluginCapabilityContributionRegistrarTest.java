@@ -304,7 +304,6 @@ class PluginCapabilityContributionRegistrarTest {
             implements PluginContextCapabilityContributionAdapter {
         private final List<String> events;
         private final List<String> registered = new ArrayList<>();
-        private boolean failOnRegister;
         private boolean failAfterRegister;
 
         private RecordingContextAdapter(List<String> events) {
@@ -319,9 +318,6 @@ class PluginCapabilityContributionRegistrarTest {
         @Override
         public void register(String pluginId, org.springframework.context.ConfigurableApplicationContext context) {
             events.add("gallery:register:" + pluginId);
-            if (failOnRegister) {
-                throw new IllegalStateException("gallery failed");
-            }
             if (!registered.contains(pluginId)) {
                 registered.add(pluginId);
             }

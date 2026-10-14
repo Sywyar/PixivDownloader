@@ -17,7 +17,6 @@ import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapa
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -346,7 +345,6 @@ class PluginCapabilityPublicationBoundaryTest {
         private final String name;
         private final Error failure;
         private final List<String> events;
-        private final AtomicInteger withdrawals = new AtomicInteger();
 
         private CleanupFailureAdapter(String name, Error failure, List<String> events) {
             this.name = name;
@@ -373,7 +371,6 @@ class PluginCapabilityPublicationBoundaryTest {
 
         @Override
         public void withdraw(ExternalCapabilityOwner owner) {
-            withdrawals.incrementAndGet();
             events.add(name + ":withdraw");
             throw failure;
         }

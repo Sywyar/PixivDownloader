@@ -336,7 +336,7 @@ final class PluginRuntimeFileSecurity {
                 operation, path, failure.toString());
     }
 
-    private static void requirePlainDirectory(Path path, String role) throws IOException {
+    static void requirePlainDirectory(Path path, String role) throws IOException {
         BasicFileAttributes attributes = attributesIfPresent(path);
         if (attributes == null || attributes.isSymbolicLink() || attributes.isOther()
                 || !attributes.isDirectory()) {
@@ -344,7 +344,7 @@ final class PluginRuntimeFileSecurity {
         }
     }
 
-    private static void requirePlainRegularFile(Path path, String role) throws IOException {
+    static void requirePlainRegularFile(Path path, String role) throws IOException {
         BasicFileAttributes attributes = attributesIfPresent(path);
         if (attributes == null || attributes.isSymbolicLink() || attributes.isOther()
                 || !attributes.isRegularFile()) {
@@ -352,7 +352,7 @@ final class PluginRuntimeFileSecurity {
         }
     }
 
-    private static BasicFileAttributes attributesIfPresent(Path path) throws IOException {
+    static BasicFileAttributes attributesIfPresent(Path path) throws IOException {
         try {
             return Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
         } catch (NoSuchFileException e) {

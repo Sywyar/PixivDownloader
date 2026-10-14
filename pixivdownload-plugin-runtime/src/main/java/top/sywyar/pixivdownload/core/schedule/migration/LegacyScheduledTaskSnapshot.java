@@ -44,7 +44,7 @@ public record LegacyScheduledTaskSnapshot(
         credentialMode = requireText(credentialMode, "legacy credential mode");
         pending = pending == null ? List.of() : List.copyOf(pending);
         for (PendingRow row : pending) {
-            if (row == null || row.taskId() != id) {
+            if (row.taskId() != id) {
                 throw new IllegalArgumentException("legacy pending row belongs to another task");
             }
         }

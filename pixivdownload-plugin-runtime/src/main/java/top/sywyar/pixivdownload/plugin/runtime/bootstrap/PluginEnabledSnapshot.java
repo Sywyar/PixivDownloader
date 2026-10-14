@@ -69,9 +69,6 @@ public final class PluginEnabledSnapshot {
     }
 
     private static EnabledParse parseEnabled(String featureId, Object value, String source) {
-        if (value == null) {
-            return EnabledParse.enabledByDefault();
-        }
         if (value instanceof Map<?, ?> map) {
             return parseBooleanish(map.get("enabled"), featureId, source);
         }
@@ -102,7 +99,7 @@ public final class PluginEnabledSnapshot {
     }
 
     private static String describe(Object value) {
-        return value == null ? "null" : (value.getClass().getSimpleName() + ":" + value);
+        return value.getClass().getSimpleName() + ":" + value;
     }
 
     /** 给定 feature id 是否启用；未标记为禁用者一律返回 true（缺项默认启用）。 */

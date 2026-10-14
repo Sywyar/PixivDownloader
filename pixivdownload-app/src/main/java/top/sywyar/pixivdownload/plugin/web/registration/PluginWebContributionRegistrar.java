@@ -164,7 +164,7 @@ public class PluginWebContributionRegistrar {
         }
 
         private boolean cleanupSatisfied(CleanupStep step) {
-            return !requiredCleanup.contains(step) || completedCleanup.contains(step);
+            return !needsCleanup(step);
         }
 
         private void completeCleanup(CleanupStep step) {
@@ -771,9 +771,7 @@ public class PluginWebContributionRegistrar {
             }
             registration.beginFullCleanup();
             Throwable cleanupFailure = cleanPendingRegistration(registration);
-            if (isFatal(cleanupFailure)) {
-                rethrowFatal(cleanupFailure);
-            }
+            rethrowFatal(cleanupFailure);
             if (cleanupFailure != null) {
                 throw boundaryFailure(
                         "failed to fully unregister web contributions for plugin: " + pluginId,

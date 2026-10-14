@@ -12,7 +12,6 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.DirectoryStream;
 import java.nio.file.LinkOption;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -29,6 +28,10 @@ import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
+
+import static top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeFileSecurity.attributesIfPresent;
+import static top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeFileSecurity.requirePlainDirectory;
+import static top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeFileSecurity.requirePlainRegularFile;
 
 /**
  * 生产插件加载使用的私有 artifact 快照。原始安装路径只在这里以 NOFOLLOW channel 读取一次；后续结构校验、
@@ -338,30 +341,6 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
     private void requireOpen() {
         if (closed) {
             throw new IllegalStateException("plugin artifact snapshot is closed");
-        }
-    }
-
-    private static void requirePlainDirectory(Path path, String role) throws IOException {
-        BasicFileAttributes attributes = attributesIfPresent(path);
-        if (attributes == null || attributes.isSymbolicLink() || attributes.isOther()
-                || !attributes.isDirectory()) {
-            throw new IOException(role + " must be a plain directory: " + path);
-        }
-    }
-
-    private static void requirePlainRegularFile(Path path, String role) throws IOException {
-        BasicFileAttributes attributes = attributesIfPresent(path);
-        if (attributes == null || attributes.isSymbolicLink() || attributes.isOther()
-                || !attributes.isRegularFile()) {
-            throw new IOException(role + " must be a plain regular file: " + path);
-        }
-    }
-
-    private static BasicFileAttributes attributesIfPresent(Path path) throws IOException {
-        try {
-            return Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-        } catch (NoSuchFileException e) {
-            return null;
         }
     }
 

@@ -133,7 +133,7 @@ public class PluginControllerRegistrar {
                     UnregistrationResult rollback = null;
                     Throwable rollbackFailure = null;
                     try {
-                        rollback = rollbackRegistered(pluginId, registered);
+                        rollback = unregisterMappings(pluginId, registered, "rolling back");
                     } catch (Throwable cleanupFailure) {
                         rollbackFailure = cleanupFailure;
                     }
@@ -177,15 +177,6 @@ public class PluginControllerRegistrar {
     }
 
     /**
-     * 回滚本次注册尝试中已成功注册进父分发表的映射（逐条 {@code unregisterMapping}）：某条 {@code registerMapping}
-     * 失败时把前面已注册的映射全部撤掉，保证逐条注册过程也按插件原子，不给父分发表留下半注册的 handler。已在
-     * {@link #lock} 内调用；不复用 {@link #unregisterControllers}（那条按 pluginId 查表，本次尚未写入 registeredByPlugin）。
-     */
-    private UnregistrationResult rollbackRegistered(String pluginId, List<RequestMappingInfo> registered) {
-        return unregisterMappings(pluginId, registered, "rolling back");
-    }
-
-    /**
      * 注销某插件先前注册的全部 controller 映射。统一卸载流程会对每个插件调用，故对未注册过的 pluginId 静默返回。
      */
     public void unregisterControllers(String pluginId) {
@@ -225,15 +216,10 @@ public class PluginControllerRegistrar {
                 handlerMapping.unregisterMapping(info);
             } catch (Throwable failure) {
                 pending.add(info);
-                if (failure instanceof VirtualMachineError fatal) {
+                if (isFatal(failure)) {
                     pending.addAll(infos.subList(index + 1, infos.size()));
                     registeredByPlugin.put(pluginId, List.copyOf(pending));
-                    throw fatal;
-                }
-                if (failure instanceof ThreadDeath fatal) {
-                    pending.addAll(infos.subList(index + 1, infos.size()));
-                    registeredByPlugin.put(pluginId, List.copyOf(pending));
-                    throw fatal;
+                    rethrowFatal(failure);
                 }
                 failureTypes.add(failure.getClass().getName());
                 log.warn("Error {} controller mapping {} for plugin '{}' (failureType={})",

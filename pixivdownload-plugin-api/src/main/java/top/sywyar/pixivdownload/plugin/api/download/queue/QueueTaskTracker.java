@@ -263,7 +263,7 @@ public final class QueueTaskTracker {
             if (cancellationRequested) {
                 if (!cancellationDelivered) {
                     cancellationDelivered = true;
-                    invokeCancellation(action);
+                    action.run();
                 }
                 return;
             }
@@ -385,7 +385,7 @@ public final class QueueTaskTracker {
                     cancellationAction = null;
                     cancellationDelivered = true;
                     try {
-                        invokeCancellation(action);
+                        action.run();
                     } catch (Throwable failure) {
                         callbackFailure = failure;
                     }
@@ -405,29 +405,12 @@ public final class QueueTaskTracker {
                     tracker.release(this);
                 }
             }
-            rethrow(callbackFailure);
+            State.rethrow(callbackFailure);
         }
 
         private void clearPluginReferences() {
             delegate = null;
             cancellationAction = null;
-        }
-
-        private static void invokeCancellation(Runnable action) {
-            action.run();
-        }
-
-        private static void rethrow(Throwable failure) {
-            if (failure == null) {
-                return;
-            }
-            if (failure instanceof RuntimeException runtime) {
-                throw runtime;
-            }
-            if (failure instanceof Error error) {
-                throw error;
-            }
-            throw new IllegalStateException("queue cancellation callback failed", failure);
         }
     }
 

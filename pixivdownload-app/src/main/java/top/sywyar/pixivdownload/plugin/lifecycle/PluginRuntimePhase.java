@@ -47,15 +47,11 @@ public enum PluginRuntimePhase {
 
     /** 该阶段是否允许直接流转到 {@code target}（状态机合法边）。 */
     public boolean canTransitionTo(PluginRuntimePhase target) {
-        if (target == null) {
-            return false;
-        }
         return switch (this) {
             case UNLOADED -> target == LOADED;
-            case LOADED -> target == STARTED || target == UNLOADED;
+            case LOADED, STOPPED -> target == STARTED || target == UNLOADED;
             case STARTED -> target == QUIESCED || target == STOPPED;
             case QUIESCED -> target == STOPPED;
-            case STOPPED -> target == STARTED || target == UNLOADED;
         };
     }
 }

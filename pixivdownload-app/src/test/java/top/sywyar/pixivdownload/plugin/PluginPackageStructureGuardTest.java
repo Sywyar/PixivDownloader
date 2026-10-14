@@ -68,7 +68,7 @@ class PluginPackageStructureGuardTest {
             "DatabaseSchemaRegistry");
     private static final java.util.Set<String> REGISTRY_WEB_ALLOWLIST = java.util.Set.of(
             "DrilldownRegistry", "LandingRegistry", "NavigationRegistry", "PageSectionRegistry",
-            "StaticResourceRegistry", "WebUiSlotRegistry");
+            "StaticResourceRegistry", "WebContributionPaths", "WebUiSlotRegistry");
 
     /**
      * {@code top.sywyar.pixivdownload.plugin} 是<b>拆分包</b>：app 的 4 个 plugin 根包入口类型 +

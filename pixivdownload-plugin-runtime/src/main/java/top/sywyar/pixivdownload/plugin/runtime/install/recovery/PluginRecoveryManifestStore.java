@@ -177,7 +177,7 @@ public final class PluginRecoveryManifestStore {
         return bytes.toByteArray();
     }
 
-    private static Optional<BasicFileAttributes> readAttributesIfPresent(Path path) throws IOException {
+    static Optional<BasicFileAttributes> readAttributesIfPresent(Path path) throws IOException {
         try {
             return Optional.of(Files.readAttributes(
                     path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS));

@@ -109,7 +109,6 @@ public class PluginRuntimeManager {
     private final PluginArtifactWorkspaceOwner workspaceOwner;
     private final PluginArtifactMaterializer materializer;
     private PluginArtifactVerificationService verificationService;
-    private Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver;
     private PluginArtifactAdmissionPolicy admissionPolicy = PluginArtifactAdmissionPolicy.allowAll();
     private final BooleanSupplier developmentModeEnabled;
     private final PluginProvenanceStore provenanceStore;
@@ -218,10 +217,10 @@ public class PluginRuntimeManager {
         this.pluginsRoot = layout.pluginsRoot();
         this.workspaceOwner = new PluginArtifactWorkspaceOwner(layout);
         this.materializer = new PluginArtifactMaterializer(layout);
-        this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
+        Objects.requireNonNull(verifierResolver, "verifierResolver");
         this.developmentModeEnabled = Objects.requireNonNull(developmentModeEnabled, "developmentModeEnabled");
         this.verificationService = new PluginArtifactVerificationService(
-                this.verifierResolver, this.developmentModeEnabled);
+                verifierResolver, this.developmentModeEnabled);
         this.provenanceStore = new PluginProvenanceStore(layout);
         this.maximumStartupVerificationEntries = maximumStartupVerificationEntries;
         this.maximumStartupVerificationUncompressedBytes = maximumStartupVerificationUncompressedBytes;
@@ -236,9 +235,8 @@ public class PluginRuntimeManager {
     /** 由宿主在配置解析后刷新按来源解析的验签门面；必须发生在后续 load 原语进入 PF4J 前。 */
     public synchronized void updateVerifierResolver(
             Function<PluginPackageOrigin, PluginSupplyChainVerifier> verifierResolver) {
-        this.verifierResolver = Objects.requireNonNull(verifierResolver, "verifierResolver");
         this.verificationService = new PluginArtifactVerificationService(
-                this.verifierResolver, this.developmentModeEnabled);
+                verifierResolver, this.developmentModeEnabled);
     }
 
     public synchronized void updateAdmissionPolicy(PluginArtifactAdmissionPolicy admissionPolicy) {
@@ -326,8 +324,6 @@ public class PluginRuntimeManager {
                         throw failure;
                     } catch (PluginProvenanceStore.ProvenanceReadException failure) {
                         startupBudget.consumeProvenanceFailure(failure.byteCount(), failure);
-                        throw failure;
-                    } catch (IOException | RuntimeException failure) {
                         throw failure;
                     }
                     long candidateProvenanceBytes = measuredProvenance

@@ -124,9 +124,6 @@ public class StaticResourceRegistry {
             throw new IllegalStateException("static resource contribution without registered owner");
         }
         String pluginId = owner.id();
-        if (pluginId == null || pluginId.isBlank()) {
-            throw new IllegalStateException("static resource contribution without pluginId");
-        }
         if (resources == null || resources.isEmpty()) {
             throw new IllegalStateException("empty static resource contribution (plugin: " + pluginId + ")");
         }
@@ -195,7 +192,7 @@ public class StaticResourceRegistry {
         synchronized (lock) {
             snapshot = snapshot.stream()
                     .filter(registered -> !registered.pluginId().equals(pluginId))
-                    .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+                    .collect(Collectors.toUnmodifiableList());
         }
     }
 

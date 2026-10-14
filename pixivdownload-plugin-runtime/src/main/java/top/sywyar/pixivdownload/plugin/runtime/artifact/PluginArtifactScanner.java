@@ -2,8 +2,6 @@ package top.sywyar.pixivdownload.plugin.runtime.artifact;
 
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
@@ -12,6 +10,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.stream.Stream;
+
+import static top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeFileSecurity.attributesIfPresent;
 
 /**
  * 外置插件安装根的一次性有界清点。这里只识别物理候选和文件系统类型；包结构、描述符与 provenance
@@ -96,14 +96,6 @@ public final class PluginArtifactScanner {
         }
         String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
         return !name.startsWith(".") && (name.endsWith(".jar") || name.endsWith(".zip"));
-    }
-
-    private static BasicFileAttributes attributesIfPresent(Path path) throws IOException {
-        try {
-            return Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-        } catch (NoSuchFileException e) {
-            return null;
-        }
     }
 
     public record ScanResult(Path root, boolean rootPresent, int entryCount,

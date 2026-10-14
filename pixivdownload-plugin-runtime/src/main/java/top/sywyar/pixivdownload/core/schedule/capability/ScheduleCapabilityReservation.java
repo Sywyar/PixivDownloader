@@ -74,8 +74,7 @@ public final class ScheduleCapabilityReservation {
         if (commitBinding != null) {
             throw new IllegalStateException("schedule reservation already has a commit binding");
         }
-        CommitBinding binding = new CommitBinding(publication, activationToken, leaseState);
-        commitBinding = binding;
+        commitBinding = new CommitBinding(publication, activationToken, leaseState);
     }
 
     CommitBinding commitBinding() {

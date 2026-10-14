@@ -326,9 +326,7 @@ public class PluginRuntimeTaskQuiescer {
             addSuppressedSafely(failure, current);
             return failure;
         }
-        if (current != failure) {
-            addSuppressedSafely(current, failure);
-        }
+        addSuppressedSafely(current, failure);
         return current;
     }
 

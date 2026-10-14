@@ -41,7 +41,6 @@ class PluginApiDependencyGuardTest {
                     .contains("pixivdownload-plugin-gui-swing"))
             .importPackages("top.sywyar.pixivdownload");
     private static final String DOWNLOAD_WORKBENCH_CLASSES_PROPERTY = "download-workbench.plugin.classes";
-    private static final String GUI_SWING_CLASSES_PROPERTY = "gui-swing.plugin.classes";
     private static final Set<String> BUILT_IN_CORE_PLUGIN_IDS = BuiltInPlugins.createAll().stream()
             .filter(plugin -> plugin.kind() == PluginKind.CORE)
             .map(PixivFeaturePlugin::id)
@@ -713,20 +712,6 @@ class PluginApiDependencyGuardTest {
                 () -> "download-workbench 外置插件 classes 目录不存在，跳过 app 侧外置类守卫；"
                         + "外置模块自身 DownloadWorkbenchDependencyGuardTest 会在该模块测试阶段覆盖同等约束。"
                         + "（系统属性 " + DOWNLOAD_WORKBENCH_CLASSES_PROPERTY + "="
-                        + classesDir.toAbsolutePath().normalize() + "）");
-        return new ClassFileImporter()
-                .withImportOption(new ImportOption.DoNotIncludeTests())
-                .importPath(classesDir);
-    }
-
-    private static JavaClasses importGuiSwingClasses() {
-        String configured = System.getProperty(GUI_SWING_CLASSES_PROPERTY);
-        Path classesDir = configured == null || configured.isBlank()
-                ? Path.of("..", "pixivdownload-plugin-gui-swing", "target", "classes")
-                : Path.of(configured);
-        Assumptions.assumeTrue(Files.isDirectory(classesDir),
-                () -> "gui-swing 外置插件 classes 目录不存在，无法验证 imageclassifier 边界"
-                        + "（系统属性 " + GUI_SWING_CLASSES_PROPERTY + "="
                         + classesDir.toAbsolutePath().normalize() + "）");
         return new ClassFileImporter()
                 .withImportOption(new ImportOption.DoNotIncludeTests())

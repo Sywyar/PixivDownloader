@@ -47,7 +47,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -270,8 +269,6 @@ class ExternalCapabilityLifecycleIntegrationTest {
     }
 
     private static final class ProbePlugin implements PixivFeaturePlugin {
-        private final AtomicInteger stopCount = new AtomicInteger();
-
         @Override
         public String id() {
             return PLUGIN_ID;
@@ -290,11 +287,6 @@ class ExternalCapabilityLifecycleIntegrationTest {
         @Override
         public PluginKind kind() {
             return PluginKind.FEATURE;
-        }
-
-        @Override
-        public void stop() {
-            stopCount.incrementAndGet();
         }
     }
 }

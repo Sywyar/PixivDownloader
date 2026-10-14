@@ -20,6 +20,9 @@ import java.util.ListIterator;
 import java.util.Map;
 import java.util.Optional;
 
+import static top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleFailureAccumulator.addSuppressedSafely;
+import static top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleFailureAccumulator.isFatal;
+
 /** Coordinates unpublished external capability preparation, atomic admission and exact-owner teardown. */
 @Component
 public class PluginCapabilityContributionRegistrar {
@@ -301,11 +304,7 @@ public class PluginCapabilityContributionRegistrar {
                 batch.centralAcknowledged = true;
             }
             if (!batch.centralForgotten) {
-                boolean forgotten = invocationRegistry.forgetRetirementAcknowledgement(drain);
-                if (!forgotten && !batch.centralAcknowledged) {
-                    throw new IllegalStateException("external capability retirement acknowledgement is missing: "
-                            + batch.owner());
-                }
+                invocationRegistry.forgetRetirementAcknowledgement(drain);
                 // A false result after an acknowledged exact owner means a prior remove completed before return.
                 batch.centralForgotten = true;
             }
@@ -452,11 +451,7 @@ public class PluginCapabilityContributionRegistrar {
                 owner.centralAcknowledged = true;
             }
             if (!owner.centralForgotten) {
-                boolean forgotten = invocationRegistry.forgetRetirementAcknowledgement(drain);
-                if (!forgotten && !owner.centralAcknowledged) {
-                    throw new IllegalStateException("external capability retirement acknowledgement is missing: "
-                            + drain.owner());
-                }
+                invocationRegistry.forgetRetirementAcknowledgement(drain);
                 owner.centralForgotten = true;
             }
         }
@@ -828,24 +823,10 @@ public class PluginCapabilityContributionRegistrar {
         }
     }
 
-    private static boolean isFatal(Throwable failure) {
-        return failure instanceof VirtualMachineError || failure instanceof ThreadDeath;
-    }
-
     private static Throwable mergeFatal(Throwable current, Throwable failure) {
         if (!isFatal(failure)) {
             return current;
         }
         return current == null ? failure : current;
-    }
-
-    private static void addSuppressedSafely(Throwable target, Throwable suppressed) {
-        if (target != null && suppressed != null && target != suppressed) {
-            try {
-                target.addSuppressed(suppressed);
-            } catch (Throwable ignored) {
-                // Preserve the original legacy failure while still completing every cleanup action.
-            }
-        }
     }
 }

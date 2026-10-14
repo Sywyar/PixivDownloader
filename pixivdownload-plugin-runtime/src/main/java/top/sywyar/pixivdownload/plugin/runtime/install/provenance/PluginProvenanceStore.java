@@ -454,18 +454,6 @@ public final class PluginProvenanceStore {
         return artifact.resolveSibling(artifact.getFileName().toString() + SIDECAR_SUFFIX);
     }
 
-    private Path existingSidecarPath(Path artifact) {
-        Path current = sidecarPath(artifact);
-        if (Files.exists(current)) {
-            return current;
-        }
-        Path legacy = legacySidecarPath(artifact);
-        if (!legacy.equals(current) && Files.exists(legacy)) {
-            return legacy;
-        }
-        return current;
-    }
-
     private void migrateLegacy(Path artifact, Path legacy) {
         try {
             Path current = sidecarPath(artifact).toAbsolutePath().normalize();
@@ -801,23 +789,8 @@ public final class PluginProvenanceStore {
         return value == null || value.isBlank() ? null : value;
     }
 
-    private static List<String> splitCommaSeparated(String value) {
-        if (value == null || value.isBlank()) {
-            return List.of();
-        }
-        return java.util.Arrays.stream(value.split(",", -1)).map(String::trim).toList();
-    }
-
     private static Long longOrNull(String value) {
         return value == null || value.isBlank() ? null : Long.parseLong(value);
-    }
-
-    private static Instant instantOrNull(String value) {
-        return value == null || value.isBlank() ? null : Instant.parse(value);
-    }
-
-    private static VerificationStatus statusOrNull(String value) {
-        return value == null || value.isBlank() ? null : VerificationStatus.valueOf(value);
     }
 
     private void writePropertiesAtomically(Path target, Properties properties, String comment)

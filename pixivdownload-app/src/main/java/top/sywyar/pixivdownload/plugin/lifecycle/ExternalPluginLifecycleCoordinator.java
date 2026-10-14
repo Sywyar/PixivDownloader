@@ -183,8 +183,6 @@ public class ExternalPluginLifecycleCoordinator {
                     operations.put(packageId, new ExternalPluginOperationSnapshot(packageId,
                             ExternalPluginOperation.FAILED, currentTransaction(packageId),
                             PluginLifecycleFailureAccumulator.describe(failure)));
-                }
-                if (!runtimeRestored) {
                     throw failures.propagate("remove failed and previous runtime could not be restored for '"
                             + packageId + "'");
                 }
@@ -282,8 +280,7 @@ public class ExternalPluginLifecycleCoordinator {
                     false, null, ExternalPluginOperation.IDLE, phase);
         }
         String packageId = stagedResult.pluginId();
-        ExternalPluginOperation operation = stagedResult.previousVersion() == null
-                ? ExternalPluginOperation.INSTALLING : ExternalPluginOperation.UPDATING;
+        ExternalPluginOperation operation = operationFor(stagedResult);
         // 新旧任一受影响代际要求进程重启时，只提交文件，不能通过更改策略或 replaces 热卸载旧实例。
         if (activationBlockedByDevelopment(stagedResult.descriptor()) || requiresDeferredActivation(stagedResult.descriptor())) {
             return withLock(packageId, operation, prepared.transactionId(), () ->
@@ -342,8 +339,7 @@ public class ExternalPluginLifecycleCoordinator {
             boolean filesRestored = committed != null
                     ? rollbackTransactionSafely(committed, failures)
                     : recoverPreparedTransaction(prepared, failures);
-            boolean runtimeRestored = filesRestored && restoreRetiredRuntimes(retired, failures);
-            boolean rolledBack = filesRestored && runtimeRestored;
+            boolean rolledBack = filesRestored && restoreRetiredRuntimes(retired, failures);
             refreshRecoveryModeSafely(failures);
             failures.rethrowFatal();
             PluginInstallResult failed = new PluginInstallResult(PluginInstallOutcome.FAILED,
@@ -436,7 +432,7 @@ public class ExternalPluginLifecycleCoordinator {
                     : rollbackTransactionSafely(committed, failures);
             boolean runtimeRestored = currentGenerationCleared;
             if (committed == null && runtimeMutationStarted && wasLoaded && filesRestored) {
-                runtimeRestored = restoreUnchangedOld(packageId, true, previousArtifact, failures);
+                runtimeRestored = restoreOldRuntime(packageId, previousArtifact, failures);
             } else if (committed != null && wasLoaded && filesRestored && currentGenerationCleared) {
                 Path restoreArtifact = previousArtifact;
                 if (restoreArtifact == null) {
@@ -637,18 +633,6 @@ public class ExternalPluginLifecycleCoordinator {
             // 回滚路径继续尝试恢复文件，最终结果会标记恢复失败。
             return false;
         }
-    }
-
-    private boolean restoreUnchangedOld(
-            String packageId,
-            boolean wasLoaded,
-            Path previousArtifact,
-            PluginLifecycleFailureAccumulator failures
-    ) {
-        if (!wasLoaded) {
-            return true;
-        }
-        return restoreOldRuntime(packageId, previousArtifact, failures);
     }
 
     private boolean restoreOldRuntime(

@@ -87,7 +87,7 @@ public class WebUiSlotRegistry implements WebUiSlotCatalog {
         synchronized (lock) {
             snapshot = snapshot.stream()
                     .filter(registered -> !registered.pluginId().equals(pluginId))
-                    .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+                    .collect(Collectors.toUnmodifiableList());
         }
     }
 
@@ -124,26 +124,10 @@ public class WebUiSlotRegistry implements WebUiSlotCatalog {
         // URL、//host 协议相对 URL 与 /\host 变体（都不以「单个 /」开头）。这是<b>声明期</b>安全边界：moduleUrl 会被
         // 前端作为 <script src> 加载，限定为同源路径可防止槽位声明把宿主导去外部站点或执行伪协议脚本。运行期权限
         // 边界仍是 AuthFilter / RouteAccessRegistry。
-        if (slot.moduleUrl() != null && !isSameOriginAbsolutePath(slot.moduleUrl())) {
+        if (slot.moduleUrl() != null && !WebContributionPaths.isSameOriginAbsolutePath(slot.moduleUrl())) {
             throw new IllegalStateException("ui slot moduleUrl must be a same-origin absolute path starting with '/' "
                     + "(no scheme / protocol-relative): " + slot.moduleUrl()
                     + " (slot: " + slot.slotId() + ", plugin: " + pluginId + ")");
         }
-    }
-
-    /**
-     * 同源绝对路径判定：以单个 {@code /} 开头。拒绝空串、{@code javascript:} / {@code http(s)://} 等带协议
-     * 的 URL（不以 {@code /} 开头）、{@code //host} 协议相对 URL 与 {@code /\host} 反斜杠变体（第二个字符为
-     * {@code /} 或 {@code \}，浏览器可能归一化为协议相对）。路径其余部分（含 query）不限制。
-     */
-    private static boolean isSameOriginAbsolutePath(String value) {
-        if (value.isEmpty() || value.charAt(0) != '/') {
-            return false;
-        }
-        if (value.length() >= 2) {
-            char second = value.charAt(1);
-            return second != '/' && second != '\\';
-        }
-        return true;
     }
 }

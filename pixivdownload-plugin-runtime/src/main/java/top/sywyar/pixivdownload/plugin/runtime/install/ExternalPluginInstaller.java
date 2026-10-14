@@ -2268,22 +2268,6 @@ public class ExternalPluginInstaller implements AutoCloseable {
         }
     }
 
-    private boolean restoreBackups(List<CommittedPluginTransaction.BackupArtifact> backups) {
-        boolean restored = true;
-        for (CommittedPluginTransaction.BackupArtifact backup : backups) {
-            if (!Files.exists(backup.backup())) {
-                continue;
-            }
-            try {
-                moveArtifactWithSidecar(backup.backup(), backup.origin());
-            } catch (IOException e) {
-                restored = false;
-                log.error("Failed to restore plugin backup {}: {}", backup.backup(), e.toString());
-            }
-        }
-        return restored;
-    }
-
     private void moveArtifactWithSidecar(Path source, Path target) throws IOException {
         provenanceStore.moveWithArtifact(source, target, ExternalPluginInstaller::moveIntoPlace);
     }

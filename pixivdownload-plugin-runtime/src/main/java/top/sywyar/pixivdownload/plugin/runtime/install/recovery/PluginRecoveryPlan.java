@@ -25,11 +25,7 @@ public record PluginRecoveryPlan(
 
     public boolean finalState() {
         return manifest.state() == PluginTransactionState.ROLLED_BACK
-                || manifest.operation() == RecoveryOperation.INSTALL
-                && (manifest.state() == PluginTransactionState.ACTIVATED
-                || manifest.state() == PluginTransactionState.COMMITTED)
-                || manifest.operation() == RecoveryOperation.REMOVE
-                && manifest.state() == PluginTransactionState.COMMITTED;
+                || requiresVisibleInventory();
     }
 
     public boolean requiresVisibleInventory() {

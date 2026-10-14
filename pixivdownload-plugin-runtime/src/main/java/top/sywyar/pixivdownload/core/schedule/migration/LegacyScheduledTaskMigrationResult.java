@@ -28,9 +28,6 @@ public sealed interface LegacyScheduledTaskMigrationResult
                 throw new IllegalArgumentException("migrated definition must not be null");
             }
             pending = pending == null ? List.of() : List.copyOf(pending);
-            if (pending.stream().anyMatch(item -> item == null)) {
-                throw new IllegalArgumentException("migrated pending work must not contain null");
-            }
             canonicalSuspendCode = normalize(canonicalSuspendCode);
         }
     }

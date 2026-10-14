@@ -13,7 +13,6 @@ import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.ListIterator;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -431,10 +430,7 @@ public final class ExternalCapabilityInvocationRegistry {
             state.targets.put(capabilityToken, new TargetEntry(capabilityType, target));
             nextCapabilityToken = capabilityToken;
             try {
-                ClassLoader proxyLoader = capabilityType.getClassLoader();
-                if (proxyLoader == null) {
-                    proxyLoader = ExternalCapabilityInvocationRegistry.class.getClassLoader();
-                }
+                ClassLoader proxyLoader = boundaryLoader(capabilityType);
                 Object proxy = Proxy.newProxyInstance(
                         proxyLoader,
                         new Class<?>[]{capabilityType},
@@ -1011,7 +1007,6 @@ public final class ExternalCapabilityInvocationRegistry {
                 || CompletionStage.class.isAssignableFrom(type)
                 || BaseStream.class.isAssignableFrom(type)
                 || Iterator.class.isAssignableFrom(type)
-                || ListIterator.class.isAssignableFrom(type)
                 || Spliterator.class.isAssignableFrom(type)
                 || Enumeration.class.isAssignableFrom(type)
                 || Flow.Publisher.class.isAssignableFrom(type)

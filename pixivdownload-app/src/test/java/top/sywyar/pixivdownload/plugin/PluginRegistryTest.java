@@ -290,6 +290,29 @@ class PluginRegistryTest {
     }
 
     @Test
+    @DisplayName("启动致命错误始终保留为主失败，回滚致命错误不覆盖或形成自抑制")
+    void fatalStartRemainsPrimaryWhenRollbackIsAlsoFatal() {
+        for (boolean sameFailure : List.of(false, true)) {
+            ThreadDeath startFailure = new ThreadDeath();
+            Error stopFailure = sameFailure ? startFailure : new TestVirtualMachineError("fatal rollback");
+            FatalStopPlugin first = new FatalStopPlugin("first", stopFailure);
+            StartFailurePlugin second = new StartFailurePlugin("second", startFailure);
+            RetryStopPlugin third = new RetryStopPlugin("third", 0);
+            PluginRegistry registry = new PluginRegistry(List.of(first, second, third));
+            PluginRegistry.RegisteredPlugin firstIdentity = registry.registeredPlugins().get(0);
+
+            assertThatThrownBy(registry::start).isSameAs(startFailure);
+
+            assertThat(startFailure.getSuppressed())
+                    .containsExactly(sameFailure ? new Throwable[0] : new Throwable[]{stopFailure});
+            assertThat(registry.isRunning()).isFalse();
+            assertThat(registry.featureStarted(firstIdentity)).isTrue();
+            assertThat(first.stopCount()).isEqualTo(1);
+            assertThat(third.startCount()).isZero();
+        }
+    }
+
+    @Test
     @DisplayName("started 旧身份不能注销或误用到同 id 新身份")
     void startedOldIdentityCannotLeakAcrossReplacement() {
         RetryStopPlugin oldPlugin = new RetryStopPlugin("stats", 0);

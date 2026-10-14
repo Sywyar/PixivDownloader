@@ -78,11 +78,11 @@ public final class PluginDevelopmentArtifacts {
                     .toList();
             List<DevelopmentPluginArtifact> artifacts = moduleRoots.stream()
                     .map(PluginDevelopmentArtifacts::toCompiledArtifact)
-                    .flatMap(OptionalStream::stream)
+                    .flatMap(Optional::stream)
                     .toList();
             List<DevelopmentSourceModule> sourceOnlyModules = moduleRoots.stream()
                     .map(PluginDevelopmentArtifacts::toSourceOnlyModule)
-                    .flatMap(OptionalStream::stream)
+                    .flatMap(Optional::stream)
                     .toList();
             return new DevelopmentDiscovery(developmentRoot, cacheRoot, artifacts, sourceOnlyModules);
         } catch (IOException | InvalidPathException e) {
@@ -265,24 +265,24 @@ public final class PluginDevelopmentArtifacts {
         }
     }
 
-    private static OptionalStream<DevelopmentPluginArtifact> toCompiledArtifact(Path moduleRoot) {
+    private static Optional<DevelopmentPluginArtifact> toCompiledArtifact(Path moduleRoot) {
         Path classesDirectory = moduleRoot.resolve(TARGET_DIR).resolve(CLASSES_DIR);
         Path descriptorPath = classesDirectory.resolve(PLUGIN_PROPERTIES);
         if (!Files.isRegularFile(descriptorPath)) {
-            return OptionalStream.empty();
+            return Optional.empty();
         }
-        return OptionalStream.of(new DevelopmentPluginArtifact(moduleRoot.toAbsolutePath().normalize(),
+        return Optional.of(new DevelopmentPluginArtifact(moduleRoot.toAbsolutePath().normalize(),
                 classesDirectory.toAbsolutePath().normalize(), descriptorPath.toAbsolutePath().normalize()));
     }
 
-    private static OptionalStream<DevelopmentSourceModule> toSourceOnlyModule(Path moduleRoot) {
+    private static Optional<DevelopmentSourceModule> toSourceOnlyModule(Path moduleRoot) {
         Path sourceDescriptor = moduleRoot.resolve("src/main/resources").resolve(PLUGIN_PROPERTIES);
         if (!Files.isRegularFile(sourceDescriptor)) {
-            return OptionalStream.empty();
+            return Optional.empty();
         }
         Path compiledDescriptor = moduleRoot.resolve(TARGET_DIR).resolve(CLASSES_DIR).resolve(PLUGIN_PROPERTIES);
         if (Files.isRegularFile(compiledDescriptor)) {
-            return OptionalStream.empty();
+            return Optional.empty();
         }
         String pluginId = moduleRoot.getFileName().toString();
         try {
@@ -293,7 +293,7 @@ public final class PluginDevelopmentArtifacts {
         } catch (RuntimeException ignored) {
             // Keep the module name fallback; the materialized path will report descriptor parsing errors when present.
         }
-        return OptionalStream.of(new DevelopmentSourceModule(moduleRoot.toAbsolutePath().normalize(),
+        return Optional.of(new DevelopmentSourceModule(moduleRoot.toAbsolutePath().normalize(),
                 sourceDescriptor.toAbsolutePath().normalize(), pluginId));
     }
 
@@ -581,18 +581,4 @@ public final class PluginDevelopmentArtifacts {
         }
     }
 
-    private record OptionalStream<T>(T value) {
-
-        private static <T> OptionalStream<T> of(T value) {
-            return new OptionalStream<>(Objects.requireNonNull(value, "value"));
-        }
-
-        private static <T> OptionalStream<T> empty() {
-            return new OptionalStream<>(null);
-        }
-
-        private Stream<T> stream() {
-            return value == null ? Stream.empty() : Stream.of(value);
-        }
-    }
 }

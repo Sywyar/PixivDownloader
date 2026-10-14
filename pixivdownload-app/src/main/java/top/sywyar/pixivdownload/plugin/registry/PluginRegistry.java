@@ -227,7 +227,7 @@ public class PluginRegistry implements SmartLifecycle {
     private static void addInstalled(Map<String, RegisteredPlugin> byId, List<RegisteredPlugin> all,
                                      RegisteredPlugin candidate, String origin) {
         String pluginId = candidate.id();
-        if (pluginId == null || !PLUGIN_ID_PATTERN.matcher(pluginId).matches()) {
+        if (!PLUGIN_ID_PATTERN.matcher(pluginId).matches()) {
             throw new IllegalStateException("invalid plugin id: " + pluginId + " (from " + origin + ")");
         }
         RegisteredPlugin existing = byId.get(pluginId);
@@ -275,7 +275,7 @@ public class PluginRegistry implements SmartLifecycle {
     /** 注册一条带包身份和 generation 的完整运行时记录。 */
     public void register(RegisteredPlugin candidate) {
         String pluginId = candidate.id();
-        if (pluginId == null || !PLUGIN_ID_PATTERN.matcher(pluginId).matches()) {
+        if (!PLUGIN_ID_PATTERN.matcher(pluginId).matches()) {
             throw new IllegalStateException("invalid plugin id: " + pluginId);
         }
         synchronized (lock) {
@@ -337,8 +337,8 @@ public class PluginRegistry implements SmartLifecycle {
     public boolean containsIdentity(RegisteredPlugin expected) {
         Objects.requireNonNull(expected, "expected registered plugin");
         RegistryState currentState = state;
-        return currentState.installed().stream().anyMatch(current -> current == expected)
-                || currentState.active().stream().anyMatch(current -> current == expected);
+        return containsIdentity(currentState.installed(), expected)
+                || containsIdentity(currentState.active(), expected);
     }
 
     private void unregisterIdentity(RegisteredPlugin target) {
@@ -356,10 +356,10 @@ public class PluginRegistry implements SmartLifecycle {
         }
         List<RegisteredPlugin> nextInstalled = currentState.installed().stream()
                 .filter(registered -> registered != target)
-                .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+                .collect(Collectors.toUnmodifiableList());
         List<RegisteredPlugin> nextActive = currentState.active().stream()
                 .filter(registered -> registered != target)
-                .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+                .collect(Collectors.toUnmodifiableList());
         lifecycleFailures.remove(target);
         publishState(nextInstalled, nextActive);
     }
@@ -382,7 +382,7 @@ public class PluginRegistry implements SmartLifecycle {
     /** 当前活动快照是否仍包含同一个注册对象身份。 */
     public boolean isActiveIdentity(RegisteredPlugin registered) {
         Objects.requireNonNull(registered, "registered plugin");
-        return state.active().stream().anyMatch(current -> current == registered);
+        return containsIdentity(state.active(), registered);
     }
 
     /**
@@ -396,7 +396,7 @@ public class PluginRegistry implements SmartLifecycle {
         Thread holder = Thread.currentThread();
         ActiveIdentityReservationState reservation;
         synchronized (lock) {
-            if (state.active().stream().noneMatch(current -> current == registered)) {
+            if (!containsIdentity(state.active(), registered)) {
                 throw new IllegalStateException(
                         "plugin registration is not the current active identity: " + registered.id());
             }
@@ -429,7 +429,7 @@ public class PluginRegistry implements SmartLifecycle {
         Objects.requireNonNull(registered, "registered plugin");
         Objects.requireNonNull(commit, "commit");
         synchronized (lock) {
-            if (state.active().stream().noneMatch(current -> current == registered)) {
+            if (!containsIdentity(state.active(), registered)) {
                 throw new IllegalStateException(
                         "plugin registration is not the current active identity: " + registered.id());
             }
@@ -465,7 +465,7 @@ public class PluginRegistry implements SmartLifecycle {
         Objects.requireNonNull(registered, "registered plugin");
         Objects.requireNonNull(commit, "commit");
         synchronized (lock) {
-            if (state.active().stream().noneMatch(current -> current == registered)) {
+            if (!containsIdentity(state.active(), registered)) {
                 throw new IllegalStateException(
                         "plugin registration is not the current active identity: " + registered.id());
             }
@@ -601,25 +601,15 @@ public class PluginRegistry implements SmartLifecycle {
             }
         }
         if (startFailure != null) {
-            Throwable cleanupFatal = null;
             for (int i = startedThisAttempt.size() - 1; i >= 0; i--) {
                 try {
                     stopFeature(startedThisAttempt.get(i));
                 } catch (Throwable cleanupFailure) {
-                    if (!isFatal(startFailure) && isFatal(cleanupFailure)) {
-                        if (cleanupFatal == null) {
-                            cleanupFatal = cleanupFailure;
-                            addSuppressedSafely(cleanupFatal, startFailure);
-                        } else {
-                            addSuppressedSafely(cleanupFatal, cleanupFailure);
-                        }
-                    } else {
-                        addSuppressedSafely(cleanupFatal != null ? cleanupFatal : startFailure, cleanupFailure);
-                    }
+                    addSuppressedSafely(startFailure, cleanupFailure);
                 }
             }
             running = false;
-            rethrowUnchecked(cleanupFatal != null ? cleanupFatal : startFailure);
+            rethrowUnchecked(startFailure);
         }
         running = true;
         List<String> startedIds = plugins.stream().filter(this::featureStarted)
@@ -866,9 +856,9 @@ public class PluginRegistry implements SmartLifecycle {
     /** 完整准备派生视图后通过单个 volatile 引用一次性发布安装态与活动态。 */
     private void publishState(List<RegisteredPlugin> installed, List<RegisteredPlugin> active) {
         List<PixivFeaturePlugin> installedPlugins = installed.stream().map(RegisteredPlugin::plugin)
-                .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+                .collect(Collectors.toUnmodifiableList());
         List<PixivFeaturePlugin> activePlugins = active.stream().map(RegisteredPlugin::plugin)
-                .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+                .collect(Collectors.toUnmodifiableList());
         state = new RegistryState(installed, installedPlugins, active, activePlugins);
     }
 

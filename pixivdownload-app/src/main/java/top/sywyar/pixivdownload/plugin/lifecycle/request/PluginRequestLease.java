@@ -51,10 +51,7 @@ public final class PluginRequestLease implements AutoCloseable {
             } catch (Throwable cleanup) {
                 cleanupFailure = cleanup;
             }
-            if (!isFatal(failure) && isFatal(cleanupFailure)) {
-                rethrow(cleanupFailure);
-            }
-            rethrow(failure);
+            rethrow(preferred(failure, cleanupFailure));
             return false;
         }
     }

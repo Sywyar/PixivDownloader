@@ -216,11 +216,8 @@ public final class PluginApplicationContextFactory {
         collectExistingMaskKeys(sources.get(maskSourceName), maskKeys);
         collectExistingMaskKeys(sources.get(updateMaskSourceName), maskKeys);
 
-        SensitivePropertyMaskSource maskSource = null;
-        if (!maskKeys.isEmpty()) {
-            maskSource = new SensitivePropertyMaskSource(
-                    maskSourceName, maskKeys);
-        }
+        SensitivePropertyMaskSource maskSource = new SensitivePropertyMaskSource(
+                maskSourceName, maskKeys);
         MapPropertySource scopedSource = null;
         if (!propertySnapshot.ownerProperties().isEmpty()) {
             scopedSource = new MapPropertySource(
@@ -228,21 +225,17 @@ public final class PluginApplicationContextFactory {
         }
 
         boolean replacementComplete = false;
-        if (maskSource != null) {
-            SensitivePropertyMaskSource updateMask = new SensitivePropertyMaskSource(
-                    updateMaskSourceName, maskKeys);
-            if (sources.contains(updateMaskSourceName)) {
-                sources.replace(updateMaskSourceName, updateMask);
-            } else {
-                sources.addFirst(updateMask);
-            }
+        SensitivePropertyMaskSource updateMask = new SensitivePropertyMaskSource(
+                updateMaskSourceName, maskKeys);
+        if (sources.contains(updateMaskSourceName)) {
+            sources.replace(updateMaskSourceName, updateMask);
+        } else {
+            sources.addFirst(updateMask);
         }
         try {
             sources.remove(scopedSourceName);
             sources.remove(maskSourceName);
-            if (maskSource != null) {
-                sources.addFirst(maskSource);
-            }
+            sources.addFirst(maskSource);
             if (scopedSource != null) {
                 sources.addFirst(scopedSource);
             }

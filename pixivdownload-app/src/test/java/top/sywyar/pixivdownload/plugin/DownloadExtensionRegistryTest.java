@@ -91,6 +91,28 @@ class DownloadExtensionRegistryTest {
     }
 
     @Test
+    @DisplayName("空槽位元素在发布前被拒绝，内联槽位仍可不提供模块地址")
+    void nullSlotRejectedButInlineSlotAllowed() {
+        PluginRegistry plugins = new PluginRegistry(List.of());
+        DownloadExtensionRegistry registry = registry(plugins);
+        PluginRegistry.RegisteredPlugin owner = registered(
+                new ExtensionPlugin("inline-owner", List.of(), List.of()), 1L);
+        plugins.register(owner);
+        DownloadExtensionRegistry.Snapshot before = registry.snapshot();
+
+        assertThatThrownBy(() -> registry.preparePublication(owner, List.of(),
+                java.util.Collections.singletonList(null), List.of()))
+                .isInstanceOf(NullPointerException.class);
+        assertThat(registry.snapshot()).isSameAs(before);
+
+        WebUiSlotContribution inline = new WebUiSlotContribution(
+                "inline-owner.settings", "settings-card", null, 10);
+        registry.publish(registry.preparePublication(owner, List.of(), List.of(inline), List.of()));
+        assertThat(registry.snapshot().uiSlots()).singleElement()
+                .satisfies(item -> assertThat(item.slot()).isEqualTo(inline));
+    }
+
+    @Test
     @DisplayName("精确 publication 撤回后旧 token 不能删除同代新 publication")
     void stalePublicationCannotWithdrawCurrentOwner() {
         PluginRegistry plugins = new PluginRegistry(List.of());

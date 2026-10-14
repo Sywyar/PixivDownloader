@@ -10,7 +10,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import top.sywyar.pixivdownload.web.ApiErrorWriter;
@@ -25,9 +24,11 @@ import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeGate;
 import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Optional;
+
+import static top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleFailureAccumulator.addSuppressedSafely;
+import static top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleFailureAccumulator.isFatal;
 
 /**
  * 插件静默（quiesce）请求网关（servlet 过滤器，{@code @Order(0)} 早于 {@code AuthFilter}）：当某外置插件被
@@ -271,17 +272,6 @@ public class PluginQuiesceGate extends OncePerRequestFilter {
         }
     }
 
-    private static void addSuppressedSafely(Throwable target, Throwable suppressed) {
-        if (target == suppressed) {
-            return;
-        }
-        try {
-            target.addSuppressed(suppressed);
-        } catch (Throwable ignored) {
-            // Preserve the request failure even when diagnostic attachment itself fails.
-        }
-    }
-
     private static void rethrowFatal(Throwable failure) {
         if (failure instanceof VirtualMachineError fatal) {
             throw fatal;
@@ -289,10 +279,6 @@ public class PluginQuiesceGate extends OncePerRequestFilter {
         if (failure instanceof ThreadDeath fatal) {
             throw fatal;
         }
-    }
-
-    private static boolean isFatal(Throwable failure) {
-        return failure instanceof VirtualMachineError || failure instanceof ThreadDeath;
     }
 
     private void block(HttpServletRequest req, HttpServletResponse res) throws IOException {

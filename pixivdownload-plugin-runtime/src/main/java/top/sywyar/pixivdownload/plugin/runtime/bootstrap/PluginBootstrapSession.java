@@ -201,7 +201,6 @@ public final class PluginBootstrapSession implements AutoCloseable {
                     "<recovery>", pluginsRoot.resolve(".staging"), FailureKind.RECOVERY_FAILED, describe(e))));
             installer.blockRuntimeOperations(recoveryReport);
             log.warn("Plugin install transaction recovery failed unexpectedly: {}", describe(e), e);
-            rethrowFatal(e);
         }
         PluginRuntimeManager runtimeManager;
         try {
