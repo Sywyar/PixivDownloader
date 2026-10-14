@@ -63,7 +63,6 @@ if (-not $OutputDir) {
     $OutputDir = Join-Path $ProjectRoot "build/plugin-distributions"
 }
 $AssemblerScript = Join-Path $PSScriptRoot "assemble-plugin-distribution.ps1"
-$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 function Write-Step {
     param([string]$Message)

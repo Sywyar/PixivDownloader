@@ -55,26 +55,6 @@ begin
 end;
 
 
-function OnFfmpegDownloadProgress(const Url, FileName: String; const Progress, ProgressMax: Int64): Boolean;
-var
-  Percent: Integer;
-  Detail: String;
-begin
-  if ProgressMax > 0 then
-  begin
-    Percent := Progress * 100 div ProgressMax;
-    Detail := IntToStr(Progress) + ' / ' + IntToStr(ProgressMax) + ' bytes';
-  end
-  else
-  begin
-    Percent := 0;
-    Detail := IntToStr(Progress) + ' bytes';
-  end;
-
-  SetFfmpegProgress(CustomMessage('FfmpegDownloading'), Detail, Percent);
-  Result := True;
-end;
-
 function OnFfmpegExtractionProgress(const ArchiveName, FileName: String; const Progress, ProgressMax: Int64): Boolean;
 var
   Percent: Integer;
