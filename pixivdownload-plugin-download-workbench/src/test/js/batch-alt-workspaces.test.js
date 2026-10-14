@@ -19,7 +19,7 @@ test('Cupertino 控件使用原生开关状态并保留业务回调和禁用属�
     };
     const context = vm.createContext({AbortController, document});
     context.window = context;
-    for (const name of ['alt-core.js', 'alt-settings.js']) {
+    for (const name of ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/filename-template.js', 'alt-settings.js']) {
         vm.runInContext(readFileSync(resolve(__dirname, '../../main/resources/static/pixiv-batch-alt', name), 'utf8'), context);
     }
     const changes = [];
@@ -158,7 +158,7 @@ test('计划列表直接提供管理动作，并按名称、来源与状态筛�
         openScheduleEditor: task => calls.push([task.id, 'edit']),
     });
     context.window = context;
-    for (const name of ['alt-core.js', 'alt-settings.js', 'alt-schedule-presentation.js', 'alt-schedule.js']) {
+    for (const name of ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/filename-template.js', 'alt-settings.js', 'alt-schedule-presentation.js', 'alt-schedule.js']) {
         vm.runInContext(readFileSync(resolve(__dirname,
             '../../main/resources/static/pixiv-batch-alt', name), 'utf8'), context);
     }
@@ -241,7 +241,7 @@ test('计划代理与凭证弹窗可打开，字段有标签且不回显已绑�
             credentialActions: () => ({supportsCookie: true, supportsProxy: true, presentation: {}})}),
     });
     context.window = context;
-    for (const name of ['alt-core.js', 'alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js']) {
+    for (const name of ['../pixiv-batch/queue-display.js', 'alt-core.js', 'alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js']) {
         vm.runInContext(readFileSync(resolve(__dirname,
             '../../main/resources/static/pixiv-batch-alt', name), 'utf8'), context);
     }
@@ -288,6 +288,8 @@ test('侧栏关闭保护未保存内容，重新打开可打断关闭且保留�
     };
     const context = vm.createContext({AbortController, document});
     context.window = context;
+    vm.runInContext(readFileSync(resolve(__dirname,
+        '../../main/resources/static/pixiv-batch/queue-display.js'), 'utf8'), context);
     vm.runInContext(readFileSync(resolve(__dirname,
         '../../main/resources/static/pixiv-batch-alt/alt-core.js'), 'utf8'), context);
     context.abIconEl = () => new MiniElement('span');

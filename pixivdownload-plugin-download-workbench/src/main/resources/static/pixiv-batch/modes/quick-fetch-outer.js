@@ -590,6 +590,10 @@
         if (!item) return;
         const id = quickQueueId(item, quickState.kind);
         const meta = buildQuickQueueMeta(item);
+        quickToggleQueueEntry(item, id, meta);
+    }
+
+    function quickToggleQueueEntry(item, id, meta) {
         const existing = state.queue.find(q => q.id === id);
         if (existing) {
             const merged = reconcileQueueItemTypeData(existing, meta, 'toggle');

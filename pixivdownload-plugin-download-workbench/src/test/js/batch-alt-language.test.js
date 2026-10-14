@@ -33,6 +33,7 @@ function harness(alt = true) {
     c.window = c;
     c.load = name => vm.runInContext(readFileSync(resolve(resources, 'static/pixiv-batch-alt', name), 'utf8'), c);
     c.run = code => vm.runInContext(code, c);
+    c.load('../pixiv-batch/queue-display.js');
     vm.runInContext(readFileSync(resolve(resources, 'static', alt ? 'pixiv-batch-alt/alt-core.js'
         : 'pixiv-batch/batch-core.js'), 'utf8'), c);
     return c;
@@ -103,6 +104,7 @@ test('Cookie 校验的嵌套原因与警告跟随语言，原始解析错误保�
     const c = harness(false);
     const status = new MiniElement('p'); status.style = {};
     c.document.getElementById = id => id === 'cookie-status' ? status : null;
+    vm.runInContext(readFileSync(resolve(resources, 'static/pixiv-batch/cookie-storage.js'), 'utf8'), c);
     vm.runInContext(readFileSync(resolve(resources, 'static/pixiv-batch/batch-cookie.js'), 'utf8'), c);
     c.client = client('zh-CN'); c.run('pageI18n=client');
     const invalid = c.validateAndParseCookie('[]', 'json');
@@ -136,6 +138,7 @@ for (const alt of [false, true]) {
         if (alt) {
             c.load('../pixiv-batch/batch-download-defaults.js'); c.load('alt-state.js');
             c.load('alt-queue.js');
+            c.load('../pixiv-batch/download-workers.js');
             c.load('alt-engine-workers.js');
         } else {
             c.state = {queue: [], isRunning: true};
@@ -238,6 +241,7 @@ for (const alt of [false, true]) {
                 'openSSE', 'closeSSE', 'ensureSharedSSE', 'closeAllSSE', 'initQuota', 'showArchiveCard',
                 'triggerAdminPack', 'updateStats', 'renderCurrent', 'notifyFirstDownloadCompleted',
                 'loadQueueForMode', 'clearSavedQueue', 'ensureDockVue', 'altQueueVueActive']) c[name] = () => {};
+            vm.runInContext(readFileSync(resolve(resources, 'static/pixiv-batch/download-workers.js'), 'utf8'), c);
             vm.runInContext(readFileSync(resolve(resources, 'static', alt ? 'pixiv-batch-alt/alt-engine-workers.js'
                 : 'pixiv-batch/batch-download-workers.js'), 'utf8'), c);
             const item = {id: '42', status: 'downloading', statusMessageKey: 'stale:key'};

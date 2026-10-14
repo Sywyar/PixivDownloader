@@ -102,6 +102,7 @@ test('recovery help keeps disclosure and focus while pending actions remain visi
 });
 
 function loadQueue(context, layout) {
+    vm.runInContext(source('pixiv-batch/queue-display.js'), context);
     const file = source(layout === 'classic' ? 'pixiv-batch/batch-queue.js' : 'pixiv-batch-alt/alt-queue.js');
     if (layout === 'alt') {
         const stubs = Object.fromEntries(['renderQueue', 'updateStats', 'updateButtonsState', 'setDockStatus',
@@ -119,7 +120,7 @@ function loadStart(context, layout) {
     const file = source(layout === 'classic'
         ? 'pixiv-batch/batch-download-workers.js' : 'pixiv-batch-alt/alt-engine-workers.js');
     vm.runInContext(file.slice(file.indexOf('async function start('),
-        file.indexOf('function desiredConcurrency()')), context);
+        file.indexOf('function finishBatch()')), context);
 }
 
 test('alt: initial page load initializes recovery once and language refresh only renders', async () => {

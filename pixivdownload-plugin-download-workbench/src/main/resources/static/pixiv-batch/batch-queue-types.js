@@ -249,11 +249,6 @@ window.PixivBatch.queueTypes = (function () {
         });
     }
 
-    function declaredForMode(type, mode) {
-        const backend = backendDescriptor(type);
-        return !!backend && backend.acquisitionModes.includes(text(mode));
-    }
-
     function acquisition(type, mode) {
         const value = activeAcquisitionEntry(type, mode);
         return value ? value.contribution : null;
@@ -577,8 +572,7 @@ window.PixivBatch.queueTypes = (function () {
 
     function contributionsOf(key) {
         if (key === 'import') {
-            return typesForMode('single-import')
-                .map(type => Object.assign({}, acquisition(type, 'single-import'), {type}));
+            return acquisitionList('single-import');
         }
         if (key === 'filters' || key === 'settings') {
             const out = [];

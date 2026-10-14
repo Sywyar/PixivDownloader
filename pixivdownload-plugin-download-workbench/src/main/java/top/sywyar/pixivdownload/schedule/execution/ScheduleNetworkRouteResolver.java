@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
+import top.sywyar.pixivdownload.config.OutboundProxyEndpoint;
+import top.sywyar.pixivdownload.config.OutboundProxyOverride;
 import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 
@@ -25,17 +27,17 @@ public final class ScheduleNetworkRouteResolver {
             String taskProxySnapshot,
             ScheduledNetworkRoute sourceDefaultRoute) {
         if (taskProxySnapshot != null && !taskProxySnapshot.isBlank()) {
-            ProxyAddress address = parse(taskProxySnapshot);
+            OutboundProxyEndpoint address = OutboundProxyOverride.parse(taskProxySnapshot);
             if (address == null) {
                 throw new IllegalArgumentException("invalid task proxy snapshot");
             }
-            return ScheduledNetworkRoute.proxy(address.host(), address.port(), null);
+            return ScheduledNetworkRoute.proxy(address.hostName(), address.port(), null);
         }
         ScheduledNetworkRoute sourceRoute = sourceDefaultRoute == null
                 ? ScheduledNetworkRoute.inherit()
                 : sourceDefaultRoute;
         if (sourceRoute.mode() == ScheduledNetworkRoute.Mode.PROXY
-                && parse(sourceRoute.proxyHost() + ":" + sourceRoute.proxyPort()) == null) {
+                && OutboundProxyOverride.parse(sourceRoute.proxyHost() + ":" + sourceRoute.proxyPort()) == null) {
             throw new IllegalArgumentException("invalid source default proxy route");
         }
         return sourceRoute.resolveAgainst(hostDefaultRoute());
@@ -50,26 +52,5 @@ public final class ScheduleNetworkRouteResolver {
             return ScheduledNetworkRoute.proxy(host.trim(), port, null);
         }
         return ScheduledNetworkRoute.direct();
-    }
-
-    private static ProxyAddress parse(String value) {
-        String trimmed = value.trim();
-        int colon = trimmed.lastIndexOf(':');
-        if (colon <= 0 || colon == trimmed.length() - 1) {
-            return null;
-        }
-        String host = trimmed.substring(0, colon);
-        if (!HOST_PATTERN.matcher(host).matches()) {
-            return null;
-        }
-        try {
-            int port = Integer.parseInt(trimmed.substring(colon + 1));
-            return port >= 1 && port <= 65_535 ? new ProxyAddress(host, port) : null;
-        } catch (NumberFormatException ignored) {
-            return null;
-        }
-    }
-
-    private record ProxyAddress(String host, int port) {
     }
 }

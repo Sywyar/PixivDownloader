@@ -47,7 +47,7 @@ function harness(layout, {enabled = true, admin = true, backend} = {}) {
     const files = layout === 'classic'
         ? ['pixiv-batch/batch-queue-actions.js', 'pixiv-batch/batch-download-workers.js']
         : ['pixiv-batch-alt/alt-queue.js', 'pixiv-batch-alt/alt-engine-workers.js'];
-    for (const file of files) vm.runInContext(readFileSync(resolve(staticRoot, file), 'utf8'), context, {filename: file});
+    for (const file of ['pixiv-batch/queue-display.js', 'pixiv-batch/download-workers.js', ...files]) vm.runInContext(readFileSync(resolve(staticRoot, file), 'utf8'), context, {filename: file});
     for (const name of ['updateStats', 'saveQueue', 'renderQueue', 'updateButtonsState']) context[name] = () => {};
     context.queueItemCanonicalUrl = () => null;
     context.setStatus = context.setDockStatus = status => calls.statuses.push(status);

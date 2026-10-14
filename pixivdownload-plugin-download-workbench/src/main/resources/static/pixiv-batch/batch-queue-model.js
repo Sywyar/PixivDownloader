@@ -79,43 +79,6 @@
         return bt('status.image-progress', '{downloaded} / {total} 张', {downloaded, total});
     }
 
-    function queueStatusText(status) {
-        return {
-            idle: bt('queue.status.waiting', '等待中'),
-            pending: bt('queue.status.waiting', '等待中'),
-            downloading: bt('queue.status.downloading', '下载中'),
-            completed: bt('queue.status.completed', '已完成'),
-            failed: bt('queue.status.failed', '失败'),
-            paused: bt('queue.status.paused', '已暂停'),
-            skipped: bt('queue.status.skipped', '已跳过')
-        }[status] || status;
-    }
-
-    function queueAcquisitionMode(source) {
-        const normalizedSource = String(normalizeImportMode(source) || '').trim();
-        if (normalizedSource === QUICK_FETCH_MODE
-            || normalizedSource.startsWith(QUICK_FETCH_MODE + '-')) return 'quick';
-        if (normalizedSource === SINGLE_IMPORT_MODE
-            || normalizedSource.startsWith(SINGLE_IMPORT_MODE + '-')) return 'single-import';
-        if (normalizedSource === 'user' || normalizedSource.startsWith('user-')) return 'user';
-        if (normalizedSource === 'search' || normalizedSource.startsWith('search-')) return 'search';
-        if (normalizedSource === 'series' || normalizedSource.startsWith('series-')) return 'series';
-        if (normalizedSource === 'schedule' || normalizedSource.startsWith('schedule-')) return 'schedule';
-        return 'single-import';
-    }
-
-    function queueSourceText(source) {
-    if (source === 'task') return bt('batch:queue.task.external');
-        return {
-            user: bt('queue.source.user', 'User'),
-            search: bt('queue.source.search', 'Search'),
-            series: bt('queue.source.series', 'Series'),
-            quick: bt('queue.source.quick-fetch', '快捷'),
-            'single-import': bt('queue.source.import', '导入'),
-            schedule: bt('queue.source.schedule', '计划')
-        }[queueAcquisitionMode(source)] || bt('queue.source.import', '导入');
-    }
-
     function normalizeQueueDataSource(value) {
         if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
         const id = value.id == null ? '' : String(value.id).trim();
@@ -156,17 +119,6 @@
             ? source.displayNamespace + ':' + source.displayI18nKey
             : source.displayI18nKey;
         return bt(key, source.id);
-    }
-
-    // 渲染时派生队列项标题：模型里 title 只存原始字符串（可为空），
-    // 此处补 i18n fallback —— 不能 bake 进模型，否则切换语言后旧译文会跟着 localStorage / 服务端快照一起留下来。
-    function queueItemDisplayTitle(q) {
-        if (q && q.title) return q.title;
-        if (q && q.kind === 'novel') {
-            const id = q.novelId || (q.id != null ? String(q.id).replace(/^n/, '') : '');
-            return bt('queue.novel-fallback', '小说 {id}', {id});
-        }
-        return bt('queue.artwork-fallback', '作品 {id}', {id: q && q.id != null ? q.id : ''});
     }
 
     // 兼容旧版本：返回旧版本的 ntab 模式标识符

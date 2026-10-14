@@ -1,26 +1,11 @@
 'use strict';
 /* 布局 DOM 投影、失败回滚与变更事件契约。 */
-const fs = require('fs');
 const assert = require('assert');
 const {
-    SOURCE_PATH,
-    HTML_PATH,
-    CSS_FILES,
-    CSS_PATHS,
-    MAIN_SCRIPT_FILES,
-    SOURCE,
-    HTML,
-    CSS,
     STORAGE_KEY,
     ACTION_IDS,
-    API_FUNCTIONS,
-    MiniEventTarget,
-    MiniElement,
-    hasOwn,
-    buildDocument,
     createHarness,
     rootLayout,
-    buttonState,
     businessCallCount,
     actionIdsIn,
     actionOccurrenceCount,
@@ -40,10 +25,6 @@ function eq(label, actual, expected) {
 }
 function jsonEq(label, actual, expected) {
     assert.strictEqual(JSON.stringify(actual), JSON.stringify(expected), label);
-    passed++;
-}
-function doesNotThrow(label, action) {
-    assert.doesNotThrow(action, label);
     passed++;
 }
 

@@ -215,7 +215,9 @@ test('搜索和批量筛选摘要按来源渲染，切换语言保留原始计�
             return nodes.get(id);
         }}
     });
+    vm.runInContext(fs.readFileSync(path.join(BATCH_ROOT, 'queue-display.js'), 'utf8'), sandbox);
     vm.runInContext(fs.readFileSync(path.join(BATCH_ROOT, 'batch-core.js'), 'utf8'), sandbox);
+    vm.runInContext(fs.readFileSync(path.join(BATCH_ROOT, 'search-filters.js'), 'utf8'), sandbox);
     vm.runInContext(FILTER_SOURCE, sandbox);
     vm.runInContext(SEARCH_SOURCE, sandbox);
     sandbox.window.PixivBatch.queueTypes = {

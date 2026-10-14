@@ -34,34 +34,8 @@
         refreshCurrentCard();
     }
 
-    function forceClearBackendQueue() {
-        // 强制清除后端队列并终止所有正在进行的下载（多人模式下后端仅终止当前 owner 的任务）。
-        // best-effort：后端失败不应阻塞前端清理。
-        return fetch(BASE + '/api/download/queue/clear', {
-            method: 'POST',
-            credentials: 'same-origin'
-        }).catch(() => {});
-    }
-
     function stopAndClear() {
-        endPathActionBatch();
-        state.stopRequested = true;
-        state.isRunning = false;
-        state.isPaused = false;
-        forceClearBackendQueue();
-        // 立即触发所有等待中的 SSE Promise resolve，避免等 5 分钟超时
-        Object.keys(state.sseListeners).forEach(id => {
-            (state.sseListeners[id] || []).forEach(fn => fn({cancelled: true}));
-        });
-        closeAllSSE();
-        window.PixivBatch.queueTasks?.dismiss(state.queue);
-        state.queue = [];
-        state.stats = {success: 0, failed: 0, active: 0, skipped: 0};
-        clearSavedQueue();
-        renderQueue();
-        updateButtonsState();
-        updateStats();
-        syncAllResultsQueueState();
+        clearDownloadQueue();
         setStatus({key: 'status.queue-cleared', fallback: '队列已清除'}, 'info');
     }
 

@@ -131,7 +131,7 @@ function buildBatchLayoutActionProjection(layout) {
     for (const [id, origin] of originsById) {
         const action = document.getElementById(id);
         if (!action || idCounts.get(id) !== 1 || !action.parentNode || action === origin) return null;
-        actionsById.set(id, {id, node: action, origin});
+        actionsById.set(id, {node: action, origin});
     }
 
     const hostTokens = new Set();
@@ -147,7 +147,7 @@ function buildBatchLayoutActionProjection(layout) {
             return null;
         }
         hostTokens.add(token);
-        const plan = {element: host, token, order};
+        const plan = {element: host, order};
         hostPlans.push(plan);
         if (token === layout) target = plan;
     }
@@ -155,7 +155,6 @@ function buildBatchLayoutActionProjection(layout) {
     return {
         hosts: hostPlans,
         actions: Array.from(actionsById.values()),
-        actionsById,
         target,
         targetOrder: target ? target.order.map(id => actionsById.get(id)) : []
     };

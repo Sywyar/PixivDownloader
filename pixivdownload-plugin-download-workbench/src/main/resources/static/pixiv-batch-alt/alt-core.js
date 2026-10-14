@@ -48,38 +48,6 @@ function punct(key) {
 
 const BASE = '';  // 使用相对路径，自动适配访问地址
 
-function formatSeconds(s) {
-    s = Math.max(0, Math.round(s));
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    if (h > 0) return h + 'h ' + String(m).padStart(2, '0') + 'm ' + String(sec).padStart(2, '0') + 's';
-    return String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
-}
-
-function formatBytes(bytes) {
-    const n = Number(bytes);
-    if (!Number.isFinite(n) || n < 0) return '';
-    const units = ['B', 'KB', 'MB', 'GB'];
-    let value = n;
-    let idx = 0;
-    while (value >= 1024 && idx < units.length - 1) {
-        value /= 1024;
-        idx++;
-    }
-    const digits = idx === 0 || value >= 10 ? 0 : 1;
-    return `${value.toFixed(digits)} ${units[idx]}`;
-}
-
-function formatDurationMs(ms) {
-    const n = Number(ms);
-    if (!Number.isFinite(n) || n < 0) return '';
-    const totalSeconds = Math.round(n / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return minutes > 0 ? `${minutes}:${String(seconds).padStart(2, '0')}` : `${seconds}s`;
-}
-
 // 按速度大小自适应单位：B/s · KB/s · MB/s · GB/s（与 batch-queue.js 同口径）。
 function formatSpeed(bytesPerSec) {
     const b = Number(bytesPerSec);

@@ -37,12 +37,14 @@ function harness(alt, vue) {
     context.window = context;
     const run = code => vm.runInContext(code, context);
     const load = file => run(fs.readFileSync(path.resolve(__dirname, '../../main/resources/static', file), 'utf8'));
+    load('pixiv-batch/queue-display.js');
     if (alt) {
         load('pixiv-batch-alt/alt-core.js');
         load('pixiv-batch-alt/alt-queue.js');
         context.PixivBatchAlt.queueVue = {isActive: () => vue, syncStats: stats => syncs.push(stats)};
         run("pageI18n = {t: key => 'English ' + key};");
     } else {
+        load('pixiv-batch/download-speed.js');
         load('pixiv-batch/batch-queue-view.js');
     }
     return {context, nodes, add, syncs, run};

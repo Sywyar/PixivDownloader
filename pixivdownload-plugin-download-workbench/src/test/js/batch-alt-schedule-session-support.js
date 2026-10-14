@@ -45,7 +45,7 @@ function setup(overrides={}) {
         'stopSchedulePolling','renderScheduleMode','renderScheduleTaskList','scheduleStatusLight','openScheduleSnapshot',
         'toggleDock','animateWorkspace','enqueueItems','buildQueueMeta','pixivCancelWorkKey','refreshQuickCredentialGate'])context[name]=()=>{};
     const read=file=>readFileSync(resolve(__dirname,'../../main/resources/static/pixiv-batch-alt',file),'utf8');
-    for(const file of ['alt-core.js','../pixiv-batch/batch-download-defaults.js','alt-state.js','alt-filters.js','alt-settings.js','alt-modes.js','alt-mode-discovery.js','alt-mode-series.js',
+    for(const file of ['../pixiv-batch/queue-display.js', 'alt-core.js','../pixiv-batch/batch-download-defaults.js','alt-state.js','../pixiv-batch/search-filters.js','alt-filters.js','../pixiv-batch/filename-template.js', 'alt-settings.js','alt-modes.js','alt-mode-discovery.js','alt-mode-series.js',
         'alt-extensions.js','../pixiv-batch/pixiv-schedule-defaults.js','../pixiv-batch/media-settings.js','alt-schedule-presentation.js',
         'alt-schedule-pixiv.js','alt-schedule-session.js','alt-schedule-editor.js'])
         vm.runInContext(read(file),context);

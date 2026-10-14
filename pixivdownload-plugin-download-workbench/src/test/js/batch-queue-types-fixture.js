@@ -13,8 +13,8 @@ const SOURCE = [
 const INIT_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-init.js'), 'utf8');
 const SETTINGS_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-settings.js'), 'utf8');
 const DOWNLOAD_SOURCE = [
-    'batch-download-quota.js', 'batch-download-artwork.js',
-    'batch-download-workers.js', 'batch-download.js'
+    'batch-download-quota.js', 'filename-template.js', 'batch-download-artwork.js',
+    'download-workers.js', 'batch-download-workers.js', 'batch-download.js'
 ].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
 const SSE_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-sse.js'), 'utf8');
 
@@ -565,7 +565,6 @@ const LATE_UI_INITIALIZER = `(function (context) {
 })`;
 
 module.exports = {
-    SOURCE,
     INIT_SOURCE,
     SETTINGS_SOURCE,
     DOWNLOAD_SOURCE,

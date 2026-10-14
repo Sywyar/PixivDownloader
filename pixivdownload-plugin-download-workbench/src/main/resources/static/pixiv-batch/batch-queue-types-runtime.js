@@ -104,8 +104,7 @@
         if (descriptor.contractVersion != null && Number(descriptor.contractVersion) !== CONTRACT_VERSION) {
             throw new Error('unsupported queue type module contractVersion');
         }
-        const declared = new Set(backend.acquisitionModes);
-        const allowedModes = declared;
+        const allowedModes = new Set(backend.acquisitionModes);
         const behavior = {};
         Object.keys(descriptor).forEach(key => {
             if (key === 'uiSlots') return;
@@ -455,7 +454,6 @@
         return {
             scope,
             disposers: moduleDisposers,
-            dispose,
             fail() {
                 const index = publicationDisposers.indexOf(dispose);
                 if (index >= 0) publicationDisposers.splice(index, 1);

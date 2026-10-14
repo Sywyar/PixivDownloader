@@ -468,32 +468,7 @@
         if (!item) return;
         const id = quickInnerQueueId(item);
         const meta = buildQuickQueueMeta(item, item.kind || quickInner.kind);
-        const existing = state.queue.find(q => q.id === id);
-        if (existing) {
-            const merged = reconcileQueueItemTypeData(existing, meta, 'toggle');
-            if (merged.keepExisting) {
-                if (merged.changed) {
-                    updateStats();
-                    saveQueue();
-                    renderQueue();
-                }
-                setStatus({key: 'status.already-in-queue', fallback: '已在队列中：{title}', args: {title: item.title || id}}, 'info');
-                return;
-            }
-            const removed = removeFromQueue(id);
-            setStatus(removed
-                    ? {key: 'status.removed-from-queue', fallback: '已从队列移除：{title}', args: {title: item.title || id}}
-                    : {key: 'status.cannot-remove-downloading', fallback: '无法移除（正在下载中）：{title}', args: {title: item.title || id}},
-                removed ? 'info' : 'warning');
-            syncQuickQueueState();
-            return;
-        }
-        const added = addItemsToQueue([id], [meta], QUICK_FETCH_MODE, '', meta.authorId, meta.authorName);
-        setStatus(added > 0
-                ? {key: 'status.added-to-queue', fallback: '已加入队列：{title}', args: {title: item.title || id}}
-                : {key: 'status.already-in-queue', fallback: '已在队列中：{title}', args: {title: item.title || id}},
-            added > 0 ? 'success' : 'info');
-        syncQuickQueueState();
+        quickToggleQueueEntry(item, id, meta);
     }
 
     function quickInnerAddCurrentPageToQueue() {

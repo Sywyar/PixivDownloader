@@ -7,7 +7,7 @@ const assert = require('assert');
 
 const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
 const QUEUE_SOURCE = [
-    'batch-queue-model.js', 'batch-queue-actions.js', 'batch-queue-view.js', 'batch-queue.js'
+    'queue-display.js', 'batch-queue-model.js', 'batch-queue-actions.js', 'download-speed.js', 'batch-queue-view.js', 'batch-queue.js'
 ].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
 const INIT_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-init.js'), 'utf8');
 const USER_SOURCE = [

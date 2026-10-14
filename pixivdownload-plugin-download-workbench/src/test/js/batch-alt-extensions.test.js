@@ -20,16 +20,13 @@ const initSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'res
     'static', 'pixiv-batch-alt', 'alt-init.js'), 'utf8');
 const chromeSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'alt-chrome.js'), 'utf8');
-const settingsSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
-    'static', 'pixiv-batch-alt', 'alt-settings.js'), 'utf8');
-const queueSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
-    'static', 'pixiv-batch-alt', 'alt-queue.js'), 'utf8');
+const settingsSource = readAltFiles('../pixiv-batch/filename-template.js', 'alt-settings.js');
+const queueSource = readAltFiles('../pixiv-batch/queue-display.js', 'alt-queue.js');
 const engineSource = readAltFiles(
-    'alt-engine.js', 'alt-engine-stream.js', 'alt-engine-workers.js');
+    '../pixiv-batch/download-speed.js', 'alt-engine.js', 'alt-engine-stream.js', '../pixiv-batch/download-workers.js', 'alt-engine-workers.js');
 const filtersSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt', 'alt-filters.js'), 'utf8');
-const coreSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
-    'static', 'pixiv-batch-alt', 'alt-core.js'), 'utf8');
+const coreSource = readAltFiles('../pixiv-batch/queue-display.js', 'alt-core.js');
 const pageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch-alt.html'), 'utf8');
 const classicPageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
@@ -37,8 +34,8 @@ const classicPageSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main
 const classicCoreSource = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources',
     'static', 'pixiv-batch', 'batch-core.js'), 'utf8');
 const classicDownloadSource = [
-    'batch-download-quota.js', 'batch-download-artwork.js',
-    'batch-download-workers.js', 'batch-download.js'
+    'batch-download-quota.js', 'filename-template.js', 'batch-download-artwork.js',
+    'download-workers.js', 'batch-download-workers.js', 'batch-download.js'
 ].map(file => fs.readFileSync(path.join(
     __dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch', file), 'utf8')).join('\n');
 const cssSource = readAltFiles(

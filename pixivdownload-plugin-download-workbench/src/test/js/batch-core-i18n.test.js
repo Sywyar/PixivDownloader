@@ -16,7 +16,8 @@ const CORE_PATH = path.join(PLUGIN_RESOURCES, 'static', 'pixiv-batch', 'batch-co
 const HTML_PATH = path.join(PLUGIN_RESOURCES, 'static', 'pixiv-batch.html');
 const BATCH_ZH_PATH = path.join(PLUGIN_RESOURCES, 'i18n', 'web', 'batch.properties');
 const BATCH_EN_PATH = path.join(PLUGIN_RESOURCES, 'i18n', 'web', 'batch_en.properties');
-const SOURCE = fs.readFileSync(CORE_PATH, 'utf8');
+const SOURCE = fs.readFileSync(path.join(PLUGIN_RESOURCES, 'static/pixiv-batch/queue-display.js'), 'utf8')
+    + '\n' + fs.readFileSync(CORE_PATH, 'utf8');
 const HTML = fs.readFileSync(HTML_PATH, 'utf8');
 const BATCH_ZH = fs.readFileSync(BATCH_ZH_PATH, 'utf8');
 const BATCH_EN = fs.readFileSync(BATCH_EN_PATH, 'utf8');

@@ -1,4 +1,28 @@
 'use strict';
+    function toggleExistingQueueItem(queueId, meta, title) {
+        const alreadyInQueue = state.queue.find(q => q.id === queueId);
+        if (alreadyInQueue) {
+            const merged = reconcileQueueItemTypeData(alreadyInQueue, meta, 'toggle');
+            if (merged.keepExisting) {
+                if (merged.changed) {
+                    updateStats();
+                    saveQueue();
+                    renderQueue();
+                }
+                setStatus({key: 'status.already-in-queue', fallback: '已在队列中：{title}', args: {title}}, 'info');
+                return true;
+            }
+            const removed = removeFromQueue(queueId);
+            if (removed) {
+                setStatus({key: 'status.removed-from-queue', fallback: '已从队列移除：{title}', args: {title}}, 'info');
+            } else {
+                setStatus({key: 'status.cannot-remove-downloading', fallback: '无法移除（正在下载中）：{title}', args: {title}}, 'warning');
+            }
+            return true;
+        }
+        return false;
+    }
+
     function addItemsToQueue(idList, metaList, source, username, defaultAuthorId, defaultAuthorName) {
         const existing = new Map(state.queue.map(q => [String(q.id), q]));
         let added = 0;

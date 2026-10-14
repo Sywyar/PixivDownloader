@@ -576,26 +576,7 @@
         if (!item) return;
         const queueId = searchQueueId(item);
         const meta = searchQueueMeta(item);
-        const alreadyInQueue = state.queue.find(q => q.id === queueId);
-        if (alreadyInQueue) {
-            const merged = reconcileQueueItemTypeData(alreadyInQueue, meta, 'toggle');
-            if (merged.keepExisting) {
-                if (merged.changed) {
-                    updateStats();
-                    saveQueue();
-                    renderQueue();
-                }
-                setStatus({key: 'status.already-in-queue', fallback: '已在队列中：{title}', args: {title: item.title}}, 'info');
-                return;
-            }
-            const removed = removeFromQueue(queueId);
-            if (removed) {
-                setStatus({key: 'status.removed-from-queue', fallback: '已从队列移除：{title}', args: {title: item.title}}, 'info');
-            } else {
-                setStatus({key: 'status.cannot-remove-downloading', fallback: '无法移除（正在下载中）：{title}', args: {title: item.title}}, 'warning');
-            }
-            return;
-        }
+        if (toggleExistingQueueItem(queueId, meta, item.title)) return;
         const added = addItemsToQueue([queueId], [meta], searchQueueSource(), '');
         setStatus(added > 0
                 ? {key: 'status.added-to-queue', fallback: '已加入队列：{title}', args: {title: item.title}}

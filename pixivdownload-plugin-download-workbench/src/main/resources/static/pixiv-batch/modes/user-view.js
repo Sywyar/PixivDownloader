@@ -163,9 +163,9 @@
         if (!hasUserResults()) return;
         const acq = userAcq();
         const metaCtx = userAcquisitionContext();
-        const uiFilters = normalizeSearchFilters(getSearchFiltersFromUI());
+        const filters = normalizeSearchFilters(getSearchFiltersFromUI());
         // 无附加筛选：直接按全部 ID 入队（最省请求，等价于旧版「获取全部作品」）。
-        if (!userState.pagedAcquisition && !hasExtraSearchFilter(uiFilters)) {
+        if (!userState.pagedAcquisition && !hasExtraSearchFilter(filters)) {
             const ids = userState.allIds.map(id => userQueueId({id}));
             const metas = userState.allIds.map(id => acq.buildQueueMetaFromId(id, metaCtx));
             const added = addItemsToQueue(
@@ -183,7 +183,7 @@
         const lease = window.PixivBatch.queueTypes.acquisitionLease(userState.kind, 'user');
         beginUserOperation();
         const requestSeq = ++userState.requestSeq;
-        if (hasExtraSearchFilter(uiFilters)) {
+        if (hasExtraSearchFilter(filters)) {
             const confirmed = await uiConfirmKey(
                 'dialog.user-add-all-warning',
                 '「全部加入队列」会按附加筛选逐页请求该画师的全部 {total} 个作品卡片，作品较多时会增加 Pixiv 请求量并耗时，确认继续？',
@@ -195,7 +195,6 @@
         }
         updateUserQueueButtons(true);
         try {
-            const filters = uiFilters;
             const kind = userState.kind;
             const matched = [];
             const pageSize = userPageSize();

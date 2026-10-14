@@ -55,7 +55,7 @@ function setup() {
     c.window = c;
     c.PixivBatchAlt = {queue: {}, schedule: {}};
     c.PixivBatch = {queueTypes: runtime};
-    for (const file of ['alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', 'alt-state.js', 'alt-queue.js', 'alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js']) {
+    for (const file of ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', 'alt-state.js', 'alt-queue.js', 'alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js']) {
         vm.runInContext(readFileSync(resolve(rootPath, file), 'utf8'), c, {filename: file});
     }
     vm.runInContext(readFileSync(resolve(rootPath, '../pixiv-batch/batch-media-progress.js'), 'utf8'), c);

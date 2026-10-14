@@ -93,6 +93,7 @@ function userHarness(acquisition, fetchImpl) {
     };
     vm.createContext(sandbox);
     const fixtureBindings = {...sandbox};
+    vm.runInContext(fs.readFileSync(path.join(STATIC, 'queue-display.js'), 'utf8'), sandbox);
     vm.runInContext(fs.readFileSync(path.join(STATIC, 'batch-core.js'), 'utf8'), sandbox);
     Object.assign(sandbox, fixtureBindings);
     vm.runInContext(USER_SOURCE

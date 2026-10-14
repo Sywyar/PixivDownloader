@@ -39,7 +39,7 @@ function previewContext(localStorage) {
         queueHas: () => false
     });
     context.window = context;
-    for (const name of ['alt-core.js', 'alt-selection.js', 'alt-modes.js']) {
+    for (const name of ['../pixiv-batch/queue-display.js', 'alt-core.js', 'alt-selection.js', 'alt-modes.js']) {
         vm.runInContext(readFileSync(resolve(__dirname, '../../main/resources/static/pixiv-batch-alt', name), 'utf8'), context);
     }
     return {context, root};

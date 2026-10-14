@@ -9,7 +9,7 @@ function setup(runtime) {
     const context = vm.createContext({Date, document: {addEventListener() {}}, altScheduleSources: () => runtime,
         summaryJoin: items => items.filter(Boolean).join(' · ')});
     context.window = context;
-    for (const file of ['alt-core.js', 'alt-schedule-presentation.js', 'alt-schedule.js']) {
+    for (const file of ['../pixiv-batch/queue-display.js', 'alt-core.js', 'alt-schedule-presentation.js', 'alt-schedule.js']) {
         vm.runInContext(readFileSync(resolve(__dirname, '../../main/resources/static/pixiv-batch-alt', file), 'utf8'), context);
     }
     return context;

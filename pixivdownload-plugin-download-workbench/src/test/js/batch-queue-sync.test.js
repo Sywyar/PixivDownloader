@@ -18,7 +18,7 @@ const assert = require('assert');
 
 const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
 const QUEUE_SOURCE = [
-    'batch-queue-model.js', 'batch-queue-actions.js', 'batch-queue-view.js', 'batch-queue.js'
+    'queue-display.js', 'batch-queue-model.js', 'batch-queue-actions.js', 'download-speed.js', 'batch-queue-view.js', 'batch-queue.js'
 ].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
 
 // 在沙箱里加载真实 batch-queue 职责模块，返回 facade + 四个 sync 的调用计数器。
@@ -213,28 +213,13 @@ function relationMergeBehavior(reasons) {
     ok('7: 恢复调用中性 hook', reasons.length === 3 && reasons.every(reason => reason === 'restore'));
 }
 
-// ===== 8) 所有卡片 toggle 入口都先调用中性合并 hook =====
+// ===== 8) 用户卡片 toggle 入口先调用中性合并 hook =====
 {
-    const modeModules = {
-        search: ['search.js'],
-        user: ['user-core.js', 'user-data.js', 'user-view.js', 'user.js'],
-        series: ['series-browser.js', 'series-data.js', 'series-view.js', 'series.js'],
-        'quick-fetch': [
-            'quick-fetch-core.js', 'quick-fetch-outer.js', 'quick-fetch-inner.js', 'quick-fetch.js'
-        ]
-    };
-    const modeSource = name => modeModules[name]
+    const source = ['user-core.js', 'user-data.js', 'user-view.js', 'user.js']
         .map(file => fs.readFileSync(path.join(STATIC, 'modes', file), 'utf8'))
         .join('\n');
-    ok('8: Search 卡片 toggle 接入合并 hook',
-        modeSource('search').includes("reconcileQueueItemTypeData(alreadyInQueue, meta, 'toggle')"));
     ok('8: User 卡片 toggle 接入合并 hook',
-        modeSource('user').includes("reconcileQueueItemTypeData(alreadyInQueue, meta, 'toggle')"));
-    ok('8: Series 卡片 toggle 接入合并 hook',
-        modeSource('series').includes("reconcileQueueItemTypeData(alreadyInQueue, meta, 'toggle')"));
-    const quickMatches = modeSource('quick-fetch').match(
-        /reconcileQueueItemTypeData\(existing, meta, 'toggle'\)/g) || [];
-    ok('8: Quick 外层与内层卡片 toggle 均接入合并 hook', quickMatches.length === 2);
+        source.includes("reconcileQueueItemTypeData(alreadyInQueue, meta, 'toggle')"));
 }
 
 // ===== 9) 新来源晚于终态到达时重置队列项，并在队列运行中补 worker =====

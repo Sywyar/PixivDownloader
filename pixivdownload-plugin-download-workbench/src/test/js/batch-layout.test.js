@@ -4,28 +4,18 @@ const fs = require('fs');
 const assert = require('assert');
 const {
     SOURCE_PATH,
-    HTML_PATH,
     CSS_FILES,
-    CSS_PATHS,
     MAIN_SCRIPT_FILES,
-    SOURCE,
     HTML,
     CSS,
     STORAGE_KEY,
     ACTION_IDS,
     API_FUNCTIONS,
-    MiniEventTarget,
-    MiniElement,
-    hasOwn,
-    buildDocument,
     createHarness,
     rootLayout,
     buttonState,
     businessCallCount,
     actionIdsIn,
-    actionOccurrenceCount,
-    actionPlacementSnapshot,
-    actionPlacementsMatch,
     actionsAreAtOrigins
 } = require('./batch-layout-fixture');
 

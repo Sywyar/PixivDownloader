@@ -55,7 +55,7 @@ function harness() {
     const load = path => vm.runInContext(readFileSync(resolve(repository, path), 'utf8'), context, {filename: path});
     const alt = 'pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch-alt/';
     load('pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/filename-template-presets.js');
-    ['alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', 'alt-state.js', 'alt-settings.js'].forEach(name => load(alt + name));
+    ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', 'alt-state.js', '../pixiv-batch/filename-template.js', 'alt-settings.js'].forEach(name => load(alt + name));
     context.PixivBatch.queueTypes = context.altQueueTypes();
     context.storeSet = (_, value) => writes.push(JSON.parse(value));
     vm.runInContext('isAdmin = true', context);
@@ -93,7 +93,7 @@ test('获取与下载列表共用筛选及设置抽屉，切换分区保留草�
     const h = harness();
     const {context, document} = h;
     const alt = 'pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch-alt/';
-    for (const name of ['alt-filters.js', 'alt-modes.js', 'alt-mode-discovery.js', 'alt-chrome.js']) h.load(alt + name);
+    for (const name of ['../pixiv-batch/search-filters.js', 'alt-filters.js', 'alt-modes.js', 'alt-mode-discovery.js', 'alt-chrome.js']) h.load(alt + name);
     context.abIconEl = () => document.createElement('span');
     context.applyFiltersToCurrentMode = async () => {};
     let mounts = 0;

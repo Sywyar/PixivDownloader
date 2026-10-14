@@ -41,7 +41,7 @@ function harness(acquisitions, respond = () => ({})) {
         setTimeout, clearTimeout, addEventListener() {},
         PixivBatchAlt: {state: {}, modes: {}}, PixivBatch: {queueTypes: runtime}});
     c.window = c;
-    for (const name of ['alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', 'alt-state.js', 'alt-settings.js', 'alt-modes.js',
+    for (const name of ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', 'alt-state.js', '../pixiv-batch/filename-template.js', 'alt-settings.js', 'alt-modes.js',
         'alt-mode-capture.js', 'alt-mode-discovery.js', 'alt-mode-series.js']) {
         vm.runInContext(readFileSync(resolve(staticRoot, name), 'utf8'), c, {filename: name});
     }

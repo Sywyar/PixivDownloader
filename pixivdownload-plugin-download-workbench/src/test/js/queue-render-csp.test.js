@@ -69,6 +69,7 @@ async function fixture(alt, size = 300, production = false) {
     sandbox.PixivBatchAlt = {};
     vm.createContext(sandbox, {codeGeneration:{strings:false,wasm:false}});
     if (production || !alt) {
+        vm.runInContext(fs.readFileSync(path.join(staticRoot, 'pixiv-batch', 'queue-display.js'), 'utf8'), sandbox);
         vm.runInContext(fs.readFileSync(path.join(staticRoot,'pixiv-batch','batch-media-progress.js'),'utf8'), sandbox);
         const facades = Object.fromEntries(['updateStats','renderQueue','renderCurrent','setCurrent'].map(key => [key, sandbox[key]]));
         for (const file of alt ? ['alt-core.js','alt-queue.js'] : ['batch-queue-model.js','batch-queue-view.js']) {
@@ -121,6 +122,7 @@ async function fixture(alt, size = 300, production = false) {
     sandbox.mergeUgoiraProgress = (previous, incoming) => ({...previous, ...incoming});
     sandbox.renderQueue = sync;
     sandbox.setCurrent = sandbox.renderCurrent = sync;
+    vm.runInContext(fs.readFileSync(path.join(staticRoot, 'pixiv-batch/download-speed.js'), 'utf8'), sandbox);
     vm.runInContext(fs.readFileSync(path.join(staticRoot, alt
         ? 'pixiv-batch-alt/alt-engine-stream.js' : 'pixiv-batch/batch-sse.js'), 'utf8'), sandbox);
     return {api,Vue,state,body,stats,current,list,builds,errors,removed,cancelled,sync,flush,metrics,sandbox,
