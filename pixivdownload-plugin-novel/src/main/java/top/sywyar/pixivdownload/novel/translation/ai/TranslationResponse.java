@@ -53,10 +53,7 @@ public record TranslationResponse(
      * 缺省 / 空白 / 字面 {@code "null"} 一律视为「本段未译标题」，返回 {@code null}。
      */
     public String translatedTitle() {
-        if (title == null) return null;
-        String trimmed = title.trim();
-        if (trimmed.isEmpty() || trimmed.equalsIgnoreCase("null")) return null;
-        return trimmed;
+        return translatedText(title);
     }
 
     /**
@@ -64,8 +61,12 @@ public record TranslationResponse(
      * 缺省 / 空白 / 字面 {@code "null"} 一律视为「本段未译简介」，返回 {@code null}。
      */
     public String translatedDescription() {
-        if (description == null) return null;
-        String trimmed = description.trim();
+        return translatedText(description);
+    }
+
+    static String translatedText(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
         if (trimmed.isEmpty() || trimmed.equalsIgnoreCase("null")) return null;
         return trimmed;
     }
@@ -92,18 +93,22 @@ public record TranslationResponse(
 
     /** 解析模型回复的 JSON 文本；无法解析时抛 {@link IllegalArgumentException}。 */
     public static TranslationResponse parse(String content) {
+        return parse(content, TranslationResponse.class);
+    }
+
+    static <T> T parse(String content, Class<T> responseType) {
         if (content == null || content.isBlank()) {
             throw new IllegalArgumentException("empty AI response");
         }
         try {
-            return MAPPER.readValue(content, TranslationResponse.class);
+            return MAPPER.readValue(content, responseType);
         } catch (Exception first) {
             String extracted = extractJsonObject(content);
             if (extracted != null) {
                 try {
-                    return MAPPER.readValue(extracted, TranslationResponse.class);
+                    return MAPPER.readValue(extracted, responseType);
                 } catch (Exception ignored) {
-                    // fall through to throwing the original failure
+                    // 保留首次解析失败，便于定位原始响应。
                 }
             }
             throw new IllegalArgumentException("unparseable AI response: " + first.getMessage(), first);
@@ -120,7 +125,7 @@ public record TranslationResponse(
         return null;
     }
 
-    private static String trimmed(String s) {
+    static String trimmed(String s) {
         return s == null ? null : s.trim();
     }
 }
