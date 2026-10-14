@@ -20,11 +20,9 @@
     var bindFoot = ctx.bindFoot;
     var skip = ctx.skip;
     var finish = ctx.finish;
-    var hook = ctx.hook;
     var callHook = ctx.callHook;
     var waitFor = ctx.waitFor;
     var waitForElement = ctx.waitForElement;
-    var notifyCompletionStepDone = ctx.notifyCompletionStepDone;
 
     function phaseWelcome() {
         patchState({status: 'active', phase: 'welcome'});

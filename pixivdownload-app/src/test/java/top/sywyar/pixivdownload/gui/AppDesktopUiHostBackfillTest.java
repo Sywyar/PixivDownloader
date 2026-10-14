@@ -49,7 +49,7 @@ class AppDesktopUiHostBackfillTest {
     @Test
     @DisplayName("无效主库配置不阻断桌面修正入口，工具不能退回 SQLite")
     void keepsConfigurationRecoveryAvailable(@TempDir Path tempDir) throws Exception {
-        var file = new top.sywyar.pixivdownload.gui.config.TestDesktopConfigFile(tempDir.resolve("config.yaml"));
+        var file = new top.sywyar.pixivdownload.gui.config.ConfigFileEditor(tempDir.resolve("config.yaml")).asConfigFile();
         file.writeAll(java.util.Map.of("database.engine", "postgresql", "database.jdbc-url", "invalid"));
         String previous = System.getProperty("spring.config.location");
         try {

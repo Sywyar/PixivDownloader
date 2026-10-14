@@ -36,7 +36,7 @@ public class PropertiesConfigFileEditor {
         if (keySet.isEmpty() || !Files.exists(configPath)) {
             return result;
         }
-        List<String> lines = new ArrayList<>(readLines());
+        List<String> lines = readLines();
         rejectDuplicateManagedKeys(lines, keySet);
         Properties properties = new Properties();
         try (Reader reader = Files.newBufferedReader(configPath, StandardCharsets.UTF_8)) {
@@ -112,7 +112,7 @@ public class PropertiesConfigFileEditor {
 
     public FileSnapshot snapshot() throws IOException {
         synchronized (fileLock) {
-            return new FileSnapshot(Files.exists(configPath), new ArrayList<>(readLines()));
+            return new FileSnapshot(Files.exists(configPath), readLines());
         }
     }
 

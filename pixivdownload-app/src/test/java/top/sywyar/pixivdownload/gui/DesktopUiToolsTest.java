@@ -4,12 +4,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.sql.DriverManager;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DesktopUiToolsTest {
 
@@ -122,6 +126,55 @@ class DesktopUiToolsTest {
 
     private static String sql(Path path) {
         return path.toString().replace("'", "''");
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("分类复制遇到既有文件时撤回已复制图片并保留双方原文件")
+    void classificationRollsBackCopiesWithoutReplacingExistingFiles() throws Exception {
+        Path source = Files.createDirectory(tempDir.resolve("42"));
+        Path image = Files.writeString(source.resolve("image.jpg"), "image", StandardCharsets.UTF_8);
+        Path sidecar = Files.writeString(source.resolve("42.meta.json"), "source", StandardCharsets.UTF_8);
+        Path target = Files.createDirectory(tempDir.resolve("target"));
+        Path existing = Files.writeString(target.resolve(sidecar.getFileName()), "existing", StandardCharsets.UTF_8);
+        DesktopUiTools tools = new DesktopUiTools(() -> "http://localhost:8123");
+
+        assertThatThrownBy(() -> tools.classifyImageFolder(
+                source,
+                List.of(image),
+                42L,
+                target,
+                null,
+                (detail, folder) -> { throw new AssertionError("Copy failure must preserve source files"); }
+        )).isInstanceOf(FileAlreadyExistsException.class);
+
+        assertThat(Files.readString(image, StandardCharsets.UTF_8)).isEqualTo("image");
+        assertThat(Files.readString(sidecar, StandardCharsets.UTF_8)).isEqualTo("source");
+        assertThat(Files.readString(existing, StandardCharsets.UTF_8)).isEqualTo("existing");
+        assertThat(target.resolve(image.getFileName())).doesNotExist();
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("分类部分复制失败时移除本次新建编号目录并保留既有编号目录")
+    void classificationRollsBackItsNumberedFolderAfterPartialCopy() throws Exception {
+        Path source = Files.createDirectory(tempDir.resolve("42"));
+        Path image = Files.writeString(source.resolve("image.jpg"), "image", StandardCharsets.UTF_8);
+        Path target = Files.createDirectory(tempDir.resolve("target"));
+        Path existingFolder = Files.createDirectory(target.resolve("0"));
+        Path existing = Files.writeString(existingFolder.resolve("keep.jpg"), "existing", StandardCharsets.UTF_8);
+        DesktopUiTools tools = new DesktopUiTools(() -> "http://localhost:8123");
+
+        assertThatThrownBy(() -> tools.classifyImageFolder(
+                source,
+                List.of(image, source.resolve("missing.jpg")),
+                42L,
+                target,
+                null,
+                (detail, folder) -> { throw new AssertionError("Copy failure must preserve source files"); }
+        )).isInstanceOf(NoSuchFileException.class);
+
+        assertThat(Files.readString(image, StandardCharsets.UTF_8)).isEqualTo("image");
+        assertThat(Files.readString(existing, StandardCharsets.UTF_8)).isEqualTo("existing");
+        assertThat(target.resolve("1")).doesNotExist();
     }
 
     @Test

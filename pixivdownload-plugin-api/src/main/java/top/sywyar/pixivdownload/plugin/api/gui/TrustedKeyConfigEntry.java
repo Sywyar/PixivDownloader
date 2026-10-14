@@ -52,6 +52,6 @@ public record TrustedKeyConfigEntry(String keyId, String algorithm, String publi
     public static TrustedKeyConfigEntry create(String keyId, String algorithm, String publicKey, String state,
                                                String publisher, String trustLabel) {
         return new TrustedKeyConfigEntry(keyId, algorithm, publicKey, state, publisher, trustLabel,
-                new LinkedHashMap<>());
+                Map.of());
     }
 }

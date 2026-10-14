@@ -72,7 +72,6 @@ public class StatusPanel extends JPanel {
     private final Runnable themeChangeListener = this::applyUpdateBannerColors;
     private GuiThemeListenerSession themeListenerSession = GuiThemeListenerSession.none();
 
-    private final int serverPort;
     private final String rootFolder;
     private final Path configPath;
     private final Runnable onConfigChanged;
@@ -111,8 +110,8 @@ public class StatusPanel extends JPanel {
     private volatile String savedBannerVersionText;
     private volatile Timer downloadProgressTimer;
 
-    /** 一份待安装的更新选项：URL、安装包大小、发布说明、发布页 URL、最新版本号。 */
-    private record PendingInstall(String url, long size, String releaseNotes, String releaseNotesUrl, String latestVersion) {}
+    /** 一份待安装的更新选项：安装包大小、发布说明、发布页 URL、最新版本号。 */
+    private record PendingInstall(long size, String releaseNotes, String releaseNotesUrl, String latestVersion) {}
     public StatusPanel(int serverPort, String rootFolder, Path configPath,
                        Runnable onConfigChanged) {
         this(serverPort, rootFolder, configPath, null, onConfigChanged, GuiWebEntrySnapshot.empty());
@@ -133,7 +132,6 @@ public class StatusPanel extends JPanel {
     public StatusPanel(int serverPort, String rootFolder, Path configPath,
                        Runnable onLocaleChanged, Runnable onConfigChanged,
                        GuiWebEntrySnapshot guiWebEntries) {
-        this.serverPort = serverPort;
         this.rootFolder = rootFolder;
         this.configPath = configPath;
         this.onConfigChanged = onConfigChanged;
@@ -1329,7 +1327,7 @@ public class StatusPanel extends JPanel {
         }
 
         Thread worker = new Thread(() -> {
-            DesktopUiHost.GuiValue node = callLocalGuiEndpointJson("POST", "/api/gui/path-prefixes", payload,
+            DesktopUiHost.GuiValue node = callLocalGuiEndpointJson("/api/gui/path-prefixes", payload,
                     15_000, "gui.status.log.path-prefix.call-failed");
             SwingUtilities.invokeLater(() -> applyDirectoryMigrationResult(node, rootSyncPath));
         }, "gui-path-prefixes-apply");
@@ -1642,7 +1640,7 @@ public class StatusPanel extends JPanel {
         }
         Map<String, Object> payload = Map.of("path", path);
         Thread worker = new Thread(() -> {
-            DesktopUiHost.GuiValue node = callLocalGuiEndpointJson("POST", "/api/gui/path-prefixes/pin", payload,
+            DesktopUiHost.GuiValue node = callLocalGuiEndpointJson("/api/gui/path-prefixes/pin", payload,
                     15_000, "gui.status.log.path-prefix.call-failed");
             SwingUtilities.invokeLater(() -> {
                 if (node != null && node.path("success").asBoolean(false)) {
@@ -1802,7 +1800,6 @@ public class StatusPanel extends JPanel {
 
     private static PendingInstall extractPendingInstall(DesktopUiHost.GuiValue node) {
         return new PendingInstall(
-                node.path("assetUrl").asText(null),
                 node.path("assetSizeBytes").asLong(0L),
                 node.path("releaseNotes").asText(null),
                 node.path("releaseNotesUrl").asText(null),
@@ -2132,8 +2129,7 @@ public class StatusPanel extends JPanel {
     }
 
     /** 同上，但以 {@code application/json} 发送 body。 */
-    private DesktopUiHost.GuiValue callLocalGuiEndpointJson(String method,
-                                              String path,
+    private DesktopUiHost.GuiValue callLocalGuiEndpointJson(String path,
                                               Object jsonBody,
                                               int readTimeoutMs,
                                               String failureLogCode) {

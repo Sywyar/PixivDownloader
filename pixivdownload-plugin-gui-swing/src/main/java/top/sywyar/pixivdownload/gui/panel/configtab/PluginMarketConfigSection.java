@@ -24,9 +24,11 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -544,17 +546,15 @@ public final class PluginMarketConfigSection implements ConfigSection {
     }
 
     static boolean hasDuplicateTrustedKeyIds(List<TrustedKeyConfigEntry> keys) {
-        List<String> seen = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
         for (TrustedKeyConfigEntry key : keys) {
             String keyId = key.keyId() == null ? "" : key.keyId().trim();
             if (keyId.isEmpty()) {
                 continue;
             }
-            String normalized = keyId.toLowerCase(Locale.ROOT);
-            if (seen.contains(normalized)) {
+            if (!seen.add(keyId.toLowerCase(Locale.ROOT))) {
                 return true;
             }
-            seen.add(normalized);
         }
         return false;
     }

@@ -115,10 +115,7 @@
     }
 
     function skip() {
-        markCompleted();
-        ctx.overlay.destroy();
-        setRestartEnabled(true);
-        focusRestartEntry();
+        finish();
     }
 
     var SKIP_BTN = function () {

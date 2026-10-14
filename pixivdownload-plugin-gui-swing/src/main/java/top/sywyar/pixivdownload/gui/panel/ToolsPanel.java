@@ -5,7 +5,6 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.guiswing.SwingHost;
 
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.gui.SwingBackendLifecycle;
 import top.sywyar.pixivdownload.gui.ExclusiveToolHolder;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
@@ -172,7 +171,7 @@ public class ToolsPanel extends JPanel {
         g.weightx = 0;
         JButton browseDbButton = new JButton(message("gui.button.browse"));
         browseDbButton.setEnabled(SwingHost.host().supportsDatabaseFileSelection());
-        browseDbButton.addActionListener(e -> browseDatabase());
+        browseDbButton.addActionListener(e -> browseDatabase(dbPathField));
         form.add(browseDbButton, g);
 
         row++;
@@ -259,7 +258,7 @@ public class ToolsPanel extends JPanel {
         g.weightx = 0;
         JButton browseDbButton = new JButton(message("gui.button.browse"));
         browseDbButton.setEnabled(SwingHost.host().supportsDatabaseFileSelection());
-        browseDbButton.addActionListener(e -> browseMigrationDatabase());
+        browseDbButton.addActionListener(e -> browseDatabase(migrationDbPathField));
         form.add(browseDbButton, g);
 
         row++;
@@ -492,16 +491,15 @@ public class ToolsPanel extends JPanel {
         Thread worker = new Thread(() -> {
             DesktopUiHost.BackfillSummary summary = null;
             Throwable failure = null;
-            var toolLogger = LoggerFactory.getLogger(ToolsPanel.class);
 
             try {
-                toolLogger.info(logMessage("gui.tools.log.backfill.requested"));
+                log.info(logMessage("gui.tools.log.backfill.requested"));
                 summary = SwingHost.host().runBackfill(options);
             } catch (Throwable error) {
                 failure = error;
-                toolLogger.error(logMessage("gui.tools.log.backfill.failed"), error);
+                log.error(logMessage("gui.tools.log.backfill.failed"), error);
             } finally {
-                toolLogger.info(logMessage("gui.tools.log.backfill.finished"));
+                log.info(logMessage("gui.tools.log.backfill.finished"));
                 closeBackfillLogSession();
                 backfillRunning = false;
                 exclusiveToolName = null;
@@ -558,17 +556,17 @@ public class ToolsPanel extends JPanel {
         );
     }
 
-    private void browseDatabase() {
+    private void browseDatabase(JTextField pathField) {
         JFileChooser chooser = new JFileChooser();
         chooser.setDialogTitle(message("gui.tools.dialog.select-sqlite-database.title"));
         chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-        File current = new File(dbPathField.getText().trim());
+        File current = new File(pathField.getText().trim());
         File parent = current.isDirectory() ? current : current.getParentFile();
         if (parent != null && parent.exists()) {
             chooser.setCurrentDirectory(parent);
         }
         if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-            dbPathField.setText(chooser.getSelectedFile().getAbsolutePath());
+            pathField.setText(chooser.getSelectedFile().getAbsolutePath());
         }
     }
 
@@ -590,20 +588,6 @@ public class ToolsPanel extends JPanel {
             GuiErrorDialog.show(this,
                     message("gui.dialog.error.title"),
                     message("gui.tools.dialog.backfill-log.open-failed", e.getMessage()));
-        }
-    }
-
-    private void browseMigrationDatabase() {
-        JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle(message("gui.tools.dialog.select-sqlite-database.title"));
-        chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-        File current = new File(migrationDbPathField.getText().trim());
-        File parent = current.isDirectory() ? current : current.getParentFile();
-        if (parent != null && parent.exists()) {
-            chooser.setCurrentDirectory(parent);
-        }
-        if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-            migrationDbPathField.setText(chooser.getSelectedFile().getAbsolutePath());
         }
     }
 
@@ -721,16 +705,15 @@ public class ToolsPanel extends JPanel {
         Thread worker = new Thread(() -> {
             DesktopUiHost.MigrationSummary summary = null;
             Throwable failure = null;
-            var toolLogger = LoggerFactory.getLogger(ToolsPanel.class);
 
             try {
-                toolLogger.info(logMessage("gui.tools.log.migration.requested"));
-                summary = SwingHost.host().runMigration(options, toolLogger::info);
+                log.info(logMessage("gui.tools.log.migration.requested"));
+                summary = SwingHost.host().runMigration(options, log::info);
             } catch (Throwable error) {
                 failure = error;
-                toolLogger.error(logMessage("gui.tools.log.migration.failed"), error);
+                log.error(logMessage("gui.tools.log.migration.failed"), error);
             } finally {
-                toolLogger.info(logMessage("gui.tools.log.migration.finished"));
+                log.info(logMessage("gui.tools.log.migration.finished"));
                 closeMigrationLogSession();
                 migrationRunning = false;
                 exclusiveToolName = null;

@@ -60,7 +60,7 @@ final class FlatLafSetup {
         notifyChange(appearanceFor(dark));
     }
 
-    static GuiThemeListenerSession openListener(ThemePreference preference, GuiThemeChangeListener listener) {
+    static GuiThemeListenerSession openListener(GuiThemeChangeListener listener) {
         if (listener == null) {
             return GuiThemeListenerSession.none();
         }

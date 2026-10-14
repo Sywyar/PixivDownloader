@@ -10,7 +10,6 @@
     var SPOT_PADDING = ctx.SPOT_PADDING;
     var POP_GAP = ctx.POP_GAP;
     var VIEWPORT_MARGIN = ctx.VIEWPORT_MARGIN;
-    var escapeHtml = ctx.escapeHtml;
 
     function Overlay() {
         this.revision = 0;

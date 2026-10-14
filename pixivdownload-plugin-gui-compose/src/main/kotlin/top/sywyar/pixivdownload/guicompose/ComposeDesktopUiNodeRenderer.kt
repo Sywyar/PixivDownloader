@@ -698,15 +698,6 @@ object ComposeDesktopUiNodeRenderer {
         }
     }
 
-    private fun usesCompactFormRow(node: DesktopUiNode): Boolean = when (node) {
-        is DesktopUiNode.Toggle -> true
-        is DesktopUiNode.Choice -> node.choiceStyle() == DesktopUiNode.ChoiceStyle.COMBO_BOX
-        is DesktopUiNode.NumberInput -> node.numberStyle() == DesktopUiNode.NumberStyle.SPINNER
-        is DesktopUiNode.TextInput -> node.inputKind() == DesktopUiNode.InputKind.NUMBER ||
-            node.inputKind() == DesktopUiNode.InputKind.TIME
-        else -> false
-    }
-
     @Composable
     private fun Tabs(
         node: DesktopUiNode.Tabs,

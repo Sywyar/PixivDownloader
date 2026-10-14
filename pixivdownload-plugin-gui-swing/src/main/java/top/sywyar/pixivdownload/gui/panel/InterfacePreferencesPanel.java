@@ -106,7 +106,7 @@ final class InterfacePreferencesPanel extends JPanel {
     private void buildUi() {
         setLayout(new BorderLayout());
 
-        JPanel content = new PreferenceContentPanel();
+        JPanel content = new ConfigContentPanel();
         content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         configureLanguageSelector();
@@ -468,38 +468,6 @@ final class InterfacePreferencesPanel extends JPanel {
 
     private static String logMessage(String code, Object... args) {
         return SwingHost.host().message(code, args);
-    }
-
-    private static final class PreferenceContentPanel extends JPanel implements Scrollable {
-
-        private PreferenceContentPanel() {
-            setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
-        }
-
-        @Override
-        public Dimension getPreferredScrollableViewportSize() {
-            return getPreferredSize();
-        }
-
-        @Override
-        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
-            return 16;
-        }
-
-        @Override
-        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
-            return Math.max(16, visibleRect.height - 16);
-        }
-
-        @Override
-        public boolean getScrollableTracksViewportWidth() {
-            return true;
-        }
-
-        @Override
-        public boolean getScrollableTracksViewportHeight() {
-            return false;
-        }
     }
 
     private record LocaleOption(Locale locale, String label) {

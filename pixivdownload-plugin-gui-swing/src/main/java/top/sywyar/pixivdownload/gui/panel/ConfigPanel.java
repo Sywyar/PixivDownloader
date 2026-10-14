@@ -378,7 +378,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             return section != null ? section.build() : buildGroupPanel(group);
         }
 
-        JPanel content = new GroupContentPanel();
+        JPanel content = new ConfigContentPanel();
         content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         String lastHeading = null;
         for (ScopedGroup group : groups) {
@@ -573,7 +573,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     }
 
     private JComponent buildEmptyScopePanel(ConfigScope scope) {
-        JPanel content = new GroupContentPanel();
+        JPanel content = new ConfigContentPanel();
         content.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
         JLabel label = new JLabel(message(scope.emptyMessageKey()));
         label.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -656,7 +656,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     }
 
     private JPanel buildGroupContent(ScopedGroup group, boolean includeBorder, boolean includeGlue) {
-        JPanel content = new GroupContentPanel();
+        JPanel content = new ConfigContentPanel();
         if (includeBorder) {
             content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
         }
@@ -2366,37 +2366,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         }
     }
 
-    private static final class GroupContentPanel extends JPanel implements Scrollable {
-        GroupContentPanel() {
-            setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
-        }
-
-        @Override
-        public Dimension getPreferredScrollableViewportSize() {
-            return getPreferredSize();
-        }
-
-        @Override
-        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
-            return 16;
-        }
-
-        @Override
-        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
-            return Math.max(16, visibleRect.height - 16);
-        }
-
-        @Override
-        public boolean getScrollableTracksViewportWidth() {
-            return true;
-        }
-
-        @Override
-        public boolean getScrollableTracksViewportHeight() {
-            return false;
-        }
-    }
-
     private static String message(String code, Object... args) {
         return GuiMessages.get(code, args);
     }
@@ -2482,7 +2451,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     @Override
     public JPanel newContentPanel() {
-        return new GroupContentPanel();
+        return new ConfigContentPanel();
     }
 
     @Override

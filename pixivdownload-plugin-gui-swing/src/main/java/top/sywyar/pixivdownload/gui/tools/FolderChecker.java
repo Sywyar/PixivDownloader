@@ -343,7 +343,6 @@ public class FolderChecker {
         }
 
         DesktopUiHost.FolderArtwork info = brokenArtworks.get(selectedRow);
-        String column = info.moved() ? "move_folder" : "folder";
         String columnLabel = info.moved()
                 ? message("gui.folder-checker.column-name.move-folder")
                 : message("gui.folder-checker.column-name.folder");

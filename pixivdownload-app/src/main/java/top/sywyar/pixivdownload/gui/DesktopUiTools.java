@@ -382,26 +382,18 @@ final class DesktopUiTools {
     }
 
     private static void rollbackCopies(Path numberedFolder, List<Path> copied) {
-        if (numberedFolder != null) {
-            for (int i = copied.size() - 1; i >= 0; i--) {
-                try {
-                    Files.deleteIfExists(copied.get(i));
-                } catch (IOException exception) {
-                    log.warn("Failed to roll back copied classifier file {}", copied.get(i), exception);
-                }
-            }
-            try {
-                Files.deleteIfExists(numberedFolder);
-            } catch (IOException exception) {
-                log.warn("Failed to remove classifier rollback folder {}", numberedFolder, exception);
-            }
-            return;
-        }
         for (int i = copied.size() - 1; i >= 0; i--) {
             try {
                 Files.deleteIfExists(copied.get(i));
             } catch (IOException exception) {
                 log.warn("Failed to roll back copied classifier file {}", copied.get(i), exception);
+            }
+        }
+        if (numberedFolder != null) {
+            try {
+                Files.deleteIfExists(numberedFolder);
+            } catch (IOException exception) {
+                log.warn("Failed to remove classifier rollback folder {}", numberedFolder, exception);
             }
         }
     }

@@ -31,9 +31,7 @@ public final class ConfigMenuTree<T> {
         if (!expandAllBranches) {
             return roots;
         }
-        List<Node<T>> expanded = new ArrayList<>();
-        expanded.addAll(leavesDepthFirst());
-        return List.copyOf(expanded);
+        return List.copyOf(leavesDepthFirst());
     }
 
     /** Collects every leaf below every root in depth-first order. */

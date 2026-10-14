@@ -212,15 +212,12 @@ public final class FieldRenderer {
     private static RenderedField renderPassword(ConfigFieldSpec spec) {
         JPasswordField pf = new JPasswordField(24);
         pf.putClientProperty(CREDENTIAL_CLEAR_REQUESTED, Boolean.FALSE);
-        JLabel status = null;
-        if (spec.type() == FieldType.PASSWORD) {
-            status = new JLabel();
-            status.setFont(status.getFont().deriveFont(Font.PLAIN, 11f));
-            status.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0));
-            pf.putClientProperty(CREDENTIAL_STORED, Boolean.FALSE);
-            pf.putClientProperty(CREDENTIAL_STATUS_LABEL, status);
-            updateCredentialStatus(pf);
-        }
+        JLabel status = new JLabel();
+        status.setFont(status.getFont().deriveFont(Font.PLAIN, 11f));
+        status.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0));
+        pf.putClientProperty(CREDENTIAL_STORED, Boolean.FALSE);
+        pf.putClientProperty(CREDENTIAL_STATUS_LABEL, status);
+        updateCredentialStatus(pf);
         pf.getDocument().addDocumentListener(new DocumentListener() {
             private void changed() {
                 pf.putClientProperty(CREDENTIAL_CLEAR_REQUESTED, Boolean.FALSE);
@@ -253,15 +250,11 @@ public final class FieldRenderer {
         row.setOpaque(false);
         row.add(pf, BorderLayout.CENTER);
         row.add(clear, BorderLayout.EAST);
-        JComponent controlRow = row;
-        if (status != null) {
-            JPanel credentialControl = new JPanel(new BorderLayout(0, 0));
-            credentialControl.setOpaque(false);
-            credentialControl.add(row, BorderLayout.CENTER);
-            credentialControl.add(status, BorderLayout.SOUTH);
-            controlRow = credentialControl;
-        }
-        RenderedPanel p = renderFieldPanel(spec, controlRow);
+        JPanel credentialControl = new JPanel(new BorderLayout(0, 0));
+        credentialControl.setOpaque(false);
+        credentialControl.add(row, BorderLayout.CENTER);
+        credentialControl.add(status, BorderLayout.SOUTH);
+        RenderedPanel p = renderFieldPanel(spec, credentialControl);
         return new RenderedField(p.panel(),
                 () -> new String(pf.getPassword()),
                 v -> {

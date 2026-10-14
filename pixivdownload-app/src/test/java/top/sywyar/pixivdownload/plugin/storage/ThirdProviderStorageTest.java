@@ -106,7 +106,7 @@ class ThirdProviderStorageTest {
         var provider = new H2ContractProvider();
         var selected = new DatabaseProviderSelection.Result(provider.id(), provider.databaseId(), Optional.of(provider),
                 DatabaseProviderSelection.Failure.NONE);
-        var file = new top.sywyar.pixivdownload.gui.config.TestDesktopConfigFile(directory.resolve("config.yaml"));
+        var file = new top.sywyar.pixivdownload.gui.config.ConfigFileEditor(directory.resolve("config.yaml")).asConfigFile();
         var draft = Map.of("database.provider", provider.id(), "database.jdbc-url",
                 "contract:settings_" + UUID.randomUUID().toString().replace("-", ""));
         file.writeAll(draft);

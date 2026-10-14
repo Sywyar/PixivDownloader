@@ -57,7 +57,7 @@ class DesktopCoreConfigCatalogTest {
                 top.sywyar.pixivdownload.plugin.runtime.bootstrap.database.DatabaseProviderSelection.Failure.NONE);
         var providers = new java.util.concurrent.atomic.AtomicReference<>(java.util.List.of(selected));
         var settings = new top.sywyar.pixivdownload.gui.config.DatabaseSettingsService(
-                new top.sywyar.pixivdownload.gui.config.TestDesktopConfigFile(directory.resolve("config.yaml")),
+                new top.sywyar.pixivdownload.gui.config.ConfigFileEditor(directory.resolve("config.yaml")).asConfigFile(),
                 org.springframework.mock.env.MockEnvironment::new, java.util.Optional::empty, providers::get);
         when(host.databaseSettings()).thenReturn(java.util.Optional.of(settings));
         assertThat(settings.providers()).singleElement().satisfies(choice ->

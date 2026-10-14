@@ -195,7 +195,7 @@ public class ConfigFileEditor {
 
     public FileSnapshot snapshot() throws IOException {
         synchronized (WRITE_LOCK) {
-            return new FileSnapshot(Files.exists(configPath), new ArrayList<>(readLines()));
+            return new FileSnapshot(Files.exists(configPath), readLines());
         }
     }
 
