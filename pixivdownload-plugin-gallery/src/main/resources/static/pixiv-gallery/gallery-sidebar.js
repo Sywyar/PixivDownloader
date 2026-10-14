@@ -40,4 +40,6 @@
 
 
 // ---- PixivGallery facade ----
-window.PixivGallery.sidebar = Object.assign(window.PixivGallery.sidebar || {}, { restoreSidebarState, saveSidebarState, toggleSidebar, openMobileSidebar, closeMobileSidebar });
+if (window.PixivGallery) {
+    window.PixivGallery.sidebar = Object.assign(window.PixivGallery.sidebar || {}, { restoreSidebarState, saveSidebarState, toggleSidebar, openMobileSidebar, closeMobileSidebar });
+}
