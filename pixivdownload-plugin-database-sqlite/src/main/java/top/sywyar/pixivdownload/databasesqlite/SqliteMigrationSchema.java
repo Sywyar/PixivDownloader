@@ -177,8 +177,9 @@ final class SqliteMigrationSchema {
                         + ')');
             }
         }
-        if (!renderCheck(table).isEmpty()) {
-            parts.add("CHECK (" + renderCheck(table) + ')');
+        String check = renderCheck(table);
+        if (!check.isEmpty()) {
+            parts.add("CHECK (" + check + ')');
         }
         return "CREATE TABLE IF NOT EXISTS " + quote(table.name())
                 + " (" + String.join(", ", parts) + ')';

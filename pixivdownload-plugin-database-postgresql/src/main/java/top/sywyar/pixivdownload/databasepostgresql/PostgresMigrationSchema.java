@@ -35,7 +35,7 @@ final class PostgresMigrationSchema {
                         throw new IllegalArgumentException();
                     }
                 } catch (IllegalArgumentException failure) {
-                    throw unsupported(table.name() + "." + column.name());
+                    throw unsupported();
                 }
             }
             table.indexes().forEach(index -> {
@@ -56,7 +56,7 @@ final class PostgresMigrationSchema {
             case "REAL" -> "DOUBLE PRECISION";
             case "TEXT" -> "TEXT";
             case "BLOB" -> "BYTEA";
-            default -> throw unsupported(type);
+            default -> throw unsupported();
         };
     }
 
@@ -100,9 +100,10 @@ final class PostgresMigrationSchema {
                                     ? rows.getString(2) : "<unsupported>");
                         }
                     }
-                    boolean hasCheck = !renderCheck(table).isEmpty();
+                    String check = renderCheck(table);
+                    boolean hasCheck = !check.isEmpty();
                     if (actual.size() != (hasCheck ? 1 : 0) || hasCheck && (actual.contains("<unsupported>")
-                            || !canonicalCheck(connection, table, renderCheck(table)).equals(
+                            || !canonicalCheck(connection, table, check).equals(
                                     canonicalCheck(connection, table, validateCheck(table, actual.get(0), true))))) {
                         throw new IllegalStateException("SCHEMA_MISMATCH");
                     }
@@ -148,12 +149,12 @@ final class PostgresMigrationSchema {
                     || previous.equals("::") && !token.isBlank() && !Set.of("text", "bigint", "double").contains(token)
                     || token.equals("-") && expression.startsWith("--", tokens.start())
                     || !stored && (token.equals("::") || token.equals("[") || token.equals("]") || token.startsWith("\""))) {
-                throw unsupported(table.name() + ".CHECK");
+                throw unsupported();
             }
             end = tokens.end();
             if (!token.isBlank()) previous = token;
         }
-        if (end != expression.length()) throw unsupported(table.name() + ".CHECK");
+        if (end != expression.length()) throw unsupported();
         return expression;
     }
 
@@ -182,8 +183,9 @@ final class PostgresMigrationSchema {
                         .map(PostgresMigrationSchema::quote).toList()) + ")");
             }
         }
-        if (!renderCheck(table).isEmpty()) {
-            parts.add("CHECK (" + renderCheck(table) + ")");
+        String check = renderCheck(table);
+        if (!check.isEmpty()) {
+            parts.add("CHECK (" + check + ")");
         }
         return "CREATE TABLE IF NOT EXISTS " + quote(table.name()) + " (" + String.join(", ", parts) + ")";
     }
@@ -326,11 +328,11 @@ final class PostgresMigrationSchema {
 
     static String quote(String identifier) {
         String name = PhysicalDatabaseSchema.normalizeIdentifier(identifier);
-        if (!name.matches("[a-z_][a-z0-9_]{0,62}")) throw unsupported(identifier);
+        if (!name.matches("[a-z_][a-z0-9_]{0,62}")) throw unsupported();
         return '"' + name + '"';
     }
 
-    private static IllegalArgumentException unsupported(String object) {
+    private static IllegalArgumentException unsupported() {
         return new IllegalArgumentException("DATABASE_SCHEMA_UNSUPPORTED");
     }
 }

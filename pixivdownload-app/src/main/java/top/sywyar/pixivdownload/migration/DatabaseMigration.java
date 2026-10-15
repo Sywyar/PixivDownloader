@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.migration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.context.config.ConfigDataEnvironmentPostProcessor;
-import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.core.env.StandardEnvironment;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
@@ -19,15 +18,9 @@ import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
-import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogProperties;
-import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogTrustStores;
-import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
-import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationAdmissionPolicy;
-import top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogTrustStateStore;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession;
-import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
 import top.sywyar.pixivdownload.sdk.SdkVersion;
 
 import java.io.IOException;
@@ -87,7 +80,6 @@ public final class DatabaseMigration {
                 Path sourceConfig = Path.of(required(options, "--source-config")).toAbsolutePath();
                 Path targetConfig = Path.of(required(options, "--target-config")).toAbsolutePath();
                 Path sourceData = RuntimeFiles.dataDirectory();
-                Path targetData = RuntimeFiles.dataDirectory();
                 Path runDirectory = RuntimeFiles.databaseMigrationDirectory().resolve(UUID.randomUUID().toString());
                 Path backup = options.containsKey("--backup") ? Path.of(options.get("--backup")) : runDirectory.resolve("source.backup");
                 Path report = options.containsKey("--report") ? Path.of(options.get("--report")) : runDirectory.resolve("report.json");
@@ -184,7 +176,6 @@ public final class DatabaseMigration {
             MigrationEndpoint target, Path runDirectory, Path backup, Set<String> rebuild,
             boolean createCredentials) throws Exception {
         Path sourceData = RuntimeFiles.dataDirectory();
-        Path targetData = sourceData;
         String installation = top.sywyar.pixivdownload.config.InstallIdentity.get();
         Set<String> owners = source.provider().privateDatabaseOwners(source.target(), sourceData, installation);
         List<ProviderDatabaseMigration.Store> stores = new ArrayList<>();
@@ -201,7 +192,7 @@ public final class DatabaseMigration {
             var privateSource = source.privateStorage(new DatabasePrivateStorageSettings(owner,
                     sourceData.resolve(owner), settings.installationId(), settings.password()));
             var privateTarget = target.privateStorage(new DatabasePrivateStorageSettings(owner,
-                    targetData.resolve(owner), settings.installationId(), settings.password()));
+                    sourceData.resolve(owner), settings.installationId(), settings.password()));
             stores.add(new ProviderDatabaseMigration.Store("private:" + owner, privateSource, privateTarget,
                     new MigrationRequest(CoreMigrationSchema.create(privateRegistry, false),
                             runDirectory.resolve("private").resolve(owner + ".backup"), Set.of(),

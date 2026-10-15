@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.databasepostgresql;
 
 import top.sywyar.pixivdownload.plugin.api.database.migration.*;
-import top.sywyar.pixivdownload.plugin.api.database.migration.jdbc.JdbcMigrationSupport;
 import java.nio.file.*;
 import java.sql.Connection;
 import java.util.*;
@@ -22,8 +21,8 @@ final class PostgresMigrationBackup {
                 xml.writeAttribute("provider-format", "postgresql-logical");
                 for (var table : request.schema().tables()) {
                     xml.writeStartElement("table"); xml.writeAttribute("name", table.name());
-                    if (!PostgresMigrationSchema.renderCheck(table).isEmpty())
-                        xml.writeAttribute("check", PostgresMigrationSchema.renderCheck(table));
+                    String check = PostgresMigrationSchema.renderCheck(table);
+                    if (!check.isEmpty()) xml.writeAttribute("check", check);
                     xml.writeAttribute("high-water", Long.toString(sequences.getOrDefault(table.name(), 0L)));
                     for (var column : table.columns()) {
                         xml.writeEmptyElement("column");

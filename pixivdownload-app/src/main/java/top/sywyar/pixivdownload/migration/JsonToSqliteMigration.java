@@ -162,7 +162,7 @@ public class JsonToSqliteMigration {
                     } else {
                         JsonNode artwork = entry.getValue();
                         String title = artwork.path("title").asText(null);
-                        String folder = stripTrailingSlash(artwork.path("folder").asText(null));
+                        String folder = PathPrefixCodec.stripTrailingSeparators(artwork.path("folder").asText(null));
                         int count = artwork.path("count").asInt();
                         String extensions = artwork.path("extensions").asText(null);
                         long time = artwork.has("time")
@@ -178,7 +178,7 @@ public class JsonToSqliteMigration {
                         }
 
                         if (artwork.has("moved") && artwork.path("moved").asBoolean()) {
-                            String moveFolder = stripTrailingSlash(artwork.path("moveFolder").asText(null));
+                            String moveFolder = PathPrefixCodec.stripTrailingSeparators(artwork.path("moveFolder").asText(null));
                             long moveTime = EpochMillisNormalizer.normalize(artwork.path("moveTime").asLong());
                             session.update("artworks", Map.of("moved", value(1), "move_folder", value(moveFolder), "move_time", value(moveTime)),
                                     call(EQUAL, column("artworks", "artwork_id"), value(artworkId)));
@@ -259,10 +259,6 @@ public class JsonToSqliteMigration {
                 new DatabaseSession.Conflict(DatabaseSession.Mode.UPDATE, List.of("id"),
                         Map.of("total_artworks", new Incoming("total_artworks"), "total_images", new Incoming("total_images"),
                                 "total_moved", new Incoming("total_moved"))));
-    }
-
-    private static String stripTrailingSlash(String path) {
-        return PathPrefixCodec.stripTrailingSeparators(path);
     }
 
     private static void report(Consumer<String> reporter, String message) {
