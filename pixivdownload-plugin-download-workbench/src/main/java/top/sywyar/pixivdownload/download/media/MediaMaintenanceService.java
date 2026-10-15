@@ -21,6 +21,8 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTask;
+import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
 
 /** 只有持有最近一次预览凭据的主动请求才能启动；一个实例同时只运行一项任务。 */
 public final class MediaMaintenanceService implements AutoCloseable {
@@ -34,6 +36,8 @@ public final class MediaMaintenanceService implements AutoCloseable {
     private final top.sywyar.pixivdownload.i18n.MessageResolver messages;
     private final ImageOutputService images;
     private final top.sywyar.pixivdownload.download.UgoiraService animations;
+    private final PluginRuntimeTaskRegistrar tasks;
+    private PluginRuntimeTask pendingTask;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(task -> {
         Thread thread = new Thread(task, "media-maintenance");
         thread.setDaemon(true);
@@ -49,7 +53,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
 
     public MediaMaintenanceService(WorkAssetService assets, WorkMetadataRepository metadata, WorkQueryService query, ImageOutputService images,
                                    top.sywyar.pixivdownload.download.UgoiraService animations, ArtworkMediaStore mediaStore,
-                                   top.sywyar.pixivdownload.i18n.MessageResolver messages) {
+                                   top.sywyar.pixivdownload.i18n.MessageResolver messages, PluginRuntimeTaskRegistrar tasks) {
         this.assets = assets;
         this.metadata = metadata;
         this.query = query;
@@ -57,6 +61,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
         this.animations = animations;
         this.mediaStore = mediaStore;
         this.messages = messages;
+        this.tasks = java.util.Objects.requireNonNull(tasks);
     }
 
     public record Request(String imageFormats, String ugoiraFormats, boolean repairThumbnails) {}
@@ -81,16 +86,28 @@ public final class MediaMaintenanceService implements AutoCloseable {
         status = new Status("scanning", 0, 0, 0, List.of());
         var result = new java.util.concurrent.CompletableFuture<Preview>();
         pendingPreview = result;
-        executor.execute(() -> {
+        try { submit(() -> {
             synchronized (this) { worker = Thread.currentThread(); }
             Preview value = null;
             Throwable error = null;
             try { value = scan(request); }
+            catch (VirtualMachineError | ThreadDeath fatal) { result.completeExceptionally(fatal); throw fatal; }
             catch (Throwable failure) { error = cancelled ? new CancellationException() : failure; }
-            finally { synchronized (this) { worker = null; pendingPreview = null; } }
+            finally { synchronized (this) { worker = null; pendingPreview = null; pendingTask = null; } }
             if (error == null) result.complete(value);
             else result.completeExceptionally(error);
-        });
+        }, () -> {
+            synchronized (this) {
+                pendingPreview = null;
+                pendingTask = null;
+                status = new Status("cancelled", 0, 0, 0, List.of());
+            }
+            result.completeExceptionally(new CancellationException());
+        }); } catch (RuntimeException | Error failure) {
+            pendingPreview = null;
+            status = new Status("idle", 0, 0, 0, List.of());
+            throw failure;
+        }
         return result;
     }
 
@@ -212,18 +229,54 @@ public final class MediaMaintenanceService implements AutoCloseable {
     public synchronized Status start(String token, java.util.function.Consumer<Status> completion) {
         requireIdle();
         if (preview == null || !preview.token().equals(token)) throw LocalizedException.badRequest("download.media.preview-required", null);
+        java.util.Objects.requireNonNull(completion);
         Plan plan = preview;
         preview = null;
         cancelled = false;
-        this.completion = java.util.Objects.requireNonNull(completion);
+        this.completion = completion;
         status = new Status("running", plan.files().size(), 0, 0, List.of());
         Status accepted = status;
-        executor.execute(() -> {
+        try { submit(() -> {
             synchronized (this) { worker = Thread.currentThread(); }
             try { run(plan); }
-            finally { completeRun(); }
-        });
+            finally { completeRun(status); }
+        }, () -> completeRun(new Status("cancelled", plan.files().size(), 0, 0, List.of())));
+        } catch (RuntimeException | Error failure) {
+            this.completion = null;
+            preview = plan;
+            status = new Status("idle", 0, 0, 0, List.of());
+            throw failure;
+        }
         return accepted;
+    }
+
+    private void submit(Runnable action, Runnable cancelledBeforeStart) {
+        var claimed = new java.util.concurrent.atomic.AtomicBoolean();
+        var task = tasks.registerOneShot(() -> {
+            if (claimed.compareAndSet(false, true)) action.run();
+        });
+        var future = new java.util.concurrent.FutureTask<Void>(task, null) {
+            @Override public boolean cancel(boolean mayInterruptIfRunning) {
+                boolean unstarted = false;
+                synchronized (MediaMaintenanceService.this) {
+                    if (pendingTask == task) {
+                        MediaMaintenanceService.this.cancel();
+                        unstarted = claimed.compareAndSet(false, true);
+                    }
+                }
+                // 排空会等待 preview 调用返回，不能把排队取消的结果留给 context.close。
+                if (unstarted) cancelledBeforeStart.run();
+                return super.cancel(false);
+            }
+        };
+        pendingTask = task;
+        try { executor.execute(future); }
+        catch (RuntimeException | Error failure) {
+            pendingTask = null;
+            task.discardUnsubmitted();
+            throw failure;
+        }
+        task.bindCancellation(future);
     }
 
     public Status status() { return status; }
@@ -297,20 +350,19 @@ public final class MediaMaintenanceService implements AutoCloseable {
                 || failure.getCause() instanceof org.springframework.dao.DataAccessException;
     }
 
-    private void completeRun() {
+    private void completeRun(Status terminal) {
         java.util.function.Consumer<Status> observer;
-        Status terminal;
         synchronized (this) {
             worker = null;
-            terminal = status;
+            pendingTask = null;
+            status = terminal;
             observer = completion;
             completion = null;
         }
         if (observer != null) {
             try { observer.accept(terminal); }
-            catch (RuntimeException failure) {
-                logFailure(failure);
-            }
+            catch (VirtualMachineError | ThreadDeath fatal) { throw fatal; }
+            catch (Throwable failure) { LOG.error(messages.getForLog("desktop.ui.tools.operation-failed"), failure); }
         }
     }
 
@@ -336,17 +388,20 @@ public final class MediaMaintenanceService implements AutoCloseable {
 
     @Override
     public void close() {
+        PluginRuntimeTask task;
         synchronized (this) {
             closed = true;
             cancelled = true;
             preview = null;
             executor.shutdownNow();
+            task = pendingTask;
             if (pendingPreview != null && worker == null) {
                 pendingPreview.completeExceptionally(new CancellationException());
                 pendingPreview = null;
                 status = new Status("cancelled", 0, 0, 0, List.of());
             }
         }
+        if (task != null) task.cancel();
         boolean interrupted = Thread.interrupted();
         try {
             while (!executor.isTerminated()) {
@@ -355,8 +410,7 @@ public final class MediaMaintenanceService implements AutoCloseable {
             }
         } finally {
             if (completion != null) {
-                status = new Status("cancelled", status.total(), status.completed(), status.failed(), status.failures());
-                completeRun();
+                completeRun(new Status("cancelled", status.total(), status.completed(), status.failed(), status.failures()));
             }
             if (interrupted) Thread.currentThread().interrupt();
         }

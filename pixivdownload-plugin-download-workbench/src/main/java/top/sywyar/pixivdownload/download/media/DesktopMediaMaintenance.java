@@ -33,6 +33,7 @@ public final class DesktopMediaMaintenance implements DesktopMediaTool.Completio
                 Thread.currentThread().interrupt();
                 throw new java.util.concurrent.CancellationException();
             } catch (java.util.concurrent.ExecutionException failure) {
+                if (failure.getCause() instanceof Error cause) throw cause;
                 if (failure.getCause() instanceof Exception cause) throw cause;
                 throw failure;
             }
