@@ -95,7 +95,6 @@ function aqvRowKey(item) {
         }
         return out;
     };
-    if (q.taskObserved) return 'task:' + enc(q.taskId);
     const type = q.workType != null ? q.workType : q.kind;
     const workId = q.workId != null ? q.workId : q.id;
     return 'q:' + enc(type == null ? '' : String(type).trim()) + '.' + enc(workId);
@@ -172,7 +171,7 @@ function aqvRowModel(q) {
             && !!(runtime && typeof runtime.canCancel === 'function' && runtime.canCancel(q)),
         removable: q.status !== 'downloading',
         tags,
-        idLine: 'ID: ' + (q.taskObserved ? q.workId : q.kind === 'novel'
+        idLine: 'ID: ' + (q.kind === 'novel'
             ? (q.novelId || String(q.id).replace(/^n/, '')) + ' (Novel)'
             : q.id) + ' | ',
         message: queueItemMessage(q),

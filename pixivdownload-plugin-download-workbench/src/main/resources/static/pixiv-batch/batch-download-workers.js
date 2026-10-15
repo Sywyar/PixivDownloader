@@ -14,9 +14,9 @@
 
     async function startQueue(automatic) {
         if (state.isRunning) return;
-        if (state.queue.some(item => !item.taskObserved && item.recoveryState)) {
+        if (state.queue.some(item => item.recoveryState)) {
             await reconcileRestoredQueue();
-            if (state.queue.some(item => !item.taskObserved && item.recoveryState)) {
+            if (state.queue.some(item => item.recoveryState)) {
                 setStatus({key: 'batch:queue.recovery.waiting'}, 'warning');
                 return;
             }
@@ -35,10 +35,10 @@
         if (state.isRunning) return;
 
         if (automatic && (!isAdmin || state.settings.autoStartOnEnqueue !== true || state.isPaused
-                || !state.queue.some(q => !q.taskObserved && ['idle', 'pending'].includes(q.status)))) return;
+                || !state.queue.some(q => ['idle', 'pending'].includes(q.status)))) return;
 
         state.queue.forEach(q => {
-            if (!q.taskObserved && (automatic ? q.status === 'idle' : ['idle', 'failed', 'paused'].includes(q.status))) {
+            if (automatic ? q.status === 'idle' : ['idle', 'failed', 'paused'].includes(q.status)) {
                 q.status = 'pending';
                 q.lastMessageParts = null;
             }
@@ -49,7 +49,7 @@
         quotaExceededHandled = false;
 
         // completed / skipped 是终态；队列没有待处理项时直接收尾，避免打开 SSE 或启动空 worker 池。
-        if (!state.queue.some(q => !q.taskObserved && q.status === 'pending')) {
+        if (!state.queue.some(q => q.status === 'pending')) {
             state.isRunning = false;
             updateStats();
             saveQueue();
@@ -126,7 +126,7 @@
                 const item = getNextPending();
                 if (!item) {
                     if (state.queue.every(q =>
-                        q.taskObserved || ['completed', 'failed', 'idle', 'paused', 'skipped'].includes(q.status))) break;
+                        ['completed', 'failed', 'idle', 'paused', 'skipped'].includes(q.status))) break;
                     await sleep(500);
                     continue;
                 }
@@ -148,7 +148,7 @@
         const downloadingIds = new Set(
             state.queue.filter(q => q.status === 'downloading').map(q => q.id)
         );
-        const idx = state.queue.findIndex(q => !q.taskObserved && q.status === 'pending' && !downloadingIds.has(q.id));
+        const idx = state.queue.findIndex(q => q.status === 'pending' && !downloadingIds.has(q.id));
         if (idx === -1) return null;
         state.queue[idx].status = 'downloading';
         state.queue[idx].statusMessageKey = null;

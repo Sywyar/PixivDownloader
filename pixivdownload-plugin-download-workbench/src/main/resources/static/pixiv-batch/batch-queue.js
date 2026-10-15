@@ -23,6 +23,7 @@
     }
 
     function loadQueueForMode() {
+        let removedObserved = false;
         try {
             const raw = storeGet(storageKey());
             if (!raw) {
@@ -33,7 +34,8 @@
             }
             const parsed = JSON.parse(raw);
             if (Array.isArray(parsed.queue)) {
-                state.queue = dedupeQueueItems(parsed.queue);
+                const manual = parsed.queue.filter(item => item?.taskObserved !== true);
+                state.queue = dedupeQueueItems(manual);
                 state.queue.forEach(q => {
                     q.source = normalizeImportMode(q.source);
                     if (restoreInterruptedQueueItem(q)) return;
@@ -48,6 +50,7 @@
                 });
                 state.isPaused = !!parsed.isPaused;
                 state.stats = parsed.stats || {success: 0, failed: 0, active: 0, skipped: 0};
+                removedObserved = manual.length !== parsed.queue.length;
             } else {
                 state.queue = [];
             }
@@ -56,6 +59,7 @@
         }
         renderQueue();
         updateStats();
+        if (removedObserved) saveQueue();
     }
 
     function clearSavedQueue() {
@@ -77,7 +81,6 @@
         if (idx === -1) return false;
         const q = state.queue[idx];
         if (q.status === 'downloading') return false;
-        window.PixivBatch.queueTasks?.dismiss([state.queue[idx]]);
         state.queue.splice(idx, 1);
         updateStats();
         saveQueue();

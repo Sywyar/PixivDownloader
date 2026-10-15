@@ -50,11 +50,8 @@ function harness(queue = []) {
     return {context, behavior, timers, listeners, calls};
 }
 
-test('恢复已取消的外部执行保留记录且不标为可继续的暂停项', () => {
+test('手动队列取消后仍保留可继续的暂停语义', () => {
     const h = harness();
-    const item = {taskObserved: true, taskPhase: 'CANCELLED', status: 'paused'};
-    assert.equal(h.context.restoreInterruptedQueueItem(item), false);
-    assert.equal(item.status, 'cancelled');
     const local = {taskPhase: 'CANCELLED', status: 'paused'};
     h.context.restoreInterruptedQueueItem(local);
     assert.equal(local.status, 'paused');
@@ -113,6 +110,30 @@ function loadQueue(context, layout) {
             file.indexOf('function clearSavedQueue()')), context);
     }
     context.loadQueueForMode();
+}
+
+for (const layout of ['classic', 'alt']) {
+    test(layout + ': 加载旧队列仅清理自动导入项，保存后重开不再出现', () => {
+        const manual = {id: '42', source: 'single', status: 'idle'};
+        const legacy = ['downloading', 'completed', 'failed', 'paused', 'cancelled'].map(status => ({
+            id: 'task:' + status, workId: '42', source: 'task', taskObserved: true, status
+        }));
+        const h = harness([...legacy, manual]);
+        let saved;
+        h.context.saveQueue = () => { h.calls.saved++; saved = JSON.stringify({queue: h.context.state.queue}); };
+        loadQueue(h.context, layout);
+        assert.equal(h.context.state.queue.length, 1);
+        assert.equal(h.context.state.queue[0].id, '42');
+        assert.equal(h.context.state.queue[0].status, 'idle');
+        assert.equal(h.calls.saved, 1);
+        assert.deepEqual(JSON.parse(saved).queue.map(item => item.id), ['42']);
+        h.context.storeGet = () => saved;
+        h.context.loadQueueForMode();
+        assert.equal(h.context.state.queue.length, 1);
+        assert.equal(h.calls.saved, 1);
+        assert.equal(h.calls.started, 0);
+        assert.deepEqual(h.calls.queries, []);
+    });
 }
 
 function loadStart(context, layout) {

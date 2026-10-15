@@ -8,7 +8,6 @@ let queueRecoveryPromise = null;
 let queueRecoverySuspended = false;
 
 function restoreInterruptedQueueItem(item) {
-    if (item.taskObserved && item.taskPhase === 'CANCELLED') item.status = 'cancelled';
     if (appMode !== 'solo' || !isAdmin) return false;
     if (item.status !== 'downloading' && !item.recoveryState) return false;
     setQueueRecoveryState(item, 'unknown');
@@ -71,7 +70,7 @@ function renderQueueRecovery() {
         const button = host.querySelector('[data-recovery-action="' + action + '"]');
         button.textContent = bt('batch:queue.recovery.' + action);
         button.disabled = !!queueRecoveryPromise || (action === 'retry'
-            && !state.queue.some(item => !item.taskObserved && item.recoveryState === 'unknown'));
+            && !state.queue.some(item => item.recoveryState === 'unknown'));
     }
 }
 
@@ -154,7 +153,7 @@ function reconcileRestoredQueue(recheck = true) {
 async function retryUnconfirmedQueueItems() {
     if (appMode !== 'solo' || !isAdmin || queueRecoveryPromise || queueRecoverySuspended) return;
     await reconcileRestoredQueue();
-    const items = state.queue.filter(item => !item.taskObserved && item.recoveryState === 'unknown');
+    const items = state.queue.filter(item => item.recoveryState === 'unknown');
     if (!items.length) return;
     if (!window.PixivFeedback || !await window.PixivFeedback.confirm({
         title: bt('batch:dialog.title.confirm'),

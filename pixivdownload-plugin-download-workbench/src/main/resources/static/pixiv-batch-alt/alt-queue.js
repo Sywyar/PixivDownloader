@@ -42,7 +42,6 @@ function queueAcquisitionMode(source) {
 }
 
 function queueSourceText(source) {
-    if (source === 'task') return bt('batch:queue.task.external');
     return {
         user: bt('queue.source.user', 'User'),
         search: bt('queue.source.search', 'Search'),
@@ -75,7 +74,6 @@ function queueItemDisplayTitle(q) {
 }
 
 function queueItemCanonicalUrl(item) {
-        if (item && item.taskObserved) item = Object.assign({}, item, {id: item.workId});
     if (!item) return '';
     if (item.canonicalUrl) return item.canonicalUrl;
     const runtime = window.PixivBatch && window.PixivBatch.queueTypes;
@@ -253,7 +251,6 @@ function removeFromQueue(id) {
     if (idx === -1) return false;
     const q = state.queue[idx];
     if (q.status === 'downloading') return false;
-    window.PixivBatch.queueTasks?.dismiss([state.queue[idx]]);
     state.queue.splice(idx, 1);
     updateStats();
     saveQueue();
@@ -332,6 +329,7 @@ function saveQueue() {
 }
 
 function loadQueueForMode() {
+    let removedObserved = false;
     try {
         const raw = storeGet(storageKey());
         if (!raw) {
@@ -342,7 +340,8 @@ function loadQueueForMode() {
         }
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed.queue)) {
-            state.queue = dedupeQueueItems(parsed.queue);
+            const manual = parsed.queue.filter(item => item?.taskObserved !== true);
+            state.queue = dedupeQueueItems(manual);
             state.queue.forEach(q => {
                 if (restoreInterruptedQueueItem(q)) return;
                 if (q.status === 'downloading') {
@@ -352,6 +351,7 @@ function loadQueueForMode() {
             });
             state.isPaused = !!parsed.isPaused;
             state.stats = parsed.stats || {success: 0, failed: 0, active: 0, skipped: 0};
+            removedObserved = manual.length !== parsed.queue.length;
         } else {
             state.queue = [];
         }
@@ -361,6 +361,7 @@ function loadQueueForMode() {
     orderDownloadQueue();
     renderQueue();
     updateStats();
+    if (removedObserved) saveQueue();
 }
 
 function clearSavedQueue() {
@@ -1036,7 +1037,7 @@ function queueItemRow(q, options = {}) {
     row.appendChild(tags);
 
     const metaLine = el('div', 'ab-queue-meta');
-    metaLine.appendChild(document.createTextNode('ID: ' + (q.taskObserved ? q.workId : q.kind === 'novel'
+    metaLine.appendChild(document.createTextNode('ID: ' + (q.kind === 'novel'
         ? (q.novelId || String(q.id).replace(/^n/, '')) + ' (Novel)'
         : q.id) + ' | '));
     const statusLine = el('span', 'ab-queue-status');

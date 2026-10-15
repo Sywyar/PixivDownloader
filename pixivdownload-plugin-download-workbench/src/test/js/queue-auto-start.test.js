@@ -70,7 +70,7 @@ for (const layout of ['classic', 'alt']) {
         const h = harness(layout);
         h.state.queue.push(
             {id: 'failed', status: 'failed'}, {id: 'paused', status: 'paused'},
-            {id: 'completed', status: 'completed'}, {id: 'external', status: 'idle', taskObserved: true}
+            {id: 'completed', status: 'completed'}
         );
         h.add([]);
         h.add(['failed']);
@@ -84,7 +84,7 @@ for (const layout of ['classic', 'alt']) {
         assert.equal(h.state.isRunning, true);
         assert.equal(h.state.queue.find(q => q.id === '1').status, 'pending');
         assert.equal(h.state.queue.find(q => q.id === '2').status, 'pending');
-        for (const [id, status] of [['failed', 'failed'], ['paused', 'paused'], ['completed', 'completed'], ['external', 'idle']]) {
+        for (const [id, status] of [['failed', 'failed'], ['paused', 'paused'], ['completed', 'completed']]) {
             assert.equal(h.state.queue.find(q => q.id === id).status, status);
         }
         h.add(['1']);
