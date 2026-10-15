@@ -116,6 +116,7 @@
     var loaded = false;            // 是否至少成功拉取过一次
     var inFlight = false;          // 初次拉取是否在途（避免与 refresh 重复拉取）
     var languageSubscribed = false;
+    var renderRevision = 0;
     var currentI18n = null;        // 最近一次按当前语言构造的 i18n 解析器（命令式 + Vue 共用）
 
     // —— Vue 主渲染状态 ——
@@ -381,9 +382,11 @@
     }
 
     async function renderFromState() {
+        var revision = ++renderRevision;
         var slots = qsa('[data-nav-slot]');
         if (state.items == null) {
             // 失败降级：清空全部 slot，不残留硬编码坏入口。已 Vue 化时经 reactive 置空集渲染为空。
+            if (currentI18n && currentI18n.dispose) currentI18n.dispose();
             currentI18n = null;
             if (vueMode && vueState) {
                 vueState.items = [];
@@ -396,7 +399,14 @@
             return;
         }
         applyPreferredHrefAnchors(state.items);
-        currentI18n = await buildI18n(state.items);
+        var nextI18n = await buildI18n(state.items);
+        if (revision !== renderRevision) {
+            if (nextI18n && nextI18n.dispose) nextI18n.dispose();
+            return;
+        }
+        if (currentI18n && currentI18n.dispose) currentI18n.dispose();
+        currentI18n = nextI18n;
+        if (currentI18n && currentI18n.onUpdate) currentI18n.onUpdate(function () { refresh(); });
         if (vueMode) {
             // Vue 主渲染稳态：更新共享 reactive（各 app 自动重渲染）+ 为新出现的 slot（如 page-section 注入者）补挂。
             await upgradeSlotsToVue(slots);

@@ -90,6 +90,76 @@ async function createClient(namespaces, options) {
 }
 
 async function main() {
+    // 非 JSON 回退页不能把短暂故障固化成空字典；恢复只重载失败的 namespace。
+    {
+        let healthy = false;
+        const calls = [];
+        const timers = new Map();
+        const events = new Map();
+        let timerId = 0;
+        const sandbox = createSandbox(async (url) => {
+            calls.push(url);
+            if (url.includes('/meta')) return { ok: true, json: async () => structuredClone(META) };
+            if (url.includes('/messages/common')) return { ok: true, json: async () => ({ messages: { hello: 'Hello' } }) };
+            if (healthy && url.includes('/messages/gallery')) return { ok: true, json: async () => ({ messages: { title: 'Gallery' } }) };
+            if (url.includes('/api/')) return { ok: false, status: 503 };
+            return { ok: true, json: async () => { throw new SyntaxError('setup HTML'); } };
+        });
+        sandbox.setTimeout = callback => { timers.set(++timerId, callback); return timerId; };
+        sandbox.clearTimeout = id => timers.delete(id);
+        sandbox.addEventListener = (name, callback) => events.set(name, callback);
+        sandbox.removeEventListener = (name, callback) => { if (events.get(name) === callback) events.delete(name); };
+        const client = await sandbox.PixivI18n.create({ lang: 'en-US', namespaces: ['common', 'gallery'] });
+        assert.equal(client.tns('gallery', 'title'), 'title');
+        let updates = 0;
+        client.onUpdate(() => updates++);
+        const commonCalls = calls.filter(url => url.includes('/messages/common')).length;
+        healthy = true;
+        const [id, retry] = timers.entries().next().value;
+        timers.delete(id);
+        await retry();
+        assert.equal(client.tns('gallery', 'title'), 'Gallery');
+        assert.equal(calls.filter(url => url.includes('/messages/common')).length, commonCalls);
+        assert.equal(updates, 1);
+        assert.equal(timers.size, 0);
+        assert.equal(events.size, 0);
+        passed += 6;
+
+        healthy = false;
+        const disposed = await sandbox.PixivI18n.create({ lang: 'en-US', namespaces: ['gallery'] });
+        disposed.dispose();
+        assert.equal(timers.size, 0);
+        assert.equal(events.size, 0);
+        passed += 2;
+    }
+    {
+        const sandbox = createSandbox(async url => {
+            if (url.includes('/meta')) return { ok: true, json: async () => structuredClone(META) };
+            return { ok: true, json: async () => url.includes('/api/')
+                ? { messages: { hello: 42 } } : { messages: { hello: 'Valid static translation' } } };
+        });
+        const client = await sandbox.PixivI18n.create({ namespaces: ['common'] });
+        assert.equal(client.t('hello'), 'Valid static translation');
+        passed++;
+    }
+    {
+        let stored = 'zh-CN';
+        let release;
+        const pending = new Promise(resolve => { release = resolve; });
+        const sandbox = createSandbox(async url => {
+            if (url.includes('/meta')) return { ok: true, json: async () => structuredClone(META) };
+            if (url.includes('en-US')) await pending;
+            return { ok: true, json: async () => ({ messages: {} }) };
+        });
+        sandbox.localStorage = { getItem: () => stored, setItem: (key, value) => { stored = value; } };
+        const old = sandbox.PixivI18n.create({ lang: 'en-US' });
+        await sandbox.PixivI18n.create({ lang: 'zh-CN' });
+        release();
+        await old;
+        assert.equal(stored, 'zh-CN');
+        passed++;
+    }
+
     // ===== a) tns 契约 =====
     const BUNDLES = {
         common: { 'nav.label': 'Common Nav', 'greeting': 'Hi {name}!' },

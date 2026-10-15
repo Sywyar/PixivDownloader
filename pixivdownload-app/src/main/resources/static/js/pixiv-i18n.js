@@ -14,6 +14,7 @@
     var languageChannelInitialized = false;
     var storageListenerInitialized = false;
     var languageChangeListeners = [];
+    var languageRequestRevision = 0;
 
     function normalizeLang(lang) {
         if (!lang) {
@@ -191,18 +192,21 @@
     }
 
     async function fetchJson(url) {
-        var response = await global.fetch(url, { credentials: 'same-origin' });
-        var payload = null;
+        var controller = global.AbortController ? new global.AbortController() : null;
+        var timeout = controller && global.setTimeout ? global.setTimeout(function () { controller.abort(); }, 10000) : null;
         try {
-            payload = await response.json();
-        } catch (e) {
-            payload = null;
+            var response = await global.fetch(url, {
+                credentials: 'same-origin', cache: 'no-store', signal: controller ? controller.signal : undefined
+            });
+            if (!response.ok) throw new Error('i18n HTTP ' + response.status);
+            var payload = await response.json();
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+                throw new Error('Invalid i18n JSON: ' + url);
+            }
+            return payload;
+        } finally {
+            if (timeout !== null) global.clearTimeout(timeout);
         }
-        if (!response.ok) {
-            var message = payload && payload.error ? payload.error : response.statusText;
-            throw new Error(message || 'Request failed');
-        }
-        return payload || {};
     }
 
     async function fetchJsonOrDefault(url, fallbackValue) {
@@ -227,15 +231,26 @@
     }
 
     async function fetchMessagesBundle(namespace, lang) {
+        async function load(url) {
+            var bundle = await fetchJson(url);
+            if (!bundle.messages || typeof bundle.messages !== 'object' || Array.isArray(bundle.messages)
+                    || Object.keys(bundle.messages).some(function (key) { return typeof bundle.messages[key] !== 'string'; })) {
+                throw new Error('Invalid i18n bundle: ' + url);
+            }
+            return bundle;
+        }
         try {
-            return await fetchJson(
+            return await load(
                 '/api/i18n/messages/' + encodeURIComponent(namespace) + '?lang=' + encodeURIComponent(lang)
             );
         } catch (e) {
-            // Backend unavailable (static hosting): fall back to a prebuilt bundle.
             var staticUrl = STATIC_BUNDLE_BASE +
                 encodeURIComponent(namespace) + '.' + encodeURIComponent(lang) + '.json';
-            return await fetchJsonOrDefault(staticUrl, { messages: {} });
+            try { return await load(staticUrl); }
+            catch (fallbackFailure) {
+                global.console.warn('i18n bundle unavailable', namespace, lang, e, fallbackFailure);
+                return null;
+            }
         }
     }
 
@@ -328,7 +343,67 @@
         applyAttributeBinding(root, client, '[data-i18n-href]', 'href', 'data-i18n-href');
     }
 
-    function buildClient(meta, namespaces, bundleMap) {
+    function buildClient(meta, namespaces, bundleMap, missing) {
+        var listeners = [];
+        var appliedRoot = null;
+        var disposed = false;
+        var recovering = false;
+        var timer = null;
+        var attempts = 0;
+        var delays = [1500, 5000, 15000];
+        function releaseRecovery() {
+            if (timer !== null) global.clearTimeout(timer);
+            timer = null;
+            if (global.removeEventListener) {
+                global.removeEventListener('online', retry);
+                global.removeEventListener('focus', retry);
+                global.removeEventListener('pagehide', client.dispose);
+            }
+        }
+        function schedule() {
+            if (!disposed && missing.length && attempts < delays.length && global.setTimeout) {
+                timer = global.setTimeout(recover, delays[attempts++]);
+            }
+        }
+        function retry() {
+            if (disposed || recovering || !missing.length) return;
+            if (timer !== null) global.clearTimeout(timer);
+            timer = null;
+            attempts = 0;
+            recover();
+        }
+        async function recover() {
+            timer = null;
+            if (disposed || recovering) return;
+            recovering = true;
+            var changed = false;
+            try {
+                var bundles = await Promise.all(missing.map(function (namespace) {
+                    return fetchMessagesBundle(namespace, client.lang);
+                }));
+                if (disposed) return;
+                if (readStoredLang() && normalizeLang(readStoredLang()) !== normalizeLang(client.lang)) {
+                    client.dispose();
+                    return;
+                }
+                missing = missing.filter(function (namespace, index) {
+                    if (!bundles[index]) return true;
+                    bundleMap[namespace] = bundles[index].messages;
+                    changed = true;
+                    return false;
+                });
+                if (changed) {
+                    if (appliedRoot) client.apply(appliedRoot);
+                    listeners.slice().forEach(function (listener) {
+                        try { listener(client); } catch (failure) { global.console.warn('i18n update failed', failure); }
+                    });
+                }
+            } finally {
+                recovering = false;
+                if (!missing.length) releaseRecovery();
+                else schedule();
+            }
+        }
         var client = {
             lang: meta.currentLang,
             defaultLang: meta.defaultLang,
@@ -362,8 +437,19 @@
                 return Object.prototype.hasOwnProperty.call(namespaceMessages, resolved.key);
             },
             apply: function (root) {
-                applyBindings(root || global.document, client);
+                appliedRoot = root || global.document;
+                applyBindings(appliedRoot, client);
                 return client;
+            },
+            onUpdate: function (listener) {
+                listeners.push(listener);
+                return function () { listeners = listeners.filter(function (value) { return value !== listener; }); };
+            },
+            dispose: function () {
+                disposed = true;
+                releaseRecovery();
+                listeners = [];
+                appliedRoot = null;
             },
             setLanguage: function (lang) {
                 return create({
@@ -372,11 +458,20 @@
                 });
             }
         };
+        if (missing.length) {
+            if (global.addEventListener) {
+                global.addEventListener('online', retry);
+                global.addEventListener('focus', retry);
+                global.addEventListener('pagehide', client.dispose);
+            }
+            schedule();
+        }
         return client;
     }
 
     async function create(options) {
         var config = options || {};
+        var revision = config.lang ? ++languageRequestRevision : languageRequestRevision;
         var namespaces = Array.isArray(config.namespaces) && config.namespaces.length
             ? config.namespaces.slice()
             : [DEFAULT_NAMESPACE];
@@ -400,24 +495,26 @@
             meta.currentLang = resolveSupportedLang(preferredLang || meta.currentLang, meta) || meta.currentLang;
         }
         var bundleMap = {};
+        var missing = [];
 
         for (var i = 0; i < namespaces.length; i += 1) {
             var namespace = namespaces[i];
             var bundle = await fetchMessagesBundle(namespace, meta.currentLang);
-            bundleMap[namespace] = bundle.messages || {};
+            bundleMap[namespace] = bundle ? bundle.messages : {};
+            if (!bundle) missing.push(namespace);
         }
 
         // 字典请求期间可能已切换语言；旧客户端不能把共享偏好写回去。
         if (readStoredLang() !== storedLang) {
             if (!config.lang) return create(config);
-        } else {
+        } else if (revision === languageRequestRevision) {
             writeStoredLang(meta.currentLang);
             if (global.document && global.document.documentElement) {
                 global.document.documentElement.lang = meta.currentLang;
             }
         }
 
-        return buildClient(meta, namespaces, bundleMap);
+        return buildClient(meta, namespaces, bundleMap, missing);
     }
 
     global.PixivI18n = {
