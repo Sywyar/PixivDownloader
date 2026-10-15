@@ -23,6 +23,39 @@ import java.util.function.Function;
 @DisplayName("Compose 工具表单默认值")
 class DesktopToolsControllerTest {
     @Test
+    @DisplayName("查看日志只打开已有页面，不新建或覆盖日志会话")
+    void viewingLogsDoesNotCreateSessions() throws Exception {
+        var opened = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        var created = new ArrayList<Path>();
+        var overrides = new HashMap<String, Function<Object[], Object>>();
+        overrides.put("openToolLogPage", args -> { opened.add((String) args[0]); return null; });
+        overrides.put("openToolLog", args -> { throw new AssertionError("Viewing must not create a session"); });
+        try {
+            for (String stem : List.of("artworks-backfill", "json-to-sqlite-migration")) {
+                Path log = Path.of("log", "html", stem + "-latest.html");
+                java.nio.file.Files.createDirectories(log.getParent());
+                if (!java.nio.file.Files.exists(log)) {
+                    java.nio.file.Files.writeString(log, "existing diagnostic");
+                    created.add(log);
+                }
+            }
+            try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+                awaitMediaReady(model);
+                activate(model, "tools.backfill.log");
+                DesktopConfigurationControllerTest.awaitReady(model);
+                activate(model, "tools.migration.log");
+                DesktopConfigurationControllerTest.awaitReady(model);
+                assertEquals(List.of("artworks-backfill", "json-to-sqlite-migration"), opened);
+            }
+        } finally {
+            for (Path log : created) {
+                assertEquals("existing diagnostic", java.nio.file.Files.readString(log));
+                java.nio.file.Files.delete(log);
+            }
+        }
+    }
+
+    @Test
     @DisplayName("回填跟随已保存代理，临时覆盖不写配置且后续保存不覆盖临时草稿")
     void backfillInheritsConfigurationAndKeepsTemporaryOverrides() throws Exception {
         Map<String, String> stored = new java.util.concurrent.ConcurrentHashMap<>(Map.of(
@@ -152,6 +185,7 @@ class DesktopToolsControllerTest {
                             overview(model).activity().message().key());
                     assertEquals("gui.tools.backend-status", overview(model).backend().text().key());
                     assertEquals(DesktopUiHost.ToolOutcome.CANCELLED, records.get(0)[1]);
+                    assertEquals(cancelDuringCount ? null : 1, records.get(0)[3]);
                     assertEquals(cancelDuringCount ? null : Path.of("session.html"), records.get(0)[6]);
                     var next = new java.util.concurrent.CompletableFuture<Boolean>();
                     model.executeAsync(() -> next.complete(Thread.currentThread().isInterrupted()));

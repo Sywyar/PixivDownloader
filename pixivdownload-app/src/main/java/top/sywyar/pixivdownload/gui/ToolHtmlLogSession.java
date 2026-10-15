@@ -8,13 +8,14 @@ import ch.qos.logback.core.encoder.LayoutWrappingEncoder;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.logback.HtmlLogLayout;
 
-import java.awt.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -22,9 +23,8 @@ import java.util.stream.Collectors;
  */
 public final class ToolHtmlLogSession implements AutoCloseable {
 
-    private static final Path LOG_HTML_DIR = Path.of("log", "html");
     private static final int HISTORY_COUNT = 5;
-    private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmmss");
+    private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmmss_SSS");
 
     private final Logger logger;
     private final FileAppender<ILoggingEvent> latestAppender;
@@ -45,25 +45,35 @@ public final class ToolHtmlLogSession implements AutoCloseable {
     }
 
     public static ToolHtmlLogSession open(String stem, Class<?> loggerType) throws Exception {
+        return open(top.sywyar.pixivdownload.config.RuntimeFiles.logDirectory().resolve("html"), stem, loggerType);
+    }
+
+    static synchronized ToolHtmlLogSession open(Path directory, String stem, Class<?> loggerType) throws Exception {
         String fileStem = normalizeStem(stem);
-        Files.createDirectories(LOG_HTML_DIR);
+        Files.createDirectories(directory);
 
-        Path latestPath = LOG_HTML_DIR.resolve(fileStem + "-latest.html");
-        Path sessionPath = LOG_HTML_DIR.resolve(fileStem + "_" + LocalDateTime.now().format(TS_FORMAT) + ".html");
-
-        Files.deleteIfExists(latestPath);
-        cleanOldSessions(fileStem);
+        Path latestPath = directory.resolve(fileStem + "-latest.html");
+        Path sessionPath = directory.resolve(fileStem + "_" + LocalDateTime.now().format(TS_FORMAT)
+                + "_" + UUID.randomUUID() + ".html");
 
         Logger logger = (Logger) LoggerFactory.getLogger(loggerType);
         LoggerContext context = logger.getLoggerContext();
 
         String latestAppenderName = "tool-html-latest-" + fileStem;
         String sessionAppenderName = "tool-html-session-" + fileStem;
-        logger.detachAppender(latestAppenderName);
-        logger.detachAppender(sessionAppenderName);
+        if (logger.getAppender(latestAppenderName) != null) {
+            throw new IllegalStateException("Tool log session is already active: " + fileStem);
+        }
+        Files.deleteIfExists(latestPath);
+        cleanOldSessions(directory, fileStem);
 
         FileAppender<ILoggingEvent> latestAppender = newAppender(context, latestAppenderName, latestPath);
         FileAppender<ILoggingEvent> sessionAppender = newAppender(context, sessionAppenderName, sessionPath);
+        if (!latestAppender.isStarted() || !sessionAppender.isStarted()) {
+            latestAppender.stop();
+            sessionAppender.stop();
+            throw new java.io.IOException("Unable to open tool log: " + sessionPath);
+        }
         logger.addAppender(latestAppender);
         logger.addAppender(sessionAppender);
 
@@ -79,13 +89,15 @@ public final class ToolHtmlLogSession implements AutoCloseable {
     }
 
     public void openLatestInBrowser() throws Exception {
-        Desktop.getDesktop().browse(latestPath.toUri());
+        DesktopShellOpen.openExternalUri(latestPath.toAbsolutePath().toUri());
     }
 
     @Override
     public void close() {
-        detachAndStop(latestAppender);
-        detachAndStop(sessionAppender);
+        synchronized (ToolHtmlLogSession.class) {
+            detachAndStop(latestAppender);
+            detachAndStop(sessionAppender);
+        }
     }
 
     private void detachAndStop(FileAppender<ILoggingEvent> appender) {
@@ -104,6 +116,7 @@ public final class ToolHtmlLogSession implements AutoCloseable {
         LayoutWrappingEncoder<ILoggingEvent> encoder = new LayoutWrappingEncoder<>();
         encoder.setContext(context);
         encoder.setLayout(layout);
+        encoder.setCharset(StandardCharsets.UTF_8);
         encoder.start();
 
         FileAppender<ILoggingEvent> appender = new FileAppender<>();
@@ -116,8 +129,8 @@ public final class ToolHtmlLogSession implements AutoCloseable {
         return appender;
     }
 
-    private static void cleanOldSessions(String stem) throws Exception {
-        try (var stream = Files.list(LOG_HTML_DIR)) {
+    private static void cleanOldSessions(Path directory, String stem) throws Exception {
+        try (var stream = Files.list(directory)) {
             List<Path> sessions = stream
                     .filter(path -> {
                         String name = path.getFileName().toString();

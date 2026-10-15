@@ -35,7 +35,8 @@ final class DesktopToolHistory {
             "toolId", "startedAtEpochMs", "finishedAtEpochMs", "outcome",
             "processedCount", "changedCount", "failedCount", "logFileName");
     private static final Pattern SAFE_LOG_NAME = Pattern.compile(
-            "(?:artworks-backfill|json-to-sqlite-migration)_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}\\.html");
+            "(?:artworks-backfill|json-to-sqlite-migration|pixiv-download)_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}"
+                    + "(?:_[0-9]{3}_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?\\.html");
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Logger LOG = LoggerFactory.getLogger(DesktopToolHistory.class);
 

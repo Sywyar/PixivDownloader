@@ -35,6 +35,7 @@ public class ToolsPanel extends JPanel {
     private final Path configPath;
     private DesktopUiHost.BackfillOptions inheritedBackfillOptions;
     private String inheritedRootFolder;
+    private boolean logPageOpening;
     private final MediaToolsPanel mediaTools = new MediaToolsPanel(SwingHost.context());
 
     private final JLabel backendStateLabel = new JLabel(message("gui.tools.backend-status", message("gui.tools.backend-status.detecting")));
@@ -471,7 +472,6 @@ public class ToolsPanel extends JPanel {
             try {
                 currentBackfillLogSession = SwingHost.host().openToolLog("artworks-backfill");
                 SwingUtilities.invokeLater(this::refreshActionStates);
-                currentBackfillLogSession.openLatestInBrowser();
             } catch (Exception error) {
                 handleBackfillPreparationFailure(
                         message("gui.tools.backfill.status.log-open-failed"),
@@ -481,6 +481,7 @@ public class ToolsPanel extends JPanel {
                 return;
             }
 
+            openLogAfterPreparation(currentBackfillLogSession);
             runBackfillInBackground(options);
         }, "tools-artworks-backfill-prepare");
         worker.setDaemon(true);
@@ -592,24 +593,7 @@ public class ToolsPanel extends JPanel {
     }
 
     private void openBackfillLogPage() {
-        try {
-            if (currentBackfillLogSession != null) {
-                currentBackfillLogSession.openLatestInBrowser();
-                return;
-            }
-            if (!Files.exists(BACKFILL_LOG_PATH)) {
-                JOptionPane.showMessageDialog(this,
-                        message("gui.tools.dialog.backfill-log.missing"),
-                        message("gui.dialog.info.title"), JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-            Desktop.getDesktop().browse(BACKFILL_LOG_PATH.toUri());
-        } catch (Exception e) {
-            log.warn(logMessage("gui.tools.log.backfill.open-log-page-failed", e.getMessage()), e);
-            GuiErrorDialog.show(this,
-                    message("gui.dialog.error.title"),
-                    message("gui.tools.dialog.backfill-log.open-failed", e.getMessage()));
-        }
+        openToolLogPage("artworks-backfill");
     }
 
     private void browseMigrationDatabase() {
@@ -698,7 +682,6 @@ public class ToolsPanel extends JPanel {
             try {
                 currentMigrationLogSession = SwingHost.host().openToolLog("json-to-sqlite-migration");
                 SwingUtilities.invokeLater(this::refreshActionStates);
-                currentMigrationLogSession.openLatestInBrowser();
             } catch (Exception error) {
                 handleMigrationPreparationFailure(
                         message("gui.tools.migration.status.log-open-failed"),
@@ -708,6 +691,7 @@ public class ToolsPanel extends JPanel {
                 return;
             }
 
+            openLogAfterPreparation(currentMigrationLogSession);
             runMigrationInBackground(options);
         }, "tools-json-to-sqlite-migration-prepare");
         worker.setDaemon(true);
@@ -809,23 +793,33 @@ public class ToolsPanel extends JPanel {
     }
 
     private void openMigrationLogPage() {
-        try {
-            if (currentMigrationLogSession != null) {
-                currentMigrationLogSession.openLatestInBrowser();
-                return;
+        openToolLogPage("json-to-sqlite-migration");
+    }
+
+    private void openToolLogPage(String stem) {
+        if (logPageOpening) return;
+        logPageOpening = true;
+        new SwingWorker<Void, Void>() {
+            @Override protected Void doInBackground() throws Exception {
+                SwingHost.host().openToolLogPage(stem);
+                return null;
             }
-            if (!Files.exists(MIGRATION_LOG_PATH)) {
-                JOptionPane.showMessageDialog(this,
-                        message("gui.tools.dialog.migration-log.missing"),
-                        message("gui.dialog.info.title"), JOptionPane.INFORMATION_MESSAGE);
-                return;
+            @Override protected void done() {
+                logPageOpening = false;
+                try { get(); }
+                catch (Exception failure) {
+                    log.warn(logMessage("desktop.ui.tools.log-open-failed"), failure);
+                    GuiErrorDialog.show(ToolsPanel.this, message("gui.dialog.error.title"),
+                            message("desktop.ui.tools.log-open-failed"));
+                }
             }
-            Desktop.getDesktop().browse(MIGRATION_LOG_PATH.toUri());
-        } catch (Exception e) {
-            log.warn(logMessage("gui.tools.log.migration.open-log-page-failed", e.getMessage()), e);
-            GuiErrorDialog.show(this,
-                    message("gui.dialog.error.title"),
-                    message("gui.tools.dialog.migration-log.open-failed", e.getMessage()));
+        }.execute();
+    }
+
+    private void openLogAfterPreparation(DesktopUiHost.ToolLogSession session) {
+        try { session.openLatestInBrowser(); }
+        catch (Exception failure) {
+            log.warn(logMessage("desktop.ui.tools.log-open-failed"), failure);
         }
     }
 

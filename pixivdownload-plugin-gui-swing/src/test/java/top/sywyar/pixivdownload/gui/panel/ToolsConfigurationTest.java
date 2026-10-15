@@ -23,6 +23,52 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 @DisplayName("Swing 工具配置继承")
 class ToolsConfigurationTest {
     @Test
+    @DisplayName("打开日志在后台调用只读宿主入口，重复点击不阻塞 EDT")
+    void logOpeningKeepsEventThreadResponsive() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var locale = new DesktopUiHost.UiLocale("en-US", "English", "_en");
+        var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "", 8080, false, 0, 0, false);
+                    case "readDownloadRootFromConfig" -> "downloads";
+                    case "resolveDatabasePath" -> Path.of("data/test.db");
+                    case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
+                    case "mediaTools", "coreConfigGroups", "coreConfigFields" -> List.of();
+                    case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);
+                    case "subscribeBackend" -> (AutoCloseable) () -> {};
+                    case "openToolLogPage" -> {
+                        org.junit.jupiter.api.Assertions.assertFalse(SwingUtilities.isEventDispatchThread());
+                        assertEquals("artworks-backfill", args[0]);
+                        calls.incrementAndGet();
+                        entered.countDown();
+                        org.junit.jupiter.api.Assertions.assertTrue(release.await(5, java.util.concurrent.TimeUnit.SECONDS));
+                        yield null;
+                    }
+                    default -> throw new AssertionError("Unexpected host operation: " + method.getName());
+                });
+        var path = Path.of("config.yaml");
+        SwingHost.install(new DesktopUiContext(false, 8080, "downloads", path, "gui-swing", host,
+                List.of(), List::of, text -> text.key(), () -> "system"));
+        var panel = new AtomicReference<ToolsPanel>();
+        var open = ToolsPanel.class.getDeclaredMethod("openBackfillLogPage");
+        open.setAccessible(true);
+        try {
+            SwingUtilities.invokeAndWait(() -> panel.set(new ToolsPanel(path)));
+            SwingUtilities.invokeAndWait(() -> {
+                try { open.invoke(panel.get()); open.invoke(panel.get()); }
+                catch (ReflectiveOperationException failure) { throw new AssertionError(failure); }
+            });
+            org.junit.jupiter.api.Assertions.assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            SwingUtilities.invokeAndWait(() -> assertEquals(1, calls.get()));
+        } finally {
+            release.countDown();
+            SwingUtilities.invokeAndWait(() -> { if (panel.get() != null) panel.get().dispose(); });
+        }
+    }
+
+    @Test
     @DisplayName("刷新采用新代理和下载根，保留临时覆盖且不请求配置写入")
     void refreshPreservesTemporaryOverrides() throws Exception {
         var saved = new AtomicReference<>(new DesktopUiHost.BackfillOptions(

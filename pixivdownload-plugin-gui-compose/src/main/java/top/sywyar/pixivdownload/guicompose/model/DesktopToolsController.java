@@ -65,6 +65,7 @@ final class DesktopToolsController {
     volatile String exclusiveToolName = "";
     private volatile long exclusiveToolStartedAt;
     private Path exclusiveToolLogPath;
+    private Integer exclusiveToolProcessedCount;
 
     DesktopToolsController(
             ComposeDesktopUiModel owner,
@@ -208,8 +209,8 @@ final class DesktopToolsController {
 
     void openToolLog(String name) {
         owner.runBusy(() -> {
-            try (DesktopUiHost.ToolLogSession log = host.openToolLog(name)) {
-                log.openLatestInBrowser();
+            try {
+                host.openToolLogPage(name);
             } catch (Exception failure) {
                 LOG.warn("Unable to open desktop tool log {}", name, failure);
                 owner.showDialog(
@@ -270,8 +271,13 @@ final class DesktopToolsController {
                         owner.rebuild();
                         try (DesktopUiHost.ToolLogSession log = host.openToolLog("artworks-backfill")) {
                             exclusiveToolLogPath = log.sessionPath();
-                            log.openLatestInBrowser();
+                            try {
+                                log.openLatestInBrowser();
+                            } catch (Exception failure) {
+                                LOG.warn(host.message("desktop.ui.tools.log-open-failed"), failure);
+                            }
                             DesktopUiHost.BackfillSummary summary = host.runBackfill(options, (processed, total) -> {
+                                exclusiveToolProcessedCount = processed;
                                 if (backfillCancelRequested) throw new java.util.concurrent.CancellationException();
                                 var progress = new DesktopUiNode.Progress("tools.backfill.progress",
                                         total == 0 ? 1d : (double) processed / total, false,
@@ -342,7 +348,11 @@ final class DesktopToolsController {
                     try (DesktopUiHost.ToolLogSession log = host.openToolLog(
                             "json-to-sqlite-migration")) {
                         exclusiveToolLogPath = log.sessionPath();
-                        log.openLatestInBrowser();
+                        try {
+                            log.openLatestInBrowser();
+                        } catch (Exception failure) {
+                            LOG.warn(host.message("desktop.ui.tools.log-open-failed"), failure);
+                        }
                         DesktopUiHost.MigrationSummary summary = host.runMigration(
                                 options,
                                 ignored -> {
@@ -1000,6 +1010,7 @@ final class DesktopToolsController {
         long startedAt = System.currentTimeMillis();
         exclusiveToolStartedAt = startedAt;
         exclusiveToolLogPath = null;
+        exclusiveToolProcessedCount = null;
         owner.setBusy(true);
         owner.rebuild();
         owner.executeAsync(() -> {
@@ -1039,7 +1050,7 @@ final class DesktopToolsController {
                         toolId,
                         DesktopUiToolHost.ToolOutcome.CANCELLED,
                         startedAt,
-                        null,
+                        exclusiveToolProcessedCount,
                         null,
                         null,
                         exclusiveToolLogPath
@@ -1052,7 +1063,7 @@ final class DesktopToolsController {
                         toolId,
                         DesktopUiToolHost.ToolOutcome.FAILED,
                         startedAt,
-                        null,
+                        exclusiveToolProcessedCount,
                         null,
                         null,
                         exclusiveToolLogPath
