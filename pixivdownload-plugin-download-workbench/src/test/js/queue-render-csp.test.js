@@ -54,6 +54,7 @@ async function fixture(alt, size = 300, production = false) {
         queueItemDisplayTitle:q=>{if(alt)builds.push(q.id);return q.title;}, queueItemCanonicalUrl:q=>'https://example.com/'+q.id,
         queueItemMessage:q=>String(q.downloadedCount), pct:q=>q.downloadedCount,
         progressExtrasModel:()=>[],
+        queueProgressSnapshot:q=>Object.assign({},q),
         currentFrontItem:items=>items.find(q=>q.status==='downloading')||null,
         currentCardModel:q=>q?{title:q.title,percent:q.downloadedCount,detail:'current:'+q.downloadedCount}:null,
         currentRemainingCounts:()=>({downloading:0,queued:0}),currentRemainingLineText:()=>'',
@@ -130,6 +131,32 @@ async function fixture(alt, size = 300, production = false) {
         setLanguage(value){language=value;},rowClass:alt?'ab-queue-item':'q-item-host'};
 }
 
+test('新版实际 Vue 行和当前卡在换图、清空快照和切换格式时保留进度节点', async () => {
+    const f = await fixture(true, 2, true), q = f.state.queue[0];
+    q.imageProgress = {imageNumber: 1, totalImages: 3, progress: 25,
+        processing: [{phase: 'ffmpeg-waiting', outputFormat: 'png'}]};
+    f.sync(q); await f.flush();
+    const bars = root => byClass(root, 'ab-progress-extras').flatMap(extras => byClass(extras, 'ab-mini-prog'));
+    const initial = [bars(f.list), bars(f.current)];
+    assert.equal(initial[0].length, 2);
+    assert.equal(initial[1].length, 2);
+    for (const imageProgress of [null,
+        {imageNumber: 2, totalImages: 3, progress: 75, processing: [{phase: 'ffmpeg', outputFormat: 'webp'}]},
+        {phase: 'processing', processing: [{phase: 'verifying', outputFormat: 'png'}]}, null]) {
+        q.imageProgress = imageProgress;
+        f.sync(q); await f.flush();
+        for (const [index, root] of [f.list, f.current].entries()) {
+            assert.equal(bars(root).length, initial[index].length);
+            bars(root).forEach((bar, i) => assert.equal(bar, initial[index][i]));
+        }
+    }
+    assert.equal(byClass(f.list, 'is-indeterminate').length, 0);
+    assert.doesNotMatch(textOf(f.list), /75%|25%|WEBP|PNG/);
+    f.setLanguage('fr'); f.sync(); await f.flush();
+    assert.match(textOf(f.list), /fr:.*queue.progress.inactive/);
+    assert.deepEqual(f.errors, []);
+});
+
 for(const alt of [false,true]) {
     test((alt?'侧栏':'经典')+'真实队列同时显示下载与媒体处理，失败停止动画并保留可访问状态',async()=>{
         const f=await fixture(alt,2,true), q=f.state.queue[0];
@@ -148,7 +175,8 @@ for(const alt of [false,true]) {
         q.imageProgress={phase:'processing',processing:[{imageNumber:1,totalImages:5,phase:'thumbnail',status:'failed'}]};
         f.sync(q);await f.flush();
         assert.match(textOf(f.current),/queue.media.failed/);
-        assert.doesNotMatch(textOf(f.current),/queue.image-download.label/);
+        if (alt) assert.match(textOf(f.current),/queue.image-download.label.*queue.progress.inactive/);
+        else assert.doesNotMatch(textOf(f.current),/queue.image-download.label/);
         assert.equal(byClass(f.current,'is-indeterminate').length,0);
         delete q.imageProgress;
         for(const phase of ['ffmpeg-waiting','finalizing']) {

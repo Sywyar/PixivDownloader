@@ -18,6 +18,7 @@
 <link rel="stylesheet" href="/css/pixiv-feedback.css">
 <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
 <link rel="stylesheet" href="/intro/intro.css">
+    <script src="/js/pixiv-layout.js" defer></script>
 </head>
 <body class="layout-flow">
 
@@ -28,7 +29,7 @@
 </div>
 
 <!-- top nav -->
-<nav class="top">
+<nav class="top" data-layout-height="--layout-header-height" data-layout-scroll-root="#deck">
   <div class="logo"><span class="mark">P</span> PixivDownloader</div>
   <ul>
     <li><a data-goto="0" data-i18n="nav.home">首页</a></li>

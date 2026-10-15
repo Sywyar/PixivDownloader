@@ -26,78 +26,75 @@
             flex-shrink: 0;
         }
 
-        .search-box {
-            flex: 1;
-            max-width: 480px;
+        .gallery-search {
             display: flex;
-            align-items: center;
-            gap: 10px;
-            height: 40px;
-            padding: 0 16px;
-            border-radius: 999px;
+            align-items: stretch;
+            flex: 1 1 20rem;
+            min-width: min(100%, 16rem);
+            max-width: 36rem;
             border: 1px solid var(--line);
+            border-radius: .75rem;
             background: var(--control-muted-bg);
-            transition: border-color 0.15s, background 0.15s;
         }
 
-        .search-box:focus-within {
+        .gallery-search:focus-within {
             border-color: var(--brand);
             background: var(--surface);
         }
 
+        .search-type-select {
+            flex: 0 1 auto;
+            min-width: 0;
+            max-width: 42%;
+            min-height: max(2.5rem, var(--layout-control-height));
+            padding: .375rem .5rem;
+            border: 0;
+            border-right: 1px solid var(--line);
+            border-radius: .75rem 0 0 .75rem;
+            background: var(--control-bg);
+            color: var(--text-secondary);
+            font: inherit;
+            font-size: .875rem;
+            cursor: pointer;
+        }
+
+        .search-type-select:disabled {
+            opacity: .55;
+            cursor: default;
+        }
+
+        .search-box {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+            min-height: max(2.5rem, var(--layout-control-height));
+            padding: .375rem .625rem;
+            border: 1px solid transparent;
+            border-radius: 0 .75rem .75rem 0;
+        }
+
         .search-box svg {
-            width: 16px;
-            height: 16px;
+            width: 1rem;
+            height: 1rem;
             color: var(--muted);
             flex-shrink: 0;
         }
 
         .search-box input {
             flex: 1;
+            width: 100%;
+            min-width: 0;
             border: none;
             outline: none;
             background: transparent;
-            font-size: 0.8125rem;
-            font-family: inherit;
+            font: inherit;
+            font-size: 1rem;
             color: var(--text);
         }
 
-        .search-box input::placeholder {
-            color: var(--muted);
-        }
-
-        .search-type-select {
-            min-height: max(2.5rem, var(--layout-control-height));
-            padding: 0 30px 0 14px;
-            border-radius: 999px;
-            border: 1px solid var(--line);
-            background: var(--control-bg);
-            color: var(--text-secondary);
-            font-size: 0.8125rem;
-            font-family: inherit;
-            cursor: pointer;
-            outline: none;
-            flex-shrink: 0;
-            appearance: none;
-            -webkit-appearance: none;
-            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e");
-            background-repeat: no-repeat;
-            background-position: right 10px center;
-            background-size: 14px;
-            transition: border-color 0.15s, color 0.15s;
-        }
-
-        .search-type-select:hover,
-        .search-type-select:focus {
-            border-color: var(--brand);
-            color: var(--brand);
-        }
-
-        .search-type-select:disabled {
-            opacity: 0.55;
-            cursor: default;
-            color: var(--muted);
-        }
+        .search-box input::placeholder { color: var(--muted); }
 
         .search-box.search-no-result {
             border-color: var(--danger);
@@ -178,13 +175,13 @@
             background: var(--control-muted-bg);
             gap: 2px;
             flex-shrink: 0;
-            margin-left: 30px;
+            margin-left: 0;
         }
         .gallery-type-option {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            height: 32px;
+            min-height: var(--layout-control-height);
             min-width: 64px;
             padding: 0 16px;
             border: none;
@@ -220,7 +217,8 @@
             flex-direction: column;
             gap: 14px;
             box-shadow: 0 12px 32px var(--shadow-card-color);
-            max-height: 80vh;
+            max-height: max(0px, calc(100dvh - var(--layout-header-height) - .5rem - env(safe-area-inset-bottom)));
+            overscroll-behavior: contain;
             overflow-y: auto;
         }
 

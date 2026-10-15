@@ -364,7 +364,7 @@
 
         .mobile-menu-btn {
             display: none;
-            width: 36px;
+            width: max(2.25rem, var(--layout-control-height));
             min-height: max(2.25rem, var(--layout-control-height));
             border: none;
             background: var(--control-muted-bg);

@@ -124,7 +124,7 @@ function aqvMiniProgress(label, value, progress, cls, key, active = true) {
             'aria-valuenow': percent == null ? undefined : String(percent),
             'aria-busy': String(percent == null && active)}, [h('div', {
             class: ['ab-mini-prog-fill', cls, {'is-indeterminate': percent == null && active}],
-            style: {width: (percent == null ? 35 : percent) + '%'}
+            style: {width: (percent == null ? (active ? 35 : 0) : percent) + '%'}
         })])
     ]);
 }
@@ -457,13 +457,13 @@ function aqvSyncList(changedItem) {
                     const key = aqvRowKey(q);
                     keys.push(key);
                     aqvRowIndexes.set(key, index);
-                    return Object.assign({}, q);
+                    return queueProgressSnapshot(q);
                 });
                 aqvStore.rowKeys = keys;
             } else {
                 // 原始队列在 Vue 外更新，替换脏行快照以保留嵌套字段的刷新语义。
                 aqvDirtyRows.forEach((q, key) => {
-                    aqvStore.items[aqvRowIndexes.get(key)] = Object.assign({}, q);
+                    aqvStore.items[aqvRowIndexes.get(key)] = queueProgressSnapshot(q);
                 });
             }
         }

@@ -785,7 +785,7 @@ function miniProgress(label, valueText, progress, cls, active = true) {
     bar.setAttribute('aria-busy', String(pctValue == null && active));
     if (pctValue != null) bar.setAttribute('aria-valuenow', String(pctValue));
     const fill = el('div', 'ab-mini-prog-fill' + (cls ? ' ' + cls : ''));
-    fill.style.width = (pctValue == null ? 35 : pctValue) + '%';
+    fill.style.width = (pctValue == null ? (active ? 35 : 0) : pctValue) + '%';
     if (pctValue == null && active) fill.classList.add('is-indeterminate');
     bar.appendChild(fill);
     wrap.appendChild(bar);
@@ -810,18 +810,56 @@ function progressExtras(q) {
     return parts;
 }
 
+// 只记本次执行出现过的进度位置；快照缺席时不保留旧字节、百分比或格式。
+const altProgressSlots = new WeakMap();
+function progressSlotsFor(q) {
+    if (q.progressSlots) return q.progressSlots;
+    let seen = altProgressSlots.get(q);
+    const taskId = q.taskId || null;
+    if (!seen || seen.taskId !== taskId || q.status === 'pending' || q.status === 'idle') {
+        seen = {taskId, slots: []};
+        altProgressSlots.set(q, seen);
+    }
+    const remember = (key, labelKey, cls) => {
+        if (!seen.slots.some(slot => slot.key === key)) seen.slots.push({key, labelKey, cls});
+    };
+    if (q.status === 'downloading') {
+        const ip = q.imageProgress;
+        if (ip && !ip.phase) remember('image-download', 'queue.image-download.label', 'is-image');
+        const processing = ip ? (ip.phase && ip.phase !== 'processing' ? 1 : 0)
+            + (Array.isArray(ip.processing) ? ip.processing.length : 0) : 0;
+        for (let i = 0; i < processing; i++) remember('image-processing-' + i, 'queue.media.label', 'is-ffmpeg');
+        const up = q.ugoiraProgress;
+        if (up) {
+            if (['zip', 'extract', 'ffmpeg'].includes(up.phase) || up.zipProgress !== undefined
+                    || up.zipDownloadedBytes !== undefined) remember('zip', 'queue.ugoira.zip', 'is-zip');
+            if (up.phase && up.phase !== 'zip') remember('ugoira-processing', 'queue.media.label', 'is-ffmpeg');
+        }
+        if (q.kind === 'novel') {
+            for (const [value, key] of [[q.novelText, 'queue.novel-text.label'], [q.novelCover, 'queue.novel-cover.label']]) {
+                if (value && (value.done > 0 || value.total > 0)) remember(key, key, 'is-image');
+            }
+            if (q.novelEmbedded?.total > 0) remember('embedded', 'queue.novel-images.label', 'is-image');
+        }
+    }
+    return seen.slots;
+}
+
+function queueProgressSnapshot(q) {
+    // Vue 的行快照携带纯值显示位置，不把派生状态写入持久队列。
+    return Object.assign({}, q, {progressSlots: progressSlotsFor(q).slice()});
+}
+
 function progressExtrasModel(q) {
+    const slots = progressSlotsFor(q);
     const parts = [];
-    let has = false;
     const progress = (key, label, value, percent, cls, active = true) => {
         parts.push({key, kind: 'progress', label, value, progress: percent, cls, active});
-        has = true;
     };
     const runtime = window.PixivBatch && window.PixivBatch.queueTypes;
     const live = runtime && typeof runtime.queueLiveStatus === 'function' ? runtime.queueLiveStatus(q) : null;
     if (live && live.label && live.message && ['info', 'success', 'warning', 'error'].includes(live.tone)) {
         parts.push({key: 'live', tone: live.tone, badge: live.label, text: live.message});
-        has = true;
     }
     if (q.kind === 'novel' && q.status === 'downloading') {
         for (const [value, key, fallback] of [[q.novelText, 'queue.novel-text.label', '小说正文'],
@@ -840,6 +878,7 @@ function progressExtrasModel(q) {
     }
     const snapshot = q.imageProgress;
     const images = snapshot ? [snapshot, ...(Array.isArray(snapshot.processing) ? snapshot.processing : [])] : [];
+    let processingIndex = 0;
     for (const ip of images.filter(image => image.phase !== 'processing')) {
         if (ip && q.status === 'downloading') {
             const imageText = ip.imageNumber && ip.totalImages
@@ -850,14 +889,13 @@ function progressExtrasModel(q) {
                 : formatBytes(ip.downloadedBytes || 0);
             if (ip.phase) {
                 const label = ip.status === 'failed' ? bt('queue.media.failed', null) : mediaProgressLabel(ip);
-                progress('image-' + (ip.imageNumber || 0) + '-' + ip.phase, label, imageText, null,
+                progress('image-processing-' + processingIndex++, label, imageText, null,
                     ip.status === 'failed' ? 'is-failed' : 'is-ffmpeg', ip.status !== 'failed');
-            } else progress('image-' + (ip.imageNumber || 0),
+            } else progress('image-download',
                 bt('queue.image-download.label', '图片下载'),
                 [imageText, bytesText].filter(Boolean).join(' · '),
                 ip.progress,
                 ip.status === 'failed' ? 'is-failed' : 'is-image', ip.status !== 'failed');
-            has = true;
         }
     }
     const up = q.ugoiraProgress;
@@ -871,18 +909,18 @@ function progressExtrasModel(q) {
                 'is-zip', phase === 'zip' && up.status !== 'failed');
         }
         if (phase === 'extract') {
-            parts.push({key: 'extract', text: up.totalFrames > 0
+            progress('ugoira-processing', bt('queue.ugoira.extracting', '正在解压帧'), up.totalFrames > 0
                     ? bt('queue.ugoira.extracting-count', '正在解压帧 {current}/{total}', {current: up.extractedFrames || 0, total: up.totalFrames})
-                    : bt('queue.ugoira.extracting', '正在解压帧')});
+                    : '', null, 'is-ffmpeg', up.status !== 'failed');
         }
         if (phase === 'ffmpeg-waiting' || phase === 'finalizing') {
-            progress('ffmpeg-waiting', mediaProgressLabel(up), '', null, 'is-ffmpeg', up.status !== 'failed');
+            progress('ugoira-processing', mediaProgressLabel(up), '', null, 'is-ffmpeg', up.status !== 'failed');
         }
         if (phase === 'ffmpeg' && up.status !== 'failed') {
             const timeText = up.ffmpegDurationMs > 0
                 ? `${formatDurationMs(up.ffmpegOutTimeMs || 0)} / ${formatDurationMs(up.ffmpegDurationMs)}`
                 : '';
-            progress('ffmpeg', mediaProgressLabel(up), timeText, up.ffmpegProgress, 'is-ffmpeg');
+            progress('ugoira-processing', mediaProgressLabel(up), timeText, up.ffmpegProgress, 'is-ffmpeg');
         }
         if (up.status === 'failed') {
             parts.push({key: 'ugoira-error', tone: 'error', text: bt('queue.ugoira.failed', '动图处理失败')});
@@ -892,10 +930,14 @@ function progressExtrasModel(q) {
         const msg = novelTranslateMessage(q);
         if (msg) {
             parts.push({key: 'translate', badge: bt('queue.translate.label', 'AI 翻译'), ai: true, text: msg});
-            has = true;
         }
     }
-    return has ? parts : [];
+    const notes = parts.filter(part => part.kind !== 'progress');
+    const bars = slots.map(slot => parts.find(part => part.key === slot.key) || {
+        ...slot, kind: 'progress', label: bt(slot.labelKey, null),
+        value: bt('queue.progress.inactive', '暂无当前进度'), progress: null, active: false
+    });
+    return [...bars, ...notes];
 }
 
 function novelTranslateMessage(q) {

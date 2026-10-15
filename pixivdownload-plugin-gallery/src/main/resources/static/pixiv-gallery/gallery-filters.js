@@ -215,6 +215,7 @@
     function setFilterPanelOpen(open) {
         const panel = document.getElementById('filterPanel');
         document.getElementById('filterToggle').classList.toggle('active', open);
+        document.getElementById('filterToggle').setAttribute('aria-expanded', String(open));
         panel.classList.toggle('open', open);
         if (open) {
             ensureFilterOptionsLoaded();

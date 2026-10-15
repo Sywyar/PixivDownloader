@@ -8,7 +8,7 @@
             savedState = localStorage.getItem(SIDEBAR_STATE_STORAGE_KEY);
         } catch (_) {
         }
-        sidebar.classList.toggle('collapsed', savedState === 'closed');
+        sidebar.classList.toggle('collapsed', savedState !== 'open');
     }
 
     function saveSidebarState(collapsed) {
@@ -34,4 +34,4 @@
         document.getElementById('sidebar').classList.remove('mobile-open');
         document.getElementById('mobileOverlay').classList.remove('active');
     }
-
+

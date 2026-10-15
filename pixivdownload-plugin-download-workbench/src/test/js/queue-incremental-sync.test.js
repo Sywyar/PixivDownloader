@@ -13,6 +13,7 @@ for (const variant of ['classic', 'alt']) {
         const document = {createElement: () => ({}), querySelector: () => element, getElementById: () => element, contains: () => true};
         let lookups = 0;
         const sandbox = {console, document, state, requestAnimationFrame() {}, setTimeout,
+            queueProgressSnapshot:q=>Object.assign({},q),
             PixivBatchAlt: {}, PixivBatch: {state: {state}, queueTypes: {queueKey(q) { lookups++; return q.kind + ':' + q.id; }}}};
         sandbox.window = sandbox;
         vm.createContext(sandbox, {codeGeneration: {strings: false, wasm: false}});
