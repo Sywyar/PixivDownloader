@@ -166,12 +166,10 @@ public class NovelGalleryService {
 
     /** 返回当前可见的小说系列 id；无访客限制时返回全部未删除小说所属系列。 */
     public Set<Long> visibleSeriesIds(WorkRestriction restriction) {
-        if (restriction == null) {
-            return java.util.Collections.unmodifiableSet(new LinkedHashSet<>(
-                    catalogSeriesCounts(novelSeriesCatalogRepository.findAll()).keySet()));
-        }
-        return java.util.Collections.unmodifiableSet(new LinkedHashSet<>(
-                workQueryService.countBySeries(WorkType.NOVEL, restriction).keySet()));
+        Map<Long, Long> counts = restriction == null
+                ? catalogSeriesCounts(novelSeriesCatalogRepository.findAll())
+                : workQueryService.countBySeries(WorkType.NOVEL, restriction);
+        return java.util.Collections.unmodifiableSet(new LinkedHashSet<>(counts.keySet()));
     }
 
     public List<NovelTagOption> listTags(String search, int limit) {
@@ -244,11 +242,7 @@ public class NovelGalleryService {
         if (tags == null || tags.isEmpty()) {
             return List.of();
         }
-        List<WorkTag> out = new ArrayList<>(tags.size());
-        for (WorkTag tag : tags) {
-            out.add(new WorkTag(tag.tagId(), tag.name(), tag.translatedName()));
-        }
-        return out;
+        return new ArrayList<>(tags);
     }
 
     private static WorkQuery toWorkQuery(NovelGalleryQuery q) {
