@@ -108,18 +108,11 @@ class ScheduleServiceTest {
     private ScheduleCredentialBindingLease credentialBindingLease;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final PixivSchedulePersistenceCodec persistenceCodec =
-            new PixivSchedulePersistenceCodec(objectMapper);
     private final TransactionTemplate transactionTemplate =
             new TransactionTemplate(NO_OP_TRANSACTION_MANAGER);
 
-    /** 默认空统一能力注册中心（多数用例不触发翻译状态叠加）。 */
-    private static FakeScheduleCapabilityAccess emptyCapabilityRegistry() {
-        return new FakeScheduleCapabilityAccess();
-    }
-
     private ScheduleService newService() {
-        return newService(new ScheduleRunState(), emptyCapabilityRegistry());
+        return newService(new ScheduleRunState(), new FakeScheduleCapabilityAccess());
     }
 
     private ScheduleService newService(ScheduleRunState runState,
@@ -149,6 +142,18 @@ class ScheduleServiceTest {
 
     private static void discover(ScheduleRunQueue.Run run, ScheduledWork work) {
         run.discovered(work, STATUS_OWNER, STATUS_PUBLICATION_ID);
+    }
+
+    private static void markDownloaded(ScheduleRunQueue.Run run, ScheduledWorkKey key) {
+        run.markResult(
+                key,
+                new ScheduledWorkResult(
+                        ScheduledWorkResult.Outcome.COMPLETED,
+                        "vendor.completed",
+                        Map.of(),
+                        true),
+                ScheduleRunQueue.STATUS_DOWNLOADED,
+                null);
     }
 
     private void stubBinding(ScheduledCredentialBindResult result) throws Exception {
@@ -326,7 +331,7 @@ class ScheduleServiceTest {
         when(store.findAll()).thenReturn(List.of(queued, disabled, suspended, outsideWindow));
         ScheduleRunState liveState = new ScheduleRunState();
         assertThat(liveState.tryMarkQueued(1L)).isNotNull();
-        ScheduleService service = newService(liveState, emptyCapabilityRegistry());
+        ScheduleService service = newService(liveState, new FakeScheduleCapabilityAccess());
 
         var snapshot = service.snapshot(observedAt);
 
@@ -361,7 +366,7 @@ class ScheduleServiceTest {
         ScheduleRunState runState = new ScheduleRunState();
         ScheduleRunState.Claim claim = runState.tryMarkQueued(42L);
         assertThat(claim).isNotNull();
-        ScheduleService service = newService(runState, emptyCapabilityRegistry());
+        ScheduleService service = newService(runState, new FakeScheduleCapabilityAccess());
 
         service.pause(42L);
 
@@ -380,7 +385,7 @@ class ScheduleServiceTest {
         ScheduleRunState runState = new ScheduleRunState();
         assertThat(runState.tryMarkQueued(99L)).isNotNull();
 
-        assertThatThrownBy(() -> newService(runState, emptyCapabilityRegistry()).pause(99L))
+        assertThatThrownBy(() -> newService(runState, new FakeScheduleCapabilityAccess()).pause(99L))
                 .isInstanceOf(LocalizedException.class);
 
         assertThat(runState.isCancelRequested(99L)).isFalse();
@@ -393,7 +398,7 @@ class ScheduleServiceTest {
         ScheduleRunState runState = new ScheduleRunState();
         runState.tryMarkQueued(7L);
 
-        assertThatThrownBy(() -> newService(runState, emptyCapabilityRegistry()).manualRun(7L))
+        assertThatThrownBy(() -> newService(runState, new FakeScheduleCapabilityAccess()).manualRun(7L))
                 .isInstanceOf(LocalizedException.class);
 
         verify(executor, never()).runTaskAsync(anyLong(), any(), any(), any());
@@ -1017,15 +1022,7 @@ class ScheduleServiceTest {
                 "account-1", EMPTY_POLICY_STATE, true));
         ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun();
         discover(run, queueWork(workType, key.id(), null));
-        run.markResult(
-                key,
-                new ScheduledWorkResult(
-                        ScheduledWorkResult.Outcome.COMPLETED,
-                        "vendor.completed",
-                        Map.of(),
-                        true),
-                ScheduleRunQueue.STATUS_DOWNLOADED,
-                null);
+        markDownloaded(run, key);
         when(runQueue.get(4L)).thenReturn(run);
         AtomicReference<Map<String, String>> status = new AtomicReference<>(Map.of(
                 "phase", "CUSTOM",
@@ -1098,15 +1095,7 @@ class ScheduleServiceTest {
                     "opaque/" + index,
                     "title-" + index);
             discover(run, work);
-            run.markResult(
-                    work.key(),
-                    new ScheduledWorkResult(
-                            ScheduledWorkResult.Outcome.COMPLETED,
-                            "vendor.completed",
-                            Map.of(),
-                            true),
-                    ScheduleRunQueue.STATUS_DOWNLOADED,
-                    null);
+            markDownloaded(run, work.key());
         }
         assertThat(run.truncated()).isFalse();
         when(runQueue.get(41L)).thenReturn(run);
@@ -1211,15 +1200,7 @@ class ScheduleServiceTest {
                 queueWork(workType, key.id(), "old-title"),
                 oldPublication.owner(),
                 oldPublication.publicationId());
-        run.markResult(
-                key,
-                new ScheduledWorkResult(
-                        ScheduledWorkResult.Outcome.COMPLETED,
-                        "vendor.completed",
-                        Map.of(),
-                        true),
-                ScheduleRunQueue.STATUS_DOWNLOADED,
-                null);
+        markDownloaded(run, key);
         when(runQueue.get(42L)).thenReturn(run);
         assertThat(ScheduleCapabilityTestFixture.withdraw(
                 capabilityRegistry, oldPublication).orElseThrow().isDrained())
@@ -1256,15 +1237,7 @@ class ScheduleServiceTest {
         when(store.findById(5L)).thenReturn(task(5L));
         ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun();
         discover(run, queueWork(workType, key.id(), "inactive-title"));
-        run.markResult(
-                key,
-                new ScheduledWorkResult(
-                        ScheduledWorkResult.Outcome.COMPLETED,
-                        "vendor.completed",
-                        Map.of(),
-                        true),
-                ScheduleRunQueue.STATUS_DOWNLOADED,
-                null);
+        markDownloaded(run, key);
         when(runQueue.get(5L)).thenReturn(run);
         ScheduledWorkExecutor workExecutor =
                 org.mockito.Mockito.mock(ScheduledWorkExecutor.class);
@@ -1296,15 +1269,7 @@ class ScheduleServiceTest {
         when(store.findById(3L)).thenReturn(task(3L));
         ScheduleRunQueue.Run run = ScheduleRunQueue.detachedRun();
         discover(run, queueWork(workType, key.id(), null));
-        run.markResult(
-                key,
-                new ScheduledWorkResult(
-                        ScheduledWorkResult.Outcome.COMPLETED,
-                        "vendor.completed",
-                        Map.of(),
-                        true),
-                ScheduleRunQueue.STATUS_DOWNLOADED,
-                null);
+        markDownloaded(run, key);
         when(runQueue.get(3L)).thenReturn(run);
         ScheduledWorkExecutor workExecutor =
                 org.mockito.Mockito.mock(ScheduledWorkExecutor.class);
@@ -1429,7 +1394,7 @@ class ScheduleServiceTest {
         ScheduleService service = new ScheduleService(
                 store, executor, new ScheduleConfig(), new ScheduleRunState(), runQueue,
                 objectMapper, credentialService, transactionTemplate,
-                emptyCapabilityRegistry(), new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID), () -> true);
+                new FakeScheduleCapabilityAccess(), new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID), () -> true);
         ScheduleCredentialPolicyActionRequest request =
                 new ScheduleCredentialPolicyActionRequest();
         request.setOwnerPluginId("third-party");

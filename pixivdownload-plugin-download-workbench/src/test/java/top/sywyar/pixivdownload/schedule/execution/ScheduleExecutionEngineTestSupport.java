@@ -2,12 +2,10 @@ package top.sywyar.pixivdownload.schedule.execution;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
 import org.springframework.core.task.SyncTaskExecutor;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
-import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
@@ -24,11 +22,9 @@ import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledExecutionGuar
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision;
-import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardEvidence;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardPoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledPendingReplayPolicy;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
@@ -46,35 +42,19 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext
 import top.sywyar.pixivdownload.schedule.FakeScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.schedule.ScheduleCapabilityTestFixture;
 import top.sywyar.pixivdownload.schedule.ScheduleConfig;
-import top.sywyar.pixivdownload.schedule.ScheduleDefinitionException;
 import top.sywyar.pixivdownload.schedule.ScheduleRunQueue;
 import top.sywyar.pixivdownload.schedule.ScheduleRunState;
-import top.sywyar.pixivdownload.schedule.ScheduleSourcePublicationChangedException;
-import top.sywyar.pixivdownload.schedule.ScheduleSourceUnavailableException;
 import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.catchThrowable;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 @DisplayName("计划执行引擎共享夹具")

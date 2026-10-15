@@ -5,8 +5,7 @@ const assert = require('node:assert/strict');
 const {
     deferred,
     taskCredentialPolicy,
-    harness,
-    source
+    harness
 } = require('./schedule-submit-test-support');
 
 test('validation await 期间 A→B 后旧 submit 零状态写与零请求', async () => {

@@ -430,12 +430,7 @@ class PixivScheduledIllustWorkExecutorTest {
     @Test
     @DisplayName("负数图片间隔归零后再交给同步下载器")
     void clampsNegativeImageDelayBeforeBlockingDownload() throws Exception {
-        JsonNode body = objectMapper.createObjectNode();
-        when(fetchService.fetchArtworkMetaCapture("123", "PHPSESSID=8_secret"))
-                .thenReturn(new PixivFetchService.ArtworkMetaCapture(meta(null), body));
-        when(fetchService.resolveArtworkPages("123", "PHPSESSID=8_secret"))
-                .thenReturn(new PixivFetchService.ArtworkPages(
-                        List.of("https://i.pximg.net/original.jpg"), body));
+        stubSingleArtwork();
         when(artworkDownloader.downloadImagesBlocking(
                 anyLong(), anyString(), anyList(), anyString(),
                 any(DownloadRequest.Other.class), eq("PHPSESSID=8_secret"), isNull()))
@@ -511,13 +506,8 @@ class PixivScheduledIllustWorkExecutorTest {
     @Test
     @DisplayName("同步下载失败保持可重试且不捕获作品元数据")
     void failedBlockingDownloadDoesNotCaptureMetadata() throws Exception {
-        JsonNode body = objectMapper.createObjectNode();
+        stubSingleArtwork();
         ContextFixture fixture = context(task(), ScheduledNetworkRoute.direct());
-        when(fetchService.fetchArtworkMetaCapture("123", "PHPSESSID=8_secret"))
-                .thenReturn(new PixivFetchService.ArtworkMetaCapture(meta(null), body));
-        when(fetchService.resolveArtworkPages("123", "PHPSESSID=8_secret"))
-                .thenReturn(new PixivFetchService.ArtworkPages(
-                        List.of("https://i.pximg.net/original.jpg"), body));
         when(artworkDownloader.downloadImagesBlocking(
                 anyLong(), anyString(), anyList(), anyString(),
                 any(DownloadRequest.Other.class), eq("PHPSESSID=8_secret"), isNull()))
@@ -538,12 +528,7 @@ class PixivScheduledIllustWorkExecutorTest {
     @Test
     @DisplayName("元数据捕获失败不应反报已经完成的下载")
     void metadataCaptureFailureDoesNotFailCompletedDownload() throws Exception {
-        JsonNode body = objectMapper.createObjectNode();
-        when(fetchService.fetchArtworkMetaCapture("123", "PHPSESSID=8_secret"))
-                .thenReturn(new PixivFetchService.ArtworkMetaCapture(meta(null), body));
-        when(fetchService.resolveArtworkPages("123", "PHPSESSID=8_secret"))
-                .thenReturn(new PixivFetchService.ArtworkPages(
-                        List.of("https://i.pximg.net/original.jpg"), body));
+        JsonNode body = stubSingleArtwork();
         when(artworkDownloader.downloadImagesBlocking(
                 anyLong(), anyString(), anyList(), anyString(),
                 any(DownloadRequest.Other.class), eq("PHPSESSID=8_secret"), isNull()))
@@ -560,11 +545,7 @@ class PixivScheduledIllustWorkExecutorTest {
     @Test
     @DisplayName("插画计划元数据写入缺库时不返回完成结果")
     void metadataUnavailableDoesNotCompleteScheduledWork() throws Exception {
-        JsonNode body = objectMapper.createObjectNode();
-        when(fetchService.fetchArtworkMetaCapture("123", "PHPSESSID=8_secret"))
-                .thenReturn(new PixivFetchService.ArtworkMetaCapture(meta(null), body));
-        when(fetchService.resolveArtworkPages("123", "PHPSESSID=8_secret"))
-                .thenReturn(new PixivFetchService.ArtworkPages(List.of("https://i.pximg.net/original.jpg"), body));
+        JsonNode body = stubSingleArtwork();
         when(artworkDownloader.downloadImagesBlocking(anyLong(), anyString(), anyList(), anyString(),
                 any(DownloadRequest.Other.class), eq("PHPSESSID=8_secret"), isNull())).thenReturn(true);
         doThrow(new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException()).when(workMetadataCapture)
@@ -573,6 +554,16 @@ class PixivScheduledIllustWorkExecutorTest {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> executor().execute(work("123"),
                 context(task(), ScheduledNetworkRoute.direct()).context()))
                 .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+    }
+
+    private JsonNode stubSingleArtwork() throws Exception {
+        JsonNode body = objectMapper.createObjectNode();
+        when(fetchService.fetchArtworkMetaCapture("123", "PHPSESSID=8_secret"))
+                .thenReturn(new PixivFetchService.ArtworkMetaCapture(meta(null), body));
+        when(fetchService.resolveArtworkPages("123", "PHPSESSID=8_secret"))
+                .thenReturn(new PixivFetchService.ArtworkPages(
+                        List.of("https://i.pximg.net/original.jpg"), body));
+        return body;
     }
 
     private void stubSeriesArtwork() throws Exception {

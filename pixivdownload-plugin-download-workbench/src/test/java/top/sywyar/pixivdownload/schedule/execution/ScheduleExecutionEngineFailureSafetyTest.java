@@ -1,21 +1,9 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.SyncTaskExecutor;
-import org.springframework.core.task.TaskExecutor;
-import top.sywyar.pixivdownload.config.OutboundProxySettings;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
-import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
-import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
-import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
-import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
-import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialContext;
-import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
-import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
@@ -28,53 +16,27 @@ import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardEvidence
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardPoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledDiscoveryResult;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledPendingReplayPolicy;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
-import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
-import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
 import top.sywyar.pixivdownload.schedule.FakeScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.schedule.ScheduleCapabilityTestFixture;
-import top.sywyar.pixivdownload.schedule.ScheduleConfig;
-import top.sywyar.pixivdownload.schedule.ScheduleDefinitionException;
-import top.sywyar.pixivdownload.schedule.ScheduleRunQueue;
 import top.sywyar.pixivdownload.schedule.ScheduleRunState;
-import top.sywyar.pixivdownload.schedule.ScheduleSourcePublicationChangedException;
-import top.sywyar.pixivdownload.schedule.ScheduleSourceUnavailableException;
-import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 @DisplayName("计划执行引擎失败净化与收尾")
@@ -262,15 +224,8 @@ class ScheduleExecutionEngineFailureSafetyTest extends ScheduleExecutionEngineTe
         String secondWorkType = "fixture-work-2";
         String secondGuardId = "fixture-guard-2";
         List<String> events = new ArrayList<>();
-        ScheduledSourceExecutor source = new ScheduledSourceExecutor() {
-            @Override
-            public String sourceType() {
-                return SOURCE;
-            }
-
-            @Override
-            public ScheduledExecutionPlan plan(ScheduledTaskDefinition task) {
-                return new ScheduledExecutionPlan(
+        ScheduledSourceExecutor source = sourceWithPlan(
+                new ScheduledExecutionPlan(
                         Set.of(WORK, secondWorkType), POLICY,
                         ScheduledCredentialRequirement.REQUIRED, false,
                         List.of(
@@ -279,55 +234,25 @@ class ScheduleExecutionEngineFailureSafetyTest extends ScheduleExecutionEngineTe
                                 new ScheduledGuardBinding(
                                         secondGuardId, Set.of(ScheduledGuardPoint.RUN_FAILURE), 0)),
                         "fixture.checkpoint", 1, 1, 0L,
-                        ScheduledNetworkRoute.inherit());
-            }
-
-            @Override
-            public ScheduledDiscoveryResult discover(ScheduledSourceContext context) {
-                return ScheduledDiscoveryResult.withoutCheckpoint();
-            }
-        };
+                        ScheduledNetworkRoute.inherit()),
+                context -> ScheduledDiscoveryResult.withoutCheckpoint());
         ScheduledWorkExecutor firstWork = finalizingExecutor(WORK, events, true);
         ScheduledWorkExecutor secondWork = finalizingExecutor(secondWorkType, events, false);
-        ScheduledExecutionGuard firstGuard = new ScheduledExecutionGuard() {
-            @Override
-            public String guardId() {
-                return GUARD;
-            }
-
-            @Override
-            public ScheduledGuardResult evaluate(ScheduledGuardContext context)
-                    throws ScheduledExecutionException {
-                events.add("guard-1");
-                throw new ScheduledExecutionException(
-                        ScheduledFailure.Category.INTERNAL, "fixture.guard-one-failed");
-            }
-        };
-        ScheduledExecutionGuard secondGuard = new ScheduledExecutionGuard() {
-            @Override
-            public String guardId() {
-                return secondGuardId;
-            }
-
-            @Override
-            public ScheduledGuardResult evaluate(ScheduledGuardContext context) {
-                events.add("guard-2");
-                return ScheduledGuardResult.decision(ScheduledGuardDecision.proceed());
-            }
-        };
-        ScheduledSourceDescriptor descriptor = new ScheduledSourceDescriptor(
-                SOURCE, Set.of(), "fixture.definition", 1,
-                new ScheduledSourcePresentation(
-                        "fixture", "source.label", "source.summary", "schedule", "neutral"),
-                Set.of("fixture"), Set.of(WORK, secondWorkType),
-                Set.of(POLICY), Set.of(GUARD, secondGuardId), null);
+        ScheduledExecutionGuard firstGuard = guard(GUARD, context -> {
+            events.add("guard-1");
+            throw new ScheduledExecutionException(
+                    ScheduledFailure.Category.INTERNAL, "fixture.guard-one-failed");
+        });
+        ScheduledExecutionGuard secondGuard = guard(secondGuardId, context -> {
+            events.add("guard-2");
+            return ScheduledGuardDecision.proceed();
+        });
         FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
-        publish(registry, ScheduleCapabilityTestFixture.bundle(
-                new ScheduleCapabilityOwner("fixture", "fixture-package", 1L),
-                List.of(descriptor), List.of(source),
+        publishExecutionFixture(
+                registry, source,
                 List.of(firstWork, secondWork),
-                List.of(credentialPolicy(new AtomicReference<>())),
-                List.of(firstGuard, secondGuard)));
+                List.of(firstGuard, secondGuard),
+                Set.of(WORK, secondWorkType), Set.of(GUARD, secondGuardId));
 
         assertThatThrownBy(() -> engine(
                 storeWithCredential(), registry,
@@ -415,30 +340,14 @@ class ScheduleExecutionEngineFailureSafetyTest extends ScheduleExecutionEngineTe
                             ScheduledFailure.Category.RETRYABLE_NETWORK,
                             "fixture.primary-source-failure");
                 });
-        ScheduledExecutionGuard firstGuard = new ScheduledExecutionGuard() {
-            @Override
-            public String guardId() {
-                return GUARD;
-            }
-
-            @Override
-            public ScheduledGuardResult evaluate(ScheduledGuardContext context) {
-                events.add("guard-1");
-                throw new AssertionError("fixture non-fatal guard failure");
-            }
-        };
-        ScheduledExecutionGuard secondGuard = new ScheduledExecutionGuard() {
-            @Override
-            public String guardId() {
-                return secondGuardId;
-            }
-
-            @Override
-            public ScheduledGuardResult evaluate(ScheduledGuardContext context) {
-                events.add("guard-2");
-                return ScheduledGuardResult.decision(ScheduledGuardDecision.proceed());
-            }
-        };
+        ScheduledExecutionGuard firstGuard = guard(GUARD, context -> {
+            events.add("guard-1");
+            throw new AssertionError("fixture non-fatal guard failure");
+        });
+        ScheduledExecutionGuard secondGuard = guard(secondGuardId, context -> {
+            events.add("guard-2");
+            return ScheduledGuardDecision.proceed();
+        });
         FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         publishExecutionFixture(
                 registry,
@@ -474,29 +383,13 @@ class ScheduleExecutionEngineFailureSafetyTest extends ScheduleExecutionEngineTe
                             ScheduledFailure.Category.RETRYABLE_NETWORK,
                             "fixture.primary-source-failure");
                 });
-        ScheduledExecutionGuard firstGuard = new ScheduledExecutionGuard() {
-            @Override
-            public String guardId() {
-                return GUARD;
-            }
-
-            @Override
-            public ScheduledGuardResult evaluate(ScheduledGuardContext context) {
-                throw fatal;
-            }
-        };
-        ScheduledExecutionGuard secondGuard = new ScheduledExecutionGuard() {
-            @Override
-            public String guardId() {
-                return secondGuardId;
-            }
-
-            @Override
-            public ScheduledGuardResult evaluate(ScheduledGuardContext context) {
-                secondGuardCalls.incrementAndGet();
-                return ScheduledGuardResult.decision(ScheduledGuardDecision.proceed());
-            }
-        };
+        ScheduledExecutionGuard firstGuard = guard(GUARD, context -> {
+            throw fatal;
+        });
+        ScheduledExecutionGuard secondGuard = guard(secondGuardId, context -> {
+            secondGuardCalls.incrementAndGet();
+            return ScheduledGuardDecision.proceed();
+        });
         FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         FakeScheduleCapabilityAccess.Publication publication = publishExecutionFixture(
                 registry,

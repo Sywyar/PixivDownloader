@@ -549,10 +549,8 @@ function openScheduleEditor(task) {
 
     openDrawer({
         id: 'schedule-editor',
-        icon: editing ? 'edit' : 'plus',
-        title: editing
-            ? bt('schedule.editor.title-edit', '编辑计划任务')
-            : bt('schedule.editor.title-new', '新建计划任务'),
+        icon: 'plus',
+        title: bt('schedule.editor.title-new', '新建计划任务'),
         body,
         beforeClose: () => !saving && (!dirty || abConfirm('dialog.discard-draft', '放弃未保存的修改？')),
         footer

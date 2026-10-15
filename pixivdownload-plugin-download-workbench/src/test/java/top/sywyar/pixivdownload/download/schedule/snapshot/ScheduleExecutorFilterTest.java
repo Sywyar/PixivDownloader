@@ -7,15 +7,12 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.core.work.model.WorkTag;
-import top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleTaskSnapshot;
 import top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleTaskSnapshot.Download;
 import top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleTaskSnapshot.Filters;
-import top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleWorkFilter;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * {@link ScheduleTaskSnapshot} 与 {@link ScheduleWorkFilter} 的纯函数测试。
@@ -34,14 +31,8 @@ class ScheduleExecutorFilterTest {
                 bookmarkCount, pageCount, tagDtos, "", null);
     }
 
-    private static Filters f(String content, String ai, List<String> exact, List<String> fuzzy,
-                             String type, Integer pMin, Integer pMax,
-                             Integer wMin, Integer wMax, Integer bMin, Integer bMax) {
-        return new Filters(content, ai, exact, fuzzy, type, pMin, pMax, wMin, wMax, bMin, bMax);
-    }
-
     private static Filters passAll() {
-        return f("all", "all", List.of(), List.of(), "all", null, null, null, null, null, null);
+        return new Filters("all", "all", List.of(), List.of(), "all", null, null, null, null, null, null);
     }
 
     @Nested
@@ -58,7 +49,7 @@ class ScheduleExecutorFilterTest {
         @Test
         @DisplayName("内容分级 R-18+：xRestrict<1 被排除，>=1 通过")
         void contentR18Plus() {
-            Filters f = f("r18plus", "all", List.of(), List.of(), "all",
+            Filters f = new Filters("r18plus", "all", List.of(), List.of(), "all",
                     null, null, null, null, null, null);
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), f)).isFalse();
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 1, false, -1, 0, List.of()), f)).isTrue();
@@ -67,15 +58,15 @@ class ScheduleExecutorFilterTest {
         @Test
         @DisplayName("内容分级 全年龄/仅R-18/仅R-18G：按 xRestrict 精确分档")
         void contentRatingBuckets() {
-            Filters safe = f("safe", "all", List.of(), List.of(), "all",
+            Filters safe = new Filters("safe", "all", List.of(), List.of(), "all",
                     null, null, null, null, null, null);
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), safe)).isTrue();
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 1, false, -1, 0, List.of()), safe)).isFalse();
-            Filters r18 = f("r18", "all", List.of(), List.of(), "all",
+            Filters r18 = new Filters("r18", "all", List.of(), List.of(), "all",
                     null, null, null, null, null, null);
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 1, false, -1, 0, List.of()), r18)).isTrue();
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 2, false, -1, 0, List.of()), r18)).isFalse();
-            Filters r18g = f("r18g", "all", List.of(), List.of(), "all",
+            Filters r18g = new Filters("r18g", "all", List.of(), List.of(), "all",
                     null, null, null, null, null, null);
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 2, false, -1, 0, List.of()), r18g)).isTrue();
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 1, false, -1, 0, List.of()), r18g)).isFalse();
@@ -84,9 +75,9 @@ class ScheduleExecutorFilterTest {
         @Test
         @DisplayName("AI 筛选：exclude 排除 AI 作品，only 仅保留 AI 作品")
         void aiFilter() {
-            Filters exclude = f("all","exclude", List.of(), List.of(), "all",
+            Filters exclude = new Filters("all","exclude", List.of(), List.of(), "all",
                     null, null, null, null, null, null);
-            Filters only = f("all","only", List.of(), List.of(), "all",
+            Filters only = new Filters("all","only", List.of(), List.of(), "all",
                     null, null, null, null, null, null);
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, true, -1, 0, List.of()), exclude)).isFalse();
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), exclude)).isTrue();
@@ -97,7 +88,7 @@ class ScheduleExecutorFilterTest {
         @Test
         @DisplayName("作品类型：illust=0 / manga=1 / ugoira=2 精确匹配 illustType")
         void typeFilter() {
-            Filters manga = f("all","all", List.of(), List.of(), "manga",
+            Filters manga = new Filters("all","all", List.of(), List.of(), "manga",
                     null, null, null, null, null, null);
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(1, 0, false, -1, 0, List.of()), manga)).isTrue();
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of()), manga)).isFalse();
@@ -107,7 +98,7 @@ class ScheduleExecutorFilterTest {
         @Test
         @DisplayName("页数范围：pageCount 在 [min,max] 内通过；pageCount=0（未知）跳过该判定")
         void pageRange() {
-            Filters f = f("all","all", List.of(), List.of(), "all",
+            Filters f = new Filters("all","all", List.of(), List.of(), "all",
                     2, 5, null, null, null, null);
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 1, List.of()), f)).isFalse();
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 3, List.of()), f)).isTrue();
@@ -119,7 +110,7 @@ class ScheduleExecutorFilterTest {
         @Test
         @DisplayName("收藏数范围：bookmarkCount>=0 时按 [min,max] 判定；-1（未返回）跳过该判定")
         void bookmarkRange() {
-            Filters f = f("all","all", List.of(), List.of(), "all",
+            Filters f = new Filters("all","all", List.of(), List.of(), "all",
                     null, null, null, null, 100, null);
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, 50, 0, List.of()), f)).isFalse();
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, 150, 0, List.of()), f)).isTrue();
@@ -130,12 +121,12 @@ class ScheduleExecutorFilterTest {
         @Test
         @DisplayName("标签精确匹配：相等命中，且多标签需全部命中（AND）")
         void exactTags() {
-            Filters one = f("all","all", List.of("原神"), List.of(), "all",
+            Filters one = new Filters("all","all", List.of("原神"), List.of(), "all",
                     null, null, null, null, null, null);
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of("原神")), one)).isTrue();
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of("genshin")), one)).isFalse();
 
-            Filters both = f("all","all", List.of("a", "b"), List.of(), "all",
+            Filters both = new Filters("all","all", List.of("a", "b"), List.of(), "all",
                     null, null, null, null, null, null);
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of("a")), both)).isFalse();
             assertThat(ScheduleWorkFilter.artworkMatches(artwork(0, 0, false, -1, 0, List.of("a", "b")), both)).isTrue();
@@ -144,7 +135,7 @@ class ScheduleExecutorFilterTest {
         @Test
         @DisplayName("标签模糊匹配：子串命中（标签词元已小写）")
         void fuzzyTags() {
-            Filters f = f("all","all", List.of(), List.of("genshin"), "all",
+            Filters f = new Filters("all","all", List.of(), List.of("genshin"), "all",
                     null, null, null, null, null, null);
             assertThat(ScheduleWorkFilter.artworkMatches(
                     artwork(0, 0, false, -1, 0, List.of("genshin impact")), f)).isTrue();

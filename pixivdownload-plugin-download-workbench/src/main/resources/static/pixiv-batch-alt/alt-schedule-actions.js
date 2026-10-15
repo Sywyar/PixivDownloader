@@ -226,7 +226,7 @@ function refreshScheduleQueueView(task, entry) {
         vue.syncScheduleQueue(task.id);
         return;
     }
-    renderScheduleQueue(box, task, entry.data);
+    renderScheduleQueue(box, entry.data);
 }
 
 function subscribeScheduleQueue(task, entry) {
@@ -346,11 +346,7 @@ function scheduleQueueDetailModel(data) {
     };
 }
 
-function scheduleQueueVueContext(_id, box, data) {
-    return {boxEl: box, read: () => scheduleQueueDetailModel(data)};
-}
-
-function renderScheduleQueue(box, task, data) {
+function renderScheduleQueue(box, data) {
     const model = scheduleQueueDetailModel(data);
     const scroll = box.querySelector('.ab-round-list')?.scrollTop || 0;
     box.replaceChildren();

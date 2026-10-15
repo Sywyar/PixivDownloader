@@ -4,10 +4,6 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const {
-    source,
-    manifest,
-    harness,
-    validInitializer,
     pixivModuleSource
 } = require('./schedule-sources-test-support');
 

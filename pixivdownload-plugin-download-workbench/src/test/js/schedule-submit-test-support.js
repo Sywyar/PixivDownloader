@@ -1,6 +1,5 @@
 'use strict';
 
-const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -42,9 +41,6 @@ window.__getScheduleQueueModel = function (id) {
     return scheduleQueueModels[Number(id)] || [];
 };
 window.__loadScheduleQueueModel = getScheduleQueueModel;
-window.__clearScheduleQueueModel = function (id) {
-    delete scheduleQueueModels[Number(id)];
-};
 window.__readScheduleQueueCache = readScheduleQueueCache;
 window.__writeScheduleQueueCache = writeScheduleQueueCache;
 window.__applyScheduleQueueSse = applyScheduleQueueSse;
@@ -128,7 +124,6 @@ function harness(options) {
     let fetchCount = 0;
     const requests = [];
     const confirmCalls = [];
-    const promptCalls = [];
     const credentialCalls = [];
     const switchedModes = [];
     const sseListeners = new Map();
@@ -248,8 +243,7 @@ function harness(options) {
             switchedModes.push(mode);
             sandbox.state.mode = mode;
         },
-        uiPromptKey(key, fallback, value, options) {
-            promptCalls.push({key, fallback, value, options});
+        uiPromptKey(key, fallback, value) {
             return config.prompt ? config.prompt.promise : Promise.resolve(value);
         },
         mergeUgoiraProgress(current, incoming) {
@@ -310,7 +304,6 @@ function harness(options) {
         setQueueModel: sandbox.window.__setScheduleQueueModel,
         getQueueModel: sandbox.window.__getScheduleQueueModel,
         loadQueueModel: sandbox.window.__loadScheduleQueueModel,
-        clearQueueModel: sandbox.window.__clearScheduleQueueModel,
         readQueueCache: sandbox.window.__readScheduleQueueCache,
         writeQueueCache: sandbox.window.__writeScheduleQueueCache,
         applyQueueSse: sandbox.window.__applyScheduleQueueSse,
@@ -345,7 +338,6 @@ function harness(options) {
         get requests() { return requests; },
         get confirmCount() { return confirmCalls.length; },
         get confirmCalls() { return confirmCalls.slice(); },
-        get promptCalls() { return promptCalls.slice(); },
         get credentialCalls() { return credentialCalls.slice(); },
         get switchedModes() { return switchedModes.slice(); },
         storageValue(key) { return storage.get(String(key)); }
