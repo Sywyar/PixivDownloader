@@ -33,6 +33,8 @@ public class ToolsPanel extends JPanel {
     private static final String MIGRATION_COUNTING_STATUS = message("gui.tools.migration.status.counting");
 
     private final Path configPath;
+    private DesktopUiHost.BackfillOptions inheritedBackfillOptions;
+    private String inheritedRootFolder;
     private final MediaToolsPanel mediaTools = new MediaToolsPanel(SwingHost.context());
 
     private final JLabel backendStateLabel = new JLabel(message("gui.tools.backend-status", message("gui.tools.backend-status.detecting")));
@@ -318,25 +320,43 @@ public class ToolsPanel extends JPanel {
         dbPathField.setText(resolvedDbPath);
         migrationDbPathField.setText(resolvedDbPath);
         migrationRootFolderField.setText(rootFolder);
+        inheritedRootFolder = rootFolder;
 
-        DesktopUiHost.BackfillOptions defaults = SwingHost.host().defaultBackfillOptions();
-        proxyEnabledCheck.setSelected(defaults.useProxy());
-        proxyHostField.setText(defaults.proxyHost());
-        proxyPortSpinner.setValue(defaults.proxyPort());
-        delaySpinner.setValue((int) defaults.delayMs());
-        limitSpinner.setValue(defaults.limit());
-        dryRunCheck.setSelected(defaults.dryRun());
-
-        if (Files.isRegularFile(configPath)) {
-            try {
-                DesktopUiHost.ConfigFile editor = SwingHost.host().applicationConfig();
-                proxyEnabledCheck.setSelected(Boolean.parseBoolean(defaultIfBlank(editor.read("proxy.enabled"), String.valueOf(defaults.useProxy()))));
-                proxyHostField.setText(defaultIfBlank(editor.read("proxy.host"), defaults.proxyHost()));
-                proxyPortSpinner.setValue(Integer.parseInt(defaultIfBlank(editor.read("proxy.port"), String.valueOf(defaults.proxyPort()))));
-            } catch (Exception e) {
-                log.debug(logMessage("gui.tools.log.proxy-defaults.failed", e.getMessage()));
-            }
+        try {
+            DesktopUiHost.BackfillOptions defaults = SwingHost.host().defaultBackfillOptions();
+            inheritBackfillProxy(defaults);
+            delaySpinner.setValue((int) defaults.delayMs());
+            limitSpinner.setValue(defaults.limit());
+            dryRunCheck.setSelected(defaults.dryRun());
+        } catch (RuntimeException failure) {
+            log.warn(logMessage("gui.tools.log.proxy-defaults.failed", failure.getMessage()), failure);
+            setBackfillStatus(message("desktop.ui.tools.operation-failed"));
         }
+
+        updateProxyFieldState();
+    }
+
+    public void refreshConfiguration() {
+        try {
+            inheritBackfillProxy(SwingHost.host().defaultBackfillOptions());
+            String root = SwingHost.host().readDownloadRootFromConfig(configPath, SwingHost.context().rootFolder());
+            if (migrationRootFolderField.getText().equals(inheritedRootFolder)) migrationRootFolderField.setText(root);
+            inheritedRootFolder = root;
+        } catch (RuntimeException failure) {
+            log.warn(logMessage("gui.tools.log.proxy-defaults.failed", failure.getMessage()), failure);
+            setBackfillStatus(message("desktop.ui.tools.operation-failed"));
+        }
+    }
+
+    private void inheritBackfillProxy(DesktopUiHost.BackfillOptions current) {
+        var previous = inheritedBackfillOptions;
+        if (previous == null || proxyEnabledCheck.isSelected() == previous.useProxy())
+            proxyEnabledCheck.setSelected(current.useProxy());
+        if (previous == null || proxyHostField.getText().equals(previous.proxyHost()))
+            proxyHostField.setText(current.proxyHost());
+        if (previous == null || ((Number) proxyPortSpinner.getValue()).intValue() == previous.proxyPort())
+            proxyPortSpinner.setValue(current.proxyPort());
+        inheritedBackfillOptions = current;
         updateProxyFieldState();
     }
 
@@ -540,6 +560,7 @@ public class ToolsPanel extends JPanel {
     }
 
     private DesktopUiHost.BackfillOptions buildBackfillOptions() {
+        inheritBackfillProxy(SwingHost.host().defaultBackfillOptions());
         String dbPath = dbPathField.getText().trim();
         if (dbPath.isBlank()) {
             throw new IllegalArgumentException(message("gui.tools.validation.database-path.required"));
@@ -925,10 +946,6 @@ public class ToolsPanel extends JPanel {
 
     private static JLabel secondaryLabel(String text) {
         return ScrollablePagePanel.secondaryLabel(text);
-    }
-
-    private static String defaultIfBlank(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value;
     }
 
     public void dispose() {

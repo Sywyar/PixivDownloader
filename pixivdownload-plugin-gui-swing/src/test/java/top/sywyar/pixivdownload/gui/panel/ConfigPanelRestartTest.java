@@ -43,6 +43,32 @@ class ConfigPanelRestartTest {
     Path tempDir;
 
     @Test
+    @DisplayName("刷新保留草稿且保存不覆盖外部修改，缺项读取不补写")
+    void preservesDraftsAndExternalConfiguration() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            MemoryConfigFile config = installHost(Map.of("fixture.proxy", "saved-proxy"));
+            var fields = new ConfigFieldSnapshot(List.of("Fixture"), List.of(
+                    ConfigFieldSpec.builder("fixture.proxy", "Proxy", FieldType.STRING, "Fixture")
+                            .defaultValue("default-proxy").build(),
+                    ConfigFieldSpec.builder("fixture.other", "Other", FieldType.STRING, "Fixture")
+                            .defaultValue("default-other").build()), List.of());
+            var panel = new ConfigPanel(tempDir.resolve("config.yaml"), 6999, path -> path,
+                    fields, null, null, () -> false, () -> false, () -> false, () -> false);
+            assertThat(config.values).containsOnlyKeys("fixture.proxy");
+            panel.setFieldValue("fixture.other", "draft");
+            config.values.put("fixture.proxy", "wizard-proxy");
+            panel.reloadFromDisk();
+            assertThat(panel.currentFieldValue("fixture.proxy")).isEqualTo("wizard-proxy");
+            assertThat(panel.currentFieldValue("fixture.other")).isEqualTo("draft");
+            config.values.put("fixture.proxy", "external-proxy");
+            findButton(panel, GuiMessages.get("gui.button.save")).doClick();
+            assertThat(config.values).containsEntry("fixture.proxy", "external-proxy")
+                    .containsEntry("fixture.other", "draft");
+            assertThat(panel.currentFieldValue("fixture.proxy")).isEqualTo("external-proxy");
+        });
+    }
+
+    @Test
     @DisplayName("凭据必填识别新输入和已存值，显式清除或外部删除后拒绝保存")
     void requiredCredentialsUseCurrentStorage() throws Exception {
         SwingUtilities.invokeAndWait(() -> {

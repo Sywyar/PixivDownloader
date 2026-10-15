@@ -24,8 +24,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Swing-only GUI theme manager. The core owns only theme id persistence, contribution selection, listener lifetime,
- * and system/JDK fallback. Concrete theme engines live in startup plugins.
+ * Swing 的主题应用、贡献监听与系统回退；主题持久化由设置页负责。
  */
 public final class GuiThemeManager {
 
@@ -107,21 +106,6 @@ public final class GuiThemeManager {
         return List.copyOf(result);
     }
 
-    public static boolean applyUserSelection(DesktopUiHost.ConfigFile configFile, String themeId) {
-        String normalized = normalizeThemeId(themeId);
-        boolean persisted = persistThemeId(configFile, normalized);
-        synchronized (LOCK) {
-            GuiThemeManager.configuredThemeId = normalized;
-        }
-        Runnable task = () -> applyConfiguredTheme(true);
-        if (SwingUtilities.isEventDispatchThread()) {
-            task.run();
-        } else {
-            SwingUtilities.invokeLater(task);
-        }
-        return persisted;
-    }
-
     public static void applyThemeId(String themeId) {
         String normalized = normalizeThemeId(themeId);
         synchronized (LOCK) {
@@ -132,18 +116,6 @@ public final class GuiThemeManager {
             task.run();
         } else {
             SwingUtilities.invokeLater(task);
-        }
-    }
-
-    public static boolean persistThemeId(DesktopUiHost.ConfigFile configFile, String themeId) {
-        if (configFile == null) return false;
-        String normalized = normalizeThemeId(themeId);
-        try {
-            configFile.write("app.theme", normalized);
-            return true;
-        } catch (IOException | RuntimeException e) {
-            log.warn("Failed to write app.theme: {}", e.toString());
-            return false;
         }
     }
 

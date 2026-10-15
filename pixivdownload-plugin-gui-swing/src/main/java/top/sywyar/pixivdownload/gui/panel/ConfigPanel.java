@@ -84,6 +84,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     /** key → 渲染后的字段（含取值/赋值方法） */
     private final Map<String, FieldRenderer.RenderedField> renderedFields = new LinkedHashMap<>();
+    private final Map<String, String> loadedValues = new LinkedHashMap<>();
 
     /** 提示条（保存后显示） */
     private final JLabel noticeBar = new JLabel(" ");
@@ -191,7 +192,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         logContributionDiagnostics(snapshot.diagnostics());
         buildUi();
         loadCurrentValues();
-        checkFieldDrift();
     }
 
     private void logContributionDiagnostics(List<GuiConfigContributionDiagnostic> diagnostics) {
@@ -227,15 +227,17 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
      * 必须在 EDT 上调用。
      */
     public void reloadFromDisk() {
-        loadCurrentValues();
+        loadCurrentValues(true);
         updateEnabledStates();
     }
 
     public void pluginDirectorySaved(String owner, String key, String value) {
         ConfigFieldSpec spec = fieldsByKey.get(key);
         FieldRenderer.RenderedField field = renderedFields.get(key);
-        if (spec != null && field != null && Objects.equals(spec.ownerPluginId(), owner)
-                && field.getValue().get().isBlank()) field.setValue().accept(value);
+        if (spec != null && field != null && Objects.equals(spec.ownerPluginId(), owner)) {
+            if (Objects.equals(field.getValue().get(), loadedValues.get(key))) field.setValue().accept(value);
+            loadedValues.put(key, value);
+        }
     }
 
     // ── UI 构建 ──────────────────────────────────────────────────────────────────
@@ -838,40 +840,28 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     // ── 数据加载 ──────────────────────────────────────────────────────────────────
 
     /**
-     * 从宿主 config.yaml、插件自有 properties 与插件凭证存储加载当前值并填充控件；key 不存在或被注释时回退到字段默认值，
-     * 并将需要持久化的缺失 key 连同默认值自动补全到所属配置文件。未配置的插件凭证以 key 缺席表示。
+     * 从所属存储加载配置；缺项只在界面使用字段默认值，凭据不回填。
      */
     private void loadCurrentValues() {
+        loadCurrentValues(false);
+    }
+
+    private void loadCurrentValues(boolean preserveDrafts) {
         try {
             Map<String, String> values = readStoredValues(allFields);
-            Map<String, String> missing = new LinkedHashMap<>();
 
             for (ConfigFieldSpec spec : allFields) {
                 FieldRenderer.RenderedField rf = renderedFields.get(spec.key());
                 if (rf == null) continue;
-                if (values.containsKey(spec.key())) {
-                    rf.setValue().accept(displayValueForLoad(spec, values.get(spec.key())));
-                } else {
-                    // key 不存在或被注释掉：用默认值填充控件，并记录待补全
-                    rf.setValue().accept(displayValueForLoad(spec, spec.defaultValue()));
-                    if (requiresStoredKey(spec)) {
-                        missing.put(spec.key(), spec.defaultValue());
-                    }
+                String value = displayValueForLoad(spec, values.getOrDefault(spec.key(), spec.defaultValue()));
+                if (!preserveDrafts || (!isPluginCredential(spec)
+                        && Objects.equals(rf.getValue().get(), loadedValues.get(spec.key())))) {
+                    rf.setValue().accept(value);
                 }
+                if (!isPluginCredential(spec)) loadedValues.put(spec.key(), value);
                 if (isPluginCredential(spec)) {
                     rf.setCredentialStored(values.containsKey(spec.key())
                             && !normalizeValue(values.get(spec.key())).isBlank());
-                }
-            }
-
-            // 自动将缺失的 key 补全到所属配置文件
-            if (!missing.isEmpty()) {
-                try {
-                    writeStoredValues(missing);
-                    log.info(logMessage("gui.config.log.missing-keys.completed",
-                            missing.size(), String.join(", ", missing.keySet())));
-                } catch (IOException ex) {
-                    log.warn(logMessage("gui.config.log.missing-keys.failed", ex.getMessage()));
                 }
             }
 
@@ -881,8 +871,13 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 DebugUnlockState.unlock();
             }
 
-            for (ConfigSection s : sections) {
-                s.onValuesLoaded();
+            if (!preserveDrafts) {
+                for (ConfigSection s : sections) s.onValuesLoaded();
+                for (ConfigFieldSpec spec : allFields) {
+                    FieldRenderer.RenderedField field = renderedFields.get(spec.key());
+                    if (field != null && !isPluginCredential(spec))
+                        loadedValues.put(spec.key(), field.getValue().get());
+                }
             }
             updateEnabledStates();
         } catch (IOException e) {
@@ -1024,7 +1019,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 }
                 continue;
             }
-            values.put(spec.key(), rf.getValue().get());
+            String value = rf.getValue().get();
+            if (!Objects.equals(value, loadedValues.get(spec.key()))) values.put(spec.key(), value);
         }
 
         Map<String, String> interfaceValues = interfacePreferencesPanel.pendingChanges(interfaceBefore);
@@ -1048,6 +1044,10 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
         try {
             writeStoredValues(values, interfaceValues);
+            values.forEach((key, value) -> {
+                if (!isPluginCredential(fieldsByKey.get(key))) loadedValues.put(key, value);
+            });
+            reloadFromDisk();
             refreshCredentialFieldsAfterSave(values);
             // 各 section 持久化自有的非字段网格状态（如插件市场仓库列表）；任一写入改动均为需重启项。
             boolean sectionRestartChange = false;
@@ -1394,10 +1394,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             }
         }
         return result;
-    }
-
-    private void writeStoredValues(Map<String, String> values) throws IOException {
-        writeStoredValues(values, Map.of());
     }
 
     private void writeStoredValues(Map<String, String> values,
@@ -1780,10 +1776,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         }
     }
 
-    private static boolean requiresStoredKey(ConfigFieldSpec spec) {
-        return !isPluginCredential(spec);
-    }
-
     private static boolean isMaintenanceDayEnabledKey(String key) {
         return maintenanceDayKey(key, "enabled");
     }
@@ -1874,25 +1866,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             GuiErrorDialog.show(this,
                     message("gui.dialog.error.title"),
                     message("gui.error.open-file", e.getMessage()));
-        }
-    }
-
-    // ── 字段漂移检查 ──────────────────────────────────────────────────────────────
-
-    /**
-     * 对比字段快照与所属配置存储中实际存在的 key，漂移时打日志警告。
-     * 未配置的插件凭证以 key 缺席表示，不属于字段漂移。
-     */
-    private void checkFieldDrift() {
-        try {
-            Map<String, String> existing = readStoredValues(allFields);
-            for (ConfigFieldSpec spec : allFields) {
-                if (requiresStoredKey(spec) && !existing.containsKey(spec.key())) {
-                    log.warn(logMessage("gui.config.log.field-drift", spec.key()));
-                }
-            }
-        } catch (IOException e) {
-            log.warn(logMessage("gui.config.log.field-drift-check.failed", e.getMessage()));
         }
     }
 
