@@ -15,6 +15,8 @@
 
 ## 核心功能及默认网络请求
 
+网页打开或切换语言时，浏览器向应用的 `/api/i18n/meta` 和 `/api/i18n/messages/{namespace}?lang=...` 读取语言目录与字典；失败后尝试当前页面相对路径 `i18n-static/` 下的静态资源。请求包含语言和 namespace，以及同源会话 Cookie，不访问外部翻译服务，也不经过后端代理。每次请求超时 10 秒且不使用缓存；字典失败后仅重试缺失部分，最多自动重试三轮，间隔为 1.5、5、15 秒。恢复网络或重新聚焦页面可再次触发恢复；关闭页面或替换语言客户端会停止该客户端的后续重试。
+
 | 请求所有者 | 目标地址 | 用途与主要发送内容 | 触发场景与默认状态 | 代理与关闭方式 |
 | --- | --- | --- | --- | --- |
 | 应用宿主 | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/update.json` 与相邻的 `update.json.sig`；nightly 使用 `/releases/download/nightly/` 下的同名文件；重定向后可能进入 GitHub Release 资产 CDN | 获取正式版或 nightly 更新清单及 Ed25519 detached 签名；只发送 User-Agent、IP 等标准连接元数据，不发送当前版本、平台、Pixiv Cookie 或其它凭据。响应分别受 1 MiB / 16 KiB 上限约束，清单会在解析前使用应用内置官方公钥验签 | 应用就绪后自动检查；`update.enabled=true`、`update.auto-check=true` 时启用，默认均开启；手动检查也会访问。启用每夜版检查后，即使正式版清单下载或验签失败，仍独立请求并验证每夜版清单；正式版失败信息保留，未通过验证的渠道不能下载 | 使用宿主出站代理配置；仅允许 HTTPS 和默认公网地址，最多跟随五跳重定向且每一跳都重新校验。可关闭在线更新或自动检查；自定义 manifest 必须是持有有效官方签名的公网 HTTPS 镜像 |
@@ -24,6 +26,8 @@
 | `notification` 插件 | `https://sywyar.github.io/PixivDownloader-Remote-Content/announcements/index.json`、相邻的 `index.json.sig` 与 `.../announcements/<message-id>/<locale>.html` | 读取公开公告索引及其 detached Ed25519 签名；索引在解析前使用应用内置官方信任根验签，并校验有效期、递增序列和每份正文的 SHA-256。仅为未知稳定 ID 下载已签名索引要求的各语言受控 HTML 正文；请求禁用 Cookie，只发送 IP、User-Agent 等标准连接元数据，不发送账号、作品、本地路径或其它凭据。验证或传输失败时保留既有可信快照。HTML 快照保存在本地，管理员浏览器只读取本地鉴权端点，不再直连外部正文 | 插件每次启动后随机等待 0–30 分钟，之后约每 6 小时并加入 ±15% 随机抖动检查。完整可信导入后保存 `ETag` 与 `Last-Modified`，仅在已签名索引有效期内发送条件请求；收到 `304 Not Modified` 时不再下载签名与正文。HTTP 429 按最长 24 小时的 `Retry-After` 延后，传输失败和 5xx 按 5 分钟、15 分钟、1 小时、6 小时逐级退避。只有首次发现未知 ID 或已签名正文摘要变化时才有界下载对应的各语言 HTML。同一 ID 已保存且元数据未变，或已显式删除时不再请求正文。官方默认插件集合包含 `notification`，启用并成功启动时会自动访问 | 使用宿主继承出站路由，可使用已启用的全局代理；禁用/卸载 `notification` 会停止检查，插件停止或重载时立即取消后续轮询 |
 
 ## Pixiv 下载与浏览
+
+宿主元数据回填请求 `https://www.pixiv.net/ajax/illust/{id}`，发送作品 ID 和标准 AJAX 请求头，不携带 Pixiv Cookie。单次 HTTP 请求不自动重试；网络异常、HTTP 401 / 403 / 407 / 5xx 会停止本批并保留已完成结果和日志，避免对每件作品重复失败。HTTP 429 仍按限流停止，404 只将对应作品记为不可达。
 
 桌面启动回填和工具页的数据回填由应用宿主执行，代理默认读取已保存的 `proxy.enabled`、`proxy.host` 和 `proxy.port`。工具页可临时覆盖代理，仅用于该次回填，不回写配置；未手动改动的参数跟随最新保存值。FFmpeg 自动安装同样读取已保存的全局代理。配置读取失败或启用的代理地址、端口无效时操作报错，不自动改用直连；关闭代理后使用直连，不继承进程默认代理，停止或不启动相应工具即可避免这些请求。
 
