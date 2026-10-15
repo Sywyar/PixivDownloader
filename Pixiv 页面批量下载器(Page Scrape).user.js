@@ -3198,38 +3198,26 @@
             this.connecting = false;
             this.batchActive = false;
             this.listeners = new Map();        // artworkId -> [fn]
-            this.activeArtworks = new Set();   // 当前需要监听的作品集合
             this.connectionId = null;
             this.closing = false;
             this._buffer = '';
-            this._closeTimer = null;
             this._reconnectTimer = null;
         }
 
-        // 兼容旧调用点的语义：
-        // open(id) / close(id) 只增删作品监听；共享连接由批量任务生命周期统一开关
+        // 共享连接由批量任务生命周期统一开关。
         openShared() {
-            this._cancelDeferredClose();
             if (this.closing) this._cleanup();
             this.batchActive = true;
             this.closing = false;
             this._ensureConnection();
         }
 
-        open(artworkId) {
-            const key = String(artworkId);
-            this.activeArtworks.add(key);
-        }
-
         close(artworkId) {
-            const key = String(artworkId);
-            this.activeArtworks.delete(key);
-            this.listeners.delete(key);
+            this.listeners.delete(String(artworkId));
         }
 
         closeAll() {
             this.batchActive = false;
-            this.activeArtworks.clear();
             this.listeners.clear();
             this._closeNow();
         }
@@ -3354,23 +3342,7 @@
             }, 2000);
         }
 
-        _scheduleDeferredClose() {
-            this._cancelDeferredClose();
-            this._closeTimer = setTimeout(() => {
-                this._closeTimer = null;
-                if (this.activeArtworks.size === 0) this._closeNow();
-            }, 30000);
-        }
-
-        _cancelDeferredClose() {
-            if (this._closeTimer) {
-                clearTimeout(this._closeTimer);
-                this._closeTimer = null;
-            }
-        }
-
         _closeNow() {
-            this._cancelDeferredClose();
             if (this._reconnectTimer) {
                 clearTimeout(this._reconnectTimer);
                 this._reconnectTimer = null;
@@ -4118,7 +4090,6 @@
                     return;
                 }
 
-                this.sse.open(item.id);
                 const ssePromise = this._waitForFinalStatusBySSE(item.id, CONFIG.STATUS_TIMEOUT_MS);
                 item.lastMessage = '下载中，等待完成...';
                 this.ui.renderQueue(this.queue);
