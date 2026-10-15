@@ -49,8 +49,7 @@ runs:
         }
         $pluginsDir = (Resolve-Path artifacts/plugin-inputs).Path
         $signatureTools = @(Get-ChildItem artifacts/signature-tool/pixivdownload-plugin-signature-*.jar -File |
-          Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
-          Sort-Object LastWriteTime -Descending)
+          Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" })
         if ($signatureTools.Count -ne 1) {
           throw "Could not find pixivdownload-plugin-signature tool jar."
         }
