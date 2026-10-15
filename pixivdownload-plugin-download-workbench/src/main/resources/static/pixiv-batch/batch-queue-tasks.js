@@ -10,6 +10,7 @@
     let snapshotRevision = null;
     let savedDismissed = '';
     const cancellations = new Map();
+    const missingResults = new Set();
 
     function flush(changed, structural) {
         if (!changed.length && !structural) return;
@@ -57,7 +58,10 @@
             throw new Error('invalid download task snapshot');
         if (epoch === snapshot.epoch && snapshotRevision === snapshot.revision) return;
         const tasks = new Map(snapshot.tasks.map(task => [task.attempt && task.attempt.attemptId, task]));
-        if (epoch !== snapshot.epoch) dismissed.clear();
+        if (epoch !== snapshot.epoch) {
+            dismissed.clear();
+            missingResults.clear();
+        }
         epoch = snapshot.epoch;
         for (const id of dismissed) if (!tasks.has(id)) dismissed.delete(id);
         saveDismissed();
@@ -74,32 +78,7 @@
                 state.queue.push(item);
                 structural = true;
             }
-            const recovering = !!item.recoveryState;
-            const phaseChanged = item.taskPhase !== task.phase || item.taskMissing
-                || (item.taskObserved && task.queueType && item.kind !== task.queueType);
-            if (!phaseChanged && item.recoveryState !== 'unknown') continue;
-            if (item.taskObserved) {
-                if (task.queueType) item.kind = task.queueType;
-                item.title = task.title || task.attempt.workId;
-            }
-            item.taskPhase = task.phase;
-            delete item.taskMissing;
-            // 本页 worker 仍负责详细进度和下载后的收藏等结果。
-            if (item.taskObserved || recovering) {
-                if (terminal(task.phase)) {
-                    delete item.recoveryState;
-                    item.status = {COMPLETED: 'completed', FAILED: 'failed',
-                        CANCELLED: item.taskObserved ? 'cancelled' : 'paused'}[task.phase];
-                    item.endTime = task.updatedAt;
-                } else {
-                    item.status = 'downloading';
-                    if (recovering) item.recoveryState = 'running';
-                }
-                item.statusMessageKey = 'batch:queue.task.phase.' + task.phase;
-                item.lastMessage = '';
-                item.lastMessageParts = null;
-            }
-            changed.push(item);
+            if (applyTask(item, task)) changed.push(item);
         }
         for (const item of items.values()) {
             if (tasks.has(item.taskId) || terminal(item.taskPhase) || item.taskMissing
@@ -113,6 +92,61 @@
         }
         flush(changed, structural);
         snapshotRevision = snapshot.revision;
+    }
+
+    function applyTask(item, task) {
+        const recovering = !!item.recoveryState;
+        const phaseChanged = item.taskPhase !== task.phase || item.taskMissing
+            || (item.taskObserved && task.queueType && item.kind !== task.queueType);
+        if (!phaseChanged && item.recoveryState !== 'unknown') return false;
+        if (item.taskObserved) {
+            if (task.queueType) item.kind = task.queueType;
+            item.title = task.title || task.attempt.workId;
+        }
+        item.taskPhase = task.phase;
+        delete item.taskMissing;
+        // 本页 worker 仍负责详细进度和下载后的收藏等结果。
+        if (item.taskObserved || recovering) {
+            if (terminal(task.phase)) {
+                delete item.recoveryState;
+                item.status = {COMPLETED: 'completed', FAILED: 'failed',
+                    CANCELLED: item.taskObserved ? 'cancelled' : 'paused'}[task.phase];
+                item.endTime = task.updatedAt;
+            } else {
+                item.status = 'downloading';
+                if (recovering) item.recoveryState = 'running';
+            }
+            item.statusMessageKey = 'batch:queue.task.phase.' + task.phase;
+            item.lastMessage = '';
+            item.lastMessageParts = null;
+        }
+        return true;
+    }
+
+    async function recoverMissing(controller) {
+        const items = state.queue.filter(item => ID.test(item.taskId || '') && item.taskMissing
+            && !terminal(item.taskPhase) && (item.taskObserved || item.recoveryState));
+        const ids = new Set(items.map(item => item.taskId));
+        for (const id of missingResults) if (!ids.has(id)) missingResults.delete(id);
+        for (const item of items) {
+            if (controller.signal.aborted || suspended || document.hidden || !isAdmin) return;
+            const id = item.taskId;
+            if (missingResults.has(id) || !state.queue.includes(item)) continue;
+            try {
+                const response = await fetch(BASE + '/api/download/tasks/' + id, {
+                    credentials: 'same-origin', cache: 'no-store', signal: controller.signal
+                });
+                if (controller.signal.aborted || suspended || document.hidden || !isAdmin) return;
+                if (response.status === 404) { missingResults.add(id); continue; }
+                if (!response.ok) continue;
+                const task = await response.json();
+                if (controller.signal.aborted || suspended || document.hidden || !isAdmin) return;
+                // 迟到回执只能更新仍在队列中的同一次执行，不能复活已移除项或覆盖新执行。
+                if (!state.queue.includes(item) || item.taskId !== id || terminal(item.taskPhase)
+                    || !task || task.attempt?.attemptId !== id || !terminal(task.phase)) continue;
+                if (applyTask(item, task)) flush([item], false);
+            } catch (_) { /* 暂时不可查询时保留待确认，下一次轮询重试。 */ }
+        }
     }
 
     function canCancel(item) {
@@ -137,7 +171,8 @@
         return promise;
     }
 
-    function refresh() {
+    function refresh(recheck = true) {
+        if (recheck) missingResults.clear();
         if (pending) return pending;
         pending = poll().finally(() => { pending = null; });
         return pending;
@@ -155,7 +190,10 @@
             });
             if (!response.ok) throw new Error('download task snapshot HTTP ' + response.status);
             const snapshot = await response.json();
-            if (!controller.signal.aborted && !suspended && isAdmin) apply(snapshot);
+            if (!controller.signal.aborted && !suspended && !document.hidden && isAdmin) {
+                apply(snapshot);
+                await recoverMissing(controller);
+            }
         } catch (_) {
             // 断线保留记录，已有恢复提示负责待确认状态；不自动重新提交。
             if (!suspended && !document.hidden) {
@@ -168,7 +206,7 @@
         } finally {
             clearTimeout(timeout);
             if (request === controller) request = null;
-            if (!suspended && !document.hidden && isAdmin) timer = setTimeout(refresh, 2000);
+            if (!suspended && !document.hidden && isAdmin) timer = setTimeout(() => refresh(false), 2000);
         }
     }
 

@@ -146,6 +146,10 @@ public final class RuntimeFiles {
         return dataDirectory().resolve(GALLERY_THUMBNAILS_DIR).normalize();
     }
 
+    public static Path downloadTaskResultsDirectory() {
+        return dataDirectory().resolve("download-task-results").normalize();
+    }
+
     public static Path guiStateDirectory() {
         Path stateDir = stateDirectory();
         Path target = stateDir.resolve(GUI_STATE_DIR);

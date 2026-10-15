@@ -19,7 +19,7 @@ function fixture(admin = true, storage = new Map()) {
     const window = new MiniElement('window');
     window.PixivBatch = {};
     const state = {queue: []};
-    const timers = new Map(), calls = [], changes = [];
+    const timers = new Map(), calls = [], changes = [], results = new Map();
     let sequence = 0, value = snapshot([]), fail = false, wait = null;
     const ctx = vm.createContext({window, document, state, isAdmin: admin, BASE: '', AbortController, AbortSignal,
         setTimeout(fn, ms) { timers.set(++sequence, {fn, ms}); return sequence; },
@@ -34,15 +34,106 @@ function fixture(admin = true, storage = new Map()) {
         fetch: async (url, options) => {
             calls.push({url, options});
             if (wait) await wait;
+            if (!fail && /^\/api\/download\/tasks\/[\w-]+$/.test(url)) {
+                const result = results.get(url.split('/').pop());
+                if (typeof result === 'function') return result();
+                return {ok: !!result, status: result ? 200 : 404, json: async () => result};
+            }
             return {ok: !fail, status: fail ? 503 : 200, json: async () => value};
         }
     });
     vm.runInContext(fs.readFileSync(path.join(__dirname,
         '../../main/resources/static/pixiv-batch/batch-queue-tasks.js'), 'utf8'), ctx);
-    return {api: window.PixivBatch.queueTasks, state, ctx, storage, document, window, timers, calls, changes,
+    return {api: window.PixivBatch.queueTasks, state, ctx, storage, document, window, timers, calls, changes, results,
         setValue: v => value = v, fail: () => fail = true, wait: promise => wait = promise};
 }
 async function flush() { for (let i = 0; i < 12; i++) await Promise.resolve(); }
+
+test('新页面按执行编号找回快照已过期的终态，并保存核对结果', async () => {
+    for (const phase of ['COMPLETED', 'FAILED', 'CANCELLED']) {
+        const previous = fixture();
+        previous.api.apply(snapshot([task(first)]));
+        const reopened = fixture(true, previous.storage);
+        reopened.state.queue = JSON.parse(previous.storage.get('queue'));
+        reopened.results.set(first, task(first, phase));
+        await reopened.api.refresh();
+        assert.equal(reopened.state.queue.length, 1);
+        assert.equal(reopened.state.queue[0].taskPhase, phase);
+        assert.equal(reopened.state.queue[0].recoveryState, undefined);
+        assert.equal(JSON.parse(reopened.storage.get('queue'))[0].taskPhase, phase);
+        assert.deepEqual(reopened.calls.map(c => c.url), ['/api/download/tasks', '/api/download/tasks/' + first]);
+    }
+});
+
+test('核对无回执时保持待确认，自动轮询不重复查询，手动重新核对可恢复', async () => {
+    const h = fixture();
+    h.api.apply(snapshot([task(first)]));
+    await h.api.refresh();
+    assert.equal(h.state.queue[0].recoveryState, 'unknown');
+    h.results.set(first, task(first, 'COMPLETED'));
+    const poll = [...h.timers.values()].find(timer => timer.ms === 2000);
+    await poll.fn();
+    assert.equal(h.calls.filter(c => c.url.endsWith(first)).length, 1);
+    assert.equal(h.state.queue[0].recoveryState, 'unknown');
+    await h.api.refresh();
+    assert.equal(h.state.queue[0].status, 'completed');
+    assert.equal(h.calls.filter(c => c.url.endsWith(first)).length, 2);
+});
+
+test('只按旧执行查回终态，不能借用同一作品另一执行或重新导入已删除项', async () => {
+    for (const change of ['remove', 'replace', 'hide', 'wrong-id']) {
+        const h = fixture();
+        h.api.start(); await flush();
+        h.api.apply(snapshot([task(first)]));
+        let release;
+        h.results.set(first, () => new Promise(resolve => release = () => resolve({ok: true,
+            json: async () => task(change === 'wrong-id' ? second : first, 'COMPLETED')})));
+        const query = h.api.refresh(); await flush();
+        const item = h.state.queue[0];
+        if (change === 'remove') { h.api.dismiss([item]); h.state.queue.length = 0; }
+        if (change === 'replace') h.api.bind(item, second);
+        if (change === 'hide') h.window.dispatchEvent({type: 'pagehide'});
+        assert.equal(typeof release, 'function');
+        release(); await query;
+        assert.notEqual(item.status, 'completed');
+        assert.equal(h.state.queue.length, change === 'remove' ? 0 : 1);
+        assert.equal(h.calls.some(c => c.options.method === 'POST'), false);
+    }
+});
+
+test('缺失执行串行核对，单条查询失败不影响其它回执且下次轮询重试', async () => {
+    const h = fixture();
+    h.api.apply(snapshot([task(first), task(second)]));
+    let release;
+    h.results.set(first, () => new Promise(resolve => release = () => resolve({ok: false, status: 503})));
+    h.results.set(second, task(second, 'COMPLETED'));
+    const query = h.api.refresh(); await flush();
+    assert.equal(h.calls.some(call => call.url.endsWith(second)), false);
+    release(); await query;
+    assert.equal(h.state.queue[0].recoveryState, 'unknown');
+    assert.equal(h.state.queue[1].status, 'completed');
+    h.results.set(first, task(first, 'FAILED'));
+    await [...h.timers.values()].find(timer => timer.ms === 2000).fn();
+    assert.equal(h.state.queue[0].status, 'failed');
+});
+
+test('恢复查询共享超时，中止后不应用迟到回执也不继续查询其它条目', async () => {
+    const h = fixture();
+    h.state.queue.push({id: 'manual', taskId: first, status: 'paused', recoveryState: 'unknown'},
+        {id: 'other', taskId: second, status: 'paused', recoveryState: 'unknown'});
+    let release;
+    h.results.set(first, () => new Promise(resolve => release = () => resolve({ok: true,
+        json: async () => task(first, 'COMPLETED')})));
+    const query = h.api.refresh(); await flush();
+    [...h.timers.values()].find(timer => timer.ms === 10000).fn();
+    assert.equal(h.calls.at(-1).options.signal.aborted, true);
+    release(); await query;
+    assert.equal(h.calls.some(call => call.url.endsWith(second)), false);
+    assert.equal(h.state.queue[0].recoveryState, 'unknown');
+    h.results.set(first, task(first, 'COMPLETED'));
+    await h.api.refresh();
+    assert.equal(h.state.queue[0].status, 'completed');
+});
 
 test('回执和快照任意先后顺序都合并同一执行，保留原队列进度和元数据', () => {
     for (const earlySnapshot of [true, false]) {

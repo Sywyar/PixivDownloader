@@ -117,7 +117,7 @@ async function queryQueueRecovery(item) {
     }
 }
 
-function reconcileRestoredQueue() {
+function reconcileRestoredQueue(recheck = true) {
     if (appMode !== 'solo' || !isAdmin || queueRecoverySuspended) return Promise.resolve();
     if (queueRecoveryPromise) return queueRecoveryPromise;
     if (!state.queue.some(item => item.recoveryState)) return Promise.resolve();
@@ -125,7 +125,7 @@ function reconcileRestoredQueue() {
     queueRecoveryTimer = null;
     queueRecoveryPromise = (async () => {
         if (state.queue.some(item => item.taskId && item.recoveryState)) {
-            await window.PixivBatch.queueTasks.refresh();
+            await window.PixivBatch.queueTasks.refresh(recheck);
         }
         // 串行查询避免大队列同时创建请求；只对仍在原队列中的同一个对象回写。
         for (const item of state.queue.filter(value => value.recoveryState && !value.taskId)) {
@@ -144,7 +144,7 @@ function reconcileRestoredQueue() {
         saveQueue();
         renderQueue();
         if (state.queue.some(item => !item.taskId && item.recoveryState === 'running')) {
-            queueRecoveryTimer = setTimeout(reconcileRestoredQueue, QUEUE_RECOVERY_POLL_MS);
+            queueRecoveryTimer = setTimeout(() => reconcileRestoredQueue(false), QUEUE_RECOVERY_POLL_MS);
         }
     });
     renderQueueRecovery();

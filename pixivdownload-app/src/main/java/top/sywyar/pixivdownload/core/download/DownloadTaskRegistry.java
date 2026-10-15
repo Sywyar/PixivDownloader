@@ -1,6 +1,9 @@
 package top.sywyar.pixivdownload.core.download;
 
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.LoggerFactory;
+import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt;
 import top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
@@ -10,6 +13,7 @@ import top.sywyar.pixivdownload.plugin.api.download.task.DownloadTaskSnapshot;
 import top.sywyar.pixivdownload.plugin.api.download.task.DownloadTasks;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -24,19 +28,26 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
-/** 进程内任务事实与幂等窗口；只持有有界纯值和未结束任务的精确取消句柄。 */
+/** 进程内任务事实与幂等窗口；终态另存以供关闭页面后的精确核对。 */
 @Component
 public final class DownloadTaskRegistry {
     static final int MAX_TASKS = 4096;
     static final Duration RETENTION = Duration.ofMinutes(5);
     private final UUID epoch = UUID.randomUUID();
     private final Clock clock;
+    private final DownloadTaskResultStore results;
     private final Map<UUID, Entry> entries = new LinkedHashMap<>();
     private final Map<RequestKey, UUID> requests = new LinkedHashMap<>();
     private long revision;
 
     public DownloadTaskRegistry() { this(Clock.systemUTC()); }
-    DownloadTaskRegistry(Clock clock) { this.clock = clock; }
+    DownloadTaskRegistry(Clock clock) { this(clock, null); }
+    @Autowired
+    public DownloadTaskRegistry(DownloadTaskResultStore results) { this(Clock.systemUTC(), Objects.requireNonNull(results)); }
+    DownloadTaskRegistry(Clock clock, DownloadTaskResultStore results) {
+        this.clock = clock;
+        this.results = results;
+    }
 
     private record RequestKey(String owner, UUID requestId) {}
     record Reservation(DownloadTaskSnapshot task, boolean duplicate) {}
@@ -47,6 +58,9 @@ public final class DownloadTaskRegistry {
         final byte[] fingerprint;
         QueueTaskTracker.Task task;
         DownloadEvent.Phase publishedPhase;
+        boolean saved;
+        boolean saveFailureLogged;
+        Instant retrySaveAt = Instant.MIN;
         Entry(DownloadTaskSnapshot value, String owner, RequestKey request, byte[] fingerprint) {
             this.value = value;
             this.owner = owner;
@@ -92,6 +106,8 @@ public final class DownloadTaskRegistry {
                 throw new IllegalArgumentException("download task identity already registered");
             entry.value = value(attempt, safeType, safeTitle, entry.value.phase());
         } else {
+            if (archived(attempt.attemptId(), RequestOwnerIdentity.adminScope()).isPresent())
+                throw new IllegalArgumentException("download task identity already registered");
             requireCapacity();
             entries.put(attempt.attemptId(), new Entry(
                     value(attempt, safeType, safeTitle, DownloadEvent.Phase.ACCEPTED), owner, null, null));
@@ -118,7 +134,10 @@ public final class DownloadTaskRegistry {
         if (event.phase() == DownloadEvent.Phase.STARTED && before == DownloadEvent.Phase.STARTED) return false;
         entry.value = value(event.attempt(), entry.value.queueType(), entry.value.title(), event.phase());
         entry.publishedPhase = event.phase();
-        if (entry.value.terminal()) entry.task = null;
+        if (entry.value.terminal()) {
+            entry.task = null;
+            saveResult(entry);
+        }
         return true;
     }
 
@@ -126,7 +145,8 @@ public final class DownloadTaskRegistry {
         Objects.requireNonNull(owner, "owner");
         expire();
         Entry entry = entries.get(taskId);
-        return entry != null && visible(entry, owner) ? Optional.of(entry.value) : Optional.empty();
+        if (entry != null) return visible(entry, owner) ? Optional.of(entry.value) : Optional.empty();
+        return archived(taskId, owner);
     }
 
     public synchronized DownloadTasks.Snapshot snapshot(RequestOwnerIdentity owner) {
@@ -142,7 +162,9 @@ public final class DownloadTaskRegistry {
         synchronized (this) {
             expire();
             Entry entry = entries.get(taskId);
-            if (entry == null || !visible(entry, owner)) return DownloadTasks.CancelResult.NOT_FOUND;
+            if (entry == null) return archived(taskId, owner).isPresent()
+                    ? DownloadTasks.CancelResult.TERMINAL : DownloadTasks.CancelResult.NOT_FOUND;
+            if (!visible(entry, owner)) return DownloadTasks.CancelResult.NOT_FOUND;
             if (entry.value.terminal()) return DownloadTasks.CancelResult.TERMINAL;
             task = entry.task;
             if (task == null) return DownloadTasks.CancelResult.NOT_CANCELLABLE;
@@ -169,10 +191,34 @@ public final class DownloadTaskRegistry {
         Instant cutoff = clock.instant().minus(RETENTION);
         entries.values().removeIf(entry -> {
             if (!entry.value.terminal() || !entry.value.updatedAt().isBefore(cutoff)) return false;
+            if (!saveResult(entry)) return false;
             if (entry.request != null) requests.remove(entry.request);
             revision++;
             return true;
         });
+    }
+
+    private Optional<DownloadTaskSnapshot> archived(UUID id, RequestOwnerIdentity owner) {
+        return results == null ? Optional.empty() : results.find(id, owner);
+    }
+
+    private boolean saveResult(Entry entry) {
+        if (results == null || entry.saved) return true;
+        if (clock.instant().isBefore(entry.retrySaveAt)) return false;
+        try {
+            results.save(entry.value, entry.owner);
+            entry.saved = true;
+            return true;
+        } catch (IOException failure) {
+            entry.retrySaveAt = clock.instant().plus(RETENTION);
+            // 保存失败不能改写执行结果；保留内存事实，下次过期检查重试。
+            if (!entry.saveFailureLogged) {
+                entry.saveFailureLogged = true;
+                LoggerFactory.getLogger(DownloadTaskRegistry.class).warn(
+                        MessageBundles.getForLog("download.tasks.result-save-failed", entry.value.attempt().attemptId()), failure);
+            }
+            return false;
+        }
     }
 
     private static byte[] fingerprint(DownloadSubmission command, String credential) {
