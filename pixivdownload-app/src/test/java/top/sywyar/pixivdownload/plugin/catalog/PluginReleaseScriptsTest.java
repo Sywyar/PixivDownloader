@@ -660,26 +660,60 @@ class PluginReleaseScriptsTest {
                 "$($artifact.FullName).sha256",
                 "$($artifact.FullName).sig",
                 ".pixiv-plugin-provenance");
-        Matcher installerProvenance = Pattern.compile(
-                "function Write-Provenance(?<body>.*?)function Enable-Plugin",
-                Pattern.DOTALL).matcher(installerInstall);
-        assertThat(installerProvenance.find()).isTrue();
-        assertThat(installerProvenance.group("body")).contains(
-                "$expectedSizeBytes = [int64](Get-Prop $Item.Package \"expectedSizeBytes\")",
-                "$expectedSha256 = [string](Get-Prop $Item.Package \"sha256\")",
-                "$artifactSizeBytes = [int64]$artifact.Length",
-                "$artifactSha256 = Get-Sha256Hex $ArtifactPath",
-                "if ($artifactSizeBytes -ne $expectedSizeBytes)",
-                "[string]::Equals($artifactSha256, $expectedSha256, [System.StringComparison]::OrdinalIgnoreCase)",
-                "artifactSizeBytes=$artifactSizeBytes",
-                "artifactSha256=$artifactSha256");
-        assertThat(installerProvenance.group("body").indexOf("if ($artifactSizeBytes -ne $expectedSizeBytes)"))
-                .isLessThan(installerProvenance.group("body").indexOf("\"status=VERIFIED\""));
-        assertThat(installerProvenance.group("body").indexOf("[string]::Equals($artifactSha256, $expectedSha256"))
-                .isLessThan(installerProvenance.group("body").indexOf("\"status=VERIFIED\""));
-        assertThat(installerInstall.indexOf("Write-Provenance $item $target \"$target.sig\""))
-                .isGreaterThan(installerInstall.indexOf(
-                        "Copy-Item -LiteralPath $download -Destination $target -Force"));
+    }
+
+    @Test
+    @DisplayName("安装器来源记录绑定已安装字节，大小或摘要不符时不写入成功记录")
+    void installerProvenanceValidatesInstalledBytes(@TempDir Path tempDir) throws Exception {
+        byte[] bytes = "installed-plugin-fixture".getBytes(StandardCharsets.UTF_8);
+        String sha256 = java.util.HexFormat.of().formatHex(
+                java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+        for (String scenario : List.of("valid", "size", "hash", "missing")) {
+            Path directory = Files.createDirectory(tempDir.resolve(scenario));
+            Path artifact = directory.resolve("fixture.jar");
+            if (!scenario.equals("missing")) {
+                Files.write(artifact, bytes);
+            }
+            long expectedSize = bytes.length + (scenario.equals("size") ? 1 : 0);
+            String expectedHash = scenario.equals("hash") ? "0".repeat(64) : sha256.toUpperCase(java.util.Locale.ROOT);
+            String command = """
+                    $ErrorActionPreference = 'Stop'
+                    $tokens = $null
+                    $errors = $null
+                    $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+                        (Join-Path (Get-Location) 'packaging/windows/inno/installer-plugin-install.ps1'),
+                        [ref]$tokens, [ref]$errors)
+                    if ($errors.Count -ne 0) { throw 'Invalid installer script' }
+                    foreach ($function in $ast.FindAll({param($node)
+                        $node -is [System.Management.Automation.Language.FunctionDefinitionAst]}, $false)) {
+                        . ([scriptblock]::Create($function.Extent.Text))
+                    }
+                    $item = [pscustomobject]@{ PluginId = 'fixture'; Package = [pscustomobject]@{
+                        expectedSizeBytes = %d; sha256 = '%s'
+                        signature = [pscustomobject]@{
+                            formatVersion = 1; algorithm = 'Ed25519'; keyId = 'fixture-key'; value = 'fixture-signature'
+                        }
+                    }}
+                    Write-Provenance $item '%s'
+                    """.formatted(expectedSize, expectedHash, psQuote(artifact));
+            CommandResult result = runPowerShellResult(command);
+            Path sidecar = directory.resolve("provenance/fixture.jar.pixiv-plugin-provenance");
+            if (scenario.equals("valid")) {
+                assertThat(result.exitCode()).as(result.output()).isZero();
+                assertThat(readProperties(sidecar)).containsAllEntriesOf(Map.of(
+                        "source", "MARKET_CATALOG", "status", "VERIFIED",
+                        "expectedSizeBytes", Long.toString(expectedSize), "artifactSizeBytes", Long.toString(bytes.length),
+                        "expectedSha256", expectedHash, "artifactSha256", sha256,
+                        "signature.algorithm", "Ed25519", "signature.keyId", "fixture-key",
+                        "signature.value", "fixture-signature"));
+            } else {
+                assertThat(result.exitCode()).as(scenario + ": " + result.output()).isNotZero();
+                assertThat(sidecar).doesNotExist();
+            }
+            if (!scenario.equals("missing")) {
+                assertThat(Files.readAllBytes(artifact)).isEqualTo(bytes);
+            }
+        }
     }
 
     @Test

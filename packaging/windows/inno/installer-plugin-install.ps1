@@ -76,13 +76,6 @@ function Parse-VersionPair([string]$Version) {
     return @($major, $minor)
 }
 
-function Test-Compatible([string]$Required) {
-    if ([string]::IsNullOrWhiteSpace($Required) -or $Required.Trim() -eq "*") { return $true }
-    $core = Parse-VersionPair $SdkVersion
-    $requiredPair = Parse-VersionPair $Required
-    return ($core[0] -eq $requiredPair[0]) -and ($core[1] -ge $requiredPair[1])
-}
-
 function Get-RequiredSdk($Package) {
     $required = [string](Get-Prop $Package "requiredSdk")
     if ([string]::IsNullOrWhiteSpace($required)) {
@@ -168,7 +161,7 @@ function Assert-InstallablePackage($Entry, $Package) {
     if ([int64](Get-Prop $Package "expectedSizeBytes") -le 0) { throw "Missing expectedSizeBytes for $pluginId." }
     if ($null -eq (Get-Prop $Package "signature")) { throw "Missing signature for $pluginId." }
     $requiredSdk = Get-RequiredSdk $Package
-    if (-not (Test-Compatible $requiredSdk)) {
+    if (-not (Test-VersionSatisfied $requiredSdk $SdkVersion)) {
         throw "$pluginId requires SDK $requiredSdk"
     }
 }
@@ -413,7 +406,7 @@ function Get-Sha256Hex([string]$Path) {
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
 }
 
-function Write-Provenance($Item, [string]$ArtifactPath, [string]$SignaturePath) {
+function Write-Provenance($Item, [string]$ArtifactPath) {
     $artifact = Get-Item -LiteralPath $ArtifactPath
     $expectedSizeBytes = [int64](Get-Prop $Item.Package "expectedSizeBytes")
     $expectedSha256 = [string](Get-Prop $Item.Package "sha256")
@@ -516,7 +509,7 @@ try {
             Copy-Item -LiteralPath $sigTemp -Destination "$target.sig" -Force
             $shaLine = ([string](Get-Prop $item.Package "sha256")) + "  " + [System.IO.Path]::GetFileName($target) + "`n"
             [System.IO.File]::WriteAllText("$target.sha256", $shaLine, (New-Object System.Text.UTF8Encoding($false)))
-            Write-Provenance $item $target "$target.sig"
+            Write-Provenance $item $target
             Remove-SupersededInstalledPlugins $pluginsDir $item.PluginId $target
             Enable-Plugin $item.PluginId
         }

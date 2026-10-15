@@ -125,7 +125,6 @@ begin
   if Assigned(PluginCheckList) then
     PluginCheckList.Items.Clear;
   SetArrayLength(PluginIds, 0);
-  SetArrayLength(PluginVersions, 0);
 end;
 
 procedure AddPluginCatalogItem(const PluginId, Version, DisplayName, Summary: String);
@@ -135,9 +134,7 @@ var
 begin
   Index := GetArrayLength(PluginIds);
   SetArrayLength(PluginIds, Index + 1);
-  SetArrayLength(PluginVersions, Index + 1);
   PluginIds[Index] := PluginId;
-  PluginVersions[Index] := Version;
   Caption := DisplayName + '  v' + Version;
   if Summary <> '' then
     Caption := Caption + ' - ' + Summary;

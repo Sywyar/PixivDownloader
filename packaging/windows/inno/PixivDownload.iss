@@ -411,7 +411,6 @@ var
   PluginCatalogLoaded: Boolean;
   PluginCatalogPath: String;
   PluginIds: TArrayOfString;
-  PluginVersions: TArrayOfString;
   PluginInstallTitleLabel: TNewStaticText;
   PluginInstallDetailLabel: TNewStaticText;
   PluginInstallProgressBar: TNewProgressBar;
