@@ -58,7 +58,7 @@ final class DesktopOnboardingController {
                 host.defaultProxyPort()
         );
         try {
-            host.applicationConfig().readAll(List.of("proxy.enabled", "proxy.host", "proxy.port"))
+            owner.readConfiguration(List.of("proxy.enabled", "proxy.host", "proxy.port"))
                     .forEach((key, value) -> formValues.put("welcome." + key, value));
         } catch (java.io.IOException ignored) {
             // 配置暂不可读时保留宿主默认值，只有显式保存才写入。
@@ -529,14 +529,16 @@ final class DesktopOnboardingController {
         owner.runBusy(() -> {
             try {
                 try {
-                    host.applicationConfig().writeAll(Map.of(
+                    Map<String, String> saved = Map.of(
                             "proxy.enabled",
                             Boolean.toString(enabled),
                             "proxy.host",
                             savedHost,
                             "proxy.port",
                             Integer.toString(savedPort)
-                    ));
+                    );
+                    host.applicationConfig().writeAll(saved);
+                    owner.coreConfigValuesSaved(saved);
                     host.markOnboardingProxyConfigured();
                 } catch (Exception failure) {
                     setWelcomeNotice(

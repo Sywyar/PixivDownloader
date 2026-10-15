@@ -52,8 +52,6 @@ final class DesktopStatusController {
     private volatile boolean ffmpegConfirm;
     private volatile TextToken ffmpegNotice;
     private volatile boolean ffmpegNoticeError;
-    private volatile String ffmpegConfiguredPath;
-    private final Map<String, String> formValues;
     private final AtomicBoolean ffmpegDirectoryOpening = new AtomicBoolean();
     private volatile double ffmpegProgress;
 
@@ -68,7 +66,6 @@ final class DesktopStatusController {
         this.host = host;
         this.serverPort = serverPort;
         this.rootFolder = rootFolder;
-        this.formValues = formValues;
         this.updates = new DesktopUpdateController(owner, host, formValues);
     }
 
@@ -414,17 +411,11 @@ final class DesktopStatusController {
                     button("ffmpeg.confirm.cancel", "ffmpeg.confirm.cancel", "desktop.ui.action.cancel",
                             !owner.busy(), nextActions, () -> { ffmpegConfirm = false; owner.rebuild(); })));
         } else {
-            ffmpegNodes.add(new DesktopUiNode.Form("tools.ffmpeg.form", DesktopUiNode.FormStyle.COMPACT, null, List.of(
-                    new DesktopUiNode.FormRow("tools.ffmpeg.path.row", TextToken.key("gui.config.field.ffmpeg.executable-path.label"),
-                            TextToken.key("gui.config.field.ffmpeg.executable-path.help"),
-                            input("tools.ffmpeg.path", "tools.ffmpeg.path", "gui.config.field.ffmpeg.executable-path.label", null,
-                                    DesktopUiNode.InputKind.FILE, formValues.getOrDefault("tools.ffmpeg.path", ""),
-                                    !owner.busy() && !ffmpegChecking.get()), null))));
             nextActions.put("status.ffmpeg.refresh", this::refreshFfmpeg);
             ffmpegNodes.add(new DesktopUiNode.Button("status.ffmpeg.refresh", "status.ffmpeg.refresh", toolToken("refresh"),
                     null, DesktopUiNode.ButtonStyle.NORMAL, !owner.busy() && !ffmpegChecking.get()));
-            nextActions.put("status.ffmpeg.path.save", this::saveFfmpegPath);
-            ffmpegNodes.add(new DesktopUiNode.Button("status.ffmpeg.path.save", "status.ffmpeg.path.save", toolToken("save-path"),
+            nextActions.put("status.ffmpeg.settings", () -> owner.locateCoreSetting("ffmpeg.executable-path"));
+            ffmpegNodes.add(new DesktopUiNode.Button("status.ffmpeg.settings", "status.ffmpeg.settings", TextToken.key("desktop.ui.page.settings"),
                     null, DesktopUiNode.ButtonStyle.NORMAL, !owner.busy() && !ffmpegChecking.get()));
             ffmpegNodes.add(row("status.ffmpeg.actions",
                     button("status.ffmpeg.install", "status.ffmpeg.install", "gui.ffmpeg.action.download-to-managed",
@@ -466,10 +457,6 @@ final class DesktopStatusController {
         try {
             ffmpegInstallation = host.locateFfmpeg();
             ffmpegCheckFailed = false;
-            String configured = host.applicationConfig().read("ffmpeg.executable-path");
-            String path = configured == null ? "" : configured;
-            formValues.compute("tools.ffmpeg.path", (key, draft) -> draft == null || draft.equals(ffmpegConfiguredPath) ? path : draft);
-            ffmpegConfiguredPath = path;
         } catch (Exception failure) {
             ffmpegInstallation = Optional.empty();
             ffmpegCheckFailed = true;
@@ -479,24 +466,9 @@ final class DesktopStatusController {
         }
     }
 
-    private void saveFfmpegPath() {
-        if (owner.busy() || ffmpegChecking.get()) return;
-        String value = formValues.getOrDefault("tools.ffmpeg.path", "").trim();
-        owner.runBusy(() -> {
-            try {
-                host.requireSafeConfigValue(value);
-                host.validateCoreConfigValue("ffmpeg.executable-path", value);
-                host.applicationConfig().writeAll(Map.of("ffmpeg.executable-path", value));
-                owner.coreConfigValueSaved("ffmpeg.executable-path", value);
-                ffmpegNotice = toolToken("path-saved");
-                ffmpegNoticeError = false;
-                refreshFfmpeg();
-            } catch (Exception failure) {
-                LOG.warn("Unable to save FFmpeg path", failure);
-                ffmpegNotice = toolToken("path-failed");
-                ffmpegNoticeError = true;
-            }
-        });
+    void configurationSaved(Map<String, String> saved) {
+        if (!saved.containsKey("ffmpeg.executable-path")) return;
+        refreshFfmpeg();
     }
 
     private void requestFfmpegInstall() {

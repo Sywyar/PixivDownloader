@@ -562,6 +562,7 @@ final class DesktopUpdateController {
                     "update.check-nightly",
                     Boolean.toString(enabled)
             );
+            owner.coreConfigValueSaved("update.check-nightly", Boolean.toString(enabled));
         } catch (Exception failure) {
             LOG.warn("Unable to persist update.check-nightly", failure);
         }

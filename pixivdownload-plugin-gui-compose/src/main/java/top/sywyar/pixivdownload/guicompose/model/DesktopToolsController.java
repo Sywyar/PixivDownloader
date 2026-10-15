@@ -36,6 +36,7 @@ final class DesktopToolsController {
     final Map<String, String> formValues;
     final DesktopImageClassifierSupport classifierSupport;
     private final DesktopToolsView view;
+    private final Map<String, String> inheritedValues = new LinkedHashMap<>();
 
     volatile DesktopUiNode.ToolActivity activity;
     volatile String classifierNotice = "";
@@ -232,6 +233,14 @@ final class DesktopToolsController {
     }
 
     void runBackfill() {
+        try {
+            refreshBackfillProxy();
+        } catch (RuntimeException failure) {
+            LOG.warn("Unable to read backfill configuration", failure);
+            backfillNotice = host.message("desktop.ui.tools.operation-failed");
+            owner.rebuild();
+            return;
+        }
         if (!validateTool("backfill")) return;
         String db = form("tools.backfill.db", "").trim();
         DesktopUiHost.BackfillOptions options = new DesktopUiHost.BackfillOptions(
@@ -1060,19 +1069,11 @@ final class DesktopToolsController {
         String databasePath = host.resolveDatabasePath(rootFolder).toString();
         formValues.putIfAbsent("tools.folder.db", databasePath);
         formValues.putIfAbsent("tools.migration.db", databasePath);
-        formValues.putIfAbsent("tools.migration.root", rootFolder);
+        inherit("tools.migration.root", rootFolder);
         try {
             DesktopUiHost.BackfillOptions defaults = host.defaultBackfillOptions();
             formValues.putIfAbsent("tools.backfill.db", defaults.dbPath());
-            formValues.putIfAbsent("tools.backfill.proxy-host", defaults.proxyHost());
-            formValues.putIfAbsent(
-                    "tools.backfill.proxy-port",
-                    Integer.toString(defaults.proxyPort())
-            );
-            formValues.putIfAbsent(
-                    "tools.backfill.proxy",
-                    Boolean.toString(defaults.useProxy())
-            );
+            inheritBackfillProxy(defaults);
             formValues.putIfAbsent(
                     "tools.backfill.delay",
                     Long.toString(defaults.delayMs())
@@ -1085,8 +1086,8 @@ final class DesktopToolsController {
                     "tools.backfill.dry",
                     Boolean.toString(defaults.dryRun())
             );
-        } catch (RuntimeException ignored) {
-            // 保持页面默认值可用。
+        } catch (RuntimeException failure) {
+            LOG.warn("Unable to read backfill configuration", failure);
         }
         DesktopUiHost.ImageClassifierSettings settings = classifierSupport.loadSettings();
         formValues.putIfAbsent("classifier.default-folder", settings.defaultFolder());
@@ -1099,6 +1100,29 @@ final class DesktopToolsController {
                 "classifier.targets",
                 classifierSupport.encodeTargets(settings.targets())
         );
+    }
+
+    void configurationSaved(Map<String, String> saved) {
+        if (saved.containsKey("download.root-folder")) inherit("tools.migration.root", saved.get("download.root-folder"));
+        if (saved.containsKey("proxy.enabled")) inherit("tools.backfill.proxy", saved.get("proxy.enabled"));
+        if (saved.containsKey("proxy.host")) inherit("tools.backfill.proxy-host", saved.get("proxy.host"));
+        if (saved.containsKey("proxy.port")) inherit("tools.backfill.proxy-port", saved.get("proxy.port"));
+    }
+
+    private void refreshBackfillProxy() {
+        inheritBackfillProxy(host.defaultBackfillOptions());
+    }
+
+    private void inheritBackfillProxy(DesktopUiHost.BackfillOptions defaults) {
+        inherit("tools.backfill.proxy-host", defaults.proxyHost());
+        inherit("tools.backfill.proxy-port", Integer.toString(defaults.proxyPort()));
+        inherit("tools.backfill.proxy", Boolean.toString(defaults.useProxy()));
+    }
+
+    private void inherit(String key, String value) {
+        String previous = inheritedValues.put(key, value);
+        formValues.compute(key, (ignored, draft) ->
+                draft == null || java.util.Objects.equals(draft, previous) ? value : draft);
     }
 
     List<Path> classifierFolders() {

@@ -20,6 +20,7 @@ final class DesktopSecurityController {
     private final DesktopUiHost host;
     private final int serverPort;
     private final Map<String, String> formValues;
+    private final Map<String, String> connectionValues = new java.util.concurrent.ConcurrentHashMap<>();
     private volatile String panel = "";
     private volatile TextToken notice;
     private volatile String errorField = "";
@@ -183,7 +184,9 @@ final class DesktopSecurityController {
             try {
                 List<String> keys = new ArrayList<>(CONNECTION_KEYS.values());
                 keys.add("server.ssl.key-store");
-                var saved = host.applicationConfig().readAll(keys);
+                var saved = owner.readConfiguration(keys);
+                connectionValues.clear();
+                connectionValues.putAll(saved);
                 CONNECTION_KEYS.forEach((field, key) -> formValues.put("security." + field,
                         saved.getOrDefault(key, field.equals("domain") ? "localhost" : field.equals("port") ? Integer.toString(serverPort) : "")));
                 keyStoreConfigured = !saved.getOrDefault("server.ssl.key-store", "").isBlank();
@@ -220,7 +223,7 @@ final class DesktopSecurityController {
                     String key = host.requireSafeConfigKey(entry.getValue());
                     String value = host.requireSafeConfigValue(fields.get(entry.getKey()));
                     host.validateCoreConfigValue(key, value);
-                    saved.put(key, value);
+                    if (!java.util.Objects.equals(value, connectionValues.get(key))) saved.put(key, value);
                 }
                 var file = host.applicationConfig();
                 var before = file.snapshot();
@@ -234,6 +237,16 @@ final class DesktopSecurityController {
                 succeeded("connection");
             } catch (Exception failure) {
                 notice = label("save-failed");
+            }
+        });
+    }
+
+    void configurationSaved(Map<String, String> saved) {
+        CONNECTION_KEYS.forEach((field, key) -> {
+            if (saved.containsKey(key)) {
+                String previous = connectionValues.put(key, saved.get(key));
+                formValues.computeIfPresent("security." + field, (ignored, draft) ->
+                        java.util.Objects.equals(draft, previous) ? saved.get(key) : draft);
             }
         });
     }

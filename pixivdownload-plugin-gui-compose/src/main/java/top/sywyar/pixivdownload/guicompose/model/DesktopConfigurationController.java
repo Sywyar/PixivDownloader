@@ -122,6 +122,12 @@ final class DesktopConfigurationController {
         cachedPage = null;
     }
 
+    void locateCoreField(String key) {
+        configFields.stream().filter(field -> field.key().owner() == null && field.spec().key().equals(key))
+                .findFirst().ifPresent(view::locateField);
+        invalidatePage();
+    }
+
     // 仅复用状态轮询之间的页面与绑定；交互、语言和来源换代由模型统一失效，不复制表单凭据。
     private record SettingsPage(
             DesktopUiNode content,
@@ -132,8 +138,20 @@ final class DesktopConfigurationController {
 
     void coreValueSaved(String key, String value) {
         FieldKey field = new FieldKey(null, key);
-        values.put(field, value);
-        savedValues.put(field, value);
+        String previous = savedValues.put(field, value);
+        values.compute(field, (ignored, draft) ->
+                draft == null || Objects.equals(draft, previous) ? value : draft);
+        invalidatePage();
+    }
+
+    Map<String, String> readCoreValues(java.util.Collection<String> keys) throws java.io.IOException {
+        Map<String, String> result = new LinkedHashMap<>();
+        for (var field : host.coreConfigFields()) {
+            if (keys.contains(field.key()) && field.defaultValue() != null)
+                result.put(field.key(), field.defaultValue());
+        }
+        result.putAll(host.applicationConfig().readAll(keys));
+        return result;
     }
 
     void pluginValueSaved(String pluginId, String key, String value) {
@@ -459,6 +477,13 @@ final class DesktopConfigurationController {
                 ));
             }
             credentialRevision++;
+            Map<String, String> savedCore = new LinkedHashMap<>();
+            for (ConfigField field : changed) {
+                if (field.owner() == null && !field.spec().sensitive())
+                    savedCore.put(field.spec().key(), values.get(field.key()));
+            }
+            savedCore.putAll(interfaceValues);
+            owner.coreConfigValuesSaved(savedCore);
             boolean hotReloaded = hotKeys.isEmpty() || host.guiPostJson(
                     "config/reload",
                     Map.of("changedKeys", List.copyOf(hotKeys)),
@@ -1076,7 +1101,7 @@ final class DesktopConfigurationController {
 
     DesktopUiHost.FfmpegProxy proxySettings() {
         try {
-            Map<String, String> values = host.applicationConfig().readAll(List.of(
+            Map<String, String> values = readCoreValues(List.of(
                     "proxy.enabled",
                     "proxy.host",
                     "proxy.port"
@@ -1086,14 +1111,14 @@ final class DesktopConfigurationController {
                     "false"
             ));
             String proxyHost = values.getOrDefault("proxy.host", host.defaultProxyHost());
-            int proxyPort = parseInt(values.get("proxy.port"), host.defaultProxyPort());
+            int proxyPort = Integer.parseInt(values.getOrDefault("proxy.port", Integer.toString(host.defaultProxyPort())).trim());
             return new DesktopUiHost.FfmpegProxy(
-                    enabled && !proxyHost.isBlank() && proxyPort > 0,
+                    enabled,
                     proxyHost,
                     proxyPort
             );
-        } catch (Exception ignored) {
-            return new DesktopUiHost.FfmpegProxy(false, "", 0);
+        } catch (java.io.IOException failure) {
+            throw new java.io.UncheckedIOException(failure);
         }
     }
 

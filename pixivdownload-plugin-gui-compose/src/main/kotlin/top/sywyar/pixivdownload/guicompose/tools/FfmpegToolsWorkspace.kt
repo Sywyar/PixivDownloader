@@ -133,8 +133,6 @@ private fun FfmpegManagement(
     val nodes = descendants(media).toList()
     val palette = LocalExperiencePalette.current
     val buttons = nodes.filterIsInstance<Button>()
-    val form = nodes.filterIsInstance<Form>().firstOrNull()
-    var advanced by rememberSaveable { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         nodes.filterIsInstance<Text>().firstOrNull { it.id() == "status.ffmpeg.state" }?.let {
             CupertinoText(text(it.text()), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
@@ -155,17 +153,8 @@ private fun FfmpegManagement(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             buttons.filter {
-                it.id() in listOf("status.ffmpeg.refresh", "status.ffmpeg.open", "status.ffmpeg.help", "ffmpeg.confirm.cancel", "status.ffmpeg.install", "ffmpeg.confirm.install")
+                it.id() in listOf("status.ffmpeg.refresh", "status.ffmpeg.settings", "status.ffmpeg.open", "status.ffmpeg.help", "ffmpeg.confirm.cancel", "status.ffmpeg.install", "ffmpeg.confirm.install")
             }.forEach { ToolAction(it, text, emit, primary = it.id() == "ffmpeg.confirm.install") }
-        }
-        if (form != null) {
-            ToolDisclosure(workspaceText(text, "media-existing"), "tools.media.advanced", advanced) { advanced = !advanced }
-            AnimatedVisibility(advanced) {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    form.rows().forEach { ToolField(it.content() as TextInput, text, emit, help = null) }
-                    buttons.firstOrNull { it.id() == "status.ffmpeg.path.save" }?.let { ToolAction(it, text, emit) }
-                }
-            }
         }
     }
 }

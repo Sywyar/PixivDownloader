@@ -23,6 +23,52 @@ import java.util.function.Function;
 @DisplayName("Compose 工具表单默认值")
 class DesktopToolsControllerTest {
     @Test
+    @DisplayName("回填跟随已保存代理，临时覆盖不写配置且后续保存不覆盖临时草稿")
+    void backfillInheritsConfigurationAndKeepsTemporaryOverrides() throws Exception {
+        Map<String, String> stored = new java.util.concurrent.ConcurrentHashMap<>(Map.of(
+                "proxy.enabled", "false", "proxy.host", "saved.proxy", "proxy.port", "17891"));
+        var captured = new java.util.concurrent.atomic.AtomicReference<DesktopUiHost.BackfillOptions>();
+        Map<String, Function<Object[], Object>> overrides = new HashMap<>();
+        overrides.put("defaultBackfillOptions", args -> new DesktopUiHost.BackfillOptions(
+                "data/test.db", stored.get("proxy.host"), Integer.parseInt(stored.get("proxy.port")),
+                Boolean.parseBoolean(stored.get("proxy.enabled")), 0, 0, false));
+        overrides.put("backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null));
+        overrides.put("countBackfillCandidates", args -> 0);
+        overrides.put("recordToolHistory", args -> null);
+        overrides.put("openToolLog", args -> new DesktopUiHost.ToolLogSession() {
+            public Path latestPath() { return Path.of("latest.html"); }
+            public Path sessionPath() { return Path.of("session.html"); }
+            public void openLatestInBrowser() {}
+            public void close() {}
+        });
+        overrides.put("runBackfill", args -> {
+            captured.set((DesktopUiHost.BackfillOptions) args[0]);
+            return new DesktopUiHost.BackfillSummary(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false);
+        });
+        try (var model = DesktopConfigurationControllerTest.model(stored, overrides)) {
+            awaitMediaReady(model);
+            stored.put("proxy.port", "17892");
+            activate(model, "tools.backfill.run");
+            DesktopConfigurationControllerTest.awaitReady(model);
+            assertEquals(17892, captured.get().proxyPort());
+            assertFalse(captured.get().useProxy());
+            model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "tools.backfill.proxy", DesktopUiNode.Value.bool(true)));
+            model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "tools.backfill.proxy-host", DesktopUiNode.Value.text("temporary.proxy")));
+            stored.put("proxy.host", "wizard.proxy");
+            model.coreConfigValuesSaved(Map.of("proxy.host", "wizard.proxy"));
+            model.rebuild();
+            activate(model, "tools.backfill.run");
+            DesktopConfigurationControllerTest.awaitReady(model);
+            assertEquals("temporary.proxy", captured.get().proxyHost());
+            assertTrue(captured.get().useProxy());
+            assertEquals("wizard.proxy", stored.get("proxy.host"));
+            assertEquals(3, stored.size());
+        }
+    }
+
+    @Test
     @DisplayName("分类器设置在工具工作区中打开、编辑并关闭时端点保持唯一")
     void classifierSettingsKeepUniqueEndpoints() throws Exception {
         try (var model = DesktopConfigurationControllerTest.model(new HashMap<>())) {
@@ -204,7 +250,7 @@ class DesktopToolsControllerTest {
     }
 
     @Test
-    @DisplayName("媒体检查不随表单编辑重复执行，路径校验失败不写配置，安装保留真实进度")
+    @DisplayName("媒体检查不随表单编辑重复执行，工具不保存路径，安装保留真实进度")
     void mediaActionsUseHostValidationAndProgress() throws Exception {
         Map<String, String> stored = new java.util.concurrent.ConcurrentHashMap<>();
         var probes = new java.util.concurrent.atomic.AtomicInteger();
@@ -215,10 +261,6 @@ class DesktopToolsControllerTest {
         Map<String, Function<Object[], Object>> overrides = new HashMap<>();
         overrides.put("locateFfmpeg", args -> { probes.incrementAndGet(); return installed.get() ? java.util.Optional.of(installation) : java.util.Optional.empty(); });
         overrides.put("supportsManagedFfmpegInstall", args -> true);
-        overrides.put("validateCoreConfigValue", args -> {
-            if (args[1].equals("bad")) throw new IllegalArgumentException("invalid executable");
-            return null;
-        });
         overrides.put("installManagedFfmpeg", args -> {
             ((DesktopUiHost.FfmpegProgressListener) args[1]).onProgress(DesktopUiHost.FfmpegInstallStage.DOWNLOADING, 3, 10);
             started.countDown();
@@ -230,16 +272,11 @@ class DesktopToolsControllerTest {
             awaitMediaReady(model);
             int baseline = probes.get();
             model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
-                    "tools.ffmpeg.path", DesktopUiNode.Value.text("bad")));
+                    "tools.backfill.proxy-host", DesktopUiNode.Value.text("temporary.proxy")));
             assertEquals(baseline, probes.get());
-            activate(model, "status.ffmpeg.path.save");
-            awaitMediaReady(model);
+            assertFalse(descendants(overview(model).media()).anyMatch(node -> node.id().equals("tools.ffmpeg.path")));
+            activate(model, "status.ffmpeg.settings");
             assertFalse(stored.containsKey("ffmpeg.executable-path"));
-            model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
-                    "tools.ffmpeg.path", DesktopUiNode.Value.text("")));
-            activate(model, "status.ffmpeg.path.save");
-            awaitMediaReady(model);
-            assertEquals("", stored.get("ffmpeg.executable-path"));
             activate(model, "status.ffmpeg.install");
             assertTrue(model.snapshot().document().dialogs().isEmpty());
             activate(model, "ffmpeg.confirm.install");
