@@ -118,8 +118,9 @@ public class DownloadWorkbenchPluginConfiguration {
             top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository metadata,
             top.sywyar.pixivdownload.core.work.service.WorkQueryService query,
             top.sywyar.pixivdownload.download.media.ImageOutputService images,
-            UgoiraService animations, top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore) {
-        return new top.sywyar.pixivdownload.download.media.MediaMaintenanceService(assets, metadata, query, images, animations, mediaStore);
+            UgoiraService animations, top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore,
+            @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
+        return new top.sywyar.pixivdownload.download.media.MediaMaintenanceService(assets, metadata, query, images, animations, mediaStore, messages);
     }
 
     @Bean

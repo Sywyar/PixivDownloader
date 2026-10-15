@@ -66,7 +66,11 @@ public final class FfmpegRunnerAdapter implements FfmpegRunner {
             checkCancelled(cancelled);
             ProcessBuilder builder = new ProcessBuilder(argv).redirectErrorStream(outputLine == null);
             if (workingDirectory != null) builder.directory(workingDirectory.toFile());
-            process = builder.start();
+            try {
+                process = builder.start();
+            } catch (IOException unavailable) {
+                throw new FfmpegRunner.UnavailableException(argv.get(0), unavailable);
+            }
             if (progress != null) progress.accept(Phase.RUNNING);
             process.getOutputStream().close();
             Process running = process;
@@ -78,7 +82,10 @@ public final class FfmpegRunnerAdapter implements FfmpegRunner {
             long deadline = System.nanoTime() + timeout.toNanos();
             long drainDeadline = Long.MAX_VALUE;
             while (true) {
-                running.descendants().forEach(child -> descendants.put(child.pid(), child));
+                // Windows 进程枚举会消耗排空预算；退出后只排管道，finally 仍复核并回收进程树。
+                if (drainDeadline == Long.MAX_VALUE) {
+                    running.descendants().forEach(child -> descendants.put(child.pid(), child));
+                }
                 checkCancelled(cancelled);
                 for (int i = 0; outputLine != null && i < 64; i++) {
                     String line = lines.poll();

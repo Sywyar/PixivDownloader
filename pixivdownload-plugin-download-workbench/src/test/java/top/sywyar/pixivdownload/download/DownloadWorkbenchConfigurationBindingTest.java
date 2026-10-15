@@ -31,6 +31,30 @@ import static org.junit.jupiter.api.Assertions.assertAll;
 @DisplayName("下载工作台真实插件上下文配置绑定")
 class DownloadWorkbenchConfigurationBindingTest {
     @Test
+    @DisplayName("媒体维护在宿主与插件翻译器同时存在时仍可正常装配")
+    void mediaMaintenanceResolvesPluginMessages() {
+        try (var parent = parent(Map.of())) {
+            var beans = parent.getBeanFactory();
+            for (Class<?> type : java.util.List.of(
+                    top.sywyar.pixivdownload.core.work.service.WorkAssetService.class,
+                    top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository.class,
+                    top.sywyar.pixivdownload.core.work.service.WorkQueryService.class,
+                    top.sywyar.pixivdownload.core.asset.ArtworkMediaStore.class,
+                    top.sywyar.pixivdownload.i18n.MessageResolver.class)) {
+                beans.registerSingleton(type.getSimpleName(), org.mockito.Mockito.mock(type));
+            }
+            try (var child = child(parent)) {
+                child.getBeanFactory().registerSingleton("downloadWorkbenchMessages",
+                        org.mockito.Mockito.mock(top.sywyar.pixivdownload.i18n.MessageResolver.class));
+                child.getBeanFactory().registerSingleton("imageOutputService",
+                        org.mockito.Mockito.mock(top.sywyar.pixivdownload.download.media.ImageOutputService.class));
+                child.getBeanFactory().registerSingleton("ugoiraService", org.mockito.Mockito.mock(UgoiraService.class));
+                assertThat(child.getBean(top.sywyar.pixivdownload.download.media.MediaMaintenanceService.class)).isNotNull();
+            }
+        }
+    }
+
+    @Test
     @DisplayName("启动读取动图与计划设置，重新创建上下文读取更新值")
     void bindsSavedSettingsOnStartupAndRestart() {
         Map<String, Object> values = new HashMap<>(Map.of(

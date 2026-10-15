@@ -14,6 +14,45 @@ import static org.assertj.core.api.Assertions.*;
 
 class DesktopMediaToolRegistryTest {
     @Test
+    @DisplayName("完成通知通过精确 publication 代理交付，撤回后不能启动新任务")
+    void completionCrossesPublicationBoundary() throws Exception {
+        var invocations = new ExternalCapabilityInvocationRegistry();
+        var registry = new DesktopMediaToolRegistry();
+        var adapter = new DesktopMediaToolCapabilityAdapter(registry, invocations);
+        var registrar = new PluginCapabilityContributionRegistrar(List.of(), List.of(), List.of(adapter), invocations);
+        var source = org.mockito.Mockito.mock(DesktopMediaTool.CompletionSource.class);
+        org.mockito.Mockito.when(source.description()).thenReturn(new DesktopMediaTool.Description(
+                DesktopUiText.raw("Independent"), "sample", "original", "webp"));
+        var completion = new java.util.concurrent.atomic.AtomicReference<java.util.function.Consumer<DesktopMediaTool.Status>>();
+        org.mockito.Mockito.when(source.start(org.mockito.ArgumentMatchers.eq("token"), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(call -> {
+                    completion.set(call.getArgument(1));
+                    return new DesktopMediaTool.Result<>(new DesktopMediaTool.Status("running", 2, 0, 0, List.of()), null);
+                });
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(DesktopMediaTool.Source.class, () -> source);
+            context.refresh();
+            var owner = registrar.allocateOwner("independent", "independent", 3);
+            registrar.prepareInto(owner, context);
+            var publication = registrar.publish(owner);
+            var handle = (DesktopMediaTool.CompletionSource) registry.source(registry.tools().get(0).identity());
+            var result = new java.util.concurrent.CompletableFuture<DesktopMediaTool.Status>();
+            var delivered = new AtomicInteger();
+            handle.start("token", status -> { delivered.incrementAndGet(); result.complete(status); }).valueOrThrow();
+            var drain = registrar.withdraw(publication).orElseThrow();
+            assertThatThrownBy(() -> handle.start("token", result::complete)).isInstanceOf(RuntimeException.class);
+            completion.get().accept(new DesktopMediaTool.Status("cancelled", 2, 1, 0, List.of()));
+            assertThat(result.get(1, java.util.concurrent.TimeUnit.SECONDS).state()).isEqualTo("cancelled");
+            assertThat(drain.await(java.time.Duration.ofSeconds(1))).isTrue();
+            registrar.retireDrained(drain);
+            registrar.acknowledgeRetired(drain);
+            assertThat(registrar.releaseRetirementProof(drain)).isTrue();
+            completion.get().accept(new DesktopMediaTool.Status("completed", 2, 2, 0, List.of()));
+            assertThat(delivered).hasValue(1);
+        }
+    }
+
+    @Test
     @DisplayName("工具随活动 publication 发布，撤回后旧命令不能调用替代来源")
     void commandsAreBoundToExactPublication() throws Exception {
         var invocations = new ExternalCapabilityInvocationRegistry();

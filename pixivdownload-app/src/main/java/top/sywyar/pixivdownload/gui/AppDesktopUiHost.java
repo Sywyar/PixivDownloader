@@ -43,7 +43,9 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override
     public top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool.Source mediaTool(
             top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool.Identity identity) {
-        return BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.media.DesktopMediaToolRegistry.class).source(identity);
+        return new DesktopMediaToolHistorySource(identity,
+                BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.media.DesktopMediaToolRegistry.class).source(identity),
+                toolHistory);
     }
 
     private final DesktopUiLocalApiClient localApiClient;
