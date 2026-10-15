@@ -447,10 +447,12 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
 
     private record ModelEntry(String id, @JsonProperty("owned_by") String ownedBy,
                               String type, Capabilities capabilities) {
+        private static final Set<String> NON_CHAT_TYPES = Set.of(
+                "embedding", "embeddings", "rerank", "text2image", "text2video", "tts", "asr");
+
         boolean chatCandidate() {
             return (capabilities == null || !Boolean.FALSE.equals(capabilities.completionChat()))
-                    && (type == null || !Set.of("embedding", "embeddings", "rerank", "text2image",
-                    "text2video", "tts", "asr").contains(type));
+                    && (type == null || !NON_CHAT_TYPES.contains(type));
         }
     }
 

@@ -19,8 +19,6 @@ import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 
-import java.util.function.Supplier;
-
 @Configuration
 @Import(AiHttpClientConfiguration.class)
 public class AiPluginConfiguration {
@@ -33,7 +31,7 @@ public class AiPluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled(AiPlugin.ID)
     public AiConfig aiConfig(Environment environment) {
-        return bind(environment, "ai", AiConfig::new, AiConfig.class);
+        return Binder.get(environment).bind("ai", Bindable.of(AiConfig.class)).orElseGet(AiConfig::new);
     }
 
     @Bean
@@ -84,9 +82,5 @@ public class AiPluginConfiguration {
     @ConditionalOnPluginEnabled(AiPlugin.ID)
     public AiStatusController aiStatusController(AiChatClient aiClient) {
         return new AiStatusController(aiClient);
-    }
-
-    private static <T> T bind(Environment environment, String prefix, Supplier<T> fallback, Class<T> type) {
-        return Binder.get(environment).bind(prefix, Bindable.of(type)).orElseGet(fallback);
     }
 }
