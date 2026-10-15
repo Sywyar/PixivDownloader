@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import javax.sql.DataSource;
@@ -367,11 +368,12 @@ public class ArtworksBackFill {
                           boolean dryRun) {
 
         public static Options defaults() {
+            ProxyConfig proxy = new ProxyConfig();
             return new Options(
                     RuntimeFiles.dataDirectory().resolve(RuntimeFiles.PIXIV_DOWNLOAD_DB).toString(),
-                    "127.0.0.1",
-                    7890,
-                    true,
+                    proxy.getHost(),
+                    proxy.getPort(),
+                    proxy.isEnabled(),
                     800L,
                     0,
                     false

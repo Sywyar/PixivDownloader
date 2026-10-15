@@ -391,7 +391,7 @@ public class GuiLauncher {
             ui.start(readConfigScalar(configPath, "app.gui-provider"));
             pluginSession.releaseStartupSnapshot();
             if (ACTIVE_UI.get() != null) {
-                maybeScheduleStartupBackfillFlow(ui, configPath, root, startupManagedSchema);
+                maybeScheduleStartupBackfillFlow(ui, desktopUiHost, root, startupManagedSchema);
             }
         } catch (Throwable failure) {
             splash.close();
@@ -543,13 +543,12 @@ public class GuiLauncher {
         SLF4JBridgeHandler.install();
     }
 
-    private static void maybeScheduleStartupBackfillFlow(DesktopUiSession frame, Path configPath, String rootFolder,
+    private static void maybeScheduleStartupBackfillFlow(DesktopUiSession frame, DesktopUiHost host, String rootFolder,
                                                          ManagedDatabaseSchema.DatabaseSchema expectedSchema) {
-        ArtworksBackFill.Options options = buildStartupBackfillOptions(configPath, rootFolder);
-        Path databasePath = Path.of(options.dbPath());
-
         Thread worker = new Thread(() -> {
             try {
+                ArtworksBackFill.Options options = buildStartupBackfillOptions(host, rootFolder);
+                Path databasePath = Path.of(options.dbPath());
                 runStartupSchemaBackfill(frame, databasePath, options, expectedSchema);
             } catch (Throwable fatal) {
                 log.error(logMessage("gui.launcher.log.startup.schema-backfill-flow.unexpected"), fatal);
@@ -732,28 +731,13 @@ public class GuiLauncher {
         );
     }
 
-    private static ArtworksBackFill.Options buildStartupBackfillOptions(Path configPath, String rootFolder) {
-        ArtworksBackFill.Options defaults = ArtworksBackFill.Options.defaults();
-        boolean proxyEnabled = defaults.useProxy();
-        String proxyHost = defaults.proxyHost();
-        int proxyPort = defaults.proxyPort();
-
-        if (Files.isRegularFile(configPath)) {
-            try {
-                ConfigFileEditor editor = new ConfigFileEditor(configPath);
-                proxyEnabled = Boolean.parseBoolean(defaultIfBlank(editor.read("proxy.enabled"), String.valueOf(defaults.useProxy())));
-                proxyHost = defaultIfBlank(editor.read("proxy.host"), defaults.proxyHost());
-                proxyPort = Integer.parseInt(defaultIfBlank(editor.read("proxy.port"), String.valueOf(defaults.proxyPort())));
-            } catch (Exception e) {
-                log.warn(logMessage("gui.launcher.log.startup.backfill.proxy-defaults.failed", e.getMessage()));
-            }
-        }//"
-
+    static ArtworksBackFill.Options buildStartupBackfillOptions(DesktopUiHost host, String rootFolder) {
+        DesktopUiHost.BackfillOptions defaults = host.defaultBackfillOptions();
         return new ArtworksBackFill.Options(
                 RuntimeFiles.resolveDatabasePath(rootFolder).toString(),
-                proxyHost,
-                proxyPort,
-                proxyEnabled,
+                defaults.proxyHost(),
+                defaults.proxyPort(),
+                defaults.useProxy(),
                 defaults.delayMs(),
                 defaults.limit(),
                 false

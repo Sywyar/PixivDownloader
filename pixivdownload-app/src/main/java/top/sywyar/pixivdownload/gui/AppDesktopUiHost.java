@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui;
 import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.common.AppVersion;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.config.http.ServerAddressProvider;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegInstaller;
@@ -318,7 +319,21 @@ final class AppDesktopUiHost implements DesktopUiHost {
         return new MaintenanceSnapshot(value.active(), value.trigger(), value.index(), value.total(), value.taskName(),
                 value.taskStartedAt(), value.unitsDone(), value.unitsTotal());
     }
-    @Override public BackfillOptions defaultBackfillOptions() { return map(ArtworksBackFill.Options.defaults()); }
+    @Override public BackfillOptions defaultBackfillOptions() {
+        var defaults = ArtworksBackFill.Options.defaults();
+        try {
+            var configured = applicationConfig.readAll(java.util.List.of(
+                    ProxyConfig.KEY_ENABLED, ProxyConfig.KEY_HOST, ProxyConfig.KEY_PORT));
+            return new BackfillOptions(
+                    defaults.dbPath(),
+                    configured.getOrDefault(ProxyConfig.KEY_HOST, defaults.proxyHost()),
+                    Integer.parseInt(configured.getOrDefault(ProxyConfig.KEY_PORT, Integer.toString(defaults.proxyPort()))),
+                    Boolean.parseBoolean(configured.getOrDefault(ProxyConfig.KEY_ENABLED, Boolean.toString(defaults.useProxy()))),
+                    defaults.delayMs(), defaults.limit(), defaults.dryRun());
+        } catch (java.io.IOException failure) {
+            throw new java.io.UncheckedIOException(failure);
+        }
+    }
     @Override public boolean supportsBackfillColumn(DatabaseColumn column) {
         return ArtworksBackFill.supportsDatabaseColumn(column.tableName(), column.columnName());
     }
@@ -436,9 +451,6 @@ final class AppDesktopUiHost implements DesktopUiHost {
 
     private static BackendSnapshot map(BackendLifecycleManager.Snapshot value) {
         return new BackendSnapshot(BackendState.valueOf(value.state().name()), value.error());
-    }
-    private static BackfillOptions map(ArtworksBackFill.Options value) {
-        return new BackfillOptions(value.dbPath(), value.proxyHost(), value.proxyPort(), value.useProxy(), value.delayMs(), value.limit(), value.dryRun());
     }
     private static ArtworksBackFill.Options map(BackfillOptions value) {
         return new ArtworksBackFill.Options(value.dbPath(), value.proxyHost(), value.proxyPort(), value.useProxy(), value.delayMs(), value.limit(), value.dryRun());
