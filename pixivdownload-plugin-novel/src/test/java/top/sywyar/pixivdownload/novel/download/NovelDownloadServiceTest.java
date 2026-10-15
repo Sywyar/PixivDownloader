@@ -43,6 +43,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
@@ -450,6 +451,92 @@ class NovelDownloadServiceTest {
                 .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
         assertThat(service.getStatus(103L).isFailed()).isTrue();
         org.mockito.Mockito.verifyNoInteractions(novelAutoTranslateService);
+    }
+
+    @Test
+    @DisplayName("下载中取消保留取消终态并清理暂存文件")
+    void cancellationPreservesTerminalStatus() throws Exception {
+        LocaleContextHolder.setLocale(Locale.ENGLISH);
+        when(workFileNameCatalog.getOrCreateTemplateId(any()))
+                .thenThrow(new CancellationException("cancelled by task"));
+
+        assertThat(service.downloadBlocking(txtRequest(112L, null), "owner-a")).isFalse();
+
+        assertCancelled(service.getStatus(112L, "owner-a", false));
+        var events = ArgumentCaptor.forClass(
+                top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent.class);
+        verify(downloadLifecycle, times(2)).publish(events.capture());
+        assertThat(events.getAllValues()).extracting(event -> event.phase().name())
+                .containsExactly("STARTED", "CANCELLED");
+        verify(workAssets, never()).publishFiles(any(), anyLong(), any(), any());
+        try (var files = Files.list(tempDir.resolve("runtime/download-staging"))) {
+            assertThat(files).isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("按 owner 清理已完成状态不影响其它 owner，全部清理返回剩余状态数")
+    void clearCompletedStatusesKeepsOwnerIsolation() {
+        LocaleContextHolder.setLocale(Locale.ENGLISH);
+        assertThat(service.downloadBlocking(txtRequest(113L, null), "owner-a")).isTrue();
+        assertThat(service.downloadBlocking(txtRequest(113L, null), "owner-b")).isTrue();
+        NovelDownloadStatus first = service.getStatus(113L, "owner-a", false);
+        NovelDownloadStatus second = service.getStatus(113L, "owner-b", false);
+
+        assertThat(service.forceClearDownloadsForOwner("owner-a")).isEqualTo(1);
+
+        assertCancelled(first);
+        assertThat(service.getStatus(113L, "owner-a", false)).isNull();
+        assertThat(service.getStatus(113L, "owner-b", false)).isSameAs(second);
+        assertThat(second.isCancelled()).isFalse();
+        assertThat(service.forceClearDownloads()).isEqualTo(1);
+        assertCancelled(second);
+        assertThat(service.getStatus(113L)).isNull();
+        assertThat(service.forceClearDownloads()).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("取消回调抛错后仍清理匹配状态并原样传播错误")
+    void cancellationFailureStillClearsMatchingStatuses(boolean allOwners) {
+        LocaleContextHolder.setLocale(Locale.ENGLISH);
+        QueueTaskTracker tracker = new QueueTaskTracker("novel");
+        NovelDownloadService downloads = newService(Runnable::run, tracker);
+        assertThat(downloads.downloadBlocking(txtRequest(114L, null), "owner-a")).isTrue();
+        assertThat(downloads.downloadBlocking(txtRequest(115L, null), "owner-b")).isTrue();
+        NovelDownloadStatus first = downloads.getStatus(114L, "owner-a", false);
+        NovelDownloadStatus second = downloads.getStatus(115L, "owner-b", false);
+        QueueTaskTracker.Task failing = tracker.prepareQueued(NovelQueueTaskOwners.download("owner-a"));
+        LinkageError failure = new LinkageError("cancellation failed");
+        failing.onCancellation(() -> { throw failure; });
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> {
+            if (allOwners) downloads.forceClearDownloads();
+            else downloads.forceClearDownloadsForOwner("owner-a");
+        }).isSameAs(failure);
+
+        assertCancelled(first);
+        assertThat(downloads.getStatus(114L, "owner-a", false)).isNull();
+        assertThat(tracker.isAccepting()).isTrue();
+        if (allOwners) {
+            assertCancelled(second);
+            assertThat(downloads.getStatus(115L, "owner-b", false)).isNull();
+            assertThat(tracker.activeTaskCount()).isZero();
+        } else {
+            assertThat(downloads.getStatus(115L, "owner-b", false)).isSameAs(second);
+            assertThat(second.isCancelled()).isFalse();
+            assertThat(tracker.activeTaskCount()).isEqualTo(1);
+            assertThat(downloads.forceClearDownloads()).isEqualTo(1);
+        }
+    }
+
+    private void assertCancelled(NovelDownloadStatus status) {
+        assertThat(status.isCancelled()).isTrue();
+        assertThat(status.isCompleted()).isTrue();
+        assertThat(status.isFailed()).isFalse();
+        assertThat(status.getStage()).isEqualTo("cancelled");
+        assertThat(status.getEndTime()).isNotNull();
+        assertThat(status.getErrorMessage()).isEqualTo(NOVEL_MESSAGES.get("download.cancelled"));
     }
 
     @Test
