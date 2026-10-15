@@ -9,6 +9,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @DisplayName("作品回填 Pixiv 响应映射")
 class ArtworksBackFillPixivClientTest {
@@ -16,7 +17,7 @@ class ArtworksBackFillPixivClientTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @ParameterizedTest
-    @ValueSource(ints = {301, 400, 401, 403, 407, 500, 502, 503})
+    @ValueSource(ints = {301, 400})
     @DisplayName("HTTP 失败不被当作成功作品或永久不可达记录")
     void rejectsFailedHttpResponses(int status) throws Exception {
         for (String body : new String[]{"{}", "<html>Bad gateway</html>",
@@ -25,6 +26,15 @@ class ArtworksBackFillPixivClientTest {
             assertEquals(ArtworksBackFillPixivClient.ResultType.SKIP, result.type);
             assertTrue(result.message.contains(Integer.toString(status)));
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {401, 403, 407, 500, 502, 503, 504})
+    @DisplayName("认证、代理和服务端故障停止整批，保留状态码")
+    void stopsOnSharedHttpFailures(int status) {
+        var failure = assertThrows(java.io.IOException.class,
+                () -> ArtworksBackFillPixivClient.parseResponse(status, "{}", mapper));
+        assertTrue(failure.getMessage().contains("HTTP " + status));
     }
 
     @ParameterizedTest

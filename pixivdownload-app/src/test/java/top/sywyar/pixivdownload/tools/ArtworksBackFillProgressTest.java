@@ -19,7 +19,7 @@ import static org.mockito.Mockito.*;
 @DisplayName("作品回填进度和取消")
 class ArtworksBackFillProgressTest {
     @Test
-    @DisplayName("真实代理返回 502 时跳过回填，不把空元数据写进数据库")
+    @DisplayName("真实代理返回 502 时停止整批，不继续请求或写入空元数据")
     void failedProxyResponseDoesNotFillMetadata(@TempDir Path directory) throws Exception {
         var database = directory.resolve("backfill.db");
         var config = new HikariConfig();
@@ -31,7 +31,7 @@ class ArtworksBackFillProgressTest {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(directory.resolve("unreachable.json"));
             try (var connection = pool.getConnection(); var statement = connection.createStatement()) {
                 statement.executeUpdate("CREATE TABLE artworks (artwork_id INTEGER PRIMARY KEY)");
-                statement.executeUpdate("INSERT INTO artworks VALUES (1)");
+                statement.executeUpdate("INSERT INTO artworks VALUES (1), (2), (3)");
             }
             var request = new java.util.concurrent.FutureTask<String>(() -> {
                 proxy.setSoTimeout(5000);
@@ -52,10 +52,14 @@ class ArtworksBackFillProgressTest {
             worker.start();
             var options = new ArtworksBackFill.Options(database.toString(),
                     proxy.getInetAddress().getHostAddress(), proxy.getLocalPort(), true, 0, 0, false);
-            var result = ArtworksBackFill.run(options, pool, (processed, total) -> { });
+            var progress = new java.util.ArrayList<Integer>();
+            assertThrows(java.io.IOException.class,
+                    () -> ArtworksBackFill.run(options, pool, (processed, total) -> progress.add(processed)));
             assertEquals("CONNECT www.pixiv.net:443 HTTP/1.1", request.get(5, java.util.concurrent.TimeUnit.SECONDS));
-            assertEquals(1, result.skipped());
-            assertEquals(0, result.newlyUnreachable());
+            assertTrue(progress.stream().allMatch(count -> count == 0));
+            proxy.setSoTimeout(200);
+            assertThrows(java.net.SocketTimeoutException.class, proxy::accept);
+            assertFalse(java.nio.file.Files.exists(directory.resolve("unreachable.json")));
             try (var connection = pool.getConnection(); var statement = connection.createStatement();
                  var row = statement.executeQuery("SELECT author_id, R18, is_ai, description FROM artworks WHERE artwork_id=1")) {
                 assertTrue(row.next());
