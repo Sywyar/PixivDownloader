@@ -2,8 +2,6 @@ package top.sywyar.pixivdownload.novel.translation.ai;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * 「源语言是否等于目标语言」的 AI 响应体，对应 {@link SourceLanguageProbeRequest} 约定的 JSON 输出规范。
@@ -20,29 +18,16 @@ public record SourceLanguageProbeResponse(
         @JsonProperty("same") Boolean same
 ) {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
     /** 解析模型回复的 JSON 文本；解析失败时返回 {@code same=null} 的空响应。 */
     public static SourceLanguageProbeResponse parse(String content) {
         if (content == null || content.isBlank()) {
             return new SourceLanguageProbeResponse("", null);
         }
-        String trimmed = content.trim();
         try {
-            return MAPPER.readValue(trimmed, SourceLanguageProbeResponse.class);
-        } catch (Exception ignored) {
+            return TranslationResponse.parse(content.trim(), SourceLanguageProbeResponse.class);
+        } catch (IllegalArgumentException ignored) {
+            return new SourceLanguageProbeResponse("", null);
         }
-        // 兼容个别模型在 JSON 外包裹少量文字（如 ```json 代码块）的情况
-        int start = trimmed.indexOf('{');
-        int end = trimmed.lastIndexOf('}');
-        if (start >= 0 && end > start) {
-            try {
-                return MAPPER.readValue(trimmed.substring(start, end + 1), SourceLanguageProbeResponse.class);
-            } catch (Exception ignored) {
-            }
-        }
-        return new SourceLanguageProbeResponse("", null);
     }
 
     /** 模型是否明确判定「源语言与目标语言相同」。无法判定（{@code same=null}）时返回 {@code false}。 */
