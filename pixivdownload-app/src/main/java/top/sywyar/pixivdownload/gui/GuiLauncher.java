@@ -1292,24 +1292,12 @@ public class GuiLauncher {
         return MessageBundles.getForLog(code, args);
     }
 
-    /**
-     * 从参数列表中过滤掉 GUI 专用参数，避免传入 Spring。
-     */
+    /** 启动前使用与设置页相同的标量读取规则。 */
     private static String readConfigScalar(Path path, String key) {
         if (path == null || key == null || !Files.isRegularFile(path)) return "";
         try {
-            for (String line : Files.readAllLines(path, StandardCharsets.UTF_8)) {
-                int colon = line.indexOf(':');
-                if (colon < 0 || !line.substring(0, colon).trim().equals(key)) continue;
-                String value = line.substring(colon + 1).trim();
-                int comment = value.indexOf('#');
-                if (comment >= 0) value = value.substring(0, comment).trim();
-                if (value.length() >= 2 && ((value.startsWith("\"") && value.endsWith("\""))
-                        || (value.startsWith("'") && value.endsWith("'")))) {
-                    value = value.substring(1, value.length() - 1);
-                }
-                return value.trim();
-            }
+            String value = new ConfigFileEditor(path).read(key);
+            return value == null ? "" : value.trim();
         } catch (IOException failure) {
             log.warn("Failed to read desktop UI provider preference from {}: {}", path, failure.toString());
         }

@@ -67,6 +67,21 @@ class RuntimeFilesTest {
     }
 
     @Test
+    @DisplayName("后端启动和工具读取下载根时保留引号内的井号与单引号")
+    void readsQuotedDownloadRootWithoutChangingConfiguration() throws IOException {
+        Files.createDirectories(configDir);
+        Path config = configDir.resolve(RuntimeFiles.CONFIG_YAML);
+        for (String scalar : List.of("'D:/artist''s # archive'", "\"D:/artist's # archive\"")) {
+            Files.writeString(config, "download.root-folder: " + scalar + "  # 下载目录\n", StandardCharsets.UTF_8);
+            byte[] before = Files.readAllBytes(config);
+
+            assertThat(RuntimeFiles.readDownloadRootFromConfig(config, "fallback"))
+                    .isEqualTo(Path.of("D:/artist's # archive").normalize().toString());
+            assertThat(Files.readAllBytes(config)).isEqualTo(before);
+        }
+    }
+
+    @Test
     @DisplayName("启动页读取配置与缓存路径不创建目录、不提前迁移旧配置")
     void bootstrapPathsAreReadOnlyAndRespectOverrides() throws IOException {
         Path configured = configDir.resolve(RuntimeFiles.CONFIG_YAML);

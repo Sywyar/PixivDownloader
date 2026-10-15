@@ -244,19 +244,20 @@ public class ConfigFileEditor {
     }
 
     /**
-     * 解析 value 区域：跳过前导空白；若是双引号标量则去引号 + 反转义并忽略其后的行尾注释；
+     * 解析 value 区域：跳过前导空白；引号标量按各自转义规则解码并忽略其后的行尾注释；
      * 否则取到首个 {@code #} 之前（裸标量内不会含 {@code #}——含 {@code #} 的值写入时一律加引号）。
      */
     private String parseValueToken(String region) {
         int i = 0;
         int n = region.length();
         while (i < n && Character.isWhitespace(region.charAt(i))) i++;
-        if (i < n && region.charAt(i) == '"') {
+        if (i < n && (region.charAt(i) == '"' || region.charAt(i) == '\'')) {
+            char quote = region.charAt(i);
             StringBuilder out = new StringBuilder();
             i++;
             while (i < n) {
                 char c = region.charAt(i);
-                if (c == '\\' && i + 1 < n) {
+                if (quote == '"' && c == '\\' && i + 1 < n) {
                     char next = region.charAt(i + 1);
                     switch (next) {
                         case 'n' -> out.append('\n');
@@ -269,7 +270,12 @@ public class ConfigFileEditor {
                     i += 2;
                     continue;
                 }
-                if (c == '"') {
+                if (quote == '\'' && c == '\'' && i + 1 < n && region.charAt(i + 1) == '\'') {
+                    out.append('\'');
+                    i += 2;
+                    continue;
+                }
+                if (c == quote) {
                     return out.toString();
                 }
                 out.append(c);
@@ -283,7 +289,7 @@ public class ConfigFileEditor {
         return (hashIdx >= 0 ? rest.substring(0, hashIdx) : rest).trim();
     }
 
-    /** 从行中提取行尾注释（"# ..." 部分，含前导空格）；跳过双引号标量内部的 {@code #}。 */
+    /** 从行中提取行尾注释（"# ..." 部分）；跳过引号标量内部的 {@code #}。 */
     private String extractInlineComment(String trimmed) {
         String work = trimmed.startsWith("#") ? trimmed.substring(1).trim() : trimmed;
         int colonIdx = work.indexOf(':');
@@ -293,20 +299,25 @@ public class ConfigFileEditor {
         return hashIdx >= 0 ? afterColon.substring(hashIdx).trim() : "";
     }
 
-    /** 找到 value 区域中行尾注释 {@code #} 的下标；跳过前导双引号标量，找不到返回 -1。 */
+    /** 找到 value 区域中行尾注释 {@code #} 的下标；跳过引号标量，找不到返回 -1。 */
     private int commentStart(String region) {
         int i = 0;
         int n = region.length();
         while (i < n && Character.isWhitespace(region.charAt(i))) i++;
-        if (i < n && region.charAt(i) == '"') {
+        if (i < n && (region.charAt(i) == '"' || region.charAt(i) == '\'')) {
+            char quote = region.charAt(i);
             i++;
             while (i < n) {
                 char c = region.charAt(i);
-                if (c == '\\') {
+                if (quote == '"' && c == '\\') {
                     i += 2;
                     continue;
                 }
-                if (c == '"') {
+                if (quote == '\'' && c == '\'' && i + 1 < n && region.charAt(i + 1) == '\'') {
+                    i += 2;
+                    continue;
+                }
+                if (c == quote) {
                     i++;
                     break;
                 }
