@@ -3,6 +3,9 @@ package top.sywyar.pixivdownload.tts.narration.engine.cosyvoice;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -12,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceMode;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceRequest;
 import top.sywyar.pixivdownload.tts.narration.engine.TestMessageResolver;
@@ -20,6 +24,7 @@ import top.sywyar.pixivdownload.tts.narration.engine.TtsPluginConfig;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -60,10 +65,10 @@ class CosyVoiceNarrationEngineTest {
         cfg.getCosyvoice().setVoice("中文女");
 
         engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN,
-                NarrationVoiceRequest.of("你好", "An elderly woman, cold voice"));
+                NarrationVoiceRequest.of(" 你好\r\n", "An elderly woman, cold voice"));
 
         Map<String, Object> body = capturedBody(direct);
-        assertThat(body.get("input")).isEqualTo("你好");
+        assertThat(body.get("input")).isEqualTo(" 你好\r\n");
         assertThat(body.get("voice")).isEqualTo("中文女");
         assertThat(body.get("instruct")).isEqualTo("An elderly woman, cold voice");
         assertThat(body.containsKey("reference_audio")).isFalse();
@@ -136,6 +141,28 @@ class CosyVoiceNarrationEngineTest {
 
         verify(proxy).exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class));
         verifyNoInteractions(direct);
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" \t\r\n"})
+    @DisplayName("空文本在发送请求前被拒绝")
+    void rejectsEmptyText(String text) {
+        assertThatThrownBy(() -> engine(config("http://h/v1"))
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of(text, "")))
+                .isInstanceOf(NarrationVoiceException.class)
+                .hasMessage(MESSAGES.get("narration.tts.error.empty-text"));
+        verifyNoInteractions(direct, proxy);
+    }
+
+    @Test
+    @DisplayName("空请求按空文本处理且不发送请求")
+    void rejectsNullRequest() {
+        assertThatThrownBy(() -> engine(config("http://h/v1"))
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, null))
+                .isInstanceOf(NarrationVoiceException.class)
+                .hasMessage(MESSAGES.get("narration.tts.error.empty-text"));
+        verifyNoInteractions(direct, proxy);
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

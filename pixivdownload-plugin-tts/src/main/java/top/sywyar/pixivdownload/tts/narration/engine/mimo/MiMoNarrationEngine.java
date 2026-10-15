@@ -90,10 +90,7 @@ public class MiMoNarrationEngine extends AbstractHttpNarrationEngine implements 
         if (mimo == null || mimo.getBaseUrl() == null || mimo.getBaseUrl().isBlank()) {
             throw new NarrationVoiceException(localized("narration.tts.error.unavailable"), null);
         }
-        String text = req == null ? null : req.text();
-        if (NarrationSpeechText.blankToNull(text) == null) {
-            throw new NarrationVoiceException(localized("narration.tts.error.empty-text"), null);
-        }
+        String text = requireText(req);
 
         NarrationVoiceMode effective = resolveMode(mode, req, mimo);
         String format = normalizeFormat(mimo.getResponseFormat());

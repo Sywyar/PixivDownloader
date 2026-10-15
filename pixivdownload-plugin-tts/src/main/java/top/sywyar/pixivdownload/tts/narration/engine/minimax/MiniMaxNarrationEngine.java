@@ -79,10 +79,7 @@ public class MiniMaxNarrationEngine extends AbstractHttpNarrationEngine implemen
         if (mm == null || mm.getBaseUrl() == null || mm.getBaseUrl().isBlank()) {
             throw new NarrationVoiceException(localized("narration.tts.error.unavailable"), null);
         }
-        String text = req == null ? null : req.text();
-        if (NarrationSpeechText.blankToNull(text) == null) {
-            throw new NarrationVoiceException(localized("narration.tts.error.empty-text"), null);
-        }
+        String text = requireText(req);
         // GroupId 与 api-key 同为必填鉴权凭证：缺失会被 MiniMax 拒绝（1004），按不可用提前失败。
         String groupId = NarrationSpeechText.blankToNull(mm.getGroupId());
         if (groupId == null) {

@@ -14,7 +14,9 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationSpeechText;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceRequest;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -57,6 +59,14 @@ public abstract class AbstractHttpNarrationEngine {
 
     protected AbstractHttpNarrationEngine(MessageResolver messages) {
         this.messages = messages;
+    }
+
+    protected String requireText(NarrationVoiceRequest request) {
+        String text = request == null ? null : request.text();
+        if (NarrationSpeechText.blankToNull(text) == null) {
+            throw new NarrationVoiceException(localized("narration.tts.error.empty-text"), null);
+        }
+        return text;
     }
 
     /**

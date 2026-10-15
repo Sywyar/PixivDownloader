@@ -37,7 +37,6 @@ public class DoubaoNarrationEngine extends AbstractHttpNarrationEngine implement
 
     private static final String TTS_PATH = "/api/v1/tts";
     private static final String OPERATION_QUERY = "query";
-    private static final int SUCCESS_CODE = 3000;
     /** 调用方标识：火山要求 {@code user.uid} 非空，固定一个非敏感的本应用标识即可。 */
     private static final String UID = "pixiv-narration";
 
@@ -87,10 +86,7 @@ public class DoubaoNarrationEngine extends AbstractHttpNarrationEngine implement
         if (doubao == null || doubao.getBaseUrl() == null || doubao.getBaseUrl().isBlank()) {
             throw new NarrationVoiceException(localized("narration.tts.error.unavailable"), null);
         }
-        String text = req == null ? null : req.text();
-        if (NarrationSpeechText.blankToNull(text) == null) {
-            throw new NarrationVoiceException(localized("narration.tts.error.empty-text"), null);
-        }
+        String text = requireText(req);
 
         String encoding = normalizeEncoding(doubao.getEncoding());
         String accessToken = doubao.getAccessToken();

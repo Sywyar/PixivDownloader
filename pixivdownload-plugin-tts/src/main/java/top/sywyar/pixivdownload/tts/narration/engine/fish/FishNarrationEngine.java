@@ -73,10 +73,7 @@ public class FishNarrationEngine extends AbstractHttpNarrationEngine implements 
         if (fish == null || fish.getBaseUrl() == null || fish.getBaseUrl().isBlank()) {
             throw new NarrationVoiceException(localized("narration.tts.error.unavailable"), null);
         }
-        String text = req == null ? null : req.text();
-        if (NarrationSpeechText.blankToNull(text) == null) {
-            throw new NarrationVoiceException(localized("narration.tts.error.empty-text"), null);
-        }
+        String text = requireText(req);
 
         String format = normalizeFormat(fish.getFormat());
         String apiKey = fish.getApiKey();

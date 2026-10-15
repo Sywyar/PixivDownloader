@@ -80,10 +80,7 @@ public class ElevenLabsNarrationEngine extends AbstractHttpNarrationEngine imple
         if (voiceId == null) {
             throw new NarrationVoiceException(localized("narration.tts.error.unavailable"), null);
         }
-        String text = req == null ? null : req.text();
-        if (NarrationSpeechText.blankToNull(text) == null) {
-            throw new NarrationVoiceException(localized("narration.tts.error.empty-text"), null);
-        }
+        String text = requireText(req);
 
         String outputFormat = normalizeOutputFormat(el.getOutputFormat());
         String apiKey = el.getApiKey();
