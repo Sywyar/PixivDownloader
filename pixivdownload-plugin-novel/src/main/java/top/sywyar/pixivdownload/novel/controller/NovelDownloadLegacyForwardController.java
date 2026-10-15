@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.novel.controller;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,7 +28,6 @@ import java.io.IOException;
 @RestController
 @RequestMapping("/api")
 @PluginManagedBean
-@RequiredArgsConstructor
 public class NovelDownloadLegacyForwardController {
 
     @PostMapping("/download/pixiv/novel")

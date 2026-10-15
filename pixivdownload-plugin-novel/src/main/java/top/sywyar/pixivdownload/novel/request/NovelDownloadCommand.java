@@ -10,7 +10,7 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
-/** 公开下载端点只接受作品标识、短期本机导入票据与用户选择。 */
+/** 公开下载端点只接受作品标识、短期抓取票据与用户选择。 */
 @Data
 @JsonIgnoreProperties({"title", "cookie", "content"})
 public class NovelDownloadCommand {
