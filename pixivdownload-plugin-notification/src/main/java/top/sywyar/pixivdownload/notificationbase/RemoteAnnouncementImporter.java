@@ -236,7 +236,7 @@ public final class RemoteAnnouncementImporter {
                 Announcement announcement = announcement(
                         announcements.get(position), requiredLocales, seenIds);
                 List<RemoteAnnouncementTranslation> metadata = announcement.translations().stream()
-                        .map(Translation::metadata)
+                        .map(translation -> translation.withHtml(null))
                         .toList();
                 if (!inbox.needsRemoteAnnouncementImport(
                         announcement.id(), announcement.severity(), announcement.publishedAt(), metadata)) {
@@ -291,7 +291,7 @@ public final class RemoteAnnouncementImporter {
             if (response.statusCode() != 200) {
                 throw rejectedHttpStatus("http-status", response);
             }
-            requireJsonContentType(response.headers().get("Content-Type"));
+            requireContentType(response.headers().get("Content-Type"), "application/json");
             rejectOversizeContentLength(response.headers().get("Content-Length"), MAX_INDEX_BYTES);
             byte[] bytes = response.body().readNBytes(MAX_INDEX_BYTES + 1);
             if (bytes.length > MAX_INDEX_BYTES) {
@@ -344,7 +344,7 @@ public final class RemoteAnnouncementImporter {
             if (response.statusCode() != 200) {
                 throw rejectedHttpStatus("content-http-status", response);
             }
-            requireHtmlContentType(response.headers().get("Content-Type"));
+            requireContentType(response.headers().get("Content-Type"), "text/html");
             rejectOversizeContentLength(
                     response.headers().get("Content-Length"), NotificationHtmlContent.MAX_HTML_BYTES);
             byte[] bytes = response.body().readNBytes(NotificationHtmlContent.MAX_HTML_BYTES + 1);
@@ -672,22 +672,12 @@ public final class RemoteAnnouncementImporter {
         return fields;
     }
 
-    private static void requireJsonContentType(List<String> values) {
+    private static void requireContentType(List<String> values, String expectedType) {
         if (values == null || values.size() != 1) {
             throw rejected("content-type");
         }
         String mediaType = values.get(0).split(";", 2)[0].trim();
-        if (!"application/json".equalsIgnoreCase(mediaType)) {
-            throw rejected("content-type");
-        }
-    }
-
-    private static void requireHtmlContentType(List<String> values) {
-        if (values == null || values.size() != 1) {
-            throw rejected("content-type");
-        }
-        String mediaType = values.get(0).split(";", 2)[0].trim();
-        if (!"text/html".equalsIgnoreCase(mediaType)) {
+        if (!expectedType.equalsIgnoreCase(mediaType)) {
             throw rejected("content-type");
         }
     }
@@ -748,11 +738,6 @@ public final class RemoteAnnouncementImporter {
             String summary,
             String contentUrl,
             String contentSha256) {
-
-        private RemoteAnnouncementTranslation metadata() {
-            return new RemoteAnnouncementTranslation(
-                    locale, title, summary, contentUrl, contentSha256, null);
-        }
 
         private RemoteAnnouncementTranslation withHtml(String html) {
             return new RemoteAnnouncementTranslation(
