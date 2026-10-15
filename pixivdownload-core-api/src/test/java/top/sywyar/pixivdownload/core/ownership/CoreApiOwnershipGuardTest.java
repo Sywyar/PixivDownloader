@@ -212,6 +212,7 @@ class CoreApiOwnershipGuardTest {
             "top.sywyar.pixivdownload.core.ffmpeg.FfmpegProcessGate$Permit",
             "top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner$Tool",
             "top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner$Phase",
+            "top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner$UnavailableException",
             "top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics$DailyOutcomes",
             "top.sywyar.pixivdownload.core.stats.StatsAggregates$Overview",
             "top.sywyar.pixivdownload.core.stats.StatsAggregates$AuthorStat",

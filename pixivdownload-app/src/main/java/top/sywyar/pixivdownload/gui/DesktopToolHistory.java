@@ -236,6 +236,7 @@ final class DesktopToolHistory {
         return switch (toolId) {
             case ARTWORKS_BACKFILL -> value.startsWith("artworks-backfill_");
             case JSON_TO_SQLITE_MIGRATION -> value.startsWith("json-to-sqlite-migration_");
+            case MEDIA_MAINTENANCE -> value.startsWith("pixiv-download_");
             case IMAGE_CLASSIFIER, FOLDER_CHECKER -> false;
         };
     }

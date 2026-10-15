@@ -145,6 +145,15 @@ public interface DesktopUiToolHost {
     ToolLogSession openToolLog(String stem) throws Exception;
 
     /**
+     * 只读打开已有工具日志，不创建、截断或轮换会话。
+     * @param stem 宿主维护工具的日志标识
+     * @throws Exception 日志缺失、宿主不支持或系统壳无法打开
+     */
+    default void openToolLogPage(String stem) throws Exception {
+        throw new UnsupportedOperationException("Opening existing tool logs is not supported by this host");
+    }
+
+    /**
      * {@return 宿主持久化的桌面工具终态历史}
      */
     List<ToolHistoryEntry> toolHistory();
@@ -422,7 +431,9 @@ public interface DesktopUiToolHost {
         /** 作品元数据回填工具。 */
         ARTWORKS_BACKFILL,
         /** 旧 JSON 到 SQLite 迁移工具。 */
-        JSON_TO_SQLITE_MIGRATION
+        JSON_TO_SQLITE_MIGRATION,
+        /** 历史媒体格式与缩略图维护。 */
+        MEDIA_MAINTENANCE
     }
 
     /** 桌面维护工具的稳定终态。 */
