@@ -33,17 +33,14 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
-import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static top.sywyar.pixivdownload.plugin.PluginTestArtifacts.zipDirectoryAsJar;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -292,22 +289,6 @@ class GalleryExternalPluginBootContextTest {
             return true;
         } catch (IOException | RuntimeException ex) {
             return false;
-        }
-    }
-
-    private static void zipDirectoryAsJar(Path sourceDir, Path jarPath) throws IOException {
-        try (OutputStream out = Files.newOutputStream(jarPath);
-             ZipOutputStream zos = new ZipOutputStream(out)) {
-            List<Path> files;
-            try (var walk = Files.walk(sourceDir)) {
-                files = walk.filter(Files::isRegularFile).sorted().toList();
-            }
-            for (Path file : files) {
-                String entryName = sourceDir.relativize(file).toString().replace('\\', '/');
-                zos.putNextEntry(new ZipEntry(entryName));
-                Files.copy(file, zos);
-                zos.closeEntry();
-            }
         }
     }
 

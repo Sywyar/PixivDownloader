@@ -32,16 +32,14 @@ import top.sywyar.pixivdownload.scripts.ScriptRegistry;
 import top.sywyar.pixivdownload.scripts.UserscriptRegistry;
 
 import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static top.sywyar.pixivdownload.plugin.PluginTestArtifacts.zipDirectoryAsJar;
 
 /**
  * gallery-tools 外置插件启动期加载的端到端集成测试：用<b>真实</b>合并插件 jar（由本模块编译产物 + 根部
@@ -217,23 +215,6 @@ class GalleryToolsExternalPluginIntegrationTest {
     private static Path locateStatsClasses() {
         String configured = System.getProperty(GALLERY_TOOLS_CLASSES_PROPERTY);
         return (configured == null || configured.isBlank()) ? null : Path.of(configured);
-    }
-
-    /** 把一个目录（stats 的 {@code target/classes}，根部已含 {@code plugin.properties}）打成 PF4J 可加载的 jar。 */
-    private static void zipDirectoryAsJar(Path sourceDir, Path jarPath) throws IOException {
-        try (OutputStream out = Files.newOutputStream(jarPath);
-             ZipOutputStream zos = new ZipOutputStream(out)) {
-            List<Path> files;
-            try (var walk = Files.walk(sourceDir)) {
-                files = walk.filter(Files::isRegularFile).sorted().toList();
-            }
-            for (Path file : files) {
-                String entryName = sourceDir.relativize(file).toString().replace('\\', '/');
-                zos.putNextEntry(new ZipEntry(entryName));
-                Files.copy(file, zos);
-                zos.closeEntry();
-            }
-        }
     }
 
     private static void deleteRecursivelyQuietly(Path root) {

@@ -516,7 +516,7 @@ class OfficialPluginHostBoundaryGuardTest {
             }
             Set<String> localExecutorBeans = new LinkedHashSet<>();
             for (Path source : moduleSources) {
-                localExecutorBeans.addAll(explicitExecutorBeanNames(read(source)));
+                localExecutorBeans.addAll(explicitBeanNames(read(source), EXECUTOR_INJECTION_TYPE));
             }
             for (Path source : moduleSources) {
                 for (String violation :
@@ -551,7 +551,7 @@ class OfficialPluginHostBoundaryGuardTest {
                     String notAnExecutor() { return ""; }
                 }
                 """;
-        Set<String> localBeans = explicitExecutorBeanNames(declarations);
+        Set<String> localBeans = explicitBeanNames(declarations, EXECUTOR_INJECTION_TYPE);
         String valid = """
                 class Valid {
                     @Bean
@@ -612,7 +612,7 @@ class OfficialPluginHostBoundaryGuardTest {
             }
             Set<String> localSchedulerBeans = new LinkedHashSet<>();
             for (Path source : moduleSources) {
-                localSchedulerBeans.addAll(explicitTaskSchedulerBeanNames(read(source)));
+                localSchedulerBeans.addAll(explicitBeanNames(read(source), TASK_SCHEDULER_TYPE));
             }
             for (Path source : moduleSources) {
                 for (String violation :
@@ -644,7 +644,7 @@ class OfficialPluginHostBoundaryGuardTest {
                     String notAScheduler() { return ""; }
                 }
                 """;
-        Set<String> localBeans = explicitTaskSchedulerBeanNames(declarations);
+        Set<String> localBeans = explicitBeanNames(declarations, TASK_SCHEDULER_TYPE);
         String valid = """
                 class Valid {
                     @Bean
@@ -1272,22 +1272,12 @@ class OfficialPluginHostBoundaryGuardTest {
 
     private static Set<String> concreteRuntimeReferences(String source) {
         String productionCode = referenceCode(source);
-        String declarationCode = normalizedDeclarationCode(source);
-        Set<String> imports = new LinkedHashSet<>();
-        var importMatcher = IMPORT_DECLARATION.matcher(declarationCode);
-        while (importMatcher.find()) {
-            imports.add(importMatcher.group(1));
-        }
+        Set<String> imports = importedNames(normalizedDeclarationCode(source));
 
         Set<String> references = new LinkedHashSet<>();
         for (String forbiddenType : CONCRETE_HOST_RUNTIME_TYPES) {
-            int packageSeparator = forbiddenType.lastIndexOf('.');
-            String wildcardImport = forbiddenType.substring(0, packageSeparator) + ".*";
-            boolean imported = imports.stream().anyMatch(importName ->
-                    importName.equals(forbiddenType)
-                            || importName.equals(wildcardImport)
-                            || importName.startsWith(forbiddenType + "."));
-            if (imported || identifierReference(forbiddenType).matcher(productionCode).find()) {
+            if (importsType(imports, forbiddenType)
+                    || referencesFullyQualifiedType(productionCode, forbiddenType)) {
                 references.add(forbiddenType);
             }
         }
@@ -1329,30 +1319,12 @@ class OfficialPluginHostBoundaryGuardTest {
         return references;
     }
 
-    private static Set<String> explicitExecutorBeanNames(String source) {
+    private static Set<String> explicitBeanNames(String source, Pattern beanType) {
         String code = stripComments(source);
         Matcher methods = BEAN_METHOD.matcher(maskCommentsAndLiterals(source));
         Set<String> names = new LinkedHashSet<>();
         while (methods.find()) {
-            if (!EXECUTOR_INJECTION_TYPE.matcher(methods.group(2)).find()
-                    || methods.start(1) < 0) {
-                continue;
-            }
-            String name = explicitBeanName(
-                    code.substring(methods.start(1), methods.end(1)));
-            if (name != null) {
-                names.add(name);
-            }
-        }
-        return names;
-    }
-
-    private static Set<String> explicitTaskSchedulerBeanNames(String source) {
-        String code = stripComments(source);
-        Matcher methods = BEAN_METHOD.matcher(maskCommentsAndLiterals(source));
-        Set<String> names = new LinkedHashSet<>();
-        while (methods.find()) {
-            if (!TASK_SCHEDULER_TYPE.matcher(methods.group(2)).find()
+            if (!beanType.matcher(methods.group(2)).find()
                     || methods.start(1) < 0) {
                 continue;
             }

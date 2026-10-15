@@ -26,8 +26,6 @@ public final class ExampleDownloadPlugin implements PixivFeaturePlugin {
     public static final String TYPE_MODULE_URL = "/example-download/example-download-type.js";
     public static final String UI_MODULE_URL = "/example-download/example-download-ui-slot.js";
 
-    private static final List<String> UI_SLOT_TARGETS = List.of("settings-card", "quick-actions-mine");
-
     @Override
     public String id() {
         return ID;

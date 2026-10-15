@@ -9,16 +9,13 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginInstallation;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 
 import java.io.IOException;
-import java.io.OutputStream;
 import java.lang.ref.WeakReference;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
-import java.util.List;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static top.sywyar.pixivdownload.plugin.PluginTestArtifacts.zipDirectoryAsJar;
 
 /**
  * 真实外置插件 classloader <b>物理卸载后可被 GC 回收</b>的端到端泄漏回归：用真实 stats 插件 jar（编译产物 + 根部
@@ -105,23 +102,6 @@ class ExternalPluginClassLoaderReleaseTest {
     private static Path locateStatsClasses() {
         String configured = System.getProperty(STATS_CLASSES_PROPERTY);
         return (configured == null || configured.isBlank()) ? null : Path.of(configured);
-    }
-
-    /** 把 stats 的 {@code target/classes}（根部已含 {@code plugin.properties}）打成 PF4J 可加载的 jar。 */
-    private static void zipDirectoryAsJar(Path sourceDir, Path jarPath) throws IOException {
-        try (OutputStream out = Files.newOutputStream(jarPath);
-             ZipOutputStream zos = new ZipOutputStream(out)) {
-            List<Path> files;
-            try (var walk = Files.walk(sourceDir)) {
-                files = walk.filter(Files::isRegularFile).sorted().toList();
-            }
-            for (Path file : files) {
-                String entryName = sourceDir.relativize(file).toString().replace('\\', '/');
-                zos.putNextEntry(new ZipEntry(entryName));
-                Files.copy(file, zos);
-                zos.closeEntry();
-            }
-        }
     }
 
     private static void deleteRecursivelyQuietly(Path root) {
