@@ -33,6 +33,8 @@ final class DesktopMediaToolHistorySource implements Source {
     @Override public Result<Status> start(String token) {
         if (!(source instanceof CompletionSource tracked)) return source.start(token);
         long started = System.currentTimeMillis();
+        var executionId = java.util.UUID.randomUUID();
+        Path logPath = sessionLog();
         var recorded = new AtomicBoolean();
         // 回调不得捕获 source；插件撤回后，已接纳的任务仍须交付取消或失败终态。
         DesktopToolHistory store = history;
@@ -42,11 +44,11 @@ final class DesktopMediaToolHistorySource implements Source {
             var outcome = status.state().equals("cancelled") ? DesktopUiToolHost.ToolOutcome.CANCELLED
                     : status.state().equals("completed") && status.failed() == 0
                     ? DesktopUiToolHost.ToolOutcome.SUCCEEDED : DesktopUiToolHost.ToolOutcome.FAILED;
-            LOG.info("{} owner={} started={} state={} processed={}/{} failed={}",
-                    MessageBundles.getForLog("gui.tools.history.tool.media-maintenance"), owner, started,
+            LOG.info("{} executionId={} owner={} started={} state={} processed={}/{} failed={}",
+                    MessageBundles.getForLog("gui.tools.history.tool.media-maintenance"), executionId, owner, started,
                     status.state(), status.completed(), status.total(), status.failed());
             store.record(DesktopUiToolHost.ToolId.MEDIA_MAINTENANCE, outcome, started,
-                    status.completed(), status.completed() - status.failed(), status.failed(), sessionLog());
+                    status.completed(), status.completed() - status.failed(), status.failed(), logPath, executionId, owner);
         });
     }
 

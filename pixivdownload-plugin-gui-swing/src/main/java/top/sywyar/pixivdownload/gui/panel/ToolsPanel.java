@@ -801,7 +801,10 @@ public class ToolsPanel extends JPanel {
         logPageOpening = true;
         new SwingWorker<Void, Void>() {
             @Override protected Void doInBackground() throws Exception {
-                SwingHost.host().openToolLogPage(stem);
+                var host = SwingHost.host();
+                Path logPath = host.findToolLog(stem + "-latest.html").orElseThrow(
+                        () -> new java.io.IOException("Tool log is no longer available"));
+                host.openExternalUri(logPath.toUri());
                 return null;
             }
             @Override protected void done() {

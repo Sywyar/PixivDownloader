@@ -48,11 +48,40 @@ class DesktopToolHistoryTest {
     void quarantinesMalformedOversizedUnsupportedAndUnexpectedContent() throws Exception {
         assertQuarantined("malformed", "{not-json");
         assertQuarantined("oversized", "x".repeat(DesktopToolHistory.MAX_FILE_BYTES + 1));
-        assertQuarantined("unsupported", "{\"schemaVersion\":2,\"entries\":[]}");
+        assertQuarantined("unsupported", "{\"schemaVersion\":999,\"entries\":[]}");
         assertQuarantined("unexpected",
                 "{\"schemaVersion\":1,\"entries\":[{\"toolId\":\"FOLDER_CHECKER\","
                         + "\"startedAtEpochMs\":1,\"finishedAtEpochMs\":2,\"outcome\":\"CLOSED\","
                         + "\"password\":\"must-not-survive\"}]}");
+    }
+
+    @Test
+    @DisplayName("未知媒体来源的同一执行去重，重启保留精确身份且旧记录不伪造身份")
+    void preservesExecutionAndProviderIdentity() throws Exception {
+        Files.writeString(tempDir.resolve("tool-history.json"), """
+                {"schemaVersion":1,"entries":[{"toolId":"FOLDER_CHECKER","startedAtEpochMs":1,
+                "finishedAtEpochMs":2,"outcome":"CLOSED"}]}
+                """);
+        var history = new DesktopToolHistory(tempDir);
+        var execution = java.util.UUID.randomUUID();
+        var owner = new top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool.Identity("independent", "custom-media", 4, 9);
+        Path log = tempDir.resolve("independent-session.html");
+        for (int attempt = 0; attempt < 2; attempt++) {
+            history.record(ToolId.MEDIA_MAINTENANCE, ToolOutcome.SUCCEEDED, 1, 2, 2, 0, log, execution, owner);
+            history = new DesktopToolHistory(tempDir);
+        }
+        assertThat(history.entries()).hasSize(2);
+        assertThat(history.entries().get(0)).satisfies(entry -> {
+            assertThat(entry.executionId()).isEqualTo(execution);
+            assertThat(entry.sourceIdentity()).isEqualTo(owner);
+            assertThat(entry.logFileName()).isEqualTo("independent-session.html");
+        });
+        assertThat(history.entries().get(1).executionId()).isNull();
+        assertThat(history.entries().get(1).sourceIdentity()).isNull();
+        history.record(ToolId.MEDIA_MAINTENANCE, ToolOutcome.FAILED, 1, 2, 0, 2,
+                tempDir.resolve("independent-latest.html"), java.util.UUID.randomUUID(), owner);
+        assertThat(history.entries().get(0).logFileName()).isNull();
+        assertThat(history.entries().get(0).executionId()).isNotEqualTo(execution);
     }
 
     @Test

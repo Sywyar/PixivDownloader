@@ -28,7 +28,8 @@ class DesktopToolsControllerTest {
         var opened = new java.util.concurrent.CopyOnWriteArrayList<String>();
         var created = new ArrayList<Path>();
         var overrides = new HashMap<String, Function<Object[], Object>>();
-        overrides.put("openToolLogPage", args -> { opened.add((String) args[0]); return null; });
+        overrides.put("findToolLog", args -> java.util.Optional.of(Path.of("log", "html", (String) args[0]).toAbsolutePath()));
+        overrides.put("openExternalUri", args -> { opened.add(Path.of((java.net.URI) args[0]).getFileName().toString()); return null; });
         overrides.put("openToolLog", args -> { throw new AssertionError("Viewing must not create a session"); });
         try {
             for (String stem : List.of("artworks-backfill", "json-to-sqlite-migration")) {
@@ -45,7 +46,7 @@ class DesktopToolsControllerTest {
                 DesktopConfigurationControllerTest.awaitReady(model);
                 activate(model, "tools.migration.log");
                 DesktopConfigurationControllerTest.awaitReady(model);
-                assertEquals(List.of("artworks-backfill", "json-to-sqlite-migration"), opened);
+                assertEquals(List.of("artworks-backfill-latest.html", "json-to-sqlite-migration-latest.html"), opened);
             }
         } finally {
             for (Path log : created) {

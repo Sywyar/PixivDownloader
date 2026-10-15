@@ -210,7 +210,9 @@ final class DesktopToolsController {
     void openToolLog(String name) {
         owner.runBusy(() -> {
             try {
-                host.openToolLogPage(name);
+                Path log = host.findToolLog(name + "-latest.html").orElseThrow(
+                        () -> new java.io.IOException("Tool log is no longer available"));
+                host.openExternalUri(log.toUri());
             } catch (Exception failure) {
                 LOG.warn("Unable to open desktop tool log {}", name, failure);
                 owner.showDialog(

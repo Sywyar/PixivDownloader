@@ -375,15 +375,8 @@ final class AppDesktopUiHost implements DesktopUiHost {
         };
     }
 
-    @Override public void openToolLogPage(String stem) throws Exception {
-        if (!java.util.Set.of("artworks-backfill", "json-to-sqlite-migration").contains(stem)) {
-            throw new IllegalArgumentException("Unknown tool log");
-        }
-        Path log = RuntimeFiles.logDirectory().resolve("html").resolve(stem + "-latest.html");
-        if (!java.nio.file.Files.isRegularFile(log, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
-            throw new IOException(MessageBundles.get("desktop.ui.tools.log-open-failed"));
-        }
-        openExternalUri(log.toAbsolutePath().toUri());
+    @Override public Optional<Path> findToolLog(String fileName) throws IOException {
+        return new DesktopToolLogs(RuntimeFiles.logDirectory().resolve("html")).find(fileName);
     }
 
     @Override public int backendPort(int startupPort) {

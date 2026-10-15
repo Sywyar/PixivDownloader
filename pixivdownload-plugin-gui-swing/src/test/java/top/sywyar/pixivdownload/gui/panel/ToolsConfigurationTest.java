@@ -38,9 +38,10 @@ class ToolsConfigurationTest {
                     case "mediaTools", "coreConfigGroups", "coreConfigFields" -> List.of();
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);
                     case "subscribeBackend" -> (AutoCloseable) () -> {};
-                    case "openToolLogPage" -> {
+                    case "findToolLog" -> java.util.Optional.of(Path.of("log", "html", (String) args[0]).toAbsolutePath());
+                    case "openExternalUri" -> {
                         org.junit.jupiter.api.Assertions.assertFalse(SwingUtilities.isEventDispatchThread());
-                        assertEquals("artworks-backfill", args[0]);
+                        assertEquals("artworks-backfill-latest.html", Path.of((java.net.URI) args[0]).getFileName().toString());
                         calls.incrementAndGet();
                         entered.countDown();
                         org.junit.jupiter.api.Assertions.assertTrue(release.await(5, java.util.concurrent.TimeUnit.SECONDS));

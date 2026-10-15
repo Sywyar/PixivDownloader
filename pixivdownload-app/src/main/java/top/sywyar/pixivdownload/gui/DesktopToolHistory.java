@@ -22,21 +22,19 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Pattern;
+import java.util.UUID;
+import top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool.Identity;
 
 /** 桌面维护工具终态历史的有界持久化。 */
 final class DesktopToolHistory {
     static final int MAX_ENTRIES = 100;
     static final int MAX_FILE_BYTES = 256 * 1024;
-    private static final int SCHEMA_VERSION = 1;
+    private static final int SCHEMA_VERSION = 2;
     private static final String FILE_NAME = "tool-history.json";
     private static final Set<String> ROOT_FIELDS = Set.of("schemaVersion", "entries");
     private static final Set<String> ENTRY_FIELDS = Set.of(
             "toolId", "startedAtEpochMs", "finishedAtEpochMs", "outcome",
-            "processedCount", "changedCount", "failedCount", "logFileName");
-    private static final Pattern SAFE_LOG_NAME = Pattern.compile(
-            "(?:artworks-backfill|json-to-sqlite-migration|pixiv-download)_[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}"
-                    + "(?:_[0-9]{3}_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?\\.html");
+            "processedCount", "changedCount", "failedCount", "logFileName", "executionId", "sourceIdentity");
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Logger LOG = LoggerFactory.getLogger(DesktopToolHistory.class);
 
@@ -56,7 +54,16 @@ final class DesktopToolHistory {
     synchronized void record(ToolId toolId, ToolOutcome outcome, long startedAtEpochMs,
                              Integer processedCount, Integer changedCount, Integer failedCount,
                              Path logPath) {
+        record(toolId, outcome, startedAtEpochMs, processedCount, changedCount, failedCount,
+                logPath, UUID.randomUUID(), null);
+    }
+
+    synchronized void record(ToolId toolId, ToolOutcome outcome, long startedAtEpochMs,
+                             Integer processedCount, Integer changedCount, Integer failedCount,
+                             Path logPath, UUID executionId, Identity sourceIdentity) {
         if (!writable) return;
+        if (executionId == null) throw new IllegalArgumentException("executionId");
+        if (entries.stream().anyMatch(entry -> executionId.equals(entry.executionId()))) return;
         if (toolId == null || outcome == null || startedAtEpochMs < 0L) {
             LOG.warn("拒绝写入无效的桌面工具历史记录：toolId={}, outcome={}", toolId, outcome);
             return;
@@ -66,7 +73,7 @@ final class DesktopToolHistory {
         try {
             entry = new ToolHistoryEntry(toolId, startedAtEpochMs, finishedAtEpochMs, outcome,
                     checkedCount(processedCount), checkedCount(changedCount), checkedCount(failedCount),
-                    safeLogFileName(toolId, logPath));
+                    safeLogFileName(logPath), executionId, sourceIdentity);
         } catch (IllegalArgumentException invalid) {
             LOG.warn("拒绝写入无效的桌面工具历史记录：toolId={}, outcome={}", toolId, outcome);
             return;
@@ -88,12 +95,14 @@ final class DesktopToolHistory {
                     || Files.size(file) > MAX_FILE_BYTES) {
                 throw new IOException("invalid tool history file");
             }
-            byte[] bytes = Files.readAllBytes(file);
+            byte[] bytes;
+            try (var input = Files.newInputStream(file)) { bytes = input.readNBytes(MAX_FILE_BYTES + 1); }
             if (bytes.length > MAX_FILE_BYTES) throw new IOException("invalid tool history file");
             JsonNode root = MAPPER.readTree(bytes);
             requireObjectWithFields(root, ROOT_FIELDS);
             if (!root.path("schemaVersion").canConvertToInt()
-                    || root.path("schemaVersion").intValue() != SCHEMA_VERSION) {
+                    || root.path("schemaVersion").intValue() < 1
+                    || root.path("schemaVersion").intValue() > SCHEMA_VERSION) {
                 throw new IOException("unsupported tool history schema");
             }
             JsonNode values = root.path("entries");
@@ -120,10 +129,23 @@ final class DesktopToolHistory {
         Integer changed = optionalCount(value, "changedCount");
         Integer failed = optionalCount(value, "failedCount");
         String logFileName = optionalText(value, "logFileName");
-        if (logFileName != null && !validLogFileName(toolId, logFileName)) {
+        if (logFileName != null && !validLogFileName(logFileName)) {
             throw new IOException("invalid tool history log file name");
         }
-        return new ToolHistoryEntry(toolId, started, finished, outcome, processed, changed, failed, logFileName);
+        String execution = optionalText(value, "executionId");
+        UUID executionId = execution == null ? null : UUID.fromString(execution);
+        Identity source = null;
+        if (value.has("sourceIdentity")) {
+            JsonNode owner = value.get("sourceIdentity");
+            requireObjectWithFields(owner, Set.of("pluginId", "packageId", "generation", "publication"));
+            String pluginId = requiredText(owner, "pluginId");
+            String packageId = requiredText(owner, "packageId");
+            long generation = requiredLong(owner, "generation");
+            long publication = requiredLong(owner, "publication");
+            if (executionId == null || generation < 0 || publication <= 0) throw new IOException("invalid source identity");
+            source = new Identity(pluginId, packageId, generation, publication);
+        }
+        return new ToolHistoryEntry(toolId, started, finished, outcome, processed, changed, failed, logFileName, executionId, source);
     }
 
     private List<ToolHistoryEntry> persist(List<ToolHistoryEntry> values) throws IOException {
@@ -161,6 +183,12 @@ final class DesktopToolHistory {
             if (entry.changedCount() != null) value.put("changedCount", entry.changedCount());
             if (entry.failedCount() != null) value.put("failedCount", entry.failedCount());
             if (entry.logFileName() != null) value.put("logFileName", entry.logFileName());
+            if (entry.executionId() != null) value.put("executionId", entry.executionId().toString());
+            if (entry.sourceIdentity() != null) {
+                Identity owner = entry.sourceIdentity();
+                value.put("sourceIdentity", Map.of("pluginId", owner.pluginId(), "packageId", owner.packageId(),
+                        "generation", owner.generation(), "publication", owner.publication()));
+            }
             values.add(value);
         }
         Map<String, Object> root = new LinkedHashMap<>();
@@ -225,21 +253,15 @@ final class DesktopToolHistory {
         return value;
     }
 
-    private static String safeLogFileName(ToolId toolId, Path logPath) {
+    private static String safeLogFileName(Path logPath) {
         if (logPath == null) return null;
         Path fileName = logPath.getFileName();
         String value = fileName == null ? "" : fileName.toString();
-        return validLogFileName(toolId, value) ? value : null;
+        return validLogFileName(value) ? value : null;
     }
 
-    private static boolean validLogFileName(ToolId toolId, String value) {
-        if (!SAFE_LOG_NAME.matcher(value).matches()) return false;
-        return switch (toolId) {
-            case ARTWORKS_BACKFILL -> value.startsWith("artworks-backfill_");
-            case JSON_TO_SQLITE_MIGRATION -> value.startsWith("json-to-sqlite-migration_");
-            case MEDIA_MAINTENANCE -> value.startsWith("pixiv-download_");
-            case IMAGE_CLASSIFIER, FOLDER_CHECKER -> false;
-        };
+    private static boolean validLogFileName(String value) {
+        return DesktopToolLogs.validFileName(value) && !value.endsWith("-latest.html");
     }
 
     private static <T extends Enum<T>> T enumValue(Class<T> type, String value) throws IOException {
