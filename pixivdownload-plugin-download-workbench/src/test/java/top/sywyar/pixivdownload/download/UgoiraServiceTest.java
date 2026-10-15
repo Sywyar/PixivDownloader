@@ -455,7 +455,26 @@ class UgoiraServiceTest {
         request.setUgoiraDelays(List.of(100, 150));
         request.setUgoiraFormats("webp,gif,apng,mp4,zip");
         var service = service(archiveDownloader(originalZip), fallbackResolver());
-        assertThat(service.processUgoira(100L, request, tempDir, null, null)).isEqualTo(1);
+        var progress = new ArrayList<UgoiraProgress>();
+        assertThat(service.processUgoira(100L, request, tempDir, null, null, progress::add)).isEqualTo(1);
+        var completed = progress.stream().filter(value -> UgoiraProgress.PHASE_FFMPEG.equals(value.getPhase())
+                && UgoiraProgress.STATUS_COMPLETED.equals(value.getStatus())).toList();
+        assertThat(completed).extracting(UgoiraProgress::getOutputFormat).containsExactly("webp", "gif", "apng", "mp4");
+        assertThat(completed).extracting(UgoiraProgress::getOutputIndex).containsExactly(1, 2, 3, 4);
+        assertThat(completed).allSatisfy(value -> {
+            assertThat(value.getOutputCount()).isEqualTo(4);
+            assertThat(value.getAttempt()).isEqualTo(1);
+            assertThat(value.getMaxAttempts()).isEqualTo(3);
+            assertThat(value.getZipProgress()).isEqualTo(100);
+            assertThat(value.getExtractedFrames()).isEqualTo(2);
+            assertThat(value.getTotalFrames()).isEqualTo(2);
+            assertThat(value.getFfmpegOutTimeMs()).isEqualTo(250L);
+            assertThat(value.getFfmpegDurationMs()).isEqualTo(250L);
+            assertThat(value.getFfmpegProgress()).isEqualTo(100);
+            assertThat(value.getZipDownloadedBytes()).isNull();
+            assertThat(value.getZipTotalBytes()).isNull();
+            assertThat(value.getMessage()).isNull();
+        });
         assertThat(Files.readAllBytes(tempDir.resolve("animation.zip"))).isEqualTo(originalZip);
         var timing = new java.util.Properties();
         try (var reader = Files.newBufferedReader(tempDir.resolve("animation.frames.properties"), java.nio.charset.StandardCharsets.UTF_8)) {

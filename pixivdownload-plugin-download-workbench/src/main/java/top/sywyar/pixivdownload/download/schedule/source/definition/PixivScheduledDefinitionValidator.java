@@ -97,19 +97,12 @@ public final class PixivScheduledDefinitionValidator {
             validateLongMinimum(download, "intervalMs", 0L);
             validateMinimum(download, "imageDelayMs", 0);
             JsonNode collectionId = download.get("collectionId");
-            if (collectionId != null && !collectionId.isNull()
-                    && !(collectionId.isTextual() && collectionId.textValue().isBlank())) {
+            if (hasNonBlankValue(collectionId)) {
                 requirePositiveId(collectionId);
             }
         }
 
-        JsonNode fetchLimit = root.get("fetchLimit");
-        Integer parsedFetchLimit = optionalInteger(fetchLimit);
-        if (fetchLimit != null && !fetchLimit.isNull()
-                && !(fetchLimit.isTextual() && fetchLimit.textValue().isBlank())
-                && (parsedFetchLimit == null || parsedFetchLimit < 0)) {
-            throw invalidDefinition();
-        }
+        validateMinimum(root, "fetchLimit", 0);
     }
 
     private static void validateEnum(JsonNode object, String field, Set<String> allowed)
@@ -171,8 +164,7 @@ public final class PixivScheduledDefinitionValidator {
     }
 
     private static Integer optionalInteger(JsonNode value) {
-        if (value == null || value.isNull()
-                || value.isTextual() && value.textValue().isBlank()) {
+        if (!hasNonBlankValue(value)) {
             return null;
         }
         if (value.isIntegralNumber() && value.canConvertToInt()) {
@@ -193,8 +185,7 @@ public final class PixivScheduledDefinitionValidator {
     }
 
     private static Long optionalLong(JsonNode value) {
-        if (value == null || value.isNull()
-                || value.isTextual() && value.textValue().isBlank()) {
+        if (!hasNonBlankValue(value)) {
             return null;
         }
         if (value.isIntegralNumber() && value.canConvertToLong()) {

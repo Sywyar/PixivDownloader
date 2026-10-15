@@ -250,10 +250,7 @@ public class ScheduleService implements DesktopAutomationSource {
     }
 
     public ScheduleTaskView get(long id) {
-        ScheduledTask task = store.findById(id);
-        if (task == null) {
-            throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
-        }
+        ScheduledTask task = requireExisting(id);
         return taskView(task, runState.get(id), sourceActivations(
                 scheduleCapabilityRegistry.snapshot()));
     }
@@ -475,10 +472,7 @@ public class ScheduleService implements DesktopAutomationSource {
      */
     public void manualRun(long id) {
         database.requireAvailable();
-        ScheduledTask task = store.findById(id);
-        if (task == null) {
-            throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
-        }
+        ScheduledTask task = requireExisting(id);
         requireNotBusy(task);
         if (!task.enabled()) {
             throw LocalizedException.badRequest("schedule.error.run-disabled", "任务已停用，请先启用再运行");
@@ -772,10 +766,7 @@ public class ScheduleService implements DesktopAutomationSource {
     @Transactional
     public ScheduleTaskView resume(long id) {
         database.requireAvailable();
-        ScheduledTask task = store.findById(id);
-        if (task == null) {
-            throw LocalizedException.badRequest("schedule.error.not-found", "计划任务不存在: {0}", id);
-        }
+        ScheduledTask task = requireExisting(id);
         if (task.suspendReason() != ScheduleSuspendReason.MANUAL
                 && task.suspendReason() != ScheduleSuspendReason.USER_ACTION_REQUIRED) {
             throw LocalizedException.badRequest(
@@ -835,11 +826,6 @@ public class ScheduleService implements DesktopAutomationSource {
         } catch (com.fasterxml.jackson.core.JsonProcessingException malformed) {
             return false;
         }
-    }
-
-    private static Long nextRunFor(ScheduledTask task) {
-        return ScheduleTiming.computeNextRun(
-                task.triggerKind(), task.intervalMinutes(), task.cronExpr(), System.currentTimeMillis());
     }
 
     // ── 内部 ────────────────────────────────────────────────────────────────────

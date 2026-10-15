@@ -653,10 +653,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
                             failureCount, failure.code());
                 }
             }
-            case INVALID_DEFINITION, PAYLOAD_UNSUPPORTED -> setTerminalFailure(
-                    new ScheduledExecutionException(
-                            failure.category(), failure.code(), failure.retryAfterMillis()));
-            case RATE_LIMITED, CHALLENGE -> setTerminalFailure(
+            case INVALID_DEFINITION, PAYLOAD_UNSUPPORTED, RATE_LIMITED, CHALLENGE -> setTerminalFailure(
                     new ScheduledExecutionException(
                             failure.category(), failure.code(), failure.retryAfterMillis()));
             case CANCELLED -> setTerminalFailure(ScheduledExecutionException.cancelled());

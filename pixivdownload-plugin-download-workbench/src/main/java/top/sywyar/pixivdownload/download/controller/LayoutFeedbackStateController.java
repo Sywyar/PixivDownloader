@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.download.controller;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
@@ -136,11 +135,7 @@ public class LayoutFeedbackStateController {
         LayoutFeedbackCommandRequest commandRequest;
         try {
             commandRequest = COMMAND_READER.readValue(body);
-        } catch (JsonProcessingException e) {
-            return statusResponse(HttpStatus.BAD_REQUEST);
-        } catch (IOException e) {
-            return statusResponse(HttpStatus.BAD_REQUEST);
-        } catch (IllegalArgumentException e) {
+        } catch (IOException | IllegalArgumentException e) {
             return statusResponse(HttpStatus.BAD_REQUEST);
         }
         // 7. query surveyId 必须与请求体 surveyId 完全一致（精确字符串相等，不 trim、不忽略大小写）。
@@ -158,15 +153,8 @@ public class LayoutFeedbackStateController {
         LayoutFeedbackStateStore.ApplyResult result;
         try {
             result = store.apply(commandRequest, serverNow);
-        } catch (LayoutFeedbackRevisionExhaustedException e) {
-            // revision 达到 JavaScript 安全整数上限后仍需真实修改：无法安全递增
-            // revision（绝不回绕），本次写入失败，内存快照与文件均不变。
-            return statusResponse(HttpStatus.SERVICE_UNAVAILABLE);
-        } catch (IllegalStateException e) {
-            // degraded 竞态：写入被拒绝。
-            return statusResponse(HttpStatus.SERVICE_UNAVAILABLE);
-        } catch (IOException e) {
-            // 原子写入失败：保留旧内存状态，本次请求失败。
+        } catch (LayoutFeedbackRevisionExhaustedException | IllegalStateException | IOException e) {
+            // 修订耗尽、存储降级或写入失败时拒绝请求，保留旧内存状态。
             return statusResponse(HttpStatus.SERVICE_UNAVAILABLE);
         }
         return jsonResponse(HttpStatus.OK, buildResponse(result.snapshot(), surveyId, serverNow));
@@ -228,7 +216,6 @@ public class LayoutFeedbackStateController {
         boolean firstSegment = true;
         boolean inQuotes = false;
         boolean escaped = false;
-        boolean hasEquals = false;
         int length = contentType.length();
         for (int i = 0; i < length; i++) {
             char c = contentType.charAt(i);
@@ -248,17 +235,15 @@ public class LayoutFeedbackStateController {
             }
             if (c == ';') {
                 if (!firstSegment && !isWellFormedSegment(
-                        contentType, segmentStart, i, hasEquals, firstOuterEquals)) {
+                        contentType, segmentStart, i, firstOuterEquals)) {
                     return false;
                 }
                 firstSegment = false;
                 segmentStart = i + 1;
-                hasEquals = false;
                 firstOuterEquals = -1;
                 continue;
             }
-            if (c == '=' && !hasEquals) {
-                hasEquals = true;
+            if (c == '=' && firstOuterEquals < 0) {
                 firstOuterEquals = i;
             }
         }
@@ -266,7 +251,7 @@ public class LayoutFeedbackStateController {
             return false;
         }
         return firstSegment || isWellFormedSegment(
-                contentType, segmentStart, length, hasEquals, firstOuterEquals);
+                contentType, segmentStart, length, firstOuterEquals);
     }
 
     /**
@@ -274,12 +259,12 @@ public class LayoutFeedbackStateController {
      * 第一个引号外等号为准）；空段按现有约定接受。
      */
     private static boolean isWellFormedSegment(String contentType, int segmentStart, int segmentEnd,
-                                               boolean hasEquals, int firstOuterEquals) {
+                                               int firstOuterEquals) {
         if (contentType.substring(segmentStart, segmentEnd).trim().isEmpty()) {
             // 尾分号 / 连续分号产生的空参数段：与既有约定一致，接受。
             return true;
         }
-        if (!hasEquals || firstOuterEquals < segmentStart || firstOuterEquals >= segmentEnd) {
+        if (firstOuterEquals < segmentStart || firstOuterEquals >= segmentEnd) {
             return false;
         }
         String key = contentType.substring(segmentStart, firstOuterEquals).trim();
@@ -385,8 +370,6 @@ public class LayoutFeedbackStateController {
 
     /** 统一失败响应：保留稳定 code/error 且一律 no-store。 */
     private static ResponseEntity<LayoutFeedbackStateResponse> statusResponse(HttpStatus status) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setCacheControl(CacheControl.noStore().cachePrivate());
         String code = switch (status) {
             case BAD_REQUEST -> "layout-feedback.request.invalid";
             case FORBIDDEN -> "layout-feedback.solo-only";
@@ -394,7 +377,7 @@ public class LayoutFeedbackStateController {
             case UNSUPPORTED_MEDIA_TYPE -> "layout-feedback.request.media-type-unsupported";
             default -> "layout-feedback.unavailable";
         };
-        return ResponseEntity.status(status).headers(headers).body(new LayoutFeedbackStateResponse(
+        return jsonResponse(status, new LayoutFeedbackStateResponse(
                 false, false, null, null, 0L, null, false, 0L, List.of(),
                 code, status.getReasonPhrase()));
     }

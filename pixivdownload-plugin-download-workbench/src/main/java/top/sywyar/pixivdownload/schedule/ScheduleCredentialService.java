@@ -210,7 +210,7 @@ public final class ScheduleCredentialService {
                         applyPlan(expectedOwnerPluginId, policyId, accountKey, snapshots, plan);
                         return Boolean.TRUE;
                     })));
-            if (applied.isEmpty() || !applied.orElse(false)) {
+            if (!applied.orElse(false)) {
                 throw conflict(
                         "schedule.error.credential-policy-publication-changed",
                         "凭证策略已更新，请刷新后重试");

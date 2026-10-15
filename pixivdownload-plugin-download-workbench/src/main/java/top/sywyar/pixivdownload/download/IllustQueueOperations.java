@@ -59,10 +59,6 @@ public class IllustQueueOperations implements QueueOperations {
         if (workKey == null || !workKey.matches("[0-9]{1,18}")) {
             return null;
         }
-        try {
-            return Long.parseLong(workKey);
-        } catch (NumberFormatException ignored) {
-            return null;
-        }
+        return Long.parseLong(workKey);
     }
 }

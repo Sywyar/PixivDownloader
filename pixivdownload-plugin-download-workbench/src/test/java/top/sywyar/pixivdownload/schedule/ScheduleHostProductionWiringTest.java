@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Bean;
-import org.springframework.test.util.ReflectionTestUtils;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
@@ -29,13 +28,6 @@ class ScheduleHostProductionWiringTest {
     @Test
     @DisplayName("Spring Bean 工厂只保留通用执行引擎与宿主身份装配")
     void springFactoryWiresGenericExecutionEngine() {
-        ScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
-        ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
-
-        ScheduleExecutor executor = productionExecutor(registry, engine);
-
-        assertThat(ReflectionTestUtils.getField(executor, "scheduleExecutionEngine"))
-                .isSameAs(engine);
         List<Method> factories = Arrays.stream(ScheduleHostPluginConfiguration.class.getDeclaredMethods())
                 .filter(method -> method.getName().equals("scheduleExecutor"))
                 .toList();

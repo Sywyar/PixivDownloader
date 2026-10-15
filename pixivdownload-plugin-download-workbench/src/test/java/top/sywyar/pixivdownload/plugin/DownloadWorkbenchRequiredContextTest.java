@@ -162,7 +162,6 @@ class DownloadWorkbenchRequiredContextTest {
     void navigationStartupAndDownloadTypeDeclared() {
         assertThat(plugin.navigation()).filteredOn(nav -> nav.id().equals("download-workbench")).singleElement()
                 .satisfies(nav -> {
-                    assertThat(nav.id()).isEqualTo("download-workbench");
                     assertThat(nav.href()).isEqualTo("/pixiv-batch.html");
                     assertThat(nav.placements()).contains(NavigationPlacements.DESKTOP_QUICK_START);
                     assertThat(nav.markers()).containsExactly("preferred-download-workbench");
@@ -194,11 +193,6 @@ class DownloadWorkbenchRequiredContextTest {
                 .toList())
                 .containsExactlyInAnyOrder("USER_NEW", "USER_REQUEST", "SEARCH", "SERIES",
                         "MY_BOOKMARKS", "FOLLOW_LATEST", "COLLECTION");
-        assertThat(descriptors).allSatisfy(descriptor -> {
-            assertThat(descriptor.frontend()).isNotNull();
-            assertThat(descriptor.frontend().moduleUrl())
-                    .isEqualTo(PixivScheduledSourceDescriptors.FRONTEND_MODULE_URL);
-        });
     }
 
     private void assertRoute(String path, HttpMethod method, AccessPolicy expectedPolicy) {

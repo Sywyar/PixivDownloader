@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilit
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleExecutionLease;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialContext;
+import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
@@ -87,32 +88,8 @@ final class ScheduleCredentialSupport {
                 ScheduledFailure.Category.INTERNAL, "schedule.credential.policy-unavailable"));
         ScheduledCredentialProbeResult probe;
         try (var handle = credential.openHandle()) {
-            ScheduledCredentialContext context = new ScheduledCredentialContext() {
-                @Override
-                public Purpose purpose() {
-                    return Purpose.RUN_START;
-                }
-
-                @Override
-                public ScheduledTaskDefinition task() {
-                    return definition;
-                }
-
-                @Override
-                public ScheduledNetworkRoute route() {
-                    return route;
-                }
-
-                @Override
-                public top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle credential() {
-                    return handle;
-                }
-
-                @Override
-                public ScheduledCancellation cancellation() {
-                    return cancellation;
-                }
-            };
+            ScheduledCredentialContext context = credentialContext(
+                    ScheduledCredentialContext.Purpose.RUN_START, definition, route, handle, cancellation);
             try {
                 probe = policy.probe(context);
             } catch (ScheduledExecutionException failure) {
@@ -179,32 +156,8 @@ final class ScheduleCredentialSupport {
         try (ScheduleCredentialMaterial credential = new ScheduleCredentialMaterial(
                 candidateSecret, "scheduled-task:" + taskId + ":credential", null);
              var handle = credential.openHandle()) {
-            ScheduledCredentialContext context = new ScheduledCredentialContext() {
-                @Override
-                public Purpose purpose() {
-                    return Purpose.BIND;
-                }
-
-                @Override
-                public ScheduledTaskDefinition task() {
-                    return definition;
-                }
-
-                @Override
-                public ScheduledNetworkRoute route() {
-                    return route;
-                }
-
-                @Override
-                public top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle credential() {
-                    return handle;
-                }
-
-                @Override
-                public ScheduledCancellation cancellation() {
-                    return cancellation;
-                }
-            };
+            ScheduledCredentialContext context = credentialContext(
+                    ScheduledCredentialContext.Purpose.BIND, definition, route, handle, cancellation);
             ScheduledCredentialBindResult result;
             try {
                 result = policy.probeForBinding(context);
@@ -218,6 +171,40 @@ final class ScheduleCredentialSupport {
             cancellation.throwIfCancellationRequested();
             return validateBindResult(result, credential);
         }
+    }
+
+    private static ScheduledCredentialContext credentialContext(
+            ScheduledCredentialContext.Purpose purpose,
+            ScheduledTaskDefinition definition,
+            ScheduledNetworkRoute route,
+            ScheduledCredentialHandle handle,
+            ScheduledCancellation cancellation) {
+        return new ScheduledCredentialContext() {
+            @Override
+            public Purpose purpose() {
+                return purpose;
+            }
+
+            @Override
+            public ScheduledTaskDefinition task() {
+                return definition;
+            }
+
+            @Override
+            public ScheduledNetworkRoute route() {
+                return route;
+            }
+
+            @Override
+            public ScheduledCredentialHandle credential() {
+                return handle;
+            }
+
+            @Override
+            public ScheduledCancellation cancellation() {
+                return cancellation;
+            }
+        };
     }
 
     void validateStoredArtifacts(

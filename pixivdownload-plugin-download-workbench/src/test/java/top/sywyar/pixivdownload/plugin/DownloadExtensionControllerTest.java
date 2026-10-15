@@ -34,11 +34,11 @@ class DownloadExtensionControllerTest {
         DownloadTypeDescriptor later = descriptor("later", 8);
         DownloadTypeDescriptor earlier = descriptor("earlier", 5);
         List<DownloadUiSlotPublication> slots = List.of(
-                publishedSlot(owner, new WebUiSlotContribution(
+                new DownloadUiSlotPublication(owner, new WebUiSlotContribution(
                         "demo.z", "settings-card", null, 10)),
-                publishedSlot(owner, new WebUiSlotContribution(
+                new DownloadUiSlotPublication(owner, new WebUiSlotContribution(
                         "demo.a", "import-hint", null, 10)),
-                publishedSlot(owner, new WebUiSlotContribution(
+                new DownloadUiSlotPublication(owner, new WebUiSlotContribution(
                         "demo.m", "cookie-tools", null, 5, Map.of("ignored", "value"), "demo-ui")));
         DownloadExtensionSnapshot snapshot = new DownloadExtensionSnapshot(
                 "demo-epoch",
@@ -93,8 +93,7 @@ class DownloadExtensionControllerTest {
                 .containsExactly(
                         "contractVersion", "type", "displayNamespace", "displayI18nKey", "order",
                         "iconKey", "colorToken", "moduleUrl", "acquisitionModes", "cancelSupported",
-                        "filters", "settings", "i18nNamespace", "owner")
-                .doesNotContain("pluginId", "queue", "schedule", "gallery", "uiSlots");
+                        "filters", "settings", "i18nNamespace", "owner");
         assertThat(DownloadExtensionController.UiSlotView.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly("slotId", "target", "moduleUrl", "order", "metadata", "i18nNamespace", "owner");
@@ -133,11 +132,5 @@ class DownloadExtensionControllerTest {
                 List.of(),
                 List.of(),
                 "demo");
-    }
-
-    private static DownloadUiSlotPublication publishedSlot(
-            DownloadExtensionIdentity owner,
-            WebUiSlotContribution slot) {
-        return new DownloadUiSlotPublication(owner, slot);
     }
 }

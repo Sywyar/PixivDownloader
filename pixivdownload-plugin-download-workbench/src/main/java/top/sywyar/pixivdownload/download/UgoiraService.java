@@ -548,16 +548,9 @@ public class UgoiraService {
             if (Files.size(partialOutput) > outputLimit) throw new IOException("Media output byte limit exceeded");
             reserveOutput.accept(Files.size(partialOutput));
             publishOutput(partialOutput, outputPath);
-            publishProgress(progressListener, UgoiraProgress.builder()
-                    .phase(UgoiraProgress.PHASE_FFMPEG)
+            publishProgress(progressListener, encoding.toBuilder()
                     .status(UgoiraProgress.STATUS_COMPLETED)
-                    .attempt(attempt)
-                    .maxAttempts(maxAttempts)
-                    .zipProgress(100)
-                    .extractedFrames(orderedFrames.size())
-                    .totalFrames(orderedFrames.size())
                     .ffmpegOutTimeMs(durationMs)
-                    .ffmpegDurationMs(durationMs)
                     .ffmpegProgress(100)
                     .build());
             return true;
@@ -650,9 +643,7 @@ public class UgoiraService {
                             .build());
                     return true;
                 }
-            } catch (CancellationException e) {
-                throw e;
-            } catch (UgoiraResourceLimitException e) {
+            } catch (CancellationException | UgoiraResourceLimitException e) {
                 throw e;
             } catch (Exception e) {
                 log.error(message("ugoira.log.zip.retry", url, e.getMessage(), attempt, maxRetries));
@@ -837,7 +828,7 @@ public class UgoiraService {
     }
 
     private String id(Long value) {
-        return value == null ? "null" : String.valueOf(value);
+        return String.valueOf(value);
     }
 
     private String text(int value) {

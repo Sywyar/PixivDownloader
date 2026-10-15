@@ -100,16 +100,14 @@ class ScheduleCredentialServiceTest {
     @DisplayName("策略回调期间 publication 被替换时保持零写入")
     void publicationReplacementDuringPolicyCallbackLeavesStoreUntouched() {
         FakeScheduleCapabilityAccess capabilities = new FakeScheduleCapabilityAccess();
-        AtomicReference<FakeScheduleCapabilityAccess.Publication> publication =
-                new AtomicReference<>();
+        FakeScheduleCapabilityAccess.Publication publication = publish(capabilities, policy, 1L);
         AtomicReference<ScheduledCredentialPolicy> replacement =
                 new AtomicReference<>();
-        publication.set(publish(capabilities, policy, 1L));
         ScheduledTask task = task(11L, 7L, OWNER, POLICY, ACCOUNT);
         when(store.findByCredentialAccount(OWNER, POLICY, ACCOUNT))
                 .thenReturn(List.of(task));
         when(policy.prepareAccountAction(any())).thenAnswer(invocation -> {
-            capabilities.withdraw(publication.get()).orElseThrow();
+            capabilities.withdraw(publication).orElseThrow();
             ScheduledCredentialPolicy next = org.mockito.Mockito.mock(
                     ScheduledCredentialPolicy.class);
             replacement.set(next);
@@ -120,7 +118,7 @@ class ScheduleCredentialServiceTest {
         });
 
         assertConflict(() -> service(capabilities).applyAccountAction(
-                OWNER, POLICY, publication.get().publicationId(),
+                OWNER, POLICY, publication.publicationId(),
                 ACCOUNT, "resume", Map.of()));
 
         assertThat(replacement.get()).isNotNull();

@@ -33,13 +33,7 @@ final class ScheduleExecutionSafety {
     static void closeBeforeFatalPropagation(AutoCloseable lease, Throwable failure) {
         DeferredFatal fatalFailures = new DeferredFatal();
         fatalFailures.capture(failure);
-        try {
-            lease.close();
-        } catch (Throwable closeFailure) {
-            if (!fatalFailures.capture(closeFailure) && failure != closeFailure) {
-                failure.addSuppressed(closeFailure);
-            }
-        }
+        closeForPropagation(lease, failure, fatalFailures);
         fatalFailures.rethrowIfPresent();
     }
 

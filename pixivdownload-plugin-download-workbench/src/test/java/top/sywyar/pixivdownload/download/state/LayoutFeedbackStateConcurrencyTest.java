@@ -2,20 +2,15 @@ package top.sywyar.pixivdownload.download.state;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-import top.sywyar.pixivdownload.download.request.LayoutFeedbackCommandRequest;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -86,7 +81,6 @@ class LayoutFeedbackStateConcurrencyTest extends LayoutFeedbackStateStoreTestSup
         ExecutorService executor = Executors.newFixedThreadPool(threads);
         CountDownLatch start = new CountDownLatch(1);
         CountDownLatch done = new CountDownLatch(threads);
-        AtomicInteger conflicts = new AtomicInteger();
         String[] layouts = {"pixiv-batch-landscape", "pixiv-batch-portrait", "pixiv-batch-alt"};
         for (int i = 0; i < threads; i++) {
             String layout = layouts[i % layouts.length];
@@ -108,7 +102,6 @@ class LayoutFeedbackStateConcurrencyTest extends LayoutFeedbackStateStoreTestSup
         LayoutFeedbackStateSnapshot snapshot = store.snapshot();
         assertThat(snapshot.seen().keySet()).containsExactlyInAnyOrder(layouts);
         assertThat(snapshot.revision()).isEqualTo(3);
-        assertThat(conflicts.get()).isZero();
     }
 
     @Test

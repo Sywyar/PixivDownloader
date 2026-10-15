@@ -300,6 +300,8 @@ class ScheduleExecutionEngineRoutingAndCredentialTest extends ScheduleExecutionE
                 sourceRoute);
         AtomicReference<ScheduledNetworkRoute> bindingRoute = new AtomicReference<>();
         AtomicReference<ScheduledNetworkRoute> executionRoute = new AtomicReference<>();
+        AtomicReference<ScheduledCredentialContext> bindingContext = new AtomicReference<>();
+        AtomicReference<ScheduledCredentialContext> executionContext = new AtomicReference<>();
         ScheduledSourceExecutor source = sourceWithPlan(executionPlan, context -> {
             assertThat(context.route()).isSameAs(sourceRoute);
             context.workSink().submit(work("source-route"));
@@ -317,6 +319,11 @@ class ScheduleExecutionEngineRoutingAndCredentialTest extends ScheduleExecutionE
 
             @Override
             public ScheduledCredentialProbeResult probe(ScheduledCredentialContext context) {
+                assertThat(context.purpose()).isEqualTo(ScheduledCredentialContext.Purpose.RUN_START);
+                assertThat(context.task().taskId()).isEqualTo(1L);
+                assertThat(context.credential().isPresent()).isTrue();
+                assertThat(context.cancellation().isCancellationRequested()).isFalse();
+                executionContext.set(context);
                 executionRoute.set(context.route());
                 return ScheduledCredentialProbeResult.valid("account-1");
             }
@@ -324,6 +331,11 @@ class ScheduleExecutionEngineRoutingAndCredentialTest extends ScheduleExecutionE
             @Override
             public ScheduledCredentialBindResult probeForBinding(
                     ScheduledCredentialContext context) {
+                assertThat(context.purpose()).isEqualTo(ScheduledCredentialContext.Purpose.BIND);
+                assertThat(context.task().taskId()).isEqualTo(1L);
+                assertThat(context.credential().isPresent()).isTrue();
+                assertThat(context.cancellation().isCancellationRequested()).isFalse();
+                bindingContext.set(context);
                 bindingRoute.set(context.route());
                 return ScheduledCredentialBindResult.fromProbe(
                         ScheduledCredentialProbeResult.valid("account-1"));
@@ -343,6 +355,10 @@ class ScheduleExecutionEngineRoutingAndCredentialTest extends ScheduleExecutionE
 
         assertThat(bindingRoute.get()).isSameAs(sourceRoute);
         assertThat(executionRoute.get()).isSameAs(sourceRoute);
+        assertThat(bindingContext.get()).isNotSameAs(executionContext.get());
+        assertThat(bindingContext.get().credential()).isNotSameAs(executionContext.get().credential());
+        assertThat(bindingContext.get().credential().copySecret()).isEmpty();
+        assertThat(executionContext.get().credential().copySecret()).isEmpty();
     }
 
     @Test

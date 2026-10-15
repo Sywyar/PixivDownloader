@@ -192,22 +192,15 @@ public final class PixivScheduledSourceSupport {
             String searchMode = source.path("sMode").asText(SOURCE_S_MODE);
             int maxPages = source.path("maxPages").asInt(SOURCE_MAX_PAGES);
             String workType = workType(definition);
+            PageLoader pages = page -> definition.snapshot().novel()
+                    ? fetchService.discoverSearchNovelIdsPage(
+                            word, order, mode, searchMode, page, cookie)
+                    : fetchService.discoverSearchArtworkIdsPage(
+                            word, order, mode, searchMode, page, cookie);
             return switch (discoveryMode) {
                 case WATERMARK -> watermarkScan(
-                        context, definition, workType, watermark,
-                        page -> definition.snapshot().novel()
-                                ? fetchService.discoverSearchNovelIdsPage(
-                                        word, order, mode, searchMode, page, cookie)
-                                : fetchService.discoverSearchArtworkIdsPage(
-                                        word, order, mode, searchMode, page, cookie),
-                        true);
-                case DOWNLOADED_BOUNDARY -> downloadedBoundaryScan(
-                        context, definition, workType,
-                        page -> definition.snapshot().novel()
-                                ? fetchService.discoverSearchNovelIdsPage(
-                                        word, order, mode, searchMode, page, cookie)
-                                : fetchService.discoverSearchArtworkIdsPage(
-                                        word, order, mode, searchMode, page, cookie));
+                        context, definition, workType, watermark, pages, true);
+                case DOWNLOADED_BOUNDARY -> downloadedBoundaryScan(context, definition, workType, pages);
                 case FULL -> {
                     List<String> ids = definition.snapshot().novel()
                             ? fetchService.discoverSearchNovelIds(

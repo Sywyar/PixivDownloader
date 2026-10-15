@@ -49,8 +49,7 @@ class ScheduleNotificationTemplateContributorTest {
                         .doesNotContain("PHPSESSID");
                 assertThat(inbox.titleTemplate()).isEqualTo(push.titleTemplate());
                 assertThat(inbox.bodyTemplate())
-                        .isEqualTo(push.bodyTemplate())
-                        .doesNotContain("PHPSESSID");
+                        .isEqualTo(push.bodyTemplate());
             }
         }
     }

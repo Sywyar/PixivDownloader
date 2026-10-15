@@ -150,13 +150,8 @@ public final class PixivLegacyScheduledTaskMigrationAdapter implements LegacySch
         String json = write(detail);
         if (json.getBytes(java.nio.charset.StandardCharsets.UTF_8).length
                 > LegacyScheduledTaskMigrationResult.MAX_SAFE_DETAIL_BYTES) {
-            ObjectNode compact = objectMapper.createObjectNode();
-            compact.put("taskId", Long.toString(snapshot.id()));
-            compact.put("legacySourceType", snapshot.sourceType());
-            compact.put("reasonCode", reason);
-            compact.put("legacyDataPreserved", true);
-            compact.put("pendingCount", snapshot.pending().size());
-            json = write(compact);
+            detail.remove("pending");
+            json = write(detail);
         }
         return new LegacyScheduledTaskMigrationResult.Rejected(code, json);
     }

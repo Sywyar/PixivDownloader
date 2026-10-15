@@ -33,8 +33,7 @@ class ScheduleWorkConcurrencyLimiterTest {
             Future<ScheduleWorkConcurrencyLimiter.Permit> second = worker.submit(
                     () -> limiter.acquire("illust", 1, NOT_CANCELLED));
 
-            assertThatThrownBy(() -> second.get(150, TimeUnit.MILLISECONDS))
-                    .isInstanceOf(TimeoutException.class);
+            assertBlocked(second);
             first.close();
             try (ScheduleWorkConcurrencyLimiter.Permit acquired =
                          second.get(1, TimeUnit.SECONDS)) {
@@ -86,8 +85,7 @@ class ScheduleWorkConcurrencyLimiterTest {
                      closeConcurrently(worker, first, limiter)) {
             Future<ScheduleWorkConcurrencyLimiter.Permit> third = worker.submit(
                     () -> limiter.acquire("novel", 1, NOT_CANCELLED));
-            assertThatThrownBy(() -> third.get(150, TimeUnit.MILLISECONDS))
-                    .isInstanceOf(TimeoutException.class);
+            assertBlocked(third);
             second.close();
             third.get(1, TimeUnit.SECONDS).close();
         } finally {
@@ -116,12 +114,10 @@ class ScheduleWorkConcurrencyLimiterTest {
         try {
             Future<ScheduleWorkConcurrencyLimiter.Permit> waiting = worker.submit(
                     () -> limiter.acquire("illust", 1, NOT_CANCELLED));
-            assertThatThrownBy(() -> waiting.get(150, TimeUnit.MILLISECONDS))
-                    .isInstanceOf(TimeoutException.class);
+            assertBlocked(waiting);
 
             first.close();
-            assertThatThrownBy(() -> waiting.get(150, TimeUnit.MILLISECONDS))
-                    .isInstanceOf(TimeoutException.class);
+            assertBlocked(waiting);
 
             second.close();
             waiting.get(1, TimeUnit.SECONDS).close();
