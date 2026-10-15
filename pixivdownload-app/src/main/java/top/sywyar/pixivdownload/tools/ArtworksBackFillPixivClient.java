@@ -77,6 +77,9 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
         if (status == 404) {
             return LookupResult.deleted("HTTP 404");
         }
+        if (status < 200 || status >= 300) {
+            return LookupResult.skip("HTTP " + status);
+        }
 
         JsonNode root = mapper.readTree(body);
         if (root == null) {
@@ -99,7 +102,13 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
         }
 
         JsonNode payload = root.path("body");
+        if (!payload.isObject() || payload.isEmpty()) {
+            return LookupResult.skip(message("artworks-backfill.lookup.empty-response"));
+        }
         long authorId = payload.path("userId").asLong(0);
+        if (authorId <= 0) {
+            return LookupResult.skip(message("artworks-backfill.lookup.empty-response"));
+        }
         String authorName = payload.path("userName").asText("").trim();
         if (authorId > 0 && authorName.isEmpty()) {
             authorName = String.valueOf(authorId);
