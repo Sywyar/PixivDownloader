@@ -19,6 +19,7 @@ import top.sywyar.pixivdownload.novel.request.NovelDownloadRequestFactory;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
@@ -121,12 +122,10 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
             throws ScheduledExecutionException {
         try {
             return downloadExecutionLane.executeAndWait(() -> executeInLane(work, context));
-        } catch (ScheduledExecutionException e) {
+        } catch (ScheduledExecutionException | RuntimeException | Error e) {
             throw e;
         } catch (InterruptedException e) {
             throw ScheduledExecutionException.cancelled();
-        } catch (RuntimeException | Error e) {
-            throw e;
         } catch (Exception e) {
             throw failure(ScheduledFailure.Category.INTERNAL, "pixiv.novel.execution-lane-failed");
         }
@@ -140,12 +139,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
             long novelId = decodeWorkId(work);
             Objects.requireNonNull(task, "task");
             return executePrepared(novelId, context);
-        } catch (ScheduledExecutionException e) {
-            if (task != null) {
-                clearFailedRunCache(task);
-            }
-            throw e;
-        } catch (RuntimeException | Error e) {
+        } catch (ScheduledExecutionException | RuntimeException | Error e) {
             if (task != null) {
                 clearFailedRunCache(task);
             }
@@ -365,12 +359,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         if (!SERIES_SOURCE_TYPE.equals(task.sourceType())) {
             return;
         }
-        PixivScheduledNovelDefinition definition;
-        try {
-            definition = PixivScheduledNovelDefinition.parse(objectMapper, context.task());
-        } catch (IllegalArgumentException e) {
-            throw failure(ScheduledFailure.Category.INVALID_DEFINITION, "pixiv.schedule.definition-invalid");
-        }
+        PixivScheduledNovelDefinition definition = parseDefinition(context);
         long seriesId = definition.seriesId();
         if (!definition.download().novelMerge() || seriesId <= 0L) {
             return;
@@ -419,7 +408,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
                 "seriesPending", Integer.toString(status.seriesPending()));
     }
 
-    private PixivScheduledNovelDefinition parseDefinition(ScheduledWorkContext context)
+    private PixivScheduledNovelDefinition parseDefinition(ScheduledExecutionContext context)
             throws ScheduledExecutionException {
         try {
             return PixivScheduledNovelDefinition.parse(objectMapper, context.task());
