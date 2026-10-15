@@ -10,6 +10,8 @@
         var popover = null;
         var style = null;
         var refreshTimer = null;
+        var refreshSequence = 0;
+        var markingAllRead = false;
 
         function t(key, fallback) {
             return typeof pageI18n !== 'undefined' && pageI18n
@@ -88,6 +90,7 @@
         }
 
         async function refresh() {
+            var requestSequence = ++refreshSequence;
             try {
                 var query = new URLSearchParams({limit: '8'});
                 if (typeof pageI18n !== 'undefined' && pageI18n && pageI18n.lang) {
@@ -97,16 +100,56 @@
                     credentials: 'same-origin', signal: context.signal,
                     headers: { 'Accept': 'application/json' }
                 });
+                if (requestSequence !== refreshSequence || context.signal.aborted) return false;
+                if (response.status === 401 || response.status === 403) {
+                    removeRendered();
+                    return false;
+                }
+                if (!response.ok) throw new Error('HTTP ' + response.status);
+                var updated = await response.json();
+                if (requestSequence !== refreshSequence || context.signal.aborted) return false;
+                snapshot = updated;
+                render();
+                renderMessages();
+                return true;
+            } catch (error) {
+                if (!context.signal.aborted && root) renderMessages();
+                return false;
+            }
+        }
+
+        async function markAllRead() {
+            if (markingAllRead || !snapshot || snapshot.unreadCount <= 0) return;
+            markingAllRead = true;
+            ++refreshSequence;
+            var status = popover.querySelector('.notification-popover-status');
+            status.hidden = true;
+            render();
+            try {
+                var response = await fetch('/api/notifications/read-all', {
+                    method: 'POST', credentials: 'same-origin', signal: context.signal,
+                    headers: { 'Accept': 'application/json' }
+                });
+                if (context.signal.aborted) return;
                 if (response.status === 401 || response.status === 403) {
                     removeRendered();
                     return;
                 }
                 if (!response.ok) throw new Error('HTTP ' + response.status);
-                snapshot = await response.json();
-                render();
-                renderMessages();
+                if (!await refresh() && popover) {
+                    status.setAttribute('data-i18n', 'notification:inbox.load-failed');
+                    status.textContent = t('inbox.load-failed', '消息加载失败');
+                    status.hidden = false;
+                }
             } catch (error) {
-                if (!context.signal.aborted && root) renderMessages();
+                if (!context.signal.aborted && popover) {
+                    status.setAttribute('data-i18n', 'notification:inbox.mark-read-failed');
+                    status.textContent = t('inbox.mark-read-failed', '标记已读失败');
+                    status.hidden = false;
+                }
+            } finally {
+                markingAllRead = false;
+                if (popover) render();
             }
         }
 
@@ -150,6 +193,7 @@
             var badgeNode = root.querySelector('.notification-inbox-badge');
             badgeNode.hidden = unread === 0;
             badgeNode.textContent = unread > 99 ? '99+' : String(unread);
+            if (popover) popover.querySelector('.notification-popover-mark-read').disabled = markingAllRead || unread === 0;
         }
 
         function createPopover() {
@@ -167,19 +211,31 @@
             var title = document.createElement('strong');
             title.setAttribute('data-i18n', 'notification:inbox.latest');
             title.textContent = t('inbox.latest', '最新消息');
+            var markRead = document.createElement('button');
+            markRead.type = 'button';
+            markRead.className = 'notification-popover-mark-read';
+            markRead.setAttribute('data-i18n', 'notification:inbox.mark-all-read');
+            markRead.textContent = t('inbox.mark-all-read', '全部已读');
+            markRead.addEventListener('click', markAllRead);
             var all = document.createElement('a');
             all.className = 'notification-popover-all';
             all.href = '/pixiv-notifications.html';
             all.setAttribute('data-i18n', 'notification:inbox.view-all');
             all.textContent = t('inbox.view-all', '查看全部');
-            header.append(title, all);
+            header.append(title, markRead, all);
+            var status = document.createElement('div');
+            status.className = 'notification-popover-status';
+            status.setAttribute('role', 'status');
+            status.setAttribute('aria-live', 'polite');
+            status.hidden = true;
             var list = document.createElement('div');
             list.className = 'notification-popover-list';
-            popover.append(header, list);
+            popover.append(header, status, list);
             document.body.appendChild(popover);
         }
 
         function removeRendered() {
+            ++refreshSequence;
             closePopover();
             if (refreshTimer) global.clearInterval(refreshTimer);
             if (root) root.remove();

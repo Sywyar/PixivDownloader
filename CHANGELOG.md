@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ## [Unreleased]
 
+### Changed
+
+- 所有站内信在打开详情时自动标记已读，顶部消息弹窗支持一键全部已读。
+
 ### Bug Fixes
 
 - 计划任务与手动下载列表分开显示，后台执行不再自动加入手动队列；两版下载页清理旧版自动加入的记录，手动下载仍可按执行编号核对状态。
