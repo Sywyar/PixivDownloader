@@ -48,10 +48,10 @@ public final class GalleryWorkQueryFactory {
         return WorkQuery.builder(WorkType.ARTWORK)
                 .page(Math.max(0, page == null ? 0 : page))
                 .size(clamp(size == null ? 24 : size, 1, 200))
-                .sort(normalizeSort(sort))
+                .sort(normalizeChoice(sort, ALLOWED_SORTS, "date"))
                 .order("asc".equalsIgnoreCase(order) ? "asc" : "desc")
                 .search(nullIfBlank(search))
-                .searchType(normalizeSearchType(searchType))
+                .searchType(normalizeChoice(searchType, ALLOWED_SEARCH_TYPES, "all"))
                 .r18(normalizeToken(r18, ALLOWED_R18))
                 .ai(normalizeToken(ai, ALLOWED_TRISTATE))
                 .formats(formats)
@@ -85,20 +85,12 @@ public final class GalleryWorkQueryFactory {
         return Math.max(minimum, Math.min(maximum, value));
     }
 
-    private static String normalizeSort(String sort) {
-        if (sort == null) {
-            return "date";
+    private static String normalizeChoice(String value, Set<String> allowed, String fallback) {
+        if (value == null) {
+            return fallback;
         }
-        String normalized = sort.trim();
-        return ALLOWED_SORTS.contains(normalized) ? normalized : "date";
-    }
-
-    private static String normalizeSearchType(String searchType) {
-        if (searchType == null) {
-            return "all";
-        }
-        String normalized = searchType.trim();
-        return ALLOWED_SEARCH_TYPES.contains(normalized) ? normalized : "all";
+        String normalized = value.trim();
+        return allowed.contains(normalized) ? normalized : fallback;
     }
 
     private static String normalizeToken(String value, Set<String> allowed) {
