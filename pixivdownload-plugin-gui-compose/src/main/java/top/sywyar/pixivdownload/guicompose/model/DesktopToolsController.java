@@ -64,6 +64,7 @@ final class DesktopToolsController {
     private volatile long classifierToolStartedAt;
     volatile String exclusiveToolName = "";
     private volatile long exclusiveToolStartedAt;
+    private Path exclusiveToolLogPath;
 
     DesktopToolsController(
             ComposeDesktopUiModel owner,
@@ -268,6 +269,7 @@ final class DesktopToolsController {
                                 );
                         owner.rebuild();
                         try (DesktopUiHost.ToolLogSession log = host.openToolLog("artworks-backfill")) {
+                            exclusiveToolLogPath = log.sessionPath();
                             log.openLatestInBrowser();
                             DesktopUiHost.BackfillSummary summary = host.runBackfill(options, (processed, total) -> {
                                 if (backfillCancelRequested) throw new java.util.concurrent.CancellationException();
@@ -339,6 +341,7 @@ final class DesktopToolsController {
                     owner.rebuild();
                     try (DesktopUiHost.ToolLogSession log = host.openToolLog(
                             "json-to-sqlite-migration")) {
+                        exclusiveToolLogPath = log.sessionPath();
                         log.openLatestInBrowser();
                         DesktopUiHost.MigrationSummary summary = host.runMigration(
                                 options,
@@ -996,6 +999,7 @@ final class DesktopToolsController {
         exclusiveToolName = toolName;
         long startedAt = System.currentTimeMillis();
         exclusiveToolStartedAt = startedAt;
+        exclusiveToolLogPath = null;
         owner.setBusy(true);
         owner.rebuild();
         owner.executeAsync(() -> {
@@ -1038,7 +1042,7 @@ final class DesktopToolsController {
                         null,
                         null,
                         null,
-                        null
+                        exclusiveToolLogPath
                 );
                 LOG.warn("Desktop tool was interrupted", interrupted);
                 activity = new DesktopUiNode.ToolActivity(activityId, false, false,
@@ -1051,7 +1055,7 @@ final class DesktopToolsController {
                         null,
                         null,
                         null,
-                        null
+                        exclusiveToolLogPath
                 );
                 LOG.error("Desktop tool failed", failure);
                 activity = new DesktopUiNode.ToolActivity(activityId, false, true,

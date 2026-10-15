@@ -152,10 +152,43 @@ class DesktopToolsControllerTest {
                             overview(model).activity().message().key());
                     assertEquals("gui.tools.backend-status", overview(model).backend().text().key());
                     assertEquals(DesktopUiHost.ToolOutcome.CANCELLED, records.get(0)[1]);
+                    assertEquals(cancelDuringCount ? null : Path.of("session.html"), records.get(0)[6]);
                     var next = new java.util.concurrent.CompletableFuture<Boolean>();
                     model.executeAsync(() -> next.complete(Thread.currentThread().isInterrupted()));
                     assertFalse(next.get(5, java.util.concurrent.TimeUnit.SECONDS));
                 }
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("回填和迁移失败后仍记录本次日志路径并关闭日志会话")
+    void failedToolsKeepTheirLogPath() throws Exception {
+        for (boolean migration : List.of(false, true)) {
+            var records = new java.util.concurrent.CopyOnWriteArrayList<Object[]>();
+            var closed = new java.util.concurrent.atomic.AtomicBoolean();
+            Map<String, Function<Object[], Object>> overrides = new HashMap<>();
+            overrides.put("backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null));
+            overrides.put("stopBackend", args -> { ((Runnable) args[0]).run(); return true; });
+            overrides.put("startBackend", args -> { ((Runnable) args[0]).run(); return true; });
+            overrides.put("recordToolHistory", args -> { records.add(args); return null; });
+            overrides.put("openToolLog", args -> new DesktopUiHost.ToolLogSession() {
+                public Path latestPath() { return Path.of("latest.html"); }
+                public Path sessionPath() { return Path.of("session.html"); }
+                public void openLatestInBrowser() {}
+                public void close() { closed.set(true); }
+            });
+            overrides.put(migration ? "runMigration" : "runBackfill", args -> {
+                throw new IllegalStateException("simulated operation failure");
+            });
+            try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+                awaitMediaReady(model);
+                activate(model, migration ? "tools.migration.run" : "tools.backfill.run");
+                DesktopConfigurationControllerTest.awaitReady(model);
+                assertEquals(1, records.size());
+                assertEquals(DesktopUiHost.ToolOutcome.FAILED, records.get(0)[1]);
+                assertEquals(Path.of("session.html"), records.get(0)[6]);
+                assertTrue(closed.get());
             }
         }
     }
