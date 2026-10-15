@@ -250,7 +250,7 @@ function findBundle(bundles, module, baseName) {
  * @returns {number} 清理的条目数
  */
 function prune(repoRoot, lock, catalog, bundles, sourceMaps) {
-    const { orphans, errors } = validateAgainstCatalog(lock, catalog, bundles, sourceMaps);
+    const { orphans } = validateAgainstCatalog(lock, catalog, bundles, sourceMaps);
     const legacyKeys = new Set();
     for (const entry of lock.entries) {
         const descriptor = catalog.byTag.get(entry.locale) || null;

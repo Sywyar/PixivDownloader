@@ -76,7 +76,7 @@ function write(repoRoot, report) {
 
     if (maintenance.length > 0) {
         fs.writeFileSync(path.join(dir, 'maintenance.md'),
-            maintenancePrompt(catalog, maintenance) + '\n', 'utf8');
+            maintenancePrompt(maintenance) + '\n', 'utf8');
     }
 
     fs.writeFileSync(path.join(dir, 'master.md'), masterPrompt(catalog, perLocale) + '\n', 'utf8');
@@ -111,7 +111,7 @@ function masterPrompt(catalog, perLocale) {
     return lines.join('\n');
 }
 
-function maintenancePrompt(catalog, issues) {
+function maintenancePrompt(issues) {
     const lines = [];
     lines.push('# i18n 维护任务（非翻译）');
     lines.push('');

@@ -23,14 +23,6 @@ function sortCoverage(a, b) {
         || String(a.baseName).localeCompare(String(b.baseName));
 }
 
-function sortWarnings(a, b) {
-    return String(a.locale).localeCompare(String(b.locale))
-        || String(a.module).localeCompare(String(b.module))
-        || String(a.baseName).localeCompare(String(b.baseName))
-        || String(a.key).localeCompare(String(b.key))
-        || String(a.type).localeCompare(String(b.type));
-}
-
 /**
  * @param {Object} report { catalog, issues, coverage, warnings, catalogError }
  * @param {Object} [options] { snapshotRef: 快照检查时记录被检查的 commit，供 pre-push 多 commit 报告定位 }
@@ -55,7 +47,7 @@ function write(repoRoot, report, options = {}) {
             },
         issues: [...report.issues].sort(sortIssues),
         coverage: [...report.coverage].sort(sortCoverage),
-        warnings: [...report.warnings].sort(sortWarnings),
+        warnings: [...report.warnings].sort(sortIssues),
     };
     fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify(payload, null, 2) + '\n', 'utf8');
 
