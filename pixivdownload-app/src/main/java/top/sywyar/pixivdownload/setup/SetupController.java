@@ -133,8 +133,7 @@ public class SetupController {
     @PostMapping("/api/auth/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request,
                                                HttpServletRequest httpRequest) throws IOException {
-        String clientIp = getClientIp(httpRequest);
-        if (!loginRateLimitService.isAllowed(clientIp)) {
+        if (!loginRateLimitService.isAllowed(httpRequest.getRemoteAddr())) {
             throw new LocalizedException(
                     HttpStatus.TOO_MANY_REQUESTS,
                     "setup.login.rate-limit.exceeded",
@@ -197,10 +196,6 @@ public class SetupController {
     private String clearedInviteCookie() {
         return ResponseCookie.from(AuthFilter.INVITE_COOKIE, "")
                 .path("/").httpOnly(true).secure(sslEnabled).sameSite("Strict").maxAge(0).build().toString();
-    }
-
-    private String getClientIp(HttpServletRequest request) {
-        return request.getRemoteAddr();
     }
 
     private static String safeMessage(Throwable e) {

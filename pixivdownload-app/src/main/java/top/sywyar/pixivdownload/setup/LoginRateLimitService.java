@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.setup;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -13,7 +12,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 使用分钟级滑动窗口，按客户端 IP 追踪每分钟内的登录尝试次数。
  * 当 setup.login-rate-limit-minute <= 0 时禁用，所有请求直接放行。
  */
-@Slf4j
 @Service
 @RequiredArgsConstructor
 public class LoginRateLimitService {

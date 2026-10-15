@@ -5,8 +5,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.mybatis.spring.SqlSessionFactoryBean;
-import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -14,7 +12,6 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
 import top.sywyar.pixivdownload.config.http.ServerAddressProvider;
-import top.sywyar.pixivdownload.core.db.DatabaseConfig;
 import top.sywyar.pixivdownload.core.db.PostgresTestDatabase;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
@@ -212,20 +209,44 @@ class GuestCollectionVisibilityTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"sqlite", "postgresql"})
-    @DisplayName("邀请过期与维护清理同时移除收藏夹规则")
+    @DisplayName("删除、过期与撤销清理全部关联且保留其它暂停邀请")
     void expiredInvitesCleanCollectionRules(String engine) throws Exception {
         setUp(engine);
-        for (int mode = 0; mode < 3; mode++) {
-            var request = request();
-            request.setCollectionUnrestricted(false);
-            request.setCollectionIds(List.of(1L));
+        var request = request();
+        request.setCollectionUnrestricted(false);
+        request.setCollectionIds(List.of(1L));
+        request.setTagUnrestricted(false);
+        request.setTagIds(List.of(1L));
+        request.setAuthorUnrestricted(false);
+        request.setAuthorIds(List.of(1L));
+        request.setNovelTagUnrestricted(false);
+        request.setNovelTagIds(List.of(1L));
+        request.setNovelAuthorUnrestricted(false);
+        request.setNovelAuthorIds(List.of(1L));
+        long retainedId = invites.createInvite(request);
+        mapper.upsertAccessStat(retainedId, 0);
+        invites.pause(retainedId);
+        assertThat(invites.resolveByCode(invites.detail(retainedId).code())).isEmpty();
+        for (int mode = 0; mode < 5; mode++) {
             long id = invites.createInvite(request);
             String code = invites.detail(id).code();
-            jdbc.update("UPDATE guest_invites SET expire_time = 1 WHERE id = ?", id);
-            if (mode == 0) assertThat(invites.resolveByCode(code)).isEmpty();
+            mapper.upsertAccessStat(id, 0);
+            if (mode == 4) mapper.markRevoked(id);
+            else jdbc.update("UPDATE guest_invites SET expire_time = 1 WHERE id = ?", id);
+            if (mode == 0 || mode == 4) assertThat(invites.resolveByCode(code)).isEmpty();
             else if (mode == 1) invites.deleteExpired(System.currentTimeMillis());
-            else invites.purgeExpiredAndRevoked(System.currentTimeMillis());
-            assertThat(mapper.findInviteCollectionIds(id)).isEmpty();
+            else if (mode == 2) invites.purgeExpiredAndRevoked(System.currentTimeMillis());
+            else invites.delete(id);
+            assertThat(mapper.findById(id)).isNull();
+            assertThat(mapper.findById(retainedId)).isNotNull();
+            for (String table : List.of("guest_invite_collections", "guest_invite_tags",
+                    "guest_invite_authors", "guest_invite_novel_tags", "guest_invite_novel_authors",
+                    "guest_invite_access_stats")) {
+                assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE invite_id = ?",
+                        Long.class, id)).as(table).isZero();
+                assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE invite_id = ?",
+                        Long.class, retainedId)).as(table).isEqualTo(1);
+            }
         }
     }
 

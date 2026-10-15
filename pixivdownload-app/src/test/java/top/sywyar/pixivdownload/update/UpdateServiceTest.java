@@ -193,6 +193,29 @@ class UpdateServiceTest {
     }
 
     @Test
+    @DisplayName("已签名的空清单、错误渠道和缺失版本在写入信任状态前被拒绝")
+    void rejectsSignedInvalidManifestBeforePublishingUpdate() throws Exception {
+        record InvalidManifest(String json, String reason) {}
+        SigningSupport signing = new SigningSupport();
+        var invalidManifests = java.util.List.of(
+                new InvalidManifest("null", "INVALID_MANIFEST"),
+                new InvalidManifest("{\"channel\":\"nightly\"}", "CHANNEL_MISMATCH"),
+                new InvalidManifest("{\"channel\":\"stable\",\"sequence\":10}", "INVALID_MANIFEST"),
+                new InvalidManifest("{\"channel\":\"stable\",\"sequence\":10,\"latestVersion\":\" \"}", "INVALID_MANIFEST"));
+        Path state = tempDir.resolve("trust.json");
+        for (InvalidManifest invalid : invalidManifests) {
+            byte[] body = invalid.json().getBytes(StandardCharsets.UTF_8);
+            UpdateCheckResult result = service(signing, body, signing.signature(body), state).checkForUpdate(true);
+
+            assertThat(result.isCheckSucceeded()).isFalse();
+            assertThat(result.isUpdateAvailable()).isFalse();
+            assertThat(result.getError()).isEqualTo(invalid.reason());
+            assertThat(result.getNightlyAlternative()).isNull();
+            assertThat(state).doesNotExist();
+        }
+    }
+
+    @Test
     @DisplayName("损坏的持久化高水位使更新检查 fail closed")
     void shouldRejectCorruptTrustState() throws Exception {
         SigningSupport signing = new SigningSupport();

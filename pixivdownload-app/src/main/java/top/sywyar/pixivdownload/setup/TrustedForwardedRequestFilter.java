@@ -52,17 +52,8 @@ public final class TrustedForwardedRequestFilter extends OncePerRequestFilter {
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         boolean hasForwardingHeaders = hasForwardingHeaders(request);
-        if (LocalGuiWebServerCustomizer.isLocalGuiRequest(request)) {
-            if (hasForwardingHeaders) {
-                reject(response);
-                return;
-            }
-            filterChain.doFilter(request, response);
-            return;
-        }
-        boolean trustedPeer = isTrustedProxy(request.getRemoteAddr());
-
-        if (!trustedPeer) {
+        if (LocalGuiWebServerCustomizer.isLocalGuiRequest(request)
+                || !isTrustedProxy(request.getRemoteAddr())) {
             if (hasForwardingHeaders) {
                 reject(response);
                 return;

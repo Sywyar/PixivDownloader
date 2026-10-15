@@ -192,9 +192,6 @@ public class UpdateService {
         UpdateCheckResult officialResult;
         try {
             UpdateManifest manifest = fetchManifest(manifestUrl, CHANNEL_STABLE);
-            if (manifest == null || manifest.getLatestVersion() == null) {
-                throw new IllegalStateException(forLog("update.error.manifest.invalid", "empty"));
-            }
             officialResult = handleManifest(currentVersion, manifest, false);
         } catch (IOException | IllegalStateException e) {
             log.warn(forLog("update.log.check.failed", e.getMessage()));
@@ -211,23 +208,21 @@ public class UpdateService {
             if (nightlyUrl != null && !nightlyUrl.isBlank()) {
                 try {
                     UpdateManifest nightlyManifest = fetchManifest(nightlyUrl, CHANNEL_NIGHTLY);
-                    if (nightlyManifest != null && nightlyManifest.getLatestVersion() != null) {
-                        UpdateCheckResult nightlyResult = handleManifest(currentVersion, nightlyManifest, true);
-                        boolean hasUpdate = nightlyResult.isUpdateAvailable();
-                        boolean hasNotes = nightlyResult.getReleaseNotes() != null
-                                && !nightlyResult.getReleaseNotes().isBlank();
-                        // 正式版不可用时保留独立可信的每夜版；否则比较已验证的版本。
-                        boolean newerThanOfficial = !officialResult.isCheckSucceeded() || compareVersions(
-                                nightlyResult.getLatestVersion(),
-                                officialResult.getLatestVersion()) > 0;
-                        if (hasUpdate && hasNotes && newerThanOfficial) {
-                            nightlyAlternative = nightlyResult;
-                            log.info(forLog("update.log.check.nightly-available",
-                                    currentVersion, nightlyResult.getLatestVersion()));
-                        } else if (hasUpdate && !hasNotes) {
-                            log.info(forLog("update.log.check.nightly-empty-notes",
-                                    nightlyResult.getLatestVersion()));
-                        }
+                    UpdateCheckResult nightlyResult = handleManifest(currentVersion, nightlyManifest, true);
+                    boolean hasUpdate = nightlyResult.isUpdateAvailable();
+                    boolean hasNotes = nightlyResult.getReleaseNotes() != null
+                            && !nightlyResult.getReleaseNotes().isBlank();
+                    // 正式版不可用时保留独立可信的每夜版；否则比较已验证的版本。
+                    boolean newerThanOfficial = !officialResult.isCheckSucceeded() || compareVersions(
+                            nightlyResult.getLatestVersion(),
+                            officialResult.getLatestVersion()) > 0;
+                    if (hasUpdate && hasNotes && newerThanOfficial) {
+                        nightlyAlternative = nightlyResult;
+                        log.info(forLog("update.log.check.nightly-available",
+                                currentVersion, nightlyResult.getLatestVersion()));
+                    } else if (hasUpdate && !hasNotes) {
+                        log.info(forLog("update.log.check.nightly-empty-notes",
+                                nightlyResult.getLatestVersion()));
                     }
                 } catch (IOException | IllegalStateException e) {
                     log.warn(forLog("update.log.check.nightly-failed", e.getMessage()));
@@ -313,7 +308,6 @@ public class UpdateService {
             throw new UpdateCheckException(CHANNEL_MISMATCH, "unexpected update channel");
         }
         if (manifest == null
-                || !expectedChannel.equals(manifest.getChannel())
                 || manifest.getSequence() <= 0
                 || manifest.getLatestVersion() == null
                 || manifest.getLatestVersion().isBlank()) {
@@ -491,7 +485,7 @@ public class UpdateService {
         String platformKey = currentPlatformAssetKey();
         UpdateManifest.Asset asset = platformKey == null
                 ? null
-                : pickAsset(manifest.getAssets(), platformKey);
+                : manifest.getAssets().get(platformKey);
 
         boolean newer = compareVersions(latest, currentVersion) > 0;
         boolean updateAvailable = newer && asset != null && asset.getUrl() != null && !asset.getUrl().isBlank();
@@ -521,13 +515,6 @@ public class UpdateService {
                 .checkedAt(Instant.now())
                 .nightly(nightly)
                 .build();
-    }
-
-    private static UpdateManifest.Asset pickAsset(Map<String, UpdateManifest.Asset> assets, String key) {
-        if (assets == null || key == null) {
-            return null;
-        }
-        return assets.get(key);
     }
 
     /**

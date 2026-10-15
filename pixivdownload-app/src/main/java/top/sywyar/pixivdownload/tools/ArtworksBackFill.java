@@ -350,10 +350,6 @@ public class ArtworksBackFill {
         }
     }
 
-    private static String safeMessage(String value) {
-        return value == null || value.isBlank() ? "-" : value;
-    }
-
     private static String describeMissing(ArtworksBackFillDatabase.Candidate candidate) {
         List<String> parts = new ArrayList<>(6);
         if (candidate.authorMissing()) parts.add("author");
@@ -402,13 +398,14 @@ public class ArtworksBackFill {
         }
 
         public static Options parse(String[] args) {
-            String dbPath = defaults().dbPath;
-            String proxyHost = defaults().proxyHost;
-            int proxyPort = defaults().proxyPort;
-            boolean useProxy = defaults().useProxy;
-            long delayMs = defaults().delayMs;
-            int limit = defaults().limit;
-            boolean dryRun = defaults().dryRun;
+            Options defaults = defaults();
+            String dbPath = defaults.dbPath;
+            String proxyHost = defaults.proxyHost;
+            int proxyPort = defaults.proxyPort;
+            boolean useProxy = defaults.useProxy;
+            long delayMs = defaults.delayMs;
+            int limit = defaults.limit;
+            boolean dryRun = defaults.dryRun;
 
             for (int i = 0; i < args.length; i++) {
                 switch (args[i]) {
@@ -428,8 +425,7 @@ public class ArtworksBackFill {
                     default -> throw new IllegalArgumentException(message("artworks-backfill.cli.error.unknown-option", args[i]));
                 }
             }
-            Options options = new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun);
-            return options;
+            return new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun);
         }
 
         private static String requireValue(String[] args, int index, String option) {

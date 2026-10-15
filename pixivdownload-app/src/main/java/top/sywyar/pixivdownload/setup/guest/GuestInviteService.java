@@ -193,12 +193,7 @@ public class GuestInviteService {
     @Transactional
     public void delete(long id) {
         requireExisting(id);
-        mapper.deleteInviteCollections(id);
-        mapper.purgeInviteTags(id);
-        mapper.purgeInviteAuthors(id);
-        mapper.purgeInviteNovelTags(id);
-        mapper.purgeInviteNovelAuthors(id);
-        mapper.purgeInviteAccessStats(id);
+        purgeInviteAssociations(id);
         mapper.deleteInvite(id);
     }
 
@@ -206,12 +201,7 @@ public class GuestInviteService {
     public int deleteExpired(long now) {
         List<Long> ids = mapper.findExpiredIds(now);
         for (Long id : ids) {
-            mapper.deleteInviteCollections(id);
-            mapper.purgeInviteTags(id);
-            mapper.purgeInviteAuthors(id);
-            mapper.purgeInviteNovelTags(id);
-            mapper.purgeInviteNovelAuthors(id);
-            mapper.purgeInviteAccessStats(id);
+            purgeInviteAssociations(id);
             mapper.deleteInvite(id);
         }
         return ids.size();
@@ -285,12 +275,7 @@ public class GuestInviteService {
 
         long now = System.currentTimeMillis();
         if (row.isRevoked() || (row.getExpireTime() != null && now > row.getExpireTime())) {
-            mapper.deleteInviteCollections(row.getId());
-            mapper.purgeInviteTags(row.getId());
-            mapper.purgeInviteAuthors(row.getId());
-            mapper.purgeInviteNovelTags(row.getId());
-            mapper.purgeInviteNovelAuthors(row.getId());
-            mapper.purgeInviteAccessStats(row.getId());
+            purgeInviteAssociations(row.getId());
             mapper.deleteInvite(row.getId());
             return Optional.empty();
         }
@@ -377,12 +362,7 @@ public class GuestInviteService {
     public int purgeExpiredAndRevoked(long now) {
         List<Long> ids = mapper.findExpiredOrRevokedIds(now);
         for (Long id : ids) {
-            mapper.deleteInviteCollections(id);
-            mapper.purgeInviteTags(id);
-            mapper.purgeInviteAuthors(id);
-            mapper.purgeInviteNovelTags(id);
-            mapper.purgeInviteNovelAuthors(id);
-            mapper.purgeInviteAccessStats(id);
+            purgeInviteAssociations(id);
         }
         if (!ids.isEmpty()) {
             mapper.deleteExpiredOrRevoked(now);
@@ -398,6 +378,15 @@ public class GuestInviteService {
     }
 
     // ── 内部 ────────────────────────────────────────────────────────────────
+
+    private void purgeInviteAssociations(long id) {
+        mapper.deleteInviteCollections(id);
+        mapper.purgeInviteTags(id);
+        mapper.purgeInviteAuthors(id);
+        mapper.purgeInviteNovelTags(id);
+        mapper.purgeInviteNovelAuthors(id);
+        mapper.purgeInviteAccessStats(id);
+    }
 
     private GuestInviteRow requireExisting(long id) {
         GuestInviteRow row = mapper.findById(id);

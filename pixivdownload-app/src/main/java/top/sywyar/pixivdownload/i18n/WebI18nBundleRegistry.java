@@ -276,7 +276,7 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
         synchronized (lock) {
             activeSnapshot = activeSnapshot.stream()
                     .filter(registered -> !registered.pluginId().equals(pluginId))
-                    .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+                    .toList();
         }
     }
 
@@ -430,11 +430,7 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
             throw new MissingResourceException("Missing installed plugin i18n bundle " + resourceName,
                     baseName, "");
         }
-        Map<String, String> sorted = new LinkedHashMap<>();
-        for (String key : new TreeSet<>(values.keySet())) {
-            sorted.put(key, values.get(key));
-        }
-        return immutableMessages(sorted);
+        return sortedMessages(values);
     }
 
     private static String resourceName(String baseName, String resourceSuffix) {

@@ -1,14 +1,11 @@
 package top.sywyar.pixivdownload.quota;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportEntry;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportRequest;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
-import top.sywyar.pixivdownload.core.archive.ArchiveExportRules;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
 
@@ -53,13 +50,7 @@ public class QuotaArchiveExportServiceAdapter implements ArchiveExportService {
 
     @Override
     public String normalizeFormat(String format) {
-        String normalized = ArchiveExportRules.normalizeFormatToken(format);
-        if (!ArchiveExportRules.supportsFormat(normalized)) {
-            throw new LocalizedException(HttpStatus.BAD_REQUEST,
-                    "validation.archive.export.format.unsupported",
-                    "不支持的打包格式：{0}", normalized);
-        }
-        return normalized;
+        return ArchiveExportSupport.normalizeFormat(format);
     }
 
     @Override
