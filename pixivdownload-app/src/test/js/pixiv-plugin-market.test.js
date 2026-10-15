@@ -63,6 +63,25 @@ vm.runInContext(DATA_SRC, sandbox);
 vm.runInContext(API_SRC, sandbox);
 
 const PMK = sandbox.window.PixivPluginMarket;
+{
+    const entry = {pluginId: 'selection-fixture', latestVersion: '2.0.0', recommendedVersion: '1.0.0',
+        packages: [
+            {version: '2.0.0', expectedSizeBytes: 4096, verification: {publisher: 'Latest publisher'}},
+            {version: '1.0.0', expectedSizeBytes: 2048, verification: {publisher: 'Recommended publisher'}}
+        ]};
+    const recommended = PMK.data.cardModel(entry);
+    eq('卡片版本使用推荐版本而非最新版本', recommended.targetVersion, '1.0.0');
+    eq('卡片版本标签对应推荐版本', recommended.versionLabel, 'v1.0.0');
+    eq('卡片体积对应推荐制品', recommended.sizeLabel, '2 KB');
+    eq('卡片发布者对应推荐制品', recommended.publisher, 'Recommended publisher');
+    entry.recommendedVersion = '2.0.0';
+    const refreshed = PMK.data.cardModel(entry);
+    eq('后续卡片使用新推荐版本', refreshed.targetVersion, '2.0.0');
+    eq('后续卡片重新读取制品体积', refreshed.sizeLabel, '4 KB');
+    eq('后续卡片重新读取制品发布者', refreshed.publisher, 'Latest publisher');
+    entry.packages = [];
+    eq('制品撤回后不保留旧体积', PMK.data.cardModel(entry).sizeLabel, null);
+}
 for (const [match, expected] of [['SAME_ARTIFACT', 'INSTALLED_SAME'],
     ['DIFFERENT_ARTIFACT', 'INSTALL_DIFFERENT'], ['UNKNOWN', 'INSTALL_UNVERIFIED']]) {
     const pkg = {version: '7.0.0', installationMatch: match, compatible: true, installable: true,

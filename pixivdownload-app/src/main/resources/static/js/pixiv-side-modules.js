@@ -103,7 +103,7 @@
 
     // ---------- 模块注册中心 ----------
 
-    /** id → {def, panel, bodyEl, compactEl, mounted, compactMounted} */
+    /** id → {def, panel, compactEl, mounted, compactMounted} */
     const registry = new Map();
     let activeId = 'nav';
     /** 当前激活模块是否处于紧凑态（侧边栏收起为窄条 + 简要信息）。 */
@@ -111,7 +111,7 @@
 
     function registerModule(def) {
         if (!def || !def.id || registry.has(def.id)) return;
-        registry.set(def.id, {def, panel: null, bodyEl: null, compactEl: null,
+        registry.set(def.id, {def, panel: null, compactEl: null,
             mounted: false, compactMounted: false});
         if (tabsEl) renderTabs();
     }
@@ -150,7 +150,6 @@
         panel.appendChild(body);
         sidebar.appendChild(panel);
         mod.panel = panel;
-        mod.bodyEl = body;
         mod.mounted = true;
         mod.def.mount(body);
     }

@@ -191,7 +191,9 @@
     D.cardModel = function (entry) {
         var m = market(entry) || {};
         var author = D.entryAuthor(entry);
-        var verification = packageVerification(entry);
+        var version = D.defaultVersion(entry);
+        var pkg = D.packageOf(entry, version);
+        var verification = pkg && pkg.verification ? pkg.verification : null;
         var ratingVal = m.rating != null ? Number(m.rating) : null;
         var dl = PMK.formatDownloads(m.totalDownloadCount);
         var category = D.entryCategory(entry);
@@ -199,9 +201,9 @@
             pluginId: entry.pluginId,
             suspectedProblem: D.suspectedProblem(entry),
             focusReason: D.focusReason(entry),
-            artifactMismatch: D.artifactMismatch(entry, D.packageOf(entry, D.defaultVersion(entry))),
+            artifactMismatch: D.artifactMismatch(entry, pkg),
             developmentLoaded: D.developmentLoaded(entry),
-            installationState: D.installationState(entry, D.packageOf(entry, D.defaultVersion(entry))),
+            installationState: D.installationState(entry, pkg),
             name: D.entryName(entry),
             publisher: verification && verification.publisher ? verification.publisher : author,
             sub: [entry.pluginId, author].filter(Boolean).join(' · '),
@@ -221,11 +223,11 @@
             desc: D.entrySummary(entry),
             tags: D.entryTags(entry),
             latestVersion: entry.latestVersion,
-            targetVersion: D.defaultVersion(entry),
-            versionLabel: D.defaultVersion(entry) ? ('v' + D.defaultVersion(entry)) : null,
+            targetVersion: version,
+            versionLabel: version ? ('v' + version) : null,
             compatibilityNotice: D.compatibilityNotice(entry),
-            installationNotice: D.installationNotice(entry, D.packageOf(entry, D.defaultVersion(entry))),
-            sizeLabel: PMK.formatSize(latestSize(entry)),
+            installationNotice: D.installationNotice(entry, pkg),
+            sizeLabel: PMK.formatSize(pkg ? pkg.expectedSizeBytes : 0),
             dateLabel: m.updatedTime ? PMK.formatDate(m.updatedTime) : '',
             installStatus: installStatusWithVerification(entry),
             installedVersion: entry.installedVersion,
@@ -242,11 +244,6 @@
         return client ? client.t('common:plugin-trust.assurance.' + (level || 'UNVERIFIED'), level || 'UNVERIFIED')
             : level || 'UNVERIFIED';
     };
-
-    function latestSize(entry) {
-        var pkg = D.packageOf(entry, D.defaultVersion(entry));
-        return pkg ? pkg.expectedSizeBytes : 0;
-    }
 
     function packageVerification(entry) {
         var pkg = D.packageOf(entry, D.defaultVersion(entry));
@@ -374,8 +371,7 @@
 
     // —— 安装结果映射（消费 POST install 的 PluginInstallResponse；纯映射、无副作用，任何字符串都不在此拼 HTML）——
     function installTone(outcome, accepted, recoveryBlocked) {
-        if (recoveryBlocked) return 'bad';
-        if (!accepted) return 'bad';
+        if (recoveryBlocked || !accepted) return 'bad';
         return outcome === 'DUPLICATE' ? 'info' : 'ok';
     }
 

@@ -23,8 +23,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
-import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 
 /**
  * GUI 专用插件状态只读接口。桌面提供者经此读取插件管理视图，展示已发现插件的安装 / 运行状态，

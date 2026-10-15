@@ -563,9 +563,8 @@
         const novelSummary = el('div', { class: 'invite-help' });
         const collectionSummary = el('div', { class: 'invite-help' });
         function summaryLine(kind, unrestrictedFlag, selectedSet) {
-            const valueKey = unrestrictedFlag ? 'modal.summary.all'
-                : null;
-            const value = valueKey ? t(valueKey) : t('modal.summary.count', { count: selectedSet.size });
+            const value = unrestrictedFlag ? t('modal.summary.all')
+                : t('modal.summary.count', { count: selectedSet.size });
             return t(kind === 'tag' ? 'modal.summary.tags' : 'modal.summary.authors', { value });
         }
         function renderSummary() {

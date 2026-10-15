@@ -5,7 +5,6 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap;
 import top.sywyar.pixivdownload.core.db.schema.PrivateDatabaseMigrationState;
-import top.sywyar.pixivdownload.gui.bootstrap.ApplicationRestartService;
 import top.sywyar.pixivdownload.migration.DatabaseMigration;
 import top.sywyar.pixivdownload.migration.database.MigrationEndpoint;
 import top.sywyar.pixivdownload.migration.database.ProviderDatabaseMigration;
@@ -231,7 +230,7 @@ public final class DatabaseSwitchService {
                     if (!catalog.manifest().equals(job.schema())) throw new IllegalStateException("MIGRATION_PLUGINS_CHANGED");
                     var target = endpoint(session, targetConfig);
                     var source = job.same() ? target : endpoint(session, sourceConfig);
-                    var stores = DatabaseMigration.stores(catalog, job.same() ? target : source, target, run,
+                    var stores = DatabaseMigration.stores(catalog, source, target, run,
                             run.resolve("source.backup"), Set.of(), true);
                     var configured = new ArrayList<ProviderDatabaseMigration.Store>();
                     for (var store : stores) configured.add(new ProviderDatabaseMigration.Store(store.owner(), store.source(), store.target(),

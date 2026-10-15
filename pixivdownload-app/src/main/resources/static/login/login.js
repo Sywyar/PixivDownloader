@@ -184,8 +184,7 @@ async function doInviteRedeem() {
 }
 
 document.getElementById('useInviteCode').addEventListener('click', () => {
-  document.getElementById('loginCard').classList.add('hidden');
-  document.getElementById('inviteCard').classList.remove('hidden');
+  showInvitePanel();
   document.getElementById('inviteCodeInput').focus();
 });
 document.getElementById('backToLogin').addEventListener('click', () => {

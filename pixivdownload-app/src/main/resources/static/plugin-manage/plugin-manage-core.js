@@ -8,8 +8,7 @@
  *     version, kind, sdkRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
  *     allowDisable, executionMode, lifecyclePolicy, configuredEnabled, toggleable, availableActions, messages } ] }
  * 其中 descriptionKey 是纯 i18n key（在 displayNamespace 内解析）；iconKey / colorToken 是<b>受控展示 token</b>
- * （非 URL / CSS / 远程资源），经共享 PixivPluginPresentationTokens 映射为图标 class / 颜色 class，未知值回退默认。设计稿里后端仍未
- * 提供的字段（更新机制 / 体积 / 下载量 / 作者）在此处优雅留空（见各 vm.hasUpdate 等占位字段），待后端补齐后再点亮。
+ * （非 URL / CSS / 远程资源），经共享 PixivPluginPresentationTokens 映射为图标 class / 颜色 class，未知值回退默认。
  */
 (function (global) {
     var STATUS_URL = '/api/plugins/status';
@@ -352,10 +351,7 @@
             allowDisable: entry.allowDisable !== false,
             generation: entry.generation == null ? null : entry.generation,
             operation: entry.operation || 'IDLE',
-            hasUpdate: false,
-            latest: null,
-            updating: !!entry.operation && entry.operation !== 'IDLE' && entry.operation !== 'FAILED',
-            progress: 0
+            updating: !!entry.operation && entry.operation !== 'IDLE' && entry.operation !== 'FAILED'
         };
     }
 
@@ -471,8 +467,7 @@
     // 安装结果色调：恢复阻断优先于 accepted（落盘存在）与 activated（运行时已加载），必须作为失败态展示；其余 accepted
     // 结果里 DUPLICATE（已存在、无改动）记为中性 info，新装 / 升级 / 降级记为成功 ok，未 accepted 记为 bad。
     function installTone(outcome, accepted, recoveryBlocked) {
-        if (recoveryBlocked) return 'bad';
-        if (!accepted) return 'bad';
+        if (recoveryBlocked || !accepted) return 'bad';
         return outcome === 'DUPLICATE' ? 'info' : 'ok';
     }
 

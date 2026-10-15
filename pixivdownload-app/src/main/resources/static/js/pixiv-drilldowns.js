@@ -27,14 +27,7 @@
     var loaded = false;
 
     var resolveReady;
-    var readyResolved = false;
     var readyPromise = new global.Promise(function (resolve) { resolveReady = resolve; });
-
-    function markReady() {
-        if (readyResolved) return;
-        readyResolved = true;
-        resolveReady();
-    }
 
     function indexByPlacement(list) {
         var map = {};
@@ -63,7 +56,7 @@
             loaded = false;
             console.warn('[PixivDrilldowns] 拉取下钻贡献失败，下钻链接降级为纯展示：', e);
         } finally {
-            markReady();
+            resolveReady();
         }
     }
 

@@ -43,12 +43,7 @@
     }
 
     function bootBatch(s) {
-        if (s.status === 'new') {
-            ctx.download.phaseWelcome();
-            return;
-        }
-        // 续跑（同标签刷新 / 多标签）
-        if (s.phase === 'welcome') {
+        if (s.status === 'new' || s.phase === 'welcome') {
             ctx.download.phaseWelcome();
         } else if (s.phase === 'download') {
             ctx.download.phaseDownload();

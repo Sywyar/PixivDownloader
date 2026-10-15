@@ -520,6 +520,42 @@ test('恢复模式首次加载显示默认安装插件', async () => {
     assert.deepEqual(page.errors, []);
 });
 
+test('基础视图按恢复模式初始化筛选，刷新保留选择并更新图标', async () => {
+    for (const recoveryMode of [false, true]) {
+        const handlers = {};
+        const root = {innerHTML: '', addEventListener(name, callback) { handlers[name] = callback; },
+            querySelector: () => null, querySelectorAll: () => []};
+        const sandbox = {document: {getElementById: () => null}, console};
+        sandbox.window = sandbox;
+        vm.createContext(sandbox, {codeGeneration: {strings: false, wasm: false}});
+        for (const resource of ['js/pixiv-plugin-presentation-tokens.js', 'plugin-market/plugin-market-core.js',
+            'plugin-market/plugin-market-data.js', 'plugin-market/plugin-market-api.js', 'plugin-market/plugin-market-fallback.js']) {
+            vm.runInContext(fs.readFileSync(path.join(staticRoot, resource), 'utf8'), sandbox, {filename: resource});
+        }
+        const market = sandbox.PixivPluginMarket;
+        market.state.i18n.client = {lang: 'en-US', t: key => key};
+        const visible = entry('visible');
+        visible.market.icon = {asset: {sha256: 'a'.repeat(64)}};
+        market.api.fetchRepositories = async () => ({enabled: true, defaultRepositoryId: 'repo',
+            repositories: [{repositoryId: 'repo', enabled: true}]});
+        market.api.fetchPluginStatus = async () => ({recoveryMode});
+        market.api.fetchCatalog = async () => ({repositoryId: 'repo', categories: [],
+            entries: [visible, entry('bundled', {defaultInstalled: true})]});
+        market.fallback.render(root);
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(root.innerHTML.includes('data-pmk-detail="bundled"'), recoveryMode);
+        assert.ok(root.innerHTML.includes('src="/api/plugin-market/content/repo/visible/image?role=icon&amp;index=0&amp;sha256=' + 'a'.repeat(64) + '"'));
+        handlers.click({target: {closest: selector => selector === '[data-pmk-filter]' ? {
+            getAttribute: () => 'hideDefaultInstalled'
+        } : null}});
+        visible.market.icon = {asset: {sha256: 'invalid'}};
+        market.state.activeView.reload();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(root.innerHTML.includes('data-pmk-detail="bundled"'), !recoveryMode);
+        assert.doesNotMatch(root.innerHTML, /<img class="pmk-market-image"/);
+    }
+});
+
 test('无动态编译时仍能显示市场禁用状态和目录错误', async () => {
     const page = await mountMarket();
     await page.reload({ status: { recoveryMode: true, hostElevated: true,

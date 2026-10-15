@@ -86,9 +86,8 @@
     }
 
     function renderSortHeaders() {
-        const cols = ['artworkId', 'title', 'count', 'authorId', 'time', 'moved', 'isR18', 'isAi'];
+        const cols = ['artworkId', 'title', 'count', 'authorId', 'time', 'moved', 'isR18'];
         cols.forEach(col => {
-            if (col === 'isAi') return;
             const th   = document.getElementById(`th-${col}`);
             const icon = document.getElementById(`sort-${col}`);
             if (!th || !icon) return;

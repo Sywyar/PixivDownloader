@@ -99,7 +99,6 @@
         border-radius: var(--radius-md);
     }
 
-    .pm-card-foot,
     .pm-file {
         flex-direction: column;
         align-items: stretch;

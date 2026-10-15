@@ -10,12 +10,7 @@ public final class DesktopUiTestSources {
     private DesktopUiTestSources() {}
 
     public static List<DesktopUiPluginSource> from(PluginRegistry registry) {
-        return from(registry.registeredPlugins());
-    }
-
-    public static List<DesktopUiPluginSource> from(
-            List<PluginRegistry.RegisteredPlugin> registeredPlugins) {
-        return registeredPlugins.stream()
+        return registry.registeredPlugins().stream()
                 .map(registered -> new DesktopUiPluginSource(
                         registered.id(), registered.source() == PluginSource.BUILT_IN,
                         registered.plugin(), registered.classLoader(),

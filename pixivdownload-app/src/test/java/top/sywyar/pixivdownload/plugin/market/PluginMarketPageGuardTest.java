@@ -238,23 +238,6 @@ class PluginMarketPageGuardTest {
     }
 
     @Test
-    @DisplayName("恢复模式复用插件状态接口，并在 Vue / 基础回退中初始化默认安装筛选")
-    void recoveryStatusInitializesDefaultInstalledFilters() throws IOException {
-        String core = read(CORE);
-        String api = read(API);
-        String vue = read(VUE);
-        String fallback = read(FALLBACK);
-
-        assertThat(api).contains("/api/plugins/status", "fetchPluginStatus");
-        assertThat(core).contains("PMK.recoveryReasons", "report.recoveryReasons", "MISSING_REQUIRED", "FAILED",
-                "reason.pluginId", "reason.messages");
-        assertThat(vue).contains("recoveryReasons", "hasRecoveryReasons",
-                "self.hideDefaultInstalled = !self.recoveryMode");
-        assertThat(fallback).contains("state.recoveryReasons",
-                "state.hideDefaultInstalled = !state.recoveryMode");
-    }
-
-    @Test
     @DisplayName("分类说明显示在当前分类标题下方，Vue 与基础回退视图行为一致")
     void categoryDescriptionsRenderInVueAndFallback() throws IOException {
         String core = read(CORE);

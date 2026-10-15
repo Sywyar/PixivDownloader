@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.gui.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,7 +27,6 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/gui/path-prefixes")
 @RequiredArgsConstructor
-@Slf4j
 public class PathPrefixController {
 
     private final PathPrefixMigrationService migrationService;

@@ -127,7 +127,6 @@
     var resolveReady;
     // 首次拉取完成（成功或失败）后 resolve；宿主页经 PixivNav.ready() 等导航数据到位再做条件渲染。
     var readyPromise = new global.Promise(function (resolve) { resolveReady = resolve; });
-    var readyResolved = false;
 
     function qsa(selector) {
         return Array.prototype.slice.call(global.document.querySelectorAll(selector));
@@ -417,12 +416,6 @@
         } catch (e) { /* 古老环境不支持 CustomEvent 构造器：忽略（不影响渲染本身） */ }
     }
 
-    function markReady() {
-        if (readyResolved) return;
-        readyResolved = true;
-        resolveReady();
-    }
-
     async function buildI18n(items) {
         if (!global.PixivI18n || typeof global.PixivI18n.create !== 'function') {
             return null;
@@ -466,7 +459,7 @@
         }
         await renderFromState();
         subscribeLanguageOnce();
-        markReady();
+        resolveReady();
         pluginUpdates();
     }
 

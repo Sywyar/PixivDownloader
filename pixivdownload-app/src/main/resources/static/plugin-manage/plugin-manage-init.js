@@ -106,11 +106,7 @@
 
     // 开关：热重载插件沿用 start / stop；其它策略持久化 enabled 后按策略提示重启。
     function onToggle(id) {
-        var models = PM.allViewModels();
-        var vm = null;
-        for (var i = 0; i < models.length; i++) {
-            if (models[i].id === id) { vm = models[i]; break; }
-        }
+        var vm = PM.allViewModels().find(function (candidate) { return candidate.id === id; });
         if (!vm || !vm.toggleable) return;
         if (vm.lifecyclePolicy === 'HOT_RELOAD') {
             onAction(id, vm.running ? 'stop' : 'start');

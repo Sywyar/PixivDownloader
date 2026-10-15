@@ -11,9 +11,9 @@
     var rootEl = null;
     var detailView = null;
     var state = {
-        loading: true, error: null, masterEnabled: false, recoveryMode: false, recoveryReasons: [], hostElevated: false,
+        loading: true, error: null, masterEnabled: false, recoveryMode: false, hostElevated: false,
         filtersInitialized: false, sdkVersion: '',
-        repositories: [], activeRepositoryId: null, defaultRepositoryId: null,
+        repositories: [], activeRepositoryId: null,
         catalog: null, catalogError: null, loadingMore: false, category: 'all', search: '',
         hideDefaultInstalled: true, hideDependencies: true,
         // 异步竞态护栏：每次 catalog 拉取自增 token，回调只在仍最新时落地（仓库快速切换丢弃旧响应）。
@@ -86,10 +86,10 @@
             ? '<div class="pmk-card-compat"><i class="fa-solid fa-triangle-exclamation"></i>' +
               esc(t('compat.needs', '需要SDK v{v}+（当前 v{cur}）', { v: card.compatibilityReason, cur: state.sdkVersion })) + '</div>'
             : '';
+        var iconUrl = PMK.api.contentImageUrl(card.repositoryId, card.pluginId, card.icon, 'icon', 0);
         return '<article class="pmk-card ' + esc(card.colorClass) + (card.focusReason ? ' pmk-card--suspected' : '') + (card.artifactMismatch ? ' pmk-card--mismatch' : '') + '"><div class="pmk-card-body">' +
             '<div class="pmk-card-head"><span class="pmk-card-icon"><i class="' + esc(card.iconClass) + '"></i>' +
-            (PMK.api.contentImageUrl(card.repositoryId, card.pluginId, card.icon, 'icon', 0)
-                ? '<img class="pmk-market-image" alt="" loading="lazy" src="' + esc(PMK.api.contentImageUrl(card.repositoryId, card.pluginId, card.icon, 'icon', 0)) + '">' : '') + '</span>' +
+            (iconUrl ? '<img class="pmk-market-image" alt="" loading="lazy" src="' + esc(iconUrl) + '">' : '') + '</span>' +
             '<div class="pmk-card-titleblock"><div class="pmk-card-name-row">' +
             '<span class="pmk-card-name">' + esc(card.name) + '</span>' + badges + '</div>' +
             '<div class="pmk-card-sub">' + esc(card.sub) + '</div></div></div>' +
@@ -276,7 +276,6 @@
             var status = responses[1];
             state.masterEnabled = !!repos.enabled;
             state.recoveryMode = !!status.recoveryMode;
-            state.recoveryReasons = PMK.recoveryReasons(status);
             state.hostElevated = !!status.hostElevated;
             PMK.state.hostElevated = state.hostElevated;
             if (!state.filtersInitialized) {
@@ -285,7 +284,6 @@
             }
             state.sdkVersion = repos.sdkVersion || '';
             state.repositories = repos.repositories || [];
-            state.defaultRepositoryId = repos.defaultRepositoryId || null;
             var valid = state.repositories.some(function (r) { return r.repositoryId === state.activeRepositoryId && r.enabled; });
             if (!valid) state.activeRepositoryId = repos.defaultRepositoryId || null;
             state.loading = false;

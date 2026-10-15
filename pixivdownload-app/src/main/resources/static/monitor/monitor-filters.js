@@ -290,24 +290,7 @@
         _activePopup = popup;
         _activeAnchor = btn;
         _activePopupType = 'grid';
-        const bRect = btn.getBoundingClientRect();
-        const pRect = popup.getBoundingClientRect();
-        const vw    = window.innerWidth;
-        const vh    = window.innerHeight;
-
-        // 水平：右对齐按钮，超出边界则夹紧
-        let left = bRect.right - pRect.width;
-        if (left < 8) left = 8;
-        if (left + pRect.width > vw - 8) left = vw - pRect.width - 8;
-
-        // 垂直：优先在按钮上方，否则在下方，最后夹紧至视口
-        let top = bRect.top - pRect.height - 6;
-        if (top < 8) top = bRect.bottom + 6;
-        if (top + pRect.height > vh - 8) top = vh - pRect.height - 8;
-        if (top < 8) top = 8;
-
-        popup.style.left = left + 'px';
-        popup.style.top  = top  + 'px';
+        _repositionActivePopup();
     }
 
     function renderPageGrid(popup) {

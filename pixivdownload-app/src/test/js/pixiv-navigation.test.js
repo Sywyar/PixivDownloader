@@ -11,7 +11,7 @@
  *   4) 拉取失败 → 清空全部 slot、不残留坏入口、派发 rendered。
  *   5) 幂等：Vue 稳态下 refresh() 不重复 mountOn（复用既有 app），稳态不再走命令式。
  *   6) 选择器安全：只用固定字面 slot / 偏好链接选择器（mock querySelectorAll 对其它选择器抛错即守卫）。
- *   7) 下载页偏好：工作台页面记录当前 URL，顶部导航与独立返回链接复用同一 marker 目标。
+ *   7) 下载页入口：贡献地址不受浏览器旧偏好影响，顶部导航与独立返回链接复用同一 marker 目标。
  *
  * 运行： node src/test/js/pixiv-navigation.test.js
  */

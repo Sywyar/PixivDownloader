@@ -58,12 +58,10 @@
     var vueRuntime = null;         // window.Vue（ensure() 解析后缓存）
     var vueState = null;           // Vue.reactive({ i18n })：各 slot app 共享，置换 i18n 即触发标题重译
     var slotApps = [];             // [{ el, app }] 已挂载的 slot Vue app（幂等复用）
-    var vueMode = false;           // 是否已进入 Vue 主渲染稳态
     var renderTail = global.Promise.resolve();
 
     var resolveReady;
     var readyPromise = new global.Promise(function (resolve) { resolveReady = resolve; });
-    var readyResolved = false;
 
     function qsa(selector) {
         return Array.prototype.slice.call(global.document.querySelectorAll(selector));
@@ -240,8 +238,7 @@
                 }));
             });
             return global.Promise.all(pending).then(function () {
-                vueMode = slotApps.length > 0;
-                return vueMode;
+                return slotApps.length > 0;
             });
         }).catch(function (e) {
             console.warn('[PixivPageSections] Vue 运行时不可用，沿用命令式渲染：', e);
@@ -314,12 +311,6 @@
         dispatchRendered();
     }
 
-    function markReady() {
-        if (readyResolved) return;
-        readyResolved = true;
-        resolveReady();
-    }
-
     function queueRender() {
         var pending = renderTail.catch(function () {}).then(renderAll);
         renderTail = pending.catch(function () {});
@@ -355,7 +346,7 @@
         }
         await queueRender();
         subscribeLanguageOnce();
-        markReady();
+        resolveReady();
     }
 
     async function refresh() {

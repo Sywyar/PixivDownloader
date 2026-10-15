@@ -109,6 +109,7 @@ class LocalGuiWebServerCustomizerTest {
         for (int generation = 0; generation < 2; generation++) {
             var tokens = new GuiTokenService();
             tokens.init();
+            assertThat(tokens.getToken()).matches("[0-9a-f]{64}");
             var local = new LocalGuiWebServerCustomizer(tokens);
             assertThatThrownBy(local::connection).isInstanceOf(IllegalStateException.class);
             var factory = new TomcatServletWebServerFactory(0);

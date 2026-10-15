@@ -356,12 +356,10 @@
                     catalogError: null,
                     masterEnabled: false,
                     recoveryMode: false,
-                    recoveryReasons: [],
                     hostElevated: false,
                     filtersInitialized: false,
                     sdkVersion: '',
                     repositories: [],
-                    defaultRepositoryId: null,
                     activeRepositoryId: null,
                     catalog: null,
                     // 异步竞态护栏：每次仓库列表 / catalog 拉取自增对应 token，回调只在 token 仍为最新时落地，
@@ -438,7 +436,6 @@
                 showCatalogLoading: function () { return this.masterEnabled && this.catalogLoading; },
                 showCatalogError: function () { return this.masterEnabled && !!this.catalogError; },
                 showBody: function () { return this.masterEnabled && !!this.catalog; },
-                hasRecoveryReasons: function () { return this.recoveryReasons.length > 0; },
                 showVersionSelect: function () { return !!this.detail && this.detail.versions.length > 1; },
                 showDetailVerification: function () { return !!this.detail && !!this.detail.verificationBadge; },
                 showRestartHint: function () {
@@ -480,7 +477,6 @@
                         var status = responses[1];
                         self.masterEnabled = !!repos.enabled;
                         self.recoveryMode = !!status.recoveryMode;
-                        self.recoveryReasons = PMK.recoveryReasons(status);
                         self.hostElevated = !!status.hostElevated;
                         PMK.state.hostElevated = self.hostElevated;
                         if (!self.filtersInitialized) {
@@ -489,7 +485,6 @@
                         }
                         self.sdkVersion = repos.sdkVersion || '';
                         self.repositories = repos.repositories || [];
-                        self.defaultRepositoryId = repos.defaultRepositoryId || null;
                         var stillValid = self.repositories.some(function (r) {
                             return r.repositoryId === self.activeRepositoryId && r.enabled;
                         });
@@ -816,15 +811,6 @@
                         ],
                         nextVersionCursor: entry.nextVersionCursor, versions: versions, dependencies: deps, infoRows: rows, verificationBadge: verificationBadge
                     };
-                },
-                verificationLabel: function (verification) {
-                    if (!verification || !verification.status) return this.t('verification.unverified-local', '本地未验证');
-                    return this.t('verification.' + String(verification.status).toLowerCase().replace(/_/g, '-'), verification.status);
-                },
-                verificationDanger: function (verification) {
-                    if (!verification || !verification.status) return true;
-                    return ['SIGNATURE_REQUIRED', 'UNKNOWN_KEY', 'REVOKED_KEY', 'INVALID_SIGNATURE', 'HASH_MISMATCH']
-                        .indexOf(verification.status) !== -1;
                 }
             }
         };

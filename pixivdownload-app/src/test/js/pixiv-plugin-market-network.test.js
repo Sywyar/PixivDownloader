@@ -5,6 +5,26 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+test('插件状态读取保持同源凭据并刷新独立恢复面板', async () => {
+    const requests = [];
+    const status = {recoveryMode: true, recoveryReasons: [{pluginId: 'required', status: 'MISSING_REQUIRED'}]};
+    let refreshed = 0;
+    const market = {recovery: {refresh: async () => { refreshed++; }}};
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname,
+        '../../main/resources/static/plugin-market/plugin-market-api.js'), 'utf8'), {
+        window: {PixivPluginMarket: market},
+        fetch: async (url, options) => {
+            requests.push({url, options});
+            return {ok: true, json: async () => status};
+        }
+    });
+    assert.equal(await market.api.fetchPluginStatus(), status);
+    assert.equal(refreshed, 1);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, '/api/plugins/status');
+    assert.equal(requests[0].options.credentials, 'same-origin');
+});
+
 test('切换仓库终止旧请求，旧请求结束不能清掉新请求的取消能力', async () => {
     const requests = [];
     const market = {};

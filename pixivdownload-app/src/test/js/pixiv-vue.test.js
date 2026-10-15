@@ -463,17 +463,20 @@ async function main() {
     }
 
     // ===== 场景 9：mountInto 在 Vue「先清空容器再抛错」时还原命令式 fallback（mountOn + mount 两入口都不丢内容）=====
-    {
+    for (const leftoverCount of [0, 2]) {
         const dom = buildDom();
-        // 伪 Vue：createApp().mount(el) 先清空 el（模拟 runtime-dom mount 的 container.innerHTML=''），再抛错。
+        // 同时覆盖清空后失败，以及留下半渲染节点且卸载也失败的恢复。
         const Vue = {
             createApp() {
                 return {
                     mount(el) {
                         (el.children || []).slice().forEach(c => c.remove()); // 先清空（detach 现有 fallback 子节点）
+                        for (let i = 0; i < leftoverCount; i++) el.appendChild(new Node('span'));
                         throw new Error('mount blew up after clearing container');
                     },
-                    unmount() {}
+                    unmount() {
+                        if (leftoverCount) throw new Error('unmount blew up');
+                    }
                 };
             }
         };
