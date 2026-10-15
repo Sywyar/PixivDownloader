@@ -10,6 +10,7 @@ import org.springframework.web.client.RestTemplate;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -145,6 +146,47 @@ class PushHttpSenderTest {
 
         assertThat(result.isOk()).isTrue();
         assertThat(result.channel()).isEqualTo(new PushChannelId("custom-channel"));
+    }
+
+    @Test
+    @DisplayName("钉钉与企业微信保留空响应和缺失业务码的成功语义")
+    void errcodeChannelsAcceptMissingOrZeroStatus() {
+        for (PushChannelId channel : List.of(PushChannelIds.DINGTALK, PushChannelIds.WECOM)) {
+            for (String body : List.of("", " ", "not-json", "[]", "null", "{}",
+                    "{\"errcode\":null}", "{\"ERRCODE\":\" 0 \"}",
+                    "{\"errcode\":0,\"ERRCODE\":7}", "{\"errcode\":null,\"ERRCODE\":7}")) {
+                direct.respond(body);
+
+                PushResult result = sender.send(channel, request(List.of()));
+
+                assertThat(result.status()).as("%s: %s", channel, body).isEqualTo(PushResult.Status.OK);
+                assertThat(result.channel()).isEqualTo(channel);
+                assertThat(result.detail()).isNull();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("业务错误保留大小写字段查询和错误消息优先级")
+    void errcodeChannelsPreserveMessagePriority() {
+        Map<String, String> cases = Map.of(
+                "{\"ERRCODE\":7,\"ERRMSG\":\"primary\",\"message\":\"second\",\"msg\":\"last\"}",
+                "errcode=7: primary",
+                "{\"errcode\":8,\"errmsg\":\" \",\"message\":\"second\",\"msg\":\"last\"}",
+                "errcode=8: second",
+                "{\"errcode\":9,\"errmsg\":null,\"message\":\"\",\"msg\":\"last\"}",
+                "errcode=9: last",
+                "{\"errcode\":false}", "errcode=false");
+        for (PushChannelId channel : List.of(PushChannelIds.DINGTALK, PushChannelIds.WECOM)) {
+            cases.forEach((body, expected) -> {
+                direct.respond(body);
+
+                PushResult result = sender.send(channel, request(List.of()));
+
+                assertThat(result.status()).as("%s: %s", channel, body).isEqualTo(PushResult.Status.FAILED);
+                assertThat(result.detail()).isEqualTo(expected);
+            });
+        }
     }
 
     private static OutboundRequest request(List<String> secrets) {

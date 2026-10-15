@@ -144,7 +144,8 @@ public class PushHttpSender {
         }
 
         if (PushChannelIds.DINGTALK.equals(channelId) || PushChannelIds.WECOM.equals(channelId)) {
-            return errcodeStatus(root, secrets);
+            return codeStatus(root, "errcode", List.of("0"),
+                    List.of("errmsg", "message", "msg"), secrets);
         }
         if (PushChannelIds.TELEGRAM.equals(channelId)) {
             return telegramStatus(root, secrets);
@@ -167,15 +168,6 @@ public class PushHttpSender {
         return BusinessStatus.success();
     }
 
-    private static BusinessStatus errcodeStatus(JsonNode root, List<String> secrets) {
-        JsonNode errcode = field(root, "errcode");
-        if (errcode == null || matches(errcode, "0")) {
-            return BusinessStatus.success();
-        }
-        return BusinessStatus.failed(failureDetail("errcode", errcode,
-                firstText(root, "errmsg", "message", "msg"), secrets));
-    }
-
     private static BusinessStatus telegramStatus(JsonNode root, List<String> secrets) {
         JsonNode okNode = field(root, "ok");
         Boolean ok = bool(okNode);
@@ -188,7 +180,7 @@ public class PushHttpSender {
         if (code != null && !code.isBlank()) {
             detail += ", error_code=" + code;
         }
-        String message = firstText(root, "description", "message");
+        String message = firstText(root, List.of("description", "message"));
         if (message != null && !message.isBlank()) {
             detail += ": " + message;
         }
@@ -259,10 +251,6 @@ public class PushHttpSender {
     }
 
     private static String firstText(JsonNode root, List<String> names) {
-        return firstText(root, names.toArray(String[]::new));
-    }
-
-    private static String firstText(JsonNode root, String... names) {
         for (String name : names) {
             String value = scalarText(field(root, name));
             if (value != null && !value.isBlank()) {
