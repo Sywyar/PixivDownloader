@@ -3,10 +3,7 @@ package top.sywyar.pixivdownload.novel.export;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -233,11 +230,7 @@ public final class NovelEpubWriter {
     }
 
     private static void putDeflated(ZipOutputStream zip, String path, String content) throws IOException {
-        ZipEntry entry = new ZipEntry(path);
-        entry.setMethod(ZipEntry.DEFLATED);
-        zip.putNextEntry(entry);
-        zip.write(content.getBytes(StandardCharsets.UTF_8));
-        zip.closeEntry();
+        putBytes(zip, path, content.getBytes(StandardCharsets.UTF_8));
     }
 
     private static void putBytes(ZipOutputStream zip, String path, byte[] content) throws IOException {
@@ -258,7 +251,6 @@ public final class NovelEpubWriter {
     }
 
     private static String chapterXhtml(String title, String body, String lang) {
-        String safeTitle = title == null ? "" : title;
         String safeBody = body == null ? "" : body;
         return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
                 + "<!DOCTYPE html>\n"
@@ -267,11 +259,11 @@ public final class NovelEpubWriter {
                 + " xml:lang=\"" + escapeXml(lang) + "\">\n"
                 + "<head>\n"
                 + "  <meta charset=\"UTF-8\"/>\n"
-                + "  <title>" + escapeXml(safeTitle) + "</title>\n"
+                + "  <title>" + escapeXml(title) + "</title>\n"
                 + "  <link rel=\"stylesheet\" type=\"text/css\" href=\"styles.css\"/>\n"
                 + "</head>\n"
                 + "<body>\n"
-                + "<h1>" + escapeXml(safeTitle) + "</h1>\n"
+                + "<h1>" + escapeXml(title) + "</h1>\n"
                 + safeBody
                 + "</body>\n"
                 + "</html>\n";
@@ -316,7 +308,7 @@ public final class NovelEpubWriter {
         return max;
     }
 
-    private static String navLabel(NavEntry e, List<String> chapterFiles, Labels labels) {
+    private static String navLabel(NavEntry e, Labels labels) {
         if (e.title() != null && !e.title().isBlank()) return e.title();
         int idx = e.chapterIndex();
         return labels.chapter(idx >= 0 ? idx + 1 : 1);
@@ -354,7 +346,7 @@ public final class NovelEpubWriter {
         out.append(pad).append("<ol>\n");
         for (NavEntry e : nav) {
             out.append(pad).append("  <li><a href=\"").append(escapeXml(hrefFor(e, chapterFiles)))
-                    .append("\">").append(escapeXml(navLabel(e, chapterFiles, labels))).append("</a>");
+                    .append("\">").append(escapeXml(navLabel(e, labels))).append("</a>");
             if (e.children() != null && !e.children().isEmpty()) {
                 out.append("\n");
                 appendNavOl(out, e.children(), chapterFiles, labels, indent + 2);
@@ -423,7 +415,6 @@ public final class NovelEpubWriter {
     }
 
     private static String metadataElements(Metadata m) {
-        if (m == null) return "";
         StringBuilder sb = new StringBuilder();
         String desc = stripHtml(m.description());
         if (desc != null && !desc.isBlank()) {
@@ -495,7 +486,7 @@ public final class NovelEpubWriter {
             out.append(pad).append("<navPoint id=\"nav").append(playOrder)
                     .append("\" playOrder=\"").append(playOrder).append("\">\n")
                     .append(pad).append("  <navLabel><text>")
-                    .append(escapeXml(navLabel(e, chapterFiles, labels))).append("</text></navLabel>\n")
+                    .append(escapeXml(navLabel(e, labels))).append("</text></navLabel>\n")
                     .append(pad).append("  <content src=\"")
                     .append(escapeXml(hrefFor(e, chapterFiles))).append("\"/>\n");
             if (e.children() != null && !e.children().isEmpty()) {
@@ -526,19 +517,4 @@ public final class NovelEpubWriter {
         return out.toString();
     }
 
-    /** Stable hash of the chapter content list — handy for cache invalidation. */
-    static String contentHash(List<Chapter> chapters) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            for (Chapter c : chapters) {
-                md.update((c.title() == null ? "" : c.title()).getBytes(StandardCharsets.UTF_8));
-                md.update((byte) 0);
-                md.update((c.xhtmlBody() == null ? "" : c.xhtmlBody()).getBytes(StandardCharsets.UTF_8));
-                md.update((byte) 0);
-            }
-            return HexFormat.of().formatHex(md.digest());
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
-    }
 }

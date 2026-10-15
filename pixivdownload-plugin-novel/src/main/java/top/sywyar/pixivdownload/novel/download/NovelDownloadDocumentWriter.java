@@ -40,7 +40,7 @@ final class NovelDownloadDocumentWriter {
         Path file = downloadPath.resolve(baseName + "." + format.ext());
         switch (format) {
             case TXT -> writeTxt(file, raw);
-            case HTML -> writeHtml(file, title, raw, other, localFolderResolver(embeddedExts));
+            case HTML -> writeHtml(file, title, raw, other, imageResolver(embeddedExts, ""));
             case EPUB -> writeEpub(
                     file,
                     novelId,
@@ -98,7 +98,7 @@ final class NovelDownloadDocumentWriter {
             String coverExt,
             Map<String, String> embeddedExts
     ) throws IOException {
-        NovelMarkupParser.ImageResolver resolver = epubImageResolver(embeddedExts);
+        NovelMarkupParser.ImageResolver resolver = imageResolver(embeddedExts, "images/");
         List<NovelMarkupParser.Segment> segments = NovelMarkupParser.splitChapters(raw);
         List<NovelEpubWriter.Chapter> chapters = new ArrayList<>();
         List<NovelEpubWriter.NavEntry> nav = new ArrayList<>();
@@ -229,7 +229,7 @@ final class NovelDownloadDocumentWriter {
         };
     }
 
-    private static NovelMarkupParser.ImageResolver localFolderResolver(Map<String, String> extensions) {
+    private static NovelMarkupParser.ImageResolver imageResolver(Map<String, String> extensions, String prefix) {
         if (extensions == null || extensions.isEmpty()) {
             return NovelMarkupParser.ImageResolver.NONE;
         }
@@ -237,25 +237,7 @@ final class NovelDownloadDocumentWriter {
             @Override
             public String uploadedImage(String id) {
                 String extension = extensions.get(id);
-                return extension == null ? null : "embed_" + id + "." + extension;
-            }
-
-            @Override
-            public String pixivImage(String id) {
-                return null;
-            }
-        };
-    }
-
-    private static NovelMarkupParser.ImageResolver epubImageResolver(Map<String, String> extensions) {
-        if (extensions == null || extensions.isEmpty()) {
-            return NovelMarkupParser.ImageResolver.NONE;
-        }
-        return new NovelMarkupParser.ImageResolver() {
-            @Override
-            public String uploadedImage(String id) {
-                String extension = extensions.get(id);
-                return extension == null ? null : "images/embed_" + id + "." + extension;
+                return extension == null ? null : prefix + "embed_" + id + "." + extension;
             }
 
             @Override

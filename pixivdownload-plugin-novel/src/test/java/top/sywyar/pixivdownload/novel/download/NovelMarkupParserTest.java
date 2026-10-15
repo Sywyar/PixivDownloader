@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("NovelMarkupParser tests")
+@DisplayName("小说标记解析与渲染")
 class NovelMarkupParserTest {
 
     @Test
@@ -153,6 +153,19 @@ class NovelMarkupParserTest {
     void handlesEmptyAndNullInput() {
         assertThat(NovelMarkupParser.render(null, NovelMarkupParser.Format.TXT)).isEqualTo("");
         assertThat(NovelMarkupParser.render("", NovelMarkupParser.Format.HTML)).contains("<section");
+    }
+
+    @Test
+    @DisplayName("空正文和连续换页保持完整且相邻的页面区块")
+    void closesEveryPageSection() {
+        for (var format : new NovelMarkupParser.Format[]{NovelMarkupParser.Format.HTML, NovelMarkupParser.Format.XHTML}) {
+            String open = format == NovelMarkupParser.Format.HTML
+                    ? "<section class=\"novel-page\">\n"
+                    : "<section class=\"novel-page\" epub:type=\"chapter\">\n";
+            assertThat(NovelMarkupParser.render("", format)).isEqualTo(open + "</section>\n");
+            assertThat(NovelMarkupParser.render("[newpage]\n[newpage]", format))
+                    .isEqualTo((open + "</section>\n").repeat(3));
+        }
     }
 
     @Test
