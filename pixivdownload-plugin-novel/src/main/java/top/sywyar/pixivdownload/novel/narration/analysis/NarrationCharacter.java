@@ -14,8 +14,8 @@ package top.sywyar.pixivdownload.novel.narration.analysis;
  * @param age                {@code child} / {@code teen} / {@code young} / {@code middle} / {@code elderly} / {@code unknown}
  * @param controlInstruction 英文音色画像（Control Instruction）
  * @param narrator           是否为旁白
- * @param editedByUser       画像来源：{@code false}=AI 生成（可被 AI 补充 / 自动应用冲突建议覆盖），
- *                           {@code true}=用户手改锁定（AI 绝不覆盖，只能以冲突形式弹给用户处理）
+ * @param editedByUser       画像来源：{@code false}=AI 生成，{@code true}=用户手改锁定；
+ *                           已有音色均保留，AI 只提出建议，由用户决定是否采纳
  */
 public record NarrationCharacter(int id, String name, String gender, String age,
                                  String controlInstruction, boolean narrator, boolean editedByUser) {

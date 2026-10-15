@@ -7,10 +7,6 @@ import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.ai.AiClientException;
 import top.sywyar.pixivdownload.ai.model.AiChatOptions;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
-import top.sywyar.pixivdownload.novel.narration.analysis.NarrationAnalysisRequest;
-import top.sywyar.pixivdownload.novel.narration.analysis.NarrationAnalysisResponse;
-import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
-import top.sywyar.pixivdownload.novel.narration.analysis.NarrationLineVoice;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -79,11 +75,12 @@ public class NarrationScriptService {
                 validSpeakerIds.add(c.id());
             }
             List<NarrationLineVoice> lines = response.normalizedTo(count, validSpeakerIds);
-            log.debug("narration segment analysis done: sentences={}, newCharacters={}, updated={}, renamed={}, conflicts={}",
-                    count, newCharacters.size(), response.updatedCharacters().size(),
-                    response.renamedCharacters().size(), response.conflicts().size());
-            return new NarrationSegmentAnalysis(lines, newCharacters,
+            NarrationSegmentAnalysis analysis = new NarrationSegmentAnalysis(lines, newCharacters,
                     response.updatedCharacters(), response.renamedCharacters(), response.conflicts());
+            log.debug("narration segment analysis done: sentences={}, newCharacters={}, updated={}, renamed={}, conflicts={}",
+                    count, newCharacters.size(), analysis.updatedCharacters().size(),
+                    analysis.renamedCharacters().size(), analysis.conflicts().size());
+            return analysis;
         } catch (AiClientException | IllegalArgumentException e) {
             log.warn("narration segment analysis failed, falling back to narrator: count={}, err={}",
                     count, e.getMessage());
@@ -117,8 +114,7 @@ public class NarrationScriptService {
             }
         }
         Map<Integer, NarrationCharacter> byId = indexById(safeRoster);
-        NarrationCharacter narrator = byId.getOrDefault(NarrationCharacter.NARRATOR_ID,
-                NarrationCharacter.defaultNarrator());
+        NarrationCharacter narrator = byId.get(NarrationCharacter.NARRATOR_ID);
 
         List<NarrationScript.Line> lines = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
@@ -147,17 +143,9 @@ public class NarrationScriptService {
     private static boolean hasInvalidNewCharacterId(List<NarrationCharacter> newCharacters,
                                                     Set<Integer> existingIds,
                                                     int nextId) {
-        if (newCharacters == null || newCharacters.isEmpty()) {
-            return false;
-        }
-        Set<Integer> seen = new LinkedHashSet<>();
-        Set<Integer> safeExistingIds = existingIds == null ? Set.of() : existingIds;
         for (NarrationCharacter c : newCharacters) {
-            if (c == null) {
-                continue;
-            }
             int id = c.id();
-            if (id < nextId || safeExistingIds.contains(id) || !seen.add(id)) {
+            if (id < nextId || existingIds.contains(id)) {
                 return true;
             }
         }
@@ -166,10 +154,8 @@ public class NarrationScriptService {
 
     private static Map<Integer, NarrationCharacter> indexById(List<NarrationCharacter> cast) {
         Map<Integer, NarrationCharacter> byId = new LinkedHashMap<>();
-        if (cast != null) {
-            for (NarrationCharacter c : cast) {
-                byId.putIfAbsent(c.id(), c);
-            }
+        for (NarrationCharacter c : cast) {
+            byId.putIfAbsent(c.id(), c);
         }
         byId.putIfAbsent(NarrationCharacter.NARRATOR_ID, NarrationCharacter.defaultNarrator());
         return byId;
