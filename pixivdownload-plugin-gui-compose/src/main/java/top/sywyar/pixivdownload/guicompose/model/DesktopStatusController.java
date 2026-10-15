@@ -551,7 +551,7 @@ final class DesktopStatusController {
                 "backend.restart",
                 "gui.action.restart-service",
                 DesktopUiDocument.DialogStyle.QUESTION,
-                (nextActions, dismissAction, dismiss) -> column(
+                (nextActions, dismissAction, dismiss) -> dialogContent(
                         "backend.restart.content",
                         text(
                                 "backend.restart.message",

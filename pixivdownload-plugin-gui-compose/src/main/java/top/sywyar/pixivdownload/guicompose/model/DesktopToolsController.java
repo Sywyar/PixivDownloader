@@ -464,7 +464,7 @@ final class DesktopToolsController {
                     "folder.path-not-found",
                     "gui.folder-checker.dialog.path-not-found.title",
                     DesktopUiDocument.DialogStyle.QUESTION,
-                    (nextActions, dismissAction, dismiss) -> column(
+                    (nextActions, dismissAction, dismiss) -> dialogContent(
                             "folder.path-not-found.content",
                             new DesktopUiNode.Text(
                                     "folder.path-not-found.message",
@@ -601,41 +601,44 @@ final class DesktopToolsController {
                 "classifier.settings.dialog",
                 "gui.image-classifier.button.settings",
                 DesktopUiDocument.DialogStyle.INFO,
-                (nextActions, dismissAction, dismiss) -> column(
+                (nextActions, dismissAction, dismiss) -> dialogContent(
                         "classifier.settings.content",
-                        input(
-                                "classifier.settings.folder",
-                                "classifier.default-folder",
-                                "gui.image-classifier.label.default-folder",
-                                null,
-                                InputKind.DIRECTORY,
-                                form("classifier.default-folder", ""),
-                                !owner.busy()
-                        ),
-                        input(
-                                "classifier.settings.server",
-                                "classifier.server-url",
-                                "gui.image-classifier.label.server-url",
-                                null,
-                                InputKind.TEXT,
-                                form("classifier.server-url", ""),
-                                !owner.busy()
-                        ),
-                        toggle(
-                                "classifier.settings.skip",
-                                "classifier.show-skip",
-                                "gui.image-classifier.label.show-skip-button",
-                                boolForm("classifier.show-skip", true),
-                                !owner.busy()
-                        ),
-                        input(
-                                "classifier.settings.targets",
-                                "classifier.targets",
-                                "desktop.ui.classifier.targets",
-                                null,
-                                InputKind.MULTILINE,
-                                form("classifier.targets", ""),
-                                !owner.busy()
+                        column(
+                                "classifier.settings.fields",
+                                input(
+                                        "classifier.settings.folder",
+                                        "classifier.default-folder",
+                                        "gui.image-classifier.label.default-folder",
+                                        null,
+                                        InputKind.DIRECTORY,
+                                        form("classifier.default-folder", ""),
+                                        !owner.busy()
+                                ),
+                                input(
+                                        "classifier.settings.server",
+                                        "classifier.server-url",
+                                        "gui.image-classifier.label.server-url",
+                                        null,
+                                        InputKind.TEXT,
+                                        form("classifier.server-url", ""),
+                                        !owner.busy()
+                                ),
+                                toggle(
+                                        "classifier.settings.skip",
+                                        "classifier.show-skip",
+                                        "gui.image-classifier.label.show-skip-button",
+                                        boolForm("classifier.show-skip", true),
+                                        !owner.busy()
+                                ),
+                                input(
+                                        "classifier.settings.targets",
+                                        "classifier.targets",
+                                        "desktop.ui.classifier.targets",
+                                        null,
+                                        InputKind.MULTILINE,
+                                        form("classifier.targets", ""),
+                                        !owner.busy()
+                                )
                         ),
                         row(
                                 "classifier.settings.actions",
@@ -706,42 +709,45 @@ final class DesktopToolsController {
                             image.getFileName().toString(),
                             TextStyle.CODE
                     ));
-                    content.add(row(
-                            "classifier.viewer.actions",
-                            button(
-                                    "classifier.viewer.previous",
-                                    "classifier.viewer.previous",
-                                    "gui.image-classifier.button.prev-image",
-                                    index > 0,
-                                    nextActions,
-                                    () -> showClassifierImage(index - 1)
-                            ),
-                            button(
-                                    "classifier.viewer.next",
-                                    "classifier.viewer.next",
-                                    "gui.image-classifier.button.next-image",
-                                    index + 1 < classifierImages.size(),
-                                    nextActions,
-                                    () -> showClassifierImage(index + 1)
-                            ),
-                            button(
-                                    "classifier.viewer.external",
-                                    "classifier.viewer.external",
-                                    "desktop.ui.action.open",
-                                    true,
-                                    nextActions,
-                                    () -> openClassifierImage(image)
-                            ),
-                            button(
-                                    "classifier.viewer.close",
-                                    dismissAction,
-                                    "desktop.ui.action.close",
-                                    true,
-                                    nextActions,
-                                    dismiss
+                    return dialogContent(
+                            "classifier.viewer.content",
+                            column("classifier.viewer.body", content),
+                            row(
+                                    "classifier.viewer.actions",
+                                    button(
+                                            "classifier.viewer.previous",
+                                            "classifier.viewer.previous",
+                                            "gui.image-classifier.button.prev-image",
+                                            index > 0,
+                                            nextActions,
+                                            () -> showClassifierImage(index - 1)
+                                    ),
+                                    button(
+                                            "classifier.viewer.next",
+                                            "classifier.viewer.next",
+                                            "gui.image-classifier.button.next-image",
+                                            index + 1 < classifierImages.size(),
+                                            nextActions,
+                                            () -> showClassifierImage(index + 1)
+                                    ),
+                                    button(
+                                            "classifier.viewer.external",
+                                            "classifier.viewer.external",
+                                            "desktop.ui.action.open",
+                                            true,
+                                            nextActions,
+                                            () -> openClassifierImage(image)
+                                    ),
+                                    button(
+                                            "classifier.viewer.close",
+                                            dismissAction,
+                                            "desktop.ui.action.close",
+                                            true,
+                                            nextActions,
+                                            dismiss
+                                    )
                             )
-                    ));
-                    return column("classifier.viewer.content", content);
+                    );
                 },
                 1100,
                 860

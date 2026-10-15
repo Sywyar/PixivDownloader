@@ -294,7 +294,7 @@ class DesktopToolsControllerTest {
         } finally { release.countDown(); }
     }
 
-    private static void awaitMediaReady(ComposeDesktopUiModel model) {
+    static void awaitMediaReady(ComposeDesktopUiModel model) {
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
             while (model.busy() || descendants(overview(model).media()).filter(DesktopUiNode.Button.class::isInstance)
                     .map(DesktopUiNode.Button.class::cast).noneMatch(button -> button.id().equals("status.ffmpeg.refresh") && button.enabled())) Thread.sleep(10);

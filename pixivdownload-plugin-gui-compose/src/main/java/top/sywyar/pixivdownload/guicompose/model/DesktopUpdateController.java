@@ -378,7 +378,7 @@ final class DesktopUpdateController {
                     "update.jar",
                     "gui.update.dialog.install.title",
                     DesktopUiDocument.DialogStyle.QUESTION,
-                    (nextActions, dismissAction, dismiss) -> column(
+                    (nextActions, dismissAction, dismiss) -> dialogContent(
                             "update.jar.content",
                             new DesktopUiNode.Text(
                                     "update.jar.message",
@@ -450,35 +450,38 @@ final class DesktopUpdateController {
                                 true
                         ));
                     }
-                    nodes.add(row(
-                            "update.confirm.actions",
-                            button(
-                                    "update.confirm.install",
-                                    "update.confirm.install",
-                                    "gui.update.banner.install",
-                                    true,
-                                    nextActions,
-                                    () -> {
-                                        if (host.currentVersionNightly()) {
-                                            persistCheckNightly(boolForm(
-                                                    "update.keep-nightly",
-                                                    true
-                                            ));
-                                        }
-                                        owner.closeDialog();
-                                        startUpdateDownload(update, false);
-                                    }
-                            ),
-                            button(
-                                    "update.confirm.cancel",
-                                    dismissAction,
-                                    "desktop.ui.action.cancel",
-                                    true,
-                                    nextActions,
-                                    dismiss
+                    return dialogContent(
+                            "update.confirm.content",
+                            column("update.confirm.fields", nodes),
+                            row(
+                                    "update.confirm.actions",
+                                    button(
+                                            "update.confirm.install",
+                                            "update.confirm.install",
+                                            "gui.update.banner.install",
+                                            true,
+                                            nextActions,
+                                            () -> {
+                                                if (host.currentVersionNightly()) {
+                                                    persistCheckNightly(boolForm(
+                                                            "update.keep-nightly",
+                                                            true
+                                                    ));
+                                                }
+                                                owner.closeDialog();
+                                                startUpdateDownload(update, false);
+                                            }
+                                    ),
+                                    button(
+                                            "update.confirm.cancel",
+                                            dismissAction,
+                                            "desktop.ui.action.cancel",
+                                            true,
+                                            nextActions,
+                                            dismiss
+                                    )
                             )
-                    ));
-                    return column("update.confirm.content", nodes);
+                    );
                 },
                 520,
                 0

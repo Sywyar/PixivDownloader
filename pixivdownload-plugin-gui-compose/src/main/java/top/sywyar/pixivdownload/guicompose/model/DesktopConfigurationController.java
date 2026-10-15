@@ -624,7 +624,7 @@ final class DesktopConfigurationController {
                 "config.symbolic-pin",
                 "gui.config.symbolic-pin.title",
                 DesktopUiDocument.DialogStyle.WARNING,
-                (nextActions, dismissAction, dismiss) -> column(
+                (nextActions, dismissAction, dismiss) -> dialogContent(
                         "config.symbolic-pin.content",
                         new DesktopUiNode.Text(
                                 "config.symbolic-pin.message",
@@ -701,7 +701,7 @@ final class DesktopConfigurationController {
                 "config.restart",
                 title,
                 DesktopUiDocument.DialogStyle.QUESTION,
-                (nextActions, dismissAction, dismiss) -> column(
+                (nextActions, dismissAction, dismiss) -> dialogContent(
                         "config.restart.content",
                         text("config.restart.message", message, TextStyle.BODY),
                         row(
@@ -974,7 +974,7 @@ final class DesktopConfigurationController {
                 "config.reset.dialog",
                 "gui.config.dialog.reset-confirm.title",
                 DesktopUiDocument.DialogStyle.QUESTION,
-                (nextActions, dismissAction, dismiss) -> column(
+                (nextActions, dismissAction, dismiss) -> dialogContent(
                         "config.reset.content",
                         text(
                                 "config.reset.message",
@@ -1025,7 +1025,7 @@ final class DesktopConfigurationController {
         }
         owner.showDialog(
                 "config.reload.dialog", "desktop.ui.action.reload", DesktopUiDocument.DialogStyle.QUESTION,
-                (nextActions, dismissAction, dismiss) -> column(
+                (nextActions, dismissAction, dismiss) -> dialogContent(
                         "config.reload.content",
                         new DesktopUiNode.Text("config.reload.message",
                                 new TextToken("gui-compose", "gui.compose.settings.reload-warning", "", List.of()),

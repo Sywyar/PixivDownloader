@@ -628,7 +628,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
             case ERROR -> DesktopUiNode.SurfaceStyle.ERROR;
             case INFO -> DesktopUiNode.SurfaceStyle.INFO;
         };
-        DesktopUiNode body = state.content() == null ? column(
+        DesktopUiNode body = state.content() == null ? dialogContent(
                 state.id() + ".content",
                 new DesktopUiNode.Text(
                         state.id() + ".message",
