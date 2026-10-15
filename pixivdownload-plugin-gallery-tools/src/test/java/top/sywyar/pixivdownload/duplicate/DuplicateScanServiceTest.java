@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.duplicate;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
@@ -10,6 +12,7 @@ import top.sywyar.pixivdownload.plugin.api.download.queue.QueueDrain;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 
 import java.lang.reflect.Field;
+import java.util.Arrays;
 import java.util.List;
 import java.util.OptionalInt;
 import java.util.concurrent.CountDownLatch;
@@ -24,8 +27,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @DisplayName("重复扫描异步生命周期")
@@ -76,15 +81,18 @@ class DuplicateScanServiceTest {
         verify(hashIndexMaintenance, never()).artworkIdsMissingHashes(anyInt());
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     @DisplayName("运行扫描收到取消后按作品协作退出且销毁等待真实完成")
-    void runningCancellationStopsCooperativelyAndDestroyWaits() throws Exception {
+    void runningCancellationStopsCooperativelyAndDestroyWaits(boolean force) throws Exception {
         CountDownLatch hashEntered = new CountDownLatch(1);
         CountDownLatch releaseHash = new CountDownLatch(1);
         CountDownLatch cancellationDelivered = new CountDownLatch(1);
         AtomicReference<Thread> worker = new AtomicReference<>();
         AtomicReference<Throwable> workerFailure = new AtomicReference<>();
         when(hashIndexMaintenance.missingArtworkCount()).thenReturn(2);
+        when(hashIndexMaintenance.artworkCount()).thenReturn(2L);
+        when(hashIndexMaintenance.artworkIdsNewestFirst()).thenReturn(List.of(1L, 2L));
         when(hashIndexMaintenance.artworkIdsMissingHashes(Integer.MAX_VALUE)).thenReturn(List.of(1L, 2L));
         when(hashIndexMaintenance.rebuildArtwork(anyLong())).thenAnswer(invocation -> {
             hashEntered.countDown();
@@ -107,7 +115,7 @@ class DuplicateScanServiceTest {
             thread.start();
         });
 
-        service.startScan(false);
+        service.startScan(force);
         assertThat(hashEntered.await(2, TimeUnit.SECONDS)).isTrue();
         AtomicBoolean destroyReturned = new AtomicBoolean();
         Thread destroyer = new Thread(() -> {
@@ -214,6 +222,43 @@ class DuplicateScanServiceTest {
         assertThat(interruptedAfterDestroy).isTrue();
         assertThat(submitted).hasValue(null);
         assertThat(service.status()).isEqualTo(DuplicateDto.idleScanStatus());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("扫描只遍历一次候选快照，跳过空标识并在全部处理后刷新缓存")
+    void scansSnapshotInOrderAndCompletesDespiteMissingHashes(boolean force) {
+        when(hashIndexMaintenance.artworkCount()).thenReturn(2L);
+        when(hashIndexMaintenance.missingArtworkCount()).thenReturn(2);
+        when(hashIndexMaintenance.artworkIdsNewestFirst()).thenReturn(Arrays.asList(3L, null, 1L, 2L));
+        when(hashIndexMaintenance.artworkIdsMissingHashes(Integer.MAX_VALUE))
+                .thenReturn(Arrays.asList(3L, null, 1L, 2L));
+        when(hashIndexMaintenance.rebuildArtwork(3L)).thenReturn(OptionalInt.empty());
+        when(hashIndexMaintenance.rebuildArtwork(1L)).thenReturn(OptionalInt.of(0));
+        when(hashIndexMaintenance.rebuildArtwork(2L)).thenReturn(OptionalInt.of(1));
+        DuplicateScanService service = service(Runnable::run);
+
+        DuplicateDto.ScanStatus status = service.startScan(force);
+
+        assertThat(status.state()).isEqualTo("DONE");
+        assertThat(status.processed()).isEqualTo(2);
+        assertThat(status.total()).isEqualTo(2);
+        assertThat(status.startedTime()).isNotNull();
+        var order = inOrder(hashIndexMaintenance, duplicateService);
+        if (force) {
+            order.verify(hashIndexMaintenance).artworkCount();
+            order.verify(hashIndexMaintenance).clearAllHashes();
+            order.verify(hashIndexMaintenance).artworkIdsNewestFirst();
+        } else {
+            order.verify(hashIndexMaintenance).missingArtworkCount();
+            order.verify(hashIndexMaintenance).artworkIdsMissingHashes(Integer.MAX_VALUE);
+        }
+        order.verify(hashIndexMaintenance).rebuildArtwork(3L);
+        order.verify(hashIndexMaintenance).rebuildArtwork(1L);
+        order.verify(hashIndexMaintenance).rebuildArtwork(2L);
+        order.verify(duplicateService).invalidate();
+        verifyNoMoreInteractions(hashIndexMaintenance, duplicateService);
+        assertThat(service.prepareQuiesce("duplicate-scan").isDrained()).isTrue();
     }
 
     private DuplicateScanService service(TaskExecutor executor) {

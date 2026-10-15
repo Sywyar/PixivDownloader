@@ -30,13 +30,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class StatsFeatureDependencyGuardTest {
 
-    private static final String[] HOST_PRIVATE_CLASS_RESOURCES = {
-            "top/sywyar/pixivdownload/PixivDownloadApplication.class",
-            "org/apache/hc/client5/http/impl/classic/CloseableHttpClient.class",
-            "org/apache/hc/core5/http/HttpRequest.class",
-            "org/apache/http/client/HttpClient.class",
-            "org/apache/http/nio/client/HttpAsyncClient.class"
-    };
     private static final JavaClasses CLASSES = new ClassFileImporter()
             .withImportOption(new ImportOption.DoNotIncludeTests())
             .importPackages("top.sywyar.pixivdownload");
@@ -77,15 +70,6 @@ class StatsFeatureDependencyGuardTest {
                                 + "HttpComponentsClientHttpRequestFactory")
                 .because("插件只能经稳定 HTTP 契约消费宿主传输能力")
                 .check(CLASSES);
-    }
-
-    @Test
-    @DisplayName("stats 测试类路径不得包含 app 与宿主私有 HTTP 实现")
-    void statsClasspathExcludesHostApplicationAndPrivateHttpStack() {
-        ClassLoader classLoader = getClass().getClassLoader();
-        for (String resource : HOST_PRIVATE_CLASS_RESOURCES) {
-            assertThat(classLoader.getResource(resource)).as(resource).isNull();
-        }
     }
 
     @Test

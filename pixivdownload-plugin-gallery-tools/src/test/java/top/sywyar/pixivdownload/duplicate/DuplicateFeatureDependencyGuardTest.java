@@ -85,8 +85,8 @@ class DuplicateFeatureDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("duplicate 测试类路径不得包含 app 与宿主私有 HTTP 实现")
-    void duplicateClasspathExcludesHostApplicationAndPrivateHttpStack() {
+    @DisplayName("gallery-tools 测试类路径不得包含 app 与宿主私有 HTTP 实现")
+    void galleryToolsClasspathExcludesHostApplicationAndPrivateHttpStack() {
         ClassLoader classLoader = getClass().getClassLoader();
         for (String resource : HOST_PRIVATE_CLASS_RESOURCES) {
             assertThat(classLoader.getResource(resource)).as(resource).isNull();

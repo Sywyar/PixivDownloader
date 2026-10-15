@@ -23,8 +23,7 @@
         try {
             var raw = window.localStorage.getItem(key);
             if (raw === null) return fallback;
-            var n = Number(raw);
-            return Number.isFinite(n) ? Math.max(0, Math.min(32, Math.round(n))) : fallback;
+            return clampThreshold(raw, fallback);
         } catch (e) {
             return fallback;
         }

@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.duplicate;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexQuery;
@@ -33,21 +35,24 @@ class DuplicateUnavailableTest {
         verifyNoInteractions(query, maintenance, messages);
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     @DisplayName("扫描中失效后不处理下一作品或宣布完成")
-    void failureDuringScanStopsProgress() {
+    void failureDuringScanStopsProgress(boolean force) {
         var available = new AtomicBoolean(true);
         var maintenance = mock(ArtworkHashIndexMaintenance.class);
         var groups = mock(DuplicateService.class);
         var messages = mock(MessageResolver.class);
         when(maintenance.missingArtworkCount()).thenReturn(2);
+        when(maintenance.artworkCount()).thenReturn(2L);
+        when(maintenance.artworkIdsNewestFirst()).thenReturn(List.of(1L, 2L));
         when(maintenance.artworkIdsMissingHashes(Integer.MAX_VALUE)).thenReturn(List.of(1L, 2L));
         when(maintenance.rebuildArtwork(1L)).thenAnswer(call -> {
             available.set(false);
             return OptionalInt.of(1);
         });
         var scan = new DuplicateScanService(maintenance, groups, messages, Runnable::run, available::get);
-        assertThat(scan.startScan(false).state()).isEqualTo("UNAVAILABLE");
+        assertThat(scan.startScan(force).state()).isEqualTo("UNAVAILABLE");
         verify(maintenance, never()).rebuildArtwork(2L);
         verifyNoInteractions(groups);
     }
