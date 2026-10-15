@@ -68,13 +68,9 @@ public class MailConfig {
                 MailSecurity.parse(security),
                 username,
                 password,
-                effectiveFrom(),
+                (from == null || from.isBlank()) ? username : from,
                 to,
                 socksProxy,
                 subjectPrefix == null ? DEFAULT_SUBJECT_PREFIX : subjectPrefix);
-    }
-
-    private String effectiveFrom() {
-        return (from == null || from.isBlank()) ? username : from;
     }
 }

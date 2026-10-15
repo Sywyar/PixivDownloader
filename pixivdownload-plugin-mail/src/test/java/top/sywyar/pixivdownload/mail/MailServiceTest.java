@@ -1,9 +1,11 @@
 package top.sywyar.pixivdownload.mail;
 
 import jakarta.mail.Session;
+import jakarta.mail.internet.ContentType;
 import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSender;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
@@ -16,7 +18,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -81,15 +82,27 @@ class MailServiceTest {
     @DisplayName("send 在 sender 成功时实际发出一封信，subject 自动拼接前缀")
     void sendShouldDeliverWithSubjectPrefix() throws Exception {
         MailConfig config = enabledConfig();
-        config.setSubjectPrefix("[PD]");
+        config.setSubjectPrefix("  [PD]  ");
+        config.setFrom(" ");
+        config.setTo(" admin@example.com, , second@example.com ");
         JavaMailSender sender = mockSender();
 
         TrackingMailService service = new TrackingMailService(config, messages, settings -> sender);
-        service.send("Hello", "<p>body</p>");
+        service.send("Hello 世界", "<p>正文 🌸</p>");
 
         verify(sender, times(1)).createMimeMessage();
-        verify(sender, times(1)).send(any(MimeMessage.class));
-        // 通过反射读不到拼接后的 subject；这里只确认 send 实际被触发，subject 拼接逻辑由专门测试覆盖
+        ArgumentCaptor<MimeMessage> sent = ArgumentCaptor.forClass(MimeMessage.class);
+        verify(sender).send(sent.capture());
+        MimeMessage message = sent.getValue();
+        message.saveChanges();
+        assertThat(message.getSubject()).isEqualTo("[PD] Hello 世界");
+        assertThat(message.getFrom()).extracting(Object::toString).containsExactly("u@example.com");
+        assertThat(message.getAllRecipients()).extracting(Object::toString)
+                .containsExactly("admin@example.com", "second@example.com");
+        assertThat(message.getContent()).isEqualTo("<p>正文 🌸</p>");
+        ContentType contentType = new ContentType(message.getContentType());
+        assertThat(contentType.getBaseType()).isEqualTo("text/html");
+        assertThat(contentType.getParameter("charset")).isEqualToIgnoringCase("UTF-8");
     }
 
     @Test
