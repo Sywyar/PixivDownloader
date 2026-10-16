@@ -10,7 +10,7 @@ public interface PluginRuntimeTaskRegistrar {
 
     /**
      * 登记最多执行一次的任务。执行结束或主动取消后自动摘除；quiesce 在排队阶段清除 delegate，
-     * 父执行器随后运行空包装器时完成精确归零。
+     * 父执行器随后运行空包装器时，未绑定取消句柄的任务直接归零，已绑定的任务仍等待取消交付完成。
      *
      * @param delegate 插件业务任务
      * @return 必须提交给执行器的宿主包装器

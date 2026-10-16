@@ -395,6 +395,97 @@ class MediaMaintenanceServiceTest {
         assertNotEquals("running", service.status().state());
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("prepare 与取消之间取出排队任务仍恰好一次交付取消且无需关闭服务")
+    void dequeuedDuringQuiesceDeliversCancellation(boolean processing) throws Exception {
+        var assets = mock(WorkAssetService.class);
+        var query = query();
+        var images = mock(ImageOutputService.class);
+        var file = new WorkAssetFile(0, Files.writeString(directory.resolve("42_p0.jpg"), "source"), "jpg");
+        when(assets.findAsset(WorkType.ARTWORK, 42L)).thenReturn(Optional.of(
+                new LocalWorkAsset(WorkType.ARTWORK, 42, directory, 1, List.of(file))));
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        try (var service = new MediaMaintenanceService(assets, mock(WorkMetadataRepository.class), query, images,
+                mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(),
+                mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), runtimeTasks.registrarForPlugin("sample"))) {
+            var request = new MediaMaintenanceService.Request("png", null, false);
+            var token = processing ? service.preview(request).get(5, TimeUnit.SECONDS).token() : null;
+            var executor = executor(service);
+            executor.execute(() -> {
+                entered.countDown();
+                try { assertTrue(release.await(5, TimeUnit.SECONDS)); }
+                catch (InterruptedException failure) { throw new AssertionError(failure); }
+            });
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            var completions = new java.util.concurrent.atomic.AtomicInteger();
+            java.util.concurrent.CompletableFuture<?> result;
+            if (processing) {
+                var terminal = new java.util.concurrent.CompletableFuture<MediaMaintenanceService.Status>();
+                service.start(token, status -> { completions.incrementAndGet(); terminal.complete(status); });
+                result = terminal;
+            } else {
+                result = service.preview(request);
+                result.whenComplete((value, error) -> completions.incrementAndGet());
+            }
+            var drain = runtimeTasks.prepareQuiesce("sample");
+            release.countDown();
+            executor.submit(() -> {}).get(5, TimeUnit.SECONDS);
+            runtimeTasks.cancelQuiescedTasks("sample", drain);
+            assertTrue(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(5)));
+            if (processing) assertEquals("cancelled", ((MediaMaintenanceService.Status) result.get(1, TimeUnit.SECONDS)).state());
+            else assertThrows(java.util.concurrent.CancellationException.class, () -> result.get(1, TimeUnit.SECONDS));
+            assertEquals("cancelled", service.status().state());
+            runtimeTasks.cancelQuiescedTasks("sample", drain);
+            service.close();
+            assertEquals(1, completions.get());
+            verify(query, times(processing ? 1 : 0)).search(any());
+            verifyNoInteractions(images);
+        } finally { release.countDown(); }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    @DisplayName("后台处理与完成回调的进程级错误保留原对象并逃逸工作线程")
+    void startPreservesFatalFailure(boolean callbackFailure, boolean threadDeath) throws Exception {
+        var assets = mock(WorkAssetService.class);
+        var metadata = mock(WorkMetadataRepository.class);
+        var images = mock(ImageOutputService.class);
+        var file = new WorkAssetFile(0, Files.writeString(directory.resolve("42_p0.jpg"), "source"), "jpg");
+        when(assets.findAsset(WorkType.ARTWORK, 42L)).thenReturn(Optional.of(
+                new LocalWorkAsset(WorkType.ARTWORK, 42, directory, 1, List.of(file))));
+        when(assets.rawFile(WorkType.ARTWORK, 42L, 0)).thenReturn(Optional.of(file));
+        when(metadata.find(WorkType.ARTWORK, 42L)).thenReturn(Optional.of(mock(WorkMetadata.class)));
+        Error fatal = threadDeath ? new ThreadDeath() : new OutOfMemoryError("simulated fatal failure");
+        if (!callbackFailure) doThrow(fatal).when(images).addMissingFormats(anyLong(), anyInt(), any(), anyString(), any());
+        var escaped = new java.util.concurrent.CompletableFuture<Throwable>();
+        var completions = new java.util.concurrent.atomic.AtomicInteger();
+        try (var service = new MediaMaintenanceService(assets, metadata, query(), images,
+                mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(),
+                mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), runtimeTasks.registrarForPlugin("sample"))) {
+            executor(service).submit(() -> Thread.currentThread().setUncaughtExceptionHandler(
+                    (thread, failure) -> escaped.complete(failure))).get(5, TimeUnit.SECONDS);
+            var desktop = new DesktopMediaMaintenance(service, mock(MediaCapabilityService.class));
+            var preview = desktop.preview(new DesktopMediaTool.Request("png", null, false)).valueOrThrow();
+            desktop.start(preview.token(), status -> {
+                completions.incrementAndGet();
+                assertEquals(callbackFailure ? "completed" : "failed", status.state());
+                if (callbackFailure) throw fatal;
+            }).valueOrThrow();
+            assertSame(fatal, escaped.get(5, TimeUnit.SECONDS));
+            assertEquals(1, completions.get());
+            assertEquals(0, runtimeTasks.activeTaskCount("sample"));
+        }
+        assertEquals(1, completions.get());
+    }
+
+    private static java.util.concurrent.ExecutorService executor(MediaMaintenanceService service) throws Exception {
+        var field = MediaMaintenanceService.class.getDeclaredField("executor");
+        field.setAccessible(true);
+        return (java.util.concurrent.ExecutorService) field.get(service);
+    }
+
     @Test
     @DisplayName("扫描的进程级错误保留原身份，不降格为普通操作失败")
     void previewPreservesFatalFailure() {

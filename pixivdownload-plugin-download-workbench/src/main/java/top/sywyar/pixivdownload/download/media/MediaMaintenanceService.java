@@ -256,6 +256,13 @@ public final class MediaMaintenanceService implements AutoCloseable {
             if (claimed.compareAndSet(false, true)) action.run();
         });
         var future = new java.util.concurrent.FutureTask<Void>(task, null) {
+            @Override protected void setException(Throwable failure) {
+                super.setException(failure);
+                // 此 Future 只用于取消，没有 get 调用方负责传播进程级错误。
+                if (failure instanceof VirtualMachineError fatal) throw fatal;
+                if (failure instanceof ThreadDeath fatal) throw fatal;
+            }
+
             @Override public boolean cancel(boolean mayInterruptIfRunning) {
                 boolean unstarted = false;
                 synchronized (MediaMaintenanceService.this) {
