@@ -394,6 +394,14 @@ class NarrationControllerTest {
         assertEquals(2, voices.getBody().voices().size());
         assertEquals("An elderly woman.", voices.getBody().voices().get(1).controlInstruction());
         assertEquals("upload", voices.getBody().voices().get(1).refAudioSource());
+        var expected = new NarrationController.CastResponse(3L, "甲册", List.of(
+                new NarrationController.VoiceView(0, "Narrator", "unknown", "unknown", "N.", false, null),
+                new NarrationController.VoiceView(1, "哀家", "female", "elderly", "An elderly woman.", true, "upload")));
+        assertEquals(expected, voices.getBody());
+        assertEquals(expected, controller.cast(7L).getBody());
+        assertNull(((NarrationController.CastResponse) controller.cast(8L).getBody()).castId());
+        assertEquals(404, controller.cast(99L).getStatusCode().value());
+        assertEquals(404, controller.castVoices(99L).getStatusCode().value());
     }
 
     @Test

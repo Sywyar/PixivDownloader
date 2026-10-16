@@ -138,7 +138,7 @@ public class NarrationReferenceVoiceService {
         database.requireAvailable();
         byte[] data = audio == null ? null : audio.data();
         String ext = extForContentType(audio == null ? null : audio.contentType());
-        if (data == null || !acceptableSeed(data, ext)) {
+        if (data == null || !acceptableSeed(data)) {
             return new GenerateResult(Outcome.TOO_SHORT, null);
         }
         NovelNarrationVoiceRef ref = store(castId, characterId, data, ext, text, SOURCE_AUTO);
@@ -223,7 +223,7 @@ public class NarrationReferenceVoiceService {
     }
 
     /** 校验种子音是否够长：优先解析 WAV 时长，无法解析时按字节数兜底。 */
-    private static boolean acceptableSeed(byte[] data, String ext) {
+    private static boolean acceptableSeed(byte[] data) {
         if (data.length < MIN_SEED_BYTES) {
             return false;
         }

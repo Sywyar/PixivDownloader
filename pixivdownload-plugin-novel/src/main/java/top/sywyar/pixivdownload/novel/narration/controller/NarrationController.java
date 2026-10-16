@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.novel.narration.controller;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -41,7 +40,6 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/narration")
-@Slf4j
 @RequiredArgsConstructor
 public class NarrationController {
 
@@ -223,12 +221,7 @@ public class NarrationController {
                     List.of(voiceView(NarrationCharacter.defaultNarrator(), null))));
         }
         long castId = def.cast().id();
-        Map<Integer, String> sources = referenceVoiceService.sources(castId);
-        List<VoiceView> voices = new ArrayList<>();
-        for (NarrationCharacter c : castService.voices(castId)) {
-            voices.add(voiceView(c, sources.get(c.id())));
-        }
-        return ResponseEntity.ok(new CastResponse(castId, def.cast().name(), voices));
+        return ResponseEntity.ok(new CastResponse(castId, def.cast().name(), voiceViews(castId)));
     }
 
     /** 列出全部花名册（选择器用，含角色数）。 */
@@ -274,12 +267,7 @@ public class NarrationController {
         if (cast == null) {
             return ResponseEntity.notFound().build();
         }
-        Map<Integer, String> sources = referenceVoiceService.sources(id);
-        List<VoiceView> voices = new ArrayList<>();
-        for (NarrationCharacter c : castService.voices(id)) {
-            voices.add(voiceView(c, sources.get(c.id())));
-        }
-        return ResponseEntity.ok(new CastResponse(id, cast.name(), voices));
+        return ResponseEntity.ok(new CastResponse(id, cast.name(), voiceViews(id)));
     }
 
     /** 编辑某角色音色画像并锁定（{@code edited_by_user=1}）。冲突解决「采纳建议 / 改写」复用本端点；「保留」为无操作。 */
@@ -321,6 +309,15 @@ public class NarrationController {
             out.add(new CastBrief(c.id(), c.name(), c.gender(), c.age()));
         }
         return out;
+    }
+
+    private List<VoiceView> voiceViews(long castId) {
+        Map<Integer, String> sources = referenceVoiceService.sources(castId);
+        List<VoiceView> voices = new ArrayList<>();
+        for (NarrationCharacter c : castService.voices(castId)) {
+            voices.add(voiceView(c, sources.get(c.id())));
+        }
+        return voices;
     }
 
     private static VoiceView voiceView(NarrationCharacter c, String refAudioSource) {

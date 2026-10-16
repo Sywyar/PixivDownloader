@@ -41,13 +41,12 @@ class NarrationReferenceVoiceControllerTest {
     @TempDir
     private Path tempDir;
 
-    private TestRuntimePathProvider runtimePaths;
     private NarrationReferenceVoicePaths paths;
     private NarrationReferenceVoiceController controller;
 
     @BeforeEach
     void setUp() {
-        runtimePaths = new TestRuntimePathProvider(tempDir);
+        TestRuntimePathProvider runtimePaths = new TestRuntimePathProvider(tempDir);
         paths = new NarrationReferenceVoicePaths(runtimePaths, () -> true);
         controller = new NarrationReferenceVoiceController(
                 castService, referenceVoiceService, NovelTestMessages.messageResolver(), paths);

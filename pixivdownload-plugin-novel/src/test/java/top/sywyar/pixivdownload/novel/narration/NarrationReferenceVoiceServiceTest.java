@@ -10,7 +10,6 @@ import top.sywyar.pixivdownload.novel.db.NovelMapper;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
 import top.sywyar.pixivdownload.novel.narration.audio.NarrationAudioService;
 
-import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,6 +31,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static top.sywyar.pixivdownload.novel.narration.UploadedAudioValidatorTest.pcmWav;
 
 @DisplayName("多角色朗读参考音服务（时长解析 / 扩展名归一）")
 class NarrationReferenceVoiceServiceTest {
@@ -178,43 +178,5 @@ class NarrationReferenceVoiceServiceTest {
                 .isInstanceOf(DatabaseUnavailableException.class);
         verifyNoInteractions(store);
         verify(mapper, never()).updateNarrationVoiceReference(anyLong(), anyInt(), any(), any(), any(), any());
-    }
-
-    /** 构造一个最小可解析的 PCM WAV（含 fmt + data 块）。 */
-    private static byte[] pcmWav(int sampleRate, int channels, int bitsPerSample, int dataSize) {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        int byteRate = sampleRate * channels * bitsPerSample / 8;
-        int blockAlign = channels * bitsPerSample / 8;
-        writeAscii(out, "RIFF");
-        writeLEInt(out, 36 + dataSize);
-        writeAscii(out, "WAVE");
-        writeAscii(out, "fmt ");
-        writeLEInt(out, 16);
-        writeLEShort(out, 1); // PCM
-        writeLEShort(out, channels);
-        writeLEInt(out, sampleRate);
-        writeLEInt(out, byteRate);
-        writeLEShort(out, blockAlign);
-        writeLEShort(out, bitsPerSample);
-        writeAscii(out, "data");
-        writeLEInt(out, dataSize);
-        out.writeBytes(new byte[dataSize]);
-        return out.toByteArray();
-    }
-
-    private static void writeAscii(ByteArrayOutputStream out, String s) {
-        out.writeBytes(s.getBytes(StandardCharsets.US_ASCII));
-    }
-
-    private static void writeLEInt(ByteArrayOutputStream out, int v) {
-        out.write(v & 0xFF);
-        out.write((v >> 8) & 0xFF);
-        out.write((v >> 16) & 0xFF);
-        out.write((v >> 24) & 0xFF);
-    }
-
-    private static void writeLEShort(ByteArrayOutputStream out, int v) {
-        out.write(v & 0xFF);
-        out.write((v >> 8) & 0xFF);
     }
 }

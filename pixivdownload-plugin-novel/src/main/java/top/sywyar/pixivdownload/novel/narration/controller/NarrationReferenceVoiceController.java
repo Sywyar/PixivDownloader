@@ -21,7 +21,6 @@ import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
 import top.sywyar.pixivdownload.novel.narration.UploadedAudioValidator;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
 import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
-import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
 
 import java.io.IOException;
