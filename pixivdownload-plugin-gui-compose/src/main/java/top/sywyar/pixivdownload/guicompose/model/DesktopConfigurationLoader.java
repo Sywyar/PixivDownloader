@@ -893,7 +893,7 @@ final class DesktopConfigurationLoader {
                 int value = Integer.parseInt(field.defaultValue());
                 if (minimum > maximum || value < minimum || value > maximum) return false;
             }
-            return bindingId(new FieldKey("third-party", field.key())).length() <= 128;
+            return DesktopConfigurationFieldView.bindingId(new FieldKey("third-party", field.key())).length() <= 128;
         } catch (Exception ignored) {
             return false;
         }
@@ -902,9 +902,5 @@ final class DesktopConfigurationLoader {
     private static boolean validGroup(GuiConfigGroupContribution group) {
         return group != null && group.visibleInTabs() && group.groupId() != null && group.groupId().matches(
                 "[A-Za-z0-9][A-Za-z0-9._:-]{0,80}") && group.labelKey() != null && !group.labelKey().isBlank();
-    }
-
-    private static String bindingId(FieldKey key) {
-        return "config." + safeId(key.owner() == null ? APP_OWNER : key.owner()) + "." + safeId(key.key());
     }
 }

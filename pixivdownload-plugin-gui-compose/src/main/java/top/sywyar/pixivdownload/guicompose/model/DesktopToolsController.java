@@ -278,7 +278,6 @@ final class DesktopToolsController {
                             return new ToolCompletion(
                                     summary.processed(),
                                     null,
-                                    null,
                                     log.sessionPath()
                             );
                         }
@@ -347,7 +346,6 @@ final class DesktopToolsController {
                         return new ToolCompletion(
                                 summary.totalCandidates(),
                                 summary.migrated(),
-                                null,
                                 log.sessionPath()
                         );
                     }
@@ -371,16 +369,7 @@ final class DesktopToolsController {
             for (DesktopUiHost.FolderArtwork artwork : result.inaccessible()) {
                 String id = "artwork." + artwork.artworkId();
                 artworks.put(id, artwork);
-                rows.add(new DesktopUiNode.TableRow(
-                        id,
-                        List.of(
-                                Long.toString(artwork.artworkId()),
-                                nullToEmpty(artwork.title()),
-                                host.message(artwork.moved() ? "gui.folder-checker.path-type.moved" : "gui.folder-checker.path-type.original"),
-                                artwork.path() == null ? host.message("gui.folder-checker.value.null-path") : artwork.path(),
-                                host.message("gui.folder-checker.status.not-found")
-                        )
-                ));
+                rows.add(folderRow(artwork));
             }
             folderRows = List.copyOf(rows);
             folderArtworks = Map.copyOf(artworks);
@@ -570,7 +559,16 @@ final class DesktopToolsController {
                 "tools.folder.db",
                 ""
         )));
-        folderRows = result.inaccessible().stream().map(artwork -> new DesktopUiNode.TableRow(
+        folderRows = result.inaccessible().stream().map(this::folderRow).toList();
+        folderArtworks = result.inaccessible().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
+                artwork -> "artwork." + artwork.artworkId(),
+                Function.identity()
+        ));
+        selectedFolderRow = null;
+    }
+
+    private DesktopUiNode.TableRow folderRow(DesktopUiHost.FolderArtwork artwork) {
+        return new DesktopUiNode.TableRow(
                 "artwork." + artwork.artworkId(),
                 List.of(
                         Long.toString(artwork.artworkId()),
@@ -579,12 +577,7 @@ final class DesktopToolsController {
                         artwork.path() == null ? host.message("gui.folder-checker.value.null-path") : artwork.path(),
                         host.message("gui.folder-checker.status.not-found")
                 )
-        )).toList();
-        folderArtworks = result.inaccessible().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
-                artwork -> "artwork." + artwork.artworkId(),
-                Function.identity()
-        ));
-        selectedFolderRow = null;
+        );
     }
 
     void showClassifierSettings() {
@@ -999,7 +992,6 @@ final class DesktopToolsController {
                     }
                 }
                 ToolCompletion completion = operation.run();
-                if (completion == null) completion = ToolCompletion.EMPTY;
                 activity = new DesktopUiNode.ToolActivity(activityId, false, false,
                         TextToken.raw(activityId.equals("backfill") ? backfillNotice : migrationNotice));
                 host.recordToolHistory(
@@ -1008,7 +1000,7 @@ final class DesktopToolsController {
                         startedAt,
                         completion.processedCount(),
                         completion.changedCount(),
-                        completion.failedCount(),
+                        null,
                         completion.logPath()
                 );
             } catch (InterruptedException | java.util.concurrent.CancellationException interrupted) {
@@ -1101,10 +1093,6 @@ final class DesktopToolsController {
         );
     }
 
-    List<Path> classifierFolders() {
-        return classifierFolders;
-    }
-
     String form(String key, String fallback) {
         return formValues.getOrDefault(key, fallback);
     }
@@ -1134,11 +1122,9 @@ final class DesktopToolsController {
     private record ToolCompletion(
             Integer processedCount,
             Integer changedCount,
-            Integer failedCount,
             Path logPath
     ) {
         private static final ToolCompletion EMPTY = new ToolCompletion(
-                null,
                 null,
                 null,
                 null

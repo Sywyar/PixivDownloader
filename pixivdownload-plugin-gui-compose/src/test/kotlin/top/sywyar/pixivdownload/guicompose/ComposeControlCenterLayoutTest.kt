@@ -10,9 +10,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.assertIsDisplayed
-import io.github.robinpcrd.cupertino.theme.CupertinoTheme
-import io.github.robinpcrd.cupertino.theme.darkColorScheme
-import io.github.robinpcrd.cupertino.theme.lightColorScheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -774,13 +771,6 @@ class ComposeControlCenterLayoutTest {
 
     private fun androidx.compose.ui.test.ComposeUiTest.topUnmerged(label: String): Float =
         onNodeWithText(label, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.top
-
-    private fun androidx.compose.ui.test.ComposeUiTest.centerY(label: String): Float =
-        onNodeWithText(label).fetchSemanticsNode().boundsInRoot.center.y
-
-    private fun androidx.compose.ui.test.ComposeUiTest.toggleCenterY(): Float = onNode(
-        SemanticsMatcher.keyIsDefined(SemanticsProperties.ToggleableState),
-    ).fetchSemanticsNode().boundsInRoot.center.y
 
     private fun androidx.compose.ui.test.ComposeUiTest.page(description: String) = onNode(
         SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, description),

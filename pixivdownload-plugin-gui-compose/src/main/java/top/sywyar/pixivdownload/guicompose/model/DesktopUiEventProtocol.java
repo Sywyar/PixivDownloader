@@ -96,7 +96,7 @@ final class DesktopUiEventProtocol {
     ) {
         EventEndpoint endpoint = null;
         if (node instanceof DesktopUiNode.TextInput value) {
-            endpoint = endpoint(
+            endpoint = new EventEndpoint(
                     value.bindingId(),
                     DesktopUiNode.EventType.CHANGE,
                     value.enabled(),
@@ -104,7 +104,7 @@ final class DesktopUiEventProtocol {
                     scopeId
             );
         } else if (node instanceof DesktopUiNode.Toggle value) {
-            endpoint = endpoint(
+            endpoint = new EventEndpoint(
                     value.bindingId(),
                     DesktopUiNode.EventType.CHANGE,
                     value.enabled(),
@@ -112,7 +112,7 @@ final class DesktopUiEventProtocol {
                     scopeId
             );
         } else if (node instanceof DesktopUiNode.Choice value) {
-            endpoint = endpoint(
+            endpoint = new EventEndpoint(
                     value.bindingId(),
                     DesktopUiNode.EventType.SELECTION,
                     value.enabled(),
@@ -120,7 +120,7 @@ final class DesktopUiEventProtocol {
                     scopeId
             );
         } else if (node instanceof DesktopUiNode.NumberInput value) {
-            endpoint = endpoint(
+            endpoint = new EventEndpoint(
                     value.bindingId(),
                     DesktopUiNode.EventType.CHANGE,
                     value.enabled(),
@@ -128,7 +128,7 @@ final class DesktopUiEventProtocol {
                     scopeId
             );
         } else if (node instanceof DesktopUiNode.Table value) {
-            endpoint = endpoint(
+            endpoint = new EventEndpoint(
                     value.bindingId(),
                     DesktopUiNode.EventType.SELECTION,
                     value.enabled(),
@@ -136,7 +136,7 @@ final class DesktopUiEventProtocol {
                     scopeId
             );
         } else if (node instanceof DesktopUiNode.Tree value) {
-            endpoint = endpoint(
+            endpoint = new EventEndpoint(
                     value.bindingId(),
                     DesktopUiNode.EventType.SELECTION,
                     value.enabled(),
@@ -144,7 +144,7 @@ final class DesktopUiEventProtocol {
                     scopeId
             );
         } else if (node instanceof DesktopUiNode.Button value) {
-            endpoint = endpoint(
+            endpoint = new EventEndpoint(
                     value.actionId(),
                     DesktopUiNode.EventType.ACTIVATE,
                     value.enabled(),
@@ -152,7 +152,7 @@ final class DesktopUiEventProtocol {
                     scopeId
             );
         } else if (node instanceof DesktopUiNode.Link value) {
-            endpoint = endpoint(
+            endpoint = new EventEndpoint(
                     value.actionId(),
                     DesktopUiNode.EventType.ACTIVATE,
                     value.enabled(),
@@ -160,7 +160,7 @@ final class DesktopUiEventProtocol {
                     scopeId
             );
         } else if (node instanceof DesktopUiNode.Surface value && value.actionId() != null) {
-            endpoint = endpoint(
+            endpoint = new EventEndpoint(
                     value.actionId(),
                     DesktopUiNode.EventType.ACTIVATE,
                     true,
@@ -172,22 +172,6 @@ final class DesktopUiEventProtocol {
             putEndpoint(endpoints, node.id(), endpoint);
         }
         node.childNodes().forEach(child -> indexNode(child, endpoints, scopeId));
-    }
-
-    private static EventEndpoint endpoint(
-            String targetId,
-            DesktopUiNode.EventType eventType,
-            boolean enabled,
-            DesktopUiNode node,
-            String scopeId
-    ) {
-        return new EventEndpoint(
-                targetId,
-                eventType,
-                enabled,
-                node,
-                scopeId
-        );
     }
 
     private static void putEndpoint(

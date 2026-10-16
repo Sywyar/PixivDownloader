@@ -28,7 +28,6 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import io.github.robinpcrd.cupertino.*
-import io.github.robinpcrd.cupertino.theme.CupertinoTheme
 import top.sywyar.pixivdownload.guicompose.*
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.*

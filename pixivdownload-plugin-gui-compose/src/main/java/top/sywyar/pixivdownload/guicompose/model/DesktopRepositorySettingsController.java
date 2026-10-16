@@ -21,9 +21,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import static top.sywyar.pixivdownload.guicompose.model.GuiActionResponseSafety.responseDetail;
-import static top.sywyar.pixivdownload.guicompose.model.GuiActionResponseSafety.safeJsonPath;
-import static top.sywyar.pixivdownload.guicompose.model.GuiActionResponseSafety.sanitizeActionText;
 import static top.sywyar.pixivdownload.guicompose.model.DesktopUiNodes.*;
 
 /**

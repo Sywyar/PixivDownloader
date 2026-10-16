@@ -46,7 +46,6 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     private static final Logger LOG = LoggerFactory.getLogger(ComposeDesktopUiModel.class);
     private final int serverPort;
     private final String rootFolder;
-    private final Path configPath;
     private final String selectedProviderId;
     private final DesktopUiHost host;
     private final DesktopToolsController tools;
@@ -113,7 +112,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     ) {
         this.serverPort = serverPort;
         this.rootFolder = Objects.requireNonNull(rootFolder, "rootFolder");
-        this.configPath = Objects.requireNonNull(configPath, "configPath");
+        Objects.requireNonNull(configPath, "configPath");
         this.selectedProviderId = Objects.requireNonNull(selectedProviderId, "selectedProviderId");
         this.host = Objects.requireNonNull(host, "host");
         this.mediaTools = new DesktopMediaToolsController(this, host);
@@ -141,7 +140,6 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         this.statusController = new DesktopStatusController(
                 this,
                 host,
-                serverPort,
                 rootFolder,
                 formValues
         );
@@ -369,7 +367,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
             Map<String, Runnable> nextActions = new LinkedHashMap<>();
             DesktopUiHost.OnboardingSnapshot onboardingState = host.onboardingState(rootFolder);
             List<DesktopUiDocument.Page> pages = new ArrayList<>();
-            appendHostPages(pages, nextSelections, nextActions, onboardingState);
+            appendControlCenterPages(pages, nextSelections, nextActions, onboardingState);
             List<DesktopUiDocument.Dialog> dialogs = new ArrayList<>();
             if (dialogState != null) dialogs.add(dialog(dialogState, nextActions));
             long candidateRevision = snapshot == null ? 1L : snapshot.revision() + 1L;
@@ -448,15 +446,6 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         } catch (RuntimeException failure) {
             LOG.warn("Desktop snapshot listener failed", failure);
         }
-    }
-
-    private void appendHostPages(
-            List<DesktopUiDocument.Page> pages,
-            Map<String, Consumer<List<String>>> nextSelections,
-            Map<String, Runnable> nextActions,
-            DesktopUiHost.OnboardingSnapshot onboardingState
-    ) {
-        appendControlCenterPages(pages, nextSelections, nextActions, onboardingState);
     }
 
     private void appendControlCenterPages(

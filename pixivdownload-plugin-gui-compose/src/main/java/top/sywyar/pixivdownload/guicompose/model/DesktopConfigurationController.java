@@ -5,7 +5,6 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import top.sywyar.pixivdownload.guicompose.model.GuiActionResponseSafety.ActionResult;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigActionContribution;
@@ -42,8 +41,6 @@ import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static top.sywyar.pixivdownload.guicompose.model.GuiActionResponseSafety.responseDetail;
-import static top.sywyar.pixivdownload.guicompose.model.GuiActionResponseSafety.safeJsonPath;
 import static top.sywyar.pixivdownload.guicompose.model.GuiActionResponseSafety.sanitizeActionText;
 import static top.sywyar.pixivdownload.guicompose.model.DesktopUiNodes.*;
 
@@ -52,7 +49,6 @@ import static top.sywyar.pixivdownload.guicompose.model.DesktopUiNodes.*;
  */
 final class DesktopConfigurationController {
     private static final Logger LOG = LoggerFactory.getLogger(DesktopConfigurationController.class);
-    private static final String APP_OWNER = "app";
 
     final ComposeDesktopUiModel owner;
     final DesktopUiHost host;
@@ -166,11 +162,7 @@ final class DesktopConfigurationController {
             return false;
         formValues.put(binding, value);
         repositories.acceptForm(binding, value);
-        switch (binding) {
-            case "interface.language" -> applyLocale(value);
-            default -> {
-            }
-        }
+        if ("interface.language".equals(binding)) applyLocale(value);
         return true;
     }
 
@@ -1209,7 +1201,7 @@ final class DesktopConfigurationController {
     }
 
     String selected(String key, String fallback) {
-        return form(
+        return formValues.getOrDefault(
                 "interface." + switch (key) {
                     case "app.language" -> "language";
                     case "app.gui-provider" -> "provider";
@@ -1228,10 +1220,6 @@ final class DesktopConfigurationController {
     private String savedProviderId() {
         String saved = savedValues.get(new FieldKey(null, "app.gui-provider"));
         return saved == null || saved.isBlank() ? owner.selectedProviderId() : saved;
-    }
-
-    private String form(String key, String fallback) {
-        return formValues.getOrDefault(key, fallback);
     }
 
     private void setConfigNotice(String value) {

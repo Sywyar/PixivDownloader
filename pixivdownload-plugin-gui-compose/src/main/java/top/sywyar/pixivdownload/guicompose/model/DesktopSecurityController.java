@@ -5,7 +5,6 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.*;
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,7 +59,7 @@ final class DesktopSecurityController {
                             : DesktopUiNodes.token(contribution.labelNamespace(), contribution.descriptionI18nKey(), ""),
                     ButtonStyle.NORMAL, !owner.busy(), DesktopUiIcon.SECURITY));
         }
-        actions.add(action("close", nextActions, this::close));
+        actions.add(action("close", nextActions, () -> open("")));
         actions.add(action("submit", nextActions, this::changePassword));
         actions.add(action("logout", nextActions, this::logout));
         actions.add(action("save", nextActions, this::saveConnection));
@@ -106,14 +105,6 @@ final class DesktopSecurityController {
         clearSecrets();
         inputChanged();
         panel = next;
-        owner.rebuild();
-    }
-
-    private void close() {
-        if (owner.busy()) return;
-        clearSecrets();
-        inputChanged();
-        panel = "";
         owner.rebuild();
     }
 

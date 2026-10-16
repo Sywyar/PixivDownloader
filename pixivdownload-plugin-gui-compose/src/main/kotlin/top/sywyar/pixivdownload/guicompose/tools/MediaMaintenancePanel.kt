@@ -32,7 +32,6 @@ internal fun MediaMaintenancePanel(
     fun button(suffix: String) = nodes.filterIsInstance<Button>().first { it.id() == group.id() + suffix }
     fun label(key: String) = workspaceText(text, key)
     val progress = nodes.filterIsInstance<Progress>().firstOrNull { it.id() == group.id() + ".progress" }
-    val busy = nodes.filterIsInstance<Progress>().any { it.id() == group.id() + ".busy" }
     val ready = message(".ready")
     Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
         if (progress == null) {

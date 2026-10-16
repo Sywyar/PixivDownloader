@@ -34,7 +34,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.FilterNone
@@ -294,7 +293,7 @@ internal object ComposeDesktopUi {
                                 }
                                 CupertinoSurface(Modifier.weight(1f).fillMaxWidth(), color = Color.Transparent) {
                                     ComposeDesktopRoot(
-                                        context, model, observed, messages,
+                                        model, observed, messages,
                                     )
                                     message.value?.let { current ->
                                         DesktopMessageDialog(
@@ -335,10 +334,8 @@ internal object ComposeDesktopUi {
         }
     }
 
-    private fun unwrap(problem: Throwable): Throwable {
-        val cause = if (problem is InvocationTargetException && problem.cause != null) problem.cause!! else problem
-        return cause
-    }
+    private fun unwrap(problem: Throwable): Throwable =
+        if (problem is InvocationTargetException && problem.cause != null) problem.cause!! else problem
 
     private data class UiMessage(val level: DesktopUiSession.MessageLevel, val title: String, val message: String)
 
@@ -575,7 +572,6 @@ private class ComposeShortcutDispatcher(
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun ComposeDesktopRoot(
-    context: DesktopUiContext,
     model: ComposeDesktopUiModel,
     snapshot: DesktopUiSnapshot,
     messages: ComposeMessages,

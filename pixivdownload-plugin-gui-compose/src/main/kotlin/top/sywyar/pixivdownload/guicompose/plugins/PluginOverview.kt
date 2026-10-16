@@ -80,9 +80,9 @@ internal fun PluginOverview(
         (!attention || plugin.needsAttention()) && (query.isBlank() ||
             listOf(plugin.name(), plugin.description(), plugin.id()).any { it.contains(query.trim(), ignoreCase = true) })
     }
-    val builtIn = matches.filter { it.builtIn() }
+    val (builtIn, external) = matches.partition { it.builtIn() }
     val showBuiltIn = builtInExpanded || query.isNotBlank() || attention
-    val shown = matches.filter { !it.builtIn() } + if (showBuiltIn) builtIn else emptyList()
+    val shown = external + if (showBuiltIn) builtIn else emptyList()
     val selected = node.plugins().find { it.id() == selectedId }
     var lastDetail by remember { mutableStateOf<PluginEntry?>(null) }
     SideEffect { if (selected != null) lastDetail = selected }
@@ -241,7 +241,7 @@ internal fun PluginOverview(
                                 }
                             }
                         }
-                        entries(matches.filter { !it.builtIn() })
+                        entries(external)
                         if (builtIn.isNotEmpty()) {
                             item(key = "built-in-section", span = { GridItemSpan(maxLineSpan) }) {
                                 Row(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 6.dp)

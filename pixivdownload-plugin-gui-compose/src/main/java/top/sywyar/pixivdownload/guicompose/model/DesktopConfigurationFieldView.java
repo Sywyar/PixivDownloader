@@ -4,7 +4,6 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot;
 
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiProvider;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigEffect;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
@@ -44,14 +43,12 @@ final class DesktopConfigurationFieldView {
     private final DesktopConfigurationController model;
     private final ComposeDesktopUiModel owner;
     private final DesktopUiHost host;
-    private final Map<String, String> formValues;
     private final Map<FieldKey, String> values;
 
     DesktopConfigurationFieldView(DesktopConfigurationController model) {
         this.model = model;
         this.owner = model.owner;
         this.host = model.host;
-        this.formValues = model.formValues;
         this.values = model.values;
     }
 
@@ -86,7 +83,7 @@ final class DesktopConfigurationFieldView {
 
         String selectedProvider = model.selectedProvider();
         List<DesktopUiNode.Option> themes = themeOptions(selectedProvider);
-        String configuredTheme = selected("app.theme", "system");
+        String configuredTheme = model.selected("app.theme", "system");
         String selectedTheme = themes.stream().anyMatch(theme -> theme.id().equals(configuredTheme)) ? configuredTheme : "system";
 
         List<DesktopUiNode> nodes = new ArrayList<>();
@@ -100,7 +97,7 @@ final class DesktopConfigurationFieldView {
                         "gui.interface.language.label",
                         null,
                         locales,
-                        selected("app.language", "follow-system"),
+                        model.selected("app.language", "follow-system"),
                         !owner.busy()
                 ),
                 GuiConfigEffect.HOT_RELOAD
@@ -383,11 +380,10 @@ final class DesktopConfigurationFieldView {
             case BACKEND_RESTART -> "gui.compose.settings.effect.backend";
             case PROCESS_RESTART -> "gui.compose.settings.effect.process";
         };
-        TextStyle style = TextStyle.CAPTION;
         return new DesktopUiNode.Text(
                 id + ".effect",
                 new TextToken("gui-compose", key, "", List.of()),
-                style,
+                TextStyle.CAPTION,
                 false,
                 false
         );
@@ -466,14 +462,6 @@ final class DesktopConfigurationFieldView {
         return result;
     }
 
-    String selected(String key, String fallback) {
-        return model.selected(key, fallback);
-    }
-
-    String form(String key, String fallback) {
-        return formValues.getOrDefault(key, fallback);
-    }
-
     static TextToken optionalToken(String namespace, String key) {
         return key == null || key.isBlank() ? null : token(namespace, key, key);
     }
@@ -488,21 +476,6 @@ final class DesktopConfigurationFieldView {
 
     static String first(List<String> values) {
         return values == null || values.isEmpty() ? "" : nullToEmpty(values.get(0));
-    }
-
-    static DesktopUiNode.FormRow formRow(
-            String id,
-            String labelKey,
-            String helpKey,
-            DesktopUiNode content
-    ) {
-        return new DesktopUiNode.FormRow(
-                id,
-                key(labelKey),
-                helpKey == null ? null : key(helpKey),
-                content,
-                null
-        );
     }
 
     static DesktopUiNode.Choice choice(
