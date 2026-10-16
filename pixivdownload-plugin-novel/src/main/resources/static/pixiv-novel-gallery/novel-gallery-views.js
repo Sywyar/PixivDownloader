@@ -106,7 +106,6 @@ function formatReadingDuration(seconds) {
     if (hour > 0) parts.push(pageI18n.t('novel-gallery:duration.hour', '{count} 小时', { count: hour }));
     if (minute > 0) parts.push(pageI18n.t('novel-gallery:duration.minute', '{count} 分钟', { count: minute }));
     if (second > 0 && hour === 0) parts.push(pageI18n.t('novel-gallery:duration.second', '{count} 秒', { count: second }));
-    if (!parts.length) parts.push(pageI18n.t('novel-gallery:duration.second', '{count} 秒', { count: total }));
     return parts.join(' ');
 }
 
@@ -484,7 +483,6 @@ async function loadSeriesNovels(seriesId, strip, leftBtn, rightBtn) {
 /** 系列横排尺寸常量，需与 .series-row .series-works-pager / .author-work-card 默认尺寸保持一致。 */
 const SERIES_CARD_WIDTH_PX = 140;
 const SERIES_COLUMN_GAP_PX = 10;
-const SERIES_ROW_GAP_PX = 12;
 /** 卡高 = 140 缩略图 + ~36 标题（两行）+ 上下间距，给一个保守的 180px。 */
 const SERIES_CARD_HEIGHT_PX = 180;
 /** 左右各 40px 留给 .author-works-arrow 浮层。 */
@@ -609,12 +607,10 @@ function renderSeriesPagedStrip(strip, items, leftBtn, rightBtn) {
             if (rightBtn) rightBtn.onclick = () => {
                 strip.scrollBy({ left: pageStridePx, behavior: 'smooth' });
             };
-            const onScroll = () => apply();
-            strip.addEventListener('scroll', onScroll, { passive: true });
-            scrollListenerCleanup = () => strip.removeEventListener('scroll', onScroll);
+            strip.addEventListener('scroll', apply, { passive: true });
+            scrollListenerCleanup = () => strip.removeEventListener('scroll', apply);
             apply();
         } else {
-            pageIndex = Math.min(pageIndex, totalPages - 1);
             const apply = () => {
                 pager.style.transform = `translateX(-${pageIndex * pageStridePx}px)`;
                 if (leftBtn) leftBtn.disabled = pageIndex === 0;

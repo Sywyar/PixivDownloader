@@ -63,7 +63,7 @@ const batch = {
 let isNovelAdmin = false;
 
 function selectionMapToEntries(map) {
-    return Array.from(map.entries()).map(([id, mode]) => [Number(id), mode]);
+    return Array.from(map, ([id, mode]) => [Number(id), mode]);
 }
 
 function partitionSelectionMap(map) {
