@@ -6,8 +6,9 @@ import top.sywyar.pixivdownload.guiswing.SwingHost;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
-import javax.swing.JTextField;
+import javax.swing.JLabel;
 import javax.swing.JSpinner;
+import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import java.awt.Component;
 import java.awt.Container;
@@ -22,6 +23,44 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @DisplayName("Swing 工具配置继承")
 class ToolsConfigurationTest {
+    @Test
+    @DisplayName("加载和刷新配置失败时显示宿主解析的错误提示")
+    void configurationFailuresUseHostMessages() throws Exception {
+        var failureText = new AtomicReference<>("Initial host failure message");
+        var locale = new DesktopUiHost.UiLocale("en-US", "English", "_en");
+        var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "defaultBackfillOptions" -> throw new IllegalStateException("Configuration unavailable");
+                    case "readDownloadRootFromConfig" -> "downloads";
+                    case "resolveDatabasePath" -> Path.of("data/test.db");
+                    case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
+                    case "mediaTools", "coreConfigGroups", "coreConfigFields" -> List.of();
+                    case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);
+                    case "subscribeBackend" -> (AutoCloseable) () -> {};
+                    case "message" -> "desktop.ui.tools.operation-failed".equals(args[0])
+                            ? failureText.get() : args[0];
+                    default -> throw new AssertionError("Unexpected host operation: " + method.getName());
+                });
+        var path = Path.of("config.yaml");
+        SwingHost.install(new DesktopUiContext(false, 8080, "downloads", path, "gui-swing", host,
+                List.of(), List::of, text -> text.key(), () -> "system"));
+        var panel = new AtomicReference<ToolsPanel>();
+        try {
+            SwingUtilities.invokeAndWait(() -> panel.set(new ToolsPanel(path)));
+            SwingUtilities.invokeAndWait(() -> {
+                assertEquals(1, descendants(panel.get()).filter(JLabel.class::isInstance).map(JLabel.class::cast)
+                        .filter(label -> label.getText() != null && label.getText().contains(failureText.get())).count());
+                failureText.set("Refreshed host failure message");
+                panel.get().refreshConfiguration();
+            });
+            SwingUtilities.invokeAndWait(() -> assertEquals(1,
+                    descendants(panel.get()).filter(JLabel.class::isInstance).map(JLabel.class::cast)
+                            .filter(label -> label.getText() != null && label.getText().contains(failureText.get())).count()));
+        } finally {
+            SwingUtilities.invokeAndWait(() -> { if (panel.get() != null) panel.get().dispose(); });
+        }
+    }
+
     @Test
     @DisplayName("打开日志在后台调用只读宿主入口，重复点击不阻塞 EDT")
     void logOpeningKeepsEventThreadResponsive() throws Exception {

@@ -331,7 +331,7 @@ public class ToolsPanel extends JPanel {
             dryRunCheck.setSelected(defaults.dryRun());
         } catch (RuntimeException failure) {
             log.warn(logMessage("gui.tools.log.proxy-defaults.failed", failure.getMessage()), failure);
-            setBackfillStatus(message("desktop.ui.tools.operation-failed"));
+            setBackfillStatus(SwingHost.host().message("desktop.ui.tools.operation-failed"));
         }
 
         updateProxyFieldState();
@@ -345,7 +345,7 @@ public class ToolsPanel extends JPanel {
             inheritedRootFolder = root;
         } catch (RuntimeException failure) {
             log.warn(logMessage("gui.tools.log.proxy-defaults.failed", failure.getMessage()), failure);
-            setBackfillStatus(message("desktop.ui.tools.operation-failed"));
+            setBackfillStatus(SwingHost.host().message("desktop.ui.tools.operation-failed"));
         }
     }
 
@@ -813,7 +813,7 @@ public class ToolsPanel extends JPanel {
                 catch (Exception failure) {
                     log.warn(logMessage("desktop.ui.tools.log-open-failed"), failure);
                     GuiErrorDialog.show(ToolsPanel.this, message("gui.dialog.error.title"),
-                            message("desktop.ui.tools.log-open-failed"));
+                            SwingHost.host().message("desktop.ui.tools.log-open-failed"));
                 }
             }
         }.execute();
