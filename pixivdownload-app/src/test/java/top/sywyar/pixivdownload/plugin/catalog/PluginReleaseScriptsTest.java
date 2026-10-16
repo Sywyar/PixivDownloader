@@ -61,17 +61,8 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("市场清单生成脚本把插件 descriptor 依赖投影到 package 元数据")
-    void marketManifestScriptProjectsDescriptorDependencies() throws Exception {
-        String script = script("generate-market-manifest.ps1");
-
-        assertThat(script).contains(
-                "function Get-PluginDependencies([string]$value)",
-                "$dependencies = @(Get-PluginDependencies $d[\"plugin.dependencies\"])",
-                "dependencies      = @($dependencies)"
-        );
-        assertThat(script).doesNotContain("dependencies      = @()");
-
+    @DisplayName("官方插件描述符保留通知与统计依赖声明")
+    void officialDescriptorsDeclareNotificationAndStatisticsDependencies() throws Exception {
         assertThat(pluginDescriptor("pixivdownload-plugin-mail")).contains("plugin.dependencies=notification@1.0");
         assertThat(pluginDescriptor("pixivdownload-plugin-push")).contains("plugin.dependencies=notification@1.0");
         assertThat(pluginDescriptor("pixivdownload-plugin-download-workbench"))

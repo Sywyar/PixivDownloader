@@ -312,9 +312,6 @@ try {
         # element on Windows PowerShell 5.1 (the bare-object quirk only affects pipeline input).
         $manifestJson = ConvertTo-Json @($manifest) -Depth 5
         [System.IO.File]::WriteAllText((Join-Path $OutputDir "plugins-manifest.json"), $manifestJson + "`n", $Utf8NoBom)
-    }
-
-    if (-not $CoreShellOnly) {
         Write-Step "Writing launch scripts"
         $runBat = @'
 @echo off

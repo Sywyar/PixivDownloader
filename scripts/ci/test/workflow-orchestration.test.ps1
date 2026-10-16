@@ -181,6 +181,7 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         $script:writes = [Collections.Generic.List[string]]::new()
         $script:buildExit = 0
         $script:existing = $false
+        $script:missingAssetSuffixes = @()
         $plugins = @(@{Id='first'; Module='first'}, @{Id='second'; Module='second'})
         foreach ($plugin in $plugins) {
             $descriptor = Join-Path $fixture "$($plugin.Module)/src/main/resources/plugin.properties"
@@ -234,7 +235,9 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             if ($args[1] -eq 'view') {
                 if (-not $script:existing) { $global:LASTEXITCODE = 1; return 'release not found' }
                 $id = $args[2] -replace '-v.*$', ''
-                $assets = @(@{name="$id-1.0.0.jar"}, @{name="$id-1.0.0.jar.sha256"}, @{name="$id-1.0.0.jar.sig"})
+                $assets = @(foreach ($suffix in @('', '.sha256', '.sig')) {
+                    if ($script:missingAssetSuffixes -notcontains $suffix) { @{name="$id-1.0.0.jar$suffix"} }
+                })
                 if ($script:contentMode -eq 'complete') { $assets += @(@{name='market-content.json'}, @{name='content-doc.md'}) }
                 return (@{body=$(if ($script:contentMode) { 'market-content-sha256=' + ('a' * 64) + ' market-source-commit=' + ('d' * 40) } else { '' });
                     assets=$assets} | ConvertTo-Json -Compress)
@@ -295,6 +298,26 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
                 Assert-Equal $script:builds[0] @('-Pofficial-surveys', '-pl', 'pixivdownload-sdk-tools', '-am', 'verify', '-DskipTests')
             }
         }
+        foreach ($missing in @(@(''), @('.sha256'), @('.sig'), @('.sha256', '.sig'))) {
+            $script:missingAssetSuffixes = $missing
+            $script:contentMode = ''; $script:existing = $true; $script:readbacks = 0
+            $script:builds.Clear(); $script:writes.Clear()
+            $parameters.UsePrebuiltArtifacts = $true
+            if ($missing -contains '') {
+                Assert-Rejected { & $program.Main @parameters } 'Bump plugin.version instead of publishing new bytes under an existing tag'
+                Assert-Equal $script:writes.Count 0
+                Assert-Equal $script:readbacks 0
+            } else {
+                & $program.Main @parameters
+                $expectedPaths = @($missing | ForEach-Object { (Join-Path $fixture 'input') + $_ }) -join ' '
+                Assert-Equal $script:writes @($plugins | ForEach-Object {
+                    "release upload $($_.Id)-v1.0.0 $expectedPaths --repo Sywyar/PixivDownloader-plugins"
+                })
+                Assert-Equal $script:readbacks 2
+            }
+            Assert-Equal $script:builds.Count 0
+        }
+        $script:missingAssetSuffixes = @()
         Remove-Item -LiteralPath $toolJar
         $script:builds.Clear(); $script:writes.Clear()
         $parameters.UsePrebuiltArtifacts = $true
@@ -394,6 +417,14 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
                 if ($LASTEXITCODE -ne 0) { throw 'Generated Nightly manifest was rejected by publication guard.' }
             }
         }
+        $metadataPath = Join-Path $marketRoot $metadata
+        $metadataBytes = [IO.File]::ReadAllBytes($metadataPath)
+        try {
+            Remove-Item -LiteralPath $metadataPath
+            Assert-Rejected { & $program.Main @parameters } 'SDK metadata not found'
+            [IO.File]::WriteAllText($metadataPath, 'version=invalid', $fixtureUtf8)
+            Assert-Rejected { & $program.Main @parameters } 'SDK metadata contains an invalid semantic version'
+        } finally { [IO.File]::WriteAllBytes($metadataPath, $metadataBytes) }
         $case = @{ Expected=$currentSdk }
         $parameters.Remove('NightlyBuildVersion')
         foreach ($fixtureVersion in @('5.0.0', '6.0.0', '7.0.0', '7.0.0')) {

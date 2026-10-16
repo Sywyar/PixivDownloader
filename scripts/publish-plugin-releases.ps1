@@ -444,16 +444,13 @@ foreach ($plugin in $plugins) {
         }
 
         Write-Host "==> $tag already exists but missing asset(s): $($missingAssets -join ', '); supplementing."
-        $artifactAssetExists = $assetNames -contains $assetName
-        if ($artifactAssetExists) {
-            $stagedArtifact = Download-ReleaseAsset -Tag $tag -AssetName $assetName
-        } else {
+        if ($assetNames -notcontains $assetName) {
             throw "Release $tag already exists without $assetName. Bump plugin.version instead of publishing new bytes under an existing tag."
         }
+        $stagedArtifact = Download-ReleaseAsset -Tag $tag -AssetName $assetName
         $companions = Write-StagedCompanionFiles -StagedArtifact $stagedArtifact -AssetName $assetName -Plugin $plugin -Version $version
 
         $uploadPaths = @()
-        if (-not $artifactAssetExists) { $uploadPaths += $stagedArtifact }
         if ($missingAssets -contains $shaAssetName) { $uploadPaths += $companions.ShaFile }
         if ($missingAssets -contains $sigAssetName) { $uploadPaths += $companions.SigFile }
         $uploadPaths += @($contentPaths | Where-Object { $missingAssets -contains [IO.Path]::GetFileName($_) })

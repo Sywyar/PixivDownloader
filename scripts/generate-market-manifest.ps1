@@ -67,7 +67,7 @@ if (-not [string]::IsNullOrWhiteSpace($NightlyBuildVersion) -and
 }
 $isNightly = -not [string]::IsNullOrWhiteSpace($NightlyBuildVersion)
 $nightlySuffix = if ($isNightly) { ($NightlyBuildVersion -split '-', 2)[1] } else { $null }
-$nightlySdkVersion = if ($isNightly) { (Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot) + "-$nightlySuffix" } else { $null }
+if ($isNightly) { $null = Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot }
 $manifestName = if ($isNightly) { "nightly-manifest.json" } else { "manifest.json" }
 $SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
 
@@ -205,9 +205,6 @@ try {
         } else {
             $sourceVersion
         }
-        $requires = if ($isNightly) { $nightlySdkVersion } else { $d["plugin.requires"] }
-        $manifestRequiredSdk = $requires
-        $dependencies = @(Get-PluginDependencies $d["plugin.dependencies"])
         if ($id -ne $plugin.Id) {
             throw "plugin.id '$id' in module $($plugin.Module) does not match expected '$($plugin.Id)'."
         }
