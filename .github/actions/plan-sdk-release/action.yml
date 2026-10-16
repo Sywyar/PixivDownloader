@@ -1,5 +1,5 @@
 name: Plan SDK release
-description: Resolve protected source and the immutable public SDK state
+description: Resolve the protected predecessor and immutable public SDK state
 inputs:
   mode:
     description: SDK publication or recovery mode
@@ -46,12 +46,8 @@ runs:
         case "$REQUESTED_ARGS" in ''|-f) ;; *) echo "Only -f is supported for SDK publication" >&2; exit 1 ;; esac
 
         git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
-        protected_tip="$(git rev-parse "refs/remotes/origin/$DEFAULT_BRANCH")"
-        if ! git merge-base --is-ancestor "$GITHUB_SHA" "$protected_tip"; then
-          echo "SDK publication must select a commit already contained in protected master" >&2
-          exit 1
-        fi
-        trusted_base_sha="$(git rev-parse "$GITHUB_SHA^")"
+        trusted_base_sha="$(node scripts/ci/resolve-trusted-base.mjs --repo-root . \
+          --candidate "$GITHUB_SHA" --default-branch "$DEFAULT_BRANCH")"
         if [ "$mode" = publish ]; then
           published_source="$(node scripts/ci/sdk-published-base.mjs if-present .)"
           if [ -n "$published_source" ]; then
