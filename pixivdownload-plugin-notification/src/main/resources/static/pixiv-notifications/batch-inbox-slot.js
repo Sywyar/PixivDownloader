@@ -249,7 +249,8 @@
 
         style = document.createElement('link');
         style.rel = 'stylesheet';
-        style.href = '/pixiv-notifications/pixiv-notifications.css';
+        style.href = global.PixivAssets
+            ? global.PixivAssets.url('/pixiv-notifications/pixiv-notifications.css') : '/pixiv-notifications/pixiv-notifications.css';
         document.head.appendChild(style);
         createPopover();
         if (global.PixivVue && typeof global.PixivVue.prepareSlotHosts === 'function') {

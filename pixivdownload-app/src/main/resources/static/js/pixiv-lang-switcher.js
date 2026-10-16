@@ -50,6 +50,12 @@
         var destroyed = false;
         var unsubscribeLanguageChange = null;
         var unsubscribeUpdate = null;
+        var pendingController = null;
+
+        function cancelPending() {
+            if (pendingController) pendingController.abort();
+            pendingController = null;
+        }
 
         function observeClient() {
             if (unsubscribeUpdate) unsubscribeUpdate();
@@ -69,8 +75,11 @@
             }
             var request = ++revision;
             requestedLang = normalizedLang;
+            cancelPending();
+            var controller = global.AbortController ? new global.AbortController() : null;
+            pendingController = controller;
             try {
-                var newClient = await client.setLanguage(normalizedLang);
+                var newClient = await client.setLanguage(normalizedLang, { signal: controller ? controller.signal : undefined });
                 if (destroyed || request !== revision) {
                     if (newClient.dispose) newClient.dispose();
                     return;
@@ -91,11 +100,12 @@
                     options.onChange(newClient);
                 }
             } catch (failure) {
-                if (request === revision) {
-                    requestedLang = client.lang;
-                    select.value = client.lang;
-                }
+                if (destroyed || request !== revision || (controller && controller.signal.aborted)) return;
+                requestedLang = client.lang;
+                select.value = client.lang;
                 global.console.warn('Language change failed', failure);
+            } finally {
+                if (pendingController === controller) pendingController = null;
             }
         }
 
@@ -117,6 +127,7 @@
             element: wrapper,
             refresh: function (nextClient) {
                 revision++;
+                cancelPending();
                 if (nextClient && nextClient !== client && client.dispose) client.dispose();
                 client = nextClient || client;
                 requestedLang = client.lang;
@@ -126,6 +137,7 @@
             destroy: function () {
                 destroyed = true;
                 revision++;
+                cancelPending();
                 if (unsubscribeUpdate) unsubscribeUpdate();
                 if (client.dispose) client.dispose();
                 if (typeof unsubscribeLanguageChange === 'function') {

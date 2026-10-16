@@ -191,48 +191,63 @@
         };
     }
 
-    async function fetchJson(url) {
+    function checkActive(requests) {
+        if (requests.cancelled) {
+            var error = new Error('i18n request cancelled');
+            error.name = 'AbortError';
+            throw error;
+        }
+    }
+
+    async function fetchJson(url, requests) {
+        checkActive(requests);
         var controller = global.AbortController ? new global.AbortController() : null;
+        if (controller) requests.controllers.add(controller);
         var timeout = controller && global.setTimeout ? global.setTimeout(function () { controller.abort(); }, 10000) : null;
         try {
             var response = await global.fetch(url, {
                 credentials: 'same-origin', cache: 'no-store', signal: controller ? controller.signal : undefined
             });
+            checkActive(requests);
             if (!response.ok) throw new Error('i18n HTTP ' + response.status);
             var payload = await response.json();
+            checkActive(requests);
             if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
                 throw new Error('Invalid i18n JSON: ' + url);
             }
             return payload;
         } finally {
             if (timeout !== null) global.clearTimeout(timeout);
+            if (controller) requests.controllers.delete(controller);
         }
     }
 
-    async function fetchJsonOrDefault(url, fallbackValue) {
+    async function fetchJsonOrDefault(url, fallbackValue, requests) {
         try {
-            return await fetchJson(url);
+            return await fetchJson(url, requests);
         } catch (e) {
+            checkActive(requests);
             return fallbackValue;
         }
     }
 
     // 语言元数据来源：优先后端 /api/i18n/meta，后端不可用时读构建生成的 i18n-static/meta.json。
     // 不允许在 JavaScript 中写死默认语言或语言数组。
-    async function fetchMeta(preferredLang) {
+    async function fetchMeta(preferredLang, requests) {
         var backendMeta = await fetchJsonOrDefault(
             '/api/i18n/meta?lang=' + encodeURIComponent(preferredLang || ''),
-            null
+            null,
+            requests
         );
         if (backendMeta && backendMeta.supportedLocales && backendMeta.supportedLocales.length) {
             return backendMeta;
         }
-        return await fetchJsonOrDefault(STATIC_BUNDLE_BASE + 'meta.json', null);
+        return await fetchJsonOrDefault(STATIC_BUNDLE_BASE + 'meta.json', null, requests);
     }
 
-    async function fetchMessagesBundle(namespace, lang) {
+    async function fetchMessagesBundle(namespace, lang, requests) {
         async function load(url) {
-            var bundle = await fetchJson(url);
+            var bundle = await fetchJson(url, requests);
             if (!bundle.messages || typeof bundle.messages !== 'object' || Array.isArray(bundle.messages)
                     || Object.keys(bundle.messages).some(function (key) { return typeof bundle.messages[key] !== 'string'; })) {
                 throw new Error('Invalid i18n bundle: ' + url);
@@ -244,10 +259,12 @@
                 '/api/i18n/messages/' + encodeURIComponent(namespace) + '?lang=' + encodeURIComponent(lang)
             );
         } catch (e) {
+            checkActive(requests);
             var staticUrl = STATIC_BUNDLE_BASE +
                 encodeURIComponent(namespace) + '.' + encodeURIComponent(lang) + '.json';
             try { return await load(staticUrl); }
             catch (fallbackFailure) {
+                checkActive(requests);
                 global.console.warn('i18n bundle unavailable', namespace, lang, e, fallbackFailure);
                 return null;
             }
@@ -343,7 +360,7 @@
         applyAttributeBinding(root, client, '[data-i18n-href]', 'href', 'data-i18n-href');
     }
 
-    function buildClient(meta, namespaces, bundleMap, missing) {
+    function buildClient(meta, namespaces, bundleMap, missing, requests) {
         var listeners = [];
         var appliedRoot = null;
         var disposed = false;
@@ -379,7 +396,7 @@
             var changed = false;
             try {
                 var bundles = await Promise.all(missing.map(function (namespace) {
-                    return fetchMessagesBundle(namespace, client.lang);
+                    return fetchMessagesBundle(namespace, client.lang, requests);
                 }));
                 if (disposed) return;
                 if (readStoredLang() && normalizeLang(readStoredLang()) !== normalizeLang(client.lang)) {
@@ -398,6 +415,8 @@
                         try { listener(client); } catch (failure) { global.console.warn('i18n update failed', failure); }
                     });
                 }
+            } catch (failure) {
+                if (!requests.cancelled) global.console.warn('i18n recovery failed', failure);
             } finally {
                 recovering = false;
                 if (!missing.length) releaseRecovery();
@@ -447,14 +466,16 @@
             },
             dispose: function () {
                 disposed = true;
+                requests.cancel();
                 releaseRecovery();
                 listeners = [];
                 appliedRoot = null;
             },
-            setLanguage: function (lang) {
+            setLanguage: function (lang, options) {
                 return create({
                     lang: lang,
-                    namespaces: namespaces.slice()
+                    namespaces: namespaces.slice(),
+                    signal: options && options.signal
                 });
             }
         };
@@ -471,50 +492,75 @@
 
     async function create(options) {
         var config = options || {};
-        var revision = config.lang ? ++languageRequestRevision : languageRequestRevision;
-        var namespaces = Array.isArray(config.namespaces) && config.namespaces.length
-            ? config.namespaces.slice()
-            : [DEFAULT_NAMESPACE];
-        var storedLang = readStoredLang();
-        var preferredLang = normalizeLang(config.lang || storedLang || global.navigator.language);
-        var meta = await fetchMeta(preferredLang);
-        if (!meta || !meta.defaultLang || !meta.currentLang) {
-            // 后端与静态 meta 都不可用：客户端仍可工作，但语言菜单 / 归一化缺失，
-            // 直接以首选语言尝试加载 bundle。不在此处写死任何语言。
-            meta = {
-                currentLang: preferredLang || '',
-                sourceLang: '',
-                defaultLang: '',
-                fallbackLang: '',
-                languageCookieName: '',
-                languageParamName: '',
-                supportedLocales: [],
-                supportedNamespaces: []
-            };
-        } else {
-            meta.currentLang = resolveSupportedLang(preferredLang || meta.currentLang, meta) || meta.currentLang;
-        }
-        var bundleMap = {};
-        var missing = [];
-
-        for (var i = 0; i < namespaces.length; i += 1) {
-            var namespace = namespaces[i];
-            var bundle = await fetchMessagesBundle(namespace, meta.currentLang);
-            bundleMap[namespace] = bundle ? bundle.messages : {};
-            if (!bundle) missing.push(namespace);
-        }
-
-        // 字典请求期间可能已切换语言；旧客户端不能把共享偏好写回去。
-        if (readStoredLang() !== storedLang) {
-            if (!config.lang) return create(config);
-        } else if (revision === languageRequestRevision) {
-            writeStoredLang(meta.currentLang);
-            if (global.document && global.document.documentElement) {
-                global.document.documentElement.lang = meta.currentLang;
+        var requests = {
+            cancelled: false,
+            controllers: new Set(),
+            cancel: function () {
+                requests.cancelled = true;
+                requests.controllers.forEach(function (controller) { controller.abort(); });
+                requests.controllers.clear();
             }
+        };
+        if (config.signal) {
+            if (config.signal.aborted) requests.cancel();
+            else config.signal.addEventListener('abort', requests.cancel, { once: true });
         }
+        try {
+            checkActive(requests);
+            var revision = config.lang ? ++languageRequestRevision : languageRequestRevision;
+            var namespaces = Array.isArray(config.namespaces) && config.namespaces.length
+                ? config.namespaces.slice()
+                : [DEFAULT_NAMESPACE];
+            var storedLang = readStoredLang();
+            var preferredLang = normalizeLang(config.lang || storedLang || global.navigator.language);
+            var meta = await fetchMeta(preferredLang, requests);
+            if (!meta || !meta.defaultLang || !meta.currentLang) {
+                // 后端与静态 meta 都不可用：客户端仍可工作，但语言菜单 / 归一化缺失，
+                // 直接以首选语言尝试加载 bundle。不在此处写死任何语言。
+                meta = {
+                    currentLang: preferredLang || '',
+                    sourceLang: '',
+                    defaultLang: '',
+                    fallbackLang: '',
+                    languageCookieName: '',
+                    languageParamName: '',
+                    supportedLocales: [],
+                    supportedNamespaces: []
+                };
+            } else {
+                meta.currentLang = resolveSupportedLang(preferredLang || meta.currentLang, meta) || meta.currentLang;
+            }
+            var bundleMap = {};
+            var missing = [];
 
-        return buildClient(meta, namespaces, bundleMap, missing);
+            for (var i = 0; i < namespaces.length; i += 1) {
+                var namespace = namespaces[i];
+                var bundle = await fetchMessagesBundle(namespace, meta.currentLang, requests);
+                bundleMap[namespace] = bundle ? bundle.messages : {};
+                if (!bundle) missing.push(namespace);
+            }
+
+            checkActive(requests);
+            // 字典请求期间可能已切换语言；旧客户端不能把共享偏好写回去。
+            if (readStoredLang() !== storedLang) {
+                if (!config.lang) {
+                    requests.cancel();
+                    return create(config);
+                }
+            } else if (revision === languageRequestRevision) {
+                writeStoredLang(meta.currentLang);
+                if (global.document && global.document.documentElement) {
+                    global.document.documentElement.lang = meta.currentLang;
+                }
+            }
+
+            return buildClient(meta, namespaces, bundleMap, missing, requests);
+        } catch (failure) {
+            requests.cancel();
+            throw failure;
+        } finally {
+            if (config.signal) config.signal.removeEventListener('abort', requests.cancel);
+        }
     }
 
     global.PixivI18n = {

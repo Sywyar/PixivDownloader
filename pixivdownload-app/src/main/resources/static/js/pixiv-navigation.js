@@ -56,7 +56,8 @@
         if (!updateStylesLoaded) {
             var style = global.document.createElement('link');
             style.rel = 'stylesheet';
-            style.href = '/css/pixiv-navigation.css';
+            style.href = global.PixivAssets
+                ? global.PixivAssets.url('/css/pixiv-navigation.css') : '/css/pixiv-navigation.css';
             global.document.head.appendChild(style);
             updateStylesLoaded = true;
         }

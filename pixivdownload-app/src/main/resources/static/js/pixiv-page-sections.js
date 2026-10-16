@@ -278,7 +278,7 @@
                 if (!s.moduleUrl || loadedModules[s.moduleUrl]) return;
                 loadedModules[s.moduleUrl] = true;
                 var script = global.document.createElement('script');
-                script.src = s.moduleUrl;
+                script.src = global.PixivAssets ? global.PixivAssets.url(s.moduleUrl) : s.moduleUrl;
                 script.async = true;
                 global.document.head.appendChild(script);
             });
