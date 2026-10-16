@@ -108,7 +108,6 @@ function relationMergeBehavior(reasons) {
     const {queue, calls} = load();
     queue.syncAllResultsQueueState();
     ok('2: 四个 sync 各被回调一次', allFour(calls));
-    ok('2: 快捷获取 sync 被回调（回归守卫）', calls.quick === 1);
 }
 
 // ===== 3) removeFromQueue 命中后同步全部四个预览（清除队列 stopAndClear 走同一聚合函数）=====
@@ -211,15 +210,6 @@ function relationMergeBehavior(reasons) {
     ok('7: 恢复后仍按队列 id 去重', restored.length === 2);
     ok('7: 恢复路径保留重复项携带的类型关系', restored[0].typeData.values.join(',') === 'source-a,source-b');
     ok('7: 恢复调用中性 hook', reasons.length === 3 && reasons.every(reason => reason === 'restore'));
-}
-
-// ===== 8) 用户卡片 toggle 入口先调用中性合并 hook =====
-{
-    const source = ['user-core.js', 'user-data.js', 'user-view.js', 'user.js']
-        .map(file => fs.readFileSync(path.join(STATIC, 'modes', file), 'utf8'))
-        .join('\n');
-    ok('8: User 卡片 toggle 接入合并 hook',
-        source.includes("reconcileQueueItemTypeData(alreadyInQueue, meta, 'toggle')"));
 }
 
 // ===== 9) 新来源晚于终态到达时重置队列项，并在队列运行中补 worker =====

@@ -63,7 +63,7 @@ async function scheduleVerb(task, verb) {
     } catch (e) {
         abToast('error', String(e && e.message || bt('schedule.feedback.failed', '操作失败')));
     }
-    await loadScheduleTasks(true);
+    await loadScheduleTasks();
 }
 
 async function scheduleSetEnabled(task, enabled) {
@@ -74,7 +74,7 @@ async function scheduleSetEnabled(task, enabled) {
     } catch (e) {
         abToast('error', String(e && e.message || bt('schedule.feedback.failed', '操作失败')));
     }
-    await loadScheduleTasks(true);
+    await loadScheduleTasks();
     return saved;
 }
 
@@ -95,7 +95,7 @@ async function deleteScheduleTask(task) {
     if (vueDelete && typeof vueDelete.unmountScheduleQueue === 'function') {
         vueDelete.unmountScheduleQueue(task.id);
     }
-    loadScheduleTasks(true);
+    loadScheduleTasks();
 }
 
 /* ============================================================

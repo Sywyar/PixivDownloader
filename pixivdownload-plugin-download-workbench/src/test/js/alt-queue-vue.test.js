@@ -225,6 +225,7 @@ function loadVue(opts) {
     sandbox.window.PixivBatchAlt = {};
     if (opts.pixivVue !== false) sandbox.PixivVue = makePixivVue(opts.vueOpts, record);
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../../main/resources/static/pixiv-batch/queue-row-sync.js'), 'utf8'), sandbox);
     vm.runInContext(VUE_SRC, sandbox);
     return { sandbox, document, record, state: stateObj, dockState: dockStateObj,
         api: sandbox.window.PixivBatchAlt.queueVue };

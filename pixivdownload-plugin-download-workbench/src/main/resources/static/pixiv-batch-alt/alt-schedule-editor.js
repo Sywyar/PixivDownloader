@@ -130,7 +130,7 @@ function openScheduleOverride(task) {
             return;
         }
         closeModal();
-        loadScheduleTasks(true);
+        loadScheduleTasks();
     });
     const clearProxyBtn = el('button', 'ab-btn ab-btn--danger-ghost');
     clearProxyBtn.type = 'button';
@@ -146,7 +146,7 @@ function openScheduleOverride(task) {
         }
         abToast('success', bt('schedule.feedback.saved', '操作成功'));
         closeModal();
-        loadScheduleTasks(true);
+        loadScheduleTasks();
     });
     actions.appendChild(saveBtn);
     actions.appendChild(clearProxyBtn);
@@ -166,7 +166,7 @@ function openScheduleOverride(task) {
             }
             abToast('success', bt('schedule.feedback.saved', '操作成功'));
             closeModal();
-            loadScheduleTasks(true);
+            loadScheduleTasks();
         });
         actions.appendChild(clearCredentialBtn);
     }
@@ -491,7 +491,7 @@ function openScheduleEditor(task) {
         }
         if (editing) finishScheduleEdit();
         else closeDrawer();
-        loadScheduleTasks(true);
+        loadScheduleTasks();
     });
     actions.appendChild(saveBtn);
     const footer = el('div');

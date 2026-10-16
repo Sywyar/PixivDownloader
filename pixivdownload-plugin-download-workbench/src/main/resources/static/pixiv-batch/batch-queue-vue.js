@@ -121,10 +121,7 @@
     var dlCurrentApp = null;   // 当前卡专属挂载（供 isDownloadCurrentActive 判定；与统计 / 列表的岛级激活相互独立）
     var dlActive = false;
     var dlMounting = false;
-    var dlDirtyRows = new Map();
-    var dlRowIndexes = new Map();
-    var dlQueue = null;
-    var dlFullRefresh = false;
+    var dlRows = createQueueRowSync(queueRowKey, function (q) { return Object.assign({}, q); });
 
     function buildDlStore() {
         return Vue.reactive({
@@ -377,36 +374,10 @@
     }
 
     function syncDownloadList(changedItem) {
-        if (changedItem) { dlDirtyRows.set(queueRowKey(changedItem), changedItem); }
-        else { dlFullRefresh = true; }
+        dlRows.mark(changedItem);
         schedule('dl:list', function () {
-            if (dlStore) {
-                var st = batchState();
-                var queue = st && Array.isArray(st.queue) ? st.queue : [];
-                var rebuild = dlFullRefresh || dlQueue !== queue || dlStore.items.length !== queue.length;
-                dlDirtyRows.forEach(function (q, key) {
-                    var index = dlRowIndexes.get(key);
-                    if (index === undefined || queue[index] !== q) rebuild = true;
-                });
-                if (rebuild) {
-                    dlRowIndexes.clear();
-                    dlQueue = queue;
-                    var keys = [];
-                    dlStore.items = queue.map(function (q, index) {
-                        var key = queueRowKey(q);
-                        keys.push(key);
-                        dlRowIndexes.set(key, index);
-                        return Object.assign({}, q);
-                    });
-                    dlStore.rowKeys = keys;
-                } else {
-                    // 替换脏行快照，嵌套字段原地变化也能触发子组件刷新。
-                    dlDirtyRows.forEach(function (q, key) {
-                        dlStore.items[dlRowIndexes.get(key)] = Object.assign({}, q);
-                    });
-                }
-            }
-            dlDirtyRows.clear(); dlFullRefresh = false;
+            var st = batchState();
+            dlRows.sync(st && Array.isArray(st.queue) ? st.queue : [], dlStore);
         });
     }
     function syncDownloadStats(s) {
@@ -597,8 +568,7 @@
             schedComponent: schedComponent,
             reset: function () {
                 pendingJobs.clear(); rafScheduled = false;
-                dlDirtyRows.clear(); dlFullRefresh = false;
-                dlRowIndexes.clear(); dlQueue = null;
+                dlRows.clear();
                 dlStore = null; dlApps = []; dlCurrentApp = null; dlActive = false; dlMounting = false;
                 schedEntries.clear(); Vue = null;
             }

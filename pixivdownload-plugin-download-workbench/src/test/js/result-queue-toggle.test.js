@@ -8,7 +8,9 @@ const vm = require('node:vm');
 
 const scripts = path.join(__dirname, '../../main/resources/static/pixiv-batch');
 
-for (const mode of ['search', 'series']) {
+for (const mode of ['search', 'series', 'user', 'user-id']) {
+    const userMode = mode.startsWith('user');
+    const username = mode === 'user' ? 'Author' : '';
     for (const action of ['add', 'duplicate', 'keep', 'merge', 'remove', 'downloading', 'missing']) {
         test(`${mode} 结果卡片切换：${action}`, () => {
             const calls = [];
@@ -23,6 +25,10 @@ for (const mode of ['search', 'series']) {
                     if (mode === 'series') {
                         assert.equal(order, 1);
                         assert.equal(context.seriesId, 'series-id');
+                    } else if (userMode) {
+                        assert.equal(order.userId, 'author-id');
+                        assert.equal(order.username, username);
+                        assert.equal(order.variant, 'fixture-variant');
                     }
                     return meta;
                 },
@@ -48,21 +54,35 @@ for (const mode of ['search', 'series']) {
                 }
             };
             vm.createContext(sandbox);
-            for (const name of ['batch-queue-actions.js', `modes/${mode === 'search' ? 'search' : 'series-view'}.js`]) {
+            const modeScripts = userMode ? ['user-core', 'user-view']
+                : [mode === 'search' ? 'search' : 'series-view'];
+            for (const name of ['batch-queue-actions.js', ...modeScripts.map(name => `modes/${name}.js`)]) {
                 vm.runInContext(fs.readFileSync(path.join(scripts, name), 'utf8'), sandbox, {filename: name});
             }
-            sandbox.addItemsToQueue = (ids, metas, source, username) => {
+            sandbox.addItemsToQueue = (ids, metas, source, queueUsername, authorId, authorName) => {
                 assert.equal(ids[0], 'fixture:42'); assert.equal(metas[0], meta);
-                assert.equal(source, 'fixture-source'); assert.equal(username, '');
+                assert.equal(source, userMode ? 'user' : 'fixture-source');
+                assert.equal(queueUsername, userMode ? username || 'author-id' : '');
+                if (userMode) {
+                    assert.equal(authorId, 'author-id');
+                    assert.equal(authorName, username || 'author-id');
+                }
                 calls.push('add'); return action === 'duplicate' ? 0 : 1;
             };
             sandbox.removeFromQueue = id => {
                 assert.equal(id, 'fixture:42'); calls.push('remove'); return action !== 'downloading';
             };
             sandbox.syncSeriesResultsQueueState = () => calls.push('sync-series');
+            sandbox.syncUserResultsQueueState = () => calls.push('sync-user');
             sandbox.input = item;
             if (mode === 'search') vm.runInContext('searchState.results = [input]', sandbox);
-            sandbox[mode === 'search' ? 'addSearchItemToQueue' : 'addSeriesItemToQueue'](action === 'missing' ? 1 : 0);
+            if (userMode) {
+                sandbox.username = username;
+                vm.runInContext("Object.assign(userState, {items: [input], userId: 'author-id', username, variant: 'fixture-variant'})", sandbox);
+            }
+            const toggle = userMode ? sandbox.addUserItemToQueue
+                : mode === 'search' ? sandbox.addSearchItemToQueue : sandbox.addSeriesItemToQueue;
+            toggle(action === 'missing' ? 1 : 0);
             const expected = {
                 add: ['source', 'add', ['status.added-to-queue', 'success']],
                 duplicate: ['source', 'add', ['status.already-in-queue', 'info']],
@@ -73,6 +93,10 @@ for (const mode of ['search', 'series']) {
                 missing: []
             }[action];
             if (mode === 'series' && ['add', 'duplicate'].includes(action)) expected.push('sync-series');
+            if (userMode && ['add', 'duplicate'].includes(action)) {
+                expected.shift();
+                expected.push('sync-user');
+            }
             assert.deepEqual(calls, expected);
         });
     }

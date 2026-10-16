@@ -155,6 +155,7 @@ function loadVue(opts) {
     sandbox.window.PixivBatch = { state: { state: stateObj } };
     if (opts.pixivVue !== false) sandbox.PixivVue = makePixivVue(opts.vueOpts, record);
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../../main/resources/static/pixiv-batch/queue-row-sync.js'), 'utf8'), sandbox);
     vm.runInContext(VUE_SRC, sandbox);
     return { sandbox, document, record, state: stateObj, api: sandbox.window.PixivBatch.queueVue };
 }
@@ -197,6 +198,7 @@ function loadIntegration(opts) {
     if (opts.pixivVue !== false) sandbox.PixivVue = makePixivVue(opts.vueOpts, record);
     vm.createContext(sandbox);
     vm.runInContext(QUEUE_SRC, sandbox);
+    vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../../main/resources/static/pixiv-batch/queue-row-sync.js'), 'utf8'), sandbox);
     vm.runInContext(VUE_SRC, sandbox);
     // 用 spy 中和 buildQueueItemHtml / formatCurrentCardHtml（避免拉入全部内部格式化依赖），保留真实 formatSpeed / 门面分支。
     sandbox.buildQueueItemHtml = (q) => '<div class="queue-item">' + (q && q.id) + '</div>';

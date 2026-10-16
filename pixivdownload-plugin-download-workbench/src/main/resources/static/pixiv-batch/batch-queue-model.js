@@ -157,11 +157,6 @@
         return {text, tone};
     }
 
-    function actionOutcomeText(action, labels) {
-        const part = actionOutcomePart(action, labels);
-        return part ? part.text : '';
-    }
-
     function postDownloadOutcomeParts(data) {
         const parts = [];
         if (data && data.bookmarkResult) {
@@ -328,8 +323,7 @@
         if (phase === 'ffmpeg-waiting' || phase === 'finalizing') {
             parts.push(miniProgressModel(mediaProgressLabel(progress), '', null, 'var(--violet)', status !== 'failed'));
         }
-        const hasFfmpeg = phase === 'ffmpeg' && status !== 'failed';
-        if (hasFfmpeg) {
+        if (phase === 'ffmpeg' && status !== 'failed') {
             const timeText = progress.ffmpegDurationMs > 0
                 ? `${formatDurationMs(progress.ffmpegOutTimeMs || 0)} / ${formatDurationMs(progress.ffmpegDurationMs)}`
                 : '';
@@ -337,7 +331,7 @@
                 mediaProgressLabel(progress),
                 timeText,
                 progress.ffmpegProgress,
-                status === 'failed' ? 'var(--danger-bg)' : 'var(--violet)'
+                'var(--violet)'
             ));
         }
 

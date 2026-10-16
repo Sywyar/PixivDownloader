@@ -23,7 +23,7 @@ const QUEUE_TYPES_SOURCE = [
     'batch-queue-types-normalize.js', 'batch-queue-types-runtime.js', 'batch-queue-types.js'
 ].map(file => fs.readFileSync(path.join(WORKBENCH, file), 'utf8')).join('\n');
 const DOWNLOAD_SOURCE = [
-    'batch-download-quota.js', 'filename-template.js', 'batch-download-artwork.js',
+    'batch-download-quota.js', 'filename-template.js', 'batch-artwork-requests.js', 'batch-download-artwork.js',
     'batch-download-workers.js', 'batch-download.js'
 ].map(file => fs.readFileSync(path.join(WORKBENCH, file), 'utf8')).join('\n');
 

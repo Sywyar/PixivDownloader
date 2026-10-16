@@ -109,6 +109,7 @@ async function fixture(alt, size = 300, production = false) {
         if (el === current) currentApp = app;
         return {app,el};
     }};
+    vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../../main/resources/static/pixiv-batch/queue-row-sync.js'), 'utf8'), sandbox);
     vm.runInContext(fs.readFileSync(path.join(staticRoot,alt?'pixiv-batch-alt/alt-queue-vue.js':'pixiv-batch/batch-queue-vue.js'),'utf8'),sandbox);
     const api = alt ? sandbox.PixivBatchAlt.queueVue : sandbox.PixivBatch.queueVue;
     assert.equal(await (alt?api.ensure():api.mountDownloadQueue()),true);

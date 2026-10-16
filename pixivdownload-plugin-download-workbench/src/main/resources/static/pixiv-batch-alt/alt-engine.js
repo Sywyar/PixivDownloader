@@ -26,54 +26,6 @@ function notifyFirstDownloadCompleted() {
 }
 
 /* ============================================================
-   Pixiv 作品请求
-   ============================================================ */
-async function getArtworkMeta(artworkId) {
-    const data = await apiGet(`/api/pixiv/artwork/${artworkId}/meta`);
-    if (data.error) throw new Error(data.error);
-    return data;
-}
-
-async function getArtworkPages(artworkId) {
-    const data = await apiGet(`/api/pixiv/artwork/${artworkId}/pages`);
-    if (data.error) throw new Error(data.error);
-    return data.urls || [];
-}
-
-async function getUgoiraMeta(artworkId) {
-    const data = await apiGet(`/api/pixiv/artwork/${artworkId}/ugoira`);
-    if (data.error) throw new Error(data.error);
-    return data;
-}
-
-async function checkDownloaded(artworkId) {
-    const query = state.settings.verifyHistoryFiles ? '?verifyFiles=true' : '';
-    const res = await fetch(`${BASE}/api/downloaded/${artworkId}${query}`);
-    if (res.status === 400) return null;
-    if (res.status !== 200) throw new Error(bt('queue.message.failed-status-error', '失败 — 状态查询异常'));
-    const data = await res.json();
-    if (!data.artworkId) throw new Error(bt('queue.message.failed-status-error', '失败 — 状态查询异常'));
-    return data;
-}
-
-// 补齐旧记录缺失的元数据，后端仅填空字段。
-async function recoverArtworkMetadata(artworkId, meta) {
-    try {
-        const res = await fetch(`${BASE}/api/downloaded/${artworkId}/recover-metadata`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(meta)
-        });
-        if (res.status === 200) {
-            return await res.json();
-        }
-    } catch (e) {
-        console.warn(bt('download.log.recover-metadata-failed', '恢复作品元数据失败: artworkId={id}', {id: artworkId}), e);
-    }
-    return null;
-}
-
-/* ============================================================
    下载提交（POST /api/download/pixiv，payload 与现行引擎一致）
    ============================================================ */
 async function sendDownload(artworkId, imageUrls, title, isUserDownload, username, authorId, authorName, xRestrict, isAi, ugoiraData, description, tags, seriesInfo, illustType, rawMetaJson, invocation) {
@@ -145,11 +97,6 @@ async function sendDownload(artworkId, imageUrls, title, isUserDownload, usernam
     }
     if (!res.ok) throw new Error(data.error || data.message || bt('status.backend-failure', '后端返回失败'));
     return data;
-}
-
-async function getDownloadStatus(artworkId) {
-    const res = await fetch(`${BASE}/api/download/status/${artworkId}`);
-    return res.json();
 }
 
 /* ============================================================

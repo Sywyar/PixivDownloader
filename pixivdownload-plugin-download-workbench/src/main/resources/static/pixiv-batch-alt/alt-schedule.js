@@ -29,7 +29,7 @@ function startSchedulePolling() {
     }
     if (!schedulePageVisible()) return;
     schedulePollTimer = setInterval(() => {
-        if (!scheduleListRequest && schedulePageVisible()) loadScheduleTasks(true);
+        if (!scheduleListRequest && schedulePageVisible()) loadScheduleTasks();
     }, 4000);
 }
 
@@ -47,7 +47,7 @@ function stopSchedulePolling() {
     releaseAllScheduleQueues();
 }
 
-async function loadScheduleTasks(quiet) {
+async function loadScheduleTasks() {
     if (!schedulePageVisible()) return;
     scheduleListRequest?.abort();
     const request = new AbortController();
@@ -417,7 +417,7 @@ function renderScheduleTaskList() {
     }
     if (scheduleState.error) {
         releaseAllScheduleQueues();
-        list.appendChild(errorBox(scheduleState.error, () => loadScheduleTasks(false)));
+        list.appendChild(errorBox(scheduleState.error, () => loadScheduleTasks()));
         return;
     }
     if (!tasks.length) {
@@ -524,7 +524,7 @@ async function applyScheduleCredentialPolicyAction(group, action, button) {
         abToast('error', bt('schedule.error.credential-policy-action', '凭证策略操作失败'));
     } finally {
         if (button.isConnected) button.disabled = false;
-        await loadScheduleTasks(true);
+        await loadScheduleTasks();
     }
 }
 

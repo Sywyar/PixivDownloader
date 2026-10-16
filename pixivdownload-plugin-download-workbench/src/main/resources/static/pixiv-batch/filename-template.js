@@ -32,12 +32,10 @@
 
     function ensureUniqueBaseNames(names) {
         const used = new Set();
-        const baseCounts = new Map();
         return names.map((base, page) => {
             const baseKey = base.toLowerCase();
-            const duplicate = baseCounts.get(baseKey) || 0;
             let candidate = base;
-            if (duplicate > 0 || used.has(baseKey)) {
+            if (used.has(baseKey)) {
                 let suffixIndex = 1;
                 do {
                     const suffix = `_p${page}${suffixIndex > 1 ? '_' + suffixIndex : ''}`;
@@ -45,7 +43,6 @@
                     suffixIndex++;
                 } while (used.has(candidate.toLowerCase()));
             }
-            baseCounts.set(baseKey, duplicate + 1);
             used.add(candidate.toLowerCase());
             return candidate;
         });

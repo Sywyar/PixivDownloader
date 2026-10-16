@@ -60,10 +60,7 @@ let aqvStore = null;
 let aqvApps = [];
 let aqvActive = false;
 let aqvMounting = false;
-const aqvDirtyRows = new Map();
-const aqvRowIndexes = new Map();
-let aqvQueue = null;
-let aqvFullRefresh = false;
+const aqvRows = createQueueRowSync(aqvRowKey, q => queueProgressSnapshot(q));
 
 function aqvHelper() {
     return window.PixivVue;
@@ -339,9 +336,7 @@ function aqvMountOne(el, comp, kind) {
 }
 
 function aqvTeardown() {
-    aqvRowIndexes.clear();
-    aqvDirtyRows.clear();
-    aqvQueue = null;
+    aqvRows.clear();
     aqvApps.splice(0).forEach(entry => {
         try { entry.app.unmount(); } catch (e) { /* 卸载失败忽略 */ }
     });
@@ -439,35 +434,9 @@ function aqvSyncPaused(paused) {
 }
 
 function aqvSyncList(changedItem) {
-    if (changedItem) aqvDirtyRows.set(aqvRowKey(changedItem), changedItem);
-    else aqvFullRefresh = true;
+    aqvRows.mark(changedItem);
     aqvSchedule('list', () => {
-        if (aqvStore && typeof state !== 'undefined') {
-            const queue = state.queue || [];
-            let rebuild = aqvFullRefresh || aqvQueue !== queue || aqvStore.items.length !== queue.length;
-            aqvDirtyRows.forEach((q, key) => {
-                const index = aqvRowIndexes.get(key);
-                if (index === undefined || queue[index] !== q) rebuild = true;
-            });
-            if (rebuild) {
-                aqvRowIndexes.clear();
-                aqvQueue = queue;
-                const keys = [];
-                aqvStore.items = queue.map((q, index) => {
-                    const key = aqvRowKey(q);
-                    keys.push(key);
-                    aqvRowIndexes.set(key, index);
-                    return queueProgressSnapshot(q);
-                });
-                aqvStore.rowKeys = keys;
-            } else {
-                // 原始队列在 Vue 外更新，替换脏行快照以保留嵌套字段的刷新语义。
-                aqvDirtyRows.forEach((q, key) => {
-                    aqvStore.items[aqvRowIndexes.get(key)] = queueProgressSnapshot(q);
-                });
-            }
-        }
-        aqvDirtyRows.clear(); aqvFullRefresh = false;
+        aqvRows.sync(typeof state === 'undefined' ? null : state.queue || [], aqvStore);
     });
 }
 
@@ -628,8 +597,7 @@ window.PixivBatchAlt.queueVue = Object.assign(window.PixivBatchAlt.queueVue || {
         schedComponent: aqvSchedComponent,
         reset: function () {
             aqvJobs.clear();
-            aqvDirtyRows.clear(); aqvFullRefresh = false;
-            aqvRowIndexes.clear(); aqvQueue = null;
+            aqvRows.clear();
             aqvRafScheduled = false;
             aqvApps.splice(0).forEach(entry => {
                 try { entry.app.unmount(); } catch (e) { /* 忽略 */ }
