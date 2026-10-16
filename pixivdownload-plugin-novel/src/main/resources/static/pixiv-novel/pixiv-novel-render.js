@@ -111,14 +111,11 @@
         flush();
 
         let html = '<section class="novel-page">';
-        let pageOpen = true;
         for (const b of blocks) {
             if (b.kind === 'chapter') {
                 html += `<h2 class="novel-chapter">${escapeHtml(b.text)}</h2>`;
             } else if (b.kind === 'newpage') {
-                if (pageOpen) html += '</section>';
-                html += '<section class="novel-page">';
-                pageOpen = true;
+                html += '</section><section class="novel-page">';
             } else if (b.kind === 'p') {
                 const paragraphs = b.text.split(/\n{2,}/);
                 for (const p of paragraphs) {
@@ -127,8 +124,7 @@
                 }
             }
         }
-        if (pageOpen) html += '</section>';
-        return html;
+        return html + '</section>';
     }
 
     global.PixivNovelRender = { render: render, escapeHtml: escapeHtml };
