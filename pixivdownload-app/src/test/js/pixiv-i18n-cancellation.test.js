@@ -57,7 +57,7 @@ function harness(withAbortController = true) {
     }
     state.window = sandbox;
     state.create = options => sandbox.PixivI18n.create(options);
-    state.emit = name => [...(state.events.get(name) || [])].forEach(callback => callback());
+    state.emit = (name, event) => [...(state.events.get(name) || [])].forEach(callback => callback(event));
     state.runTimer = delay => {
         const [id, timer] = [...state.timers].find(([, value]) => value.delay === delay);
         state.timers.delete(id);
@@ -151,6 +151,84 @@ test('离开页面取消在途恢复，成功创建后解除调用方的取消�
     await flush();
     assert.equal(h.timers.size, 0);
     assert.equal(client.has('title'), false);
+});
+
+test('BFCache 挂起释放请求和计时器，恢复后补取缺失字典并更新原绑定', async () => {
+    const h = harness();
+    h.fail = true;
+    const client = await h.create();
+    const label = { textContent: 'Fallback', getAttribute: name => name === 'data-i18n' ? 'title' : null };
+    client.apply({querySelectorAll: selector => selector === '[data-i18n]' ? [label] : []});
+    let updates = 0;
+    client.onUpdate(() => updates++);
+    h.hold = () => true;
+    h.emit('focus');
+    const pending = h.calls.at(-1);
+    h.emit('pagehide', {persisted: true});
+    assert.equal(pending.signal.aborted, true);
+    await flush();
+    const count = h.calls.length;
+    h.emit('online'); h.emit('focus');
+    assert.equal(h.calls.length, count);
+    assert.equal(h.timers.size, 0);
+    h.hold = () => false;
+    h.fail = false;
+    h.emit('pageshow', {persisted: true});
+    h.emit('online'); h.emit('focus');
+    await flush();
+    assert.equal(h.calls.length, count + 1);
+    assert.equal(label.textContent, 'en-US');
+    assert.equal(updates, 1);
+    assert.equal(h.timers.size, 0);
+    for (const name of ['focus', 'online', 'pagehide', 'pageshow']) assert.equal(h.events.get(name)?.size || 0, 0);
+});
+
+test('BFCache 恢复不会复活已销毁的旧语言客户端，离线重试仍有界', async () => {
+    const h = harness();
+    h.fail = true;
+    const old = await h.create();
+    h.emit('pagehide', {persisted: true});
+    old.dispose();
+    h.fail = false;
+    const current = await h.create({lang: 'zh-CN'});
+    const count = h.calls.length;
+    h.emit('pageshow', {persisted: true}); h.emit('online'); h.emit('focus');
+    await flush();
+    assert.equal(h.calls.length, count);
+    assert.equal(current.t('title'), 'zh-CN');
+    assert.equal(old.has('title'), false);
+    h.fail = true;
+    const offline = await h.create();
+    h.emit('pagehide', {persisted: true});
+    h.emit('pageshow', {persisted: true});
+    await flush();
+    for (const delay of [1500, 5000, 15000]) { h.runTimer(delay); await flush(); }
+    assert.equal(h.timers.size, 0);
+    offline.dispose();
+});
+
+test('无 AbortController 时 BFCache 恢复拒绝旧响应且不清除新一轮请求状态', async () => {
+    const h = harness(false);
+    h.fail = true;
+    const client = await h.create();
+    let updates = 0;
+    client.onUpdate(() => updates++);
+    h.hold = () => true;
+    h.emit('online');
+    const old = h.calls.at(-1);
+    h.emit('pagehide', {persisted: true});
+    h.emit('pageshow', {persisted: true});
+    const current = h.calls.at(-1);
+    assert.notEqual(old, current);
+    old.finish(); await flush();
+    assert.equal(client.has('title'), false);
+    const count = h.calls.length;
+    h.emit('focus');
+    assert.equal(h.calls.length, count);
+    current.finish(); await flush();
+    assert.equal(client.t('title'), 'en-US');
+    assert.equal(updates, 1);
+    assert.equal(h.timers.size, 0);
 });
 
 test('请求超时仍允许静态回退，取消一个客户端不影响其它客户端', async () => {

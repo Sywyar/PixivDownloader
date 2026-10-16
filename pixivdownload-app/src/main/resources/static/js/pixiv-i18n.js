@@ -364,6 +364,7 @@
         var listeners = [];
         var appliedRoot = null;
         var disposed = false;
+        var suspended = false;
         var recovering = false;
         var timer = null;
         var attempts = 0;
@@ -374,31 +375,48 @@
             if (global.removeEventListener) {
                 global.removeEventListener('online', retry);
                 global.removeEventListener('focus', retry);
-                global.removeEventListener('pagehide', client.dispose);
+                global.removeEventListener('pagehide', hide);
+                global.removeEventListener('pageshow', show);
             }
         }
         function schedule() {
-            if (!disposed && missing.length && attempts < delays.length && global.setTimeout) {
+            if (!disposed && !suspended && missing.length && attempts < delays.length && global.setTimeout) {
                 timer = global.setTimeout(recover, delays[attempts++]);
             }
         }
         function retry() {
-            if (disposed || recovering || !missing.length) return;
+            if (disposed || suspended || recovering || !missing.length) return;
             if (timer !== null) global.clearTimeout(timer);
             timer = null;
             attempts = 0;
             recover();
         }
+        function hide(event) {
+            if (!event || !event.persisted) { client.dispose(); return; }
+            suspended = true;
+            requests.cancel();
+            if (timer !== null) global.clearTimeout(timer);
+            timer = null;
+        }
+        function show() {
+            if (disposed || !suspended) return;
+            suspended = false;
+            // 缓存恢复使用新的请求作用域，旧响应仍保持取消状态。
+            requests = createRequests();
+            recovering = false;
+            retry();
+        }
         async function recover() {
             timer = null;
-            if (disposed || recovering) return;
+            if (disposed || suspended || recovering) return;
             recovering = true;
+            var activeRequests = requests;
             var changed = false;
             try {
                 var bundles = await Promise.all(missing.map(function (namespace) {
-                    return fetchMessagesBundle(namespace, client.lang, requests);
+                    return fetchMessagesBundle(namespace, client.lang, activeRequests);
                 }));
-                if (disposed) return;
+                if (disposed || suspended || requests !== activeRequests) return;
                 if (readStoredLang() && normalizeLang(readStoredLang()) !== normalizeLang(client.lang)) {
                     client.dispose();
                     return;
@@ -416,11 +434,13 @@
                     });
                 }
             } catch (failure) {
-                if (!requests.cancelled) global.console.warn('i18n recovery failed', failure);
+                if (!activeRequests.cancelled) global.console.warn('i18n recovery failed', failure);
             } finally {
-                recovering = false;
-                if (!missing.length) releaseRecovery();
-                else schedule();
+                if (requests === activeRequests) {
+                    recovering = false;
+                    if (!missing.length) releaseRecovery();
+                    else schedule();
+                }
             }
         }
         var client = {
@@ -483,15 +503,15 @@
             if (global.addEventListener) {
                 global.addEventListener('online', retry);
                 global.addEventListener('focus', retry);
-                global.addEventListener('pagehide', client.dispose);
+                global.addEventListener('pagehide', hide);
+                global.addEventListener('pageshow', show);
             }
             schedule();
         }
         return client;
     }
 
-    async function create(options) {
-        var config = options || {};
+    function createRequests() {
         var requests = {
             cancelled: false,
             controllers: new Set(),
@@ -501,6 +521,12 @@
                 requests.controllers.clear();
             }
         };
+        return requests;
+    }
+
+    async function create(options) {
+        var config = options || {};
+        var requests = createRequests();
         if (config.signal) {
             if (config.signal.aborted) requests.cancel();
             else config.signal.addEventListener('abort', requests.cancel, { once: true });
