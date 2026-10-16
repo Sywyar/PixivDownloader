@@ -240,11 +240,7 @@
             : {};
         var out = {};
         Object.keys(props).forEach(function (key) {
-            if (key.indexOf('$survey_response_') === 0) {
-                out[key] = props[key];
-                return;
-            }
-            if (PROTOCOL_PROPERTIES.indexOf(key) >= 0) {
+            if (key.indexOf('$survey_response_') === 0 || PROTOCOL_PROPERTIES.indexOf(key) >= 0) {
                 out[key] = props[key];
             }
         });
@@ -384,8 +380,7 @@
             duration = 0;
         }
         var result = base + duration;
-        if (!isFinite(result)) return Number.MAX_SAFE_INTEGER;
-        if (result > Number.MAX_SAFE_INTEGER) return Number.MAX_SAFE_INTEGER;
+        if (!isFinite(result) || result > Number.MAX_SAFE_INTEGER) return Number.MAX_SAFE_INTEGER;
         return Math.floor(result);
     }
 

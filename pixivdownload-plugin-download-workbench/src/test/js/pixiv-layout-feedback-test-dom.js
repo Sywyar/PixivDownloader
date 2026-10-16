@@ -464,12 +464,7 @@ function createFakeAdapter(overrides) {
             if (overrides.syncFlagsCallback) {
                 // 真实 SDK 竞态：flags 已加载时同步调用 callback，然后才返回 off。
                 cb();
-                return function off() {
-                    calls.offCalls = (calls.offCalls || 0) + 1;
-                    if (flagsListener === cb) flagsListener = null;
-                };
-            }
-            if (!overrides.stallFlags) {
+            } else if (!overrides.stallFlags) {
                 Promise.resolve().then(() => {
                     if (flagsListener === cb) cb();
                 });

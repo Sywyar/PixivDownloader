@@ -308,11 +308,7 @@ html[data-theme="dark"] {
 }
 
 .kind-switcher label:active,
-.quick-kind-switcher label:active {
-    transform: scale(.95);
-}
-
-/* Cookie 格式按钮与小单位切换：按压反馈。 */
+.quick-kind-switcher label:active,
 .cookie-fmt button:active,
 .unit-toggle:active {
     transform: scale(.95);
@@ -379,7 +375,6 @@ summary:focus-visible {
     animation: batch-motion-rise var(--motion-med) var(--motion-ease-out);
 }
 
-/* 设置子行：合订格式、新下载自动翻译组、跳过已下载子项、「收藏到」选择。 */
 #s-novel-merge-format-row,
 #s-novel-merge-format-hint,
 #s-novel-auto-translate-row,
@@ -388,11 +383,7 @@ summary:focus-visible {
 #s-novel-translate-hint,
 #s-verify-files-wrap,
 #s-redownload-deleted-wrap,
-#s-collection-wrap {
-    animation: batch-motion-fade var(--motion-fast) ease-out;
-}
-
-/* 搜索：子模式操作区互换、来源能力控件行、会员排序提示。 */
+#s-collection-wrap,
 #search-mode-actions,
 #batch-mode-actions,
 #search-upstream-controls,
@@ -410,11 +401,7 @@ summary:focus-visible {
     animation: batch-motion-fade var(--motion-fast) ease-out;
 }
 
-#quick-inner-section {
-    animation: batch-motion-rise var(--motion-med) var(--motion-ease-out);
-}
-
-/* 附加筛选与存为计划任务卡随取得上下文显隐（卡片自身的出现，区别于其展开 / 收起）。 */
+#quick-inner-section,
 .search-extra-filters,
 .schedule-save-card {
     animation: batch-motion-rise var(--motion-med) var(--motion-ease-out);
@@ -430,18 +417,13 @@ summary:focus-visible {
     animation: batch-motion-rise var(--motion-med) var(--motion-ease-out);
 }
 
-/* 结果联动：预览工具条、折叠按钮与分页的出现。 */
 #quick-preview-toolbar,
 .preview-collapse-btn,
 #quick-pagination,
 #quick-inner-pagination,
 #user-pagination,
 #search-pagination,
-#series-pagination {
-    animation: batch-motion-fade var(--motion-fast) ease-out;
-}
-
-/* 系列来源浏览器、Cookie 导入入口、油猴脚本面板、布局切换、配额与打包下载区。 */
+#series-pagination,
 .series-source-browser:not([hidden]),
 #cookie-import:not([hidden]),
 #cookie-import-hint:not([hidden]),

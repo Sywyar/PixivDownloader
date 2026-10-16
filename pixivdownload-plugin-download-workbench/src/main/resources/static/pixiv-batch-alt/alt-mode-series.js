@@ -305,7 +305,7 @@ function renderSeriesStage() {
     stage.appendChild(enqueueBar({
         summary: bt('series.info.page', '第 {current} 页{last}', {
             current: seriesState.page,
-            last: seriesState.isLastPage ? '' : ''
+            last: ''
         }),
         filterSummary,
         pageEnabled: seriesState.items.length > 0,

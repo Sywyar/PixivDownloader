@@ -115,7 +115,6 @@ function makeScheduleBox(id) {
 const vueContext = vm.createContext({console}, {codeGeneration: {strings: false, wasm: false}});
 vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../../../../pixivdownload-app/src/main/resources/static/vendor/vue/vue.global.prod.js'), 'utf8'), vueContext);
 const realVue = vueContext.Vue;
-function makeVueRuntime() { return realVue; }
 function renderNodes(component) {
     const root = component.render.call(realVue.proxyRefs(component.setup ? component.setup() : {}));
     const nodes = [];
@@ -137,9 +136,8 @@ function currentText(api) {
 
 function makePixivVue(opts, record) {
     opts = opts || {};
-    const vue = makeVueRuntime();
     return {
-        ensure: () => opts.ensureFail ? Promise.reject(new Error('runtime load failed')) : Promise.resolve(vue),
+        ensure: () => opts.ensureFail ? Promise.reject(new Error('runtime load failed')) : Promise.resolve(realVue),
         mountOn: (el, comp) => {
             record.mounts.push({ el, comp });
             if (opts.mountFail) return Promise.resolve(null);

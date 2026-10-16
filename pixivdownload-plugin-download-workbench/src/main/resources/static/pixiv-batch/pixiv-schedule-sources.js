@@ -21,15 +21,6 @@
         FOLLOW_LATEST: 'follow-latest',
         COLLECTION: 'collection'
     });
-    const LEGACY_SOURCE = Object.freeze({
-        USER_NEW: SOURCE.USER_NEW,
-        USER_REQUEST: SOURCE.USER_REQUEST,
-        SEARCH: SOURCE.SEARCH,
-        SERIES: SOURCE.SERIES,
-        MY_BOOKMARKS: SOURCE.MY_BOOKMARKS,
-        FOLLOW_LATEST: SOURCE.FOLLOW_LATEST,
-        COLLECTION: SOURCE.COLLECTION
-    });
     const FETCH_LIMIT_PRESENTATION = Object.freeze({
         namespace: 'batch',
         watermarkHintKey: 'schedule.pixiv.fetch-limit.hint.watermark',
@@ -44,7 +35,7 @@
 
     function canonicalSourceType(value) {
         const normalized = value == null ? '' : String(value).trim();
-        return LEGACY_SOURCE[normalized] || normalized;
+        return SOURCE[normalized] || normalized;
     }
 
     function parsePixivUserInput(raw) {
@@ -777,7 +768,7 @@
         }, lease, 'revoked');
     }
 
-    function normalizedCredentialPolicy(task, lease) {
+    function normalizedCredentialPolicy(task) {
         const value = task && task.credentialPolicy && typeof task.credentialPolicy === 'object'
             ? task.credentialPolicy : {};
         const publicationId = Number(value.publicationId);
@@ -796,7 +787,7 @@
 
     function credentialTaskPresentation(task, _context, lease) {
         lease.assertCurrent();
-        const policy = normalizedCredentialPolicy(task, lease);
+        const policy = normalizedCredentialPolicy(task);
         if (policy.ownerPluginId !== lease.ownerPluginId
                 || policy.policyId !== CREDENTIAL_POLICY_ID
                 || policy.publicationId !== lease.publicationId) return null;
@@ -844,7 +835,7 @@
         const groups = new Map();
         (Array.isArray(tasks) ? tasks : []).forEach(task => {
             if (!Object.values(SOURCE).includes(taskSourceType(task))) return;
-            const policy = normalizedCredentialPolicy(task, lease);
+            const policy = normalizedCredentialPolicy(task);
             const overuse = policy.statusCode === CREDENTIAL_STATUS_OVERUSE_PAUSED
                 || (task.suspendReason === OVERUSE_SUSPEND_REASON
                     && task.suspendCode === OVERUSE_SUSPEND_CODE);

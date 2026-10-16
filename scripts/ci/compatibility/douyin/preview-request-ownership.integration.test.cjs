@@ -25,8 +25,6 @@ const DOUYIN_MODULES = moduleSources(process.env.DOUYIN_SOURCE_DIR, 'pixiv-douyi
 ]);
 const MODES_ROOT = path.join(ROOT, 'pixivdownload-plugin-download-workbench', 'src', 'main',
     'resources', 'static', 'pixiv-batch', 'modes');
-const SEARCH_PATH = path.join(ROOT, 'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources',
-    'static', 'pixiv-batch', 'modes', 'search.js');
 
 function readModeScripts(files) {
     return files.map(file => fs.readFileSync(path.join(MODES_ROOT, file), 'utf8')).join('\n');
@@ -46,7 +44,7 @@ const SERIES_SOURCE = readModeScripts([
 const USER_SOURCE = readModeScripts([
     'user-core.js', 'user-data.js', 'user-view.js', 'user.js'
 ]);
-const SEARCH_SOURCE = fs.readFileSync(SEARCH_PATH, 'utf8');
+const SEARCH_SOURCE = readModeScripts(['search.js']);
 const QUICK_SOURCE = readModeScripts([
     'quick-fetch-core.js', 'quick-fetch-outer.js', 'quick-fetch-inner.js', 'quick-fetch.js'
 ]);

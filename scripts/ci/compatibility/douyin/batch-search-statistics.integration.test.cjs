@@ -60,7 +60,6 @@ function hostFormatter(type, acquisition) {
 async function sourceSearchAcquisition(source, type, entryPath, submoduleSources = {}) {
     let initializer = null;
     let submoduleInitializer = null;
-    let descriptor = null;
     const controller = new AbortController();
     const context = {
         type,
@@ -128,7 +127,7 @@ async function sourceSearchAcquisition(source, type, entryPath, submoduleSources
     vm.createContext(sandbox);
     vm.runInContext(source, sandbox);
     const registration = await initializer(context);
-    descriptor = registration && registration.descriptor;
+    const descriptor = registration && registration.descriptor;
     assert.ok(descriptor && descriptor.acquisition && descriptor.acquisition.search,
         type + ' search acquisition should register');
     return descriptor.acquisition.search;

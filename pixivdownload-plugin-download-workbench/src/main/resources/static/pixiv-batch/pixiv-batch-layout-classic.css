@@ -144,10 +144,7 @@ html[data-batch-layout="portrait"] .batch-layout-action-host[data-batch-layout-a
 }
 
 @media (max-width: 380px) {
-    html[data-batch-layout="portrait"] .dash-stats {
-        grid-template-columns: minmax(0, 1fr);
-    }
-
+    html[data-batch-layout="portrait"] .dash-stats,
     html[data-batch-layout="portrait"] .batch-layout-action-host[data-batch-layout-action-host="portrait"] {
         grid-template-columns: minmax(0, 1fr);
     }

@@ -567,8 +567,8 @@ body.schedule-modal-open {
 
 /* ── 过度访问账号级暂停横幅 ─────────────────────────────────────── */
 .schedule-credential-policy-banner {
-    border: 1px solid var(--line-strong, var(--line-strong));
-    border-left: 4px solid var(--danger-bg, var(--danger-bg));
+    border: 1px solid var(--line-strong);
+    border-left: 4px solid var(--danger-bg);
     background: var(--warning-bg);
     border-radius: 6px;
     padding: 12px 14px;
@@ -633,7 +633,7 @@ body.schedule-modal-open {
 }
 
 .schedule-pending-manual {
-    color: var(--danger-bg, var(--danger-bg));
+    color: var(--danger-bg);
 }
 
 .schedule-pending-line {

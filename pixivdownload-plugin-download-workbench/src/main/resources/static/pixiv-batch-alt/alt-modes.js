@@ -628,9 +628,3 @@ async function pixivJson(path) {
     if (data && data.error) throw new Error(String(data.error));
     return data;
 }
-
-async function fetchIllustCards(userId, ids) {
-    if (!ids.length) return {items: []};
-    const query = ids.map(id => 'ids[]=' + encodeURIComponent(id)).join('&');
-    return pixivJson(`/api/pixiv/user/${encodeURIComponent(userId)}/illust-cards?${query}`);
-}

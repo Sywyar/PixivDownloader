@@ -141,6 +141,41 @@ test('保存计划入口按来源能力显示，快捷入口缺少具体来源�
     assert.equal(h.c.saveScheduleButton().disabled,false);
 });
 
+test('快捷动作按贡献的视图分派，清空旧预览并保留动作选择器', () => {
+    const acquisition = quickType('image', {actions: {
+        'my-illusts': {viewType: 'following-list'},
+        folders: {viewType: 'collection-list'},
+        works: {viewType: 'works-list'}
+    }});
+    const h = harness({quick: {image: acquisition}});
+    h.c.run("Object.assign(quickState, {source:'fixture', kind:'image'})");
+    const selector = h.c.document.createElement('select');
+    selector.id = 'abQuickAction';
+    h.root.appendChild(selector);
+    const stage = h.c.document.getElementById('abQuickStage');
+    const calls = [];
+    h.c.loadQuickWorks = (action, page) => calls.push(['works', action.id, page]);
+    h.c.loadQuickFollowing = (action, offset) => calls.push(['following', action.id, offset]);
+    h.c.loadQuickCollections = action => calls.push(['collections', action.id]);
+    for (const action of h.c.quickActionDefs()) {
+        stage.innerHTML = 'old-preview';
+        h.c.run("quickState.allIds=['old'];quickState.pageCursors=new Map([[2,'old']]);quickState.drill={id:'old'}");
+        h.c.runQuickAction(action, 3);
+        assert.equal(stage.innerHTML, '');
+        assert.equal(h.c.document.getElementById('abQuickAction'), selector);
+        assert.equal(selector.value, action.id);
+        assert.equal(h.c.run('quickState.action'), action.id);
+        assert.equal(h.c.run('quickState.allIds.length'), 0);
+        assert.equal(h.c.run('quickState.pageCursors.size'), 0);
+        assert.equal(h.c.run('quickState.drill'), null);
+    }
+    assert.deepEqual(calls, [['following', 'my-illusts', 0], ['collections', 'folders'], ['works', 'works', 3]]);
+    stage.innerHTML = 'current-preview';
+    h.c.runQuickAction(null);
+    assert.equal(stage.innerHTML, 'current-preview');
+    assert.equal(calls.length, 3);
+});
+
 test('快捷获取空作品与越界空页不请求卡片，仍发布完整空结果', async () => {
     for (const [ids, page] of [[[], 1], [['1', '2'], 2]]) {
         const descriptor = {allIdsFastPath: true};

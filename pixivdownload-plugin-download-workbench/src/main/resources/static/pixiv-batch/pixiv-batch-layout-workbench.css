@@ -55,9 +55,7 @@ html[data-batch-layout="landscape"] .queue-rail {
         min-width: 100px;
         padding: 11px 16px;
     }
-}
 
-@media (max-width: 80em) {
     html[data-batch-layout="landscape"] .wb-shell {
         grid-template-columns: 190px minmax(0, 1fr);
         grid-template-areas:

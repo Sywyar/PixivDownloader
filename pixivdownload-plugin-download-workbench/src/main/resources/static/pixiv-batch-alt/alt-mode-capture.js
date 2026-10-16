@@ -6,14 +6,14 @@
 const QUICK_PAGE_SIZE = 12;
 
 const QUICK_ACTIONS = [
-    {id: 'my-illust-bookmarks-show', icon: 'bookmark', labelKey: 'quick.action.bookmarks-show', label: '我的收藏（公开）', view: 'works'},
-    {id: 'my-illust-bookmarks-hide', icon: 'bookmark', labelKey: 'quick.action.bookmarks-hide', label: '我的收藏（不公开）', view: 'works'},
-    {id: 'my-illusts', icon: 'image', labelKey: 'quick.action.my-works', label: '我自己的作品', view: 'works'},
-    {id: 'my-request-artworks', icon: 'send', labelKey: 'quick.action.my-requests', label: '我的约稿作品', view: 'works'},
-    {id: 'my-following-show', icon: 'users', labelKey: 'quick.action.following-show', label: '我的关注（公开）', view: 'following'},
-    {id: 'my-following-hide', icon: 'users', labelKey: 'quick.action.following-hide', label: '我的关注（不公开）', view: 'following'},
-    {id: 'my-following-new', icon: 'refresh', labelKey: 'quick.action.follow-latest', label: '关注用户的新作', view: 'works'},
-    {id: 'my-collections', icon: 'folder', labelKey: 'quick.action.collections', label: '我的珍藏集', view: 'collections'}
+    {id: 'my-illust-bookmarks-show', icon: 'bookmark', labelKey: 'quick.action.bookmarks-show', label: '我的收藏（公开）'},
+    {id: 'my-illust-bookmarks-hide', icon: 'bookmark', labelKey: 'quick.action.bookmarks-hide', label: '我的收藏（不公开）'},
+    {id: 'my-illusts', icon: 'image', labelKey: 'quick.action.my-works', label: '我自己的作品'},
+    {id: 'my-request-artworks', icon: 'send', labelKey: 'quick.action.my-requests', label: '我的约稿作品'},
+    {id: 'my-following-show', icon: 'users', labelKey: 'quick.action.following-show', label: '我的关注（公开）'},
+    {id: 'my-following-hide', icon: 'users', labelKey: 'quick.action.following-hide', label: '我的关注（不公开）'},
+    {id: 'my-following-new', icon: 'refresh', labelKey: 'quick.action.follow-latest', label: '关注用户的新作'},
+    {id: 'my-collections', icon: 'folder', labelKey: 'quick.action.collections', label: '我的珍藏集'}
 ];
 
 function quickAcquisition() {
@@ -164,17 +164,11 @@ function runQuickAction(action, page) {
     const selector = document.getElementById('abQuickAction');
     if (selector) selector.value = action.id;
     quickState.drill = null;
-    renderStagePreserve();
+    const stage = document.getElementById('abQuickStage');
+    if (stage) stage.innerHTML = '';
     if (action.view === 'works') loadQuickWorks(action, page || 1);
     else if (action.view === 'following') loadQuickFollowing(action, 0);
     else loadQuickCollections(action);
-}
-
-// 仅重绘舞台区，保留头部 / 动作按钮（避免闪烁）
-function renderStagePreserve(after) {
-    const stage = document.getElementById('abQuickStage');
-    if (stage) stage.innerHTML = '';
-    if (typeof after === 'function') after();
 }
 
 function quickRest(action) {
