@@ -25,13 +25,14 @@ const SLOT_SCRIPT_FILES = [
     'pixiv-novel-tts.js'
 ];
 
-function createSandbox() {
+function createSandbox(indexedDB) {
     const listeners = [];
     const values = new Map();
     const sandbox = {
         clearTimeout,
         console,
         fetch: async function () { return {ok: false}; },
+        indexedDB,
         localStorage: {
             getItem(key) { return values.has(key) ? values.get(key) : null; },
             setItem(key, value) { values.set(key, String(value)); }
@@ -42,6 +43,7 @@ function createSandbox() {
     sandbox.window = sandbox;
     sandbox.__listeners = listeners;
     vm.createContext(sandbox);
+    evaluate(sandbox, 'tts/tts-store.js');
     return sandbox;
 }
 
@@ -156,6 +158,46 @@ test('共享反馈组件缺失时朗读交互显示错误并失败关闭', async
     assert.equal(await ctx.core.feedbackPrompt('prompt', 'value'), null);
     assert.equal(await ctx.core.feedbackConfirm('confirm'), false);
     assert.deepEqual(toasts.map(function (item) { return item.kind; }), ['error', 'error']);
+});
+
+test('音频存储打开失败只缓存于所属实例，重新安装朗读模块可独立重试', async function () {
+    const opened = [];
+    const sandbox = createSandbox({
+        open(name) {
+            opened.push(name);
+            const request = {error: new Error('storage unavailable')};
+            queueMicrotask(() => request.onerror());
+            return request;
+        }
+    });
+    evaluate(sandbox, 'pixiv-novel-narration-core.js');
+    const first = {};
+    sandbox.PixivNovelNarrationModules.core.install(first);
+    for (const store of [sandbox.PixivTtsStore, first.core.NarrationStore]) {
+        assert.equal(await store.getAudio('same-key'), null);
+        await store.putAudio('same-key', 'novel', {});
+        await store.touch('novel');
+        assert.equal(await store.getAudio('same-key'), null);
+    }
+    const second = {};
+    sandbox.PixivNovelNarrationModules.core.install(second);
+    assert.equal(await second.core.NarrationStore.getAudio('same-key'), null);
+    await first.core.NarrationStore.deleteAudioForNovel('novel');
+    assert.equal(await sandbox.PixivTtsStore.getAudio('same-key'), null);
+    assert.deepEqual(opened, ['pixiv-tts', 'pixiv-narration', 'pixiv-narration']);
+});
+
+test('浏览器缺少 IndexedDB 时两种音频缓存保持可用的空缓存语义', async function () {
+    const sandbox = createSandbox();
+    evaluate(sandbox, 'pixiv-novel-narration-core.js');
+    const ctx = {};
+    sandbox.PixivNovelNarrationModules.core.install(ctx);
+    for (const store of [sandbox.PixivTtsStore, ctx.core.NarrationStore]) {
+        assert.equal(await store.getAudio('key'), null);
+        await store.putAudio('key', 'novel', {});
+        await store.touch('novel');
+    }
+    await ctx.core.NarrationStore.deleteAudioForNovel('novel');
 });
 
 function installCastSandbox(prompt) {

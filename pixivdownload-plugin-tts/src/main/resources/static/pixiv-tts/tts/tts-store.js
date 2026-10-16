@@ -16,102 +16,114 @@
     function lsGet(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch { return d; } }
     function lsSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
 
-    const DB_NAME = 'pixiv-tts';
-    const AUDIO = 'audio';   // { key, novelId, blob }
-    const META = 'meta';     // { novelId, lastUsed }
-    let dbPromise = null;
-    const available = typeof indexedDB !== 'undefined';
+    // 每个调用方独立持有连接 Promise；数据库失败不影响其它实例。
+    function createAudioStore(dbName, novelLimit) {
+        const AUDIO = 'audio';
+        const META = 'meta';
+        let dbPromise = null;
+        const available = typeof indexedDB !== 'undefined';
 
-    function open() {
-        if (dbPromise) return dbPromise;
-        dbPromise = new Promise((resolve, reject) => {
-            const req = indexedDB.open(DB_NAME, 1);
-            req.onupgradeneeded = () => {
-                const db = req.result;
-                if (!db.objectStoreNames.contains(AUDIO)) {
-                    db.createObjectStore(AUDIO, { keyPath: 'key' })
-                        .createIndex('novelId', 'novelId', { unique: false });
-                }
-                if (!db.objectStoreNames.contains(META)) {
-                    db.createObjectStore(META, { keyPath: 'novelId' });
-                }
-            };
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => reject(req.error);
-        });
-        return dbPromise;
-    }
-
-    async function getAudio(key) {
-        if (!available) return null;
-        try {
-            const db = await open();
-            return await new Promise((resolve) => {
-                const r = db.transaction(AUDIO, 'readonly').objectStore(AUDIO).get(key);
-                r.onsuccess = () => resolve(r.result ? r.result.blob : null);
-                r.onerror = () => resolve(null);
+        function open() {
+            if (dbPromise) return dbPromise;
+            dbPromise = new Promise((resolve, reject) => {
+                const req = indexedDB.open(dbName, 1);
+                req.onupgradeneeded = () => {
+                    const db = req.result;
+                    if (!db.objectStoreNames.contains(AUDIO)) {
+                        db.createObjectStore(AUDIO, { keyPath: 'key' })
+                            .createIndex('novelId', 'novelId', { unique: false });
+                    }
+                    if (!db.objectStoreNames.contains(META)) {
+                        db.createObjectStore(META, { keyPath: 'novelId' });
+                    }
+                };
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => reject(req.error);
             });
-        } catch { return null; }
-    }
+            return dbPromise;
+        }
 
-    async function putAudio(key, novelId, blob) {
-        if (!available || !novelId) return;
-        try {
-            const db = await open();
-            await new Promise((resolve) => {
+        async function getAudio(key) {
+            if (!available) return null;
+            try {
+                const db = await open();
+                return await new Promise((resolve) => {
+                    const r = db.transaction(AUDIO, 'readonly').objectStore(AUDIO).get(key);
+                    r.onsuccess = () => resolve(r.result ? r.result.blob : null);
+                    r.onerror = () => resolve(null);
+                });
+            } catch { return null; }
+        }
+
+        async function putAudio(key, novelId, blob) {
+            if (!available || !novelId) return;
+            try {
+                const db = await open();
+                await new Promise((resolve) => {
+                    const tx = db.transaction([AUDIO, META], 'readwrite');
+                    tx.objectStore(AUDIO).put({ key, novelId, blob });
+                    tx.objectStore(META).put({ novelId, lastUsed: Date.now() });
+                    tx.oncomplete = resolve;
+                    tx.onerror = resolve;
+                    tx.onabort = resolve;
+                });
+                await evict();
+            } catch {}
+        }
+
+        async function touch(novelId) {
+            if (!available || !novelId) return;
+            try {
+                const db = await open();
+                await new Promise((resolve) => {
+                    const tx = db.transaction(META, 'readwrite');
+                    tx.objectStore(META).put({ novelId, lastUsed: Date.now() });
+                    tx.oncomplete = resolve;
+                    tx.onerror = resolve;
+                    tx.onabort = resolve;
+                });
+            } catch {}
+        }
+
+        async function evict() {
+            try {
+                const db = await open();
+                const metas = await new Promise((resolve) => {
+                    const r = db.transaction(META, 'readonly').objectStore(META).getAll();
+                    r.onsuccess = () => resolve(r.result || []);
+                    r.onerror = () => resolve([]);
+                });
+                if (metas.length <= novelLimit) return;
+                metas.sort((a, b) => (a.lastUsed || 0) - (b.lastUsed || 0));
+                const victims = metas.slice(0, metas.length - novelLimit);
+                for (const m of victims) await deleteNovel(db, m.novelId);
+            } catch {}
+        }
+
+        function deleteNovel(db, novelId) {
+            return new Promise((resolve) => {
                 const tx = db.transaction([AUDIO, META], 'readwrite');
-                tx.objectStore(AUDIO).put({ key, novelId, blob });
-                tx.objectStore(META).put({ novelId, lastUsed: Date.now() });
+                const store = tx.objectStore(AUDIO);
+                const idxReq = store.index('novelId').getAllKeys(novelId);
+                idxReq.onsuccess = () => (idxReq.result || []).forEach((k) => store.delete(k));
+                tx.objectStore(META).delete(novelId);
                 tx.oncomplete = resolve;
                 tx.onerror = resolve;
                 tx.onabort = resolve;
             });
-            await evict();
-        } catch {}
+        }
+
+        async function deleteAudioForNovel(novelId) {
+            if (!available || !novelId) return;
+            try {
+                const db = await open();
+                await deleteNovel(db, novelId);
+            } catch {}
+        }
+
+        return { getAudio, putAudio, touch, deleteAudioForNovel };
     }
 
-    // 标记某本小说为最近使用（打开页面时调用），避免被淘汰
-    async function touch(novelId) {
-        if (!available || !novelId) return;
-        try {
-            const db = await open();
-            await new Promise((resolve) => {
-                const tx = db.transaction(META, 'readwrite');
-                tx.objectStore(META).put({ novelId, lastUsed: Date.now() });
-                tx.oncomplete = resolve;
-                tx.onerror = resolve;
-                tx.onabort = resolve;
-            });
-        } catch {}
-    }
-
-    async function evict() {
-        try {
-            const db = await open();
-            const metas = await new Promise((resolve) => {
-                const r = db.transaction(META, 'readonly').objectStore(META).getAll();
-                r.onsuccess = () => resolve(r.result || []);
-                r.onerror = () => resolve([]);
-            });
-            if (metas.length <= NOVEL_LIMIT) return;
-            metas.sort((a, b) => (a.lastUsed || 0) - (b.lastUsed || 0));
-            const victims = metas.slice(0, metas.length - NOVEL_LIMIT);
-            for (const m of victims) await deleteNovel(db, m.novelId);
-        } catch {}
-    }
-
-    function deleteNovel(db, novelId) {
-        return new Promise((resolve) => {
-            const tx = db.transaction([AUDIO, META], 'readwrite');
-            const store = tx.objectStore(AUDIO);
-            const idxReq = store.index('novelId').getAllKeys(novelId);
-            idxReq.onsuccess = () => (idxReq.result || []).forEach((k) => store.delete(k));
-            tx.objectStore(META).delete(novelId);
-            tx.oncomplete = resolve;
-            tx.onerror = resolve;
-            tx.onabort = resolve;
-        });
-    }
-
-    global.PixivTtsStore = { lsGet: lsGet, lsSet: lsSet, getAudio: getAudio, putAudio: putAudio, touch: touch };
+    const { getAudio, putAudio, touch } = createAudioStore('pixiv-tts', NOVEL_LIMIT);
+    global.PixivTtsStore = { lsGet, lsSet, getAudio, putAudio, touch, createAudioStore };
 })(window);
