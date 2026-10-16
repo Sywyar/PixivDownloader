@@ -142,14 +142,6 @@
         return api;
     })();
 
-    function loadPanelCollapsed() {
-        return PixivPanelState.get();
-    }
-
-    function savePanelCollapsed(collapsed) {
-        PixivPanelState.set(collapsed);
-    }
-
     const CONFIG = {
         get BACKEND_URL() {
             return serverBase + '/api/download/pixiv';
@@ -4904,7 +4896,7 @@
         // 用户手动收起/展开：在切换后持久化状态
         manualToggleCollapse() {
             this.toggleCollapse();
-            savePanelCollapsed(this._collapsed);
+            PixivPanelState.set(this._collapsed);
         }
 
         show() {
@@ -5428,9 +5420,9 @@
         if (!document.getElementById('pixiv-page-batch-ui')) ui.mount();
         if (isInitial) {
             // 首次加载优先沿用上次记忆的展开/收缩状态
-            ui._collapsed = loadPanelCollapsed();
+            ui._collapsed = PixivPanelState.get();
         } else if (isNavigation) {
-            if (loadPanelCollapsed()) {
+            if (PixivPanelState.get()) {
                 // 用户已手动收起：存储值优先级最高，跳转到任何页面（含默认展开的页面）都不自动展开
                 ui._collapsed = true;
             } else {

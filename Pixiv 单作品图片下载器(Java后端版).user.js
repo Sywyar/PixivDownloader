@@ -196,15 +196,7 @@
         return api;
     })();
 
-    function loadPanelCollapsed() {
-        return PixivPanelState.get();
-    }
-
-    function savePanelCollapsed(collapsed) {
-        PixivPanelState.set(collapsed);
-    }
-
-    let panelCollapsed = loadPanelCollapsed();
+    let panelCollapsed = PixivPanelState.get();
 
     /* ========== PixivUserscriptI18n: shared userscript i18n runtime ==========
      * Same-origin Pixiv userscripts share localStorage + BroadcastChannel state
@@ -1872,7 +1864,7 @@
             if (quotaInfo.enabled) {
                 quotaInfo.artworksUsed = Math.min(quotaInfo.maxArtworks, quotaInfo.artworksUsed + 1);
             }
-            updateDownloadUI();
+            createDownloadUI();
             if (body.other.autoTranslate && !response.alreadyDownloaded) {
                 const item = {novelId};
                 singleNovelTranslation = item;
@@ -2260,7 +2252,7 @@
             if (quotaInfo.enabled) {
                 quotaInfo.artworksUsed = Math.min(quotaInfo.maxArtworks, quotaInfo.artworksUsed + 1);
             }
-            updateDownloadUI();
+            createDownloadUI();
 
             const typeHint = other.isUgoira
                 ? t('single.type.ugoira', '动图（将合成为WebP）')
@@ -2692,13 +2684,8 @@
         } else {
             // UI 还未创建，暂存状态，等下次 createDownloadUI 时恢复
             window._pixivSingleArchiveState = { token: data.archiveToken, expireSec: data.archiveExpireSeconds || 3600, ready: false };
-            updateDownloadUI();
+            createDownloadUI();
         }
-    }
-
-    // 更新下载UI状态
-    function updateDownloadUI() {
-        createDownloadUI();
     }
 
     // 面板收起/展开：收起态显示 Mini FAB，展开态显示面板
@@ -2722,7 +2709,7 @@
             document.dispatchEvent(new CustomEvent('pixiv_panel_active', { detail: 'single-java' }));
         }
         // 仅用户手动收/展写入共享状态；自动收起不持久化
-        if (manual) savePanelCollapsed(panelCollapsed);
+        if (manual) PixivPanelState.set(panelCollapsed);
     }
 
     function toggleSinglePanel(manual) {
@@ -2766,7 +2753,7 @@
     });
 
     PixivUserscriptI18n.onChange(() => {
-        updateDownloadUI();
+        createDownloadUI();
     });
     PixivUserscriptI18n.enrichFromBackend(serverBase);
 

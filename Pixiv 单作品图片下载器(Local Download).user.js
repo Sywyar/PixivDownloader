@@ -309,15 +309,7 @@
         return api;
     })();
 
-    function loadPanelCollapsed() {
-        return PixivPanelState.get();
-    }
-
-    function savePanelCollapsed(collapsed) {
-        PixivPanelState.set(collapsed);
-    }
-
-    let panelCollapsed = loadPanelCollapsed();
+    let panelCollapsed = PixivPanelState.get();
 
     /* ========== 嵌入字典（仅本脚本独有；不依赖后端 enrichment）========== */
     PixivUserscriptI18n.register({
@@ -1045,7 +1037,7 @@
             }
 
             markNovelDownloaded(novelId, title);
-            updateDownloadUI();
+            createDownloadUI();
             alert(t('local.alert.novel-summary', {
                 title: sanitizeFileName(title),
                 images: imageEntries.length
@@ -1213,7 +1205,7 @@
             // 记录已下载的作品
             if (successCount > 0) {
                 markAsDownloaded(artworkId, t('local.ui.folder.default'), successCount);
-                updateDownloadUI();
+                createDownloadUI();
             }
 
             alert(t('local.alert.download-summary', {
@@ -1278,7 +1270,7 @@
             GM_setValue('downloadedArtworks', {});
             GM_setValue('downloadedNovels', {});
             alert(t('local.alert.history-cleared'));
-            updateDownloadUI();
+            createDownloadUI();
         }
     }
 
@@ -1498,7 +1490,7 @@
             document.dispatchEvent(new CustomEvent('pixiv_panel_active', {detail: 'single-local'}));
         }
         // 仅用户手动收/展写入共享状态；自动收起不持久化
-        if (manual) savePanelCollapsed(panelCollapsed);
+        if (manual) PixivPanelState.set(panelCollapsed);
     }
 
     function toggleLocalPanel(manual) {
@@ -1527,11 +1519,6 @@
 
         // 重建面板时沿用当前折叠状态（初始值来自共享存储，跨脚本变更经 onChange 同步）
         applyLocalPanelCollapsed();
-    }
-
-    // 更新下载UI状态
-    function updateDownloadUI() {
-        createDownloadUI();
     }
 
     /* ========== Tampermonkey 菜单：切换语言时需先 unregister 再重注册 ==========

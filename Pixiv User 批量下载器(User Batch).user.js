@@ -135,14 +135,6 @@
         return api;
     })();
 
-    function loadPanelCollapsed() {
-        return PixivPanelState.get();
-    }
-
-    function savePanelCollapsed(collapsed) {
-        PixivPanelState.set(collapsed);
-    }
-
     const CONFIG = {
         get BACKEND_URL() {
             return serverBase + '/api/download/pixiv';
@@ -4395,7 +4387,7 @@
             this._build();
             this.syncSettings();
             // 恢复上次记忆的展开/收缩状态
-            this._collapsed = !loadPanelCollapsed();
+            this._collapsed = !PixivPanelState.get();
             this.toggleCollapse();
         }
 
@@ -4421,7 +4413,7 @@
         // 用户手动收起/展开：在切换后持久化状态
         manualToggleCollapse() {
             this.toggleCollapse();
-            savePanelCollapsed(this._collapsed);
+            PixivPanelState.set(this._collapsed);
         }
 
         syncSettings() {

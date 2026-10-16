@@ -90,9 +90,6 @@
         return api;
     })();
 
-    function loadPanelCollapsed() { return PixivPanelState.get(); }
-    function savePanelCollapsed(collapsed) { PixivPanelState.set(collapsed); }
-
     // 每个功能的开关 / 设置持久化 key 前缀（功能之间互不影响）
     const featEnabledKey = id => 'pixiv_enhance_feat_' + id + '_enabled';
     const featSettingsKey = id => 'pixiv_enhance_feat_' + id + '_settings';
@@ -1428,7 +1425,7 @@
     class Panel {
         constructor() {
             this.root = null;
-            this._collapsed = loadPanelCollapsed();
+            this._collapsed = PixivPanelState.get();
         }
 
         mount() {
@@ -1821,13 +1818,13 @@
 
         manualToggleCollapse() {
             this.toggleCollapse();
-            savePanelCollapsed(this._collapsed);
+            PixivPanelState.set(this._collapsed);
         }
 
         show() {
             if (!document.getElementById(PANEL_ID)) this.mount();
             this._collapsed = false;
-            savePanelCollapsed(false);
+            PixivPanelState.set(false);
             this._applyCollapsed();
             document.dispatchEvent(new CustomEvent('pixiv_panel_active', { detail: 'enhance' }));
         }
