@@ -48,9 +48,7 @@
                 'Unable to load series',
                 'Unable to load novel series'
             );
-            document.getElementById('seriesStatus').textContent = t('status.load-failed', 'Load failed: {message}', {message: e.message});
-            document.getElementById('chapterGrid').innerHTML = '';
-            document.getElementById('pagination').innerHTML = '';
+            renderLoadError(e);
         }
     }
 
@@ -82,9 +80,7 @@
             renderGrid(state.items);
             renderPagination();
         } catch (e) {
-            document.getElementById('seriesStatus').textContent = t('status.load-failed', 'Load failed: {message}', {message: e.message});
-            document.getElementById('chapterGrid').innerHTML = '';
-            document.getElementById('pagination').innerHTML = '';
+            renderLoadError(e);
         }
     }
 
@@ -121,10 +117,14 @@
             renderGrid(state.items);
             renderPagination();
         } catch (e) {
-            document.getElementById('seriesStatus').textContent = t('status.load-failed', 'Load failed: {message}', {message: e.message});
-            document.getElementById('chapterGrid').innerHTML = '';
-            document.getElementById('pagination').innerHTML = '';
+            renderLoadError(e);
         }
+    }
+
+    function renderLoadError(error) {
+        document.getElementById('seriesStatus').textContent = t('status.load-failed', 'Load failed: {message}', {message: error.message});
+        document.getElementById('chapterGrid').innerHTML = '';
+        document.getElementById('pagination').innerHTML = '';
     }
 
     function buildNovelDetail() {
@@ -144,4 +144,4 @@
             tags: Array.isArray(previous.tags) ? previous.tags : [],
         };
     }
-
+

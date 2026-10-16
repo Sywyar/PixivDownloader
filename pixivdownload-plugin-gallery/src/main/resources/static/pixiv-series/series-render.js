@@ -240,14 +240,7 @@
             `;
         }).join('');
         grid.querySelectorAll('img[data-src]').forEach(img => loadThumbnail(img));
-        if (state.currentId) {
-            requestAnimationFrame(() => {
-                const current = grid.querySelector('.chapter-card.current');
-                if (current) {
-                    current.scrollIntoView({block: 'nearest'});
-                }
-            });
-        }
+        scrollToCurrentChapter(grid);
     }
 
     function renderNovelGrid(items, grid) {
@@ -295,6 +288,10 @@
                 </a>
             `;
         }).join('');
+        scrollToCurrentChapter(grid);
+    }
+
+    function scrollToCurrentChapter(grid) {
         if (state.currentId) {
             requestAnimationFrame(() => {
                 const current = grid.querySelector('.chapter-card.current');
@@ -331,7 +328,6 @@
         if (hour > 0) parts.push(t('duration.hour', '{count} h', {count: hour}));
         if (minute > 0) parts.push(t('duration.minute', '{count} min', {count: minute}));
         if (second > 0 && hour === 0) parts.push(t('duration.second', '{count} sec', {count: second}));
-        if (!parts.length) parts.push(t('duration.second', '{count} sec', {count: total}));
         return parts.join(' ');
     }
 
@@ -393,7 +389,7 @@
         if (seriesTitle) params.set('filterSeriesTitle', seriesTitle);
         if (authorId != null) params.set('filterAuthorId', String(authorId));
         if (authorName) params.set('filterAuthorName', authorName);
-        return '/pixiv-gallery.html' + (params.toString() ? '?' + params.toString() : '');
+        return '/pixiv-gallery.html?' + params.toString();
     }
 
     function buildNovelGalleryFilterHref({seriesId, seriesTitle} = {}) {
@@ -401,7 +397,7 @@
         params.set('view', 'all');
         if (seriesId != null) params.set('seriesId', String(seriesId));
         if (seriesTitle) params.set('seriesTitle', seriesTitle);
-        return '/pixiv-novel-gallery.html' + (params.toString() ? '?' + params.toString() : '');
+        return '/pixiv-novel-gallery.html?' + params.toString();
     }
 
     function buildNovelGalleryTagFilterHref(tag) {

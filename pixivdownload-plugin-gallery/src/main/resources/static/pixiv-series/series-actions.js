@@ -5,7 +5,6 @@
             const res = await fetch('/api/auth/check', {credentials: 'same-origin'});
             if (res.ok && (await res.json()).valid === true) {
                 document.body.classList.add('admin-mode');
-                isAdmin = true;
             }
         } catch (_) {
         }
