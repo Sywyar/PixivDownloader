@@ -211,8 +211,7 @@ class ScheduleRunQueueTest {
 
             assertThat(run.truncated()).isTrue();
             assertThat(run.snapshot())
-                    .hasSize(before.size() - 1)
-                    .noneSatisfy(item -> assertThat(item.key()).isEqualTo(firstKey));
+                    .containsExactlyElementsOf(before.subList(1, before.size()));
             assertThat(run.retainedUtf8Bytes())
                     .isLessThanOrEqualTo(ScheduleRunQueue.MAX_RETAINED_UTF8_BYTES);
         }

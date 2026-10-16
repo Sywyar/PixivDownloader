@@ -315,7 +315,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             taskExecutor.execute(future);
             inFlight++;
             inFlightByType.merge(workType, 1, Integer::sum);
-            inFlightWork.put(future, new InFlightWork(work, retry, workType));
+            inFlightWork.put(future, new InFlightWork(work, retry));
         } catch (Throwable failure) {
             Error fatalFailure = fatalError(failure);
             try {
@@ -478,7 +478,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             try {
                 inFlight--;
                 inFlightByType.computeIfPresent(
-                        dispatched.workType(), (ignored, count) -> count - 1);
+                        dispatched.work().key().workType(), (ignored, count) -> count - 1);
             } catch (Throwable cleanupFailure) {
                 Error accumulated = appendFatal(fatalFailure, cleanupFailure);
                 if (accumulated != null) {
@@ -887,7 +887,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
         }
     }
 
-    record InFlightWork(ScheduledWork work, boolean retry, String workType) {
+    record InFlightWork(ScheduledWork work, boolean retry) {
     }
 
     /**

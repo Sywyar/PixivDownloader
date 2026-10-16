@@ -230,7 +230,7 @@ class ScheduleWorkCoordinatorTest {
         assertThat(completions).isNotNull();
         assertThat(inFlightWork).isNotNull();
         assertThat(inFlightByType).isNotNull();
-        inFlightWork.put(failed, new ScheduleWorkCoordinator.InFlightWork(work, false, ILLUST));
+        inFlightWork.put(failed, new ScheduleWorkCoordinator.InFlightWork(work, false));
         inFlightByType.put(ILLUST, 1);
         ReflectionTestUtils.setField(coordinator, "inFlight", 1);
         completions.add(failed);

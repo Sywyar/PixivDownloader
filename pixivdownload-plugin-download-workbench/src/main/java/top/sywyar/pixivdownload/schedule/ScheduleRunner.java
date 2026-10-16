@@ -13,7 +13,8 @@ import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellat
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
 
-import java.util.ArrayList;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -67,7 +68,7 @@ public class ScheduleRunner {
             log.debug("Schedule tick skipped: previous run still in progress");
             return;
         }
-        List<QueuedTask> queued = new ArrayList<>();
+        Deque<QueuedTask> queued = new ArrayDeque<>();
         Throwable fatalFailure = null;
         try {
             long now = System.currentTimeMillis();
@@ -75,7 +76,7 @@ public class ScheduleRunner {
             recoverAvailableTasks(cancellation, now);
             List<ScheduledTask> due = store.findDue(now);
             // 「同一时刻只跑一个」串行约束：本轮全部到期任务先标记排队中，再逐个转为运行中。
-            queued = new ArrayList<>(due.size());
+            queued = new ArrayDeque<>(due.size());
             for (ScheduledTask task : due) {
                 if (!database.available() || cancellation.isCancellationRequested()) {
                     break;
@@ -116,7 +117,7 @@ public class ScheduleRunner {
                 queued.add(new QueuedTask(task, claim, runToken));
             }
             while (!queued.isEmpty()) {
-                QueuedTask queuedTask = queued.remove(0);
+                QueuedTask queuedTask = queued.removeFirst();
                 if (!database.available() || cancellation.isCancellationRequested()) {
                     releaseQueuedTask(queuedTask);
                     continue;
