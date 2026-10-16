@@ -1004,26 +1004,14 @@ public class StatusPanel extends JPanel {
     }
 
     private DesktopUiHost.FfmpegProxy loadProxySettings() {
-        if (configPath == null || !Files.exists(configPath)) {
-            return new DesktopUiHost.FfmpegProxy(false, "", 0);
-        }
         try {
-            DesktopUiHost.ConfigFile editor = SwingHost.host().applicationConfig();
-            boolean enabled = Boolean.parseBoolean(defaultIfBlank(editor.read("proxy.enabled"), "false"));
-            if (!enabled) {
-                return new DesktopUiHost.FfmpegProxy(false, "", 0);
-            }
-
-            String host = defaultIfBlank(editor.read("proxy.host"), "");
-            String portValue = defaultIfBlank(editor.read("proxy.port"), "0");
-            int port = Integer.parseInt(portValue.trim());
-            if (host.isBlank() || port <= 0) {
-                return new DesktopUiHost.FfmpegProxy(false, "", 0);
-            }
-            return new DesktopUiHost.FfmpegProxy(true, host, port);
-        } catch (Exception e) {
-            log.warn(logMessage("gui.status.log.ffmpeg-proxy.read-failed", e.getMessage()));
-            return new DesktopUiHost.FfmpegProxy(false, "", 0);
+            var values = SwingHost.readConfiguration(java.util.List.of("proxy.enabled", "proxy.host", "proxy.port"));
+            return new DesktopUiHost.FfmpegProxy(
+                    Boolean.parseBoolean(values.get("proxy.enabled")),
+                    values.getOrDefault("proxy.host", SwingHost.host().defaultProxyHost()),
+                    Integer.parseInt(values.getOrDefault("proxy.port", Integer.toString(SwingHost.host().defaultProxyPort()))));
+        } catch (java.io.IOException failure) {
+            throw new java.io.UncheckedIOException(failure);
         }
     }
 

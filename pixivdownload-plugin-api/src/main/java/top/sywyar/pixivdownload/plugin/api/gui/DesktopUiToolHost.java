@@ -146,13 +146,29 @@ public interface DesktopUiToolHost {
             Exception;
 
     /**
-     * 为桌面工具打开隔离日志会话。
+     * 为宿主内置的回填或旧 JSON 迁移工具打开隔离日志会话。
      *
-     * @param stem 稳定日志文件主干名
+     * @param stem 稳定日志文件主干名；内置工具使用 {@code artworks-backfill} 和 {@code json-to-sqlite-migration}
      * @return 活动日志会话
      * @throws Exception 无法创建日志会话时抛出
      */
     ToolLogSession openToolLog(String stem) throws Exception;
+
+    /**
+     * 只读定位受管 HTML 日志，不创建、截断、轮换文件或调用系统壳。
+     * GUI 可将结果交给 {@link DesktopUiHost#openExternalUri(java.net.URI)}。
+     *
+     * @param fileName 会话或历史提供的 basename；内置工具最新日志为 {@code stem-latest.html}。
+     *                 只接受最多 255 个 ASCII 字母、数字、点、连字符或下划线，以字母或数字开头、
+     *                 以 {@code .html} 结尾；不接受路径、链接或目录
+     * @return 现有日志；尚未生成或已轮换删除时为空
+     * @throws IOException 无法安全读取日志目录或文件
+     * @throws IllegalArgumentException 文件名不符合受管日志约束
+     * @throws UnsupportedOperationException 宿主未提供只读日志查询
+     */
+    default Optional<Path> findToolLog(String fileName) throws IOException {
+        throw new UnsupportedOperationException("Existing tool log lookup is not supported by this host");
+    }
 
     /**
      * {@return 宿主持久化的桌面工具终态历史}
@@ -423,7 +439,7 @@ public interface DesktopUiToolHost {
         void close();
     }
 
-    /** 桌面维护工具的稳定标识符。 */
+    /** 桌面维护历史的业务类别；媒体提供者身份由历史记录单独保存。 */
     enum ToolId {
         /** 图片分类器。 */
         IMAGE_CLASSIFIER,
@@ -432,7 +448,9 @@ public interface DesktopUiToolHost {
         /** 作品元数据回填工具。 */
         ARTWORKS_BACKFILL,
         /** 旧 JSON 到 SQLite 迁移工具。 */
-        JSON_TO_SQLITE_MIGRATION
+        JSON_TO_SQLITE_MIGRATION,
+        /** 历史媒体格式与缩略图维护。 */
+        MEDIA_MAINTENANCE
     }
 
     /** 桌面维护工具的稳定终态。 */
@@ -458,6 +476,8 @@ public interface DesktopUiToolHost {
      * @param changedCount       已变更数量；未知时为空
      * @param failedCount        失败数量；未知时为空
      * @param logFileName        受控日志 basename；没有时为空
+     * @param executionId        本次执行的独立身份；旧记录或旧构造器创建的记录为空
+     * @param sourceIdentity     媒体提供者的精确发布身份；内置工具或旧记录为空
      */
     record ToolHistoryEntry(
             ToolId toolId,
@@ -467,8 +487,27 @@ public interface DesktopUiToolHost {
             Integer processedCount,
             Integer changedCount,
             Integer failedCount,
-            String logFileName
+            String logFileName,
+            java.util.UUID executionId,
+            top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool.Identity sourceIdentity
     ) {
+        /**
+         * 创建不含执行身份的历史投影，供已有调用方使用。
+         * @param toolId 工具类别
+         * @param startedAtEpochMs 开始时间
+         * @param finishedAtEpochMs 结束时间
+         * @param outcome 终态结果
+         * @param processedCount 已处理数量
+         * @param changedCount 已变更数量
+         * @param failedCount 失败数量
+         * @param logFileName 受控日志文件名
+         */
+        public ToolHistoryEntry(ToolId toolId, long startedAtEpochMs, long finishedAtEpochMs,
+                                ToolOutcome outcome, Integer processedCount, Integer changedCount,
+                                Integer failedCount, String logFileName) {
+            this(toolId, startedAtEpochMs, finishedAtEpochMs, outcome, processedCount, changedCount,
+                    failedCount, logFileName, null, null);
+        }
     }
 
     /**

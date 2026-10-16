@@ -272,7 +272,6 @@
 
     function renderDetail(message) {
         var detail = resetDetail();
-        var autoRead = message.category === 'survey' || message.category === 'announcement';
         var severity = severityClass(message).trim();
         if (severity) detail.classList.add(severity);
 
@@ -304,13 +303,6 @@
 
         var toolbar = document.createElement('div');
         toolbar.className = 'notification-detail-actions';
-        var markRead = document.createElement('button');
-        markRead.type = 'button';
-        markRead.className = 'notification-detail-action';
-        markRead.disabled = !!message.readTime;
-        markRead.setAttribute('data-i18n', message.readTime ? 'inbox.read' : 'inbox.mark-read');
-        markRead.textContent = message.readTime ? t('inbox.read', '已读') : t('inbox.mark-read', '标记已读');
-        if (!message.readTime) markRead.addEventListener('click', markSelectedRead);
         var remove = document.createElement('button');
         remove.type = 'button';
         remove.className = 'notification-detail-action notification-detail-action--danger';
@@ -322,10 +314,9 @@
         actionStatus.className = 'notification-detail-action-status';
         actionStatus.setAttribute('role', 'status');
         actionStatus.setAttribute('aria-live', 'polite');
-        if (!autoRead) toolbar.appendChild(markRead);
         if (message.deletable !== false) toolbar.appendChild(remove);
         toolbar.appendChild(actionStatus);
-        if (!autoRead || message.deletable !== false) detail.appendChild(toolbar);
+        detail.appendChild(toolbar);
 
         var actionUrl = safeActionHref(message.actionUrl);
         if (actionUrl && !message.embeddedContentUrl) {
@@ -339,15 +330,13 @@
             }
             detail.appendChild(action);
         }
-        if (autoRead && !message.readTime) markSelectedRead(null, true, true);
+        if (!message.readTime) markSelectedRead();
     }
 
-    async function markSelectedRead(event, keepSelection, quiet) {
+    async function markSelectedRead() {
         var id = state.selectedId;
         if (!id || markingReadIds.has(id) || !state.selectedMessage || state.selectedMessage.readTime) return;
         markingReadIds.add(id);
-        var button = event && event.currentTarget;
-        if (button) button.disabled = true;
         try {
             var updated = await api(withLanguage('/api/notifications/' + encodeURIComponent(id) + '/read'),
                 { method: 'POST' });
@@ -356,10 +345,6 @@
             state.unreadCount = Math.max(0, state.unreadCount - 1);
             if (state.unreadOnly) {
                 state.messages = state.messages.filter(function (item) { return item.id !== id; });
-                if (!keepSelection) {
-                    clearSelection(true);
-                    return;
-                }
             } else {
                 state.messages = state.messages.map(function (item) { return item.id === id ? updated : item; });
             }
@@ -367,9 +352,9 @@
             renderList();
             renderDetail(updated);
         } catch (error) {
-            if (button) button.disabled = false;
+            if (state.selectedId !== id) return;
             var status = el('notificationDetailActionStatus');
-            if (!quiet && status) status.textContent = t('inbox.mark-read-failed', '标记已读失败');
+            if (status) status.textContent = t('inbox.mark-read-failed', '标记已读失败');
         } finally {
             markingReadIds.delete(id);
         }

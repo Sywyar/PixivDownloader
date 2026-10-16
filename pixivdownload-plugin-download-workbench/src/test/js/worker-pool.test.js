@@ -30,9 +30,9 @@ function harness(page) {
 const drain = () => new Promise(resolve => setImmediate(resolve));
 
 for (const page of ['pixiv-batch.html', 'pixiv-batch-alt.html']) {
-    test(`${page} worker 池同步预留计数、排除外部执行并只收尾一次`, async () => {
+    test(`${page} worker 池同步预留计数、跳过终态条目并只收尾一次`, async () => {
         const {c, state, calls} = harness(page);
-        state.queue = [{id: 'external', taskObserved: true, status: 'downloading'},
+        state.queue = [{id: 'previous', status: 'skipped'},
             {id: 'one', status: 'pending'}, {id: 'two', status: 'pending'}];
         const pending = [];
         c.processSingle = item => new Promise(resolve => {
@@ -49,7 +49,7 @@ for (const page of ['pixiv-batch.html', 'pixiv-batch-alt.html']) {
         await drain();
         assert.equal(state.activeWorkers, 0);
         assert.equal(calls.finished, 1);
-        assert.equal(state.queue[0].status, 'downloading');
+        assert.equal(state.queue[0].status, 'skipped');
         assert.deepEqual(calls.sleeps, [17, 17]);
         c.ensureWorkers();
         assert.equal(calls.sse, 2);

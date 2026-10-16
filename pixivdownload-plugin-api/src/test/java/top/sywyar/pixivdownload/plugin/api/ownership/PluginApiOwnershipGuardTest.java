@@ -300,6 +300,7 @@ class PluginApiOwnershipGuardTest {
             API_PREFIX + "gui.media.DesktopMediaTool$Identity",
             API_PREFIX + "gui.media.DesktopMediaTool$Description",
             API_PREFIX + "gui.media.DesktopMediaTool$Source",
+            API_PREFIX + "gui.media.DesktopMediaTool$CompletionSource",
             API_PREFIX + "gui.media.DesktopMediaTool$Request",
             API_PREFIX + "gui.media.DesktopMediaTool$Item",
             API_PREFIX + "gui.media.DesktopMediaTool$Preview",

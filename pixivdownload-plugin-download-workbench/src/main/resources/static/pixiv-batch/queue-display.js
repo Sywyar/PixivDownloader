@@ -58,7 +58,6 @@ function queueAcquisitionMode(source) {
 }
 
 function queueSourceText(source) {
-    if (source === 'task') return bt('batch:queue.task.external');
     return {
         user: bt('queue.source.user', 'User'),
         search: bt('queue.source.search', 'Search'),

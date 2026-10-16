@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.common.AppInfo;
+import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import java.io.IOException;
@@ -141,6 +142,10 @@ public final class RuntimeFiles {
 
     public static Path galleryThumbnailDirectory() {
         return dataDirectory().resolve(GALLERY_THUMBNAILS_DIR).normalize();
+    }
+
+    public static Path downloadTaskResultsDirectory() {
+        return dataDirectory().resolve("download-task-results").normalize();
     }
 
     public static Path guiStateDirectory() {
@@ -297,30 +302,9 @@ public final class RuntimeFiles {
         }
 
         try {
-            for (String rawLine : Files.readAllLines(configPath, StandardCharsets.UTF_8)) {
-                String trimmed = rawLine.trim();
-                if (trimmed.isEmpty() || trimmed.startsWith("#")) {
-                    continue;
-                }
-                if (!trimmed.startsWith("download.root-folder:") && !trimmed.startsWith("download.root-folder :")) {
-                    continue;
-                }
-
-                int colonIndex = trimmed.indexOf(':');
-                if (colonIndex < 0) {
-                    continue;
-                }
-
-                String value = trimmed.substring(colonIndex + 1);
-                int commentIndex = value.indexOf('#');
-                if (commentIndex >= 0) {
-                    value = value.substring(0, commentIndex);
-                }
-
-                value = stripWrappingQuotes(value.trim());
-                if (!value.isBlank()) {
-                    return normalizeRootFolder(value);
-                }
+            String value = new ConfigFileEditor(configPath).read("download.root-folder");
+            if (value != null && !value.isBlank()) {
+                return normalizeRootFolder(value);
             }
         } catch (IOException e) {
             Logging.log.warn(logMessage(
@@ -580,17 +564,6 @@ public final class RuntimeFiles {
         if (!normalizedRoot.isBlank()) {
             paths.add(Path.of(normalizedRoot, fileName));
         }
-    }
-
-    private static String stripWrappingQuotes(String value) {
-        if (value.length() >= 2) {
-            boolean doubleQuoted = value.startsWith("\"") && value.endsWith("\"");
-            boolean singleQuoted = value.startsWith("'") && value.endsWith("'");
-            if (doubleQuoted || singleQuoted) {
-                return value.substring(1, value.length() - 1);
-            }
-        }
-        return value;
     }
 
     static Path defaultSingleInstanceDirectory(String osName,

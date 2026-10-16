@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -46,21 +46,43 @@ test('SDK 上传使用仓库 Maven Wrapper 并保留参数和失败退出码', (
     }
 });
 
-test('发行调用复用完整的公共 SDK，首次发布与显式恢复继续进入门禁，查询失败不能当作尚未发布', () => {
+test('SDK 发行计划支持主线与 hotfix 的可信前驱，并保留复用、渠道和恢复门禁', () => {
     const work = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-publication-plan-'));
     try {
+        const git = (...args) => execFileSync('git', ['-C', work, ...args], {
+            encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+        }).trim();
+        git('init', '-b', 'master');
+        git('config', 'user.name', 'SDK fixture');
+        git('config', 'user.email', 'sdk@example.invalid');
+        git('config', 'commit.gpgsign', 'false');
+        fs.mkdirSync(path.join(work, 'scripts/ci'), { recursive: true });
+        for (const file of ['resolve-trusted-base.mjs', 'release-gate-policy.json']) {
+            fs.copyFileSync(path.join(ROOT, 'scripts/ci', file), path.join(work, 'scripts/ci', file));
+        }
+        git('add', 'scripts');
+        const commit = (message) => {
+            git('commit', '--allow-empty', '-m', message);
+            return git('rev-parse', 'HEAD');
+        };
+        const root = commit('Gate root');
+        const policy = JSON.parse(fs.readFileSync(path.join(work, 'scripts/ci/release-gate-policy.json'), 'utf8'));
+        git('tag', policy.rootTag.replace('refs/tags/', ''), root);
+        const base = commit('Released baseline');
+        const master = commit('Next release development');
+        git('update-ref', 'refs/remotes/origin/master', master);
+        git('checkout', '-b', 'hotfix', base);
+        commit('Hotfix change');
+        const hotfix = commit('Hotfix release');
+        const unrelated = git('commit-tree', 'HEAD^{tree}', '-m', 'Unrelated history');
+        const sources = { master, hotfix, historical: base, unrelated };
         const entry = path.join(work, 'plan.sh');
         const planAction = workflow.jobs['release-plan'].steps.find(step => step.id === 'plan');
         const plan = YAML.parse(fs.readFileSync(path.join(ROOT, planAction.uses, 'action.yml'), 'utf8'))
             .runs.steps.find(step => step.id === 'plan').run;
         fs.writeFileSync(entry, [
             'git() {',
-            '  case "$1" in',
-            '    fetch) return ;;',
-            '    rev-parse) printf "%040d\\n" 1 ;;',
-            '    merge-base) test "$SDK_TEST_PROTECTED" = true ;;',
-            '    *) return 99 ;;',
-            '  esac',
+            '  if [ "$1" = fetch ]; then test "$SDK_TEST_FETCH" = true; else command git "$@"; fi',
             '}',
             'node() {',
             '  if [ "$1" = scripts/ci/sdk-version.mjs ]; then printf "%s" "$SDK_TEST_IDENTITY"; return; fi',
@@ -75,10 +97,13 @@ test('发行调用复用完整的公共 SDK，首次发布与显式恢复继续�
         const stable = parseSdkVersion(`${IDENTITY.major}.${IDENTITY.minor}.${IDENTITY.patch}`);
         for (const scenario of [
             { expected: true },
+            { source: 'master', expected: true },
+            { source: 'historical', expected: true },
+            { source: 'unrelated', expected: null },
+            { fetch: false, expected: null },
             { published: 'a'.repeat(40), expected: false },
             { mode: 'recover-release', published: 'error', expected: true },
             { published: 'error', expected: null },
-            { protectedCommit: false, expected: null },
             { ref: 'refs/tags/v2.3.4-beta.1', expected: null },
             { ref: 'refs/tags/v2.3.4-beta.1', published: 'a'.repeat(40), expected: false },
             { event: 'workflow_dispatch', ref: 'refs/heads/master', expected: null },
@@ -89,27 +114,27 @@ test('发行调用复用完整的公共 SDK，首次发布与显式恢复继续�
             { ref: 'refs/tags/v2.3.4-beta.1', identity: parseSdkVersion(stable.version + '-beta.1'), expected: true },
             { event: 'workflow_dispatch', identity: parseSdkVersion(stable.version + '-rc.1'), expected: true },
         ]) {
-            const { mode = 'publish', published = '', protectedCommit = true, expected,
+            const { mode = 'publish', published = '', source = 'hotfix', fetch = true, expected,
                 event = 'push', ref = 'refs/tags/v2.3.4', args = '',
                 workflow: caller = 'release.yml', identity = stable } = scenario;
             const output = path.join(work, 'output.txt');
             fs.writeFileSync(output, '', 'utf8');
             const result = spawnSync('bash', [entry.replaceAll('\\', '/')], {
-                cwd: ROOT, encoding: 'utf8',
+                cwd: work, encoding: 'utf8',
                 env: { ...process.env, REQUESTED_MODE: mode, DEFAULT_BRANCH: 'master',
                     REQUESTED_ARGS: args, GITHUB_EVENT_NAME: event, GITHUB_REF: ref,
                     GITHUB_REPOSITORY: 'fixture/app',
                     GITHUB_WORKFLOW_REF: `fixture/app/.github/workflows/${caller}@${ref}`,
                     SDK_TEST_IDENTITY: JSON.stringify(identity),
-                    GITHUB_SHA: 'b'.repeat(40), GITHUB_OUTPUT: output.replaceAll('\\', '/'),
+                    GITHUB_SHA: sources[source], GITHUB_OUTPUT: output.replaceAll('\\', '/'),
                     GITHUB_STEP_SUMMARY: path.join(work, 'summary.txt').replaceAll('\\', '/'),
-                    SDK_TEST_PUBLISHED: published, SDK_TEST_PROTECTED: String(protectedCommit) },
+                    SDK_TEST_PUBLISHED: published, SDK_TEST_FETCH: String(fetch) },
             });
             assert.equal(result.status === 0, expected !== null, JSON.stringify(scenario) + ': ' + (result.error ?? result.stderr));
             const outputs = fs.readFileSync(output, 'utf8');
             if (expected === null) assert.equal(outputs, '');
             else assert.deepEqual(Object.fromEntries(outputs.trim().split('\n').map(line => line.split('='))), {
-                publish: String(expected), mode, trusted_base_sha: '0'.repeat(39) + '1',
+                publish: String(expected), mode, trusted_base_sha: source === 'historical' ? root : base,
                 sdk_version: identity.version, release_id: identity.releaseId,
                 prerelease: String(identity.prerelease),
             });

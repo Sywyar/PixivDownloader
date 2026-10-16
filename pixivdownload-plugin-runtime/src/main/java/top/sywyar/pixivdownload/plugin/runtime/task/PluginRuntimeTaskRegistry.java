@@ -415,7 +415,8 @@ public class PluginRuntimeTaskRegistry {
                 }
                 oneShot = kind == TaskKind.ONE_SHOT;
                 if (cancellationRequested || delegate == null) {
-                    if (oneShot) {
+                    // 已绑定的取消句柄仍需交付结果；跳过正文不代表取消已完成。
+                    if (oneShot && cancellation == null && !cancellationAttemptInProgress && runningCount == 0) {
                         terminal = true;
                         clearHostReferences();
                         releaseWithoutRun = true;

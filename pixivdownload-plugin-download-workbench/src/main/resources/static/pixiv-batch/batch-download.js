@@ -3,7 +3,7 @@
         if (!state.isRunning) return;
         state.isPaused = true;
         state.queue.forEach(q => {
-            if (!q.taskObserved && q.status === 'pending') q.status = 'paused';
+            if (q.status === 'pending') q.status = 'paused';
         });
         saveQueue();
         const active = state.queue.filter(q => q.status === 'downloading').length;
@@ -25,7 +25,7 @@
         }
         state.isPaused = false;
         state.queue.forEach(q => {
-            if (!q.taskObserved && q.status === 'paused' && !q.recoveryState) q.status = 'pending';
+            if (q.status === 'paused' && !q.recoveryState) q.status = 'pending';
         });
         saveQueue();
         setStatus({key: 'status.resume-download', fallback: '继续下载'}, 'info');
@@ -52,7 +52,7 @@
     }
 
     async function handleRetry() {
-        const failed = state.queue.filter(q => !q.taskObserved && q.status === 'failed');
+        const failed = state.queue.filter(q => q.status === 'failed');
         if (!failed.length) {
             await uiAlertKey('alert.no-failed', '当前没有失败的作品');
             return;

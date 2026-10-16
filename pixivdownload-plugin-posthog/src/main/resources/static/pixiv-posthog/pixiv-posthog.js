@@ -104,7 +104,7 @@
             }
             try {
                 script = global.document.createElement('script');
-                script.src = SDK_URL;
+                script.src = global.PixivAssets ? global.PixivAssets.url(SDK_URL) : SDK_URL;
                 script.async = true;
                 script.addEventListener('load', onLoad);
                 script.addEventListener('error', onError);

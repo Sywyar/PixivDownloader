@@ -12,7 +12,7 @@
         if (loadedModules[url]) return loadedModules[url];
         loadedModules[url] = new Promise(function (resolve) {
             var script = document.createElement('script');
-            script.src = url;
+            script.src = global.PixivAssets ? global.PixivAssets.url(url) : url;
             script.async = false;
             script.onload = function () { resolve(true); };
             script.onerror = function () {

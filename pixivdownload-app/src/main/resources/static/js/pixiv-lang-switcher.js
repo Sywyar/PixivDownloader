@@ -45,42 +45,67 @@
         });
         wrapper.appendChild(select);
 
-        var applyingLanguageChange = false;
+        var revision = 0;
+        var requestedLang = client.lang;
+        var destroyed = false;
         var unsubscribeLanguageChange = null;
+        var unsubscribeUpdate = null;
+        var pendingController = null;
+
+        function cancelPending() {
+            if (pendingController) pendingController.abort();
+            pendingController = null;
+        }
+
+        function observeClient() {
+            if (unsubscribeUpdate) unsubscribeUpdate();
+            unsubscribeUpdate = typeof client.onUpdate === 'function' ? client.onUpdate(function (updated) {
+                if (!destroyed && typeof options.onChange === 'function') options.onChange(updated);
+            }) : null;
+        }
+        observeClient();
 
         async function applyChange(newLang, notifyOthers) {
             var normalizedLang = global.PixivI18n && typeof global.PixivI18n.normalizeLang === 'function'
                 ? global.PixivI18n.normalizeLang(newLang)
                 : newLang;
-            if (applyingLanguageChange) {
-                return;
-            }
-            if (normalizedLang === client.lang) {
+            if (normalizedLang === requestedLang) {
                 select.value = client.lang;
                 return;
             }
-            applyingLanguageChange = true;
+            var request = ++revision;
+            requestedLang = normalizedLang;
+            cancelPending();
+            var controller = global.AbortController ? new global.AbortController() : null;
+            pendingController = controller;
             try {
-                // cookie 名来自 meta（catalog 的 languageCookieName），不在前端写死
-                if (client.cookieName) {
-                    document.cookie = cookieString(normalizedLang, client.cookieName);
+                var newClient = await client.setLanguage(normalizedLang, { signal: controller ? controller.signal : undefined });
+                if (destroyed || request !== revision) {
+                    if (newClient.dispose) newClient.dispose();
+                    return;
                 }
-            } catch (e) {
-                // Ignore cookie failures.
-            }
-            try {
-                var newClient = await client.setLanguage(normalizedLang);
+                if (client.dispose) client.dispose();
+                client = newClient;
+                requestedLang = client.lang;
+                observeClient();
+                try {
+                    if (client.cookieName) document.cookie = cookieString(client.lang, client.cookieName);
+                } catch (e) { /* 存储被禁用时仍可更新当前页面。 */ }
                 newClient.apply();
                 select.value = newClient.lang;
-                client = newClient;
                 if (notifyOthers !== false && global.PixivI18n && typeof global.PixivI18n.notifyLanguageChange === 'function') {
                     global.PixivI18n.notifyLanguageChange(newClient.lang);
                 }
                 if (typeof options.onChange === 'function') {
                     options.onChange(newClient);
                 }
+            } catch (failure) {
+                if (destroyed || request !== revision || (controller && controller.signal.aborted)) return;
+                requestedLang = client.lang;
+                select.value = client.lang;
+                global.console.warn('Language change failed', failure);
             } finally {
-                applyingLanguageChange = false;
+                if (pendingController === controller) pendingController = null;
             }
         }
 
@@ -101,10 +126,20 @@
         return {
             element: wrapper,
             refresh: function (nextClient) {
+                revision++;
+                cancelPending();
+                if (nextClient && nextClient !== client && client.dispose) client.dispose();
                 client = nextClient || client;
+                requestedLang = client.lang;
+                observeClient();
                 select.value = client.lang;
             },
             destroy: function () {
+                destroyed = true;
+                revision++;
+                cancelPending();
+                if (unsubscribeUpdate) unsubscribeUpdate();
+                if (client.dispose) client.dispose();
                 if (typeof unsubscribeLanguageChange === 'function') {
                     unsubscribeLanguageChange();
                     unsubscribeLanguageChange = null;

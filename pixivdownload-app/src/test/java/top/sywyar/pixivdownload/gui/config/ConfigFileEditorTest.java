@@ -147,6 +147,54 @@ class ConfigFileEditorTest {
     }
 
     @Test
+    @DisplayName("单引号路径保留反斜杠、井号和转义单引号，读取不回写文件")
+    void singleQuotedValuesAreReadWithoutRewriting() throws IOException {
+        Path file = writeTemplate(
+                "download.root-folder: 'D:\\artist''s # archive'  # 下载目录",
+                "ffmpeg.executable-path: 'C:\\Program Files\\FFmpeg\\ffmpeg.exe'",
+                "app.language: 'en'",
+                "empty.value: ''",
+                "spaced.value: '  # value  '");
+        byte[] before = Files.readAllBytes(file);
+        ConfigFileEditor editor = new ConfigFileEditor(file);
+        Map<String, String> expected = Map.of(
+                "download.root-folder", "D:\\artist's # archive",
+                "ffmpeg.executable-path", "C:\\Program Files\\FFmpeg\\ffmpeg.exe",
+                "app.language", "en",
+                "empty.value", "",
+                "spaced.value", "  # value  ");
+
+        for (var entry : expected.entrySet()) {
+            assertThat(editor.read(entry.getKey())).isEqualTo(entry.getValue());
+        }
+        assertThat(editor.readAll(expected.keySet())).containsExactlyInAnyOrderEntriesOf(expected);
+        assertThat(Files.readAllBytes(file)).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("覆盖单引号值时只保留真正的行尾注释，其它配置不变")
+    void replacingSingleQuotedValuesPreservesOnlyInlineComments() throws IOException {
+        Path file = writeTemplate(
+                "# Paths",
+                "download.root-folder: 'D:/artist''s # old'  # 下载目录",
+                "ffmpeg.executable-path: 'D:/tools#old/ffmpeg.exe'",
+                "server.port: 6999  # untouched");
+        ConfigFileEditor editor = new ConfigFileEditor(file);
+
+        editor.write("download.root-folder", "D:/new");
+        editor.writeAll(Map.of("ffmpeg.executable-path", "D:/tools/ffmpeg.exe"));
+
+        assertThat(Files.readAllLines(file, StandardCharsets.UTF_8)).containsExactly(
+                "# Paths",
+                "download.root-folder: D:/new  # 下载目录",
+                "ffmpeg.executable-path: D:/tools/ffmpeg.exe",
+                "server.port: 6999  # untouched");
+        Map<String, Object> parsed = new Yaml().load(Files.readString(file, StandardCharsets.UTF_8));
+        assertThat(parsed).containsEntry("download.root-folder", "D:/new")
+                .containsEntry("ffmpeg.executable-path", "D:/tools/ffmpeg.exe");
+    }
+
+    @Test
     @DisplayName("非法配置 key 被拒绝且不改写文件")
     void unsafeKeyIsRejectedWithoutChangingFile() throws IOException {
         Path file = writeTemplate("server.port: 6999");

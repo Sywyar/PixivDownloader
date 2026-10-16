@@ -68,6 +68,7 @@ function rememberAuthorOption(author) {
 function setFilterPanelOpen(open) {
     document.getElementById('filterPanel').classList.toggle('open', open);
     document.getElementById('filterToggle').classList.toggle('active', open);
+    document.getElementById('filterToggle').setAttribute('aria-expanded', String(open));
 }
 
 function updateOrderToggleLabel() {

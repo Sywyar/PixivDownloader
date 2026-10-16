@@ -9,7 +9,8 @@ import java.util.UUID;
 
 /**
  * 宿主必需的任务提交与状态门面。提交仅接受管理员；HTTP 调用方必须使用宿主身份解析器。
- * 状态为进程内事实，终态保留至少五分钟，不承诺跨重启恢复或事件重放。
+ * 活动快照为进程内事实，终态在快照中保留至少五分钟；已持久化的终态可按执行身份跨重启查询。
+ * 不恢复尚未终结的执行，不承诺事件重放；查询不到结果不能推断为失败或自动重新提交。
  * 类型能力缺席、撤回或换代时拒绝提交；旧命令不会重投替代实例。
  */
 public interface DownloadTasks {
@@ -28,11 +29,11 @@ public interface DownloadTasks {
      *
      * @param taskId 执行身份
      * @param owner 可信请求身份
-     * @return 身份可见的任务；未知或过期为空
+     * @return 身份可见的当前任务或已持久化终态；没有对应记录或身份不可见时为空
      */
     Optional<DownloadTaskSnapshot> find(UUID taskId, RequestOwnerIdentity owner);
     /**
-     * 捕获调用者可见的任务集合，供断线后恢复状态。
+     * 捕获调用者可见的进程内任务集合，供断线后恢复状态；不枚举持久化历史。
      *
      * @param owner 可信请求身份
      * @return 同一时点的任务快照，用于断线后重新同步

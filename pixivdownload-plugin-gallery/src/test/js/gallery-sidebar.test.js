@@ -6,7 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-const ROOT = path.join(__dirname, '../../main/resources/static');
+const ROOT = path.join(__dirname, '../../../../');
 const KEY = 'pixiv:gallery-sidebar-state';
 
 function load(page, storage = new Map()) {
@@ -28,25 +28,27 @@ function load(page, storage = new Map()) {
         localStorage: {getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value)}
     };
     vm.createContext(sandbox);
-    const html = fs.readFileSync(path.join(ROOT, `pixiv-${page}.html`), 'utf8');
+    const assets = path.join(ROOT, `pixivdownload-plugin-${page === 'novel-gallery' ? 'novel' : 'gallery'}/src/main/resources/static`);
+    const html = fs.readFileSync(path.join(assets, `pixiv-${page}.html`), 'utf8');
     const scripts = [...html.matchAll(/<script src="([^"]+)"/g)].map(match => match[1]);
-    const stateScript = page === 'gallery' ? '/pixiv-gallery/gallery-state.js' : '/pixiv-series/series-core.js';
+    const stateScript = page === 'gallery' ? '/pixiv-gallery/gallery-state.js'
+        : page === 'series' ? '/pixiv-series/series-core.js' : '/pixiv-novel-gallery/novel-gallery-core.js';
     const sidebarScript = scripts.find(src => src.endsWith('-sidebar.js'));
     assert.ok(scripts.indexOf(stateScript) >= 0 && scripts.indexOf(stateScript) < scripts.indexOf(sidebarScript));
     for (const src of [stateScript, sidebarScript]) {
-        vm.runInContext(fs.readFileSync(path.join(ROOT, src), 'utf8'), sandbox, {filename: src});
+        vm.runInContext(fs.readFileSync(path.join(assets, src), 'utf8'), sandbox, {filename: src});
     }
     return {sandbox, nodes, storage};
 }
 
-for (const page of ['gallery', 'series']) {
+for (const page of ['gallery', 'series', 'novel-gallery']) {
     test(`${page} 侧栏恢复与切换保留跨页存储契约`, () => {
         const {sandbox, nodes, storage} = load(page);
         const sidebar = nodes.get('sidebar').classList;
         for (const value of [undefined, 'open', 'unexpected', 'closed']) {
             storage.set(KEY, value);
             sandbox.restoreSidebarState();
-            assert.equal(sidebar.contains('collapsed'), value === 'closed');
+            assert.equal(sidebar.contains('collapsed'), value !== 'open');
         }
         sandbox.toggleSidebar();
         assert.equal(sidebar.contains('collapsed'), false);
@@ -63,9 +65,9 @@ for (const page of ['gallery', 'series']) {
         sandbox.localStorage.getItem = sandbox.localStorage.setItem = () => { throw new Error('Storage disabled'); };
         nodes.get('sidebar').classList.add('collapsed');
         sandbox.restoreSidebarState();
-        assert.equal(nodes.get('sidebar').classList.contains('collapsed'), false);
-        sandbox.toggleSidebar();
         assert.equal(nodes.get('sidebar').classList.contains('collapsed'), true);
+        sandbox.toggleSidebar();
+        assert.equal(nodes.get('sidebar').classList.contains('collapsed'), false);
         nodes.delete('sidebar');
         assert.doesNotThrow(() => { sandbox.restoreSidebarState(); sandbox.toggleSidebar(); });
     });

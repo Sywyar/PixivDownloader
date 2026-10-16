@@ -27,6 +27,22 @@ import kotlin.test.assertTrue
 @DisplayName("Compose 根页面外壳")
 class ComposeDesktopShellTest {
     @Test
+    @DisplayName("FFmpeg 设置入口派发定位动作并进入设置页")
+    fun opensFfmpegSettings() = runComposeUiTest {
+        val calls = mutableListOf<String>()
+        val button = DesktopUiNode.Button("status.ffmpeg.settings", "status.ffmpeg.settings",
+            raw("Configure FFmpeg"), null, DesktopUiNode.ButtonStyle.NORMAL, true)
+        setContent {
+            PixivDownloaderTheme("light") {
+                DesktopShell(document(true, button), 1L, { it.fallback() }, { calls.add(it.nodeId()) })
+            }
+        }
+        onNodeWithText("Configure FFmpeg").performClick()
+        onNodeWithText("Settings body").assertExists()
+        assertEquals(listOf("status.ffmpeg.settings"), calls)
+    }
+
+    @Test
     @DisplayName("离开页面及重新进入后拒绝上一访问留下的点击回调")
     fun rejectsActionsFromPreviousPageVisit() = runComposeUiTest {
         var calls = 0

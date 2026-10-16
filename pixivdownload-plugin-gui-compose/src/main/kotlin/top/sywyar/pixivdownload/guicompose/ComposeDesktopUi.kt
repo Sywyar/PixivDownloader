@@ -665,7 +665,15 @@ internal fun DesktopShell(
                                         }
                                     }
                                 ComposeDesktopUiNodeRenderer.Render(
-                                    page.content(), resolveText, { if (active && currentVisit.value === visit) dispatch(it) },
+                                    page.content(), resolveText, {
+                                        if (active && currentVisit.value === visit) {
+                                            dispatch(it)
+                                            if (it.nodeId() == "status.ffmpeg.settings" && "settings" in pageIds) {
+                                                focusManager.clearFocus()
+                                                selected = "settings"
+                                            }
+                                        }
+                                    },
                                     Modifier.fillMaxSize().focusProperties { canFocus = active }.then(interaction), documentRevision,
                                 )
                             }

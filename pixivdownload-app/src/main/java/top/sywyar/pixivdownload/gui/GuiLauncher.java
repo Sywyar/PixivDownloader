@@ -400,7 +400,7 @@ public class GuiLauncher {
             ui.start(readConfigScalar(configPath, "app.gui-provider"));
             pluginSession.releaseStartupSnapshot();
             if (ACTIVE_UI.get() != null) {
-                maybeScheduleStartupBackfillFlow(ui, configPath, root, startupManagedSchema, databaseTarget);
+                maybeScheduleStartupBackfillFlow(ui, desktopUiHost, startupManagedSchema, databaseTarget);
             }
         } catch (Throwable failure) {
             splash.close();
@@ -554,7 +554,7 @@ public class GuiLauncher {
         SLF4JBridgeHandler.install();
     }
 
-    private static void maybeScheduleStartupBackfillFlow(DesktopUiSession frame, Path configPath, String rootFolder,
+    private static void maybeScheduleStartupBackfillFlow(DesktopUiSession frame, DesktopUiHost host,
                                                          ManagedDatabaseSchema.DatabaseSchema expectedSchema,
                                                          top.sywyar.pixivdownload.core.db.DatabaseTarget target) {
 
@@ -564,7 +564,7 @@ public class GuiLauncher {
                     BackendLifecycleManager.startAsync();
                     return;
                 }
-                ArtworksBackFill.Options options = buildStartupBackfillOptions(configPath, rootFolder).withTarget(target);
+                ArtworksBackFill.Options options = buildStartupBackfillOptions(host).withTarget(target);
                 runStartupSchemaBackfill(frame, options, expectedSchema);
             } catch (Throwable fatal) {
                 log.error(logMessage("gui.launcher.log.startup.schema-backfill-flow.unexpected"), fatal);
@@ -747,28 +747,13 @@ public class GuiLauncher {
         );
     }
 
-    private static ArtworksBackFill.Options buildStartupBackfillOptions(Path configPath, String rootFolder) {
-        ArtworksBackFill.Options defaults = ArtworksBackFill.Options.defaults();
-        boolean proxyEnabled = defaults.useProxy();
-        String proxyHost = defaults.proxyHost();
-        int proxyPort = defaults.proxyPort();
-
-        if (Files.isRegularFile(configPath)) {
-            try {
-                ConfigFileEditor editor = new ConfigFileEditor(configPath);
-                proxyEnabled = Boolean.parseBoolean(defaultIfBlank(editor.read("proxy.enabled"), String.valueOf(defaults.useProxy())));
-                proxyHost = defaultIfBlank(editor.read("proxy.host"), defaults.proxyHost());
-                proxyPort = Integer.parseInt(defaultIfBlank(editor.read("proxy.port"), String.valueOf(defaults.proxyPort())));
-            } catch (Exception e) {
-                log.warn(logMessage("gui.launcher.log.startup.backfill.proxy-defaults.failed", e.getMessage()));
-            }
-        }//"
-
+    static ArtworksBackFill.Options buildStartupBackfillOptions(DesktopUiHost host) {
+        DesktopUiHost.BackfillOptions defaults = host.defaultBackfillOptions();
         return new ArtworksBackFill.Options(
                 defaults.dbPath(),
-                proxyHost,
-                proxyPort,
-                proxyEnabled,
+                defaults.proxyHost(),
+                defaults.proxyPort(),
+                defaults.useProxy(),
                 defaults.delayMs(),
                 defaults.limit(),
                 false
@@ -1323,24 +1308,12 @@ public class GuiLauncher {
         return MessageBundles.getForLog(code, args);
     }
 
-    /**
-     * 从参数列表中过滤掉 GUI 专用参数，避免传入 Spring。
-     */
+    /** 启动前使用与设置页相同的标量读取规则。 */
     private static String readConfigScalar(Path path, String key) {
         if (path == null || key == null || !Files.isRegularFile(path)) return "";
         try {
-            for (String line : Files.readAllLines(path, StandardCharsets.UTF_8)) {
-                int colon = line.indexOf(':');
-                if (colon < 0 || !line.substring(0, colon).trim().equals(key)) continue;
-                String value = line.substring(colon + 1).trim();
-                int comment = value.indexOf('#');
-                if (comment >= 0) value = value.substring(0, comment).trim();
-                if (value.length() >= 2 && ((value.startsWith("\"") && value.endsWith("\""))
-                        || (value.startsWith("'") && value.endsWith("'")))) {
-                    value = value.substring(1, value.length() - 1);
-                }
-                return value.trim();
-            }
+            String value = new ConfigFileEditor(path).read(key);
+            return value == null ? "" : value.trim();
         } catch (IOException failure) {
             log.warn("Failed to read desktop UI provider preference from {}: {}", path, failure.toString());
         }

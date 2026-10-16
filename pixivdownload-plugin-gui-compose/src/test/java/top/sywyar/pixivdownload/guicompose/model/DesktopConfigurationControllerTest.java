@@ -61,6 +61,19 @@ class DesktopConfigurationControllerTest {
     }
 
     @Test
+    @DisplayName("FFmpeg 代理保留保存的启用状态，无效端口不替换为默认值")
+    void ffmpegProxyPreservesExplicitConfiguration() throws Exception {
+        Map<String, String> stored = new HashMap<>(Map.of(
+                "proxy.enabled", "true", "proxy.host", "", "proxy.port", "17891"));
+        try (var model = model(stored)) {
+            assertTrue(model.proxySettings().enabled());
+            assertEquals("", model.proxySettings().host());
+            stored.put("proxy.port", "invalid-port");
+            org.junit.jupiter.api.Assertions.assertThrows(NumberFormatException.class, model::proxySettings);
+        }
+    }
+
+    @Test
     @DisplayName("保存结果区分成功与已保存但热更新失败")
     void saveNoticeReflectsApplicationResult() throws Exception {
         assertSaveNotice(200, DesktopUiNode.TextStyle.SUCCESS);
@@ -86,6 +99,35 @@ class DesktopConfigurationControllerTest {
                     .map(DesktopUiNode.Text.class::cast).findFirst().orElseThrow().style());
         }
     }
+
+    @Test
+    @DisplayName("读取缺项不补写，外部保存同步未改字段并保留草稿")
+    void synchronizesSavedValuesWithoutDiscardingDrafts() throws Exception {
+        var fields = List.of(
+                new GuiConfigFieldContribution("fixture.proxy", "fixture", "proxy", GuiConfigFieldType.STRING, "default", 1),
+                new GuiConfigFieldContribution("fixture.other", "fixture", "other", GuiConfigFieldType.STRING, "", 2));
+        Map<String, String> stored = new HashMap<>(Map.of("fixture.proxy", "saved-proxy"));
+        try (var model = model(stored, Map.of(
+                "coreConfigGroups", args -> List.of(new GuiConfigGroupContribution("fixture", "fixture", null, 1, true)),
+                "coreConfigFields", args -> fields,
+                "validateCoreConfigValue", args -> null))) {
+            assertEquals(Map.of("fixture.proxy", "saved-proxy"), stored);
+            dispatch(model, new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "config.app.fixture.other.input", DesktopUiNode.Value.text("draft")));
+            stored.put("fixture.proxy", "wizard-proxy");
+            model.coreConfigValuesSaved(Map.of("fixture.proxy", "wizard-proxy"));
+            model.rebuild();
+            assertEquals(1, pendingCount(model));
+            assertTrue(nodes(model).filter(DesktopUiNode.TextInput.class::isInstance)
+                    .map(DesktopUiNode.TextInput.class::cast)
+                    .anyMatch(input -> input.id().equals("config.app.fixture.proxy.input") && input.value().equals("wizard-proxy")));
+            activate(model, "config.save");
+            awaitReady(model);
+            assertEquals("draft", stored.get("fixture.other"));
+            assertEquals("wizard-proxy", stored.get("fixture.proxy"));
+        }
+    }
+
     @Test
     @DisplayName("插件分组未指定语言命名空间时沿用插件展示命名空间")
     void inheritsGroupTranslationNamespace() throws Exception {
@@ -341,15 +383,15 @@ class DesktopConfigurationControllerTest {
     }
 
     @Test
-    @DisplayName("进入 Compose 后关闭并保存旧展开偏好且不再显示该设置")
-    void clearsExpandedMenusOnEnteringCompose() throws Exception {
+    @DisplayName("进入 Compose 不改写 Swing 展开偏好也不显示该设置")
+    void preservesExpandedMenusOnEnteringCompose() throws Exception {
         Map<String, String> stored = new HashMap<>(Map.of(
                 "app.config-menu-expand-all", "true",
                 "app.theme", "dark",
                 "unrelated.value", "keep"
         ));
         try (ComposeDesktopUiModel model = model(stored)) {
-            assertEquals("false", stored.get("app.config-menu-expand-all"));
+            assertEquals("true", stored.get("app.config-menu-expand-all"));
             assertEquals("dark", stored.get("app.theme"));
             assertEquals("keep", stored.get("unrelated.value"));
             assertFalse(nodes(model).anyMatch(node -> node.id().contains("config-menu-expand-all")));
@@ -357,7 +399,7 @@ class DesktopConfigurationControllerTest {
             model.loadConfiguration();
             model.rebuild();
             assertEquals(0, pendingCount(model));
-            assertEquals("false", stored.get("app.config-menu-expand-all"));
+            assertEquals("true", stored.get("app.config-menu-expand-all"));
         }
     }
 
@@ -588,7 +630,7 @@ class DesktopConfigurationControllerTest {
         });
     }
 
-    private static void awaitReady(ComposeDesktopUiModel model) {
+    static void awaitReady(ComposeDesktopUiModel model) {
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
             while (model.busy()) {
                 Thread.sleep(10);

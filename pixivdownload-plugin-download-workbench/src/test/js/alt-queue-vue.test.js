@@ -180,6 +180,7 @@ function loadVue(opts) {
         queueItemCanonicalUrl: item => item && item.canonicalUrl ? item.canonicalUrl : 'https://www.pixiv.net/artworks/' + (item && item.id),
         queueItemMessage: q => q && q.lastMessage ? q.lastMessage : '排队中',
         progressExtrasModel: q => (q && q.extras) ? [{key: 'fixture', text: q.extras}] : [],
+        queueProgressSnapshot: q => Object.assign({}, q),
         // 当前卡派生口径桩（alt-queue.js 顶层函数；此处隔离注入，与真实实现同语义：暂停期间仍展示收尾下载项）。
         currentFrontItem: (queue, isPaused) => {
             const downloading = queue.find(q => q.status === 'downloading');

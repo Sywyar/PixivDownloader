@@ -41,3 +41,75 @@ const pixivLayoutObserver = new ResizeObserver(entries => {
 });
 document.querySelectorAll('[data-layout-height]').forEach(element => pixivLayoutObserver.observe(element));
 pixivLayoutObserver.observe(document.documentElement);
+
+// 页面声明滚动容器；抽屉、弹窗等局部滚动不影响顶部导航。
+function initLayoutHeader(header) {
+    const scroller = header.dataset.layoutScrollRoot
+        ? document.querySelector(header.dataset.layoutScrollRoot) : document.scrollingElement;
+    if (!scroller) return;
+    const scrollTarget = scroller === document.scrollingElement ? window : scroller;
+    const narrow = window.matchMedia('(max-width: 56.25em)');
+    let previous = 0;
+    let travel = 0;
+    let frame = 0;
+    let active = false;
+
+    function position() {
+        return Math.max(0, Math.min(scroller.scrollTop, scroller.scrollHeight - scroller.clientHeight));
+    }
+
+    function show() {
+        header.classList.remove('layout-header-hidden');
+        previous = position();
+        travel = 0;
+    }
+
+    function update() {
+        frame = 0;
+        const current = position();
+        const delta = current - previous;
+        previous = current;
+        const focused = document.activeElement;
+        const editing = header.contains(focused) && focused.matches('input, select, textarea, [contenteditable], :focus-visible');
+        if (!narrow.matches || current <= 0 || editing || header.querySelector('[aria-expanded="true"], [open]')) {
+            show();
+            return;
+        }
+        travel = Math.sign(delta) === Math.sign(travel) ? travel + delta : delta;
+        // 小幅抖动不翻转状态；上划越过顶部栏后收起，下划即恢复。
+        if (Math.abs(travel) >= 10) {
+            header.classList.toggle('layout-header-hidden', travel > 0 && current > header.offsetHeight);
+            travel = 0;
+        }
+    }
+
+    function onScroll() {
+        if (!frame) frame = window.requestAnimationFrame(update);
+    }
+
+    function stop() {
+        active = false;
+        scrollTarget.removeEventListener('scroll', onScroll);
+        header.removeEventListener('focusin', show);
+        window.removeEventListener('resize', show);
+        narrow.removeEventListener('change', show);
+        if (frame) window.cancelAnimationFrame(frame);
+        frame = 0;
+        show();
+    }
+
+    function start() {
+        if (active) return;
+        active = true;
+        show();
+        scrollTarget.addEventListener('scroll', onScroll, {passive: true});
+        header.addEventListener('focusin', show);
+        window.addEventListener('resize', show);
+        narrow.addEventListener('change', show);
+    }
+
+    window.addEventListener('pagehide', stop);
+    window.addEventListener('pageshow', start);
+    start();
+}
+document.querySelectorAll('[data-layout-height="--layout-header-height"]').forEach(initLayoutHeader);

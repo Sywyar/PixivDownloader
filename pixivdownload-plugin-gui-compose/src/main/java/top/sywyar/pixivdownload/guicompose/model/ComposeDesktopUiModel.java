@@ -623,7 +623,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
             case ERROR -> DesktopUiNode.SurfaceStyle.ERROR;
             case INFO -> DesktopUiNode.SurfaceStyle.INFO;
         };
-        DesktopUiNode body = state.content() == null ? column(
+        DesktopUiNode body = state.content() == null ? dialogContent(
                 state.id() + ".content",
                 new DesktopUiNode.Text(
                         state.id() + ".message",
@@ -759,21 +759,32 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         configuration.load();
     }
 
+    void locateCoreSetting(String key) {
+        configuration.locateCoreField(key);
+        rebuild();
+    }
+
     public String themePreference() {
         return configuration.themePreference();
     }
 
     void coreConfigValueSaved(String key, String value) {
-        configuration.coreValueSaved(key, value);
+        coreConfigValuesSaved(Map.of(key, value));
     }
 
     void securityConfigSaved(Map<String, String> saved) {
-        saved.forEach((key, value) -> {
-            var field = new DesktopConfigurationController.FieldKey(null, key);
-            String previous = configuration.savedValues.put(field, value);
-            configuration.values.compute(field, (ignored, draft) ->
-                    draft == null || Objects.equals(draft, previous) ? value : draft);
-        });
+        coreConfigValuesSaved(saved);
+    }
+
+    Map<String, String> readConfiguration(java.util.Collection<String> keys) throws java.io.IOException {
+        return configuration.readCoreValues(keys);
+    }
+
+    void coreConfigValuesSaved(Map<String, String> saved) {
+        saved.forEach(configuration::coreValueSaved);
+        tools.configurationSaved(saved);
+        statusController.configurationSaved(saved);
+        security.configurationSaved(saved);
     }
 
     DesktopUiHost.FfmpegProxy proxySettings() {

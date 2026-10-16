@@ -390,9 +390,7 @@ class ToolsWorkspaceLayoutTest {
                 onNodeWithTag("tools.sheet").assertDoesNotExist()
                 onNodeWithTag("tools.entry.media").performScrollTo().performClick()
                 onNodeWithTag("tools.ffmpeg.path").assertDoesNotExist()
-                onNodeWithTag("tools.media.advanced").performScrollTo().performClick()
-                compactField("tools.ffmpeg.path")
-                onNodeWithTag("tools.ffmpeg.path.browse").assertIsDisplayed()
+                onNodeWithTag("status.ffmpeg.settings").performScrollTo().assertIsDisplayed().assertIsEnabled()
                 screenshot("actual-media")
                 onNodeWithTag("status.ffmpeg.help").performScrollTo().performClick()
                 waitUntil(timeoutMillis = 5_000) { !model.busy() }

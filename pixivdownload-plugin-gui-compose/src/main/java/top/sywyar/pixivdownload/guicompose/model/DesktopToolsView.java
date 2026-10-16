@@ -303,7 +303,7 @@ final class DesktopToolsView {
                         InputKind.FILE,
                         model.form(
                                 "tools.folder.db",
-                                model.host.defaultBackfillOptions().dbPath()
+                                ""
                         ),
                         !model.owner.busy() && model.host.supportsDatabaseFileSelection()
                 ),
@@ -468,7 +468,7 @@ final class DesktopToolsView {
                                                         InputKind.FILE,
                                                         model.form(
                                                                 "tools.backfill.db",
-                                                                model.host.defaultBackfillOptions().dbPath()
+                                                                ""
                                                         ),
                                                         !model.owner.busy() && model.host.supportsDatabaseFileSelection()
                                                 ),
@@ -621,7 +621,7 @@ final class DesktopToolsView {
                                                         InputKind.FILE,
                                                         model.form(
                                                                 "tools.migration.db",
-                                                                model.host.defaultBackfillOptions().dbPath()
+                                                                ""
                                                         ),
                                                         !model.owner.busy() && model.host.supportsDatabaseFileSelection()
                                                 ),

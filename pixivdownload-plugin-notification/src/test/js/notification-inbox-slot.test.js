@@ -200,7 +200,7 @@ function createDocument({filters = false, slot = false} = {}) {
         title: '',
         visibilityState: 'visible',
         createElement: tag => new El(tag),
-        getElementById: id => elements[id] || null,
+        getElementById: id => elements[id] || body.querySelector('[id="' + id + '"]'),
         querySelector(selector) {
             return body.matches(selector) ? body : body.querySelector(selector);
         },
@@ -311,12 +311,14 @@ function pageMessage(overrides = {}) {
     }, overrides);
 }
 
-async function pageHarness(initialSnapshot, {surveyBridge = false} = {}) {
+async function pageHarness(initialSnapshot, {surveyBridge = false, search = '', startupResponses = []} = {}) {
     const document = createDocument({filters: true});
     const location = createLocation();
+    location.setSearch(search);
     const window = createWindow(location);
     const requests = fetchQueue();
     requests.enqueue(response(initialSnapshot));
+    startupResponses.forEach(value => requests.enqueue(value));
     const history = {
         pushState(_state, _title, url) { location.href = url; },
         replaceState(_state, _title, url) { location.href = url; }
@@ -353,6 +355,24 @@ async function pageHarness(initialSnapshot, {surveyBridge = false} = {}) {
     await document.emit('DOMContentLoaded');
     await flush();
     return {document, window, location, requests, feedback, bridge};
+}
+
+async function slotHarness(snapshot) {
+    const document = createDocument({slot: true});
+    const location = createLocation();
+    const window = createWindow(location);
+    const requests = fetchQueue();
+    const abort = new AbortController();
+    requests.enqueue(response(snapshot));
+    let initializer;
+    let cleanup;
+    window.PixivBatch = {queueTypes: {registerUiModule(fn) { initializer = fn; }}};
+    const sandbox = {window, document, location, fetch: requests.fetch, URLSearchParams,
+        HTMLElement: function HTMLElement() {}};
+    vm.runInNewContext(SLOT_SOURCE, sandbox);
+    initializer({signal: abort.signal, isActive: () => !abort.signal.aborted, onCleanup(fn) { cleanup = fn; }});
+    await flush();
+    return {document, window, location, requests, cleanup() { abort.abort(); cleanup(); }};
 }
 
 function listTitle(document) {
@@ -411,6 +431,8 @@ test('下载页站内信槽位保留节点热切语言，并在未授权或 publ
     assert.equal(button.getAttribute('aria-label'), bundles['en-US']['inbox.open']);
     assert.equal(popover.getAttribute('popover'), 'auto');
     assert.equal(button.querySelector('.notification-inbox-badge').textContent, '3');
+    const markRead = popover.querySelector('.notification-popover-mark-read');
+    assert.equal(markRead.textContent, bundles['en-US']['inbox.mark-all-read']);
     assert.match(requests.calls[0].url, /lang=en-US/);
     assert.equal(window.intervalCount(), 1);
 
@@ -429,6 +451,7 @@ test('下载页站内信槽位保留节点热切语言，并在未授权或 publ
         assert.equal(popover.getAttribute('aria-label'), bundles[lang]['inbox.latest']);
         assert.equal(popover.querySelector('strong').textContent, bundles[lang]['inbox.latest']);
         assert.equal(popover.querySelector('.notification-popover-all').textContent, bundles[lang]['inbox.view-all']);
+        assert.equal(markRead.textContent, bundles[lang]['inbox.mark-all-read']);
         assert.equal(category.textContent, bundles[lang]['inbox.category.system']);
         assert.equal(popover.querySelector('.notification-item-title'), title);
         assert.equal(title.textContent, pageMessage().title);
@@ -575,17 +598,128 @@ test('调查 iframe 通过共享 bridge 延迟挂载并携带当前语言', asyn
     assert.equal(h.bridge.attachments.length, 1);
 });
 
-test('公告自动已读且当前分类全部已读使用对应 API', async () => {
-    const announcement = pageMessage({
-        id: 'announcement', category: 'announcement', title: 'Announcement', readTime: null
-    });
-    const h = await pageHarness({messages: [announcement], categoryUnreadCount: 1});
-    h.requests.enqueue(response(Object.assign({}, announcement, {readTime: 2})));
+for (const category of ['download', 'system', 'announcement', 'survey']) {
+    for (const entry of ['列表', '直达链接']) {
+        test(`${category} 从${entry}打开详情后自动已读且不重复提交`, async () => {
+            const message = pageMessage({id: category, category, readTime: null});
+            const reading = deferred();
+            const h = await pageHarness({messages: [message], categoryUnreadCount: 1}, entry === '直达链接'
+                ? {search: '?id=' + message.id, startupResponses: [reading.promise]} : {});
+            const list = h.document.getElementById('notificationList');
+            if (entry === '列表') {
+                assert.equal(h.requests.calls.filter(call => call.init.method === 'POST').length, 0);
+                h.requests.enqueue(reading.promise);
+                await list.children[0].emit('click');
+            }
+            await list.children[0].emit('click');
+            const readCalls = () => h.requests.calls.filter(call => call.init.method === 'POST');
+            assert.equal(readCalls().length, 1);
+            assert.equal(readCalls()[0].url, `/api/notifications/${category}/read?lang=en-US`);
+            reading.resolve(response(Object.assign({}, message, {readTime: 2})));
+            await flush();
+            assert.equal(h.document.getElementById('notificationUnreadCount').textContent, '');
+            assert.equal(list.children[0].classList.contains('unread'), false);
+            const detail = h.document.getElementById('notificationDetail');
+            assert.equal(detail.querySelector('h2').textContent, message.title);
+            assert.equal(detail.querySelector('[data-i18n="inbox.mark-read"]'), null);
+            await list.children[0].emit('click');
+            assert.equal(readCalls().length, 1);
+        });
+    }
+}
+
+test('未读筛选中的消息自动已读后移出列表并保留详情与操作链接', async () => {
+    const message = pageMessage({category: 'download', readTime: null, actionUrl: '/pixiv-batch.html'});
+    const h = await pageHarness({messages: [message], categoryUnreadCount: 1});
+    h.requests.enqueue(response({messages: [message], categoryUnreadCount: 1}));
+    const filter = h.document.getElementById('notificationUnreadOnly');
+    filter.checked = true;
+    await filter.emit('change');
+    await flush();
+    h.requests.enqueue(response(Object.assign({}, message, {readTime: 2})));
     await h.document.getElementById('notificationList').children[0].emit('click');
     await flush();
-    assert.ok(h.requests.calls.some(call => call.url.includes('/api/notifications/announcement/read')
-        && call.init.method === 'POST'));
-    assert.equal(h.document.getElementById('notificationUnreadCount').textContent, '');
+    assert.equal(h.document.getElementById('notificationList').children.length, 0);
+    const detail = h.document.getElementById('notificationDetail');
+    assert.equal(detail.querySelector('h2').textContent, message.title);
+    assert.equal(detail.querySelector('.notification-action-link').href, 'https://local.test/pixiv-batch.html');
+    assert.equal(h.location.search, '?id=' + message.id);
+});
+
+test('自动已读失败保留未读状态并提示，重新打开可重试', async () => {
+    const message = pageMessage({category: 'system', readTime: null, deletable: false});
+    const h = await pageHarness({messages: [message], categoryUnreadCount: 1});
+    h.requests.enqueue(response({}, 503));
+    const list = h.document.getElementById('notificationList');
+    await list.children[0].emit('click');
+    await flush();
+    assert.equal(list.children[0].classList.contains('unread'), true);
+    assert.equal(h.document.getElementById('notificationUnreadCount').textContent, '1');
+    assert.ok(h.document.getElementById('notificationDetailActionStatus').textContent);
+    h.requests.enqueue(response(Object.assign({}, message, {readTime: 2})));
+    await list.children[0].emit('click');
+    await flush();
+    assert.equal(list.children[0].classList.contains('unread'), false);
+});
+
+test('顶部消息入口携带消息标识进入详情页', async () => {
+    const message = pageMessage({id: 'download with spaces', category: 'download', readTime: null});
+    const h = await slotHarness({messages: [message], unreadCount: 1});
+    await h.document.querySelector('.notification-popover-item').emit('click');
+    assert.equal(h.location.pathname, '/pixiv-notifications.html');
+    assert.equal(new URLSearchParams(h.location.search).get('id'), message.id);
+    h.cleanup();
+});
+
+test('顶部全部已读覆盖所有消息，阻止重复点击与旧快照回写', async () => {
+    const message = pageMessage({category: 'download', readTime: null});
+    const h = await slotHarness({messages: [message], unreadCount: 12});
+    const oldRefresh = deferred();
+    h.requests.enqueue(oldRefresh.promise);
+    await h.document.emit('visibilitychange');
+    const marked = deferred();
+    h.requests.enqueue(marked.promise);
+    const button = h.document.querySelector('.notification-popover-mark-read');
+    const marking = button.emit('click');
+    assert.equal(button.disabled, true);
+    await button.emit('click');
+    const posts = h.requests.calls.filter(call => call.init.method === 'POST');
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].url, '/api/notifications/read-all');
+    assert.equal(posts[0].init.credentials, 'same-origin');
+    h.requests.enqueue(response({messages: [Object.assign({}, message, {readTime: 2})], unreadCount: 0}));
+    marked.resolve(response(12));
+    await marking;
+    oldRefresh.resolve(response({messages: [message], unreadCount: 12}));
+    await flush();
+    assert.equal(h.document.querySelector('.notification-inbox-badge').hidden, true);
+    assert.equal(h.document.querySelector('.notification-popover-item').classList.contains('unread'), false);
+    assert.equal(button.disabled, true);
+    h.cleanup();
+});
+
+test('顶部全部已读失败显示错误且允许重试，清理后不恢复界面', async () => {
+    const h = await slotHarness({messages: [pageMessage({readTime: null})], unreadCount: 1});
+    const button = h.document.querySelector('.notification-popover-mark-read');
+    h.requests.enqueue(response({}, 503));
+    await button.emit('click');
+    assert.equal(button.disabled, false);
+    assert.equal(h.document.querySelector('.notification-inbox-badge').hidden, false);
+    const status = h.document.querySelector('.notification-popover-status');
+    assert.equal(status.hidden, false);
+    assert.equal(status.getAttribute('data-i18n'), 'notification:inbox.mark-read-failed');
+    const retry = deferred();
+    h.requests.enqueue(retry.promise);
+    const marking = button.emit('click');
+    h.cleanup();
+    retry.resolve(response(1));
+    await marking;
+    assert.equal(h.document.querySelector('.notification-inbox-popover'), null);
+    assert.equal(h.window.intervalCount(), 0);
+});
+
+test('当前分类全部已读使用对应 API', async () => {
+    const h = await pageHarness({messages: [], categoryUnreadCount: 0});
 
     h.requests.enqueue(response({messages: [], categoryUnreadCount: 0}));
     await h.document.filterButtons.find(button => button.dataset.category === 'announcement').emit('click');

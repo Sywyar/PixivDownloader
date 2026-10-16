@@ -38,7 +38,7 @@
                 const item = getNextPending();
                 if (!item) {
                     if (state.queue.every(q =>
-                        q.taskObserved || ['completed', 'failed', 'idle', 'paused', 'skipped'].includes(q.status))) break;
+                        ['completed', 'failed', 'idle', 'paused', 'skipped'].includes(q.status))) break;
                     await sleep(500);
                     continue;
                 }
@@ -76,7 +76,6 @@
             (state.sseListeners[id] || []).forEach(fn => fn({cancelled: true}));
         });
         closeAllSSE();
-        window.PixivBatch.queueTasks?.dismiss(state.queue);
         state.queue = [];
         state.stats = {success: 0, failed: 0, active: 0, skipped: 0};
         clearSavedQueue();

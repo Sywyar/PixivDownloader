@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.BeanInitializationException;
 import org.springframework.core.Ordered;
 import org.springframework.core.io.Resource;
+import org.springframework.http.CacheControl;
 import org.springframework.web.accept.ContentNegotiationManager;
 import org.springframework.web.servlet.handler.AbstractHandlerMapping;
 import org.springframework.web.servlet.handler.SimpleUrlHandlerMapping;
@@ -31,14 +32,17 @@ final class DynamicStaticResourceHandlerMapping extends AbstractHandlerMapping {
 
     private final StaticResourceRegistry staticResourceRegistry;
     private final ContentNegotiationManager contentNegotiationManager;
+    private final StaticResourceVersioning versioning;
     private final Object refreshLock = new Object();
 
     private volatile MappingSnapshot mappingSnapshot;
 
     DynamicStaticResourceHandlerMapping(StaticResourceRegistry staticResourceRegistry,
-                                        ContentNegotiationManager contentNegotiationManager) {
+                                        ContentNegotiationManager contentNegotiationManager,
+                                        StaticResourceVersioning versioning) {
         this.staticResourceRegistry = staticResourceRegistry;
         this.contentNegotiationManager = contentNegotiationManager;
+        this.versioning = versioning;
         setOrder(ORDER);
     }
 
@@ -89,6 +93,10 @@ final class DynamicStaticResourceHandlerMapping extends AbstractHandlerMapping {
         ResourceHttpRequestHandler handler = new ResourceHttpRequestHandler();
         handler.setLocations(List.of(location));
         handler.setContentNegotiationManager(contentNegotiationManager);
+        handler.setCacheControl(CacheControl.noCache());
+        handler.setUseLastModified(false);
+        handler.setEtagGenerator(StaticResourceVersioning::contentHash);
+        handler.setResourceTransformers(List.of(versioning));
         handler.setServletContext(getServletContext());
         handler.setApplicationContext(obtainApplicationContext());
         try {

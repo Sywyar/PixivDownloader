@@ -40,7 +40,7 @@ class DynamicStaticResourceHandlerMappingTest {
         context.setServletContext(new MockServletContext());
         context.refresh();
         DynamicStaticResourceHandlerMapping mapping = new DynamicStaticResourceHandlerMapping(
-                registry, new ContentNegotiationManager());
+                registry, new ContentNegotiationManager(), new StaticResourceVersioning(registry));
         mapping.setApplicationContext(context);
 
         Method currentMapping = DynamicStaticResourceHandlerMapping.class

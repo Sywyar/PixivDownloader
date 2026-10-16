@@ -226,19 +226,15 @@ final class DesktopConfigurationLoader {
             DesktopUiHost.ConfigFile file = host.applicationConfig();
             List<String> keys = entry.getValue().stream().map(field -> field.spec().key()).toList();
             Map<String, String> stored;
-            boolean readSucceeded;
             try {
                 stored = file.readAll(keys);
-                readSucceeded = true;
             } catch (Exception failure) {
                 LOG.warn(
                         host.message("gui.config.log.read-failed", safeMessage(failure)),
                         failure
                 );
                 stored = Map.of();
-                readSucceeded = false;
             }
-            Map<String, String> missing = new LinkedHashMap<>();
             for (ConfigField field : entry.getValue()) {
                 if (field.spec().sensitive() && !stored.getOrDefault(field.spec().key(), "").isEmpty()) {
                     storedCredentials.add(field.key());
@@ -248,27 +244,6 @@ final class DesktopConfigurationLoader {
                         field.spec().defaultValue()
                 );
                 loaded.put(field.key(), value == null ? field.spec().defaultValue() : value);
-                if (!stored.containsKey(field.spec().key())) {
-                    missing.put(field.spec().key(), field.spec().defaultValue());
-                }
-            }
-            if (readSucceeded && !missing.isEmpty()) {
-                try {
-                    file.writeAll(missing);
-                    LOG.info(host.message(
-                            "gui.config.log.missing-keys.completed",
-                            missing.size(),
-                            String.join(", ", missing.keySet())
-                    ));
-                } catch (Exception failure) {
-                    LOG.warn(
-                            host.message(
-                                    "gui.config.log.missing-keys.failed",
-                                    safeMessage(failure)
-                            ),
-                            failure
-                    );
-                }
             }
         }
         Map<String, String> special = Map.of();
@@ -281,17 +256,6 @@ final class DesktopConfigurationLoader {
             ));
         } catch (Exception ignored) {
             // 保持下方默认值继续生效。
-        }
-        // 此提供者固定使用分类导航，进入时清除其它桌面界面保存的展开偏好。
-        if (Boolean.parseBoolean(special.get("app.config-menu-expand-all"))) {
-            try {
-                host.applicationConfig().writeAll(Map.of("app.config-menu-expand-all", "false"));
-            } catch (Exception failure) {
-                LOG.warn(
-                        host.message("gui.interface.log.config-menu-expand-all.persist-failed", safeMessage(failure)),
-                        failure
-                );
-            }
         }
         // 比较基线与表单共用默认值和可用选项解析，缺项或空值不代表用户修改。
         model.normalizeInterfaceValues(special).forEach((key, value) -> savedValues.put(
@@ -315,38 +279,6 @@ final class DesktopConfigurationLoader {
         repositories.load();
         model.database.refresh();
 
-        checkFieldDrift();
-    }
-
-    private void checkFieldDrift() {
-        Map<String, List<ConfigField>> fieldsByOwner = new LinkedHashMap<>();
-        for (ConfigField field : model.configFields) {
-            if (field.owner() != null && field.spec().sensitive()) continue;
-            fieldsByOwner.computeIfAbsent(
-                    field.owner() == null ? APP_OWNER : field.owner(),
-                    ignored -> new ArrayList<>()
-            ).add(field);
-        }
-        for (Map.Entry<String, List<ConfigField>> entry : fieldsByOwner.entrySet()) {
-            try {
-                DesktopUiHost.ConfigFile file = APP_OWNER.equals(entry.getKey()) ? host.applicationConfig() : host.pluginConfig(
-                        entry.getKey());
-                List<String> keys = entry.getValue().stream().map(field -> field.spec().key()).toList();
-                Map<String, String> stored = file.readAll(keys);
-                for (String key : keys) {
-                    if (!stored.containsKey(key))
-                        LOG.warn(host.message("gui.config.log.field-drift", key));
-                }
-            } catch (Exception failure) {
-                LOG.warn(
-                        host.message(
-                                "gui.config.log.field-drift-check.failed",
-                                safeMessage(failure)
-                        ),
-                        failure
-                );
-            }
-        }
     }
 
     private Map<FieldKey, String> loadPluginConfiguration(

@@ -185,7 +185,6 @@
     }
 
     function queueItemCanonicalUrl(item) {
-        if (item && item.taskObserved) item = Object.assign({}, item, {id: item.workId});
         const kind = String(item && item.kind || 'illust');
         const fallback = kind === 'illust'
             ? `https://www.pixiv.net/artworks/${item && item.id != null ? item.id : ''}`

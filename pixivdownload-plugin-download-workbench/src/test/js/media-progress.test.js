@@ -53,6 +53,61 @@ function fixture(alt) {
         emit: data => [...(context.state.sseListeners['123'] || [])].forEach(fn => fn(data))};
 }
 
+test('alt：进度位置跨图片、格式与暂停保留，重新执行和新队列项互不继承', () => {
+    const {context: c, q, bars} = fixture(true);
+    q.taskId = 'attempt-a';
+    q.imageProgress = {imageNumber: 1, totalImages: 3, progress: 25,
+        processing: [{phase: 'ffmpeg', outputFormat: 'png'}]};
+    const first = c.queueProgressSnapshot(q);
+    const keys = item => Array.from(c.progressExtrasModel(item), entry => entry.key);
+    assert.deepEqual(keys(first), ['image-download', 'image-processing-0']);
+    for (const imageNumber of [2, 3]) {
+        q.imageProgress = {phase: 'processing', processing: [{imageNumber, phase: 'verifying', outputFormat: 'webp'},
+            {imageNumber, phase: 'ffmpeg-waiting', outputFormat: 'png'}]};
+        assert.deepEqual(keys(c.queueProgressSnapshot(q)), ['image-download', 'image-processing-0', 'image-processing-1']);
+    }
+    assert.equal(first.progressSlots.length, 2);
+    assert.equal(Object.hasOwn(q, 'progressSlots'), false);
+    q.imageProgress = null;
+    for (const status of ['downloading', 'paused', 'downloading', 'failed', 'completed']) {
+        q.status = status;
+        assert.equal(bars().length, 3);
+        assert.ok(bars().every(bar => bar['aria-busy'] === 'false' && bar['aria-valuenow'] === undefined));
+    }
+    assert.equal(c.progressExtrasModel({...q}).length, 0);
+    q.taskId = 'attempt-b';
+    q.status = 'downloading';
+    assert.equal(bars().length, 0);
+    q.imageProgress = {progress: 10};
+    assert.equal(bars().length, 1);
+    q.status = 'pending';
+    assert.equal(bars().length, 0);
+});
+
+test('alt：动图解压和转码复用进度位置，小说各阶段结束后停止动画且不残留数值', () => {
+    const {context: c, q, bars} = fixture(true);
+    q.ugoiraProgress = {phase: 'zip', zipProgress: 80};
+    assert.equal(bars().length, 1);
+    for (const phase of ['extract', 'ffmpeg-waiting', 'ffmpeg', 'finalizing']) {
+        q.ugoiraProgress = {phase, outputFormat: 'webp'};
+        assert.equal(bars().length, 2);
+        assert.deepEqual(Array.from(c.progressExtrasModel(q), entry => entry.key), ['zip', 'ugoira-processing']);
+    }
+    q.ugoiraProgress = null;
+    assert.equal(bars().length, 2);
+    assert.ok(bars().every(bar => bar['aria-busy'] === 'false' && !bar['aria-valuenow']));
+    q.status = 'pending';
+    bars();
+    Object.assign(q, {status: 'downloading', kind: 'novel', novelText: {done: 5, total: 10}});
+    assert.equal(bars().length, 1);
+    Object.assign(q, {novelText: null, novelCover: {done: 1, total: 3}});
+    assert.equal(bars().length, 2);
+    Object.assign(q, {novelCover: null, novelEmbedded: {done: 1, total: 2}});
+    assert.equal(bars().length, 3);
+    q.status = 'completed';
+    assert.ok(bars().every(bar => bar['aria-busy'] === 'false' && !bar['aria-valuenow']));
+});
+
 for (const alt of [false, true]) {
     const layout = alt ? 'alt' : 'classic';
     test(`${layout}：下载和并行转码分别显示，等待传输结束不残留字节进度`, async () => {
@@ -69,12 +124,14 @@ for (const alt of [false, true]) {
             processing: [{imageNumber: 1, totalImages: 3, phase: 'ffmpeg-waiting', outputFormat: 'png'},
                 {imageNumber: 2, totalImages: 3, phase: 'ffmpeg', outputFormat: 'png'}]}});
         await poll();
-        assert.equal(f.bars().length, 2);
-        assert.match(f.bars()[0]['aria-label'], /queue.media.waiting/);
-        assert.match(f.bars()[1]['aria-label'], /queue.media.converting/);
+        assert.equal(f.bars().length, alt ? 3 : 2);
+        if (alt) assert.equal(f.bars()[0]['aria-busy'], 'false');
+        assert.match(f.bars()[alt ? 1 : 0]['aria-label'], /queue.media.waiting/);
+        assert.match(f.bars()[alt ? 2 : 1]['aria-label'], /queue.media.converting/);
         assert.doesNotMatch(f.render(), /25 B|25%/);
         f.emit({downloadedCount: 3, imageProgress: null});
-        assert.equal(f.bars().length, 0);
+        assert.equal(f.bars().length, alt ? 3 : 0);
+        assert.ok(f.bars().every(bar => bar['aria-busy'] === 'false' && !bar['aria-valuenow']));
         f.emit({completed: true, downloadedCount: 3, imageProgress: null});
         assert.equal((await waiting).imageProgress, null);
     });
@@ -99,8 +156,13 @@ for (const alt of [false, true]) {
         if (!alt) assert.doesNotMatch(f.render(), /<IMG/i);
         else assert.equal(nodesOf(f.context.progressExtras(f.q)).some(n => n.tag.toLowerCase() === 'img'), false);
         f.q.status = 'completed';
-        assert.equal(f.render(), '');
-        assert.equal(f.bars().length, 0);
+        if (alt) {
+            assert.match(f.render(), /queue.progress.inactive/);
+            assert.equal(f.bars()[0]['aria-busy'], 'false');
+            assert.equal(f.bars()[0]['aria-valuenow'], undefined);
+            assert.doesNotMatch(f.render(), /PNG|100%|<IMG/i);
+        } else assert.equal(f.render(), '');
+        assert.equal(f.bars().length, alt ? 1 : 0);
     });
 
     test(`${layout}：多格式 Ugoira 进入下一轮等待时不继承上一格式 100%`, () => {
@@ -115,11 +177,13 @@ for (const alt of [false, true]) {
         assert.equal(f.bars().at(-1)['aria-valuenow'], undefined);
         f.q.ugoiraProgress = {phase: 'ffmpeg', status: 'running', ffmpegProgress: 37, outputFormat: 'mp4'};
         assert.match(f.render(), /37%/);
-        assert.equal(f.bars().at(-1)['aria-valuenow'], '37');
-        assert.equal(f.bars().at(-1)['aria-busy'], 'false');
+        const conversion = f.bars().find(bar => bar['aria-label'].includes('queue.media.converting'));
+        assert.equal(conversion['aria-valuenow'], '37');
+        assert.equal(conversion['aria-busy'], 'false');
         f.q.ugoiraProgress = {phase: 'finalizing', status: 'running'};
-        assert.equal(f.bars().at(-1)['aria-busy'], 'true');
-        assert.equal(f.bars().at(-1)['aria-valuenow'], undefined);
+        const finalizing = f.bars().find(bar => bar['aria-label'].includes('queue.media.finalizing'));
+        assert.equal(finalizing['aria-busy'], 'true');
+        assert.equal(finalizing['aria-valuenow'], undefined);
         f.q.ugoiraProgress = {phase: 'zip', status: 'failed'};
         assert.equal(f.bars().every(bar => bar['aria-busy'] === 'false'), true);
     });

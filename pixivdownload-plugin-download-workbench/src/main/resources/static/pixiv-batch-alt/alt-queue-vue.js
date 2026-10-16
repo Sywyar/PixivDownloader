@@ -95,7 +95,6 @@ function aqvRowKey(item) {
         }
         return out;
     };
-    if (q.taskObserved) return 'task:' + enc(q.taskId);
     const type = q.workType != null ? q.workType : q.kind;
     const workId = q.workId != null ? q.workId : q.id;
     return 'q:' + enc(type == null ? '' : String(type).trim()) + '.' + enc(workId);
@@ -125,7 +124,7 @@ function aqvMiniProgress(label, value, progress, cls, key, active = true) {
             'aria-valuenow': percent == null ? undefined : String(percent),
             'aria-busy': String(percent == null && active)}, [h('div', {
             class: ['ab-mini-prog-fill', cls, {'is-indeterminate': percent == null && active}],
-            style: {width: (percent == null ? 35 : percent) + '%'}
+            style: {width: (percent == null ? (active ? 35 : 0) : percent) + '%'}
         })])
     ]);
 }
@@ -172,7 +171,7 @@ function aqvRowModel(q) {
             && !!(runtime && typeof runtime.canCancel === 'function' && runtime.canCancel(q)),
         removable: q.status !== 'downloading',
         tags,
-        idLine: 'ID: ' + (q.taskObserved ? q.workId : q.kind === 'novel'
+        idLine: 'ID: ' + (q.kind === 'novel'
             ? (q.novelId || String(q.id).replace(/^n/, '')) + ' (Novel)'
             : q.id) + ' | ',
         message: queueItemMessage(q),
@@ -458,13 +457,13 @@ function aqvSyncList(changedItem) {
                     const key = aqvRowKey(q);
                     keys.push(key);
                     aqvRowIndexes.set(key, index);
-                    return Object.assign({}, q);
+                    return queueProgressSnapshot(q);
                 });
                 aqvStore.rowKeys = keys;
             } else {
                 // 原始队列在 Vue 外更新，替换脏行快照以保留嵌套字段的刷新语义。
                 aqvDirtyRows.forEach((q, key) => {
-                    aqvStore.items[aqvRowIndexes.get(key)] = Object.assign({}, q);
+                    aqvStore.items[aqvRowIndexes.get(key)] = queueProgressSnapshot(q);
                 });
             }
         }

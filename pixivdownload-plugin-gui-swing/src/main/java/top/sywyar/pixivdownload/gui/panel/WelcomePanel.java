@@ -382,10 +382,10 @@ public class WelcomePanel extends JPanel {
         String host = SwingHost.host().defaultProxyHost();
         String port = Integer.toString(SwingHost.host().defaultProxyPort());
         try {
-            DesktopUiHost.ConfigFile editor = SwingHost.host().applicationConfig();
-            String e = editor.read("proxy.enabled");
-            String h = editor.read("proxy.host");
-            String p = editor.read("proxy.port");
+            var stored = SwingHost.readConfiguration(java.util.List.of("proxy.enabled", "proxy.host", "proxy.port"));
+            String e = stored.get("proxy.enabled");
+            String h = stored.get("proxy.host");
+            String p = stored.get("proxy.port");
             if (e != null && !e.isBlank()) {
                 enabled = Boolean.parseBoolean(e.trim());
             }

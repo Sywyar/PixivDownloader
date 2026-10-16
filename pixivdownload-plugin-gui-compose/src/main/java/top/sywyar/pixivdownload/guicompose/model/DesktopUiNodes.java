@@ -103,6 +103,22 @@ final class DesktopUiNodes {
         return new DesktopUiNode.Scroll(id, child);
     }
 
+    static DesktopUiNode.Dock dialogContent(
+            String id,
+            DesktopUiNode body,
+            DesktopUiNode actions
+    ) {
+        return new DesktopUiNode.Dock(
+                id,
+                12,
+                null,
+                scroll(id + ".scroll", body),
+                actions,
+                null,
+                null
+        );
+    }
+
     static DesktopUiNode.Group group(
             String id,
             String titleKey,

@@ -11,7 +11,7 @@
         } catch (_) {
         }
 
-        sidebar.classList.toggle('collapsed', savedState === 'closed');
+        sidebar.classList.toggle('collapsed', savedState !== 'open');
     }
 
     function saveSidebarState(collapsed) {

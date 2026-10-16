@@ -33,7 +33,7 @@
     function loadScript(url) {
         return new Promise(function (resolve, reject) {
             var s = document.createElement('script');
-            s.src = url;
+            s.src = global.PixivAssets ? global.PixivAssets.url(url) : url;
             s.async = false;
             s.onload = function () { resolve(); };
             s.onerror = function () { reject(new Error('script load failed: ' + url)); };

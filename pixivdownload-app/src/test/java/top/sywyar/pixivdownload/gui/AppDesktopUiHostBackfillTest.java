@@ -79,6 +79,38 @@ class AppDesktopUiHostBackfillTest {
     }
 
     @Test
+    @DisplayName("回填默认参数读取当前保存的代理并保留关闭状态")
+    void backfillDefaultsFollowSavedProxy(@TempDir Path tempDir) throws Exception {
+        var file = new top.sywyar.pixivdownload.gui.config.ConfigFileEditor(tempDir.resolve("config.yaml")).asConfigFile();
+        file.writeAll(java.util.Map.of("proxy.enabled", "true", "proxy.host", "192.0.2.55", "proxy.port", "17891"));
+        var host = new AppDesktopUiHost(0, file);
+        var first = host.defaultBackfillOptions();
+        assertThat(first.useProxy()).isTrue();
+        assertThat(first.proxyHost()).isEqualTo("192.0.2.55");
+        assertThat(first.proxyPort()).isEqualTo(17891);
+
+        file.writeAll(java.util.Map.of("proxy.enabled", "false", "proxy.port", "17892"));
+        var changed = host.defaultBackfillOptions();
+        assertThat(changed.useProxy()).isFalse();
+        assertThat(changed.proxyPort()).isEqualTo(17892);
+        assertThat(file.read("proxy.enabled")).isEqualTo("false");
+        var startup = GuiLauncher.buildStartupBackfillOptions(host);
+        assertThat(startup.useProxy()).isFalse();
+        assertThat(startup.proxyHost()).isEqualTo("192.0.2.55");
+        assertThat(startup.proxyPort()).isEqualTo(17892);
+    }
+
+    @Test
+    @DisplayName("代理配置读取失败时不回退到另一条网络连接")
+    void unreadableProxyConfigurationRejectsBackfillDefaults() throws Exception {
+        var file = mock(DesktopUiHost.ConfigFile.class);
+        when(file.readAll(org.mockito.ArgumentMatchers.anyCollection())).thenThrow(new java.io.IOException("fixture"));
+        var host = new AppDesktopUiHost(0, file);
+        org.assertj.core.api.Assertions.assertThatThrownBy(host::defaultBackfillOptions)
+                .isInstanceOf(java.io.UncheckedIOException.class);
+    }
+
+    @Test
     @DisplayName("候选查询借用注入的宿主连接池")
     void candidateCountBorrowsInjectedHostPool(@TempDir Path tempDir) throws Exception {
         Path databasePath = tempDir.resolve("host.db");

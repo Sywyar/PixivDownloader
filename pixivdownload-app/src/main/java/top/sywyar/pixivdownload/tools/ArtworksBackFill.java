@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
+import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import javax.sql.DataSource;
@@ -164,132 +165,148 @@ public class ArtworksBackFill {
             int deletedCount = 0;
             int newlyUnreachable = 0;
             int skipped = 0;
+            int processed = 0;
 
-            for (int i = 0; i < candidates.size(); i++) {
-                reportProgress(progress, i, candidates.size());
-                ArtworksBackFillDatabase.Candidate candidate = candidates.get(i);
-                database.requireAvailable();
-                ArtworksBackFillPixivClient.LookupResult result = pixivClient.query(candidate.artworkId());
-                reportProgress(progress, i, candidates.size());
-                database.requireAvailable();
-                String prefix = "[" + (i + 1) + "/" + candidates.size() + "] artwork="
-                        + candidate.artworkId() + " missing=[" + describeMissing(candidate) + "]";
+            try {
+                for (int i = 0; i < candidates.size(); i++) {
+                    reportProgress(progress, i, candidates.size());
+                    ArtworksBackFillDatabase.Candidate candidate = candidates.get(i);
+                    database.requireAvailable();
+                    ArtworksBackFillPixivClient.LookupResult result = pixivClient.query(candidate.artworkId());
+                    reportProgress(progress, i, candidates.size());
+                    database.requireAvailable();
+                    String prefix = "[" + (i + 1) + "/" + candidates.size() + "] artwork="
+                            + candidate.artworkId() + " missing=[" + describeMissing(candidate) + "]";
 
-                switch (result.type) {
-                    case FOUND -> {
-                        boolean didAuthor = candidate.authorMissing() && result.authorId > 0;
-                        boolean didR18 = candidate.r18Missing();
-                        boolean didAi = candidate.aiMissing();
-                        boolean didDesc = candidate.descriptionMissing() && result.description != null;
-                        boolean didTags = candidate.tagsMissing() && result.tags != null;
-                        boolean didSeries = candidate.seriesMissing();
+                    switch (result.type) {
+                        case FOUND -> {
+                            boolean didAuthor = candidate.authorMissing() && result.authorId > 0;
+                            boolean didR18 = candidate.r18Missing();
+                            boolean didAi = candidate.aiMissing();
+                            boolean didDesc = candidate.descriptionMissing() && result.description != null;
+                            boolean didTags = candidate.tagsMissing() && result.tags != null;
+                            boolean didSeries = candidate.seriesMissing();
 
-                        List<String> changes = new ArrayList<>();
-                        if (didAuthor) {
-                            changes.add(logMessage("artworks-backfill.log.change.author", result.authorName, result.authorId));
-                        }
-                        if (didR18) {
-                            changes.add(logMessage("artworks-backfill.log.change.r18", result.xRestrict));
-                        }
-                        if (didAi) {
-                            changes.add(logMessage("artworks-backfill.log.change.ai", result.isAi ? 1 : 0));
-                        }
-                        if (didDesc) {
-                            changes.add(logMessage("artworks-backfill.log.change.description", result.description.length()));
-                        }
-                        if (didTags) {
-                            changes.add(logMessage("artworks-backfill.log.change.tags", result.tags.size()));
-                        }
-                        if (didSeries) {
-                            changes.add(logMessage("artworks-backfill.log.change.series", result.seriesId, result.seriesOrder));
-                        }
-
-                        if (changes.isEmpty()) {
-                            log.info(logMessage("artworks-backfill.log.no-fillable-data", prefix));
-                            skipped++;
-                        } else {
-                            log.info(logMessage("artworks-backfill.log.changes", prefix, String.join(", ", changes)));
-                            if (!options.dryRun()) {
-                                database.applyUpdates(
-                                        candidate,
-                                        result,
-                                        didAuthor,
-                                        didR18,
-                                        didAi,
-                                        didDesc,
-                                        didTags,
-                                        didSeries
-                                );
+                            List<String> changes = new ArrayList<>();
+                            if (didAuthor) {
+                                changes.add(logMessage("artworks-backfill.log.change.author", result.authorName, result.authorId));
                             }
-                            if (didAuthor) filledAuthor++;
-                            if (didR18) filledR18++;
-                            if (didAi) filledAi++;
-                            if (didDesc) filledDescription++;
-                            if (didTags) filledTags++;
-                            if (didSeries) filledSeries++;
-                        }
-                    }
-                    case R18_ONLY -> {
-                        if (candidate.r18Missing()) {
-                            log.info(logMessage("artworks-backfill.log.r18-only", prefix, result.message));
-                            filledR18++;
-                            if (!options.dryRun()) {
-                                database.applyR18Only(candidate.artworkId());
+                            if (didR18) {
+                                changes.add(logMessage("artworks-backfill.log.change.r18", result.xRestrict));
                             }
-                        } else {
-                            log.info(logMessage("artworks-backfill.log.skip.r18-already-filled", prefix, result.message));
+                            if (didAi) {
+                                changes.add(logMessage("artworks-backfill.log.change.ai", result.isAi ? 1 : 0));
+                            }
+                            if (didDesc) {
+                                changes.add(logMessage("artworks-backfill.log.change.description", result.description.length()));
+                            }
+                            if (didTags) {
+                                changes.add(logMessage("artworks-backfill.log.change.tags", result.tags.size()));
+                            }
+                            if (didSeries) {
+                                changes.add(logMessage("artworks-backfill.log.change.series", result.seriesId, result.seriesOrder));
+                            }
+
+                            if (changes.isEmpty()) {
+                                log.info(logMessage("artworks-backfill.log.no-fillable-data", prefix));
+                                skipped++;
+                            } else {
+                                log.info(logMessage("artworks-backfill.log.changes", prefix, String.join(", ", changes)));
+                                if (!options.dryRun()) {
+                                    database.applyUpdates(
+                                            candidate,
+                                            result,
+                                            didAuthor,
+                                            didR18,
+                                            didAi,
+                                            didDesc,
+                                            didTags,
+                                            didSeries
+                                    );
+                                }
+                                if (didAuthor) filledAuthor++;
+                                if (didR18) filledR18++;
+                                if (didAi) filledAi++;
+                                if (didDesc) filledDescription++;
+                                if (didTags) filledTags++;
+                                if (didSeries) filledSeries++;
+                            }
+                        }
+                        case R18_ONLY -> {
+                            if (candidate.r18Missing()) {
+                                log.info(logMessage("artworks-backfill.log.r18-only", prefix, result.message));
+                                if (!options.dryRun()) {
+                                    database.applyR18Only(candidate.artworkId());
+                                }
+                                filledR18++;
+                            } else {
+                                log.info(logMessage("artworks-backfill.log.skip.r18-already-filled", prefix, result.message));
+                                skipped++;
+                            }
+                        }
+                        case DELETED -> {
+                            log.info(logMessage("artworks-backfill.log.deleted-skip", prefix, result.message));
+                            deletedCount++;
+                            boolean alreadyKnown = unreachable.contains(candidate.artworkId());
+                            unreachable.record(candidate.artworkId(), result.message);
+                            if (!alreadyKnown) {
+                                newlyUnreachable++;
+                            }
+                            persistUnreachable(database, unreachable, unreachablePath);
+                        }
+                        case SKIP -> {
+                            log.info(logMessage("artworks-backfill.log.skip", prefix, result.message));
                             skipped++;
                         }
-                    }
-                    case DELETED -> {
-                        log.info(logMessage("artworks-backfill.log.deleted-skip", prefix, result.message));
-                        deletedCount++;
-                        boolean alreadyKnown = unreachable.contains(candidate.artworkId());
-                        unreachable.record(candidate.artworkId(), result.message);
-                        if (!alreadyKnown) {
-                            newlyUnreachable++;
+                        case RATE_LIMITED -> {
+                            log.warn(logMessage("artworks-backfill.log.rate-limited", prefix));
+                            log.info(logMessage(
+                                    "artworks-backfill.log.progress",
+                                    i, candidates.size(), filledAuthor, filledR18, filledAi, filledDescription, filledTags, filledSeries, deletedCount, skipped
+                            ));
+                            if (options.dryRun()) {
+                                log.info(logMessage("artworks-backfill.log.dry-run"));
+                            }
+                            persistUnreachable(database, unreachable, unreachablePath);
+                            Summary summary = new Summary(
+                                    candidates.size(),
+                                    i,
+                                    filledAuthor,
+                                    filledR18,
+                                    filledAi,
+                                    filledDescription,
+                                    filledTags,
+                                    filledSeries,
+                                    deletedCount,
+                                    skipped,
+                                    previouslyUnreachable,
+                                    newlyUnreachable,
+                                    options.dryRun(),
+                                    true
+                            );
+                            logSummary(summary);
+                            return summary;
                         }
-                        persistUnreachable(database, unreachable, unreachablePath);
                     }
-                    case SKIP -> {
-                        log.info(logMessage("artworks-backfill.log.skip", prefix, result.message));
-                        skipped++;
-                    }
-                    case RATE_LIMITED -> {
-                        log.warn(logMessage("artworks-backfill.log.rate-limited", prefix));
-                        log.info(logMessage(
-                                "artworks-backfill.log.progress",
-                                i, candidates.size(), filledAuthor, filledR18, filledAi, filledDescription, filledTags, filledSeries, deletedCount, skipped
-                        ));
-                        if (options.dryRun()) {
-                            log.info(logMessage("artworks-backfill.log.dry-run"));
-                        }
-                        persistUnreachable(database, unreachable, unreachablePath);
-                        Summary summary = new Summary(
-                                candidates.size(),
-                                i,
-                                filledAuthor,
-                                filledR18,
-                                filledAi,
-                                filledDescription,
-                                filledTags,
-                                filledSeries,
-                                deletedCount,
-                                skipped,
-                                previouslyUnreachable,
-                                newlyUnreachable,
-                                options.dryRun(),
-                                true
-                        );
-                        logSummary(summary);
-                        return summary;
+
+                    processed = i + 1;
+                    reportProgress(progress, processed, candidates.size());
+                    if (i < candidates.size() - 1) {
+                        Thread.sleep(options.delayMs());
                     }
                 }
-
-                reportProgress(progress, i + 1, candidates.size());
-                if (i < candidates.size() - 1) {
-                    Thread.sleep(options.delayMs());
+            } catch (Exception failure) {
+                log.info(logMessage("artworks-backfill.log.progress",
+                        processed, candidates.size(), filledAuthor, filledR18, filledAi,
+                        filledDescription, filledTags, filledSeries, deletedCount, skipped));
+                if (failure instanceof InterruptedException
+                        || failure instanceof java.util.concurrent.CancellationException
+                        || Thread.currentThread().isInterrupted()) {
+                    log.warn(logMessage("gui.tools.history.outcome.cancelled"), failure);
+                } else {
+                    log.error(logMessage("gui.tools.log.backfill.failed"), failure);
                 }
+                throw failure;
             }
 
             persistUnreachable(database, unreachable, unreachablePath);
@@ -316,8 +333,8 @@ public class ArtworksBackFill {
 
     private static void reportProgress(java.util.function.BiConsumer<Integer, Integer> progress,
             int processed, int total) throws InterruptedException {
-        if (Thread.currentThread().isInterrupted()) throw new InterruptedException("Backfill interrupted");
         progress.accept(processed, total);
+        if (Thread.currentThread().isInterrupted()) throw new InterruptedException("Backfill interrupted");
     }
 
     private static void persistUnreachable(ArtworksBackFillDatabase database,
@@ -386,11 +403,12 @@ public class ArtworksBackFill {
         }
 
         public static Options defaults() {
+            ProxyConfig proxy = new ProxyConfig();
             return new Options(
                     "DATABASE_UNAVAILABLE",
-                    "127.0.0.1",
-                    7890,
-                    true,
+                    proxy.getHost(),
+                    proxy.getPort(),
+                    proxy.isEnabled(),
                     800L,
                     0,
                     false

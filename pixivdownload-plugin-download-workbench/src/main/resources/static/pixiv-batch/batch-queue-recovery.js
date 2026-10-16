@@ -8,7 +8,6 @@ let queueRecoveryPromise = null;
 let queueRecoverySuspended = false;
 
 function restoreInterruptedQueueItem(item) {
-    if (item.taskObserved && item.taskPhase === 'CANCELLED') item.status = 'cancelled';
     if (appMode !== 'solo' || !isAdmin) return false;
     if (item.status !== 'downloading' && !item.recoveryState) return false;
     setQueueRecoveryState(item, 'unknown');
@@ -71,7 +70,7 @@ function renderQueueRecovery() {
         const button = host.querySelector('[data-recovery-action="' + action + '"]');
         button.textContent = bt('batch:queue.recovery.' + action);
         button.disabled = !!queueRecoveryPromise || (action === 'retry'
-            && !state.queue.some(item => !item.taskObserved && item.recoveryState === 'unknown'));
+            && !state.queue.some(item => item.recoveryState === 'unknown'));
     }
 }
 
@@ -117,7 +116,7 @@ async function queryQueueRecovery(item) {
     }
 }
 
-function reconcileRestoredQueue() {
+function reconcileRestoredQueue(recheck = true) {
     if (appMode !== 'solo' || !isAdmin || queueRecoverySuspended) return Promise.resolve();
     if (queueRecoveryPromise) return queueRecoveryPromise;
     if (!state.queue.some(item => item.recoveryState)) return Promise.resolve();
@@ -125,7 +124,7 @@ function reconcileRestoredQueue() {
     queueRecoveryTimer = null;
     queueRecoveryPromise = (async () => {
         if (state.queue.some(item => item.taskId && item.recoveryState)) {
-            await window.PixivBatch.queueTasks.refresh();
+            await window.PixivBatch.queueTasks.refresh(recheck);
         }
         // 串行查询避免大队列同时创建请求；只对仍在原队列中的同一个对象回写。
         for (const item of state.queue.filter(value => value.recoveryState && !value.taskId)) {
@@ -144,7 +143,7 @@ function reconcileRestoredQueue() {
         saveQueue();
         renderQueue();
         if (state.queue.some(item => !item.taskId && item.recoveryState === 'running')) {
-            queueRecoveryTimer = setTimeout(reconcileRestoredQueue, QUEUE_RECOVERY_POLL_MS);
+            queueRecoveryTimer = setTimeout(() => reconcileRestoredQueue(false), QUEUE_RECOVERY_POLL_MS);
         }
     });
     renderQueueRecovery();
@@ -154,7 +153,7 @@ function reconcileRestoredQueue() {
 async function retryUnconfirmedQueueItems() {
     if (appMode !== 'solo' || !isAdmin || queueRecoveryPromise || queueRecoverySuspended) return;
     await reconcileRestoredQueue();
-    const items = state.queue.filter(item => !item.taskObserved && item.recoveryState === 'unknown');
+    const items = state.queue.filter(item => item.recoveryState === 'unknown');
     if (!items.length) return;
     if (!window.PixivFeedback || !await window.PixivFeedback.confirm({
         title: bt('batch:dialog.title.confirm'),

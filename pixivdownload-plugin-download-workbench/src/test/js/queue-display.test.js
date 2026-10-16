@@ -51,7 +51,7 @@ for (const page of ['pixiv-batch.html', 'pixiv-batch-alt.html']) {
             ['series-novel', 'series'], ['schedule-id', 'schedule'], ['unknown', 'single-import']]) {
             assert.equal(c.queueAcquisitionMode(source), mode);
         }
-        assert.equal(c.queueSourceText('task'), 'en:batch:queue.task.external:{}');
+        assert.equal(c.queueSourceText('task'), 'en:queue.source.import:{}');
         assert.equal(c.queueSourceText('ntab'), 'en:queue.source.import:{}');
         assert.equal(c.queueStatusText('cancelled'), 'cancelled');
         assert.equal(c.queueStatusText('completed'), 'en:queue.status.completed:{}');

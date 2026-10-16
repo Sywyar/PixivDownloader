@@ -101,8 +101,8 @@
             position: absolute;
             top: 16px;
             right: 16px;
-            width: 40px;
-            height: 40px;
+            width: max(2.5rem, var(--layout-control-height));
+            height: max(2.5rem, var(--layout-control-height));
             border-radius: 50%;
             border: none;
             background: var(--lightbox-control-bg);
@@ -299,18 +299,17 @@
         }
 
         .delete-btn {
-            background: var(--danger);
+            background: var(--surface);
             border-color: var(--danger);
-            color: var(--on-accent);
+            color: var(--danger);
             white-space: nowrap;
             flex-shrink: 0;
         }
 
         .delete-btn:hover {
-            background: var(--danger);
+            background: var(--danger-muted-bg);
             border-color: var(--danger);
-            color: var(--on-accent);
-            filter: brightness(0.92);
+            color: var(--danger);
         }
 
         .delete-modal-text {

@@ -32,7 +32,6 @@
 
     function queueKey(itemOrType, workId) {
         const item = itemOrType && typeof itemOrType === 'object' ? itemOrType : null;
-        if (item && item.taskObserved) return 'task:' + encodedQueueIdentityPart(item.taskId);
         const type = item
             ? text(item.workType != null ? item.workType : item.kind)
             : text(itemOrType);

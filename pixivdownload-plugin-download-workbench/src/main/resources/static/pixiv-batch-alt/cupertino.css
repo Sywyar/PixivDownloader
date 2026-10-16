@@ -28,7 +28,7 @@
     --f7-preloader-color: var(--exp-link);
 }
 html.ab-workbench, .ab-workbench body { height: auto; overflow-x: clip; }
-.ab-workbench body { overflow-y: auto; scrollbar-width: auto; }
+.ab-workbench body { overflow-y: visible; scrollbar-width: auto; }
 .ab-workbench [hidden] { display: none !important; }
 .ab-app .button {
     font-family: inherit;
