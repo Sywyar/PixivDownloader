@@ -24,17 +24,13 @@ function fixture(admin = true, storage = new Map()) {
     const state = {queue: []};
     const timers = new Map(), calls = [], changes = [], results = new Map();
     let sequence = 0, value = snapshot([]), fail = false, wait = null;
-    const ctx = vm.createContext({window, document, state, isAdmin: admin, BASE: '', AbortController, AbortSignal,
+    const ctx = vm.createContext({window, document, state, isAdmin: admin, appMode: 'solo', BASE: '', AbortController, AbortSignal,
         setTimeout(fn, ms) { timers.set(++sequence, {fn, ms}); return sequence; },
         clearTimeout(id) { timers.delete(id); },
         storeSet: (key, v) => storage.set(key, v), storeGet: key => storage.get(key),
         storeRemove: key => storage.delete(key),
         updateStats() {}, renderQueue: item => changes.push(item), syncAllResultsQueueState() {},
         saveQueue() { storage.set('queue', JSON.stringify(state.queue)); },
-        setQueueRecoveryState(item, recoveryState) {
-            item.recoveryState = recoveryState; item.status = 'paused';
-            item.statusMessageKey = 'batch:queue.recovery.' + recoveryState;
-        },
         fetch: async (url, options) => {
             calls.push({url, options});
             if (wait) await wait;
@@ -46,12 +42,65 @@ function fixture(admin = true, storage = new Map()) {
             return {ok: !fail, status: fail ? 503 : 200, json: async () => value};
         }
     });
-    vm.runInContext(fs.readFileSync(path.join(__dirname,
-        '../../main/resources/static/pixiv-batch/batch-queue-tasks.js'), 'utf8'), ctx);
+    for (const file of ['batch-queue-recovery.js', 'batch-queue-tasks.js']) {
+        vm.runInContext(fs.readFileSync(path.join(__dirname,
+            '../../main/resources/static/pixiv-batch', file), 'utf8'), ctx);
+    }
     return {api: window.PixivBatch.queueTasks, state, ctx, storage, document, window, timers, calls, changes, results,
         setValue: v => value = v, fail: () => fail = true, wait: promise => wait = promise};
 }
 async function flush() { for (let i = 0; i < 12; i++) await Promise.resolve(); }
+
+test('已缓存终态但本页 worker 尚未完成的记录重开后仍按原执行查询持久结果', async () => {
+    for (const phase of ['COMPLETED', 'FAILED', 'CANCELLED']) {
+        const previous = fixture();
+        previous.state.queue.push({id: '42', taskId: first, status: 'downloading'});
+        previous.api.apply(snapshot([task(first, phase)]));
+        const saved = JSON.parse(previous.storage.get('queue'));
+        assert.equal(saved[0].status, 'downloading');
+        assert.equal(saved[0].taskPhase, phase);
+        const reopened = fixture(true, previous.storage);
+        reopened.state.queue = saved;
+        const item = saved[0];
+        assert.equal(reopened.ctx.restoreInterruptedQueueItem(item), true);
+        assert.equal(item.status, 'paused');
+        assert.equal(item.recoveryState, 'unknown');
+        reopened.setValue(snapshot([task(second, 'COMPLETED')], 'restarted'));
+        reopened.results.set(first, task(first, phase));
+        await reopened.api.refresh();
+        assert.equal(item.status, {COMPLETED: 'completed', FAILED: 'failed', CANCELLED: 'paused'}[phase]);
+        assert.equal(item.recoveryState, undefined);
+        assert.equal(item.taskMissing, undefined);
+        assert.equal(JSON.parse(reopened.storage.get('queue'))[0].status, item.status);
+        assert.deepEqual(reopened.calls.map(c => c.url), ['/api/download/tasks', '/api/download/tasks/' + first]);
+        assert.equal(reopened.state.queue.length, 1);
+        await reopened.api.refresh();
+        assert.equal(reopened.calls.filter(c => c.url.endsWith(first)).length, 1);
+    }
+});
+
+test('缓存终态的待恢复项仍隔离删除、重绑和已确认结果之后到达的回执', async () => {
+    for (const change of ['remove', 'replace', 'resolved', 'wrong-id']) {
+        const h = fixture();
+        const item = {...manual(first), taskPhase: 'COMPLETED'};
+        h.state.queue.push(item);
+        let release;
+        h.results.set(first, () => new Promise(resolve => release = () => resolve({ok: true,
+            json: async () => task(change === 'wrong-id' ? second : first, 'COMPLETED')})));
+        const query = h.api.refresh(); await flush();
+        assert.equal(typeof release, 'function');
+        if (change === 'remove') h.state.queue.length = 0;
+        if (change === 'replace') h.api.bind(item, second);
+        if (change === 'resolved') {
+            h.api.apply(snapshot([task(first, 'FAILED')]));
+            assert.equal(item.status, 'failed');
+        }
+        release(); await query;
+        assert.notEqual(item.status, 'completed');
+        assert.equal(h.state.queue.length, change === 'remove' ? 0 : 1);
+        assert.equal(h.calls.some(c => c.options.method === 'POST'), false);
+    }
+});
 
 test('新页面按执行编号找回快照已过期的终态，并保存核对结果', async () => {
     for (const phase of ['COMPLETED', 'FAILED', 'CANCELLED']) {

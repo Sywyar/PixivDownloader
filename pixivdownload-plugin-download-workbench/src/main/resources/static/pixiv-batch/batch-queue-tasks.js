@@ -44,7 +44,7 @@
                 if (applyTask(item, task)) changed.push(item);
                 continue;
             }
-            if (terminal(item.taskPhase) || item.taskMissing || !item.recoveryState) continue;
+            if (item.taskMissing || !item.recoveryState) continue;
             // 查不到执行不能推断失败或重提；用户保存的终态也不随快照过期删除。
             setQueueRecoveryState(item, 'unknown');
             item.taskMissing = true;
@@ -80,7 +80,7 @@
 
     async function recoverMissing(controller) {
         const items = state.queue.filter(item => ID.test(item.taskId || '') && item.taskMissing
-            && !terminal(item.taskPhase) && item.recoveryState);
+            && item.recoveryState);
         const ids = new Set(items.map(item => item.taskId));
         for (const id of missingResults) if (!ids.has(id)) missingResults.delete(id);
         for (const item of items) {
@@ -97,7 +97,7 @@
                 const task = await response.json();
                 if (controller.signal.aborted || suspended || document.hidden || !isAdmin) return;
                 // 迟到回执只能更新仍在队列中的同一次执行，不能复活已移除项或覆盖新执行。
-                if (!state.queue.includes(item) || item.taskId !== id || terminal(item.taskPhase)
+                if (!state.queue.includes(item) || item.taskId !== id || !item.recoveryState
                     || !task || task.attempt?.attemptId !== id || !terminal(task.phase)) continue;
                 if (applyTask(item, task)) flush([item]);
             } catch (_) { /* 暂时不可查询时保留待确认，下一次轮询重试。 */ }
