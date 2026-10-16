@@ -240,7 +240,7 @@ final class DesktopToolsController {
         try {
             refreshBackfillProxy();
         } catch (RuntimeException failure) {
-            LOG.warn("Unable to read backfill configuration", failure);
+            LOG.warn(host.message("gui.tools.log.proxy-defaults.failed", failure.getMessage()), failure);
             backfillNotice = host.message("desktop.ui.tools.operation-failed");
             owner.rebuild();
             return;
@@ -1110,7 +1110,7 @@ final class DesktopToolsController {
                     Boolean.toString(defaults.dryRun())
             );
         } catch (RuntimeException failure) {
-            LOG.warn("Unable to read backfill configuration", failure);
+            LOG.warn(host.message("gui.tools.log.proxy-defaults.failed", failure.getMessage()), failure);
         }
         DesktopUiHost.ImageClassifierSettings settings = classifierSupport.loadSettings();
         formValues.putIfAbsent("classifier.default-folder", settings.defaultFolder());
