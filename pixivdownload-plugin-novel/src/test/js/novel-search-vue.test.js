@@ -85,13 +85,33 @@ test('在途挂载采用最新宿主，撤回后迟到运行时不能复活旧�
     assert.deepEqual(other.counts(), {mounts: 0, unmounts: 0});
 });
 
-test('真实挂载失败仍保留首屏回退并释放部分应用', async () => {
-    const h = harness(), area = new Element('section');
-    let released = 0;
-    h.Vue.createApp = () => ({mount() { throw Error('mount failed'); }, unmount() { released++; }});
-    h.shared.renderNovelSearchResults(area, view('回退结果'));
-    await settle();
-    assert.match(area.innerHTML, /回退结果/);
-    assert.equal(released, 1);
-    assert.equal(h.warnings.length, 1);
-});
+for (const failure of ['runtime', 'createApp', 'mount']) {
+    test(`小说搜索 ${failure} 失败保留首屏回退，释放后仍可重新挂载`, async () => {
+        const h = harness(), area = new Element('section');
+        const createApp = h.Vue.createApp;
+        let released = 0;
+        if (failure === 'runtime') {
+            h.sandbox.window.PixivVue.ensure = () => Promise.reject(Error('runtime failed'));
+        } else if (failure === 'createApp') {
+            h.Vue.createApp = () => { throw Error('createApp failed'); };
+        } else {
+            h.Vue.createApp = () => ({mount() { throw Error('mount failed'); }, unmount() { released++; }});
+        }
+        h.shared.renderNovelSearchResults(area, view('回退结果'));
+        assert.match(area.innerHTML, /回退结果/, '运行时返回前已显示首屏');
+        await settle();
+        assert.match(area.innerHTML, /回退结果/);
+        assert.equal(released, failure === 'mount' ? 1 : 0);
+        assert.equal(h.warnings.length, 1);
+
+        h.Vue.createApp = createApp;
+        h.sandbox.window.PixivVue.ensure = () => Promise.resolve(h.Vue);
+        h.shared.renderNovelSearchResults(area, view('重试结果'));
+        await settle();
+        assert.ok(textOf(area).includes('重试结果'));
+        assert.equal(all(area, n => n.props.class === 'novel-search-card').length, 1);
+        assert.deepEqual(h.counts(), {mounts: 1, unmounts: 0});
+        h.stop();
+        assert.deepEqual(h.counts(), {mounts: 1, unmounts: 1});
+    });
+}
