@@ -69,8 +69,8 @@
         more.innerHTML = '';
         const expandBtn = document.getElementById('expandBtn');
         const collapseBtn = document.getElementById('collapseBtn');
-        expandBtn.style.display = count > 1 && !expanded ? '' : 'none';
-        collapseBtn.style.display = expanded ? '' : 'none';
+        expandBtn.style.display = count > 1 ? '' : 'none';
+        collapseBtn.style.display = 'none';
         expandBtn.onclick = () => expandAll(count);
         collapseBtn.onclick = collapseAll;
         syncExpandButtonText();
@@ -211,8 +211,7 @@
             box.dataset.imageUrl = artworkPreviewUrl(p);
             box.dataset.pageIndex = String(p);
             more.appendChild(box);
-            const idx = p;
-            box.addEventListener('click', () => openLightbox(idx));
+            box.addEventListener('click', () => openLightbox(p));
             if (expandedPageObserver) expandedPageObserver.observe(box);
             else loadExpandedPage(box);
             originalPageObserver?.observe(box);

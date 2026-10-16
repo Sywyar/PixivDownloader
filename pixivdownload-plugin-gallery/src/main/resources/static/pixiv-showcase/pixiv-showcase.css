@@ -141,7 +141,6 @@
             position: absolute;
             right: 20px;
             top: 50%;
-            transform: translateY(-50%);
             white-space: nowrap;
             font-size: 0.6875rem;
             color: var(--muted);

@@ -135,3 +135,23 @@ test('切换作品后迟到的旁栏响应不能覆盖新作品', async () => {
     assert.equal(h.list.html, undefined);
     assert.equal(h.observers.length, 0);
 });
+
+test('系列消失后隐藏导航并清除旧链接和文案', () => {
+    const {sandbox, nodes} = harness();
+    sandbox.buildSeriesDirectoryHref = id => '/pixiv-series.html?id=' + id;
+    sandbox.renderSeriesNav({seriesId: 7, currentOrder: 2,
+        prev: {artworkId: 10, seriesOrder: 1}, next: {artworkId: 30, seriesOrder: 3}});
+    assert.equal(nodes.get('seriesNav').style.display, 'flex');
+    for (const id of ['seriesPrevBtn', 'seriesIndexBtn', 'seriesNextBtn']) {
+        assert.ok(nodes.get(id).href);
+        assert.ok(nodes.get(id).textContent);
+    }
+    sandbox.renderSeriesNav();
+    assert.equal(nodes.get('seriesNav').style.display, 'none');
+    for (const id of ['seriesPrevBtn', 'seriesIndexBtn', 'seriesNextBtn']) {
+        const button = nodes.get(id);
+        assert.equal(button.style.display, 'none');
+        assert.equal(button.href, undefined);
+        assert.equal(button.textContent, '');
+    }
+});

@@ -135,13 +135,7 @@
                     </div>
                 </div>
             `).join('');
-            grid.querySelectorAll('.artist-work-card').forEach(card => {
-                card.addEventListener('click', () => {
-                    window.location.href = `/pixiv-showcase.html?id=${card.dataset.id}`;
-                });
-                const img = card.querySelector('img[data-src]');
-                if (img) loadThumbLazy(img);
-            });
+            bindArtworkCards(grid.querySelectorAll('.artist-work-card'));
         } catch (e) {
             document.getElementById('artistWorkCount').textContent = '0';
         }
@@ -174,7 +168,11 @@
                 </div>
             </div>
         `).join('');
-        grid.querySelectorAll('.related-card').forEach(card => {
+        bindArtworkCards(grid.querySelectorAll('.related-card'));
+    }
+
+    function bindArtworkCards(cards) {
+        cards.forEach(card => {
             card.addEventListener('click', () => {
                 window.location.href = `/pixiv-showcase.html?id=${card.dataset.id}`;
             });
@@ -199,32 +197,23 @@
 
         const strip = document.getElementById('pagesStrip');
         strip.innerHTML = '';
-        if (count > 1) {
-            const maxShow = Math.min(count, 8);
-            for (let i = 0; i < maxShow; i++) {
-                const item = document.createElement('div');
-                item.className = 'pages-strip-item';
-                item.innerHTML = `<img data-src="/api/downloaded/thumbnail/${a.artworkId}/${i}" alt="${escapeHtml(wt('pages.page-alt', 'Page {page}', {page: i + 1}))}" loading="lazy"><div class="pages-strip-item-index">${i + 1}</div>`;
-                item.addEventListener('click', () => loadAndOpenLightbox(i));
-                strip.appendChild(item);
-                const img = item.querySelector('img[data-src]');
-                if (img) loadThumbLazy(img);
-            }
-            if (count > maxShow) {
-                const more = document.createElement('div');
-                more.className = 'pages-strip-item';
-                more.classList.add('pages-strip-more');
-                more.innerHTML = `<span class="pages-strip-more-text">+${count - maxShow}</span>`;
-                strip.appendChild(more);
-            }
-        } else {
+        const maxShow = count > 1 ? Math.min(count, 8) : 1;
+        for (let i = 0; i < maxShow; i++) {
             const item = document.createElement('div');
             item.className = 'pages-strip-item';
-            item.innerHTML = `<img data-src="/api/downloaded/thumbnail/${a.artworkId}/0" alt="" loading="lazy"><div class="pages-strip-item-index">1</div>`;
-            item.addEventListener('click', () => loadAndOpenLightbox(0));
+            const alt = count > 1 ? escapeHtml(wt('pages.page-alt', 'Page {page}', {page: i + 1})) : '';
+            item.innerHTML = `<img data-src="/api/downloaded/thumbnail/${a.artworkId}/${i}" alt="${alt}" loading="lazy"><div class="pages-strip-item-index">${i + 1}</div>`;
+            item.addEventListener('click', () => loadAndOpenLightbox(i));
             strip.appendChild(item);
             const img = item.querySelector('img[data-src]');
             if (img) loadThumbLazy(img);
+        }
+        if (count > maxShow) {
+            const more = document.createElement('div');
+            more.className = 'pages-strip-item';
+            more.classList.add('pages-strip-more');
+            more.innerHTML = `<span class="pages-strip-more-text">+${count - maxShow}</span>`;
+            strip.appendChild(more);
         }
 
         document.getElementById('pagesViewAll').onclick = () => loadAndOpenLightbox(0);
@@ -272,10 +261,6 @@
         let next = state.lightboxIndex + delta;
         if (next < 0) next = total - 1;
         if (next >= total) next = 0;
-        if (!state.lightboxImages[next]) {
-            toast(wt('status.image-loading', 'Image is loading. Please wait.'));
-            return;
-        }
         openLightbox(next);
     }
 
@@ -339,7 +324,5 @@
         document.getElementById('pageCounter').innerHTML =
             `<span class="current">${String(index + 1).padStart(2, '0')}</span><span class="separator">/</span><span>${String(state.totalSections).padStart(2, '0')}</span>`;
 
-        const hint = document.getElementById('scrollHint');
-        if (index > 0) hint.classList.add('hidden');
-        else hint.classList.remove('hidden');
+        document.getElementById('scrollHint').classList.toggle('hidden', index > 0);
     }
