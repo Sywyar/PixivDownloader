@@ -327,9 +327,10 @@ class AuthFilterTest {
             verify(staticResourceRateLimitService).isAllowed("192.168.1.100");
         }
 
-        @Test
-        @DisplayName("邀请访客页面静态资源应按邀请码限流（而非客户端 IP）")
-        void shouldCheckStaticResourceRateLimitForInviteGuestStaticResource() throws Exception {
+        @ParameterizedTest
+        @ValueSource(strings = {"/pixiv-gallery/gallery-core.js", "/pixiv-gallery.html", "/js/pixiv-side-modules.js"})
+        @DisplayName("静态资源请求复用当次邀请解析，下一次请求重新校验")
+        void shouldCheckStaticResourceRateLimitForInviteGuestStaticResource(String path) throws Exception {
             authFilter = authFilterWithGallery();
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("solo");
@@ -341,7 +342,7 @@ class AuthFilterTest {
             when(staticResourceRateLimitService.isAllowedForInvite("invite:invite-code")).thenReturn(true);
 
             request.setMethod("GET");
-            request.setRequestURI("/pixiv-gallery/gallery-core.js");
+            request.setRequestURI(path);
             request.setRemoteAddr("192.168.1.100");
             request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
 
@@ -351,6 +352,22 @@ class AuthFilterTest {
             verify(staticResourceRateLimitService, never()).isAllowed("192.168.1.100");
             verify(filterChain).doFilter(request, response);
             verify(guestInviteService).recordHit(1L);
+            verify(guestInviteService).resolveByCode("invite-code");
+            assertThat(request.getAttribute(GuestInviteSession.REQUEST_ATTR))
+                    .isInstanceOf(GuestInviteSession.class);
+
+            clearInvocations(filterChain, guestInviteService, staticResourceRateLimitService);
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.empty());
+            request = new MockHttpServletRequest("GET", path);
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+            response = new MockHttpServletResponse();
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verify(guestInviteService).resolveByCode("invite-code");
+            verify(guestInviteService, never()).recordHit(anyLong());
+            verifyNoInteractions(filterChain, staticResourceRateLimitService);
         }
 
         @Test

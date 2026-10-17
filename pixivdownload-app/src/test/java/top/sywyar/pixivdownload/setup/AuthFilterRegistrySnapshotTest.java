@@ -6,6 +6,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
@@ -34,6 +36,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -210,6 +213,37 @@ class AuthFilterRegistrySnapshotTest {
     private AuthFilter filterFor(RouteAccessRegistry registry) {
         return new AuthFilter(setupService, staticResourceRateLimitService, rateLimitService,
                 localeResolver, appMessages, maintenanceProvider, guestInviteService, guiTokenProvider, registry);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/demo/asset.js", "/demo/**"})
+    @DisplayName("静态资源限流随精确或前缀路由的策略替换而更新")
+    void staticRateLimitFollowsRegistrySnapshot(String pattern) throws Exception {
+        when(setupService.isSetupComplete()).thenReturn(true);
+        when(setupService.getMode()).thenReturn("solo");
+        when(staticResourceRateLimitService.isAllowed("192.168.1.100")).thenReturn(false);
+        RouteAccessRegistry registry = new RouteAccessRegistry(new PluginRegistry(List.of()));
+        AuthFilter filter = filterFor(registry);
+
+        for (AccessPolicy policy : List.of(AccessPolicy.INVITED_GUEST, AccessPolicy.VISITOR,
+                AccessPolicy.INVITED_GUEST)) {
+            registry.register("demo", List.of(new WebRouteContribution(pattern, policy, Set.of(), false)));
+            resetExchange();
+            request.setMethod("GET");
+            request.setRequestURI("/demo/asset.js");
+            request.setRemoteAddr("192.168.1.100");
+
+            filter.doFilterInternal(request, response, filterChain);
+
+            if (policy == AccessPolicy.VISITOR) {
+                assertThat(response.getRedirectedUrl()).startsWith("/login.html?redirect=");
+            } else {
+                assertThat(response.getStatus()).isEqualTo(429);
+            }
+            verify(filterChain, never()).doFilter(request, response);
+            registry.unregister("demo");
+        }
+        verify(staticResourceRateLimitService, times(2)).isAllowed("192.168.1.100");
     }
 
     private void invokeGuest(AuthFilter filter) throws Exception {
