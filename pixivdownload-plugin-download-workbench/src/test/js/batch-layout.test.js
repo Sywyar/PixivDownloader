@@ -44,14 +44,7 @@ function doesNotThrow(label, action) {
         ['batch-layout.test.js', __filename]
     ]) {
         const text = fs.readFileSync(filePath, 'utf8');
-        const bytes = fs.readFileSync(filePath);
         ok(label + ' 文本不含 U+FFFD 替换字符', text.indexOf('\uFFFD') === -1);
-        ok(label + ' 字节流不含 U+FFFD 替换字符', (() => {
-            for (let i = 0; i < bytes.length - 2; i++) {
-                if (bytes[i] === 0xEF && bytes[i + 1] === 0xBF && bytes[i + 2] === 0xBD) return false;
-            }
-            return true;
-        })());
     }
 
     ok('系列下载声明与快捷获取同语义的数据来源 radiogroup',
