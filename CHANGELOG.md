@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复桌面状态监听异常可能使后端启动或停止一直等待的问题。
 - 修复油猴批量下载停止后立即重开时，旧连接回调可能中断新连接、影响实时进度更新的问题。
 - 修复维护期间的并发请求可能排队重复执行维护的问题。
 - 修复并发下载同一作者的作品时，作者改名校验可能重复请求 Pixiv 的问题。

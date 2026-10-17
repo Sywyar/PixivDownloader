@@ -66,7 +66,7 @@ class PluginBootstrapBackendRestartTest {
 
     @BeforeEach
     void isolate() throws IOException {
-        // headless 早设：让 BackendLifecycleManager.runOnEdt 在测试线程内联执行（确定性，避免 EDT 未泵送致 stop→start 链路挂起）。
+        // 隔离测试不创建桌面窗口。
         System.setProperty("java.awt.headless", "true");
 
         // 隔离运行期目录：config / state / data / plugins 全部指向 temp 子目录
