@@ -20,9 +20,7 @@ public class VisitorDownloadQuotaServiceAdapter implements VisitorDownloadQuotaS
 
     @Override
     public VisitorDownloadQuotaReservation checkAndReserve(String ownerUuid, int mediaCount) {
-        UserQuotaService.QuotaCheckResult result = userQuotaService.checkAndReserve(ownerUuid, mediaCount);
-        return new VisitorDownloadQuotaReservation(
-                result.allowed(), result.artworksUsed(), result.maxArtworks(), result.resetSeconds());
+        return userQuotaService.checkAndReserve(ownerUuid, mediaCount);
     }
 
     @Override

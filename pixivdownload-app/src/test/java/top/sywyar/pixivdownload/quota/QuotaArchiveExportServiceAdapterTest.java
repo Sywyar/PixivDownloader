@@ -74,7 +74,7 @@ class QuotaArchiveExportServiceAdapterTest {
         ));
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<UserQuotaService.ArchiveItem>> itemsCaptor =
+        ArgumentCaptor<List<ArchiveExportEntry>> itemsCaptor =
                 ArgumentCaptor.forClass(List.class);
         ArgumentCaptor<Runnable> completionCaptor = ArgumentCaptor.forClass(Runnable.class);
         verify(userQuotaService).triggerAdminFileArchive(
@@ -82,9 +82,9 @@ class QuotaArchiveExportServiceAdapterTest {
                 org.mockito.ArgumentMatchers.eq("artworks"),
                 org.mockito.ArgumentMatchers.eq(1),
                 completionCaptor.capture(), org.mockito.ArgumentMatchers.any());
-        List<UserQuotaService.ArchiveItem> items = itemsCaptor.getValue();
+        List<ArchiveExportEntry> items = itemsCaptor.getValue();
         assertThat(items).hasSize(2);
-        assertThat(items.get(0).path()).isEqualTo(image);
+        assertThat(items.get(0).sourcePath()).isEqualTo(image);
         assertThat(items.get(0).entryName()).isEqualTo("artworks/101/101.png");
         assertThat(items.get(0).workId()).isEqualTo(101L);
         assertThat(items.get(1).entryName()).isEqualTo("manifest.json");
@@ -93,6 +93,14 @@ class QuotaArchiveExportServiceAdapterTest {
 
         completionCaptor.getValue().run();
         verify(workDeletionService).delete(WorkType.ARTWORK, 101L);
+    }
+
+    @Test
+    @DisplayName("格式校验保留空值默认值和大小写归一化")
+    void normalizesDefaultAndUppercaseFormat() {
+        assertThat(adapter.normalizeFormat(null)).isEqualTo("zip");
+        assertThat(adapter.normalizeFormat("  ")).isEqualTo("zip");
+        assertThat(adapter.normalizeFormat("ZIP")).isEqualTo("zip");
     }
 
     private ArtworkRecord record(long time) {

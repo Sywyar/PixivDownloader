@@ -1,6 +1,9 @@
 package top.sywyar.pixivdownload.quota;
 
 import org.junit.jupiter.api.BeforeEach;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportEntry;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportRequest;
+import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaReservation;
 import org.junit.jupiter.api.AfterEach;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
@@ -93,11 +96,11 @@ class UserQuotaServiceTest {
         @Test
         @DisplayName("首次请求应允许")
         void shouldAllowFirstRequest() {
-            UserQuotaService.QuotaCheckResult result = userQuotaService.checkAndReserve("user1", 1);
+            VisitorDownloadQuotaReservation result = userQuotaService.checkAndReserve("user1", 1);
 
             assertThat(result.allowed()).isTrue();
-            assertThat(result.artworksUsed()).isEqualTo(1);
-            assertThat(result.maxArtworks()).isEqualTo(3);
+            assertThat(result.quotaUnitsUsed()).isEqualTo(1);
+            assertThat(result.maxQuotaUnits()).isEqualTo(3);
         }
 
         @Test
@@ -107,9 +110,9 @@ class UserQuotaServiceTest {
             userQuotaService.checkAndReserve("user1", 1);
             userQuotaService.checkAndReserve("user1", 1);
 
-            UserQuotaService.QuotaCheckResult result = userQuotaService.checkAndReserve("user1", 1);
+            VisitorDownloadQuotaReservation result = userQuotaService.checkAndReserve("user1", 1);
             assertThat(result.allowed()).isFalse();
-            assertThat(result.artworksUsed()).isEqualTo(3);
+            assertThat(result.quotaUnitsUsed()).isEqualTo(3);
         }
 
         @Test
@@ -120,9 +123,9 @@ class UserQuotaServiceTest {
             userQuotaService.checkAndReserve("user1", 1);
 
             // user2 应有独立的配额
-            UserQuotaService.QuotaCheckResult result = userQuotaService.checkAndReserve("user2", 1);
+            VisitorDownloadQuotaReservation result = userQuotaService.checkAndReserve("user2", 1);
             assertThat(result.allowed()).isTrue();
-            assertThat(result.artworksUsed()).isEqualTo(1);
+            assertThat(result.quotaUnitsUsed()).isEqualTo(1);
         }
     }
 
@@ -148,18 +151,18 @@ class UserQuotaServiceTest {
         @Test
         @DisplayName("图片数未超限时权重为 1")
         void shouldWeightOneWhenUnderLimit() {
-            UserQuotaService.QuotaCheckResult result = userQuotaService.checkAndReserve("u1", 3);
+            VisitorDownloadQuotaReservation result = userQuotaService.checkAndReserve("u1", 3);
             assertThat(result.allowed()).isTrue();
-            assertThat(result.artworksUsed()).isEqualTo(1);
+            assertThat(result.quotaUnitsUsed()).isEqualTo(1);
         }
 
         @Test
         @DisplayName("图片数超限时权重为 ceil(count/limit)")
         void shouldWeightMultipleWhenOverLimit() {
             // 7张图 / 3 = ceil(2.33) = 3 个作品
-            UserQuotaService.QuotaCheckResult result = userQuotaService.checkAndReserve("u1", 7);
+            VisitorDownloadQuotaReservation result = userQuotaService.checkAndReserve("u1", 7);
             assertThat(result.allowed()).isTrue();
-            assertThat(result.artworksUsed()).isEqualTo(3);
+            assertThat(result.quotaUnitsUsed()).isEqualTo(3);
         }
 
         @Test
@@ -170,12 +173,12 @@ class UserQuotaServiceTest {
             // weight=1，used=3
             userQuotaService.checkAndReserve("u1", 3);
             // ceil(9/3)=3，used+3=6 > 5，应拒绝
-            UserQuotaService.QuotaCheckResult rejected = userQuotaService.checkAndReserve("u1", 9);
+            VisitorDownloadQuotaReservation rejected = userQuotaService.checkAndReserve("u1", 9);
             assertThat(rejected.allowed()).isFalse();
             // 拒绝后剩余 2 个配额应未被消耗，单张图片仍可下载
-            UserQuotaService.QuotaCheckResult next = userQuotaService.checkAndReserve("u1", 1);
+            VisitorDownloadQuotaReservation next = userQuotaService.checkAndReserve("u1", 1);
             assertThat(next.allowed()).isTrue();
-            assertThat(next.artworksUsed()).isEqualTo(4); // 3 + 1，未加上被拒绝的 3
+            assertThat(next.quotaUnitsUsed()).isEqualTo(4); // 3 + 1，未加上被拒绝的 3
         }
 
         @Test
@@ -186,22 +189,22 @@ class UserQuotaServiceTest {
             userQuotaService.checkAndReserve("u1", 1); // used=3
             userQuotaService.checkAndReserve("u1", 1); // used=4，剩余1个
             // 权重=2的作品：4+2=6 > 5，应拒绝
-            UserQuotaService.QuotaCheckResult rejected = userQuotaService.checkAndReserve("u1", 4);
+            VisitorDownloadQuotaReservation rejected = userQuotaService.checkAndReserve("u1", 4);
             assertThat(rejected.allowed()).isFalse();
-            assertThat(rejected.artworksUsed()).isEqualTo(4); // 未变化
+            assertThat(rejected.quotaUnitsUsed()).isEqualTo(4); // 未变化
             // 剩余的1个配额仍可被单张图片使用
-            UserQuotaService.QuotaCheckResult last = userQuotaService.checkAndReserve("u1", 1);
+            VisitorDownloadQuotaReservation last = userQuotaService.checkAndReserve("u1", 1);
             assertThat(last.allowed()).isTrue();
-            assertThat(last.artworksUsed()).isEqualTo(5);
+            assertThat(last.quotaUnitsUsed()).isEqualTo(5);
         }
 
         @Test
         @DisplayName("limitImage=0 时始终权重为 1")
         void shouldAlwaysWeightOneWhenLimitDisabled() {
             multiModeConfig.getQuota().setLimitImage(0);
-            UserQuotaService.QuotaCheckResult result = userQuotaService.checkAndReserve("u1", 100);
+            VisitorDownloadQuotaReservation result = userQuotaService.checkAndReserve("u1", 100);
             assertThat(result.allowed()).isTrue();
-            assertThat(result.artworksUsed()).isEqualTo(1);
+            assertThat(result.quotaUnitsUsed()).isEqualTo(1);
         }
     }
 
@@ -448,8 +451,8 @@ class UserQuotaServiceTest {
         Path source = Files.writeString(tempDir.resolve("present.txt"), "keep");
         var called = new java.util.concurrent.atomic.AtomicBoolean();
         String token = userQuotaService.triggerAdminFileArchive(List.of(
-                UserQuotaService.ArchiveItem.file(source, "present.txt"),
-                UserQuotaService.ArchiveItem.file(tempDir.resolve("missing.txt"), "missing.txt")),
+                ArchiveExportEntry.file(source, "present.txt"),
+                ArchiveExportEntry.file(tempDir.resolve("missing.txt"), "missing.txt")),
                 "artworks", 2, () -> called.set(true));
         assertThat(userQuotaService.getArchive(token).getStatus()).isEqualTo("error");
         assertThat(called).isFalse();
@@ -469,7 +472,7 @@ class UserQuotaServiceTest {
         Path source = Files.writeString(tempDir.resolve("source.txt"), "keep");
         var afterReady = new java.util.concurrent.atomic.AtomicBoolean();
         String token = userQuotaService.triggerAdminFileArchive(List.of(
-                UserQuotaService.ArchiveItem.file(source, "source.txt")), "artworks", 1,
+                ArchiveExportEntry.file(source, "source.txt")), "artworks", 1,
                 () -> afterReady.set(true));
         assertThat(userQuotaService.getArchive(token).getStatus()).isEqualTo("error");
         assertThat(afterReady).isFalse();
@@ -485,7 +488,7 @@ class UserQuotaServiceTest {
         when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
         Path source = Files.writeString(tempDir.resolve("source.txt"), "keep in zip");
         String token = userQuotaService.triggerAdminFileArchive(List.of(
-                UserQuotaService.ArchiveItem.file(source, "source.txt")), "artworks", 1, () -> {
+                ArchiveExportEntry.file(source, "source.txt")), "artworks", 1, () -> {
                     try { Files.delete(source); } catch (java.io.IOException failure) { throw new java.io.UncheckedIOException(failure); }
                     available.set(false);
                     throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
@@ -506,7 +509,7 @@ class UserQuotaServiceTest {
                 TestI18nBeans.appMessages(), submitted::add, locator, novelMetadataRepository, workDeletionService, workAssetService);
         var called = new java.util.concurrent.atomic.AtomicBoolean();
         String token = userQuotaService.triggerAdminFileArchive(List.of(
-                UserQuotaService.ArchiveItem.bytes("a.txt", new byte[]{1})), "artworks", 1, () -> called.set(true));
+                ArchiveExportEntry.bytes("a.txt", new byte[]{1})), "artworks", 1, () -> called.set(true));
         when(downloadConfig.getRootFolder()).thenAnswer(call -> {
             assertThat(userQuotaService.getArchive(token).getStatus()).isEqualTo("creating");
             userQuotaService.deleteArchive(token);
@@ -527,7 +530,7 @@ class UserQuotaServiceTest {
                 TestI18nBeans.appMessages(), submitted::add, locator, novelMetadataRepository, workDeletionService, workAssetService);
         var called = new java.util.concurrent.atomic.AtomicBoolean();
         String token = userQuotaService.triggerAdminFileArchive(List.of(
-                UserQuotaService.ArchiveItem.bytes("a.txt", new byte[]{1})), "artworks", 1, () -> called.set(true));
+                ArchiveExportEntry.bytes("a.txt", new byte[]{1})), "artworks", 1, () -> called.set(true));
         userQuotaService.cleanupExpiredArchives();
         submitted.get(0).run();
         assertThat(called).isFalse();
@@ -591,6 +594,46 @@ class UserQuotaServiceTest {
         verify(pixivDatabase, never()).deleteArtwork(anyLong());
     }
 
+    @Test
+    @DisplayName("归档排队后修改请求列表和字节副本不改变实际 ZIP")
+    void queuedExportKeepsEntrySnapshot() throws Exception {
+        when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
+        List<Runnable> submitted = new ArrayList<>();
+        UserQuotaService queued = new UserQuotaService(multiModeConfig, downloadConfig, pixivDatabase,
+                TestI18nBeans.appMessages(), submitted::add, locator, novelMetadataRepository,
+                workDeletionService, workAssetService);
+        var settings = mock(top.sywyar.pixivdownload.config.MultiModeSettings.class);
+        when(settings.getArchiveExpireMinutes()).thenReturn(60);
+        var adapter = new QuotaArchiveExportServiceAdapter(queued, settings, workDeletionService,
+                pixivDatabase, novelMetadataRepository, workAssetService);
+        byte[] manifest = "original".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        var entry = new ArchiveExportEntry(
+                tempDir.resolve("unused.txt"), "manifest.json", manifest, 7L);
+        var entries = new ArrayList<ArchiveExportEntry>();
+        entries.add(entry);
+        entries.add(ArchiveExportEntry.bytes("empty.txt", new byte[0]));
+        var result = adapter.export(new ArchiveExportRequest(
+                entries, "artworks", 1, 1, "zip", null));
+
+        entries.clear();
+        manifest[0] = '!';
+        entry.bytes()[1] = '?';
+        assertThat(submitted).hasSize(1);
+        assertThat(queued.getArchive(result.archiveToken()).getStatus()).isEqualTo("pending");
+        submitted.get(0).run();
+
+        var archive = queued.getArchive(result.archiveToken());
+        assertThat(archive.getStatus()).isEqualTo("ready");
+        assertThat(archive.getFileCount()).isEqualTo(2);
+        assertThat(archive.getProcessedWorks()).isEqualTo(1);
+        try (var zip = new java.util.zip.ZipFile(archive.getArchivePath().toFile());
+             var input = zip.getInputStream(zip.getEntry("manifest.json"))) {
+            assertThat(new String(input.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8))
+                    .isEqualTo("original");
+            assertThat(zip.getEntry("empty.txt").getSize()).isZero();
+        }
+    }
+
     // ========== UserQuota inner class ==========
 
     @Nested
@@ -641,8 +684,8 @@ class UserQuotaServiceTest {
             java.util.concurrent.atomic.AtomicBoolean ran = new java.util.concurrent.atomic.AtomicBoolean(false);
 
             String token = userQuotaService.triggerAdminFileArchive(List.of(
-                    UserQuotaService.ArchiveItem.file(src, "works/a.txt", 11L),
-                    UserQuotaService.ArchiveItem.bytes("manifest.json", "[]".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                    ArchiveExportEntry.file(src, "works/a.txt", 11L),
+                    ArchiveExportEntry.bytes("manifest.json", "[]".getBytes(java.nio.charset.StandardCharsets.UTF_8))
             ), "artworks", 1, () -> ran.set(true));
 
             UserQuotaService.ArchiveEntry entry = userQuotaService.getArchive(token);
@@ -664,10 +707,10 @@ class UserQuotaServiceTest {
             Path c = Files.writeString(tempDir.resolve("c.txt"), "c");
 
             String token = userQuotaService.triggerAdminFileArchive(List.of(
-                    UserQuotaService.ArchiveItem.file(a, "w1/a.txt", 1L),
-                    UserQuotaService.ArchiveItem.file(b, "w1/b.txt", 1L),
-                    UserQuotaService.ArchiveItem.file(c, "w2/c.txt", 2L),
-                    UserQuotaService.ArchiveItem.bytes("manifest.json", "[]".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                    ArchiveExportEntry.file(a, "w1/a.txt", 1L),
+                    ArchiveExportEntry.file(b, "w1/b.txt", 1L),
+                    ArchiveExportEntry.file(c, "w2/c.txt", 2L),
+                    ArchiveExportEntry.bytes("manifest.json", "[]".getBytes(java.nio.charset.StandardCharsets.UTF_8))
             ), "artworks", 2, null);
 
             UserQuotaService.ArchiveEntry entry = userQuotaService.getArchive(token);
@@ -682,7 +725,7 @@ class UserQuotaServiceTest {
             java.util.concurrent.atomic.AtomicBoolean ran = new java.util.concurrent.atomic.AtomicBoolean(false);
 
             String token = userQuotaService.triggerAdminFileArchive(List.of(
-                    UserQuotaService.ArchiveItem.file(tempDir.resolve("missing.png"), "x/missing.png")
+                    ArchiveExportEntry.file(tempDir.resolve("missing.png"), "x/missing.png")
             ), "artworks", 1, () -> ran.set(true));
 
             assertThat(userQuotaService.getArchive(token).getStatus()).isEqualTo("error");
@@ -695,7 +738,7 @@ class UserQuotaServiceTest {
             String userToken = userQuotaService.triggerArchive("user1");
             when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
             String adminToken = userQuotaService.triggerAdminFileArchive(List.of(
-                    UserQuotaService.ArchiveItem.bytes("manifest.json", "[]".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                    ArchiveExportEntry.bytes("manifest.json", "[]".getBytes(java.nio.charset.StandardCharsets.UTF_8))
             ), "novels", 2, null);
 
             List<String> tokens = userQuotaService.listAdminArchives().stream()
