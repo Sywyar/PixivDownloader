@@ -137,27 +137,11 @@ class OfficialPluginHostBoundaryGuardTest {
     private static final Pattern BEAN_NAMED_NAME = Pattern.compile(
             "(?s)(?:^|,)\\s*(?:name|value)\\s*=\\s*\"([^\"\\\\\\r\\n]+)\"");
 
-    private static final List<String> CONCRETE_HOST_RUNTIME_TYPES = List.of(
-            "top.sywyar.pixivdownload.common.NetworkUtils",
-            "top.sywyar.pixivdownload.common.UuidUtils",
-            "top.sywyar.pixivdownload.config.AppRuntimePathProvider",
-            "top.sywyar.pixivdownload.config.DebugConfig",
-            "top.sywyar.pixivdownload.config.ProxyConfig",
-            "top.sywyar.pixivdownload.config.RuntimeFiles",
-            "top.sywyar.pixivdownload.core.appconfig.DownloadConfig",
-            "top.sywyar.pixivdownload.core.appconfig.MultiModeConfig",
+    private static final List<String> RETIRED_HOST_QUEUE_TYPES = List.of(
             "top.sywyar.pixivdownload.core.download.queue.QueueGenerationDrain",
             "top.sywyar.pixivdownload.core.download.queue.QueueNotAcceptingException",
             "top.sywyar.pixivdownload.core.download.queue.QueueStatusRetention",
-            "top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker",
-            "top.sywyar.pixivdownload.setup.HostRequestOwnerIdentityResolver",
-            "top.sywyar.pixivdownload.setup.SetupService",
-            "top.sywyar.pixivdownload.setup.guest.GuestAccessGuard",
-            "top.sywyar.pixivdownload.setup.guest.GuestInviteSession",
-            "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityScopeArgumentResolver",
-            "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityScopeFactory",
-            "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityService",
-            "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityWebConfiguration");
+            "top.sywyar.pixivdownload.core.download.queue.QueueTaskTracker");
     private static final List<String> PRIVATE_HTTP_TYPE_PREFIXES = List.of(
             "org.apache.hc.",
             "org.apache.http.",
@@ -175,41 +159,17 @@ class OfficialPluginHostBoundaryGuardTest {
     }
 
     @Test
-    @DisplayName("官方插件必须通过共享契约读取配置、路径、身份、可见性与队列运行时")
-    void officialPluginsUseSharedRuntimeContracts() throws IOException {
+    @DisplayName("官方插件生产源码不得引用宿主实现或已迁出的旧类型")
+    void officialPluginSourcesDoNotReferenceHostOwnedTypes() throws IOException {
         Path repositoryRoot = repositoryRoot();
+        Set<String> hostTypes = new LinkedHashSet<>(appOwnedTypes(repositoryRoot));
         List<String> violations = new ArrayList<>();
 
-        for (String module : officialPluginModules(repositoryRoot)) {
-            Path sourceRoot = pluginSourceRoot(repositoryRoot, module);
-            if (!Files.isDirectory(sourceRoot)) {
-                continue;
-            }
-            Set<String> localTypes = ownedTypes(repositoryRoot, sourceRoot, module);
-            try (Stream<Path> sources = Files.walk(sourceRoot)) {
-                sources.filter(OfficialPluginHostBoundaryGuardTest::isJvmSource)
-                        .sorted()
-                        .forEach(path -> collectConcreteRuntimeViolations(
-                                repositoryRoot, module, path, localTypes, violations));
-            }
-        }
-
-        assertThat(violations)
-                .as("official plugins must consume core-api/plugin-api ports instead of app implementations")
-                .isEmpty();
-    }
-
-    @Test
-    @DisplayName("官方插件生产源码不得引用 app owned 类型")
-    void officialPluginSourcesDoNotReferenceAppOwnedTypes() throws IOException {
-        Path repositoryRoot = repositoryRoot();
-        Set<String> appTypes = appOwnedTypes(repositoryRoot);
-        List<String> violations = new ArrayList<>();
-
-        assertThat(appTypes).as("app owned production FQN set must be non-vacuous")
+        assertThat(hostTypes).as("app owned production FQN set must be non-vacuous")
                 .hasSizeGreaterThan(400);
+        hostTypes.addAll(RETIRED_HOST_QUEUE_TYPES);
         for (String module : officialPluginModules(repositoryRoot)) {
-            collectAppTypeReferences(repositoryRoot, module, appTypes, violations);
+            collectHostTypeReferences(repositoryRoot, module, hostTypes, violations);
         }
 
         assertThat(violations)
@@ -289,6 +249,7 @@ class OfficialPluginHostBoundaryGuardTest {
         String commentsOnly = "// example.host.AppOwnedType\n"
                 + "/* example.host.AppOwnedType */\n";
         String reflectionString = "Class.forName(\"example.host.AppOwnedType$Nested\");";
+        String textBlock = "String value = \"\"\"\nexample.host.AppOwnedType\n\"\"\";";
         String spacedImport = "import\n example /* owner */ . host . AppOwnedType\n;";
         String staticImport = "import static example.\n host . AppOwnedType . member;";
         String staticWildcardImport = "import static example . host . AppOwnedType . *;";
@@ -306,6 +267,7 @@ class OfficialPluginHostBoundaryGuardTest {
 
         assertThat(referencesFullyQualifiedType(referenceCode(commentsOnly), appType)).isFalse();
         assertThat(referencesFullyQualifiedType(referenceCode(reflectionString), appType)).isTrue();
+        assertThat(referencesFullyQualifiedType(referenceCode(textBlock), appType)).isTrue();
         assertThat(referencesFullyQualifiedType(commentText(commentsOnly), appType)).isTrue();
         assertThat(referencesFullyQualifiedType(commentText(reflectionString), appType)).isFalse();
         assertThat(projectTypeReferences(
@@ -830,9 +792,9 @@ class OfficialPluginHostBoundaryGuardTest {
                 .isEmpty();
     }
 
-    private static void collectAppTypeReferences(Path repositoryRoot,
+    private static void collectHostTypeReferences(Path repositoryRoot,
                                                  String module,
-                                                 Set<String> appTypes,
+                                                 Set<String> hostTypes,
                                                  List<String> violations) throws IOException {
         Path sourceRoot = pluginSourceRoot(repositoryRoot, module);
         if (!Files.isDirectory(sourceRoot)) {
@@ -847,14 +809,14 @@ class OfficialPluginHostBoundaryGuardTest {
                 String declarations = normalizedDeclarationCode(sourceCode);
                 String packageName = packageName(declarations);
                 Set<String> imports = importedNames(declarations);
-                for (String appType : appTypes) {
+                for (String appType : hostTypes) {
                     if (localTypes.contains(appType)) {
                         continue;
                     }
                     if (referencesFullyQualifiedType(references, appType)
                             || importsType(imports, appType)
-                            || samePackageSimpleReference(
-                            references, packageName, appType)) {
+                            || (!RETIRED_HOST_QUEUE_TYPES.contains(appType)
+                                && samePackageSimpleReference(references, packageName, appType))) {
                         violations.add(module + ":" + repositoryRoot.relativize(source) + " -> " + appType);
                     }
                 }
@@ -1164,19 +1126,6 @@ class OfficialPluginHostBoundaryGuardTest {
         }
     }
 
-    private static void collectConcreteRuntimeViolations(Path repositoryRoot,
-                                                         String module,
-                                                         Path source,
-                                                         Set<String> localTypes,
-                                                         List<String> violations) {
-        String content = read(source);
-        for (String forbiddenType : concreteRuntimeReferences(content)) {
-            if (!localTypes.contains(forbiddenType)) {
-                violations.add(module + ":" + repositoryRoot.relativize(source) + " -> " + forbiddenType);
-            }
-        }
-    }
-
     private static List<String> officialPluginModules(Path repositoryRoot) throws IOException {
         Set<String> modules = new LinkedHashSet<>();
         for (String artifactId : dependencyArtifactIds(
@@ -1226,62 +1175,6 @@ class OfficialPluginHostBoundaryGuardTest {
             return content;
         }
         return APPROVED_NOVEL_CONFIG_MIGRATION.matcher(content).replaceFirst("");
-    }
-
-    @Test
-    @DisplayName("源码扫描忽略注释并识别字符串字面量中的宿主类名")
-    void sourceScannerIgnoresCommentsAndFindsStringLiterals() {
-        String source = "package example;\n"
-                + "// top.sywyar.pixivdownload.config.ProxyConfig\n"
-                + "/** top.sywyar.pixivdownload.config.RuntimeFiles */\n"
-                + "class Example {\n"
-                + "  String name = \"top.sywyar.pixivdownload.setup.guest.GuestAccessGuard\";\n"
-                + "  String block = \"\"\"\n"
-                + "      top.sywyar.pixivdownload.core.appconfig.DownloadConfig\n"
-                + "      \"\"\";\n"
-                + "}\n";
-
-        assertThat(concreteRuntimeReferences(source)).containsExactlyInAnyOrder(
-                "top.sywyar.pixivdownload.core.appconfig.DownloadConfig",
-                "top.sywyar.pixivdownload.setup.guest.GuestAccessGuard");
-    }
-
-    @Test
-    @DisplayName("源码扫描识别显式导入、通配导入、静态导入与内联全限定名")
-    void sourceScannerFindsProductionTypeReferences() {
-        String source = "package example;\n"
-                + "import top.sywyar.pixivdownload.config.ProxyConfig;\n"
-                + "import top.sywyar.pixivdownload.setup.guest.*;\n"
-                + "import static top.sywyar.pixivdownload.config.RuntimeFiles.*;\n"
-                + "class Example {\n"
-                + "  top.sywyar.pixivdownload.core.appconfig.DownloadConfig settings;\n"
-                + "  GuestAccessGuard guard;\n"
-                + "}\n";
-
-        assertThat(concreteRuntimeReferences(source)).containsExactlyInAnyOrder(
-                "top.sywyar.pixivdownload.config.ProxyConfig",
-                "top.sywyar.pixivdownload.config.RuntimeFiles",
-                "top.sywyar.pixivdownload.core.appconfig.DownloadConfig",
-                "top.sywyar.pixivdownload.setup.guest.GuestAccessGuard",
-                "top.sywyar.pixivdownload.setup.guest.GuestInviteSession",
-                "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityScopeArgumentResolver",
-                "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityScopeFactory",
-                "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityWebConfiguration",
-                "top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityService");
-    }
-
-    private static Set<String> concreteRuntimeReferences(String source) {
-        String productionCode = referenceCode(source);
-        Set<String> imports = importedNames(normalizedDeclarationCode(source));
-
-        Set<String> references = new LinkedHashSet<>();
-        for (String forbiddenType : CONCRETE_HOST_RUNTIME_TYPES) {
-            if (importsType(imports, forbiddenType)
-                    || referencesFullyQualifiedType(productionCode, forbiddenType)) {
-                references.add(forbiddenType);
-            }
-        }
-        return references;
     }
 
     private static Set<String> privateHttpReferences(String source) {

@@ -6,10 +6,14 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -57,6 +61,51 @@ class PluginDirectorySessionLockTest {
         } finally {
             first.close();
             second.close();
+        }
+    }
+
+    @Test
+    @DisplayName("持锁和身份复核均阻止另一进程进入，关闭后允许取得锁")
+    void retainsProcessExclusionAfterIdentityChecks() throws Exception {
+        Path plugins = temporaryDirectory.resolve("process-plugins");
+        Path lockPath;
+        try (PluginDirectorySessionLock owner = new PluginDirectorySessionLock(plugins)) {
+            owner.acquireForMutation();
+            lockPath = owner.lockPath();
+            assertOtherProcessCanLock(lockPath, false);
+            assertThat(owner.acquireIfRootExists()).isTrue();
+            assertOtherProcessCanLock(lockPath, false);
+        }
+        assertOtherProcessCanLock(lockPath, true);
+    }
+
+    private static void assertOtherProcessCanLock(Path lockPath, boolean expected) throws Exception {
+        Process process = new ProcessBuilder(
+                Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                "-cp", System.getProperty("java.class.path"),
+                LockAttempt.class.getName(), lockPath.toString())
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.INHERIT)
+                .start();
+        try {
+            assertThat(process.waitFor(30, TimeUnit.SECONDS)).isTrue();
+            assertThat(process.exitValue()).isEqualTo(expected ? 0 : 3);
+        } finally {
+            if (process.isAlive()) {
+                process.destroyForcibly();
+                assertThat(process.waitFor(30, TimeUnit.SECONDS)).isTrue();
+            }
+        }
+    }
+
+    public static final class LockAttempt {
+        public static void main(String[] args) throws Exception {
+            int result;
+            try (FileChannel channel = FileChannel.open(Path.of(args[0]), StandardOpenOption.WRITE);
+                 FileLock lock = channel.tryLock(0L, 1L, false)) {
+                result = lock == null ? 3 : 0;
+            }
+            System.exit(result);
         }
     }
 

@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
@@ -14,7 +15,6 @@ import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.nio.file.attribute.FileTime;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -46,7 +46,9 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
     private FileChannel channel;
     private FileLock lock;
     private FileLock identityLock;
+    private Object lockFileKey;
     private Object rootIdentity;
+    private DirectoryStream<Path> rootDirectory;
     private WatchService rootWatchService;
     private boolean closed;
 
@@ -96,7 +98,7 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
                     || currentAttributes.isOther() || !currentAttributes.isRegularFile()) {
                 throw new IOException("plugin directory lock path changed while its lease was held: " + lockPath);
             }
-            verifyPathStillNamesLockedFile();
+            verifyPathStillNamesLockedFile(lockFileKey, currentAttributes);
             return true;
         }
 
@@ -157,19 +159,24 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
                 throw new IOException("plugin directory lock path changed after locking: " + lockPath);
             }
             Object openedKey = openedAttributes.fileKey();
-            Object verifiedKey = verifiedAttributes.fileKey();
-            if (openedKey != null && verifiedKey != null && !openedKey.equals(verifiedKey)) {
-                throw new IOException("plugin directory lock identity changed after opening: " + lockPath);
-            }
-            verifyPathStillNamesLockedFile();
+            verifyPathStillNamesLockedFile(openedKey, verifiedAttributes);
             Object acquiredRootIdentity = readRootIdentity();
             acquiredLocksProbe.run();
             channel = candidateChannel;
             lock = candidateLock;
             identityLock = candidateIdentityLock;
+            lockFileKey = openedKey;
             rootIdentity = acquiredRootIdentity;
             return true;
         } catch (Throwable e) {
+            if (rootDirectory != null) {
+                try {
+                    rootDirectory.close();
+                } catch (Throwable releaseFailure) {
+                    addSuppressedSafely(e, releaseFailure);
+                }
+                rootDirectory = null;
+            }
             if (rootWatchService != null) {
                 try {
                     rootWatchService.close();
@@ -255,7 +262,11 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
             throw new IOException("plugins root is not a plain directory: " + pluginsRoot);
         }
         if (attributes.fileKey() != null) {
-            return new RootIdentity(attributes.fileKey(), attributes.creationTime());
+            // 持有目录句柄，防止删除后的 inode 连同相同创建时间被新目录复用。
+            if (rootDirectory == null) {
+                rootDirectory = Files.newDirectoryStream(pluginsRoot);
+            }
+            return attributes.fileKey();
         }
         // Windows 的 fileKey 为空，重建目录也可能沿用创建时间。重复注册同一个目录对象才返回
         // 原 WatchKey；同步注册比较不依赖删除事件的异步投递，也不把子项变化当作目录换绑。
@@ -278,12 +289,15 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
         }
     }
 
-    /**
-     * 不写入锁文件也能复核路径身份：从当前路径打开第二个 channel；若它仍指向已锁定文件，JVM 必须以
-     * {@link OverlappingFileLockException} 拒绝重叠锁。若竟取得锁或只观察到别的进程锁，说明路径已换绑，
-     * 不能把旧 inode 上的 lease 当作当前插件根的互斥证明。
-     */
-    private void verifyPathStillNamesLockedFile() throws IOException {
+    private void verifyPathStillNamesLockedFile(Object expectedKey, BasicFileAttributes current) throws IOException {
+        // POSIX 上关闭同文件的另一个 channel 会释放本进程的锁；已有句柄固定 inode，只比较 fileKey。
+        if (expectedKey != null) {
+            if (expectedKey.equals(current.fileKey())) {
+                return;
+            }
+            throw new IOException("plugin directory lock path no longer names the locked file: " + lockPath);
+        }
+        // Windows 未提供 fileKey，通过会话独占区间的重叠锁识别当前路径是否仍指向原文件。
         Set<OpenOption> options = Set.of(StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
         try (FileChannel probe = FileChannel.open(lockPath, options)) {
             FileLock unexpected = null;
@@ -306,11 +320,22 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
         }
         closed = true;
         IOException failure = null;
+        if (rootDirectory != null) {
+            try {
+                rootDirectory.close();
+            } catch (IOException e) {
+                failure = e;
+            }
+        }
         if (rootWatchService != null) {
             try {
                 rootWatchService.close();
             } catch (IOException e) {
-                failure = e;
+                if (failure == null) {
+                    failure = e;
+                } else {
+                    failure.addSuppressed(e);
+                }
             }
         }
         if (identityLock != null) {
@@ -348,9 +373,11 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
         }
         JVM_OWNERS.remove(pluginsRoot, this);
         identityLock = null;
+        lockFileKey = null;
         lock = null;
         channel = null;
         rootIdentity = null;
+        rootDirectory = null;
         rootWatchService = null;
         if (failure != null) {
             throw failure;
@@ -376,7 +403,4 @@ public final class PluginDirectorySessionLock implements AutoCloseable {
         }
     }
 
-    /** 同时保留创建时间，避免已删除目录的 inode 被复用时误认旧身份。 */
-    private record RootIdentity(Object fileKey, FileTime creationTime) {
-    }
 }
