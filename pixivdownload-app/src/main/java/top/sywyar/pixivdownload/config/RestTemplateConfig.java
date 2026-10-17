@@ -10,6 +10,7 @@ import org.apache.hc.client5.http.impl.routing.DefaultRoutePlanner;
 import org.apache.hc.core5.http.HttpException;
 import org.apache.hc.core5.http.HttpHost;
 import org.apache.hc.core5.http.protocol.HttpContext;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
@@ -94,12 +95,27 @@ public class RestTemplateConfig {
         HttpClient httpClient = httpClientBuilder.build();
 
         HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
-        RestTemplate restTemplate = new RestTemplate(factory);
+        RestTemplate restTemplate = new ManagedRestTemplate(factory);
         restTemplate.getInterceptors().add((request, body, execution) -> {
             PixivRequestHeaders.applyBrowserDefaults(request.getHeaders(), request.getURI(), request.getMethod());
             return execution.execute(request, body);
         });
         return restTemplate;
+    }
+
+    private static final class ManagedRestTemplate extends RestTemplate implements DisposableBean {
+
+        private final HttpComponentsClientHttpRequestFactory requestFactory;
+
+        private ManagedRestTemplate(HttpComponentsClientHttpRequestFactory requestFactory) {
+            super(requestFactory);
+            this.requestFactory = requestFactory;
+        }
+
+        @Override
+        public void destroy() throws Exception {
+            requestFactory.destroy();
+        }
     }
 
     /**
