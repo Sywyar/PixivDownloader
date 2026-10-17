@@ -24,7 +24,6 @@
     var PLACEHOLDER = /\{([A-Za-z0-9_]+)\}/g;
 
     var byPlacement = {};   // placement -> [drilldown, ...]（后端已按来源层级 → priority → id 排序）
-    var loaded = false;
 
     var resolveReady;
     var readyPromise = new global.Promise(function (resolve) { resolveReady = resolve; });
@@ -49,11 +48,9 @@
             });
             if (!res.ok) throw new Error('drilldowns http ' + res.status);
             byPlacement = indexByPlacement(await res.json());
-            loaded = true;
         } catch (e) {
             // 失败降级：清空贡献、href() 一律返回 null（宿主回退纯展示），不把错误抛给调用方。
             byPlacement = {};
-            loaded = false;
             console.warn('[PixivDrilldowns] 拉取下钻贡献失败，下钻链接降级为纯展示：', e);
         } finally {
             resolveReady();
@@ -79,7 +76,6 @@
 
     // 解析某语义 placement 下、以给定变量替换后的下钻 href；无贡献 / 未加载 / 模板不可用时返回 null。
     function href(placement, variables) {
-        if (!loaded) return null;
         var list = byPlacement[placement];
         if (!list || !list.length) return null;
         var template = list[0].hrefTemplate;   // 取后端排序后的胜者（来源层级 → priority → id）

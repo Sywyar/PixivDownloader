@@ -55,9 +55,7 @@
 
         // 立即异步触发数据加载（与 i18n 初始化并行），避免主界面被慢请求阻塞
         initDashboard();
-        updateInterval = setInterval(updateDashboard, 5000);
-        foregroundBurstUntil = Date.now() + 10000; // 页面打开后 10s 内每秒轮询
-        scheduleActiveSync();
+        startDashboardUpdates();
 
         document.addEventListener('keydown', e => {
             if (!document.getElementById('imageModal').classList.contains('show')) return;
@@ -88,17 +86,34 @@
         }
     });
 
-    window.addEventListener('beforeunload', () => {
+    function startDashboardUpdates() {
+        if (updateInterval !== null) return;
+        pageSuspended = false;
+        updateInterval = setInterval(updateDashboard, 5000);
+        foregroundBurstUntil = Date.now() + 10000;
+        ensureSharedSSE();
+        scheduleActiveSync(true);
+    }
+
+    window.addEventListener('pageshow', event => {
+        if (event.persisted) startDashboardUpdates();
+    });
+
+    window.addEventListener('pagehide', () => {
+        pageSuspended = true;
         clearInterval(updateInterval);
+        updateInterval = null;
         clearTimeout(activeUpdateTimer);
-        sseSubscribed.clear();
+        activeUpdateTimer = null;
+        const controller = activeSyncController;
+        activeSyncController = null;
+        if (controller) controller.abort();
         closeSharedSSE();
     });
 
     function initDashboard() {
         loadStatistics();
         loadAllDataForChart();
-        syncActiveIds();
 
         document.getElementById('th-extensions').addEventListener('click', toggleFormatFilter);
         document.getElementById('th-R18').addEventListener('click', toggleR18Filter);

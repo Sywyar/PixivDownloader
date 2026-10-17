@@ -13,7 +13,6 @@
         seriesTotal: 0,
         currentPage: 1,
         totalPages: 1,
-        isLastPage: true,
         rawItems: [],   // 当前页未过滤的成员（itemsByPage 缓存的也是原始未过滤数据）
         items: [],      // 当前页经附加筛选后的成员（渲染 / 「加入当前页」据此）
         allItems: [],

@@ -191,7 +191,6 @@
         seriesState.seriesTotal = 0;
         seriesState.currentPage = 1;
         seriesState.totalPages = 1;
-        seriesState.isLastPage = true;
         seriesState.rawItems = [];
         seriesState.items = [];
         seriesState.allItems = [];
@@ -318,7 +317,6 @@
         seriesState.itemsByPage.set(page, items);
         if (activate) {
             seriesState.currentPage = page;
-            seriesState.isLastPage = !!data.isLastPage;
             seriesState.rawItems = items;
         }
         rebuildSeriesAllItems();

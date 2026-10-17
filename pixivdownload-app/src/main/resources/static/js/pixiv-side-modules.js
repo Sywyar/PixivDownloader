@@ -399,6 +399,9 @@
     let flyoutListEl = null;
     let listTimer = null;
     let trackTimer = null;
+    let listController = null;
+    let trackController = null;
+    let pageSuspended = false;
     let lastTasks = [];
     const tracked = new Map();
 
@@ -534,11 +537,15 @@
     }
 
     async function fetchTasks() {
+        if (pageSuspended || listController) return;
+        const controller = listController = new AbortController();
         try {
             const res = await fetch('/api/archive/list', {
                 credentials: 'same-origin',
                 headers: {'Accept': 'application/json'},
+                signal: controller.signal,
             });
+            if (listController !== controller) return;
             if (res.status === 401 || res.status === 403) {
                 closeTasks();
                 const tab = tabsEl && tabsEl.querySelector('[data-module-id="tasks"]');
@@ -547,20 +554,26 @@
             }
             if (!res.ok) return;
             const data = await res.json();
+            if (listController !== controller) return;
             lastTasks = (data && data.tasks) || [];
             renderTasks();
         } catch (_) { /* 网络异常时保留上一次渲染结果 */ }
+        finally {
+            if (listController === controller) listController = null;
+        }
     }
 
     function startListPolling() {
-        if (listTimer) return;
+        if (pageSuspended || listTimer) return;
         listTimer = window.setInterval(fetchTasks, LIST_POLL_MS);
     }
 
     function stopListPolling() {
-        if (!listTimer) return;
         window.clearInterval(listTimer);
         listTimer = null;
+        const controller = listController;
+        listController = null;
+        if (controller) controller.abort();
     }
 
     function openTasks() {
@@ -589,35 +602,48 @@
     }
 
     function ensureTrackPolling() {
-        if (trackTimer || !tracked.size) return;
+        if (pageSuspended || trackTimer || !tracked.size) return;
         trackTimer = window.setInterval(pollTracked, TRACK_POLL_MS);
     }
 
     async function pollTracked() {
-        for (const [token, callbacks] of [...tracked]) {
-            try {
-                const res = await fetch('/api/archive/status/' + encodeURIComponent(token), {
-                    credentials: 'same-origin',
-                    headers: {'Accept': 'application/json'},
-                });
-                if (!res.ok) continue;
-                const data = await res.json();
-                if (data.status === 'ready') {
-                    tracked.delete(token);
-                    triggerDownload(token);
-                    if (typeof callbacks.onReady === 'function') callbacks.onReady(token);
-                } else if (data.status === 'empty' || data.status === 'error' || data.status === 'expired') {
-                    tracked.delete(token);
-                    if (typeof callbacks.onFailed === 'function') callbacks.onFailed(data.status);
+        if (pageSuspended || trackController) return;
+        const controller = trackController = new AbortController();
+        try {
+            for (const [token, callbacks] of [...tracked]) {
+                if (trackController !== controller) return;
+                if (tracked.get(token) !== callbacks) continue;
+                try {
+                    const res = await fetch('/api/archive/status/' + encodeURIComponent(token), {
+                        credentials: 'same-origin',
+                        headers: {'Accept': 'application/json'},
+                        signal: controller.signal,
+                    });
+                    if (!res.ok) continue;
+                    const data = await res.json();
+                    if (trackController !== controller) return;
+                    if (tracked.get(token) !== callbacks) continue;
+                    if (data.status === 'ready') {
+                        tracked.delete(token);
+                        triggerDownload(token);
+                        if (typeof callbacks.onReady === 'function') callbacks.onReady(token);
+                    } else if (data.status === 'empty' || data.status === 'error' || data.status === 'expired') {
+                        tracked.delete(token);
+                        if (typeof callbacks.onFailed === 'function') callbacks.onFailed(data.status);
+                    }
+                } catch (_) { /* 下一轮重试 */ }
+            }
+        } finally {
+            if (trackController === controller) {
+                trackController = null;
+                if (!tracked.size) {
+                    window.clearInterval(trackTimer);
+                    trackTimer = null;
+                    if (!tasksActive()) stopListPolling();
                 }
-            } catch (_) { /* 下一轮重试 */ }
+                if (tasksActive()) fetchTasks();
+            }
         }
-        if (!tracked.size) {
-            window.clearInterval(trackTimer);
-            trackTimer = null;
-            if (!tasksActive()) stopListPolling();
-        }
-        if (tasksActive()) fetchTasks();
     }
 
     // ---------- 内置模块注册 ----------
@@ -724,7 +750,11 @@
         const revision = ++languageRevision;
         try {
             const client = await window.PixivI18n.create({namespaces: ['common'], lang});
-            if (revision !== languageRevision) return;
+            if (revision !== languageRevision) {
+                if (client.dispose) client.dispose();
+                return;
+            }
+            if (i18nClient && i18nClient.dispose) i18nClient.dispose();
             i18nClient = client;
             applyTexts();
         } catch (_) { /* 保留已有文案 */ }
@@ -751,6 +781,23 @@
         toggleTasks,
         trackArchive,
     };
+
+    window.addEventListener('pagehide', () => {
+        pageSuspended = true;
+        stopListPolling();
+        window.clearInterval(trackTimer);
+        trackTimer = null;
+        const controller = trackController;
+        trackController = null;
+        if (controller) controller.abort();
+        hideFlyout();
+    });
+    window.addEventListener('pageshow', event => {
+        if (!event.persisted) return;
+        pageSuspended = false;
+        if (tasksActive() || tracked.size) startListPolling();
+        ensureTrackPolling();
+    });
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
