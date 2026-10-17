@@ -44,7 +44,7 @@ class PluginArtifactLoaderTest {
             var connection = (JarURLConnection) resource.openConnection();
             assertThat(connection.getUseCaches()).isFalse();
             assertThat(connection.getEntryName()).isEqualTo("probe/first.txt");
-            assertThat(connection.getJarFileURL()).isEqualTo(jar.toUri().toURL());
+            assertThat(Path.of(connection.getJarFileURL().toURI())).isEqualTo(jar);
             assertThat(connection.getContentLengthLong()).isEqualTo("probe/first.txt".length());
             assertThat(connection.getContentType()).isEqualTo("text/plain");
             assertThat(connection.getLastModified()).isEqualTo(Files.getLastModifiedTime(jar).toMillis() / 1000 * 1000);
