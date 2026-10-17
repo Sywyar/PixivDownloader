@@ -30,9 +30,9 @@
 - 소설 갤러리의 전문 "본문" 검색(로컬 전문 색인 기반, 연령 등급/태그/작가 필터와 함께 사용 가능)
 - 통계 대시보드: 개요 카드, 월별 다운로드 선 그래프, 다운로드 수 기준 상위 작가, 인기 태그 클라우드; 작가와 태그를 클릭하여 필터링된 갤러리 보기로 이동
 - 중복 의심 작품 감지: 지각 해시(dHash)로 실질적으로 중복된 다운로드 이미지를 식별하며, 임계값 조정, 작품 간/전체 범위 전환 및 수동 스캔 보충을 지원
-- 플러그인 관리 페이지: 모든 플러그인의 상태, 출처, 버전 및 의존성을 보여 주는 카드 목록; 외부 플러그인의 수명 주기 작업(아직 출시되지 않음)
+- 플러그인 관리 페이지: 모든 플러그인의 상태, 출처, 버전 및 의존성을 보여 주는 카드 목록; 외부 플러그인의 수명 주기 작업 지원
 - 플러그인 마켓: 신뢰한 저장소의 플러그인을 탐색·검색·페이지 조회하고 설치합니다. 타사 저장소는 GUI의 설정 → 플러그인 마켓 설정에서 저장소 설명자 또는 직접 입력으로 추가합니다. 게시자, 연결 호스트와 공개 키 전체 지문을 확인하여 초안에 추가한 뒤 설정을 저장하고 다시 시작하면 적용됩니다. 설치 전에는 버전을 다시 조회하고 크기, SHA-256, 서명과 패키지 descriptor를 검증합니다
-- 예약 작업: 고정 주기 또는 cron 일정으로 백그라운드에서 새 작품을 자동으로 검색하고 다운로드하며 세 가지 소스 유형 지원
+- 예약 작업: 고정 주기 또는 cron 일정으로 백그라운드에서 새 작품을 자동으로 검색하고 다운로드합니다. 작가의 새 작품, 저장한 검색, 시리즈 등을 지원하며 플러그인으로 소스를 추가할 수 있습니다
 - 이메일/푸시 알림: 수동 확인이 필요한 이벤트를 이메일 및 푸시 채널로 전달하고 알림 유형별로 활성화 여부 설정
 - 소설 다운로드 및 시리즈 통합(TXT/HTML/EPUB, 다단계 목차 및 삽입 이미지 지원)
 - 소설 AI 번역(LLM 설정 필요): 소설 또는 전체 시리즈를 선택한 언어로 번역하여 로컬에 저장하고, 원문과 번역문을 전환하여 보기
@@ -71,7 +71,7 @@
 |---|---|
 | `PixivDownload-*-win-x64-setup.exe` | JRE가 포함된 Windows 설치 프로그램. 복구/변경/제거와 선택적 FFmpeg 설치를 지원하며 공식 플러그인 배포 세트를 포함하지만 Douyin은 포함하지 않습니다. |
 | `PixivDownload-*-java.zip` | Java 표준 패키지(크로스 플랫폼). Java 17이 필요하며 Windows 설치 프로그램과 동일한 플러그인 구성을 사용하고 Douyin은 포함하지 않습니다. |
-| `PixivDownload-*-full-offline.zip` | 전체 오프라인 패키지(크로스 플랫폼). Java 17이 필요하며 Java 표준 패키지와 동일한 플러그인 구성을 사용하고 Douyin은 포함하지 않습니다. |
+| `PixivDownload-*-full-offline.zip` | 전체 오프라인 패키지(크로스 플랫폼). Java 17이 필요하며 Java 표준 패키지에 PostgreSQL 데이터베이스 및 Pixiv Batch Downloader 가져오기 플러그인을 추가하고 Douyin은 포함하지 않습니다. |
 
 Java 표준 패키지와 전체 오프라인 패키지는 사용 전에 **전체 압축을 해제**해야 합니다. JAR 파일만 꺼내지 마세요. 시작 시 외부 공식 플러그인이 작업 디렉터리의 `plugins/` 폴더에서 로드되므로 실행 스크립트와 `plugins/` 디렉터리가 모두 필요합니다.
 
@@ -130,7 +130,7 @@ sh run.sh
 - [⚙️ 설정](https://sywyar.github.io/PixivDownloader/#/ko/configuration)
 - [🔌 플러그인 관리](https://sywyar.github.io/PixivDownloader/#/ko/plugin-management)
 - [🧩 타사 플러그인 SDK](https://sywyar.github.io/PixivDownloader/#/ko/plugin-development)
-- [📦 플러그인 SDK 다운로드 및 릴리스 기록](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)（목록이 비어 있으면 아직 공개되지 않은 상태입니다）
+- [📦 플러그인 SDK 다운로드 및 릴리스 기록](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
 - [💾 저장 원칙](https://sywyar.github.io/PixivDownloader/#/ko/storage)
 - [❓ FAQ](https://sywyar.github.io/PixivDownloader/#/ko/faq)
 - [🛠️ 개발](https://sywyar.github.io/PixivDownloader/#/ko/development)

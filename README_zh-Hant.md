@@ -30,9 +30,9 @@
 - 小說畫廊支持「正文」全文檢索（基於本地全文索引，可與年齡分級/標籤/作者等篩選疊加）
 - 統計儀表盤：總覽卡片、按月下載量折線、下載量 Top 作者、熱門標籤詞雲，作者/標籤可點擊直達畫廊篩選
 - 疑似重複檢測：基於感知哈希（dHash）識別實質重複的已下載圖片，支持閾值調節、跨作品/全部範圍切換與手動掃描回填
-- 插件管理頁：卡片列表展示所有插件的狀態/來源/版本/依賴，支持外部插件的生命週期操作（加載/啓動/停止/卸下/重載）（未上線）
+- 插件管理頁：卡片列表展示所有插件的狀態/來源/版本/依賴，支持外部插件的生命週期操作（加載/啓動/停止/卸下/重載）
 - 插件市場頁：瀏覽、搜尋、分頁查看並安裝受信儲存庫外掛程式。第三方儲存庫在 GUI 的「設定 → 插件市場設定」中新增，可使用儲存庫描述檔或自行填寫；核對發佈者、連線主機和完整公開金鑰指紋後加入草稿，統一儲存並重新啟動後生效。安裝前會重新解析版本並驗證大小、SHA-256、簽章及套件內 descriptor
-- 計劃任務：後臺按週期或 Cron 自動發現並下載新作品，支持畫師新作/保存的搜索/系列三類來源
+- 計劃任務：後臺按週期或 Cron 自動發現並下載新作品，支持畫師新作、保存的搜索、系列等來源，並可由插件擴充
 - 郵件/推送通知：需人工介入的事件（鑑權失效、熔斷等）通過郵件與推送通道告知；可在通知配置頁按類型開關
 - 小說下載與系列合訂（TXT/HTML/EPUB，EPUB 支持多級目錄和內嵌圖片）
 - 小說 AI 翻譯（需配置大模型）：把正文或整個系列翻譯成指定語言並保存到本地，可在原文與譯文之間切換查看
@@ -70,7 +70,7 @@
 |-------------------------------------|------------------------------------|
 | `PixivDownload-*-win-x64-setup.exe` | Windows 安裝包，內置 JRE，支持修復/更改/卸載，可選安裝 FFmpeg；預置官方插件分發集合，不含 Douyin |
 | `PixivDownload-*-java.zip`          | Java 標準包（跨平臺），需 Java 17；與 Windows 安裝包插件集合一致，不含 Douyin |
-| `PixivDownload-*-full-offline.zip`  | 離線全量包（跨平臺），需 Java 17；與 Java 標準包插件集合一致，不含 Douyin |
+| `PixivDownload-*-full-offline.zip`  | 離線全量包（跨平臺），需 Java 17；在 Java 標準包基礎上增加 PostgreSQL 資料庫和 Pixiv Batch Downloader 匯入插件，不含 Douyin |
 
 Java 標準包和離線全量包必須**完整解壓**後使用，不要只提取其中的 JAR：啓動腳本與 `plugins/` 目錄
 缺一不可，程序啓動時會從工作目錄的 `plugins/` 加載官方外置插件。
@@ -130,7 +130,7 @@ sh run.sh
 - [⚙️ 配置參考](https://sywyar.github.io/PixivDownloader/#/zh-hant/configuration)
 - [🔌 插件管理](https://sywyar.github.io/PixivDownloader/#/zh-hant/plugin-management)
 - [🧩 第三方插件 SDK](https://sywyar.github.io/PixivDownloader/#/zh-hant/plugin-development)
-- [📦 插件 SDK 下載與版本記錄](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)（清單為空表示尚未公開發佈）
+- [📦 插件 SDK 下載與版本記錄](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
 - [💾 存儲原理](https://sywyar.github.io/PixivDownloader/#/zh-hant/storage)
 - [❓ 常見問題](https://sywyar.github.io/PixivDownloader/#/zh-hant/faq)
 - [🛠️ 開發指南](https://sywyar.github.io/PixivDownloader/#/zh-hant/development)

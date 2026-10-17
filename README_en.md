@@ -34,9 +34,9 @@
   cloud; authors/tags are clickable and jump to a filtered gallery view
 - Suspected-duplicate detection: identifies substantially duplicate downloaded images via perceptual hashing (
   dHash), with adjustable threshold, cross-artwork/all scope switching, and manual scan backfill
-- Plugin management page: a card list showing every plugin with status, source, version, and dependencies; load, start, quiet, stop, unload, remove, restart, and reload actions for external plugins (Not yet launched)
+- Plugin management page: a card list showing every plugin with status, source, version, and dependencies; load, start, quiet, stop, unload, remove, restart, and reload actions for external plugins
 - Plugin marketplace page: browse, search, page through and install plugins from trusted repositories. Add third-party repositories in GUI Settings → Plugin market settings, using a repository descriptor or manual entry. Review the publisher, network hosts and full public-key fingerprints, add the repository to the draft, then save settings and restart. Before installation, the host resolves the version again and verifies size, SHA-256, signature and the package descriptor
-- Scheduled tasks: automatically discover and download new works in the background on a fixed interval or cron schedule, supporting three source types
+- Scheduled tasks: automatically discover and download new works in the background on a fixed interval or cron schedule, with sources such as artists' new works, saved searches, and series; plugins can add more sources
 - Email / push notifications: events needing manual attention are delivered via email and push channels; each notification type individually toggleable
 - Novel download and series compilation (TXT/HTML/EPUB with multi-level TOC and embedded images)
 - Novel AI translation (requires an LLM configured): translate a novel or a whole series into a chosen language and store it locally, with a content-language switch between the original and translations
@@ -76,7 +76,7 @@ Download the latest version from [Releases](../../releases):
 |-------------------------------------|------------------------------------------------------------------------------------------------------|
 | `PixivDownload-*-win-x64-setup.exe` | Windows installer with bundled JRE; repair/change/uninstall and optional FFmpeg installation; includes the official plugin distribution set, without Douyin |
 | `PixivDownload-*-java.zip`          | Java standard package (cross-platform), requires Java 17; same plugin set as the Windows installer, without Douyin |
-| `PixivDownload-*-full-offline.zip`  | Full-offline package (cross-platform), requires Java 17; same plugin set as the Java standard package, without Douyin |
+| `PixivDownload-*-full-offline.zip`  | Full-offline package (cross-platform), requires Java 17; adds the PostgreSQL database and Pixiv Batch Downloader import plugins to the Java standard package, without Douyin |
 
 The Java standard package and the full-offline package must be **fully extracted** before use — do not take out only
 the JAR: the launcher scripts and the `plugins/` directory are both required, because external official plugins are
@@ -201,7 +201,7 @@ For detailed installation steps, usage guides, configuration reference, and deve
 - [⚙️ Configuration](https://sywyar.github.io/PixivDownloader/#/en/configuration)
 - [🔌 Plugin Management](https://sywyar.github.io/PixivDownloader/#/en/plugin-management)
 - [🧩 Third-party Plugin SDK](https://sywyar.github.io/PixivDownloader/#/en/plugin-development)
-- [📦 Plugin SDK downloads and release history](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) (an empty list means no SDK has been published)
+- [📦 Plugin SDK downloads and release history](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
 - [💾 Storage Principles](https://sywyar.github.io/PixivDownloader/#/en/storage)
 - [❓ FAQ](https://sywyar.github.io/PixivDownloader/#/en/faq)
 - [🛠️ Development](https://sywyar.github.io/PixivDownloader/#/en/development)
