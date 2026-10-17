@@ -506,22 +506,8 @@ public final class CliSetupCommand {
             return 1;
         }
 
-        String newPassword = flags.newPassword();
-        if (newPassword == null || newPassword.isEmpty()) {
-            newPassword = promptPassword(message("cli.prompt.new-password"));
-            if (newPassword == null) {
-                err(message("cli.error.password-required"));
-                return 2;
-            }
-            String confirm = promptPassword(message("cli.prompt.new-password-confirm"));
-            if (!newPassword.equals(confirm)) {
-                err(message("cli.error.password-mismatch"));
-                return 2;
-            }
-        }
-        String pwdError = validatePassword(newPassword);
-        if (pwdError != null) {
-            err(pwdError);
+        String newPassword = readNewPassword(flags);
+        if (newPassword == null) {
             return 2;
         }
         if (newPassword.equals(oldPassword)) {
@@ -529,12 +515,7 @@ public final class CliSetupCommand {
             return 2;
         }
 
-        config.setPasswordHash(CommandResources.BCRYPT.encode(newPassword));
-        config.setSalt(null);
-        // 修改密码后让所有现存 session 失效，与 SetupService.changePassword 一致
-        config.setSessions(new LinkedHashMap<>());
-
-        writeSetupConfig(path, config);
+        replacePassword(path, config, newPassword);
         out("");
         out(message("cli.change-password.success"));
         return 0;
@@ -554,33 +535,44 @@ public final class CliSetupCommand {
         out(message("cli.reset-password.warning"));
         out("");
 
+        String newPassword = readNewPassword(flags);
+        if (newPassword == null) {
+            return 2;
+        }
+
+        replacePassword(path, config, newPassword);
+        out("");
+        out(message("cli.reset-password.success"));
+        return 0;
+    }
+
+    private static String readNewPassword(CliSetupArguments flags) {
         String newPassword = flags.newPassword();
         if (newPassword == null || newPassword.isEmpty()) {
             newPassword = promptPassword(message("cli.prompt.new-password"));
             if (newPassword == null) {
                 err(message("cli.error.password-required"));
-                return 2;
+                return null;
             }
             String confirm = promptPassword(message("cli.prompt.new-password-confirm"));
             if (!newPassword.equals(confirm)) {
                 err(message("cli.error.password-mismatch"));
-                return 2;
+                return null;
             }
         }
         String pwdError = validatePassword(newPassword);
         if (pwdError != null) {
             err(pwdError);
-            return 2;
+            return null;
         }
+        return newPassword;
+    }
 
+    private static void replacePassword(Path path, SetupConfig config, String newPassword) throws IOException {
         config.setPasswordHash(CommandResources.BCRYPT.encode(newPassword));
         config.setSalt(null);
         config.setSessions(new LinkedHashMap<>());
-
         writeSetupConfig(path, config);
-        out("");
-        out(message("cli.reset-password.success"));
-        return 0;
     }
 
     // ── 持久化 ────────────────────────────────────────────────────────────────────
