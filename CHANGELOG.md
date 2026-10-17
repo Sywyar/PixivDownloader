@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复维护期间的并发请求可能排队重复执行维护的问题。
 - 修复并发下载同一作者的作品时，作者改名校验可能重复请求 Pixiv 的问题。
 - 修复页面区块多次刷新后，语言资源加载失败时重复请求、已移除导航仍占用页面资源的问题。
 - 修复 Linux 上插件目录锁可能提前失效的问题，并拒绝在目录被替换后继续执行插件安装或恢复。
