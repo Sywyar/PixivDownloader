@@ -204,8 +204,7 @@ public final class SystemTrayManager {
      * 使用 MediaTracker 确保图片完全解码后再返回，避免出现空白图标。
      */
     private static Image loadIcon() {
-        try {
-            var stream = SystemTrayManager.class.getResourceAsStream("/static/favicon.ico");
+        try (var stream = SystemTrayManager.class.getResourceAsStream("/static/favicon.ico")) {
             if (stream != null) {
                 byte[] bytes = stream.readAllBytes();
                 Image img = Toolkit.getDefaultToolkit().createImage(bytes);

@@ -472,8 +472,7 @@ public class MainFrame extends JFrame {
     }
 
     private static Image loadAppIcon() {
-        try {
-            var stream = MainFrame.class.getResourceAsStream("/static/favicon.ico");
+        try (var stream = MainFrame.class.getResourceAsStream("/static/favicon.ico")) {
             if (stream != null) {
                 byte[] bytes = stream.readAllBytes();
                 Image img = Toolkit.getDefaultToolkit().createImage(bytes);

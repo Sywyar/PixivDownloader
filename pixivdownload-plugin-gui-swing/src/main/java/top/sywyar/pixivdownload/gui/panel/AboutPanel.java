@@ -791,8 +791,7 @@ public class AboutPanel extends JPanel {
     }
 
     private static ImageIcon loadIcon(int size) {
-        try {
-            var stream = AboutPanel.class.getResourceAsStream("/static/favicon.ico");
+        try (var stream = AboutPanel.class.getResourceAsStream("/static/favicon.ico")) {
             if (stream != null) {
                 byte[] bytes = stream.readAllBytes();
                 Image img = Toolkit.getDefaultToolkit().createImage(bytes);
