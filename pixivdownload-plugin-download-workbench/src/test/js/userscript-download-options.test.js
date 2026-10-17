@@ -103,11 +103,15 @@ test('下载参数重验收藏夹和管理员身份，切换后端不复用选�
 test('运行中并发和间隔变化用于后续领取，暂停保留队列且不重复领取', async () => {
     const r = runtime(), started = [], releases = [];
     let limit = 1, interval = 100000;
+    let observedPause = false;
     const manager = {
         queue: Array.from({length: 5}, (_, id) => ({id, status: 'pending'})),
         isRunning: true, isPaused: false, stopRequested: false,
         getIntervalMs: () => interval,
-        _sleep: () => new Promise(resolve => setTimeout(resolve, 1)),
+        _sleep() {
+            if (this.isPaused) observedPause = true;
+            return new Promise(resolve => setTimeout(resolve, 1));
+        },
         _getNextPending() {
             const item = this.queue.find(item => item.status === 'pending');
             if (item) item.status = 'downloading';
@@ -132,7 +136,7 @@ test('运行中并发和间隔变化用于后续领取，暂停保留队列且�
     assert.equal(started.length, 3);
     manager.isPaused = true;
     interval = 0;
-    await until(() => manager.activeWorkers === 0);
+    await until(() => observedPause);
     assert.equal(started.length, 3);
     manager.isPaused = false;
     await until(() => started.length === 4);
@@ -141,7 +145,7 @@ test('运行中并发和间隔变化用于后续领取，暂停保留队列且�
     releases.shift()();
     await run;
     assert.deepEqual(started, [0, 1, 2, 3, 4]);
-    assert.equal(manager.activeWorkers, 0);
+    assert.ok(manager.queue.every(item => item.status === 'completed'));
 });
 
 test('小说翻译独立观察原始状态，隐藏上游错误，页面离开和失效条目释放观察', async () => {

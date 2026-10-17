@@ -14,12 +14,8 @@ async function runUserscriptDownloadQueue(manager, getConcurrent) {
                             const completedAt = Date.now();
                             while (manager.isRunning && !manager.stopRequested
                                 && Date.now() - completedAt < manager.getIntervalMs()) await manager._sleep(100);
-                        }).finally(() => {
-                            active.delete(work);
-                            manager.activeWorkers = active.size;
-                        });
+                        }).finally(() => active.delete(work));
                     active.add(work);
-                    manager.activeWorkers = active.size;
                     continue;
                 }
             }
@@ -28,6 +24,5 @@ async function runUserscriptDownloadQueue(manager, getConcurrent) {
         }
     } finally {
         await Promise.allSettled(active);
-        manager.activeWorkers = 0;
     }
 }

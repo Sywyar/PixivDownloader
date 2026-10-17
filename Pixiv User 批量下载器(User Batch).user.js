@@ -1796,12 +1796,8 @@
                                 const completedAt = Date.now();
                                 while (manager.isRunning && !manager.stopRequested
                                     && Date.now() - completedAt < manager.getIntervalMs()) await manager._sleep(100);
-                            }).finally(() => {
-                                active.delete(work);
-                                manager.activeWorkers = active.size;
-                            });
+                            }).finally(() => active.delete(work));
                         active.add(work);
-                        manager.activeWorkers = active.size;
                         continue;
                     }
                 }
@@ -1810,7 +1806,6 @@
             }
         } finally {
             await Promise.allSettled(active);
-            manager.activeWorkers = 0;
         }
     }
     // <<< SHARED:download-queue-runner.js
@@ -3211,6 +3206,7 @@
             this.closing = false;
             this._buffer = '';
             this._reconnectTimer = null;
+            this._connection = null;
         }
 
         // 共享连接由批量任务生命周期统一开关。
@@ -3243,18 +3239,20 @@
         }
 
         _openConnection() {
+            const connection = this._connection = Symbol();
             this.connecting = true;
             this.closing = false;
             this._buffer = '';
             const headers = {};
             if (userUUID) headers['X-User-UUID'] = userUUID;
             try {
-                this.handle = GM_xmlhttpRequest({
+                const handle = GM_xmlhttpRequest({
                     method: 'GET',
                     url: CONFIG.SSE_BASE, // 聚合端点：不带 artworkId
                     headers,
                     responseType: 'stream',
                     onloadstart: (res) => {
+                        if (this._connection !== connection) return;
                         this.connecting = false;
                         this.connected = true;
                         const stream = res.response;
@@ -3262,30 +3260,36 @@
                             console.warn(_sseLogT('log.sse.no-readable-stream', 'SSE: ReadableStream 不可用，将依赖轮询兜底'));
                             return;
                         }
-                        this._readStream(stream);
+                        this._readStream(stream, connection);
                     },
                     onerror: (err) => {
+                        if (this._connection !== connection) return;
                         console.error(_sseLogT('log.sse.connection-error', 'SSE connection error'), err);
                         this._cleanup();
                         this._scheduleReconnect();
                     },
                     ontimeout: () => {
+                        if (this._connection !== connection) return;
                         this._cleanup();
                         this._scheduleReconnect();
                     }
                 });
+                if (this._connection === connection) this.handle = handle;
+                else handle.abort();
             } catch (err) {
+                if (this._connection !== connection) return;
                 console.error(_sseLogT('log.sse.open-failed', 'SSE open failed'), err);
                 this._cleanup();
                 this._scheduleReconnect();
             }
         }
 
-        _readStream(stream) {
-            this.reader = stream.getReader();
+        _readStream(stream, connection) {
+            const reader = this.reader = stream.getReader();
             const decoder = new TextDecoder();
             const pump = () => {
-                this.reader.read().then(({done, value}) => {
+                reader.read().then(({done, value}) => {
+                    if (this._connection !== connection) return;
                     if (done) {
                         const shouldReconnect = !this.closing;
                         this._cleanup();
@@ -3299,10 +3303,11 @@
                     for (const part of parts) {
                         if (!part.trim()) continue;
                         this._processEvent(part);
+                        if (this._connection !== connection) return;
                     }
-                    if (!this.reader) return;
                     pump();
                 }).catch(() => {
+                    if (this._connection !== connection) return;
                     const shouldReconnect = !this.closing;
                     this._cleanup();
                     if (shouldReconnect) this._scheduleReconnect();
@@ -3365,8 +3370,9 @@
             const connectionId = this.connectionId;
             this.connectionId = null;
             if (connectionId) this._notifyAggregatedClose(connectionId);
+            const connection = this._connection;
             setTimeout(() => {
-                if (this.closing) this._cleanup();
+                if (this._connection === connection && this.closing) this._cleanup();
             }, 1000);
         }
 
@@ -3391,22 +3397,25 @@
         }
 
         _cleanup() {
+            // 取消与中止也会触发回调，先撤销连接身份和资源引用。
+            this._connection = null;
+            const reader = this.reader, handle = this.handle;
+            this.reader = null;
+            this.handle = null;
             this.connected = false;
             this.connecting = false;
             this.connectionId = null;
-            if (this.reader) {
+            if (reader) {
                 try {
-                    this.reader.cancel();
+                    reader.cancel().catch(() => {});
                 } catch (e) {
                 }
-                this.reader = null;
             }
-            if (this.handle) {
+            if (handle) {
                 try {
-                    this.handle.abort();
+                    handle.abort();
                 } catch (e) {
                 }
-                this.handle = null;
             }
             this._buffer = '';
             this.closing = false;
@@ -3424,7 +3433,6 @@
             this.isPaused = false;
 
             this.stopRequested = false;
-            this.activeWorkers = 0; // 追踪活跃 Worker 数量
             this.stats = {completed: 0, success: 0, failed: 0, active: 0, skipped: 0};
             this.sse = new SSEManager();
             this._quotaExceededHandled = false;
@@ -3726,7 +3734,6 @@
             this.isRunning = true;
             this.isPaused = false;
             this.stopRequested = false;
-            this.activeWorkers = 0;
             this._quotaExceededHandled = false;
             this.updateStats();
             this.ui.updateButtonsState(true, false);
