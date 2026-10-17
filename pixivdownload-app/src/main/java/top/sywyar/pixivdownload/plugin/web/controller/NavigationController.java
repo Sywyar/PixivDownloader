@@ -9,7 +9,6 @@ import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
 import top.sywyar.pixivdownload.setup.SetupService;
-import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.util.Comparator;
 import java.util.List;
@@ -27,18 +26,9 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
  * 注册期被拒绝，不会在这里静默隐藏。
  * 故导航显隐与 {@code AuthFilter} 的路由放行口径一致：能进入导航栏的入口正是该身份点开后不会被挡的入口。
  * <p>
- * 请求身份按三档解析（访客优先于管理员，因 solo 模式下 {@code hasAdminScope} 对任意请求为真，须先排除访客身份）：
- * <ul>
- *   <li>访客邀请会话 → {@link Audience#INVITED_GUEST}：可见 {@code PUBLIC} 与放行受邀访客的项
- *       （{@code INVITED_GUEST} / {@code VISITOR_AND_INVITED_GUEST}），看不到 {@code VISITOR}（如下载页）
- *       与 {@code ADMIN}（监控 / 统计 / 疑似重复 / 邀请码管理）项——这些点开本就会 403，故不进其导航栏；</li>
- *   <li>管理员范围（solo 任意请求 / multi 登录管理员）→ {@link Audience#ADMIN}：可见全部；</li>
- *   <li>其余（multi 匿名访客）→ {@link Audience#VISITOR}：可见 {@code PUBLIC} 与放行访客的项（如下载页），
- *       看不到仅受邀访客 / 管理员可达的项。</li>
- * </ul>
- * 访客身份从请求上下文的 {@link GuestInviteSession#REQUEST_ATTR} 读取（由 {@code AuthFilter} 在非公开请求上
- * 解析挂载）。本端点 {@code /api/navigation} 由 {@code CorePlugin.routes()} 以
- * {@link AccessPolicy#VISITOR_AND_INVITED_GUEST} 声明：multi 普通访客与受邀访客均可只读（各自得到对应身份
+ * 请求身份由 {@link SetupService#resolveAudience(HttpServletRequest)} 投影，已解析的邀请会话优先。
+ * 本端点 {@code /api/navigation} 由 {@code CorePlugin.routes()} 以
+ * {@link AccessPolicy#VISITOR_AND_INVITED_GUEST} 声明：multi 游客与受邀访客均可只读（各自得到对应身份
  * 可见导航）、solo 未登录 401、不入 monitor。受邀访客可读取本端点并取得对应的导航项。
  * <p>
  * 响应只暴露渲染所需字段（不含 {@code visibleTo}），不泄露内部访问策略模型；标签只返回 i18n key，
@@ -60,7 +50,7 @@ public class NavigationController {
 
     @GetMapping
     public List<NavigationView> navigation(HttpServletRequest request) {
-        Audience audience = resolveAudience(request);
+        Audience audience = setupService.resolveAudience(request);
         return navigationRegistry.navigation().stream()
                 .filter(registered -> registered.navigation().visibleTo().isVisibleTo(audience))
                 .sorted(Comparator
@@ -82,16 +72,6 @@ public class NavigationController {
      */
     private static int sourceRank(NavigationRegistry.RegisteredNavigation registered) {
         return BuiltInPlugins.isBuiltIn(registered.pluginId()) ? 0 : 1;
-    }
-
-    private Audience resolveAudience(HttpServletRequest request) {
-        if (request.getAttribute(GuestInviteSession.REQUEST_ATTR) instanceof GuestInviteSession) {
-            return Audience.INVITED_GUEST;
-        }
-        if (setupService.hasAdminScope(request)) {
-            return Audience.ADMIN;
-        }
-        return Audience.VISITOR;
     }
 
     /**

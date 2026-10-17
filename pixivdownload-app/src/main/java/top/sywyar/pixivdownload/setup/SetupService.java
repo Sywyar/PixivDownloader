@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.common.SessionUtils;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.plugin.api.web.Audience;
 
 import org.springframework.boot.ApplicationArguments;
 
@@ -326,6 +327,14 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
     public boolean hasAdminScope(HttpServletRequest request) {
         return !GuestInviteSession.isGuestRequest(request)
                 && (!"multi".equals(getMode()) || isAdminLoggedIn(request));
+    }
+
+    /** 将已通过路由鉴权的请求投影为页面身份；已解析的邀请会话优先。 */
+    public Audience resolveAudience(HttpServletRequest request) {
+        if (request.getAttribute(GuestInviteSession.REQUEST_ATTR) instanceof GuestInviteSession) {
+            return Audience.INVITED_GUEST;
+        }
+        return hasAdminScope(request) ? Audience.ADMIN : Audience.VISITOR;
     }
 
     public synchronized void removeSession(String token) throws IOException {

@@ -384,6 +384,11 @@
     async function renderFromState() {
         var revision = ++renderRevision;
         var slots = qsa('[data-nav-slot]');
+        slotApps = slotApps.filter(function (record) {
+            if (slots.indexOf(record.el) !== -1) return true;
+            record.app.unmount();
+            return false;
+        });
         if (state.items == null) {
             // 失败降级：清空全部 slot，不残留硬编码坏入口。已 Vue 化时经 reactive 置空集渲染为空。
             if (currentI18n && currentI18n.dispose) currentI18n.dispose();

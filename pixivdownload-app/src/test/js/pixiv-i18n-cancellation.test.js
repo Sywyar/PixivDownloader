@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
+const { Element, installVue } = require('./vue-render-fixture');
 
 const flush = () => new Promise(setImmediate);
 const meta = {
@@ -51,7 +52,7 @@ function harness(withAbortController = true) {
         }
     };
     sandbox.window = sandbox;
-    vm.createContext(sandbox);
+    vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } });
     for (const file of ['pixiv-i18n.js', 'pixiv-lang-switcher.js']) {
         vm.runInContext(fs.readFileSync(path.join(__dirname, '../../main/resources/static/js', file), 'utf8'), sandbox);
     }
@@ -65,6 +66,41 @@ function harness(withAbortController = true) {
     };
     return state;
 }
+
+test('页面区块刷新只保留当前字典的恢复监听与请求', async () => {
+    const h = harness();
+    h.fail = true;
+    const slot = new Element('div');
+    slot.setAttribute('data-section-slot', 'side.sections');
+    Object.assign(h.window.document, {head: new Element('head'), readyState: 'complete',
+        querySelectorAll: () => [slot]});
+    h.window.Promise = Promise;
+    const Vue = installVue(h.window);
+    h.window.PixivVue = {ensure: async () => Vue, mountOn: async (el, component) => {
+        const app = Vue.createApp(component);
+        app.mount(el);
+        return {app};
+    }};
+    const fetch = h.window.fetch;
+    h.window.fetch = (url, options) => url.startsWith('/api/page-sections')
+        ? Promise.resolve({ok: true, json: async () => [
+            {id: 'demo', titleNamespace: 'demo', titleI18nKey: 'title'}]})
+        : fetch(url, options);
+    vm.runInContext(fs.readFileSync(path.join(__dirname,
+        '../../main/resources/static/js/pixiv-page-sections.js'), 'utf8'), h.window);
+    await h.window.PixivPageSections.ready();
+    for (let i = 0; i < 20; i++) await h.window.PixivPageSections.refresh();
+    assert.equal(h.timers.size, 1);
+    for (const name of ['focus', 'online', 'pagehide', 'pageshow']) assert.equal(h.events.get(name).size, 1);
+    h.hold = () => true;
+    const start = h.calls.length;
+    h.emit('focus');
+    assert.equal(h.calls.length - start, 2);
+    h.emit('pagehide');
+    assert.ok(h.calls.slice(start).every(call => call.signal.aborted));
+    await flush();
+    assert.equal(h.timers.size, 0);
+});
 
 test('销毁客户端立即取消整轮恢复，不启动静态回退、通知或下一轮重试', async () => {
     const h = harness();

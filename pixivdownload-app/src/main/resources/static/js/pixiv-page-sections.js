@@ -289,7 +289,9 @@
     }
 
     async function renderAll() {
-        currentI18n = await buildI18n();
+        var nextI18n = await buildI18n();
+        if (currentI18n && currentI18n.dispose) currentI18n.dispose();
+        currentI18n = nextI18n;
         // Vue 主渲染：把有 sections 的 slot 升级为 Vue（骨架）。失败 / 无 Vue / sections 为 null 的 slot 走命令式。
         await renderSectionsVue();
         slotsState.forEach(function (slot) {

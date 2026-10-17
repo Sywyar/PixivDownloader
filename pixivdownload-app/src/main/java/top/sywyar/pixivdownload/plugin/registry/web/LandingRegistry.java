@@ -14,7 +14,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 
 /**
  * 落点 / 入口注册中心。收集各<b>活动</b>插件（{@link PluginRegistry#plugins()}，禁用插件不贡献落点）的
@@ -48,11 +47,6 @@ public class LandingRegistry {
                 register(registered.id(), landings);
             }
         });
-    }
-
-    /** 以内置插件清单构建注册中心，供 Spring 上下文之外的入口（测试 / 启动期检查等）使用。 */
-    public static LandingRegistry forBuiltInPlugins() {
-        return new LandingRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
     }
 
     /**

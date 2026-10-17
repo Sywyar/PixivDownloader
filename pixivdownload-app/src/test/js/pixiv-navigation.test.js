@@ -351,6 +351,24 @@ async function main() {
             topComp.innerOf(galleryItem).indexOf('T:gallery:nav.label') >= 0);
     }
 
+    {
+        const stable = navSlot('app.top');
+        const removed = navSlot('app.top');
+        const item = {id: 'entry', placements: ['app.top'], href: '/entry', labelNamespace: 'demo', labelI18nKey: 'title'};
+        const runtime = load({slots: [stable, removed], items: [item], pixivVue: true});
+        await runtime.PixivNav.ready();
+        const link = stable.children.find(el => el.tag === 'a');
+        runtime.document.body.children = [stable];
+        removed.parent = null;
+        await runtime.PixivNav.refresh();
+        ok('导航宿主撤回后卸载旧组件并清空其节点', removed.children.length === 0);
+        ok('未撤回导航保留原节点和组件', stable.children.find(el => el.tag === 'a') === link && runtime.record.mounts.length === 2);
+        runtime.document.body.appendChild(removed);
+        await runtime.PixivNav.refresh();
+        ok('重新插入的导航宿主可重新挂载', removed.children.some(el => el.tag === 'a' && el.attrs.href === '/entry')
+            && runtime.record.mounts.length === 3);
+    }
+
     for (const pixivVue of [true, false]) {
         const slot = navSlot('app.top');
         const item = { id: 'management', placements: ['app.top'], href: '/manage', labelNamespace: 'plugins',

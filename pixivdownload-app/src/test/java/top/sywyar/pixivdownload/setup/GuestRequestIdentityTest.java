@@ -162,6 +162,8 @@ class GuestRequestIdentityTest {
                         .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
                 mvc.perform(get("/api/admin/invites").cookie(admin(), invite(code)))
                         .andExpect(status().isForbidden());
+                mvc.perform(get("/api/navigation").cookie(admin(), invite(code)))
+                        .andExpect(status().isForbidden());
                 mvc.perform(get("/api/downloaded/thumbnail/123/0").cookie(admin(), invite(code)))
                         .andExpect(status().isForbidden());
             }

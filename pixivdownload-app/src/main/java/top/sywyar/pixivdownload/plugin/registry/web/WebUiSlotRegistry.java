@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.plugin.registry.web;
 
 import org.springframework.stereotype.Component;
-import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotCatalog;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
@@ -41,11 +40,6 @@ public class WebUiSlotRegistry implements WebUiSlotCatalog {
                 register(registered.id(), slots);
             }
         });
-    }
-
-    /** 以内置插件清单构建注册中心，供 Spring 上下文之外的入口（测试 / 启动期检查等）使用。 */
-    public static WebUiSlotRegistry forBuiltInPlugins() {
-        return new WebUiSlotRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
     }
 
     /**

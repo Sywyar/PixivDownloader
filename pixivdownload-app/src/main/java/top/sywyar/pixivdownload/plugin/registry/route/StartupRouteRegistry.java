@@ -11,7 +11,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 
 /**
  * 默认启动落点注册中心。收集各插件的 {@link StartupRouteContribution}，
@@ -41,11 +40,6 @@ public class StartupRouteRegistry {
                 register(registered.id(), routes);
             }
         });
-    }
-
-    /** 以内置插件清单构建注册中心，供 Spring 上下文之外的入口（测试 / 启动期检查等）使用。 */
-    public static StartupRouteRegistry forBuiltInPlugins() {
-        return new StartupRouteRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
     }
 
     /**
@@ -98,26 +92,6 @@ public class StartupRouteRegistry {
         if (context != null) {
             Optional<String> preferred = current.stream()
                     .filter(registered -> registered.route().preferredContexts().contains(context))
-                    .min(Comparator.comparingInt(registered -> registered.route().order()))
-                    .map(registered -> registered.route().path());
-            if (preferred.isPresent()) {
-                return preferred;
-            }
-        }
-        return fallback(current);
-    }
-
-    /**
-     * 解析默认落点：优先返回首选插件声明的落点，首选插件未声明 / 未启用时回退到 {@code order}
-     * 最小的已注册落点（order 相同按注册顺序）；无任何落点则返回空。
-     *
-     * @param preferredPluginId 当前模式的首选插件 id（可空 → 直接走回退）
-     */
-    public Optional<String> resolvePath(String preferredPluginId) {
-        List<RegisteredStartupRoute> current = snapshot;
-        if (preferredPluginId != null) {
-            Optional<String> preferred = current.stream()
-                    .filter(registered -> registered.pluginId().equals(preferredPluginId))
                     .min(Comparator.comparingInt(registered -> registered.route().order()))
                     .map(registered -> registered.route().path());
             if (preferred.isPresent()) {

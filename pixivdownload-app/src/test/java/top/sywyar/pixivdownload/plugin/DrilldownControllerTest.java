@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -38,6 +39,11 @@ class DrilldownControllerTest {
     private static final String TOP_TAGS = DrilldownPlacements.STATS_TOP_TAGS;
 
     private final SetupService setupService = mock(SetupService.class);
+
+    @BeforeEach
+    void useRequestAudience() {
+        when(setupService.resolveAudience(any())).thenCallRealMethod();
+    }
 
     private DrilldownController controllerFor(DrilldownRegistry registry) {
         return new DrilldownController(registry, setupService);
@@ -101,7 +107,7 @@ class DrilldownControllerTest {
     @Test
     @DisplayName("受邀访客可见画廊下钻（INVITED_GUEST）；multi 匿名访客不可见（下钻需 monitor 级身份）")
     void visibilityFollowsAudience() {
-        // 受邀访客：solo 下 hasAdminScope 恒真，访客判定须优先，故仍解析为受邀访客身份。
+        // 即使管理员范围为真，已解析的邀请会话仍必须优先。
         when(setupService.hasAdminScope(any())).thenReturn(true);
         MockHttpServletRequest guest = new MockHttpServletRequest();
         guest.setAttribute(GuestInviteSession.REQUEST_ATTR, guestSession());

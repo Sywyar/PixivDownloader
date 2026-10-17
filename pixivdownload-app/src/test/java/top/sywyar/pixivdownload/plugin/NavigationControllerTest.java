@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -29,6 +30,11 @@ class NavigationControllerTest {
     private final SetupService setupService = mock(SetupService.class);
     private final NavigationRegistry registry = seededRegistry();
     private final NavigationController controller = new NavigationController(registry, setupService);
+
+    @BeforeEach
+    void useRequestAudience() {
+        when(setupService.resolveAudience(any())).thenCallRealMethod();
+    }
 
     /** 注册顺序刻意与 priority 不一致，以便验证响应按 priority 排序而非注册顺序。含一条 VISITOR 项验证身份模型。 */
     private static NavigationRegistry seededRegistry() {
@@ -89,7 +95,7 @@ class NavigationControllerTest {
     @Test
     @DisplayName("访客邀请会话仅可见 PUBLIC 与 INVITED_GUEST（不含 VISITOR / ADMIN 项；访客判定优先于管理员范围）")
     void guestSeesPublicAndGuestRead() {
-        // solo 模式下 hasAdminScope 对任意请求为真：访客判定必须优先，否则访客会看到 admin 项
+        // 即使管理员范围为真，已解析的邀请会话仍必须优先。
         when(setupService.hasAdminScope(any())).thenReturn(true);
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setAttribute(GuestInviteSession.REQUEST_ATTR, guestSession());
@@ -252,7 +258,7 @@ class NavigationControllerTest {
     void invitedGuestSeesNoAdminItems() {
         NavigationController controller = controllerFor(
                 new NavigationRegistry(new PluginRegistry(builtInWithGalleryAndNovelGallery())));
-        when(setupService.hasAdminScope(any())).thenReturn(true); // solo 下恒真，访客判定须优先
+        when(setupService.hasAdminScope(any())).thenReturn(true);
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setAttribute(GuestInviteSession.REQUEST_ATTR, guestSession());
 
