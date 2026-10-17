@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复分钟切换时清理旧计数可能重置游客和邀请访客请求额度、额外放行请求的问题。
 - 修复新版下载页计划任务无法绑定或撤销凭证、绑定状态不显示的问题；绑定失败后重试不会重复创建任务。
 
 ## [v1.14.2] - 2026.10.16

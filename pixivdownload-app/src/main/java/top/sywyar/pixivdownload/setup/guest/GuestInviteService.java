@@ -381,10 +381,10 @@ public class GuestInviteService {
 
     private void purgeInviteAssociations(long id) {
         mapper.deleteInviteCollections(id);
-        mapper.purgeInviteTags(id);
-        mapper.purgeInviteAuthors(id);
-        mapper.purgeInviteNovelTags(id);
-        mapper.purgeInviteNovelAuthors(id);
+        mapper.deleteInviteTags(id);
+        mapper.deleteInviteAuthors(id);
+        mapper.deleteInviteNovelTags(id);
+        mapper.deleteInviteNovelAuthors(id);
         mapper.purgeInviteAccessStats(id);
     }
 
