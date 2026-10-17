@@ -121,7 +121,8 @@ public final class DatabaseTarget {
     }
 
     public HikariDataSource openPool(int maximumPoolSize) throws IOException {
-        try (Connection ignored = openConnection()) {
+        try {
+            try (Connection ignored = openConnection()) { }
             HikariConfig config = new HikariConfig();
             config.setPoolName("pixiv-database");
             config.setDataSource(new AbstractDataSource() {
@@ -132,7 +133,7 @@ public final class DatabaseTarget {
             });
             config.setMaximumPoolSize(maximumPoolSize);
             config.setMinimumIdle(1);
-            return new HikariDataSource(config);
+            return top.sywyar.pixivdownload.core.db.provider.DatabaseConnectionPool.create(config);
         } catch (VirtualMachineError | ThreadDeath fatal) {
             throw fatal;
         } catch (Throwable failure) {

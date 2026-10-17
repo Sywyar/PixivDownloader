@@ -120,7 +120,7 @@ public final class AppPluginDatabase extends AbstractDataSource implements Plugi
                             throw new SQLNonTransientConnectionException("DATABASE_CREDENTIAL_OVERRIDE_DENIED", "08004");
                         }
                     });
-                    pool = new HikariDataSource(configuration);
+                    pool = top.sywyar.pixivdownload.core.db.provider.DatabaseConnectionPool.create(configuration);
                 } catch (VirtualMachineError | ThreadDeath fatal) {
                     throw fatal;
                 } catch (Throwable failure) {

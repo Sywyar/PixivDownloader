@@ -127,7 +127,7 @@ class RegisteredPluginsTest {
         @org.springframework.context.annotation.Bean
         org.springframework.transaction.PlatformTransactionManager transactions(javax.sql.DataSource source,
                 top.sywyar.pixivdownload.core.db.DatabaseTarget target) {
-            return new top.sywyar.pixivdownload.core.db.DatabaseConfig(null, null, null).transactionManager(source, target);
+            return new top.sywyar.pixivdownload.core.db.DatabaseConfig(null, null).transactionManager(source, target);
         }
     }
 

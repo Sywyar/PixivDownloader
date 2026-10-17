@@ -46,7 +46,7 @@ class PluginMainStorageTest {
                 target.applySchema(connection, registry.storageSchema(), true);
                 connection.commit();
             }
-            var transactions = new DatabaseConfig(null, null, null).transactionManager(pool, target);
+            var transactions = new DatabaseConfig(null, null).transactionManager(pool, target);
             var main = new MainDatabase(pool, target, registry, transactions);
             try (var first = main.forOwner("first-owner", List.of("pixiv-tags"));
                  var second = main.forOwner("second-owner", List.of())) {

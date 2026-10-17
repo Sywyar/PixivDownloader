@@ -6,7 +6,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.support.JdbcTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap;
 import top.sywyar.pixivdownload.core.db.provider.ProviderDataSource;
@@ -24,7 +23,6 @@ import java.sql.SQLException;
 @RequiredArgsConstructor
 public class DatabaseConfig {
 
-    private final DownloadConfig downloadConfig;
     private final DatabasePoolProperties databasePoolProperties;
     private final AppMessages messages;
 

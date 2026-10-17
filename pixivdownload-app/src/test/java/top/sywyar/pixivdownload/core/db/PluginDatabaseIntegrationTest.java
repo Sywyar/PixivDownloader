@@ -81,7 +81,7 @@ class PluginDatabaseIntegrationTest {
         handles.forEach(MainDatabase.OwnerStorage::close);
         handles.clear();
         var target = DatabaseProviderTestFixtures.target(source);
-        transactions = new DatabaseConfig(null, null, null).transactionManager(source, target);
+        transactions = new DatabaseConfig(null, null).transactionManager(source, target);
         var main = new MainDatabase(source, target, registry, transactions);
         var novels = main.forOwner("novel", List.of("pixiv-novels", "pixiv-tags"));
         var notifications = main.forOwner("notification", List.of());
@@ -264,7 +264,7 @@ class PluginDatabaseIntegrationTest {
         call(database, "init");
         var target = postgres != null ? top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(postgres.properties(), "unused")
                 : top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("fixture.db"));
-        var transaction = new TransactionTemplate(new DatabaseConfig(null, null, null).transactionManager(source, target));
+        var transaction = new TransactionTemplate(new DatabaseConfig(null, null).transactionManager(source, target));
         transaction.executeWithoutResult(status -> {
             insert(database, 10, 1_700_000_000_110L, 2L, "冒险旅程 Apple 100% A_B C:\\花 🌸 École \"quoted\"");
             insert(database, 11, 1_700_000_000_111L, null, "猫と犬");

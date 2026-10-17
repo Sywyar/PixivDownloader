@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.env.MockEnvironment;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.provider.ProviderDataSource;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionSettings;
@@ -241,7 +240,7 @@ class DatabaseProviderBootFailureTest {
     }
 
     private static DatabaseConfig config() {
-        return new DatabaseConfig(new DownloadConfig(), new DatabasePoolProperties(), mock(AppMessages.class));
+        return new DatabaseConfig(new DatabasePoolProperties(), mock(AppMessages.class));
     }
 
     private static MockEnvironment selectedEnvironment() {

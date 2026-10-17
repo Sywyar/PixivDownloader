@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.core.db;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionTemplate;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
 import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 import top.sywyar.pixivdownload.core.download.DownloadLifecycleRegistry;
@@ -27,7 +26,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 @DisplayName("无库时的 SDK 查询和命令语义")
 class DatabaseUnavailableSemanticsTest {
     private final DatabaseConfig config = new DatabaseConfig(
-            new DownloadConfig(), new DatabasePoolProperties(), mock(AppMessages.class));
+            new DatabasePoolProperties(), mock(AppMessages.class));
     private final UnavailableDataSource source = new UnavailableDataSource();
     private final DatabaseAvailability availability = config.databaseAvailability(source);
 

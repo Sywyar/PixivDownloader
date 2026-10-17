@@ -49,7 +49,7 @@ class StorageFeaturesTest {
                 c.setAutoCommit(false); target.prepareTransaction(c, false);
                 target.applySchema(c, registry.storageSchema(), true); c.commit();
             }
-            var tx = new DatabaseConfig(null, null, null).transactionManager(pool, target);
+            var tx = new DatabaseConfig(null, null).transactionManager(pool, target);
             var main = new MainDatabase(pool, target, registry, tx);
             try (var storage = main.forOwner("stories-owner", List.of())) {
                 storage.transaction(s -> {

@@ -85,7 +85,7 @@ public final class DatabaseProviderTestFixtures {
         } catch (java.sql.SQLException failure) { throw new IllegalStateException(failure); }
         return new MainDatabase(source, target,
                 top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry.forBuiltInPlugins(),
-                new DatabaseConfig(null, null, null).transactionManager(source, target));
+                new DatabaseConfig(null, null).transactionManager(source, target));
     }
 
     public static List<DatabaseProviderSelection.Result> providers() {

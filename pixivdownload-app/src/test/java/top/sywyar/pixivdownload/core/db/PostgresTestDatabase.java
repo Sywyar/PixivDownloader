@@ -43,7 +43,7 @@ public final class PostgresTestDatabase implements AutoCloseable {
     public DatabasePoolProperties properties() { return properties; }
 
     public org.springframework.jdbc.support.JdbcTransactionManager transactionManager() {
-        return new DatabaseConfig(null, null, null).transactionManager(pool, target);
+        return new DatabaseConfig(null, null).transactionManager(pool, target);
     }
 
     @Override
