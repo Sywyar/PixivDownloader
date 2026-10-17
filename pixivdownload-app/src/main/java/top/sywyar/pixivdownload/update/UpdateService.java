@@ -529,18 +529,7 @@ public class UpdateService {
         return null;
     }
 
-    /**
-     * 下载已检查到的 installer。调用前应先调用 {@link #checkForUpdate(boolean)} 并确认
-     * {@code updateAvailable} 为 true。
-     * <p>下载过程中实时更新 {@link #currentDownloadProgress}，供 GUI 轮询展示进度。
-     *
-     * @param nightlyChannel {@code true} 表示下载每夜版替代选项；{@code false} 表示下载正式版
-     */
-    public UpdateDownloadResult downloadInstaller(boolean nightlyChannel) throws IOException {
-        return downloadInstaller(selectChannel(nightlyChannel));
-    }
-
-    UpdateDownloadResult downloadInstaller(UpdateCheckResult check) throws IOException {
+    void downloadInstaller(UpdateCheckResult check) throws IOException {
         verifiedInstaller = null;
 
         String url = check.getAssetUrl();
@@ -599,13 +588,6 @@ public class UpdateService {
                 check.getLatestVersion(), check.isNightly(), Instant.now());
         currentDownloadProgress = new DownloadProgress(finalSize, finalSize, true, false, null, target.toAbsolutePath().toString());
         log.info(forLog("update.log.download.completed", target.toAbsolutePath(), finalSize));
-
-        return UpdateDownloadResult.builder()
-                .installerPath(target.toAbsolutePath().toString())
-                .sizeBytes(finalSize)
-                .sha256(actual)
-                .version(check.getLatestVersion())
-                .build();
     }
 
     /**

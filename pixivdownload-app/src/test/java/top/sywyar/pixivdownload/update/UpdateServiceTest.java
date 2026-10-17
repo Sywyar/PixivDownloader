@@ -91,7 +91,7 @@ class UpdateServiceTest {
             assertThat(result.getNightlyAlternative().isUpdateAvailable()).isTrue();
             assertThat(result.getNightlyAlternative().isNightly()).isTrue();
             assertThat(result.getNightlyAlternative().getLatestVersion()).isEqualTo("998.0.0-nightly.20260909.129.1");
-            assertThatThrownBy(() -> service.downloadInstaller(false)).isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> service.startDownloadAsync(false)).isInstanceOf(IllegalStateException.class);
             when(client.fetchBytes(nightlyUrl + ".sig", 16L * 1024L)).thenReturn(new byte[0]);
             assertThat(service.checkForUpdate(true).isCheckSucceeded()).isFalse();
             assertThat(service.checkForUpdate(false).getNightlyAlternative()).isNull();
@@ -320,8 +320,9 @@ class UpdateServiceTest {
             UpdateService service = new UpdateService(
                     config(), APP_MESSAGES, signing.verifier(), tempDir.resolve("trust.json"), provider);
 
-            assertThat(service.checkForUpdate(true).isUpdateAvailable()).isTrue();
-            assertThatThrownBy(() -> service.downloadInstaller(false))
+            UpdateCheckResult selected = service.checkForUpdate(true);
+            assertThat(selected.isUpdateAvailable()).isTrue();
+            assertThatThrownBy(() -> service.downloadInstaller(selected))
                     .isInstanceOf(IOException.class)
                     .hasMessageContaining("size mismatch");
             assertThat(part).doesNotExist();
@@ -355,7 +356,7 @@ class UpdateServiceTest {
                 new java.util.concurrent.atomic.AtomicReference<>();
         UpdateService service = new UpdateService(config(), APP_MESSAGES, mock(PluginCatalogClientProvider.class)) {
             @Override
-            UpdateDownloadResult downloadInstaller(UpdateCheckResult check) throws IOException {
+            void downloadInstaller(UpdateCheckResult check) throws IOException {
                 captured.set(check);
                 received.countDown();
                 try {
@@ -366,7 +367,6 @@ class UpdateServiceTest {
                     Thread.currentThread().interrupt();
                     throw new IOException(e);
                 }
-                return UpdateDownloadResult.builder().version(check.getLatestVersion()).build();
             }
         };
         var lastResult = UpdateService.class.getDeclaredField("lastResult");
