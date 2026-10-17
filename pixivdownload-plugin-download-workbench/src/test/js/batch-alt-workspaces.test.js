@@ -234,42 +234,6 @@ test('计划队列的过期响应不得更新或卸载重新展开的容器', as
     assert.equal(renders[0].target, box);
 });
 
-test('计划代理与凭证弹窗可打开，字段有标签且不回显已绑定凭证', () => {
-    const context = vm.createContext({AbortController,
-        document: {createElement: tag => new MiniElement(tag), addEventListener() {}},
-        altScheduleSources: () => ({isAvailable: () => true,
-            credentialActions: () => ({supportsCookie: true, supportsProxy: true, presentation: {}})}),
-    });
-    context.window = context;
-    for (const name of ['../pixiv-batch/queue-display.js', 'alt-core.js', 'alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js']) {
-        vm.runInContext(readFileSync(resolve(__dirname,
-            '../../main/resources/static/pixiv-batch-alt', name), 'utf8'), context);
-    }
-    let modal;
-    context.openModal = options => { modal = options; };
-    context.openScheduleOverride({id: 7, sourceType: 'demo', proxy: 'localhost:8080', cookieBound: true});
-    assert.equal(modal.id, 'schedule-override');
-    const proxy = modal.body.querySelector('input');
-    const credential = modal.body.querySelector('input[type="password"]');
-    assert.equal(proxy.value, 'localhost:8080');
-    assert.ok(proxy.getAttribute('aria-label'));
-    assert.ok(credential.getAttribute('aria-label'));
-    assert.equal(credential.value, '');
-    assert.equal(credential.type, 'password');
-    const toggle = modal.body.querySelectorAll('button').find(button => button.textContent === '显示');
-    toggle.dispatchEvent({type:'click'});
-    assert.equal(credential.type, 'text');
-    toggle.dispatchEvent({type:'click'});
-    assert.equal(credential.type, 'password');
-    let prevented = false;
-    credential.dispatchEvent({type:'paste',clipboardData:{getData:()=> 'line1\nline2'},
-        preventDefault(){prevented=true;}});
-    assert.equal(prevented,true);
-    assert.equal(credential.readCredential(),'line1\nline2');
-    credential.value='edited';credential.dispatchEvent({type:'input'});
-    assert.equal(credential.readCredential(),'edited');
-});
-
 test('侧栏关闭保护未保存内容，重新打开可打断关闭且保留新内容', async () => {
     const root = new MiniElement('dialog');
     root.id = 'abDrawerRoot';

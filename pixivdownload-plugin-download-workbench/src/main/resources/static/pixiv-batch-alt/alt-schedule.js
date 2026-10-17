@@ -269,20 +269,10 @@ function scheduleTaskPresentation(task) {
 
 function scheduleCredentialCapabilities(sourceType, context) {
     const runtime = altScheduleSources();
-    const unavailable = {supportsCookie: false, supportsProxy: false, presentation: {}};
+    const unavailable = {supportsCredential: false, supportsProxy: false, presentation: {}};
     if (!runtime || !sourceType || !runtime.isAvailable(sourceType)) return unavailable;
     try {
-        const actions = runtime.credentialActions(sourceType, context || {});
-        if (!actions || typeof actions.then === 'function') {
-            if (actions) Promise.resolve(actions).catch(() => {});
-            return unavailable;
-        }
-        return {
-            supportsCookie: actions.supportsCookie === true,
-            supportsProxy: actions.supportsProxy === true,
-            presentation: actions.presentation && typeof actions.presentation === 'object'
-                ? actions.presentation : {}
-        };
+        return runtime.credentialContribution(sourceType, context || {}) || unavailable;
     } catch (e) {
         return unavailable;
     }
@@ -291,19 +281,19 @@ function scheduleCredentialCapabilities(sourceType, context) {
 function scheduleTaskCredentialUi(task) {
     const sourceType = task.sourceType || task.type;
     const runtime = altScheduleSources();
-    const sourceActive = !!(runtime && runtime.isAvailable(sourceType));
+    const sourceActive = task.sourceAvailable !== false && !!(runtime && runtime.isAvailable(sourceType));
     const capabilities = sourceActive
         ? scheduleCredentialCapabilities(sourceType, {task})
-        : {supportsCookie: false, supportsProxy: false, presentation: {}};
+        : {supportsCredential: false, supportsProxy: false, presentation: {}};
     const presentation = capabilities.presentation;
     return {
-        badgeLabel: capabilities.supportsCookie
-            ? (task.cookieBound
+        badgeLabel: capabilities.supportsCredential
+            ? (task.credentialPolicy?.bound === true
                 ? presentation.boundLabel || bt('schedule.credential.bound', '已绑定凭证')
                 : presentation.unboundLabel || bt('schedule.credential.unbound', '未绑定凭证'))
-            : (!sourceActive && task.cookieBound
+            : (!sourceActive && task.credentialPolicy?.bound === true
                 ? bt('schedule.credential.bound', '已绑定凭证') : null),
-        showOverride: sourceActive && (capabilities.supportsCookie || capabilities.supportsProxy)
+        showOverride: sourceActive && (capabilities.supportsCredential || capabilities.supportsProxy)
     };
 }
 

@@ -128,7 +128,7 @@
         const quick = normalizedQuickSource(context);
         if (context.mode === QUICK_FETCH_MODE) {
             if (!quick || quick.sourceType !== sourceType) {
-                throw new Error(bt('schedule.error.quick-source',
+                throw new Error(bt('batch:schedule.error.quick-source',
                     '请先展开具体的作品列表后再存为计划任务'));
             }
             return {source: quick.source, kind: quick.kind, label: quick.label};
@@ -136,7 +136,7 @@
         if (sourceType === SOURCE.USER_NEW || sourceType === SOURCE.USER_REQUEST) {
             const userId = parsePixivUserInput((document.getElementById('user-id-input') || {}).value || '');
             if (!userId) {
-                throw new Error(bt('schedule.error.user-id', '请填写有效的画师 ID 或画师主页链接'));
+                throw new Error(bt('batch:schedule.error.user-id', '请填写有效的画师 ID 或画师主页链接'));
             }
             const kind = sourceType === SOURCE.USER_REQUEST
                 ? 'illust' : (state.settings.userKind === 'novel' ? 'novel' : 'illust');
@@ -144,7 +144,7 @@
         }
         if (sourceType === SOURCE.SEARCH) {
             const word = ((document.getElementById('search-word') || {}).value || '').trim();
-            if (!word) throw new Error(bt('schedule.error.word', '请填写搜索关键词'));
+            if (!word) throw new Error(bt('batch:schedule.error.word', '请填写搜索关键词'));
             const uiMode = (document.getElementById('search-content-filter') || {}).value || defaults.filters.content;
             const sMode = (document.querySelector('input[name="search-smode"]:checked') || {}).value || defaults.source.sMode;
             const order = (document.querySelector('input[name="search-order"]:checked') || {}).value || defaults.source.order;
@@ -157,7 +157,7 @@
         }
         if (sourceType === SOURCE.SERIES) {
             if (!seriesState.seriesId) {
-                throw new Error(bt('schedule.error.series-id', '请先在上方解析并预览系列'));
+                throw new Error(bt('batch:schedule.error.series-id', '请先在上方解析并预览系列'));
             }
             return {
                 source: {seriesId: String(seriesState.seriesId)},
@@ -165,7 +165,7 @@
                 label: ''
             };
         }
-        throw new Error(bt('schedule.error.mode', '当前模式不支持创建计划任务'));
+        throw new Error(bt('batch:schedule.error.mode', '当前模式不支持创建计划任务'));
     }
 
     function snapshotFilters() {
@@ -399,7 +399,7 @@
 
     function restore(sourceType, task) {
         const params = parseParams(task);
-        if (!params) throw new Error(bt('schedule.snapshot.error.parse', '任务快照解析失败'));
+        if (!params) throw new Error(bt('batch:schedule.snapshot.error.parse', '任务快照解析失败'));
         const kind = params.kind === 'novel' ? 'novel' : (params.kind === 'mixed' ? 'mixed' : defaults.kind);
         const source = sourceType === SOURCE.SEARCH
             ? withDefaults(params.source, defaults.source)
@@ -479,11 +479,11 @@
 
     function valueOrUnset(value) {
         return value == null || value === ''
-            ? bt('schedule.snapshot.value.unset', '未设置') : String(value);
+            ? bt('batch:schedule.snapshot.value.unset', '未设置') : String(value);
     }
 
     function boolLabel(value) {
-        return value ? bt('schedule.snapshot.value.yes', '是') : bt('schedule.snapshot.value.no', '否');
+        return value ? bt('batch:schedule.snapshot.value.yes', '是') : bt('batch:schedule.snapshot.value.no', '否');
     }
 
     function listValue(value) {
@@ -496,10 +496,10 @@
     function rangeValue(min, max) {
         const hasMin = min != null && min !== '';
         const hasMax = max != null && max !== '';
-        if (hasMin && hasMax) return bt('schedule.snapshot.value.range', '{min} - {max}', {min, max});
-        if (hasMin) return bt('schedule.snapshot.value.at-least', '≥ {value}', {value: min});
-        if (hasMax) return bt('schedule.snapshot.value.at-most', '≤ {value}', {value: max});
-        return bt('schedule.snapshot.value.unlimited', '不限');
+        if (hasMin && hasMax) return bt('batch:schedule.snapshot.value.range', '{min} - {max}', {min, max});
+        if (hasMin) return bt('batch:schedule.snapshot.value.at-least', '≥ {value}', {value: min});
+        if (hasMax) return bt('batch:schedule.snapshot.value.at-most', '≤ {value}', {value: max});
+        return bt('batch:schedule.snapshot.value.unlimited', '不限');
     }
 
     function mapped(value, fallback, values) {
@@ -508,24 +508,24 @@
 
     function kindLabel(kind) {
         return mapped(kind, '', {
-            novel: bt('schedule.kind.novel', '小说'),
-            illust: bt('schedule.kind.illust', '插画'),
-            mixed: bt('schedule.kind.mixed', '插画+小说')
+            novel: bt('batch:schedule.kind.novel', '小说'),
+            illust: bt('batch:schedule.kind.illust', '插画'),
+            mixed: bt('batch:schedule.kind.mixed', '插画+小说')
         });
     }
 
     function quickSourceLabel(sourceType, source, kind) {
         if (sourceType === SOURCE.MY_BOOKMARKS) {
             const rest = source.rest === 'hide'
-                ? bt('quick.schedule.rest.hide', '不公开') : bt('quick.schedule.rest.show', '公开');
-            return bt('quick.schedule.source.bookmarks', '我的收藏（{kind}，{rest}）',
+                ? bt('batch:quick.schedule.rest.hide', '不公开') : bt('batch:quick.schedule.rest.show', '公开');
+            return bt('batch:quick.schedule.source.bookmarks', '我的收藏（{kind}，{rest}）',
                 {kind: kindLabel(kind), rest});
         }
         if (sourceType === SOURCE.FOLLOW_LATEST) {
-            return bt('quick.title.following-new', '已关注的用户的新作');
+            return bt('batch:quick.title.following-new', '已关注的用户的新作');
         }
         if (sourceType === SOURCE.COLLECTION) {
-            return bt('quick.schedule.source.collection', '珍藏集 {name}（ID {id}）',
+            return bt('batch:quick.schedule.source.collection', '珍藏集 {name}（ID {id}）',
                 {name: source.collectionId, id: source.collectionId});
         }
         return '';
@@ -533,60 +533,60 @@
 
     function collectionLabel(collectionId) {
         if (collectionId == null || collectionId === '') {
-            return bt('option.collection.none', '（不加入收藏夹）');
+            return bt('batch:option.collection.none', '（不加入收藏夹）');
         }
         const id = String(collectionId);
         const select = document.getElementById('s-collection');
         const option = select && select.options
             ? Array.from(select.options).find(item => String(item.value) === id) : null;
         const optionText = option ? (option.textContent || '').trim() : '';
-        const idText = bt('schedule.snapshot.value.id', 'ID');
+        const idText = bt('batch:schedule.snapshot.value.id', 'ID');
         return optionText ? `${optionText} (${idText} ${id})` : `${idText} ${id}`;
     }
 
     function sourceRows(sourceType, source) {
         if (sourceType === SOURCE.USER_NEW || sourceType === SOURCE.USER_REQUEST) {
-            return [[bt('schedule.snapshot.field.user-id', '画师 ID'), valueOrUnset(source.userId)]];
+            return [[bt('batch:schedule.snapshot.field.user-id', '画师 ID'), valueOrUnset(source.userId)]];
         }
         if (sourceType === SOURCE.SEARCH) {
             const maxPages = Number(source.maxPages);
             const pageValue = maxPages === -1
-                ? bt('schedule.snapshot.value.until-downloaded', '直到遇到已下载作品为止')
-                : bt('schedule.snapshot.value.pages-count', '{count} 页',
+                ? bt('batch:schedule.snapshot.value.until-downloaded', '直到遇到已下载作品为止')
+                : bt('batch:schedule.snapshot.value.pages-count', '{count} 页',
                     {count: Number.isFinite(maxPages) && maxPages > 0 ? maxPages : defaults.source.maxPages});
             return [
-                [bt('schedule.snapshot.field.keyword', '搜索关键词'), valueOrUnset(source.word)],
-                [bt('schedule.snapshot.field.search-order', '排序'), mapped(source.order, defaults.source.order, {
-                    date_d: bt('search.order.latest', '最新'),
-                    date: bt('search.order.oldest', '最旧'),
-                    popular_d: bt('search.order.popular', '热门 ⚠')
+                [bt('batch:schedule.snapshot.field.keyword', '搜索关键词'), valueOrUnset(source.word)],
+                [bt('batch:schedule.snapshot.field.search-order', '排序'), mapped(source.order, defaults.source.order, {
+                    date_d: bt('batch:search.order.latest', '最新'),
+                    date: bt('batch:search.order.oldest', '最旧'),
+                    popular_d: bt('batch:search.order.popular', '热门 ⚠')
                 })],
-                [bt('schedule.snapshot.field.search-mode', '搜索方式'), mapped(source.sMode, defaults.source.sMode, {
-                    s_tag: bt('search.mode.tag', '标签'),
-                    s_tc: bt('search.mode.title-desc', '标题/描述')
+                [bt('batch:schedule.snapshot.field.search-mode', '搜索方式'), mapped(source.sMode, defaults.source.sMode, {
+                    s_tag: bt('batch:search.mode.tag', '标签'),
+                    s_tc: bt('batch:search.mode.title-desc', '标题/描述')
                 })],
-                [bt('schedule.snapshot.field.pixiv-mode', 'Pixiv 内容范围'), mapped(source.mode, defaults.source.mode, {
-                    all: bt('search.content.all', '全部'),
-                    safe: bt('search.content.safe', '全年龄'),
-                    r18: bt('search.content.r18', 'R-18')
+                [bt('batch:schedule.snapshot.field.pixiv-mode', 'Pixiv 内容范围'), mapped(source.mode, defaults.source.mode, {
+                    all: bt('batch:search.content.all', '全部'),
+                    safe: bt('batch:search.content.safe', '全年龄'),
+                    r18: bt('batch:search.content.r18', 'R-18')
                 })],
-                [bt('schedule.snapshot.field.max-pages', '发现页数'), pageValue]
+                [bt('batch:schedule.snapshot.field.max-pages', '发现页数'), pageValue]
             ];
         }
         if (sourceType === SOURCE.SERIES) {
-            return [[bt('schedule.snapshot.field.series-id', '系列 ID'), valueOrUnset(source.seriesId)]];
+            return [[bt('batch:schedule.snapshot.field.series-id', '系列 ID'), valueOrUnset(source.seriesId)]];
         }
         if (sourceType === SOURCE.MY_BOOKMARKS) {
-            return [[bt('schedule.snapshot.field.bookmark-visibility', '收藏可见性'),
-                source.rest === 'hide' ? bt('quick.schedule.rest.hide', '不公开')
-                    : bt('quick.schedule.rest.show', '公开')]];
+            return [[bt('batch:schedule.snapshot.field.bookmark-visibility', '收藏可见性'),
+                source.rest === 'hide' ? bt('batch:quick.schedule.rest.hide', '不公开')
+                    : bt('batch:quick.schedule.rest.show', '公开')]];
         }
         if (sourceType === SOURCE.FOLLOW_LATEST) {
-            return [[bt('schedule.snapshot.field.source', '来源'),
-                bt('schedule.type.follow-latest', '📰 已关注用户的新作')]];
+            return [[bt('batch:schedule.snapshot.field.source', '来源'),
+                bt('batch:schedule.type.follow-latest', '📰 已关注用户的新作')]];
         }
         if (sourceType === SOURCE.COLLECTION) {
-            return [[bt('schedule.snapshot.field.collection-id', '珍藏集 ID'), valueOrUnset(source.collectionId)]];
+            return [[bt('batch:schedule.snapshot.field.collection-id', '珍藏集 ID'), valueOrUnset(source.collectionId)]];
         }
         return [];
     }
@@ -603,10 +603,10 @@
         const download = withDefaults(params.download, defaults.download);
         const rows = sourceRows(sourceType, source);
         if (fetchLimitMode(sourceType, source)) {
-            rows.push([bt('schedule.snapshot.field.fetch-limit', '抓取上限'),
+            rows.push([bt('batch:schedule.snapshot.field.fetch-limit', '抓取上限'),
                 typeof params.fetchLimit === 'number' && params.fetchLimit > 0
-                    ? bt('schedule.snapshot.value.fetch-limit', '{n} 个作品', {n: params.fetchLimit})
-                    : bt('schedule.snapshot.value.fetch-limit-all', '全量（不限）')]);
+                    ? bt('batch:schedule.snapshot.value.fetch-limit', '{n} 个作品', {n: params.fetchLimit})
+                    : bt('batch:schedule.snapshot.value.fetch-limit-all', '全量（不限）')]);
         }
         const format = value => mapped(value, defaults.download.novelFormat, {
             txt: bt('novel:format.txt', '纯文本（TXT）'),
@@ -614,26 +614,26 @@
             epub: bt('novel:format.epub', '电子书（EPUB）')
         });
         const ms = value => Number.isFinite(value) && value >= 0
-            ? bt('schedule.snapshot.value.ms', '{ms} ms', {ms: value}) : valueOrUnset(null);
+            ? bt('batch:schedule.snapshot.value.ms', '{ms} ms', {ms: value}) : valueOrUnset(null);
         const concurrent = Number.isFinite(download.concurrent) && download.concurrent >= 1
-            ? bt('schedule.snapshot.value.concurrent', '{n} 路并发', {n: download.concurrent})
+            ? bt('batch:schedule.snapshot.value.concurrent', '{n} 路并发', {n: download.concurrent})
             : valueOrUnset(null);
         const downloadRows = [
-            [bt('label.settings.skip', '跳过已下载作品'), bt('schedule.snapshot.value.always-on', '始终开启')],
-            [bt('label.settings.redownload-deleted', '允许已删除的作品被重新下载'), boolLabel(!!download.redownloadDeleted)],
-            [bt('label.settings.filename-template', '文件名格式:'), valueOrUnset(download.fileNameTemplate)],
+            [bt('batch:label.settings.skip', '跳过已下载作品'), bt('batch:schedule.snapshot.value.always-on', '始终开启')],
+            [bt('batch:label.settings.redownload-deleted', '允许已删除的作品被重新下载'), boolLabel(!!download.redownloadDeleted)],
+            [bt('batch:label.settings.filename-template', '文件名格式:'), valueOrUnset(download.fileNameTemplate)],
             [bt('batch:path.overflow.label', null), mapped(download.pathOverflowAction, defaults.download.pathOverflowAction, {
                 ASK: bt('batch:path.overflow.ask', null), TRUNCATE: bt('batch:path.overflow.truncate', null),
                 DEFAULT_NAME: bt('batch:path.overflow.default', null), CANCEL: bt('batch:path.overflow.cancel', null)
             })],
-            [bt('label.settings.bookmark', '下载后自动收藏'), boolLabel(!!download.bookmark)],
-            [bt('label.settings.collection', '收藏到:'), collectionLabel(download.collectionId)],
-            [bt('label.settings.concurrent', '最大并发数:'), concurrent],
-            [bt('label.settings.interval', '作品间隔:'), ms(download.intervalMs)]
+            [bt('batch:label.settings.bookmark', '下载后自动收藏'), boolLabel(!!download.bookmark)],
+            [bt('batch:label.settings.collection', '收藏到:'), collectionLabel(download.collectionId)],
+            [bt('batch:label.settings.concurrent', '最大并发数:'), concurrent],
+            [bt('batch:label.settings.interval', '作品间隔:'), ms(download.intervalMs)]
         ];
         if (kind !== 'novel') {
-            downloadRows.push([bt('label.settings.image-delay', '图片间隔:'), ms(download.imageDelayMs)]);
-            downloadRows.push([bt('label.settings.verify', '实际目录检测'), boolLabel(!!download.verifyFiles)]);
+            downloadRows.push([bt('batch:label.settings.image-delay', '图片间隔:'), ms(download.imageDelayMs)]);
+            downloadRows.push([bt('batch:label.settings.verify', '实际目录检测'), boolLabel(!!download.verifyFiles)]);
         }
         downloadRows.push([bt('novel:batch.format-label', '小说格式'), format(download.novelFormat)]);
         downloadRows.push([bt('novel:batch.merge-label', '系列下载完成后生成合订本'), boolLabel(!!download.novelMerge)]);
@@ -645,40 +645,40 @@
             downloadRows.push([bt('ai:batch.translate-seg-label', '分段字数:'),
                 Number.isFinite(download.novelTranslateSegmentSize) && download.novelTranslateSegmentSize > 0
                     ? String(download.novelTranslateSegmentSize)
-                    : bt('schedule.snapshot.value.whole-chapter', '整章一次性')]);
+                    : bt('batch:schedule.snapshot.value.whole-chapter', '整章一次性')]);
         }
         return {
             kind,
             description: quickSourceLabel(sourceType, source, kind)
                 || (rows.length ? rows[0].join(bt('common:punctuation.colon', ': ')) : ''),
             sections: [
-                {title: bt('schedule.snapshot.section.source', '来源快照'), rows},
-                {title: bt('schedule.snapshot.section.filters', '筛选快照'), rows: [
-                    [bt('label.search-content-rating', '内容分级'), mapped(filters.content, defaults.filters.content, {
-                        all: bt('search.content.all', '全部'),
-                        safe: bt('search.content.safe', '全年龄'),
-                        r18plus: bt('search.content.r18plus', 'R18+(R-18 + R-18G)'),
-                        r18: bt('search.content.r18', 'R-18'),
-                        r18g: bt('search.content.r18g', 'R-18G')
+                {title: bt('batch:schedule.snapshot.section.source', '来源快照'), rows},
+                {title: bt('batch:schedule.snapshot.section.filters', '筛选快照'), rows: [
+                    [bt('batch:label.search-content-rating', '内容分级'), mapped(filters.content, defaults.filters.content, {
+                        all: bt('batch:search.content.all', '全部'),
+                        safe: bt('batch:search.content.safe', '全年龄'),
+                        r18plus: bt('batch:search.content.r18plus', 'R18+(R-18 + R-18G)'),
+                        r18: bt('batch:search.content.r18', 'R-18'),
+                        r18g: bt('batch:search.content.r18g', 'R-18G')
                     })],
-                    [bt('label.search-ai', 'AI 作品'), mapped(filters.aiFilter, defaults.filters.aiFilter, {
-                        all: bt('search.filter.all', '全部'),
-                        exclude: bt('search.filter.exclude-ai', '排除 AI'),
-                        only: bt('search.filter.only-ai', '仅 AI')
+                    [bt('batch:label.search-ai', 'AI 作品'), mapped(filters.aiFilter, defaults.filters.aiFilter, {
+                        all: bt('batch:search.filter.all', '全部'),
+                        exclude: bt('batch:search.filter.exclude-ai', '排除 AI'),
+                        only: bt('batch:search.filter.only-ai', '仅 AI')
                     })],
-                    [bt('label.search-tags-exact', '标签(精确匹配)'), listValue(filters.tagsExact)],
-                    [bt('label.search-tags-fuzzy', '标签(模糊匹配)'), listValue(filters.tagsFuzzy)],
-                    [bt('label.search-type', '作品类型'), mapped(filters.typeFilter, defaults.filters.typeFilter, {
-                        all: bt('search.filter.all', '全部'),
-                        illust: bt('search.type.illust', '插画'),
-                        manga: bt('search.type.manga', '漫画'),
-                        ugoira: bt('search.type.ugoira', '动图')
+                    [bt('batch:label.search-tags-exact', '标签(精确匹配)'), listValue(filters.tagsExact)],
+                    [bt('batch:label.search-tags-fuzzy', '标签(模糊匹配)'), listValue(filters.tagsFuzzy)],
+                    [bt('batch:label.search-type', '作品类型'), mapped(filters.typeFilter, defaults.filters.typeFilter, {
+                        all: bt('batch:search.filter.all', '全部'),
+                        illust: bt('batch:search.type.illust', '插画'),
+                        manga: bt('batch:search.type.manga', '漫画'),
+                        ugoira: bt('batch:search.type.ugoira', '动图')
                     })],
-                    [bt('schedule.snapshot.field.pages-range', '页数范围'), rangeValue(filters.pagesMin, filters.pagesMax)],
-                    [bt('schedule.snapshot.field.words-range', '字数范围'), rangeValue(filters.wordsMin, filters.wordsMax)],
-                    [bt('schedule.snapshot.field.bookmarks-range', '收藏数范围'), rangeValue(filters.bookmarksMin, filters.bookmarksMax)]
+                    [bt('batch:schedule.snapshot.field.pages-range', '页数范围'), rangeValue(filters.pagesMin, filters.pagesMax)],
+                    [bt('batch:schedule.snapshot.field.words-range', '字数范围'), rangeValue(filters.wordsMin, filters.wordsMax)],
+                    [bt('batch:schedule.snapshot.field.bookmarks-range', '收藏数范围'), rangeValue(filters.bookmarksMin, filters.bookmarksMax)]
                 ]},
-                {title: bt('schedule.snapshot.section.download', '下载设置快照'), rows: downloadRows}
+                {title: bt('batch:schedule.snapshot.section.download', '下载设置快照'), rows: downloadRows}
             ]
         };
     }
@@ -688,19 +688,19 @@
             supportsCredential: true,
             supportsProxy: true,
             presentation: Object.freeze({
-                boundLabel: bt('schedule.cookie.bound', '已绑定 Cookie'),
-                unboundLabel: bt('schedule.cookie.restricted', '受限模式（无 Cookie）'),
-                overrideLabel: bt('schedule.action.override', '🔑 指定单独的 代理/cookie'),
-                modalTitle: bt('schedule.override.title', '指定单独的 代理/cookie'),
-                modalIntro: bt('schedule.override.intro', '为该计划任务指定独立的下载代理与 Cookie。未勾选的项使用默认行为：全局代理设置 / 任务当前绑定的 Cookie；取消已生效的勾选并保存会清除对应设置。'),
-                proxyToggleLabel: bt('schedule.field.proxy-enabled', '设置单独的代理'),
-                credentialToggleLabel: bt('schedule.field.cookie-enabled', '设置单独的cookie'),
-                savedCredentialLabel: bt('schedule.action.use-saved-cookie', '使用当前保存的cookie'),
-                boundPlaceholder: bt('schedule.field.cookie.placeholder-bound', '已绑定 Cookie（不回显）；留空保持不变，填写则替换'),
-                placeholder: bt('schedule.field.cookie.placeholder', '粘贴含 PHPSESSID 的 Cookie，或点右侧按钮填入'),
-                proxyHint: bt('schedule.field.proxy.hint', '该任务每轮运行中对 Pixiv 的全部访问（发现 / 元数据 / 下载 / 站内信检测）都会改走此 HTTP 代理（host:port）；取消勾选则使用全局代理设置。'),
-                credentialHint: bt('schedule.field.cookie.hint', '该任务将使用这份 Cookie 访问 Pixiv（替代默认绑定的 Cookie）。出于安全考虑，已绑定的 Cookie 不会回显。'),
-                emptyCredentialMessage: bt('schedule.error.override-cookie-empty', '请填写单独的 Cookie（或点「使用当前保存的cookie」），或取消勾选'),
+                boundLabel: bt('batch:schedule.cookie.bound', '已绑定 Cookie'),
+                unboundLabel: bt('batch:schedule.cookie.restricted', '受限模式（无 Cookie）'),
+                overrideLabel: bt('batch:schedule.action.override', '🔑 指定单独的 代理/cookie'),
+                modalTitle: bt('batch:schedule.override.title', '指定单独的 代理/cookie'),
+                modalIntro: bt('batch:schedule.override.intro', '为该计划任务指定独立的下载代理与 Cookie；清除专用代理后使用全局代理，清除凭证后解除任务绑定。'),
+                proxyToggleLabel: bt('batch:schedule.field.proxy-enabled', '设置单独的代理'),
+                credentialToggleLabel: bt('batch:schedule.field.cookie-enabled', '设置单独的cookie'),
+                savedCredentialLabel: bt('batch:schedule.action.use-saved-cookie', '使用当前保存的cookie'),
+                boundPlaceholder: bt('batch:schedule.field.cookie.placeholder-bound', '已绑定 Cookie（不回显）；留空保持不变，填写则替换'),
+                placeholder: bt('batch:schedule.field.cookie.placeholder', '粘贴含 PHPSESSID 的 Cookie，或使用已保存的 Cookie'),
+                proxyHint: bt('batch:schedule.field.proxy.hint', '该任务每轮运行中对 Pixiv 的全部访问（发现 / 元数据 / 下载 / 站内信检测）都会改走此 HTTP 代理（host:port）；清除后使用全局代理设置。'),
+                credentialHint: bt('batch:schedule.field.cookie.hint', '该任务将使用这份 Cookie 访问 Pixiv（替代默认绑定的 Cookie）。出于安全考虑，已绑定的 Cookie 不会回显。'),
+                emptyCredentialMessage: bt('batch:schedule.error.override-cookie-empty', '请填写单独的 Cookie（或点「使用当前保存的cookie」），或取消勾选'),
                 namespace: 'batch',
                 clearProxyConfirmKey: 'schedule.pixiv.confirm.clear-proxy',
                 clearCredentialConfirmKey: 'schedule.pixiv.confirm.clear-cookie'
@@ -712,7 +712,7 @@
         lease.assertCurrent();
         return /(?:^|;\s*)PHPSESSID=/.test(String(cookie || ''))
             ? null
-            : bt('schedule.error.cookie-no-phpsessid', '当前 Cookie 不含 PHPSESSID，无法授权');
+            : bt('batch:schedule.error.cookie-no-phpsessid', '当前 Cookie 不含 PHPSESSID，无法授权');
     }
 
     async function credentialHttp(url, init, lease, successStatus) {
@@ -726,14 +726,14 @@
             return {
                 ok: false,
                 status: 'failed',
-                error: error.error || error.message || bt('schedule.error.authorize', '授权失败')
+                error: error.error || error.message || bt('batch:schedule.error.authorize', '授权失败')
             };
         } catch (e) {
             lease.assertCurrent();
             return {
                 ok: false,
                 status: 'failed',
-                error: bt('schedule.error.authorize', '授权失败')
+                error: bt('batch:schedule.error.authorize', '授权失败')
             };
         }
     }
@@ -754,7 +754,7 @@
 
     function bindSavedCredential(taskId, _context, lease) {
         lease.assertCurrent();
-        const cookie = getCookieInputHeaderString().trim();
+        const cookie = getCookie().trim();
         if (!cookie || validateCredential(cookie, null, lease)) {
             return {ok: false, status: 'missing'};
         }
@@ -793,10 +793,10 @@
                 || policy.publicationId !== lease.publicationId) return null;
         if (policy.statusCode === CREDENTIAL_STATUS_AUTH_EXPIRED) {
             return {
-                statusLabel: bt('schedule.run-status.auth-expired',
+                statusLabel: bt('batch:schedule.run-status.auth-expired',
                     '登录凭证已失效，请重新绑定有效凭证'),
                 lightTone: 'red',
-                lightText: bt('schedule.light.auth-expired',
+                lightText: bt('batch:schedule.light.auth-expired',
                     '运行失败，来源登录凭证已失效，请重新绑定有效凭证'),
                 suspended: true,
                 manualRecoveryRequired: true
@@ -814,14 +814,14 @@
                 reason = '';
             }
             const reasonText = reason
-                ? bt('schedule.light.overuse-paused-reason',
+                ? bt('batch:schedule.light.overuse-paused-reason',
                     '已暂停：检测到过度访问警告（账号级）。原因：{reason}', {reason})
                 : null;
             return {
-                statusLabel: reasonText || bt('schedule.run-status.overuse-paused',
+                statusLabel: reasonText || bt('batch:schedule.run-status.overuse-paused',
                     '已暂停：检测到过度访问警告'),
                 lightTone: 'red',
-                lightText: reasonText || bt('schedule.light.overuse-paused',
+                lightText: reasonText || bt('batch:schedule.light.overuse-paused',
                     '已暂停：检测到过度访问警告（账号级）'),
                 suspended: true,
                 manualRecoveryRequired: true
@@ -860,27 +860,27 @@
         });
         return Array.from(groups.values()).map(group => ({
             identity: group.identity,
-            title: bt('schedule.overuse.banner.title', '⚠️ 过度访问暂停'),
-            description: bt('schedule.overuse.banner.desc',
+            title: bt('batch:schedule.overuse.banner.title', '⚠️ 过度访问暂停'),
+            description: bt('batch:schedule.overuse.banner.desc',
                 '账号 {account} 有 {count} 个计划任务因检测到 Pixiv 过度访问警告被暂停。', {
                     account: group.identity.accountKey,
                     count: group.tasks.length
                 }),
             actions: [{
                 actionId: 'ignore',
-                label: bt('schedule.overuse.action.ignore',
+                label: bt('batch:schedule.overuse.action.ignore',
                     '无视风险，继续下载！(可能会导致删号)'),
                 tone: 'danger',
-                confirmMessage: bt('schedule.overuse.confirm.ignore',
+                confirmMessage: bt('batch:schedule.overuse.confirm.ignore',
                     '确定无视过度访问警告并立即继续下载吗？短时间内继续大量下载可能导致账号被封禁。')
             }, {
                 actionId: 'defer',
-                label: bt('schedule.overuse.action.defer',
+                label: bt('batch:schedule.overuse.action.defer',
                     '我已知晓，在 {minutes} 分钟后继续所有同账号任务', {minutes: 60}),
                 tone: 'primary',
                 prompt: {
                     parameterName: 'minutes',
-                    message: bt('schedule.overuse.prompt.minutes', '延迟多少分钟后继续？（最低 60）'),
+                    message: bt('batch:schedule.overuse.prompt.minutes', '延迟多少分钟后继续？（最低 60）'),
                     defaultValue: '60',
                     inputType: 'number',
                     min: 60,
@@ -898,7 +898,7 @@
                 || identity.policyId !== CREDENTIAL_POLICY_ID
                 || Number(identity.publicationId) !== lease.publicationId) {
             return {ok: false, status: 'failed', error: bt(
-                'schedule.error.concurrent-change', '任务状态已变化，请刷新后重试')};
+                'batch:schedule.error.concurrent-change', '任务状态已变化，请刷新后重试')};
         }
         return credentialHttp(`${BASE}/api/schedule/credential-policies/actions`, {
             method: 'POST',
