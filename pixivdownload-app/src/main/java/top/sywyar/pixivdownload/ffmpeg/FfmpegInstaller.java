@@ -63,10 +63,6 @@ public final class FfmpegInstaller {
         return assetName(System.getProperty("os.name", ""), System.getProperty("os.arch", "")).isPresent();
     }
 
-    static Optional<URI> archiveUri(String osName, String osArch) {
-        return assetName(osName, osArch).map(asset -> URI.create(RELEASE_BASE_URL + asset));
-    }
-
     static Optional<String> assetName(String osName, String osArch) {
         String os = osName == null ? "" : osName.toLowerCase(Locale.ROOT);
         String arch = osArch == null ? "" : osArch.toLowerCase(Locale.ROOT);
@@ -422,9 +418,8 @@ public final class FfmpegInstaller {
         if (dir == null || !Files.exists(dir)) {
             return;
         }
-        try {
-            Files.walk(dir)
-                    .sorted(Comparator.reverseOrder())
+        try (var paths = Files.walk(dir)) {
+            paths.sorted(Comparator.reverseOrder())
                     .forEach(path -> {
                         try {
                             Files.deleteIfExists(path);

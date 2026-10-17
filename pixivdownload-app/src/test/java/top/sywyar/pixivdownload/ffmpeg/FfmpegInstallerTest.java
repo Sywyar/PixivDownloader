@@ -104,9 +104,9 @@ class FfmpegInstallerTest {
     @Test
     @DisplayName("没有对应构建的系统保持手动安装降级")
     void rejectsUnsupportedPlatform() {
-        assertThat(FfmpegInstaller.archiveUri("Windows 11", "aarch64")).isEmpty();
-        assertThat(FfmpegInstaller.archiveUri("Linux", "x86")).isEmpty();
-        assertThat(FfmpegInstaller.archiveUri("FreeBSD", "amd64")).isEmpty();
+        assertThat(FfmpegInstaller.assetName("Windows 11", "aarch64")).isEmpty();
+        assertThat(FfmpegInstaller.assetName("Linux", "x86")).isEmpty();
+        assertThat(FfmpegInstaller.assetName("FreeBSD", "amd64")).isEmpty();
     }
 
     @Test
@@ -385,8 +385,7 @@ class FfmpegInstallerTest {
     }
 
     private static void assertAsset(String osName, String osArch, String asset) {
-        assertThat(FfmpegInstaller.archiveUri(osName, osArch))
-                .contains(URI.create(FfmpegInstaller.RELEASE_BASE_URL + asset));
+        assertThat(FfmpegInstaller.assetName(osName, osArch)).contains(asset);
     }
 
     private static void addEntry(ZipOutputStream zip, String name) throws IOException {
