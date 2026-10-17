@@ -7,6 +7,7 @@ import ch.qos.logback.core.FileAppender;
 import ch.qos.logback.core.encoder.LayoutWrappingEncoder;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.logback.HtmlLogLayout;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.ToolLogSession;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,10 +19,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-/**
- * Creates a temporary HTML log stream for a specific tool run.
- */
-public final class ToolHtmlLogSession implements AutoCloseable {
+/** 为一次工具执行持有 HTML 日志，关闭时释放本会话的 appender。 */
+public final class ToolHtmlLogSession implements ToolLogSession {
 
     private static final int HISTORY_COUNT = 5;
     private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HHmmss_SSS");
@@ -80,14 +79,17 @@ public final class ToolHtmlLogSession implements AutoCloseable {
         return new ToolHtmlLogSession(logger, latestAppender, sessionAppender, latestPath, sessionPath);
     }
 
+    @Override
     public Path latestPath() {
         return latestPath;
     }
 
+    @Override
     public Path sessionPath() {
         return sessionPath;
     }
 
+    @Override
     public void openLatestInBrowser() throws Exception {
         DesktopShellOpen.openExternalUri(latestPath.toAbsolutePath().toUri());
     }

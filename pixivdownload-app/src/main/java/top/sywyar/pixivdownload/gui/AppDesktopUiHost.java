@@ -421,13 +421,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
     }
     @Override public ToolLogSession openToolLog(String stem) throws Exception {
         Class<?> loggerType = stem.contains("migration") ? JsonToSqliteMigration.class : ArtworksBackFill.class;
-        ToolHtmlLogSession delegate = ToolHtmlLogSession.open(stem, loggerType);
-        return new ToolLogSession() {
-            @Override public Path latestPath() { return delegate.latestPath(); }
-            @Override public Path sessionPath() { return delegate.sessionPath(); }
-            @Override public void openLatestInBrowser() throws Exception { delegate.openLatestInBrowser(); }
-            @Override public void close() { delegate.close(); }
-        };
+        return ToolHtmlLogSession.open(stem, loggerType);
     }
 
     @Override public Optional<Path> findToolLog(String fileName) throws IOException {
