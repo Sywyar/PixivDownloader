@@ -147,10 +147,13 @@ public class AuthorService {
         requireDatabase();
         long nowMs = System.currentTimeMillis();
         Long lastMs = lastRenameValidationAtMs.get(authorId);
-        if (lastMs != null && nowMs - lastMs < RENAME_VALIDATE_COOLDOWN.toMillis()) {
+        boolean claimed = lastMs == null
+                ? lastRenameValidationAtMs.putIfAbsent(authorId, nowMs) == null
+                : nowMs - lastMs >= RENAME_VALIDATE_COOLDOWN.toMillis()
+                        && lastRenameValidationAtMs.replace(authorId, lastMs, nowMs);
+        if (!claimed) {
             return;
         }
-        lastRenameValidationAtMs.put(authorId, nowMs);
         taskScheduler.schedule(() -> validateRename(authorId), Instant.now());
     }
 

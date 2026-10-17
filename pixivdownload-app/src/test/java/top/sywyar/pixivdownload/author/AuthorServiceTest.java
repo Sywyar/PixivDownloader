@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpEntity;
@@ -17,14 +18,22 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -122,6 +131,37 @@ class AuthorServiceTest {
         authorService.asyncValidateRename(123L);
 
         verify(restTemplate).exchange(anyString(), eq(HttpMethod.GET), any(HttpEntity.class), eq(JsonNode.class));
+    }
+
+    @Test
+    @DisplayName("并发作者改名校验在冷却期内每位作者只提交一次")
+    void admitsOneRenameValidationPerAuthorUnderContention() throws Exception {
+        doReturn(null).when(taskScheduler).schedule(any(Runnable.class), any(Instant.class));
+        int workers = 32;
+        int authors = 200;
+        var start = new CyclicBarrier(workers);
+        var executor = Executors.newFixedThreadPool(workers);
+        var results = new ArrayList<Future<?>>();
+        try {
+            for (int worker = 0; worker < workers; worker++) {
+                results.add(executor.submit(() -> {
+                    for (long author = 1; author <= authors; author++) {
+                        start.await(10, TimeUnit.SECONDS);
+                        authorService.asyncValidateRename(author);
+                    }
+                    return null;
+                }));
+            }
+            for (var result : results) result.get(30, TimeUnit.SECONDS);
+            var scheduled = ArgumentCaptor.forClass(Runnable.class);
+            verify(taskScheduler, times(authors)).schedule(scheduled.capture(), any(Instant.class));
+            scheduled.getAllValues().forEach(Runnable::run);
+            for (long author = 1; author <= authors; author++) verify(authorMapper).findById(author);
+            org.mockito.Mockito.verifyNoInteractions(restTemplate);
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
     }
 
     @Test
