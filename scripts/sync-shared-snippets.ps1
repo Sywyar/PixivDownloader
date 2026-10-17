@@ -56,13 +56,14 @@ function Sync-Target {
         }
         $shared = Read-FileText -Path $sharedPath
         $sharedLines = $shared -split "`r?`n"
-        # trim trailing blank lines from the shared content
-        while ($sharedLines.Count -gt 0 -and [string]::IsNullOrWhiteSpace($sharedLines[$sharedLines.Count - 1])) {
-            $sharedLines = $sharedLines[0..($sharedLines.Count - 2)]
+        $lineCount = $sharedLines.Count
+        while ($lineCount -gt 0 -and [string]::IsNullOrWhiteSpace($sharedLines[$lineCount - 1])) {
+            $lineCount--
         }
         $rebuilt = [System.Collections.Generic.List[string]]::new()
         $null = $rebuilt.Add("$indent// >>> SHARED:$name")
-        foreach ($line in $sharedLines) {
+        for ($lineIndex = 0; $lineIndex -lt $lineCount; $lineIndex++) {
+            $line = $sharedLines[$lineIndex]
             if ([string]::IsNullOrEmpty($line)) {
                 $null = $rebuilt.Add("")
             } else {
