@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.stream;
 
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.mergeFailure;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.api.stream.PluginStream;
@@ -267,33 +269,6 @@ public class PluginStreamRegistry {
         }
         synchronized (state) {
             return state.accepting;
-        }
-    }
-
-    private static Throwable mergeFailure(Throwable current, Throwable failure) {
-        if (current == null) {
-            return failure;
-        }
-        if (!isFatal(current) && isFatal(failure)) {
-            addSuppressedSafely(failure, current);
-            return failure;
-        }
-        addSuppressedSafely(current, failure);
-        return current;
-    }
-
-    private static boolean isFatal(Throwable failure) {
-        return failure instanceof VirtualMachineError || failure instanceof ThreadDeath;
-    }
-
-    private static void addSuppressedSafely(Throwable target, Throwable failure) {
-        if (target == failure) {
-            return;
-        }
-        try {
-            target.addSuppressed(failure);
-        } catch (Throwable ignored) {
-            // 诊断附加失败不得覆盖主失败对象。
         }
     }
 

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.task;
 
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.mergeFailure;
+
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTask;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskDrain;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
@@ -52,15 +54,7 @@ public class PluginRuntimeTaskRegistry {
                 if (generation.drain == null) {
                     generation.drain = new Drain(generation);
                 }
-                List<RuntimeTask> released = new ArrayList<>();
-                for (RuntimeTask task : generation.active) {
-                    if (task.prepareQuiesce()) {
-                        released.add(task);
-                    }
-                }
-                if (!released.isEmpty()) {
-                    generation.active.removeAll(released);
-                }
+                generation.active.removeIf(RuntimeTask::prepareQuiesce);
                 if (generation.active.isEmpty()) {
                     generation.notifyAll();
                 }
@@ -83,7 +77,7 @@ public class PluginRuntimeTaskRegistry {
         Throwable failure = null;
         for (RuntimeTask task : snapshot) {
             try {
-                task.cancelForQuiesce();
+                task.cancel();
             } catch (Throwable cancellationFailure) {
                 failure = mergeFailure(failure, cancellationFailure);
             }
@@ -353,7 +347,7 @@ public class PluginRuntimeTaskRegistry {
         @Override
         public void bindCancellation(Future<?> future) {
             Objects.requireNonNull(future, "cancellation");
-            boolean cancelLateBinding = false;
+            boolean cancelLateBinding;
             synchronized (this) {
                 if (cancellation != null) {
                     if (cancellation != future) {
@@ -361,12 +355,10 @@ public class PluginRuntimeTaskRegistry {
                     }
                     return;
                 }
-                if (terminal) {
-                    cancelLateBinding = cancellationRequested;
-                } else {
+                if (!terminal) {
                     cancellation = future;
-                    cancelLateBinding = cancellationRequested;
                 }
+                cancelLateBinding = cancellationRequested;
             }
             if (cancelLateBinding) {
                 if (isTerminal()) {
@@ -384,7 +376,6 @@ public class PluginRuntimeTaskRegistry {
 
         @Override
         public void discardUnsubmitted() {
-            boolean release;
             synchronized (this) {
                 if (terminal) {
                     return;
@@ -397,11 +388,8 @@ public class PluginRuntimeTaskRegistry {
                 cancellationComplete = true;
                 terminal = true;
                 clearHostReferences();
-                release = true;
             }
-            if (release) {
-                generation.release(this);
-            }
+            generation.release(this);
         }
 
         @Override
@@ -472,10 +460,6 @@ public class PluginRuntimeTaskRegistry {
             cancellationRequested = true;
             delegate = null;
             return false;
-        }
-
-        private void cancelForQuiesce() {
-            requestCancellation();
         }
 
         private void requestCancellation() {
@@ -554,33 +538,6 @@ public class PluginRuntimeTaskRegistry {
             failure = cancellationFailure;
         }
         rethrow(failure);
-    }
-
-    private static Throwable mergeFailure(Throwable current, Throwable failure) {
-        if (current == null) {
-            return failure;
-        }
-        if (!isFatal(current) && isFatal(failure)) {
-            addSuppressedSafely(failure, current);
-            return failure;
-        }
-        addSuppressedSafely(current, failure);
-        return current;
-    }
-
-    private static boolean isFatal(Throwable failure) {
-        return failure instanceof VirtualMachineError || failure instanceof ThreadDeath;
-    }
-
-    private static void addSuppressedSafely(Throwable target, Throwable failure) {
-        if (target == failure) {
-            return;
-        }
-        try {
-            target.addSuppressed(failure);
-        } catch (Throwable ignored) {
-            // 诊断附加失败不得覆盖主失败对象。
-        }
     }
 
     private static void rethrow(Throwable failure) {

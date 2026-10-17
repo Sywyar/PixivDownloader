@@ -27,8 +27,8 @@ import java.io.IOException;
 import java.util.Locale;
 import java.util.Optional;
 
-import static top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleFailureAccumulator.addSuppressedSafely;
-import static top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleFailureAccumulator.isFatal;
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.mergeFailure;
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.isFatal;
 
 /**
  * 插件静默（quiesce）请求网关（servlet 过滤器，{@code @Order(0)} 早于 {@code AuthFilter}）：当某外置插件被
@@ -392,32 +392,16 @@ public class PluginQuiesceGate extends OncePerRequestFilter {
         }
     }
 
-    /** Preallocated failure priority so cleanup can finish before the first fatal error is rethrown. */
+    /** 在激活租约前分配失败容器，待清理完成后再重抛首个致命错误。 */
     private static final class FailureTracker {
-        private Throwable firstFailure;
-        private Throwable firstFatal;
+        private Throwable primary;
 
         private void record(Throwable failure) {
-            if (failure == null) {
-                return;
-            }
-            if (firstFailure == null) {
-                firstFailure = failure;
-                if (isFatal(failure)) {
-                    firstFatal = failure;
-                }
-                return;
-            }
-            if (firstFatal == null && isFatal(failure)) {
-                firstFatal = failure;
-                addSuppressedSafely(failure, firstFailure);
-                return;
-            }
-            addSuppressedSafely(firstFatal == null ? firstFailure : firstFatal, failure);
+            primary = mergeFailure(primary, failure);
         }
 
         private void rethrow() throws IOException, ServletException {
-            Throwable failure = firstFatal == null ? firstFailure : firstFatal;
+            Throwable failure = primary;
             if (failure == null) {
                 return;
             }

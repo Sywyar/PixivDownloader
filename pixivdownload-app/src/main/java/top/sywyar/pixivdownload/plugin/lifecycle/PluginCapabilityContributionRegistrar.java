@@ -20,8 +20,8 @@ import java.util.ListIterator;
 import java.util.Map;
 import java.util.Optional;
 
-import static top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleFailureAccumulator.addSuppressedSafely;
-import static top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleFailureAccumulator.isFatal;
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.addSuppressedSafely;
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.isFatal;
 
 /** Coordinates unpublished external capability preparation, atomic admission and exact-owner teardown. */
 @Component

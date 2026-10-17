@@ -59,7 +59,7 @@ class PluginRuntimeTaskQuiescerTest {
         PluginRuntimeTaskQuiescer.QuiesceResult result = quiescer.withdrawSchedule(AUTHORITY, publication);
         quiescer.prepareQueueDrains("ext-demo", persisted, persisted::add);
         assertThat(persisted).containsExactly(queueDrain);
-        quiescer.quiesceAfterScheduleWithdrawal("ext-demo", List.copyOf(persisted));
+        quiescer.quiesceAfterScheduleWithdrawal("ext-demo", null, List.copyOf(persisted));
 
         assertThat(result.scheduleDrain()).contains(scheduleDrain);
         InOrder order = inOrder(registrar, queues, operations, streams);
@@ -174,7 +174,7 @@ class PluginRuntimeTaskQuiescerTest {
         List<QueueDrain> persisted = new ArrayList<>();
         quiescer.prepareQueueDrains("ext-demo", persisted, persisted::add);
 
-        assertThatThrownBy(() -> quiescer.quiesceAfterScheduleWithdrawal("ext-demo", persisted))
+        assertThatThrownBy(() -> quiescer.quiesceAfterScheduleWithdrawal("ext-demo", null, persisted))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("queue failed");
 
@@ -220,7 +220,7 @@ class PluginRuntimeTaskQuiescerTest {
         PluginRuntimeTaskQuiescer quiescer = taskQuiescer(
                 mock(PluginScheduleContributionRegistrar.class), mock(PluginStreamRegistry.class), queues);
 
-        assertThatThrownBy(() -> quiescer.quiesceAfterScheduleWithdrawal("ext-demo", List.of(expected)))
+        assertThatThrownBy(() -> quiescer.quiesceAfterScheduleWithdrawal("ext-demo", null, List.of(expected)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("generation changed");
 
@@ -242,7 +242,7 @@ class PluginRuntimeTaskQuiescerTest {
         PluginRuntimeTaskQuiescer quiescer = taskQuiescer(
                 mock(PluginScheduleContributionRegistrar.class), streams, queues);
 
-        assertThatThrownBy(() -> quiescer.quiesceAfterScheduleWithdrawal("ext-demo", List.of(drain)))
+        assertThatThrownBy(() -> quiescer.quiesceAfterScheduleWithdrawal("ext-demo", null, List.of(drain)))
                 .isSameAs(fatal);
 
         verify(operations).cancelQuiescedTasks();
@@ -263,7 +263,7 @@ class PluginRuntimeTaskQuiescerTest {
         PluginRuntimeTaskQuiescer quiescer = taskQuiescer(
                 mock(PluginScheduleContributionRegistrar.class), streams, queues);
 
-        assertThatThrownBy(() -> quiescer.quiesceAfterScheduleWithdrawal("ext-demo", List.of(drain)))
+        assertThatThrownBy(() -> quiescer.quiesceAfterScheduleWithdrawal("ext-demo", null, List.of(drain)))
                 .isSameAs(failure);
 
         verify(operations).cancelQuiescedTasks();
@@ -286,7 +286,7 @@ class PluginRuntimeTaskQuiescerTest {
         PluginRuntimeTaskQuiescer quiescer = taskQuiescer(
                 mock(PluginScheduleContributionRegistrar.class), streams, queues);
 
-        assertThatThrownBy(() -> quiescer.quiesceAfterScheduleWithdrawal("ext-demo", List.of(drain)))
+        assertThatThrownBy(() -> quiescer.quiesceAfterScheduleWithdrawal("ext-demo", null, List.of(drain)))
                 .isSameAs(queueFatal);
 
         assertThat(queueFatal.getSuppressed()).contains(streamFailure);
@@ -340,7 +340,7 @@ class PluginRuntimeTaskQuiescerTest {
 
         assertThatCode(() -> {
             quiescer.prepareQueueDrains("ext-demo", drains, drains::add);
-            quiescer.quiesceAfterScheduleWithdrawal("ext-demo", drains);
+            quiescer.quiesceAfterScheduleWithdrawal("ext-demo", null, drains);
         }).doesNotThrowAnyException();
 
         assertThat(drains).singleElement().satisfies(drain ->
@@ -361,7 +361,7 @@ class PluginRuntimeTaskQuiescerTest {
 
         assertThat(quiescer.withdrawSchedule(AUTHORITY, null).scheduleDrain()).isEmpty();
         quiescer.prepareQueueDrains("ext-demo", persisted, persisted::add);
-        quiescer.quiesceAfterScheduleWithdrawal("ext-demo", persisted);
+        quiescer.quiesceAfterScheduleWithdrawal("ext-demo", null, persisted);
 
         assertThat(persisted).isEmpty();
         verify(registrar, never()).withdraw(

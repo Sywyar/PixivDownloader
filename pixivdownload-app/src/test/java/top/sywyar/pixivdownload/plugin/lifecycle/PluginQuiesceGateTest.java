@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.lifecycle;
 
 import jakarta.servlet.AsyncListener;
 import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,7 @@ import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -88,6 +90,49 @@ class PluginQuiesceGateTest {
 
     private void quiesceStats() {
         lifecycleState.transition("stats", PluginRuntimePhase.QUIESCED);
+    }
+
+    @Test
+    @DisplayName("同步下游受检异常原样抛出且精确租约已释放")
+    void checkedDownstreamFailuresReleaseLeaseWithoutWrapping() throws Exception {
+        request.setMethod("GET");
+        request.setRequestURI("/api/stats/dashboard");
+        for (Exception expected : List.of(new IOException("read"), new ServletException("dispatch"))) {
+            org.mockito.Mockito.doThrow(expected).when(chain).doFilter(request, response);
+            assertThat(catchThrowable(() -> gate.doFilterInternal(request, response, chain)))
+                    .isSameAs(expected);
+        }
+        assertThat(requestLeaseRegistry.withdraw(statsOwner).orElseThrow().isDrained()).isTrue();
+    }
+
+    @Test
+    @DisplayName("异步清理致命错误优先于下游异常并保留租约直到真实完成")
+    void asyncCleanupFatalPreservesDownstreamFailureAndLease() throws Exception {
+        IOException downstream = new IOException("downstream");
+        ThreadDeath fatal = new ThreadDeath();
+        AtomicBoolean firstAttach = new AtomicBoolean(true);
+        MockAsyncContext context = new MockAsyncContext(request, response) {
+            @Override
+            public void addListener(AsyncListener listener) {
+                super.addListener(listener);
+                if (firstAttach.getAndSet(false)) {
+                    throw fatal;
+                }
+            }
+        };
+        request.setAsyncSupported(true);
+        request.setAsyncContext(context);
+        request.setAsyncStarted(true);
+        request.setMethod("GET");
+        request.setRequestURI("/api/stats/dashboard");
+        org.mockito.Mockito.doThrow(downstream).when(chain).doFilter(request, response);
+
+        assertThat(catchThrowable(() -> gate.doFilterInternal(request, response, chain))).isSameAs(fatal);
+        assertThat(fatal.getSuppressed()).containsExactly(downstream);
+        PluginRequestGenerationDrain drain = requestLeaseRegistry.withdraw(statsOwner).orElseThrow();
+        assertThat(drain.activeLeaseCount()).isOne();
+        context.complete();
+        assertThat(drain.isDrained()).isTrue();
     }
 
     @Test

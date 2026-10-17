@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.lifecycle;
 
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.mergeFailure;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
@@ -46,8 +48,8 @@ import java.util.Set;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
 
-import static top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleFailureAccumulator.addSuppressedSafely;
-import static top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleFailureAccumulator.isFatal;
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.addSuppressedSafely;
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.isFatal;
 
 /**
  * 外置插件运行期热启停 / quiesce 生命周期服务：把单个外置插件的 {@code load} / {@code start} / {@code quiesce} /
@@ -1547,21 +1549,6 @@ public class PluginLifecycleService {
             return current;
         }
         if (current == null) {
-            return failure;
-        }
-        addSuppressedSafely(current, failure);
-        return current;
-    }
-
-    private static Throwable mergeFailure(Throwable current, Throwable failure) {
-        if (failure == null) {
-            return current;
-        }
-        if (current == null) {
-            return failure;
-        }
-        if (!isFatal(current) && isFatal(failure)) {
-            addSuppressedSafely(failure, current);
             return failure;
         }
         addSuppressedSafely(current, failure);

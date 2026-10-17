@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.lifecycle;
 
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.addSuppressedSafely;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -506,7 +508,7 @@ public class ExternalPluginLifecycleCoordinator {
             if (failure == null) {
                 failure = refreshFailure;
             } else {
-                PluginLifecycleFailureAccumulator.addSuppressedSafely(failure, refreshFailure);
+                addSuppressedSafely(failure, refreshFailure);
             }
         }
         if (failure != null) {

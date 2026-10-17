@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.lifecycle.quiesce;
 
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.mergeFailure;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
@@ -162,12 +164,6 @@ public class PluginRuntimeTaskQuiescer {
         rethrow(failure);
     }
 
-    /** 兼容无中性任务 drain 的聚焦调用；生命周期主路径必须传入已保存的精确 drain。 */
-    public void quiesceAfterScheduleWithdrawal(
-            String pluginId, List<QueueDrain> queueDrains) {
-        quiesceAfterScheduleWithdrawal(pluginId, null, queueDrains);
-    }
-
     private Throwable cancelRuntimeTasks(
             String pluginId, @Nullable PluginRuntimeTaskDrain runtimeTaskDrain) {
         if (runtimeTaskDrain == null) {
@@ -313,36 +309,6 @@ public class PluginRuntimeTaskQuiescer {
                     + pluginId + "': " + queueType);
         }
         return drain;
-    }
-
-    private static Throwable mergeFailure(Throwable current, Throwable failure) {
-        if (failure == null) {
-            return current;
-        }
-        if (current == null) {
-            return failure;
-        }
-        if (!isFatal(current) && isFatal(failure)) {
-            addSuppressedSafely(failure, current);
-            return failure;
-        }
-        addSuppressedSafely(current, failure);
-        return current;
-    }
-
-    private static boolean isFatal(Throwable failure) {
-        return failure instanceof VirtualMachineError || failure instanceof ThreadDeath;
-    }
-
-    private static void addSuppressedSafely(Throwable target, Throwable failure) {
-        if (target == failure) {
-            return;
-        }
-        try {
-            target.addSuppressed(failure);
-        } catch (Throwable ignored) {
-            // 诊断附加失败不得覆盖主失败对象。
-        }
     }
 
     private static void rethrow(Throwable failure) {
