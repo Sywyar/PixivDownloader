@@ -655,7 +655,7 @@ public class WelcomePanel extends JPanel {
     }
 
     // ── 后端联动 ─────────────────────────────────────────────────────────────
-    private void applyBackendState(SwingBackendLifecycle.Snapshot snapshot) {
+    private void applyBackendState(DesktopUiHost.BackendSnapshot snapshot) {
         switch (snapshot.state()) {
             case RUNNING -> {
                 serviceReady = true;

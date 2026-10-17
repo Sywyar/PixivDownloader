@@ -321,9 +321,12 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                                                              List<ConfigSection> resolvedSections) {
         ConfigSectionContext scopedContext = new ScopedConfigSectionContext(this, scope);
         List<ConfigSection> scopeSections = GuiConfigSectionResolver.createSections(
-                scopedContext, groups.stream().map(ScopedGroup::spec).toList(), scopedSections(scope),
-                configPath, webUrlProvider,
-                scope.includeHostTransitionAdapters());
+                scopedContext,
+                groups.stream().map(ScopedGroup::spec).toList(),
+                scopedSections(scope),
+                webUrlProvider,
+                scope.includeHostTransitionAdapters()
+        );
         resolvedSections.addAll(scopeSections);
 
         Map<String, ConfigSection> sectionsByGroup = new LinkedHashMap<>();
@@ -389,10 +392,9 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 lastHeading = group.label();
             }
             ConfigSection section = sectionsByScope.getOrDefault(group.scope(), Map.of()).get(group.label());
-            JComponent groupContent = section != null
-                    ? unwrapSectionContent(section.build())
-                    : buildGroupContent(group, false, false);
-            removeTrailingVerticalGlue(groupContent);
+            JComponent groupContent = ConfigSection.embeddedContent(section != null
+                    ? section.build()
+                    : buildGroupContent(group, false, false));
             groupContent.setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(groupContent);
             content.add(Box.createVerticalStrut(8));
@@ -737,28 +739,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 }
             }
         });
-    }
-
-    private static JComponent unwrapSectionContent(JComponent component) {
-        if (component instanceof JScrollPane scrollPane
-                && scrollPane.getViewport().getView() instanceof JComponent content) {
-            return content;
-        }
-        return component;
-    }
-
-    private static void removeTrailingVerticalGlue(JComponent component) {
-        if (!(component instanceof JPanel panel)) {
-            return;
-        }
-        while (panel.getComponentCount() > 0) {
-            Component last = panel.getComponent(panel.getComponentCount() - 1);
-            if (!(last instanceof Box.Filler filler)
-                    || filler.getMaximumSize().height < Short.MAX_VALUE) {
-                return;
-            }
-            panel.remove(panel.getComponentCount() - 1);
-        }
     }
 
     private JPanel buildMaintenanceWeekdayPanel(List<ConfigFieldSpec> fields) {

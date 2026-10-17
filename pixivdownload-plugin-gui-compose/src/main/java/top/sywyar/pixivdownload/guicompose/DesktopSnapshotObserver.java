@@ -6,11 +6,11 @@ import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-/** Bridges model snapshot publication to one renderer-owned observer. */
+/** 将模型快照交给渲染器的观察者，只保留排序所需的修订号。 */
 final class DesktopSnapshotObserver implements AutoCloseable {
     private final Consumer<DesktopUiSnapshot> observer;
     private final AutoCloseable subscription;
-    private DesktopUiSnapshot current;
+    private long revision;
     private boolean closed;
 
     DesktopSnapshotObserver(
@@ -18,14 +18,14 @@ final class DesktopSnapshotObserver implements AutoCloseable {
             Function<Consumer<DesktopUiSnapshot>, AutoCloseable> subscribe,
             Consumer<DesktopUiSnapshot> observer
     ) {
-        current = Objects.requireNonNull(initial, "initial");
+        revision = Objects.requireNonNull(initial, "initial").revision();
         this.observer = Objects.requireNonNull(observer, "observer");
         subscription = Objects.requireNonNull(subscribe, "subscribe").apply(this::accept);
     }
 
     private synchronized void accept(DesktopUiSnapshot snapshot) {
-        if (closed || snapshot.revision() <= current.revision()) return;
-        current = snapshot;
+        if (closed || snapshot.revision() <= revision) return;
+        revision = snapshot.revision();
         observer.accept(snapshot);
     }
 

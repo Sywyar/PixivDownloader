@@ -433,7 +433,7 @@ public class ToolsPanel extends JPanel {
         refreshActionStates();
         setBackfillStatus(message("gui.tools.backfill.status.preparing"));
 
-        if (SwingBackendLifecycle.state() != SwingBackendLifecycle.State.RUNNING) {
+        if (SwingBackendLifecycle.state() != DesktopUiHost.BackendState.RUNNING) {
             backfillRunning = false;
             exclusiveToolName = null;
             closeBackfillLogSession();
@@ -809,7 +809,7 @@ public class ToolsPanel extends JPanel {
         }
     }
 
-    private void handleBackendState(SwingBackendLifecycle.Snapshot snapshot) {
+    private void handleBackendState(DesktopUiHost.BackendSnapshot snapshot) {
         mediaTools.refreshTools();
         backendStateLabel.setText(message("gui.tools.backend-status", switch (snapshot.state()) {
             case RUNNING -> message("gui.backend.state.running");
@@ -819,7 +819,7 @@ public class ToolsPanel extends JPanel {
             case FAILED -> message("gui.backend.state.failed");
         }));
 
-        if (snapshot.state() == SwingBackendLifecycle.State.FAILED && !backfillRunning && !migrationRunning && exclusiveToolName == null) {
+        if (snapshot.state() == DesktopUiHost.BackendState.FAILED && !backfillRunning && !migrationRunning && exclusiveToolName == null) {
             setBackfillStatus(message("gui.tools.backfill.status.backend-failed"));
             setMigrationStatus(message("gui.tools.migration.status.backend-failed"));
         }
@@ -831,8 +831,8 @@ public class ToolsPanel extends JPanel {
         if (!ensureNoExclusiveTool(toolName)) {
             return false;
         }
-        SwingBackendLifecycle.State state = SwingBackendLifecycle.state();
-        if (state == SwingBackendLifecycle.State.STARTING || state == SwingBackendLifecycle.State.STOPPING) {
+        DesktopUiHost.BackendState state = SwingBackendLifecycle.state();
+        if (state == DesktopUiHost.BackendState.STARTING || state == DesktopUiHost.BackendState.STOPPING) {
             JOptionPane.showMessageDialog(this,
                     message("gui.message.backend-busy"),
                     message("gui.dialog.please-wait.title"), JOptionPane.INFORMATION_MESSAGE);
@@ -854,9 +854,9 @@ public class ToolsPanel extends JPanel {
     }
 
     private void refreshActionStates() {
-        SwingBackendLifecycle.State state = SwingBackendLifecycle.state();
-        boolean backendTransitioning = state == SwingBackendLifecycle.State.STARTING
-                || state == SwingBackendLifecycle.State.STOPPING;
+        DesktopUiHost.BackendState state = SwingBackendLifecycle.state();
+        boolean backendTransitioning = state == DesktopUiHost.BackendState.STARTING
+                || state == DesktopUiHost.BackendState.STOPPING;
         boolean exclusiveBusy = exclusiveToolName != null || backfillRunning || migrationRunning;
 
         imageClassifierButton.setEnabled(!exclusiveBusy && !backendTransitioning);

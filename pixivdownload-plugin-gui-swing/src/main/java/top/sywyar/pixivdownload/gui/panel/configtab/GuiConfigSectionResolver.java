@@ -8,7 +8,6 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -29,20 +28,13 @@ public final class GuiConfigSectionResolver {
     private GuiConfigSectionResolver() {
     }
 
-    public static List<ConfigSection> createSections(ConfigSectionContext ctx,
-                                                     List<?> visibleGroups,
-                                                     List<GuiConfigSectionSpec> pluginSections,
-                                                     Path configPath,
-                                                     Function<String, String> webUrlProvider) {
-        return createSections(ctx, visibleGroups, pluginSections, configPath, webUrlProvider, true);
-    }
-
-    public static List<ConfigSection> createSections(ConfigSectionContext ctx,
-                                                     List<?> visibleGroups,
-                                                     List<GuiConfigSectionSpec> pluginSections,
-                                                     Path configPath,
-                                                     Function<String, String> webUrlProvider,
-                                                     boolean includeTransitionAdapters) {
+    public static List<ConfigSection> createSections(
+            ConfigSectionContext ctx,
+            List<?> visibleGroups,
+            List<GuiConfigSectionSpec> pluginSections,
+            Function<String, String> webUrlProvider,
+            boolean includeTransitionAdapters
+    ) {
         VisibleGroups groups = VisibleGroups.from(visibleGroups);
         List<GuiConfigSectionSpec> safePluginSections = pluginSections == null ? List.of() : pluginSections;
         List<GuiConfigSectionSpec> transitionSpecs = includeTransitionAdapters

@@ -522,7 +522,7 @@ public class StatusPanel extends JPanel {
         triggerPixivConnectivityCheck(false);
     }
 
-    private void applyBackendSnapshot(SwingBackendLifecycle.Snapshot snapshot) {
+    private void applyBackendSnapshot(DesktopUiHost.BackendSnapshot snapshot) {
         switch (snapshot.state()) {
             case STARTING -> enterStartingState();
             case STOPPING -> {
@@ -546,19 +546,19 @@ public class StatusPanel extends JPanel {
         }
     }
 
-    private void applyOfflineState(SwingBackendLifecycle.Snapshot snapshot) {
-        if (snapshot.state() == SwingBackendLifecycle.State.RUNNING) {
+    private void applyOfflineState(DesktopUiHost.BackendSnapshot snapshot) {
+        if (snapshot.state() == DesktopUiHost.BackendState.RUNNING) {
             leaveStartingState();
             stopLiveStatusTimer();
             statusBadge.setText(message("gui.status.state.connection-failed"));
             statusBadge.setForeground(new Color(180, 60, 60));
-        } else if (snapshot.state() == SwingBackendLifecycle.State.STOPPED) {
+        } else if (snapshot.state() == DesktopUiHost.BackendState.STOPPED) {
             leaveStartingState();
             applyStoppedBadge();
-        } else if (snapshot.state() == SwingBackendLifecycle.State.STOPPING) {
+        } else if (snapshot.state() == DesktopUiHost.BackendState.STOPPING) {
             leaveStartingState();
             applyStoppingBadge();
-        } else if (snapshot.state() == SwingBackendLifecycle.State.STARTING) {
+        } else if (snapshot.state() == DesktopUiHost.BackendState.STARTING) {
             enterStartingState();
         } else {
             leaveStartingState();
@@ -711,7 +711,7 @@ public class StatusPanel extends JPanel {
         }
         String tool = ExclusiveToolHolder.get();
         if (tool != null && !tool.isBlank()
-                && SwingBackendLifecycle.state() == SwingBackendLifecycle.State.STOPPED) {
+                && SwingBackendLifecycle.state() == DesktopUiHost.BackendState.STOPPED) {
             renderStoppedByToolBadge(tool);
             return;
         }
@@ -805,7 +805,7 @@ public class StatusPanel extends JPanel {
 
     private void applyPixivConnectivityResult(DesktopUiHost.GuiValue node) {
         pixivConnectivityChecking = false;
-        boolean backendRunning = SwingBackendLifecycle.snapshot().state() == SwingBackendLifecycle.State.RUNNING;
+        boolean backendRunning = SwingBackendLifecycle.snapshot().state() == DesktopUiHost.BackendState.RUNNING;
         pixivConnectivityCheckButton.setEnabled(backendRunning);
         if (!backendRunning) {
             pixivConnectivityLabel.setText("--");

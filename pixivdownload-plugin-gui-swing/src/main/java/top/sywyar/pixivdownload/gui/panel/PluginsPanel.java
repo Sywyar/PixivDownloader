@@ -158,11 +158,11 @@ public class PluginsPanel extends JPanel {
         worker.start();
     }
 
-    private void onBackendStateChanged(SwingBackendLifecycle.Snapshot snapshot) {
+    private void onBackendStateChanged(DesktopUiHost.BackendSnapshot snapshot) {
         if (disposed) {
             return;
         }
-        if (snapshot.state() == SwingBackendLifecycle.State.RUNNING) {
+        if (snapshot.state() == DesktopUiHost.BackendState.RUNNING) {
             refresh();
         } else {
             renderModel(GuiPluginStatusModel.offline());

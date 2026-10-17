@@ -1,6 +1,10 @@
 package top.sywyar.pixivdownload.gui.panel.configtab;
 
+import javax.swing.Box;
 import javax.swing.JComponent;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import java.awt.Component;
 import java.io.IOException;
 
 /**
@@ -19,6 +23,25 @@ public interface ConfigSection {
 
     /** 构建该分组标签页的内容，并在构建过程中把自身字段注册进共享字段表。 */
     JComponent build();
+
+    /** 嵌入共享滚动页时，去掉区块自己的滚动容器和末尾的伸缩留白。 */
+    static JComponent embeddedContent(JComponent component) {
+        if (component instanceof JScrollPane scrollPane
+                && scrollPane.getViewport().getView() instanceof JComponent content) {
+            component = content;
+        }
+        if (component instanceof JPanel panel) {
+            while (panel.getComponentCount() > 0) {
+                Component last = panel.getComponent(panel.getComponentCount() - 1);
+                if (!(last instanceof Box.Filler filler)
+                        || filler.getMaximumSize().height < Short.MAX_VALUE) {
+                    break;
+                }
+                panel.remove(panel.getComponentCount() - 1);
+            }
+        }
+        return component;
+    }
 
     /** 在每次 {@code updateEnabledStates()} 末尾回调，用于叠加预设锁定等分组私有的启用态规则。 */
     default void afterEnabledStates() {
