@@ -10,9 +10,11 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.ToolOutcome;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -90,28 +92,26 @@ class DesktopToolHistoryTest {
         DesktopToolHistory history = new DesktopToolHistory(tempDir);
         int total = 125;
         CountDownLatch start = new CountDownLatch(1);
-        CountDownLatch done = new CountDownLatch(total);
         var executor = Executors.newFixedThreadPool(12);
         try {
+            List<Future<?>> writes = new ArrayList<>();
             for (int index = 0; index < total; index++) {
                 int processed = index;
-                executor.execute(() -> {
-                    try {
-                        start.await();
-                        history.record(ToolId.FOLDER_CHECKER,
-                                ToolOutcome.SUCCEEDED, processed + 1L,
-                                processed, null, null, null);
-                    } catch (InterruptedException interrupted) {
-                        Thread.currentThread().interrupt();
-                    } finally {
-                        done.countDown();
-                    }
-                });
+                writes.add(executor.submit(() -> {
+                    start.await();
+                    history.record(ToolId.FOLDER_CHECKER,
+                            ToolOutcome.SUCCEEDED, processed + 1L,
+                            processed, null, null, null);
+                    return null;
+                }));
             }
             start.countDown();
-            assertThat(done.await(20, TimeUnit.SECONDS)).isTrue();
+            executor.shutdown();
+            assertThat(executor.awaitTermination(20, TimeUnit.SECONDS)).isTrue();
+            for (Future<?> write : writes) write.get();
         } finally {
             executor.shutdownNow();
+            assertThat(executor.awaitTermination(20, TimeUnit.SECONDS)).as("并发写入线程应结束").isTrue();
         }
 
         Path file = tempDir.resolve("tool-history.json");
