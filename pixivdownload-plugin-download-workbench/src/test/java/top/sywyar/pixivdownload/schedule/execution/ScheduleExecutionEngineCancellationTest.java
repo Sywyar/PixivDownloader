@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.schedule.execution;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.task.SyncTaskExecutor;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
@@ -419,9 +421,10 @@ class ScheduleExecutionEngineCancellationTest extends ScheduleExecutionEngineTes
         }
     }
 
-    @Test
+    @ParameterizedTest(name = "绑定凭证={0}")
+    @ValueSource(booleans = {false, true})
     @DisplayName("计划失败投影抛出 ThreadDeath 时先释放 planning 租约再原样传播")
-    void fatalPlanFailureProjectionReleasesPlanningLease() throws Exception {
+    void fatalPlanFailureProjectionReleasesPlanningLease(boolean bindCredential) throws Exception {
         ThreadDeath fatal = new ThreadDeath();
         ScheduledSourceExecutor source = new ScheduledSourceExecutor() {
             @Override
@@ -458,8 +461,15 @@ class ScheduleExecutionEngineCancellationTest extends ScheduleExecutionEngineTes
 
         ThreadDeath observed;
         try {
-            engine(storeWithCredential(), registry,
-                    new ScheduleRunState(), new SyncTaskExecutor()).execute(task());
+            ScheduleExecutionEngine engine = engine(storeWithCredential(), registry,
+                    new ScheduleRunState(), new SyncTaskExecutor());
+            if (bindCredential) {
+                try (var ignored = engine.prepareCredentialBinding(task(), publication.activationToken())) {
+                    throw new AssertionError("expected plan failure projection ThreadDeath");
+                }
+            } else {
+                engine.execute(task());
+            }
             throw new AssertionError("expected plan failure projection ThreadDeath");
         } catch (ThreadDeath failure) {
             observed = failure;

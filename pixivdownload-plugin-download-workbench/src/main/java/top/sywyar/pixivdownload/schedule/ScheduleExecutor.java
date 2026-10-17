@@ -129,16 +129,7 @@ public class ScheduleExecutor {
             }
             runTaskAsyncLeased(taskId, claim, queuedToken, hostLease.cancellation());
         } catch (Throwable e) {
-            try {
-                releaseQueued(taskId, queuedToken);
-            } catch (Throwable cleanupFailure) {
-                addCleanupFailure(e, cleanupFailure);
-            }
-            try {
-                runState.clear(claim);
-            } catch (Throwable cleanupFailure) {
-                addCleanupFailure(e, cleanupFailure);
-            }
+            cleanupQueuedAfterFailure(taskId, claim, queuedToken, e);
             throw propagate(e);
         }
     }
@@ -214,16 +205,7 @@ public class ScheduleExecutor {
         try {
             hostLease = prepareHostLease();
         } catch (Throwable e) {
-            try {
-                releaseQueued(task.id(), queuedToken);
-            } catch (Throwable cleanupFailure) {
-                addCleanupFailure(e, cleanupFailure);
-            }
-            try {
-                runState.clear(claim);
-            } catch (Throwable cleanupFailure) {
-                addCleanupFailure(e, cleanupFailure);
-            }
+            cleanupQueuedAfterFailure(task.id(), claim, queuedToken, e);
             throw propagate(e);
         }
         if (hostLease == null) {
@@ -240,16 +222,7 @@ public class ScheduleExecutor {
             try {
                 activated = scheduleCapabilityRegistry.activate(hostLease);
             } catch (Throwable e) {
-                try {
-                    releaseQueued(task.id(), queuedToken);
-                } catch (Throwable cleanupFailure) {
-                    addCleanupFailure(e, cleanupFailure);
-                }
-                try {
-                    runState.clear(claim);
-                } catch (Throwable cleanupFailure) {
-                    addCleanupFailure(e, cleanupFailure);
-                }
+                cleanupQueuedAfterFailure(task.id(), claim, queuedToken, e);
                 throw propagate(e);
             }
             if (!activated) {
@@ -262,6 +235,23 @@ public class ScheduleExecutor {
                 return;
             }
             runTaskAndRecordLeased(task, claim, queuedToken, hostLease.cancellation());
+        }
+    }
+
+    private void cleanupQueuedAfterFailure(
+            long taskId,
+            ScheduleRunState.Claim claim,
+            ScheduleRunToken queuedToken,
+            Throwable failure) {
+        try {
+            releaseQueued(taskId, queuedToken);
+        } catch (Throwable cleanupFailure) {
+            addCleanupFailure(failure, cleanupFailure);
+        }
+        try {
+            runState.clear(claim);
+        } catch (Throwable cleanupFailure) {
+            addCleanupFailure(failure, cleanupFailure);
         }
     }
 

@@ -41,12 +41,16 @@ public final class ScheduleWorkPersistenceCodec {
 
     /** 校验来源插件刚提交的 work，确保进入队列前已满足 pending 的同一安全边界。 */
     public void validateWork(ScheduledWork work) {
+        validateWorkPayload(work);
+        writeSafeValue(work.presentation(), "schedule work presentation");
+        writeSafeValue(work.relations(), "schedule work relations");
+    }
+
+    private void validateWorkPayload(ScheduledWork work) {
         Objects.requireNonNull(work, "work");
         validateIdentity(work.key());
         rejectCredentialText(work.payloadSchema(), "schedule work payload schema");
         validateOpaqueJson(work.payloadJson(), "schedule work payload");
-        writeSafeValue(work.presentation(), "schedule work presentation");
-        writeSafeValue(work.relations(), "schedule work relations");
     }
 
     /** 把一件稳定 API 作品信封完整投影为核心 pending 行。 */
@@ -60,17 +64,16 @@ public final class ScheduleWorkPersistenceCodec {
         if (taskId <= 0) {
             throw new IllegalArgumentException("task id must be positive");
         }
-        Objects.requireNonNull(work, "work");
-        validateWork(work);
+        validateWorkPayload(work);
+        String presentationJson = writeSafeValue(
+                work.presentation(), "schedule work presentation");
+        String relationsJson = writeSafeValue(
+                work.relations(), "schedule work relations");
         rejectCredentialText(reasonCode, "pending reason code");
         if (reasonDetailJson != null && !reasonDetailJson.isBlank()) {
             validateOpaqueJson(reasonDetailJson, "pending reason detail");
         }
 
-        String presentationJson = writeSafeValue(
-                work.presentation(), "schedule work presentation");
-        String relationsJson = writeSafeValue(
-                work.relations(), "schedule work relations");
         return new ScheduledPendingWork(
                 taskId,
                 work.key().workType(),

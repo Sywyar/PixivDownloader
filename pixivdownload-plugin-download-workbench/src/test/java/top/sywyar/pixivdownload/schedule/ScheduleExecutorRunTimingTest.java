@@ -5,6 +5,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -25,6 +27,7 @@ import top.sywyar.pixivdownload.i18n.NamespaceMessageResolver;
 import top.sywyar.pixivdownload.notification.NotificationDispatcher;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
+import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityLease;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
@@ -657,6 +660,49 @@ class ScheduleExecutorRunTimingTest {
         executor.releaseQueued(18L, queued);
 
         verify(store, times(2)).releaseQueued(18L, queued, null);
+    }
+
+    @ParameterizedTest(name = "失败入口={0}")
+    @ValueSource(strings = {"prepare", "activate", "async"})
+    @DisplayName("排队执行失败的清理异常不替换原异常且仍清除内存认领")
+    void queuedFailurePreservesOriginalAndClearsClaim(String entry) {
+        ScheduledTask task = task(17L, "user-new", userDefinition("100"), null, null, null);
+        ScheduleRunState.Claim claim = localRunState.tryMarkQueued(17L);
+        ScheduleRunToken queued = new ScheduleRunToken(
+                "claim-cleanup-failure", 1L,
+                top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.QUEUED);
+        ThreadDeath original = new ThreadDeath();
+        LinkageError cleanup = new LinkageError("queued release failed");
+        ScheduleCapabilityAccess registry = mock(ScheduleCapabilityAccess.class);
+        @SuppressWarnings("unchecked")
+        ScheduleCapabilityLease<ScheduleCapabilityOwner> hostLease = mock(ScheduleCapabilityLease.class);
+        switch (entry) {
+            case "prepare" -> when(registry.prepareOwner(DownloadWorkbenchPlugin.ID)).thenThrow(original);
+            case "activate" -> {
+                when(registry.prepareOwner(DownloadWorkbenchPlugin.ID))
+                        .thenAnswer(invocation -> Optional.of(hostLease));
+                when(registry.activate(hostLease)).thenThrow(original);
+            }
+            case "async" -> when(hostLease.cancellation()).thenThrow(original);
+            default -> throw new AssertionError(entry);
+        }
+        when(store.releaseQueued(17L, queued, null)).thenThrow(cleanup);
+        ScheduleExecutor failingExecutor = newExecutor(registry, defaultEngine);
+
+        assertThatThrownBy(() -> {
+            if (entry.equals("async")) {
+                failingExecutor.runTaskAsync(17L, claim, queued, hostLease);
+            } else {
+                failingExecutor.runTaskAndRecord(task, claim, queued);
+            }
+        }).isSameAs(original).satisfies(failure ->
+                assertThat(failure.getSuppressed()).containsExactly(cleanup));
+
+        verify(store).releaseQueued(17L, queued, null);
+        assertThat(localRunState.get(17L)).isNull();
+        if (!entry.equals("prepare")) {
+            verify(hostLease).close();
+        }
     }
 
     @Test
