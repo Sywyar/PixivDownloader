@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
+import top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityScopeFactory;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
@@ -64,7 +64,7 @@ public class MangaSeriesController {
         }
         // 访客可见的章节数 ≠ 系列章节总数；返回前者，避免泄漏访客看不到的章节存在性。
         if (session != null) {
-            long visibleCount = galleryRepository.countArtworksInSeries(seriesId, GuestRestriction.from(session));
+            long visibleCount = galleryRepository.countArtworksInSeries(seriesId, GuestWorkVisibilityScopeFactory.artworkRestriction(session));
             detail = new MangaSeriesDetail(
                     detail.seriesId(),
                     detail.title(),
@@ -121,6 +121,6 @@ public class MangaSeriesController {
 
     private Set<Long> resolveGuestFilter(GuestInviteSession session) {
         if (session == null) return null;
-        return galleryRepository.findVisibleSeriesIds(GuestRestriction.from(session));
+        return galleryRepository.findVisibleSeriesIds(GuestWorkVisibilityScopeFactory.artworkRestriction(session));
     }
 }

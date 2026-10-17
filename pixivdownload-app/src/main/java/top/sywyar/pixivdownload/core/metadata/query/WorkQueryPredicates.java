@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.core.metadata.query;
 
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.plugin.api.storage.relational.Expression;
 import top.sywyar.pixivdownload.plugin.api.storage.relational.Query;
 import java.util.*;
@@ -34,7 +34,7 @@ public final class WorkQueryPredicates {
         return new Exists(new Query(new Query.Table(table, alias), List.of(), Map.of("present", value(1)),
                 where, List.of(), null, List.of(), false, 1, 0));
     }
-    public static Expression visible(String alias, String id, String tags, String collections, GuestRestriction r) {
+    public static Expression visible(String alias, String id, String tags, String collections, WorkRestriction r) {
         if (r == null) return truth(true);
         var all = new ArrayList<Expression>();
         var rating = column(alias, "r18");

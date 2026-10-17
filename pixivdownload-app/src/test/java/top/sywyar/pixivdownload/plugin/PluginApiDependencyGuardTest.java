@@ -336,7 +336,7 @@ class PluginApiDependencyGuardTest {
                 .should().dependOnClassesThat()
                 .resideInAPackage("top.sywyar.pixivdownload.gallery..")
                 .because("gallery 是功能插件，核心只能经 PluginRegistry 间接使用其 contribution；"
-                        + "插画 SQL 仓库（GalleryRepository / GalleryQuery / GuestRestriction）已收编进核心"
+                        + "插画 SQL 仓库（GalleryRepository）已收编进核心"
                         + "数据层 core.metadata，BuiltInPlugins 是既定的组合根例外")
                 .check(CLASSES);
     }

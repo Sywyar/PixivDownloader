@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.metadata.artwork;
 
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -9,7 +11,7 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("GalleryRepository tests")
+@DisplayName("插画查询仓库")
 class GalleryRepositoryTest {
 
     private static final long AUTHOR_A = 101L;
@@ -48,17 +50,13 @@ class GalleryRepositoryTest {
     }
 
     @Test
-    @DisplayName("author-only filters should union required and optional authors")
+    @DisplayName("仅作者筛选时合并必须作者与可选作者")
     void shouldUnionRequiredAndOptionalAuthorsWhenNoTagsAreSelected() {
-        GalleryQuery query = GalleryQuery.normalize(
-                0, 24, "date", "desc", null, "any", "any",
-                null, null,
-                null,
-                null,
-                null,
-                java.util.List.of(AUTHOR_A),
-                null,
-                java.util.List.of(AUTHOR_E));
+        WorkQuery query = WorkQuery.builder(WorkType.ARTWORK)
+                .page(0).size(24).sort("date").order("desc").r18("any").ai("any")
+                .authorIds(java.util.List.of(AUTHOR_A))
+                .optionalAuthorIds(java.util.List.of(AUTHOR_E))
+                .build();
 
         GalleryRepository.QueryResult result = repository.findArtworkIds(query);
 
@@ -67,17 +65,13 @@ class GalleryRepositoryTest {
     }
 
     @Test
-    @DisplayName("tag-only filters should union required and optional tags")
+    @DisplayName("仅标签筛选时合并必须标签与可选标签")
     void shouldUnionRequiredAndOptionalTagsWhenNoAuthorsAreSelected() {
-        GalleryQuery query = GalleryQuery.normalize(
-                0, 24, "date", "desc", null, "any", "any",
-                null, null,
-                java.util.List.of(TAG_C),
-                null,
-                java.util.List.of(TAG_G),
-                null,
-                null,
-                null);
+        WorkQuery query = WorkQuery.builder(WorkType.ARTWORK)
+                .page(0).size(24).sort("date").order("desc").r18("any").ai("any")
+                .tagIds(java.util.List.of(TAG_C))
+                .optionalTagIds(java.util.List.of(TAG_G))
+                .build();
 
         GalleryRepository.QueryResult result = repository.findArtworkIds(query);
 
@@ -86,17 +80,13 @@ class GalleryRepositoryTest {
     }
 
     @Test
-    @DisplayName("required tags and optional authors should union when required authors are not selected")
+    @DisplayName("未选择必须作者时合并必须标签与可选作者")
     void shouldUnionRequiredTagsAndOptionalAuthorsWhenRequiredAuthorsAreNotSelected() {
-        GalleryQuery query = GalleryQuery.normalize(
-                0, 24, "date", "desc", null, "any", "any",
-                null, null,
-                java.util.List.of(TAG_C),
-                null,
-                null,
-                null,
-                null,
-                java.util.List.of(AUTHOR_E));
+        WorkQuery query = WorkQuery.builder(WorkType.ARTWORK)
+                .page(0).size(24).sort("date").order("desc").r18("any").ai("any")
+                .tagIds(java.util.List.of(TAG_C))
+                .optionalAuthorIds(java.util.List.of(AUTHOR_E))
+                .build();
 
         GalleryRepository.QueryResult result = repository.findArtworkIds(query);
 
@@ -105,17 +95,15 @@ class GalleryRepositoryTest {
     }
 
     @Test
-    @DisplayName("required tag and author should form the must core while optional terms still release rows")
+    @DisplayName("必须标签与作者构成交集且保留可选条件的并集")
     void shouldUseRequiredTagAndAuthorAsMustCoreWithOptionalReleaseTerms() {
-        GalleryQuery query = GalleryQuery.normalize(
-                0, 24, "date", "desc", null, "any", "any",
-                null, null,
-                java.util.List.of(TAG_C),
-                null,
-                java.util.List.of(TAG_G),
-                java.util.List.of(AUTHOR_A),
-                null,
-                java.util.List.of(AUTHOR_E));
+        WorkQuery query = WorkQuery.builder(WorkType.ARTWORK)
+                .page(0).size(24).sort("date").order("desc").r18("any").ai("any")
+                .tagIds(java.util.List.of(TAG_C))
+                .optionalTagIds(java.util.List.of(TAG_G))
+                .authorIds(java.util.List.of(AUTHOR_A))
+                .optionalAuthorIds(java.util.List.of(AUTHOR_E))
+                .build();
 
         GalleryRepository.QueryResult result = repository.findArtworkIds(query);
 
@@ -124,17 +112,14 @@ class GalleryRepositoryTest {
     }
 
     @Test
-    @DisplayName("optional tags should release rows when only required tags are selected")
+    @DisplayName("未选择必须作者时可选标签仍可纳入作品")
     void shouldReleaseOptionalTagRowsWhenRequiredAuthorIsNotSelected() {
-        GalleryQuery query = GalleryQuery.normalize(
-                0, 24, "date", "desc", null, "any", "any",
-                null, null,
-                java.util.List.of(TAG_C),
-                null,
-                java.util.List.of(TAG_X),
-                null,
-                null,
-                java.util.List.of(AUTHOR_E));
+        WorkQuery query = WorkQuery.builder(WorkType.ARTWORK)
+                .page(0).size(24).sort("date").order("desc").r18("any").ai("any")
+                .tagIds(java.util.List.of(TAG_C))
+                .optionalTagIds(java.util.List.of(TAG_X))
+                .optionalAuthorIds(java.util.List.of(AUTHOR_E))
+                .build();
 
         GalleryRepository.QueryResult result = repository.findArtworkIds(query);
 
@@ -143,17 +128,14 @@ class GalleryRepositoryTest {
     }
 
     @Test
-    @DisplayName("optional authors should release rows even when required tag and author are both selected")
+    @DisplayName("已选择必须标签与作者时可选作者仍可纳入作品")
     void shouldReleaseOptionalAuthorRowsWhenRequiredTagAndAuthorAreBothSelected() {
-        GalleryQuery query = GalleryQuery.normalize(
-                0, 24, "date", "desc", null, "any", "any",
-                null, null,
-                java.util.List.of(TAG_C),
-                null,
-                null,
-                java.util.List.of(AUTHOR_A),
-                null,
-                java.util.List.of(AUTHOR_E));
+        WorkQuery query = WorkQuery.builder(WorkType.ARTWORK)
+                .page(0).size(24).sort("date").order("desc").r18("any").ai("any")
+                .tagIds(java.util.List.of(TAG_C))
+                .authorIds(java.util.List.of(AUTHOR_A))
+                .optionalAuthorIds(java.util.List.of(AUTHOR_E))
+                .build();
 
         GalleryRepository.QueryResult result = repository.findArtworkIds(query);
 
@@ -162,17 +144,14 @@ class GalleryRepositoryTest {
     }
 
     @Test
-    @DisplayName("excluded authors should remove rows after the positive clauses match")
+    @DisplayName("排除作者在正向条件匹配后排除作品")
     void shouldApplyExcludedAuthorsAfterPositiveClauses() {
-        GalleryQuery query = GalleryQuery.normalize(
-                0, 24, "date", "desc", null, "any", "any",
-                null, null,
-                java.util.List.of(TAG_D),
-                null,
-                null,
-                null,
-                java.util.List.of(AUTHOR_A),
-                java.util.List.of(AUTHOR_E));
+        WorkQuery query = WorkQuery.builder(WorkType.ARTWORK)
+                .page(0).size(24).sort("date").order("desc").r18("any").ai("any")
+                .tagIds(java.util.List.of(TAG_D))
+                .excludedAuthorIds(java.util.List.of(AUTHOR_A))
+                .optionalAuthorIds(java.util.List.of(AUTHOR_E))
+                .build();
 
         GalleryRepository.QueryResult result = repository.findArtworkIds(query);
 
@@ -181,17 +160,14 @@ class GalleryRepositoryTest {
     }
 
     @Test
-    @DisplayName("excluded tags should remove rows after the positive clauses match")
+    @DisplayName("排除标签在正向条件匹配后排除作品")
     void shouldApplyExcludedTagsAfterPositiveClauses() {
-        GalleryQuery query = GalleryQuery.normalize(
-                0, 24, "date", "desc", null, "any", "any",
-                null, null,
-                java.util.List.of(TAG_D),
-                java.util.List.of(TAG_G),
-                null,
-                null,
-                null,
-                java.util.List.of(AUTHOR_E));
+        WorkQuery query = WorkQuery.builder(WorkType.ARTWORK)
+                .page(0).size(24).sort("date").order("desc").r18("any").ai("any")
+                .tagIds(java.util.List.of(TAG_D))
+                .excludedTagIds(java.util.List.of(TAG_G))
+                .optionalAuthorIds(java.util.List.of(AUTHOR_E))
+                .build();
 
         GalleryRepository.QueryResult result = repository.findArtworkIds(query);
 

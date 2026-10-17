@@ -1,8 +1,9 @@
 package top.sywyar.pixivdownload.core.metadata.artwork;
 
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
 import org.springframework.stereotype.Repository;
 import top.sywyar.pixivdownload.core.db.MainDatabase;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.plugin.api.storage.relational.Expression;
 import top.sywyar.pixivdownload.plugin.api.storage.relational.Query;
 import java.util.*;
@@ -21,7 +22,7 @@ public class GalleryRepository {
         return new Query.Join(kind, new Query.Table(table, alias), on);
     }
     private static Expression active() { return eq(a("deleted"), 0); }
-    private static Expression visibility(GuestRestriction r) {
+    private static Expression visibility(WorkRestriction r) {
         return visible("a", "artwork_id", "artwork_tags", "artwork_collections", r);
     }
     private static Query query(Map<String, Expression> select, Expression where, List<Query.Join> joins,
@@ -38,24 +39,24 @@ public class GalleryRepository {
     private static List<Query.Join> authorJoin() {
         return List.of(join(Query.JoinKind.LEFT, "authors", "au", call(EQUAL, column("au", "author_id"), a("author_id"))));
     }
-    public QueryResult findArtworkIds(GalleryQuery q) {
+    public QueryResult findArtworkIds(WorkQuery q) {
         Expression where = filter(q);
         long total = (Long) rows(query(Map.of("cnt", call(COUNT)), where, authorJoin(),
                 List.of(), null, List.of(), false, 1, 0)).get(0).get("cnt");
         if (total == 0) return new QueryResult(List.of(), 0);
         return new QueryResult(ids(query(Map.of("artwork_id", a("artwork_id")), where, authorJoin(), List.of(),
-                null, ordering(q), false, q.getSize(), Math.multiplyExact((long) q.getPage(), q.getSize()))), total);
+                null, ordering(q), false, q.size(), Math.multiplyExact((long) q.page(), q.size()))), total);
     }
-    public List<Long> findAllArtworkIds(GalleryQuery q) {
+    public List<Long> findAllArtworkIds(WorkQuery q) {
         return ids(query(Map.of("artwork_id", a("artwork_id")), filter(q), authorJoin(), List.of(),
                 null, ordering(q), false, Integer.MAX_VALUE, 0));
     }
-    private Expression filter(GalleryQuery q) {
+    private Expression filter(WorkQuery q) {
         var conditions = new ArrayList<Expression>();
         conditions.add(active());
-        if (q.getSearch() != null) {
-            String search = q.getSearch();
-            String type = q.getSearchType() == null ? "all" : q.getSearchType();
+        if (q.search() != null) {
+            String search = q.search();
+            String type = q.searchType() == null ? "all" : q.searchType();
             conditions.add(switch (type) {
                 case "title" -> like(a("title"), search);
                 case "author" -> like(column("au", "name"), search);
@@ -68,35 +69,35 @@ public class GalleryRepository {
                 default -> or(like(a("title"), search), like(column("au", "name"), search));
             });
         }
-        if ("r18g".equals(q.getR18())) conditions.add(eq(a("r18"), 2));
-        else if ("r18".equals(q.getR18()) || "yes".equals(q.getR18())) conditions.add(eq(a("r18"), 1));
-        else if ("r18plus".equals(q.getR18())) conditions.add(call(GREATER_EQUAL, a("r18"), value(1)));
-        else if ("no".equals(q.getR18())) conditions.add(or(eq(a("r18"), 0), nil(a("r18"))));
-        if ("yes".equals(q.getAi())) conditions.add(eq(a("is_ai"), 1));
-        else if ("no".equals(q.getAi())) conditions.add(or(eq(a("is_ai"), 0), nil(a("is_ai"))));
-        if (present(q.getFormats())) conditions.add(combine(OR, q.getFormats().stream()
+        if ("r18g".equals(q.r18())) conditions.add(eq(a("r18"), 2));
+        else if ("r18".equals(q.r18()) || "yes".equals(q.r18())) conditions.add(eq(a("r18"), 1));
+        else if ("r18plus".equals(q.r18())) conditions.add(call(GREATER_EQUAL, a("r18"), value(1)));
+        else if ("no".equals(q.r18())) conditions.add(or(eq(a("r18"), 0), nil(a("r18"))));
+        if ("yes".equals(q.ai())) conditions.add(eq(a("is_ai"), 1));
+        else if ("no".equals(q.ai())) conditions.add(or(eq(a("is_ai"), 0), nil(a("is_ai"))));
+        if (present(q.formats())) conditions.add(combine(OR, q.formats().stream()
                 .map(format -> like(a("extensions"), format)).toList()));
-        if (present(q.getCollectionIds())) {
-            GuestRestriction restriction = q.getGuestRestriction();
-            if (restriction != null && q.getCollectionIds().stream().anyMatch(id -> id == null || !restriction.isCollectionVisible(id))) {
+        if (present(q.collectionIds())) {
+            WorkRestriction restriction = q.restriction();
+            if (restriction != null && q.collectionIds().stream().anyMatch(id -> id == null || !restriction.isCollectionVisible(id))) {
                 conditions.add(truth(false));
             }
             conditions.add(exists("artwork_collections", "selected_collection", and(
                     call(EQUAL, column("selected_collection", "artwork_id"), a("artwork_id")),
-                    in(column("selected_collection", "collection_id"), q.getCollectionIds()))));
+                    in(column("selected_collection", "collection_id"), q.collectionIds()))));
         }
-        if (present(q.getExcludedTagIds())) conditions.add(not(tags(q.getExcludedTagIds(), false)));
-        if (present(q.getExcludedAuthorIds())) conditions.add(or(nil(a("author_id")), not(in(a("author_id"), q.getExcludedAuthorIds()))));
+        if (present(q.excludedTagIds())) conditions.add(not(tags(q.excludedTagIds(), false)));
+        if (present(q.excludedAuthorIds())) conditions.add(or(nil(a("author_id")), not(in(a("author_id"), q.excludedAuthorIds()))));
         var positive = new ArrayList<Expression>();
-        Expression requiredTags = present(q.getTagIds()) ? tags(q.getTagIds(), true) : null;
-        Expression requiredAuthors = present(q.getAuthorIds()) ? in(a("author_id"), q.getAuthorIds()) : null;
+        Expression requiredTags = present(q.tagIds()) ? tags(q.tagIds(), true) : null;
+        Expression requiredAuthors = present(q.authorIds()) ? in(a("author_id"), q.authorIds()) : null;
         if (requiredTags != null || requiredAuthors != null) positive.add(and(requiredTags, requiredAuthors));
-        if (present(q.getOptionalTagIds())) positive.add(tags(q.getOptionalTagIds(), false));
-        if (present(q.getOptionalAuthorIds())) positive.add(in(a("author_id"), q.getOptionalAuthorIds()));
+        if (present(q.optionalTagIds())) positive.add(tags(q.optionalTagIds(), false));
+        if (present(q.optionalAuthorIds())) positive.add(in(a("author_id"), q.optionalAuthorIds()));
         if (!positive.isEmpty()) conditions.add(combine(OR, positive));
-        if (present(q.getSeriesIds())) conditions.add(in(a("series_id"), q.getSeriesIds()));
-        if (present(q.getExcludedSeriesIds())) conditions.add(or(nil(a("series_id")), not(in(a("series_id"), q.getExcludedSeriesIds()))));
-        conditions.add(visibility(q.getGuestRestriction()));
+        if (present(q.seriesIds())) conditions.add(in(a("series_id"), q.seriesIds()));
+        if (present(q.excludedSeriesIds())) conditions.add(or(nil(a("series_id")), not(in(a("series_id"), q.excludedSeriesIds()))));
+        conditions.add(visibility(q.restriction()));
         return combine(AND, conditions);
     }
     private static boolean present(Collection<?> items) { return items != null && !items.isEmpty(); }
@@ -121,10 +122,10 @@ public class GalleryRepository {
                 Map.of("present", value(1)), and(call(EQUAL, column("searched_tag", "artwork_id"), a("artwork_id")), match),
                 List.of(), null, List.of(), false, 1, 0));
     }
-    private static List<Query.Order> ordering(GalleryQuery q) {
-        boolean desc = !"asc".equals(q.getOrder());
+    private static List<Query.Order> ordering(WorkQuery q) {
+        boolean desc = !"asc".equals(q.order());
         var result = new ArrayList<Query.Order>();
-        switch (q.getSort()) {
+        switch (q.sort()) {
             case "artworkId" -> result.add(order(a("artwork_id"), desc));
             case "imgs" -> result.add(order(a("count"), desc));
             case "status" -> result.add(order(a("moved"), desc));
@@ -137,7 +138,7 @@ public class GalleryRepository {
             }
             default -> { return List.of(order(a("time"), desc)); }
         }
-        if (!"artworkId".equals(q.getSort())) result.add(order(a("time"), true));
+        if (!"artworkId".equals(q.sort())) result.add(order(a("time"), true));
         return result;
     }
     public List<Long> findByAuthor(long authorId, long excludeArtworkId, int limit) {
@@ -181,7 +182,7 @@ public class GalleryRepository {
                 List.of(a("artwork_id"), a("time")), null,
                 List.of(order(call(COUNT), true), order(a("time"), true)), false, limit, 0));
     }
-    public Set<Long> findVisibleTagIds(GuestRestriction r) {
+    public Set<Long> findVisibleTagIds(WorkRestriction r) {
         if (r == null) return Set.of();
         return new LinkedHashSet<>(rows(query(Map.of("id", column("visible_ids", "tag_id")), and(active(), visibility(r)),
                 List.of(join(Query.JoinKind.INNER, "artwork_tags", "visible_ids",
@@ -192,27 +193,27 @@ public class GalleryRepository {
         Expression c = a(column);
         return and(active(), not(nil(c)), column.equals("series_id") ? call(GREATER, c, value(0)) : null);
     }
-    private Set<Long> visibleIds(String column, GuestRestriction r) {
+    private Set<Long> visibleIds(String column, WorkRestriction r) {
         if (r == null) return Set.of();
         return new LinkedHashSet<>(rows(query(Map.of("id", a(column)), and(dimension(column), visibility(r)),
                 List.of(), List.of(), null, List.of(), true, Integer.MAX_VALUE, 0)).stream().map(row -> (Long) row.get("id")).toList());
     }
-    public Set<Long> findVisibleAuthorIds(GuestRestriction r) { return visibleIds("author_id", r); }
-    public Set<Long> findVisibleSeriesIds(GuestRestriction r) { return visibleIds("series_id", r); }
-    private List<Map<String, Object>> dimensionCounts(String column, GuestRestriction r) {
+    public Set<Long> findVisibleAuthorIds(WorkRestriction r) { return visibleIds("author_id", r); }
+    public Set<Long> findVisibleSeriesIds(WorkRestriction r) { return visibleIds("series_id", r); }
+    private List<Map<String, Object>> dimensionCounts(String column, WorkRestriction r) {
         return rows(query(Map.of("id", a(column), "cnt", call(COUNT)), and(dimension(column), visibility(r)),
                 List.of(), List.of(a(column)), null, List.of(), false, Integer.MAX_VALUE, 0));
     }
-    public List<AuthorCount> findAuthorCounts(GuestRestriction r) {
+    public List<AuthorCount> findAuthorCounts(WorkRestriction r) {
         return dimensionCounts("author_id", r).stream().map(row -> new AuthorCount((Long) row.get("id"), (Long) row.get("cnt"))).toList();
     }
-    public List<SeriesCount> findSeriesCounts(GuestRestriction r) {
+    public List<SeriesCount> findSeriesCounts(WorkRestriction r) {
         return dimensionCounts("series_id", r).stream().map(row -> new SeriesCount((Long) row.get("id"), (Long) row.get("cnt"))).toList();
     }
-    public long countArtworksInSeries(long seriesId, GuestRestriction r) {
+    public long countArtworksInSeries(long seriesId, WorkRestriction r) {
         return count(and(dimension("series_id"), eq(a("series_id"), seriesId), visibility(r)));
     }
-    public GuestStatistics findGuestStatistics(GuestRestriction r) {
+    public GuestStatistics findGuestStatistics(WorkRestriction r) {
         if (r == null) return new GuestStatistics(0, 0, 0);
         Expression images = new Conditional(call(GREATER, a("count"), value(0)), a("count"), value(0));
         Expression moved = new Conditional(eq(a("moved"), 1), value(1), value(0));
@@ -222,7 +223,7 @@ public class GalleryRepository {
         return new GuestStatistics(Math.toIntExact((Long) row.get("artworks")),
                 Math.toIntExact((Long) row.get("images")), Math.toIntExact((Long) row.get("moved")));
     }
-    public Map<Long, Long> countVisibleWorksByCollection(GuestRestriction r) {
+    public Map<Long, Long> countVisibleWorksByCollection(WorkRestriction r) {
         var result = new LinkedHashMap<Long, Long>();
         rows(query(Map.of("id", column("c", "collection_id"), "cnt", call(COUNT)), and(active(), visibility(r)),
                 List.of(join(Query.JoinKind.INNER, "artwork_collections", "c", call(EQUAL, column("c", "artwork_id"), a("artwork_id")))),

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.download.controller;
 
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,8 +19,7 @@ import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
-import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
+import top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityScopeFactory;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
 import top.sywyar.pixivdownload.core.download.ArtworkMetadataRecoveryService;
 import top.sywyar.pixivdownload.core.download.ArtworkMoveService;
@@ -218,7 +219,7 @@ public class DownloadedWorkController {
 
     private StatisticsResponse getGuestStatistics(GuestInviteSession session) {
         GalleryRepository.GuestStatistics stats = galleryRepository.findGuestStatistics(
-                GuestRestriction.from(session));
+                GuestWorkVisibilityScopeFactory.artworkRestriction(session));
         return new StatisticsResponse(true, stats.artworks(), stats.images(), stats.moved(),
                 messages.get("download.statistics.success"));
     }
@@ -227,14 +228,14 @@ public class DownloadedWorkController {
                                                       GuestInviteSession session) {
         int safePage = Math.max(0, page);
         int safeSize = Math.max(1, Math.min(size, 200));
-        GalleryQuery query = GalleryQuery.builder()
+        WorkQuery query = WorkQuery.builder(WorkType.ARTWORK)
                 .page(safePage)
                 .size(safeSize)
                 .sort("author_id".equals(sort) ? "authorId" : "date")
                 .order("desc")
                 .r18("any")
                 .ai("any")
-                .guestRestriction(GuestRestriction.from(session))
+                .restriction(GuestWorkVisibilityScopeFactory.artworkRestriction(session))
                 .build();
         GalleryRepository.QueryResult result = galleryRepository.findArtworkIds(query);
         List<DownloadedResponse> responses = loadDownloadedResponses(result.ids());
@@ -258,14 +259,14 @@ public class DownloadedWorkController {
     }
 
     private List<Long> getVisibleArtworkIds(GuestInviteSession session) {
-        GalleryQuery query = GalleryQuery.builder()
+        WorkQuery query = WorkQuery.builder(WorkType.ARTWORK)
                 .page(0)
                 .size(Integer.MAX_VALUE)
                 .sort("date")
                 .order("desc")
                 .r18("any")
                 .ai("any")
-                .guestRestriction(GuestRestriction.from(session))
+                .restriction(GuestWorkVisibilityScopeFactory.artworkRestriction(session))
                 .build();
         return galleryRepository.findArtworkIds(query).ids();
     }

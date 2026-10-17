@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.db;
 
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
@@ -183,7 +185,7 @@ class PostgresHostStorageTest {
         jdbc.update("INSERT INTO novel_tags(novel_id,tag_id) VALUES(2,?)", tag);
         var gallery = new top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));
         for (String search : List.of("apple", "C:\\花")) {
-            var query = top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery.builder()
+            var query = WorkQuery.builder(WorkType.ARTWORK)
                     .page(0).size(10).sort("date").order("desc").searchType("title")
                     .search(search).r18("no").formats(List.of("png")).build();
             assertThat(gallery.findArtworkIds(query).ids()).containsExactly(1L);
@@ -191,7 +193,7 @@ class PostgresHostStorageTest {
         assertThat(gallery.findTagsWithCounts("flower", 10)).hasSize(1);
         assertThat(gallery.findTagByExactName("FLOWER", null)).isNotNull();
         var novels = new top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));
-        var restriction = new top.sywyar.pixivdownload.core.metadata.GuestRestriction(
+        var restriction = new top.sywyar.pixivdownload.core.work.model.WorkRestriction(
                 java.util.Set.of(0), true, List.of(), true, List.of());
         assertThat(novels.findVisibleNovelIds(restriction)).containsExactly(2L);
         assertThat(novels.findVisibleNovelTagCounts(restriction, "flower", 10)).hasSize(1);

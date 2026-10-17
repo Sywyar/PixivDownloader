@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.core.metadata.novel;
 
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.metadata.CoreWorkQueryService;
 
 import lombok.RequiredArgsConstructor;
@@ -39,7 +39,8 @@ public class NovelWorkSearch {
      * 按查询条件返回命中的全部 novelId（已按 {@code sort} / {@code order} 排好序，未分页，
      * 软删除行已过滤）；分页数学由调用方完成。
      */
-    public List<Long> filteredIds(WorkQuery q, GuestRestriction restriction) {
+    public List<Long> filteredIds(WorkQuery q) {
+        WorkRestriction restriction = q.restriction();
         if (restriction != null && q.collectionIds() != null
                 && q.collectionIds().stream().anyMatch(id -> id == null || !restriction.isCollectionVisible(id))) {
             return List.of();

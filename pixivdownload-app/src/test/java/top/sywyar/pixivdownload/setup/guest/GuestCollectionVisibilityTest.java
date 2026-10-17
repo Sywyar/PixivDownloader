@@ -14,8 +14,7 @@ import org.springframework.transaction.interceptor.TransactionInterceptor;
 import top.sywyar.pixivdownload.config.http.ServerAddressProvider;
 import top.sywyar.pixivdownload.core.db.PostgresTestDatabase;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
-import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelWorkSearch;
@@ -102,13 +101,13 @@ class GuestCollectionVisibilityTest {
     @DisplayName("收藏夹计数只含可见且未删除作品，列表与单作品作用域使用同一配置")
     void countsAndQueriesRespectCollectionScope(String engine) throws Exception {
         setUp(engine);
-        GuestRestriction filters = restriction(false, List.of(1L, 2L));
+        WorkRestriction filters = restriction(false, List.of(1L, 2L));
         assertThat(artworks.countVisibleWorksByCollection(filters)).isEqualTo(Map.of(1L, 1L, 2L, 1L, 3L, 1L));
         assertThat(novels.countVisibleWorksByCollection(filters)).isEqualTo(Map.of(1L, 1L, 2L, 1L, 3L, 1L));
         assertThat(artworks.findArtworkIds(query(filters, null)).ids()).containsExactly(4L, 3L, 1L);
         assertThat(novels.findVisibleNovelIds(filters)).containsExactly(4L, 3L, 1L);
 
-        GuestRestriction works = restriction(true, List.of(1L, 2L));
+        WorkRestriction works = restriction(true, List.of(1L, 2L));
         assertThat(artworks.findArtworkIds(query(works, null)).ids()).containsExactly(4L, 1L);
         assertThat(novels.findVisibleNovelIds(works)).containsExactly(4L, 1L);
         assertThat(artworks.countVisibleWorksByCollection(works)).isEqualTo(Map.of(1L, 1L));
@@ -122,11 +121,11 @@ class GuestCollectionVisibilityTest {
     @DisplayName("仅隐藏入口时也不能通过手工收藏夹筛选查询隐藏归属")
     void hiddenCollectionCannotBeUsedAsFilter(String engine) throws Exception {
         setUp(engine);
-        GuestRestriction filters = restriction(false, List.of(1L, 2L));
+        WorkRestriction filters = restriction(false, List.of(1L, 2L));
         assertThat(artworks.findArtworkIds(query(filters, List.of(3L))).totalElements()).isZero();
         assertThat(artworks.findArtworkIds(query(filters, List.of(1L))).ids()).containsExactly(1L);
         var search = new NovelWorkSearch(null, novels, null);
-        assertThat(search.filteredIds(WorkQuery.builder(WorkType.NOVEL).collectionIds(List.of(3L)).build(), filters)).isEmpty();
+        assertThat(search.filteredIds(WorkQuery.builder(WorkType.NOVEL).collectionIds(List.of(3L)).restriction(filters).build())).isEmpty();
     }
 
     @ParameterizedTest
@@ -256,12 +255,12 @@ class GuestCollectionVisibilityTest {
         return request;
     }
 
-    private GuestRestriction restriction(boolean works, List<Long> ids) {
-        return new GuestRestriction(Set.of(0), true, List.of(), true, List.of(), false, ids, works);
+    private WorkRestriction restriction(boolean works, List<Long> ids) {
+        return new WorkRestriction(Set.of(0), true, List.of(), true, List.of(), false, ids, works);
     }
 
-    private GalleryQuery query(GuestRestriction restriction, List<Long> collections) {
-        return GalleryQuery.builder().page(0).size(20).sort("date").order("desc")
-                .guestRestriction(restriction).collectionIds(collections).build();
+    private WorkQuery query(WorkRestriction restriction, List<Long> collections) {
+        return WorkQuery.builder(WorkType.ARTWORK).page(0).size(20).sort("date").order("desc")
+                .restriction(restriction).collectionIds(collections).build();
     }
 }

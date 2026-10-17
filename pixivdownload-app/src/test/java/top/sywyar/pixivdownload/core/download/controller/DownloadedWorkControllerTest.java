@@ -21,7 +21,7 @@ import top.sywyar.pixivdownload.core.download.DownloadedArtworkService;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.download.response.StatisticsResponse;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
@@ -290,11 +290,11 @@ class DownloadedWorkControllerTest {
         GuestInviteSession session = new GuestInviteSession(1L, "test-invite", true, false, false,
                 false, Set.of(12L), false, Set.of(42L), true, Set.of(), true, Set.of(),
                 false, Set.of(3L), true);
-        GuestRestriction restriction = new GuestRestriction(Set.of(0), false, List.of(12L),
+        WorkRestriction restriction = new WorkRestriction(Set.of(0), false, List.of(12L),
                 false, List.of(42L), false, List.of(3L), true);
-        when(galleryRepository.findArtworkIds(argThat(query -> query.getPage() == 0
-                && query.getSize() == 200 && "authorId".equals(query.getSort())
-                && "desc".equals(query.getOrder()) && restriction.equals(query.getGuestRestriction()))))
+        when(galleryRepository.findArtworkIds(argThat(query -> query.page() == 0
+                && query.size() == 200 && "authorId".equals(query.sort())
+                && "desc".equals(query.order()) && restriction.equals(query.restriction()))))
                 .thenReturn(new GalleryRepository.QueryResult(List.of(9L, 10L, 7L), 230L));
         when(downloadedArtworkService.getDownloadedRecord(9L)).thenReturn(new ArtworkRecord(
                 9L, "A", "/a", 1, "jpg", 200L, false, null, null, 0, false, 42L, null));
