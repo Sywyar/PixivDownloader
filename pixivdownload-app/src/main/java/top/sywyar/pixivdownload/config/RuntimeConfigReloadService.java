@@ -408,16 +408,18 @@ public class RuntimeConfigReloadService {
         }
     }
 
-    private static void refreshPluginConfigSource(ConfigurableEnvironment childEnvironment) {
+    private void refreshPluginConfigSource(ConfigurableEnvironment childEnvironment) {
         MutablePropertySources sources = childEnvironment.getPropertySources();
         sources.remove(PluginConfigPropertySourceLoader.PROPERTY_SOURCE_NAME);
-        PluginConfigPropertySourceLoader.load().ifPresent(source -> {
+        PropertySource<?> source = environment.getPropertySources()
+                .get(PluginConfigPropertySourceLoader.PROPERTY_SOURCE_NAME);
+        if (source != null) {
             if (sources.contains(RUNTIME_CONFIG_PROPERTY_SOURCE)) {
                 sources.addBefore(RUNTIME_CONFIG_PROPERTY_SOURCE, source);
             } else {
                 sources.addLast(source);
             }
-        });
+        }
     }
 
     private static void rebindPluginContext(Binder binder,

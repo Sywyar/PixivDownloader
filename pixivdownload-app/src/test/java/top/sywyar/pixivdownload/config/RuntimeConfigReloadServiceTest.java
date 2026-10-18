@@ -109,6 +109,56 @@ class RuntimeConfigReloadServiceTest {
     }
 
     @Test
+    @DisplayName("同轮热重载共用普通插件配置快照，后续重载读取更新并撤回删除的来源")
+    void sharesPluginPropertiesAcrossOneReload() throws IOException {
+        Path configDir = useTempConfigDir();
+        Path pluginDirectory = Files.createDirectories(configDir.resolve(RuntimeFiles.PLUGIN_CONFIG_DIR));
+        Files.writeString(configDir.resolve(RuntimeFiles.CONFIG_YAML),
+                "download.user-flat-folder: false\n", StandardCharsets.UTF_8);
+        Path properties = pluginDirectory.resolve("fixture.properties");
+        Files.writeString(properties, "fixture.endpoint=first\n", StandardCharsets.UTF_8);
+        var lifecycleService = mock(PluginLifecycleService.class);
+        var environment = new StandardEnvironment();
+        var service = newService(provider(lifecycleService), environment);
+        try (var first = new AnnotationConfigApplicationContext();
+             var second = new AnnotationConfigApplicationContext()) {
+            first.register(FixturePluginConfiguration.class);
+            second.register(FixturePluginConfiguration.class);
+            first.refresh();
+            second.refresh();
+            serveContext(lifecycleService, "first", first);
+            serveContext(lifecycleService, "second", second);
+            when(lifecycleService.servingPluginIds()).thenReturn(
+                    new java.util.LinkedHashSet<>(List.of("first", "second")));
+            doAnswer(invocation -> {
+                Consumer<ConfigurableApplicationContext> operation = invocation.getArgument(1);
+                operation.accept(first);
+                Files.writeString(properties, "fixture.endpoint=second\n", StandardCharsets.UTF_8);
+                return true;
+            }).when(lifecycleService).withServingContext(eq("first"), any());
+
+            service.reloadHotConfig(List.of("fixture.endpoint"));
+
+            assertThat(first.getBean(FixturePluginConfig.class).getEndpoint()).isEqualTo("first");
+            assertThat(second.getBean(FixturePluginConfig.class).getEndpoint()).isEqualTo("first");
+            assertThat(environment.getProperty("fixture.endpoint")).isEqualTo("first");
+            service.reloadHotConfig(List.of("fixture.endpoint"));
+            assertThat(first.getBean(FixturePluginConfig.class).getEndpoint()).isEqualTo("second");
+            assertThat(second.getBean(FixturePluginConfig.class).getEndpoint()).isEqualTo("second");
+
+            serveContext(lifecycleService, "first", first);
+            serveContext(lifecycleService, "second", second);
+            when(lifecycleService.servingPluginIds()).thenReturn(
+                    new java.util.LinkedHashSet<>(List.of("first", "second")));
+            Files.delete(properties);
+            service.reloadHotConfig(List.of("fixture.endpoint"));
+            assertThat(environment.getProperty("fixture.endpoint")).isNull();
+            assertThat(first.getEnvironment().getProperty("fixture.endpoint")).isNull();
+            assertThat(second.getEnvironment().getProperty("fixture.endpoint")).isNull();
+        }
+    }
+
+    @Test
     @DisplayName("首次热重载会把新宿主配置源置于子 context 的启动配置之前")
     void firstReloadOverridesInheritedStartupConfigInActivePluginContext() throws IOException {
         Path configDir = useTempConfigDir();
