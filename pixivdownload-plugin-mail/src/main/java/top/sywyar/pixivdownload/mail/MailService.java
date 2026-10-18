@@ -5,7 +5,6 @@ import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.mail.MailException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -68,10 +67,8 @@ public class MailService {
         try {
             deliver(settings, recipients, subject, htmlBody);
             log.info(messages.getForLog("mail.log.send.success", String.join(", ", recipients), settings.host()));
-        } catch (MailException | MessagingException e) {
+        } catch (MessagingException | RuntimeException e) {
             log.error(messages.getForLog("mail.log.send.failed", safeMessage(e, settings.password())));
-        } catch (RuntimeException e) {
-            log.error(messages.getForLog("mail.log.send.failed", safeMessage(e, settings.password())), e);
         }
     }
 
@@ -98,7 +95,7 @@ public class MailService {
         try {
             deliver(settings, recipients, subject, htmlBody);
             log.info(messages.getForLog("mail.log.test.success", String.join(", ", recipients), settings.host()));
-        } catch (MessagingException | MailException e) {
+        } catch (MessagingException | RuntimeException e) {
             String msg = safeMessage(e, settings.password());
             log.warn(messages.getForLog("mail.log.test.failed", msg));
             throw new MailSendException(msg, e);
@@ -205,16 +202,16 @@ public class MailService {
     }
 
     /**
-     * 截取异常的可读摘要供日志 / GUI 显示。**绝不**回显密码：先遍历整个 cause 链合并 message，
-     * 把传入的 SMTP 密码 / 用户名 / 授权码逐字替换为 {@code [redacted]}（JavaMail 与一些 SMTP 错误
-     * 文案会原样回显客户端提交的认证字段），再截断到 500 字符。
+     * 合并至多八层异常摘要，替换其中的非空 SMTP 密码 / 授权码，再截断到 500 字符。
      */
     static String safeMessage(Throwable t, String password) {
         if (t == null) {
             return "unknown";
         }
         String msg = collectMessages(t);
-        msg = redactSecret(msg, password);
+        if (password != null && !password.isEmpty()) {
+            msg = msg.replace(password, "[redacted]");
+        }
         if (msg.length() > 500) {
             msg = msg.substring(0, 500) + "…";
         }
@@ -237,13 +234,6 @@ public class MailService {
             depth++;
         }
         return sb.length() == 0 ? t.getClass().getSimpleName() : sb.toString();
-    }
-
-    /** 把秘密原文逐字替换为 {@code [redacted]}；空 / 过短的秘密不替换以免误伤普通文本。 */
-    private static String redactSecret(String text, String secret) {
-        if (text == null || text.isEmpty()) return text;
-        if (secret == null || secret.length() < 4) return text;
-        return text.replace(secret, "[redacted]");
     }
 
     /** 发送测试时透传给 GUI 的异常；message 已脱敏，可安全展示。 */
