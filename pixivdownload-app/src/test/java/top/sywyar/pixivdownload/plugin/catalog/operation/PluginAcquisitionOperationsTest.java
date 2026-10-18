@@ -138,8 +138,8 @@ class PluginAcquisitionOperationsTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(strings = {"cancel", "expire", "replace", "close"})
-    @DisplayName("取消、过期、另一项获取与服务关闭均释放待确认包")
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"cancel", "expire", "replace", "close", "confirm-full", "reject-full"})
+    @DisplayName("待确认包在满额历史中保留精确转交，取消、过期、替换与关闭释放资源")
     void releasesPendingDownload(String action, @org.junit.jupiter.api.io.TempDir java.nio.file.Path temp) throws Exception {
         var file = java.nio.file.Files.writeString(temp.resolve("pending.jar"), "test");
         var requirement = new top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustRequirement(
@@ -168,6 +168,22 @@ class PluginAcquisitionOperationsTest {
                     service.execute(prepareOperation().id());
                 }
                 case "close" -> service.close();
+                case "confirm-full", "reject-full" -> {
+                    for (int i = 1; i < PluginAcquisitionOperations.MAX_RECORDS; i++) prepareOperation();
+                    if ("reject-full".equals(action)) {
+                        assertThatThrownBy(() -> service.prepare("official", "sample", "1.0.0", fingerprint,
+                                "f".repeat(64), first.id())).isInstanceOfSatisfying(PluginCatalogException.class,
+                                failure -> assertThat(failure.code()).isEqualTo(PluginCatalogErrorCode.INSTALL_PREVIEW_CHANGED));
+                        assertThat(service.get(first.id())).isEqualTo(first);
+                        assertThat(file).exists();
+                    }
+                    var confirmed = service.prepare("official", "sample", "1.0.0", fingerprint,
+                            "b".repeat(64), first.id());
+                    assertThat(service.list()).hasSize(PluginAcquisitionOperations.MAX_RECORDS);
+                    service.discard(first.id());
+                    assertThat(file).exists();
+                    service.discard(confirmed.id());
+                }
             }
             assertThat(file).doesNotExist();
         } finally { service.close(); }

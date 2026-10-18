@@ -88,6 +88,46 @@ class CommunityDirectoryServiceTest {
         assertThat(f.service().lookup("alpha").certifies("alpha", Fixture.DESCRIPTOR, Fixture.HASH, List.of(f.key))).isFalse();
     }
 
+    @Test
+    @DisplayName("无效签名在分片下载前拒绝，已有快照保留原始字节与认证结果")
+    void rejectsInvalidSignatureBeforeShardDownload() throws Exception {
+        var f = new Fixture(temp);
+        f.publish(2, DirectoryEntry.Status.IDENTITY_VERIFIED);
+        f.invalidateSignature();
+        assertThatThrownBy(() -> f.service().lookup("alpha")).isInstanceOf(RuntimeException.class);
+        assertThat(f.requests).noneMatch(url -> url.contains("/shards/"));
+        assertThat(f.state).doesNotExist();
+
+        f.publish(2, DirectoryEntry.Status.IDENTITY_VERIFIED);
+        f.service().lookup("alpha");
+        byte[] previous = Files.readAllBytes(f.state);
+        f.publish(3, DirectoryEntry.Status.SUSPENDED);
+        f.invalidateSignature();
+        f.requests.clear();
+        var retained = f.service().lookup("alpha");
+        assertThat(retained.cached()).isTrue();
+        assertThat(retained.sequence()).isEqualTo(2);
+        assertThat(retained.certifies("alpha", Fixture.DESCRIPTOR, Fixture.HASH, List.of(f.key))).isTrue();
+        assertThat(f.requests).noneMatch(url -> url.contains("/shards/"));
+        assertThat(Files.readAllBytes(f.state)).isEqualTo(previous);
+    }
+
+    @Test
+    @DisplayName("重启读取缓存时重新验签，已撤销密钥不能借联网重置水位")
+    void revalidatesCachedSignatureAfterRestart() throws Exception {
+        var f = new Fixture(temp);
+        f.publish(2, DirectoryEntry.Status.IDENTITY_VERIFIED);
+        f.service().lookup("alpha");
+        byte[] previous = Files.readAllBytes(f.state);
+        var revoked = new TrustedPluginKey(f.key.keyId(), f.key.algorithm(), f.key.publicKeySpkiBase64(),
+                TrustedPluginKey.State.REVOKED, f.key.publisher(), f.key.trustLabel(), false);
+        var restarted = new CommunityDirectoryService(f.state, Fixture.BASE,
+                (url, maximum) -> { throw new AssertionError("无效缓存不能回落到联网"); },
+                new PluginSupplyChainVerifier(PluginTrustStores.community(List.of(revoked))), true);
+        assertThatThrownBy(() -> restarted.lookup("alpha")).isInstanceOf(RuntimeException.class);
+        assertThat(Files.readAllBytes(f.state)).isEqualTo(previous);
+    }
+
     private static final class Fixture {
         static final URI BASE = URI.create("https://example.org/");
         static final String DESCRIPTOR = "https://example.org/repository.json";
@@ -106,6 +146,13 @@ class CommunityDirectoryServiceTest {
                 if (bytes == null || bytes.length > max) throw new IllegalStateException("fixture unavailable");
                 return bytes;
             }, new PluginSupplyChainVerifier(PluginTrustStores.community(List.of(key))), true);
+        }
+        void invalidateSignature() {
+            String url = BASE.resolve("generated/current.json").toString();
+            var pointer = CommunityJson.strictTree(documents.get(url), 64 * 1024);
+            ((com.fasterxml.jackson.databind.node.ObjectNode) pointer.get("directorySignature"))
+                    .put("value", Base64.getEncoder().encodeToString(new byte[64]));
+            documents.put(url, CommunityJson.encode(pointer));
         }
         void publish(long sequence, DirectoryEntry.Status status) throws Exception {
             documents.clear();

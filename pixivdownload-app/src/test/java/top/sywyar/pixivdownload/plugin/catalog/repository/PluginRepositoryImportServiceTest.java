@@ -123,6 +123,80 @@ class PluginRepositoryImportServiceTest {
         assertThat(java.nio.file.Files.readAllBytes(path)).isEqualTo(before);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("直接导入与草稿保存均在信任写入失败后恢复配置，重试提交同一已验签更新")
+    void failedTrustWriteRestoresConfiguration(boolean draft) throws Exception {
+        String url = "https://repo.example/repository.json";
+        String proofUrl = "https://repo.example/update.json";
+        var pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
+        var key = new PluginCatalogProperties.TrustedKeyConfig();
+        key.setKeyId("test");
+        key.setPublicKey(Base64.getEncoder().encodeToString(pair.getPublic().getEncoded()));
+        byte[] descriptor = CommunityJson.encode(Map.of("schemaVersion", 1, "repositoryId", "sample.repo",
+                "displayName", "Sample", "publisher", Map.of("id", "sample", "displayName", "Sample"),
+                "catalog", Map.of("protocol", "paged-v2", "endpoint", "https://repo.example/catalog"),
+                "networkProfile", "DIRECT_STRICT", "trustedKeys", List.of(Map.of("keyId", "test",
+                        "algorithm", "Ed25519", "publicKeySpkiBase64", key.getPublicKey(), "state", "ACTIVE",
+                        "publisher", "Sample", "trustLabel", "User confirmed"))));
+        var parsed = new RepositoryDescriptorParser().parse(url, descriptor);
+        var repository = new PluginCatalogProperties.RepositoryConfig();
+        repository.setId("sample.repo");
+        repository.setManifestUrl("https://repo.example/old");
+        repository.setDescriptorUrl(url);
+        repository.setDescriptorSha256("ab".repeat(32));
+        repository.setUpdateProofUrl(proofUrl);
+        repository.setTrustedKeys(List.of(key));
+        var properties = new PluginCatalogProperties();
+        properties.setRepositories(List.of(repository));
+        byte[] proof = CommunityJson.encode(new RepositoryUpdateDocument(1, repository.getId(), 4L,
+                repository.getDescriptorSha256(), url, parsed.descriptorSha256(),
+                List.of("sha256:" + parsed.trustedKeys().get(0).publicKeyFingerprint()), "test"));
+        var signer = java.security.Signature.getInstance("Ed25519");
+        signer.initSign(pair.getPrivate());
+        signer.update(top.sywyar.pixivdownload.plugin.signature.internal.envelope.EnvelopeV1Codec.repositoryUpdateMessage(
+                repository.getId(), 4L, proof.length, java.security.MessageDigest.getInstance("SHA-256").digest(proof)));
+        byte[] signature = CommunityJson.encode(new top.sywyar.pixivdownload.plugin.signature.SignatureMetadata(
+                1, "Ed25519", "test", Base64.getEncoder().encodeToString(signer.sign())));
+        var client = mock(PluginCatalogHttpClient.class);
+        when(client.fetchBytes(eq(proofUrl), anyLong())).thenReturn(proof);
+        when(client.fetchBytes(eq(proofUrl + ".sig"), anyLong())).thenReturn(signature);
+        Path trustPath = temp.resolve("trust.json");
+        var store = spy(new PluginCatalogTrustStateStore(trustPath));
+        store.acceptUpdateSequences(Map.of(repository.getId(), 3L));
+        byte[] previousTrust = java.nio.file.Files.readAllBytes(trustPath);
+        var service = new PluginRepositoryImportService(new PluginRepositoryRegistry(properties), ignored -> client, store);
+        String old = System.getProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
+        System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, temp.resolve("config").toString());
+        try (var construction = mockConstruction(PluginCatalogHttpClient.class, (created, context) ->
+                when(created.fetchBytes(eq(url), anyLong())).thenReturn(descriptor))) {
+            Path path = RuntimeFiles.resolveConfigYamlPath();
+            java.nio.file.Files.createDirectories(path.getParent());
+            java.nio.file.Files.write(path, List.of("# retained", "app.language: en", "plugin-catalog.repositories:"),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            var config = new top.sywyar.pixivdownload.gui.config.ConfigFileEditor(path).asConfigFile();
+            var entry = service.prepare(url, parsed.descriptorSha256(), true);
+            byte[] before = java.nio.file.Files.readAllBytes(path);
+            doThrow(new java.io.IOException("trust state write failed")).when(store).acceptUpdateSequences(anyMap());
+            assertThatThrownBy(() -> {
+                if (draft) service.writeDraft(config, List.of(entry));
+                else service.trust(url, parsed.descriptorSha256(), true);
+            }).isInstanceOf(draft ? java.io.IOException.class
+                    : top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException.class);
+            assertThat(java.nio.file.Files.readAllBytes(path)).isEqualTo(before);
+            assertThat(java.nio.file.Files.readAllBytes(trustPath)).isEqualTo(previousTrust);
+            doCallRealMethod().when(store).acceptUpdateSequences(anyMap());
+            if (draft) service.writeDraft(config, List.of(entry));
+            else service.trust(url, parsed.descriptorSha256(), true);
+            assertThat(new PluginRepositoryConfigEditor(config).read()).containsExactly(entry);
+            assertThat(new PluginCatalogTrustStateStore(trustPath).updateSequence(repository.getId())).isEqualTo(4L);
+            assertThat(config.snapshot().lines()).contains("# retained", "app.language: en");
+        } finally {
+            if (old == null) System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
+            else System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, old);
+        }
+    }
+
     @Test
     @DisplayName("精确认证允许描述符更新，撤回认证后仍要求旧仓库连续性证明")
     void certifiedUpdateUsesExistingImportChain() throws Exception {

@@ -83,14 +83,14 @@ public final class DirectoryGeneration {
         var document = CommunityJson.parse(CommunityJson.Kind.DIRECTORY_ROOT,
                 CommunityJson.encode(new Root(1, repositoryId, sequence, generatedAt, PARTITIONING, references)));
         var candidate = new Candidate(document, documents);
-        validateData(candidate, URI.create("https://generation.invalid/root.json"));
+        validateData(candidate, validateRoot(document, URI.create("https://generation.invalid/root.json")));
         return candidate;
     }
 
     public static DirectoryGeneration verify(Candidate candidate, URI rootUrl, String expectedRepositoryId,
                                              SignatureMetadata signature, PluginSupplyChainVerifier verifier) {
         Root root = verifyRoot(candidate.root, rootUrl, expectedRepositoryId, signature, verifier);
-        validateData(candidate, rootUrl);
+        validateData(candidate, root);
         return new DirectoryGeneration(candidate, root, signature);
     }
 
@@ -105,8 +105,7 @@ public final class DirectoryGeneration {
         return root;
     }
 
-    private static void validateData(Candidate candidate, URI rootUrl) {
-        Root root = validateRoot(candidate.root, rootUrl);
+    private static void validateData(Candidate candidate, Root root) {
         if (candidate.shards.size() != root.shards.size()) throw new ContractException("REVIEW_MISMATCH", "/shards");
         for (var reference : root.shards) validateShard(root, reference, candidate.shards.get(reference.sha256));
     }

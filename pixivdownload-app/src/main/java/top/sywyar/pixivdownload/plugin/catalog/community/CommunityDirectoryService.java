@@ -106,7 +106,7 @@ public final class CommunityDirectoryService {
             byte[] shard = ref == null ? new byte[0]
                     : previous != null && previous.document.sha256().equals(document.sha256()) && previous.prefix.equals(prefix)
                     ? previous.shard : fetch.apply(ref.resolve(url).toString(), (long) SHARD_BYTES);
-            next = snapshot(url, rootBytes, signature, prefix, shard);
+            next = snapshot(url, document, root, signature, prefix, shard);
         } catch (RuntimeException failure) {
             if (previous != null && previous.prefix.equals(prefix)) return result(previous, repositoryId, true);
             throw unavailable("community directory unavailable: " + failure.getMessage());
@@ -118,11 +118,10 @@ public final class CommunityDirectoryService {
         return result(next, repositoryId, false);
     }
 
-    private Snapshot snapshot(URI url, byte[] rootBytes, SignatureMetadata signature, String prefix, byte[] shard) {
+    private Snapshot snapshot(URI url, CommunityJson.Document document, DirectoryGeneration.Root root,
+                              SignatureMetadata signature, String prefix, byte[] shard) {
         if (!url.toString().startsWith(base.resolve("generated/generations/").toString())
                 || !prefix.matches("[0-9a-f]{2}")) throw unavailable("invalid cached directory location");
-        var document = CommunityJson.parse(CommunityJson.Kind.DIRECTORY_ROOT, rootBytes);
-        var root = DirectoryGeneration.verifyRoot(document, url, REPOSITORY_ID, signature, verifier);
         if (!url.equals(base.resolve("generated/generations/" + root.sequence() + "/directory.json")))
             throw unavailable("cached directory generation mismatch");
         var ref = reference(root, prefix);
@@ -153,10 +152,12 @@ public final class CommunityDirectoryService {
             URI url = URI.create(input.readUTF());
             var signature = new SignatureMetadata(input.readInt(), input.readUTF(), input.readUTF(), input.readUTF());
             String prefix = input.readUTF();
-            byte[] root = bytes(input, ROOT_BYTES);
+            byte[] rootBytes = bytes(input, ROOT_BYTES);
             byte[] shard = bytes(input, SHARD_BYTES);
             if (input.read() != -1) throw new IOException("trailing directory state");
-            return snapshot(url, root, signature, prefix, shard);
+            var document = CommunityJson.parse(CommunityJson.Kind.DIRECTORY_ROOT, rootBytes);
+            var root = DirectoryGeneration.verifyRoot(document, url, REPOSITORY_ID, signature, verifier);
+            return snapshot(url, document, root, signature, prefix, shard);
         } catch (IOException | RuntimeException failure) {
             throw unavailable("cached directory state is invalid");
         }

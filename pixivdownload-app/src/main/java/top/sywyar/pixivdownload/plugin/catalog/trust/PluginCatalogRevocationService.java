@@ -116,7 +116,7 @@ public final class PluginCatalogRevocationService {
         if (snapshot == null) return;
         String keyId = pkg.signature() != null ? pkg.signature().keyId() : null;
         for (PluginCatalogTrustStateStore.RevocationEntry entry : snapshot.entries()) {
-            if (matches(entry, repository, pluginId, pkg.version(), pkg.sha256(), keyId, publisherId(repository, pkg))) {
+            if (matches(entry, pluginId, pkg.version(), pkg.sha256(), keyId, publisherId(repository, pkg))) {
                 throw new PluginCatalogException(PluginCatalogErrorCode.REVOCATION_REJECTED, pluginId, pkg.version(),
                         "plugin package is " + entry.action().toLowerCase(Locale.ROOT)
                                 + " by verified revocation document: " + entry.reasonCode());
@@ -136,11 +136,6 @@ public final class PluginCatalogRevocationService {
         return "YANKED".equals(status) || "REVOKED".equals(status);
     }
 
-    public static boolean matches(PluginCatalogTrustStateStore.RevocationEntry entry, PluginRepository repository,
-                                  String pluginId, String version, String sha256, String keyId) {
-        return matches(entry, repository, pluginId, version, sha256, keyId, repository != null ? repository.publisherId() : null);
-    }
-
     /** 只投影已有验证快照；没有新鲜快照时明确保持未知。 */
     public String status(PluginRepository repository, String pluginId, PluginCatalogPackage pkg) {
         return status(repository, pluginId, pkg, stateStore.revocations(repository.repositoryId()).orElse(null));
@@ -150,7 +145,7 @@ public final class PluginCatalogRevocationService {
     public String status(PluginRepository repository, String pluginId, PluginCatalogPackage pkg,
                          PluginCatalogTrustStateStore.RevocationSnapshot snapshot) {
         if (!repository.revocationsRequired()) return "NOT_PROVIDED";
-        return status(repository, pluginId, pkg.version(), pkg.sha256(),
+        return status(pluginId, pkg.version(), pkg.sha256(),
                 pkg.signature() != null ? pkg.signature().keyId() : null, publisherId(repository, pkg), snapshot);
     }
 
@@ -188,7 +183,7 @@ public final class PluginCatalogRevocationService {
         boolean refreshAvailable = repository.enabled() && repositories != null && repositories.featureEnabled();
         if (snapshot == null) return new PluginRevocationView(repository.repositoryId(), "NOT_CHECKED", null, null,
                 null, null, "UNKNOWN", true, false, refreshAvailable, List.of());
-        String status = status(repository, pluginId, version, sha256, keyId, publisherId, snapshot);
+        String status = status(pluginId, version, sha256, keyId, publisherId, snapshot);
         String graceUntil = null;
         String freshness = "EXPIRED";
         try {
@@ -199,7 +194,7 @@ public final class PluginCatalogRevocationService {
             // 损坏的时效不能投影成新鲜；执行仍由原准入策略决定。
         }
         var restrictions = snapshot.entries().stream()
-                .filter(entry -> matches(entry, repository, pluginId, version, sha256, keyId, publisherId))
+                .filter(entry -> matches(entry, pluginId, version, sha256, keyId, publisherId))
                 .map(entry -> new PluginRevocationView.Restriction(
                         entry.scope(), entry.action(), entry.reasonCode(), entry.effectiveTime())).toList();
         return new PluginRevocationView(repository.repositoryId(), status, snapshot.verifiedAt(), snapshot.generatedTime(),
@@ -230,10 +225,10 @@ public final class PluginCatalogRevocationService {
 
     public record RefreshResult(boolean refreshed, String code) { }
 
-    private String status(PluginRepository repository, String pluginId, String version, String sha256,
+    private String status(String pluginId, String version, String sha256,
                           String keyId, String publisherId, PluginCatalogTrustStateStore.RevocationSnapshot snapshot) {
         if (snapshot == null) return "NOT_CHECKED";
-        var actions = snapshot.entries().stream().filter(entry -> matches(entry, repository, pluginId,
+        var actions = snapshot.entries().stream().filter(entry -> matches(entry, pluginId,
                 version, sha256, keyId, publisherId)).map(PluginCatalogTrustStateStore.RevocationEntry::action).toList();
         if (actions.contains("REVOKED")) return "REVOKED";
         if (actions.contains("YANKED")) return "YANKED";
@@ -248,7 +243,7 @@ public final class PluginCatalogRevocationService {
         return repository.community() && pkg.historicalOwner() != null ? pkg.historicalOwner().publisherId() : repository.publisherId();
     }
 
-    private static boolean matches(PluginCatalogTrustStateStore.RevocationEntry entry, PluginRepository repository,
+    static boolean matches(PluginCatalogTrustStateStore.RevocationEntry entry,
                                    String pluginId, String version, String sha256, String keyId, String publisherId) {
         if (entry == null || !"REVOKED".equals(entry.action()) && !"YANKED".equals(entry.action())
                 || !isEffective(entry.effectiveTime())) return false;

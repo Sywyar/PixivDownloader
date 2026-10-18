@@ -61,11 +61,6 @@ public final class PluginCatalogTrustStateStore {
         return repository(repositoryId).map(RepositoryState::revocations).filter(value -> value != null);
     }
 
-    public synchronized void acceptUpdateSequence(String repositoryId, long sequence) throws IOException {
-        if (repositoryId == null || repositoryId.isBlank()) throw new IOException("repositoryId is required");
-        acceptUpdateSequences(Map.of(repositoryId, sequence));
-    }
-
     /** 在同一原子信任快照中提交全部已确认的仓库更新。 */
     public synchronized void acceptUpdateSequences(Map<String, Long> sequences) throws IOException {
         if (sequences.isEmpty()) return;
