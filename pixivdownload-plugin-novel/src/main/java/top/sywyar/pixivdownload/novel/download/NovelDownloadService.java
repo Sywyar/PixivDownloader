@@ -294,7 +294,6 @@ public class NovelDownloadService implements NovelDownloader {
             Path downloadRoot = plan.root();
             Path downloadPath = plan.directory();
             downloadPathGuard.requireWithinRoot(downloadRoot, downloadPath);
-            status.setFolderName(displayFolderName(downloadRoot, downloadPath));
             Files.createDirectories(downloadPath);
             status.setDownloadPath(downloadPath.toString());
             ensureNotCancelled(status);
@@ -428,7 +427,6 @@ public class NovelDownloadService implements NovelDownloader {
             ensureNotCancelled(status);
             status.setStage("completed");
             status.setCompleted(true);
-            status.setEndTime(java.time.LocalDateTime.now());
             log.info("novel download completed: id={}, format={}, path={}", novelId, ext, downloadPath);
             succeeded = true;
             recorded = true;
@@ -459,7 +457,6 @@ public class NovelDownloadService implements NovelDownloader {
             status.setCompleted(true);
             status.setFailed(true);
             status.setErrorMessage(messages.get("plugin.recovery.database-unavailable"));
-            status.setEndTime(java.time.LocalDateTime.now());
             throw unavailable;
         } catch (Exception e) {
             log.error("novel download failed: id={}", novelId, e);
@@ -519,10 +516,7 @@ public class NovelDownloadService implements NovelDownloader {
         return findAnyStatus(novelId);
     }
 
-    public NovelDownloadStatus getStatus(Long novelId, String ownerUuid, boolean admin) {
-        if (admin) {
-            return findAnyStatus(novelId);
-        }
+    public NovelDownloadStatus getStatus(Long novelId, String ownerUuid) {
         return statusMap.get(statusKey(novelId, ownerUuid));
     }
 
@@ -603,7 +597,6 @@ public class NovelDownloadService implements NovelDownloader {
         status.setCompleted(true);
         status.setFailed(false);
         status.setStage("cancelled");
-        status.setEndTime(java.time.LocalDateTime.now());
         status.setErrorMessage(messages.get("download.cancelled"));
     }
 
@@ -678,16 +671,6 @@ public class NovelDownloadService implements NovelDownloader {
             return collectionDownloadRootResolver.resolveDownloadRoot(other.getCollectionId(), defaultRoot);
         }
         return defaultRoot;
-    }
-
-    private String displayFolderName(Path root, Path downloadPath) {
-        try {
-            return root.toAbsolutePath().normalize()
-                    .relativize(downloadPath.toAbsolutePath().normalize())
-                    .toString();
-        } catch (IllegalArgumentException e) {
-            return downloadPath.toString();
-        }
     }
 
     private void ensureNotCancelled(NovelDownloadStatus status) {

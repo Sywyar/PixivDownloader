@@ -40,6 +40,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext
 import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
@@ -277,23 +278,44 @@ class PixivScheduledIllustWorkExecutorTest {
                 .fetchIllustSeriesMeta(42L, "PHPSESSID=8_secret");
     }
 
-    @Test
-    @DisplayName("异常终止清理后同一任务定义也会重新抓取系列信息")
-    void abortRunClearsSuccessfulWorkSeriesCache() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("结束一轮后重新抓取系列信息且保留其它任务的缓存")
+    void runCleanupKeepsOtherTaskSeriesCache(boolean abort) throws Exception {
         stubSeriesArtwork();
+        AtomicInteger seriesFetches = new AtomicInteger();
+        when(fetchService.fetchIllustSeriesMeta(42L, "PHPSESSID=8_secret"))
+                .thenAnswer(invocation -> new PixivFetchService.IllustSeriesMeta(
+                        "metadata-" + seriesFetches.incrementAndGet(), "https://cover"));
         when(artworkDownloader.downloadImagesBlocking(
                 anyLong(), anyString(), anyList(), anyString(),
                 any(DownloadRequest.Other.class), eq("PHPSESSID=8_secret"), isNull()))
                 .thenReturn(true);
         ScheduledTaskDefinition task = task();
+        ScheduledTaskDefinition otherTask = new ScheduledTaskDefinition(
+                8L, task.sourceType(), task.definitionSchema(), task.definitionVersion(),
+                task.definitionJson(), task.presentation());
         PixivScheduledIllustWorkExecutor executor = executor();
 
         executor.execute(work("123"), context(task, ScheduledNetworkRoute.direct()).context());
-        executor.abortRun(task);
-        executor.execute(work("124"), context(task, ScheduledNetworkRoute.direct()).context());
+        executor.execute(work("124"), context(otherTask, ScheduledNetworkRoute.direct()).context());
+        executor.execute(work("125"), context(task, ScheduledNetworkRoute.direct()).context());
 
-        verify(fetchService, times(2))
-                .fetchIllustSeriesMeta(42L, "PHPSESSID=8_secret");
+        if (abort) {
+            executor.abortRun(task);
+        } else {
+            executor.finishRun(runContext(task));
+        }
+        executor.execute(work("126"), context(otherTask, ScheduledNetworkRoute.direct()).context());
+        executor.execute(work("127"), context(task, ScheduledNetworkRoute.direct()).context());
+
+        assertThat(seriesFetches).hasValue(3);
+        ArgumentCaptor<DownloadRequest.Other> requests = ArgumentCaptor.forClass(DownloadRequest.Other.class);
+        verify(artworkDownloader, times(5)).downloadImagesBlocking(
+                anyLong(), anyString(), anyList(), anyString(), requests.capture(),
+                eq("PHPSESSID=8_secret"), isNull());
+        assertThat(requests.getAllValues()).extracting(DownloadRequest.Other::getSeriesDescription)
+                .containsExactly("metadata-1", "metadata-2", "metadata-1", "metadata-2", "metadata-3");
     }
 
     @Test

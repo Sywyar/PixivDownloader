@@ -313,7 +313,7 @@ public class NovelDownloadController {
         RequestOwnerIdentity ownerIdentity = requestOwnerIdentityResolver.resolve(httpRequest);
         NovelDownloadStatus status = ownerIdentity.admin()
                 ? novelDownloadService.getStatus(novelId)
-                : novelDownloadService.getStatus(novelId, ownerIdentity.ownerUuid(), false);
+                : novelDownloadService.getStatus(novelId, ownerIdentity.ownerUuid());
         if (status == null) {
             return ResponseEntity.ok(new NovelDownloadStatusResponse(
                     false, messages.get("download.status.not-found"),

@@ -3,8 +3,6 @@ package top.sywyar.pixivdownload.novel.download;
 import lombok.Data;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
 
-import java.time.LocalDateTime;
-
 @Data
 public class NovelDownloadStatus {
     private Long novelId;
@@ -12,7 +10,6 @@ public class NovelDownloadStatus {
     private String ownerUuid;
     private String format;
     private String stage;
-    private String folderName;
     private String downloadPath;
     /** 内嵌图片总数（本次需下载的占位符数量）；无内嵌图时为 0。 */
     private int embeddedTotal;
@@ -28,12 +25,6 @@ public class NovelDownloadStatus {
     private String errorMessage;
     private WorkActionResult bookmarkResult;
     private WorkActionResult collectionResult;
-    private LocalDateTime startTime;
-    private LocalDateTime endTime;
-
-    public NovelDownloadStatus(Long novelId, String title, String format) {
-        this(novelId, title, format, null);
-    }
 
     public NovelDownloadStatus(Long novelId, String title, String format, String ownerUuid) {
         this.novelId = novelId;
@@ -41,6 +32,5 @@ public class NovelDownloadStatus {
         this.ownerUuid = ownerUuid;
         this.format = format;
         this.stage = "pending";
-        this.startTime = LocalDateTime.now();
     }
 }

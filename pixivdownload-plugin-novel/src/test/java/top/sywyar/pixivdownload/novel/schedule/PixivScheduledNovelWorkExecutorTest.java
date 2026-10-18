@@ -519,29 +519,49 @@ class PixivScheduledNovelWorkExecutorTest {
         assertThat(seriesFetches).hasValue(2);
     }
 
-    @Test
-    @DisplayName("异常终止清理后同一任务定义也会重新抓取系列信息")
-    void abortRunClearsSuccessfulWorkSeriesCache() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("结束一轮后重新抓取系列信息且保留其它任务的缓存")
+    void runCleanupKeepsOtherTaskSeriesCache(boolean abort) throws Exception {
         AtomicInteger seriesFetches = new AtomicInteger();
         when(pixivAjaxProxyClient.get(any(URI.class), isNull())).thenAnswer(invocation -> {
             URI uri = invocation.getArgument(0);
             if (uri.getPath().contains("/series/")) {
-                seriesFetches.incrementAndGet();
-                return completeSeriesResponse();
+                return completeSeriesResponse().replace(
+                        "系列简介", "metadata-" + seriesFetches.incrementAndGet());
             }
             return completeNovelResponse();
         });
         when(novelDownloader.downloadBlocking(any(), isNull())).thenReturn(true);
         ScheduledTaskDefinition task = task(definition(false, false));
+        ScheduledTaskDefinition otherTask = new ScheduledTaskDefinition(
+                8L, task.sourceType(), task.definitionSchema(), task.definitionVersion(),
+                task.definitionJson(), task.presentation());
         PixivScheduledNovelWorkExecutor executor = executor();
 
         executor.execute(
                 work("123"), context(task, ScheduledNetworkRoute.direct(), null).context());
-        executor.abortRun(task);
         executor.execute(
-                work("124"), context(task, ScheduledNetworkRoute.direct(), null).context());
+                work("124"), context(otherTask, ScheduledNetworkRoute.direct(), null).context());
+        executor.execute(
+                work("125"), context(task, ScheduledNetworkRoute.direct(), null).context());
 
-        assertThat(seriesFetches).hasValue(2);
+        if (abort) {
+            executor.abortRun(task);
+        } else {
+            executor.finishRun(runContext(2L, task));
+        }
+        executor.execute(
+                work("126"), context(otherTask, ScheduledNetworkRoute.direct(), null).context());
+        executor.execute(
+                work("127"), context(task, ScheduledNetworkRoute.direct(), null).context());
+
+        assertThat(seriesFetches).hasValue(3);
+        ArgumentCaptor<NovelDownloadRequest> requests = ArgumentCaptor.forClass(NovelDownloadRequest.class);
+        verify(novelDownloader, times(5)).downloadBlocking(requests.capture(), isNull());
+        assertThat(requests.getAllValues())
+                .extracting(request -> request.getOther().getSeriesDescription())
+                .containsExactly("metadata-1", "metadata-2", "metadata-1", "metadata-2", "metadata-3");
     }
 
     @ParameterizedTest

@@ -43,7 +43,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /** 基于插件 API 的 Pixiv 小说计划作品执行器。 */
 @PluginManagedBean
@@ -66,9 +65,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
     private final NovelMergeService novelMergeService;
     private final NovelAutoTranslateService novelAutoTranslateService;
     private final NovelDownloadExecutionLane downloadExecutionLane;
-    private final ConcurrentHashMap<SeriesCacheKey, Optional<PixivNovelMetadata.SeriesMetadata>>
-            seriesMetadataCache = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<Long, ScheduledTaskDefinition> seriesCacheRuns = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, SeriesRunCache> seriesCacheRuns = new ConcurrentHashMap<>();
 
     public PixivScheduledNovelWorkExecutor(
             ObjectMapper objectMapper,
@@ -141,7 +138,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
             return executePrepared(novelId, context);
         } catch (ScheduledExecutionException | RuntimeException | Error e) {
             if (task != null) {
-                clearFailedRunCache(task);
+                clearRunCache(task);
             }
             throw e;
         }
@@ -277,10 +274,11 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         if (seriesId == null || seriesId <= 0L) {
             return null;
         }
-        prepareRunCache(task);
-        SeriesCacheKey key = new SeriesCacheKey(task.taskId(), seriesId);
-        return seriesMetadataCache.computeIfAbsent(
-                key,
+        SeriesRunCache run = seriesCacheRuns.compute(task.taskId(), (taskId, current) ->
+                current != null && current.task() == task
+                        ? current : new SeriesRunCache(task, new ConcurrentHashMap<>()));
+        return run.series().computeIfAbsent(
+                seriesId,
                 ignored -> Optional.ofNullable(fetchSeriesUncached(seriesId, cookie)))
                 .orElse(null);
     }
@@ -521,40 +519,9 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         return new ScheduledExecutionException(category, code);
     }
 
-    private void prepareRunCache(ScheduledTaskDefinition task) {
-        seriesCacheRuns.compute(task.taskId(), (taskId, current) -> {
-            if (current != task) {
-                clearSeriesEntries(taskId);
-            }
-            return task;
-        });
-    }
-
-    private void clearFailedRunCache(ScheduledTaskDefinition task) {
-        if (detachRun(task)) {
-            clearSeriesEntries(task.taskId());
-        }
-    }
-
     private void clearRunCache(ScheduledTaskDefinition task) {
-        detachRun(task);
-        clearSeriesEntries(task.taskId());
-    }
-
-    private boolean detachRun(ScheduledTaskDefinition task) {
-        AtomicBoolean detached = new AtomicBoolean(false);
-        seriesCacheRuns.computeIfPresent(task.taskId(), (taskId, current) -> {
-            if (current == task) {
-                detached.set(true);
-                return null;
-            }
-            return current;
-        });
-        return detached.get();
-    }
-
-    private void clearSeriesEntries(long taskId) {
-        seriesMetadataCache.keySet().removeIf(key -> key.taskId() == taskId);
+        seriesCacheRuns.computeIfPresent(task.taskId(), (taskId, current) ->
+                current.task() == task ? null : current);
     }
 
     private static Map<String, String> resultAttributes(PixivNovelMetadata metadata) {
@@ -597,6 +564,8 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         }
     }
 
-    private record SeriesCacheKey(long taskId, long seriesId) {
+    private record SeriesRunCache(
+            ScheduledTaskDefinition task,
+            ConcurrentHashMap<Long, Optional<PixivNovelMetadata.SeriesMetadata>> series) {
     }
 }
