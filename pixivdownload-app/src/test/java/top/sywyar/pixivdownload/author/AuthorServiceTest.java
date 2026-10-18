@@ -201,7 +201,7 @@ class AuthorServiceTest {
         @DisplayName("无搜索词应使用通配符并归一化排序、计算 totalPages")
         void shouldComputePagedAuthorsWithDefaultsAndTotalPages() {
             when(authorMapper.countAuthorsWithArtworks("%")).thenReturn(45L);
-            when(authorMapper.findAuthorsWithArtworks(eq("%"), eq("name"), eq(20), eq(0)))
+            when(authorMapper.findAuthorsWithArtworks(eq("%"), eq("name"), eq(20), eq(0L)))
                     .thenReturn(java.util.List.of(new AuthorSummary(1L, "A", 2L)));
 
             AuthorService.PagedAuthors paged = authorService.getPagedAuthorsWithArtworks(0, 20, null, null);
@@ -217,7 +217,7 @@ class AuthorServiceTest {
         @DisplayName("page 应被 clamp 到 [0, +∞)，size 应被 clamp 到 [1, 200]")
         void shouldClampPageAndSize() {
             when(authorMapper.countAuthorsWithArtworks("%")).thenReturn(10L);
-            when(authorMapper.findAuthorsWithArtworks(anyString(), anyString(), anyInt(), anyInt()))
+            when(authorMapper.findAuthorsWithArtworks(anyString(), anyString(), anyInt(), anyLong()))
                     .thenReturn(java.util.List.of());
 
             AuthorService.PagedAuthors paged =
@@ -226,7 +226,7 @@ class AuthorServiceTest {
             org.assertj.core.api.Assertions.assertThat(paged.page()).isZero();
             org.assertj.core.api.Assertions.assertThat(paged.size()).isEqualTo(200);
             // sort='artworks' 应被透传
-            verify(authorMapper).findAuthorsWithArtworks(eq("%"), eq("artworks"), eq(200), eq(0));
+            verify(authorMapper).findAuthorsWithArtworks(eq("%"), eq("artworks"), eq(200), eq(0L));
         }
 
         @org.junit.jupiter.api.Test
@@ -241,14 +241,14 @@ class AuthorServiceTest {
             org.assertj.core.api.Assertions.assertThat(paged.totalPages()).isZero();
             org.assertj.core.api.Assertions.assertThat(paged.size()).isEqualTo(1);
             // total=0 不应再调 mapper.findAuthorsWithArtworks
-            verify(authorMapper, never()).findAuthorsWithArtworks(anyString(), anyString(), anyInt(), anyInt());
+            verify(authorMapper, never()).findAuthorsWithArtworks(anyString(), anyString(), anyInt(), anyLong());
         }
 
         @org.junit.jupiter.api.Test
         @DisplayName("搜索词应被 trim 并包成 %xxx%")
         void shouldWrapSearchTermAsLikePattern() {
             when(authorMapper.countAuthorsWithArtworks("%alice%")).thenReturn(1L);
-            when(authorMapper.findAuthorsWithArtworks(eq("%alice%"), eq("authorId"), eq(20), eq(20)))
+            when(authorMapper.findAuthorsWithArtworks(eq("%alice%"), eq("authorId"), eq(20), eq(20L)))
                     .thenReturn(java.util.List.of(new AuthorSummary(7L, "Alice", 1L)));
 
             AuthorService.PagedAuthors paged =

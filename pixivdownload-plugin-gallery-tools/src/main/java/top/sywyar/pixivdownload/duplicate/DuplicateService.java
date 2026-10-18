@@ -54,8 +54,8 @@ public class DuplicateService {
         List<DuplicateDto.Group> allGroups = cachedGroups(query, fingerprint);
         if (!database.available()) return unavailable(query);
         int totalGroups = allGroups.size();
-        int from = Math.min(query.page() * query.size(), totalGroups);
-        int to = Math.min(from + query.size(), totalGroups);
+        int from = (int) Math.min((long) query.page() * query.size(), totalGroups);
+        int to = (int) Math.min((long) from + query.size(), totalGroups);
         return new DuplicateDto.GroupsPage(
                 query.page(),
                 query.size(),

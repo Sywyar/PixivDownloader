@@ -220,9 +220,9 @@ public class CoreWorkQueryService implements WorkQueryService {
     private PagedResult<WorkSummary> novelSearch(WorkQuery query) {
         List<Long> ids = novelWorkSearch.filteredIds(query);
         int total = ids.size();
-        int from = Math.max(0, query.page() * query.size());
-        int to = Math.min(from + query.size(), total);
-        List<Long> pageIds = from >= total ? List.of() : ids.subList(from, to);
+        int from = (int) Math.min((long) Math.max(0, query.page()) * query.size(), total);
+        int to = (int) Math.min((long) from + query.size(), total);
+        List<Long> pageIds = ids.subList(from, to);
         int totalPages = (int) Math.ceil((double) total / Math.max(1, query.size()));
         return new PagedResult<>(
                 toSummaries(query.workType(), pageIds),

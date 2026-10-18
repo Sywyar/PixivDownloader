@@ -68,7 +68,7 @@ public class AuthorMapper {
                 List.of(), Map.of("count", call(COUNT)), null, List.of(), null, List.of(), false, 1, 0);
         return (Long) database.read(s -> s.query(query)).get(0).get("count");
     }
-    public List<AuthorSummary> findAuthorsWithArtworks(String search, String sort, int limit, int offset) {
+    public List<AuthorSummary> findAuthorsWithArtworks(String search, String sort, int limit, long offset) {
         return database.read(s -> s.query(artworkAuthors(search, sort, limit, offset))).stream()
                 .map(row -> new AuthorSummary((Long) row.get("author_id"), (String) row.get("name"), (Long) row.get("artwork_count"))).toList();
     }

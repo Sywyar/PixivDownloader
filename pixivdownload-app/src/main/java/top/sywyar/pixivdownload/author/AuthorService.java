@@ -89,7 +89,7 @@ public class AuthorService {
             List<AuthorSummary> rows = total == 0
                     ? Collections.emptyList()
                     : authorMapper.findAuthorsWithArtworks(
-                            normalizedSearch, normalizedSort, safeSize, safePage * safeSize);
+                            normalizedSearch, normalizedSort, safeSize, (long) safePage * safeSize);
             int totalPages = (int) Math.ceil((double) total / safeSize);
             return new PagedAuthors(rows, total, safePage, safeSize, totalPages);
         }
@@ -104,8 +104,8 @@ public class AuthorService {
                 .toList();
         long total = filtered.size();
         int totalPages = (int) Math.ceil((double) total / safeSize);
-        int from = Math.min(safePage * safeSize, filtered.size());
-        int to = Math.min(from + safeSize, filtered.size());
+        int from = (int) Math.min((long) safePage * safeSize, filtered.size());
+        int to = (int) Math.min((long) from + safeSize, filtered.size());
         return new PagedAuthors(filtered.subList(from, to), total, safePage, safeSize, totalPages);
     }
 

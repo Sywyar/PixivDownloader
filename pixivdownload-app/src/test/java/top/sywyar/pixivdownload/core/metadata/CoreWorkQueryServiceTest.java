@@ -494,6 +494,19 @@ class CoreWorkQueryServiceTest {
         }
 
         @Test
+        @DisplayName("小说超大页码返回空页并保留计数")
+        void shouldReturnEmptyNovelPageBeyondIntegerOffset() {
+            insertNovel(11L, 100L, null, null);
+            for (int page : List.of(1_073_741_824, Integer.MAX_VALUE)) {
+                var result = service.search(WorkQuery.builder(WorkType.NOVEL).page(page).size(2).build());
+                assertThat(result.content()).isEmpty();
+                assertThat(result.totalElements()).isEqualTo(1);
+                assertThat(result.page()).isEqualTo(page);
+                assertThat(result.totalPages()).isEqualTo(1);
+            }
+        }
+
+        @Test
         @DisplayName("小说 search 带访客限制：携带白名单外标签的小说被排除")
         void shouldApplyGuestRestrictionToNovels() {
             insertNovel(11L, 100L, null, null);

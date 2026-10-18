@@ -490,6 +490,19 @@ class PixivDatabaseTest {
     }
 
     @Test
+    @DisplayName("下载历史的两种排序都接受超出整数偏移的页码")
+    void shouldReturnEmptyHistoryBeyondIntegerOffset() {
+        insertArtwork(1L, "fixture", "/fixture", 1, "jpg", 100L, 0);
+        var history = new top.sywyar.pixivdownload.core.download.DownloadedArtworkService(pixivDatabase, null);
+        for (int page : List.of(1_073_741_824, Integer.MAX_VALUE)) {
+            assertThat(history.getSortTimeArtworkPaged(page, 20)).isEmpty();
+            assertThat(history.getSortAuthorArtworkPaged(page, 20)).isEmpty();
+        }
+        assertThat(history.getSortTimeArtworkPaged(0, 20)).containsExactly(1L);
+        assertThat(history.getSortAuthorArtworkPaged(0, 20)).containsExactly(1L);
+    }
+
+    @Test
     @DisplayName("按作者排序分页时应将 null authorId 排在最后")
     void shouldReturnPagedResultsSortedByAuthorId() {
         pixivDatabase.insertArtwork(artwork(1L, "a", "/a", 1, "jpg", 100L, 0).authorId(20L).build());

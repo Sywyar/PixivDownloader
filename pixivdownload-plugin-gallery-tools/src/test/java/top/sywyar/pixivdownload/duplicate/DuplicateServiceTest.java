@@ -88,6 +88,18 @@ class DuplicateServiceTest {
                 .hasMessageContaining("32");
     }
 
+    @Test
+    @DisplayName("超大页码返回空页并保留重复组总数")
+    void shouldReturnEmptyPageBeyondIntegerOffset() {
+        stubRows(List.of(row(1001L, 0, 0L, 0L), row(1002L, 0, 0L, 0L)));
+        for (int requestedPage : List.of(1_073_741_824, Integer.MAX_VALUE)) {
+            var page = duplicateService.groups(0, 0, "cross-artwork", requestedPage, 20);
+            assertThat(page.groups()).isEmpty();
+            assertThat(page.totalGroups()).isEqualTo(1);
+            assertThat(page.page()).isEqualTo(requestedPage);
+        }
+    }
+
     private void stubRows(List<ArtworkHashEntry> rows) {
         when(hashIndexQuery.fingerprint()).thenReturn(new ArtworkHashFingerprint(rows.size(), 123L));
         when(hashIndexQuery.findAllEntries()).thenReturn(rows);

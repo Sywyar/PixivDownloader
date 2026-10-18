@@ -54,11 +54,11 @@ public class DownloadedArtworkService {
     }
 
     public List<Long> getSortTimeArtworkPaged(int page, int size) {
-        return pixivDatabase.getArtworkIdsSortedByTimeDescPaged(page * size, size);
+        return pixivDatabase.getArtworkIdsSortedByTimeDescPaged((long) page * size, size);
     }
 
     public List<Long> getSortAuthorArtworkPaged(int page, int size) {
-        return pixivDatabase.getArtworkIdsSortedByAuthorIdAscPaged(page * size, size);
+        return pixivDatabase.getArtworkIdsSortedByAuthorIdAscPaged((long) page * size, size);
     }
 
     public long getArtworkCount() {

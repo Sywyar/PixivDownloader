@@ -396,12 +396,12 @@ public class PixivDatabase {
         return pixivMapper.countAll();
     }
 
-    public List<Long> getArtworkIdsSortedByTimeDescPaged(int offset, int size) {
+    public List<Long> getArtworkIdsSortedByTimeDescPaged(long offset, int size) {
         if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.findIdsSortedByTimeDescPaged(size, offset);
     }
 
-    public List<Long> getArtworkIdsSortedByAuthorIdAscPaged(int offset, int size) {
+    public List<Long> getArtworkIdsSortedByAuthorIdAscPaged(long offset, int size) {
         if (isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return pixivMapper.findIdsSortedByAuthorIdAscPaged(size, offset);
     }

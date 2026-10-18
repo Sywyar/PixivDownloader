@@ -143,6 +143,28 @@ class PostgresHostStorageTest {
     }
 
     @Test
+    @DisplayName("作品、作者与系列查询保留超过整数范围的分页偏移")
+    void queriesAcceptLongOffsets() {
+        var main = DatabaseProviderTestFixtures.main(database.pool());
+        var artworks = new PixivMapper(main);
+        var authors = new AuthorMapper(main);
+        var series = new MangaSeriesMapper(main);
+        authors.insertIfAbsent(42, "Author", 100);
+        series.insertIfAbsent(43, "Series", 42L, 100);
+        jdbc.update("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time,author_id,series_id) "
+                + "VALUES(44,'Fixture','/fixture',1,'jpg',100,42,43)");
+        assertThat(artworks.findIdsSortedByTimeDescPaged(20, 0)).containsExactly(44L);
+        assertThat(artworks.findIdsSortedByAuthorIdAscPaged(20, 0)).containsExactly(44L);
+        assertThat(authors.findAuthorsWithArtworks("%", "authorId", 20, 0)).hasSize(1);
+        assertThat(series.findSeriesWithArtworks("%", "seriesId", 20, 0)).hasSize(1);
+        long offset = 42_949_672_940L;
+        assertThat(artworks.findIdsSortedByTimeDescPaged(20, offset)).isEmpty();
+        assertThat(artworks.findIdsSortedByAuthorIdAscPaged(20, offset)).isEmpty();
+        assertThat(authors.findAuthorsWithArtworks("%", "authorId", 20, offset)).isEmpty();
+        assertThat(series.findSeriesWithArtworks("%", "seriesId", 20, offset)).isEmpty();
+    }
+
+    @Test
     @DisplayName("路径互换与反斜杠 token 改写在真实事务中一致完成")
     void pathSwapAndRollback() throws Exception {
         var mapper = new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));

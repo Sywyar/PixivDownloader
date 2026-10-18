@@ -326,6 +326,23 @@ class NovelGalleryServiceTest {
         }
 
         @Test
+        @DisplayName("超大页码的小说作者与系列目录保留总数并返回空页")
+        void shouldReturnEmptyCatalogPagesBeyondIntegerOffset() {
+            when(workQueryService.authors(new AuthorQuery(WorkType.NOVEL, null)))
+                    .thenReturn(List.of(new AuthorSummary(801L, "Author", 2L)));
+            when(novelSeriesCatalogRepository.findAll())
+                    .thenReturn(List.of(new NovelSeriesCatalogRow(700L, "Series", 801L, 2L, null)));
+            for (int page : List.of(1_073_741_824, Integer.MAX_VALUE)) {
+                var authors = novelGalleryService.getPagedAuthorsWithNovels(page, 20, null, "name");
+                assertThat(authors.content()).isEmpty();
+                assertThat(authors.totalElements()).isEqualTo(1);
+                var series = novelGalleryService.getPagedSeriesWithNovels(page, 20, null, "title");
+                assertThat(series.content()).isEmpty();
+                assertThat(series.totalElements()).isEqualTo(1);
+            }
+        }
+
+        @Test
         @DisplayName("受限系列目录用核心聚合计数，不全量扫描作品或批量 hydrate")
         void shouldCountRestrictedSeriesInCoreAggregation() {
             WorkRestriction restriction = new WorkRestriction(

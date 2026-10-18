@@ -302,8 +302,8 @@ public class NovelGalleryService {
 
     private PagedAuthors pageAuthors(List<NovelAuthorSummary> rows, int page, int size) {
         int total = rows.size();
-        int from = Math.min(page * size, total);
-        int to = Math.min(from + size, total);
+        int from = (int) Math.min((long) page * size, total);
+        int to = (int) Math.min((long) from + size, total);
         int totalPages = (int) Math.ceil((double) total / size);
         return new PagedAuthors(rows.subList(from, to), total, page, size, totalPages);
     }
@@ -320,8 +320,8 @@ public class NovelGalleryService {
 
     private PagedSeries pageSeries(List<NovelSeriesSummary> rows, int page, int size) {
         int total = rows.size();
-        int from = Math.min(page * size, total);
-        int to = Math.min(from + size, total);
+        int from = (int) Math.min((long) page * size, total);
+        int to = (int) Math.min((long) from + size, total);
         int totalPages = (int) Math.ceil((double) total / size);
         return new PagedSeries(rows.subList(from, to), total, page, size, totalPages);
     }
