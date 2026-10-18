@@ -986,6 +986,13 @@ class PluginReleaseScriptsTest {
         assertThat(entry.path("source").asText()).isEqualTo("LOCAL_UPLOAD");
         assertThat(entry.path("verification").asText()).isEqualTo("UNSIGNED_ALLOWED");
 
+        byte[] stagedArtifact = Files.readAllBytes(artifact);
+        writeThinPluginJar(expectedArtifact, "sample", "1.0.0", "1.0", false);
+        CommandResult unprocessed = runPowerShellResult(command);
+        assertThat(unprocessed.exitCode()).as(unprocessed.output()).isNotZero();
+        assertThat(unprocessed.output()).contains("Release artifact is missing ProGuard metadata");
+        assertThat(Files.readAllBytes(artifact)).isEqualTo(stagedArtifact);
+
         CommandResult failure = runPowerShellResult(
                 "$ErrorActionPreference='Stop'; . './scripts/package-local-plugin-staging.ps1'; "
                         + "$null=Resolve-PrebuiltPluginsDir '" + psQuote(tempDir.resolve("missing")) + "'");

@@ -48,9 +48,7 @@ function Stage-OfficialPlugins {
             $sourceArtifact = Find-ModulePluginArtifact $plugin $ProjectRoot
         }
         $descriptor = Assert-OfficialPluginArtifact $sourceArtifact $plugin
-        if (-not $PrebuiltPluginsDir) {
-            Assert-ProguardProcessedArtifact $sourceArtifact
-        }
+        Assert-ProguardProcessedArtifact $sourceArtifact
         $stableName = "$($plugin.Module).$extension"
         $targetArtifact = Join-Path $pluginsDir $stableName
         Copy-Item $sourceArtifact $targetArtifact -Force

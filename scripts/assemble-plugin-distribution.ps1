@@ -62,8 +62,7 @@
     Maven first and the app boot jar is located under pixivdownload-app/target.
 
 .PARAMETER Build
-    Run Maven `package` (skip tests and userscript generation) before staging; otherwise the reactor jars
-    must already be built.
+    Run Maven `verify` with tests skipped before staging; otherwise the reactor jars must already be built.
 
 .PARAMETER IncludeSentinel
     Also stage the minimal validation plugin recovery-sentinel (off by default - it is only the recovery
