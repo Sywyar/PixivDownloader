@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.novel.translation;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueGenerationDrain;
@@ -633,25 +635,77 @@ class NovelAutoTranslateServiceTest {
         verify(translationService, times(1)).resolveLangCode(anyString());
     }
 
-    @Test
-    @DisplayName("终态状态超过保留期后被惰性清理（返回 null 并移除条目）")
-    void terminalStatusExpires() throws Exception {
+    @ParameterizedTest
+    @CsvSource({"OK,DONE,true,false", "SAME_LANGUAGE,SAME_LANGUAGE,true,false", "ERROR,FAILED,false,true"})
+    @DisplayName("各终态保留成功与失败语义，超过保留期后惰性清理")
+    void terminalStatusExpires(NovelTranslationService.Status result, String phase, boolean done, boolean failed) {
         when(aiChatClient.isConfigured()).thenReturn(true);
         when(translationService.resolveLangCode(anyString())).thenReturn("en-US");
         when(glossaryService.getOrCreateNovelDefaultId(anyLong())).thenReturn(null);
         when(translationService.translateChapter(anyLong(), anyString(), anyInt(), anyBoolean(),
                 nullable(String.class), nullable(Long.class), anyBoolean(), anyBoolean(), anyBoolean()))
-                .thenReturn(ok("en-US"));
+                .thenReturn(new NovelTranslationService.Result(result, "en-US", "fixture", false));
         NovelAutoTranslateService s = service();
 
         s.submit(100L, null, "english", 0, false, "epub");
 
         long now = System.currentTimeMillis();
-        assertEquals("DONE", s.getStatus(100L, now).phase());
+        var status = s.getStatus(100L, now);
+        assertEquals(phase, status.phase());
+        assertEquals(done, status.done());
+        assertEquals(failed, status.failed());
         // 进入终态超过保留期：惰性清理，视为无翻译记录
         assertNull(s.getStatus(100L, now + Duration.ofMinutes(31).toMillis()));
         // 条目已被移除：后续读取仍为 null
         assertNull(s.getStatus(100L));
+    }
+
+    @Test
+    @DisplayName("排队状态不按终态保留期清除，取消后才能过期")
+    void queuedStatusSurvivesUntilCancellation() {
+        for (Long seriesId : new Long[]{null, 500L}) {
+            var queued = new java.util.ArrayList<Runnable>();
+            var fixture = fixture(queued::add);
+            var completion = fixture.service().submit(100L, seriesId, "english", 0, false, "epub");
+            long later = System.currentTimeMillis() + Duration.ofMinutes(31).toMillis();
+            var status = fixture.service().getStatus(100L, later);
+            assertEquals(seriesId == null ? "QUEUED" : "WAITING_SERIES", status.phase());
+            assertFalse(status.done());
+            assertFalse(status.failed());
+            assertFalse(completion.isDone());
+
+            assertTrue(quiesce(fixture).isDrained());
+            completion.join();
+            assertEquals("FAILED", fixture.service().getStatus(100L).phase());
+            assertNull(fixture.service().getStatus(100L, later));
+        }
+    }
+
+    @Test
+    @DisplayName("执行器运行任务后再报拒绝，不重复结算系列完成数")
+    void rejectionAfterExecutionKeepsSeriesAccounting() {
+        var queued = new java.util.ArrayList<Runnable>();
+        var submissions = new AtomicInteger();
+        var fixture = fixture(task -> {
+            if (submissions.getAndIncrement() == 0) {
+                task.run();
+                throw new RejectedExecutionException("rejected after running");
+            }
+            queued.add(task);
+        });
+        fixture.service().submit(100L, 500L, "english", 0, false, "epub").join();
+        var second = fixture.service().submit(101L, 500L, "english", 0, false, "epub");
+        var third = fixture.service().submit(102L, 500L, "english", 0, false, "epub");
+        assertEquals("ai-unavailable", fixture.service().getStatus(100L).failureReason());
+        assertEquals(1, fixture.service().getStatus(102L).seriesPending());
+        assertEquals(1, queued.size());
+        queued.get(0).run();
+        second.join();
+        assertEquals(0, fixture.service().getStatus(102L).seriesPending());
+        assertEquals(2, queued.size());
+        queued.get(1).run();
+        third.join();
+        assertTrue(quiesce(fixture).isDrained());
     }
 
     @Test

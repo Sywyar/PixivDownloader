@@ -15,7 +15,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
@@ -47,7 +46,7 @@ public class NovelAutoTranslateService {
     public enum Phase { QUEUED, WAITING_SERIES, RESOLVING, TRANSLATING, MERGING, DONE, SAME_LANGUAGE, FAILED }
 
     /**
-     * 终态（DONE / FAILED）状态保留时长：进入终态超过此时长即惰性清理。取与前端轮询窗口同量级——
+     * 终态（DONE / SAME_LANGUAGE / FAILED）状态保留时长：进入终态超过此时长即惰性清理。取与前端轮询窗口同量级——
      * 比任何客户端轮询某本译文状态的时长都长，故不影响在跑 / 刚结束的展示，只界定 {@code statuses}
      * 的长期内存增长，并避免「曾翻译过的小说」的旧终态长期驻留、被后续轮次误读。
      */
@@ -98,8 +97,6 @@ public class NovelAutoTranslateService {
         final Long seriesId;
         final long seriesSeq;
         volatile String langCode = "";
-        volatile boolean done;
-        volatile boolean failed;
         volatile String failureReason;
 
         JobStatus(Long seriesId, long seriesSeq) {
@@ -108,8 +105,9 @@ public class NovelAutoTranslateService {
         }
 
         void enter(Phase next) {
-            this.phase = next;
+            // 先更新时间，再发布阶段，避免终态读取到上一阶段的起点。
             this.phaseStartedAtMillis = System.currentTimeMillis();
+            this.phase = next;
         }
     }
 
@@ -127,7 +125,6 @@ public class NovelAutoTranslateService {
         private final String mergeFormat;
         private final QueueTaskTracker.Task task;
         private final AtomicInteger phase = new AtomicInteger(WAITING);
-        private final AtomicBoolean seriesDoneMarked = new AtomicBoolean();
         private final CompletableFuture<Void> completion = new CompletableFuture<>();
 
         private TranslationAttempt(long novelId,
@@ -160,7 +157,7 @@ public class NovelAutoTranslateService {
             } catch (Throwable statusFailure) {
                 failure = statusFailure;
             }
-            failure = markSeriesDoneOnce(failure);
+            failure = recordSeriesCompletion(failure);
             complete(failure);
             rethrow(failure);
         }
@@ -177,7 +174,7 @@ public class NovelAutoTranslateService {
                 } catch (Throwable statusFailure) {
                     bookkeepingFailure = statusFailure;
                 }
-                bookkeepingFailure = markSeriesDoneOnce(bookkeepingFailure);
+                bookkeepingFailure = recordSeriesCompletion(bookkeepingFailure);
                 try {
                     task.rejectSubmission();
                 } catch (Throwable rejectFailure) {
@@ -206,17 +203,14 @@ public class NovelAutoTranslateService {
                 failure = taskFailure;
             } finally {
                 if (phase.compareAndSet(RUNNING, SETTLED)) {
-                    failure = markSeriesDoneOnce(failure);
+                    failure = recordSeriesCompletion(failure);
                     complete(failure);
                 }
             }
             rethrow(failure);
         }
 
-        private Throwable markSeriesDoneOnce(Throwable failure) {
-            if (!seriesDoneMarked.compareAndSet(false, true)) {
-                return failure;
-            }
+        private Throwable recordSeriesCompletion(Throwable failure) {
             try {
                 markSeriesDone(status);
             } catch (Throwable countFailure) {
@@ -414,7 +408,6 @@ public class NovelAutoTranslateService {
                 if (cancelled(task, status)) {
                     return;
                 }
-                status.done = true;
                 status.enter(Phase.SAME_LANGUAGE);
                 return;
             }
@@ -451,7 +444,6 @@ public class NovelAutoTranslateService {
             if (cancelled(task, status)) {
                 return;
             }
-            status.done = true;
             status.enter(Phase.DONE);
         } catch (DatabaseUnavailableException unavailable) {
             fail(status, "DATABASE_UNAVAILABLE");
@@ -493,8 +485,6 @@ public class NovelAutoTranslateService {
     }
 
     private static void fail(JobStatus status, String reason) {
-        status.done = false;
-        status.failed = true;
         status.failureReason = reason;
         status.enter(Phase.FAILED);
     }
@@ -534,23 +524,26 @@ public class NovelAutoTranslateService {
             statuses.remove(novelId, s);
             return null;
         }
+        Phase phase = s.phase;
         long elapsed = Math.max(0, (now - s.phaseStartedAtMillis) / 1000);
         int ahead = 0;
-        if (s.phase == Phase.WAITING_SERIES && s.seriesId != null) {
+        if (phase == Phase.WAITING_SERIES && s.seriesId != null) {
             long done = seriesDone.getOrDefault(s.seriesId, new AtomicLong()).get();
             ahead = (int) Math.max(0, (s.seriesSeq - 1) - done);
         }
-        return new StatusView(s.phase.name(), elapsed, ahead, s.langCode,
-                s.done, s.failed, s.failureReason);
+        return new StatusView(phase.name(), elapsed, ahead, s.langCode,
+                phase == Phase.DONE || phase == Phase.SAME_LANGUAGE, phase == Phase.FAILED, s.failureReason);
     }
 
-    /** 惰性清理已超过保留期的终态（DONE / FAILED）状态条目，界定 {@code statuses} 的内存增长。 */
+    /** 惰性清理已超过保留期的终态状态条目。 */
     private void pruneExpiredTerminal(long now) {
         statuses.values().removeIf(s -> isExpiredTerminal(s, now));
     }
 
-    /** 是否为已超过保留期的终态状态（仅 DONE / FAILED 才计入过期；运行中 / 等待中的状态永不过期）。 */
+    /** 运行中和等待中的状态不按终态保留期清理。 */
     private static boolean isExpiredTerminal(JobStatus s, long now) {
-        return (s.done || s.failed) && now - s.phaseStartedAtMillis > TERMINAL_RETENTION_MILLIS;
+        Phase phase = s.phase;
+        return (phase == Phase.DONE || phase == Phase.SAME_LANGUAGE || phase == Phase.FAILED)
+                && now - s.phaseStartedAtMillis > TERMINAL_RETENTION_MILLIS;
     }
 }

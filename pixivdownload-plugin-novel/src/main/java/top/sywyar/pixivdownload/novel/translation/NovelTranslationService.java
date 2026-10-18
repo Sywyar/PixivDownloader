@@ -462,19 +462,6 @@ public class NovelTranslationService {
     }
 
     /**
-     * 取正文开头的一段可读文本作为语言探测样本：逐行累计，跳过空行与纯 Pixiv 标记行（如 {@code [newpage]}、
-     * {@code [pixivimage:...]}），去掉行内 {@code [[...]]} / {@code [...]} 标记后只保留自然语言文本，
-     * 累计到约 {@code maxChars} 字为止。
-     */
-    static String firstTextSample(String raw, int maxChars) {
-        String text = readableText(raw);
-        if (text.isBlank() || maxChars <= 0) {
-            return "";
-        }
-        return text.length() > maxChars ? text.substring(0, maxChars) : text;
-    }
-
-    /**
      * 语言探测使用的保守样本：短正文直接使用全部自然语言文本；长正文从开头 / 中段 / 结尾各取一段。
      * 这样可避免只看开头题记、作者说明或引用时，把后续主体语言不同的小说误判为已是目标语言。
      */
