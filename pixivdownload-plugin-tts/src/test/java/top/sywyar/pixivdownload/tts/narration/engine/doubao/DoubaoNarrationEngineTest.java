@@ -3,6 +3,9 @@ package top.sywyar.pixivdownload.tts.narration.engine.doubao;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -103,16 +106,42 @@ class DoubaoNarrationEngineTest {
         assertThat(audio.containsKey("enable_emotion")).isFalse();
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     @DisplayName("响应 base64 解码为音频字节，contentType 跟随编码（mp3 → audio/mpeg）")
-    void decodesBase64Audio() {
-        when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(AUDIO_B64));
+    void decodesBase64Audio(boolean padded) {
+        when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class)))
+                .thenReturn(json(padded ? " " + AUDIO_B64 + " " : AUDIO_B64));
 
         NarrationAudio audio = engine(config("https://h", "app", "tok", "vt"))
                 .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci"));
 
         assertThat(audio.data()).containsExactly(0x49, 0x44, 0x33, 0x04);
         assertThat(audio.contentType()).isEqualTo("audio/mpeg");
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"   "})
+    @DisplayName("空音频字段返回受控异常")
+    void rejectsEmptyAudio(String data) {
+        when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(data));
+
+        assertThatThrownBy(() -> engine(config("https://h", "app", "tok", "vt"))
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci")))
+                .isInstanceOf(NarrationVoiceException.class).hasNoCause();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"!", "a", "===="})
+    @DisplayName("非法音频编码保留解码失败原因")
+    void rejectsMalformedAudio(String data) {
+        when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(data));
+
+        assertThatThrownBy(() -> engine(config("https://h", "app", "sk-secret", "vt"))
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci")))
+                .isInstanceOf(NarrationVoiceException.class)
+                .hasCauseInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -158,7 +187,8 @@ class DoubaoNarrationEngineTest {
     }
 
     private static ResponseEntity<byte[]> json(String audioBase64) {
-        return jsonRaw("{\"code\":3000,\"message\":\"Success\",\"data\":\"" + audioBase64 + "\"}");
+        String data = audioBase64 == null ? "null" : "\"" + audioBase64 + "\"";
+        return jsonRaw("{\"code\":3000,\"message\":\"Success\",\"data\":" + data + "}");
     }
 
     private static ResponseEntity<byte[]> jsonRaw(String body) {

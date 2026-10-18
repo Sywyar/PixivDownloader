@@ -15,7 +15,6 @@ import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceRequest;
 import top.sywyar.pixivdownload.tts.narration.engine.TtsPluginConfig;
 import top.sywyar.pixivdownload.tts.narration.engine.http.AbstractHttpNarrationEngine;
 
-import java.util.Base64;
 import java.util.EnumSet;
 import java.util.Locale;
 import java.util.Set;
@@ -174,20 +173,7 @@ public class DoubaoNarrationEngine extends AbstractHttpNarrationEngine implement
                     + (response.message() == null ? "" : ": " + response.message()), accessToken);
             throw new NarrationVoiceException(localized("narration.tts.error.request-failed", detail), null);
         }
-        String data = response.data();
-        if (NarrationSpeechText.blankToNull(data) == null) {
-            throw new NarrationVoiceException(localized("narration.tts.error.empty-audio"), null);
-        }
-        try {
-            byte[] bytes = Base64.getDecoder().decode(data.trim());
-            if (bytes.length == 0) {
-                throw new NarrationVoiceException(localized("narration.tts.error.empty-audio"), null);
-            }
-            return bytes;
-        } catch (IllegalArgumentException e) {
-            throw new NarrationVoiceException(
-                    localized("narration.tts.error.request-failed", redact(safeMessage(e), accessToken)), e);
-        }
+        return decodeBase64Audio(response.data(), accessToken);
     }
 
     /** JSON 请求头 + 火山特有的 {@code Authorization: Bearer;<token>}（带分号、无空格）；token 空 / 空白则不带。 */

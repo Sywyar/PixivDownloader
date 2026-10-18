@@ -24,9 +24,7 @@ import top.sywyar.pixivdownload.tts.dto.EdgeTtsVoice;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 /**
  * 文本转语音（TTS）端点。仅在线引擎 Edge TTS 需要后端代理；浏览器内置的 Web Speech API 完全在前端运行，不经过这里。
@@ -72,7 +70,8 @@ public class TtsController {
                     .body(error("tts.text.too-long", MAX_TEXT_LENGTH));
         }
         String voice = request.voice();
-        if (voice == null || !allowedVoiceNames().contains(voice)) {
+        if (voice == null || voiceService.listVoices().stream()
+                .noneMatch(candidate -> voice.equals(candidate.shortName()))) {
             return ResponseEntity.badRequest().body(error("tts.voice.invalid", voice));
         }
         String rate = formatRate(request.rate());
@@ -103,12 +102,6 @@ public class TtsController {
                     "tts.rate-limit.exceeded", ttsRateLimitService.getLimitPerMinute()));
         }
         return null;
-    }
-
-    private Set<String> allowedVoiceNames() {
-        return voiceService.listVoices().stream()
-                .map(EdgeTtsVoice::shortName)
-                .collect(Collectors.toSet());
     }
 
     /** 语速限制在 [-50, 100] %，缺省 0%。 */

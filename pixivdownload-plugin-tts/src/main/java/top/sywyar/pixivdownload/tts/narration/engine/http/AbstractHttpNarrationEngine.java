@@ -149,6 +149,23 @@ public abstract class AbstractHttpNarrationEngine {
         }
     }
 
+    /** 解码 JSON 响应中的音频字段；空音频与非法编码保留各自的受控错误。 */
+    protected byte[] decodeBase64Audio(String data, String secret) {
+        if (NarrationSpeechText.blankToNull(data) == null) {
+            throw new NarrationVoiceException(localized("narration.tts.error.empty-audio"), null);
+        }
+        try {
+            byte[] bytes = Base64.getDecoder().decode(data.trim());
+            if (bytes.length == 0) {
+                throw new NarrationVoiceException(localized("narration.tts.error.empty-audio"), null);
+            }
+            return bytes;
+        } catch (IllegalArgumentException e) {
+            throw new NarrationVoiceException(
+                    localized("narration.tts.error.request-failed", redact(safeMessage(e), secret)), e);
+        }
+    }
+
     /** 序列化请求体 DTO 为 JSON 字节；失败转脱敏的 {@link NarrationVoiceException}（{@code secret} 仅用于脱敏）。 */
     protected byte[] serialize(Object body, String secret) {
         try {
