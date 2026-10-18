@@ -2,9 +2,11 @@ package top.sywyar.pixivdownload.gui;
 
 import top.sywyar.pixivdownload.common.AppInfo;
 import top.sywyar.pixivdownload.common.AppVersion;
+import top.sywyar.pixivdownload.common.GuiTokenProvider;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.config.http.ServerAddressProvider;
+import top.sywyar.pixivdownload.config.http.LocalGuiWebServerCustomizer;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
 import top.sywyar.pixivdownload.ffmpeg.FfmpegInstaller;
@@ -84,8 +86,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
     AppDesktopUiHost(int serverPort, ConfigFile applicationConfig, Supplier<DataSource> backfillDataSource,
                      top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginBootstrapSession pluginSession,
                      DatabaseTarget processDatabaseTarget) {
-        this.localApiClient = new DesktopUiLocalApiClient(() -> BackendLifecycleManager.requiredBean(
-                top.sywyar.pixivdownload.config.http.LocalGuiWebServerCustomizer.class).connection());
+        this.localApiClient = new DesktopUiLocalApiClient(AppDesktopUiHost::localGuiConnection);
         this.applicationConfig = applicationConfig;
         this.startupPort = serverPort;
         this.backfillDataSource = java.util.Objects.requireNonNull(backfillDataSource, "backfillDataSource");
@@ -245,8 +246,18 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public boolean developmentMode() {
         return top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts.enabled();
     }
-    @Override public String guiToken() { return GuiTokenHolder.get(); }
-    @Override public String guiTokenHeader() { return GuiTokenHolder.HEADER_NAME; }
+    private static LocalGuiWebServerCustomizer.Connection localGuiConnection() {
+        return BackendLifecycleManager.requiredBean(LocalGuiWebServerCustomizer.class).connection();
+    }
+
+    @Override public String guiToken() {
+        try {
+            return localGuiConnection().token();
+        } catch (IllegalStateException unavailable) {
+            return null;
+        }
+    }
+    @Override public String guiTokenHeader() { return GuiTokenProvider.HEADER_NAME; }
     @Override public Path dataDirectory() { return RuntimeFiles.dataDirectory(); }
     @Override public Optional<WindowStateSnapshot> loadWindowState() { return windowState.load(); }
     @Override public boolean saveWindowState(WindowStateSnapshot state) { return windowState.save(state); }

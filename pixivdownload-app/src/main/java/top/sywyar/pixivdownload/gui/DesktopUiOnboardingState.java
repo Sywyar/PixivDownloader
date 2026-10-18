@@ -23,9 +23,9 @@ final class DesktopUiOnboardingState {
                 Files.exists(path(FINISHED)) || seen, setupComplete(rootFolder));
     }
     boolean saveProgress(int step) { return write(path(PROGRESS), Integer.toString(step)); }
-    boolean markSeen() { return write(path(SEEN), "1"); }
-    boolean markProxyConfigured() { return write(path(PROXY), "1"); }
-    boolean markFinished() { return write(path(FINISHED), "1"); }
+    boolean markSeen() { return mark(SEEN); }
+    boolean markProxyConfigured() { return mark(PROXY); }
+    boolean markFinished() { return mark(FINISHED); }
     boolean clear() {
         try {
             Files.deleteIfExists(path(SEEN)); Files.deleteIfExists(path(PROXY));
@@ -55,8 +55,11 @@ final class DesktopUiOnboardingState {
             return false;
         }
     }
+    private static boolean mark(String name) {
+        Path file = path(name);
+        return Files.exists(file) || write(file, "1");
+    }
     private static boolean write(Path file, String value) {
-        if (Files.exists(file)) return true;
         try {
             Files.createDirectories(file.getParent()); Files.writeString(file, value); return true;
         } catch (Exception failure) {
