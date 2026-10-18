@@ -488,25 +488,7 @@ public class PixivFetchService {
         LinkedHashSet<String> ids = new LinkedHashSet<>();
         int pages = Math.max(1, maxPages);
         for (int p = 1; p <= pages; p++) {
-            URI uri = UriComponentsBuilder
-                    .fromUriString("https://www.pixiv.net/ajax/search/novels/{word}")
-                    .queryParam("word", "{word}")
-                    .queryParam("order", order)
-                    .queryParam("mode", mode)
-                    .queryParam("s_mode", sMode)
-                    .queryParam("p", p)
-                    .queryParam("lang", "zh")
-                    .buildAndExpand(Map.of("word", word))
-                    .encode()
-                    .toUri();
-            JsonNode data = requireBody(proxyGetUri(uri, cookie)).path("novel").path("data");
-            if (!data.isArray() || data.isEmpty()) break;
-            int before = ids.size();
-            for (JsonNode item : data) {
-                String id = item.path("id").asText("");
-                if (!id.isEmpty()) ids.add(id);
-            }
-            if (ids.size() == before) break;
+            if (!ids.addAll(discoverSearchNovelIdsPage(word, order, mode, sMode, p, cookie))) break;
         }
         return new ArrayList<>(ids);
     }
