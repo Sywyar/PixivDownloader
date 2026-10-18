@@ -83,6 +83,14 @@ final class PluginRuntimeFileSecurity {
         return directory;
     }
 
+    static Path createPrivateTempDirectory(Path parent, String prefix, UserPrincipal owner) throws IOException {
+        requirePlainDirectory(parent, "plugin runtime parent directory");
+        requireOwner(parent, owner, "plugin runtime parent directory");
+        Path directory = Files.createTempDirectory(parent, prefix);
+        secureWritableDirectory(directory, owner);
+        return directory;
+    }
+
     static void secureWritableDirectory(Path directory, UserPrincipal owner) throws IOException {
         requirePlainDirectory(directory, "plugin runtime directory");
         requireOwner(directory, owner, "plugin runtime directory");
@@ -136,30 +144,6 @@ final class PluginRuntimeFileSecurity {
             }
         } catch (IOException | RuntimeException failure) {
             warnHardeningFailure("verify read-only permissions", path, failure);
-        }
-    }
-
-    static void makeTreeWritable(Path root, UserPrincipal owner) throws IOException {
-        BasicFileAttributes rootAttributes = attributesIfPresent(root);
-        if (rootAttributes == null) {
-            return;
-        }
-        requirePlainDirectory(root, "plugin artifact workspace");
-        secureWritableDirectory(root, owner);
-        try (var walk = Files.walk(root)) {
-            for (Path entry : walk.skip(1).toList()) {
-                BasicFileAttributes attributes = Files.readAttributes(
-                        entry, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-                if (attributes.isSymbolicLink() || attributes.isOther()
-                        || !attributes.isDirectory() && !attributes.isRegularFile()) {
-                    throw new IOException("plugin artifact workspace contains an unsafe entry: " + entry);
-                }
-                if (attributes.isDirectory()) {
-                    secureWritableDirectory(entry, owner);
-                } else {
-                    secureWritableFile(entry, owner);
-                }
-            }
         }
     }
 

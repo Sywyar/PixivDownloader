@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复 Windows 部分较深安装目录中声明式插件无法启动的问题。
 - 修复反复合订小说系列时锁记录持续累积的问题。
 - 修复小说收到 AI 空响应时，语言探测、朗读旁白回退和翻译错误提示被异常中断的问题。
 - 修复并发创建同一小说或系列的默认名词映射表、朗读花名册时生成重复记录的问题。

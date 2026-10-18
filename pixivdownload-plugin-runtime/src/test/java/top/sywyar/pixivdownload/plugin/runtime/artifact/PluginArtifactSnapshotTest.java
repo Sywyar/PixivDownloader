@@ -62,10 +62,13 @@ class PluginArtifactSnapshotTest {
                 new PluginRuntimeLayout(plugins), artifact, 1024L);
         Path workspace = snapshot.snapshotArtifact().getParent();
         Set<Path> workerDirectories = new HashSet<>();
+        Object workspacePermissions = permissionsOf(workspace);
 
         for (int i = 0; i < 100; i++) {
             Path workerDirectory = snapshot.createWorkerDirectory();
             assertThat(workerDirectory).isDirectory();
+            assertThat(workerDirectory.getParent()).isEqualTo(workspace);
+            assertThat(permissionsOf(workerDirectory)).isEqualTo(workspacePermissions);
             assertThat(workerDirectories.add(workerDirectory)).isTrue();
         }
 

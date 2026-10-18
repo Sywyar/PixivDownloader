@@ -27,7 +27,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
-import java.util.UUID;
 
 import static top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeFileSecurity.attributesIfPresent;
 import static top.sywyar.pixivdownload.plugin.runtime.artifact.PluginRuntimeFileSecurity.requirePlainDirectory;
@@ -73,8 +72,8 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
             requirePlainRegularFile(original, "plugin artifact");
             UserPrincipal owner = PluginRuntimeFileSecurity.secureLoadingRoots(layout);
             Path runtimeRoot = requireRuntimeRoot(layout, owner);
-            workspace = PluginRuntimeFileSecurity.createPrivateDirectory(
-                    runtimeRoot, WORKSPACE_PREFIX + UUID.randomUUID(), owner);
+            workspace = PluginRuntimeFileSecurity.createPrivateTempDirectory(
+                    runtimeRoot, WORKSPACE_PREFIX, owner);
             requirePlainDirectory(workspace, "plugin artifact snapshot workspace");
             writeOwnerMarker(workspace, owner);
             snapshot = workspace.resolve(original.getFileName().toString());
@@ -150,8 +149,7 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
     public Path createWorkerDirectory() throws IOException {
         requireOpen();
         requirePlainDirectory(workspace, "plugin artifact snapshot workspace");
-        return PluginRuntimeFileSecurity.createPrivateDirectory(
-                workspace, "worker-" + UUID.randomUUID(), owner);
+        return PluginRuntimeFileSecurity.createPrivateTempDirectory(workspace, "worker-", owner);
     }
 
     Path createLoadDirectory() throws IOException {
@@ -356,7 +354,8 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
             if (rootAttributes.isSymbolicLink() || rootAttributes.isOther() || !rootAttributes.isDirectory()) {
                 throw new IOException("plugin artifact workspace is not a plain directory: " + root);
             }
-            PluginRuntimeFileSecurity.makeTreeWritable(root, PluginRuntimeFileSecurity.owner(root));
+            UserPrincipal owner = PluginRuntimeFileSecurity.owner(root);
+            PluginRuntimeFileSecurity.secureWritableDirectory(root, owner);
             List<WorkspaceEntry> entries = new ArrayList<>();
             try (var walk = Files.walk(root)) {
                 var iterator = walk.iterator();
@@ -373,6 +372,11 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
                     if (attributes.isSymbolicLink() || attributes.isOther()
                             || !attributes.isDirectory() && !attributes.isRegularFile()) {
                         throw new IOException("plugin artifact workspace contains an unsafe entry: " + entry);
+                    }
+                    if (attributes.isDirectory()) {
+                        PluginRuntimeFileSecurity.secureWritableDirectory(entry, owner);
+                    } else {
+                        PluginRuntimeFileSecurity.secureWritableFile(entry, owner);
                     }
                     entries.add(new WorkspaceEntry(entry, attributes.fileKey(), attributes.creationTime(),
                             attributes.isDirectory()));
@@ -418,7 +422,7 @@ public final class PluginArtifactSnapshot implements AutoCloseable {
             List<Path> paths;
             if (rootAttributes.isDirectory()) {
                 try (var walk = Files.walk(normalizedRoot)) {
-                    paths = walk.sorted().toList();
+                    paths = walk.limit(MAX_WORKSPACE_ENTRIES + 1L).sorted().toList();
                 }
             } else {
                 paths = List.of(normalizedRoot);

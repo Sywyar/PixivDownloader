@@ -117,8 +117,8 @@ class PluginArtifactMaterializerTest {
                             PluginPackageIntegrity.sha256Hex(snapshot.snapshotArtifact()));
             snapshot.verifyLoadPath(materialized.pf4jLoadPath());
 
-            PluginRuntimeFileSecurity.makeTreeWritable(
-                    workspace, PluginRuntimeFileSecurity.owner(workspace));
+            PluginRuntimeFileSecurity.secureWritableDirectory(
+                    materialized.pf4jLoadPath(), PluginRuntimeFileSecurity.owner(workspace));
             Files.writeString(materialized.pf4jLoadPath().resolve("injected.class"),
                     "unverified", StandardCharsets.UTF_8);
 
