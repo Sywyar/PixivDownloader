@@ -19,6 +19,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { canonicalValue } from './properties-parser.mjs';
+import { bundleKey } from './discover-bundles.mjs';
 
 const LOCK_PATH = path.join('i18n', 'catalog-lock.json');
 const LOCK_VERSION = 2;
@@ -218,8 +219,8 @@ function validateAgainstCatalog(lock, catalog, bundles, sourceMaps) {
                 + '" (' + entry.module + '/' + entry.baseName + '/' + entry.key + ')');
             continue;
         }
-        const bundle = findBundle(bundles, entry.module, entry.baseName);
-        if (!bundle) {
+        const bundle = bundles?.get(bundleKey(entry.module, entry.baseName));
+        if (!bundle || bundle.module !== entry.module || bundle.baseName !== entry.baseName) {
             orphans.push(entry);
             continue;
         }
@@ -229,18 +230,6 @@ function validateAgainstCatalog(lock, catalog, bundles, sourceMaps) {
         }
     }
     return { orphans, errors };
-}
-
-function findBundle(bundles, module, baseName) {
-    if (!bundles) {
-        return null;
-    }
-    for (const bundle of bundles.values()) {
-        if (bundle.module === module && bundle.baseName === baseName) {
-            return bundle;
-        }
-    }
-    return null;
 }
 
 /**
