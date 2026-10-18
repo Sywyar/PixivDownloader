@@ -11,7 +11,7 @@ function harness(choice) {
     let prompts = 0;
     const context = vm.createContext({
         AbortController, console, BASE: '', bt: key => key,
-        window: {PixivBatch: {}, PixivBatchAlt: {state: {}, settings: {}, engine: {}},
+        window: {addEventListener() {}, PixivBatch: {}, PixivBatchAlt: {state: {}, settings: {}, engine: {}},
             PixivFeedback: {choose: async options => {
                 assert.equal(options.title, 'batch:path.overflow.title');
                 prompts++;
@@ -40,7 +40,7 @@ function harness(choice) {
         }
     });
     for (const file of ['pixiv-batch/pixiv-schedule-defaults.js', 'pixiv-batch/media-settings.js', 'pixiv-batch/batch-download-defaults.js', 'pixiv-batch-alt/alt-state.js', 'pixiv-batch/filename-template.js', 'pixiv-batch-alt/alt-settings.js',
-        'pixiv-batch/batch-artwork-requests.js', 'pixiv-batch-alt/alt-engine.js', 'pixiv-batch/download-workers.js', 'pixiv-batch-alt/alt-engine-workers.js', 'pixiv-batch/batch-path-actions.js']) {
+        'pixiv-batch/batch-artwork-requests.js', 'pixiv-batch/batch-archive.js', 'pixiv-batch-alt/alt-engine.js', 'pixiv-batch/download-workers.js', 'pixiv-batch-alt/alt-engine-workers.js', 'pixiv-batch/batch-path-actions.js']) {
         vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context, {filename: file});
     }
     vm.runInContext("isAdmin = true; state.settings.skipHistory = false; state.settings.interval = 0;", context);

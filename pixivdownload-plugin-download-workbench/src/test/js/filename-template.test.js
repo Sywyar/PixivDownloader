@@ -10,11 +10,11 @@ const root = resolve(__dirname, '../../main/resources/static');
 
 function page(name) {
     const context = vm.createContext({
-        PixivBatch: {state: {}}, PixivBatchAlt: {state: {}, settings: {}}
+        addEventListener() {}, PixivBatch: {state: {}}, PixivBatchAlt: {state: {}, settings: {}}
     });
     context.window = context;
     const modules = new Set(['batch-download-defaults.js', 'batch-state.js', 'alt-state.js',
-        'filename-template.js', 'batch-download-quota.js', 'batch-artwork-requests.js', 'batch-download-artwork.js', 'alt-settings.js']);
+        'filename-template.js', 'batch-archive.js', 'batch-download-quota.js', 'batch-artwork-requests.js', 'batch-download-artwork.js', 'alt-settings.js']);
     const html = readFileSync(resolve(root, name + '.html'), 'utf8');
     for (const [, src] of html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"[^>]*>/g)) {
         if (modules.has(basename(src))) {

@@ -141,7 +141,7 @@ test('计划编辑期间手动下载继续使用原筛选，取消编辑后仍�
             filters: {content: manualContent === 'all' ? 'r18' : 'all'}})});
         for (const name of ['renderCurrent', 'setDockStatus', 'saveQueue', 'updateButtonsState',
             'ensureSharedSSE', 'closeAllSSE', 'openSSE', 'closeSSE']) h.context[name] = () => {};
-        h.load('../pixiv-batch/batch-artwork-requests.js', 'alt-engine.js', '../pixiv-batch/download-workers.js', 'alt-engine-workers.js');
+        h.load('../pixiv-batch/batch-artwork-requests.js', '../pixiv-batch/batch-archive.js', 'alt-engine.js', '../pixiv-batch/download-workers.js', 'alt-engine-workers.js');
         h.context.PixivBatch.queueTypes.filtersFor = () => null;
         h.context.handlePathActionError = () => false;
         h.context.mergeUgoiraProgress = () => null;

@@ -410,7 +410,7 @@ function ok(label, condition) {
         const invocation = h.sandbox.testState.processInvocations[0];
         const hostWrites = {stats: 0, saves: 0, renders: 0, current: []};
         const hostSandbox = {
-            window: {PixivBatch: {queueTypes: h.qt, download: {}}},
+            window: {addEventListener() {}, PixivBatch: {queueTypes: h.qt, download: {}}},
             Promise, AbortController, TextDecoder, Uint8Array,
             setTimeout, clearTimeout, setInterval, clearInterval,
             console: {warn() {}, log() {}, error() {}},

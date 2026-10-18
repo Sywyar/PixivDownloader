@@ -507,6 +507,7 @@ function renderDock() {
     archiveBox.id = 'abArchiveBox';
     archiveBox.hidden = true;
     body.appendChild(archiveBox);
+    renderArchiveCard();
 
     // 当前下载
     const current = el('div', 'ab-current card');
@@ -1037,7 +1038,7 @@ function renderArchiveCard() {
     const box = document.getElementById('abArchiveBox');
     if (!box) return;
     const archive = dockState.archive;
-    if (!archive.visible) {
+    if (!archive) {
         box.hidden = true;
         return;
     }
@@ -1045,14 +1046,19 @@ function renderArchiveCard() {
     box.innerHTML = '';
     const head = el('div', 'ab-quota-head');
     head.appendChild(abIconEl('box'));
-    head.appendChild(el('strong', '', archive.title || bt('status.archive-limit', '已达到下载限额')));
+    head.appendChild(el('strong', '', bt(archive.title.key, archive.title.fallback, archive.title.args)));
     box.appendChild(head);
-    if (archive.expired) {
+    if (archive.status === 'expired') {
         box.appendChild(el('p', 'ab-field-note ab-progress-note--error',
             bt('status.archive-expired', '链接已过期，请重新打包')));
         return;
     }
-    if (!archive.ready) {
+    if (archive.status === 'empty') {
+        box.appendChild(el('p', 'ab-field-note',
+            bt('status.archive-empty', '暂无可打包文件（当前下载仍在进行中，完成后自动包含）')));
+        return;
+    }
+    if (archive.status !== 'ready') {
         const line = el('p', 'ab-loading-line', bt('status.archive-packing', '正在打包已下载文件，请稍候...'));
         box.appendChild(line);
         return;
@@ -1075,7 +1081,7 @@ function updateArchiveCountdown() {
     const node = document.getElementById('abArchiveCountdown');
     if (!node) return;
     node.textContent = bt('status.archive-validity', '有效期：{time}',
-        {time: formatSeconds(Math.max(0, dockState.archive.expireSeconds))});
+        {time: formatSeconds(archiveMonitor.remainingSeconds())});
 }
 
 window.PixivBatchAlt.queue = Object.assign(window.PixivBatchAlt.queue, {

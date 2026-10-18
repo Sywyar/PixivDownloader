@@ -9,7 +9,7 @@ const {isMainThread, parentPort, workerData, Worker} = require('node:worker_thre
 
 const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
 const DOWNLOAD_SOURCE = [
-    'batch-download-quota.js', 'filename-template.js', 'batch-artwork-requests.js', 'batch-download-artwork.js', 'batch-path-actions.js',
+    'batch-archive.js', 'batch-download-quota.js', 'filename-template.js', 'batch-artwork-requests.js', 'batch-download-artwork.js', 'batch-path-actions.js',
     'download-workers.js', 'batch-download-workers.js', 'batch-download.js'
 ].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
 const SCENARIO_TIMEOUT_MS = 2000;
@@ -40,6 +40,7 @@ function createWorkerHarness(options) {
     };
     const sandbox = {
         window: {
+            addEventListener() {},
             PixivBatch: {
                 download: {},
                 queueTypes: {get: () => descriptor}

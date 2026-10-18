@@ -31,7 +31,7 @@ const MAIN_SCRIPT_FILES = [
     'batch-schedule-sources-normalize.js', 'batch-schedule-sources-runtime.js',
     'batch-schedule-sources.js', 'filename-template.js',
     'batch-queue-model.js', 'batch-queue-actions.js', 'download-speed.js', 'batch-queue-view.js', 'batch-queue.js',
-    'batch-download-quota.js', 'batch-artwork-requests.js', 'batch-download-artwork.js', 'download-workers.js', 'batch-download-workers.js',
+    'batch-archive.js', 'batch-download-quota.js', 'batch-artwork-requests.js', 'batch-download-artwork.js', 'download-workers.js', 'batch-download-workers.js',
     'batch-download.js',
     'modes/quick-fetch-core.js', 'modes/quick-fetch-outer.js', 'modes/quick-fetch-inner.js',
     'modes/quick-fetch.js',

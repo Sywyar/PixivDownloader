@@ -9,8 +9,6 @@
 const STATUS_TIMEOUT_MS = 300000;
 
 let quotaExceededHandled = false;
-let archiveCountdownTimer = null;
-let archivePollTimer = null;
 let quotaResetTimer = null;
 // 本页面会话是否已派发「首次下载完成」事件（布局偏好调查在该时刻弹出一次）。
 let firstDownloadCompletedNotified = false;
@@ -159,71 +157,17 @@ function handleQuotaExceeded(data) {
     setDockStatus({key: 'status.archive-limit', fallback: '已达到下载限额'}, 'error');
 
     const token = data.archiveToken;
-    const expireSeconds = data.archiveExpireSeconds || 3600;
+    const expireSeconds = data.archiveExpireSeconds ?? 3600;
     showArchiveCard(token, expireSeconds, false);
 }
 
+const archiveMonitor = new PixivArchiveMonitor(archive => {
+    dockState.archive = archive;
+    renderArchiveCard();
+}, () => updateArchiveCountdown());
+
 function showArchiveCard(token, expireSeconds, ready, title) {
-    clearInterval(archiveCountdownTimer);
-    clearInterval(archivePollTimer);
-    dockState.archive = {
-        visible: true, token, expireSeconds, ready: !!ready, expired: false,
-        title: title || bt('status.archive-limit', '已达到下载限额')
-    };
-    renderArchiveCard();
-    if (ready) {
-        activateArchiveDownload(token, expireSeconds);
-    } else {
-        pollArchiveReady(token, expireSeconds);
-    }
-}
-
-function pollArchiveReady(token, expireSeconds) {
-    archivePollTimer = setInterval(async () => {
-        try {
-            const res = await fetch(BASE + '/api/archive/status/' + token);
-            const data = await res.json();
-            if (data.status === 'ready') {
-                clearInterval(archivePollTimer);
-                activateArchiveDownload(token, data.expireSeconds || expireSeconds);
-            } else if (data.status === 'expired') {
-                clearInterval(archivePollTimer);
-                showArchiveExpired();
-            } else if (data.status === 'empty') {
-                clearInterval(archivePollTimer);
-                dockState.archive.ready = false;
-                const box = document.getElementById('abArchiveBox');
-                if (box) {
-                    box.innerHTML = '';
-                    box.appendChild(el('p', 'ab-field-note',
-                        bt('status.archive-empty', '暂无可打包文件（当前下载仍在进行中，完成后自动包含）')));
-                }
-            }
-        } catch {
-        }
-    }, 2000);
-}
-
-function activateArchiveDownload(token, expireSeconds) {
-    dockState.archive.token = token;
-    dockState.archive.ready = true;
-    dockState.archive.expireSeconds = Math.max(0, parseInt(expireSeconds));
-    renderArchiveCard();
-    archiveCountdownTimer = setInterval(() => {
-        dockState.archive.expireSeconds--;
-        if (dockState.archive.expireSeconds <= 0) {
-            clearInterval(archiveCountdownTimer);
-            showArchiveExpired();
-        } else {
-            updateArchiveCountdown();
-        }
-    }, 1000);
-}
-
-function showArchiveExpired() {
-    dockState.archive.ready = false;
-    dockState.archive.expired = true;
-    renderArchiveCard();
+    archiveMonitor.watch(token, expireSeconds, ready, title || {key: 'status.archive-limit', fallback: '已达到下载限额'});
 }
 
 async function autoPackAfterQueue() {
@@ -239,9 +183,9 @@ async function autoPackAfterQueue() {
             setDockStatus({key: 'status.batch-finished-packing', fallback: '批量下载结束，正在打包文件...'}, 'info');
             showArchiveCard(
                 data.archiveToken,
-                data.archiveExpireSeconds || 3600,
+                data.archiveExpireSeconds ?? 3600,
                 false,
-                bt('status.download-complete-packing', '下载完成，正在打包')
+                {key: 'status.download-complete-packing', fallback: '下载完成，正在打包'}
             );
         }
     } catch {
@@ -300,9 +244,9 @@ async function triggerAdminPack() {
             'info');
         showArchiveCard(
             data.archiveToken,
-            data.archiveExpireSeconds || 3600,
+            data.archiveExpireSeconds ?? 3600,
             false,
-            bt('status.admin-packing', '管理员打包中（{count} 个作品）', {count: ids.length})
+            {key: 'status.admin-packing', fallback: '管理员打包中（{count} 个作品）', args: {count: ids.length}}
         );
     } catch (e) {
         setDockStatus({key: 'status.pack-request-failed', fallback: '打包请求失败：{message}', args: {message: e.message}}, 'error');

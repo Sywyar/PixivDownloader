@@ -113,6 +113,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
         syncCookieToggleLabel();
         renderFooterInfo();
         renderStatus();
+        if (typeof renderArchiveCard === 'function') renderArchiveCard();
         if (typeof renderCookieStatus === 'function') renderCookieStatus();
     }
 
