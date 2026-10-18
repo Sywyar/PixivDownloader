@@ -2,17 +2,32 @@ package top.sywyar.pixivdownload.push;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 @DisplayName("推送 HTTP 发送器业务响应处理")
 class PushHttpSenderTest {
@@ -20,6 +35,45 @@ class PushHttpSenderTest {
     private final StubRestTemplate direct = new StubRestTemplate();
     private final StubRestTemplate proxy = new StubRestTemplate();
     private final PushHttpSender sender = new PushHttpSender(direct, proxy, TestMessageResolver.INSTANCE);
+
+    @ParameterizedTest
+    @CsvSource({
+            "x, http, false", "a7q, http, true", "long-key, http, false",
+            "x, transport, true", "a7q, transport, false", "long-key, transport, true",
+            "x, business, false", "a7q, business, true", "long-key, business, false"
+    })
+    @ExtendWith(OutputCaptureExtension.class)
+    @DisplayName("各类发送失败均在返回详情和日志中隐藏完整凭据")
+    void redactsFailureDetailsAndLogs(String secret, String failure, boolean useProxy, CapturedOutput output) {
+        RestTemplate directClient = new RestTemplate();
+        RestTemplate proxyClient = new RestTemplate();
+        MockRestServiceServer directServer = MockRestServiceServer.bindTo(directClient).build();
+        MockRestServiceServer proxyServer = MockRestServiceServer.bindTo(proxyClient).build();
+        String detail = "denied credential=" + secret + "; 原因=拒绝";
+        var response = switch (failure) {
+            case "http" -> withStatus(HttpStatus.UNAUTHORIZED).body(detail);
+            case "transport" -> withException(new IOException(detail));
+            default -> withSuccess("{\"errcode\":7,\"errmsg\":\"" + detail + "\"}", MediaType.APPLICATION_JSON);
+        };
+        (useProxy ? proxyServer : directServer).expect(requestTo("https://example.test/send"))
+                .andExpect(method(HttpMethod.POST)).andRespond(response);
+
+        PushResult result = new PushHttpSender(directClient, proxyClient, TestMessageResolver.INSTANCE)
+                .send(PushChannelIds.DINGTALK, OutboundRequest.json("https://example.test/send",
+                        "{}".getBytes(StandardCharsets.UTF_8), Arrays.asList(null, "", " ", secret), useProxy));
+
+        assertThat(result.status()).isEqualTo(PushResult.Status.FAILED);
+        assertThat(result.channel()).isEqualTo(PushChannelIds.DINGTALK);
+        assertThat(result.detail()).contains("denied credential=***; 原因=拒绝").doesNotContain(secret);
+        if ("http".equals(failure)) {
+            assertThat(result.detail()).startsWith("HTTP 401: ");
+        } else if ("business".equals(failure)) {
+            assertThat(result.detail()).startsWith("errcode=7: ");
+        }
+        assertThat(output.getAll()).contains("denied credential=***").doesNotContain("credential=" + secret);
+        directServer.verify();
+        proxyServer.verify();
+    }
 
     @Test
     @DisplayName("钉钉 HTTP 200 但 errcode 非零时失败并脱敏")

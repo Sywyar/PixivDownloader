@@ -96,18 +96,16 @@ public class PushHttpSender {
             log.info(PushPluginMessages.forLog(messages, "push.log.send.success", channelId(channelId),
                     response.getStatusCode().value(), elapsedMs));
             return PushResult.ok(channelId);
-        } catch (RestClientResponseException e) {
-            // 已连通但返回非 2xx：附状态码 + 脱敏 / 截断后的响应正文摘要。
-            long elapsedMs = elapsedMs(startedAtNs);
-            String body = e.getResponseBodyAsString(StandardCharsets.UTF_8);
-            String detail = truncate("HTTP " + e.getRawStatusCode()
-                    + (body == null || body.isBlank() ? "" : ": " + redact(body, request.secrets())));
-            log.warn(PushPluginMessages.forLog(
-                    messages, "push.log.send.failed", channelId(channelId), elapsedMs, detail));
-            return PushResult.failed(channelId, detail);
         } catch (RestClientException e) {
             long elapsedMs = elapsedMs(startedAtNs);
-            String detail = truncate(redact(safeMessage(e), request.secrets()));
+            String detail;
+            if (e instanceof RestClientResponseException responseError) {
+                String body = responseError.getResponseBodyAsString(StandardCharsets.UTF_8);
+                detail = truncate("HTTP " + responseError.getRawStatusCode()
+                        + (body == null || body.isBlank() ? "" : ": " + redact(body, request.secrets())));
+            } else {
+                detail = truncate(redact(safeMessage(e), request.secrets()));
+            }
             log.warn(PushPluginMessages.forLog(
                     messages, "push.log.send.failed", channelId(channelId), elapsedMs, detail));
             return PushResult.failed(channelId, detail);
@@ -282,24 +280,19 @@ public class PushHttpSender {
         return (System.nanoTime() - startedAtNs) / 1_000_000;
     }
 
-    /** 把每个密钥原文逐字替换为 {@code ***}（过短的不替换以免误伤普通文本）。 */
+    /** 将已声明的凭据逐字替换为 {@code ***}，包括短凭据。 */
     private static String redact(String text, List<String> secrets) {
         if (text == null) {
             return "";
         }
         String s = text;
         for (String secret : secrets) {
-            if (secret != null && secret.length() >= 4) {
-                s = s.replace(secret, "***");
-            }
+            s = s.replace(secret, "***");
         }
         return s;
     }
 
     private static String safeMessage(Throwable t) {
-        if (t == null) {
-            return "unknown";
-        }
         String msg = t.getMessage();
         return msg == null || msg.isBlank() ? t.getClass().getSimpleName() : msg;
     }

@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复推送失败时短凭据可能出现在日志和失败详情中的问题。
 - 修复疑似重复扫描失败后无法重新开始或新扫描状态被旧任务覆盖的问题。
 - 修复 AI 请求失败时短 API 密钥可能出现在日志和失败摘要中的问题。
 - 修复邮件发送异常可能在日志或失败摘要中泄露密码，以及测试邮件遇到部分异常时未返回失败原因的问题。
