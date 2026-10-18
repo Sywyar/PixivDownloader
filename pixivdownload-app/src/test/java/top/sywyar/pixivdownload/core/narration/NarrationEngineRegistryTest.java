@@ -13,10 +13,42 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @DisplayName("朗读引擎注册工厂（唯一 id / byId / selected）")
 class NarrationEngineRegistryTest {
+
+    @Test
+    @DisplayName("冲突保留原引擎且旧发布撤回不影响替代实例及注册顺序")
+    void preservesPreparedSnapshotAcrossConflictsAndReplacement() {
+        NarrationEngineRegistry registry = new NarrationEngineRegistry(List.of());
+        NarrationVoiceEngine first = mock(NarrationVoiceEngine.class);
+        NarrationVoiceEngine second = mock(NarrationVoiceEngine.class);
+        NarrationVoiceEngine replacement = mock(NarrationVoiceEngine.class);
+        registry.registerPrepared("owner-a", 1L, List.of(
+                new NarrationEngineRegistry.PreparedEngine("FIRST", first, "first.Type")));
+        registry.registerPrepared("owner-b", 1L, List.of(
+                new NarrationEngineRegistry.PreparedEngine("second", second, "second.Type")));
+        List<NarrationVoiceEngine> before = registry.all();
+
+        assertThatThrownBy(() -> registry.registerPrepared("owner-a", 1L, List.of(
+                new NarrationEngineRegistry.PreparedEngine("SECOND", replacement, "replacement.Type"))))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(registry.all()).containsExactly(first, second);
+        assertThat(registry.byId("first")).containsSame(first);
+        assertThat(registry.selectedPrepared("second").orElseThrow().engine()).isSameAs(second);
+
+        registry.unregisterPrepared("owner-a", 1L);
+        registry.registerPrepared("owner-a", 2L, List.of(
+                new NarrationEngineRegistry.PreparedEngine("first", replacement, "replacement.Type")));
+        registry.unregisterPrepared("owner-a", 1L);
+        assertThat(registry.all()).containsExactly(second, replacement);
+        assertThat(registry.byId(" FIRST ")).containsSame(replacement);
+        assertThat(registry.selectedPrepared("first").orElseThrow().engine()).isSameAs(replacement);
+        assertThat(before).containsExactly(first, second);
+        verifyNoInteractions(first, second, replacement);
+    }
 
     @Test
     @DisplayName("状态发布失败时引擎 owner 与可见快照保持原子一致")
