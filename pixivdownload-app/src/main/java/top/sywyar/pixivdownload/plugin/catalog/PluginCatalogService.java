@@ -73,13 +73,13 @@ public class PluginCatalogService {
     private final ObjectMapper strictObjectMapper = PluginCatalogStrictJson.mapper(false);
     private final Function<PluginRepository, PluginSupplyChainVerifier> verifierResolver;
     private PluginRepositoryImportService imports;
-    private final Map<String, CachedPage> pageCache = new LinkedHashMap<>(64, 0.75f, true) {
-        @Override protected boolean removeEldestEntry(Map.Entry<String, CachedPage> eldest) {
+    private final Map<PageKey, CachedPage> pageCache = new LinkedHashMap<>(64, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<PageKey, CachedPage> eldest) {
             return size() > 64;
         }
     };
-    private final Map<String, CachedDetailPage> detailPageCache = new LinkedHashMap<>(64, 0.75f, true) {
-        @Override protected boolean removeEldestEntry(Map.Entry<String, CachedDetailPage> eldest) {
+    private final Map<PageKey, CachedDetailPage> detailPageCache = new LinkedHashMap<>(64, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<PageKey, CachedDetailPage> eldest) {
             return size() > 64;
         }
     };
@@ -195,7 +195,6 @@ public class PluginCatalogService {
         }
         String cursor = null;
         String generation = null;
-        PluginCatalogEntry entry = null;
         Map<String, PluginCatalogPackage> packages = new LinkedHashMap<>();
         boolean stale = false;
         for (int pageNumber = 0; pageNumber < MAX_ENTRY_PAGES; pageNumber++) {
@@ -206,17 +205,17 @@ public class PluginCatalogService {
             PluginCatalogDetailPage page = loadEntryPage(repository, pluginId, cursor, ENTRY_PAGE_SIZE);
             if (generation != null && !generation.equals(page.generation())) {
                 packages.clear();
-                entry = null;
                 stale = false;
+                cursor = null;
+                generation = null;
+                continue;
             }
             generation = page.generation();
-            entry = page.item();
             stale |= page.stale();
-            entry.packages().forEach(pkg -> packages.putIfAbsent(pkg.version(), pkg));
+            page.item().packages().forEach(pkg -> packages.putIfAbsent(pkg.version(), pkg));
             cursor = page.nextCursor();
             if (cursor == null) {
-                return new PluginCatalogDetailPage(new PluginCatalogEntry(entry.pluginId(), entry.displayNamespace(),
-                        entry.displayNameKey(), entry.descriptionKey(), entry.market(), List.copyOf(packages.values())),
+                return new PluginCatalogDetailPage(withPackages(page.item(), List.copyOf(packages.values())),
                         generation, null, (long) packages.size(), stale);
             }
         }
@@ -262,8 +261,9 @@ public class PluginCatalogService {
         parameters.add("limit=" + query.limit());
         addParameter(parameters, "cursor", query.cursor());
         String url = endpoint(repository) + "/plugins/" + encode(pluginId) + '?' + String.join("&", parameters);
+        PageKey cacheKey = new PageKey(repository, url);
         CachedDetailPage cached;
-        synchronized (detailPageCache) { cached = detailPageCache.get(url); }
+        synchronized (detailPageCache) { cached = detailPageCache.get(cacheKey); }
         try {
             PluginCatalogHttpClient.FetchResult response = fetchPaged(repository, url, 256L * 1024L,
                     cached != null ? cached.etag() : null);
@@ -296,7 +296,7 @@ public class PluginCatalogService {
             PluginCatalogDetailPage loaded = new PluginCatalogDetailPage(document.item(), document.generation(),
                     boundedCursor(document.nextCursor()), document.totalApproximate(), false);
             synchronized (detailPageCache) {
-                detailPageCache.put(url, new CachedDetailPage(response.etag(), loaded));
+                detailPageCache.put(cacheKey, new CachedDetailPage(response.etag(), loaded));
             }
             return loaded;
         } catch (PluginCatalogException failure) {
@@ -478,8 +478,9 @@ public class PluginCatalogService {
 
     private PluginCatalogPage loadPaged(PluginRepository repository, PluginCatalogPageQuery query) {
         String url = pageUrl(repository, query);
+        PageKey cacheKey = new PageKey(repository, url);
         CachedPage cached;
-        synchronized (pageCache) { cached = pageCache.get(url); }
+        synchronized (pageCache) { cached = pageCache.get(cacheKey); }
         boolean restartAtFirstPage = false;
         PluginCatalogPage loaded = null;
         try {
@@ -518,7 +519,7 @@ public class PluginCatalogService {
                 generations.put(repository.repositoryId(), document.generation());
                 loaded = new PluginCatalogPage(document.generation(), document.items(),
                         boundedCursor(document.nextCursor()), document.totalApproximate(), document.facets(), false);
-                synchronized (pageCache) { pageCache.put(url, new CachedPage(response.etag(), loaded)); }
+                synchronized (pageCache) { pageCache.put(cacheKey, new CachedPage(response.etag(), loaded)); }
             }
         } catch (PluginCatalogException failure) {
             if (cached != null && currentGeneration(repository, cached.page().generation())) {
@@ -533,7 +534,7 @@ public class PluginCatalogService {
     private PluginCatalogPage pageManifest(PluginCatalogManifest manifest, PluginCatalogPageQuery query) {
         List<PluginCatalogEntry> filtered = manifest.entries().stream().filter(entry -> matches(entry, query)).toList();
         int offset = decodeCursor(query.cursor());
-        if (offset > filtered.size()) offset = 0;
+        if (offset < 0 || offset > filtered.size()) offset = 0;
         int end = Math.min(filtered.size(), offset + query.limit());
         String next = end < filtered.size() ? encodeCursor(end) : null;
         return new PluginCatalogPage(manifestGeneration(manifest),
@@ -657,6 +658,8 @@ public class PluginCatalogService {
         return new PluginCatalogException(PluginCatalogErrorCode.VERSION_NOT_FOUND, pluginId, version,
                 "version not found in catalog: " + pluginId + " " + version);
     }
+
+    private record PageKey(PluginRepository repository, String url) { }
 
     private record CachedPage(String etag, PluginCatalogPage page) { }
 
