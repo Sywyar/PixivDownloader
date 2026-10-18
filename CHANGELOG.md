@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复油猴归档卡片被旧请求覆盖、重复查询及重新打开后倒计时延长的问题。
 - 修复插件操作记录满额时，继续安装确认可能丢失待确认包的问题。
 - 修复插件仓库更新在信任状态保存失败后，仍留下新配置的问题。
 - 修复配置热重载期间文件变化导致不同插件读取不一致的问题。

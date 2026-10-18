@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv作品图片下载器（Java后端版）
 // @namespace    http://tampermonkey.net/
-// @version      2.2.0
+// @version      2.2.1
 // @updateURL    https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E5%8D%95%E4%BD%9C%E5%93%81%E5%9B%BE%E7%89%87%E4%B8%8B%E8%BD%BD%E5%99%A8(Java%E5%90%8E%E7%AB%AF%E7%89%88).user.js
 // @downloadURL  https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E5%8D%95%E4%BD%9C%E5%93%81%E5%9B%BE%E7%89%87%E4%B8%8B%E8%BD%BD%E5%99%A8(Java%E5%90%8E%E7%AB%AF%E7%89%88).user.js
 // @description  通过Java后端服务下载 Pixiv 单个作品图片
@@ -37,8 +37,6 @@
     // 动态 URL 计算
     const getBackendURL = () => serverBase + '/api/download/pixiv';
     const getQuotaInitURL = () => serverBase + '/api/quota/init';
-    const getArchiveStatusBase = () => serverBase + '/api/archive/status';
-    const getArchiveDownloadBase = () => serverBase + '/api/archive/download';
     const getDownloadedCheckBase = () => serverBase + '/api/downloaded';
 
     let userUUID = GM_getValue(KEY_USER_UUID, null);
@@ -2562,8 +2560,8 @@
         if (quotaInfo.enabled) renderSingleQuotaBar();
 
         // 恢复已有压缩包卡片（如果有）
-        if (window._pixivSingleArchiveState) {
-            const s = window._pixivSingleArchiveState;
+        const s = singleArchiveMonitor.snapshot();
+        if (s) {
             renderSingleArchiveCard(s.token, s.expireSec, s.ready);
         }
 
@@ -2595,97 +2593,159 @@
         </div>`;
     }
 
+    // >>> SHARED:archive-monitor.js
+    class UserscriptArchiveMonitor {
+        constructor() {
+            this.current = null;
+            this.timer = null;
+            this.request = null;
+            this.hidden = false;
+            window.addEventListener('pagehide', () => {
+                this.hidden = true;
+                this.stop();
+            });
+            window.addEventListener('pageshow', () => {
+                this.hidden = false;
+                this.resume();
+            });
+        }
+
+        stop() {
+            clearTimeout(this.timer);
+            this.timer = null;
+            const request = this.request;
+            this.request = null;
+            try { request?.handle?.abort(); } catch { /* 旧回调已失效。 */ }
+        }
+
+        watch(token, expireSeconds, ready, update, countdown) {
+            this.stop();
+            if (!this.current || this.current.token !== token || this.current.base !== serverBase) {
+                this.current = {token, base: serverBase, status: 'pending', seconds: expireSeconds};
+            }
+            if (ready && this.current.status === 'pending') this.markReady(this.current, expireSeconds);
+            Object.assign(this.current, {update, countdown});
+            this.resume();
+        }
+
+        markReady(state, expireSeconds) {
+            const seconds = Number.parseInt(expireSeconds, 10);
+            state.status = 'ready';
+            state.deadline = Date.now() + (Number.isFinite(seconds) ? Math.max(0, seconds) : 0) * 1000;
+        }
+
+        snapshot() {
+            const state = this.current;
+            return state && state.base === serverBase ? {
+                token: state.token, expireSec: state.seconds, ready: state.status === 'ready'
+            } : null;
+        }
+
+        resume() {
+            const state = this.current;
+            if (!state || this.hidden || state.base !== serverBase) return;
+            this.stop();
+            if (state.status === 'ready' && Date.now() >= state.deadline) state.status = 'expired';
+            state.update(state.status, state.token, state.base);
+            if (state.status === 'ready') this.countdown(state);
+            else if (state.status === 'pending') this.timer = setTimeout(() => this.poll(state), 2000);
+        }
+
+        countdown(state) {
+            const remaining = Math.max(0, Math.ceil((state.deadline - Date.now()) / 1000));
+            state.countdown(remaining);
+            this.timer = setTimeout(() => {
+                if (this.current !== state || this.hidden || state.base !== serverBase) return;
+                if (Date.now() >= state.deadline) {
+                    state.status = 'expired';
+                    state.update('expired', state.token, state.base);
+                    this.timer = null;
+                } else this.countdown(state);
+            }, 1000);
+        }
+
+        poll(state) {
+            if (this.current !== state || this.hidden || state.base !== serverBase) return;
+            this.timer = null;
+            const request = {};
+            this.request = request;
+            const finish = data => {
+                if (this.request !== request) return;
+                this.request = null;
+                if (this.current !== state || this.hidden || state.base !== serverBase) return;
+                if (['ready', 'expired', 'empty'].includes(data?.status)) {
+                    if (data.status === 'ready') this.markReady(state, data.expireSeconds ?? state.seconds);
+                    else state.status = data.status;
+                    this.resume();
+                } else this.timer = setTimeout(() => this.poll(state), 2000);
+            };
+            try {
+                request.handle = GM_xmlhttpRequest({
+                    method: 'GET', url: state.base + '/api/archive/status/' + encodeURIComponent(state.token),
+                    timeout: 10000,
+                    onload: response => {
+                        let data;
+                        try { if (response.status === 200) data = JSON.parse(response.responseText); } catch {}
+                        finish(data);
+                    },
+                    onerror: () => finish(), ontimeout: () => finish(), onabort: () => finish()
+                });
+            } catch { finish(); }
+        }
+    }
+    // <<< SHARED:archive-monitor.js
+    const singleArchiveMonitor = new UserscriptArchiveMonitor();
+
     function renderSingleArchiveCard(token, expireSec, ready) {
-        window._pixivSingleArchiveState = { token, expireSec, ready };
         const card = document.getElementById('pixiv-single-archive-card');
-        if (!card) return;
-        card.style.display = 'block';
-        card.innerHTML = `<div style="font-weight:bold;color:var(--pixiv-panel-warning, #856404);margin-bottom:4px;">${t('single.archive.download-limit', '已达到下载限额')}</div>
+        if (card) {
+            card.style.display = 'block';
+            card.innerHTML = `<div style="font-weight:bold;color:var(--pixiv-panel-warning, #856404);margin-bottom:4px;">${t('single.archive.download-limit', '已达到下载限额')}</div>
           <div id="pixiv-single-ac-status" style="color:var(--pixiv-panel-muted, #666);">${ready ? t('common.archive.ready', '压缩包已就绪：') : t('common.archive.preparing', '正在打包已下载文件，请稍候...')}</div>
           <div id="pixiv-single-ac-dl" style="display:${ready ? 'block' : 'none'};margin-top:4px;"></div>
           <div id="pixiv-single-ac-expired" style="display:none;color:var(--pixiv-panel-danger, #dc3545);font-weight:bold;">${t('common.archive.expired', '下载链接已过期')}</div>`;
-        if (ready) {
-            activateSingleArchiveDl(token, expireSec);
-        } else {
-            pollSingleArchive(token, expireSec);
         }
+        singleArchiveMonitor.watch(token, expireSec, ready, (status, currentToken, base) => {
+            const statusEl = document.getElementById('pixiv-single-ac-status');
+            const expired = document.getElementById('pixiv-single-ac-expired');
+            const download = document.getElementById('pixiv-single-ac-dl');
+            if (status === 'ready') activateSingleArchiveDl(currentToken, base);
+            else if (status === 'expired') {
+                if (expired) expired.style.display = 'block';
+                if (download) download.style.display = 'none';
+                if (statusEl) statusEl.textContent = '';
+            } else if (status === 'empty' && statusEl) {
+                statusEl.textContent = t('common.archive.empty', '暂无可打包文件');
+            }
+        }, remaining => {
+            const hours = Math.floor(remaining / 3600);
+            const minutes = String(Math.floor(remaining % 3600 / 60)).padStart(2, '0');
+            const seconds = String(remaining % 60).padStart(2, '0');
+            const time = hours > 0 ? `${hours}h ${minutes}m ${seconds}s` : `${minutes}:${seconds}`;
+            const countdown = document.getElementById('pixiv-single-ac-countdown');
+            if (countdown) countdown.textContent = t('common.archive.validity', '有效期：{time}', {time});
+        });
     }
 
-    function pollSingleArchive(token, expireSec) {
-        const timer = setInterval(() => {
-            GM_xmlhttpRequest({
-                method: 'GET',
-                url: `${getArchiveStatusBase()}/${token}`,
-                onload: (res) => {
-                    try {
-                        const data = JSON.parse(res.responseText);
-                        if (data.status === 'ready') {
-                            clearInterval(timer);
-                            activateSingleArchiveDl(token, data.expireSeconds || expireSec);
-                        } else if (data.status === 'expired') {
-                            clearInterval(timer);
-                            const expired = document.getElementById('pixiv-single-ac-expired');
-                            const status = document.getElementById('pixiv-single-ac-status');
-                            if (expired) expired.style.display = 'block';
-                            if (status) status.textContent = '';
-                        } else if (data.status === 'empty') {
-                            clearInterval(timer);
-                            const status = document.getElementById('pixiv-single-ac-status');
-                            if (status) status.textContent = t('common.archive.empty', '暂无可打包文件');
-                        }
-                    } catch {}
-                },
-                onerror: () => {}
-            });
-        }, 2000);
-    }
-
-    function activateSingleArchiveDl(token, expireSec) {
+    function activateSingleArchiveDl(token, base) {
         const statusEl = document.getElementById('pixiv-single-ac-status');
         const dlEl = document.getElementById('pixiv-single-ac-dl');
         if (statusEl) statusEl.textContent = t('common.archive.ready', '压缩包已就绪：');
         if (dlEl) {
             dlEl.style.display = 'block';
             const filename = 'pixiv_download_' + token.substring(0, 8) + '.zip';
-            dlEl.innerHTML = `<a href="${getArchiveDownloadBase()}/${token}" download="${filename}"
+            dlEl.innerHTML = `<a href="${base}/api/archive/download/${token}" download="${filename}"
               style="display:inline-block;padding:4px 10px;background:#28a745;color:white;
                      border-radius:4px;text-decoration:none;font-size:11px;font-weight:bold;">
               ${t('common.archive.download-link', '下载压缩包')}
             </a>
             <span id="pixiv-single-ac-countdown" style="font-size:10px;color:var(--pixiv-panel-muted, #888);margin-left:6px;"></span>`;
-            let remaining = Math.max(0, parseInt(expireSec));
-            const fmtSec = (s) => {
-                s = Math.max(0, Math.round(s));
-                const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-                if (h > 0) return h + 'h ' + String(m).padStart(2,'0') + 'm ' + String(sec).padStart(2,'0') + 's';
-                return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
-            };
-            const el = () => document.getElementById('pixiv-single-ac-countdown');
-            if (el()) el().textContent = t('common.archive.validity', '有效期：{time}', { time: fmtSec(remaining) });
-            const timer = setInterval(() => {
-                remaining--;
-                if (remaining <= 0) {
-                    clearInterval(timer);
-                    const expired = document.getElementById('pixiv-single-ac-expired');
-                    if (dlEl) dlEl.style.display = 'none';
-                    if (expired) expired.style.display = 'block';
-                } else {
-                    if (el()) el().textContent = t('common.archive.validity', '有效期：{time}', { time: fmtSec(remaining) });
-                }
-            }, 1000);
         }
     }
 
     function showQuotaExceededUI(data) {
-        window._pixivSingleArchiveState = null;
-        const card = document.getElementById('pixiv-single-archive-card');
-        if (card) {
-            renderSingleArchiveCard(data.archiveToken, data.archiveExpireSeconds || 3600, false);
-        } else {
-            // UI 还未创建，暂存状态，等下次 createDownloadUI 时恢复
-            window._pixivSingleArchiveState = { token: data.archiveToken, expireSec: data.archiveExpireSeconds || 3600, ready: false };
-            createDownloadUI();
-        }
+        renderSingleArchiveCard(data.archiveToken, data.archiveExpireSeconds ?? 3600, false);
+        if (!document.getElementById('pixiv-single-archive-card')) createDownloadUI();
     }
 
     // 面板收起/展开：收起态显示 Mini FAB，展开态显示面板
@@ -2804,11 +2864,8 @@
                 };
                 // 恢复已有压缩包
                 if (data.archive && data.archive.token) {
-                    window._pixivSingleArchiveState = {
-                        token: data.archive.token,
-                        expireSec: data.archive.expireSeconds || 3600,
-                        ready: data.archive.status === 'ready'
-                    };
+                    renderSingleArchiveCard(data.archive.token, data.archive.expireSeconds ?? 3600,
+                        data.archive.status === 'ready');
                 }
                 renderSingleQuotaBar();
             }
