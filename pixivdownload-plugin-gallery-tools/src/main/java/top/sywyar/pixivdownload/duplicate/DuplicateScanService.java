@@ -53,6 +53,7 @@ public class DuplicateScanService implements QueueOperations {
                 return status();
             }
             scanClaimed = true;
+            task.onTermination(() -> running.set(false));
             startedTime = System.currentTimeMillis();
             processed = 0;
             total = force
@@ -68,18 +69,17 @@ public class DuplicateScanService implements QueueOperations {
             try {
                 taskExecutor.execute(task);
             } catch (RuntimeException | Error failure) {
+                task.publishIfActive(() -> state = "FAILED");
                 task.rejectSubmission();
-                markFailed();
                 throw failure;
             }
             return status();
         } catch (RuntimeException | Error failure) {
             if (scanClaimed && !handedOff) {
-                database.requireAvailable();
                 if (task.isCancellationRequested()) {
                     resetCancelledState();
                 } else {
-                    markFailed();
+                    state = "FAILED";
                 }
             }
             throw failure;
@@ -124,8 +124,8 @@ public class DuplicateScanService implements QueueOperations {
     }
 
     private void runScan(boolean force, QueueTaskTracker.Task task) {
-        log.info(messages.getForLog("duplicate.log.scan.started", force, total));
         try {
+            log.info(messages.getForLog("duplicate.log.scan.started", force, total));
             database.requireAvailable();
             if (task.isCancellationRequested()) {
                 resetCancelledState();
@@ -160,11 +160,9 @@ public class DuplicateScanService implements QueueOperations {
             if (task.isCancellationRequested()) {
                 resetCancelledState();
             } else {
-                markFailed();
+                state = "FAILED";
                 log.warn(messages.getForLog("duplicate.log.scan.failed", e.getMessage()), e);
             }
-        } finally {
-            running.set(false);
         }
     }
 
@@ -212,12 +210,6 @@ public class DuplicateScanService implements QueueOperations {
         processed = 0;
         total = 0;
         startedTime = null;
-        running.set(false);
-    }
-
-    private void markFailed() {
-        state = "FAILED";
-        running.set(false);
     }
 
     private static void rethrow(Throwable failure) {

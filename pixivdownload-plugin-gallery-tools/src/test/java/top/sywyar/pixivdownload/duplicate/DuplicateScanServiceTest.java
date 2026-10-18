@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.stubbing.Answer;
 import org.springframework.core.task.TaskExecutor;
 import top.sywyar.pixivdownload.core.hash.ArtworkHashIndexMaintenance;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
@@ -16,6 +17,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.OptionalInt;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -23,10 +25,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -263,6 +267,110 @@ class DuplicateScanServiceTest {
 
     private DuplicateScanService service(TaskExecutor executor) {
         return new DuplicateScanService(hashIndexMaintenance, duplicateService, messages, executor, () -> true);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("扫描准备失败保留原异常且数据库恢复后可以重新扫描")
+    void preparationFailureReleasesAdmission(boolean force) {
+        AtomicBoolean available = new AtomicBoolean(true);
+        IllegalStateException failure = new IllegalStateException("count failed");
+        Answer<Object> countFailure = invocation -> {
+            available.set(false);
+            throw failure;
+        };
+        if (force) when(hashIndexMaintenance.artworkCount()).thenAnswer(countFailure);
+        else when(hashIndexMaintenance.missingArtworkCount()).thenAnswer(countFailure);
+        AtomicReference<Runnable> queued = new AtomicReference<>();
+        DuplicateScanService service = new DuplicateScanService(
+                hashIndexMaintenance, duplicateService, messages, queued::set, available::get);
+
+        assertThatThrownBy(() -> service.startScan(force)).isSameAs(failure);
+        assertThat(service.status().state()).isEqualTo("UNAVAILABLE");
+        available.set(true);
+        doReturn(0L).when(hashIndexMaintenance).artworkCount();
+        doReturn(0).when(hashIndexMaintenance).missingArtworkCount();
+        assertThat(service.startScan(force).state()).isEqualTo("RUNNING");
+        queued.get().run();
+        assertThat(service.status().state()).isEqualTo("DONE");
+        service.destroy();
+    }
+
+    @Test
+    @DisplayName("失败报告尚未退出时拒绝新扫描，退出后不会释放下一任务的准入")
+    void failureReportingKeepsAdmissionUntilTermination() throws Exception {
+        CountDownLatch reporting = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        when(hashIndexMaintenance.artworkIdsMissingHashes(Integer.MAX_VALUE))
+                .thenThrow(new IllegalStateException("scan failed")).thenReturn(List.of());
+        when(messages.getForLog("duplicate.log.scan.failed", "scan failed")).thenAnswer(invocation -> {
+            reporting.countDown();
+            if (!release.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("report not released");
+            return "failed";
+        });
+        AtomicInteger submissions = new AtomicInteger();
+        AtomicReference<Runnable> queued = new AtomicReference<>();
+        DuplicateScanService service = service(command -> {
+            submissions.incrementAndGet();
+            queued.set(command);
+        });
+        service.startScan(false);
+        FutureTask<Void> task = new FutureTask<>(queued.get(), null);
+        Thread worker = new Thread(task, "duplicate-failure-report-test");
+        worker.start();
+        try {
+            assertThat(reporting.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(service.startScan(false).state()).isEqualTo("FAILED");
+            assertThat(submissions).hasValue(1);
+        } finally {
+            release.countDown();
+            worker.join(5_000);
+            task.get(5, TimeUnit.SECONDS);
+        }
+        assertThat(service.startScan(false).state()).isEqualTo("RUNNING");
+        service.startScan(false);
+        assertThat(submissions).hasValue(2);
+        queued.get().run();
+        assertThat(service.status().state()).isEqualTo("DONE");
+        service.destroy();
+    }
+
+    @Test
+    @DisplayName("启动日志失败也结束扫描任务并允许重试")
+    void startupDiagnosticFailureReleasesAdmission() {
+        when(messages.getForLog("duplicate.log.scan.started", false, 0))
+                .thenThrow(new IllegalStateException("diagnostic failed")).thenReturn("");
+        DuplicateScanService service = service(Runnable::run);
+        assertThatCode(() -> service.startScan(false)).doesNotThrowAnyException();
+        assertThat(service.status().state()).isEqualTo("FAILED");
+        assertThat(service.startScan(false).state()).isEqualTo("DONE");
+        service.destroy();
+    }
+
+    @Test
+    @DisplayName("已完成任务的迟到提交异常不能覆盖下一扫描状态")
+    void lateSubmissionFailurePreservesNextScan() {
+        RejectedExecutionException failure = new RejectedExecutionException("late rejection");
+        AtomicInteger submissions = new AtomicInteger();
+        AtomicReference<DuplicateScanService> current = new AtomicReference<>();
+        AtomicReference<Runnable> queued = new AtomicReference<>();
+        DuplicateScanService service = service(command -> {
+            if (submissions.incrementAndGet() == 1) {
+                command.run();
+                current.get().startScan(false);
+                throw failure;
+            }
+            queued.set(command);
+        });
+        current.set(service);
+
+        assertThatThrownBy(() -> service.startScan(false)).isSameAs(failure);
+        assertThat(service.status().state()).isEqualTo("RUNNING");
+        service.startScan(false);
+        assertThat(submissions).hasValue(2);
+        queued.get().run();
+        assertThat(service.status().state()).isEqualTo("DONE");
+        service.destroy();
     }
 
     private static Object field(Object target, String name) throws ReflectiveOperationException {
