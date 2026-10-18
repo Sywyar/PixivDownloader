@@ -44,15 +44,15 @@
 
     var NAV_ENDPOINT = '/api/navigation';
     var updateSummary = null;
-    var updatePromise = null;
-    var updateController = null;
+    var updateRequest = null;
+    var pageHidden = false;
     var updateStylesLoaded = false;
 
     function pluginUpdates() {
-        if (!(state.items || []).some(function (item) {
+        if (pageHidden || !(state.items || []).some(function (item) {
             return itemMarkers(item).indexOf('plugin-update-summary') !== -1;
         })) return global.Promise.resolve(null);
-        if (updatePromise) return updatePromise;
+        if (updateRequest) return updateRequest.promise;
         if (!updateStylesLoaded) {
             var style = global.document.createElement('link');
             style.rel = 'stylesheet';
@@ -61,10 +61,11 @@
             global.document.head.appendChild(style);
             updateStylesLoaded = true;
         }
-        updateController = new global.AbortController();
-        var timer = global.setTimeout(function () { updateController.abort(); }, 20000);
-        updatePromise = global.fetch('/api/plugins/updates', {
-            credentials: 'same-origin', signal: updateController.signal, cache: 'no-store'
+        var request = { controller: new global.AbortController() };
+        updateRequest = request;
+        request.timer = global.setTimeout(function () { request.controller.abort(); }, 20000);
+        request.promise = global.fetch('/api/plugins/updates', {
+            credentials: 'same-origin', signal: request.controller.signal, cache: 'no-store'
         }).then(function (res) {
             if (res.status === 404) return { enabled: false, checkFailed: false, compatibleUpdates: 0, sdkBlockedUpdates: 0 };
             if (!res.ok) throw new Error('plugin updates http ' + res.status);
@@ -72,15 +73,15 @@
         }).catch(function () {
             return { enabled: true, checkFailed: true, compatibleUpdates: 0, sdkBlockedUpdates: 0 };
         }).then(async function (summary) {
+            if (updateRequest !== request) return null;
             updateSummary = summary;
             await renderFromState();
             return summary;
         }).finally(function () {
-            global.clearTimeout(timer);
-            updateController = null;
-            updatePromise = null;
+            global.clearTimeout(request.timer);
+            if (updateRequest === request) updateRequest = null;
         });
-        return updatePromise;
+        return request.promise;
     }
 
     function updateBadges(item, summary) {
@@ -382,6 +383,7 @@
     }
 
     async function renderFromState() {
+        if (pageHidden) return;
         var revision = ++renderRevision;
         var slots = qsa('[data-nav-slot]');
         slotApps = slotApps.filter(function (record) {
@@ -427,8 +429,11 @@
     }
 
     function dispatchRendered() {
+        if (pageHidden) return;
         try {
-            global.dispatchEvent(new global.CustomEvent('pixivnav:rendered', { detail: { items: state.items } }));
+            global.dispatchEvent(new global.CustomEvent('pixivnav:rendered', {
+                detail: { items: state.items, updateSummary: updateSummary }
+            }));
         } catch (e) { /* 古老环境不支持 CustomEvent 构造器：忽略（不影响渲染本身） */ }
     }
 
@@ -502,8 +507,23 @@
         ready: function () { return readyPromise; }
     };
 
-    if (global.addEventListener) global.addEventListener('pagehide', function () {
-        if (updateController) updateController.abort();
-    });
+    if (global.addEventListener) {
+        global.addEventListener('pagehide', function () {
+            pageHidden = true;
+            renderRevision++;
+            if (updateRequest) {
+                global.clearTimeout(updateRequest.timer);
+                updateRequest.controller.abort();
+                updateRequest = null;
+            }
+        });
+        global.addEventListener('pageshow', function (event) {
+            pageHidden = false;
+            if (event.persisted) {
+                refresh();
+                pluginUpdates();
+            }
+        });
+    }
     autoMount();
 })(window);

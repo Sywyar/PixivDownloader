@@ -151,24 +151,34 @@ function load(opts) {
     const document = makeDocument(slots, opts.anchors, opts.rootAttrs);
     const localStorage = makeStorage(opts.storage);
     const record = { mounts: [], events: [] };
+    const listeners = new Map();
     const sandbox = {
         document,
         location: { origin: 'http://localhost', pathname: opts.pathname || '/monitor.html', search: opts.search || '' },
         localStorage,
         URL,
         console: { warn() {}, log() {}, error() {} },
-        setTimeout, clearTimeout, Promise,
+        setTimeout: opts.setTimeout || setTimeout,
+        clearTimeout: opts.clearTimeout || clearTimeout, Promise,
         AbortController,
         fetch: opts.fetch || makeFetch(opts.items, opts.fetchOk),
         CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; } },
-        dispatchEvent(e) { record.events.push(e); }
+        addEventListener(name, listener) {
+            if (!listeners.has(name)) listeners.set(name, []);
+            listeners.get(name).push(listener);
+        },
+        dispatchEvent(e) {
+            record.events.push(e);
+            (listeners.get(e.type) || []).forEach(listener => listener(e));
+        }
     };
     sandbox.window = sandbox; // 模块用 window 作 global
     if (opts.i18n !== false) sandbox.PixivI18n = I18N;
     if (opts.pixivVue) sandbox.PixivVue = makePixivVue(record, opts.ensureRejects);
     vm.createContext(sandbox);
     vm.runInContext(SRC, sandbox);
-    return { PixivNav: sandbox.PixivNav, document, localStorage, record, slots };
+    return { PixivNav: sandbox.PixivNav, document, localStorage, record, slots,
+        dispatch: event => sandbox.dispatchEvent(event) };
 }
 
 function renderedCount(record) { return record.events.filter(e => e.type === 'pixivnav:rendered').length; }
@@ -395,6 +405,54 @@ async function main() {
         const absent = await runtime.PixivNav.pluginUpdates();
         ok('市场禁用时更新能力缺席，不显示失败或旧角标', absent.enabled === false
             && absent.checkFailed === false && !html().includes('pnav-update-badge'));
+    }
+    for (const pixivVue of [true, false]) {
+        const slot = navSlot('app.top');
+        const item = {id: 'management', placements: ['app.top'], href: '/manage', labelNamespace: 'plugins',
+            labelI18nKey: 'nav.label', markers: ['plugin-update-summary']};
+        const requests = [];
+        const timers = new Map();
+        let timerId = 0;
+        const runtime = load({slots: [slot], pixivVue,
+            setTimeout(callback) { timers.set(++timerId, callback); return timerId; },
+            clearTimeout(id) { timers.delete(id); }, fetch: (url, options) => {
+            if (url === '/api/navigation') return Promise.resolve({ok: true, json: async () => [item]});
+            return new Promise((resolve, reject) => requests.push({signal: options.signal, resolve, reject}));
+        }});
+        await runtime.PixivNav.ready();
+        const first = runtime.PixivNav.pluginUpdates();
+        const renders = renderedCount(runtime.record);
+        runtime.dispatch({type: 'pagehide', persisted: true});
+        ok('离页取消当前更新请求并立即清除计时器', requests[0].signal.aborted && timers.size === 0);
+        requests[0].resolve({ok: true, json: async () => ({enabled: true, compatibleUpdates: 9})});
+        await first;
+        ok('离页后的迟到结果不重绘导航', renderedCount(runtime.record) === renders);
+
+        runtime.dispatch({type: 'pageshow', persisted: true});
+        ok('历史返回自动恢复更新查询', requests.length === 2);
+        const second = runtime.PixivNav.pluginUpdates();
+        ok('历史返回只发起一个共享更新请求', requests.length === 2);
+        requests[1].resolve({ok: true, json: async () => ({enabled: true, compatibleUpdates: 2})});
+        await second;
+        const html = pixivVue ? slot.children.find(el => el.tag === 'a').attrs.innerHTML : slot.innerHTML;
+        ok('历史返回显示本次更新数量', html.includes('>2<') && !html.includes('>9<'));
+        ok('完成查询后释放计时器', timers.size === 0);
+
+        const old = runtime.PixivNav.pluginUpdates();
+        runtime.dispatch({type: 'pagehide', persisted: true});
+        runtime.dispatch({type: 'pageshow', persisted: true});
+        const current = runtime.PixivNav.pluginUpdates();
+        requests[2].resolve({ok: true, json: async () => ({enabled: true, compatibleUpdates: 9})});
+        await old;
+        ok('旧请求完成不清除重开后的共享请求与计时器', runtime.PixivNav.pluginUpdates() === current
+            && requests.length === 4 && timers.size === 1 && !requests[3].signal.aborted);
+        Array.from(timers.values())[0]();
+        ok('超时只取消当前请求', requests[3].signal.aborted);
+        requests[3].reject(new Error('aborted'));
+        await current;
+        const last = runtime.record.events.filter(event => event.type === 'pixivnav:rendered').at(-1);
+        ok('真正的查询失败仍发布失败状态并释放计时器', last.detail.updateSummary.checkFailed
+            && timers.size === 0);
     }
     console.log(`\npixiv-navigation.test.js: ${passed} assertions passed ✓`);
 }

@@ -98,9 +98,6 @@
         PM.renderAll();
         if (global.PixivNav) PixivNav.ready().then(function () {
             return PixivNav.pluginUpdates();
-        }).then(function (summary) {
-            PM.state.pluginUpdates = summary;
-            renderUpdates();
         });
     }
 
@@ -366,6 +363,8 @@
     function wireEvents() {
         // 早绑定（PixivNav 的导航拉取为异步网络请求，本监听器先于其首次 pixivnav:rendered 派发就位）。
         window.addEventListener('pixivnav:rendered', function (e) {
+            PM.state.pluginUpdates = e.detail && e.detail.updateSummary;
+            renderUpdates();
             syncPluginSegment(e.detail && e.detail.items);
         });
         document.getElementById('refreshBtn').addEventListener('click', function () { load(true); });
