@@ -25,7 +25,6 @@ public class ImageClassifier extends JFrame {
     // =========================================================================
 
     private static final int    GROUP_SIZE         = 10;
-    private static final String[] IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"};
 
     // UI 配色
     private static final Color C_BG          = new Color(242, 243, 247);
@@ -89,6 +88,8 @@ public class ImageClassifier extends JFrame {
     // =========================================================================
 
     private final ThumbnailManager thumbnailManager = new ThumbnailManager();
+    private final ClassifierTask<Optional<DesktopUiHost.ImageClassifierArtwork>> artworkLoader = new ClassifierTask<>();
+    private final ClassifierTask<DesktopUiHost.ImageClassifierServer> serverChecker = new ClassifierTask<>();
 
     // =========================================================================
     // 构造 & 入口
@@ -109,6 +110,8 @@ public class ImageClassifier extends JFrame {
 
     @Override
     public void dispose() {
+        artworkLoader.close();
+        serverChecker.close();
         thumbnailManager.shutdown();
         for (JLabel label : thumbnailLabels) {
             if (label != null) label.setIcon(null);
@@ -871,6 +874,8 @@ public class ImageClassifier extends JFrame {
     }
 
     private void loadSubFolders() {
+        artworkLoader.cancel();
+        currentArtworkId = null;
         try {
             subFolders = SwingHost.host().listImageClassifierFolders(parentFolder.toPath()).stream()
                     .map(java.nio.file.Path::toFile)
@@ -949,14 +954,17 @@ public class ImageClassifier extends JFrame {
             updateThumbnails();
             updateStatus();
         } else {
+            artworkLoader.cancel();
+            currentArtworkId = null;
             JOptionPane.showMessageDialog(
                     this,
                     message("gui.image-classifier.dialog.all-folders-complete.message"),
                     message("gui.image-classifier.dialog.all-folders-complete.title"),
                     JOptionPane.INFORMATION_MESSAGE
             );
+            thumbnailManager.prefetch(List.of(), 150, 150);
             for (JLabel label : thumbnailLabels) {
-                label.setIcon(null);
+                thumbnailManager.clearThumbnail(label);
                 label.setText(message("gui.image-classifier.thumbnail.all-done"));
             }
             statusLabel.setText(message("gui.image-classifier.dialog.all-folders-complete.message"));
@@ -978,8 +986,9 @@ public class ImageClassifier extends JFrame {
 
     private void updateThumbnails() {
         if (currentImages == null || currentImages.isEmpty()) {
+            thumbnailManager.prefetch(List.of(), 150, 150);
             for (JLabel label : thumbnailLabels) {
-                label.setIcon(null);
+                thumbnailManager.clearThumbnail(label);
                 label.setText(message("gui.image-classifier.thumbnail.empty"));
                 label.setBorder(BorderFactory.createLineBorder(Color.GRAY, 1));
             }
@@ -998,12 +1007,10 @@ public class ImageClassifier extends JFrame {
                 File   imageFile = currentImages.get(imgIndex);
                 String fname     = imageFile.getName().toLowerCase();
                 String badge     = fname.endsWith(".webp") ? message("gui.image-classifier.thumbnail.badge.animated") : null;
-                label.setText(message("gui.image-classifier.thumbnail.loading"));
-                label.setIcon(null);
                 label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
                 thumbnailManager.loadThumbnail(imageFile, label, thumbW, thumbH, badge);
             } else {
-                label.setIcon(null);
+                thumbnailManager.clearThumbnail(label);
                 label.setText(message("gui.image-classifier.thumbnail.empty"));
                 label.setCursor(Cursor.getDefaultCursor());
             }
@@ -1013,6 +1020,8 @@ public class ImageClassifier extends JFrame {
         int nextStart = (currentGroupIndex + 1) * GROUP_SIZE;
         if (nextStart < currentImages.size()) {
             thumbnailManager.prefetch(currentImages.subList(nextStart, Math.min(nextStart + GROUP_SIZE, currentImages.size())), thumbW, thumbH);
+        } else {
+            thumbnailManager.prefetch(List.of(), thumbW, thumbH);
         }
 
         updateNavigationButtons();
@@ -1051,7 +1060,11 @@ public class ImageClassifier extends JFrame {
     // =========================================================================
 
     private void updateStatus() {
-        if (currentFolderIndex >= subFolders.size()) return;
+        currentArtworkId = null;
+        if (currentFolderIndex >= subFolders.size()) {
+            artworkLoader.cancel();
+            return;
+        }
         File currentFolder = subFolders.get(currentFolderIndex);
         int  totalGroups   = currentImages.isEmpty() ? 0 : (int) Math.ceil((double) currentImages.size() / GROUP_SIZE);
 
@@ -1070,46 +1083,43 @@ public class ImageClassifier extends JFrame {
                 currentImages.size()
         ));
 
-        currentArtworkId = null;
         final int remainingFolders = subFolders.size() - currentFolderIndex;
         final int imageCount = currentImages.size();
-        new Thread(() -> {
-            Optional<DesktopUiHost.ImageClassifierArtwork> resolved =
-                    SwingHost.host().resolveImageClassifierArtwork(currentFolder.toPath(), serverStatus);
-            SwingUtilities.invokeLater(() -> {
-                if (currentFolderIndex >= subFolders.size()
-                        || !currentFolder.equals(subFolders.get(currentFolderIndex))) {
-                    return;
-                }
-                currentArtworkId = resolved.map(DesktopUiHost.ImageClassifierArtwork::artworkId).orElse(null);
-                if (resolved.isEmpty()) {
-                    return;
-                }
-                DesktopUiHost.ImageClassifierArtwork artwork = resolved.get();
-                if (artwork.title() != null && !artwork.title().isEmpty()) {
-                    setTitle(message(
-                            "gui.image-classifier.title.remaining-folders.with-artwork",
-                            remainingFolders,
-                            imageCount,
-                            artwork.title()
-                    ));
-                }
-                Integer xRestrict = artwork.xRestrict();
-                if (xRestrict != null && xRestrict == 2) {
-                    statusLabel.setText(statusLabel.getText() + "   " + message("gui.image-classifier.status.tag.r18g"));
-                    statusLabel.setForeground(C_DANGER);
-                } else if (xRestrict != null && xRestrict == 1) {
-                    statusLabel.setText(statusLabel.getText() + "   " + message("gui.image-classifier.status.tag.r18"));
-                    statusLabel.setForeground(C_DANGER);
-                } else if (xRestrict != null) {
-                    statusLabel.setText(statusLabel.getText() + "   " + message("gui.image-classifier.status.tag.sfw"));
-                    statusLabel.setForeground(new Color(34, 139, 87));
-                } else {
-                    statusLabel.setText(statusLabel.getText() + "   " + message("gui.image-classifier.status.tag.unknown"));
-                    statusLabel.setForeground(C_TEXT_MUTED);
-                }
-            });
-        }, "ImageClassifier-Artwork").start();
+        final DesktopUiHost.ImageClassifierServer server = serverStatus;
+        artworkLoader.load(
+                () -> SwingHost.host().resolveImageClassifierArtwork(currentFolder.toPath(), server),
+                resolved -> {
+                    currentArtworkId = resolved.map(DesktopUiHost.ImageClassifierArtwork::artworkId).orElse(null);
+                    if (resolved.isEmpty()) return;
+                    DesktopUiHost.ImageClassifierArtwork artwork = resolved.get();
+                    if (artwork.title() != null && !artwork.title().isEmpty()) {
+                        setTitle(message(
+                                "gui.image-classifier.title.remaining-folders.with-artwork",
+                                remainingFolders,
+                                imageCount,
+                                artwork.title()
+                        ));
+                    }
+                    Integer xRestrict = artwork.xRestrict();
+                    if (xRestrict != null && xRestrict == 2) {
+                        statusLabel.setText(statusLabel.getText() + "   " + message("gui.image-classifier.status.tag.r18g"));
+                        statusLabel.setForeground(C_DANGER);
+                    } else if (xRestrict != null && xRestrict == 1) {
+                        statusLabel.setText(statusLabel.getText() + "   " + message("gui.image-classifier.status.tag.r18"));
+                        statusLabel.setForeground(C_DANGER);
+                    } else if (xRestrict != null) {
+                        statusLabel.setText(statusLabel.getText() + "   " + message("gui.image-classifier.status.tag.sfw"));
+                        statusLabel.setForeground(new Color(34, 139, 87));
+                    } else {
+                        statusLabel.setText(statusLabel.getText() + "   " + message("gui.image-classifier.status.tag.unknown"));
+                        statusLabel.setForeground(C_TEXT_MUTED);
+                    }
+                },
+                error -> log.warn(
+                        logMessage("gui.image-classifier.log.resolve-artwork-id-by-move-folder-failed", error.getMessage()),
+                        error
+                )
+        );
     }
 
     private void updateRemarkLabel() {
@@ -1239,20 +1249,30 @@ public class ImageClassifier extends JFrame {
     // =========================================================================
 
     private void checkServerStatus() {
-        new Thread(() -> {
-            DesktopUiHost.ImageClassifierServer status = SwingHost.host().checkImageClassifierServer(
-                    config.getProperty("server.url", ""));
-            serverStatus = status;
-            SwingUtilities.invokeLater(() -> {
-                if (status.available()) {
-                    serverStatusLabel.setText(message("gui.image-classifier.server.ok"));
-                    serverStatusLabel.setForeground(new Color(34, 139, 87));
-                } else {
+        String serverUrl = config.getProperty("server.url", "");
+        serverChecker.load(
+                () -> SwingHost.host().checkImageClassifierServer(serverUrl),
+                status -> {
+                    serverChecker.close();
+                    serverStatus = status;
+                    if (status.available()) {
+                        serverStatusLabel.setText(message("gui.image-classifier.server.ok"));
+                        serverStatusLabel.setForeground(new Color(34, 139, 87));
+                    } else {
+                        serverStatusLabel.setText(message("gui.image-classifier.server.connect-failed"));
+                        serverStatusLabel.setForeground(C_DANGER);
+                    }
+                },
+                error -> {
+                    serverChecker.close();
+                    log.warn(
+                            logMessage("gui.image-classifier.log.server-status-check-failed", error.getMessage()),
+                            error
+                    );
                     serverStatusLabel.setText(message("gui.image-classifier.server.connect-failed"));
                     serverStatusLabel.setForeground(C_DANGER);
                 }
-            });
-        }, "ImageClassifier-ServerCheck").start();
+        );
     }
 
     // =========================================================================
@@ -1277,7 +1297,7 @@ public class ImageClassifier extends JFrame {
         imageLabel.setBackground(new Color(18, 18, 18));
         imageLabel.setOpaque(true);
 
-        ImageViewerLoader loader = new ImageViewerLoader();
+        ClassifierTask<ImageIcon> loader = new ClassifierTask<>();
         viewer.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent event) {

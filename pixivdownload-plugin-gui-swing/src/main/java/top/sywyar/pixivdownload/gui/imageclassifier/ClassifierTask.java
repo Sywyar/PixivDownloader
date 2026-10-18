@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.gui.imageclassifier;
 
-import javax.swing.ImageIcon;
 import javax.swing.SwingWorker;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -8,23 +7,23 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.function.Consumer;
 
-/** 单个查看器的加载生命周期；加载与关闭都由 EDT 调用。 */
-final class ImageViewerLoader implements AutoCloseable {
+/** 窗口内的一路查询；提交、取消与关闭都由 EDT 调用，只交付最新结果。 */
+final class ClassifierTask<T> implements AutoCloseable {
     private final ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(
-            1, task -> new Thread(task, "ImageViewer-Loader"));
-    private SwingWorker<ImageIcon, Void> current;
+            1, task -> new Thread(task, "ImageClassifier-Loader"));
+    private SwingWorker<T, Void> current;
 
     void load(
-            Callable<ImageIcon> decode,
-            Consumer<ImageIcon> loaded,
+            Callable<T> query,
+            Consumer<T> loaded,
             Consumer<Throwable> failed
     ) {
         if (executor.isShutdown()) return;
-        cancelCurrent();
+        cancel();
         current = new SwingWorker<>() {
             @Override
-            protected ImageIcon doInBackground() throws Exception {
-                return decode.call();
+            protected T doInBackground() throws Exception {
+                return query.call();
             }
 
             @Override
@@ -37,6 +36,7 @@ final class ImageViewerLoader implements AutoCloseable {
                     Thread.currentThread().interrupt();
                     failed.accept(interrupted);
                 } catch (ExecutionException failure) {
+                    if (failure.getCause() instanceof Error fatal) throw fatal;
                     failed.accept(failure.getCause());
                 }
             }
@@ -44,18 +44,18 @@ final class ImageViewerLoader implements AutoCloseable {
         executor.execute(current);
     }
 
-    private void cancelCurrent() {
+    void cancel() {
         if (current == null) return;
-        SwingWorker<ImageIcon, Void> previous = current;
+        SwingWorker<T, Void> previous = current;
         current = null;
         previous.cancel(true);
-        // ImageIO 可能不响应中断；保留单个在途解码，并移除尚未执行的过期请求。
+        // I/O 可能不响应中断；保留单个在途查询，并移除尚未执行的过期请求。
         executor.remove(previous);
     }
 
     @Override
     public void close() {
-        cancelCurrent();
+        cancel();
         executor.shutdownNow();
     }
 }

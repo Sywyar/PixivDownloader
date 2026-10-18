@@ -16,12 +16,12 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@DisplayName("Swing 图片查看器加载生命周期")
-class ImageViewerLoaderTest {
+@DisplayName("Swing 分类工具查询生命周期")
+class ClassifierTaskTest {
     @Test
     @DisplayName("快速翻页只解码在途与最新图片，旧结果不得覆盖新图片")
     void replacesQueuedRequestsAndPublishesOnlyLatest() throws Exception {
-        ImageViewerLoader loader = new ImageViewerLoader();
+        ClassifierTask<ImageIcon> loader = new ClassifierTask<>();
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         CountDownLatch displayed = new CountDownLatch(1);
@@ -72,7 +72,7 @@ class ImageViewerLoaderTest {
     @Test
     @DisplayName("关闭时移除待解码请求并丢弃无法中断的迟到结果")
     void closingDiscardsRunningAndQueuedResults() throws Exception {
-        ImageViewerLoader loader = new ImageViewerLoader();
+        ClassifierTask<ImageIcon> loader = new ClassifierTask<>();
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         AtomicReference<Thread> worker = new AtomicReference<>();
@@ -107,7 +107,7 @@ class ImageViewerLoaderTest {
     @Test
     @DisplayName("当前图片加载失败仍在 EDT 交付原始异常")
     void reportsCurrentFailure() throws Exception {
-        ImageViewerLoader loader = new ImageViewerLoader();
+        ClassifierTask<ImageIcon> loader = new ClassifierTask<>();
         CountDownLatch completed = new CountDownLatch(1);
         IOException expected = new IOException("Broken image");
         AtomicReference<Throwable> actual = new AtomicReference<>();
@@ -132,6 +132,36 @@ class ImageViewerLoaderTest {
             } catch (InterruptedException ignored) {
                 // 模拟不能靠线程中断终止的 ImageIO 读取器。
             }
+        }
+    }
+
+    @Test
+    @DisplayName("当前查询的致命错误交给 EDT 异常处理器，不作为普通失败")
+    void propagatesFatalFailure() throws Exception {
+        ClassifierTask<String> loader = new ClassifierTask<>();
+        OutOfMemoryError expected = new OutOfMemoryError("controlled failure");
+        AtomicReference<Throwable> actual = new AtomicReference<>();
+        AtomicReference<Thread.UncaughtExceptionHandler> previous = new AtomicReference<>();
+        CountDownLatch delivered = new CountDownLatch(1);
+        AtomicInteger ordinaryFailures = new AtomicInteger();
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                Thread edt = Thread.currentThread();
+                previous.set(edt.getUncaughtExceptionHandler());
+                edt.setUncaughtExceptionHandler((thread, error) -> {
+                    actual.set(error);
+                    delivered.countDown();
+                });
+                loader.load(() -> { throw expected; }, value -> fail(), error -> ordinaryFailures.incrementAndGet());
+            });
+            assertTrue(delivered.await(5, TimeUnit.SECONDS));
+            assertSame(expected, actual.get());
+            assertEquals(0, ordinaryFailures.get());
+        } finally {
+            SwingUtilities.invokeAndWait(() -> {
+                loader.close();
+                Thread.currentThread().setUncaughtExceptionHandler(previous.get());
+            });
         }
     }
 }
