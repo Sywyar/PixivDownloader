@@ -90,6 +90,44 @@ class GuiThemeContributionRegistryTest {
     }
 
     @Test
+    @DisplayName("撤回后保留其它主题顺序，旧查询结果保持不可变")
+    void withdrawalPreservesOrderAndPreviousSnapshots() {
+        var registry = emptyRegistry();
+        registry.register("alpha", List.of(theme("alpha.light"), theme("alpha.dark")));
+        registry.register("beta", List.of(theme("beta.dark")));
+        var previousThemes = registry.themes();
+        var previousIndex = registry.themesById();
+
+        registry.unregister("alpha");
+        registry.register("alpha", List.of(theme("alpha.dark"), theme("alpha.light")));
+
+        assertThat(registry.themes()).extracting(item -> item.contribution().themeId())
+                .containsExactly("beta.dark", "alpha.dark", "alpha.light");
+        assertThat(registry.themesById().keySet())
+                .containsExactly("beta.dark", "alpha.dark", "alpha.light");
+        assertThat(previousThemes).extracting(item -> item.contribution().themeId())
+                .containsExactly("alpha.light", "alpha.dark", "beta.dark");
+        assertThat(previousIndex.keySet()).containsExactly("alpha.light", "alpha.dark", "beta.dark");
+        assertThatThrownBy(previousThemes::clear).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(previousIndex::clear).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("注册列表中途冲突时保留完整旧快照且不发布部分主题")
+    void failedRegistrationPreservesPublishedThemes() {
+        var registry = emptyRegistry();
+        registry.register("alpha", List.of(theme("shared.theme")));
+
+        assertThatThrownBy(() -> registry.register("beta", List.of(theme("beta.light"), theme("shared.theme"))))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(registry.themes()).extracting(item -> item.contribution().themeId())
+                .containsExactly("shared.theme");
+        assertThat(registry.find("beta.light")).isEmpty();
+        assertThat(registry.find("shared.theme")).get()
+                .extracting(GuiThemeContributionRegistry.RegisteredTheme::pluginId).isEqualTo("alpha");
+    }
+
+    @Test
     @DisplayName("重复 themeId 产生明确诊断并拒绝任选")
     void duplicateThemeIdRejected() {
         assertThatThrownBy(() -> new GuiThemeContributionRegistry(new PluginRegistry(List.of(
