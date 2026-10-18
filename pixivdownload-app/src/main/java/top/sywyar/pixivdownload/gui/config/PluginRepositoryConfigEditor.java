@@ -314,21 +314,13 @@ public final class PluginRepositoryConfigEditor {
     // ── 行级定位 ────────────────────────────────────────────────────────────────
 
     /** 找到活跃（未注释）的 {@code plugin-catalog.repositories:} 键行下标；找不到返回 -1。 */
-    private static int findKeyLineIndex(List<String> lines) {
+    private static int findKeyLineIndex(List<String> lines) throws IOException {
         for (int i = 0; i < lines.size(); i++) {
-            if (isKeyLine(lines.get(i).trim())) {
+            if (LIST_KEY.equals(ConfigFileEditor.keyFromLine(lines.get(i).trim(), false))) {
                 return i;
             }
         }
         return -1;
-    }
-
-    private static boolean isKeyLine(String trimmed) {
-        if (trimmed.startsWith("#") || !trimmed.startsWith(LIST_KEY)) {
-            return false;
-        }
-        String rest = trimmed.substring(LIST_KEY.length()).stripLeading();
-        return rest.startsWith(":");
     }
 
     /**
@@ -371,11 +363,11 @@ public final class PluginRepositoryConfigEditor {
     }
 
     /** 键不存在时的插入位置：最后一个 {@code plugin-catalog.*} 活跃行之后，否则文件末尾。 */
-    private static int insertionPoint(List<String> lines) {
+    private static int insertionPoint(List<String> lines) throws IOException {
         int lastCatalog = -1;
         for (int i = 0; i < lines.size(); i++) {
-            String trimmed = lines.get(i).trim();
-            if (!trimmed.startsWith("#") && trimmed.startsWith("plugin-catalog.")) {
+            String key = ConfigFileEditor.keyFromLine(lines.get(i).trim(), false);
+            if (key != null && key.startsWith("plugin-catalog.")) {
                 lastCatalog = i;
             }
         }

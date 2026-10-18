@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.config;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocaleCatalog;
@@ -12,10 +14,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 
 /**
  * 项目启动时自动维护 config.yaml：
@@ -62,10 +62,11 @@ public class AppConfigGenerator {
     private void updateMissingKeys(File configFile, String defaultConfig, Locale locale) {
         try {
             String existing = Files.readString(configFile.toPath(), StandardCharsets.UTF_8);
-            Set<String> existingKeys = extractKeys(existing);
+            var existingConfig = new YamlPropertySourceLoader().load("config",
+                    new ByteArrayResource(existing.getBytes(StandardCharsets.UTF_8)));
 
             List<ConfigBlock> missingBlocks = parseDefaultConfigBlocks(defaultConfig).stream()
-                    .filter(block -> !existingKeys.contains(block.key()))
+                    .filter(block -> existingConfig.stream().noneMatch(source -> source.containsProperty(block.key())))
                     .toList();
 
             if (missingBlocks.isEmpty()) {
@@ -93,24 +94,6 @@ public class AppConfigGenerator {
         } catch (IOException e) {
             log.warn(message("config.log.missing-keys.append-failed", e.getMessage()));
         }
-    }
-
-    /**
-     * 从配置文件内容中提取已存在的 key 集合。
-     * 忽略空行和注释行（以 # 开头）。
-     */
-    private Set<String> extractKeys(String content) {
-        Set<String> keys = new HashSet<>();
-        for (String line : content.split("\n")) {
-            String trimmed = line.trim();
-            if (!trimmed.isEmpty() && !trimmed.startsWith("#")) {
-                int idx = trimmed.indexOf(':');
-                if (idx > 0) {
-                    keys.add(trimmed.substring(0, idx).trim());
-                }
-            }
-        }
-        return keys;
     }
 
     /**

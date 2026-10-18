@@ -3,6 +3,10 @@ package top.sywyar.pixivdownload.gui.config;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.core.io.FileSystemResource;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.IOException;
@@ -25,6 +29,43 @@ class ConfigFileEditorTest {
         Path file = tempDir.resolve("config.yaml");
         Files.write(file, List.of(lines), StandardCharsets.UTF_8);
         return file;
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"server.port", "'server.port'", "\"server.port\"", "\"server\\u002eport\""})
+    @DisplayName("标量读写与删除识别引号和转义键，保留其它行与注释")
+    void quotedKeysRoundTrip(String key) throws IOException {
+        Path file = writeTemplate("# 配置", key + "  : 7011  # 端口", "server.port.extra: keep");
+        byte[] original = Files.readAllBytes(file);
+        ConfigFileEditor editor = new ConfigFileEditor(file);
+
+        assertThat(editor.read("server.port")).isEqualTo("7011");
+        assertThat(editor.readAll(List.of("server.port"))).containsExactlyEntriesOf(Map.of("server.port", "7011"));
+        assertThat(Files.readAllBytes(file)).isEqualTo(original);
+        editor.write("server.port", "7012");
+        assertThat(Files.readAllLines(file)).containsExactly("# 配置", "server.port: 7012  # 端口", "server.port.extra: keep");
+
+        Files.write(file, original);
+        editor.writeAll(Map.of("server.port", "7013"));
+        var sources = new YamlPropertySourceLoader().load("config", new FileSystemResource(file));
+        assertThat(sources.get(0).getProperty("server.port")).isEqualTo(7013);
+        assertThat(Files.readAllLines(file)).containsExactly("# 配置", "server.port: 7013  # 端口", "server.port.extra: keep");
+
+        Files.write(file, original);
+        editor.removeAll(List.of("server.port"));
+        assertThat(Files.readAllLines(file)).containsExactly("# 配置", "server.port.extra: keep");
+    }
+
+    @Test
+    @DisplayName("注释中的引号键不参与读取，保存时恢复为活跃条目")
+    void quotedCommentedKeyIsOnlyRestoredWhenWriting() throws IOException {
+        Path file = writeTemplate("# 'server.port': 7011  # 端口");
+        ConfigFileEditor editor = new ConfigFileEditor(file);
+
+        assertThat(editor.read("server.port")).isNull();
+        assertThat(editor.readAll(List.of("server.port"))).isEmpty();
+        editor.writeAll(Map.of("server.port", "7012"));
+        assertThat(Files.readAllLines(file)).containsExactly("server.port: 7012  # 端口");
     }
 
     @Test

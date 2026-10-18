@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.gui.config;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.boot.env.YamlPropertySourceLoader;
@@ -35,6 +37,22 @@ class PluginRepositoryConfigEditorTest {
 
     private static RepositoryConfigEntry repo(String id, String url, boolean enabled, String policy) {
         return RepositoryConfigEntry.create(id, "", url, enabled, policy, 0, 0, 0, 0);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"'plugin-catalog.repositories'", "\"plugin-catalog.repositories\"", "\"plugin-catalog\\u002erepositories\""})
+    @DisplayName("替换引号仓库键时不追加重复列表，保留块外配置与注释")
+    void replacesQuotedRepositoryKey(String key) throws IOException {
+        Path file = writeFile(key + ":  # 仓库", "  - id: old", "    manifest-url: https://old.example/manifest.json",
+                "", "# 保留", "server.port: 7011");
+        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(file);
+
+        editor.write(List.of(repo("replacement", "https://new.example/manifest.json", true, "direct-strict")));
+
+        assertThat(bind(file).getRepositories()).extracting(PluginCatalogProperties.RepositoryConfig::getId)
+                .containsExactly("replacement");
+        assertThat(Files.readAllLines(file)).contains("plugin-catalog.repositories:  # 仓库")
+                .endsWith("", "# 保留", "server.port: 7011");
     }
 
     @Test
