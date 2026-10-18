@@ -1,9 +1,8 @@
-package top.sywyar.pixivdownload.plugin;
+package top.sywyar.pixivdownload.plugin.lifecycle;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
-import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.PluginCapabilityContributionAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.PluginContextCapabilityContributionAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.PushChannelCapabilityAdapter;
@@ -46,7 +45,7 @@ class PluginCapabilityContributionRegistrarTest {
             child.registerBean("beta", BetaCapability.class, BetaBean::new);
             child.refresh();
 
-            registrar.register("ext-demo", child);
+            registrar.registerLegacy("ext-demo", child);
         }
 
         assertThat(registrar.capabilityNames()).containsExactly("alpha.core", "zeta.beta");
@@ -68,7 +67,7 @@ class PluginCapabilityContributionRegistrarTest {
         try (AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext()) {
             child.refresh();
 
-            registrar.register("ext-disabled", child);
+            registrar.registerLegacy("ext-disabled", child);
         }
 
         assertThat(events).containsExactly("alpha.core:register:ext-disabled:0");
@@ -84,7 +83,7 @@ class PluginCapabilityContributionRegistrarTest {
         PluginCapabilityContributionRegistrar registrar =
                 new PluginCapabilityContributionRegistrar(List.<PluginCapabilityContributionAdapter<?>>of(beta, alpha));
 
-        registrar.register("ext-demo", null);
+        registrar.registerLegacy("ext-demo", null);
 
         assertThat(events).containsExactly(
                 "alpha.core:unregister:ext-demo",
@@ -106,7 +105,7 @@ class PluginCapabilityContributionRegistrarTest {
             child.registerBean("beta", BetaCapability.class, BetaBean::new);
             child.refresh();
 
-            assertThatThrownBy(() -> registrar.register("ext-demo", child))
+            assertThatThrownBy(() -> registrar.registerLegacy("ext-demo", child))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("zeta.beta failed");
         }
@@ -138,7 +137,7 @@ class PluginCapabilityContributionRegistrarTest {
                     () -> new FakePushChannel(new PushChannelId("test-channel")));
             child.refresh();
 
-            assertThatThrownBy(() -> registrar.register("ext-demo", child))
+            assertThatThrownBy(() -> registrar.registerLegacy("ext-demo", child))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("duplicate push channel id");
         }
@@ -153,7 +152,7 @@ class PluginCapabilityContributionRegistrarTest {
             child.registerBean("push-ok", PushChannel.class, () -> new FakePushChannel(PUSH_CHANNEL_ID));
             child.refresh();
 
-            registrar.register("ext-demo", child);
+            registrar.registerLegacy("ext-demo", child);
         }
 
         assertThat(pushRegistry.channels()).hasSize(1);
@@ -171,7 +170,7 @@ class PluginCapabilityContributionRegistrarTest {
             child.refresh();
             gallery.failAfterRegister = true;
 
-            assertThatThrownBy(() -> registrar.register("ext-demo", child))
+            assertThatThrownBy(() -> registrar.registerLegacy("ext-demo", child))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("gallery failed");
         }
@@ -195,9 +194,9 @@ class PluginCapabilityContributionRegistrarTest {
         PluginCapabilityContributionRegistrar registrar = new PluginCapabilityContributionRegistrar(
                 List.<PluginCapabilityContributionAdapter<?>>of(beta, alpha), List.of(gallery));
 
-        assertThatThrownBy(() -> registrar.unregister("ext-demo"))
+        assertThatThrownBy(() -> registrar.unregisterLegacy("ext-demo"))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("failed to unregister one or more runtime capabilities");
+                .hasMessageContaining("failed to unregister one or more legacy runtime capabilities");
 
         assertThat(events).containsExactly(
                 "alpha.core:unregister:ext-demo",
@@ -225,7 +224,7 @@ class PluginCapabilityContributionRegistrarTest {
             child.registerBean("beta", BetaCapability.class, BetaBean::new);
             child.refresh();
 
-            assertThatThrownBy(() -> registrar.register("ext-demo", child))
+            assertThatThrownBy(() -> registrar.registerLegacy("ext-demo", child))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("zeta.failure failed")
                     .satisfies(failure -> assertThat(failure.getSuppressed()).hasSize(1));
