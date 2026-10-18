@@ -32,11 +32,6 @@ public final class TestRuntimePathProvider implements RuntimePathProvider {
         return directory(root.resolve("state").resolve("novel"));
     }
 
-    /** 返回花名册参考音目录但不创建，便于断言删除结果。 */
-    public Path narrationVoicePath(long castId) {
-        return root.resolve("data").resolve("novel").resolve("narration-voice").resolve(Long.toString(castId));
-    }
-
     private static Path directory(Path path) {
         try {
             return Files.createDirectories(path);

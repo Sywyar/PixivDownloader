@@ -1,9 +1,12 @@
 package top.sywyar.pixivdownload.novel.narration.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.http.ResponseEntity;
 import top.sywyar.pixivdownload.ai.AiChatClient;
@@ -17,6 +20,8 @@ import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationScriptService;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
+import top.sywyar.pixivdownload.novel.db.NovelMapper;
+import top.sywyar.pixivdownload.novel.db.NovelNarrationScriptRow;
 import top.sywyar.pixivdownload.novel.db.NovelRecord;
 import top.sywyar.pixivdownload.novel.narration.audio.NarrationAudioService;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
@@ -231,42 +236,34 @@ class NarrationControllerTest {
                 .getOrAnalyze(anyLong(), any(), anyInt(), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class));
     }
 
-    @Test
-    @DisplayName("/script：引擎不可用但命中缓存脚本时仍正常返回（不触发新分析）")
-    void scriptAllowsCacheHitWhenUnavailable() {
-        when(audioService.isEngineAvailable()).thenReturn(false);
+    @ParameterizedTest
+    @CsvSource({"false,true,true", "true,false,true", "false,false,true", "false,false,false"})
+    @DisplayName("/script：缓存读出后被撤销仍返回已读取的脚本，不绕过能力检查重新生成")
+    void cacheRemovalAfterReadDoesNotRegenerateScript(boolean aiAvailable, boolean engineAvailable,
+                                                     boolean analyzeIfMissing) {
         when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
-        List<NovelNarrationScriptService.ScriptLine> lines = List.of(
-                new NovelNarrationScriptService.ScriptLine(0, 0, "Narrator", "", 0, "正文。"));
-        NovelNarrationScriptService.ChapterScript cached =
-                new NovelNarrationScriptService.ChapterScript(lines, 5L, 1L, 0, 2L, List.of());
-        when(scriptService.peekScript(7L, "")).thenReturn(cached);
-        when(scriptService.getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class)))
-                .thenReturn(cached);
+        when(aiChatClient.isConfigured()).thenReturn(aiAvailable);
+        when(audioService.isEngineAvailable()).thenReturn(engineAvailable);
+        NovelMapper mapper = mock(NovelMapper.class);
+        var cached = new NovelNarrationScriptRow(7L, "", 0L, 0, 1234L, """
+                [{"i":0,"speaker":0,"speakerName":"Narrator","delivery":"",
+                  "paragraphIndex":0,"text":"Cached text."}]
+                """);
+        when(mapper.findNarrationScript(7L, "")).thenReturn(cached, null);
+        var service = new NovelNarrationScriptService(castService, novelDatabase, mapper, audioService,
+                referenceVoiceService, new ObjectMapper());
+        var realController = new NarrationController(service, castService, referenceVoiceService, audioService,
+                novelDatabase, NovelTestMessages.messageResolver(), debugSettings, aiChatClient);
 
-        ResponseEntity<?> resp = controller.script(
-                new NarrationController.ScriptRequest(7L, null, null, null, null, null, null));
+        ResponseEntity<?> response = realController.script(
+                new NarrationController.ScriptRequest(7L, null, null, false, 0L, null, analyzeIfMissing));
 
-        assertEquals(200, resp.getStatusCode().value());
-    }
-
-    @Test
-    @DisplayName("/script：AI 未配置但命中缓存脚本时仍正常返回（不触发新分析）")
-    void scriptAllowsCacheHitWhenAiUnavailable() {
-        when(aiChatClient.isConfigured()).thenReturn(false);
-        when(novelDatabase.getNovel(7L)).thenReturn(novel(7L));
-        List<NovelNarrationScriptService.ScriptLine> lines = List.of(
-                new NovelNarrationScriptService.ScriptLine(0, 0, "Narrator", "", 0, "正文。"));
-        NovelNarrationScriptService.ChapterScript cached =
-                new NovelNarrationScriptService.ChapterScript(lines, 5L, 1L, 0, 2L, List.of());
-        when(scriptService.peekScript(7L, "")).thenReturn(cached);
-        when(scriptService.getOrAnalyze(eq(7L), eq(""), eq(0), anyBoolean(), anyInt(), nullable(Long.class), nullable(String.class)))
-                .thenReturn(cached);
-
-        ResponseEntity<?> resp = controller.script(
-                new NarrationController.ScriptRequest(7L, null, null, null, null, null, null));
-
-        assertEquals(200, resp.getStatusCode().value());
+        assertEquals(200, response.getStatusCode().value());
+        var body = (NarrationController.ScriptResponse) response.getBody();
+        assertEquals(List.of("Cached text."), body.lines().stream().map(NarrationController.ScriptLineView::text).toList());
+        assertEquals(1234L, body.analyzedTime());
+        verify(mapper, org.mockito.Mockito.never())
+                .upsertNarrationScript(anyLong(), any(), anyLong(), anyInt(), anyLong(), any());
     }
 
     @Test

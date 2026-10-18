@@ -16,7 +16,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
-import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoicePaths;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
 import top.sywyar.pixivdownload.novel.narration.UploadedAudioValidator;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
@@ -24,8 +23,6 @@ import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 /**
  * 多角色朗读「参考音 / 标准音」管理端点：生成自动标准音、上传真人参考音、删除、试听。全部挂在 {@code /api/narration/}
@@ -46,7 +43,6 @@ public class NarrationReferenceVoiceController {
     private final NovelNarrationCastService castService;
     private final NarrationReferenceVoiceService referenceVoiceService;
     private final MessageResolver messages;
-    private final NarrationReferenceVoicePaths paths;
 
     public record GenerateRequest(Long castId, Integer characterId, String text) {}
 
@@ -135,26 +131,15 @@ public class NarrationReferenceVoiceController {
     /** 试听某角色已配的参考音（直接回放存盘文件，非合成）。 */
     @GetMapping
     public ResponseEntity<?> preview(@RequestParam long castId, @RequestParam int characterId) {
-        NovelNarrationVoiceRef ref = referenceVoiceService.reference(castId, characterId);
+        var ref = referenceVoiceService.resolve(castId, characterId);
         if (ref == null) {
             return ResponseEntity.notFound().build();
         }
-        Path file = paths.file(castId, characterId, ref.ext());
-        if (!Files.isRegularFile(file)) {
-            return ResponseEntity.notFound().build();
-        }
-        try {
-            byte[] audio = Files.readAllBytes(file);
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.valueOf(NarrationReferenceVoiceService.mimeForExt(ref.ext())));
-            headers.setCacheControl(CacheControl.noStore());
-            headers.add(X_CONTENT_TYPE_OPTIONS, "nosniff");
-            return ResponseEntity.ok().headers(headers).body(audio);
-        } catch (IOException e) {
-            log.warn("read narration reference voice failed: castId={}, characterId={}, err={}",
-                    castId, characterId, e.getMessage());
-            return ResponseEntity.notFound().build();
-        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.valueOf(ref.mime()));
+        headers.setCacheControl(CacheControl.noStore());
+        headers.add(X_CONTENT_TYPE_OPTIONS, "nosniff");
+        return ResponseEntity.ok().headers(headers).body(ref.audio());
     }
 
     private ResponseEntity<NovelErrorResponse> badRequest(String messageKey) {

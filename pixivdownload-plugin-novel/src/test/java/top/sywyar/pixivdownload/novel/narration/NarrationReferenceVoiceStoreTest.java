@@ -3,93 +3,111 @@ package top.sywyar.pixivdownload.novel.narration;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import top.sywyar.pixivdownload.core.asset.FileTransactionService;
+import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 import top.sywyar.pixivdownload.novel.TestRuntimePathProvider;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
-import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
-@DisplayName("多角色朗读参考音磁盘存储（原子写 / 扩展名切换清理 / 整册目录删除）")
+@DisplayName("参考音暂存与宿主文件事务边界")
 class NarrationReferenceVoiceStoreTest {
-
-    @TempDir
-    Path tmp;
+    @TempDir Path tmp;
 
     @Test
-    @DisplayName("write：原子落盘目标文件、清掉同角色旧扩展名文件，不残留临时文件")
-    void writeReplacesOtherExtensions() throws Exception {
-        TestRuntimePathProvider runtimePaths = new TestRuntimePathProvider(tmp);
-        NarrationReferenceVoicePaths paths = new NarrationReferenceVoicePaths(runtimePaths, () -> true);
-        NarrationReferenceVoiceStore store = new NarrationReferenceVoiceStore(paths, () -> true);
-        store.write(7L, 1, new byte[]{1, 2, 3}, "wav");
-        assertThat(Files.exists(paths.file(7L, 1, "wav"))).isTrue();
+    @DisplayName("完整音频暂存后交付文件事务，异常时释放本次暂存而不改旧音频")
+    void stagesAudioAndCleansTemporaryAfterFailure() throws Exception {
+        var paths = new NarrationReferenceVoicePaths(new TestRuntimePathProvider(tmp), () -> true);
+        var files = mock(FileTransactionService.class);
+        var store = new NarrationReferenceVoiceStore(paths, () -> true, files);
+        Path old = Files.write(paths.file(7L, 1, "wav"), new byte[]{1, 2, 3});
+        Path other = Files.write(paths.file(7L, 2, "mp3"), new byte[]{8});
+        Files.write(old.resolveSibling("1.reference.part"), new byte[]{9, 9, 9, 9, 9, 9});
+        var failure = new IllegalStateException("record update failed");
+        Runnable records = () -> { throw failure; };
+        doAnswer(call -> {
+            Map<Path, Path> replacements = call.getArgument(0);
+            assertThat(replacements).containsOnlyKeys(paths.file(7L, 1, "mp3"));
+            assertThat(Files.readAllBytes(replacements.values().iterator().next())).containsExactly(4, 5, 6, 7);
+            assertThat((java.util.Collection<Path>) call.getArgument(1))
+                    .containsExactly(old, paths.file(7L, 1, "pcm"));
+            assertThat(call.getArgument(2, Runnable.class)).isSameAs(records);
+            records.run();
+            return null;
+        }).when(files).changeFiles(any(), any(), any());
 
-        // 切换为 mp3：写出 mp3、清掉旧 wav
-        store.write(7L, 1, new byte[]{4, 5, 6, 7}, "mp3");
-        assertThat(Files.readAllBytes(paths.file(7L, 1, "mp3")))
-                .isEqualTo(new byte[]{4, 5, 6, 7});
-        assertThat(Files.exists(paths.file(7L, 1, "wav"))).isFalse();
-        Path mp3 = paths.file(7L, 1, "mp3");
-        assertThat(Files.exists(mp3.resolveSibling(mp3.getFileName() + ".tmp"))).isFalse();
+        assertThatThrownBy(() -> store.write(7L, 1, new byte[]{4, 5, 6, 7}, "mp3", records))
+                .isSameAs(failure);
+
+        assertThat(Files.readAllBytes(old)).containsExactly(1, 2, 3);
+        try (var remaining = Files.list(old.getParent())) {
+            assertThat(remaining.toList()).containsExactlyInAnyOrder(old, other);
+        }
     }
 
     @Test
-    @DisplayName("deleteCharacterFiles：删除某角色全部扩展名文件，不影响同册其它角色")
-    void deleteCharacterFilesRemovesAllExtensions() {
-        TestRuntimePathProvider runtimePaths = new TestRuntimePathProvider(tmp);
-        NarrationReferenceVoicePaths paths = new NarrationReferenceVoicePaths(runtimePaths, () -> true);
-        NarrationReferenceVoiceStore store = new NarrationReferenceVoiceStore(paths, () -> true);
-        store.write(7L, 1, new byte[]{1}, "wav");
-        store.write(7L, 2, new byte[]{2}, "mp3");
+    @DisplayName("拒绝链接暂存文件且不改写链接目标")
+    void rejectsLinkedTemporaryFile() throws Exception {
+        var paths = new NarrationReferenceVoicePaths(new TestRuntimePathProvider(tmp), () -> true);
+        var files = mock(FileTransactionService.class);
+        var store = new NarrationReferenceVoiceStore(paths, () -> true, files);
+        Path original = Files.write(tmp.resolve("original.wav"), new byte[]{1, 2, 3});
+        Path temporary = paths.file(7L, 1, "wav").resolveSibling("1.reference.part");
+        try {
+            Files.createSymbolicLink(temporary, original);
+        } catch (IOException | UnsupportedOperationException unavailable) {
+            org.junit.jupiter.api.Assumptions.abort("当前环境不能创建符号链接");
+        }
 
-        store.deleteCharacterFiles(7L, 1);
-
-        assertThat(Files.exists(paths.file(7L, 1, "wav"))).isFalse();
-        assertThat(Files.exists(paths.file(7L, 2, "mp3"))).isTrue();
+        assertThatThrownBy(() -> store.write(7L, 1, new byte[]{9}, "wav", () -> {}))
+                .isInstanceOf(UncheckedIOException.class);
+        assertThat(Files.readAllBytes(original)).containsExactly(1, 2, 3);
+        assertThat(Files.isSymbolicLink(temporary)).isTrue();
+        verifyNoInteractions(files);
     }
 
     @Test
-    @DisplayName("deleteCastDirectory：递归删除整册目录，不误删其它册")
-    void deleteCastDirectoryRemovesOnlyThatCast() {
-        TestRuntimePathProvider runtimePaths = new TestRuntimePathProvider(tmp);
-        NarrationReferenceVoicePaths paths = new NarrationReferenceVoicePaths(runtimePaths, () -> true);
-        NarrationReferenceVoiceStore store = new NarrationReferenceVoiceStore(paths, () -> true);
-        store.write(7L, 0, new byte[]{1}, "wav");
-        store.write(7L, 1, new byte[]{2}, "mp3");
-        store.write(8L, 0, new byte[]{3}, "wav");
+    @DisplayName("角色删除提交全部受支持格式及同一记录回调，不包含其它角色")
+    void delegatesCharacterDeletion() throws Exception {
+        var paths = new NarrationReferenceVoicePaths(new TestRuntimePathProvider(tmp), () -> true);
+        var files = mock(FileTransactionService.class);
+        var store = new NarrationReferenceVoiceStore(paths, () -> true, files);
+        Runnable records = mock(Runnable.class);
 
-        store.deleteCastDirectory(7L);
+        store.deleteCharacterFiles(7L, 1, records);
 
-        assertThat(Files.exists(runtimePaths.narrationVoicePath(7L))).isFalse();
-        assertThat(Files.exists(paths.file(8L, 0, "wav"))).isTrue();
+        verify(files).changeFiles(Map.of(), java.util.List.of(paths.file(7L, 1, "wav"),
+                paths.file(7L, 1, "mp3"), paths.file(7L, 1, "pcm")), records);
     }
 
     @Test
-    @DisplayName("数据库失效后拒绝覆盖、扩展名清理和整册删除，保留旧参考音")
+    @DisplayName("数据库失效后拒绝覆盖与角色文件清理，保留旧参考音")
     void preservesFilesWhenDatabaseBecomesUnavailable() throws Exception {
         AtomicBoolean available = new AtomicBoolean(true);
         var paths = new NarrationReferenceVoicePaths(new TestRuntimePathProvider(tmp), available::get);
-        var store = new NarrationReferenceVoiceStore(paths, available::get);
-        store.write(7L, 1, new byte[]{1, 2, 3}, "wav");
-        Path original = paths.file(7L, 1, "wav");
+        var files = mock(FileTransactionService.class);
+        var store = new NarrationReferenceVoiceStore(paths, available::get, files);
+        Path original = Files.write(paths.file(7L, 1, "wav"), new byte[]{1, 2, 3});
         available.set(false);
 
-        assertThatThrownBy(() -> store.write(7L, 1, new byte[]{9}, "wav"))
+        assertThatThrownBy(() -> store.write(7L, 1, new byte[]{9}, "wav", () -> {}))
                 .isInstanceOf(DatabaseUnavailableException.class);
-        assertThatThrownBy(() -> store.write(7L, 1, new byte[]{9}, "mp3"))
-                .isInstanceOf(DatabaseUnavailableException.class);
-        assertThatThrownBy(() -> store.deleteCharacterFiles(7L, 1))
-                .isInstanceOf(DatabaseUnavailableException.class);
-        assertThatThrownBy(() -> store.deleteCastDirectory(7L))
+        assertThatThrownBy(() -> store.deleteCharacterFiles(7L, 1, () -> {}))
                 .isInstanceOf(DatabaseUnavailableException.class);
 
+        verifyNoInteractions(files);
         assertThat(Files.readAllBytes(original)).containsExactly(1, 2, 3);
-        try (var files = Files.list(original.getParent())) {
-            assertThat(files.toList()).containsExactly(original);
+        try (var remaining = Files.list(original.getParent())) {
+            assertThat(remaining.toList()).containsExactly(original);
         }
     }
 }

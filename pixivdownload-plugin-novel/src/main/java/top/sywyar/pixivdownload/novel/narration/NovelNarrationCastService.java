@@ -59,28 +59,24 @@ public class NovelNarrationCastService {
     private final NovelMapper novelMapper;
     private final NovelDatabase novelDatabase;
     private final NarrationScriptService narrationScriptService;
-    private final NarrationReferenceVoiceStore referenceVoiceStore;
     private final TransactionOperations transactionOperations;
 
     @Autowired
     public NovelNarrationCastService(NovelMapper novelMapper,
                                      NovelDatabase novelDatabase,
                                      NarrationScriptService narrationScriptService,
-                                     NarrationReferenceVoiceStore referenceVoiceStore,
                                      PlatformTransactionManager transactionManager) {
-        this(novelMapper, novelDatabase, narrationScriptService, referenceVoiceStore,
+        this(novelMapper, novelDatabase, narrationScriptService,
                 new TransactionTemplate(transactionManager));
     }
 
     NovelNarrationCastService(NovelMapper novelMapper,
                               NovelDatabase novelDatabase,
                               NarrationScriptService narrationScriptService,
-                              NarrationReferenceVoiceStore referenceVoiceStore,
                               TransactionOperations transactionOperations) {
         this.novelMapper = novelMapper;
         this.novelDatabase = novelDatabase;
         this.narrationScriptService = narrationScriptService;
-        this.referenceVoiceStore = referenceVoiceStore;
         this.transactionOperations = transactionOperations;
     }
 
@@ -110,7 +106,7 @@ public class NovelNarrationCastService {
         return loadRoster(castId);
     }
 
-    public NovelNarrationCast create(String name, Long seriesId, Long novelId) {
+    public synchronized NovelNarrationCast create(String name, Long seriesId, Long novelId) {
         Long boundSeries = seriesId != null && seriesId > 0 ? seriesId : null;
         Long boundNovel = novelId != null && novelId > 0 ? novelId : null;
         // 绑定到系列 / 单本的默认册至多一张：已存在则直接复用（与 NovelGlossaryService.create 一致，不靠 DB 唯一约束）。
@@ -130,66 +126,6 @@ public class NovelNarrationCastService {
         insert.setUpdatedTime(now);
         novelMapper.insertNarrationCast(insert);
         return novelMapper.findNarrationCastById(insert.getId());
-    }
-
-    public NovelNarrationCast rename(long id, String name) {
-        if (name == null || name.isBlank()) {
-            return novelMapper.findNarrationCastById(id);
-        }
-        novelMapper.updateNarrationCastName(id, name.trim(), System.currentTimeMillis());
-        return novelMapper.findNarrationCastById(id);
-    }
-
-    @Transactional
-    public void delete(long id) {
-        novelMapper.deleteNarrationVoices(id);
-        novelMapper.deleteNarrationCast(id);
-        // 同步清掉该册磁盘参考音目录，避免孤儿文件（最大努力）。
-        referenceVoiceStore.deleteCastDirectory(id);
-    }
-
-    /**
-     * 手动整册替换角色：以给定角色为准重建名册（同 {@code character_id} 覆盖<b>音色画像列</b>、保留其既有参考音元数据；
-     * 不再出现的角色删行 + 删磁盘参考音文件）。用户手改的角色一律标记 {@code edited_by_user=1}（AI 之后绝不覆盖其
-     * 画像，只能以冲突形式弹给用户）。始终保留一名旁白（id 0）——列表中未含旁白时补一名默认旁白（来源仍记为 AI 生成
-     * {@code edited_by_user=0}，允许后续 AI 补充）。
-     *
-     * <p>用 {@code upsert}（{@code ON CONFLICT DO UPDATE} 只改画像列）而非「清空后整行重写」，因此已配参考音的角色被
-     * 保留时其 {@code ref_audio_*} 绑定与盘上文件均不丢失；只有真正被移除的角色才清理其参考音文件。
-     */
-    @Transactional
-    public void replaceVoices(long castId, List<NarrationCharacter> roster) {
-        long now = System.currentTimeMillis();
-        Set<Integer> existingIds = new LinkedHashSet<>();
-        for (NarrationCharacter c : novelMapper.findNarrationVoices(castId)) {
-            existingIds.add(c.id());
-        }
-        Set<Integer> keptIds = new LinkedHashSet<>();
-        boolean hasNarrator = false;
-        if (roster != null) {
-            for (NarrationCharacter c : roster) {
-                if (c == null || c.name() == null || c.name().isBlank()) continue;
-                if (c.controlInstruction() == null || c.controlInstruction().isBlank()) continue;
-                novelMapper.upsertNarrationVoice(castId, c.id(), c.name().trim(),
-                        c.gender(), c.age(), c.controlInstruction().trim(), true, now);
-                keptIds.add(c.id());
-                hasNarrator |= c.id() == NarrationCharacter.NARRATOR_ID;
-            }
-        }
-        if (!hasNarrator) {
-            NarrationCharacter n = NarrationCharacter.defaultNarrator();
-            novelMapper.upsertNarrationVoice(castId, n.id(), n.name(), n.gender(), n.age(),
-                    n.controlInstruction(), false, now);
-            keptIds.add(n.id());
-        }
-        // 被移除的角色：删行 + 删其磁盘参考音文件，避免参考音孤儿。
-        for (Integer id : existingIds) {
-            if (!keptIds.contains(id)) {
-                novelMapper.deleteNarrationVoice(castId, id);
-                referenceVoiceStore.deleteCharacterFiles(castId, id);
-            }
-        }
-        novelMapper.touchNarrationCast(castId, now);
     }
 
     /** 解析某本小说的默认花名册：属于系列则用系列册，否则用该小说自己的册（均按需创建）。 */
@@ -292,7 +228,7 @@ public class NovelNarrationCastService {
             int nextId = nextCharacterId(roster);
             NarrationSegmentAnalysis analysis = narrationScriptService.analyzeSegment(roster, segment, nextId);
 
-            SegmentRosterResult res = processSegmentRoster(castId, roster, analysis);
+            SegmentRosterResult res = processSegmentRoster(castId, analysis);
 
             Set<Integer> rosterIds = new LinkedHashSet<>();
             for (NarrationCharacter c : roster) {
@@ -425,10 +361,9 @@ public class NovelNarrationCastService {
      * id 映射；② 音色补充和冲突均收集为待处理建议，不自动覆盖已有画像。
      * 返回临时 id 映射与未解决冲突供编排层重映射逐句 speaker / 提示用户。
      */
-    SegmentRosterResult processSegmentRoster(long castId, List<NarrationCharacter> roster,
-                                             NarrationSegmentAnalysis analysis) {
+    synchronized SegmentRosterResult processSegmentRoster(long castId, NarrationSegmentAnalysis analysis) {
         SegmentRosterResult result = transactionOperations.execute(
-                status -> processSegmentRosterInTransaction(castId, roster, analysis));
+                status -> processSegmentRosterInTransaction(castId, loadRoster(castId), analysis));
         return result == null ? new SegmentRosterResult(Map.of(), List.of()) : result;
     }
 
@@ -479,10 +414,11 @@ public class NovelNarrationCastService {
             if (holder != null && holder != ex.id()) {
                 continue;
             }
-            novelMapper.updateNarrationVoiceName(castId, ex.id(), newName);
-            nameToId.remove(normName(ex.name()));
-            nameToId.put(normName(newName), ex.id());
-            changed = true;
+            if (novelMapper.updateNarrationVoiceName(castId, ex.id(), newName) > 0) {
+                nameToId.remove(normName(ex.name()));
+                nameToId.put(normName(newName), ex.id());
+                changed = true;
+            }
         }
 
         // 已建立的音色跨章保持稳定；即使模型认为是兼容性补充，也交给用户决定。

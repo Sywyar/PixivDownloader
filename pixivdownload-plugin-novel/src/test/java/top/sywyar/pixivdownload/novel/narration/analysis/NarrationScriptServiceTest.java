@@ -4,6 +4,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.ai.AiClientException;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
@@ -78,6 +80,23 @@ class NarrationScriptServiceTest {
         assertTrue(a.newCharacters().isEmpty());
         assertTrue(a.updatedCharacters().isEmpty());
         assertTrue(a.conflicts().isEmpty());
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"null", " null ", "```json\nnull\n```", " ", "not json"})
+    @DisplayName("空值与无法解析的分析响应按原句顺序回退到旁白")
+    void invalidResponsePreservesNarratorFallback(String content) throws Exception {
+        AiChatClient ai = mock(AiChatClient.class);
+        when(ai.chat(eq(NarrationAnalysisRequest.CALL_TYPE), any(), any())).thenReturn(result(content));
+        NarrationSegmentAnalysis analysis = new NarrationScriptService(ai)
+                .analyzeSegment(List.of(narrator("N"), ch(1, "Speaker", "V")), List.of("a", "b"), 2);
+
+        assertEquals(List.of(NarrationLineVoice.narratorAt(0), NarrationLineVoice.narratorAt(1)), analysis.lines());
+        assertTrue(analysis.newCharacters().isEmpty());
+        assertTrue(analysis.updatedCharacters().isEmpty());
+        assertTrue(analysis.renamedCharacters().isEmpty());
+        assertTrue(analysis.conflicts().isEmpty());
     }
 
     @ParameterizedTest

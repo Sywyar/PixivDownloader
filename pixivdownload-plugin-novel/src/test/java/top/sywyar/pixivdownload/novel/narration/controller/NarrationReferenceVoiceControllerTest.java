@@ -4,7 +4,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
@@ -12,16 +11,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockMultipartFile;
 import top.sywyar.pixivdownload.novel.response.NovelErrorResponse;
 import top.sywyar.pixivdownload.novel.testsupport.NovelTestMessages;
-import top.sywyar.pixivdownload.novel.TestRuntimePathProvider;
 import top.sywyar.pixivdownload.novel.db.NovelNarrationVoiceRef;
 import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoiceService;
-import top.sywyar.pixivdownload.novel.narration.NarrationReferenceVoicePaths;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
 import top.sywyar.pixivdownload.novel.narration.NovelNarrationCastService;
 import top.sywyar.pixivdownload.novel.narration.UploadedAudioValidatorTest;
 
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -38,18 +34,12 @@ class NarrationReferenceVoiceControllerTest {
     private NovelNarrationCastService castService;
     @Mock
     private NarrationReferenceVoiceService referenceVoiceService;
-    @TempDir
-    private Path tempDir;
-
-    private NarrationReferenceVoicePaths paths;
     private NarrationReferenceVoiceController controller;
 
     @BeforeEach
     void setUp() {
-        TestRuntimePathProvider runtimePaths = new TestRuntimePathProvider(tempDir);
-        paths = new NarrationReferenceVoicePaths(runtimePaths, () -> true);
         controller = new NarrationReferenceVoiceController(
-                castService, referenceVoiceService, NovelTestMessages.messageResolver(), paths);
+                castService, referenceVoiceService, NovelTestMessages.messageResolver());
     }
 
     @Test
@@ -108,15 +98,16 @@ class NarrationReferenceVoiceControllerTest {
     @DisplayName("预览：参考音响应带 nosniff")
     void previewAddsNosniffHeader() throws Exception {
         byte[] data = UploadedAudioValidatorTest.pcmWav(48_000, 1, 16, 96_000);
-        Files.write(paths.file(3L, 1, "wav"), data);
-        when(referenceVoiceService.reference(3L, 1))
-                .thenReturn(new NovelNarrationVoiceRef(3L, 1, "wav", null, "upload", 1L));
+        when(referenceVoiceService.resolve(3L, 1))
+                .thenReturn(new NarrationReferenceVoice(data, "audio/wav", null));
 
         ResponseEntity<?> response = controller.preview(3L, 1);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getHeaders().getFirst("X-Content-Type-Options")).isEqualTo("nosniff");
         assertThat(response.getHeaders().getContentType().toString()).isEqualTo("audio/wav");
+        assertThat(response.getBody()).isEqualTo(data);
+        assertThat(response.getHeaders().getCacheControl()).isEqualTo("no-store");
     }
 
 }

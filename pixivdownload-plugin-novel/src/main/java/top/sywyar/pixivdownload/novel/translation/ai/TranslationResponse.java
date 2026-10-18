@@ -2,8 +2,7 @@ package top.sywyar.pixivdownload.novel.translation.ai;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import top.sywyar.pixivdownload.novel.ai.AiResponseParser;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,9 +30,6 @@ public record TranslationResponse(
 
     public static final String STATUS_OK = "ok";
     public static final String STATUS_INVALID_LANGUAGE = "invalid_language";
-
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     /** 模型回报的一条新名词映射（原文 → 译名）。 */
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -93,36 +89,7 @@ public record TranslationResponse(
 
     /** 解析模型回复的 JSON 文本；无法解析时抛 {@link IllegalArgumentException}。 */
     public static TranslationResponse parse(String content) {
-        return parse(content, TranslationResponse.class);
-    }
-
-    static <T> T parse(String content, Class<T> responseType) {
-        if (content == null || content.isBlank()) {
-            throw new IllegalArgumentException("empty AI response");
-        }
-        try {
-            return MAPPER.readValue(content, responseType);
-        } catch (Exception first) {
-            String extracted = extractJsonObject(content);
-            if (extracted != null) {
-                try {
-                    return MAPPER.readValue(extracted, responseType);
-                } catch (Exception ignored) {
-                    // 保留首次解析失败，便于定位原始响应。
-                }
-            }
-            throw new IllegalArgumentException("unparseable AI response: " + first.getMessage(), first);
-        }
-    }
-
-    /** 截取首个 '{' 到末个 '}' 的子串，容忍模型在 JSON 外包裹少量说明文字 / 代码围栏。 */
-    private static String extractJsonObject(String content) {
-        int start = content.indexOf('{');
-        int end = content.lastIndexOf('}');
-        if (start >= 0 && end > start) {
-            return content.substring(start, end + 1);
-        }
-        return null;
+        return AiResponseParser.parse(content, TranslationResponse.class);
     }
 
     static String trimmed(String s) {

@@ -8,7 +8,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @DisplayName("语言探测响应解析")
@@ -77,9 +76,9 @@ class LanguageProbeResponseTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"null", " \t null\r\n", "\u0000null\u0000"})
-    @DisplayName("JSON 字面空值保持为空对象")
-    void preservesJsonNull(String content) {
-        assertNull(LangProbeResponse.parse(content));
-        assertNull(SourceLanguageProbeResponse.parse(content));
+    @DisplayName("JSON 字面空值按探测失败回退")
+    void jsonNullUsesFailureSentinels(String content) {
+        assertEquals(new LangProbeResponse("", false), LangProbeResponse.parse(content));
+        assertEquals(new SourceLanguageProbeResponse("", null), SourceLanguageProbeResponse.parse(content));
     }
 }

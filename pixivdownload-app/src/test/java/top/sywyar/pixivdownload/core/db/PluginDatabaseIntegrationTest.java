@@ -6,9 +6,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
+import top.sywyar.pixivdownload.ai.AiChatClient;
+import top.sywyar.pixivdownload.ai.model.AiChatResult;
 import top.sywyar.pixivdownload.core.db.pathprefix.StoredPathCodec;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 
@@ -26,6 +29,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -46,6 +53,9 @@ class PluginDatabaseIntegrationTest {
     private DataSource source;
     private DatabaseInitializer initializer;
     private DatabaseSchemaRegistry registry;
+    private MainDatabase main;
+    private String previousDataDirectory;
+    private boolean isolatedFileOperations;
 
     private void initialize(String engine) throws Exception {
         Path root = Path.of("").toAbsolutePath();
@@ -82,7 +92,7 @@ class PluginDatabaseIntegrationTest {
         handles.clear();
         var target = DatabaseProviderTestFixtures.target(source);
         transactions = new DatabaseConfig(null, null).transactionManager(source, target);
-        var main = new MainDatabase(source, target, registry, transactions);
+        main = new MainDatabase(source, target, registry, transactions);
         var novels = main.forOwner("novel", List.of("pixiv-novels", "pixiv-tags"));
         var notifications = main.forOwner("notification", List.of());
         handles.add(novels);
@@ -224,6 +234,11 @@ class PluginDatabaseIntegrationTest {
 
     @AfterEach
     void close() throws Exception {
+        if (isolatedFileOperations) {
+            String key = top.sywyar.pixivdownload.config.RuntimeFiles.DATA_DIR_PROPERTY;
+            if (previousDataDirectory == null) System.clearProperty(key);
+            else System.setProperty(key, previousDataDirectory);
+        }
         handles.forEach(MainDatabase.OwnerStorage::close);
         if (postgres != null) postgres.close();
         if (sqlite != null) sqlite.close();
@@ -232,6 +247,165 @@ class PluginDatabaseIntegrationTest {
 
     private Object mapper() throws Exception {
         return novelMapper;
+    }
+
+    private Object referenceService(Object mapper,
+            top.sywyar.pixivdownload.core.asset.FileTransactionService files) throws Exception {
+        var runtimePaths = mock(top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider.class);
+        when(runtimePaths.dataDirectory()).thenReturn(Files.createDirectories(directory.resolve("novel")));
+        DatabaseAvailability available = () -> true;
+        String prefix = "top.sywyar.pixivdownload.novel.narration.";
+        Class<?> pathsType = loader.loadClass(prefix + "NarrationReferenceVoicePaths");
+        Object paths = pathsType.getConstructors()[0].newInstance(runtimePaths, available);
+        Object store = loader.loadClass(prefix + "NarrationReferenceVoiceStore")
+                .getConstructors()[0].newInstance(paths, available, files);
+        Class<?> audioType = loader.loadClass(prefix + "audio.NarrationAudioService");
+        return loader.loadClass(prefix + "NarrationReferenceVoiceService").getConstructors()[0]
+                .newInstance(mapper, mock(audioType), store, paths, available);
+    }
+
+    private top.sywyar.pixivdownload.core.asset.StagedFileDeletion fileTransactions() {
+        String key = top.sywyar.pixivdownload.config.RuntimeFiles.DATA_DIR_PROPERTY;
+        previousDataDirectory = System.getProperty(key);
+        isolatedFileOperations = true;
+        System.setProperty(key, directory.resolve("file-journal").toString());
+        var config = new top.sywyar.pixivdownload.core.appconfig.DownloadConfig();
+        config.setRootFolder(directory.resolve("works").toString());
+        var paths = new top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec(
+                new top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMapper(main),
+                config, TestI18nBeans.appMessages());
+        paths.init();
+        var journal = new top.sywyar.pixivdownload.core.asset.FileOperationJournal(
+                main, transactions, paths, initializer);
+        return new top.sywyar.pixivdownload.core.asset.StagedFileDeletion(TestI18nBeans.appMessages(), journal);
+    }
+
+    private long createReferenceCast() throws Exception {
+        Object cast = loader.loadClass("top.sywyar.pixivdownload.novel.db.NovelNarrationCastInsert")
+                .getConstructor().newInstance();
+        call(cast, "setName", "Reference voice");
+        call(cast, "setCreatedTime", 1700000000000L);
+        call(cast, "setUpdatedTime", 1700000000000L);
+        call(novelMapper, "insertNarrationCast", cast);
+        long id = (Long) call(cast, "getId");
+        call(novelMapper, "insertNarrationVoiceIfAbsent", id, 1, "Speaker", "unknown", "unknown",
+                "Voice", false, 1700000000000L);
+        return id;
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"sqlite", "postgresql"})
+    @DisplayName("参考音替换与删除的记录失败恢复旧字节、元数据和缓存时间，重试后完整提交")
+    void referenceFilesAndRecordsCommitTogether(String engine) throws Exception {
+        initialize(engine);
+        long castId = createReferenceCast();
+        var failureAt = new java.util.concurrent.atomic.AtomicReference<String>();
+        var failure = new IllegalStateException("controlled record failure");
+        Object mapper = java.lang.reflect.Proxy.newProxyInstance(loader,
+                new Class<?>[]{loader.loadClass("top.sywyar.pixivdownload.novel.db.NovelMapper")},
+                (proxy, method, arguments) -> {
+                    if ("missing".equals(failureAt.get()) && method.getName().equals("updateNarrationVoiceReference")) {
+                        return 0;
+                    }
+                    try {
+                        Object result = method.invoke(novelMapper, arguments);
+                        if (method.getName().equals(failureAt.get())) throw failure;
+                        return result;
+                    } catch (java.lang.reflect.InvocationTargetException error) {
+                        throw error.getCause();
+                    }
+                });
+        Object service = referenceService(mapper, fileTransactions());
+        byte[] original = {1, 2, 3};
+        call(service, "saveUpload", castId, 1, original, "wav", "old text");
+        Path castDirectory = directory.resolve("novel/narration-voice").resolve(Long.toString(castId));
+        Path originalFile = castDirectory.resolve("1.wav");
+        Path other = Files.write(castDirectory.resolve("2.mp3"), new byte[]{8});
+        Object originalRef = call(novelMapper, "findNarrationVoiceRef", castId, 1);
+        Object originalTime = call(call(novelMapper, "findNarrationCastById", castId), "updatedTime");
+
+        for (String ext : List.of("wav", "mp3")) {
+            for (String point : List.of("updateNarrationVoiceReference", "touchNarrationCast", "missing")) {
+                failureAt.set(point);
+                if (point.equals("missing")) {
+                    assertThat(call(service, "saveUpload", castId, 1, new byte[]{4, 5}, ext, "new text")).isNull();
+                } else {
+                    assertThatThrownBy(() -> call(service, "saveUpload", castId, 1, new byte[]{4, 5}, ext, "new text"))
+                            .isSameAs(failure);
+                }
+                assertThat(Files.readAllBytes(originalFile)).isEqualTo(original);
+                assertThat(call(novelMapper, "findNarrationVoiceRef", castId, 1)).isEqualTo(originalRef);
+                assertThat(call(call(novelMapper, "findNarrationCastById", castId), "updatedTime")).isEqualTo(originalTime);
+                try (var remaining = Files.list(castDirectory)) {
+                    assertThat(remaining.toList()).containsExactlyInAnyOrder(originalFile, other);
+                }
+            }
+        }
+        failureAt.set(null);
+        Object updated = call(service, "saveUpload", castId, 1, new byte[]{4, 5}, "mp3", "new text");
+        assertThat(call(updated, "ext")).isEqualTo("mp3");
+        assertThat(originalFile).doesNotExist();
+        Path replacement = castDirectory.resolve("1.mp3");
+        assertThat(Files.readAllBytes(replacement)).containsExactly(4, 5);
+        Object updatedTime = call(call(novelMapper, "findNarrationCastById", castId), "updatedTime");
+        for (String point : List.of("clearNarrationVoiceReference", "touchNarrationCast")) {
+            failureAt.set(point);
+            assertThatThrownBy(() -> call(service, "delete", castId, 1)).isSameAs(failure);
+            assertThat(Files.readAllBytes(replacement)).containsExactly(4, 5);
+            assertThat(call(novelMapper, "findNarrationVoiceRef", castId, 1)).isEqualTo(updated);
+            assertThat(call(call(novelMapper, "findNarrationCastById", castId), "updatedTime")).isEqualTo(updatedTime);
+        }
+        failureAt.set(null);
+        call(service, "delete", castId, 1);
+        assertThat(replacement).doesNotExist();
+        assertThat(call(call(novelMapper, "findNarrationVoiceRef", castId, 1), "present")).isEqualTo(false);
+        assertThat(Files.readAllBytes(other)).containsExactly(8);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM file_operation_entries", Long.class)).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"sqlite", "postgresql"})
+    @DisplayName("参考音读取等待同角色提交，返回同一版本的音频与转录")
+    void referenceReadWaitsForPublication(String engine) throws Exception {
+        initialize(engine);
+        long castId = createReferenceCast();
+        var files = fileTransactions();
+        var pause = new java.util.concurrent.atomic.AtomicBoolean();
+        var publishing = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        Object service = referenceService(novelMapper, (replacements, deletions, records) ->
+                files.changeFiles(replacements, deletions, () -> {
+                    if (pause.get()) {
+                        publishing.countDown();
+                        try {
+                            assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
+                        } catch (InterruptedException error) {
+                            Thread.currentThread().interrupt();
+                            throw new AssertionError(error);
+                        }
+                    }
+                    records.run();
+                }));
+        call(service, "saveUpload", castId, 1, new byte[]{1}, "wav", "old");
+        pause.set(true);
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var writer = workers.submit(() -> call(service, "saveUpload", castId, 1, new byte[]{2}, "wav", "new"));
+            assertThat(publishing.await(10, TimeUnit.SECONDS)).isTrue();
+            var reader = workers.submit(() -> call(service, "resolve", castId, 1));
+            assertThatThrownBy(() -> reader.get(100, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(java.util.concurrent.TimeoutException.class);
+            release.countDown();
+            writer.get(10, TimeUnit.SECONDS);
+            var voice = (top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice)
+                    reader.get(10, TimeUnit.SECONDS);
+            assertThat(voice.audio()).containsExactly(2);
+            assertThat(voice.text()).isEqualTo("new");
+        } finally {
+            release.countDown();
+            workers.shutdownNow();
+            assertThat(workers.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
     }
 
     private Object novelDatabase(Object mapper) throws Exception {
@@ -392,6 +566,147 @@ class PluginDatabaseIntegrationTest {
         assertThat((List<?>) call(mapper, "findNovelImageIdsByIds", List.of(51L))).hasSize(1);
         assertThat((List<?>) call(mapper, "findWorkDetailsByIds", List.of(51L))).hasSize(1);
         assertThat((List<?>) call(mapper, "findWordCountsByIds", List.of(51L))).hasSize(1);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "sqlite, translation.NovelGlossaryService, novel_glossaries",
+            "postgresql, translation.NovelGlossaryService, novel_glossaries",
+            "sqlite, narration.NovelNarrationCastService, novel_narration_casts",
+            "postgresql, narration.NovelNarrationCastService, novel_narration_casts"
+    })
+    @DisplayName("并发创建复用同一默认映射表或花名册，无绑定的共享表仍独立")
+    void novelDefaultsAreReusedDuringConcurrentCreation(String engine, String serviceName, String table) throws Exception {
+        initialize(engine);
+        var constructor = loader.loadClass("top.sywyar.pixivdownload.novel." + serviceName).getConstructors()[0];
+        Object[] dependencies = java.util.Arrays.stream(constructor.getParameterTypes())
+                .map(type -> type.isInstance(novelMapper) ? novelMapper : mock(type)).toArray();
+        Object service = constructor.newInstance(dependencies);
+        var executor = Executors.newFixedThreadPool(8);
+        try {
+            for (String binding : List.of("series_id", "novel_id")) {
+                Long seriesId = binding.equals("series_id") ? 71L : null;
+                Long novelId = binding.equals("novel_id") ? 81L : null;
+                var ready = new CountDownLatch(8);
+                var start = new CountDownLatch(1);
+                List<Future<Object>> results = new java.util.ArrayList<>();
+                for (int i = 0; i < 8; i++) {
+                    results.add(executor.submit(() -> {
+                        ready.countDown();
+                        assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
+                        return call(service, "create", "Default", seriesId, novelId);
+                    }));
+                }
+                try {
+                    assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+                } finally {
+                    start.countDown();
+                }
+                var ids = new java.util.HashSet<Object>();
+                for (var result : results) ids.add(call(result.get(10, TimeUnit.SECONDS), "id"));
+                assertThat(ids).hasSize(1);
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM " + table + " WHERE " + binding + " = ?",
+                        Long.class, seriesId == null ? novelId : seriesId)).isOne();
+                assertThat(call(call(service, "create", "Ignored rename", seriesId, novelId), "name"))
+                        .isEqualTo("Default");
+            }
+            Object first = call(service, "create", "Shared", null, null);
+            Object second = call(service, "create", "Shared", null, null);
+            assertThat(call(first, "id")).isNotEqualTo(call(second, "id"));
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"sqlite", "postgresql"})
+    @DisplayName("朗读分析返回后保留期间的用户编辑，并为新角色分配未占用编号")
+    void narrationAnalysisPreservesRosterChangesDuringAiRequest(String engine) throws Exception {
+        initialize(engine);
+        AiChatClient ai = mock(AiChatClient.class);
+        Object service = narrationCastService(ai);
+        long castId = (long) call(call(service, "create", "Cast", null, null), "id");
+        call(novelMapper, "insertNarrationVoiceIfAbsent", castId, 1, "I", "unknown", "unknown", "Original", false, 1L);
+        when(ai.chat(anyString(), any(), any())).thenAnswer(invocation -> {
+            call(service, "updateVoiceInstruction", castId, 1, "User voice");
+            call(novelMapper, "insertNarrationVoiceIfAbsent", castId, 2, "Bob", "unknown", "unknown", "Bob voice", false, 2L);
+            return new AiChatResult("""
+                    {"lines":[{"i":0,"speaker":2}],
+                     "newCharacters":[{"id":2,"name":"Carol","instruction":"Carol voice"}],
+                     "updatedCharacters":[{"id":1,"name":"Alice","instruction":"AI voice"}]}
+                    """, "stop", null, null, null);
+        });
+        Object sentence = loader.loadClass("top.sywyar.pixivdownload.novel.narration.analysis.NarrationSentence")
+                .getConstructor(String.class, int.class).newInstance("Carol speaks.", 0);
+        Object result = call(service, "analyzeChapter", 7L, List.of(sentence), 0, castId);
+        var names = jdbc.queryForList("SELECT name FROM novel_narration_voices WHERE cast_id=? ORDER BY character_id",
+                String.class, castId);
+        var lines = (List<?>) call(call(result, "script"), "lines");
+        org.assertj.core.api.SoftAssertions.assertSoftly(soft -> {
+            soft.assertThat(names).containsExactly("Narrator", "I", "Bob", "Carol");
+            soft.assertThat(call(lines.get(0), "speakerId")).isEqualTo(3);
+            soft.assertThat((List<?>) call(result, "conflicts")).isEmpty();
+            soft.assertThat(jdbc.queryForObject("SELECT control_instruction FROM novel_narration_voices"
+                    + " WHERE cast_id=? AND character_id=1", String.class, castId)).isEqualTo("User voice");
+            soft.assertThat(call(novelMapper, "updateNarrationVoiceName", castId, 1, "Late rename")).isEqualTo(0);
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"sqlite", "postgresql"})
+    @DisplayName("同册章节可以并行分析，落库后每个新角色保持独立编号和台词归属")
+    void concurrentNarrationAnalysisPreservesDistinctSpeakers(String engine) throws Exception {
+        initialize(engine);
+        AiChatClient ai = mock(AiChatClient.class);
+        Object service = narrationCastService(ai);
+        long castId = (long) call(call(service, "create", "Cast", null, null), "id");
+        var analyzing = new CountDownLatch(4);
+        var nextName = new java.util.concurrent.atomic.AtomicInteger();
+        when(ai.chat(anyString(), any(), any())).thenAnswer(invocation -> {
+            int number = nextName.incrementAndGet();
+            analyzing.countDown();
+            assertThat(analyzing.await(10, TimeUnit.SECONDS)).isTrue();
+            return new AiChatResult("""
+                    {"lines":[{"i":0,"speaker":1}],
+                     "newCharacters":[{"id":1,"name":"Speaker %d","instruction":"Voice %d"}]}
+                    """.formatted(number, number), "stop", null, null, null);
+        });
+        Object sentence = loader.loadClass("top.sywyar.pixivdownload.novel.narration.analysis.NarrationSentence")
+                .getConstructor(String.class, int.class).newInstance("A speaker talks.", 0);
+        var executor = Executors.newFixedThreadPool(4);
+        try {
+            List<Future<Object>> results = new java.util.ArrayList<>();
+            for (int i = 0; i < 4; i++) {
+                results.add(executor.submit(() -> call(service, "analyzeChapter", 7L, List.of(sentence), 0, castId)));
+            }
+            var speakers = new java.util.HashSet<Object>();
+            for (var future : results) {
+                Object result = future.get(10, TimeUnit.SECONDS);
+                var lines = (List<?>) call(call(result, "script"), "lines");
+                speakers.add(call(lines.get(0), "speakerName"));
+            }
+            assertThat(speakers).containsExactlyInAnyOrder("Speaker 1", "Speaker 2", "Speaker 3", "Speaker 4");
+            assertThat(jdbc.queryForList("SELECT name FROM novel_narration_voices WHERE cast_id=? AND character_id>0",
+                    String.class, castId)).containsExactlyInAnyOrder("Speaker 1", "Speaker 2", "Speaker 3", "Speaker 4");
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private Object narrationCastService(AiChatClient ai) throws Exception {
+        String prefix = "top.sywyar.pixivdownload.novel.narration.";
+        Object script = loader.loadClass(prefix + "analysis.NarrationScriptService")
+                .getConstructor(AiChatClient.class).newInstance(ai);
+        var constructor = loader.loadClass(prefix + "NovelNarrationCastService").getConstructors()[0];
+        Object[] dependencies = java.util.Arrays.stream(constructor.getParameterTypes()).map(type -> {
+            if (type.isInstance(novelMapper)) return novelMapper;
+            if (type.isInstance(script)) return script;
+            if (type.isInstance(transactions)) return transactions;
+            return mock(type);
+        }).toArray();
+        return transactional(constructor.newInstance(dependencies));
     }
 
     @Test

@@ -20,7 +20,7 @@ import java.util.*;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class StagedFileDeletion {
+public class StagedFileDeletion implements FileTransactionService {
     private static final int MAX_FILES = 10_000;
     private final AppMessages messages;
     private final FileOperationJournal journal;
@@ -52,16 +52,8 @@ public class StagedFileDeletion {
 
     /** 回调内的主库写入与提交标记同事务完成，回调不得开启独立事务。 */
     public boolean deleteAtomically(Collection<Path> files, Runnable commitRecord) {
-        Map<Path, Path> targets = new LinkedHashMap<>();
-        if (files != null) for (Path file : files) {
-            if (file == null) continue;
-            Path target = file.toAbsolutePath().normalize();
-            if (Files.notExists(target, LinkOption.NOFOLLOW_LINKS)) continue;
-            requireSafeDeleteTarget(target);
-            targets.put(target, null);
-        }
         try {
-            changeFiles(targets, commitRecord);
+            changeFiles(Map.of(), files == null ? List.of() : files, commitRecord);
             return true;
         } catch (IOException failure) {
             log.warn(messages.getForLog("download.delete.log.stage-failed", failure.getMessage()));
@@ -71,6 +63,12 @@ public class StagedFileDeletion {
 
     /** 将已完成的暂存文件发布到目标路径；失败恢复旧文件，记录提交后才释放备份。 */
     public void publishFiles(Map<Path, Path> stagedByTarget, Runnable commitRecord) throws IOException {
+        changeFiles(stagedByTarget, List.of(), commitRecord);
+    }
+
+    @Override
+    public void changeFiles(Map<Path, Path> stagedByTarget, Collection<Path> deletions,
+                            Runnable commitRecord) throws IOException {
         Map<Path, Path> targets = new LinkedHashMap<>();
         for (var file : stagedByTarget.entrySet()) {
             Path target = file.getKey().toAbsolutePath().normalize();
@@ -79,6 +77,16 @@ public class StagedFileDeletion {
                 throw new IOException("Duplicate file publication target");
             }
             PlainFilePathGuard.requirePlainRegularFile(staged);
+        }
+        for (Path file : deletions) {
+            if (file == null) continue;
+            Path target = file.toAbsolutePath().normalize();
+            if (targets.containsKey(target) && targets.get(target) != null) {
+                throw new IOException("Conflicting file operation target");
+            }
+            if (Files.notExists(target, LinkOption.NOFOLLOW_LINKS)) continue;
+            requireSafeDeleteTarget(target);
+            targets.put(target, null);
         }
         changeFiles(targets, commitRecord);
     }

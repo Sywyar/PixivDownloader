@@ -44,13 +44,18 @@ public class NovelMergeService {
 
     public record MergeResult(boolean success, String message, String mergedPath, int chapterCount) {}
 
-    // 按系列串行化合订写盘：同一系列的「原文基准 + 各语言变体」合订共用文件区，下载链路 base 合订与
-    // 自动翻译 per-job 译文合订可能并发触发同一系列；不串行会并发写同名输出文件而损坏。锁按 seriesId 隔离，
-    // 不同系列互不阻塞；synchronized 可重入，使 mergeVariant 空 langCode 委托 merge 时不自锁。
-    private final ConcurrentHashMap<Long, Object> seriesMergeLocks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, MergeLock> seriesMergeLocks = new ConcurrentHashMap<>();
 
-    private Object mergeLockFor(long seriesId) {
-        return seriesMergeLocks.computeIfAbsent(seriesId, k -> new Object());
+    private static final class MergeLock {
+        int references;
+    }
+
+    private MergeLock mergeLockFor(long seriesId) {
+        return seriesMergeLocks.compute(seriesId, (key, current) -> {
+            MergeLock lock = current == null ? new MergeLock() : current;
+            lock.references++;
+            return lock;
+        });
     }
 
     /**
@@ -58,20 +63,7 @@ public class NovelMergeService {
      * 语言变体合订本（best-effort）。译文章节会被替换，未翻译章节仍以原文出现。返回原文基准合订本的结果。
      */
     public MergeResult merge(long seriesId, NovelDownloadService.NovelFormat format) throws IOException {
-        synchronized (mergeLockFor(seriesId)) {
-            MergeResult base = writeMerge(seriesId, format, null);
-            if (base.success()) {
-                for (String lang : novelDatabase.getSeriesTranslatedLangs(seriesId)) {
-                    try {
-                        writeMerge(seriesId, format, lang);
-                    } catch (Exception e) {
-                        log.warn("novel series variant merge failed: seriesId={}, lang={}, err={}",
-                                seriesId, lang, e.getMessage());
-                    }
-                }
-            }
-            return base;
-        }
+        return mergeVariant(seriesId, format, null);
     }
 
     /**
@@ -80,11 +72,26 @@ public class NovelMergeService {
      */
     public MergeResult mergeVariant(long seriesId, NovelDownloadService.NovelFormat format,
                                     String langCode) throws IOException {
-        if (langCode == null || langCode.isBlank()) {
-            return merge(seriesId, format);
-        }
-        synchronized (mergeLockFor(seriesId)) {
-            return writeMerge(seriesId, format, langCode.trim());
+        String language = langCode == null || langCode.isBlank() ? null : langCode.trim();
+        // 等待者也持有引用，最后一个调用退出后才能移除同系列的锁。
+        MergeLock lock = mergeLockFor(seriesId);
+        try {
+            synchronized (lock) {
+                MergeResult result = writeMerge(seriesId, format, language);
+                if (language == null && result.success()) {
+                    for (String lang : novelDatabase.getSeriesTranslatedLangs(seriesId)) {
+                        try {
+                            writeMerge(seriesId, format, lang);
+                        } catch (Exception e) {
+                            log.warn("novel series variant merge failed: seriesId={}, lang={}, err={}",
+                                    seriesId, lang, e.getMessage());
+                        }
+                    }
+                }
+                return result;
+            }
+        } finally {
+            seriesMergeLocks.compute(seriesId, (key, current) -> --current.references == 0 ? null : current);
         }
     }
 

@@ -154,27 +154,27 @@ public class NarrationController {
         boolean force = Boolean.TRUE.equals(request.force());
         boolean analyzeIfMissing = request.analyzeIfMissing() == null || request.analyzeIfMissing();
 
-        // 探测模式：仅取缓存、无缓存不分析（点播放前判断是否已有脚本）。
-        if (!force && !analyzeIfMissing) {
+        // 命中后直接返回本次快照，避免重读期间缓存撤销后绕过能力检查重新分析。
+        if (!force) {
             NovelNarrationScriptService.ChapterScript cached = scriptService.peekScript(novelId, lang);
-            if (cached == null) {
+            if (cached != null) {
+                return ResponseEntity.ok(toScriptResponse(cached));
+            }
+            if (!analyzeIfMissing) {
                 return ResponseEntity.noContent().build();
             }
-            return ResponseEntity.ok(toScriptResponse(cached));
         }
-
-        boolean willAnalyze = force || scriptService.peekScript(novelId, lang) == null;
 
         // 真正会触发「新分析」的路径（force，或本作 / 该语言尚无持久化脚本）需要 AI 文本模型可用：调试模式不能绕过
         // AI 缺失 / 禁用 / 未配置，因为分析本身依赖 LLM。
-        if (willAnalyze && !aiChatClient.isConfigured()) {
+        if (!aiChatClient.isConfigured()) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .body(new NovelErrorResponse(messages.get("narration.error.ai-unavailable")));
         }
 
         // 真正会触发「新分析」的路径（force，或本作 / 该语言尚无持久化脚本）需要朗读引擎可用：引擎不可用且非调试模式时
         // 直接拒绝，避免「服务不可用仍跑 LLM 分析」产生无法播放的脚本与额外 AI 成本。缓存命中 / 上面的探测仍照常返回。
-        if (willAnalyze && !narrationAudioService.isEngineAvailable() && !debugSettings.isEnabled()) {
+        if (!narrationAudioService.isEngineAvailable() && !debugSettings.isEnabled()) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .body(new NovelErrorResponse(messages.get("narration.error.engine-unavailable")));
         }

@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.novel.translation.ai;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import top.sywyar.pixivdownload.novel.ai.AiResponseParser;
 
 import static top.sywyar.pixivdownload.novel.translation.ai.TranslationResponse.translatedText;
 import static top.sywyar.pixivdownload.novel.translation.ai.TranslationResponse.trimmed;
@@ -48,6 +49,6 @@ public record TitleTranslationResponse(
 
     /** 解析模型回复的 JSON 文本；无法解析时抛 {@link IllegalArgumentException}。 */
     public static TitleTranslationResponse parse(String content) {
-        return TranslationResponse.parse(content, TitleTranslationResponse.class);
+        return AiResponseParser.parse(content, TitleTranslationResponse.class);
     }
 }

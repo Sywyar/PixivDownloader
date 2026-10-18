@@ -81,13 +81,9 @@ public interface NovelMapper {
 
     NovelNarrationCast findNarrationCastByNovelId(long novelId);
 
-    int updateNarrationCastName(long id, String name, long updatedTime);
-
     int touchNarrationCast(long id, long updatedTime);
 
     int countNarrationCastById(long id);
-
-    void deleteNarrationCast(long id);
 
     List<top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter> findNarrationVoices(long castId);
 
@@ -118,10 +114,6 @@ public interface NovelMapper {
     int updateNarrationVoiceInstruction(long castId, int characterId, String controlInstruction, boolean editedByUser);
 
     int updateNarrationVoiceName(long castId, int characterId, String name);
-
-    void deleteNarrationVoices(long castId);
-
-    void deleteNarrationVoice(long castId, int characterId);
 
     int updateNarrationVoiceReference(long castId, int characterId, String ext, String text, String source, Long time);
 

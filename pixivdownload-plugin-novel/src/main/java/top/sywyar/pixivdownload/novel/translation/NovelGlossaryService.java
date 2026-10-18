@@ -53,7 +53,7 @@ public class NovelGlossaryService {
         return novelMapper.countGlossaryById(id) > 0;
     }
 
-    public NovelGlossary create(String name, Long seriesId, Long novelId) {
+    public synchronized NovelGlossary create(String name, Long seriesId, Long novelId) {
         Long boundSeries = seriesId != null && seriesId > 0 ? seriesId : null;
         Long boundNovel = novelId != null && novelId > 0 ? novelId : null;
         // 绑定到系列 / 单本的默认表至多一张：已存在则直接复用，避免重复创建

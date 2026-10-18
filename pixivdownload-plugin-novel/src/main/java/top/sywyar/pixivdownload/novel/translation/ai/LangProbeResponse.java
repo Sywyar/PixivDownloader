@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.novel.translation.ai;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import top.sywyar.pixivdownload.novel.ai.AiResponseParser;
 
 /**
  * 「语言名 → 规范 BCP-47 代码」的 AI 响应体，对应 {@link LangProbeRequest} 约定的 JSON 输出规范。
@@ -20,11 +21,8 @@ public record LangProbeResponse(
 
     /** 解析模型回复的 JSON 文本；解析失败时返回 {@code valid=false} 的空响应。 */
     public static LangProbeResponse parse(String content) {
-        if (content == null || content.isBlank()) {
-            return new LangProbeResponse("", false);
-        }
         try {
-            return TranslationResponse.parse(content.trim(), LangProbeResponse.class);
+            return AiResponseParser.parse(TranslationResponse.trimmed(content), LangProbeResponse.class);
         } catch (IllegalArgumentException ignored) {
             return new LangProbeResponse("", false);
         }
