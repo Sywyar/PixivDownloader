@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -65,6 +66,59 @@ test('独立插件源码输入只复制构建与测试文件，缺失输入或�
         const consumer = path.join(ROOT, 'target/source-boundary-check');
         assert.throws(() => verifyConsumer({ repoRoot: ROOT, sdkZip: '', sdkRepository: '',
             workDirectory: consumer, douyinSource: path.join(consumer, 'source') }), /outside/u);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('固定源码检出保留长路径测试文件并拒绝不完整的工作树', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixivdownload-douyin-checkout-'));
+    const source = path.join(root, 'source');
+    const config = path.join(root, 'gitconfig');
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: config, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_COUNT: '0' };
+    const git = args => execFileSync('git', ['-C', source, ...args], { env, encoding: 'utf8' });
+    const relative = `src/test/java/${'package/'.repeat(12)}LongPathTest.java`;
+    const completeDirectory = `complete-${'nested-'.repeat(10)}`;
+    const content = 'class LongPathTest {}\n';
+    const checkout = name => spawnSync(process.execPath, ['--input-type=module', '-e', `
+        import { prepareDouyinSource } from ${JSON.stringify(new URL('../sdk-consumer.mjs', import.meta.url).href)};
+        prepareDouyinSource(${JSON.stringify(root)}, ${JSON.stringify(path.join(root, name))});
+    `], { env, encoding: 'utf8' });
+    try {
+        fs.mkdirSync(source);
+        fs.writeFileSync(config, '[core]\n\tautocrlf = false\n', 'utf8');
+        git(['init', '--quiet']);
+        for (const [name, contents] of [
+            ['pom.xml', '<project/>\n'],
+            ['src/main/resources/plugin.properties', `plugin.id=douyin\nplugin.version=${PLUGIN_VERSION}\n`],
+            [relative, content],
+        ]) {
+            const file = path.join(source, name);
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            fs.writeFileSync(file, contents, 'utf8');
+        }
+        git(['add', '.']);
+        git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-m', 'fixture']);
+        const revision = git(['rev-parse', 'HEAD']).trim();
+        fs.mkdirSync(path.join(root, 'scripts/ci'), { recursive: true });
+        fs.writeFileSync(path.join(root, 'scripts/ci/douyin-source.json'), JSON.stringify({ revision }), 'utf8');
+        fs.appendFileSync(config, `\n[url "${source.replaceAll('\\', '/')}"]\n`
+                + '\tinsteadOf = https://github.com/Sywyar/PixivDownloader-Plugin-Douyin.git\n', 'utf8');
+
+        const originalConfig = fs.readFileSync(config, 'utf8');
+        const result = checkout(completeDirectory);
+        assert.equal(result.status, 0, result.stderr);
+        assert.equal(fs.readFileSync(path.join(root, completeDirectory, 'douyin-source', relative), 'utf8'), content);
+        assert.equal(fs.readFileSync(config, 'utf8'), originalConfig);
+
+        // 模拟检出命令成功、工作树却遗漏文件，验证构建前的完整性检查。
+        const template = path.join(root, 'template');
+        fs.mkdirSync(path.join(template, 'hooks'), { recursive: true });
+        fs.writeFileSync(path.join(template, 'hooks/post-checkout'), '#!/bin/sh\nrm -f pom.xml\n', { mode: 0o755 });
+        fs.appendFileSync(config, `\n[init]\n\ttemplateDir = "${template.replaceAll('\\', '/')}"\n`, 'utf8');
+        const incomplete = checkout('incomplete');
+        assert.notEqual(incomplete.status, 0, incomplete.stdout);
+        assert.match(incomplete.stderr, /git exited with/u);
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
     }
