@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
 @DisplayName("通知协调器：场景级开关裁剪")
@@ -31,26 +32,49 @@ class NotificationServiceTest {
         RecordingSink second = new RecordingSink();
         registry.registerPrepared("owner-a", 1L, List.of(
                 new NotificationSinkRegistry.PreparedSink("first", first, "first.Type")));
-        List<NotificationSink> beforePublish = registry.sinks();
+        List<NotificationSinkRegistry.PreparedSink> beforePublish = registry.preparedSinks();
 
         for (Throwable expected : failures("publish")) {
             nextFailure.set(expected);
             assertThat(catchThrowable(() -> registry.registerPrepared("owner-b", 2L, List.of(
                     new NotificationSinkRegistry.PreparedSink("second", second, "second.Type")))))
                     .isSameAs(expected);
-            assertThat(registry.sinks()).isSameAs(beforePublish);
+            assertThat(registry.preparedSinks()).isSameAs(beforePublish);
         }
 
         registry.registerPrepared("owner-b", 2L, List.of(
                 new NotificationSinkRegistry.PreparedSink("second", second, "second.Type")));
-        List<NotificationSink> beforeWithdraw = registry.sinks();
+        List<NotificationSinkRegistry.PreparedSink> beforeWithdraw = registry.preparedSinks();
         for (Throwable expected : failures("withdraw")) {
             nextFailure.set(expected);
             assertThat(catchThrowable(() -> registry.unregisterPrepared("owner-b", 2L))).isSameAs(expected);
-            assertThat(registry.sinks()).isSameAs(beforeWithdraw);
+            assertThat(registry.preparedSinks()).isSameAs(beforeWithdraw);
         }
         registry.unregisterPrepared("owner-b", 2L);
         assertThat(registry.sinks()).containsExactly(first);
+    }
+
+    @Test
+    @DisplayName("通道查询保留顺序与旧快照且过期撤回不移除当前贡献")
+    void sinkProjectionRetainsOrderAndSnapshotAcrossReplacement() {
+        NotificationSinkRegistry registry = new NotificationSinkRegistry(List.of());
+        RecordingSink first = new RecordingSink();
+        RecordingSink second = new RecordingSink();
+        RecordingSink replacement = new RecordingSink();
+        registry.register("owner-a", List.of(first));
+        List<NotificationSink> original = registry.sinks();
+        registry.register("owner-b", List.of(second));
+        registry.register("owner-a", List.of(replacement));
+        List<NotificationSink> replaced = registry.sinks();
+
+        assertThat(replaced).containsExactly(replacement, second);
+        assertThat(original).containsExactly(first);
+        assertThatThrownBy(() -> replaced.add(first)).isInstanceOf(UnsupportedOperationException.class);
+        registry.unregisterPrepared("owner-a", 1L);
+        assertThat(registry.sinks()).containsExactly(replacement, second);
+        registry.unregisterPrepared("owner-a", 0L);
+        assertThat(registry.sinks()).containsExactly(second);
+        assertThat(replaced).containsExactly(replacement, second);
     }
 
     /** 记录被下发场景 id 的假介质（替代真实邮件 / 推送）。 */
