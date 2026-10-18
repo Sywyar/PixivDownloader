@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复插件启停期间语言资源清单偶发重复的问题。
 - 修复推送失败时短凭据可能出现在日志和失败详情中的问题。
 - 修复疑似重复扫描失败后无法重新开始或新扫描状态被旧任务覆盖的问题。
 - 修复 AI 请求失败时短 API 密钥可能出现在日志和失败摘要中的问题。

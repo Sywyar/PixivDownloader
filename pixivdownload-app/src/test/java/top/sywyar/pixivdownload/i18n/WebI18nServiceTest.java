@@ -18,6 +18,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.MissingResourceException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 
@@ -163,6 +166,45 @@ class WebI18nServiceTest {
         }
     }
 
+    @Test
+    @DisplayName("并发撤回活动语言包时安装态回退不重复同一命名空间")
+    void concurrentWithdrawalKeepsInstalledFallbackUnique() throws Exception {
+        Path plugins = tempDir.resolve("plugins");
+        Files.createDirectories(plugins);
+        Path artifact = plugins.resolve("fixture.jar");
+        writeInstalledPluginJar(artifact, "fixture", "示例", "Fixture");
+        try (ExternalPluginInstaller installer = new ExternalPluginInstaller(plugins);
+             URLClassLoader loader = new URLClassLoader(new URL[]{artifact.toUri().toURL()}, null)) {
+            installer.recoverPendingTransactions();
+            var installed = installer.listInstalled();
+            WebI18nBundleRegistry registry = new WebI18nBundleRegistry(
+                    new PluginRegistry(List.of()), () -> installed);
+            var stop = new AtomicBoolean();
+            var executor = Executors.newSingleThreadExecutor();
+            var writer = executor.submit(() -> {
+                while (!stop.get() && !Thread.currentThread().isInterrupted()) {
+                    registry.register("fixture", loader, List.of(new I18nContribution("fixture", "i18n.web.fixture")));
+                    registry.unregister("fixture");
+                }
+            });
+            try {
+                for (int attempt = 0; attempt < 20_000; attempt++) {
+                    assertThat(registry.bundles()).extracting(bundle -> bundle.contribution().namespace())
+                            .containsExactly("fixture");
+                }
+            } finally {
+                stop.set(true);
+                executor.shutdown();
+                try {
+                    writer.get(30, TimeUnit.SECONDS);
+                } finally {
+                    executor.shutdownNow();
+                    assertThat(executor.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+                }
+            }
+        }
+    }
+
     private static void writeInstalledPluginJar(Path path, String pluginId, String zhName, String enName)
             throws Exception {
         try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(path))) {
@@ -179,7 +221,7 @@ class WebI18nServiceTest {
                     pixiv.color-token=green
                     """.formatted(pluginId, pluginId, pluginId));
             writeEntry(jar, "i18n/web/%s.properties".formatted(pluginId),
-                    "plugin.name=%s\nplugin.summary=中文简介\n".formatted(zhName));
+                    "\uFEFFplugin.name=%s\nplugin.summary=中文简介\n".formatted(zhName));
             writeEntry(jar, "i18n/web/%s_en.properties".formatted(pluginId),
                     "plugin.name=%s\nplugin.summary=English summary\n".formatted(enName));
         }

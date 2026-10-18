@@ -117,16 +117,11 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
         public Map<String, String> loadEffective(Locale locale) {
             LocaleDescriptor target = catalog.resolve(locale);
             Map<String, String> merged = new LinkedHashMap<>();
-            boolean loaded = false;
             List<LocaleDescriptor> chain = catalog.fallbackChain(target);
             for (int i = chain.size() - 1; i >= 0; i--) {
-                Map<String, String> exact = safeExact(chain.get(i));
-                if (!exact.isEmpty()) {
-                    loaded = true;
-                }
-                merged.putAll(exact);
+                merged.putAll(safeExact(chain.get(i)));
             }
-            if (!loaded) {
+            if (merged.isEmpty()) {
                 throw new MissingResourceException(
                         "Missing i18n bundle " + contribution.baseName()
                                 + " for locale " + target.tag(),
@@ -354,8 +349,9 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
     }
 
     private List<RegisteredBundle> mergedSnapshot() {
-        List<RegisteredBundle> merged = new ArrayList<>(activeSnapshot);
-        Set<String> activeNamespaces = activeSnapshot.stream()
+        List<RegisteredBundle> active = activeSnapshot;
+        List<RegisteredBundle> merged = new ArrayList<>(active);
+        Set<String> activeNamespaces = active.stream()
                 .map(registered -> registered.contribution().namespace())
                 .collect(Collectors.toCollection(HashSet::new));
         for (RegisteredBundle installed : installedSnapshot) {
@@ -448,15 +444,8 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
             if (entry == null || entry.isDirectory()) {
                 return null;
             }
-            try (InputStream in = zip.getInputStream(entry);
-                 InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
-                Properties properties = new Properties();
-                properties.load(reader);
-                Map<String, String> values = new LinkedHashMap<>();
-                for (String key : properties.stringPropertyNames()) {
-                    values.put(WebI18nService.normalizeKey(key), properties.getProperty(key));
-                }
-                return values;
+            try (InputStream in = zip.getInputStream(entry)) {
+                return readProperties(in);
             }
         } catch (IOException e) {
             throw new MissingResourceException("Cannot read installed plugin i18n bundle "
@@ -469,17 +458,21 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
             if (in == null) {
                 return null;
             }
-            try (InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
-                Properties properties = new Properties();
-                properties.load(reader);
-                Map<String, String> values = new LinkedHashMap<>();
-                for (String key : properties.stringPropertyNames()) {
-                    values.put(WebI18nService.normalizeKey(key), properties.getProperty(key));
-                }
-                return values;
-            }
+            return readProperties(in);
         } catch (IOException e) {
             throw new IllegalStateException("Cannot materialize plugin i18n bundle " + resourceName, e);
+        }
+    }
+
+    private static Map<String, String> readProperties(InputStream in) throws IOException {
+        try (InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+            Properties properties = new Properties();
+            properties.load(reader);
+            Map<String, String> values = new LinkedHashMap<>();
+            for (String key : properties.stringPropertyNames()) {
+                values.put(WebI18nService.normalizeKey(key), properties.getProperty(key));
+            }
+            return values;
         }
     }
 
