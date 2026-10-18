@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.util.function.ThrowingConsumer;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.common.PlainFilePathGuard;
@@ -235,10 +236,12 @@ public class UserQuotaService {
 
         UserQuota quota = quotaMap.get(uuid);
         if (quota != null) {
-            quota.setArchiveToken(token);
+            synchronized (quota) {
+                quota.setArchiveToken(token);
+            }
         }
 
-        submitArchive(entry, () -> buildArchive(token, uuid));
+        submitArchive(entry, taskToken -> buildArchive(taskToken, uuid));
         return token;
     }
 
@@ -252,7 +255,7 @@ public class UserQuotaService {
         entry.setWorkCount(folders == null ? 0 : folders.size());
         archiveMap.put(token, entry);
         List<Path> snapshot = folders == null ? List.of() : new ArrayList<>(folders);
-        submitArchive(entry, () -> buildAdminArchive(token, snapshot));
+        submitArchive(entry, taskToken -> buildFolderArchive(taskToken, snapshot, null));
         return token;
     }
 
@@ -262,7 +265,6 @@ public class UserQuotaService {
      */
     public String triggerAdminFileArchive(List<ArchiveExportEntry> items, String exportType, int workCount,
                                           Runnable afterReady) {
-        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         return triggerAdminFileArchive(items, exportType, workCount, afterReady, () -> () -> {});
     }
 
@@ -277,12 +279,9 @@ public class UserQuotaService {
         entry.setWorkCount(workCount);
         archiveMap.put(token, entry);
         List<ArchiveExportEntry> snapshot = items == null ? List.of() : new ArrayList<>(items);
-        submitArchive(entry, () -> {
+        submitArchive(entry, taskToken -> {
             try (var ignored = sourceLease.get()) {
-                buildAdminFileArchive(token, snapshot, afterReady);
-            } catch (Exception failure) {
-                entry.setStatus("error");
-                log.error(message("archive.log.admin.create.failed", token), failure);
+                buildAdminFileArchive(taskToken, snapshot, afterReady);
             }
         });
         return token;
@@ -297,10 +296,22 @@ public class UserQuotaService {
                 .toList();
     }
 
-    private void submitArchive(ArchiveEntry entry, Runnable task) {
-        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+    private void submitArchive(ArchiveEntry entry, ThrowingConsumer<String> task) {
         try {
-            archiveTaskExecutor.execute(task);
+            if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+            archiveTaskExecutor.execute(() -> {
+                try {
+                    if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+                    task.acceptWithException(entry.getToken());
+                } catch (Exception failure) {
+                    synchronized (entry) {
+                        if (archiveMap.get(entry.getToken()) == entry && !"cancelled".equals(entry.getStatus())) {
+                            entry.setStatus("error");
+                        }
+                    }
+                    log.error(message("archive.log.admin.create.failed", entry.getToken()), failure);
+                }
+            });
         } catch (RuntimeException failure) {
             archiveMap.remove(entry.getToken(), entry);
             UserQuota quota = entry.getUserUuid() == null ? null : quotaMap.get(entry.getUserUuid());
@@ -313,8 +324,7 @@ public class UserQuotaService {
         }
     }
 
-    private void buildArchive(String token, String uuid) {
-        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
+    private void buildArchive(String token, String uuid) throws Exception {
         UserQuota quota = quotaMap.get(uuid);
         List<Path> folders = quota == null ? List.of() : new ArrayList<>(quota.getDownloadedFolders());
         try (var artworks = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquireAll(WorkType.ARTWORK, folderWorkIds(folders, false));
@@ -329,10 +339,6 @@ public class UserQuotaService {
                     }
                 }
             });
-        } catch (Exception failure) {
-            ArchiveEntry entry = archiveMap.get(token);
-            if (entry != null) entry.setStatus("error");
-            log.error(message("archive.log.admin.create.failed", token), failure);
         }
     }
 
@@ -348,12 +354,7 @@ public class UserQuotaService {
         return ids;
     }
 
-    private void buildAdminArchive(String token, List<Path> folders) {
-        if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
-        buildFolderArchive(token, folders, null);
-    }
-
-    private void buildFolderArchive(String token, List<Path> folders, Runnable afterReady) {
+    private void buildFolderArchive(String token, List<Path> folders, Runnable afterReady) throws IOException {
         if (pixivDatabase.isUnavailable()) throw new top.sywyar.pixivdownload.core.database.DatabaseUnavailableException();
         ArchiveEntry entry = archiveMap.get(token);
         if (entry == null) return;
@@ -361,33 +362,28 @@ public class UserQuotaService {
             buildAdminFileArchive(token, List.of(), afterReady);
             return;
         }
-        try {
-            List<ArchiveExportEntry> items = new ArrayList<>();
-            Path archiveDir = Paths.get(downloadConfig.getRootFolder(), "_archives").toAbsolutePath().normalize();
-            for (Path folder : folders) {
-                Path source = folder.toAbsolutePath().normalize();
-                if (!PlainFilePathGuard.isPlainDirectory(source)) throw new IOException("Unsafe archive directory: " + source);
-                // 输入不能包含输出目录，也不能位于输出目录内。
-                if (archiveDir.startsWith(source) || source.startsWith(archiveDir)) {
-                    throw new IOException("Archive source overlaps its output directory");
-                }
-                try (var stream = Files.walk(source)) {
-                    var iterator = stream.iterator();
-                    while (iterator.hasNext()) {
-                        Path file = iterator.next();
-                        if (PlainFilePathGuard.isPlainDirectory(file)) continue;
-                        PlainFilePathGuard.requirePlainRegularFile(file);
-                        if (WorkSidecarFiles.isSidecarFile(file)) continue;
-                        String name = source.getFileName() + "/" + source.relativize(file).toString().replace('\\', '/');
-                        items.add(ArchiveExportEntry.file(file, name));
-                    }
+        List<ArchiveExportEntry> items = new ArrayList<>();
+        Path archiveDir = Paths.get(downloadConfig.getRootFolder(), "_archives").toAbsolutePath().normalize();
+        for (Path folder : folders) {
+            Path source = folder.toAbsolutePath().normalize();
+            if (!PlainFilePathGuard.isPlainDirectory(source)) throw new IOException("Unsafe archive directory: " + source);
+            // 输入不能包含输出目录，也不能位于输出目录内。
+            if (archiveDir.startsWith(source) || source.startsWith(archiveDir)) {
+                throw new IOException("Archive source overlaps its output directory");
+            }
+            try (var stream = Files.walk(source)) {
+                var iterator = stream.iterator();
+                while (iterator.hasNext()) {
+                    Path file = iterator.next();
+                    if (PlainFilePathGuard.isPlainDirectory(file)) continue;
+                    PlainFilePathGuard.requirePlainRegularFile(file);
+                    if (WorkSidecarFiles.isSidecarFile(file)) continue;
+                    String name = source.getFileName() + "/" + source.relativize(file).toString().replace('\\', '/');
+                    items.add(ArchiveExportEntry.file(file, name));
                 }
             }
-            buildAdminFileArchive(token, items, afterReady);
-        } catch (Exception failure) {
-            entry.setStatus("error");
-            log.error(message("archive.log.admin.create.failed", token), failure);
         }
+        buildAdminFileArchive(token, items, afterReady);
     }
 
     private void buildAdminFileArchive(String token, List<ArchiveExportEntry> items, Runnable afterReady) {

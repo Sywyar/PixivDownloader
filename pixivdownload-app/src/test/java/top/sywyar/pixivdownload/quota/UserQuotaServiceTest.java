@@ -15,6 +15,8 @@ import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.core.task.TaskExecutor;
@@ -397,6 +399,142 @@ class UserQuotaServiceTest {
     }
 
     // ========== deleteArchive ==========
+
+    @Nested
+    @DisplayName("归档准入与排队失败")
+    class ArchiveAdmissionTests {
+        private final List<Runnable> submitted = new ArrayList<>();
+        private final java.util.concurrent.atomic.AtomicInteger leases = new java.util.concurrent.atomic.AtomicInteger();
+        private final java.util.concurrent.atomic.AtomicBoolean afterReady = new java.util.concurrent.atomic.AtomicBoolean();
+
+        @BeforeEach
+        void useQueue() {
+            useExecutor(submitted::add);
+        }
+
+        private void useExecutor(TaskExecutor executor) {
+            userQuotaService = new UserQuotaService(multiModeConfig, downloadConfig, pixivDatabase,
+                    TestI18nBeans.appMessages(), executor, locator, novelMetadataRepository, workDeletionService, workAssetService);
+            userQuotaService.checkAndReserve("visitor", 1);
+        }
+
+        private String trigger(String kind) {
+            return switch (kind) {
+                case "visitor" -> userQuotaService.triggerArchive("visitor");
+                case "folders" -> userQuotaService.triggerAdminArchive(List.of());
+                case "files" -> userQuotaService.triggerAdminFileArchive(List.of(
+                        ArchiveExportEntry.bytes("a.txt", new byte[]{1})), "artworks", 1,
+                        () -> afterReady.set(true), () -> {
+                            leases.incrementAndGet();
+                            return leases::decrementAndGet;
+                        });
+                default -> throw new AssertionError(kind);
+            };
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"visitor", "folders", "files"})
+        @DisplayName("登记后数据库失效应撤回未接纳的任务与配额关联")
+        void databaseFailureBeforeAdmissionRemovesRegistration(String kind) {
+            when(pixivDatabase.isUnavailable()).thenAnswer(call ->
+                    userQuotaService.getQuotaForUser("visitor").getArchiveToken() != null
+                            || !userQuotaService.listAdminArchives().isEmpty());
+
+            assertThatThrownBy(() -> trigger(kind))
+                    .isInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class);
+
+            assertThat(submitted).isEmpty();
+            assertThat(userQuotaService.listAdminArchives()).isEmpty();
+            assertThat(userQuotaService.getQuotaStatus("visitor").archive()).isNull();
+            assertThat(userQuotaService.getQuotaForUser("visitor").getArchiveToken()).isNull();
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"visitor", "folders", "files"})
+        @DisplayName("执行器拒绝时撤回任务并传播原异常")
+        void rejectionRemovesRegistration(String kind) {
+            var rejection = new java.util.concurrent.RejectedExecutionException("closed");
+            useExecutor(task -> { throw rejection; });
+
+            assertThatThrownBy(() -> trigger(kind)).isSameAs(rejection);
+
+            assertThat(userQuotaService.listAdminArchives()).isEmpty();
+            assertThat(userQuotaService.getQuotaForUser("visitor").getArchiveToken()).isNull();
+            assertThat(afterReady).isFalse();
+        }
+
+        @Test
+        @DisplayName("旧任务迟到的接纳失败不撤回同一游客的新任务")
+        void oldRejectionKeepsNewArchive() {
+            var rejection = new java.util.concurrent.RejectedExecutionException("closed");
+            var newest = new java.util.concurrent.atomic.AtomicReference<String>();
+            var calls = new java.util.concurrent.atomic.AtomicInteger();
+            useExecutor(task -> {
+                if (calls.getAndIncrement() == 0) {
+                    newest.set(trigger("visitor"));
+                    throw rejection;
+                }
+                submitted.add(task);
+            });
+
+            assertThatThrownBy(() -> trigger("visitor")).isSameAs(rejection);
+
+            assertThat(userQuotaService.getQuotaForUser("visitor").getArchiveToken()).isEqualTo(newest.get());
+            assertThat(submitted).hasSize(1);
+            submitted.get(0).run();
+            assertThat(userQuotaService.getArchive(newest.get()).getStatus()).isEqualTo("empty");
+        }
+
+        @Test
+        @DisplayName("资源租约关闭失败仍释放租约并交付归档失败")
+        void checkedLeaseFailureCompletesTask() {
+            String token = userQuotaService.triggerAdminFileArchive(List.of(), "artworks", 0, null, () -> {
+                leases.incrementAndGet();
+                return () -> {
+                    leases.decrementAndGet();
+                    throw new java.io.IOException("lease close failed");
+                };
+            });
+
+            assertThatCode(() -> submitted.get(0).run()).doesNotThrowAnyException();
+
+            assertThat(userQuotaService.getArchive(token).getStatus()).isEqualTo("error");
+            assertThat(leases).hasValue(0);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"visitor", "folders", "files"})
+        @DisplayName("排队后数据库失效应交付失败且不执行归档与删源")
+        void databaseFailureAfterAdmissionCompletesTask(String kind) {
+            String token = trigger(kind);
+            when(pixivDatabase.isUnavailable()).thenReturn(true);
+
+            assertThatCode(() -> submitted.get(0).run()).doesNotThrowAnyException();
+
+            assertThat(userQuotaService.getArchive(token).getStatus()).isEqualTo("error");
+            assertThat(userQuotaService.getArchive(token).getArchivePath()).isNull();
+            assertThat(afterReady).isFalse();
+            assertThat(leases).hasValue(0);
+            verifyNoInteractions(downloadConfig, workDeletionService, workAssetService);
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"visitor", "folders", "files"})
+        @DisplayName("排队任务取消后发生数据库失败仍保留取消终态")
+        void cancelledTaskKeepsTerminalState(String kind) {
+            String token = trigger(kind);
+            var entry = userQuotaService.getArchive(token);
+            userQuotaService.deleteArchive(token);
+            when(pixivDatabase.isUnavailable()).thenReturn(true);
+
+            assertThatCode(() -> submitted.get(0).run()).doesNotThrowAnyException();
+
+            assertThat(userQuotaService.getArchive(token)).isNull();
+            assertThat(entry.getStatus()).isEqualTo("cancelled");
+            assertThat(afterReady).isFalse();
+            assertThat(leases).hasValue(0);
+        }
+    }
 
     @Test
     @DisplayName("删除不存在的 token 应无异常")
