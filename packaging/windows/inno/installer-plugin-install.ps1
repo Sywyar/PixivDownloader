@@ -14,35 +14,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-
-function Write-State([string]$Value) {
-    $dir = [System.IO.Path]::GetDirectoryName($ProgressFile)
-    if (-not [string]::IsNullOrWhiteSpace($dir)) {
-        [System.IO.Directory]::CreateDirectory($dir) | Out-Null
-    }
-    $bytes = $Utf8NoBom.GetBytes($Value + "`n")
-    for ($attempt = 0; $attempt -lt 40; $attempt++) {
-        try {
-            $stream = [System.IO.File]::Open($ProgressFile, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
-            try {
-                $stream.Write($bytes, 0, $bytes.Length)
-                $stream.SetLength($bytes.Length)
-            } finally {
-                $stream.Dispose()
-            }
-            return
-        } catch {
-            if ($attempt -eq 39) { throw }
-            Start-Sleep -Milliseconds 50
-        }
-    }
-}
-
-function Escape-StateField([string]$Value) {
-    if ($null -eq $Value) { return "" }
-    return $Value.Replace("%", "%25").Replace("|", "%7C").Replace("`r", " ").Replace("`n", " ")
-}
+. (Join-Path $PSScriptRoot 'installer-progress.ps1')
 
 function Format-Error([System.Management.Automation.ErrorRecord]$ErrorRecord) {
     if ($null -eq $ErrorRecord) {
@@ -166,8 +138,13 @@ function Assert-InstallablePackage($Entry, $Package) {
     }
 }
 
-function Add-Plan($Manifest, [string]$PluginId, [string]$Requirement, $Plan, $Visiting, $Visited) {
-    if ($Visited.ContainsKey($PluginId)) { return }
+function Add-Plan($Manifest, [string]$PluginId, [string]$Requirement, $Plan, $Visiting) {
+    if ($Plan.Contains($PluginId)) {
+        if (-not (Test-VersionSatisfied $Requirement $Plan[$PluginId].Version)) {
+            throw "Selected version for $PluginId does not satisfy dependency $Requirement."
+        }
+        return
+    }
     if ($Visiting.ContainsKey($PluginId)) { throw "Dependency cycle includes $PluginId." }
     $entry = Find-Entry $Manifest $PluginId
     if ($null -eq $entry) { throw "Dependency not found in catalog: $PluginId." }
@@ -176,16 +153,14 @@ function Add-Plan($Manifest, [string]$PluginId, [string]$Requirement, $Plan, $Vi
     $Visiting[$PluginId] = $true
     foreach ($dependency in (Parse-Dependencies $pkg)) {
         if ($dependency.Optional) { continue }
-        Add-Plan $Manifest $dependency.PluginId $dependency.VersionSupport $Plan $Visiting $Visited
+        Add-Plan $Manifest $dependency.PluginId $dependency.VersionSupport $Plan $Visiting
     }
     $Visiting.Remove($PluginId)
-    $Visited[$PluginId] = $true
-    $Plan.Add([pscustomobject]@{
-        Entry = $entry
+    $Plan[$PluginId] = [pscustomobject]@{
         Package = $pkg
         PluginId = $PluginId
         Version = [string](Get-Prop $pkg "version")
-    })
+    }
 }
 
 function Get-PackageExtension([string]$Url) {
@@ -242,10 +217,6 @@ function Read-PluginDescriptorFromPackage([string]$Path) {
         if ($key -eq "plugin.version") { $version = $value }
     }
     return [pscustomobject]@{ PluginId = $pluginId; Version = $version }
-}
-
-function Read-PluginIdFromPackage([string]$Path) {
-    return (Read-PluginDescriptorFromPackage $Path).PluginId
 }
 
 function Remove-ArtifactWithCompanions([string]$ArtifactPath) {
@@ -323,7 +294,7 @@ function Remove-SupersededInstalledPlugins([string]$PluginsDir, [string]$PluginI
         if (-not ($name.EndsWith(".jar") -or $name.EndsWith(".zip"))) { continue }
         if ($keepFullPath -ne "" -and $artifact.FullName -eq $keepFullPath) { continue }
         try {
-            $existingId = Read-PluginIdFromPackage $artifact.FullName
+            $existingId = (Read-PluginDescriptorFromPackage $artifact.FullName).PluginId
         } catch {
             # Unreadable packages are left untouched; the runtime will report them separately.
             continue
@@ -483,10 +454,9 @@ if ($ReconcileBundledDefaults) {
 try {
     $manifest = Get-Content -LiteralPath $ManifestFile -Raw -Encoding UTF8 | ConvertFrom-Json
     $selected = @($PluginIds.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" })
-    $plan = New-Object System.Collections.Generic.List[object]
-    $visited = @{}
+    $plan = [ordered]@{}
     foreach ($pluginId in $selected) {
-        Add-Plan $manifest $pluginId "*" $plan @{} $visited
+        Add-Plan $manifest $pluginId "*" $plan @{}
     }
     $pluginsDir = Join-Path $InstallDir "plugins"
     [System.IO.Directory]::CreateDirectory($pluginsDir) | Out-Null
@@ -495,7 +465,7 @@ try {
     try {
         $total = $plan.Count
         $index = 0
-        foreach ($item in $plan) {
+        foreach ($item in $plan.Values) {
             $index++
             Write-State ("PLUGIN|{0}|{1}|{2}" -f $item.PluginId, $index, $total)
             $ext = Get-PackageExtension ([string](Get-Prop $item.Package "packageUrl"))

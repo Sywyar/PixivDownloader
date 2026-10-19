@@ -7,28 +7,15 @@ begin
 end;
 
 procedure SetFfmpegProgress(const Title: String; const Detail: String; const Percent: Integer);
-var
-  SafePercent: Integer;
 begin
-  SafePercent := Percent;
-  if SafePercent < 0 then
-    SafePercent := 0;
-  if SafePercent > 100 then
-    SafePercent := 100;
-  if FfmpegProgressTitle <> Title then
-  begin
-    FfmpegProgressTitle := Title;
-    FfmpegProgressLastPercent := -1;
-  end;
-  if SafePercent < FfmpegProgressLastPercent then
-    SafePercent := FfmpegProgressLastPercent;
-  FfmpegProgressLastPercent := SafePercent;
-
-  FfmpegTitleLabel.Caption := Title;
-  FfmpegDetailLabel.Caption := Detail;
-  FfmpegProgressBar.Position := SafePercent;
-  WizardForm.StatusLabel.Caption := Title;
-  ProcessInstallerMessages;
+  SetInstallerProgress(
+    FfmpegTitleLabel,
+    FfmpegDetailLabel,
+    FfmpegProgressBar,
+    Title,
+    Detail,
+    Percent
+  );
 end;
 
 
@@ -36,6 +23,7 @@ procedure ExtractFfmpegInstallerSupportFiles;
 begin
   ExtractTemporaryFile(PluginSignatureToolName);
   ExtractTemporaryFile(FfmpegDownloadScriptName);
+  ExtractTemporaryFile('installer-progress.ps1');
   ExtractTemporaryFile(FfmpegIntegrityScriptName);
 end;
 
@@ -238,15 +226,11 @@ var
   ProgressPath: String;
   PowerShellPath: String;
   Params: String;
-  ResultCode: Integer;
-  ProgressLine: AnsiString;
-  ProgressText: String;
-  Parts: TArrayOfString;
 begin
   ExtractFfmpegInstallerSupportFiles;
   ScriptPath := ExpandConstant('{tmp}\' + FfmpegDownloadScriptName);
   ProgressPath := ExpandConstant('{tmp}\pixivdownload-ffmpeg-download.progress');
-  PowerShellPath := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+  PowerShellPath := ExpandConstant('{sysnative}\WindowsPowerShell\v1.0\powershell.exe');
 
   DeleteFile(ProgressPath);
 
@@ -262,32 +246,8 @@ begin
     ' -ProxyUrl ' + DoubleQuote(SystemProxyUrl);
 
   Log('Starting FFmpeg download. Proxy URL: ' + SystemProxyUrl);
-  if not Exec(PowerShellPath, Params, '', SW_HIDE, ewNoWait, ResultCode) then
-    RaiseException('Could not start PowerShell downloader: ' + SysErrorMessage(ResultCode));
-
-  while True do
-  begin
-    if FileExists(ProgressPath) and LoadStringFromFile(ProgressPath, ProgressLine) then
-    begin
-      ProgressText := String(ProgressLine);
-      ApplyPowerShellDownloadProgress(ProgressText);
-      Parts := StringSplit(ProgressText, ['|'], stAll);
-      if GetArrayLength(Parts) > 0 then
-      begin
-        if Parts[0] = 'DONE' then
-          exit
-        else if Parts[0] = 'ERROR' then
-        begin
-          if GetArrayLength(Parts) >= 2 then
-            RaiseException(Parts[1])
-          else
-            RaiseException('FFmpeg download failed.');
-        end;
-      end;
-    end;
-
-    ResponsiveSleep(200);
-  end;
+  RunInstallerHelper(PowerShellPath, Params, ProgressPath,
+    CustomMessage('FfmpegFailed'), @ApplyPowerShellDownloadProgress);
 end;
 
 function FindFileRecursive(const RootDir: String; const TargetName: String; var FoundPath: String): Boolean;

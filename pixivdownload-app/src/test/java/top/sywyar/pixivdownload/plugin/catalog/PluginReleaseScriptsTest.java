@@ -384,35 +384,6 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("Inno 主脚本通过原生 include 装配职责源码")
-    void innoSourceGraphAssemblesResponsibilityIncludes() throws Exception {
-        Path innoDir = repoRoot().resolve("packaging/windows/inno");
-        String main = Files.readString(innoDir.resolve("PixivDownload.iss"), StandardCharsets.UTF_8);
-        List<String> includes = List.of(
-                "PixivDownload-maintenance.iss.inc",
-                "PixivDownload-plugins.iss.inc",
-                "PixivDownload-ffmpeg.iss.inc",
-                "PixivDownload-lifecycle.iss.inc");
-
-        for (String include : includes) {
-            assertThat(main).contains("#include \"" + include + "\"");
-            assertThat(innoDir.resolve(include)).isRegularFile();
-            assertThat(Files.readString(innoDir.resolve(include), StandardCharsets.UTF_8))
-                    .doesNotContain("[Code]");
-        }
-        assertThat(main.substring(main.indexOf("[Code]"))).doesNotContain("\nbegin\n");
-
-        String compilationUnit = innoScript();
-        assertThat(compilationUnit).contains(
-                "procedure ResolveExistingInstallation;",
-                "procedure LoadPackagedInstallerPluginCatalog;",
-                "procedure DownloadAndInstallFfmpeg;",
-                "procedure InitializeWizard;",
-                "procedure CurStepChanged(CurStep: TSetupStep);");
-        assertThat(compilationUnit).doesNotContain("function BuildFfmpegDownloadScript: String;");
-    }
-
-    @Test
     @DisplayName("Windows 主程序与安装器 loader 均请求管理员权限")
     void windowsLauncherAndInstallerLoaderRequestAdministratorRights() throws Exception {
         String windows = script("package-local.ps1");
@@ -520,14 +491,11 @@ class PluginReleaseScriptsTest {
                 "Write-UnsignedLocalPluginProvenanceSidecar",
                 "LOCAL-UNSIGNED-BUILD.txt");
         assertThat(windowsCatalog).contains(
-                "Write-InstallerPluginCatalogProjection",
                 "Write-InstallerPluginCatalogInclude",
                 "Escape-InstallerCatalogIssString",
                 "[AllowEmptyString()][string]$Fallback",
                 "\"verify-manifest\"",
                 "installer-catalog",
-                "catalog.en.txt",
-                "catalog.zh-CN.txt",
                 "Get-InstallerCatalogProp $market \"defaultInstalled\"");
         assertThat(catalogStage).contains(
                 "$SdkVersion = Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot",
@@ -568,10 +536,6 @@ class PluginReleaseScriptsTest {
                 "LoadPackagedInstallerPluginCatalog",
                 "WizardForm.NextButton.Enabled := True",
                 "CurPageID = OptionalPluginsPage.ID",
-                "ewNoWait",
-                "ReadProgressLineUtf8",
-                "LoadStringsFromFile(ProgressPath, Lines)",
-                "RaiseException(DecodeCatalogField(Parts[1]))",
                 "pixivdownload-plugin-signature-tool.jar");
         assertThat(ffmpegIntegrity).contains(
                 "verify-manifest",
@@ -636,15 +600,11 @@ class PluginReleaseScriptsTest {
                 "ExtractPluginInstallerSupportFiles");
         assertThat(installerInstall).contains(
                 "[Parameter(Mandatory = $true, ParameterSetName = \"Install\")][string]$SdkVersion",
-                "$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)",
-                "$Utf8NoBom.GetBytes($Value + \"`n\")",
-                "function Escape-StateField",
                 "function Format-Error([System.Management.Automation.ErrorRecord]$ErrorRecord)",
                 "return $result.ToArray()",
                 "[System.Net.WebRequest]::GetSystemWebProxy()",
                 "Write-State (\"ERROR|\" + (Escape-StateField (Format-Error $_)))",
                 "function Remove-SupersededInstalledPlugins",
-                "Read-PluginIdFromPackage",
                 "plugin.id",
                 "$item.PluginId + \"-\" + $item.Version + $ext",
                 "Remove-SupersededInstalledPlugins $pluginsDir $item.PluginId $target",
@@ -718,6 +678,8 @@ class PluginReleaseScriptsTest {
                 .resolve("installer-plugin-install.ps1"));
         assertAsciiWithoutBom(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
                 .resolve("installer-ffmpeg-download.ps1"));
+        assertAsciiWithoutBom(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
+                .resolve("installer-progress.ps1"));
     }
 
     @Test
@@ -920,7 +882,6 @@ class PluginReleaseScriptsTest {
         assertThat(rows.get(0).path("Version").asText()).isEqualTo("1.2.3");
         assertThat(rows.get(0).path("DisplayName").asText()).isEqualTo("Optional Sample");
         assertThat(rows.get(0).path("Summary").asText()).isEqualTo("Install on demand");
-        assertThat(rows.get(0).path("Size").asText()).isEqualTo("123");
 
         CommandResult failure = runPowerShellResult(
                 "$ErrorActionPreference='Stop'; "

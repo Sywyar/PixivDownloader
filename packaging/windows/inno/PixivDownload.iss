@@ -317,6 +317,7 @@ Source: "{#SignatureToolJar}"; DestDir: "{tmp}"; DestName: "pixivdownload-plugin
 Source: "..\..\..\scripts\ffmpeg-release-integrity.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "installer-ffmpeg-download.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 Source: "installer-plugin-install.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+Source: "installer-progress.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 
 [Registry]
 Root: HKLM64; Subkey: "Software\sywyar\PixivDownload"; ValueType: string; ValueName: "InstallLocation"; ValueData: "{app}"; Flags: uninsdeletevalue uninsdeletekeyifempty; Check: ShouldInstallApplicationFiles
@@ -414,13 +415,9 @@ var
   PluginInstallTitleLabel: TNewStaticText;
   PluginInstallDetailLabel: TNewStaticText;
   PluginInstallProgressBar: TNewProgressBar;
-  PluginInstallProgressTitle: String;
-  PluginInstallProgressLastPercent: Integer;
   FfmpegTitleLabel: TNewStaticText;
   FfmpegDetailLabel: TNewStaticText;
   FfmpegProgressBar: TNewProgressBar;
-  FfmpegProgressTitle: String;
-  FfmpegProgressLastPercent: Integer;
   FfmpegInstalled: Boolean;
   FfmpegFailed: Boolean;
   PluginInstalled: Boolean;
@@ -447,6 +444,29 @@ forward;
 function ShouldShowOptionalFeaturesPage: Boolean;
 forward;
 
+procedure SetInstallerProgress(
+  TitleLabel: TNewStaticText;
+  DetailLabel: TNewStaticText;
+  ProgressBar: TNewProgressBar;
+  const Title: String;
+  const Detail: String;
+  Percent: Integer
+);
+begin
+  if Percent < 0 then
+    Percent := 0;
+  if Percent > 100 then
+    Percent := 100;
+  if (TitleLabel.Caption = Title) and (Percent < ProgressBar.Position) then
+    Percent := ProgressBar.Position;
+  TitleLabel.Caption := Title;
+  DetailLabel.Caption := Detail;
+  ProgressBar.Position := Percent;
+  WizardForm.StatusLabel.Caption := Title;
+  ProcessInstallerMessages;
+end;
+
+#include "PixivDownload-process.iss.inc"
 #include "PixivDownload-maintenance.iss.inc"
 #include "PixivDownload-plugins.iss.inc"
 #include "PixivDownload-ffmpeg.iss.inc"

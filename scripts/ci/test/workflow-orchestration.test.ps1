@@ -838,6 +838,119 @@ if ($case -eq 'patch-failure') { throw 'Fixture manifest patch failed.' }
         Assert-Equal $complete.Count 9
         foreach ($entry in $entries) { Assert-Equal ([IO.File]::ReadAllText((Join-Path $root "plugins/$($entry.file)"))) 'original' }
     }
+    & {
+        $installer = Join-Path $repo 'packaging/windows/inno/installer-plugin-install.ps1'
+        $program = Read-Program $installer
+        foreach ($function in $program.Functions) { . ([scriptblock]::Create($function.Extent.Text)) }
+        $SdkVersion = '7.4.0'
+        function New-PlanEntry($Id, $Version, $Dependencies) {
+            [pscustomobject]@{ pluginId=$Id; market=@{latestVersion=$Version}; packages=@([pscustomobject]@{
+                version=$Version; packageUrl='https://example.invalid/fixture.invalid'; expectedSizeBytes=1;
+                sha256=('0'*64); signature=@{value='fixture'}; requiredSdk='*'; dependencies=$Dependencies
+            }) }
+        }
+        $shared = New-PlanEntry 'shared' '1.3.0' @()
+        $first = New-PlanEntry 'first' '1.0.0' @('shared@1.0')
+        $second = New-PlanEntry 'second' '1.0.0' @('shared@1.2', 'absent?@9.0')
+        $manifest = [pscustomobject]@{ entries=@($shared, $first, $second) }
+        $plan = [ordered]@{}
+        foreach ($id in @('first', 'second', 'first', 'SHARED')) { Add-Plan $manifest $id '*' $plan @{} }
+        Assert-Equal @($plan.Values.PluginId) @('shared', 'first', 'second')
+        Assert-Equal @($plan.Values.Version) @('1.3.0', '1.0.0', '1.0.0')
+        $fallback = New-PlanEntry 'fallback' '2.0.0' @()
+        $fallback.packages += $shared.packages[0]
+        $selection = [ordered]@{}
+        Add-Plan ([pscustomobject]@{entries=@($fallback)}) 'fallback' '1.1' $selection @{}
+        Assert-Equal $selection['fallback'].Version '1.3.0'
+        Assert-Rejected { Add-Plan $manifest 'missing' '*' ([ordered]@{}) @{} } 'Dependency not found'
+        Assert-Rejected { Add-Plan $manifest 'shared' '2.0' ([ordered]@{}) @{} } 'No installable package'
+        $cycle = [pscustomobject]@{ entries=@((New-PlanEntry 'left' '1.0.0' @('right')), (New-PlanEntry 'right' '1.0.0' @('left'))) }
+        Assert-Rejected { Add-Plan $cycle 'left' '*' ([ordered]@{}) @{} } 'Dependency cycle'
+        $incompatible = New-PlanEntry 'incompatible' '1.0.0' @()
+        $incompatible.packages[0].requiredSdk = '8.0'
+        Assert-Rejected { Add-Plan ([pscustomobject]@{entries=@($incompatible)}) 'incompatible' '*' ([ordered]@{}) @{} } 'requires SDK'
+        $second.packages[0].dependencies = @('shared@2.0')
+        $conflict = [ordered]@{}
+        Add-Plan $manifest 'first' '*' $conflict @{}
+        Assert-Rejected { Add-Plan $manifest 'second' '*' $conflict @{} } 'does not satisfy dependency'
+        foreach ($ids in @('first,second', 'shared,second')) {
+            $root = Join-Path $fixture ('installer-plan-' + $ids.Replace(',', '-'))
+            [IO.Directory]::CreateDirectory($root) | Out-Null
+            $manifestPath = Join-Path $root 'manifest.json'
+            $progressPath = Join-Path $root 'progress.txt'
+            $installPath = Join-Path $root 'app'
+            [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+            & (Get-Process -Id $PID).Path -NoProfile -File $installer -ManifestFile $manifestPath -PluginIds $ids -InstallDir $installPath -ProgressFile $progressPath -SignatureToolJar unused -JavaPath unused -SdkVersion $SdkVersion
+            Assert-Equal $LASTEXITCODE 1
+            $progress = [IO.File]::ReadAllText($progressPath, [Text.Encoding]::UTF8)
+            if ($progress -notmatch '^ERROR\|.*does not satisfy dependency') { throw "Unexpected planning error: $progress" }
+            Assert-Equal (Test-Path -LiteralPath $installPath) $false
+        }
+        $second.packages[0].dependencies = @('shared@1.2')
+        $bytes = [Text.Encoding]::UTF8.GetBytes('fixture')
+        $hasher = [Security.Cryptography.SHA256]::Create()
+        try { $hash = ([BitConverter]::ToString($hasher.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant() }
+        finally { $hasher.Dispose() }
+        foreach ($entry in $manifest.entries) {
+            $entry.packages[0].packageUrl = 'https://example.invalid/fixture.jar'
+            $entry.packages[0].sha256 = $hash
+            $entry.packages[0].expectedSizeBytes = $bytes.Length
+            $entry.packages[0].signature = @{formatVersion=1; algorithm='Ed25519'; keyId='fixture'; value='fixture'}
+        }
+        $boundaries = @'
+
+function Download-Package($Item, [string]$Target) {
+    [IO.File]::WriteAllText($Target, 'fixture', [Text.UTF8Encoding]::new($false))
+}
+function Verify-Package($Item, [string]$ArtifactPath, [string]$SignaturePath) {
+    [IO.File]::AppendAllText($ProgressFile + '.order', $Item.PluginId + "`n", [Text.UTF8Encoding]::new($false))
+    if ($ProgressFile.Contains('verify-failure') -and $Item.PluginId -eq 'first') { throw 'Fixture signature failure.' }
+}
+
+'@
+        $driver = Join-Path $fixture 'installer-with-local-download.ps1'
+        Copy-Item -LiteralPath (Join-Path $repo 'packaging/windows/inno/installer-progress.ps1') -Destination $fixture
+        [IO.File]::WriteAllText($driver, ([IO.File]::ReadAllText($installer).Insert($program.Functions[-1].Extent.EndOffset, $boundaries)), [Text.UTF8Encoding]::new($false))
+        foreach ($case in @('success', 'verify-failure')) {
+            $root = Join-Path $fixture "installer-execute-$case"
+            [IO.Directory]::CreateDirectory($root) | Out-Null
+            $manifestPath = Join-Path $root 'manifest.json'
+            $progressPath = Join-Path $root 'progress.txt'
+            $installPath = Join-Path $root 'app'
+            [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+            & (Get-Process -Id $PID).Path -NoProfile -File $driver -ManifestFile $manifestPath -PluginIds 'first,second,first' -InstallDir $installPath -ProgressFile $progressPath -SignatureToolJar unused -JavaPath unused -SdkVersion $SdkVersion
+            $expectedExit = if ($case -eq 'success') { 0 } else { 1 }
+            Assert-Equal $LASTEXITCODE $expectedExit
+            $progress = [IO.File]::ReadAllText($progressPath, [Text.Encoding]::UTF8).Trim()
+            $order = [IO.File]::ReadAllLines($progressPath + '.order', [Text.Encoding]::UTF8)
+            if ($case -eq 'success') {
+                Assert-Equal $order @('shared', 'first', 'second')
+                Assert-Equal $progress 'DONE|3'
+            } else {
+                Assert-Equal $order @('shared', 'first')
+                if ($progress -notmatch '^ERROR\|.*Fixture signature failure') { throw "Unexpected installation error: $progress" }
+            }
+            $installed = @(if ($case -eq 'success') { 'shared', 'first', 'second' } else { 'shared' })
+            $artifacts = @(Get-ChildItem -LiteralPath (Join-Path $installPath 'plugins') -File -Filter '*.jar')
+            Assert-Equal $artifacts.Count $installed.Count
+            foreach ($id in $installed) {
+                $version = if ($id -eq 'shared') { '1.3.0' } else { '1.0.0' }
+                $artifact = Join-Path $installPath "plugins/$id-$version.jar"
+                Assert-Equal ([IO.File]::ReadAllText($artifact, [Text.Encoding]::UTF8)) 'fixture'
+                Assert-Equal (Test-Path -LiteralPath "$artifact.sig") $true
+                Assert-Equal (Test-Path -LiteralPath (Join-Path $installPath "plugins/provenance/$id-$version.jar.pixiv-plugin-provenance")) $true
+            }
+            Assert-Equal ([IO.File]::ReadAllLines((Join-Path $installPath 'config/config.yaml'), [Text.Encoding]::UTF8)) @($installed | ForEach-Object { "plugins.$_.enabled: true" })
+        }
+    }
+    if ($env:OS -eq 'Windows_NT') {
+        & {
+            $program = Read-Program (Join-Path $repo 'scripts/package-local.ps1')
+            $compilerFunction = $program.Functions | Where-Object { $_.Name -eq 'Get-InnoSetupCompiler' }
+            . ([scriptblock]::Create($compilerFunction.Extent.Text))
+            & (Join-Path $PSScriptRoot 'installer-helper.test.ps1') -CompilerPath (Get-InnoSetupCompiler)
+        }
+    }
     Write-Host 'PASS: complete acceptance across independent groups, verified candidate reuse, prebuilt rejection and publication failure propagation.'
 } finally {
     $resolved = [IO.Path]::GetFullPath($fixture)

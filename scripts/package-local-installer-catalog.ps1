@@ -79,12 +79,6 @@ function Get-InstallerCatalogTextValue {
     return $Fallback
 }
 
-function Escape-InstallerCatalogField {
-    param([string]$Value)
-    if ($null -eq $Value) { return "" }
-    return $Value.Replace("%", "%25").Replace("|", "%7C").Replace("`r", " ").Replace("`n", " ")
-}
-
 function Parse-InstallerCatalogVersionPair {
     param([string]$Version)
     if ([string]::IsNullOrWhiteSpace($Version)) { return @(0, 0) }
@@ -170,32 +164,9 @@ function New-InstallerCatalogProjectionRows {
                 (Get-InstallerCatalogProp $market "displayName") $pluginId $Language
             Summary = Get-InstallerCatalogTextValue `
                 (Get-InstallerCatalogProp $market "summary") "" $Language
-            Size = [string](Get-InstallerCatalogProp $pkg "expectedSizeBytes")
-            Category = [string](Get-InstallerCatalogProp $market "category")
         })
     }
     return $rows.ToArray()
-}
-
-function Write-InstallerPluginCatalogProjection {
-    param(
-        [Parameter(Mandatory = $true)][string]$ManifestPath,
-        [Parameter(Mandatory = $true)][string]$OutputPath,
-        [Parameter(Mandatory = $true)][string]$Language,
-        [Parameter(Mandatory = $true)][string]$SdkVersion
-    )
-    $projectionUtf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    $lines = New-Object System.Collections.Generic.List[string]
-    $lines.Add("CATALOG|PACKAGED|installer-plugin-catalog.json")
-    foreach ($row in @(New-InstallerCatalogProjectionRows -ManifestPath $ManifestPath `
-                -Language $Language -SdkVersion $SdkVersion)) {
-        $line = "ITEM|{0}|{1}|{2}|{3}|{4}|{5}" -f `
-            (Escape-InstallerCatalogField $row.PluginId), (Escape-InstallerCatalogField $row.Version), `
-            (Escape-InstallerCatalogField $row.DisplayName), (Escape-InstallerCatalogField $row.Summary), `
-            (Escape-InstallerCatalogField $row.Size), (Escape-InstallerCatalogField $row.Category)
-        $lines.Add($line)
-    }
-    [System.IO.File]::WriteAllText($OutputPath, (($lines -join "`n") + "`n"), $projectionUtf8NoBom)
 }
 
 function Escape-InstallerCatalogIssString {
@@ -260,8 +231,6 @@ function Stage-InstallerPluginCatalogSnapshot {
     New-Item -ItemType Directory -Force -Path $catalogDir | Out-Null
     $manifestTarget = Join-Path $catalogDir "manifest.json"
     $signatureTarget = Join-Path $catalogDir "manifest.json.sig"
-    $projectionEnTarget = Join-Path $catalogDir "catalog.en.txt"
-    $projectionZhTarget = Join-Path $catalogDir "catalog.zh-CN.txt"
 
     $downloadDir = Join-Path $BuildRoot "installer-catalog-download"
     Remove-Item -LiteralPath $downloadDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -284,10 +253,6 @@ function Stage-InstallerPluginCatalogSnapshot {
 
     Copy-Item $manifestTemp $manifestTarget -Force
     Copy-Item $signatureTemp $signatureTarget -Force
-    Write-InstallerPluginCatalogProjection -ManifestPath $manifestTemp -OutputPath $projectionEnTarget `
-        -Language "en" -SdkVersion $SdkVersion
-    Write-InstallerPluginCatalogProjection -ManifestPath $manifestTemp -OutputPath $projectionZhTarget `
-        -Language "zh-CN" -SdkVersion $SdkVersion
     Write-InstallerPluginCatalogInclude -ManifestPath $manifestTemp -OutputPath $CatalogIncludePath `
         -SdkVersion $SdkVersion
     Write-Host ("    OK: signed installer plugin catalog staged under {0}." -f $CatalogDirName) `
