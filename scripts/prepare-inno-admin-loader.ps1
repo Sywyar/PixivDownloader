@@ -8,6 +8,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot "plugin-distribution-common.ps1")
+
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $BuildRoot = Join-Path $ProjectRoot "build"
 $PatchExecutionLevelScript = Join-Path $PSScriptRoot "set-windows-exe-requested-execution-level.ps1"
@@ -21,18 +23,18 @@ if (-not (Test-Path $PatchExecutionLevelScript)) {
 
 $compilerItem = Get-Item $CompilerPath
 $sourceDirectory = Split-Path -Parent $compilerItem.FullName
-$targetDirectory = [System.IO.Path]::GetFullPath($OutputDirectory).TrimEnd('\')
-$buildRootFullPath = [System.IO.Path]::GetFullPath($BuildRoot).TrimEnd('\')
+$targetDirectory = Assert-SafeDistributionOutputDirectory `
+    -Path $OutputDirectory -ProjectRoot $ProjectRoot -ProtectedPaths @($sourceDirectory)
 
-if (
-    ($targetDirectory -eq $buildRootFullPath) -or
-    (-not $targetDirectory.StartsWith($buildRootFullPath + '\', [System.StringComparison]::OrdinalIgnoreCase))
-) {
+if (-not (Test-PathSameOrDescendant $targetDirectory $BuildRoot)) {
     throw "Refusing to prepare Inno Setup outside the build directory: $targetDirectory"
 }
+if (Test-PathSameOrDescendant $targetDirectory $sourceDirectory) {
+    throw "Refusing to copy Inno Setup into its source directory: $targetDirectory"
+}
 
-if (Test-Path $targetDirectory) {
-    Remove-Item -Recurse -Force $targetDirectory
+if (Test-Path -LiteralPath $targetDirectory) {
+    Remove-Item -Recurse -Force -LiteralPath $targetDirectory
 }
 
 New-Item -ItemType Directory -Force -Path $targetDirectory | Out-Null

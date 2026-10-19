@@ -36,28 +36,6 @@ function Write-Step {
     Write-Host "==> $Message" -ForegroundColor Cyan
 }
 
-function Assert-SafeRemovableDir {
-    param([string]$Path, [string]$RepoRoot)
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        throw "Output dir path is empty; refusing to delete."
-    }
-    $full = [System.IO.Path]::GetFullPath($Path)
-    $parent = [System.IO.Path]::GetDirectoryName($full)
-    if ([string]::IsNullOrEmpty($parent)) {
-        throw "Refusing to use a drive/filesystem root as the output dir: $full"
-    }
-    $sep = [System.IO.Path]::DirectorySeparatorChar
-    $fullTrimmed = $full.TrimEnd($sep, '/')
-    $repoTrimmed = ([System.IO.Path]::GetFullPath($RepoRoot)).TrimEnd($sep, '/')
-    if ($fullTrimmed.Equals($repoTrimmed, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to use the repository root as the output dir: $full"
-    }
-    if ($repoTrimmed.StartsWith($fullTrimmed + $sep, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to use an ancestor of the repository root as the output dir: $full"
-    }
-    return $full
-}
-
 function Convert-ToRawCatalogUrl([string]$Url) {
     $trimmed = $Url.Trim()
     if ($trimmed -match '^https://github\.com/([^/?#]+)/([^/?#]+)/blob/([^/?#]+)/(.+\.json)(?:[?#].*)?$') {
@@ -171,7 +149,10 @@ function Assert-CatalogPackage($Plugin, $Package) {
     if ($null -eq (Get-Prop $Package "signature")) { throw "Missing structured signature for $($Plugin.Id)." }
 }
 
-$OutputDir = Assert-SafeRemovableDir $OutputDir $ProjectRoot
+$OutputDir = Assert-SafeDistributionOutputDirectory `
+    -Path $OutputDir `
+    -ProjectRoot $ProjectRoot `
+    -ProtectedPaths @($SignatureToolJar, $PSScriptRoot)
 
 $workDir = Join-Path ([System.IO.Path]::GetTempPath()) ("pixivdownload-plugin-catalog-" + [System.Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $workDir | Out-Null

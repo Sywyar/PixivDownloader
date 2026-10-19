@@ -129,8 +129,8 @@ function Get-InnoSetupCompiler {
 
 function Remove-PathIfExists {
     param([string]$Path)
-    if (Test-Path $Path) {
-        Remove-Item -Recurse -Force $Path
+    if (Test-Path -LiteralPath $Path) {
+        Remove-Item -Recurse -Force -LiteralPath $Path
     }
 }
 
@@ -315,33 +315,40 @@ try {
     if (-not $SkipPlugins) {
         $resolvedPrebuiltPluginsDir = Resolve-PrebuiltPluginsDir $PrebuiltPluginsDir
     }
-    $mavenCmd = $null
-    if (-not $PrebuiltJar) {
-        $mavenCmd = Get-MavenCommand
-    }
+    $resolvedPrebuiltJar = Resolve-PrebuiltJar $PrebuiltJar
+    $mavenCmd = if (-not $resolvedPrebuiltJar) { Get-MavenCommand } else { $null }
     Assert-Command "jlink"
     Assert-Command "jpackage"
     if (-not $SkipInstaller) {
         $innoCompilerSource = Get-InnoSetupCompiler
     }
 
+    $cleanPaths = @($InputDir, $RuntimeDir, $OnlineAppImageRoot, $OfflineAppImageRoot, $InnoToolchainDir, $OutDir, $WixDir, $InstallerCatalogIncludePath)
+    $protectedInputs = @($resolvedPrebuiltJar, $resolvedPrebuiltPluginsDir)
+    if (-not $SkipInstaller) {
+        $protectedInputs += Split-Path -Parent $innoCompilerSource
+    }
+    foreach ($path in @($PrivateKeyFile, $SignatureToolJar)) {
+        if (-not [string]::IsNullOrWhiteSpace($path)) {
+            $protectedInputs += $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($path)
+        }
+    }
+    foreach ($path in $cleanPaths) {
+        [void](Assert-SafeDistributionOutputDirectory -Path $path -ProjectRoot $ProjectRoot -ProtectedPaths $protectedInputs)
+    }
     Write-Step "Cleaning local packaging directories"
-    foreach ($path in @($InputDir, $RuntimeDir, $OnlineAppImageRoot, $OfflineAppImageRoot, $InnoToolchainDir, $OutDir, $WixDir, $InstallerCatalogIncludePath)) {
+    foreach ($path in $cleanPaths) {
         Remove-PathIfExists $path
     }
     Ensure-Directory $InputDir
     Ensure-Directory $OutDir
 
     $stagedJar = Join-Path $InputDir "$AppName-$Version.jar"
-    $resolvedPrebuiltJar = Resolve-PrebuiltJar $PrebuiltJar
     if ($resolvedPrebuiltJar) {
         Write-Step "Staging prebuilt application JAR"
         Copy-Item $resolvedPrebuiltJar $stagedJar -Force
     } else {
         Write-Step "Building application JAR"
-        if (-not $mavenCmd) {
-            $mavenCmd = Get-MavenCommand
-        }
         if ($RunTests) {
             Invoke-External $mavenCmd @("verify", "-Dapp.release.version=$Version")
         } else {

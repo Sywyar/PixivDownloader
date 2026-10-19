@@ -513,6 +513,73 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         Assert-Rejected { Read-CatalogHistory $entry 'https://example.test/frozen/manifest.json' $fixture } 'Invalid signed history'
     }
     & {
+        . (Join-Path $repo 'scripts/plugin-distribution-common.ps1')
+        $fixtureEncoding = [Text.UTF8Encoding]::new($false)
+        $sdk = Get-PixivDownloadSdkVersion -ProjectRoot $repo
+        $manifestJson = @{entries=@(Get-OfficialDistributionPlugins | ForEach-Object {
+            @{pluginId=$_.Id; packages=@(@{version='1.2.3'; requiredSdk=$sdk;
+                packageUrl='https://example.test/asset.jar'; sha256=('a' * 64); expectedSizeBytes=1;
+                signature=@{formatVersion=1; algorithm='Ed25519'; keyId='fixture'; value='fixture'}})}
+        })} | ConvertTo-Json -Depth 8
+        function java {
+            Assert-Equal $args[0] '-cp'
+            Assert-Equal (Test-Path -LiteralPath $args[1] -PathType Leaf) $true
+            Assert-Equal $args[3] 'verify-manifest'
+            $global:LASTEXITCODE = 0
+        }
+        function Invoke-WebRequest {
+            param($Uri, $OutFile, [switch]$UseBasicParsing, $TimeoutSec)
+            $requests.Add($Uri)
+            switch ($Uri) {
+                'https://example.test/manifest.json' { [IO.File]::WriteAllText($OutFile, $manifestJson, $fixtureEncoding) }
+                'https://example.test/manifest.json.sig' { [IO.File]::WriteAllText($OutFile, 'fixture', $fixtureEncoding) }
+                'https://example.test/asset.jar' { throw 'Fixture asset download failed.' }
+                default { throw "Unexpected request: $Uri" }
+            }
+        }
+        foreach ($case in @('source', 'tool-inside', 'tool-equal', 'build-root', 'repo-root', 'ancestor', 'separate-input')) {
+            $root = Join-Path $fixture "catalog-input-$case"
+            $project = Join-Path $root 'project'
+            $scripts = Join-Path $project 'scripts'
+            [IO.Directory]::CreateDirectory($scripts) | Out-Null
+            foreach ($name in @('stage-official-plugin-inputs-from-catalog.ps1', 'plugin-distribution-common.ps1')) {
+                Copy-Item -LiteralPath (Join-Path $repo "scripts/$name") -Destination $scripts
+            }
+            $metadata = 'pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties'
+            [IO.Directory]::CreateDirectory((Split-Path -Parent (Join-Path $project $metadata))) | Out-Null
+            Copy-Item -LiteralPath (Join-Path $repo $metadata) -Destination (Join-Path $project $metadata)
+            $output = Join-Path $project 'build/plugin-inputs'
+            $tool = Join-Path $project 'build/plugin-inputs-extra/signature.jar'
+            $expectedError = 'protected'
+            switch ($case) {
+                'source' { $output = Join-Path $project 'src'; $expectedError = 'source directory' }
+                'tool-inside' { $tool = Join-Path $output 'signature.jar' }
+                'tool-equal' { $output = $tool }
+                'build-root' { $output = Join-Path $project 'build'; $expectedError = 'build root' }
+                'repo-root' { $output = $project; $expectedError = 'repository root' }
+                'ancestor' { $output = $root; $expectedError = 'ancestor' }
+                'separate-input' { $expectedError = 'Fixture asset download failed' }
+            }
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $tool)) | Out-Null
+            [IO.File]::WriteAllText($tool, 'signature fixture', $fixtureEncoding)
+            $marker = $tool
+            if ($case -ne 'tool-equal') {
+                [IO.Directory]::CreateDirectory($output) | Out-Null
+                $marker = Join-Path $output 'keep.txt'
+                [IO.File]::WriteAllText($marker, 'existing output', $fixtureEncoding)
+            }
+            $requests = [Collections.Generic.List[string]]::new()
+            $failure = $null
+            try {
+                & (Join-Path $scripts 'stage-official-plugin-inputs-from-catalog.ps1') -OutputDir $output -SignatureToolJar $tool -ManifestUrl 'https://example.test/manifest.json'
+            } catch { $failure = $_ }
+            Assert-Equal ([IO.File]::ReadAllText($tool, $fixtureEncoding)) 'signature fixture'
+            Assert-Equal (Test-Path -LiteralPath $marker) ($case -ne 'separate-input')
+            Assert-Equal $requests.Count $(if ($case -eq 'separate-input') { 3 } else { 0 })
+            if ($null -eq $failure -or $failure.Exception.Message -notlike "*$expectedError*") { throw "Unexpected catalog result: $failure" }
+        }
+    }
+    & {
         $program = Read-Program (Join-Path $repo 'scripts/publish-plugin-releases.ps1')
         $rewrite = @($program.Functions | Where-Object { $_.Name -eq 'Set-StagedPluginVersion' })
         Assert-Equal $rewrite.Count 1
@@ -582,15 +649,157 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         Assert-Rejected { & $program.Main @parameters -Mode Import -ProjectRoot $destination } 'must be absent'
     }
     & {
-        $program = Read-Program (Join-Path $repo 'scripts/package-local.ps1')
-        $definition = $program.Functions | Where-Object { $_.Name -eq 'Resolve-PrebuiltJar' }
-        . ([scriptblock]::Create($definition.Extent.Text))
-        Assert-Equal (Resolve-PrebuiltJar '') $null
-        Assert-Rejected { Resolve-PrebuiltJar (Join-Path $fixture 'missing.jar') } 'not found'
-        $empty = Join-Path $fixture 'empty.jar'
-        [IO.File]::WriteAllBytes($empty, [byte[]]@())
-        Assert-Rejected { Resolve-PrebuiltJar $empty } 'empty'
-        Assert-Rejected { Resolve-PrebuiltJar (Join-Path $fixture 'input') } 'not a .jar'
+        $fixtureEncoding = [Text.UTF8Encoding]::new($false)
+        foreach ($case in @('same', 'ancestor', 'child', 'source-root', 'outside', 'build-root', 'separate', 'patch-failure')) {
+            $root = Join-Path $fixture "inno-input-$case"
+            $scripts = Join-Path $root 'scripts'
+            [IO.Directory]::CreateDirectory($scripts) | Out-Null
+            foreach ($name in @('prepare-inno-admin-loader.ps1', 'plugin-distribution-common.ps1')) {
+                Copy-Item -LiteralPath (Join-Path $repo "scripts/$name") -Destination $scripts
+            }
+            [IO.File]::WriteAllText((Join-Path $scripts 'set-windows-exe-requested-execution-level.ps1'), @'
+param($Path, $Level)
+if ($Level -ne 'requireAdministrator') { throw 'Unexpected execution level.' }
+if ($case -eq 'patch-failure') { throw 'Fixture manifest patch failed.' }
+[IO.File]::AppendAllText($Path, ':requireAdministrator')
+'@, $fixtureEncoding)
+            $source = Join-Path $root 'build/toolchain'
+            $output = Join-Path $root 'build/toolchain-prepared'
+            $expectedError = 'protected'
+            switch ($case) {
+                'same' { $output = $source }
+                'ancestor' { $source = Join-Path $output 'original' }
+                'child' { $output = Join-Path $source 'prepared' }
+                'source-root' { $source = $root; $expectedError = 'into its source directory' }
+                'outside' { $output = Join-Path $fixture "outside-$case"; $expectedError = 'outside the build directory' }
+                'build-root' { $output = Join-Path $root 'build'; $expectedError = 'build root' }
+                'separate' { $expectedError = $null }
+                'patch-failure' { $expectedError = 'Fixture manifest patch failed' }
+            }
+            [IO.Directory]::CreateDirectory($source) | Out-Null
+            foreach ($name in @('ISCC.exe', 'SetupLdr.e32', 'SetupLdr.e64')) {
+                [IO.File]::WriteAllText((Join-Path $source $name), $name, $fixtureEncoding)
+            }
+            [IO.Directory]::CreateDirectory($output) | Out-Null
+            $marker = Join-Path $output 'keep.txt'
+            [IO.File]::WriteAllText($marker, 'existing output', $fixtureEncoding)
+            $compiler = Join-Path $source 'ISCC.exe'
+            $result = $null
+            $failure = $null
+            try { $result = & (Join-Path $scripts 'prepare-inno-admin-loader.ps1') -CompilerPath $compiler -OutputDirectory $output }
+            catch { $failure = $_ }
+            foreach ($name in @('ISCC.exe', 'SetupLdr.e32', 'SetupLdr.e64')) {
+                Assert-Equal ([IO.File]::ReadAllText((Join-Path $source $name), $fixtureEncoding)) $name
+            }
+            Assert-Equal (Test-Path -LiteralPath $marker) ($case -notin @('separate', 'patch-failure'))
+            if ($expectedError) {
+                if ($null -eq $failure -or $failure.Exception.Message -notlike "*$expectedError*") { throw "Unexpected Inno result: $failure" }
+            } else {
+                if ($failure) { throw $failure }
+                Assert-Equal $result (Join-Path $output 'ISCC.exe')
+                foreach ($name in @('SetupLdr.e32', 'SetupLdr.e64')) {
+                    Assert-Equal ([IO.File]::ReadAllText((Join-Path $output $name), $fixtureEncoding)) "$($name):requireAdministrator"
+                }
+            }
+        }
+    }
+    & {
+        function jlink { $runtimeBuilds.Add('jlink'); $global:LASTEXITCODE = 17 }
+        function jpackage { throw 'Unexpected package build.' }
+        function Get-Command {
+            param($Name, $ErrorAction)
+            if ($Name -eq 'mvn.cmd') { return @{Source='Invoke-PackagingMaven'} }
+            if ($Name -eq 'iscc.exe') { return @{Source=$compilerFixture} }
+            return Microsoft.PowerShell.Core\Get-Command @PSBoundParameters
+        }
+        function Invoke-PackagingMaven {
+            Assert-Equal $args @('verify', '-DskipTests', '-Dapp.release.version=1.2.3')
+            $runtimeBuilds.Add('maven')
+            $global:LASTEXITCODE = 17
+        }
+        $fixtureEncoding = [Text.UTF8Encoding]::new($false)
+        foreach ($case in @('missing', 'empty', 'extension', 'jar-overlap', 'plugins-overlap', 'key-overlap', 'tool-overlap', 'inno-overlap', 'inno-adjacent', 'separate-input', 'source-build', 'whitespace-build')) {
+            $root = Join-Path $fixture "package-input-$case"
+            $scripts = Join-Path $root 'scripts'
+            [IO.Directory]::CreateDirectory($scripts) | Out-Null
+            foreach ($name in @('package-local.ps1', 'plugin-distribution-common.ps1', 'ffmpeg-release-integrity.ps1',
+                    'package-local-plugin-staging.ps1', 'package-local-installer-catalog.ps1')) {
+                Copy-Item -LiteralPath (Join-Path $repo "scripts/$name") -Destination $scripts
+            }
+            $metadata = 'pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties'
+            [IO.Directory]::CreateDirectory((Split-Path -Parent (Join-Path $root $metadata))) | Out-Null
+            Copy-Item -LiteralPath (Join-Path $repo $metadata) -Destination (Join-Path $root $metadata)
+            $marker = Join-Path $root 'build/input/keep.txt'
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $marker)) | Out-Null
+            [IO.File]::WriteAllText($marker, 'existing output', $fixtureEncoding)
+            $inputJar = Join-Path $root 'build/input-extra/supplied.jar'
+            if ($case -eq 'jar-overlap') { $inputJar = Join-Path $root 'build/out/supplied.jar' }
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $inputJar)) | Out-Null
+            $archive = [IO.Compression.ZipFile]::Open($inputJar, [IO.Compression.ZipArchiveMode]::Create)
+            try {
+                $writer = [IO.StreamWriter]::new($archive.CreateEntry('META-INF/pixivdownload-proguard.properties').Open(), $fixtureEncoding)
+                try { $writer.Write("formatVersion=1`nshrink=true`noptimize=true`nobfuscate=false`nproguard.version=fixture`n") }
+                finally { $writer.Dispose() }
+            } finally { $archive.Dispose() }
+            $inputHash = (Get-FileHash -LiteralPath $inputJar -Algorithm SHA256).Hash
+            $parameters = @{Version='1.2.3'; PrebuiltJar=$inputJar; SkipPlugins=$true; SkipPortable=$true; SkipOfflinePortable=$true; SkipInstaller=$true}
+            $compilerFixture = Join-Path $root 'build/inno-admin-loader-extra/ISCC.exe'
+            $protectedInput = $inputJar
+            $expectedError = 'protected input'
+            switch ($case) {
+                'missing' { $parameters.PrebuiltJar = Join-Path $root 'missing.jar'; $expectedError = 'not found' }
+                'empty' { $parameters.PrebuiltJar = Join-Path $root 'empty.jar'; [IO.File]::WriteAllBytes($parameters.PrebuiltJar, [byte[]]@()); $expectedError = 'empty' }
+                'extension' { $parameters.PrebuiltJar = Join-Path $root 'input.txt'; [IO.File]::WriteAllText($parameters.PrebuiltJar, 'input', $fixtureEncoding); $expectedError = 'not a .jar' }
+                'plugins-overlap' {
+                    $protectedInput = Join-Path $root 'build/runtime/plugins'
+                    [IO.Directory]::CreateDirectory($protectedInput) | Out-Null
+                    $parameters.SkipPlugins = $false
+                    $parameters.PrebuiltPluginsDir = $protectedInput
+                }
+                'key-overlap' {
+                    $protectedInput = Join-Path $root 'build/out/key.pem'
+                    [IO.Directory]::CreateDirectory((Split-Path -Parent $protectedInput)) | Out-Null
+                    [IO.File]::WriteAllText($protectedInput, 'fixture only', $fixtureEncoding)
+                    $parameters.PrivateKeyFile = $protectedInput
+                }
+                'tool-overlap' {
+                    $protectedInput = Join-Path $root 'build/app-image-online/signature.jar'
+                    [IO.Directory]::CreateDirectory((Split-Path -Parent $protectedInput)) | Out-Null
+                    [IO.File]::WriteAllText($protectedInput, 'fixture only', $fixtureEncoding)
+                    $parameters.SignatureToolJar = $protectedInput
+                }
+                { $_ -in @('inno-overlap', 'inno-adjacent') } {
+                    if ($case -eq 'inno-overlap') {
+                        $compilerFixture = Join-Path $root 'build/inno-admin-loader/ISCC.exe'
+                        $expectedError = 'protected'
+                    }
+                    else { $expectedError = 'Command failed: jlink' }
+                    [IO.Directory]::CreateDirectory((Split-Path -Parent $compilerFixture)) | Out-Null
+                    [IO.File]::WriteAllText($compilerFixture, 'compiler fixture', $fixtureEncoding)
+                    $protectedInput = $compilerFixture
+                    $parameters.SkipInstaller = $false
+                }
+                'separate-input' { $expectedError = 'Command failed: jlink' }
+                'source-build' { $parameters.PrebuiltJar = ''; $expectedError = 'Command failed: Invoke-PackagingMaven' }
+                'whitespace-build' { $parameters.PrebuiltJar = ' '; $expectedError = 'Command failed: Invoke-PackagingMaven' }
+            }
+            $runtimeBuilds = [Collections.Generic.List[string]]::new()
+            $originalLocation = (Get-Location).Path
+            Assert-Rejected { & (Join-Path $scripts 'package-local.ps1') @parameters } $expectedError
+            Assert-Equal (Get-Location).Path $originalLocation
+            Assert-Equal (Test-Path -LiteralPath $protectedInput) $true
+            Assert-Equal (Get-FileHash -LiteralPath $inputJar -Algorithm SHA256).Hash $inputHash
+            Assert-Equal $runtimeBuilds.Count $(if ($case -in @('separate-input', 'inno-adjacent', 'source-build', 'whitespace-build')) { 1 } else { 0 })
+            if ($case -in @('separate-input', 'inno-adjacent')) {
+                Assert-Equal (Test-Path -LiteralPath $marker) $false
+                $staged = Join-Path $root 'build/input/PixivDownload-1.2.3.jar'
+                Assert-Equal (Get-FileHash -LiteralPath $staged -Algorithm SHA256).Hash $inputHash
+            } elseif ($case -in @('source-build', 'whitespace-build')) {
+                Assert-Equal $runtimeBuilds @('maven')
+            } else {
+                Assert-Equal ([IO.File]::ReadAllText($marker, $fixtureEncoding)) 'existing output'
+            }
+        }
     }
     & {
         . (Join-Path $repo 'scripts/release-e2e/scenarios.ps1')
