@@ -114,7 +114,6 @@ export async function fetchGitHub(path, { fetchImpl = fetch, wait = sleep, now =
         message = JSON.parse((await readBounded(response, MAX_ERROR_BYTES)).toString('utf8')).message;
       } catch {
         // 诊断正文缺失或过大时，仍保留状态码与限流头；不输出原始响应。
-        await response.body?.cancel().catch(() => {});
       }
       const remaining = response.headers.get('x-ratelimit-remaining');
       const reset = response.headers.get('x-ratelimit-reset');
@@ -186,9 +185,12 @@ async function materializeAvatar(maintainer) {
     headers: { Accept: 'image/*', 'User-Agent': 'PixivDownloader-maintainer-catalog' },
     redirect: 'error',
   });
-  if (!response.ok) throw new Error(`Avatar download ${response.status}: ${maintainer.login}`);
   const mediaType = response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() ?? '';
-  if (!mediaType.startsWith('image/')) throw new Error(`Avatar is not an image: ${maintainer.login}`);
+  if (!response.ok || !mediaType.startsWith('image/')) {
+    await response.body?.cancel().catch(() => {});
+    throw new Error(!response.ok ? `Avatar download ${response.status}: ${maintainer.login}`
+      : `Avatar is not an image: ${maintainer.login}`);
+  }
   const bytes = await readBounded(response, MAX_AVATAR_BYTES);
   if (bytes.length === 0) throw new Error(`Avatar is empty: ${maintainer.login}`);
   return {
@@ -203,24 +205,26 @@ async function materializeAvatar(maintainer) {
 }
 
 export async function readBounded(response, maximumBytes) {
-  if (!Number.isSafeInteger(maximumBytes) || maximumBytes <= 0) throw new Error('Maximum response size is invalid');
-  const declared = Number(response.headers.get('content-length'));
-  if (Number.isFinite(declared) && declared > maximumBytes) throw new Error('Response is too large');
-  if (!response.body) throw new Error('Response body is missing');
-  const reader = response.body.getReader();
-  const chunks = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maximumBytes) {
-      await reader.cancel();
-      throw new Error('Response is too large');
+  const reader = response.body?.getReader();
+  try {
+    if (!Number.isSafeInteger(maximumBytes) || maximumBytes <= 0) throw new Error('Maximum response size is invalid');
+    const declared = Number(response.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > maximumBytes) throw new Error('Response is too large');
+    if (!reader) throw new Error('Response body is missing');
+    const chunks = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maximumBytes) throw new Error('Response is too large');
+      chunks.push(Buffer.from(value));
     }
-    chunks.push(Buffer.from(value));
+    return Buffer.concat(chunks, total);
+  } finally {
+    await reader?.cancel().catch(() => {});
+    reader?.releaseLock();
   }
-  return Buffer.concat(chunks, total);
 }
 
 function validateAllowlist(allowlist) {
