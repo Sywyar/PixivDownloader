@@ -64,11 +64,15 @@
                 lang: typeof options.lang === 'string' && options.lang ? options.lang : undefined
             });
         }).then(function (i18n) {
-            if (i18n && root.classList.contains('pixiv-posthog-survey-loading')) {
-                label.textContent = i18n.t('posthog:survey.loading', '正在加载调查…');
-                reportHeight();
+            try {
+                if (i18n && root.classList.contains('pixiv-posthog-survey-loading')) {
+                    label.textContent = i18n.t('posthog:survey.loading', '正在加载调查…');
+                    reportHeight();
+                }
+                return true;
+            } finally {
+                if (i18n && typeof i18n.dispose === 'function') i18n.dispose();
             }
-            return true;
         }).catch(function () {
             return true;
         });
@@ -153,16 +157,17 @@
             Array.isArray(trustedApiOrigins) ? trustedApiOrigins : []);
         if (!value || typeof value !== 'object'
                 || !nonBlank(value.projectToken)
-                || !nonBlank(value.surveyId)
-                || !allowedOrigin(value.apiHost, apiOrigins)
-                || !allowedOrigin(value.uiHost, ALLOWED_UI_ORIGINS)) {
+                || !nonBlank(value.surveyId)) {
             return null;
         }
+        var apiHost = allowedOrigin(value.apiHost, apiOrigins);
+        var uiHost = allowedOrigin(value.uiHost, ALLOWED_UI_ORIGINS);
+        if (!apiHost || !uiHost) return null;
         return Object.freeze({
             projectToken: value.projectToken.trim(),
             surveyId: value.surveyId.trim(),
-            apiHost: allowedOrigin(value.apiHost, apiOrigins),
-            uiHost: allowedOrigin(value.uiHost, ALLOWED_UI_ORIGINS)
+            apiHost: apiHost,
+            uiHost: uiHost
         });
     }
 

@@ -297,13 +297,10 @@
             var reader = request.reader;
             request.reader = null;
             request.controller.abort();
-            if (!reader) return;
-            try {
-                Promise.resolve(reader.cancel()).catch(function () {});
-            } catch (_) { /* the body is already closed */ }
+            cancelStream(reader);
         }
 
-        function cancelBody(body) {
+        function cancelStream(body) {
             if (!body || typeof body.cancel !== 'function') return;
             try {
                 Promise.resolve(body.cancel()).catch(function () {});
@@ -311,15 +308,19 @@
         }
 
         function readResponseBody(response, request) {
+            if (request.controller.signal.aborted) {
+                cancelStream(response.body);
+                return Promise.reject(new DOMException('Aborted', 'AbortError'));
+            }
             var declaredLength = response.headers.get('content-length');
             if (declaredLength !== null && /^[0-9]+$/.test(declaredLength)
                     && Number(declaredLength) > MAX_RESPONSE_BYTES) {
-                cancelBody(response.body);
+                cancelStream(response.body);
                 return Promise.reject(new Error('response exceeds size limit'));
             }
             if (!response.body) return Promise.resolve(new ArrayBuffer(0));
             if (typeof response.body.getReader !== 'function') {
-                cancelBody(response.body);
+                cancelStream(response.body);
                 return Promise.reject(new Error('response stream unavailable'));
             }
 
@@ -330,6 +331,7 @@
 
             function readNext() {
                 return reader.read().then(function (result) {
+                    if (request.controller.signal.aborted) throw new DOMException('Aborted', 'AbortError');
                     if (result.done) {
                         var buffer = new ArrayBuffer(total);
                         var target = new Uint8Array(buffer);
@@ -503,8 +505,10 @@
                 if (records.get(frame) !== record || !frame.contentWindow) return;
                 closeConnection(record);
                 var channel = new MessageChannel();
-                record.port = channel.port1;
-                record.port.onmessage = function (event) { handlePortMessage(record, event); };
+                record = Object.assign({}, record, {port: channel.port1, inflight: new Map()});
+                records.set(frame, record);
+                var connection = record;
+                record.port.onmessage = function (event) { handlePortMessage(connection, event); };
                 if (typeof record.port.start === 'function') record.port.start();
                 var storage = {};
                 capabilities.readKeys.forEach(function (key) {
