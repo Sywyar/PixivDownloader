@@ -99,16 +99,6 @@ function Read-SourceVersion([string]$module) {
     throw "plugin.version not found in $path"
 }
 
-function Get-MavenCommand([string]$root) {
-    $wrapper = Join-Path $root "mvnw.cmd"
-    if (Test-Path $wrapper) { return $wrapper }
-    foreach ($name in @("mvn.cmd", "mvn")) {
-        $cmd = Get-Command $name -ErrorAction SilentlyContinue
-        if ($cmd) { return $cmd.Source }
-    }
-    throw "Missing Maven command. Install Maven or use the Maven wrapper."
-}
-
 function Get-ReleaseAssetState([string]$Tag) {
     # `gh release view` returns a non-zero exit code and writes to stderr when the release does not exist.
     # Temporarily relax ErrorActionPreference so "release not found" can be handled as normal control flow.
@@ -154,7 +144,7 @@ function Get-MarketSourceCommit {
 function Invoke-PluginBuild {
     param([Parameter(Mandatory = $true)][string[]]$Modules)
     Write-Host "==> Building plugin modules: $($Modules -join ', ')"
-    Push-Location $ProjectRoot
+    Push-Location -LiteralPath $ProjectRoot
     try {
         & $mvn "-Pofficial-surveys" "-pl" ($Modules -join ',') "-am" "verify" "-DskipTests" |
             ForEach-Object { Write-Host $_ }
@@ -183,7 +173,7 @@ function Build-StagedPluginArtifact {
     }
 
     $stagedArtifact = Join-Path $stageDir $AssetName
-    Copy-Item $builtArtifact $stagedArtifact -Force
+    Copy-Item -LiteralPath $builtArtifact -Destination $stagedArtifact -Force
     return $stagedArtifact
 }
 
@@ -199,7 +189,7 @@ function Set-StagedPluginVersion {
     if (-not $jarCommand) { throw "Missing jar command from the configured JDK." }
     $rewriteDir = Join-Path ([System.IO.Path]::GetTempPath()) ("nightly-plugin-" + [Guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Force -Path $rewriteDir | Out-Null
-    Push-Location $rewriteDir
+    Push-Location -LiteralPath $rewriteDir
     try {
         & $jarCommand.Source "--extract" "--file" $StagedArtifact "plugin.properties"
         if ($LASTEXITCODE -ne 0) { throw "Failed to extract plugin.properties from $StagedArtifact." }

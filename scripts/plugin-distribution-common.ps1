@@ -17,6 +17,16 @@
     other scripts/*.ps1).
 #>
 
+function Get-MavenCommand([string]$ProjectRoot) {
+    $wrapper = Join-Path $ProjectRoot "mvnw.cmd"
+    if (Test-Path -LiteralPath $wrapper) { return $wrapper }
+    foreach ($name in @("mvn.cmd", "mvn")) {
+        $command = Get-Command $name -ErrorAction SilentlyContinue
+        if ($command) { return $command.Source }
+    }
+    throw "Missing Maven command. Install Maven or use the Maven wrapper."
+}
+
 function Test-PluginSdkCompatible([string]$Required, [string]$SdkVersion) {
     if ([string]::IsNullOrWhiteSpace($Required) -or $Required.Trim() -eq '*') { return $true }
     $Required = $Required.Trim()
@@ -227,7 +237,7 @@ function Resolve-SignatureToolJar {
         return (Resolve-Path -LiteralPath $SignatureToolJar).Path
     }
     $targetDir = Join-Path $ProjectRoot "pixivdownload-plugin-signature/target"
-    $jar = Get-ChildItem (Join-Path $targetDir "pixivdownload-plugin-signature-*.jar") -File -ErrorAction SilentlyContinue |
+    $jar = Get-ChildItem -LiteralPath $targetDir -Filter "pixivdownload-plugin-signature-*.jar" -File -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
@@ -689,10 +699,10 @@ function Find-ModuleJar {
         [Parameter(Mandatory = $true)][string]$ProjectRoot
     )
     $targetDir = Join-Path $ProjectRoot "$Module/target"
-    if (-not (Test-Path $targetDir)) {
+    if (-not (Test-Path -LiteralPath $targetDir)) {
         throw "Module target not built: $targetDir (run with -Build or 'mvn package' first)."
     }
-    $jar = Get-ChildItem (Join-Path $targetDir "$Module-*.jar") -File -ErrorAction SilentlyContinue |
+    $jar = Get-ChildItem -LiteralPath $targetDir -Filter "$Module-*.jar" -File -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 1
@@ -715,10 +725,10 @@ function Find-ModulePluginArtifact {
         throw "Unsupported official plugin artifact format '$format' for $($Plugin.Id)."
     }
     $targetDir = Join-Path $ProjectRoot "$($Plugin.Module)/target"
-    if (-not (Test-Path $targetDir)) {
+    if (-not (Test-Path -LiteralPath $targetDir)) {
         throw "Module target not built: $targetDir (run with -Build or 'mvn package' first)."
     }
-    $zip = Get-ChildItem (Join-Path $targetDir "$($Plugin.Module)-*.zip") -File -ErrorAction SilentlyContinue |
+    $zip = Get-ChildItem -LiteralPath $targetDir -Filter "$($Plugin.Module)-*.zip" -File -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 1
     if (-not $zip) {

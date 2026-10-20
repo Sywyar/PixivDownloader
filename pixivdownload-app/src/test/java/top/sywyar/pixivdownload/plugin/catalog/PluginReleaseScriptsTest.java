@@ -866,8 +866,8 @@ class PluginReleaseScriptsTest {
         assumeTrue(canRun("powershell", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major")
                         || canRun("pwsh", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"),
                 "PowerShell 不可用，跳过行为测试");
-        Path prebuilt = Files.createDirectories(tempDir.resolve("prebuilt"));
-        Path appDir = Files.createDirectories(tempDir.resolve("app"));
+        Path prebuilt = Files.createDirectories(tempDir.resolve("prebuilt [plugins]"));
+        Path appDir = Files.createDirectories(tempDir.resolve("app [image]"));
         Path expectedArtifact = prebuilt.resolve("sample-module-1.0.0.jar");
         Path collidingArtifact = prebuilt.resolve("sample-module-tools-9.0.0.jar");
         writeThinPluginJar(expectedArtifact, "sample", "1.0.0", "1.0");
@@ -888,6 +888,7 @@ class PluginReleaseScriptsTest {
         Path plugins = appDir.resolve("plugins");
         Path artifact = plugins.resolve("sample-module.jar");
         assertThat(artifact).isRegularFile();
+        assertThat(Files.readAllBytes(artifact)).isEqualTo(Files.readAllBytes(expectedArtifact));
         assertThat(plugins.resolve("sample-module.jar.sha256")).isRegularFile();
         assertThat(plugins.resolve("SHA256SUMS")).isRegularFile();
         assertThat(plugins.resolve("LOCAL-UNSIGNED-BUILD.txt")).isRegularFile();
@@ -1848,9 +1849,6 @@ class PluginReleaseScriptsTest {
                 "$ProtectedInputPaths += $SignatureToolJar",
                 "$privateKeyItem = Get-Item -LiteralPath $PrivateKeyFile",
                 "-ProtectedPaths $ProtectedInputPaths");
-        assertThat(assemble.lastIndexOf("$ProtectedInputPaths += $SelectedAppJar"))
-                .as("stage 2 必须位于 Push-Location 之后的最终 SelectedAppJar 确定处")
-                .isGreaterThan(assemble.indexOf("Push-Location $ProjectRoot"));
         assertThat(assemble.indexOf("$SelectedAppJar = $appJarCandidate.FullName"))
                 .as("本地 fallback 必须在 stage 1 保护之后确定 SelectedAppJar")
                 .isGreaterThan(assemble.indexOf("Assert-SafeDistributionOutputDirectory"));

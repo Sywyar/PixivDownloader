@@ -84,25 +84,6 @@ function Assert-Command {
     }
 }
 
-function Get-MavenCommand {
-    $wrapper = Join-Path $ProjectRoot "mvnw.cmd"
-    if (Test-Path $wrapper) {
-        return $wrapper
-    }
-
-    $maven = Get-Command "mvn.cmd" -ErrorAction SilentlyContinue
-    if ($maven) {
-        return $maven.Source
-    }
-
-    $maven = Get-Command "mvn" -ErrorAction SilentlyContinue
-    if ($maven) {
-        return $maven.Source
-    }
-
-    throw "Missing Maven command. Install Maven or use the Maven wrapper."
-}
-
 function Get-InnoSetupCompiler {
     $command = Get-Command "iscc.exe" -ErrorAction SilentlyContinue
     if ($command) {
@@ -152,12 +133,13 @@ function Invoke-External {
 }
 
 function Get-BuiltJar {
-    $bootCandidate = Get-ChildItem (Join-Path $ProjectRoot "pixivdownload-app\target\PixivDownload-*-boot.jar") -File
+    $targetDir = Join-Path $ProjectRoot "pixivdownload-app/target"
+    $bootCandidate = Get-ChildItem -LiteralPath $targetDir -Filter "PixivDownload-*-boot.jar" -File
     if ($bootCandidate) {
         return ($bootCandidate | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
     }
 
-    $jar = Get-ChildItem (Join-Path $ProjectRoot "pixivdownload-app\target\PixivDownload-*.jar") -File |
+    $jar = Get-ChildItem -LiteralPath $targetDir -Filter "PixivDownload-*.jar" -File |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
 
@@ -303,7 +285,7 @@ if ($AllowUnsignedLocalPlugins) {
         throw "AllowUnsignedLocalPlugins is only for building a local test installer; SkipInstaller is not allowed."
     }
 }
-Push-Location $ProjectRoot
+Push-Location -LiteralPath $ProjectRoot
 try {
     Write-Step "Checking local toolchain"
     if ($AllowUnsignedLocalPlugins) {
@@ -316,7 +298,7 @@ try {
         $resolvedPrebuiltPluginsDir = Resolve-PrebuiltPluginsDir $PrebuiltPluginsDir
     }
     $resolvedPrebuiltJar = Resolve-PrebuiltJar $PrebuiltJar
-    $mavenCmd = if (-not $resolvedPrebuiltJar) { Get-MavenCommand } else { $null }
+    $mavenCmd = if (-not $resolvedPrebuiltJar) { Get-MavenCommand $ProjectRoot } else { $null }
     Assert-Command "jlink"
     Assert-Command "jpackage"
     if (-not $SkipInstaller) {
@@ -346,7 +328,7 @@ try {
     $stagedJar = Join-Path $InputDir "$AppName-$Version.jar"
     if ($resolvedPrebuiltJar) {
         Write-Step "Staging prebuilt application JAR"
-        Copy-Item $resolvedPrebuiltJar $stagedJar -Force
+        Copy-Item -LiteralPath $resolvedPrebuiltJar -Destination $stagedJar -Force
     } else {
         Write-Step "Building application JAR"
         if ($RunTests) {
@@ -356,7 +338,7 @@ try {
         }
 
         $jar = Get-BuiltJar
-        Copy-Item $jar.FullName $stagedJar -Force
+        Copy-Item -LiteralPath $jar.FullName -Destination $stagedJar -Force
     }
 
     Assert-ProguardProcessedArtifact $stagedJar

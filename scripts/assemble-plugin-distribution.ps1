@@ -123,26 +123,16 @@ function Write-Step {
     Write-Host "==> $Message" -ForegroundColor Cyan
 }
 
-function Get-MavenCommand {
-    $wrapper = Join-Path $ProjectRoot "mvnw.cmd"
-    if (Test-Path $wrapper) { return $wrapper }
-    foreach ($name in @("mvn.cmd", "mvn")) {
-        $cmd = Get-Command $name -ErrorAction SilentlyContinue
-        if ($cmd) { return $cmd.Source }
-    }
-    throw "Missing Maven command. Install Maven or use the Maven wrapper."
-}
-
 function Get-AppBootJar {
     $rootDir = Join-Path $ProjectRoot "pixivdownload-app/target"
-    $bootJar = Get-ChildItem (Join-Path $rootDir "PixivDownload-*-boot.jar") -File |
+    $bootJar = Get-ChildItem -LiteralPath $rootDir -Filter "PixivDownload-*-boot.jar" -File |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
     if ($bootJar) {
         return $bootJar
     }
 
-    return Get-ChildItem (Join-Path $rootDir "PixivDownload-*.jar") -File |
+    return Get-ChildItem -LiteralPath $rootDir -Filter "PixivDownload-*.jar" -File |
         Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
@@ -206,11 +196,11 @@ $OutputDir = Assert-SafeDistributionOutputDirectory `
     -ProtectedPaths $ProtectedInputPaths
 $PluginsOutDir = Join-Path $OutputDir "plugins"
 
-Push-Location $ProjectRoot
+Push-Location -LiteralPath $ProjectRoot
 try {
     if ($Build) {
         Write-Step "Building reactor release artifacts (mvn verify -DskipTests)"
-        $mvn = Get-MavenCommand
+        $mvn = Get-MavenCommand $ProjectRoot
         & $mvn "verify" "-DskipTests" "-Dapp.release.version=$Version"
         if ($LASTEXITCODE -ne 0) { throw "Maven build failed." }
     }
@@ -248,7 +238,7 @@ try {
     }
 
     $coreJarName = "PixivDownload-$Version.jar"
-    Copy-Item $SelectedAppJar (Join-Path $OutputDir $coreJarName) -Force
+    Copy-Item -LiteralPath $SelectedAppJar -Destination (Join-Path $OutputDir $coreJarName) -Force
 
     $manifest = @()
     $sumLines = @()
@@ -270,7 +260,7 @@ try {
 
         $targetName = "$($plugin.Module)-$pluginVersion.$extension"
         $targetArtifact = Join-Path $PluginsOutDir $targetName
-        Copy-Item $sourceArtifact $targetArtifact -Force
+        Copy-Item -LiteralPath $sourceArtifact -Destination $targetArtifact -Force
 
         $sha = Get-Sha256Hex $targetArtifact
         [System.IO.File]::WriteAllText("$targetArtifact.sha256", "$sha  $targetName`n", $Utf8NoBom)
