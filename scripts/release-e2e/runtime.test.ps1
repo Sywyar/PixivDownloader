@@ -38,6 +38,175 @@ $WorkRoot = [IO.Path]::GetTempPath()
 $context = New-TestSessionRoot
 $children = @()
 try {
+    & {
+        $launched = [Collections.Generic.List[object]]::new()
+        $failures = [Collections.Generic.List[string]]::new()
+        function Start-Process {
+            param($FilePath, $ArgumentList, $WorkingDirectory, $WindowStyle, [switch]$PassThru,
+                $RedirectStandardOutput, $RedirectStandardError)
+            $process = Microsoft.PowerShell.Management\Start-Process @PSBoundParameters
+            $launched.Add([pscustomobject]@{ Process=$process; Handle=$process.SafeHandle; Id=$process.Id })
+            return $process
+        }
+        $waitForExit = ${function:Wait-ArtifactProcessExit}
+        function Wait-ArtifactProcessExit {
+            param($Process, $Label, $TimeoutSeconds)
+            & $waitForExit -Process $Process -Label $Label -TimeoutSeconds 1
+        }
+        try {
+            foreach ($kind in @('bat', 'exe')) {
+                foreach ($code in @(0, 17)) {
+                    $prefix = Join-Path $context.Session "$kind-$code"
+                    $launcher = $env:ComSpec
+                    $arguments = @('/d', '/c', 'exit', "$code")
+                    if ($kind -eq 'bat') {
+                        $launcher = Join-Path $context.Session 'waited launcher.bat'
+                        [IO.File]::WriteAllText($launcher, "@echo off`r`necho drained-output`r`nexit /b %1`r`n", [Text.Encoding]::ASCII)
+                        $arguments = @("$code")
+                    }
+                    $exitCode = Start-ArtifactProcess -Launcher $launcher -WorkingDirectory $context.Session `
+                        -Arguments $arguments -LogPrefix $prefix -Wait
+                    if ($exitCode -isnot [int] -or $exitCode -ne $code) { $failures.Add("$kind lost exit code $code") }
+                    if (-not $launched[-1].Handle.IsClosed) { $failures.Add("$kind retained its completed process handle") }
+                    if ($kind -eq 'bat' -and ([IO.File]::ReadAllText("$prefix.stdout.log")).Trim() -ne 'drained-output') {
+                        throw 'Waited launcher returned before its output drained.'
+                    }
+                }
+            }
+            Assert-Rejected {
+                Start-ArtifactProcess -Launcher $env:ComSpec -WorkingDirectory $context.Session `
+                    -Arguments @('/d', '/c', 'ping', '-n', '30', '127.0.0.1') `
+                    -LogPrefix (Join-Path $context.Session 'timed-out') -Wait
+            } 'did not exit'
+            if (Get-Process -Id $launched[-1].Id -ErrorAction SilentlyContinue) { throw 'Timed out launcher still runs.' }
+            if (-not $launched[-1].Handle.IsClosed) { $failures.Add('Timed out launcher retained its process handle') }
+            $process = Start-ArtifactProcess -Launcher $env:ComSpec -WorkingDirectory $context.Session `
+                -Arguments @('/d', '/c', 'exit', '17') -LogPrefix (Join-Path $context.Session 'asynchronous')
+            $process.WaitForExit()
+            if ($process.ExitCode -ne 17 -or $launched[-1].Handle.IsClosed) {
+                throw 'Asynchronous launcher did not retain caller-owned exit status.'
+            }
+            if ($failures.Count) { throw ($failures -join '; ') }
+        } finally {
+            foreach ($entry in $launched) {
+                if (-not $entry.Handle.IsClosed) {
+                    try { Stop-ArtifactProcess $entry.Process } finally { $entry.Process.Dispose() }
+                }
+            }
+        }
+    }
+    & {
+        $failures = [Collections.Generic.List[string]]::new()
+        $observed = [Collections.Generic.List[object]]::new()
+        $options = $env:JAVA_TOOL_OPTIONS
+        $noProxy = $env:NO_PROXY
+        function Get-Process {
+            param($Id)
+            $process = Microsoft.PowerShell.Management\Get-Process -Id $Id
+            $observed.Add([pscustomobject]@{ Process=$process; Handle=$process.SafeHandle })
+            return $process
+        }
+        function Invoke-ReleaseProbe { return [pscustomobject]@{ pid=$PID } }
+        function Get-CimInstance {
+            if ($ownership -eq 'query-failed') { throw 'process query failed' }
+            if ($ownership -eq 'unrelated') { return [pscustomobject]@{ ParentProcessId=$PID } }
+            return $null
+        }
+        try {
+            foreach ($ownership in @('missing', 'unrelated', 'query-failed')) {
+                $message = switch ($ownership) {
+                    'missing' { 'Cannot establish ownership' }
+                    'unrelated' { 'Observer belongs to an unrelated process' }
+                    'query-failed' { 'process query failed' }
+                }
+                Assert-Rejected { Connect-ReleaseProbe ([pscustomobject]@{Id=-1}) '' } $message
+                if (-not $observed[-1].Handle.IsClosed) { $failures.Add("Rejected $ownership observer retained its process handle") }
+            }
+
+            function Start-ArtifactProcess {
+                $process = Microsoft.PowerShell.Management\Start-Process $env:ComSpec `
+                    -ArgumentList '/d /c ping -n 30 127.0.0.1 >nul' -PassThru -WindowStyle Hidden
+                $observed.Add([pscustomobject]@{ Process=$process; Handle=$process.SafeHandle })
+                return $process
+            }
+            function Connect-ReleaseProbe {
+                param($Process)
+                $Process | Add-Member EngineProcess (Get-Process -Id $Process.Id)
+            }
+            function Wait-ForHealthyApplication {}
+            function Assert-ReleaseStable {}
+            function Assert-ReleaseNoFatalLog {}
+            function Assert-ReleaseLogParity {}
+            function Stop-ReleaseApplication { param($Process) Stop-ArtifactProcess $Process }
+            $root = Join-Path $context.Session 'application-lifetime'
+            [IO.Directory]::CreateDirectory($root) | Out-Null
+            [IO.File]::WriteAllText((Join-Path $root 'plugins-manifest.json'), '[{"id":"fixture"}]', [Text.Encoding]::UTF8)
+            $script:ReleaseTools = [pscustomobject]@{ Agent='fixture' }
+            $script:ReleaseReportRoot = Join-Path $root 'reports'
+            foreach ($fail in @($false, $true)) {
+                $before = $observed.Count
+                $run = {
+                    Test-ApplicationScenario -FirstRun -Headless -Label "lifetime-$fail" -Root $root `
+                        -Launcher 'fixture' -RuntimeRoot (Join-Path $root "runtime-$fail") `
+                        -LogRoot (Join-Path $root "log-$fail") -Exercise { if ($fail) { throw 'exercise failed' } }
+                }
+                if ($fail) { Assert-Rejected $run 'exercise failed' } else { & $run }
+                if ($observed.Count -ne $before + 2 -or -not $observed[-1].Handle.IsClosed -or -not $observed[-2].Handle.IsClosed) {
+                    $failures.Add("Application retained launcher or observer handle after failure=$fail")
+                }
+                $report = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $root "reports/lifetime-$fail/result.json") | ConvertFrom-Json
+                if ($report.passed -eq $fail) { throw 'Application cleanup changed its saved result.' }
+            }
+
+            $entry = $ast.EndBlock.Statements | Where-Object {
+                $_ -is [Management.Automation.Language.TryStatementAst]
+            } | Select-Object -Last 1
+            function Assert-NoInstalledCopy {}
+            function Assert-PackagedRuntime { return 'fixture' }
+            function Test-ApplicationLayout { if ($case -eq 'layout') { throw 'layout failed' } }
+            function Start-Process {
+                param($FilePath, $ArgumentList, $WindowStyle, [switch]$PassThru)
+                $code = if (($FilePath -eq 'fixture-installer' -and $case -eq 'install') -or
+                    ($FilePath -ne 'fixture-installer' -and $case -eq 'uninstall')) { 17 } else { 0 }
+                [IO.Directory]::CreateDirectory((Split-Path -Parent $uninstaller)) | Out-Null
+                [IO.File]::WriteAllText($uninstaller, 'fixture', [Text.Encoding]::UTF8)
+                $process = Microsoft.PowerShell.Management\Start-Process $env:ComSpec `
+                    -ArgumentList "/d /c exit $code" -WindowStyle Hidden -PassThru
+                $observed.Add([pscustomobject]@{ Process=$process; Handle=$process.SafeHandle })
+                return $process
+            }
+            foreach ($case in @('success', 'install', 'layout', 'uninstall')) {
+                $before = $observed.Count
+                $resolvedJavaZip = $resolvedFullOfflineZip = $resolvedAppImage = ''
+                $resolvedInstaller = 'fixture-installer'
+                $ReportRoot = Join-Path $root 'installer-reports'
+                $oldJavaToolOptions = $env:JAVA_TOOL_OPTIONS
+                $oldNoProxy = $env:NO_PROXY
+                $run = [scriptblock]::Create($entry.Extent.Text)
+                if ($case -eq 'success') { & $run } else {
+                    $message = switch ($case) {
+                        'install' { 'installer failed with exit code 17' }
+                        'layout' { 'layout failed' }
+                        'uninstall' { 'uninstaller exited with code 17' }
+                    }
+                    Assert-Rejected $run $message
+                }
+                if ($observed.Count -ne $before + 2 -or -not $observed[-1].Handle.IsClosed -or -not $observed[-2].Handle.IsClosed) {
+                    $failures.Add("Installer or uninstaller retained a process handle after $case")
+                }
+            }
+            if ($failures.Count) { throw ($failures -join '; ') }
+        } finally {
+            foreach ($entry in $observed) {
+                if (-not $entry.Handle.IsClosed) {
+                    try { if ($entry.Process.Id -ne $PID) { Stop-ArtifactProcess $entry.Process } }
+                    finally { $entry.Process.Dispose() }
+                }
+            }
+            $env:JAVA_TOOL_OPTIONS = $options
+            $env:NO_PROXY = $noProxy
+        }
+    }
     foreach ($code in @(0, 17)) {
         $child = Start-Process $env:ComSpec -ArgumentList "/d /c exit $code" -PassThru -WindowStyle Hidden
         $children += $child
@@ -258,11 +427,29 @@ try {
         if ($Uri.EndsWith('/actuator/health')) { return [pscustomobject]@{status='UP'} }
         return $script:status
     }
-    $child = Start-Process $env:ComSpec -ArgumentList '/d /c "ping -n 2 127.0.0.1 >nul & exit 0"' `
-        -PassThru -WindowStyle Hidden
+    $exitSignal = Join-Path $context.Session 'exit-after-health'
+    $exitFixture = Join-Path $context.Session 'exit-after-health.ps1'
+    [IO.File]::WriteAllText($exitFixture, @'
+param([string]$Signal)
+while (-not [IO.File]::Exists($Signal)) { Start-Sleep -Milliseconds 50 }
+exit 0
+'@, [Text.Encoding]::ASCII)
+    $child = Start-Process $parent.Path -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass',
+        '-File', "`"$exitFixture`"", '-Signal', "`"$exitSignal`"") -PassThru -WindowStyle Hidden
     $children += $child
     Assert-ArtifactAlive $child 'ready'
-    Assert-Rejected { Assert-ReleaseStable -Process $child -Seconds 3 } 'code 0'
+    $readStatus = ${function:Invoke-RestMethod}
+    function Invoke-RestMethod {
+        param($Uri, [switch]$UseBasicParsing, $WebSession, $TimeoutSec)
+        [IO.File]::WriteAllText($exitSignal, 'exit', [Text.Encoding]::ASCII)
+        if (-not $child.WaitForExit(15000)) { throw 'Ready fixture did not exit after its health response.' }
+        return & $readStatus @PSBoundParameters
+    }
+    try {
+        Assert-Rejected { Assert-ReleaseStable -Process $child -Seconds 3 } 'code 0'
+    } finally {
+        Set-Item Function:Invoke-RestMethod $readStatus
+    }
     $script:status = [pscustomobject]@{recoveryMode=$false; plugins=@(
         [pscustomobject]@{id='optional'; status='STARTED'; runtimePhase='STARTED'})}
     Assert-ReleaseStatus 1 $null @('optional') | Out-Null
@@ -297,6 +484,12 @@ try {
         }
     throw
 } finally {
-    foreach ($child in $children) { Stop-ArtifactProcess $child }
+    foreach ($child in $children) {
+        try { Stop-ArtifactProcess $child } finally {
+            if ($child.PSObject.Properties['EngineProcess']) { $child.EngineProcess.Dispose() }
+            $child.Dispose()
+        }
+    }
+    if (Test-Path Variable:parent) { $parent.Dispose() }
     Remove-TestSessionRoot $context
 }

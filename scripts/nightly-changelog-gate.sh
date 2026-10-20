@@ -63,12 +63,9 @@ fi
 
 # First Nightly: [Unreleased] section with non-blank content triggers the
 # build. Pure blank lines inside the section never count as a change.
-if awk '
+awk '
     /^## \[Unreleased\]/ { found=1; next }
     /^## \[/ { if (found) exit }
-    found && NF { print }
-' "$CHANGELOG_PATH" | grep -q .; then
-    echo "true"
-else
-    echo "false"
-fi
+    found && NF { changed=1; exit }
+    END { print changed ? "true" : "false" }
+' "$CHANGELOG_PATH"

@@ -22,10 +22,10 @@ function Test-ApplicationScenario {
     $result = [ordered]@{ label = $Label; passed = $false; error = ''; provider = $Provider }
     try {
         if (-not $FirstRun) {
-            $setup = Start-ArtifactProcess -Launcher $Launcher -WorkingDirectory $Root -Arguments @(
+            $exitCode = Start-ArtifactProcess -Launcher $Launcher -WorkingDirectory $Root -Arguments @(
                 '--setup', "--username=$Username", "--password=$Password", '--mode=solo', '--proxy-enabled=false'
             ) -LogPrefix "$LogRoot-setup" -Wait
-            if ($setup.ExitCode -ne 0) { throw "$Label setup failed with exit code $($setup.ExitCode)" }
+            if ($exitCode -ne 0) { throw "$Label setup failed with exit code $exitCode" }
         }
         $env:JAVA_TOOL_OPTIONS += " -javaagent:`"$($script:ReleaseTools.Agent)=$probeRoot`""
         $arguments = @('--server.address=127.0.0.1', "--server.port=$port")
@@ -70,6 +70,10 @@ function Test-ApplicationScenario {
         throw
     } finally {
         try { Stop-ArtifactProcess $application } finally {
+            if ($null -ne $application) {
+                if ($application.PSObject.Properties['EngineProcess']) { $application.EngineProcess.Dispose() }
+                $application.Dispose()
+            }
             Save-ReleaseEvidence -Label $Label -Root $Root -RuntimeRoot $RuntimeRoot -LogRoot $LogRoot -Result $result
         }
     }
@@ -128,9 +132,9 @@ function Test-ReleaseLogRotation {
         for ($run = 0; $run -lt 7; $run++) {
             $marker = 'rotation-' + [Guid]::NewGuid().ToString('N')
             $markers += $marker
-            $process = Start-ArtifactProcess -Launcher $Launcher -WorkingDirectory $Root `
+            $exitCode = Start-ArtifactProcess -Launcher $Launcher -WorkingDirectory $Root `
                 -Arguments @('--help', "--probe=$marker") -LogPrefix (Join-Path $RuntimeRoot $marker) -Wait
-            if ($process.ExitCode -ne 0) { throw "Help command exited with $($process.ExitCode)" }
+            if ($exitCode -ne 0) { throw "Help command exited with $exitCode" }
             $text = Get-Content -LiteralPath (Join-Path $Root 'log/latest.log') -Raw -Encoding UTF8
             $html = Get-Content -LiteralPath (Join-Path $Root 'log/html/latest.html') -Raw -Encoding UTF8
             if (-not $text.Contains($marker) -or -not $html.Contains($marker)) { throw 'Current log is missing its run marker.' }
@@ -164,9 +168,9 @@ function Test-ReleaseDuplicateInstance {
     $options = $env:JAVA_TOOL_OPTIONS
     try {
         Set-IsolatedRuntimeEnvironment $Run.RuntimeRoot
-        $second = Start-ArtifactProcess -Launcher $Run.Launcher -WorkingDirectory $Run.Root `
+        $exitCode = Start-ArtifactProcess -Launcher $Run.Launcher -WorkingDirectory $Run.Root `
             -Arguments @('--no-gui') -LogPrefix "$($Run.LogRoot)-second" -Wait
-        if ($second.ExitCode -ne 0) { throw 'Second instance did not exit normally.' }
+        if ($exitCode -ne 0) { throw 'Second instance did not exit normally.' }
         Assert-ArtifactAlive $Run.Process 'Original instance'
         $after = Get-Content (Join-Path $Run.Root 'log/latest.log') -Raw -Encoding UTF8
         if (-not $after.StartsWith($before)) { throw 'Second instance overwrote the active log.' }

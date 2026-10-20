@@ -119,16 +119,21 @@ function Connect-ReleaseProbe {
     param($Process, [string]$ProbeRoot)
     $response = Invoke-ReleaseProbe $Process $ProbeRoot 'ping'
     $engine = Get-Process -Id $response.pid
-    # Retain a native handle before exit so Get-Process can report the JVM exit code.
-    $null = $engine.Handle
-    $ancestor = [int]$response.pid
-    for ($depth = 0; $depth -lt 8 -and $ancestor -ne $Process.Id; $depth++) {
-        $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $ancestor"
-        if ($null -eq $parent) { throw 'Cannot establish ownership of the observed JVM.' }
-        $ancestor = [int]$parent.ParentProcessId
+    try {
+        # Retain a native handle before exit so Get-Process can report the JVM exit code.
+        $null = $engine.Handle
+        $ancestor = [int]$response.pid
+        for ($depth = 0; $depth -lt 8 -and $ancestor -ne $Process.Id; $depth++) {
+            $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $ancestor"
+            if ($null -eq $parent) { throw 'Cannot establish ownership of the observed JVM.' }
+            $ancestor = [int]$parent.ParentProcessId
+        }
+        if ($ancestor -ne $Process.Id) { throw 'Observer belongs to an unrelated process.' }
+        $Process | Add-Member -NotePropertyName EngineProcess -NotePropertyValue $engine -Force
+    } catch {
+        $engine.Dispose()
+        throw
     }
-    if ($ancestor -ne $Process.Id) { throw 'Observer belongs to an unrelated process.' }
-    $Process | Add-Member -NotePropertyName EngineProcess -NotePropertyValue $engine -Force
 }
 
 function New-ReleaseLogin {

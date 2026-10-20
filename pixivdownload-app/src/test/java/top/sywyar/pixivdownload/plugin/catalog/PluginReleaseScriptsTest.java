@@ -1657,20 +1657,20 @@ class PluginReleaseScriptsTest {
             runGit(repo, "tag", "nightly");
 
             // 1. 无 diff：false
-            assertThat(runGate(repo, script, "nightly")).isEqualTo("false");
+            assertThat(runBash(repo, script, "CHANGELOG.md", "nightly")).isEqualTo("false");
 
             // 2. 新增一行：true
             Files.writeString(changelog, baseline + "- entry four\n", StandardCharsets.UTF_8);
-            assertThat(runGate(repo, script, "nightly")).isEqualTo("true");
+            assertThat(runBash(repo, script, "CHANGELOG.md", "nightly")).isEqualTo("true");
 
             // 3. 修改一行：true
             Files.writeString(changelog, baseline.replace("- entry two\n", "- entry two (changed)\n"),
                     StandardCharsets.UTF_8);
-            assertThat(runGate(repo, script, "nightly")).isEqualTo("true");
+            assertThat(runBash(repo, script, "CHANGELOG.md", "nightly")).isEqualTo("true");
 
             // 4. 只删除一行：true
             Files.writeString(changelog, baseline.replace("- entry two\n", ""), StandardCharsets.UTF_8);
-            assertThat(runGate(repo, script, "nightly")).isEqualTo("true");
+            assertThat(runBash(repo, script, "CHANGELOG.md", "nightly")).isEqualTo("true");
 
             // 5. git diff 真实错误（损坏的 index 使退出码为 128）：
             //    步骤失败，绝不输出 has_changes 判定。GIT_INDEX_FILE 在 bash
@@ -1708,13 +1708,23 @@ class PluginReleaseScriptsTest {
             Files.writeString(changelog,
                     "# Changelog\n\n## [Unreleased]\n\n\n## [v1.0.0] - 2026-01-01\n- released\n",
                     StandardCharsets.UTF_8);
-            assertThat(runGate(repo, script, "nightly")).isEqualTo("false");
+            assertThat(runBash(repo, script, "CHANGELOG.md", "nightly")).isEqualTo("false");
 
             // 非空 → true（nightly 参数传了但标签不存在，走 rev-parse 回退）
             Files.writeString(changelog,
                     "# Changelog\n\n## [Unreleased]\n\n### Features\n- upcoming\n",
                     StandardCharsets.UTF_8);
-            assertThat(runGate(repo, script, "nightly")).isEqualTo("true");
+            assertThat(runBash(repo, script, "CHANGELOG.md", "nightly")).isEqualTo("true");
+
+            Files.writeString(changelog, "## [Unreleased]\n" + "- upcoming\n".repeat(200_000),
+                    StandardCharsets.UTF_8);
+            assertThat(runBash(repo, script, "CHANGELOG.md", "nightly")).isEqualTo("true");
+
+            Files.delete(changelog);
+            Process process = new ProcessBuilder("bash", toBashPath(script), "CHANGELOG.md", "nightly")
+                    .directory(repo.toFile()).redirectErrorStream(true).start();
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            assertThat(process.waitFor()).as("缺失变更文件必须失败: %s", output).isNotEqualTo(0);
         } finally {
             deleteRecursively(repo);
         }
@@ -1882,15 +1892,6 @@ class PluginReleaseScriptsTest {
         String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         int code = p.waitFor();
         assertThat(code).as("git %s failed: %s", String.join(" ", args), output).isEqualTo(0);
-    }
-
-    private static String runGate(Path repo, Path script, String nightlyRef) throws Exception {
-        Process p = new ProcessBuilder("bash", toBashPath(script), "CHANGELOG.md", nightlyRef)
-                .directory(repo.toFile()).redirectErrorStream(true).start();
-        String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        int code = p.waitFor();
-        assertThat(code).as("gate script failed: %s", output).isEqualTo(0);
-        return output.trim();
     }
 
     private static String runBash(Path repo, Path script, String... args) throws Exception {

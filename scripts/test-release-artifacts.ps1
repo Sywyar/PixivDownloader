@@ -152,18 +152,21 @@ function Start-ArtifactProcess {
     Assert-SafeArguments $Arguments
     $stdout = "$LogPrefix.stdout.log"
     $stderr = "$LogPrefix.stderr.log"
+    $executable = $Launcher
     if ([System.IO.Path]::GetExtension($Launcher) -ieq ".bat") {
-        $commandLine = "/d /s /c `"`"$Launcher`" $($Arguments -join ' ')`""
-        $process = Start-Process -FilePath $env:ComSpec -ArgumentList $commandLine `
-            -WorkingDirectory $WorkingDirectory -WindowStyle Hidden -PassThru `
-            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-    } else {
-        $process = Start-Process -FilePath $Launcher -ArgumentList $Arguments `
-            -WorkingDirectory $WorkingDirectory -WindowStyle Hidden -PassThru `
-            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        $executable = $env:ComSpec
+        $Arguments = @("/d /s /c `"`"$Launcher`" $($Arguments -join ' ')`"")
     }
+    $process = Start-Process -FilePath $executable -ArgumentList $Arguments `
+        -WorkingDirectory $WorkingDirectory -WindowStyle Hidden -PassThru `
+        -RedirectStandardOutput $stdout -RedirectStandardError $stderr
     if ($Wait) {
-        Wait-ArtifactProcessExit -Process $process -Label $Launcher -TimeoutSeconds 180
+        try {
+            Wait-ArtifactProcessExit -Process $process -Label $Launcher -TimeoutSeconds 180
+            return $process.ExitCode
+        } finally {
+            $process.Dispose()
+        }
     }
     return $process
 }
@@ -173,16 +176,15 @@ function Stop-ArtifactProcess {
     if ($null -eq $Process) {
         return
     }
-    $Process.Refresh()
-    if (-not $Process.HasExited) {
-        & taskkill.exe /PID $Process.Id /T /F | Out-Null
-        $Process.WaitForExit(30000) | Out-Null
-    }
+    $targets = @($Process)
     if ($Process.PSObject.Properties['EngineProcess']) {
-        $Process.EngineProcess.Refresh()
-        if (-not $Process.EngineProcess.HasExited) {
-            & taskkill.exe /PID $Process.EngineProcess.Id /T /F | Out-Null
-            $Process.EngineProcess.WaitForExit(30000) | Out-Null
+        $targets += $Process.EngineProcess
+    }
+    foreach ($target in $targets) {
+        $target.Refresh()
+        if (-not $target.HasExited) {
+            & taskkill.exe /PID $target.Id /T /F | Out-Null
+            $target.WaitForExit(30000) | Out-Null
         }
     }
 }
@@ -345,9 +347,13 @@ try {
             "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/NOICONS", "/LANG=en",
             "/DIR=`"$installDir`""
         ) -WindowStyle Hidden -PassThru
-        Wait-ArtifactProcessExit -Process $installer -Label "Windows installer" -TimeoutSeconds 600
-        if ($installer.ExitCode -ne 0) {
-            throw "Windows installer failed with exit code $($installer.ExitCode)"
+        try {
+            Wait-ArtifactProcessExit -Process $installer -Label "Windows installer" -TimeoutSeconds 600
+            if ($installer.ExitCode -ne 0) {
+                throw "Windows installer failed with exit code $($installer.ExitCode)"
+            }
+        } finally {
+            $installer.Dispose()
         }
         $launcher = Assert-PackagedRuntime $installDir "Installed application"
         if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) {
@@ -361,6 +367,7 @@ try {
     $uninstallFailure = ""
     if (-not [string]::IsNullOrWhiteSpace($uninstaller) -and
         (Test-Path -LiteralPath $uninstaller -PathType Leaf)) {
+        $uninstall = $null
         try {
             $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @(
                 "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
@@ -371,6 +378,8 @@ try {
             }
         } catch {
             $uninstallFailure = "Windows uninstaller failed: $($_.Exception.Message)"
+        } finally {
+            if ($null -ne $uninstall) { $uninstall.Dispose() }
         }
     }
     $env:JAVA_TOOL_OPTIONS = $oldJavaToolOptions
