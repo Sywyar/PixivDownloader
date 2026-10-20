@@ -109,6 +109,7 @@ class El {
         event.target = event.target || this;
         event.currentTarget = this;
         const results = [...(this.listeners.get(type) || [])].map(listener => listener(event));
+        event.currentTarget = null;
         await Promise.all(results.filter(result => result && typeof result.then === 'function'));
     }
     matches(selector) {
@@ -343,7 +344,7 @@ async function pageHarness(initialSnapshot, {surveyBridge = false, search = '', 
     const sandbox = {
         window, document, location, history,
         fetch: requests.fetch,
-        URL, URLSearchParams, Intl,
+        URL, URLSearchParams, Intl, AbortController, DOMException,
         PixivI18n: {create: async () => i18n},
         PixivLangSwitcher: {mount: async () => {}},
         PixivTheme: {mount() {}},
@@ -367,7 +368,7 @@ async function slotHarness(snapshot) {
     let initializer;
     let cleanup;
     window.PixivBatch = {queueTypes: {registerUiModule(fn) { initializer = fn; }}};
-    const sandbox = {window, document, location, fetch: requests.fetch, URLSearchParams,
+    const sandbox = {window, document, location, fetch: requests.fetch, URLSearchParams, AbortController,
         HTMLElement: function HTMLElement() {}};
     vm.runInNewContext(SLOT_SOURCE, sandbox);
     initializer({signal: abort.signal, isActive: () => !abort.signal.aborted, onCleanup(fn) { cleanup = fn; }});
@@ -411,7 +412,7 @@ test('下载页站内信槽位保留节点热切语言，并在未授权或 publ
     window.PixivBatch = {queueTypes: {registerUiModule(fn) { initializer = fn; }}};
     window.PixivVue = {prepareSlotHosts() { prepareCalls++; }};
     const sandbox = {
-        window, document, location, fetch: requests.fetch, URLSearchParams,
+        window, document, location, fetch: requests.fetch, URLSearchParams, AbortController,
         HTMLElement: function HTMLElement() {},
         console: {warn() {}, error() {}, log() {}}
     };
@@ -474,7 +475,7 @@ test('下载页站内信槽位保留节点热切语言，并在未授权或 publ
     deniedWindow.PixivBatch = {queueTypes: {registerUiModule(fn) { deniedInitializer = fn; }}};
     const deniedSandbox = {
         window: deniedWindow, document: deniedDocument, location: deniedWindow.location,
-        fetch: deniedRequests.fetch, URLSearchParams,
+        fetch: deniedRequests.fetch, URLSearchParams, AbortController,
         HTMLElement: sandbox.HTMLElement, console: sandbox.console
     };
     vm.createContext(deniedSandbox);
@@ -529,6 +530,79 @@ test('详情请求拒绝过期结果', async () => {
     first.resolve(response(pageMessage({id: 'first', title: 'First'})));
     await flush();
     assert.equal(h.document.getElementById('notificationDetail').querySelector('h2').textContent, 'Second');
+});
+
+for (const oldStatus of [200, 401, 503]) {
+    test(`重新打开同一消息后忽略旧详情响应 ${oldStatus}`, async () => {
+        const h = await pageHarness({messages: [], categoryUnreadCount: 0});
+        const older = deferred();
+        h.requests.enqueue(older.promise);
+        h.location.setSearch('?id=first');
+        await h.window.emit('popstate');
+        h.requests.enqueue(response(pageMessage({id: 'second', title: 'Second'})));
+        h.location.setSearch('?id=second');
+        await h.window.emit('popstate');
+        await flush();
+        h.requests.enqueue(response(pageMessage({id: 'first', title: 'Current'})));
+        h.location.setSearch('?id=first');
+        await h.window.emit('popstate');
+        await flush();
+        older.resolve(response(pageMessage({id: 'first', title: 'Stale'}), oldStatus));
+        await flush();
+        assert.equal(h.document.getElementById('notificationDetail').querySelector('h2')?.textContent,
+            'Current');
+        assert.equal(h.location.pathname, '/pixiv-notifications.html');
+        assert.equal(h.requests.calls[1].init.signal.aborted, true);
+    });
+}
+
+test('离页取消列表与详情查询，返回后恢复刷新并保留当前消息', async () => {
+    const h = await pageHarness({messages: [], categoryUnreadCount: 0});
+    const oldList = deferred();
+    h.requests.enqueue(oldList.promise);
+    await h.document.emit('visibilitychange');
+    const oldDetail = deferred();
+    h.requests.enqueue(oldDetail.promise);
+    h.location.setSearch('?id=first');
+    await h.window.emit('popstate');
+    assert.equal(h.window.intervalCount(), 1);
+    await h.window.emit('pagehide');
+    assert.equal(h.window.intervalCount(), 0);
+    assert.equal(h.requests.calls[1].init.signal.aborted, true);
+    assert.equal(h.requests.calls[2].init.signal.aborted, true);
+    await h.document.emit('visibilitychange');
+    assert.equal(h.requests.calls.length, 3);
+    oldList.resolve(response({}, 401));
+    oldDetail.resolve(response(pageMessage({id: 'first', title: 'Stale'})));
+    await flush();
+    assert.equal(h.location.pathname, '/pixiv-notifications.html');
+    assert.equal(h.document.getElementById('notificationDetail').querySelector('h2'), null);
+    const current = pageMessage({id: 'first', title: 'Restored'});
+    h.requests.enqueue(response({messages: [current], categoryUnreadCount: 0}));
+    await h.window.emit('pageshow', {persisted: true});
+    await flush();
+    assert.equal(h.window.intervalCount(), 1);
+    assert.equal(listTitle(h.document), 'Restored');
+    assert.equal(h.document.getElementById('notificationDetail').querySelector('h2').textContent, 'Restored');
+});
+
+test('列表查询取消旧响应且当前鉴权失败仍跳转登录', async () => {
+    const h = await pageHarness({messages: [], categoryUnreadCount: 0});
+    const older = deferred();
+    h.requests.enqueue(older.promise);
+    await h.document.emit('visibilitychange');
+    h.requests.enqueue(response({messages: [pageMessage({title: 'Current'})], categoryUnreadCount: 0}));
+    await h.document.emit('visibilitychange');
+    await flush();
+    older.resolve(response({}, 401));
+    await flush();
+    assert.equal(listTitle(h.document), 'Current');
+    assert.equal(h.location.pathname, '/pixiv-notifications.html');
+    assert.equal(h.requests.calls[1].init.signal.aborted, true);
+    h.requests.enqueue(response({}, 401));
+    await h.document.emit('visibilitychange');
+    await flush();
+    assert.equal(h.location.pathname, '/login.html');
 });
 
 test('HTML 正文 iframe 懒创建复用，并只接受当前不同源 frame 的受限消息', async () => {
@@ -615,11 +689,14 @@ for (const category of ['download', 'system', 'announcement', 'survey']) {
             const readCalls = () => h.requests.calls.filter(call => call.init.method === 'POST');
             assert.equal(readCalls().length, 1);
             assert.equal(readCalls()[0].url, `/api/notifications/${category}/read?lang=en-US`);
+            const titleNode = h.document.getElementById('notificationDetail').querySelector('h2');
+            h.requests.enqueue(response({messages: [{...message, readTime: 2}], categoryUnreadCount: 0}));
             reading.resolve(response(Object.assign({}, message, {readTime: 2})));
             await flush();
             assert.equal(h.document.getElementById('notificationUnreadCount').textContent, '');
             assert.equal(list.children[0].classList.contains('unread'), false);
             const detail = h.document.getElementById('notificationDetail');
+            assert.equal(detail.querySelector('h2'), titleNode);
             assert.equal(detail.querySelector('h2').textContent, message.title);
             assert.equal(detail.querySelector('[data-i18n="inbox.mark-read"]'), null);
             await list.children[0].emit('click');
@@ -637,6 +714,7 @@ test('未读筛选中的消息自动已读后移出列表并保留详情与操�
     await filter.emit('change');
     await flush();
     h.requests.enqueue(response(Object.assign({}, message, {readTime: 2})));
+    h.requests.enqueue(response({messages: [], categoryUnreadCount: 0}));
     await h.document.getElementById('notificationList').children[0].emit('click');
     await flush();
     assert.equal(h.document.getElementById('notificationList').children.length, 0);
@@ -657,9 +735,180 @@ test('自动已读失败保留未读状态并提示，重新打开可重试', as
     assert.equal(h.document.getElementById('notificationUnreadCount').textContent, '1');
     assert.ok(h.document.getElementById('notificationDetailActionStatus').textContent);
     h.requests.enqueue(response(Object.assign({}, message, {readTime: 2})));
+    h.requests.enqueue(response({messages: [{...message, readTime: 2}], categoryUnreadCount: 0}));
     await list.children[0].emit('click');
     await flush();
     assert.equal(list.children[0].classList.contains('unread'), false);
+});
+
+test('已读完成时更新原消息列表且保留后来打开的详情', async () => {
+    const first = pageMessage({id: 'first', readTime: null});
+    const second = pageMessage({id: 'second', title: 'Second'});
+    const h = await pageHarness({messages: [first, second], categoryUnreadCount: 1});
+    const reading = deferred();
+    h.requests.enqueue(reading.promise);
+    const list = h.document.getElementById('notificationList');
+    await list.children[0].emit('click');
+    await list.children[1].emit('click');
+    h.requests.enqueue(response({messages: [{...first, readTime: 2}, second], categoryUnreadCount: 0}));
+    reading.resolve(response({...first, readTime: 2}));
+    await flush();
+    assert.equal(list.children[0].classList.contains('unread'), false);
+    assert.equal(h.document.getElementById('notificationUnreadCount').textContent, '');
+    assert.equal(h.document.getElementById('notificationDetail').querySelector('h2').textContent, 'Second');
+});
+
+test('已读迟到回执不重复扣减已刷新的计数或覆盖当前正文', async () => {
+    const first = pageMessage({id: 'first', title: 'Original', readTime: null});
+    const second = pageMessage({id: 'second', readTime: null});
+    const h = await pageHarness({messages: [first, second], categoryUnreadCount: 2});
+    const reading = deferred();
+    h.requests.enqueue(reading.promise);
+    const list = h.document.getElementById('notificationList');
+    await list.children[0].emit('click');
+    h.requests.enqueue(response({messages: [{...first, title: 'Current', readTime: 2}, second],
+        categoryUnreadCount: 1}));
+    await h.document.emit('visibilitychange');
+    await flush();
+    await list.children[0].emit('click');
+    h.requests.enqueue(response({messages: [{...first, title: 'Current', readTime: 2}, second],
+        categoryUnreadCount: 1}));
+    reading.resolve(response({...first, readTime: 2}));
+    await flush();
+    assert.equal(h.document.getElementById('notificationUnreadCount').textContent, '1');
+    assert.equal(h.document.getElementById('notificationDetail').querySelector('h2').textContent, 'Current');
+});
+
+for (const succeeds of [true, false]) {
+    test(`删除${succeeds ? '成功' : '失败'}时不改写后来打开的详情`, async () => {
+        const first = pageMessage({id: 'first', title: 'First', hasHtmlContent: true});
+        const second = pageMessage({id: 'second', title: 'Second'});
+        const h = await pageHarness({messages: [first, second], categoryUnreadCount: 0});
+        h.feedback.confirm = async () => true;
+        const list = h.document.getElementById('notificationList');
+        await list.children[0].emit('click');
+        const deleting = deferred();
+        h.requests.enqueue(deleting.promise);
+        const button = h.document.getElementById('notificationDetail').querySelector('[data-i18n="inbox.delete"]');
+        const operation = button.emit('click');
+        await flush();
+        assert.equal(button.disabled, true);
+        await list.children[1].emit('click');
+        if (succeeds) h.requests.enqueue(response({messages: [second], categoryUnreadCount: 0}));
+        deleting.resolve(response({}, succeeds ? 204 : 503));
+        await operation;
+        assert.equal(list.children.length, succeeds ? 1 : 2);
+        assert.equal(h.document.querySelectorAll('.notification-detail-content-frame').length,
+            succeeds ? 0 : 1);
+        assert.equal(h.document.getElementById('notificationDetail').querySelector('h2').textContent, 'Second');
+        assert.equal(h.document.getElementById('notificationDetailActionStatus').textContent, '');
+        if (!succeeds) assert.equal(button.disabled, false);
+    });
+}
+
+test('删除确认不沿用离开详情前的操作', async () => {
+    const first = pageMessage({id: 'first'});
+    const second = pageMessage({id: 'second'});
+    const h = await pageHarness({messages: [first, second], categoryUnreadCount: 0});
+    const confirmation = deferred();
+    h.feedback.confirm = () => confirmation.promise;
+    const list = h.document.getElementById('notificationList');
+    await list.children[0].emit('click');
+    const operation = h.document.getElementById('notificationDetail')
+        .querySelector('[data-i18n="inbox.delete"]').emit('click');
+    await list.children[1].emit('click');
+    await list.children[0].emit('click');
+    confirmation.resolve(true);
+    await operation;
+    assert.equal(h.requests.calls.filter(call => call.init.method === 'DELETE').length, 0);
+    assert.equal(list.children.length, 2);
+});
+
+test('已读后的列表读取失败保留详情并允许随后恢复', async () => {
+    const message = pageMessage({readTime: null});
+    const h = await pageHarness({messages: [message], categoryUnreadCount: 1});
+    h.requests.enqueue(response({...message, readTime: 2}));
+    h.requests.enqueue(response({}, 503));
+    await h.document.getElementById('notificationList').children[0].emit('click');
+    await flush();
+    const status = h.document.getElementById('notificationStatus');
+    assert.equal(status.hidden, false);
+    assert.ok(status.textContent);
+    assert.equal(h.document.getElementById('notificationDetail').querySelector('h2').textContent, message.title);
+    h.requests.enqueue(response({messages: [{...message, readTime: 2}], categoryUnreadCount: 0}));
+    await h.document.emit('visibilitychange');
+    await flush();
+    assert.equal(h.document.getElementById('notificationUnreadCount').textContent, '');
+    assert.equal(status.hidden, true);
+});
+
+test('离页期间已读完成不再查询，返回后读取持久结果', async () => {
+    const message = pageMessage({readTime: null});
+    const h = await pageHarness({messages: [message], categoryUnreadCount: 1});
+    const reading = deferred();
+    h.requests.enqueue(reading.promise);
+    await h.document.getElementById('notificationList').children[0].emit('click');
+    await h.window.emit('pagehide');
+    reading.resolve(response({...message, readTime: 2}));
+    await flush();
+    assert.equal(h.requests.calls.length, 2);
+    assert.equal(h.window.intervalCount(), 0);
+    h.requests.enqueue(response({messages: [{...message, readTime: 2}], categoryUnreadCount: 0}));
+    await h.window.emit('pageshow', {persisted: true});
+    await flush();
+    assert.equal(h.document.getElementById('notificationUnreadCount').textContent, '');
+    assert.equal(h.document.getElementById('notificationDetail').querySelector('h2').textContent, message.title);
+    assert.equal(h.window.intervalCount(), 1);
+});
+
+test('已读失败不写入重新打开后的详情', async () => {
+    const first = pageMessage({id: 'first', readTime: null});
+    const second = pageMessage({id: 'second'});
+    const h = await pageHarness({messages: [first, second], categoryUnreadCount: 1});
+    const reading = deferred();
+    h.requests.enqueue(reading.promise);
+    const list = h.document.getElementById('notificationList');
+    await list.children[0].emit('click');
+    await list.children[1].emit('click');
+    await list.children[0].emit('click');
+    reading.resolve(response({}, 503));
+    await flush();
+    assert.equal(h.document.getElementById('notificationDetailActionStatus').textContent, '');
+    assert.equal(list.children[0].classList.contains('unread'), true);
+});
+
+test('全部已读完成后刷新当前分类，不撤销新分类的未读详情', async () => {
+    const announcement = pageMessage({id: 'announcement', category: 'announcement', readTime: null});
+    const download = pageMessage({id: 'download', category: 'download', readTime: null});
+    const h = await pageHarness({messages: [announcement], categoryUnreadCount: 1});
+    h.requests.enqueue(response({messages: [announcement], categoryUnreadCount: 1}));
+    await h.document.filterButtons.find(button => button.dataset.category === 'announcement').emit('click');
+    await flush();
+    const markingAll = deferred();
+    h.requests.enqueue(markingAll.promise);
+    assert.equal(h.document.getElementById('notificationMarkCategoryRead').disabled, false);
+    const operation = h.document.getElementById('notificationMarkCategoryRead').emit('click');
+    h.requests.enqueue(response({messages: [download], categoryUnreadCount: 1}));
+    await h.document.filterButtons.find(button => button.dataset.category === 'download').emit('click');
+    await flush();
+    const reading = deferred();
+    h.requests.enqueue(reading.promise);
+    await h.document.getElementById('notificationList').children[0].emit('click');
+    h.requests.enqueue(response({messages: [download], categoryUnreadCount: 1}));
+    const unread = h.document.getElementById('notificationUnreadOnly');
+    unread.checked = true;
+    await unread.emit('change');
+    await flush();
+    h.requests.enqueue(response({messages: [download], categoryUnreadCount: 1}));
+    markingAll.resolve(response(1));
+    await operation;
+    assert.match(h.requests.calls.at(-1).url, /category=download/);
+    assert.equal(h.document.getElementById('notificationDetail').querySelector('h2').textContent, download.title);
+    assert.equal(h.document.getElementById('notificationUnreadCount').textContent, '1');
+    h.requests.enqueue(response({messages: [], categoryUnreadCount: 0}));
+    reading.resolve(response({...download, readTime: 2}));
+    await flush();
+    assert.equal(h.document.getElementById('notificationList').children.length, 0);
 });
 
 test('顶部消息入口携带消息标识进入详情页', async () => {
@@ -669,6 +918,76 @@ test('顶部消息入口携带消息标识进入详情页', async () => {
     assert.equal(h.location.pathname, '/pixiv-notifications.html');
     assert.equal(new URLSearchParams(h.location.search).get('id'), message.id);
     h.cleanup();
+});
+
+test('顶部旧查询失败保留当前消息节点', async () => {
+    const h = await slotHarness({messages: [pageMessage()], unreadCount: 1});
+    const older = deferred();
+    h.requests.enqueue(older.promise);
+    await h.document.emit('visibilitychange');
+    h.requests.enqueue(response({messages: [pageMessage({title: 'Current'})], unreadCount: 2}));
+    await h.document.emit('visibilitychange');
+    await flush();
+    const current = h.document.querySelector('.notification-popover-item');
+    older.reject(new Error('offline'));
+    await flush();
+    assert.equal(h.document.querySelector('.notification-popover-item'), current);
+    assert.equal(current.querySelector('.notification-item-title').textContent, 'Current');
+    h.cleanup();
+});
+
+test('顶部未授权撤回后槽位刷新和页面返回不恢复入口', async () => {
+    const h = await slotHarness({messages: [pageMessage()], unreadCount: 1});
+    h.requests.enqueue(response({}, 403));
+    await h.document.emit('visibilitychange');
+    await flush();
+    assert.equal(h.document.querySelector('.notification-inbox-slot'), null);
+    const count = h.requests.calls.length;
+    await h.window.emit('pixivbatch:slotsrendered');
+    await h.window.emit('pagehide');
+    await h.window.emit('pageshow', {persisted: true});
+    await h.document.emit('visibilitychange');
+    assert.equal(h.document.querySelector('.notification-inbox-slot'), null);
+    assert.equal(h.document.querySelector('.notification-inbox-popover'), null);
+    assert.equal(h.requests.calls.length, count);
+    assert.equal(h.window.intervalCount(), 0);
+    h.cleanup();
+});
+
+test('顶部离页取消查询，返回恢复一次轮询且保留写请求', async () => {
+    const h = await slotHarness({messages: [pageMessage({readTime: null})], unreadCount: 1});
+    const marking = deferred();
+    h.requests.enqueue(marking.promise);
+    const markButton = h.document.querySelector('.notification-popover-mark-read');
+    const writing = markButton.emit('click');
+    const writeSignal = h.requests.calls.at(-1).init.signal;
+    const older = deferred();
+    h.requests.enqueue(older.promise);
+    await h.document.emit('visibilitychange');
+    const readSignal = h.requests.calls.at(-1).init.signal;
+    await h.window.emit('pagehide');
+    assert.equal(readSignal.aborted, true);
+    assert.equal(writeSignal.aborted, false);
+    assert.equal(h.window.intervalCount(), 0);
+    const count = h.requests.calls.length;
+    marking.resolve(response(1));
+    await writing;
+    await h.document.emit('visibilitychange');
+    assert.equal(h.requests.calls.length, count);
+    h.requests.enqueue(response({messages: [pageMessage({title: 'Restored'})], unreadCount: 0}));
+    await h.window.emit('pageshow', {persisted: true});
+    await flush();
+    assert.equal(h.window.intervalCount(), 1);
+    assert.equal(h.document.querySelector('.notification-popover-mark-read').disabled, true);
+    const current = h.document.querySelector('.notification-popover-item');
+    older.resolve(response({messages: [pageMessage({title: 'Stale'})], unreadCount: 9}));
+    await flush();
+    assert.equal(h.document.querySelector('.notification-popover-item'), current);
+    assert.equal(current.querySelector('.notification-item-title').textContent, 'Restored');
+    h.cleanup();
+    assert.equal(h.window.listenerCount('pagehide'), 0);
+    assert.equal(h.window.listenerCount('pageshow'), 0);
+    assert.equal(h.window.intervalCount(), 0);
 });
 
 test('顶部全部已读覆盖所有消息，阻止重复点击与旧快照回写', async () => {
@@ -695,6 +1014,23 @@ test('顶部全部已读覆盖所有消息，阻止重复点击与旧快照回�
     assert.equal(h.document.querySelector('.notification-inbox-badge').hidden, true);
     assert.equal(h.document.querySelector('.notification-popover-item').classList.contains('unread'), false);
     assert.equal(button.disabled, true);
+    h.cleanup();
+});
+
+test('顶部写后查询被新查询替换时不显示加载失败', async () => {
+    const h = await slotHarness({messages: [pageMessage({readTime: null})], unreadCount: 1});
+    const obsolete = deferred();
+    h.requests.enqueue(response(1));
+    h.requests.enqueue(obsolete.promise);
+    const marking = h.document.querySelector('.notification-popover-mark-read').emit('click');
+    await flush();
+    h.requests.enqueue(response({messages: [pageMessage()], unreadCount: 0}));
+    await h.document.emit('visibilitychange');
+    await flush();
+    obsolete.reject(new Error('aborted'));
+    await marking;
+    assert.equal(h.document.querySelector('.notification-popover-status').hidden, true);
+    assert.equal(h.document.querySelector('.notification-inbox-badge').hidden, true);
     h.cleanup();
 });
 

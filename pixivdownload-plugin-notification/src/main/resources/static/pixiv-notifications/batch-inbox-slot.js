@@ -10,7 +10,8 @@
         var popover = null;
         var style = null;
         var refreshTimer = null;
-        var refreshSequence = 0;
+        var refreshRequest = null;
+        var pageSuspended = false;
         var markingAllRead = false;
 
         function t(key, fallback) {
@@ -89,39 +90,50 @@
             });
         }
 
+        function cancelRefresh() {
+            var request = refreshRequest;
+            refreshRequest = null;
+            if (request) request.abort();
+        }
+
         async function refresh() {
-            var requestSequence = ++refreshSequence;
+            if (pageSuspended || !popover || !context.isActive()) return;
+            cancelRefresh();
+            var request = new AbortController();
+            refreshRequest = request;
             try {
                 var query = new URLSearchParams({limit: '8'});
                 if (typeof pageI18n !== 'undefined' && pageI18n && pageI18n.lang) {
                     query.set('lang', pageI18n.lang);
                 }
                 var response = await fetch('/api/notifications?' + query.toString(), {
-                    credentials: 'same-origin', signal: context.signal,
+                    credentials: 'same-origin', signal: request.signal,
                     headers: { 'Accept': 'application/json' }
                 });
-                if (requestSequence !== refreshSequence || context.signal.aborted) return false;
+                if (refreshRequest !== request || !context.isActive()) return;
                 if (response.status === 401 || response.status === 403) {
                     removeRendered();
-                    return false;
+                    return;
                 }
                 if (!response.ok) throw new Error('HTTP ' + response.status);
                 var updated = await response.json();
-                if (requestSequence !== refreshSequence || context.signal.aborted) return false;
+                if (refreshRequest !== request || !context.isActive()) return;
                 snapshot = updated;
                 render();
                 renderMessages();
                 return true;
             } catch (error) {
-                if (!context.signal.aborted && root) renderMessages();
-                return false;
+                if (refreshRequest === request && context.isActive()) return false;
+            } finally {
+                if (refreshRequest === request) refreshRequest = null;
             }
         }
 
         async function markAllRead() {
-            if (markingAllRead || !snapshot || snapshot.unreadCount <= 0) return;
+            if (pageSuspended || !popover || !context.isActive()
+                || markingAllRead || !snapshot || snapshot.unreadCount <= 0) return;
             markingAllRead = true;
-            ++refreshSequence;
+            cancelRefresh();
             var status = popover.querySelector('.notification-popover-status');
             status.hidden = true;
             render();
@@ -130,19 +142,19 @@
                     method: 'POST', credentials: 'same-origin', signal: context.signal,
                     headers: { 'Accept': 'application/json' }
                 });
-                if (context.signal.aborted) return;
+                if (context.signal.aborted || pageSuspended) return;
                 if (response.status === 401 || response.status === 403) {
                     removeRendered();
                     return;
                 }
                 if (!response.ok) throw new Error('HTTP ' + response.status);
-                if (!await refresh() && popover) {
+                if (await refresh() === false && popover && !pageSuspended) {
                     status.setAttribute('data-i18n', 'notification:inbox.load-failed');
                     status.textContent = t('inbox.load-failed', '消息加载失败');
                     status.hidden = false;
                 }
             } catch (error) {
-                if (!context.signal.aborted && popover) {
+                if (!context.signal.aborted && popover && !pageSuspended) {
                     status.setAttribute('data-i18n', 'notification:inbox.mark-read-failed');
                     status.textContent = t('inbox.mark-read-failed', '标记已读失败');
                     status.hidden = false;
@@ -154,7 +166,7 @@
         }
 
         function render() {
-            if (!context.isActive() || !snapshot) return;
+            if (!context.isActive() || pageSuspended || !popover || !snapshot) return;
             var slotHost = host();
             if (!slotHost) return;
             if (root && root.parentNode !== slotHost) root.remove();
@@ -235,7 +247,7 @@
         }
 
         function removeRendered() {
-            ++refreshSequence;
+            cancelRefresh();
             closePopover();
             if (refreshTimer) global.clearInterval(refreshTimer);
             if (root) root.remove();
@@ -262,13 +274,35 @@
         function onVisibilityChange() {
             if (root && document.visibilityState === 'visible') refresh();
         }
+        function startPolling() {
+            if (pageSuspended || !popover || refreshTimer !== null || !context.isActive()) return;
+            refreshTimer = global.setInterval(function () {
+                if (document.visibilityState === 'visible') refresh();
+            }, 45000);
+        }
+        function onPageHide() {
+            pageSuspended = true;
+            cancelRefresh();
+            global.clearInterval(refreshTimer);
+            refreshTimer = null;
+            closePopover();
+        }
+        function onPageShow(event) {
+            if (!event.persisted) return;
+            pageSuspended = false;
+            render();
+            startPolling();
+            refresh();
+        }
         global.addEventListener('pixivbatch:slotsrendered', onSlotsRendered);
+        global.addEventListener('pagehide', onPageHide);
+        global.addEventListener('pageshow', onPageShow);
         document.addEventListener('visibilitychange', onVisibilityChange);
-        refreshTimer = global.setInterval(function () {
-            if (document.visibilityState === 'visible') refresh();
-        }, 45000);
+        startPolling();
         context.onCleanup(function () {
             global.removeEventListener('pixivbatch:slotsrendered', onSlotsRendered);
+            global.removeEventListener('pagehide', onPageHide);
+            global.removeEventListener('pageshow', onPageShow);
             document.removeEventListener('visibilitychange', onVisibilityChange);
             removeRendered();
         });

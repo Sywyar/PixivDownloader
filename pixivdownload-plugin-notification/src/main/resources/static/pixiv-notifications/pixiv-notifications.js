@@ -6,7 +6,9 @@
     var contentFrameHost = null;
     var surveyFrameHost = null;
     var contentFrames = new Map();
-    var loadSequence = 0;
+    var readRequests = {list: null, detail: null};
+    var refreshTimer = null;
+    var pageSuspended = false;
     var markingReadIds = new Set();
     var state = {
         category: '', unreadOnly: false, messages: [], unreadCount: 0,
@@ -16,13 +18,22 @@
     function el(id) { return document.getElementById(id); }
     function t(key, fallback, vars) { return pageI18n ? pageI18n.t(key, fallback, vars) : (fallback || key); }
 
+    function cancelReadRequest(kind) {
+        var request = readRequests[kind];
+        readRequests[kind] = null;
+        if (request) request.abort();
+    }
+
     async function api(url, options) {
         var response = await fetch(url, Object.assign({
             credentials: 'same-origin',
             headers: { 'Accept': 'application/json' }
         }, options || {}));
+        if (options && options.signal && options.signal.aborted) {
+            throw new DOMException('Aborted', 'AbortError');
+        }
         if (response.status === 401) {
-            ++loadSequence;
+            cancelReadRequest('list');
             location.href = '/login.html?redirect=' + encodeURIComponent(location.pathname + location.search);
             throw new Error('Unauthorized');
         }
@@ -84,6 +95,7 @@
     }
 
     function clearSelection(updateHistory) {
+        cancelReadRequest('detail');
         state.selectedId = '';
         state.selectedMessage = null;
         var detail = resetDetail();
@@ -336,25 +348,19 @@
     async function markSelectedRead() {
         var id = state.selectedId;
         if (!id || markingReadIds.has(id) || !state.selectedMessage || state.selectedMessage.readTime) return;
+        var status = el('notificationDetailActionStatus');
         markingReadIds.add(id);
         try {
             var updated = await api(withLanguage('/api/notifications/' + encodeURIComponent(id) + '/read'),
                 { method: 'POST' });
-            ++loadSequence;
-            if (state.selectedId !== id) return;
-            state.unreadCount = Math.max(0, state.unreadCount - 1);
-            if (state.unreadOnly) {
-                state.messages = state.messages.filter(function (item) { return item.id !== id; });
-            } else {
-                state.messages = state.messages.map(function (item) { return item.id === id ? updated : item; });
+            if (state.selectedId === id && state.selectedMessage) {
+                state.selectedMessage.readTime = updated.readTime;
             }
-            state.selectedMessage = updated;
-            renderList();
-            renderDetail(updated);
+            await loadMessages();
         } catch (error) {
-            if (state.selectedId !== id) return;
-            var status = el('notificationDetailActionStatus');
-            if (status) status.textContent = t('inbox.mark-read-failed', '标记已读失败');
+            if (status && el('notificationDetailActionStatus') === status) {
+                status.textContent = t('inbox.mark-read-failed', '标记已读失败');
+            }
         } finally {
             markingReadIds.delete(id);
         }
@@ -363,7 +369,9 @@
     async function deleteSelected(event) {
         var id = state.selectedId;
         var message = state.selectedMessage;
+        var button = event && event.currentTarget;
         if (!id || !message || !window.PixivFeedback) return;
+        var status = el('notificationDetailActionStatus');
         var confirmed = await window.PixivFeedback.confirm({
             title: t('inbox.delete-confirm-title', '删除消息'),
             message: message.category === 'announcement'
@@ -373,25 +381,24 @@
             cancelLabel: t('inbox.delete-cancel', '取消'),
             danger: true
         });
-        if (!confirmed || state.selectedId !== id) return;
-        var button = event && event.currentTarget;
+        if (!confirmed || el('notificationDetailActionStatus') !== status) return;
         if (button) button.disabled = true;
         try {
             await api('/api/notifications/' + encodeURIComponent(id), { method: 'DELETE' });
-            ++loadSequence;
-            if (state.selectedId !== id) return;
             discardContentFrame(id);
-            if (!message.readTime) state.unreadCount = Math.max(0, state.unreadCount - 1);
-            state.messages = state.messages.filter(function (item) { return item.id !== id; });
-            clearSelection(true);
+            if (state.selectedId === id) clearSelection(true);
+            await loadMessages();
         } catch (error) {
             if (button) button.disabled = false;
-            var status = el('notificationDetailActionStatus');
-            if (status) status.textContent = t('inbox.delete-failed', '删除消息失败');
+            if (status && el('notificationDetailActionStatus') === status) {
+                status.textContent = t('inbox.delete-failed', '删除消息失败');
+            }
         }
     }
 
     async function selectMessage(id, updateHistory) {
+        cancelReadRequest('detail');
+        if (pageSuspended) return;
         state.selectedId = id;
         state.selectedMessage = state.messages.find(function (message) { return message.id === id; }) || null;
         renderList();
@@ -407,9 +414,12 @@
             }
             return;
         }
+        var request = new AbortController();
+        readRequests.detail = request;
         try {
-            var message = await api(withLanguage('/api/notifications/' + encodeURIComponent(id)));
-            if (state.selectedId !== id) return;
+            var message = await api(withLanguage('/api/notifications/' + encodeURIComponent(id)),
+                {signal: request.signal});
+            if (readRequests.detail !== request) return;
             if (!matchesCategory(message)) {
                 clearSelection(true);
                 return;
@@ -420,17 +430,22 @@
                 el('notificationDetail').scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         } catch (error) {
-            if (state.selectedId === id) {
+            if (readRequests.detail === request) {
                 var detail = resetDetail();
                 var failure = document.createElement('p');
                 failure.textContent = t('inbox.load-failed', '消息加载失败');
                 detail.insertBefore(failure, contentFrameHost);
             }
+        } finally {
+            if (readRequests.detail === request) readRequests.detail = null;
         }
     }
 
     async function loadMessages(quiet) {
-        var requestSequence = ++loadSequence;
+        cancelReadRequest('list');
+        if (pageSuspended) return false;
+        var request = new AbortController();
+        readRequests.list = request;
         var status = el('notificationStatus');
         if (!quiet) {
             status.hidden = false;
@@ -441,18 +456,20 @@
         if (state.category) query.set('category', state.category);
         if (state.unreadOnly) query.set('unreadOnly', 'true');
         try {
-            var snapshot = await api('/api/notifications?' + query.toString());
-            if (requestSequence !== loadSequence) return false;
+            var snapshot = await api('/api/notifications?' + query.toString(), {signal: request.signal});
+            if (readRequests.list !== request) return false;
             state.messages = Array.isArray(snapshot.messages) ? snapshot.messages : [];
             state.unreadCount = Math.max(0, Number(snapshot.categoryUnreadCount) || 0);
             renderList();
             return true;
         } catch (error) {
-            if (requestSequence === loadSequence && !quiet) {
+            if (readRequests.list === request && !quiet) {
                 status.hidden = false;
                 status.textContent = t('inbox.load-failed', '消息加载失败');
             }
             return false;
+        } finally {
+            if (readRequests.list === request) readRequests.list = null;
         }
     }
 
@@ -481,8 +498,8 @@
             var query = category ? '?category=' + encodeURIComponent(category) : '';
             try {
                 await api('/api/notifications/read-all' + query, { method: 'POST' });
-                ++loadSequence;
-                if (state.category !== category || !await loadMessages()) return;
+                if (!await loadMessages() || !state.selectedMessage
+                    || (category && state.selectedMessage.category !== category)) return;
                 if (state.unreadOnly) clearSelection(true);
                 else if (state.selectedId) selectMessage(state.selectedId, false);
             } catch (error) {
@@ -506,6 +523,7 @@
             mountPoint: el('langSwitcherAnchor'),
             i18n: pageI18n,
             onChange: function (nextClient) {
+                cancelReadRequest('detail');
                 pageI18n = nextClient;
                 applyTranslations();
                 loadMessages().then(function (loaded) {
@@ -532,6 +550,27 @@
             });
         }
         window.addEventListener('message', handleContentMessage);
+        function startPolling() {
+            if (pageSuspended || refreshTimer !== null) return;
+            refreshTimer = window.setInterval(function () {
+                if (document.visibilityState === 'visible') loadMessages(true);
+            }, 45000);
+        }
+        window.addEventListener('pagehide', function () {
+            pageSuspended = true;
+            window.clearInterval(refreshTimer);
+            refreshTimer = null;
+            cancelReadRequest('list');
+            cancelReadRequest('detail');
+        });
+        window.addEventListener('pageshow', function (event) {
+            if (!event.persisted) return;
+            pageSuspended = false;
+            startPolling();
+            loadMessages(true).then(function (loaded) {
+                if (loaded && state.selectedId) selectMessage(state.selectedId, false);
+            });
+        });
         bindFilters();
         bindListTools();
         await initI18n();
@@ -542,9 +581,7 @@
             var id = new URLSearchParams(location.search).get('id');
             if (id) selectMessage(id, false); else clearSelection(false);
         });
-        window.setInterval(function () {
-            if (document.visibilityState === 'visible') loadMessages(true);
-        }, 45000);
+        startPolling();
         document.addEventListener('visibilitychange', function () {
             if (document.visibilityState === 'visible') loadMessages(true);
         });

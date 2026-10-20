@@ -55,7 +55,8 @@ public class InboxNotificationSink implements NotificationSink {
             }
             deliverForTest(scenario, locale, placeholders);
         } catch (Exception exception) {
-            LOG.error("Inbox notification [{}] failed: {}", scenario.id(), exception.getMessage());
+            LOG.error("Inbox notification [{}] failed: {}",
+                    scenario == null ? null : scenario.id(), exception.getMessage());
         }
     }
 
