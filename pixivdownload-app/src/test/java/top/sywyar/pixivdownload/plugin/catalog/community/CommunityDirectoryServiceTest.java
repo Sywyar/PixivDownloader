@@ -44,9 +44,12 @@ class CommunityDirectoryServiceTest {
         var f = new Fixture(temp);
         f.publish(2, DirectoryEntry.Status.IDENTITY_VERIFIED);
         f.service().lookup("alpha");
+        byte[] original = Files.readAllBytes(f.state);
         f.requests.clear();
         var unchanged = f.service().lookup("alpha");
         assertThat(unchanged.cached()).isFalse();
+        assertThat(unchanged.sequence()).isEqualTo(2);
+        assertThat(Files.readAllBytes(f.state)).isEqualTo(original);
         assertThat(f.requests).containsExactly(Fixture.BASE.resolve("generated/current.json").toString());
         f.publish(3, DirectoryEntry.Status.SUSPENDED);
         f.requests.clear();
@@ -60,14 +63,18 @@ class CommunityDirectoryServiceTest {
         var f = new Fixture(temp);
         f.publish(2, DirectoryEntry.Status.IDENTITY_VERIFIED);
         assertThat(f.service().lookup("alpha").sequence()).isEqualTo(2);
+        byte[] original = Files.readAllBytes(f.state);
         f.documents.clear();
         assertThat(f.service().lookup("alpha").cached()).isTrue();
+        assertThat(Files.readAllBytes(f.state)).isEqualTo(original);
         assertThatThrownBy(() -> f.service().lookup("beta")).isInstanceOf(RuntimeException.class);
         f.publish(1, DirectoryEntry.Status.LISTED);
         assertThat(f.service().lookup("alpha").sequence()).isEqualTo(2);
+        assertThat(Files.readAllBytes(f.state)).isEqualTo(original);
         f.publish(3, DirectoryEntry.Status.SUSPENDED);
         f.documents.replaceAll((url, bytes) -> url.contains("/shards/") ? new byte[] { 1 } : bytes);
         assertThat(f.service().lookup("alpha").entry().status()).isEqualTo(DirectoryEntry.Status.IDENTITY_VERIFIED);
+        assertThat(Files.readAllBytes(f.state)).isEqualTo(original);
         f.publish(3, DirectoryEntry.Status.SUSPENDED);
         assertThat(f.service().lookup("alpha").entry().status()).isEqualTo(DirectoryEntry.Status.SUSPENDED);
         Files.write(f.state, new byte[] { 0, 1 });
@@ -82,8 +89,10 @@ class CommunityDirectoryServiceTest {
         var f = new Fixture(temp);
         f.publish(1, DirectoryEntry.Status.LISTED);
         assertThat(f.service().lookup("alpha").certifies("alpha", Fixture.DESCRIPTOR, Fixture.HASH, List.of(f.key))).isFalse();
+        byte[] original = Files.readAllBytes(f.state);
         f.publish(1, DirectoryEntry.Status.IDENTITY_VERIFIED);
         assertThat(f.service().lookup("alpha").entry().status()).isEqualTo(DirectoryEntry.Status.LISTED);
+        assertThat(Files.readAllBytes(f.state)).isEqualTo(original);
         f.publish(2, DirectoryEntry.Status.SUSPENDED);
         assertThat(f.service().lookup("alpha").certifies("alpha", Fixture.DESCRIPTOR, Fixture.HASH, List.of(f.key))).isFalse();
     }
