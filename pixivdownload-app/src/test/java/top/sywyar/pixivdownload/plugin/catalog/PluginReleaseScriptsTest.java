@@ -30,37 +30,6 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class PluginReleaseScriptsTest {
 
     @Test
-    @DisplayName("市场清单生成脚本输出结构化包签名，并在写出原始 manifest 后生成 detached 签名")
-    void marketManifestScriptWritesStructuredSignaturesAndDetachedManifestSignature() throws Exception {
-        String script = script("generate-market-manifest.ps1");
-
-        assertThat(script).contains(
-                "Invoke-PluginSignatureTool $SignatureToolJar @(",
-                "$assetName = Get-OfficialPluginArtifactName $plugin $version",
-                "\"artifact\"",
-                "signature         = $signature",
-                "signatureUrl      = \"$packageUrl.sig\"",
-                "schemaVersion = \"1\"",
-                "$manifestSignatureFile = \"$OutputFile.sig\"",
-                "ConvertTo-Json -Depth 12) -replace \"`r`n\", \"`n\" -replace \"`r\", \"`n\"",
-                "\"manifest\"",
-                "\"--manifest\", $OutputFile",
-                "\"--repository-id\", \"official\""
-        );
-        assertThat(script).doesNotContain("schemaVersion = \"2\"");
-        assertThat(script).doesNotContain("signature         = \"");
-        assertThat(script).doesNotContain("signature = \"");
-        assertThat(script).doesNotContain("$jarName = \"$($plugin.Module)-$version.jar\"");
-
-        assertThat(script.indexOf("[System.IO.File]::WriteAllText($OutputFile"))
-                .as("manifest 原始 JSON 必须先写入文件")
-                .isGreaterThanOrEqualTo(0);
-        assertThat(script.indexOf("$manifestSignatureFile = \"$OutputFile.sig\""))
-                .as("manifest detached 签名必须在原始文件写出之后生成")
-                .isGreaterThan(script.indexOf("[System.IO.File]::WriteAllText($OutputFile"));
-    }
-
-    @Test
     @DisplayName("官方插件描述符保留通知与统计依赖声明")
     void officialDescriptorsDeclareNotificationAndStatisticsDependencies() throws Exception {
         assertThat(pluginDescriptor("pixivdownload-plugin-mail")).contains("plugin.dependencies=notification@1.0");

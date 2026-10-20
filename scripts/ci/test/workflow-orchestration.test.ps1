@@ -335,16 +335,21 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         $fixtureUtf8 = New-Object System.Text.UTF8Encoding($false)
         $marketPlugin = @(Get-OfficialRequiredPlugins)[0]
         $ProjectRoot = $repo
-        $sourceDescriptor = Read-SourceDescriptor $marketPlugin.Module
+        $sourceDescriptor = Read-PropertiesFile (Join-Path $repo "$($marketPlugin.Module)/src/main/resources/plugin.properties")
         $currentSdk = Get-PixivDownloadSdkVersion -ProjectRoot $repo
         $marketRoot = Join-Path $fixture 'market'
         $resources = Join-Path $marketRoot "$($marketPlugin.Module)/src/main/resources"
         [IO.Directory]::CreateDirectory((Join-Path $resources 'i18n/web')) | Out-Null
         $descriptorPath = Join-Path $resources 'plugin.properties'
         $descriptorText = [IO.File]::ReadAllText((Join-Path $repo "$($marketPlugin.Module)/src/main/resources/plugin.properties"), $fixtureUtf8)
+        $descriptorText = [char]0xFEFF + $descriptorText + "`n# ignored`ninvalid`n=ignored`npixiv.display-name-key=discarded`n" +
+            [char]0xFEFF + "pixiv.display-name-key = fixture.label `npixiv.description-key=fixture.summary`n"
+        $label = "Name $([char]0x4E2D) = label"
         foreach ($suffix in @('', '_en')) {
             $bundle = "i18n/web/$($sourceDescriptor['pixiv.display-namespace'])$suffix.properties"
             Copy-Item -LiteralPath (Join-Path $repo "$($marketPlugin.Module)/src/main/resources/$bundle") -Destination (Join-Path $resources $bundle)
+            [IO.File]::AppendAllText((Join-Path $resources $bundle), "`n# ignored`ninvalid`n=ignored`nfixture.label=discarded`n" +
+                [char]0xFEFF + "fixture.label = $label$suffix `nfixture.summary = summary$suffix `n", $fixtureUtf8)
         }
         $metadata = 'pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties'
         [IO.Directory]::CreateDirectory((Split-Path -Parent (Join-Path $marketRoot $metadata))) | Out-Null
@@ -357,6 +362,16 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         function Invoke-PluginSignatureTool {
             param($Tool, $Arguments)
             if ($Arguments[0] -eq 'verify-manifest') { return }
+            if ($Arguments[0] -eq 'artifact') {
+                Assert-Equal $Arguments[[Array]::IndexOf($Arguments, '--plugin-id') + 1] $marketPlugin.Id
+                Assert-Equal $Arguments[[Array]::IndexOf($Arguments, '--version') + 1] $fixtureVersion
+                Assert-Equal (Test-Path -LiteralPath $Arguments[[Array]::IndexOf($Arguments, '--artifact') + 1]) $true
+            } elseif ($Arguments[0] -eq 'manifest') {
+                $manifestPath = $Arguments[[Array]::IndexOf($Arguments, '--manifest') + 1]
+                $signingManifest = [IO.File]::ReadAllText($manifestPath, $fixtureUtf8) | ConvertFrom-Json
+                Assert-Equal @($signingManifest.entries).Count 1
+                Assert-Equal $Arguments[[Array]::IndexOf($Arguments, '--repository-id') + 1] 'official'
+            } else { throw 'Unexpected signing command in market fixture.' }
             $destination = $Arguments[[Array]::IndexOf($Arguments, '--out') + 1]
             [IO.File]::WriteAllText($destination, '{"formatVersion":1,"algorithm":"Ed25519","keyId":"fixture","value":"fixture"}', $fixtureUtf8)
         }
@@ -405,9 +420,25 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             }
             $fixtureAssetName = Get-OfficialPluginArtifactName $marketPlugin $fixtureVersion
             & $program.Main @parameters
-            $manifest = [IO.File]::ReadAllText($output, $fixtureUtf8) | ConvertFrom-Json
+            $manifestBytes = [IO.File]::ReadAllBytes($output)
+            Assert-Equal (($manifestBytes[0..2] -join ',') -eq '239,187,191') $false
+            $manifestText = $fixtureUtf8.GetString($manifestBytes)
+            Assert-Equal $manifestText.Contains("`r") $false
+            $manifest = $manifestText | ConvertFrom-Json
             Assert-Equal @($manifest.entries).Count 1
+            Assert-Equal $manifest.schemaVersion '1'
+            Assert-Equal $manifest.entries[0].market.displayName.zh $label
+            Assert-Equal $manifest.entries[0].market.displayName.en "${label}_en"
+            Assert-Equal $manifest.entries[0].market.summary.zh 'summary'
+            Assert-Equal $manifest.entries[0].market.summary.en 'summary_en'
             $package = $manifest.entries[0].packages[0]
+            foreach ($signature in @($package.signature, ([IO.File]::ReadAllText("$output.sig", $fixtureUtf8) | ConvertFrom-Json))) {
+                Assert-Equal $signature.formatVersion 1
+                Assert-Equal $signature.algorithm 'Ed25519'
+                Assert-Equal $signature.keyId 'fixture'
+                Assert-Equal $signature.value 'fixture'
+            }
+            Assert-Equal $package.signatureUrl "$($package.packageUrl).sig"
             Assert-Equal $package.requiredSdk $case.Expected
             Assert-Equal $package.requiredCoreApi $case.Expected
             Assert-Equal $package.channel $(if ($case.ContainsKey('Nightly')) { 'nightly' } else { 'stable' })
@@ -416,6 +447,18 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
                 & node (Join-Path $repo 'scripts/ci/assert-nightly-publication.mjs') plugins '8.2.3-nightly.20260910.2.1' $output
                 if ($LASTEXITCODE -ne 0) { throw 'Generated Nightly manifest was rejected by publication guard.' }
             }
+        }
+        foreach ($missing in @(
+            @{Path=$descriptorPath; Message='Missing source descriptor'},
+            @{Path=(Join-Path $resources $bundle); Message='Missing i18n bundle'}
+        )) {
+            $originalBytes = [IO.File]::ReadAllBytes($missing.Path)
+            $originalOutput = [IO.File]::ReadAllText($output, $fixtureUtf8)
+            try {
+                Remove-Item -LiteralPath $missing.Path
+                Assert-Rejected { & $program.Main @parameters } $missing.Message
+                Assert-Equal ([IO.File]::ReadAllText($output, $fixtureUtf8)) $originalOutput
+            } finally { [IO.File]::WriteAllBytes($missing.Path, $originalBytes) }
         }
         $metadataPath = Join-Path $marketRoot $metadata
         $metadataBytes = [IO.File]::ReadAllBytes($metadataPath)
