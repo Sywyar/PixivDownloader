@@ -212,7 +212,6 @@
             submit.className = 'survey-submit';
             submit.type = 'button';
             submit.textContent = t('submit', '提交');
-            submit.disabled = true;
             root.append(title, description, fieldset, privacy, error, submit);
 
             function selectedChoice() {
@@ -223,7 +222,7 @@
             function update() {
                 var choice = selectedChoice();
                 otherInput.disabled = choice !== 'Other';
-                submit.disabled = !responseValue(choice, otherInput.value);
+                submit.disabled = fieldset.disabled || !responseValue(choice, otherInput.value);
                 error.hidden = true;
                 reportHeight();
             }
@@ -234,6 +233,7 @@
             });
             otherInput.addEventListener('input', update);
             submit.addEventListener('click', function () {
+                if (fieldset.disabled) return;
                 if (submitted()) {
                     status('completed', '感谢反馈，您的回答已提交。');
                     return;
@@ -250,7 +250,8 @@
                     error.hidden = false;
                     return;
                 }
-                submit.disabled = true;
+                fieldset.disabled = true;
+                update();
                 submit.textContent = t('submitting', '提交中…');
                 var properties = {'$survey_id': POSTHOG.surveyId, '$survey_completed': true};
                 properties['$survey_response_' + question.id] = response;
@@ -259,15 +260,16 @@
                     rememberSubmitted();
                     status('completed', '感谢反馈，您的回答已提交。');
                 }).catch(function () {
+                    fieldset.disabled = false;
                     submit.textContent = t('submit', '提交');
-                    submit.disabled = false;
+                    update();
                     error.textContent = t('submit-failed', '提交失败，请稍后重试。');
                     error.hidden = false;
                     reportHeight();
                 });
             });
             try { client.capture('survey shown', {'$survey_id': POSTHOG.surveyId}); } catch (_) { /* best effort */ }
-            reportHeight();
+            update();
         }
 
         try {

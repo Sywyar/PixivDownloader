@@ -575,17 +575,8 @@
         preflight.then(function (result) {
             if (!ctx.isRuntimeGenerationActive(generation)) return;
             result = result || {status: ctx.REFRESH_UNAVAILABLE, reason: 'unknown'};
-            if (result.status === ctx.REFRESH_CANCELLED) {
-                // 当前 generation 仍活动但 operation 被取代：不继续 capture，
-                // 恢复控件并显示同一可重试错误（不得静默继续）。
-                runtime.submitting = false;
-                setSubmittingState(false);
-                lastErrorKey = 'error-state-verification';
-                showError('error-state-verification');
-                return;
-            }
-            if (result.status === ctx.REFRESH_INVALID) {
-                // 协议 / 身份 / 快照异常：fail-closed。
+            if (result.status === ctx.REFRESH_CANCELLED || result.status === ctx.REFRESH_INVALID) {
+                // 活动 generation 的操作被取代或视图非法时，保留表单供重试。
                 runtime.submitting = false;
                 setSubmittingState(false);
                 lastErrorKey = 'error-state-verification';

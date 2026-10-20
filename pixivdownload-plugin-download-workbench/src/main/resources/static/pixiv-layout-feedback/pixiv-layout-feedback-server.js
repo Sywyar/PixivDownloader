@@ -48,7 +48,7 @@
      * - reconcile 阶段：有限本地状态回放（reconciliation），由每个
      *   sendServerCommand 自己的 SERVER_COMMAND_TIMEOUT_MS 控制；整体 promise 必须
      *   等待 reconciliation 达成或确定失败，不得因 GET timeout 提前 resolve；
-     * - 同一 generation 只创建一个请求（完成后标记 done，避免旧 operation 被误复用）；
+     * - 同一 generation 复用同一请求及其结果，旧 generation 的回调不应用状态；
      * - 成功且 available=true：启用服务端 scoped 身份；stateAvailable=true 时启用
      *   serverBacked（服务端状态权威），随后先执行有限本地状态回放（必须在覆盖本地
      *   缓存之前读取 localFallback），再用权威视图更新本地协调缓存；
@@ -59,8 +59,7 @@
      *   同 generation 已进入 reconciliation 后不接受重复 GET callback。
      */
     function loadServerContext(generation) {
-        // 同一 generation 复用同一个 operation 的 promise（已完成也复用其已 resolve
-        // 的结果，不重复 GET）；done 标记用于避免旧 operation 被当作活动操作复用。
+        // 同一 generation 复用已完成的结果，不重复 GET。
         if (runtime.serverLoadOperation && runtime.serverLoadOperation.generation === generation) {
             return runtime.serverLoadOperation.promise;
         }
@@ -70,17 +69,13 @@
             abortController: null,
             timeoutId: null,
             settled: false,
-            done: false,
             cancel: null
         };
         runtime.serverLoadOperation = operation;
         operation.promise = new Promise(function (resolve) {
-            var settled = false;
             function finish() {
-                if (settled) return;
-                settled = true;
+                if (operation.settled) return;
                 operation.settled = true;
-                operation.done = true;
                 if (operation.timeoutId != null) {
                     ctx.clearTimerSafe(operation.timeoutId);
                     operation.timeoutId = null;
@@ -88,7 +83,7 @@
                 resolve();
             }
             operation.cancel = function () {
-                if (settled) return;
+                if (operation.settled) return;
                 if (operation.abortController) {
                     try { operation.abortController.abort(); } catch (_) { /* 安全 */ }
                 }
@@ -97,7 +92,7 @@
             // GET 阶段 timeout：只覆盖 GET；进入 reconciliation 前必须清除。
             operation.timeoutId = ctx.setTimeoutSafe(function () {
                 operation.timeoutId = null;
-                if (settled) return;
+                if (operation.settled) return;
                 if (operation.abortController) {
                     try { operation.abortController.abort(); } catch (_) { /* 安全 */ }
                 }
@@ -127,7 +122,7 @@
                 if (!response || !response.ok) throw new Error('http');
                 return response.json();
             }).then(function (data) {
-                if (!ctx.isRuntimeGenerationActive(generation) || settled) throw new Error('stale');
+                if (!ctx.isRuntimeGenerationActive(generation) || operation.settled) throw new Error('stale');
                 // 在应用服务端视图前先保存本地 fallback 快照，避免后续写协调缓存时
                 // 失去尚未确认的本地 submitted / never / snoozed / seen 原始数据。
                 var localFallback = {
@@ -149,7 +144,6 @@
                     // 等待它达成或确定失败（reconciled 守卫保证只回放一次）。
                     // 最终同步 effectiveState 前必须再次验证 operation / generation 活动：
                     // destroy 已调用 operation.cancel（settled=true）时最终同步不得执行。
-                    operation.phase = 'reconcile';
                     return ctx.reconcileLocalState(operation, generation, localFallback)
                         .then(function (result) {
                             if (!ctx.isOperationActive(operation, generation)) return null;
@@ -192,7 +186,6 @@
         }
         if (runtime.serverRefreshInFlight) return runtime.serverRefreshInFlight;
         runtime.serverRefreshInFlight = new Promise(function (resolve) {
-            var settled = false;
             var operation = {
                 generation: generation,
                 aborted: false,
@@ -204,8 +197,7 @@
             };
             runtime.serverRefreshOperation = operation;
             function finish(result) {
-                if (settled) return;
-                settled = true;
+                if (operation.settled) return;
                 operation.settled = true;
                 if (operation.timeoutId != null) {
                     ctx.clearTimerSafe(operation.timeoutId);
@@ -215,7 +207,7 @@
                 resolve(result);
             }
             operation.cancel = function (reason) {
-                if (settled) return;
+                if (operation.settled) return;
                 operation.aborted = true;
                 operation.cancelReason = reason || 'cancelled';
                 if (operation.abortController) {
@@ -229,7 +221,7 @@
             };
             operation.timeoutId = ctx.setTimeoutSafe(function () {
                 operation.timeoutId = null;
-                if (settled) return;
+                if (operation.settled) return;
                 operation.cancel('timeout');
             }, ctx.SERVER_STATE_TIMEOUT_MS);
             var init = {
@@ -353,7 +345,6 @@
         options = options || {};
         var layoutIds = options.layoutIds || null;
         return new Promise(function (resolve) {
-            var settled = false;
             var operation = {
                 generation: generation,
                 aborted: false,
@@ -365,8 +356,7 @@
             };
             runtime.serverCommandOperations.add(operation);
             function finish(result) {
-                if (settled) return;
-                settled = true;
+                if (operation.settled) return;
                 operation.settled = true;
                 if (operation.timeoutId != null) {
                     ctx.clearTimerSafe(operation.timeoutId);
@@ -395,7 +385,7 @@
                 return result;
             }
             operation.cancel = function () {
-                if (settled || operation.aborted) return;
+                if (operation.settled || operation.aborted) return;
                 operation.aborted = true;
                 if (operation.timeoutId != null) {
                     ctx.clearTimerSafe(operation.timeoutId);
@@ -408,7 +398,7 @@
             };
             operation.timeoutId = ctx.setTimeoutSafe(function () {
                 operation.timeoutId = null;
-                if (settled) return;
+                if (operation.settled) return;
                 // 超时：abort 在途请求并以失败结果安全结束。
                 operation.aborted = true;
                 if (operation.abortController) {

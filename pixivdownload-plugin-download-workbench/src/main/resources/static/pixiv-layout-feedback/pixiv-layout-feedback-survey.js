@@ -126,10 +126,8 @@
         };
         runtime.sdkLoadOperation = operation;
         operation.promise = new Promise(function (resolve) {
-            var settled = false;
             function finish(sdk) {
-                if (settled) return;
-                settled = true;
+                if (operation.settled) return;
                 operation.settled = true;
                 resolve(sdk);
             }

@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复多人模式调查等待提交确认时，切换回答可能重复发送的问题。
 - 修复 Windows 安装器在附加组件下载进程异常退出后持续等待进度，以及下载错误中的中文字符丢失问题。
 - 修复 Windows 部分较深安装目录中声明式插件无法启动的问题。
 - 修复反复合订小说系列时锁记录持续累积的问题。
