@@ -380,7 +380,6 @@ final class JdkOutboundWebSocketClientFactory implements OutboundWebSocketClient
 
         private final AtomicReference<WebSocket.Listener> delegate;
         private final AtomicReference<Runnable> terminalCallback;
-        private final AtomicBoolean terminal = new AtomicBoolean();
 
         private ManagedListener(
                 WebSocket.Listener delegate,
@@ -478,12 +477,10 @@ final class JdkOutboundWebSocketClientFactory implements OutboundWebSocketClient
         }
 
         private void terminate() {
-            if (terminal.compareAndSet(false, true)) {
-                delegate.set(null);
-                Runnable callback = terminalCallback.getAndSet(null);
-                if (callback != null) {
-                    callback.run();
-                }
+            delegate.set(null);
+            Runnable callback = terminalCallback.getAndSet(null);
+            if (callback != null) {
+                callback.run();
             }
         }
 

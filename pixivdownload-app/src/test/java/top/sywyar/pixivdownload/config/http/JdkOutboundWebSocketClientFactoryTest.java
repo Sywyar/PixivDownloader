@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.config.http;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import top.sywyar.pixivdownload.config.ProxyConfig;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpRoute;
 import top.sywyar.pixivdownload.plugin.api.http.websocket.OutboundWebSocketClient;
@@ -200,6 +202,42 @@ class JdkOutboundWebSocketClientFactoryTest {
         assertThat(expected.getResponse().headers().firstValue("Date"))
                 .contains("Tue, 28 Jul 2026 09:00:00 GMT");
         client.close();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    @DisplayName("握手完成前后的正常关闭与错误均释放监听器且不再作为活动连接清退")
+    void terminalListenerRetiresConnection(boolean beforeHandshake, boolean error) {
+        CapturingTransport transport = new CapturingTransport();
+        CompletableFuture<WebSocket> handshake = new CompletableFuture<>();
+        transport.enqueue(handshake);
+        WebSocket socket = mock(WebSocket.class);
+        WebSocket.Listener delegate = mock(WebSocket.Listener.class);
+        try (OutboundWebSocketClient client = factory(transport)
+                .open(profile(OutboundHttpRoute.direct()))) {
+            CompletableFuture<WebSocket> result = client.connect(request(), delegate);
+            WebSocket.Listener listener = transport.invocations.get(0).listener();
+            if (!beforeHandshake) {
+                handshake.complete(socket);
+            }
+            if (error) {
+                var failure = new IllegalStateException("connection failed");
+                listener.onError(socket, failure);
+                verify(delegate).onError(socket, failure);
+            } else {
+                listener.onClose(socket, 1000, "done");
+                verify(delegate).onClose(socket, 1000, "done");
+            }
+            handshake.complete(socket);
+            assertThat(result.join()).isSameAs(socket);
+
+            listener.onClose(socket, 1000, "duplicate");
+            var lateFailure = new IllegalStateException("late failure");
+            listener.onError(socket, lateFailure);
+            verify(delegate, never()).onClose(socket, 1000, "duplicate");
+            verify(delegate, never()).onError(socket, lateFailure);
+        }
+        verify(socket, never()).abort();
     }
 
     @Test
