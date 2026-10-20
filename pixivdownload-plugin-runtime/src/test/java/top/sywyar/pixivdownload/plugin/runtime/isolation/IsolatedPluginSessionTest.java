@@ -4,9 +4,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginArtifactSnapshot;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
+import top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginRuntimeOperationException;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
@@ -23,10 +28,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @DisplayName("隔离插件 worker 会话")
 class IsolatedPluginSessionTest {
@@ -228,6 +239,57 @@ class IsolatedPluginSessionTest {
                 .hasMessageContaining("unknown response status");
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    @DisplayName("终止未确认时保留进程清退责任，拒绝释放快照和启动替代进程")
+    void retriesUnconfirmedTerminationBeforeReleasingSnapshot(boolean rootSurvives) throws Exception {
+        System.setProperty(IsolatedPluginSession.SHUTDOWN_TIMEOUT_PROPERTY, "1");
+        Process process = mock(Process.class);
+        ProcessHandle root = mock(ProcessHandle.class);
+        ProcessHandle child = mock(ProcessHandle.class);
+        AtomicBoolean rootAlive = new AtomicBoolean(true);
+        AtomicBoolean childAlive = new AtomicBoolean(!rootSurvives);
+        when(process.isAlive()).thenAnswer(ignored -> rootAlive.get());
+        when(process.toHandle()).thenReturn(root);
+        when(root.descendants()).thenAnswer(ignored ->
+                rootAlive.get() && childAlive.get() ? Stream.of(child) : Stream.empty());
+        when(child.descendants()).thenAnswer(ignored -> Stream.empty());
+        when(root.isAlive()).thenAnswer(ignored -> rootAlive.get());
+        when(root.destroy()).thenAnswer(ignored -> {
+            rootAlive.set(rootSurvives);
+            return !rootSurvives;
+        });
+        when(child.isAlive()).thenAnswer(ignored -> childAlive.get());
+        PluginArtifactSnapshot snapshot = mock(PluginArtifactSnapshot.class);
+        IsolatedPluginSession session = sessionWithProcess(process, snapshot);
+
+        assertThat(session.close()).isFalse();
+        childAlive.set(true);
+        assertThat(session.close()).isFalse();
+        rootAlive.set(false);
+        assertThat(session.close()).isFalse();
+        verify(snapshot, never()).close();
+        assertThatThrownBy(session::initialize).isInstanceOf(PluginRuntimeOperationException.class);
+        verify(snapshot, never()).createWorkerDirectory();
+
+        childAlive.set(false);
+        assertThat(session.close()).isTrue();
+        assertThat(session.close()).isTrue();
+        verify(snapshot).close();
+    }
+
+    private IsolatedPluginSession sessionWithProcess(Process process, PluginArtifactSnapshot snapshot)
+            throws Exception {
+        PluginDescriptor descriptor = mock(PluginDescriptor.class);
+        when(descriptor.id()).thenReturn("cleanup-probe");
+        IsolatedPluginSession session = new IsolatedPluginSession(
+                descriptor, tempDir.resolve("plugin.jar"), "a".repeat(64), snapshot);
+        var processField = IsolatedPluginSession.class.getDeclaredField("process");
+        processField.setAccessible(true);
+        processField.set(session, process);
+        return session;
+    }
+
     @Test
     @DisplayName("强制清退 worker 时同时终止其后代进程")
     void terminatesWholeProcessTree() throws Exception {
@@ -245,7 +307,7 @@ class IsolatedPluginSessionTest {
         }
 
         assertThat(ProcessHandle.of(childPid)).hasValueSatisfying(handle -> assertThat(handle.isAlive()).isTrue());
-        assertThat(IsolatedPluginSession.terminateProcessTree(root, Duration.ofSeconds(2))).isTrue();
+        assertThat(sessionWithProcess(root, mock(PluginArtifactSnapshot.class)).close()).isTrue();
         assertThat(root.isAlive()).isFalse();
         assertThat(ProcessHandle.of(childPid).map(ProcessHandle::isAlive).orElse(false)).isFalse();
     }
