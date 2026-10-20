@@ -17,26 +17,29 @@ final class WindowsThemeRegistryMonitor {
     private static final String PERSONALIZE_KEY = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
 
     private final Runnable onPotentialThemeChange;
-    private volatile boolean running;
-    private volatile WinNT.HANDLE changeEvent;
-    private Thread worker;
+    private WinNT.HANDLE changeEvent;
+    private volatile Thread worker;
 
     WindowsThemeRegistryMonitor(Runnable onPotentialThemeChange) {
         this.onPotentialThemeChange = onPotentialThemeChange;
     }
 
     synchronized void start() {
-        if (!isWindows() || running) {
+        if (!isWindows() || worker != null) {
             return;
         }
-        running = true;
         worker = new Thread(this::runLoop, "gui-swing-registry-watcher");
         worker.setDaemon(true);
-        worker.start();
+        try {
+            worker.start();
+        } catch (RuntimeException | Error failure) {
+            worker = null;
+            throw failure;
+        }
     }
 
     synchronized void stop() {
-        running = false;
+        worker = null;
         WinNT.HANDLE event = changeEvent;
         if (event != null) {
             Kernel32.INSTANCE.SetEvent(event);
@@ -64,11 +67,13 @@ final class WindowsThemeRegistryMonitor {
                 log.debug("Failed to create Windows theme registry listener event");
                 return;
             }
-            changeEvent = event;
+            synchronized (this) {
+                if (worker != Thread.currentThread()) return;
+                changeEvent = event;
+            }
             log.debug("Listening for Windows theme registry changes");
 
-            while (running) {
-                Kernel32.INSTANCE.ResetEvent(event);
+            while (worker == Thread.currentThread()) {
                 rc = Advapi32.INSTANCE.RegNotifyChangeKeyValue(
                         key,
                         false,
@@ -81,7 +86,7 @@ final class WindowsThemeRegistryMonitor {
                 }
 
                 int wait = Kernel32.INSTANCE.WaitForSingleObject(event, WinBase.INFINITE);
-                if (!running) {
+                if (worker != Thread.currentThread()) {
                     return;
                 }
                 if (wait == WinBase.WAIT_OBJECT_0) {
@@ -94,14 +99,16 @@ final class WindowsThemeRegistryMonitor {
         } catch (RuntimeException | UnsatisfiedLinkError e) {
             log.debug("Windows theme registry listener failed: {}", e.toString());
         } finally {
-            changeEvent = null;
-            if (event != null) {
-                Kernel32.INSTANCE.CloseHandle(event);
+            synchronized (this) {
+                if (worker == Thread.currentThread()) worker = null;
+                if (changeEvent == event) changeEvent = null;
+                if (key != null) {
+                    Advapi32.INSTANCE.RegCloseKey(key);
+                }
+                if (event != null) {
+                    Kernel32.INSTANCE.CloseHandle(event);
+                }
             }
-            if (key != null) {
-                Advapi32.INSTANCE.RegCloseKey(key);
-            }
-            running = false;
         }
     }
 

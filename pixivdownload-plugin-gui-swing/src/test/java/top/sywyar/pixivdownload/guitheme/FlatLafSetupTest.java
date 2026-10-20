@@ -3,12 +3,16 @@ package top.sywyar.pixivdownload.guitheme;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-@DisplayName("GUI 字体选择")
+@DisplayName("Swing 主题初始化")
 class FlatLafSetupTest {
 
     @Test
@@ -49,5 +53,31 @@ class FlatLafSetupTest {
                 (name, sample) -> false);
 
         assertThat(selected).isNull();
+    }
+
+    @Test
+    @DisplayName("初始通知失败后撤回监听并保留原始错误")
+    void initialNotificationFailureReleasesListener() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            var previous = UIManager.getLookAndFeel();
+            AtomicInteger notifications = new AtomicInteger();
+            IllegalStateException failure = new IllegalStateException("listener failed");
+            try {
+                FlatLafSetup.apply(ThemePreference.LIGHT);
+                assertThatThrownBy(() -> FlatLafSetup.openListener(appearance -> {
+                    notifications.incrementAndGet();
+                    throw failure;
+                })).isSameAs(failure);
+                FlatLafSetup.apply(ThemePreference.DARK);
+                assertThat(notifications).hasValue(1);
+            } finally {
+                FlatLafSetup.close();
+                try {
+                    UIManager.setLookAndFeel(previous);
+                } catch (Exception restoreFailure) {
+                    throw new AssertionError(restoreFailure);
+                }
+            }
+        });
     }
 }
