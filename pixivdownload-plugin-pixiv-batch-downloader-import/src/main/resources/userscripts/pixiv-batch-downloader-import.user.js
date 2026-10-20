@@ -6,7 +6,7 @@
 // @name:ja      PixivBatchDownloader インポートサポート
 // @name:ko      PixivBatchDownloader 가져오기 지원
 // @namespace    https://github.com/Sywyar/PixivDownloader
-// @version      1.1.2
+// @version      1.1.3
 // @description  After one-time download directory setup, automatically add new PixivBatchDownloader illustrations, manga, animations and novels to the local gallery. Keep original files; do not scan past downloads. Allow userscripts and refresh Pixiv before use.
 // @description:zh-CN 配置一次下载目录、启用用户脚本权限并刷新 Pixiv 页面后，自动将 PixivBatchDownloader 此后下载完成的插画、漫画、动图和小说加入本机画廊。保留原文件，不扫描历史下载。
 // @description:zh-TW 設定一次下載目錄、啟用使用者腳本權限並重新整理 Pixiv 頁面後，自動將 PixivBatchDownloader 此後下載完成的插畫、漫畫、動圖和小說加入本機畫廊。保留原始檔案，不掃描歷史下載。
@@ -46,7 +46,7 @@
     }[language];
     let metadataBytes = 0;
     let taskBatch = 0, lastBatch = 0, paused = false;
-    let running = false, stopped = false, lastError = '', warned = false;
+    let active = null, timer = null, stopped = false, lastError = '', warned = false;
     let backoff = 1000, nextAttempt = 0;
     function server() {
         const url = new URL(GM_getValue('pixiv-batch-downloader-import.server', 'http://localhost:6999'));
@@ -89,8 +89,9 @@
                 && data.tags.every(tag => typeof tag === 'string' && tag.length <= 512) ? data.tags.slice() : null,
             novelContent: data.type === 3 ? text(data.novelMeta && data.novelMeta.content,3000000) : null
         };
-        if (JSON.stringify(value).length > MAX_BYTES / 2) { warn(messages[5]); return; }
-        const bytes = new TextEncoder().encode(JSON.stringify(value)).length;
+        const encoded = JSON.stringify(value);
+        if (encoded.length > MAX_BYTES / 2) { warn(messages[5]); return; }
+        const bytes = new TextEncoder().encode(encoded).length;
         const nextBytes = metadataBytes - (metadata.get(key)?.bytes || 0) + bytes;
         if (nextBytes > MAX_BYTES) { warn(messages[5]); return; }
         metadataBytes = nextBytes;
@@ -124,43 +125,79 @@
         if (!existing) work.files.push({fileId: String(data.id), page, path: data.browserSetFilename, outcome: 'success'});
         if (save(key, work)) { works.set(key, work); drain(); }
     }
-    function request(base, path, options = {}) {
-        return new Promise((resolve, reject) => GM_xmlhttpRequest({
-            method: options.data ? 'POST' : 'GET', url: base + path, anonymous: true, timeout: 10000,
-            // 匿名 GM 请求可能省略来源头，显式携带当前 Pixiv 来源供后端校验。
-            headers: Object.assign({'X-Pixiv-Collector': '1', Origin: window.location.origin}, options.headers || {}), data: options.data,
-            onload: response => {
-                if (response.finalUrl && new URL(response.finalUrl).origin !== base) { reject(new Error('REDIRECT_REJECTED')); return; }
-                let body; try { body = JSON.parse(response.responseText); } catch (_) { body = {}; }
-                resolve({status: response.status, body});
-            }, onerror: () => reject(new Error('SERVER_UNAVAILABLE')),
-            ontimeout: () => reject(new Error('SERVER_TIMEOUT')), onabort: () => reject(new Error('REQUEST_ABORTED'))
-        }));
+    function request(operation, base, path, options = {}) {
+        return new Promise((resolve, reject) => {
+            let handle;
+            const pending = {cancel: () => {
+                finish(new Error('REQUEST_ABORTED'));
+                if (handle) { try { handle.abort(); } catch (_) { /* 已撤回归属 */ } }
+            }};
+            operation.request = pending;
+            function finish(error, response) {
+                if (operation.request !== pending) return;
+                operation.request = null;
+                if (error) reject(error); else resolve(response);
+            }
+            try {
+                handle = GM_xmlhttpRequest({
+                    method: options.data ? 'POST' : 'GET', url: base + path, anonymous: true, timeout: 10000,
+                    // 匿名 GM 请求可能省略来源头，显式携带当前 Pixiv 来源供后端校验。
+                    headers: Object.assign({'X-Pixiv-Collector': '1', Origin: window.location.origin}, options.headers || {}), data: options.data,
+                    onload: response => {
+                        try {
+                            if (response.finalUrl && new URL(response.finalUrl).origin !== base) throw new Error('REDIRECT_REJECTED');
+                            let body; try { body = JSON.parse(response.responseText); } catch (_) { body = {}; }
+                            finish(null, {status: response.status, body});
+                        } catch (error) { finish(error); }
+                    }, onerror: () => finish(new Error('SERVER_UNAVAILABLE')),
+                    ontimeout: () => finish(new Error('SERVER_TIMEOUT')), onabort: () => finish(new Error('REQUEST_ABORTED'))
+                });
+            } catch (error) { finish(error); }
+        });
+    }
+    function schedule() {
+        clearTimeout(timer);
+        timer = stopped ? null : setTimeout(() => {
+            timer = null;
+            drain();
+        }, Math.max(backoff, nextAttempt - Date.now()));
     }
     async function drain() {
-        if (running || stopped || Date.now() < nextAttempt) return;
-        running = true;
+        if (active || stopped) return;
+        if (Date.now() < nextAttempt) { schedule(); return; }
+        clearTimeout(timer); timer = null;
+        const operation = {request: null};
+        active = operation;
         try {
             const base = server();
             for (const key of keys()) {
+                const encoded = GM_getValue(key, '');
                 let work;
-                try { work = JSON.parse(GM_getValue(key, '')); } catch (_) { lastError = 'INVALID_SAVED_WORK'; continue; }
+                try { work = JSON.parse(encoded); } catch (_) { lastError = 'INVALID_SAVED_WORK'; continue; }
                 if (work.error || work.files.length !== work.metadata.pageCount) continue;
-                const token = await request(base, '/api/pixiv-batch-downloader-import/token');
+                const token = await request(operation, base, '/api/pixiv-batch-downloader-import/token');
+                if (active !== operation) return;
+                if (GM_getValue(key, '') !== encoded) continue;
                 if (token.status !== 200 || typeof token.body.token !== 'string') throw new Error(token.body.code || `HTTP_${token.status}`);
-                const result = await request(base, '/api/pixiv-batch-downloader-import', {
-                    headers: {'Content-Type':'application/json', 'X-Import-Token':token.body.token}, data: JSON.stringify(work)
+                const result = await request(operation, base, '/api/pixiv-batch-downloader-import', {
+                    headers: {'Content-Type':'application/json', 'X-Import-Token':token.body.token}, data: encoded
                 });
+                if (active !== operation) return;
+                if (GM_getValue(key, '') !== encoded) continue;
                 if (result.status === 200 && ['IMPORTED', 'ALREADY_RECORDED'].includes(result.body.code)) {
                     GM_deleteValue(key); works.delete(key); lastError = ''; warned = false; backoff = 1000;
                 } else if (result.status === 400 || result.status === 413) {
                     work.error = result.body.code || `HTTP_${result.status}`; save(key, work); lastError = work.error;
                 } else throw new Error(result.body.code || `HTTP_${result.status}`);
             }
-        } catch (error) { lastError = error.message; backoff = Math.min(backoff * 2, 60000); nextAttempt = Date.now() + backoff; }
-        finally { running = false; }
+        } catch (error) {
+            if (active === operation) {
+                lastError = error.message; backoff = Math.min(backoff * 2, 60000); nextAttempt = Date.now() + backoff;
+            }
+        } finally {
+            if (active === operation) { active = null; schedule(); }
+        }
     }
-    async function tick() { await drain(); if (!stopped) setTimeout(tick, backoff); }
     window.addEventListener('addResult', captureMetadata);
     window.addEventListener('downloadSuccess', captureSuccess);
     window.addEventListener('crawlStart', () => {
@@ -173,7 +210,17 @@
     });
     window.addEventListener('downloadPause', () => { paused = true; });
     window.addEventListener('downloadStop', () => { paused = false; });
-    window.addEventListener('pagehide', () => { stopped = true; });
+    window.addEventListener('pagehide', () => {
+        stopped = true; clearTimeout(timer); timer = null;
+        const operation = active;
+        active = null;
+        if (operation && operation.request) operation.request.cancel();
+    });
+    window.addEventListener('pageshow', () => {
+        if (!stopped) return;
+        stopped = false;
+        drain();
+    });
     GM_registerMenuCommand(messages[0], () => {
         const value = prompt(messages[2], GM_getValue('pixiv-batch-downloader-import.server','http://localhost:6999'));
         if (value === null) return;
@@ -192,5 +239,5 @@
         alert(`${messages[4]}: ${pending} / ${incomplete} / ${errors}${lastError ? '\n' + lastError : ''}`);
         backoff = 1000; nextAttempt = 0; drain();
     });
-    tick();
+    drain();
 })();

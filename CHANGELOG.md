@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复外部下载采集脚本离页后请求未停止、返回后未恢复，以及旧确认覆盖新冲突记录的问题。
 - 修复多人模式调查等待提交确认时，切换回答可能重复发送的问题。
 - 修复 Windows 安装器在附加组件下载进程异常退出后持续等待进度，以及下载错误中的中文字符丢失问题。
 - 修复 Windows 部分较深安装目录中声明式插件无法启动的问题。
