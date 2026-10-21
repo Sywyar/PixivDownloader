@@ -190,6 +190,22 @@ const ITEMS = [
 ];
 
 async function main() {
+    for (const pixivVue of [false, true]) {
+        const slot = navSlot('app.top');
+        const items = ['constructor', '__proto__', 'toString', 'unknown'].map((icon, index) => ({
+            id: 'custom-' + index, placements: ['app.top'], href: '/custom/' + index,
+            icon, labelNamespace: '__proto__', labelI18nKey: 'title'
+        }));
+        const runtime = load({slots: [slot], items, pixivVue});
+        await runtime.PixivNav.ready();
+        assert.deepEqual(Array.from(I18N.lastNamespaces), ['common', '__proto__']);
+        const markup = pixivVue ? slot.children.filter(el => el.tag === 'a').map(el => el.attrs.innerHTML).join('') : slot.innerHTML;
+        const icons = Array.from(markup.matchAll(/<svg[^>]*>(.*?)<\/svg>/g), match => match[1]);
+        assert.equal(icons.length, items.length);
+        assert.ok(icons.every(icon => icon === icons.at(-1)));
+        assert.match(icons[0], /<path /);
+        passed += 4;
+    }
     // ===== 场景 1：Vue 就位 → 经 ensure + mountOn 走 Vue 主路径；组件渲染逻辑正确 =====
     {
         const top = navSlot('app.top', { 'data-nav-link-class': 'app-nav-link' });

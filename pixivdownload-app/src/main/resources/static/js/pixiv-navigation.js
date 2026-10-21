@@ -150,16 +150,16 @@
     // 不请求空白 namespace bundle；非空的先 trim 再收集。label 的实际解析仍由渲染期 resolveLabel→tns 统一处理
     // （tns 对空白 namespace 自动退化为裸 key 回退），此处只决定「加载哪些 namespace」。
     function collectNamespaces(items) {
-        var seen = { 'common': true };
+        var seen = new Set(['common']);
         items.forEach(function (it) {
             var ns = it.labelNamespace == null ? '' : String(it.labelNamespace).trim();
-            if (ns) seen[ns] = true;
+            if (ns) seen.add(ns);
         });
-        return Object.keys(seen);
+        return Array.from(seen);
     }
 
     function iconSvg(icon, extraClass) {
-        var inner = ICON_PATHS[icon] || FALLBACK_ICON;
+        var inner = Object.prototype.hasOwnProperty.call(ICON_PATHS, icon) ? ICON_PATHS[icon] : FALLBACK_ICON;
         var cls = extraClass ? ' class="' + extraClass + '"' : '';
         return '<svg' + cls + ' viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"'
             + ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + inner + '</svg>';

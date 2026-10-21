@@ -10,15 +10,15 @@ const sections = [
     {id:'links',titleNamespace:'demo',titleI18nKey:'title',navPlacement:'side.links'},
     {id:'body',titleNamespace:'demo',titleI18nKey:'body',moduleUrl:'/demo/body.js',actionHref:'/demo',actionTitleI18nKey:'add'}
 ];
-async function fixture({fallback=false, fail=false}={}) {
+async function fixture({fallback=false, fail=false, initial=sections}={}) {
     const slot = new Element('div'); slot.setAttribute('data-section-slot','side.sections');
     const head = new Element('head'), errors=[], mounts=[], events=[];
-    let language='en', data=sections, slots=[slot], navRefreshes=0;
+    let language='en', data=initial, slots=[slot], navRefreshes=0, namespaces;
     const sandbox={console:{warn:(...args)=>errors.push(args),error:(...args)=>errors.push(args)},Promise,
         document:{head,readyState:'complete',querySelectorAll:()=>slots,createElement:tag=>new Element(tag)},
         fetch:async()=>({ok:!fail,status:fail?500:200,json:async()=>data}),
         CustomEvent:class {constructor(type){this.type=type;}},dispatchEvent:e=>events.push(e.type),
-        PixivI18n:{create:async()=>{const lang=language;return {tns:(ns,key)=>lang+':'+key};},onLanguageChange(){}},
+        PixivI18n:{create:async options=>{namespaces=options.namespaces;const lang=language;return {tns:(ns,key)=>lang+':'+key};},onLanguageChange(){}},
         PixivNav:{refresh(){navRefreshes++;}}};
     sandbox.window=sandbox;
     const Vue=installVue(sandbox);
@@ -28,7 +28,7 @@ async function fixture({fallback=false, fail=false}={}) {
     }};
     vm.runInContext(source,sandbox);await sandbox.PixivPageSections.ready();await Vue.nextTick();
     return {slot,head,errors,mounts,events,Vue,api:sandbox.PixivPageSections,
-        get navRefreshes(){return navRefreshes;},setLanguage:value=>{language=value;},setData:value=>{data=value;},
+        get namespaces(){return namespaces;},get navRefreshes(){return navRefreshes;},setLanguage:value=>{language=value;},setData:value=>{data=value;},
         removeSlot:()=>{slots=[];}};
 }
 test('严格 CSP 下区块真实挂载，语言更新保留骨架与外部子节点',async()=>{
@@ -42,6 +42,22 @@ test('严格 CSP 下区块真实挂载，语言更新保留骨架与外部子节
     assert.equal(f.mounts.length,1);assert.equal(all(f.slot,n=>n.props.class==='section-title')[0],title);
     assert.equal(title.text,'ja:title');assert.equal(nav.children[0],externalNav);assert.equal(body.children[0],externalBody);
     assert.equal(f.head.children.length,1);assert.ok(f.navRefreshes>=2);assert.ok(f.events.includes('pixivpagesections:rendered'));
+});
+
+test('区块保留特殊命名空间，未知操作图标统一回退',async()=>{
+    const initial=['constructor','__proto__','toString','unknown'].map((actionIcon,index)=>({
+        id:'custom-'+index,titleNamespace:'__proto__',titleI18nKey:'title',
+        actionHref:'/custom/'+index,actionIcon,actionTitleNamespace:'constructor',actionTitleI18nKey:'action'
+    }));
+    for(const fallback of [false,true]){
+        const f=await fixture({fallback,initial});
+        assert.deepEqual(Array.from(f.namespaces),['common','__proto__','constructor']);
+        const markup=fallback?f.slot.innerHTML:all(f.slot,n=>n.tag==='a').map(n=>n.props.innerHTML).join('');
+        const icons=Array.from(markup.matchAll(/<svg[^>]*>(.*?)<\/svg>/g),match=>match[1]);
+        assert.equal(icons.length,initial.length);
+        assert.ok(icons.every(icon=>icon===icons.at(-1)));
+        assert.match(icons[0],/<line /);
+    }
 });
 test('区块贡献替换复用实例，空贡献和移除宿主释放旧节点',async()=>{
     const f=await fixture();const oldTitle=all(f.slot,n=>n.props.class==='section-title')[0];

@@ -82,16 +82,16 @@
     // actionTitleI18nKey 条件必填、否则为 null：统一按「trim 后非空才收集」规范化，避免把 null / 纯空白当 namespace
     // 去请求空白 bundle。标题 / 操作标题的实际解析仍由渲染期 resolveText→tns 统一处理（tns 对空白 namespace 回退）。
     function collectNamespaces(sectionsBySlot) {
-        var seen = { 'common': true };
+        var seen = new Set(['common']);
         sectionsBySlot.forEach(function (slot) {
             (slot.sections || []).forEach(function (s) {
                 var titleNs = s.titleNamespace == null ? '' : String(s.titleNamespace).trim();
-                if (titleNs) seen[titleNs] = true;
+                if (titleNs) seen.add(titleNs);
                 var actionNs = s.actionTitleNamespace == null ? '' : String(s.actionTitleNamespace).trim();
-                if (actionNs) seen[actionNs] = true;
+                if (actionNs) seen.add(actionNs);
             });
         });
-        return Object.keys(seen);
+        return Array.from(seen);
     }
 
     function resolveText(i18n, namespace, key, fallback) {
@@ -108,7 +108,7 @@
     }
 
     function actionIconSvg(icon) {
-        var inner = ACTION_ICONS[icon] || ACTION_ICONS.plus;
+        var inner = Object.prototype.hasOwnProperty.call(ACTION_ICONS, icon) ? ACTION_ICONS[icon] : ACTION_ICONS.plus;
         return '<svg viewBox="0 0 24 24" aria-hidden="true">' + inner + '</svg>';
     }
 

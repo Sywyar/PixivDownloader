@@ -308,7 +308,7 @@
     function translate(client, key, fallback, vars) {
         var resolved = resolveKey(client.namespaces, key);
         var namespaceMessages = client.bundleMap[resolved.namespace] || {};
-        var template = namespaceMessages[resolved.key];
+        var template = Object.prototype.hasOwnProperty.call(namespaceMessages, resolved.key) ? namespaceMessages[resolved.key] : null;
         if (template == null) {
             template = fallback != null ? fallback : key;
         }
@@ -464,7 +464,7 @@
                     return translate(client, key, fallback, vars);
                 }
                 var namespaceMessages = client.bundleMap[ns] || {};
-                var template = namespaceMessages[key];
+                var template = Object.prototype.hasOwnProperty.call(namespaceMessages, key) ? namespaceMessages[key] : null;
                 if (template == null) {
                     template = fallback != null ? fallback : key;
                 }
@@ -556,7 +556,7 @@
             } else {
                 meta.currentLang = resolveSupportedLang(preferredLang || meta.currentLang, meta) || meta.currentLang;
             }
-            var bundleMap = {};
+            var bundleMap = Object.create(null);
             var missing = [];
 
             for (var i = 0; i < namespaces.length; i += 1) {

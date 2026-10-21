@@ -90,6 +90,23 @@ async function createClient(namespaces, options) {
 }
 
 async function main() {
+    {
+        const bundles = JSON.parse('{"__proto__":{"hello":"Hello","__proto__":"Own proto key"},"constructor":{"toString":"Own translation"},"common":{}}');
+        const {client} = await createClient(['__proto__', 'constructor', 'common'], {bundles});
+        assert.equal(client.t('hello'), 'Hello');
+        assert.equal(client.tns('constructor', 'toString'), 'Own translation');
+        for (const key of ['constructor', '__proto__', 'toString']) {
+            assert.equal(client.t('common:' + key, 'Missing'), 'Missing');
+            assert.equal(client.tns('common', key, 'Missing'), 'Missing');
+            assert.equal(client.has('common:' + key), false);
+        }
+        assert.equal(client.has('hello:toString'), false);
+        assert.equal(client.tns('hello', 'toString', 'Unknown namespace'), 'Unknown namespace');
+        assert.equal(client.has('hello:0'), false);
+        assert.equal(client.tns('hello', '0', 'Unknown namespace'), 'Unknown namespace');
+        assert.equal(client.t('__proto__:__proto__'), 'Own proto key');
+        passed += 16;
+    }
     // 非 JSON 回退页不能把短暂故障固化成空字典；恢复只重载失败的 namespace。
     {
         let healthy = false;
