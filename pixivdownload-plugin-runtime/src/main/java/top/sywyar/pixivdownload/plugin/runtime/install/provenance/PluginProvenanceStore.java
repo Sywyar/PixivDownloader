@@ -113,9 +113,6 @@ public final class PluginProvenanceStore {
         Optional<Path> source = existingManagedSidecarPathStrict(sourceArtifact);
         Optional<Path> existingTarget = existingManagedSidecarPathStrict(targetArtifact);
         if (source.isEmpty()) {
-            if (existingTarget.isPresent()) {
-                return;
-            }
             return;
         }
         if (existingTarget.isPresent()) {
@@ -215,13 +212,7 @@ public final class PluginProvenanceStore {
         if (selected.isEmpty()) {
             return Optional.empty();
         }
-        byte[] bytes = readSidecarBytesStrictly(selected.get(), maximumBytes);
-        try {
-            return Optional.of(new MeasuredProvenance(readStrictRecord(bytes), bytes.length));
-        } catch (IOException | RuntimeException e) {
-            throw new InvalidProvenanceException(
-                    "plugin provenance is invalid: " + selected.get(), bytes.length, e);
-        }
+        return Optional.of(readMeasuredRecord(selected.get(), maximumBytes));
     }
 
     private static MeasuredProvenance readMeasuredRecord(Path sidecar, long maximumBytes)
@@ -248,9 +239,6 @@ public final class PluginProvenanceStore {
         if (failure instanceof InvalidProvenanceException) {
             return new InvalidProvenanceException(failure.getMessage(), totalBytes, failure);
         }
-        if (failure instanceof ProvenanceReadException) {
-            return new ProvenanceReadException(failure.getMessage(), totalBytes, failure);
-        }
         return new ProvenanceReadException(failure.getMessage(), totalBytes, failure);
     }
 
@@ -273,10 +261,6 @@ public final class PluginProvenanceStore {
 
     private static PluginProvenanceRecord readStrictRecord(byte[] bytes) throws IOException {
         return toRecordStrict(readPropertiesStrictly(bytes));
-    }
-
-    private static Properties readPropertiesStrictly(Path sidecar) throws IOException {
-        return readPropertiesStrictly(readSidecarBytesStrictly(sidecar));
     }
 
     private static Properties readPropertiesStrictly(byte[] bytes) throws IOException {
@@ -787,10 +771,6 @@ public final class PluginProvenanceStore {
     private static String text(Properties props, String key) {
         String value = props.getProperty(key);
         return value == null || value.isBlank() ? null : value;
-    }
-
-    private static Long longOrNull(String value) {
-        return value == null || value.isBlank() ? null : Long.parseLong(value);
     }
 
     private void writePropertiesAtomically(Path target, Properties properties, String comment)

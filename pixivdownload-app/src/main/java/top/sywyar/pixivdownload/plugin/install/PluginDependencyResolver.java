@@ -48,12 +48,12 @@ public class PluginDependencyResolver {
 
     /** 安装态满足性：依赖只需已内置或已落盘，版本满足即可。 */
     public List<PluginDependencyProblem> installedProblems(PluginDescriptor descriptor) {
-        return problems(descriptor, this::installedTargets, false);
+        return problems(descriptor == null ? List.of() : descriptor.dependencies(), this::installedTargets, false);
     }
 
     /** 激活态满足性：依赖必须在场、版本满足，且当前处于可服务状态。 */
     public List<PluginDependencyProblem> activationProblems(PluginDescriptor descriptor) {
-        return problems(descriptor, this::activationTargets, true);
+        return problems(descriptor == null ? List.of() : descriptor.dependencies(), this::activationTargets, true);
     }
 
     /** 安装目录中指定插件的包级 descriptor。 */
@@ -87,22 +87,18 @@ public class PluginDependencyResolver {
 
     /** 当前安装态中指定依赖是否已满足。 */
     public boolean installedDependencySatisfied(PluginDependencyRef dependency) {
-        return problems(new PluginDescriptor("dependency-check", "dependency-check", "0.0.0",
-                VersionRequirement.unspecified(), List.of(dependency), null,
-                null, "dependency-check", null, null, null,
-                top.sywyar.pixivdownload.plugin.api.plugin.PluginKind.FEATURE),
-                this::installedTargets, false).isEmpty();
+        return problems(List.of(dependency), this::installedTargets, false).isEmpty();
     }
 
-    private List<PluginDependencyProblem> problems(PluginDescriptor descriptor,
+    private List<PluginDependencyProblem> problems(List<PluginDependencyRef> dependencies,
                                                    Supplier<Map<String, DependencyTarget>> targetSupplier,
                                                    boolean requireActive) {
-        if (descriptor == null || descriptor.dependencies().isEmpty()) {
+        if (dependencies.isEmpty()) {
             return List.of();
         }
         List<PluginDependencyProblem> problems = new ArrayList<>();
         Map<String, DependencyTarget> targets = null;
-        for (PluginDependencyRef dependency : descriptor.dependencies()) {
+        for (PluginDependencyRef dependency : dependencies) {
             if (dependency.optional()) {
                 continue;
             }

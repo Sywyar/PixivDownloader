@@ -42,9 +42,9 @@ class PluginDevelopmentReadModelTest {
     Path root;
 
     @ParameterizedTest
-    @CsvSource({"false,false,true", "true,false,true", "true,true,true"})
+    @CsvSource({"false,false", "true,false", "true,true"})
     @DisplayName("正式与开发模式的状态、管理和 i18n 查询均包含已安装包")
-    void readModelsFollowRuntimeSource(boolean development, boolean standalone, boolean scanInstalled)
+    void readModelsFollowRuntimeSource(boolean development, boolean standalone)
             throws Exception {
         String oldEnabled = System.getProperty(PluginDevelopmentArtifacts.ENABLED_PROPERTY);
         String oldRoot = System.getProperty(PluginDevelopmentArtifacts.ROOT_PROPERTY);
@@ -82,16 +82,16 @@ class PluginDevelopmentReadModelTest {
             WebI18nBundleRegistry i18n = new WebI18nBundleRegistry(
                     plugins, beans.getBeanProvider(ExternalPluginInstaller.class));
             for (int i = 0; i < 5; i++) {
-                assertThat(status.report().byId("installed").isPresent()).isEqualTo(scanInstalled);
+                assertThat(status.report().byId("installed")).isPresent();
                 clearInvocations(installer);
-                assertThat(management.list().plugins()).hasSize(scanInstalled ? 1 : 0);
+                assertThat(management.list().plugins()).hasSize(1);
                 verify(installer, never()).listInstalled();
-                verify(installer, times(scanInstalled ? 1 : 0))
+                verify(installer, times(1))
                         .snapshotInstalledWithProvenance(anyInt(), anyLong());
-                assertThat(i18n.supportedNamespaces()).hasSize(scanInstalled ? 1 : 0);
+                assertThat(i18n.supportedNamespaces()).hasSize(1);
             }
-            verify(installer, scanInstalled ? atLeastOnce() : never()).listInstalled();
-            verify(installer, scanInstalled ? atLeastOnce() : never())
+            verify(installer, atLeastOnce()).listInstalled();
+            verify(installer, atLeastOnce())
                     .snapshotInstalledWithProvenance(anyInt(), anyLong());
             clearInvocations(installer);
             for (int i = 0; i < 5; i++) {

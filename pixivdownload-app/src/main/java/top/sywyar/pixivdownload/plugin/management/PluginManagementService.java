@@ -94,13 +94,8 @@ public class PluginManagementService {
                                    RequiredPluginPolicy requiredPluginPolicy,
                                    RecoveryModeService recoveryModeService,
                                    PluginToggleProperties pluginToggles) {
-        this.pluginStatusService = pluginStatusService;
-        this.pluginLifecycleService = pluginLifecycleService;
-        this.requiredPluginPolicy = requiredPluginPolicy;
-        this.recoveryModeService = recoveryModeService;
-        this.pluginToggles = pluginToggles;
-        this.coordinator = null;
-        this.installer = null;
+        this(pluginStatusService, pluginLifecycleService, requiredPluginPolicy, recoveryModeService,
+                null, null, pluginToggles);
     }
 
     public PluginManagementService(PluginStatusService pluginStatusService,
@@ -150,7 +145,7 @@ public class PluginManagementService {
                     continue;
                 }
                 List<PluginManagementEntry> entries = buildEntries(
-                        status, installedArtifacts, gateBefore, gateBefore.safeToScan(), true);
+                        status, installedArtifacts, gateBefore, gateBefore.safeToScan());
                 boolean recoveryMode = recoveryModeService.isActive();
                 List<RecoveryModeReason> recoveryReasons = recoveryModeService.reasons();
                 if (gateBefore.equals(pluginStatusService.recoveryGateSnapshot())
@@ -177,10 +172,8 @@ public class PluginManagementService {
             PluginStatusReport status,
             Map<String, List<InstalledPluginSnapshot>> installedArtifacts,
             PluginRecoveryGateSnapshot expectedGate,
-            boolean allowProvenanceReads,
-            boolean allowLifecycleReads) {
-        Set<String> managedIds = allowLifecycleReads
-                ? pluginLifecycleService.managedPluginIds() : Set.of();
+            boolean allowProvenanceReads) {
+        Set<String> managedIds = pluginLifecycleService.managedPluginIds();
         Map<String, List<PluginRuntimeVerificationSnapshot>> runtimeVerifications =
                 allowProvenanceReads ? runtimeVerificationsById() : Map.of();
         List<PluginManagementEntry> entries = new ArrayList<>();
@@ -189,7 +182,7 @@ public class PluginManagementService {
                 continue;
             }
             entries.add(toEntry(diagnostic, managedIds, installedArtifacts, runtimeVerifications,
-                    expectedGate, allowProvenanceReads, allowLifecycleReads));
+                    expectedGate, allowProvenanceReads));
         }
         return List.copyOf(entries);
     }
@@ -200,11 +193,10 @@ public class PluginManagementService {
             Map<String, List<InstalledPluginSnapshot>> installedArtifacts,
             Map<String, List<PluginRuntimeVerificationSnapshot>> runtimeVerifications,
             PluginRecoveryGateSnapshot expectedGate,
-            boolean allowProvenanceReads,
-            boolean allowLifecycleReads) {
+            boolean allowProvenanceReads) {
         String id = diagnostic.id();
         PluginDescriptor descriptor = diagnostic.descriptor();
-        PluginDescriptor loadedProcess = allowLifecycleReads && coordinator != null
+        PluginDescriptor loadedProcess = coordinator != null
                 ? coordinator.processRestartDescriptor(id).orElse(null) : null;
         List<InstalledPluginSnapshot> installed = installedArtifacts.getOrDefault(id, List.of());
         boolean retainedProcess = loadedProcess != null && !pluginLifecycleService.isDevelopmentArtifact(id);
@@ -219,25 +211,24 @@ public class PluginManagementService {
                 && runtimeVerifications.get(id).stream().noneMatch(proof -> proof.binds(
                         installed.get(0).plugin().path(), id, installed.get(0).plugin().version(),
                         installed.get(0).artifactSizeBytes(), installed.get(0).artifactSha256()))));
-        PluginRuntimePhase phase = allowLifecycleReads
-                ? pluginLifecycleService.phase(id).orElse(null) : null;
+        PluginRuntimePhase phase = pluginLifecycleService.phase(id).orElse(null);
         boolean builtIn = BuiltInPlugins.isBuiltIn(id);
         PluginLifecyclePolicy lifecyclePolicy = retainedProcess ? PluginLifecyclePolicy.PROCESS_RESTART
                 : descriptor != null ? descriptor.lifecyclePolicy() : null;
         boolean installedOnly = descriptor != null && !builtIn
                 && diagnostic.status() == PluginStatus.INSTALLED && phase == null;
-        boolean managed = allowLifecycleReads && lifecyclePolicy == PluginLifecyclePolicy.HOT_RELOAD
+        boolean managed = lifecyclePolicy == PluginLifecyclePolicy.HOT_RELOAD
                 && (managedIds.contains(id) || phase == PluginRuntimePhase.UNLOADED
                 || installedOnly);
         boolean allowDisable = !builtIn && allowDisable(id);
         boolean toggleable = descriptor != null && !builtIn && !requiredPluginPolicy.isRequired(id);
-        ExternalPluginOperationSnapshot operation = allowLifecycleReads && coordinator != null
+        ExternalPluginOperationSnapshot operation = coordinator != null
                 ? coordinator.operation(id).orElse(null) : null;
         PluginVerificationView verification = verificationOf(id, descriptor, phase, installedArtifacts,
-                runtimeVerifications, expectedGate, allowProvenanceReads, allowLifecycleReads,
+                runtimeVerifications, expectedGate, allowProvenanceReads,
                 retainedProcess).withDescriptor(descriptor);
         List<String> actions = availableActions(managed, phase, allowDisable, installedOnly);
-        if (allowLifecycleReads && allowProvenanceReads && coordinator != null && allowDisable
+        if (allowProvenanceReads && coordinator != null && allowDisable
                 && (lifecyclePolicy == PluginLifecyclePolicy.PROCESS_RESTART
                 || descriptor != null && diagnostic.status() == PluginStatus.FAILED && phase == null)
                 && installedArtifacts.getOrDefault(id, List.of()).size() == 1) {
@@ -267,8 +258,8 @@ public class PluginManagementService {
                 List.copyOf(diagnostic.messages()),
                 verification,
                 removedInstalledPackage ? PluginTrustView.state(PluginTrustState.NOT_INSTALLED)
-                        : trustOf(id, descriptor, installedArtifacts, allowProvenanceReads, allowLifecycleReads),
-                allowLifecycleReads ? pluginLifecycleService.generation(id).orElse(null) : null,
+                        : trustOf(id, descriptor, installedArtifacts, allowProvenanceReads),
+                pluginLifecycleService.generation(id).orElse(null),
                 operation != null ? operation.operation() : ExternalPluginOperation.IDLE,
                 operation != null ? operation.transactionId() : null,
                 operation != null ? operation.diagnostic() : null,
@@ -311,15 +302,14 @@ public class PluginManagementService {
             String id,
             PluginDescriptor descriptor,
             Map<String, List<InstalledPluginSnapshot>> installedArtifacts,
-            boolean allowProvenanceReads,
-            boolean allowLifecycleReads) {
+            boolean allowProvenanceReads) {
         if (descriptor == null) {
             return PluginTrustView.state(PluginTrustState.NOT_INSTALLED);
         }
         if (BuiltInPlugins.isBuiltIn(id)) {
             return PluginTrustView.state(PluginTrustState.BUILT_IN);
         }
-        if (!allowLifecycleReads || !allowProvenanceReads || installer == null) {
+        if (!allowProvenanceReads || installer == null) {
             return PluginTrustView.state(PluginTrustState.INVALID);
         }
         if (pluginLifecycleService.isDevelopmentArtifact(id)) {
@@ -361,16 +351,12 @@ public class PluginManagementService {
             Map<String, List<PluginRuntimeVerificationSnapshot>> runtimeVerifications,
             PluginRecoveryGateSnapshot expectedGate,
             boolean allowProvenanceReads,
-            boolean allowLifecycleReads,
             boolean retainedProcess) {
         if (descriptor == null) {
             return PluginVerificationProjector.notInstalled();
         }
         if (BuiltInPlugins.isBuiltIn(id)) {
             return PluginVerificationProjector.builtInOfficial();
-        }
-        if (!allowLifecycleReads) {
-            return PluginVerificationProjector.invalidProvenance();
         }
         Optional<Path> runtimePath = pluginLifecycleService.artifactPath(id)
                 .map(path -> path.toAbsolutePath().normalize());

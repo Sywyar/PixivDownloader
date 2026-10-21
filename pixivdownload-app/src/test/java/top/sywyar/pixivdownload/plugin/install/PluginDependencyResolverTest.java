@@ -18,6 +18,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -41,6 +42,8 @@ class PluginDependencyResolverTest {
             assertThat(resolver.activationProblems(descriptor)).isEmpty();
         }
         assertThat(resolver.installedDependencySatisfied(optional)).isTrue();
+        assertThatThrownBy(() -> resolver.installedDependencySatisfied(null))
+                .isInstanceOf(NullPointerException.class);
         verifyNoInteractions(installer, registry, lifecycle);
     }
 
