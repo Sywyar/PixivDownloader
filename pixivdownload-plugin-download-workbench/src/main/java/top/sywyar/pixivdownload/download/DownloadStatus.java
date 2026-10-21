@@ -3,8 +3,6 @@ package top.sywyar.pixivdownload.download;
 import lombok.Data;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
 
-import java.time.LocalDateTime;
-
 @Data
 public class DownloadStatus {
     private Long artworkId;
@@ -28,8 +26,6 @@ public class DownloadStatus {
     @lombok.Getter(lombok.AccessLevel.NONE)
     @lombok.Setter(lombok.AccessLevel.NONE)
     private final java.util.Map<Integer, ImageDownloadProgress> processingImages = new java.util.TreeMap<>();
-    private LocalDateTime startTime;
-    private LocalDateTime endTime;
 
     public synchronized ImageDownloadProgress getImageProgress() {
         if (processingImages.isEmpty()) return imageProgress;
@@ -55,7 +51,6 @@ public class DownloadStatus {
         this.title = title;
         this.ownerUuid = ownerUuid;
         this.totalImages = totalImages;
-        this.startTime = LocalDateTime.now();
         this.downloadedCount = 0;
         this.currentImageIndex = -1;
         this.completed = false;

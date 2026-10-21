@@ -154,6 +154,14 @@ class ArtworkDownloadExecutorTest {
         return completion.getValue();
     }
 
+    private void stubSuccessfulUgoiraDownload(boolean flatFolder) {
+        lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
+        lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(flatFolder);
+        lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
+                .thenReturn(1);
+        lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
+    }
+
     private void stubSuccessfulImageDownload(String sourceUrl, byte[] payload) throws Exception {
         when(pixivImageDownloader.downloadImage(
                 eq(URI.create(sourceUrl)), any(URI.class), any(Path.class), nullable(String.class), any()))
@@ -627,6 +635,43 @@ class ArtworkDownloadExecutorTest {
             List<Long> active = artworkDownloadExecutor.getDownloadStatus();
             assertThat(active).isEmpty();
         }
+
+        @ParameterizedTest
+        @ValueSource(booleans = {true, false})
+        @SuppressWarnings("unchecked")
+        @DisplayName("状态较多时仍完整去重并按当前身份返回作品")
+        void shouldReturnEveryVisibleArtwork(boolean admin) throws Exception {
+            var statuses = (ConcurrentHashMap<String, DownloadStatus>) ReflectionTestUtils
+                    .getField(artworkDownloadExecutor, "downloadStatusMap");
+            int count = 8192;
+            for (long id = 1; id <= count; id++) {
+                statuses.put("owner-b:" + id, new DownloadStatus(id, "other", 1, "owner-b"));
+                if (id % 2 == 1) {
+                    var own = new DownloadStatus(id, "own", 1, "owner-a");
+                    own.setCompleted(true);
+                    statuses.put("owner-a:" + id, own);
+                }
+            }
+            var expected = java.util.stream.LongStream.rangeClosed(1, count)
+                    .filter(id -> admin || id % 2 == 1).boxed().toList();
+            var pool = new java.util.concurrent.ForkJoinPool(4);
+            try {
+                var actual = pool.submit(() -> admin
+                                ? artworkDownloadExecutor.getDownloadStatus()
+                                : artworkDownloadExecutor.getDownloadStatus("owner-a", false))
+                        .get(10, TimeUnit.SECONDS);
+                assertThat(actual.size()).isEqualTo(expected.size());
+                assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+                assertThat(artworkDownloadExecutor.getDownloadStatus("owner-a", true))
+                        .containsExactlyInAnyOrderElementsOf(java.util.stream.LongStream.rangeClosed(1, count)
+                                .boxed().toList());
+                assertThat(artworkDownloadExecutor.getDownloadStatus(null, false)).isEmpty();
+                assertThat(artworkDownloadExecutor.getDownloadStatus("missing-owner", false)).isEmpty();
+            } finally {
+                pool.shutdownNow();
+                assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+            }
+        }
     }
 
     // ========== cancelDownload ==========
@@ -649,11 +694,7 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(true);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
-                    .thenReturn(1);
-            lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
+            stubSuccessfulUgoiraDownload(true);
         }
 
         @Test
@@ -714,11 +755,7 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(true);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
-                    .thenReturn(1);
-            lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
+            stubSuccessfulUgoiraDownload(true);
         }
 
         @Test
@@ -793,12 +830,7 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
-            // 走用户独立目录分支：isUserDownload=true 且 isUserFlatFolder=false
-            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(false);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
-                    .thenReturn(1);
-            lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
+            stubSuccessfulUgoiraDownload(false);
         }
 
         private DownloadRequest.Other userOther(int xRestrict) {
@@ -880,11 +912,7 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(true);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
-                    .thenReturn(1);
-            lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
+            stubSuccessfulUgoiraDownload(true);
         }
 
         @Test
@@ -924,11 +952,7 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(true);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
-                    .thenReturn(1);
-            lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
+            stubSuccessfulUgoiraDownload(true);
         }
 
         private DownloadRequest.Other ugoiraOther() {
@@ -1414,11 +1438,7 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(true);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
-                    .thenReturn(1);
-            lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
+            stubSuccessfulUgoiraDownload(true);
         }
 
         @Test
@@ -1470,11 +1490,7 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(true);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
-                    .thenReturn(1);
-            lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
+            stubSuccessfulUgoiraDownload(true);
         }
 
         @Test
