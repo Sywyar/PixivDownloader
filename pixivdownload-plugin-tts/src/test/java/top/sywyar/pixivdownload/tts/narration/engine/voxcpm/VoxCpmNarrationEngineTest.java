@@ -115,13 +115,14 @@ class VoxCpmNarrationEngineTest {
         when(direct.exchange(eq("http://127.0.0.1:8000/v1/audio/speech"), eq(HttpMethod.POST), any(), eq(byte[].class)))
                 .thenReturn(wav());
 
-        engine(config("http://127.0.0.1:8000/v1/", "")).synthesize(NarrationVoiceMode.VOICE_DESIGN,
+        TtsPluginConfig cfg = config("http://127.0.0.1:8000/v1/", "");
+        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN,
                 NarrationVoiceRequest.of("你好世界", "An elderly woman, low and cold voice"));
 
         Map<String, Object> body = capturedBody(direct);
         assertThat(body.get("input")).isEqualTo("(An elderly woman, low and cold voice)你好世界");
         assertThat(body.containsKey("voice")).isFalse();
-        assertThat(body.get("model")).isEqualTo("openbmb/VoxCPM2");
+        assertThat(body.get("model")).isEqualTo(cfg.getVoxcpm().getModel());
         assertThat(body.get("response_format")).isEqualTo("wav");
     }
 
@@ -403,7 +404,6 @@ class VoxCpmNarrationEngineTest {
         TtsPluginConfig.Voxcpm vox = new TtsPluginConfig.Voxcpm();
         vox.setBaseUrl(baseUrl);
         vox.setApiKey(apiKey);
-        vox.setModel("openbmb/VoxCPM2");
         vox.setResponseFormat("wav");
         cfg.setVoxcpm(vox);
         return cfg;

@@ -1,18 +1,23 @@
 package top.sywyar.pixivdownload.tts.narration.engine.cosyvoice;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClientResponseException;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
@@ -22,6 +27,7 @@ import top.sywyar.pixivdownload.tts.narration.engine.TestMessageResolver;
 import top.sywyar.pixivdownload.tts.narration.engine.TtsPluginConfig;
 
 import java.util.Map;
+import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -163,6 +169,46 @@ class CosyVoiceNarrationEngineTest {
                 .isInstanceOf(NarrationVoiceException.class)
                 .hasMessage(MESSAGES.get("narration.tts.error.empty-text"));
         verifyNoInteractions(direct, proxy);
+    }
+
+    @Test
+    @DisplayName("上游回显克隆请求时，错误消息和日志遮蔽参考音、转录与凭据")
+    void httpErrorRedactsEchoedCloneRequest() {
+        String transcript = "私密转录\"含引号\\与换行\n后半段";
+        String apiKey = "sk-private-cosy-key";
+        when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class)))
+                .thenAnswer(invocation -> {
+                    HttpEntity<byte[]> entity = invocation.getArgument(2);
+                    String echoedBody = "{\"code\":\"INVALID_REFERENCE\",\"authorization\":\"Bearer "
+                            + apiKey + "\",\"request\":"
+                            + new String(entity.getBody(), StandardCharsets.UTF_8) + "}";
+                    throw new RestClientResponseException("upstream failed", 422, "Unprocessable Entity",
+                            HttpHeaders.EMPTY, echoedBody.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+                });
+        Logger logger = (Logger) LoggerFactory.getLogger(CosyVoiceNarrationEngine.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            NarrationVoiceRequest request = new NarrationVoiceRequest("正文", "", "calm",
+                    new NarrationReferenceVoice(new byte[]{1, 2, 3}, "audio/wav", transcript));
+            assertThatThrownBy(() -> engine(config("http://h/v1", apiKey))
+                    .synthesize(NarrationVoiceMode.CLONE, request))
+                    .isInstanceOf(NarrationVoiceException.class)
+                    .hasMessageContaining("HTTP 422")
+                    .hasMessageContaining("INVALID_REFERENCE")
+                    .hasMessageNotContaining("私密转录")
+                    .hasMessageNotContaining("后半段")
+                    .hasMessageNotContaining("AQID")
+                    .hasMessageNotContaining(apiKey);
+            assertThat(appender.list).isNotEmpty().allSatisfy(event -> {
+                assertThat(event.getFormattedMessage()).doesNotContain("私密转录", "后半段", "AQID", apiKey);
+                assertThat(event.getThrowableProxy()).isNull();
+            });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

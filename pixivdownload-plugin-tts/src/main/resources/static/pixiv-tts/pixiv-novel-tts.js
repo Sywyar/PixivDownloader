@@ -2,8 +2,8 @@
 /**
  * 小说「听书」控制器（主控制器）。支持三种 TTS 引擎，前端可切换：
  *
- *   - browser   : 浏览器内置 Web Speech API（speechSynthesis）。完全离线、即时、免费；
- *                 音质与可用语言取决于操作系统已安装的语音包，纯前端运行，不经过后端。
+ *   - browser   : 浏览器内置 Web Speech API（speechSynthesis）。
+ *                 音质、语言和联网需求由所选语音决定，不经过本程序后端。
  *   - edge      : 微软 Edge 在线神经语音，经后端 /api/tts/edge/* 代理。音质自然、语言丰富、免费；
  *                 需要联网（走后端配置的代理），有轻微合成延迟。
  *   - narration : 富感情朗读（多角色·beta）。复用同一控制条，但播放逻辑委托给 PixivNovelNarration 驱动；
@@ -208,7 +208,7 @@
         if (state.engine === 'narration') ctx.applyEngine(('speechSynthesis' in window) ? 'browser' : 'edge');
         const name = state.engine === 'edge'
             ? ctx.t('tts.engine.edge', '在线（Edge 神经语音）')
-            : ctx.t('tts.engine.browser', '浏览器（离线）');
+            : ctx.t('tts.engine.browser', '浏览器');
         state.toast && state.toast(ctx.t('tts.narration-degraded', '富感情朗读暂不可用，已切换为{engine}', { engine: name }));
     };
 

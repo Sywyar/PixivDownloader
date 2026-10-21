@@ -124,35 +124,6 @@
             box-shadow: -10px 0 0 var(--control-muted-bg), inset 4px 0 0 var(--brand);
             border-radius: 0 4px 4px 0;
         }
-        .narration-bar {
-            position: fixed;
-            left: 50%;
-            bottom: 16px;
-            transform: translateX(-50%);
-            width: calc(100% - 32px);
-            max-width: var(--layout-reading);
-            max-height: calc(100dvh - 2rem - env(safe-area-inset-bottom));
-            background: var(--surface);
-            border: 1px solid var(--line);
-            border-radius: 12px;
-            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
-            z-index: 1500;
-            overflow-y: auto;
-        }
-        .narration-progressbar {
-            position: relative;
-            height: 6px;
-            background: var(--control-muted-bg);
-            cursor: pointer;
-        }
-        .narration-progressbar:hover { height: 8px; }
-        .narration-progressbar-fill {
-            height: 100%;
-            width: 0;
-            background: var(--brand);
-            transition: width .15s linear;
-            pointer-events: none;
-        }
         .narration-subtitle {
             padding: 8px 14px 0;
             font-size: 0.8125rem;
@@ -168,79 +139,6 @@
             font-weight: 600;
             margin-right: 6px;
         }
-        .narration-bar-main {
-            display: flex;
-            flex-wrap: wrap;
-            min-width: 0;
-            align-items: center;
-            gap: 6px;
-            padding: 8px 12px;
-        }
-        .narration-icon-btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 36px;
-            min-height: var(--layout-control-height);
-            min-width: var(--layout-control-height);
-            border-radius: 8px;
-            border: 1px solid var(--line);
-            background: var(--control-bg);
-            color: var(--text-secondary);
-            cursor: pointer;
-            font-size: 0.9375rem;
-            line-height: 1;
-        }
-        .narration-icon-btn:hover { border-color: var(--brand); color: var(--brand); }
-        .narration-icon-btn.narration-play { color: var(--brand); border-color: var(--brand); }
-        .narration-progress {
-            flex: 1;
-            text-align: center;
-            font-size: 0.8125rem;
-            color: var(--muted);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .narration-close { margin-left: auto; }
-        .narration-settings {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 12px;
-            padding: 12px;
-            border-top: 1px solid var(--line);
-            background: var(--control-muted-bg);
-        }
-        .narration-field {
-            display: flex;
-            flex-wrap: wrap;
-            min-width: 0;
-            align-items: center;
-            gap: 6px;
-            font-size: 0.8125rem;
-            color: var(--text-secondary);
-        }
-        .narration-field label { white-space: nowrap; color: var(--muted); }
-        .narration-field select {
-            min-height: var(--layout-control-height);
-            padding: 0 8px;
-            border-radius: 8px;
-            border: 1px solid var(--line);
-            background: var(--control-bg);
-            color: var(--text);
-            font-family: inherit;
-            font-size: 0.8125rem;
-            outline: none;
-        }
-        .narration-field select:focus { border-color: var(--brand); }
-        .narration-hint {
-            flex-basis: 100%;
-            font-size: 0.75rem;
-            line-height: 1.6;
-            color: var(--muted);
-        }
-
         /* 选角 / 冲突面板 */
         /* 从「朗读分析设置」弹窗（.pt-backdrop，z-index:4000）内打开「选角与音色」时，需叠在其之上 */
         #modalNarrationCast { z-index: 4200; }
@@ -434,8 +332,7 @@
         }
 
         @media (max-width: 37.5em) {
-            .tts-bar,
-            .narration-bar {
+            .tts-bar {
                 left: 12px;
                 right: 12px;
                 bottom: 12px;
@@ -444,47 +341,39 @@
                 transform: none;
                 border-radius: 10px;
             }
-            .tts-bar-main,
-            .narration-bar-main {
+            .tts-bar-main {
                 flex-wrap: wrap;
             }
             .tts-progress,
-            .narration-progress,
             .narration-subtitle {
                 flex: 1 1 100%;
                 order: -1;
                 white-space: normal;
                 text-align: left;
             }
-            .tts-icon-btn,
-            .narration-icon-btn {
+            .tts-icon-btn {
                 flex: 1 1 42px;
             }
-            .tts-close,
-            .narration-close {
+            .tts-close {
                 margin-left: 0;
             }
-            .tts-settings,
-            .narration-settings {
+            .tts-settings {
                 align-items: stretch;
                 gap: 8px;
             }
             .tts-field,
-            .narration-field,
             .tts-field.tts-checkbox-field {
                 flex: 1 1 100%;
                 align-items: stretch;
                 flex-wrap: wrap;
             }
             .tts-field label,
-            .narration-field label,
             .tts-field.tts-checkbox-field span {
                 white-space: normal;
             }
             .tts-field select { max-width: 150px; }
             .tts-field select,
-            .tts-field input[type="number"],
-            .narration-field select {
+            .tts-field input[type="number"] {
                 flex: 1 1 160px;
                 min-width: 0;
                 width: 100%;

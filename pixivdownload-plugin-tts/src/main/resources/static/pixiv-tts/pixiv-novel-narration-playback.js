@@ -38,10 +38,22 @@
 
     // 重新拉取已缓存脚本（音色编辑后刷新 castUpdatedTime 使音频缓存失效，不重算 LLM）。
     async function reloadCachedScript() {
+        const generation = state.cacheGen;
         try {
             const data = await requestScript({ analyzeIfMissing: false });
-            if (data) applyScript(data);
-        } catch {}
+            if (generation !== state.cacheGen) return;
+            if (data) {
+                applyScript(data);
+                if (state.playing && !state.paused) speak(state.index >= 0 ? state.index : 0);
+            } else {
+                state.scriptLoaded = false;
+                stop();
+            }
+        } catch {
+            if (generation !== state.cacheGen) return;
+            state.scriptLoaded = false;
+            stop();
+        }
     }
 
     // 按所选设置分析（segmentSize + castId + 旁白音色预设），完成后 applyScript；force 时清音频缓存。autoPlay 时分析完自动播放。
@@ -179,12 +191,13 @@
         state.index = i;
         highlight(i);
         const myToken = state.token;
+        const generation = state.cacheGen;
         updateProgress(true);
         state.fetching = { index: i, token: myToken };
         pumpPrefetch(); // 立即在后台铺满后续缓冲窗口，与当前句的合成 / 播放并行
         fetchLineAudio(i)
             .then((url) => {
-                if (myToken !== state.token) return;
+                if (myToken !== state.token || generation !== state.cacheGen || !url) return;
                 state.fetching = null;
                 updateProgress(false);
                 if (state.paused) { state.pending = { url, index: i, token: myToken }; return; }
@@ -192,7 +205,7 @@
                 pumpPrefetch();
             })
             .catch((err) => {
-                if (myToken !== state.token) return;
+                if (myToken !== state.token || generation !== state.cacheGen) return;
                 state.fetching = null;
                 state.toast && state.toast(t('narration:toast.synth-failed', '合成失败：{message}', { message: String(err && err.message ? err.message : err) }), 'error');
                 stop();
@@ -308,27 +321,36 @@
 
     async function loadLineAudio(i, gen) {
         const key = storeKey(i); // 入口定格：合成期间若改音色 / 重分析，仍按发起时的代际键读写 IndexedDB
+        const novelId = state.novelId;
+        const lang = state.lang || '';
         const persisted = await NarrationStore.getAudio(key);
+        if (gen !== state.cacheGen) return null;
         if (persisted) {
             const url = URL.createObjectURL(persisted);
-            if (gen === state.cacheGen) { state.cache.set(i, url); NarrationStore.touch(state.novelId); }
+            state.cache.set(i, url);
+            NarrationStore.touch(novelId);
             return url;
         }
         const r = await fetch('/api/narration/tts/line', {
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ novelId: Number(state.novelId), lineIndex: i, lang: state.lang || '' })
+            body: JSON.stringify({ novelId: Number(novelId), lineIndex: i, lang })
         });
+        if (gen !== state.cacheGen) {
+            if (r.body) await r.body.cancel().catch(() => {});
+            return null;
+        }
         if (!r.ok) {
             let msg = 'HTTP ' + r.status;
             try { const j = await r.json(); if (j && j.message) msg = j.message; } catch {}
             throw new Error(msg);
         }
         const blob = await r.blob();
+        if (gen !== state.cacheGen) return null;
         const url = URL.createObjectURL(blob);
-        if (gen === state.cacheGen) state.cache.set(i, url); // 代际已变（换音色/重分析）则不污染新缓存
-        NarrationStore.putAudio(key, state.novelId, blob);
+        state.cache.set(i, url);
+        NarrationStore.putAudio(key, novelId, blob);
         return url;
     }
 
@@ -336,11 +358,12 @@
     // 播放只从缓存取音频、合成在后台进行，二者解耦（异步听与生成）。某句完成后回灌窗口，使缓冲持续保持纵深。
     function pumpPrefetch() {
         const myToken = state.token;
+        const generation = state.cacheGen;
         const n = state.lines.length;
         if (!n) return;
         const base = state.index >= 0 ? state.index : 0;
         const end = Math.min(n - 1, base + PREFETCH_AHEAD);
-        const repump = () => { if (myToken === state.token) pumpPrefetch(); };
+        const repump = () => { if (myToken === state.token && generation === state.cacheGen) pumpPrefetch(); };
         for (let i = base; i <= end; i++) {
             if (state.inflight.size >= PREFETCH_CONCURRENCY) break;
             if (state.cache.has(i) || state.inflight.has(i)) continue;
@@ -349,8 +372,14 @@
     }
 
     function clearCache() {
-        state.cacheGen++;        // 在途请求据此失效：旧音色 / 旧脚本的结果不再写入新一代内存缓存
-        state.inflight.clear();  // 放弃旧代际在途预取的归属（其结果仍按发起时的键落 IndexedDB，无害）
+        state.cacheGen++;        // 清空与停止分别管理：旧代际不回填，普通停止仍允许缓存复用。
+        state.inflight.clear();
+        cancelCurrent();
+        state.audioIndex = -1;
+        if (state.audio) {
+            state.audio.removeAttribute('src');
+            state.audio.load();
+        }
         state.cache.forEach((url) => { try { URL.revokeObjectURL(url); } catch {} });
         state.cache.clear();
     }

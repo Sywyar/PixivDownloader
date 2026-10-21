@@ -53,7 +53,7 @@ public class TtsRateLimitService {
         long requestedWindow = currentTimeMillis.getAsLong() / WINDOW_MILLIS;
         while (true) {
             WindowState state = currentWindow(requestedWindow);
-            WindowCounter counter = state.counterFor(key);
+            AtomicInteger counter = state.counterFor(key);
             if (counter == null) {
                 if (windowState.get() != state) {
                     continue;
@@ -62,7 +62,7 @@ public class TtsRateLimitService {
                         MAX_TRACKED_KEYS);
                 return false;
             }
-            int count = counter.count.incrementAndGet();
+            int count = counter.incrementAndGet();
             if (windowState.get() == state) {
                 return count <= limit;
             }
@@ -82,26 +82,22 @@ public class TtsRateLimitService {
         }
     }
 
-    private static class WindowCounter {
-        final AtomicInteger count = new AtomicInteger(0);
-    }
-
     private static class WindowState {
         final long window;
-        final ConcurrentHashMap<String, WindowCounter> counters = new ConcurrentHashMap<>();
+        final ConcurrentHashMap<String, AtomicInteger> counters = new ConcurrentHashMap<>();
         final AtomicInteger trackedKeys = new AtomicInteger();
 
         private WindowState(long window) {
             this.window = window;
         }
 
-        private WindowCounter counterFor(String key) {
+        private AtomicInteger counterFor(String key) {
             return counters.computeIfAbsent(key, ignored -> {
                 if (trackedKeys.incrementAndGet() > MAX_TRACKED_KEYS) {
                     trackedKeys.decrementAndGet();
                     return null;
                 }
-                return new WindowCounter();
+                return new AtomicInteger();
             });
         }
     }

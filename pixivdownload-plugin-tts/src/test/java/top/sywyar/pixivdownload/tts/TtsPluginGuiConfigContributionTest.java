@@ -2,6 +2,9 @@ package top.sywyar.pixivdownload.tts;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
@@ -11,9 +14,11 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionNoticeStyle;
+import top.sywyar.pixivdownload.tts.narration.engine.TtsPluginConfig;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -31,6 +36,17 @@ class TtsPluginGuiConfigContributionTest {
             "narration-tts.doubao.access-token");
 
     private final TtsPlugin plugin = new TtsPlugin();
+
+    @Test
+    @DisplayName("GUI 默认配置绑定后与运行时默认值一致")
+    void guiDefaultsMatchRuntimeDefaults() {
+        var defaults = fields().stream().collect(Collectors.toMap(
+                GuiConfigFieldContribution::key, GuiConfigFieldContribution::defaultValue));
+        TtsPluginConfig bound = new Binder(new MapConfigurationPropertySource(defaults))
+                .bind("narration-tts", Bindable.of(TtsPluginConfig.class)).get();
+
+        assertThat(bound).usingRecursiveComparison().isEqualTo(new TtsPluginConfig());
+    }
 
     @Test
     @DisplayName("只贡献 narration-tts 自己的配置字段")

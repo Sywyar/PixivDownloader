@@ -125,11 +125,9 @@ public class EdgeTtsClient {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new EdgeTtsException(message("tts.edge.error.interrupted"), e);
-            } catch (ExecutionException | CompletionException e) {
-                throw synthesisFailure(unwrap(e));
             } catch (EdgeTtsException e) {
                 throw e;
-            } catch (RuntimeException e) {
+            } catch (ExecutionException | RuntimeException e) {
                 throw synthesisFailure(unwrap(e));
             }
         } finally {
@@ -159,10 +157,7 @@ public class EdgeTtsClient {
             Thread.currentThread().interrupt();
             abandonConnect(session, connecting, e);
             throw new EdgeTtsException(message("tts.edge.error.interrupted"), e);
-        } catch (ExecutionException | CompletionException e) {
-            abandonConnect(session, connecting, e);
-            throw connectFailure(unwrap(e));
-        } catch (RuntimeException e) {
+        } catch (ExecutionException | RuntimeException e) {
             abandonConnect(session, connecting, e);
             throw connectFailure(unwrap(e));
         } catch (VirtualMachineError | ThreadDeath fatal) {
