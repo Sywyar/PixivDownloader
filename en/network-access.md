@@ -108,6 +108,8 @@ An administrator may replace the AI base URL with any compatible service, so the
 
 ## `tts` plugin
 
+The browser engine calls the Web Speech API directly; narration text does not pass through this application’s backend. A voice may use a local or remote synthesizer. Network access, destinations, browser-side credentials and proxy behavior depend on the browser and voice provider, independently of the backend proxy configuration. A remote voice provider receives the text to be spoken. Stop playback or close the narration controls to stop submitting further text. For offline use, confirm in your browser or operating system that the selected voice works offline.
+
 TTS requests send the text to be narrated, voice/model options, and the corresponding service credentials. They are triggered only by preview, narration generation, voice-list refresh, connection testing, or actual novel narration.
 
 | Engine | Destination and purpose | Trigger details |
