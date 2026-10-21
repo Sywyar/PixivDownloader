@@ -127,21 +127,19 @@ public class CollectionService {
         return resolve(collectionMapper.findById(id));
     }
 
-    public void delete(long id) {
+    // 图标写入、清空与收藏夹删除共用互斥，避免文件发布和记录提交之间交错。
+    public synchronized void delete(long id) throws java.io.IOException {
         requireDatabase();
         requireExists(id);
-        collectionMapper.deleteArtworkLinksByCollection(id);
-        collectionMapper.deleteById(id);
-        iconService.deleteAll(id);
+        iconService.deleteAll(id, () -> collectionMapper.deleteById(id));
         log.info(message("collection.log.deleted", id));
     }
 
-    public Collection setIcon(long id, byte[] data) {
+    public synchronized Collection setIcon(long id, byte[] data) {
         requireDatabase();
         requireExists(id);
         try {
-            String ext = iconService.saveIcon(id, data);
-            collectionMapper.updateIconExt(id, ext);
+            iconService.saveIcon(id, data, ext -> collectionMapper.updateIconExt(id, ext));
         } catch (java.io.IOException e) {
             throw new LocalizedException(
                     HttpStatus.INTERNAL_SERVER_ERROR,
@@ -153,11 +151,10 @@ public class CollectionService {
         return resolve(collectionMapper.findById(id));
     }
 
-    public Collection clearIcon(long id) {
+    public synchronized Collection clearIcon(long id) throws java.io.IOException {
         requireDatabase();
         requireExists(id);
-        iconService.deleteAll(id);
-        collectionMapper.updateIconExt(id, null);
+        iconService.deleteAll(id, () -> collectionMapper.updateIconExt(id, null));
         return resolve(collectionMapper.findById(id));
     }
 

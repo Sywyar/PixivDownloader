@@ -47,23 +47,42 @@ class CollectionIconServiceTest {
         Path dataDir = tempDir.resolve("data");
         System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, dataDir.toString());
         collectionIconsDir = dataDir.resolve(RuntimeFiles.COLLECTION_ICONS_DIR);
-        iconService = new CollectionIconService(TestI18nBeans.appMessages());
+        iconService = new CollectionIconService(TestI18nBeans.appMessages(),
+                new top.sywyar.pixivdownload.core.asset.StagedFileDeletion(TestI18nBeans.appMessages(),
+                        top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()));
         iconService.init();
     }
 
     @AfterEach
     void tearDown() {
-        for (long id : new long[]{ID_PNG_BY_NAME, ID_JPEG_BY_NAME, ID_PNG_BY_MAGIC,
-                ID_JPG_BY_MAGIC, ID_WEBP_BY_MAGIC, ID_OVERWRITE, ID_INVALID}) {
-            iconService.deleteAll(id);
+        try {
+            top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.close();
+        } finally {
+            System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY);
         }
-        System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY);
+    }
+
+    @Test
+    @DisplayName("暂存目录拒绝覆盖并保留旧图标，普通暂存残留可回收")
+    void shouldPreserveIconWhenStagingIsUnsafe() throws IOException {
+        Path old = Files.write(collectionIconsDir.resolve(ID_OVERWRITE + ".jpg"), jpegBytes(4, 4));
+        byte[] original = Files.readAllBytes(old);
+        Path temporary = Files.createDirectory(collectionIconsDir.resolve(ID_OVERWRITE + ".icon.part"));
+        assertThatThrownBy(() -> saveIcon(ID_OVERWRITE, pngBytes(5, 5))).isInstanceOf(IOException.class);
+        assertThat(Files.readAllBytes(old)).isEqualTo(original);
+        assertThat(temporary).isDirectory();
+        assertThat(collectionIconsDir.resolve(ID_OVERWRITE + ".png")).doesNotExist();
+        Files.delete(temporary);
+        Files.writeString(temporary, "interrupted upload", StandardCharsets.UTF_8);
+        assertThat(saveIcon(ID_OVERWRITE, pngBytes(5, 5))).isEqualTo("png");
+        assertThat(temporary).doesNotExist();
+        assertThat(old).doesNotExist();
     }
 
     @Test
     @DisplayName("合法 PNG 应真实解码并重编码保存为 png")
     void shouldDetectPngByFilename() throws IOException {
-        String ext = iconService.saveIcon(ID_PNG_BY_NAME, pngBytes(32, 24));
+        String ext = saveIcon(ID_PNG_BY_NAME, pngBytes(32, 24));
 
         assertThat(ext).isEqualTo("png");
         assertThat(iconService.findExistingIcon(ID_PNG_BY_NAME, "png")).isNotNull();
@@ -74,7 +93,7 @@ class CollectionIconServiceTest {
     @Test
     @DisplayName("合法 JPEG 应真实解码并重编码保存为 png")
     void shouldNormalizeJpegToJpg() throws IOException {
-        String ext = iconService.saveIcon(ID_JPEG_BY_NAME, jpegBytes(16, 16));
+        String ext = saveIcon(ID_JPEG_BY_NAME, jpegBytes(16, 16));
 
         assertThat(ext).isEqualTo("png");
         assertThat(iconService.findExistingIcon(ID_JPEG_BY_NAME, "png")).isNotNull();
@@ -83,7 +102,7 @@ class CollectionIconServiceTest {
     @Test
     @DisplayName("无文件名时应通过真实内容识别 PNG")
     void shouldDetectPngByMagicNumber() throws IOException {
-        String ext = iconService.saveIcon(ID_PNG_BY_MAGIC, pngBytes(12, 12));
+        String ext = saveIcon(ID_PNG_BY_MAGIC, pngBytes(12, 12));
 
         assertThat(ext).isEqualTo("png");
     }
@@ -91,7 +110,7 @@ class CollectionIconServiceTest {
     @Test
     @DisplayName("无文件名时应通过真实内容识别 JPEG 并重编码为 PNG")
     void shouldDetectJpgByMagicNumber() throws IOException {
-        String ext = iconService.saveIcon(ID_JPG_BY_MAGIC, jpegBytes(12, 12));
+        String ext = saveIcon(ID_JPG_BY_MAGIC, jpegBytes(12, 12));
 
         assertThat(ext).isEqualTo("png");
     }
@@ -109,7 +128,7 @@ class CollectionIconServiceTest {
         webp[10] = 'B';
         webp[11] = 'P';
 
-        assertThatThrownBy(() -> iconService.saveIcon(ID_WEBP_BY_MAGIC, webp))
+        assertThatThrownBy(() -> saveIcon(ID_WEBP_BY_MAGIC, webp))
                 .isInstanceOf(LocalizedException.class)
                 .satisfies(e -> assertThat(((LocalizedException) e).getMessageCode())
                         .isEqualTo("collection.icon.format.unsupported"));
@@ -118,7 +137,7 @@ class CollectionIconServiceTest {
     @Test
     @DisplayName("既无可识别文件名也无可识别 magic-number 应抛 LocalizedException")
     void shouldRejectUnknownFormat() {
-        assertThatThrownBy(() -> iconService.saveIcon(
+        assertThatThrownBy(() -> saveIcon(
                 ID_INVALID, new byte[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}))
                 .isInstanceOf(LocalizedException.class)
                 .satisfies(e -> assertThat(((LocalizedException) e).getMessageCode())
@@ -128,11 +147,11 @@ class CollectionIconServiceTest {
     @Test
     @DisplayName("再次保存图标时应清理旧扩展名的文件")
     void shouldOverwritePreviousExtensionWhenSavingAgain() throws IOException {
-        iconService.replaceAtomic(ID_OVERWRITE, "jpg", jpegBytes(8, 8));
+        Files.write(iconService.resolveIconPath(ID_OVERWRITE, "jpg"), jpegBytes(8, 8));
         Path jpgPath = collectionIconsDir.resolve(ID_OVERWRITE + ".jpg");
         assertThat(Files.exists(jpgPath)).isTrue();
 
-        iconService.saveIcon(ID_OVERWRITE, pngBytes(10, 10));
+        saveIcon(ID_OVERWRITE, pngBytes(10, 10));
 
         assertThat(Files.exists(jpgPath)).as("旧 jpg 应已被清理").isFalse();
         assertThat(Files.exists(collectionIconsDir.resolve(ID_OVERWRITE + ".png"))).isTrue();
@@ -144,7 +163,7 @@ class CollectionIconServiceTest {
         byte[] svg = "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>"
                 .getBytes(StandardCharsets.UTF_8);
 
-        assertThatThrownBy(() -> iconService.saveIcon(ID_INVALID, svg))
+        assertThatThrownBy(() -> saveIcon(ID_INVALID, svg))
                 .isInstanceOf(LocalizedException.class)
                 .satisfies(e -> assertThat(((LocalizedException) e).getMessageCode())
                         .isEqualTo("collection.icon.format.unsupported"));
@@ -159,7 +178,7 @@ class CollectionIconServiceTest {
         png[2] = 'N';
         png[3] = 'G';
 
-        assertThatThrownBy(() -> iconService.saveIcon(ID_INVALID, png))
+        assertThatThrownBy(() -> saveIcon(ID_INVALID, png))
                 .isInstanceOf(LocalizedException.class)
                 .satisfies(e -> assertThat(((LocalizedException) e).getMessageCode())
                         .isEqualTo("collection.icon.format.unsupported"));
@@ -172,6 +191,10 @@ class CollectionIconServiceTest {
         assertThat(iconService.contentType("webp")).isEqualTo("image/webp");
         assertThat(iconService.contentType("jpg")).isEqualTo("image/jpeg");
         assertThat(iconService.contentType("anything-else")).isEqualTo("image/jpeg");
+    }
+
+    private String saveIcon(long id, byte[] data) throws IOException {
+        return iconService.saveIcon(id, data, ext -> {});
     }
 
     private static byte[] pngBytes(int width, int height) throws IOException {

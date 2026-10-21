@@ -85,7 +85,7 @@ public class CollectionController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable long id) {
+    public ResponseEntity<Void> delete(@PathVariable long id) throws IOException {
         collectionService.delete(id);
         return ResponseEntity.noContent().build();
     }
@@ -104,7 +104,7 @@ public class CollectionController {
     }
 
     @DeleteMapping("/{id}/icon")
-    public ResponseEntity<Collection> clearIcon(@PathVariable long id) {
+    public ResponseEntity<Collection> clearIcon(@PathVariable long id) throws IOException {
         return ResponseEntity.ok(collectionService.clearIcon(id));
     }
 

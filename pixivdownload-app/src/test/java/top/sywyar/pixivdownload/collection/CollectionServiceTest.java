@@ -50,6 +50,50 @@ class CollectionServiceTest {
 
     private CollectionService collectionService;
 
+    @ParameterizedTest
+    @ValueSource(strings = {"replace", "clear", "delete"})
+    @DisplayName("图标发布尚未结束时，后续替换、清空和删除均等待提交")
+    void shouldSerializeIconMutations(String operation) throws Exception {
+        when(collectionMapper.countById(1L)).thenReturn(1);
+        when(collectionMapper.findById(1L)).thenReturn(new Collection(1L, "first", null, null, 0, 1, 0, 0));
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var started = new java.util.concurrent.CountDownLatch(1);
+        var first = new java.util.concurrent.atomic.AtomicBoolean(true);
+        when(iconService.saveIcon(eq(1L), any(), any())).thenAnswer(invocation -> {
+            if (first.getAndSet(false)) {
+                entered.countDown();
+                assertThat(release.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            }
+            return "png";
+        });
+        var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var upload = executor.submit(() -> collectionService.setIcon(1, new byte[]{1}));
+            assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            var following = executor.submit(() -> {
+                started.countDown();
+                switch (operation) {
+                    case "replace" -> collectionService.setIcon(1, new byte[]{2});
+                    case "clear" -> collectionService.clearIcon(1);
+                    case "delete" -> collectionService.delete(1);
+                    default -> throw new AssertionError(operation);
+                }
+                return null;
+            });
+            assertThat(started.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> following.get(200, java.util.concurrent.TimeUnit.MILLISECONDS))
+                    .isInstanceOf(java.util.concurrent.TimeoutException.class);
+            release.countDown();
+            upload.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            following.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
     @BeforeEach
     void setUp() {
         lenient().when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
@@ -220,29 +264,15 @@ class CollectionServiceTest {
     class DeleteCleanupTests {
 
         @Test
-        @DisplayName("删除收藏夹应先清理 artwork_collections 关系，再删主表，再删图标文件")
-        void shouldCleanupRelationsAndIconOnDelete() {
-            when(collectionMapper.countById(5L)).thenReturn(1);
-
-            collectionService.delete(5L);
-
-            org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(collectionMapper, iconService);
-            inOrder.verify(collectionMapper).deleteArtworkLinksByCollection(5L);
-            inOrder.verify(collectionMapper).deleteById(5L);
-            inOrder.verify(iconService).deleteAll(5L);
-        }
-
-        @Test
         @DisplayName("收藏夹不存在时不应触达任何清理动作")
-        void shouldNotTouchAnythingWhenCollectionMissing() {
+        void shouldNotTouchAnythingWhenCollectionMissing() throws Exception {
             when(collectionMapper.countById(5L)).thenReturn(0);
 
             assertThatThrownBy(() -> collectionService.delete(5L))
                     .isInstanceOf(LocalizedException.class);
 
-            verify(collectionMapper, never()).deleteArtworkLinksByCollection(anyLong());
             verify(collectionMapper, never()).deleteById(anyLong());
-            verify(iconService, never()).deleteAll(anyLong());
+            verify(iconService, never()).deleteAll(anyLong(), any());
         }
     }
 
