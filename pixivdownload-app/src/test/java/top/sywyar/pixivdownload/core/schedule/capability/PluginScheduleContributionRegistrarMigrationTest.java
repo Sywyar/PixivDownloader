@@ -42,7 +42,7 @@ class PluginScheduleContributionRegistrarMigrationTest extends PluginScheduleCon
         var migrations = mock(LegacyScheduledTaskMigrationService.class);
         var registrar = new PluginScheduleContributionRegistrar(registry, migrations, plugins,
                 mock(top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator.class), () -> false);
-        ACTIVE_REGISTRIES.put(registrar, plugins);
+        activeRegistries.put(registrar, plugins);
         try (var child = new AnnotationConfigApplicationContext()) {
             var descriptor = sourceDescriptor("alpha", "alpha-work", "ALPHA");
             registerCompleteBeans(child, List.of(descriptor));

@@ -30,6 +30,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefiniti
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -422,15 +423,17 @@ public final class LegacyScheduledTaskMigrationCoordinator implements LegacySche
 
     private void verifyPending(long taskId, List<PendingWork> expected) {
         String table = "scheduled_task_pending_work";
-        List<PendingStoredRow> actualRows = rows(table, eq(table, "task_id", taskId),
-                List.of(ascending(table, "work_type"), ascending(table, "work_id")),
+        // 数据库的文本排序可能与 Java 不同，两侧按同一身份顺序比较完整行。
+        Comparator<PendingStoredRow> order = Comparator.comparing(PendingStoredRow::workType)
+                .thenComparing(PendingStoredRow::workId);
+        List<PendingStoredRow> actualRows = rows(table, eq(table, "task_id", taskId), List.of(),
                 "work_type", "work_id", "payload_schema", "payload_version", "payload_json", "presentation_json",
                 "relations_json", "reason_code", "reason_detail_json", "attempts", "first_seen_time", "last_attempt_time")
                 .stream().map(row -> new PendingStoredRow(text(row, "work_type"), text(row, "work_id"),
                         text(row, "payload_schema"), integer(row, "payload_version"), text(row, "payload_json"),
                         text(row, "presentation_json"), text(row, "relations_json"), text(row, "reason_code"),
                         text(row, "reason_detail_json"), integer(row, "attempts"), number(row, "first_seen_time"),
-                        number(row, "last_attempt_time"))).toList();
+                        number(row, "last_attempt_time"))).sorted(order).toList();
         List<PendingStoredRow> expectedRows = expected.stream()
                 .map(item -> new PendingStoredRow(
                         item.work().key().workType(),
@@ -445,10 +448,7 @@ public final class LegacyScheduledTaskMigrationCoordinator implements LegacySche
                         item.attempts(),
                         item.firstSeenTime(),
                         item.lastAttemptTime()))
-                .sorted((left, right) -> {
-                    int type = left.workType().compareTo(right.workType());
-                    return type != 0 ? type : left.workId().compareTo(right.workId());
-                })
+                .sorted(order)
                 .toList();
         if (!expectedRows.equals(actualRows)) {
             throw new IllegalStateException("migrated pending readback mismatch");

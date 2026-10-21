@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.core.schedule.capability;
 
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
 
+import java.util.Arrays;
 import java.util.Objects;
 
 /** 单次 owner publication 的 admission 与取消槽；只保存宿主状态，不保存插件 Bean。 */
@@ -164,31 +165,34 @@ final class ScheduleLeaseState {
     }
 
     private static LeaseToken[] appendActive(LeaseToken[] current, LeaseToken added) {
-        int active = activeCount(current);
-        LeaseToken[] next = new LeaseToken[active + 1];
+        // 根或分支可在 owner 锁外关闭，不能用前一次存活计数决定本次快照长度。
+        LeaseToken[] next = new LeaseToken[current.length + 1];
         int target = 0;
         for (int index = 0; index < current.length; index++) {
             if (current[index].isActive()) {
                 next[target++] = current[index];
             }
         }
-        next[target] = added;
-        return next;
+        next[target++] = added;
+        return target == next.length ? next : Arrays.copyOf(next, target);
     }
 
     private static LeaseToken[] compactActive(LeaseToken[] current) {
-        int active = activeCount(current);
-        if (active == current.length) {
+        int firstInactive = 0;
+        while (firstInactive < current.length && current[firstInactive].isActive()) {
+            firstInactive++;
+        }
+        if (firstInactive == current.length) {
             return current;
         }
-        LeaseToken[] next = new LeaseToken[active];
-        int target = 0;
-        for (int index = 0; index < current.length; index++) {
+        LeaseToken[] next = Arrays.copyOf(current, current.length - 1);
+        int target = firstInactive;
+        for (int index = firstInactive + 1; index < current.length; index++) {
             if (current[index].isActive()) {
                 next[target++] = current[index];
             }
         }
-        return next;
+        return target == next.length ? next : Arrays.copyOf(next, target);
     }
 
     private static LeaseToken[] remove(LeaseToken[] current, LeaseToken removed) {

@@ -32,11 +32,6 @@ public final class ScheduleExecutionPlanGate {
 
         Set<String> guardIds = new LinkedHashSet<>();
         for (ScheduledGuardBinding binding : plan.guards()) {
-            if (binding == null) {
-                throw new Violation(
-                        Reason.UNDECLARED_GUARD,
-                        "schedule execution plan contains a null guard binding");
-            }
             if (binding.workBatchSize() > MAX_WORK_BATCH_SIZE) {
                 throw new Violation(
                         Reason.WORK_BATCH_TOO_LARGE,

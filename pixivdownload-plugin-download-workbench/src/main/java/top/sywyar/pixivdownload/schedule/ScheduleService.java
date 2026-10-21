@@ -47,6 +47,7 @@ import top.sywyar.pixivdownload.schedule.dto.SchedulePendingView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleSourceManifestView;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskRequest;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskView;
+import top.sywyar.pixivdownload.schedule.definition.ScheduleExecutionPlanGate;
 import top.sywyar.pixivdownload.schedule.definition.ScheduleTaskDefinitionValidator;
 import top.sywyar.pixivdownload.schedule.security.ScheduleCredentialRedactor;
 
@@ -970,7 +971,7 @@ public class ScheduleService implements DesktopAutomationSource {
             ScheduledExecutionPlan plan = invokeSourceCallback(
                     () -> sourceExecutor.plan(definition));
             planning.cancellation().throwIfCancellationRequested();
-            validator.validatePlan(descriptor, plan);
+            ScheduleExecutionPlanGate.validate(descriptor, plan);
             planning.cancellation().throwIfCancellationRequested();
             String credentialPolicyId = plan.credentialPolicyId();
             String credentialPolicyOwnerPluginId = credentialPolicyId == null

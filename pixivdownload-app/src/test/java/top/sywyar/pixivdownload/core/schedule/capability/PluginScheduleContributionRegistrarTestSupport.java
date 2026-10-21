@@ -47,7 +47,7 @@ abstract class PluginScheduleContributionRegistrarTestSupport {
 
     protected static final ScheduleContributionLifecycleAuthority AUTHORITY =
             ScheduleContributionLifecycleAuthorityTestAccess.create();
-    protected static final Map<PluginScheduleContributionRegistrar, PluginRegistry> ACTIVE_REGISTRIES =
+    protected final Map<PluginScheduleContributionRegistrar, PluginRegistry> activeRegistries =
             new ConcurrentHashMap<>();
 
     protected static AnnotationConfigApplicationContext completeChildContext(String sourceType, String workType) {
@@ -78,29 +78,29 @@ abstract class PluginScheduleContributionRegistrarTestSupport {
         return child;
     }
 
-    protected static PluginScheduleContributionRegistrar registrar(ScheduleCapabilityRegistry registry) {
+    protected PluginScheduleContributionRegistrar registrar(ScheduleCapabilityRegistry registry) {
         LegacyScheduledTaskMigrationService noOp = (reservation, adapter) ->
                 new LegacyScheduledTaskMigrationService.OwnerMigrationReport(
                         registry.reservedMigrationSnapshot(reservation).ownerPluginId(), 0, 0, 0, 0);
         return registrar(registry, noOp);
     }
 
-    protected static PluginScheduleContributionRegistrar registrar(
+    protected PluginScheduleContributionRegistrar registrar(
             ScheduleCapabilityRegistry registry,
             LegacyScheduledTaskMigrationService migrationService) {
         PluginRegistry activeRegistry = new PluginRegistry(List.of());
         PluginScheduleContributionRegistrar registrar =
                 ScheduleCapabilityRegistryTestAccess.registrar(
                         registry, migrationService, activeRegistry);
-        ACTIVE_REGISTRIES.put(registrar, activeRegistry);
+        activeRegistries.put(registrar, activeRegistry);
         return registrar;
     }
 
-    protected static Optional<ScheduleCapabilityPublication> register(
+    protected Optional<ScheduleCapabilityPublication> register(
             PluginScheduleContributionRegistrar registrar,
             PluginRegistry.RegisteredPlugin registered,
             ConfigurableApplicationContext childContext) {
-        PluginRegistry activeRegistry = ACTIVE_REGISTRIES.get(registrar);
+        PluginRegistry activeRegistry = activeRegistries.get(registrar);
         if (activeRegistry == null) {
             throw new IllegalStateException("missing active plugin registry for registrar test");
         }
@@ -112,7 +112,7 @@ abstract class PluginScheduleContributionRegistrarTestSupport {
         return registrar.register(AUTHORITY, registered, childContext);
     }
 
-    protected static Optional<ScheduleCapabilityPublication> registerModern(
+    protected Optional<ScheduleCapabilityPublication> registerModern(
             PluginScheduleContributionRegistrar registrar,
             PluginRegistry.RegisteredPlugin registered) {
         try (AnnotationConfigApplicationContext child = completeChildContext(

@@ -397,8 +397,7 @@ public final class ScheduleExecutionEngine {
                         result = new ScheduleExecutionResult(
                                 coordinator.completedWorkCount(),
                                 discovery.candidateCheckpoint(),
-                                credentialRevoked,
-                                coordinator.pendingExhausted());
+                                credentialRevoked);
                     } catch (Throwable caught) {
                         Throwable primary = caught instanceof ScheduleWorkCoordinator.CoordinatorSignal signal
                                 ? signal.failure()

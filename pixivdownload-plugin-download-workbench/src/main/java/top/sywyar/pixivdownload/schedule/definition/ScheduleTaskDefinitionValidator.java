@@ -4,10 +4,8 @@ import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
 import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduledCredentialText;
 import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduledSensitiveFieldNames;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation;
 
@@ -17,7 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 
-/** 对进入持久化边界的定义与执行计划做宿主侧前置和最终校验。 */
+/** 对进入持久化边界的定义与展示数据做宿主侧前置和最终校验。 */
 public final class ScheduleTaskDefinitionValidator {
 
     private static final int MAX_EMBEDDED_JSON_DEPTH = 16;
@@ -58,12 +56,6 @@ public final class ScheduleTaskDefinitionValidator {
                 expectedDefinitionVersion,
                 definitionJson,
                 presentation);
-    }
-
-    public void validatePlan(
-            ScheduledSourceDescriptor descriptor,
-            ScheduledExecutionPlan plan) {
-        ScheduleExecutionPlanGate.validate(descriptor, plan);
     }
 
     public ScheduledTaskPresentation validatePresentation(ScheduledTaskPresentation value) {

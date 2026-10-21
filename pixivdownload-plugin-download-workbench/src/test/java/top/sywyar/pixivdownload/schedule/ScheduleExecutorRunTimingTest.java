@@ -152,7 +152,7 @@ class ScheduleExecutorRunTimingTest {
                 new ScheduledCheckpoint("fixture.checkpoint", 1, "{\"cursor\":\"next\"}");
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
         when(engine.execute(eq(task), any(), any())).thenReturn(
-                new ScheduleExecutionResult(2, checkpoint, false, List.of()));
+                new ScheduleExecutionResult(2, checkpoint, false));
 
         genericExecutor(engine).runTaskAndRecord(task);
 
@@ -429,7 +429,7 @@ class ScheduleExecutorRunTimingTest {
         when(task.credentialPolicyId()).thenReturn("fixture-policy");
         ScheduleExecutionEngine engine = mock(ScheduleExecutionEngine.class);
         when(engine.execute(eq(task), any(), any())).thenReturn(
-                new ScheduleExecutionResult(0, null, true, List.of()));
+                new ScheduleExecutionResult(0, null, true));
         when(store.removeCredential(10L, 3L, "fixture-policy-owner", "fixture-policy"))
                 .thenReturn(OptionalLong.of(4L));
 
@@ -867,7 +867,7 @@ class ScheduleExecutorRunTimingTest {
     }
 
     private static ScheduleExecutionResult emptyResult() {
-        return new ScheduleExecutionResult(0, null, false, List.of());
+        return new ScheduleExecutionResult(0, null, false);
     }
 
     private static String userDefinition(String userId) {
