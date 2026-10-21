@@ -48,7 +48,7 @@ public final class ExampleScheduledWorkExecutor implements ScheduledWorkExecutor
                     ScheduledFailure.Category.PAYLOAD_UNSUPPORTED,
                     "example.payload-json-invalid");
         }
-        if (definition.id() == null || !definition.id().matches("[0-9]{1,18}")) {
+        if (definition == null || definition.id() == null || !definition.id().matches("[0-9]{1,18}")) {
             throw new ScheduledExecutionException(
                     ScheduledFailure.Category.PAYLOAD_UNSUPPORTED,
                     "example.payload-id-invalid");

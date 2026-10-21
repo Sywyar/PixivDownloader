@@ -33,12 +33,11 @@ class ExampleMinimalPluginTest {
     @DisplayName("plugin.properties 必填字段完整且主类同时满足 PF4J 与宿主入口契约")
     void descriptorDeclaresRequiredFieldsAndEntrypoint() throws Exception {
         Properties descriptor = loadProperties("plugin.properties");
-        for (String key : Set.of("plugin.id", "plugin.version", "plugin.requires", "plugin.class")) {
+        for (String key : Set.of("plugin.id", "plugin.requires", "plugin.class")) {
             assertFalse(descriptor.getProperty(key, "").isBlank(), () -> "missing descriptor key: " + key);
         }
 
         assertEquals("example-minimal", descriptor.getProperty("plugin.id"));
-        assertEquals("0.1.0", descriptor.getProperty("plugin.version"));
         assertEquals(top.sywyar.pixivdownload.sdk.SdkVersion.isPrerelease()
                         ? "=" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION
                         : top.sywyar.pixivdownload.sdk.SdkVersion.MAJOR + "."

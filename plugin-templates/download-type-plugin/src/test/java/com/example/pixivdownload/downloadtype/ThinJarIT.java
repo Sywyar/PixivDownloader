@@ -6,11 +6,14 @@ import org.pf4j.Plugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivPluginProvider;
 
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Properties;
 import java.util.Set;
 import java.util.jar.JarFile;
 
@@ -33,6 +36,21 @@ class ThinJarIT {
             jar.stream().forEach(entry -> entries.add(entry.getName()));
 
             assertTrue(entries.contains("plugin.properties"));
+            List<String> metadata = entries.stream()
+                    .filter(name -> name.startsWith("META-INF/maven/") && name.endsWith("/pom.properties"))
+                    .toList();
+            assertEquals(1, metadata.size());
+            Properties descriptor = new Properties();
+            Properties pom = new Properties();
+            try (var descriptorReader = new InputStreamReader(
+                    jar.getInputStream(jar.getJarEntry("plugin.properties")), StandardCharsets.UTF_8);
+                 var pomReader = new InputStreamReader(
+                         jar.getInputStream(jar.getJarEntry(metadata.get(0))), StandardCharsets.UTF_8)) {
+                descriptor.load(descriptorReader);
+                pom.load(pomReader);
+            }
+            assertFalse(pom.getProperty("version", "").isBlank());
+            assertEquals(pom.getProperty("version"), descriptor.getProperty("plugin.version"));
             assertTrue(entries.contains(
                     "com/example/pixivdownload/downloadtype/ExampleDownloadPf4jPlugin.class"));
             assertTrue(entries.contains(

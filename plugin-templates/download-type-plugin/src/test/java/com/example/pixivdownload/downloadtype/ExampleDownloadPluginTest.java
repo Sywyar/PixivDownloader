@@ -32,7 +32,6 @@ class ExampleDownloadPluginTest {
             properties.load(input);
         }
         assertEquals("example-download", properties.getProperty("plugin.id"));
-        assertEquals("0.1.0", properties.getProperty("plugin.version"));
         assertEquals(top.sywyar.pixivdownload.sdk.SdkVersion.isPrerelease()
                         ? "=" + top.sywyar.pixivdownload.sdk.SdkVersion.VERSION
                         : top.sywyar.pixivdownload.sdk.SdkVersion.MAJOR + "."
