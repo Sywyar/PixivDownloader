@@ -141,21 +141,26 @@
             return;
         }
         const btn = document.getElementById('collectionFormSubmit');
+        if (btn.disabled) return;
+        const revision = collectionFormRevision;
+        const editingCollection = state.editingCollection;
+        const iconFile = state.pendingIconFile;
+        const clearIcon = state.pendingIconClear;
         btn.disabled = true;
         try {
             let collection;
-            if (state.editingCollection) {
-                await api(`/api/collections/${state.editingCollection.id}`, {
+            if (editingCollection) {
+                await api(`/api/collections/${editingCollection.id}`, {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({name}),
                 });
-                await api(`/api/collections/${state.editingCollection.id}/download-root`, {
+                await api(`/api/collections/${editingCollection.id}/download-root`, {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({downloadRoot}),
                 });
-                collection = {...state.editingCollection, name, downloadRoot};
+                collection = {...editingCollection, name, downloadRoot};
             } else {
                 collection = await api('/api/collections', {
                     method: 'POST',
@@ -163,15 +168,15 @@
                     body: JSON.stringify({name, downloadRoot}),
                 });
             }
-            if (state.pendingIconFile) {
+            if (iconFile) {
                 const form = new FormData();
-                form.append('file', state.pendingIconFile);
+                form.append('file', iconFile);
                 await api(`/api/collections/${collection.id}/icon`, {method: 'POST', body: form});
-            } else if (state.pendingIconClear && state.editingCollection) {
+            } else if (clearIcon && editingCollection) {
                 await api(`/api/collections/${collection.id}/icon`, {method: 'DELETE'});
             }
-            toast(state.editingCollection ? t('toast.saved', 'Saved') : t('toast.created', 'Created'), 'success');
-            closeCollectionFormModal();
+            toast(editingCollection ? t('toast.saved', 'Saved') : t('toast.created', 'Created'), 'success');
+            if (revision === collectionFormRevision) closeCollectionFormModal();
             await loadCollections();
         } catch (e) {
             toast(e.message || t('toast.save-failed', 'Save failed'), 'error');
@@ -358,27 +363,34 @@
         const input = document.getElementById('quickCreateName');
         const name = input.value.trim();
         if (!name) return;
-        const btn = document.getElementById('quickCreateBtn');
-        btn.disabled = true;
+        if (collectionPending) return;
+        const artworkId = state.activeArtworkId;
+        const membership = state.collectionMembership;
+        const revision = collectionModalRevision;
+        setCollectionPending(true);
         try {
             const c = await api('/api/collections', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({name}),
             });
-            input.value = '';
+            if (revision === collectionModalRevision) input.value = '';
             state.collections.push(c);
             state.collections.sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
-            if (state.activeArtworkId) {
-                await api(`/api/collections/${c.id}/artworks/${state.activeArtworkId}`, {method: 'POST'});
-                state.collectionMembership.add(c.id);
+            if (artworkId != null) {
+                await api(`/api/collections/${c.id}/artworks/${artworkId}`, {method: 'POST'});
+                membership.add(c.id);
             }
-            renderAddToCollectionList();
             toast(t('toast.created', 'Created'), 'success');
         } catch (e) {
             toast(e.message || t('toast.create-failed', 'Creation failed'), 'error');
         } finally {
-            btn.disabled = false;
+            setCollectionPending(false);
+            await refreshCollectionMembership();
+            await loadCollections();
+            renderAddToCollectionList();
+            const ids = [...document.querySelectorAll('.work-card[data-id]')].map(el => Number(el.dataset.id));
+            if (ids.length) loadMembershipsForCurrentPage(ids);
         }
     });
 
@@ -386,6 +398,7 @@
         const backdrop = e.target.classList && e.target.classList.contains('modal-backdrop');
         if (backdrop) {
             if (e.target.id === 'modalCollectionForm') closeCollectionFormModal();
+            else if (e.target.id === 'modalAddToCollection') closeAddToCollectionModal();
             else e.target.classList.remove('open');
         }
     });

@@ -33,7 +33,7 @@ function harness(saved, respond) {
         }
     };
     vm.createContext(sandbox);
-    for (const file of ['gallery-state.js', 'gallery-views.js']) {
+    for (const file of ['gallery-state.js', 'gallery-collections.js', 'gallery-views.js']) {
         vm.runInContext(fs.readFileSync(path.join(__dirname, '../../main/resources/static/pixiv-gallery', file), 'utf8'), sandbox);
     }
     sandbox.renderGallery = items => rendered.push(items);
@@ -136,3 +136,43 @@ test('补查响应晚于新查询时不能覆盖新结果', async () => {
     assert.equal(h.requests.length, 3);
     assert.deepEqual(h.rendered, [[{id: 333}]]);
 });
+
+for (const [render, stateKey, container, load] of [
+    ['renderPagination', null, 'pagination', 'loadGallery'],
+    ['renderAuthorsPagination', 'authors', 'authorPagination', 'loadAuthorsView'],
+    ['renderSeriesPagination', 'series', 'authorPagination', 'loadSeriesView']
+]) {
+    test(`${render} 的按钮和跳页只更新所属视图并保留边界检查`, () => {
+        const h = harness({}, () => ({}));
+        const view = stateKey ? h.state[stateKey] : h.state;
+        Object.assign(view, {page: 2, totalPages: 8});
+        const clicked = [], buttons = [1, 3, -1, 8].map(page => ({
+            dataset: {page: String(page)}, disabled: false,
+            addEventListener(_event, fn) { this.click = fn; }
+        }));
+        const input = {value: '8', events: {},
+            addEventListener(event, fn) { this.events[event] = fn; },
+            blur() { this.events.blur(); }};
+        h.nodes.set(container, {innerHTML: '', querySelectorAll(selector) {
+            return selector === '.page-btn' ? buttons : [input];
+        }});
+        h.sandbox[load] = () => clicked.push(view.page);
+        let scrolled = 0;
+        h.sandbox.scrollGalleryToTop = () => scrolled++;
+        h.sandbox[render]();
+        assert.match(h.nodes.get(container).innerHTML, /class="page-btn active" data-page="2"/);
+        buttons.forEach(button => button.click());
+        assert.deepEqual(clicked, [1, 3]);
+        buttons[0].disabled = true;
+        buttons[0].click();
+        input.events.keydown({key: 'Enter', preventDefault() {}});
+        assert.deepEqual(clicked, [1, 3, 7]);
+        assert.equal(scrolled, 3, 'Enter 后 blur 不重复翻页');
+        for (const totalPages of [0, 1]) {
+            view.totalPages = totalPages;
+            h.sandbox[render]();
+            assert.equal(h.nodes.get(container).innerHTML, '');
+        }
+        if (stateKey) assert.equal(h.state.page, 0, '其它视图的页码不变');
+    });
+}

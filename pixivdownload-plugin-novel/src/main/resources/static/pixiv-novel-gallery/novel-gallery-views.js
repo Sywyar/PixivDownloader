@@ -1,5 +1,6 @@
 'use strict';
 
+let galleryMembershipRevision = 0;
 // ---------- View switching ----------
 function switchView(v) {
     v = normalizeView(v);
@@ -201,6 +202,7 @@ function renderGrid(items) {
 }
 
 async function loadMembershipsForNovels(novelIds) {
+    const revision = ++galleryMembershipRevision;
     if (!novelIds.length) return;
     let memberships = {};
     try {
@@ -214,6 +216,7 @@ async function loadMembershipsForNovels(novelIds) {
         const data = await r.json();
         memberships = data.memberships || {};
     } catch (e) { return; }
+    if (revision !== galleryMembershipRevision || collectionPending) return;
     const byId = new Map((state.collections || []).map(c => [c.id, c]));
     novelIds.forEach(id => {
         const collectionIds = memberships[id] || [];
@@ -762,74 +765,4 @@ function commitPageJump(input, totalPages, onClick) {
     const target = Math.min(Math.max(pageNumber, 1), totalPages) - 1;
     onClick(target);
     return true;
-}
-
-// ---------- Add to collection (novel) ----------
-const collectionState = { activeNovelId: null, membership: new Set() };
-
-async function openAddToCollectionModal(novelId) {
-    collectionState.activeNovelId = novelId;
-    try {
-        const r = await fetch(`/api/collections/novels/of/${novelId}`, { credentials: 'same-origin' });
-        if (r.ok) {
-            const data = await r.json();
-            collectionState.membership = new Set(data.collectionIds || []);
-        } else {
-            collectionState.membership = new Set();
-        }
-    } catch (e) {
-        collectionState.membership = new Set();
-    }
-    renderAddToCollectionList();
-    document.getElementById('modalAddToCollection').classList.add('open');
-}
-
-function closeAddToCollectionModal() {
-    document.getElementById('modalAddToCollection').classList.remove('open');
-    collectionState.activeNovelId = null;
-    loadCollections();
-    const ids = [...document.querySelectorAll('.card[data-novel-id]')].map(el => Number(el.dataset.novelId));
-    if (ids.length) loadMembershipsForNovels(ids);
-}
-
-function renderAddToCollectionList() {
-    const list = document.getElementById('addToCollectionList');
-    if (!state.collections.length) {
-        list.innerHTML = `<div class="empty" style="padding:24px">${esc(pageI18n.t('status.no-collections-hint', '暂无收藏夹，请先新建'))}</div>`;
-        return;
-    }
-    list.innerHTML = state.collections.map(c => {
-        const icon = c.iconExt
-            ? `<img src="/api/collections/${c.id}/icon?v=${c.createdTime}" alt="">`
-            : HEART_SVG;
-        const checked = collectionState.membership.has(c.id) ? 'checked' : '';
-        return `<label class="collection-row" data-id="${c.id}">
-            <input type="checkbox" ${checked}>
-            <div class="collection-row-icon">${icon}</div>
-            <div class="collection-row-name">${esc(c.name)}</div>
-            <span class="collection-count">${c.novelCount ?? 0}</span>
-        </label>`;
-    }).join('');
-    list.querySelectorAll('.collection-row').forEach(row => {
-        const id = Number(row.dataset.id);
-        const cb = row.querySelector('input[type="checkbox"]');
-        cb.addEventListener('change', async () => {
-            const novelId = collectionState.activeNovelId;
-            if (novelId == null) return;
-            try {
-                if (cb.checked) {
-                    const r = await fetch(`/api/collections/${id}/novels/${novelId}`, { method: 'POST', credentials: 'same-origin' });
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    collectionState.membership.add(id);
-                } else {
-                    const r = await fetch(`/api/collections/${id}/novels/${novelId}`, { method: 'DELETE', credentials: 'same-origin' });
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    collectionState.membership.delete(id);
-                }
-            } catch (e) {
-                cb.checked = !cb.checked;
-                toast(pageI18n.t('toast.action-failed', '操作失败'), 'error');
-            }
-        });
-    });
 }

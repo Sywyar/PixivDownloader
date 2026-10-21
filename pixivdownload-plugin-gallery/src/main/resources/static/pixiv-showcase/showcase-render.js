@@ -145,20 +145,30 @@
         try {
             const items = await api(`/api/gallery/artwork/${state.artworkId}/related?limit=30`);
             state.relatedItems = items || [];
-            renderRelatedGrid();
         } catch (e) {
             state.relatedItems = [];
         }
+        state.relatedOffset = 0;
+        renderRelatedGrid();
+    }
+
+    function changeRelatedPage(delta) {
+        const offset = state.relatedOffset + delta * 10;
+        if (offset < 0 || offset >= state.relatedItems.length) return;
+        state.relatedOffset = offset;
+        renderRelatedGrid();
     }
 
     function renderRelatedGrid() {
         const items = state.relatedItems;
         const grid = document.getElementById('relatedGrid');
+        document.getElementById('relatedPrev').disabled = state.relatedOffset === 0;
+        document.getElementById('relatedNext').disabled = state.relatedOffset + 10 >= items.length;
         if (!items.length) {
             grid.innerHTML = `<div class="loading-state related-empty">${escapeHtml(wt('status.no-related', 'No related artworks'))}</div>`;
             return;
         }
-        const display = items.slice(0, 10);
+        const display = items.slice(state.relatedOffset, state.relatedOffset + 10);
         grid.innerHTML = display.map(item => `
             <div class="related-card" data-id="${item.artworkId}">
                 <img data-src="/api/downloaded/thumbnail/${item.artworkId}/0" alt="${escapeHtml(item.title || '')}" loading="lazy">

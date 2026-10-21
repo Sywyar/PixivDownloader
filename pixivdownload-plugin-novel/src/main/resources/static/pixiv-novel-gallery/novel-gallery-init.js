@@ -10,6 +10,12 @@ function rememberNovelGalleryLocation() {
 
 rememberNovelGalleryLocation();
 window.addEventListener('pagehide', rememberNovelGalleryLocation);
+window.addEventListener('pagehide', releaseCollectionIconPreview);
+window.addEventListener('pageshow', () => {
+    if (document.getElementById('modalCollectionForm').classList.contains('open')) {
+        updateFormIconPreview(state.editingCollection);
+    }
+});
 
 function hideFailedCover(image) {
     image.parentElement.style.display = 'none';
@@ -345,8 +351,11 @@ document.getElementById('quickCreateBtn').addEventListener('click', async () => 
     const input = document.getElementById('quickCreateName');
     const name = input.value.trim();
     if (!name) return;
-    const btn = document.getElementById('quickCreateBtn');
-    btn.disabled = true;
+    if (collectionPending) return;
+    const targetNovelId = collectionState.activeNovelId;
+    const membership = collectionState.membership;
+    const revision = collectionModalRevision;
+    setCollectionPending(true);
     try {
         const r = await fetch('/api/collections', {
             method: 'POST',
@@ -356,21 +365,24 @@ document.getElementById('quickCreateBtn').addEventListener('click', async () => 
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const c = await r.json();
-        input.value = '';
+        if (revision === collectionModalRevision) input.value = '';
         state.collections.push(c);
         state.collections.sort((a, b) => (a.sortOrder - b.sortOrder) || (a.id - b.id));
-        if (collectionState.activeNovelId != null) {
-            await fetch(`/api/collections/${c.id}/novels/${collectionState.activeNovelId}`, { method: 'POST', credentials: 'same-origin' });
-            collectionState.membership.add(c.id);
+        if (targetNovelId != null) {
+            const link = await fetch(`/api/collections/${c.id}/novels/${encodeURIComponent(targetNovelId)}`, { method: 'POST', credentials: 'same-origin' });
+            if (!link.ok) throw new Error('HTTP ' + link.status);
+            membership.add(c.id);
         }
-        renderCollections();
-        renderCollectionFilterChips();
-        renderAddToCollectionList();
         toast(pageI18n.t('toast.created', '创建成功'), 'success');
     } catch (e) {
         toast(pageI18n.t('toast.create-failed', '创建失败'), 'error');
     } finally {
-        btn.disabled = false;
+        setCollectionPending(false);
+        await refreshCollectionMembership();
+        await loadCollections();
+        renderAddToCollectionList();
+        const ids = [...document.querySelectorAll('.card[data-novel-id]')].map(el => Number(el.dataset.novelId));
+        if (ids.length) loadMembershipsForNovels(ids);
     }
 });
 

@@ -18,8 +18,11 @@ document.getElementById('quickCreateBtn').addEventListener('click', async () => 
     const input = document.getElementById('quickCreateName');
     const name = input.value.trim();
     if (!name) return;
-    const btn = document.getElementById('quickCreateBtn');
-    btn.disabled = true;
+    if (collectionPending) return;
+    const targetNovelId = novelId;
+    const membership = collectionState.membership;
+    const revision = collectionModalRevision;
+    setCollectionPending(true);
     try {
         const r = await fetch('/api/collections', {
             method: 'POST',
@@ -29,17 +32,21 @@ document.getElementById('quickCreateBtn').addEventListener('click', async () => 
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const c = await r.json();
-        input.value = '';
+        if (revision === collectionModalRevision) input.value = '';
         collectionState.list.push(c);
         collectionState.list.sort((a, b) => (a.sortOrder - b.sortOrder) || (a.id - b.id));
-        const link = await fetch(`/api/collections/${c.id}/novels/${encodeURIComponent(novelId)}`, { method: 'POST', credentials: 'same-origin' });
-        if (link.ok) collectionState.membership.add(c.id);
-        renderAddToCollectionList();
+        const link = await fetch(`/api/collections/${c.id}/novels/${encodeURIComponent(targetNovelId)}`, { method: 'POST', credentials: 'same-origin' });
+        if (!link.ok) throw new Error('HTTP ' + link.status);
+        membership.add(c.id);
         toast(pageI18n.t('toast.created', '已创建'), 'success');
     } catch (e) {
         toast(pageI18n.t('toast.create-failed', '创建失败'), 'error');
     } finally {
-        btn.disabled = false;
+        setCollectionPending(false);
+        await refreshMembership();
+        await refreshCollections();
+        renderAddToCollectionList();
+        updateHeart();
     }
 });
 

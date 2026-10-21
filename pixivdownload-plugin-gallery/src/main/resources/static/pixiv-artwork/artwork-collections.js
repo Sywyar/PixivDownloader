@@ -1,18 +1,46 @@
 'use strict';
+
+    let collectionPending = false;
+    let collectionReadRevision = 0;
+    let collectionModalRevision = 0;
+
+    function syncCollectionControls() {
+        document.getElementById('quickCreateBtn').disabled = collectionPending;
+        document.getElementById('addToCollectionList').querySelectorAll('.collection-row').forEach(row => {
+            const checkbox = row.querySelector('input[type="checkbox"]');
+            checkbox.disabled = collectionPending;
+            if (!collectionPending) checkbox.checked = state.collectionMembership.has(Number(row.dataset.id));
+        });
+    }
+
+    function setCollectionPending(pending) {
+        collectionPending = pending;
+        ++collectionReadRevision;
+        ++collectionLoadRevision;
+        syncCollectionControls();
+    }
+
     // ---------- Collections ----------
+    let collectionLoadRevision = 0;
     async function loadCollections() {
+        const revision = ++collectionLoadRevision;
         try {
             const resp = await api('/api/collections');
+            if (revision !== collectionLoadRevision || collectionPending) return;
             state.collections = resp.collections || [];
         } catch (e) {
-            state.collections = [];
+            if (revision === collectionLoadRevision && !collectionPending) state.collections = [];
         }
     }
 
     async function loadMembership() {
+        const revision = ++collectionReadRevision;
+        const artworkId = state.artworkId;
         try {
-            const resp = await api(`/api/collections/of/${state.artworkId}`);
+            const resp = await api(`/api/collections/of/${artworkId}`);
+            if (revision !== collectionReadRevision || collectionPending || artworkId !== state.artworkId) return;
             state.collectionMembership = new Set(resp.collectionIds || []);
+            syncCollectionControls();
             const btn = document.getElementById('heartBtn');
             if (btn) btn.style.display = '';
             updateHeart();
@@ -43,13 +71,18 @@
     }
 
     async function openAddToCollectionModal() {
+        const revision = ++collectionModalRevision;
         await loadCollections();
+        if (revision !== collectionModalRevision) return;
         await loadMembership();
+        if (revision !== collectionModalRevision) return;
         renderAddToCollectionList();
         document.getElementById('modalAddToCollection').classList.add('open');
     }
 
     function closeAddToCollectionModal() {
+        ++collectionModalRevision;
+        ++collectionReadRevision;
         document.getElementById('modalAddToCollection').classList.remove('open');
         updateHeart();
     }
@@ -72,52 +105,66 @@
             const id = Number(row.dataset.id);
             const cb = row.querySelector('input[type="checkbox"]');
             cb.addEventListener('change', async () => {
+                if (collectionPending) return;
+                const artworkId = state.artworkId;
+                if (artworkId == null) return;
+                const membership = state.collectionMembership;
+                const selected = cb.checked;
+                setCollectionPending(true);
                 try {
-                    if (cb.checked) {
-                        await api(`/api/collections/${id}/artworks/${state.artworkId}`, {method: 'POST'});
-                        state.collectionMembership.add(id);
-                    } else {
-                        await api(`/api/collections/${id}/artworks/${state.artworkId}`, {method: 'DELETE'});
-                        state.collectionMembership.delete(id);
-                    }
-                    updateHeart();
+                    await api(`/api/collections/${id}/artworks/${artworkId}`, {method: selected ? 'POST' : 'DELETE'});
+                    if (selected) membership.add(id);
+                    else membership.delete(id);
                 } catch (e) {
                     toast(e.message || wt('toast.action-failed', 'Action failed'), 'error');
-                    cb.checked = !cb.checked;
+                } finally {
+                    setCollectionPending(false);
+                    await loadMembership();
+                    updateHeart();
                 }
             });
         });
+        syncCollectionControls();
     }
 
     document.getElementById('quickCreateBtn').addEventListener('click', async () => {
         const input = document.getElementById('quickCreateName');
         const name = input.value.trim();
         if (!name) return;
-        const btn = document.getElementById('quickCreateBtn');
-        btn.disabled = true;
+        if (collectionPending) return;
+        const artworkId = state.artworkId;
+        const membership = state.collectionMembership;
+        const revision = collectionModalRevision;
+        setCollectionPending(true);
         try {
             const c = await api('/api/collections', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({name}),
             });
-            input.value = '';
+            if (revision === collectionModalRevision) input.value = '';
             state.collections.push(c);
             state.collections.sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
-            await api(`/api/collections/${c.id}/artworks/${state.artworkId}`, {method: 'POST'});
-            state.collectionMembership.add(c.id);
-            renderAddToCollectionList();
+            await api(`/api/collections/${c.id}/artworks/${artworkId}`, {method: 'POST'});
+            membership.add(c.id);
             toast(wt('toast.created', 'Created'), 'success');
         } catch (e) {
             toast(e.message || wt('toast.create-failed', 'Creation failed'), 'error');
         } finally {
-            btn.disabled = false;
+            setCollectionPending(false);
+            await loadMembership();
+            await loadCollections();
+            renderAddToCollectionList();
+            updateHeart();
         }
     });
 
     document.addEventListener('click', e => {
         const backdrop = e.target.classList && e.target.classList.contains('modal-backdrop');
-        if (backdrop) e.target.classList.remove('open');
+        if (backdrop) {
+            if (e.target.id === 'modalAddToCollection') closeAddToCollectionModal();
+            else e.target.classList.remove('open');
+        }
     });
 
 

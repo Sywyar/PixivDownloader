@@ -16,7 +16,7 @@ function load() {
                 classList: {add: key => classes.add(key), remove: key => classes.delete(key), contains: key => classes.has(key),
                     toggle(key, on = !classes.has(key)) { if (on) classes.add(key); else classes.delete(key); return on; }},
                 addEventListener: (type, fn) => listeners.set(type, fn),
-                click() { listeners.get('click')?.({target: this}); },
+                click() { return listeners.get('click')?.({target: this}); },
                 dispatchEvent(event) { listeners.get(event.type)?.({...event, target: this}); },
                 querySelector: () => null, querySelectorAll: () => [], setAttribute() {}, replaceChildren() {}
             });
@@ -24,7 +24,7 @@ function load() {
         return nodes.get(id);
     }
     const sandbox = {
-        console, URLSearchParams, URL, location: {pathname: '/pixiv-gallery.html', search: '', href: 'http://localhost/pixiv-gallery.html'},
+        console, URLSearchParams, URL, FormData, location: {pathname: '/pixiv-gallery.html', search: '', href: 'http://localhost/pixiv-gallery.html'},
         history: {replaceState() {}},
         document: {getElementById: node, querySelectorAll: () => [], addEventListener() {}, body: node('body')},
         localStorage: {getItem: () => null, setItem() {}}, sessionStorage: {getItem: () => null, setItem() {}},
@@ -40,7 +40,7 @@ function load() {
         vm.runInContext(fs.readFileSync(path.join(root, match[1]), 'utf8'), sandbox, {filename: match[1]});
     }
     sandbox.loadGallery = () => requests.push(JSON.parse(JSON.stringify(sandbox.serializeGalleryState())));
-    return {sandbox, nodes, timers, requests, state: vm.runInContext('state', sandbox)};
+    return {sandbox, nodes, node, timers, requests, state: vm.runInContext('state', sandbox)};
 }
 
 for (const entry of ['reset', 'collection']) {
@@ -95,4 +95,36 @@ test('重复选择唯一收藏夹时不刷新，切换作者视图中的收藏�
     h.sandbox.switchCollectionFilter(7);
     assert.equal(h.state.view, 'all');
     assert.equal(h.requests.length, 1);
+});
+
+test('收藏夹保存固定原对象和图标，重复提交不发请求且完成后保留新表单', async () => {
+    const h = load(), calls = [];
+    h.sandbox.api = (url, options) => new Promise(resolve => calls.push({url, options, resolve}));
+    h.sandbox.loadCollections = async () => {};
+    h.sandbox.toast = () => {};
+    h.sandbox.openCollectionFormModal({id: 1, name: 'First'});
+    h.node('collectionFormName').value = 'Saved first';
+    h.node('collectionDownloadRootEnabled').checked = true;
+    h.node('collectionDownloadRoot').value = '/first';
+    const file = new File(['first'], 'first.png');
+    h.state.pendingIconFile = file;
+    const saving = h.node('collectionFormSubmit').click();
+    const duplicate = h.node('collectionFormSubmit').click();
+    assert.equal(calls.length, 1, '保存中不能再次提交');
+    await duplicate;
+    h.sandbox.closeCollectionFormModal();
+    h.sandbox.openCollectionFormModal({id: 2, name: 'Second'});
+    h.node('collectionFormName').value = 'Second draft';
+    h.state.pendingIconFile = new File(['second'], 'second.png');
+    calls[0].resolve({}); await new Promise(setImmediate);
+    assert.equal(calls[1].url, '/api/collections/1/download-root');
+    assert.equal(JSON.parse(calls[1].options.body).downloadRoot, '/first');
+    calls[1].resolve({}); await new Promise(setImmediate);
+    assert.equal(calls[2].url, '/api/collections/1/icon');
+    assert.equal(calls[2].options.body.get('file'), file);
+    calls[2].resolve({}); await saving;
+    assert.equal(h.state.editingCollection.id, 2);
+    assert.equal(h.node('collectionFormName').value, 'Second draft');
+    assert.equal(h.node('modalCollectionForm').classList.contains('open'), true);
+    assert.equal(h.node('collectionFormSubmit').disabled, false);
 });

@@ -122,7 +122,7 @@ function selectAllResults() {
     if (!total) return;
     batch.mode = 'filter';
     batch.filterSnapshot = currentBatchFilterSnapshot();
-    batch.filterKey = currentBatchFilterKey();
+    batch.filterKey = JSON.stringify(batch.filterSnapshot);
     batch.total = total;
     batch.selected.clear();
     batch.excluded.clear();

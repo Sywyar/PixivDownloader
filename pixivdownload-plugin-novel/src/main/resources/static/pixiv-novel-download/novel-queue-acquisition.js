@@ -222,7 +222,7 @@ function novelQueueLiveStatus(item) {
                 label,
                 message: bt(
                     'novel:queue.message.translate-wait-series',
-                    '等待前系列小说翻译完成，还有 {n} 个',
+                    '等待同系列前序章节翻译完成，还有 {n} 章',
                     {n: novelLiveStatusCount(status.seriesPending)}
                 ),
                 tone: 'warning'

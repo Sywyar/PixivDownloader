@@ -62,3 +62,22 @@ for (const [kind, selected, render, nodeId, idField] of [
         assert.match(h.nodes.get(nodeId).innerHTML, /chip-empty/);
     });
 }
+
+test('小说画廊各筛选输入独立防抖，同一输入只执行最后一次', t => {
+    t.mock.timers.enable({apis: ['setTimeout']});
+    const context = vm.createContext({setTimeout, clearTimeout});
+    vm.runInContext(fs.readFileSync(path.join(__dirname,
+        '../../main/resources/static/pixiv-novel-gallery/novel-gallery-core.js'), 'utf8'), context);
+    const rendered = [];
+    const tags = context.debounce(value => rendered.push(['tags', value]), 200);
+    const series = context.debounce(value => rendered.push(['series', value]), 200);
+    tags('old');
+    tags('latest');
+    series('other');
+    t.mock.timers.tick(199);
+    assert.deepEqual(rendered, []);
+    t.mock.timers.tick(1);
+    assert.deepEqual(rendered, [['tags', 'latest'], ['series', 'other']]);
+    t.mock.timers.tick(1000);
+    assert.equal(rendered.length, 2);
+});

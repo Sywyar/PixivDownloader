@@ -1,6 +1,8 @@
 'use strict';
 
     function bindPageEvents() {
+        document.getElementById('relatedPrev').addEventListener('click', () => changeRelatedPage(-1));
+        document.getElementById('relatedNext').addEventListener('click', () => changeRelatedPage(1));
         document.getElementById('lightbox').addEventListener('click', handleLightboxClick);
         document.getElementById('lightboxClose').addEventListener('click', closeLightbox);
         document.getElementById('lightboxPrev').addEventListener('click', event => {
@@ -11,8 +13,6 @@
             event.stopPropagation();
             lightboxNav(1);
         });
-        document.getElementById('modalCloseBtn').addEventListener('click', closeAddToCollectionModal);
-        document.getElementById('addToCollectionDoneBtn').addEventListener('click', closeAddToCollectionModal);
     }
 
     (async function initShowcasePage() {

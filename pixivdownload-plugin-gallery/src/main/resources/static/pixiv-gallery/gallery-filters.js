@@ -418,7 +418,6 @@
             syncAuthorFilterBar();
             syncSeriesFilterBar();
             renderCollections();
-            renderCollectionFilterChips();
             renderTagChips();
             renderSeriesFilterChips();
             renderAuthorChips();
