@@ -276,6 +276,7 @@ function harness(options) {
         fetch(url, init) {
             fetchCount++;
             requests.push({url, init: init || {}});
+            if (config.fetch) return config.fetch(url, init || {});
             if (config.response) return Promise.resolve(config.response);
             throw new Error('unexpected fetch');
         },
@@ -328,9 +329,11 @@ function harness(options) {
         applyCredentialPolicyAction: sandbox.window.__applyScheduleCredentialPolicyAction,
         showOverride: sandbox.window.__showScheduleOverrideModal,
         saveOverride: sandbox.window.__saveScheduleOverride,
+        loadPending: sandbox.loadPendingPanel,
         updateFetchLimit: sandbox.window.__updateScheduleFetchLimitVisibility,
         sourceContext: sandbox.window.__scheduleSourceContext,
         element: id => elements.get(id),
+        addElement: element,
         status,
         stale() { current = false; },
         switchToken(value) { lease.activationToken = value; },

@@ -5,9 +5,6 @@ const fs = require('fs');
 const path = require('path');
 
 const BATCH_ROOT = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
-const SCHEDULE_SOURCE = [
-    'schedule-core.js', 'schedule-editor.js', 'schedule-view.js', 'schedule-queue.js', 'schedule.js'
-].map(file => fs.readFileSync(path.join(BATCH_ROOT, 'modes', file), 'utf8')).join('\n');
 const NATIVE_DIALOG_PATTERN = /(^|[^\w$.])(?:(?:window|globalThis)\s*\.\s*)?(?:alert|confirm|prompt)\s*\(/m;
 
 function collectJavascript(directory, files) {
@@ -23,7 +20,4 @@ collectJavascript(BATCH_ROOT, javascriptFiles);
 
 assert.ok(javascriptFiles.every(file => !NATIVE_DIALOG_PATTERN.test(fs.readFileSync(file, 'utf8'))),
     'batch modules do not call native alert, confirm, or prompt');
-assert.strictEqual((SCHEDULE_SOURCE.match(/await confirmScheduleOverrideClears\(/g) || []).length, 2,
-    'both schedule override save paths await their confirmation result');
-
-console.log('batch-feedback.test.js: 2 assertions passed');
+console.log('batch-feedback.test.js: native dialog lint passed');

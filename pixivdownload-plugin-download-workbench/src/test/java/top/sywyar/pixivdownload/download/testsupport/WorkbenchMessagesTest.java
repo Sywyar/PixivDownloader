@@ -29,7 +29,7 @@ class WorkbenchMessagesTest {
 
     @Test
     @DisplayName("插件私有异常按请求语言投影且不依赖宿主消息实现")
-    void localizedFailureUsesPluginOwnedEnglishMessage() {
+    void localizedFailureUsesPluginOwnedEnglishMessage() throws IOException {
         LocalizedException failure = LocalizedException.badRequest(
                 "schedule.error.cookie-empty",
                 "Cookie 无效或为空");
@@ -41,7 +41,11 @@ class WorkbenchMessagesTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().error()).isEqualTo("The Cookie is invalid or empty");
+        String expected = load("i18n/workbench/messages_en.properties")
+                .getProperty("schedule.error.cookie-empty");
+        assertThat(expected).isNotBlank().isNotEqualTo(failure.defaultMessage());
+        assertThat(response.getBody().code()).isEqualTo("schedule.error.cookie-empty");
+        assertThat(response.getBody().error()).isEqualTo(expected);
     }
 
     private static Properties load(String name) throws IOException {
