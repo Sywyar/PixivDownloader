@@ -294,7 +294,7 @@
         runtime.initialized = true;
         // 从未初始化状态进入 init 时生成新 generation（destroy 后重新 init
         // 必然得到不同的 generation，旧异步回调不会影响新 generation）。
-        runtime.runtimeGeneration = ctx.nextRuntimeGeneration();
+        ctx.nextRuntimeGeneration();
         options = options || {};
         runtime.pageType = options.page || detectPageType();
         runtime.configuredLayoutId = ctx.LAYOUT_IDS.indexOf(options.currentLayoutId) >= 0
@@ -308,9 +308,6 @@
         if (!runtime.config) {
             ctx.warn('layout survey: posthog plugin unavailable; survey disabled');
             return;
-        }
-        if (typeof global.addEventListener !== 'function') {
-            // 无事件环境（如纯脚本执行）不注册监听，仅保留手动 open
         }
         registerListeners();
         var now = runtime.timers.now();

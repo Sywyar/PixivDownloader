@@ -32,7 +32,6 @@
             dialogElements: null,
             dialogFocusBefore: null,
             dialogKeydownHandler: null,
-            dialogStorageBound: false,
             sessionState: null,
             sessionSeen: {},
             appVersionPromise: null,

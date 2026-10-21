@@ -179,7 +179,7 @@ function buildSandbox() {
         addEventListener() {}, removeEventListener() {},
         isSecureContext: false,
         origin: 'http://localhost:6999',
-        Blob, File, FormData, Headers, Request, Response, AbortController, AbortSignal
+        File, AbortController, AbortSignal
     };
     sandbox.window = sandbox;
     sandbox.self = sandbox;
