@@ -127,7 +127,7 @@ public class NovelTranslationService {
         }
 
         // 注入给 AI 的映射表条目（含表内全部目标语言，模型仅对语言匹配项强制套用）。
-        // 用可变列表：本章翻译中模型新发现的名词会即时并入，供后续分段沿用，保证章内分段一致。
+        // 已有条目优先；本章新名词在发送容量内即时并入，供后续分段沿用。
         List<GlossaryTerm> glossaryTerms = new ArrayList<>(loadGlossaryTerms(glossaryId));
 
         List<String> segments = splitIntoSegments(raw, segmentSize);
@@ -185,8 +185,9 @@ public class NovelTranslationService {
                 translatedSegments.add(parsed.text() == null ? "" : parsed.text());
                 boolean usableLang = langCode != null && !langCode.isBlank();
                 for (TranslationResponse.NewTerm t : parsed.newTerms()) {
-                    // 首次出现的新名词即时并入后续分段要发送的术语表（章内实时一致）
-                    if (newTerms.putIfAbsent(t.source(), t) == null && usableLang) {
+                    // 回写保留全部新名词，发送列表单独遵守每次请求的条目上限。
+                    if (newTerms.putIfAbsent(t.source(), t) == null && usableLang
+                            && glossaryTerms.size() < MAX_GLOSSARY_TERMS) {
                         glossaryTerms.add(new GlossaryTerm(t.source(), langCode, t.target()));
                     }
                 }

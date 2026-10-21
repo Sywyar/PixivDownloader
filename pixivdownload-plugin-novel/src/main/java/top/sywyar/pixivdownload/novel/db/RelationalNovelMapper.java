@@ -59,7 +59,7 @@ public class RelationalNovelMapper implements NovelMapper {
     }
     private int update(String table, Expression where, Object... pairs) {
         var changes = new LinkedHashMap<String, Expression>();
-        row(pairs).forEach((name, v) -> changes.put(name, value(v)));
+        for (int i = 0; i < pairs.length; i += 2) changes.put((String) pairs[i], literal(pairs[i + 1]));
         return database.transaction(s -> s.update(table, changes, where));
     }
     private void delete(String table, Expression where) { database.transaction(s -> s.delete(table, where)); }

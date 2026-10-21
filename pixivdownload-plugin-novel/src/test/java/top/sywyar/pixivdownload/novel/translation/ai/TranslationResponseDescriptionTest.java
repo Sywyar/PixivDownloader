@@ -40,7 +40,7 @@ class TranslationResponseDescriptionTest {
     }
 
     @Test
-    @DisplayName("invalid_language 状态：translatedDescription 永远为 null（与 translatedTitle 行为一致，不会被误写入 DB）")
+    @DisplayName("无效语言响应中的空简介规范化为 null")
     void invalidLanguageHasNoDescription() {
         TranslationResponse resp = TranslationResponse.parse(
                 "{\"status\":\"invalid_language\",\"lang\":\"\",\"text\":\"\","

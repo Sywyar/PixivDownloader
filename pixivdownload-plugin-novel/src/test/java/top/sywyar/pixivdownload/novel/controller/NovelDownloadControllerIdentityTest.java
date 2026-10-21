@@ -28,7 +28,6 @@ import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
 import top.sywyar.pixivdownload.novel.schedule.PixivNovelMetadata;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
-import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
@@ -58,7 +57,6 @@ class NovelDownloadControllerIdentityTest {
     @Mock private NovelTranslationService novelTranslationService;
     @Mock private ApplicationModeProvider applicationModeProvider;
     @Mock private RequestOwnerIdentityResolver requestOwnerIdentityResolver;
-    @Mock private WorkVisibilityService workVisibilityService;
     @Mock private VisitorDownloadQuotaService visitorDownloadQuotaService;
     @Mock private MultiModeSettings multiModeSettings;
     @Mock private PixivAjaxClient pixivAjaxClient;
@@ -348,7 +346,6 @@ class NovelDownloadControllerIdentityTest {
                 novelTranslationService,
                 applicationModeProvider,
                 requestOwnerIdentityResolver,
-                workVisibilityService,
                 visitorDownloadQuotaService,
                 multiModeSettings,
                 objectMapper,
@@ -369,13 +366,8 @@ class NovelDownloadControllerIdentityTest {
     }
 
     private void verifyDownload(String ownerUuid, Long collectionId, boolean autoTranslate) {
-        if (ownerUuid == null) {
-            verify(novelDownloadService).submit(isNull(), argThat(request -> matchesDownload(
-                    request, collectionId, autoTranslate)), isNull());
-        } else {
-            verify(novelDownloadService).submit(isNull(), argThat(request -> matchesDownload(
-                    request, collectionId, autoTranslate)), eq(ownerUuid));
-        }
+        verify(novelDownloadService).submit(isNull(), argThat(request -> matchesDownload(
+                request, collectionId, autoTranslate)), eq(ownerUuid));
     }
 
     private static boolean matchesDownload(

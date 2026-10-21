@@ -376,7 +376,6 @@ public class NovelPluginConfiguration {
                                                           NovelAutoTranslateService novelAutoTranslateService,
                                                           NovelDatabase novelDatabase,
                                                           NovelGalleryService novelGalleryService,
-                                                          WorkVisibilityService workVisibilityService,
                                                           NovelMergeService novelMergeService,
                                                           NovelTranslationService novelTranslationService,
                                                           ApplicationModeProvider applicationModeProvider,
@@ -390,7 +389,7 @@ public class NovelPluginConfiguration {
                                                           NovelBrowserFetchTicketStore browserFetchTicketStore) {
         return new NovelDownloadController(novelDownloadService, novelAutoTranslateService, novelDatabase,
                 novelGalleryService, novelMergeService, novelTranslationService, applicationModeProvider,
-                requestOwnerIdentityResolver, workVisibilityService, visitorDownloadQuotaService,
+                requestOwnerIdentityResolver, visitorDownloadQuotaService,
                 multiModeSettings, objectMapper, pixivAjaxClient, pixivProxyAccessPolicy, messages,
                 browserFetchTicketStore);
     }

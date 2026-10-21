@@ -559,6 +559,17 @@ class PluginDatabaseIntegrationTest {
         assertThat(call(voice, "editedByUser")).isEqualTo(true);
         assertThat(jdbc.queryForObject("SELECT created_time FROM novel_narration_voices", Long.class))
                 .isEqualTo(1_700_000_000_002L);
+        for (boolean edited : List.of(false, true)) {
+            assertThat(call(mapper, "updateNarrationVoiceInstruction", castId, 0, "更新音色", edited)).isEqualTo(1);
+            Object updated = ((List<?>) call(mapper, "findNarrationVoices", castId)).get(0);
+            assertThat(call(updated, "controlInstruction")).isEqualTo("更新音色");
+            assertThat(call(updated, "editedByUser")).isEqualTo(edited);
+        }
+        assertThat(call(mapper, "clearNarrationVoiceReference", castId, 0)).isEqualTo(1);
+        Object cleared = call(mapper, "findNarrationVoiceRef", castId, 0);
+        for (String field : List.of("ext", "text", "source", "time")) {
+            assertThat(call(cleared, field)).as(field).isNull();
+        }
         call(mapper, "insertOrReplaceTranslation", 51L, "en", "body", "title", "description", 1_700_000_000_005L);
         assertThat((List<String>) call(mapper, "findSeriesTranslatedLangs", 7L)).containsExactly("en");
         assertThat((List<?>) call(mapper, "findTranslationLangsByIds", List.of(51L))).hasSize(1);
