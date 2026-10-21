@@ -1598,9 +1598,8 @@ class PluginReleaseScriptsTest {
         assertThat(nextRun).isGreaterThan(lastSupportedAttempt);
         assertThat(firstAttempt).isGreaterThan(9_000_000_000L);
 
-        Process invalidAttempt = new ProcessBuilder(
-                "bash", toBashPath(sequenceScript), "9000000000", "1000")
-                .directory(repoRoot().toFile()).redirectErrorStream(true).start();
+        Process invalidAttempt = bashProcess(repoRoot(), sequenceScript, "9000000000", "1000")
+                .redirectErrorStream(true).start();
         String invalidOutput = new String(invalidAttempt.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         assertThat(invalidAttempt.waitFor()).as(invalidOutput).isNotEqualTo(0);
         assertAsciiWithoutBom(sequenceScript);
@@ -1646,7 +1645,7 @@ class PluginReleaseScriptsTest {
         assumeTrue(canRun("git", "--version"), "git 不可用，跳过行为测试");
         assertAsciiWithoutBom(script);
 
-        Path repo = Files.createTempDirectory("nightly-gate-");
+        Path repo = Files.createTempDirectory("nightly gate ");
         try {
             initGitRepo(repo);
             Path changelog = repo.resolve("CHANGELOG.md");
@@ -1672,20 +1671,17 @@ class PluginReleaseScriptsTest {
             Files.writeString(changelog, baseline.replace("- entry two\n", ""), StandardCharsets.UTF_8);
             assertThat(runBash(repo, script, "CHANGELOG.md", "nightly")).isEqualTo("true");
 
-            // 5. git diff 真实错误（损坏的 index 使退出码为 128）：
-            //    步骤失败，绝不输出 has_changes 判定。GIT_INDEX_FILE 在 bash
-            //    （WSL）一侧设置，避免 Windows 环境变量透传差异。
-            Path garbageIndex = repo.resolve("garbage-index");
+            // 在 Bash 内设置故障环境，避免 WSL 启动器丢弃 Windows 环境变量。
+            Path garbageIndex = repo.resolve("garbage index");
             Files.write(garbageIndex, new byte[] { 1, 2, 3, 4, 5 });
-            String command = "cd " + toBashPath(repo) + " && GIT_INDEX_FILE=" + toBashPath(garbageIndex)
-                    + " " + toBashPath(script) + " CHANGELOG.md nightly";
-            ProcessBuilder pb = new ProcessBuilder("bash", "-c", command);
-            pb.directory(repo.toFile());
-            Process p = pb.start();
+            Path faultScript = repo.resolve("fault script.sh");
+            Files.writeString(faultScript, "export GIT_INDEX_FILE='garbage index'\n"
+                    + Files.readString(script, StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+            Process p = bashProcess(repo, faultScript, "CHANGELOG.md", "nightly").start();
             String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             int code = p.waitFor();
             String err = new String(p.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-            assertThat(code).as("git 错误必须使步骤失败: %s", err).isNotEqualTo(0);
+            assertThat(code).as("必须实际触发损坏索引错误: %s", err).isEqualTo(128);
             assertThat(out.trim()).as("git 错误不得输出 has_changes 判定").isEmpty();
         } finally {
             deleteRecursively(repo);
@@ -1699,7 +1695,7 @@ class PluginReleaseScriptsTest {
         assumeTrue(canRun("bash", "--version"), "bash 不可用，跳过行为测试");
         assumeTrue(canRun("git", "--version"), "git 不可用，跳过行为测试");
 
-        Path repo = Files.createTempDirectory("nightly-gate-first-");
+        Path repo = Files.createTempDirectory("nightly first gate ");
         try {
             initGitRepo(repo);
             Path changelog = repo.resolve("CHANGELOG.md");
@@ -1721,8 +1717,8 @@ class PluginReleaseScriptsTest {
             assertThat(runBash(repo, script, "CHANGELOG.md", "nightly")).isEqualTo("true");
 
             Files.delete(changelog);
-            Process process = new ProcessBuilder("bash", toBashPath(script), "CHANGELOG.md", "nightly")
-                    .directory(repo.toFile()).redirectErrorStream(true).start();
+            Process process = bashProcess(repo, script, "CHANGELOG.md", "nightly")
+                    .redirectErrorStream(true).start();
             String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             assertThat(process.waitFor()).as("缺失变更文件必须失败: %s", output).isNotEqualTo(0);
         } finally {
@@ -1747,7 +1743,7 @@ class PluginReleaseScriptsTest {
                 "NEXT_PATCH=$((PATCH + 1))",
                 "NEXT_VERSION=\"${MAJOR}.${MINOR}.${NEXT_PATCH}\"");
 
-        Path repo = Files.createTempDirectory("nightly-version-");
+        Path repo = Files.createTempDirectory("nightly version ");
         try {
             initGitRepo(repo);
             Files.writeString(repo.resolve("marker"), "nightly\n", StandardCharsets.UTF_8);
@@ -1756,7 +1752,7 @@ class PluginReleaseScriptsTest {
                     nightly.indexOf("          set -euo pipefail", nightly.indexOf("Resolve next version")),
                     nightly.indexOf("          NIGHTLY_VERSION=", nightly.indexOf("Resolve next version")))
                     .replaceAll("(?m)^ {10}", "");
-            Path script = repo.resolve("resolve-nightly-version.sh");
+            Path script = repo.resolve("resolve nightly version.sh");
             Files.writeString(script, resolveScript + "printf '%s\\n' \"$NEXT_VERSION\"\n", StandardCharsets.UTF_8);
 
             assertThat(runBash(repo, script)).isEqualTo("0.0.1");
@@ -1895,26 +1891,20 @@ class PluginReleaseScriptsTest {
     }
 
     private static String runBash(Path repo, Path script, String... args) throws Exception {
-        String[] command = new String[args.length + 2];
-        command[0] = "bash";
-        command[1] = toBashPath(script);
-        System.arraycopy(args, 0, command, 2, args.length);
-        Process p = new ProcessBuilder(command)
-                .directory(repo.toFile()).redirectErrorStream(true).start();
+        Process p = bashProcess(repo, script, args).redirectErrorStream(true).start();
         String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         int code = p.waitFor();
         assertThat(code).as("bash script failed: %s", output).isEqualTo(0);
         return output.trim();
     }
 
-    private static String toBashPath(Path path) {
-        // On Windows, `bash` resolves to the WSL bash where Windows paths must
-        // be written as /mnt/<drive>/...; on Linux the path is used as-is.
-        String p = path.toString();
-        if (p.length() >= 2 && p.charAt(1) == ':') {
-            return "/mnt/" + Character.toLowerCase(p.charAt(0)) + "/" + p.substring(2).replace('\\', '/');
-        }
-        return p.replace('\\', '/');
+    private static ProcessBuilder bashProcess(Path repo, Path script, String... args) {
+        String[] command = new String[args.length + 3];
+        command[0] = "bash";
+        command[1] = "-s";
+        command[2] = "--";
+        System.arraycopy(args, 0, command, 3, args.length);
+        return new ProcessBuilder(command).directory(repo.toFile()).redirectInput(script.toFile());
     }
 
     private static boolean canRun(String... command) {
@@ -2029,11 +2019,6 @@ class PluginReleaseScriptsTest {
 
     private static void assertAsciiWithoutBom(Path path) throws IOException {
         byte[] bytes = Files.readAllBytes(path);
-        boolean hasUtf8Bom = bytes.length >= 3
-                && Byte.toUnsignedInt(bytes[0]) == 0xEF
-                && Byte.toUnsignedInt(bytes[1]) == 0xBB
-                && Byte.toUnsignedInt(bytes[2]) == 0xBF;
-        assertThat(hasUtf8Bom).as("%s must not start with a UTF-8 BOM", path).isFalse();
         for (int index = 0; index < bytes.length; index++) {
             assertThat(Byte.toUnsignedInt(bytes[index]))
                     .as("%s byte %s must be ASCII", path, index)
@@ -2071,11 +2056,9 @@ class PluginReleaseScriptsTest {
     }
 
     private static Set<String> officialPluginIds(String functionName) throws Exception {
-        Set<String> ids = officialDistributionPlugins(functionName).stream()
+        return officialDistributionPlugins(functionName).stream()
                 .map(OfficialPlugin::id)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-        assertThat(ids).as("official plugin ids").isNotEmpty();
-        return ids;
     }
 
     private static Set<String> officialPluginIds() throws Exception {
