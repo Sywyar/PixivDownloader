@@ -85,7 +85,7 @@ function harness() {
         load('pixivdownload-plugin-ai/src/main/resources/static/pixiv-ai/download-novel-ai-settings-slot.js');
         return owner;
     };
-    return {context, document, writes, load, dispatchSlots, mountNovel, mountAi,
+    return {context, document, events, writes, load, dispatchSlots, mountNovel, mountAi,
         input: id => document.getElementById(id)};
 }
 
@@ -222,7 +222,9 @@ test('AI 贡献自行挂载并持久化，仅管理员可改，撤回不清空�
     const h = harness();
     h.mountNovel();
     assert.equal(h.input('s-novel-auto-translate'), null);
+    const listeners = h.events.listenerCount('pixivbatch:slotsrendered');
     const owner = h.mountAi();
+    assert.equal(h.events.listenerCount('pixivbatch:slotsrendered'), listeners + 1);
     const toggle = h.input('s-novel-auto-translate');
     toggle.checked = true;
     toggle.dispatchEvent({type: 'change'});
@@ -236,6 +238,8 @@ test('AI 贡献自行挂载并持久化，仅管理员可改，撤回不清空�
     assert.equal(h.writes.at(-1).novelTranslateLang, 'custom-language');
     const count = h.writes.length;
     owner.revoke();
+    assert.equal(h.events.listenerCount('pixivbatch:slotsrendered'), listeners);
+    h.dispatchSlots();
     assert.equal(h.input('s-novel-auto-translate'), null);
     toggle.checked = false;
     toggle.dispatchEvent({type: 'change'});
@@ -250,4 +254,5 @@ test('AI 贡献自行挂载并持久化，仅管理员可改，撤回不清空�
     h.input('s-novel-auto-translate').dispatchEvent({type: 'change'});
     assert.equal(h.writes.length, count);
     replacement.revoke();
+    assert.equal(h.events.listenerCount('pixivbatch:slotsrendered'), listeners);
 });

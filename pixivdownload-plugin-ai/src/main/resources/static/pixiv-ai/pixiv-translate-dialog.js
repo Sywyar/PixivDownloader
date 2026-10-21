@@ -777,10 +777,8 @@
                     want = glossaryCtx.def ? OPT_DEFAULT : OPT_NONE;
                 } else if (result && result.id != null) {
                     // 默认表的「按需创建」：回填 def.id 并保持选中默认；其余情况选中该表
-                    if (prevValue === OPT_DEFAULT && glossaryCtx.def && glossaryCtx.def.id == null) {
-                        glossaryCtx.def.id = result.id;
-                        want = OPT_DEFAULT;
-                    } else if (prevValue === OPT_DEFAULT) {
+                    if (prevValue === OPT_DEFAULT) {
+                        if (glossaryCtx.def && glossaryCtx.def.id == null) glossaryCtx.def.id = result.id;
                         want = OPT_DEFAULT;
                     } else {
                         want = String(result.id);

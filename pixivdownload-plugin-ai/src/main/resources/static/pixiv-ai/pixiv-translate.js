@@ -185,7 +185,7 @@
 
     function renderProgressStatus() {
         if (!progressRefs || !activeJob) return;
-        var st = activeJob.state;
+        var st = activeJob;
         var i18n = st.i18n;
         var elapsed = elapsedSec(st.phaseStartedAt);
         if (st.phase === 'merging') {
@@ -202,7 +202,7 @@
 
     function renderProgressAll() {
         if (!progressRefs || !activeJob) return;
-        var st = activeJob.state;
+        var st = activeJob;
         var i18n = st.i18n;
         progressRefs.title.textContent = st.title;
         progressRefs.hideBtn.textContent = tt(i18n, 'progress.btn-hide', 'Hide');
@@ -287,7 +287,7 @@
             warnings: []
         };
         var cancelled = false;
-        activeJob = { type: 'single', state: state, show: showProgressDialog };
+        activeJob = state;
         // 必须先 showProgressDialog 触发 buildProgress（progressRefs 才存在），再绑定按钮
         showProgressDialog();
         bindProgressButtons(hideProgressDialog, function () {
@@ -355,7 +355,7 @@
             ]
         };
         var cancelled = false;
-        activeJob = { type: 'series', state: state, show: showProgressDialog };
+        activeJob = state;
         // 必须先 showProgressDialog 触发 buildProgress（progressRefs 才存在），再绑定按钮
         showProgressDialog();
         bindProgressButtons(hideProgressDialog, function () {
@@ -392,11 +392,8 @@
                 var probed = await probeLangCode(opts.choice.targetLanguage,
                     { signal: controller.signal });
                 if (probed) langCode = probed;
-            } catch (e) {
+            } catch (_) {
                 // 探测失败 / 取消：忽略，回退到无 langHint 的行为
-                if (cancelled || (e && e.name === 'AbortError')) {
-                    // fall through to loop; cancelled flag handles break
-                }
             }
             state.phase = 'translating';
             renderProgressAll();
