@@ -36,6 +36,8 @@
         bindDeclarativeActions();
         artworkModal = new bootstrap.Modal(document.getElementById('artworkModal'));
         imageModal   = new bootstrap.Modal(document.getElementById('imageModal'));
+        document.getElementById('artworkModal').addEventListener('hide.bs.modal', cancelArtworkRequest);
+        document.getElementById('imageModal').addEventListener('hide.bs.modal', releaseFullImage);
 
         // 点击外部关闭弹出框
         document.addEventListener('click', () => {
@@ -96,7 +98,12 @@
     }
 
     window.addEventListener('pageshow', event => {
-        if (event.persisted) startDashboardUpdates();
+        if (event.persisted) {
+            startDashboardUpdates();
+            loadStatistics();
+            loadAllDataForChart();
+            if (document.getElementById('imageModal').classList.contains('show')) loadFullImage();
+        }
     });
 
     window.addEventListener('pagehide', () => {
@@ -108,6 +115,9 @@
         const controller = activeSyncController;
         activeSyncController = null;
         if (controller) controller.abort();
+        cancelDashboardRequests();
+        cancelArtworkRequest();
+        releaseFullImage();
         closeSharedSSE();
     });
 
@@ -145,8 +155,9 @@
 
     // ===================== 定期更新 =====================
     function updateDashboard() {
+        if (pageSuspended) return;
         updateLastUpdatedTime();
-        loadStatistics();
+        if (!statisticsController) loadStatistics();
     }
 
     function updateLastUpdatedTime() {

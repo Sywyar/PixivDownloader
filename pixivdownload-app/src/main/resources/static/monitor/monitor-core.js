@@ -96,7 +96,6 @@
     let fullImgArtworkId = null;
     let fullImgPage = 0;
     let fullImgTotal = 0;
-    let fullImgLoading = false;
 
     // ===================== 工具 =====================
     function escapeHtml(str) {

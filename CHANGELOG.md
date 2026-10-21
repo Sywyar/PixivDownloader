@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复监控页刷新或切换作品时旧响应覆盖新内容、关闭预览后图片仍被加载的问题。
 - 修复听书切换音色或清空缓存后，旧合成请求回填错误音频、继续播放或遗留音频资源的问题。
 - 修复 CosyVoice 服务回显克隆请求时，参考音转录可能出现在日志和错误提示中的问题。
 - 修正邮件配置测试的页脚语言和韩语推送测试消息的格式。
