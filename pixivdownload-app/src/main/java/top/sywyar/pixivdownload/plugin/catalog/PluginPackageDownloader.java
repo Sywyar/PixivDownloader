@@ -37,7 +37,7 @@ import java.util.Locale;
  *   <li>校验包元数据完整：{@code packageUrl} 非空、{@code expectedSize} &gt; 0 且 &le; 该仓库上限、{@code sha256} 必填、
  *       URL 以 {@code .jar}/{@code .zip} 结尾——否则 {@link PluginCatalogErrorCode#INVALID_PACKAGE_METADATA}
  *       （或声明尺寸超限 {@link PluginCatalogErrorCode#DOWNLOAD_TOO_LARGE}）。</li>
- *   <li>下载流式上限 = {@code min(expectedSize, 该仓库上限)}：超过即中止、删临时文件、
+ *   <li>下载流式上限取已通过仓库上限校验的 {@code expectedSize}：超过即中止、删临时文件、
  *       {@link PluginCatalogErrorCode#DOWNLOAD_TOO_LARGE}。</li>
  *   <li>下载完成<b>不</b>在此重复算哈希——把临时文件 + 来源期望（大小 / sha256 / 签名）交
  *       {@code ExternalPluginLifecycleCoordinator.installOrUpdate(temp, false, origin)}，由其文件事务做<b>权威</b>的
@@ -77,7 +77,6 @@ final class PluginPackageDownloader {
         // 规范化一次：与 PluginCatalogHttpClient.verifyUrlAllowed 内部的 trim 同口径，使后缀推断与流式下载用同一个值，
         // 避免「按原始串推后缀、按 trim 后的串下载」的不一致（catalog 元数据里首尾带空白的 packageUrl 不致误判）。
         String url = pkg.packageUrl().trim();
-        long cap = Math.min(pkg.expectedSizeBytes(), maxPackageBytes);
         String suffix = packageSuffix(url); // 失败抛出在建临时文件之前，无残留
         Path temp;
         try {
@@ -89,7 +88,7 @@ final class PluginPackageDownloader {
                     "failed to create temp file: " + e.getMessage());
         }
         try {
-            httpClient.streamToFile(url, cap, temp);
+            httpClient.streamToFile(url, pkg.expectedSizeBytes(), temp);
             return temp;
         } catch (RuntimeException e) {
             deleteQuietly(temp);

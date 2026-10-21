@@ -17,7 +17,6 @@ import top.sywyar.pixivdownload.plugin.install.PluginInstallService;
 import top.sywyar.pixivdownload.plugin.install.PluginDependencyResolver;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
 import top.sywyar.pixivdownload.plugin.catalog.repository.PluginRepositoryRegistry;
-import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginOperation;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
@@ -110,7 +109,7 @@ class PluginCatalogAcquisitionServiceTest {
         props.setEnabled(true);
         props.setManifestUrl(manifestUrl);
         props.setTrustedKeys(List.of(signing.trustedKeyConfig()));
-        var provider = policyFaithful();
+        var provider = CatalogTestSupport.policyFaithful();
         var registry = new PluginRepositoryRegistry(props);
         var catalog = new PluginCatalogService(registry, provider);
         var installer = new ExternalPluginInstaller(pluginsDir, PluginPackageLimits.defaults(),
@@ -130,55 +129,54 @@ class PluginCatalogAcquisitionServiceTest {
         var acquisition = new PluginCatalogAcquisitionService(catalog,
                 new PluginPackageDownloader(provider, downloadTempDir),
                 new PluginInstallService(coordinator, dependencies), dependencies, null, null, preview);
-        var operations = new PluginAcquisitionOperations(acquisition, coordinator);
-        var plan = acquisition.preview("configured", "sample", "7.3.2");
-        manifests.set(0);
-        signatures.set(0);
+        try (var operations = new PluginAcquisitionOperations(acquisition, coordinator)) {
+            var plan = acquisition.preview("configured", "sample", "7.3.2");
+            manifests.set(0);
+            signatures.set(0);
 
-        var prepared = operations.prepare("configured", "sample", "7.3.2", plan.fingerprint(),
-                confirmAfterDownload ? null : CatalogTestSupport.sha256Hex(body));
-        var result = operations.execute(prepared.id());
+            var prepared = operations.prepare("configured", "sample", "7.3.2", plan.fingerprint(),
+                    confirmAfterDownload ? null : CatalogTestSupport.sha256Hex(body));
+            var result = operations.execute(prepared.id());
 
-        if (confirmAfterDownload) {
-            assertThat(result.failure()).isNull();
-            assertThat(result.report().outcome()).isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
-            assertThat(downloads.get()).isEqualTo(1);
-            assertThat(installer.listInstalled()).isEmpty();
-            var refreshed = acquisition.preview("configured", "sample", "7.3.2");
-            String pendingId = result.id();
-            org.assertj.core.api.Assertions.assertThatThrownBy(() -> operations.prepare("configured", "sample", "7.3.2",
-                    refreshed.fingerprint(), "f".repeat(64), pendingId)).isInstanceOf(PluginCatalogException.class);
-            prepared = operations.prepare("configured", "sample", "7.3.2", refreshed.fingerprint(),
-                    CatalogTestSupport.sha256Hex(body), result.id());
-            if ("tampered".equals(mode)) {
-                try (var files = Files.list(downloadTempDir)) {
-                    Files.write(files.findFirst().orElseThrow(), new byte[] {1, 2, 3});
+            if (confirmAfterDownload) {
+                assertThat(result.failure()).isNull();
+                assertThat(result.report().outcome()).isEqualTo(PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED);
+                assertThat(downloads.get()).isEqualTo(1);
+                assertThat(installer.listInstalled()).isEmpty();
+                var refreshed = acquisition.preview("configured", "sample", "7.3.2");
+                String pendingId = result.id();
+                org.assertj.core.api.Assertions.assertThatThrownBy(() -> operations.prepare("configured", "sample", "7.3.2",
+                        refreshed.fingerprint(), "f".repeat(64), pendingId)).isInstanceOf(PluginCatalogException.class);
+                prepared = operations.prepare("configured", "sample", "7.3.2", refreshed.fingerprint(),
+                        CatalogTestSupport.sha256Hex(body), result.id());
+                if ("tampered".equals(mode)) {
+                    try (var files = Files.list(downloadTempDir)) {
+                        Files.write(files.findFirst().orElseThrow(), new byte[] {1, 2, 3});
+                    }
                 }
+                result = operations.execute(prepared.id());
             }
-            result = operations.execute(prepared.id());
-        }
 
-        if ("tampered".equals(mode)) {
-            assertThat(result.report().accepted()).isFalse();
-            assertThat(result.report().trustRequirement()).isNull();
-            assertThat(installer.listInstalled()).isEmpty();
+            if ("tampered".equals(mode)) {
+                assertThat(result.report().accepted()).isFalse();
+                assertThat(result.report().trustRequirement()).isNull();
+                assertThat(installer.listInstalled()).isEmpty();
+                assertThat(downloads.get()).isEqualTo(1);
+                return;
+            }
+
+            assertThat(result.finished()).isTrue();
+            assertThat(result.failure()).isNull();
+            assertThat(result.report().accepted()).isTrue();
+            assertThat(manifests.get()).isEqualTo(confirmAfterDownload ? 5 : 2);
+            assertThat(signatures.get()).isEqualTo(confirmAfterDownload ? 5 : 2);
             assertThat(downloads.get()).isEqualTo(1);
-            operations.close();
-            return;
+            operations.execute(prepared.id());
+            assertThat(manifests.get()).isEqualTo(confirmAfterDownload ? 5 : 2);
+            assertThat(downloads.get()).isEqualTo(1);
+            assertThat(downloadLeftovers()).isEmpty();
+            assertThat(installer.listInstalled()).extracting(InstalledPlugin::id).containsExactly("sample");
         }
-
-        assertThat(result.finished()).isTrue();
-        assertThat(result.failure()).isNull();
-        assertThat(result.report().accepted()).isTrue();
-        assertThat(manifests.get()).isEqualTo(confirmAfterDownload ? 5 : 2);
-        assertThat(signatures.get()).isEqualTo(confirmAfterDownload ? 5 : 2);
-        assertThat(downloads.get()).isEqualTo(1);
-        operations.execute(prepared.id());
-        assertThat(manifests.get()).isEqualTo(confirmAfterDownload ? 5 : 2);
-        assertThat(downloads.get()).isEqualTo(1);
-        assertThat(downloadLeftovers()).isEmpty();
-        assertThat(installer.listInstalled()).extracting(InstalledPlugin::id).containsExactly("sample");
-        operations.close();
     }
 
     @Test
@@ -743,7 +741,7 @@ class PluginCatalogAcquisitionServiceTest {
      * 同源、且按仓库代理策略下载。
      */
     private PluginCatalogAcquisitionService acquisition(PluginCatalogProperties props) {
-        PluginCatalogClientProvider provider = policyFaithful();
+        PluginCatalogClientProvider provider = CatalogTestSupport.policyFaithful();
         PluginRepositoryRegistry registry = new PluginRepositoryRegistry(props);
         PluginCatalogService catalogService = new PluginCatalogService(registry, provider);
         PluginPackageDownloader downloader = new PluginPackageDownloader(provider, downloadTempDir);
@@ -761,7 +759,7 @@ class PluginCatalogAcquisitionServiceTest {
             PluginCatalogProperties props,
             PluginInstallService installService,
             PluginDependencyResolver dependencyResolver) {
-        PluginCatalogClientProvider provider = policyFaithful();
+        PluginCatalogClientProvider provider = CatalogTestSupport.policyFaithful();
         PluginRepositoryRegistry registry = new PluginRepositoryRegistry(props);
         PluginCatalogService catalogService = new PluginCatalogService(registry, provider);
         PluginPackageDownloader downloader = new PluginPackageDownloader(provider, downloadTempDir);
@@ -791,27 +789,6 @@ class PluginCatalogAcquisitionServiceTest {
         return new LoadedPluginPackage(
                 installed.id(), installed.path(), installed.version(), 1L,
                 PluginRuntimePackagePhase.LOADED, PluginInventory.empty(), List.of());
-    }
-
-    private static PluginCatalogClientProvider policyFaithful() {
-        return repository -> {
-            RepositoryProxyPolicy policy = repository.proxyPolicy();
-            if (policy == RepositoryProxyPolicy.DIRECT_STRICT) {
-                return new PluginCatalogHttpClient(false, true,
-                        (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs());
-            }
-            if (policy == RepositoryProxyPolicy.PROXY_TRUSTED) {
-                return new PluginCatalogHttpClient(false, true,
-                        (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs(), null, Set.of("127.0.0.1"));
-            }
-            if (policy == RepositoryProxyPolicy.CUSTOM) {
-                return new PluginCatalogHttpClient(false, true,
-                        (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs(), null,
-                        repository.allowRedirects(), Set.of(), true);
-            }
-            throw new PluginCatalogException(PluginCatalogErrorCode.PROXY_POLICY_UNSUPPORTED,
-                    "unsupported proxy policy for repository " + repository.repositoryId());
-        };
     }
 
     private static PluginCatalogProperties.RepositoryConfig repoConfig(String id, String manifestUrl, String policy,

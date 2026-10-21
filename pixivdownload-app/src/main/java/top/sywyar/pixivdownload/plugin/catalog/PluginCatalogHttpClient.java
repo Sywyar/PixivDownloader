@@ -32,8 +32,8 @@ import java.util.function.LongConsumer;
  *   <li><b>仅 https</b>（生产；构造参数可放开供测试）。明确拒绝 file / http / jar / ftp 等其它 scheme。</li>
  *   <li><b>SSRF 防护</b>：解析主机到全部 IP，任一为 loopback / link-local / 私网（含 CGNAT / IPv6 ULA）/ 组播 /
  *       未指定地址（生产）即拒绝。</li>
- *   <li><b>默认禁重定向</b>（{@link HttpClient.Redirect#NEVER}）：3xx 一律按失败处理、<b>绝不</b>跟随到二次地址，避免
- *       重定向绕过 IP 校验。<b>受信仓库</b>（proxy-trusted）可经完整构造声明一份<b>重定向主机白名单</b>，仅对白名单内主机
+ *   <li><b>默认禁重定向</b>（{@link HttpClient.Redirect#NEVER}）：拒绝跳转、<b>绝不</b>跟随到二次地址，避免
+ *       重定向绕过 IP 校验；分页条件查询单独接受 304。<b>受信仓库</b>（proxy-trusted）可经完整构造声明一份<b>重定向主机白名单</b>，仅对白名单内主机
  *       <b>跟随至多五跳</b>（覆盖 GitHub latest release 与资产 CDN 链路），并对每一跳重跑全部校验。</li>
  *   <li><b>默认不走代理</b>（{@link HttpClient.Builder#NO_PROXY}）：经代理会使本地 IP 校验失效（代理替我们解析 DNS）。
  *       受信仓库可经完整构造改走出站代理；此时 DNS 由代理完成，本地 IP 校验按上述原因<b>跳过</b>，安全边界改由
@@ -184,7 +184,7 @@ public class PluginCatalogHttpClient {
     /** 与 {@link #streamToFile(String, long, Path)} 相同，并在每次写入后报告累计字节数。 */
     public long streamToFile(String url, long maxBytes, Path target, LongConsumer progress) {
         URI uri = verifyUrlAllowed(url);
-        HttpResponse<InputStream> response = sendFollowingAllowedRedirect(uri);
+        HttpResponse<InputStream> response = sendFollowingAllowedRedirect(uri, null);
         try (InputStream in = response.body();
              OutputStream out = Files.newOutputStream(target)) {
             requireOk(response, uri);
@@ -201,10 +201,6 @@ public class PluginCatalogHttpClient {
      * {@link HttpRequest#newBuilder(URI)} 理论上不会因已校验的 URI 抛出 {@link IllegalArgumentException}；仍做防御性兜底，
      * 绝不让它逃逸为未受控的 500（manifest-url 配置错误最终由调用方归 {@code CATALOG_UNAVAILABLE}，包 URL 错误保持稳定码）。
      */
-    private HttpResponse<InputStream> send(URI uri) {
-        return send(uri, null);
-    }
-
     private HttpResponse<InputStream> send(URI uri, String etag) {
         HttpRequest request;
         try {
@@ -231,32 +227,29 @@ public class PluginCatalogHttpClient {
 
     /**
      * 发送请求，并在显式允许时<b>跟随至多五跳</b>重定向（详见完整构造说明）。每一跳都重新执行 URL / 地址 / 白名单校验；
-     * 未允许时由后续 {@link #requireOk} 把 3xx 当失败拒绝（严格档行为）。
+     * 未允许时拒绝跳转；304 交由条件读取处理。
      */
-    private HttpResponse<InputStream> sendFollowingAllowedRedirect(URI uri) {
-        return sendFollowingAllowedRedirect(uri, null);
-    }
-
     private HttpResponse<InputStream> sendFollowingAllowedRedirect(URI uri, String etag) {
         HttpResponse<InputStream> response = send(uri, etag);
         URI current = uri;
         int redirects = 0;
         while (isRedirect(response.statusCode()) && allowRedirects) {
-            if (redirects++ >= maxRedirects) {
+            try {
+                if (redirects++ >= maxRedirects) {
+                    throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
+                            "refusing to follow more than " + maxRedirects + " redirects for " + uri);
+                }
+                current = resolveAllowedRedirect(response, current);
+            } finally {
                 closeQuietly(response);
-                throw new PluginCatalogException(PluginCatalogErrorCode.DOWNLOAD_FAILED,
-                        "refusing to follow more than " + maxRedirects + " redirects for " + uri);
             }
-            URI target = resolveAllowedRedirect(response, current);
-            closeQuietly(response);
-            current = target;
             response = send(current, etag);
         }
         return response;
     }
 
     private static boolean isRedirect(int code) {
-        return code >= 300 && code < 400;
+        return code >= 300 && code < 400 && code != 304;
     }
 
     /**
@@ -291,17 +284,10 @@ public class PluginCatalogHttpClient {
      * 被允许、而 {@code evil-githubusercontent.com} / {@code …githubusercontent.com.attacker.tld} 被拒。
      */
     boolean isAllowedRedirectHost(String host) {
-        String h = stripBrackets(host).toLowerCase(Locale.ROOT);
-        for (String domain : redirectAllowlistDomains) {
-            String d = domain.toLowerCase(Locale.ROOT);
-            if (h.equals(d) || h.endsWith("." + d)) {
-                return true;
-            }
-        }
-        return false;
+        return matchesDomain(host, redirectAllowlistDomains);
     }
 
-    /** 尽力关闭一个响应体以释放连接（跟随下一跳或拒绝超限跳转前丢弃当前响应）。 */
+    /** 跟随或拒绝跳转时均释放当前响应体，关闭失败不覆盖原拒绝原因。 */
     private static void closeQuietly(HttpResponse<InputStream> response) {
         try {
             response.body().close();
@@ -310,12 +296,9 @@ public class PluginCatalogHttpClient {
         }
     }
 
-    /** 仅接受 200；3xx 一律拒绝（禁用重定向、不跟随到二次地址），其它非 200 视为下载失败。 */
+    /** 普通正文下载仅接受 200，条件读取已在调用前单独处理 304。 */
     private static void requireOk(HttpResponse<?> response, URI uri) {
         int code = response.statusCode();
-        if (code >= 300 && code < 400) {
-            throw new HttpStatusException(code, uri.toString());
-        }
         if (code != 200) {
             throw new HttpStatusException(code, uri.toString());
         }
@@ -323,7 +306,7 @@ public class PluginCatalogHttpClient {
 
     private static byte[] readBounded(InputStream in, long maxBytes, URI uri) throws IOException {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-        copyBounded(in, buffer, maxBytes, uri);
+        copyBounded(in, buffer, maxBytes, uri, ignored -> { });
         return buffer.toByteArray();
     }
 
@@ -337,10 +320,6 @@ public class PluginCatalogHttpClient {
         }
 
         public int statusCode() { return statusCode; }
-    }
-
-    private static long copyBounded(InputStream in, OutputStream out, long maxBytes, URI uri) throws IOException {
-        return copyBounded(in, out, maxBytes, uri, ignored -> { });
     }
 
     private static long copyBounded(InputStream in, OutputStream out, long maxBytes, URI uri,

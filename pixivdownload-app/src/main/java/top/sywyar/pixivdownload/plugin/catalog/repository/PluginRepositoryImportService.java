@@ -226,7 +226,7 @@ public final class PluginRepositoryImportService {
                 || !knownHosts(existing).containsAll(parsed.networkHosts()));
         var certification = certification(parsed);
         boolean communityCertified = certified(parsed, certification);
-        RepositoryUpdateDocument proof = updateRequired && !communityCertified ? verifiedUpdateProof(existing, parsed, true) : null;
+        RepositoryUpdateDocument proof = updateRequired && !communityCertified ? verifiedUpdateProof(existing, parsed) : null;
         return new VerifiedImport(configurationEntry(parsed, communityCertified ? certification : null), proof);
     }
 
@@ -251,7 +251,7 @@ public final class PluginRepositoryImportService {
     private String updateProofStatus(PluginRepository existing, ParsedRepositoryDescriptor parsed) {
         if (existing == null || existing.updateProofUrl() == null) return "NOT_AVAILABLE";
         try {
-            verifiedUpdateProof(existing, parsed, false);
+            verifiedUpdateProof(existing, parsed);
             return "VERIFIED";
         } catch (PluginCatalogException failure) {
             return "INVALID";
@@ -259,11 +259,9 @@ public final class PluginRepositoryImportService {
     }
 
     private RepositoryUpdateDocument verifiedUpdateProof(PluginRepository existing,
-                                                          ParsedRepositoryDescriptor parsed,
-                                                          boolean required) {
+                                                          ParsedRepositoryDescriptor parsed) {
         if (existing == null || existing.updateProofUrl() == null) {
-            if (required) throw updateInvalid("existing descriptor does not declare updateProofUrl");
-            return null;
+            throw updateInvalid("existing descriptor does not declare updateProofUrl");
         }
         try {
             byte[] documentBytes = clients.clientFor(existing)

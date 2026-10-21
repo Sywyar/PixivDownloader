@@ -142,7 +142,7 @@ class PluginPackageDownloaderTest {
         server = CatalogTestSupport.startServer();
         CatalogTestSupport.serveBytes(server, "/final.zip", new byte[]{1, 2, 3});
         CatalogTestSupport.serveRedirect(server, "/redir.zip", CatalogTestSupport.loopbackUrl(server, "/final.zip"));
-        PluginPackageDownloader downloader = downloader(policyFaithful());
+        PluginPackageDownloader downloader = downloader(CatalogTestSupport.policyFaithful());
 
         assertCode(downloader, repo(RepositoryProxyPolicy.DIRECT_STRICT, BIG),
                 pkg(CatalogTestSupport.loopbackUrl(server, "/redir.zip"), 3L, "abc", null),
@@ -157,7 +157,7 @@ class PluginPackageDownloaderTest {
         byte[] body = CatalogTestSupport.explodedPluginZip("ext", "1.0.0", null);
         CatalogTestSupport.serveBytes(server, "/final.zip", body);
         CatalogTestSupport.serveRedirect(server, "/redir.zip", CatalogTestSupport.loopbackUrl(server, "/final.zip"));
-        PluginPackageDownloader downloader = downloader(policyFaithful());
+        PluginPackageDownloader downloader = downloader(CatalogTestSupport.policyFaithful());
 
         Path temp = downloader.downloadToTemp(repo(RepositoryProxyPolicy.PROXY_TRUSTED, BIG), pkg(
                 CatalogTestSupport.loopbackUrl(server, "/redir.zip"), (long) body.length,
@@ -195,7 +195,7 @@ class PluginPackageDownloaderTest {
         String cdnPath = "/cdn/pixivdownload-plugin-gallery-tools-1.0.0.jar";
         CatalogTestSupport.serveBytes(server, cdnPath, body);
         CatalogTestSupport.serveRedirect(server, releasePath, CatalogTestSupport.loopbackUrl(server, cdnPath));
-        PluginPackageDownloader downloader = downloader(policyFaithful());
+        PluginPackageDownloader downloader = downloader(CatalogTestSupport.policyFaithful());
 
         Path temp = downloader.downloadToTemp(repo(RepositoryProxyPolicy.PROXY_TRUSTED, BIG), pkg(
                 CatalogTestSupport.loopbackUrl(server, releasePath), (long) body.length,
@@ -221,7 +221,7 @@ class PluginPackageDownloaderTest {
     @Test
     @DisplayName("未知代理策略仓库：clientFor fail-closed → PROXY_POLICY_UNSUPPORTED（下载前，不建临时文件）")
     void unknownProxyPolicyFailsClosed() {
-        PluginPackageDownloader downloader = downloader(policyFaithful());
+        PluginPackageDownloader downloader = downloader(CatalogTestSupport.policyFaithful());
         assertCode(downloader, repo(null, BIG),
                 pkg("https://h.example/p.zip", 10L, "abc", null), PluginCatalogErrorCode.PROXY_POLICY_UNSUPPORTED);
         assertThat(leftovers()).isEmpty();
@@ -265,32 +265,6 @@ class PluginPackageDownloaderTest {
     /** 固定返回同一个客户端的 provider（忽略仓库）——用于测元数据 / 上限 / 后缀等与客户端无关的逻辑。 */
     private static PluginCatalogClientProvider fixed(PluginCatalogHttpClient client) {
         return repository -> client;
-    }
-
-    /**
-     * 忠实镜像 {@code DefaultPluginCatalogClientProvider} 策略语义、但放开 http + 非公网以对接 loopback 桩的 provider：
-     * direct-strict = 禁重定向；proxy-trusted = 白名单（loopback 用 {@code 127.0.0.1} 镜像生产 {@code githubusercontent.com}）
-     * 内跟随一跳；custom = 按仓库开关允许任意目标一跳；未知策略 = {@code PROXY_POLICY_UNSUPPORTED}。
-     */
-    private static PluginCatalogClientProvider policyFaithful() {
-        return repository -> {
-            RepositoryProxyPolicy policy = repository.proxyPolicy();
-            if (policy == RepositoryProxyPolicy.DIRECT_STRICT) {
-                return new PluginCatalogHttpClient(false, true,
-                        (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs());
-            }
-            if (policy == RepositoryProxyPolicy.PROXY_TRUSTED) {
-                return new PluginCatalogHttpClient(false, true,
-                        (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs(), null, Set.of("127.0.0.1"));
-            }
-            if (policy == RepositoryProxyPolicy.CUSTOM) {
-                return new PluginCatalogHttpClient(false, true,
-                        (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs(), null,
-                        repository.allowRedirects(), Set.of(), true);
-            }
-            throw new PluginCatalogException(PluginCatalogErrorCode.PROXY_POLICY_UNSUPPORTED,
-                    "unsupported proxy policy for repository " + repository.repositoryId());
-        };
     }
 
     /** 记录被传入 {@link #clientFor} 的仓库，返回固定客户端——证明下载器用的是确切仓库。 */

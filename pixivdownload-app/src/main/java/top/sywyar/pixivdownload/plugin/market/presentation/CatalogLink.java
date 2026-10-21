@@ -48,9 +48,4 @@ public final class CatalogLink {
         }
         return trimmed;
     }
-
-    /** 给定原始链接是否为安全的可展示 http/https 外链。 */
-    public static boolean isHttpUrl(String raw) {
-        return sanitizeHttpUrl(raw) != null;
-    }
 }

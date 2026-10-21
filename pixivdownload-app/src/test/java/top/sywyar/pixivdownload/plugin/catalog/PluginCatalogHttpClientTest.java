@@ -8,21 +8,36 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ProxySelector;
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpHeaders;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
 /**
  * {@link PluginCatalogHttpClient} 单测：URL scheme / 主机 / 解析 IP 的 SSRF 校验（生产严格策略），地址分类，以及对接
@@ -33,6 +48,51 @@ class PluginCatalogHttpClientTest {
 
     /** 生产策略：仅 https、拒绝非公网地址。 */
     private final PluginCatalogHttpClient strict = new PluginCatalogHttpClient(true, false, 2000, 2000);
+
+    @ParameterizedTest
+    @MethodSource("redirectRejections")
+    @DisplayName("拒绝重定向时释放原响应体，保留错误且不发送下一跳")
+    void closesRejectedRedirect(String location, PluginCatalogErrorCode code, int maxRedirects,
+                                boolean streamToFile, @org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        var client = new PluginCatalogHttpClient(true, false, 2000, 2000,
+                null, true, Set.of("8.8.8.8"), false, maxRedirects, Set.of());
+        HttpClient transport = mock(HttpClient.class);
+        @SuppressWarnings("unchecked")
+        HttpResponse<InputStream> response = mock(HttpResponse.class);
+        InputStream body = mock(InputStream.class);
+        when(response.statusCode()).thenReturn(302);
+        when(response.body()).thenReturn(body);
+        when(response.headers()).thenReturn(HttpHeaders.of(
+                location == null ? Map.of() : Map.of("Location", List.of(location)), (name, value) -> true));
+        when(transport.send(any(), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<InputStream>>any()))
+                .thenReturn(response);
+        ReflectionTestUtils.setField(client, "httpClient", transport);
+        // 关闭失败不能覆盖原有地址或跳转拒绝。
+        doThrow(new IOException("close failed")).when(body).close();
+
+        assertThatThrownBy(() -> {
+            if (streamToFile) client.streamToFile("https://8.8.8.8/package.zip", 1024, dir.resolve("out.zip"));
+            else client.fetchBytes("https://8.8.8.8/manifest.json", 1024);
+        }).isInstanceOf(PluginCatalogException.class)
+                .satisfies(failure -> assertThat(((PluginCatalogException) failure).code()).isEqualTo(code));
+        verify(body).close();
+        verify(transport).send(any(), org.mockito.ArgumentMatchers.<HttpResponse.BodyHandler<InputStream>>any());
+        verifyNoMoreInteractions(transport);
+        try (var files = Files.list(dir)) {
+            assertThat(files).isEmpty();
+        }
+    }
+
+    static Stream<Arguments> redirectRejections() {
+        return Stream.of(
+                new Object[]{null, PluginCatalogErrorCode.DOWNLOAD_FAILED, 5},
+                new Object[]{"%", PluginCatalogErrorCode.DOWNLOAD_FAILED, 5},
+                new Object[]{"https://9.9.9.9/package.zip", PluginCatalogErrorCode.DOWNLOAD_FAILED, 5},
+                new Object[]{"https://10.0.0.1/package.zip", PluginCatalogErrorCode.BLOCKED_ADDRESS, 5},
+                new Object[]{"file:///package.zip", PluginCatalogErrorCode.INSECURE_URL, 5},
+                new Object[]{"/package.zip", PluginCatalogErrorCode.DOWNLOAD_FAILED, 0})
+                .flatMap(row -> Stream.of(false, true).map(file -> Arguments.of(row[0], row[1], row[2], file)));
+    }
 
     @Nested
     @DisplayName("URL / scheme 校验")
@@ -159,9 +219,10 @@ class PluginCatalogHttpClientTest {
             assertThat(got).isEqualTo(body);
         }
 
-        @Test
+        @ParameterizedTest
+        @ValueSource(booleans = {false, true})
         @DisplayName("条件请求在 ETag 未变化时返回无正文的 304")
-        void conditionalFetchReturns304WithoutBody() throws Exception {
+        void conditionalFetchReturns304WithoutBody(boolean redirects) throws Exception {
             server = CatalogTestSupport.startServer();
             AtomicReference<String> seen = new AtomicReference<>();
             server.createContext("/page", exchange -> {
@@ -179,8 +240,10 @@ class PluginCatalogHttpClientTest {
             });
 
             String url = CatalogTestSupport.loopbackUrl(server, "/page");
-            PluginCatalogHttpClient.FetchResult first = relaxed.fetch(url, 1024, null);
-            PluginCatalogHttpClient.FetchResult second = relaxed.fetch(url, 1024, first.etag());
+            var client = new PluginCatalogHttpClient(false, true, 2000, 2000,
+                    null, redirects, Set.of("127.0.0.1"), false);
+            PluginCatalogHttpClient.FetchResult first = client.fetch(url, 1024, null);
+            PluginCatalogHttpClient.FetchResult second = client.fetch(url, 1024, first.etag());
 
             assertThat(first.bytes()).isEqualTo("page".getBytes(StandardCharsets.UTF_8));
             assertThat(second.statusCode()).isEqualTo(304);

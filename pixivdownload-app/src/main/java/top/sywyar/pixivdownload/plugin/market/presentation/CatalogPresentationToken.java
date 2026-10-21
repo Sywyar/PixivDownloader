@@ -49,11 +49,6 @@ public final class CatalogPresentationToken {
         return sanitize(raw, COLOR_TOKENS, DEFAULT_COLOR);
     }
 
-    /** 给定原始 token 是否为合法的受控 token（不区分大小写前先 trim+lowercase）。 */
-    public static boolean isSafe(String raw) {
-        return raw != null && SAFE_TOKEN.matcher(raw.trim().toLowerCase(Locale.ROOT)).matches();
-    }
-
     private static String sanitize(String raw, Set<String> knownTokens, String fallback) {
         if (raw == null) {
             return fallback;

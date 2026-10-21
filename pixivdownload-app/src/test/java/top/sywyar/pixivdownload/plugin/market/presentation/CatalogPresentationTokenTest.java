@@ -53,14 +53,12 @@ class CatalogPresentationTokenTest {
     }
 
     @Test
-    @DisplayName("非法形态：前导数字 / 前导连字符 / 超长 → 回退；isSafe 与之一致")
+    @DisplayName("非法形态：前导数字 / 前导连字符 / 超长 → 回退")
     void shapeRules() {
         assertThat(CatalogPresentationToken.sanitizeIcon("1abc")).isEqualTo(CatalogPresentationToken.DEFAULT_ICON);
         assertThat(CatalogPresentationToken.sanitizeIcon("-abc")).isEqualTo(CatalogPresentationToken.DEFAULT_ICON);
         assertThat(CatalogPresentationToken.sanitizeIcon("a".repeat(41))).isEqualTo(CatalogPresentationToken.DEFAULT_ICON);
-        assertThat(CatalogPresentationToken.isSafe("chart-line")).isTrue();
-        assertThat(CatalogPresentationToken.isSafe("<svg>")).isFalse();
-        assertThat(CatalogPresentationToken.isSafe(null)).isFalse();
+        assertThat(CatalogPresentationToken.sanitizeIcon("<svg>")).isEqualTo(CatalogPresentationToken.DEFAULT_ICON);
     }
 
     @Test

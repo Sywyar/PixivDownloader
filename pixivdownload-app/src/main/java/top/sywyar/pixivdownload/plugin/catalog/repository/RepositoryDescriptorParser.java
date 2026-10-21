@@ -63,10 +63,10 @@ public final class RepositoryDescriptorParser {
         }
         URI revocationsUri = optionalJsonUri(descriptor.revocationsUrl(), "revocationsUrl");
         URI updateProofUri = optionalJsonUri(descriptor.updateProofUrl(), "updateProofUrl");
-        URI homepageUri = descriptor.publisher().homepageUrl() == null
-                || descriptor.publisher().homepageUrl().isBlank()
-                ? null : publicHttps(descriptor.publisher().homepageUrl(), false,
-                PluginCatalogErrorCode.REPOSITORY_DESCRIPTOR_INVALID, "publisher.homepageUrl");
+        if (descriptor.publisher().homepageUrl() != null && !descriptor.publisher().homepageUrl().isBlank()) {
+            publicHttps(descriptor.publisher().homepageUrl(), false,
+                    PluginCatalogErrorCode.REPOSITORY_DESCRIPTOR_INVALID, "publisher.homepageUrl");
+        }
 
         if ("GITHUB_RELEASES".equals(descriptor.networkProfile())) {
             requireGithub(catalogUri, "catalog.endpoint");
@@ -236,8 +236,7 @@ public final class RepositoryDescriptorParser {
     }
 
     private static void validatePlainText(String value, int maximum, String field) {
-        if (value.length() > maximum || value.indexOf('\n') >= 0 || value.indexOf('\r') >= 0
-                || value.codePoints().anyMatch(Character::isISOControl)) {
+        if (value.length() > maximum || value.codePoints().anyMatch(Character::isISOControl)) {
             invalid(field + " contains controls/newlines or is too long");
         }
     }

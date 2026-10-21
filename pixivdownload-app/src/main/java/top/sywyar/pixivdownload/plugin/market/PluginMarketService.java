@@ -8,7 +8,6 @@ import top.sywyar.pixivdownload.plugin.catalog.PluginCatalogService;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
 import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
 import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogEntry;
-import top.sywyar.pixivdownload.plugin.catalog.manifest.PluginCatalogManifest;
 import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogPage;
 import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogPageQuery;
 import top.sywyar.pixivdownload.plugin.catalog.page.PluginCatalogDetailPage;
@@ -338,10 +337,6 @@ public class PluginMarketService {
      * 条目数（含 0，使页面侧栏拿到完整分类词表 + 派生计数）。每个条目的分类经 {@link PluginCatalogCategory#resolve} 归一化
      * （未知 / 空 → 实用工具回退）。
      */
-    private static List<PluginMarketCategoryCount> categoryCounts(PluginCatalogManifest manifest) {
-        return categoryCounts(manifest.entries());
-    }
-
     private static List<PluginMarketCategoryCount> categoryCounts(List<PluginCatalogEntry> entries) {
         Map<PluginCatalogCategory, Integer> counts = new LinkedHashMap<>();
         for (PluginCatalogCategory category : PluginCatalogCategory.values()) {

@@ -17,7 +17,8 @@ class CatalogLinkTest {
     void allowsHttpAndHttps() {
         assertThat(CatalogLink.sanitizeHttpUrl("https://example.com/p?a=1")).isEqualTo("https://example.com/p?a=1");
         assertThat(CatalogLink.sanitizeHttpUrl("  http://example.com  ")).isEqualTo("http://example.com");
-        assertThat(CatalogLink.isHttpUrl("https://github.com/Sywyar/PixivDownloader")).isTrue();
+        assertThat(CatalogLink.sanitizeHttpUrl("https://github.com/Sywyar/PixivDownloader"))
+                .isEqualTo("https://github.com/Sywyar/PixivDownloader");
     }
 
     @Test

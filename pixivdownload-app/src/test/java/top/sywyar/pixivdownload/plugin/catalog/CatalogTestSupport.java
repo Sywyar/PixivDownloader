@@ -2,6 +2,10 @@ package top.sywyar.pixivdownload.plugin.catalog;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogErrorCode;
+import top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException;
+import top.sywyar.pixivdownload.plugin.catalog.repository.PluginCatalogClientProvider;
+import top.sywyar.pixivdownload.plugin.catalog.repository.RepositoryProxyPolicy;
 import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.internal.envelope.EnvelopeV1Codec;
 import top.sywyar.pixivdownload.plugin.signature.internal.envelope.Hashing;
@@ -23,6 +27,7 @@ import java.util.Base64;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -33,6 +38,28 @@ import java.util.zip.ZipOutputStream;
 final class CatalogTestSupport {
 
     private CatalogTestSupport() {
+    }
+
+    /** 测试客户端保留仓库重定向策略，允许回环 HTTP 夹具；不验证真实代理或外站连通性。 */
+    static PluginCatalogClientProvider policyFaithful() {
+        return repository -> {
+            RepositoryProxyPolicy policy = repository.proxyPolicy();
+            if (policy == RepositoryProxyPolicy.DIRECT_STRICT) {
+                return new PluginCatalogHttpClient(false, true,
+                        (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs());
+            }
+            if (policy == RepositoryProxyPolicy.PROXY_TRUSTED) {
+                return new PluginCatalogHttpClient(false, true,
+                        (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs(), null, Set.of("127.0.0.1"));
+            }
+            if (policy == RepositoryProxyPolicy.CUSTOM) {
+                return new PluginCatalogHttpClient(false, true,
+                        (int) repository.connectTimeoutMs(), (int) repository.readTimeoutMs(), null,
+                        repository.allowRedirects(), Set.of(), true);
+            }
+            throw new PluginCatalogException(PluginCatalogErrorCode.PROXY_POLICY_UNSUPPORTED,
+                    "unsupported proxy policy for repository " + repository.repositoryId());
+        };
     }
 
     /** 启动一个 loopback HTTP 桩（端口随机）。 */
@@ -106,10 +133,6 @@ final class CatalogTestSupport {
         return zipBytes(entries);
     }
 
-    private static byte[] props(String id, String version, String requires) {
-        return props(id, version, requires, null);
-    }
-
     private static byte[] props(String id, String version, String requires, String dependencies) {
         StringBuilder sb = new StringBuilder();
         sb.append("plugin.id=").append(id).append('\n');
@@ -130,10 +153,7 @@ final class CatalogTestSupport {
         try (ZipOutputStream zos = new ZipOutputStream(bos)) {
             for (Map.Entry<String, byte[]> entry : entries.entrySet()) {
                 zos.putNextEntry(new ZipEntry(entry.getKey()));
-                byte[] content = entry.getValue();
-                if (content.length > 0) {
-                    zos.write(content);
-                }
+                zos.write(entry.getValue());
                 zos.closeEntry();
             }
         } catch (IOException e) {
