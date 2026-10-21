@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
@@ -211,6 +212,58 @@ class ArtworkDownloadExecutorTest {
     @Nested
     @DisplayName("队列生命周期")
     class QueueLifecycleTests {
+
+        @ParameterizedTest
+        @CsvSource({"true,true", "true,false", "false,true", "false,false"})
+        @DisplayName("同步下载与提交拒绝在终结失败后保留致命主失败和原始诊断")
+        void preservesFailureAcrossTermination(boolean blocking, boolean primaryFatal) {
+            when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
+            Throwable original = primaryFatal ? new ProbeVmError() : new IllegalStateException("original");
+            Throwable termination = primaryFatal ? new IllegalArgumentException("termination") : new ProbeVmError();
+            AtomicInteger terminated = new AtomicInteger();
+            doAnswer(call -> {
+                QueueTaskTracker.Task task = call.getArgument(1);
+                task.onTermination(() -> {
+                    terminated.incrementAndGet();
+                    if (termination instanceof Error error) throw error;
+                    throw (RuntimeException) termination;
+                });
+                throw original;
+            }).when(downloadLifecycle).track(any(), any(), anyString(), eq("illust"), anyString(), anyBoolean());
+
+            assertThatThrownBy(() -> {
+                if (blocking) {
+                    artworkDownloadExecutor.downloadImagesBlocking(1007L, "title", List.of(), null,
+                            new DownloadRequest.Other(), null, "owner");
+                } else {
+                    artworkDownloadExecutor.downloadImages(1007L, "title", List.of(), null,
+                            new DownloadRequest.Other(), null, "owner");
+                }
+            }).isSameAs(primaryFatal ? original : termination);
+            assertThat((primaryFatal ? original : termination).getSuppressed())
+                    .containsExactly(primaryFatal ? termination : original);
+            assertThat(artworkDownloadExecutor.prepareQuiesceDownloads().isDrained()).isTrue();
+            assertThat(terminated).hasValue(1);
+        }
+
+        @Test
+        @DisplayName("提交失败的事件发布再失败时仍终结任务并保留全部诊断")
+        void finishesRejectedTaskWhenFailurePublicationAlsoFails() {
+            when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
+            var original = new IllegalStateException("original");
+            var publication = new ProbeVmError();
+            var termination = new IllegalArgumentException("termination");
+            doAnswer(call -> {
+                call.<QueueTaskTracker.Task>getArgument(1).onTermination(() -> { throw termination; });
+                throw original;
+            }).when(downloadLifecycle).track(any(), any(), anyString(), eq("illust"), anyString(), anyBoolean());
+            doThrow(publication).when(downloadLifecycle).publish(any());
+
+            assertThatThrownBy(() -> artworkDownloadExecutor.downloadImages(1008L, "title", List.of(), null,
+                    new DownloadRequest.Other(), null, "owner")).isSameAs(publication);
+            assertThat(publication.getSuppressed()).containsExactly(original, termination);
+            assertThat(artworkDownloadExecutor.prepareQuiesceDownloads().isDrained()).isTrue();
+        }
 
         @Test
         @DisplayName("桌面快照只投影真实排队计数与尚未终结的下载状态")

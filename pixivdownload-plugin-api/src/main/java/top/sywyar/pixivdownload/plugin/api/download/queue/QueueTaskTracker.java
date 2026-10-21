@@ -352,6 +352,7 @@ public final class QueueTaskTracker {
             }
         }
 
+        /** 执行与终结同时失败时保留两者，进程级致命错误优先；终结回调完成后才归还计数。 */
         @Override
         public void run() {
             Runnable taskDelegate;
@@ -363,13 +364,21 @@ public final class QueueTaskTracker {
                 taskDelegate = delegate;
                 delegate = null;
             }
+            Throwable failure = null;
             try {
                 if (taskDelegate != null) {
                     taskDelegate.run();
                 }
+            } catch (Throwable taskFailure) {
+                failure = taskFailure;
             } finally {
-                completeRunning();
+                try {
+                    completeRunning();
+                } catch (Throwable terminationFailure) {
+                    failure = State.mergeFailure(failure, terminationFailure);
+                }
             }
+            State.rethrow(failure);
         }
 
         private void requestCancellation() {

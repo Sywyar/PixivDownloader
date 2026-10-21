@@ -163,14 +163,22 @@ public class NovelDownloadService implements NovelDownloader {
             downloadLifecycle.track(attempt, task, userUuid, "novel", request.getTitle(), true);
             task.bind(() -> downloadTracked(task, request, userUuid, plan, attempt));
             downloadExecutionLane.execute(task);
-            return attempt;
         } catch (RuntimeException | Error failure) {
+            Throwable combined = failure;
             try {
                 if (!(failure instanceof VirtualMachineError) && !(failure instanceof ThreadDeath))
                     downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.FAILED));
-            } finally { task.rejectSubmission(); }
-            throw failure;
+            } catch (RuntimeException | Error publicationFailure) {
+                combined = mergeFailure(combined, publicationFailure);
+            }
+            try {
+                task.rejectSubmission();
+            } catch (RuntimeException | Error terminationFailure) {
+                combined = mergeFailure(combined, terminationFailure);
+            }
+            rethrow(combined);
         }
+        return attempt;
     }
 
     private DownloadAttempt prepareAttempt(DownloadAttempt supplied, NovelDownloadRequest request) {
@@ -256,11 +264,19 @@ public class NovelDownloadService implements NovelDownloader {
         DownloadAttempt attempt = prepareAttempt(null, request);
         FilePlan plan = filePlan(request);
         QueueTaskTracker.Task task = taskTracker.beginRunning(NovelQueueTaskOwners.download(userUuid));
+        Throwable failure = null;
         try {
             downloadLifecycle.track(attempt, task, userUuid, "novel", request.getTitle(), false);
             return downloadTracked(task, request, userUuid, plan, attempt);
+        } catch (RuntimeException | Error original) {
+            failure = original;
+            throw original;
         } finally {
-            task.completeRunning();
+            try {
+                task.completeRunning();
+            } catch (RuntimeException | Error terminationFailure) {
+                rethrow(mergeFailure(failure, terminationFailure));
+            }
         }
     }
 

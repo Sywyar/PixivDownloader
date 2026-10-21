@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -156,6 +157,55 @@ class NovelDownloadServiceTest {
         other.setRawMetaJson(rawMetaJson);
         request.setOther(other);
         return request;
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true,true", "true,false", "false,true", "false,false"})
+    @DisplayName("同步小说下载与提交拒绝在终结失败后保留致命主失败和原始诊断")
+    void preservesFailureAcrossTermination(boolean blocking, boolean primaryFatal) {
+        var tracker = new QueueTaskTracker("novel");
+        var downloads = newService(downloadTaskExecutor, tracker);
+        Throwable original = primaryFatal ? new ThreadDeath() : new IllegalStateException("original");
+        Throwable termination = primaryFatal ? new IllegalArgumentException("termination") : new ThreadDeath();
+        AtomicInteger terminated = new AtomicInteger();
+        org.mockito.Mockito.doAnswer(call -> {
+            QueueTaskTracker.Task task = call.getArgument(1);
+            task.onTermination(() -> {
+                terminated.incrementAndGet();
+                if (termination instanceof Error error) throw error;
+                throw (RuntimeException) termination;
+            });
+            throw original;
+        }).when(downloadLifecycle).track(any(), any(), any(), eq("novel"), any(), org.mockito.ArgumentMatchers.anyBoolean());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> {
+            if (blocking) downloads.downloadBlocking(txtRequest(92L, null), "owner");
+            else downloads.download(txtRequest(92L, null), "owner");
+        }).isSameAs(primaryFatal ? original : termination);
+        assertThat((primaryFatal ? original : termination).getSuppressed())
+                .containsExactly(primaryFatal ? termination : original);
+        assertThat(tracker.activeTaskCount()).isZero();
+        assertThat(terminated).hasValue(1);
+    }
+
+    @Test
+    @DisplayName("小说提交失败的事件发布再失败时仍终结任务并保留全部诊断")
+    void finishesRejectedTaskWhenFailurePublicationAlsoFails() {
+        var tracker = new QueueTaskTracker("novel");
+        var downloads = newService(downloadTaskExecutor, tracker);
+        var original = new IllegalStateException("original");
+        var publication = new ThreadDeath();
+        var termination = new IllegalArgumentException("termination");
+        org.mockito.Mockito.doAnswer(call -> {
+            call.<QueueTaskTracker.Task>getArgument(1).onTermination(() -> { throw termination; });
+            throw original;
+        }).when(downloadLifecycle).track(any(), any(), any(), eq("novel"), any(), org.mockito.ArgumentMatchers.anyBoolean());
+        doThrow(publication).when(downloadLifecycle).publish(any());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> downloads.download(txtRequest(93L, null), "owner"))
+                .isSameAs(publication);
+        assertThat(publication.getSuppressed()).containsExactly(original, termination);
+        assertThat(tracker.activeTaskCount()).isZero();
     }
 
     @Test

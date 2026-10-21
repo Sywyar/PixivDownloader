@@ -180,14 +180,22 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             task.bind(() -> downloadImagesTracked(task, artworkId, title, imageUrls,
                     referer, effectiveOther, cookie, userUuid, plan, attempt));
             interactiveDownloadExecutionLane.execute(task);
-            return attempt;
         } catch (RuntimeException | Error failure) {
+            Throwable combined = failure;
             try {
                 if (!(failure instanceof VirtualMachineError) && !(failure instanceof ThreadDeath))
                     downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.FAILED));
-            } finally { task.rejectSubmission(); }
-            throw failure;
+            } catch (RuntimeException | Error publicationFailure) {
+                combined = mergeFailure(combined, publicationFailure);
+            }
+            try {
+                task.rejectSubmission();
+            } catch (RuntimeException | Error terminationFailure) {
+                combined = mergeFailure(combined, terminationFailure);
+            }
+            rethrow(combined);
         }
+        return attempt;
     }
 
     @Override
@@ -199,11 +207,19 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         FileNamePlan plan = buildFileNamePlan(artworkId, title, imageUrls.size(),
                 effectiveOther);
         QueueTaskTracker.Task task = taskTracker.beginRunning(userUuid);
+        Throwable failure = null;
         try {
             downloadLifecycle.track(attempt, task, userUuid, "illust", title, false);
             return downloadImagesTracked(task, artworkId, title, imageUrls, referer, effectiveOther, cookie, userUuid, plan, attempt);
+        } catch (RuntimeException | Error original) {
+            failure = original;
+            throw original;
         } finally {
-            task.completeRunning();
+            try {
+                task.completeRunning();
+            } catch (RuntimeException | Error terminationFailure) {
+                rethrow(mergeFailure(failure, terminationFailure));
+            }
         }
     }
 
