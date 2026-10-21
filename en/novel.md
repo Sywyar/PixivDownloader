@@ -183,7 +183,7 @@ Check "**Auto-translate newly downloaded novels**" under the "**Novel Settings**
 
 - Auto-translation always uses that novel / series's **default glossary** (auto-created on demand); you cannot specify a different glossary here. For fine-grained terminology control, use the "AI Translation" dialog on the novel reading page to select a glossary.
 - During series download, if "Generate series compilation" is also checked, the translation compilation is auto-regenerated after each book is translated.
-- Translation happens in the background and **does not block downloads**: the download queue and scheduled task "Current round queue details" show statuses like "**AI Translating**", "**Waiting for previous series novel translation to finish, N remaining**" (same series translates sequentially by chapter order to keep terminology consistent).
+- Translation happens in the background and **does not block downloads**: the download queue and scheduled task "Current round queue details" show statuses like "**AI Translating**", "**Waiting for N earlier chapter(s) in this series to translate**" (same series translates sequentially by chapter order to keep terminology consistent).
 - **Download success counts as success**: translation failures only note "complete (translation failed)" on that entry without affecting the downloaded novel file.
 - Admin only; requires the LLM to be configured and enabled in the GUI "AI Model" config page (OpenAI-compatible protocol). Translation results can be viewed via the "Content Language" dropdown on the novel reading page.
 
