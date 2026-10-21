@@ -78,7 +78,7 @@ function novelType() {
         },
         order: 10,
         moduleUrl: ENTRY_PATH,
-        acquisitionModes: [],
+        acquisitionModes: ['quick'],
         filters: ['novel-words'],
         settings: ['novel-settings-card']
     };
@@ -336,6 +336,19 @@ async function waitUntil(predicate) {
     assert.ok(Object.isFrozen(runtimeLiveStatus));
     assert.strictEqual(h.qt.get('novel').canonicalUrl({id: 'n42', novelId: '42'}),
         'https://www.pixiv.net/novel/show.php?id=42');
+
+    const myWorksLoads = [];
+    h.sandbox.cookieHasPhpsessid = () => false;
+    h.sandbox.loadQuickMyWorks = (...args) => {
+        myWorksLoads.push(args);
+        return Promise.resolve('loaded');
+    };
+    const myNovels = h.qt.quickActionsFor('novel')['my-novels'];
+    assert.throws(() => myNovels.load(), /quick.error.no-cookie/);
+    assert.deepStrictEqual(myWorksLoads, [], '缺少会话时不得加载作品');
+    h.sandbox.cookieHasPhpsessid = () => true;
+    assert.strictEqual(await myNovels.load(), 'loaded');
+    assert.deepStrictEqual(myWorksLoads, [['novel', 1]], '我的小说应加载当前类型的第一页');
 
     let runtimeSignal = null;
     h.sandbox.fetch = function (url, init) {

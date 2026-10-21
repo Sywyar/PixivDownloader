@@ -545,7 +545,7 @@ const NOVEL_DESCRIPTOR = {
                     label: '我自己的作品（小说）', iconKey: 'image',
                     viewType: 'works-list', kind: 'novel', pageSize: QUICK_PAGE_SIZE_NOVEL,
                     sourceType: 'user-new', allIdsFastPath: true,
-                    load: requireNovelQuickSession(() => loadQuickMyWorks(_activationContext.type, 1)),
+                    load: requireNovelQuickSession(() => loadQuickMyWorks(context.type, 1)),
                     scheduleSource(ctx) {
                         if (!ctx.uid) return null;
                         return {

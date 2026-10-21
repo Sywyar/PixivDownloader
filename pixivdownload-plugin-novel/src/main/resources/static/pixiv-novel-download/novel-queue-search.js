@@ -76,11 +76,7 @@ function ensureNovelSearchMounted() {
     });
 }
 
-// 据当前搜索视图构造 reactive 模型：cards 只存原始数据（显示文案模板期派生）；summary 为本次 render 的
-// 瞬时文案数组（与命令式实现同源、同样每次 render 重算）；inQueueIds 为队列 id 集合（驱动 in-queue 高亮）。
-function buildNovelSearchModel(view) {
-    view = view || getSearchView();
-    const inQueue = new Set(state.queue.map(q => q.id));
+function buildNovelSearchSummary(view) {
     const summary = searchState.submode === 'batch'
         ? [batchSummaryText(view)]
         : [
@@ -91,6 +87,15 @@ function buildNovelSearchModel(view) {
     if (searchState.submode !== 'batch' && hasExtraSearchFilter()) {
         summary.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: searchState.results.length}));
     }
+    return summary;
+}
+
+// 据当前搜索视图构造 reactive 模型：cards 只存原始数据（显示文案模板期派生）；summary 为本次 render 的
+// 瞬时文案数组（与命令式实现同源、同样每次 render 重算）；inQueueIds 为队列 id 集合（驱动 in-queue 高亮）。
+function buildNovelSearchModel(view) {
+    view = view || getSearchView();
+    const inQueue = new Set(state.queue.map(q => q.id));
+    const summary = buildNovelSearchSummary(view);
     const cards = view.items.map((item, i) => ({
         idx: view.base + i,
         id: item.id,
@@ -179,16 +184,7 @@ function buildNovelSearchComponent(reactiveState, Vue) {
 function applyNovelSearchImperative(area, view) {
     view = view || getSearchView();
     const inQueue = new Set(state.queue.map(q => q.id));
-    const summary = searchState.submode === 'batch'
-        ? [batchSummaryText(view)]
-        : [
-            searchStatText('total', searchState.total),
-            bt('search.summary.current-page-index', '当前第 {page} 页', {page: searchState.currentPage}),
-            searchStatText('returned', searchState.pixivPageCount)
-        ];
-    if (searchState.submode !== 'batch' && hasExtraSearchFilter()) {
-        summary.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: searchState.results.length}));
-    }
+    const summary = buildNovelSearchSummary(view);
     const cards = view.items.map((item, i) => {
         const idx = view.base + i;
         const xr = Number(item.xRestrict ?? 0);
