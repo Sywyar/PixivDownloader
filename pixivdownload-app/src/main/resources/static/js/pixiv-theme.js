@@ -27,6 +27,8 @@
             buttons.forEach(syncButton);
         } catch (e) {
             // 语言资源加载失败时保留已有标签。
+        } finally {
+            if (client && client.dispose) client.dispose();
         }
     }
 

@@ -151,6 +151,36 @@ test('预先取消的创建不发请求，也不改变偏好', async () => {
     assert.equal(h.stored.size, 0);
 });
 
+test('主题按钮的临时词典失败后释放恢复资源，反复挂载销毁不遗留请求', async () => {
+    const h = harness();
+    h.fail = true;
+    function themeElement() {
+        return Object.assign(element(), {dataset: {}, attrs: {},
+            setAttribute(key, value) { this.attrs[key] = value; },
+            getAttribute(key) { return this.attrs[key]; },
+            removeEventListener(name) { delete this.events[name]; }
+        });
+    }
+    h.window.document.documentElement = themeElement();
+    h.window.document.createElement = themeElement;
+    vm.runInContext(fs.readFileSync(path.join(__dirname,
+        '../../main/resources/static/js/pixiv-theme.js'), 'utf8'), h.window);
+    for (let i = 0; i < 5; i++) {
+        const mounted = h.window.PixivTheme.mount({mountPoint: themeElement()});
+        const fallbackTitle = mounted.element.title;
+        await flush();
+        assert.equal(mounted.element.title, fallbackTitle);
+        assert.equal(h.timers.size, 0);
+        mounted.destroy();
+        for (const name of ['focus', 'online', 'pagehide', 'pageshow']) assert.equal(h.events.get(name)?.size || 0, 0);
+    }
+    const count = h.calls.length;
+    h.emit('focus'); h.emit('online'); h.emit('pageshow', {persisted: true});
+    await flush();
+    assert.equal(h.calls.length, count);
+    assert.equal(h.timers.size, 0);
+});
+
 test('取消响应体读取后拒绝迟到 JSON，不发布客户端或继续加载', async () => {
     const h = harness();
     const fetch = h.window.fetch;
