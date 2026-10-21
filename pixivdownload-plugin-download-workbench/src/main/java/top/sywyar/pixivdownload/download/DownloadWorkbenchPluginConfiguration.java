@@ -379,8 +379,9 @@ public class DownloadWorkbenchPluginConfiguration {
 
     @Bean
     public BatchStateController batchStateController(BatchStateFiles batchStateFiles,
-                                                     ApplicationModeProvider applicationModeProvider) {
-        return new BatchStateController(batchStateFiles, applicationModeProvider);
+                                                     ApplicationModeProvider applicationModeProvider,
+                                                     @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
+        return new BatchStateController(batchStateFiles, applicationModeProvider, messages);
     }
 
     @Bean

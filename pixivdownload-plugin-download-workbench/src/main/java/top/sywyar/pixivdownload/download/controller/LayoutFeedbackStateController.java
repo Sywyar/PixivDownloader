@@ -139,7 +139,7 @@ public class LayoutFeedbackStateController {
             return statusResponse(HttpStatus.BAD_REQUEST);
         }
         // 7. query surveyId 必须与请求体 surveyId 完全一致（精确字符串相等，不 trim、不忽略大小写）。
-        if (!surveyId.equals(commandRequest.surveyId())) {
+        if (commandRequest == null || !surveyId.equals(commandRequest.surveyId())) {
             return statusResponse(HttpStatus.BAD_REQUEST);
         }
         // 8. Store degraded：写入被拒绝。
