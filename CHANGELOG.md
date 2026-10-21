@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修正邮件配置测试的页脚语言和韩语推送测试消息的格式。
 - 修复计划任务并发结束时，后续任务启动或插件停止可能因租约状态异常而失败的问题。
 - 修复计划任务派发失败时可能无法结束的问题；已开始执行的作品会等待完成后再释放任务资源。
 - 修复旧计划任务迁移时，部分 Unicode 作品类型因排序差异被错误拒绝的问题。
