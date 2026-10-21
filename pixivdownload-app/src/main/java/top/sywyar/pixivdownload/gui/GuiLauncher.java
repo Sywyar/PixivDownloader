@@ -190,7 +190,7 @@ public class GuiLauncher {
         }
         log.info(logMessage("gui.launcher.log.version",
                 AppVersion.getDisplayVersionOrDefault(logMessage("app.version.unknown"))));
-        log.info(logMessage("gui.launcher.log.starting", Arrays.toString(args)));
+        log.info(logMessage("gui.launcher.log.starting"));
 
         // ── 安装全局未捕获异常处理器 ────────────────────────────────────────────
         //    jpackage 窗口化 exe 没有控制台，stderr 不可见。若不在此兜底，

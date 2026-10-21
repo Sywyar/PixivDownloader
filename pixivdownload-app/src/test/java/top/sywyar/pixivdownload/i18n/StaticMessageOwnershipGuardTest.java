@@ -46,12 +46,11 @@ class StaticMessageOwnershipGuardTest {
         Locale previous = Locale.getDefault();
         try {
             Locale.setDefault(Locale.SIMPLIFIED_CHINESE);
-            assertThat(MessageBundles.getForLog("gui.launcher.log.starting", "[]"))
-                    .isEqualTo(MessageBundles.get(Locale.US, "gui.launcher.log.starting", "[]"))
+            assertThat(MessageBundles.getForLog("gui.launcher.log.starting"))
+                    .isEqualTo(MessageBundles.get(Locale.US, "gui.launcher.log.starting"))
                     .isNotEqualTo(MessageBundles.get(
                             Locale.SIMPLIFIED_CHINESE,
-                            "gui.launcher.log.starting",
-                            "[]"
+                            "gui.launcher.log.starting"
                     ));
         } finally {
             Locale.setDefault(previous);

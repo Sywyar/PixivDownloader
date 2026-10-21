@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.mock.web.MockHttpServletRequest;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
@@ -471,19 +473,20 @@ class SetupServiceTest {
         }
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(strings = {"{broken", "null"})
     @DisplayName("损坏的安装状态应保持原文件并阻止重新初始化")
-    void shouldFailClosedOnCorruptedConfig() throws IOException {
+    void shouldFailClosedOnCorruptedConfig(String content) throws IOException {
         Path configPath = stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON);
         Files.createDirectories(configPath.getParent());
-        Files.writeString(configPath, "{broken", StandardCharsets.UTF_8);
+        Files.writeString(configPath, content, StandardCharsets.UTF_8);
 
         SetupService corrupted = createSetupService();
 
         assertThat(corrupted.isConfigurationCorrupted()).isTrue();
         assertThatThrownBy(() -> corrupted.init("admin", "password1234", "solo"))
                 .isInstanceOf(IllegalStateException.class);
-        assertThat(Files.readString(configPath, StandardCharsets.UTF_8)).isEqualTo("{broken");
+        assertThat(Files.readString(configPath, StandardCharsets.UTF_8)).isEqualTo(content);
     }
 
     @Test

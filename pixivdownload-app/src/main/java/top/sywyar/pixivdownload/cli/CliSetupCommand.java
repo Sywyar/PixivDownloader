@@ -81,7 +81,7 @@ public final class CliSetupCommand {
      * 启动参数校验入口：
      * <ul>
      *   <li>命中 {@code --help} / {@code -h} → 打印帮助到 stdout 并以 0 退出</li>
-     *   <li>含未识别参数 → 列出未识别项 + 帮助打印到 stderr，以 64 (EX_USAGE) 退出</li>
+     *   <li>含未识别参数 → 列出参数位置和帮助，不回显输入值，以 64 (EX_USAGE) 退出</li>
      *   <li>已识别但缺少必需值的 flag（如 {@code --username} 不带 {@code =}） → 同上</li>
      *   <li>否则正常返回</li>
      * </ul>
@@ -96,12 +96,12 @@ public final class CliSetupCommand {
             System.exit(0);
         }
 
-        if (inspection.unknown().isEmpty() && inspection.missingValue().isEmpty()) {
+        if (inspection.unknownPositions().isEmpty() && inspection.missingValue().isEmpty()) {
             return;
         }
 
-        for (String arg : inspection.unknown()) {
-            err(message("cli.error.unknown-arg", arg));
+        for (int position : inspection.unknownPositions()) {
+            err(message("cli.error.unknown-arg", position));
         }
         for (String arg : inspection.missingValue()) {
             err(message("cli.error.flag-missing-value", arg, arg));
@@ -250,8 +250,7 @@ public final class CliSetupCommand {
             return false;
         }
         try {
-            SetupConfig config = CommandResources.MAPPER.readValue(path.toFile(), SetupConfig.class);
-            return config != null && config.isSetupComplete();
+            return SetupConfigFile.read(path, CommandResources.MAPPER).isSetupComplete();
         } catch (IOException e) {
             return false;
         }

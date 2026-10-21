@@ -9,6 +9,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import top.sywyar.pixivdownload.common.Utf8ConsoleStreams;
+import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.setup.SetupConfig;
 
 import java.nio.charset.StandardCharsets;
@@ -32,6 +33,35 @@ class CliSetupCommandTest {
 
     @TempDir
     Path temp;
+
+    @Test
+    @DisplayName("无头启动预检遵守初始化状态读取边界且不改写文件")
+    void setupPrecheckUsesBoundedStateReader() throws Exception {
+        String previousState = System.getProperty(RuntimeFiles.STATE_DIR_PROPERTY);
+        String previousConfig = System.getProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
+        Path state = Files.createDirectories(temp.resolve("state"));
+        Path file = state.resolve("setup_config.json");
+        try {
+            System.setProperty(RuntimeFiles.STATE_DIR_PROPERTY, state.toString());
+            System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, temp.resolve("config").toString());
+            assertThat(CliSetupCommand.isSetupComplete()).isFalse();
+            Files.writeString(file, "{\"setupComplete\":true}", StandardCharsets.UTF_8);
+            assertThat(CliSetupCommand.isSetupComplete()).isTrue();
+            Files.writeString(file, "{\"setupComplete\":true}" + " ".repeat(1024 * 1024),
+                    StandardCharsets.UTF_8);
+            byte[] oversized = Files.readAllBytes(file);
+            assertThat(CliSetupCommand.isSetupComplete()).isFalse();
+            assertThat(Files.readAllBytes(file)).isEqualTo(oversized);
+            Files.writeString(file, "null", StandardCharsets.UTF_8);
+            assertThat(CliSetupCommand.isSetupComplete()).isFalse();
+            assertThat(Files.readString(file, StandardCharsets.UTF_8)).isEqualTo("null");
+        } finally {
+            if (previousState == null) System.clearProperty(RuntimeFiles.STATE_DIR_PROPERTY);
+            else System.setProperty(RuntimeFiles.STATE_DIR_PROPERTY, previousState);
+            if (previousConfig == null) System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
+            else System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, previousConfig);
+        }
+    }
 
     @Test
     @DisplayName("首次配置使用短密码时空回车确认并允许重新输入")

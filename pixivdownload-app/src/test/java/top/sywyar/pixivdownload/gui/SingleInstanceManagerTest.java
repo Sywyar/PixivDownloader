@@ -9,9 +9,15 @@ import org.junit.jupiter.params.provider.CsvSource;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.plugin.runtime.artifact.PluginDevelopmentArtifacts;
 
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
@@ -19,8 +25,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-@DisplayName("SingleInstanceManager tests")
+@DisplayName("单实例锁与激活监听")
 class SingleInstanceManagerTest {
 
     @TempDir
@@ -32,7 +43,7 @@ class SingleInstanceManagerTest {
     }
 
     @Test
-    @DisplayName("should reject second instance and signal the first one")
+    @DisplayName("拒绝第二个实例并唤醒已运行实例")
     void shouldRejectSecondInstanceAndSignalTheFirstOne() throws Exception {
         System.setProperty(RuntimeFiles.INSTANCE_DIR_PROPERTY, tempDir.toString());
         CountDownLatch activationLatch = new CountDownLatch(1);
@@ -49,7 +60,7 @@ class SingleInstanceManagerTest {
     }
 
     @Test
-    @DisplayName("should allow acquiring lock again after close")
+    @DisplayName("关闭后可以重新取得实例锁")
     void shouldAllowAcquiringLockAgainAfterClose() throws Exception {
         System.setProperty(RuntimeFiles.INSTANCE_DIR_PROPERTY, tempDir.toString());
 
@@ -59,6 +70,45 @@ class SingleInstanceManagerTest {
 
         try (SingleInstanceManager secondManager = SingleInstanceManager.acquire()) {
             assertThat(secondManager).isNotNull();
+        }
+    }
+
+    @Test
+    @DisplayName("激活文件发布失败时释放监听端口和实例锁，允许修复后重试")
+    void failedActivationPublicationReleasesResources() throws Exception {
+        System.setProperty(RuntimeFiles.INSTANCE_DIR_PROPERTY, tempDir.toString());
+        Path activationFile = Files.createDirectory(tempDir.resolve("single-instance.txt"));
+        Path blocker = Files.writeString(activationFile.resolve("blocker"), "keep", StandardCharsets.UTF_8);
+
+        assertThatThrownBy(SingleInstanceManager::acquire).isInstanceOf(IOException.class);
+
+        // 真实失败保留的暂存内容记录本次绑定的端口，不依赖管理器私有字段。
+        int port = Integer.parseInt(Files.readAllLines(tempDir.resolve("single-instance.txt.tmp"),
+                StandardCharsets.UTF_8).get(0));
+        try (ServerSocket probe = new ServerSocket()) {
+            probe.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), port));
+        }
+        assertThat(Files.readString(blocker, StandardCharsets.UTF_8)).isEqualTo("keep");
+        Files.delete(blocker);
+        Files.delete(activationFile);
+        try (SingleInstanceManager retry = SingleInstanceManager.acquire()) {
+            assertThat(retry).isNotNull();
+            assertThat(SingleInstanceManager.signalExistingInstance()).isTrue();
+        }
+    }
+
+    @Test
+    @DisplayName("取得文件锁失败时关闭通道并保留原异常")
+    void failedLockAcquisitionClosesChannel() throws Exception {
+        System.setProperty(RuntimeFiles.INSTANCE_DIR_PROPERTY, tempDir.toString());
+        FileChannel channel = mock(FileChannel.class);
+        IOException failure = new IOException("injected lock failure");
+        when(channel.tryLock()).thenThrow(failure);
+        try (var channels = mockStatic(FileChannel.class)) {
+            channels.when(() -> FileChannel.open(tempDir.resolve("single-instance.lock"),
+                    StandardOpenOption.CREATE, StandardOpenOption.WRITE)).thenReturn(channel);
+            assertThatThrownBy(SingleInstanceManager::acquire).isSameAs(failure);
+            verify(channel).close();
         }
     }
 
