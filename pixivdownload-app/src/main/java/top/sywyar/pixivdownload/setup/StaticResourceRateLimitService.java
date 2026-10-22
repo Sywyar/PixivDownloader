@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.setup;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
@@ -11,16 +10,14 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Static resource request rate limit, with a per-minute sliding window.
+ * 静态资源请求按固定分钟窗口限流。
  * <ul>
- *   <li>Multi-mode guests are limited by client IP ({@code multi-mode.static-resource-request-limit-minute}).</li>
- *   <li>Invited guests are limited by invite code ({@code guest-invite.static-resource-request-limit-minute}),
- *       in both solo and multi mode.</li>
+ *   <li>多人模式游客按客户端 IP 计数（{@code multi-mode.static-resource-request-limit-minute}）。</li>
+ *   <li>邀请访客在两种模式下均按邀请码计数（{@code guest-invite.static-resource-request-limit-minute}）。</li>
  * </ul>
- * Disabled when the relevant limit is {@code <= 0}.
+ * 对应上限 {@code <= 0} 时禁用。
  */
 @Service
-@Slf4j
 @RequiredArgsConstructor
 public class StaticResourceRateLimitService {
 
@@ -31,12 +28,12 @@ public class StaticResourceRateLimitService {
 
     private final ConcurrentHashMap<String, WindowCounter> counters = new ConcurrentHashMap<>();
 
-    /** Multi-mode guests: rate limit by client IP. */
+    /** 多人模式游客按客户端 IP 限流。 */
     public boolean isAllowed(String ip) {
         return isAllowedWithin(ip, multiModeConfig.getStaticResourceRequestLimitMinute());
     }
 
-    /** Invited guests: rate limit by invite code (shared across browsers using the same code). */
+    /** 邀请访客按邀请码限流，同一邀请码的浏览器共享计数。 */
     public boolean isAllowedForInvite(String inviteKey) {
         return isAllowedWithin(inviteKey, guestInviteConfig.getStaticResourceRequestLimitMinute());
     }
@@ -60,7 +57,6 @@ public class StaticResourceRateLimitService {
             return existing;
         });
         if (counter == null) {
-            log.warn("Static resource rate limit tracker at capacity ({} keys), denying new key {}", MAX_TRACKED_IPS, key);
             return false;
         }
         return counter.count.incrementAndGet() <= limit;

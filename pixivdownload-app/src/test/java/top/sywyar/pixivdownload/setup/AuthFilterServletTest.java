@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.setup;
 
 import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -49,6 +50,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.EnumSet;
 import java.util.List;
@@ -138,6 +140,8 @@ class AuthFilterServletTest {
                     .addMappingForUrlPatterns(EnumSet.of(DispatcherType.REQUEST), false, "/*");
             servletContext.addFilter("auth", auth)
                     .addMappingForUrlPatterns(EnumSet.of(DispatcherType.REQUEST), true, "/*");
+            servletContext.addFilter("csrf", new CsrfProtectionFilter(locale, TestI18nBeans.appMessages(), routes))
+                    .addMappingForUrlPatterns(EnumSet.of(DispatcherType.REQUEST), true, "/api/policy/forwarded");
         });
         server.start();
     }
@@ -173,6 +177,36 @@ class AuthFilterServletTest {
 
     private HttpResponse<byte[]> request(String path, String cookie) throws Exception {
         return request("GET", path, cookie, false);
+    }
+
+    @Test
+    @DisplayName("真实 IPv6 代理请求保留本机身份与同源写入，拒绝越界端口和跨源请求")
+    void forwardedIpv6PreservesLocalAndCsrfChecks() throws Exception {
+        when(setup.getMode()).thenReturn("solo");
+        routes.register("forwarded-policy", List.of(WebRouteContribution.local("/api/policy/forwarded")));
+        try {
+            for (String[] scenario : List.of(
+                    new String[]{"[::1]:8443", "https://[::1]:8443", "200"},
+                    new String[]{"[::1]:8443", "https://[::1]:9443", "403"},
+                    new String[]{"[::1]:65536", "https://[::1]:65536", "400"})) {
+                int before = policyController.calls.get();
+                var request = HttpRequest.newBuilder(URI.create(
+                                "http://127.0.0.1:" + server.getPort() + "/test/api/policy/forwarded"))
+                        .timeout(Duration.ofSeconds(10))
+                        .POST(HttpRequest.BodyPublishers.noBody())
+                        .header("Forwarded", "for=\"[::1]\";proto=https;host=\"" + scenario[0] + "\"")
+                        .header("Origin", scenario[1]).build();
+                var response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                int status = Integer.parseInt(scenario[2]);
+                assertThat(response.statusCode()).as(scenario[0] + " " + scenario[1]).isEqualTo(status);
+                assertThat(policyController.calls.get()).isEqualTo(before + (status == 200 ? 1 : 0));
+                if (status == 200) {
+                    assertThat(response.body()).isEqualTo("https://[::1]:8443/test/api/policy/forwarded");
+                }
+            }
+        } finally {
+            routes.unregister("forwarded-policy");
+        }
     }
 
     @Test
@@ -244,9 +278,9 @@ class AuthFilterServletTest {
         private final AtomicInteger calls = new AtomicInteger();
 
         @RequestMapping("/api/policy/**")
-        String invoke() {
+        String invoke(HttpServletRequest request) {
             calls.incrementAndGet();
-            return "ok";
+            return request.getRequestURL().toString();
         }
     }
 

@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 登录端点暴力破解防护。
- * 使用分钟级滑动窗口，按客户端 IP 追踪每分钟内的登录尝试次数。
+ * 使用固定分钟窗口，按客户端 IP 追踪每分钟内的登录尝试次数。
  * 当 setup.login-rate-limit-minute <= 0 时禁用，所有请求直接放行。
  */
 @Service

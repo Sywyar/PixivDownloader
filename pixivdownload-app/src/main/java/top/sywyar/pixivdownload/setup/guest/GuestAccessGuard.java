@@ -34,12 +34,7 @@ public class GuestAccessGuard {
                 scopeFactory.fromRequest(request), WorkType.ARTWORK, artworkId);
     }
 
-    /**
-     * 单作品可见性判定：
-     * 1) 年龄分级必须在允许集合内；
-     * 2) OR 语义白名单：作品任一标签命中 {@code tagIds} 或作者在 {@code authorIds} 即可见。
-     *    某维度 {@code unrestricted=true} 视为无限制。
-     */
+    /** 按领域服务的年龄、标签、作者及收藏夹规则判断已有会话的插画可见性。 */
     public boolean isVisibleToGuest(long artworkId, GuestInviteSession session) {
         return workVisibilityService.isVisible(
                 scopeFactory.fromSession(session), WorkType.ARTWORK, artworkId);
@@ -53,10 +48,7 @@ public class GuestAccessGuard {
                 scopeFactory.fromRequest(request), WorkType.NOVEL, novelId);
     }
 
-    /**
-     * 单篇小说的可见性判定。规则与 {@link #isVisibleToGuest} 相同，但读取 {@code novels} 表与
-     * {@code novel_tags} 表（标签 id 与插画共享 {@code tags} 池，所以 OR 语义与白名单可直接复用）。
-     */
+    /** 按领域服务的规则判断已有会话的小说可见性，使用小说侧的独立限制。 */
     public boolean isNovelVisibleToGuest(long novelId, GuestInviteSession session) {
         return workVisibilityService.isVisible(
                 scopeFactory.fromSession(session), WorkType.NOVEL, novelId);

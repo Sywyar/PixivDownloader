@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.setup;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import top.sywyar.pixivdownload.common.NetworkUtils;
@@ -74,6 +76,60 @@ class TrustedForwardedRequestFilterTest {
         assertThat(normalized.getServerName()).isEqualTo("gallery.example");
         assertThat(normalized.getServerPort()).isEqualTo(443);
         assertThat(normalized.isSecure()).isTrue();
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "false, http, [2001:db8::7], 80",
+            "true, https, [2001:db8::7], 443",
+            "false, https, [2001:db8::7]:8443, 8443",
+            "true, http, [2001:db8::7]:6999, 6999",
+            "false, http, [2001:db8::7]:1, 1",
+            "true, https, [2001:db8::7]:65535, 65535"
+    })
+    @DisplayName("IPv6 代理来源的 Host 和请求 URL 保留一层方括号")
+    void preservesIpv6Authority(boolean standard, String scheme, String authority, int port) throws Exception {
+        MockHttpServletRequest request = forwardedOrigin(standard, scheme, authority);
+
+        HttpServletRequest normalized = capture(new TrustedForwardedRequestFilter("10.0.0.0/8"), request);
+
+        assertThat(normalized.getServerName()).isEqualTo("[2001:db8::7]");
+        assertThat(normalized.getServerPort()).isEqualTo(port);
+        assertThat(normalized.getHeader("Host")).isEqualTo(authority);
+        assertThat(Collections.list(normalized.getHeaders("Host"))).containsExactly(authority);
+        assertThat(normalized.getRequestURL().toString())
+                .isEqualTo(scheme + "://" + authority + "/api/collections/7/icon");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "false, gallery.example:0", "true, gallery.example:0",
+            "false, gallery.example:65536", "true, gallery.example:65536",
+            "false, [2001:db8::7]:65536", "true, [2001:db8::7]:65536"
+    })
+    @DisplayName("代理 Host 中的越界端口在进入后续过滤器前拒绝")
+    void rejectsInvalidAuthorityPort(boolean standard, String authority) throws Exception {
+        MockHttpServletRequest request = forwardedOrigin(standard, "https", authority);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicBoolean called = new AtomicBoolean();
+
+        new TrustedForwardedRequestFilter("10.0.0.0/8")
+                .doFilterInternal(request, response, (req, res) -> called.set(true));
+
+        assertThat(response.getStatus()).isEqualTo(400);
+        assertThat(called).isFalse();
+    }
+
+    private static MockHttpServletRequest forwardedOrigin(boolean standard, String scheme, String authority) {
+        MockHttpServletRequest request = proxyRequest("10.0.0.8");
+        if (standard) {
+            request.addHeader("Forwarded", "for=198.51.100.20;proto=" + scheme + ";host=\"" + authority + "\"");
+        } else {
+            request.addHeader("X-Forwarded-For", "198.51.100.20");
+            request.addHeader("X-Forwarded-Proto", scheme);
+            request.addHeader("X-Forwarded-Host", authority);
+        }
+        return request;
     }
 
     @Test

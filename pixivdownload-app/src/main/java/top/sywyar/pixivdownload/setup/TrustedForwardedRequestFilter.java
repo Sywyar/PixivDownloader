@@ -188,6 +188,9 @@ public final class TrustedForwardedRequestFilter extends OncePerRequestFilter {
         int port = authorityPort >= 0
                 ? authorityPort
                 : explicitPort >= 0 ? explicitPort : defaultPort(scheme);
+        if (port < 1 || port > 65_535) {
+            throw new IllegalArgumentException("Invalid forwarded port");
+        }
         String host = normalizeHost(uri.getHost());
         return new Origin(scheme, host, port);
     }
@@ -412,8 +415,8 @@ public final class TrustedForwardedRequestFilter extends OncePerRequestFilter {
     }
 
     private static String authority(Origin origin) {
-        String host = origin.host().indexOf(':') >= 0 ? "[" + origin.host() + "]" : origin.host();
-        return origin.port() == defaultPort(origin.scheme()) ? host : host + ":" + origin.port();
+        return origin.port() == defaultPort(origin.scheme())
+                ? origin.host() : origin.host() + ":" + origin.port();
     }
 
     private static String nonEmpty(String value) {

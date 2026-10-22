@@ -58,8 +58,4 @@ public record GuestInviteSession(
         }
         return false;
     }
-
-    public boolean hasAnyAgeRating() {
-        return allowSfw || allowR18 || allowR18g;
-    }
 }
