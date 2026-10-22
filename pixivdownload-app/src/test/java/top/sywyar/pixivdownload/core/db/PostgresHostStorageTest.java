@@ -55,6 +55,43 @@ class PostgresHostStorageTest {
     }
 
     @Test
+    @DisplayName("前缀缓存隔离未提交写入及独立事务，保存点回滚后只发布外层结果")
+    void prefixCacheFollowsTransactionBoundaries() {
+        var mapper = new PathPrefixMapper(DatabaseProviderTestFixtures.main(database.pool()));
+        var codec = new PathPrefixCodec(mapper, new DownloadConfig(), TestI18nBeans.appMessages());
+        codec.init();
+        codec.reload();
+        var manager = database.transactionManager();
+        var transaction = new TransactionTemplate(manager);
+        var nested = new TransactionTemplate(manager);
+        nested.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_NESTED);
+        var independent = new TransactionTemplate(manager);
+        independent.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        independent.setReadOnly(true);
+        String outer = directory.resolve("outer-İ").toString();
+        String inner = directory.resolve("inner").toString();
+        transaction.executeWithoutResult(status -> {
+            long id = codec.forceCreatePrefixId(outer);
+            assertThat(codec.encode(outer + "/image.png")).isEqualTo("{" + id + "}/image.png");
+            independent.executeWithoutResult(read -> assertThat(codec.snapshot()).isEmpty());
+            nested.executeWithoutResult(savepoint -> {
+                codec.forceCreatePrefixId(inner);
+                savepoint.setRollbackOnly();
+            });
+            assertThat(codec.encode(inner + "/file")).isEqualTo(inner + "/file");
+            assertThat(codec.encode(outer + "/image.png")).isEqualTo("{" + id + "}/image.png");
+        });
+        assertThat(codec.snapshot()).containsExactly(new PathPrefix(mapper.findIdByPath(outer), outer));
+        transaction.executeWithoutResult(status -> {
+            codec.forceCreatePrefixId(inner);
+            status.setRollbackOnly();
+        });
+        assertThat(codec.encode(inner + "/file")).isEqualTo(inner + "/file");
+        assertThat(codec.resolve("{" + mapper.findIdByPath(outer) + "}/image.png"))
+                .isEqualTo(outer + "/image.png");
+    }
+
+    @Test
     @DisplayName("文件名池、作品、标签、哈希及统计保留生成键、三态布尔和毫秒时间")
     void artworkAndInternedValuesRoundTrip() {
         var mapper = new PixivMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));

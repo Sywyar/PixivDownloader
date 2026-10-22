@@ -96,6 +96,115 @@ class PathPrefixSymbolicRootTest {
     @DisplayName("PathPrefixCodec 符号根编解码")
     class CodecTests {
 
+        @org.junit.jupiter.params.ParameterizedTest
+        @org.junit.jupiter.params.provider.ValueSource(strings = {"/fixture/İ", "C:\\fixture\\İ"})
+        @DisplayName("Unicode 大小写映射不改变路径后缀，活动编解码与离线快照一致")
+        void preservesSuffixWhenCaseMappingChangesLength(String prefix) {
+            long id = codec.forceCreatePrefixId(prefix);
+            var snapshot = PathPrefixCodec.snapshot(new DownloadConfig().getRootFolder(), codec.snapshot());
+            for (StoredPathCodec paths : java.util.List.of(codec, snapshot)) {
+                assertThat(paths.encode(prefix + "/file-İ/图.png")).isEqualTo("{" + id + "}/file-İ/图.png");
+                assertThat(paths.encode(prefix.toLowerCase(java.util.Locale.ROOT) + "/file.png"))
+                        .isEqualTo("{" + id + "}/file.png");
+                assertThat(paths.resolve("{" + id + "}/file-İ/图.png")).isEqualTo(prefix + "/file-İ/图.png");
+                assertThat(paths.encode(prefix + "other/file.png")).isEqualTo(prefix + "other/file.png");
+            }
+        }
+
+        @org.junit.jupiter.params.ParameterizedTest
+        @org.junit.jupiter.params.provider.ValueSource(strings = {"/", "C:/", "C:\\"})
+        @DisplayName("文件系统根前缀可编码子路径且回读不重复分隔符")
+        void roundTripsFilesystemRoot(String prefix) {
+            long id = codec.forceCreatePrefixId(prefix);
+            var snapshot = PathPrefixCodec.snapshot(new DownloadConfig().getRootFolder(), codec.snapshot());
+            for (StoredPathCodec paths : java.util.List.of(codec, snapshot)) {
+                assertThat(paths.encode(prefix + "file.png")).isEqualTo("{" + id + "}/file.png");
+                assertThat(paths.resolve("{" + id + "}/file.png").replace('\\', '/'))
+                        .isEqualTo(prefix.replace('\\', '/') + "file.png");
+            }
+        }
+
+        @Test
+        @DisplayName("前缀注册随外层事务回滚后不能继续编码为已撤销的 ID")
+        void discardsRolledBackPrefix() {
+            String prefix = tempDir.resolve("rollback-prefix").toString();
+            var transaction = new org.springframework.transaction.support.TransactionTemplate(
+                    new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource));
+            transaction.executeWithoutResult(status -> {
+                long id = codec.forceCreatePrefixId(prefix);
+                assertThat(codec.encode(prefix + "/file.png")).isEqualTo("{" + id + "}/file.png");
+                status.setRollbackOnly();
+            });
+            assertThat(mapper.findIdByPath(prefix)).isNull();
+            assertThat(codec.encode(prefix + "/file.png")).isEqualTo(prefix + "/file.png");
+        }
+
+        @Test
+        @DisplayName("保存点回滚撤回内层前缀并保留外层注册")
+        void discardsPrefixAfterSavepointRollback() {
+            var manager = new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource);
+            var transaction = new org.springframework.transaction.support.TransactionTemplate(manager);
+            var nested = new org.springframework.transaction.support.TransactionTemplate(manager);
+            nested.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_NESTED);
+            String outer = tempDir.resolve("outer").toString();
+            String inner = tempDir.resolve("inner").toString();
+            transaction.executeWithoutResult(status -> {
+                long outerId = codec.forceCreatePrefixId(outer);
+                nested.executeWithoutResult(savepoint -> {
+                    long innerId = codec.forceCreatePrefixId(inner);
+                    assertThat(codec.encode(inner + "/file")).isEqualTo("{" + innerId + "}/file");
+                    savepoint.setRollbackOnly();
+                });
+                assertThat(codec.encode(inner + "/file")).isEqualTo(inner + "/file");
+                assertThat(codec.encode(outer + "/file")).isEqualTo("{" + outerId + "}/file");
+            });
+            assertThat(mapper.findIdByPath(inner)).isNull();
+            assertThat(codec.snapshot()).containsExactly(new PathPrefix(mapper.findIdByPath(outer), outer));
+        }
+
+        @Test
+        @DisplayName("同一事务复用前缀快照，普通读取不使共享缓存失效")
+        void reusesPrefixSnapshotWithinAndAfterReadTransaction() {
+            var observed = org.mockito.Mockito.spy(mapper);
+            var paths = new PathPrefixCodec(observed, new DownloadConfig(), TestI18nBeans.appMessages());
+            paths.init();
+            paths.reload();
+            var transaction = new org.springframework.transaction.support.TransactionTemplate(
+                    new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource));
+            transaction.executeWithoutResult(status -> {
+                for (int i = 0; i < 100; i++) assertThat(paths.encode(rootPath + "/" + i)).isEqualTo("{0}/" + i);
+            });
+            assertThat(paths.encode(rootPath + "/next")).isEqualTo("{0}/next");
+            org.mockito.Mockito.verify(observed, org.mockito.Mockito.times(1)).findAll();
+        }
+
+        @Test
+        @DisplayName("新前缀只在提交后对其它线程的共享快照可见")
+        void publishesPrefixOnlyAfterCommit() {
+            codec.reload();
+            String prefix = tempDir.resolve("commit-prefix").toString();
+            var transaction = new org.springframework.transaction.support.TransactionTemplate(
+                    new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource));
+            transaction.executeWithoutResult(status -> {
+                long id = codec.forceCreatePrefixId(prefix);
+                assertThat(codec.encode(prefix + "/file.png")).isEqualTo("{" + id + "}/file.png");
+                var snapshot = new java.util.concurrent.FutureTask<>(codec::snapshot);
+                Thread reader = new Thread(snapshot);
+                reader.start();
+                try {
+                    assertThat(snapshot.get(5, java.util.concurrent.TimeUnit.SECONDS)).isEmpty();
+                } catch (Exception failure) {
+                    throw new AssertionError(failure);
+                } finally {
+                    reader.interrupt();
+                    try { reader.join(5000); }
+                    catch (InterruptedException failure) { Thread.currentThread().interrupt(); throw new AssertionError(failure); }
+                    assertThat(reader.isAlive()).isFalse();
+                }
+            });
+            assertThat(codec.snapshot()).containsExactly(new PathPrefix(mapper.findIdByPath(prefix), prefix));
+        }
+
         @Test
         @DisplayName("去除尾分隔符时应保留 POSIX 与 Windows 文件系统根")
         void shouldPreserveFilesystemRootWhenStrippingTrailingSeparators() {

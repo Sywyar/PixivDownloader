@@ -39,7 +39,7 @@ public class FileOperationJournal {
     }
 
     public void prepare(String operation, List<Entry> entries) {
-        // 前缀注册会刷新运行期缓存，先独立提交，避免后续意图事务回滚留下不存在的前缀。
+        // 恢复意图引用已提交的固定前缀，不随后续业务事务回滚撤回。
         var targets = new java.util.ArrayList<String>(entries.size());
         for (Entry entry : entries) {
             long prefix = paths.forceCreatePrefixId(entry.target().getParent().toString());

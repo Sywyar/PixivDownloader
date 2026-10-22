@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.PixivMapper;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMapper;
+import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -351,21 +352,19 @@ class DatabaseSchemaInspectorTest {
         @DisplayName("差异多于 limit 时应附加 more-differences 提示")
         void shouldTruncateSummaryAndAppendMoreHint() {
             DatabaseSchemaInspector.SchemaDifference d1 = new DatabaseSchemaInspector.SchemaDifference(
-                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t1", null, "缺少表: t1");
+                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t1", null, "first difference");
             DatabaseSchemaInspector.SchemaDifference d2 = new DatabaseSchemaInspector.SchemaDifference(
-                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t2", null, "缺少表: t2");
+                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t2", null, "second difference");
             DatabaseSchemaInspector.SchemaDifference d3 = new DatabaseSchemaInspector.SchemaDifference(
-                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t3", null, "缺少表: t3");
+                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t3", null, "third difference");
 
             DatabaseSchemaInspector.SchemaComparison comparison =
                     new DatabaseSchemaInspector.SchemaComparison(false, List.of(d1, d2, d3));
 
             String summary = comparison.summary(2);
 
-            assertThat(summary).contains("缺少表: t1", "缺少表: t2");
-            assertThat(summary).doesNotContain("缺少表: t3");
-            // i18n 模板里写着 "另有 {0} 项差异"
-            assertThat(summary).contains("1");
+            assertThat(summary.lines()).containsExactly("first difference", "second difference",
+                    MessageBundles.get("download.db.schema.more-differences", 1));
         }
 
         @Test

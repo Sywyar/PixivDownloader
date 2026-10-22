@@ -4,6 +4,8 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
@@ -14,8 +16,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -62,11 +62,8 @@ public class PathPrefixCodec implements StoredPathCodec {
         databaseUnavailable = top.sywyar.pixivdownload.core.db.UnavailableDataSource.isUnavailable(dataSource);
     }
 
-    private final ReadWriteLock lock = new ReentrantReadWriteLock();
-    private volatile List<PathPrefix> cachedPrefixes = List.of();
-    private volatile boolean cacheLoaded;
-    /** 编码候选：DB 前缀 + （启用时）符号根，按路径长度降序、id 升序排序。 */
-    private volatile List<PathPrefix> encodeCandidates = List.of();
+    private final Object cacheLock = new Object();
+    private volatile PrefixSnapshot cached;
     /** 符号根是否启用（root-folder 为相对路径）。启动时确定，运行期不变。 */
     private volatile boolean symbolicRootActive;
     /** 符号根的当前解析结果（绝对路径，去尾分隔符）。启动时解析一次并缓存。 */
@@ -115,22 +112,27 @@ public class PathPrefixCodec implements StoredPathCodec {
      * 重新加载前缀缓存。新增/更新前缀后调用即可让 {@link #encode} 立即看到最新数据。
      */
     public void reload() {
-        lock.writeLock().lock();
-        try {
-            List<PathPrefix> all = mapper.findAll();
-            cachedPrefixes = all == null ? List.of() : List.copyOf(all);
-            List<PathPrefix> candidates = new ArrayList<>(cachedPrefixes);
-            if (symbolicRootActive && symbolicRootPath != null && !symbolicRootPath.isEmpty()) {
-                candidates.add(new PathPrefix(SYMBOLIC_ROOT_ID, symbolicRootPath));
-            }
-            // 与 findAll 的 ORDER BY LENGTH(path) DESC, id ASC 一致：符号根按长度参与最长匹配
-            candidates.sort(Comparator.comparingInt((PathPrefix p) -> p.path().length()).reversed()
-                    .thenComparingLong(PathPrefix::id));
-            encodeCandidates = List.copyOf(candidates);
-            cacheLoaded = true;
-        } finally {
-            lock.writeLock().unlock();
+        var transaction = transactionPrefixes();
+        if (transaction != null) {
+            transaction.changed = true;
+            transaction.snapshot = readSnapshot();
+        } else {
+            synchronized (cacheLock) { cached = readSnapshot(); }
         }
+    }
+
+    private PrefixSnapshot readSnapshot() {
+        List<PathPrefix> all = mapper.findAll();
+        List<PathPrefix> prefixes = all == null ? List.of() : List.copyOf(all);
+        return new PrefixSnapshot(prefixes, encodingCandidates(prefixes, symbolicRootActive, symbolicRootPath));
+    }
+
+    private static List<PathPrefix> encodingCandidates(List<PathPrefix> prefixes, boolean symbolic, String root) {
+        var candidates = new ArrayList<>(prefixes);
+        if (symbolic && root != null && !root.isEmpty()) candidates.add(new PathPrefix(SYMBOLIC_ROOT_ID, root));
+        candidates.sort(Comparator.comparingInt((PathPrefix p) -> p.path().length()).reversed()
+                .thenComparingLong(PathPrefix::id));
+        return List.copyOf(candidates);
     }
 
     /**
@@ -182,7 +184,8 @@ public class PathPrefixCodec implements StoredPathCodec {
         if (stripped.isEmpty()) return stripped;
         if (ENCODED_PATTERN.matcher(stripped).matches()) return stripped;
 
-        String inputNorm = normalizeForCompare(stripped);
+        String path = stripped.replace('\\', '/');
+        String inputNorm = path.toLowerCase(Locale.ROOT);
         for (PathPrefix prefix : candidates) {
             String prefixStripped = stripTrailingSeparators(prefix.path());
             if (prefixStripped == null || prefixStripped.isEmpty()) continue;
@@ -192,11 +195,14 @@ public class PathPrefixCodec implements StoredPathCodec {
             if (inputNorm.length() == prefixLen) {
                 return "{" + prefix.id() + "}";
             }
-            char boundary = inputNorm.charAt(prefixLen);
-            if (boundary != '/' && boundary != '\\') continue;
-            String rest = stripped.substring(prefixLen + 1);
-            rest = rest.replace('\\', '/');
-            return "{" + prefix.id() + "}/" + rest;
+            int boundary = prefixNorm.endsWith("/") ? prefixLen - 1 : prefixLen;
+            if (inputNorm.charAt(boundary) != '/') continue;
+            // Unicode 小写映射可能改变长度，按分隔符定位原路径的后缀。
+            int restStart = 0;
+            for (int i = 0; i <= boundary; i++) {
+                if (inputNorm.charAt(i) == '/') restStart = path.indexOf('/', restStart) + 1;
+            }
+            return "{" + prefix.id() + "}/" + path.substring(restStart);
         }
         return stripped;
     }
@@ -228,21 +234,18 @@ public class PathPrefixCodec implements StoredPathCodec {
         }
         if (id == SYMBOLIC_ROOT_ID) {
             // 符号根不入表：固定解析为当前下载根目录的绝对路径
-            String rest0 = matcher.group(2);
-            if (rest0 == null || rest0.isEmpty()) {
-                return symbolicRootPath;
-            }
-            return symbolicRootPath + "/" + rest0;
+            return appendSuffix(symbolicRootPath, matcher.group(2));
         }
         String prefix = lookup.apply(id);
         if (prefix == null) {
             return storedValue;
         }
-        String rest = matcher.group(2);
-        if (rest == null || rest.isEmpty()) {
-            return stripTrailingSeparators(prefix);
-        }
-        return stripTrailingSeparators(prefix) + "/" + rest;
+        return appendSuffix(stripTrailingSeparators(prefix), matcher.group(2));
+    }
+
+    private static String appendSuffix(String prefix, String rest) {
+        if (rest == null || rest.isEmpty()) return prefix;
+        return prefix + (prefix != null && (prefix.endsWith("/") || prefix.endsWith("\\")) ? "" : "/") + rest;
     }
 
     /** 后端停止时，维护工具用当前数据库前缀和下载根建立只读编解码快照，不创建或修改前缀表。 */
@@ -251,11 +254,7 @@ public class PathPrefixCodec implements StoredPathCodec {
         String symbolicRoot = stripTrailingSeparators(root.toAbsolutePath().normalize().toString());
         var paths = new HashMap<Long, String>();
         prefixes.forEach(prefix -> paths.put(prefix.id(), prefix.path()));
-        var candidates = new ArrayList<>(prefixes);
-        if (!root.isAbsolute()) candidates.add(new PathPrefix(SYMBOLIC_ROOT_ID, symbolicRoot));
-        candidates.sort(Comparator.comparingInt((PathPrefix prefix) -> prefix.path().length()).reversed()
-                .thenComparingLong(PathPrefix::id));
-        List<PathPrefix> encoding = List.copyOf(candidates);
+        List<PathPrefix> encoding = encodingCandidates(prefixes, !root.isAbsolute(), symbolicRoot);
         return new StoredPathCodec() {
             @Override public String encode(String path) { return PathPrefixCodec.encode(path, encoding); }
             @Override public String resolve(String path) { return PathPrefixCodec.resolve(path, symbolicRoot, paths::get); }
@@ -306,22 +305,49 @@ public class PathPrefixCodec implements StoredPathCodec {
     }
 
     private List<PathPrefix> currentPrefixes() {
-        if (!cacheLoaded && !databaseUnavailable) reload();
-        lock.readLock().lock();
-        try {
-            return cachedPrefixes;
-        } finally {
-            lock.readLock().unlock();
-        }
+        return currentSnapshot().prefixes();
     }
 
     private List<PathPrefix> currentEncodeCandidates() {
-        if (!cacheLoaded && !databaseUnavailable) reload();
-        lock.readLock().lock();
-        try {
-            return encodeCandidates;
-        } finally {
-            lock.readLock().unlock();
+        return currentSnapshot().encoding();
+    }
+
+    private PrefixSnapshot currentSnapshot() {
+        if (databaseUnavailable) return new PrefixSnapshot(List.of(), List.of());
+        var transaction = transactionPrefixes();
+        if (transaction != null) {
+            if (transaction.snapshot == null) transaction.snapshot = readSnapshot();
+            return transaction.snapshot;
+        }
+        var current = cached;
+        if (current != null) return current;
+        synchronized (cacheLock) {
+            if (cached == null) cached = readSnapshot();
+            return cached;
+        }
+    }
+
+    private TransactionPrefixes transactionPrefixes() {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) return null;
+        for (var synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+            if (synchronization instanceof TransactionPrefixes prefixes && prefixes.owner() == this) return prefixes;
+        }
+        var prefixes = new TransactionPrefixes();
+        TransactionSynchronizationManager.registerSynchronization(prefixes);
+        return prefixes;
+    }
+
+    private record PrefixSnapshot(List<PathPrefix> prefixes, List<PathPrefix> encoding) {}
+
+    /** 未提交的前缀只随当前事务存活，不发布给其它线程。 */
+    private final class TransactionPrefixes implements TransactionSynchronization {
+        private PrefixSnapshot snapshot = cached;
+        private boolean changed;
+        private PathPrefixCodec owner() { return PathPrefixCodec.this; }
+        @Override public void savepointRollback(Object savepoint) { snapshot = null; }
+        @Override public void afterCompletion(int status) {
+            if (changed) synchronized (cacheLock) { cached = null; }
+            snapshot = null;
         }
     }
 
