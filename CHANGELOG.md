@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 该格式基于 [Keep a Changelog ZH-cn](https://keepachangelog.com/zh-CN/1.1.0/).
 
+## [v1.14.3] - 2026.10.22
+
+### Security
+
+- Windows 安装包及含内置 Java 运行时的便携包移除 emSign ECC Root CA - G3 信任根，阻断 eMudhra 弱密钥中间 CA 的相关证书链；依赖该根的正常 HTTPS 服务也将不再受信任。使用自备 Java 或自定义信任库的用户需单独更新其证书信任配置。
+
 ## [v1.14.2] - 2026.10.16
 
 ### Changed

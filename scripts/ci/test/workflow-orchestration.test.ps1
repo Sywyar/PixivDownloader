@@ -1,4 +1,4 @@
-# Execute orchestration with local fixtures; publishing and application processes are replaced at their boundaries.
+﻿# Execute orchestration with local fixtures; publishing and application processes are replaced at their boundaries.
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 Add-Type -AssemblyName System.IO.Compression
@@ -114,12 +114,35 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             $script:probes.Add($ApplicationJar)
             return @{ Agent = 'fixture'; Fixture = 'fixture' }
         }
-        function Test-ApplicationScenario { param($Label) $script:observed.Add($Label) }
+        function Test-ApplicationScenario {
+            param($Label, $Root, $Launcher)
+            if ($Label -like 'windows-installer-*') {
+                Assert-Equal $Launcher (Join-Path $Root 'PixivDownload.exe')
+            }
+            $script:observed.Add($Label)
+        }
         function Test-ReleaseAdverseLayouts {
             param($Label, $ScenarioGroup)
             $script:observed.Add("$Label-adverse-$ScenarioGroup")
         }
         function Assert-NoInstalledCopy { }
+        # JVM 为占位文件，只替换探针边界，保留真实启动器返回值与错误传播。
+        $probeScripts = Join-Path $fixture 'probe-scripts'
+        $probeDirectory = Join-Path $probeScripts 'runtime-security'
+        [IO.Directory]::CreateDirectory($probeDirectory) | Out-Null
+        $runtimeAssertion = Join-Path $probeScripts 'assert-runtime.ps1'
+        [IO.File]::WriteAllText($runtimeAssertion,
+            ($program.Functions | Where-Object Name -eq 'Assert-PackagedRuntime').Extent.Text,
+            [Text.UTF8Encoding]::new($false))
+        . $runtimeAssertion
+        $rejectRuntimeTrust = $false
+        [IO.File]::WriteAllText((Join-Path $probeDirectory 'test-runtime-trust.ps1'), @'
+param($RuntimeHome)
+if (-not (Test-Path -LiteralPath (Join-Path $RuntimeHome 'bin/server/jvm.dll'))) { throw 'Missing runtime input.' }
+if ($rejectRuntimeTrust) { throw 'Rejected fixture runtime trust.' }
+$observed.Add('bundled-runtime-trust')
+Write-Output 'Certificate probe diagnostic output'
+'@, [Text.UTF8Encoding]::new($false))
         function Wait-ArtifactProcessExit { }
         function Start-Process {
             param($FilePath, $ArgumentList, $WindowStyle, [switch]$PassThru)
@@ -143,6 +166,7 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             & $program.Main @parameters
             $expected = @(foreach ($kind in @('java-standard', 'full-offline', 'windows-installer')) {
                 if ($distribution -in @('all', $kind)) {
+                    if ($kind -eq 'windows-installer') { 'bundled-runtime-trust' }
                     foreach ($mode in @('headless', 'gui-compose', 'gui-swing')) { "$kind-$mode" }
                     if ($kind -eq 'windows-installer') { "$kind-adverse-all" }
                 }
@@ -157,11 +181,15 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             $script:observed.Clear(); $script:probes.Clear()
             & $program.Main -Version 1.2.3 -Distribution windows-installer -ScenarioGroup $group -InstallerPath $inputFile -WorkRoot $fixture
             $expected = if ($group -eq 'startup') {
-                @('windows-installer-headless', 'windows-installer-gui-compose', 'windows-installer-gui-swing')
-            } else { @("windows-installer-adverse-$group") }
+                @('bundled-runtime-trust', 'windows-installer-headless', 'windows-installer-gui-compose', 'windows-installer-gui-swing')
+            } else { @('bundled-runtime-trust', "windows-installer-adverse-$group") }
             Assert-Equal $script:observed $expected
             Assert-Equal $script:probes.Count 1
         }
+        $rejectRuntimeTrust = $true
+        Assert-Rejected {
+            & $program.Main -Version 1.2.3 -Distribution windows-installer -InstallerPath $inputFile -WorkRoot $fixture
+        } 'Rejected fixture runtime trust'
         Assert-Rejected { & $program.Main -Version 1.2.3 -Distribution java-standard -ScenarioGroup startup } 'requires the windows-installer'
         foreach ($distribution in @('java-standard', 'full-offline', 'windows-installer')) {
             Assert-Rejected { & $program.Main -Version 1.2.3 -Distribution $distribution -WorkRoot $fixture } 'not found'
