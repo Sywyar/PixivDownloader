@@ -21,6 +21,7 @@ class StaticMessageOwnershipGuardTest {
             "(?:message|MessageBundles\\.get)\\(\\s*\"([^\"]+)\"");
     private static final List<String> SOURCES = List.of(
             "src/main/java/top/sywyar/pixivdownload/gui/GuiLauncher.java",
+            "src/main/java/top/sywyar/pixivdownload/gui/StartupSchemaBackfill.java",
             "src/main/java/top/sywyar/pixivdownload/ffmpeg/FfmpegInstaller.java");
 
     @Test

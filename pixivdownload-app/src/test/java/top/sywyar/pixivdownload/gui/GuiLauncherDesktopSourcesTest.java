@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.plugin.PluginToggleProperties;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.DiscoveredFeaturePlugin;
@@ -20,8 +22,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class GuiLauncherDesktopSourcesTest {
     @Test
@@ -157,6 +162,51 @@ class GuiLauncherDesktopSourcesTest {
         assertThat(replacement).isNotSameAs(initialBundles);
         assertThat(registry.get()).isSameAs(replacement);
         assertThat(builds).hasValue(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("桌面来源与词典构造失败不能把旧缓存登记为新发现结果，冲突解除后恢复")
+    void failedFactoryDoesNotPublishDiscovery(boolean materializeBundles) {
+        PluginDiscoveryResult initial = PluginDiscoveryResult.empty();
+        PluginDiscoveryResult[] current = {initial};
+        Function<PluginDiscoveryResult, PluginRegistry> registries = discovery -> new PluginRegistry(
+                List.of(new TestPlugin()),
+                new PluginToggleProperties(),
+                discovery
+        );
+        Supplier<?> cached = materializeBundles
+                ? GuiLauncher.memoizedDesktopUiBundles(
+                        () -> current[0],
+                        discovery -> new WebI18nBundleRegistry(registries.apply(discovery)),
+                        initial,
+                        new WebI18nBundleRegistry(registries.apply(initial))
+                )
+                : GuiLauncher.memoizedDesktopUiSources(
+                        () -> current[0],
+                        discovery -> GuiLauncher.buildDesktopUiPluginSources(registries.apply(discovery)),
+                        initial,
+                        GuiLauncher.buildDesktopUiPluginSources(registries.apply(initial))
+                );
+        Object original = cached.get();
+        var conflicting = new TestPlugin();
+        current[0] = new PluginDiscoveryResult(
+                List.of(new DiscoveredFeaturePlugin(
+                        conflicting.id(),
+                        conflicting.id(),
+                        conflicting,
+                        getClass().getClassLoader()
+                )),
+                List.of()
+        );
+
+        assertThatThrownBy(cached::get).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(cached::get).isInstanceOf(IllegalStateException.class);
+
+        current[0] = new PluginDiscoveryResult(List.of(), List.of(new PluginLoadFailure("fixture", "removed")));
+        Object replacement = cached.get();
+        assertThat(replacement).isNotSameAs(original);
+        assertThat(cached.get()).isSameAs(replacement);
     }
 
     private static ReleaseProbe replaceSourceSnapshot() {

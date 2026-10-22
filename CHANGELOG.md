@@ -24,6 +24,8 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复桌面启动回填遇到 JVM 致命错误后仍尝试启动后端的问题。
+- 修复桌面插件来源或语言资源重建失败后，后续查询错误沿用旧结果的问题。
 - 修复 Swing 打开网页或文件时可能阻塞界面的问题，并按当前可用入口显示插件市场按钮。
 - 修复 Swing 切换语言后，回填和迁移准备提示仍使用原语言的问题。
 - 修复 Swing 配置页连续操作时，新提示被提前隐藏或被旧操作结果覆盖的问题。

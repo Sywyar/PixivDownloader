@@ -94,7 +94,7 @@ class AppDesktopUiHostBackfillTest {
         assertThat(changed.useProxy()).isFalse();
         assertThat(changed.proxyPort()).isEqualTo(17892);
         assertThat(file.read("proxy.enabled")).isEqualTo("false");
-        var startup = GuiLauncher.buildStartupBackfillOptions(host);
+        var startup = StartupSchemaBackfill.options(host);
         assertThat(startup.useProxy()).isFalse();
         assertThat(startup.proxyHost()).isEqualTo("192.0.2.55");
         assertThat(startup.proxyPort()).isEqualTo(17892);
