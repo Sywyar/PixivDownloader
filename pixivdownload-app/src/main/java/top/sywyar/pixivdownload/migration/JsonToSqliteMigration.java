@@ -140,89 +140,80 @@ public class JsonToSqliteMigration {
         try (Connection conn = dataSource == null ? options.target().openConnection() : dataSource.getConnection()) {
             options.target().requireConnectionTarget(conn);
             DatabaseInitializer.prepareOffline(conn, options.target());
-            boolean autoCommit = conn.getAutoCommit();
-            if (autoCommit) conn.setAutoCommit(false);
-            java.sql.Savepoint savepoint = autoCommit ? null : conn.setSavepoint();
-            try (var session = options.target().storageSession(conn, SCHEMA)) {
-                if (autoCommit) options.target().prepareTransaction(conn, false);
-                session.insert("file_name_templates", Map.of("id", 1L, "template", PixivWorkFileNameFormatter.DEFAULT_TEMPLATE),
-                        DatabaseSession.Conflict.ignore());
-                for (Map.Entry<String, JsonNode> entry : downloaded.properties()) {
-                    long artworkId;
-                    try {
-                        artworkId = Long.parseLong(entry.getKey());
-                    } catch (NumberFormatException e) {
-                        log.warn(logMessage("migration.log.invalid-artwork-id", entry.getKey()));
-                        skipped++;
-                        continue;
-                    }
-
-                    if (exists(session, "artwork_id", artworkId)) {
-                        skipped++;
-                    } else {
-                        JsonNode artwork = entry.getValue();
-                        String title = artwork.path("title").asText(null);
-                        String folder = PathPrefixCodec.stripTrailingSeparators(artwork.path("folder").asText(null));
-                        int count = artwork.path("count").asInt();
-                        String extensions = artwork.path("extensions").asText(null);
-                        long time = artwork.has("time")
-                                ? EpochMillisNormalizer.normalize(artwork.path("time").asLong())
-                                : nextUniqueTime(session);
-
-                        var values = new LinkedHashMap<String, Object>();
-                        values.put("artwork_id", artworkId); values.put("title", title); values.put("folder", folder);
-                        values.put("count", (long) count); values.put("extensions", extensions); values.put("time", time);
-                        if (session.insert("artworks", values, DatabaseSession.Conflict.ignore()) == 0) {
+            try (var transaction = options.target().beginToolTransaction(conn)) {
+                try (var session = options.target().storageSession(conn, SCHEMA)) {
+                    session.insert("file_name_templates", Map.of("id", 1L, "template", PixivWorkFileNameFormatter.DEFAULT_TEMPLATE),
+                            DatabaseSession.Conflict.ignore());
+                    for (Map.Entry<String, JsonNode> entry : downloaded.properties()) {
+                        long artworkId;
+                        try {
+                            artworkId = Long.parseLong(entry.getKey());
+                        } catch (NumberFormatException e) {
+                            log.warn(logMessage("migration.log.invalid-artwork-id", entry.getKey()));
                             skipped++;
                             continue;
                         }
 
-                        if (artwork.has("moved") && artwork.path("moved").asBoolean()) {
-                            String moveFolder = PathPrefixCodec.stripTrailingSeparators(artwork.path("moveFolder").asText(null));
-                            long moveTime = EpochMillisNormalizer.normalize(artwork.path("moveTime").asLong());
-                            session.update("artworks", Map.of("moved", value(1), "move_folder", value(moveFolder), "move_time", value(moveTime)),
-                                    call(EQUAL, column("artworks", "artwork_id"), value(artworkId)));
+                        if (exists(session, "artwork_id", artworkId)) {
+                            skipped++;
+                        } else {
+                            JsonNode artwork = entry.getValue();
+                            String title = artwork.path("title").asText(null);
+                            String folder = PathPrefixCodec.stripTrailingSeparators(artwork.path("folder").asText(null));
+                            int count = artwork.path("count").asInt();
+                            String extensions = artwork.path("extensions").asText(null);
+                            long time = artwork.has("time")
+                                    ? EpochMillisNormalizer.normalize(artwork.path("time").asLong())
+                                    : nextUniqueTime(session);
+
+                            var values = new LinkedHashMap<String, Object>();
+                            values.put("artwork_id", artworkId); values.put("title", title); values.put("folder", folder);
+                            values.put("count", (long) count); values.put("extensions", extensions); values.put("time", time);
+                            if (session.insert("artworks", values, DatabaseSession.Conflict.ignore()) == 0) {
+                                skipped++;
+                                continue;
+                            }
+
+                            if (artwork.has("moved") && artwork.path("moved").asBoolean()) {
+                                String moveFolder = PathPrefixCodec.stripTrailingSeparators(artwork.path("moveFolder").asText(null));
+                                long moveTime = EpochMillisNormalizer.normalize(artwork.path("moveTime").asLong());
+                                session.update("artworks", Map.of("moved", value(1), "move_folder", value(moveFolder), "move_time", value(moveTime)),
+                                        call(EQUAL, column("artworks", "artwork_id"), value(artworkId)));
+                            }
+
+                            migrated++;
                         }
 
-                        migrated++;
+                        int done = migrated + skipped;
+                        if (total > 0 && done % 100 == 0) {
+                            int percent = done * 100 / total;
+                            report(reporter, message(
+                                    "migration.log.progress", done, total, percent, migrated, skipped));
+                        }
                     }
 
-                    int done = migrated + skipped;
-                    if (total > 0 && done % 100 == 0) {
-                        int percent = done * 100 / total;
-                        report(reporter, message(
-                                "migration.log.progress", done, total, percent, migrated, skipped));
+                    // 迁移统计数据（仅在数据库统计全为 0 时写入，避免覆盖新数据）
+                    if (statisticsFile.exists()) {
+                        long[] currentStats = readStats(session);
+                        if (currentStats[0] == 0 && currentStats[1] == 0 && currentStats[2] == 0) {
+                            JsonNode stats = mapper.readTree(statisticsFile);
+                            int totalArtworks = stats.has("totalArtworks") ? stats.path("totalArtworks").asInt() : 0;
+                            int totalImages = stats.has("totalImages") ? stats.path("totalImages").asInt() : 0;
+                            int totalMoved = stats.has("totalMoved") ? stats.path("totalMoved").asInt() : 0;
+                            writeStats(session, totalArtworks, totalImages, totalMoved);
+                            String statsMsg = message(
+                                    "migration.log.statistics-migrated", totalArtworks, totalImages, totalMoved);
+                            log.info(logMessage(
+                                    "migration.log.statistics-migrated", totalArtworks, totalImages, totalMoved));
+                            report(reporter, statsMsg);
+                        } else {
+                            String statsMsg = message("migration.log.statistics-skipped");
+                            log.info(logMessage("migration.log.statistics-skipped"));
+                            report(reporter, statsMsg);
+                        }
                     }
                 }
-
-                // 迁移统计数据（仅在数据库统计全为 0 时写入，避免覆盖新数据）
-                if (statisticsFile.exists()) {
-                    long[] currentStats = readStats(session);
-                    if (currentStats[0] == 0 && currentStats[1] == 0 && currentStats[2] == 0) {
-                        JsonNode stats = mapper.readTree(statisticsFile);
-                        int totalArtworks = stats.has("totalArtworks") ? stats.path("totalArtworks").asInt() : 0;
-                        int totalImages = stats.has("totalImages") ? stats.path("totalImages").asInt() : 0;
-                        int totalMoved = stats.has("totalMoved") ? stats.path("totalMoved").asInt() : 0;
-                        writeStats(session, totalArtworks, totalImages, totalMoved);
-                        String statsMsg = message(
-                                "migration.log.statistics-migrated", totalArtworks, totalImages, totalMoved);
-                        log.info(logMessage(
-                                "migration.log.statistics-migrated", totalArtworks, totalImages, totalMoved));
-                        report(reporter, statsMsg);
-                    } else {
-                        String statsMsg = message("migration.log.statistics-skipped");
-                        log.info(logMessage("migration.log.statistics-skipped"));
-                        report(reporter, statsMsg);
-                    }
-                }
-                if (autoCommit) conn.commit();
-                else conn.releaseSavepoint(savepoint);
-            } catch (Exception failure) {
-                if (autoCommit) conn.rollback();
-                else conn.rollback(savepoint);
-                throw failure;
-            } finally {
-                if (autoCommit) conn.setAutoCommit(true);
+                transaction.commit();
             }
         }
 

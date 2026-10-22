@@ -5,6 +5,8 @@ import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import javax.sql.DataSource;
@@ -19,6 +21,35 @@ import static org.mockito.Mockito.when;
 
 @DisplayName("桌面宿主作品回填数据源")
 class AppDesktopUiHostBackfillTest {
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"false, false", "true, false", "false, true", "true, true"})
+    @DisplayName("目录工具目标校验失败归还宿主连接，清理致命错误仍传播")
+    void closesBorrowedConnectionOnFatalTargetFailure(boolean update, boolean cleanupFatal) throws Exception {
+        var target = mock(DatabaseTarget.class);
+        var connection = mock(Connection.class);
+        var pool = mock(DataSource.class);
+        var selected = Path.of("database-target");
+        Throwable failure = cleanupFatal ? new java.sql.SQLException("controlled target failure")
+                : new OutOfMemoryError("controlled target failure");
+        var cleanup = new OutOfMemoryError("controlled close failure");
+        if (cleanupFatal) org.mockito.Mockito.doThrow(cleanup).when(connection).close();
+        when(target.providerOwner()).thenReturn("fixture-provider");
+        when(target.displayName()).thenReturn(selected.toString());
+        when(pool.getConnection()).thenReturn(connection);
+        org.mockito.Mockito.doThrow(failure).when(target).requireConnectionTarget(connection);
+        var host = new AppDesktopUiHost(0, mock(DesktopUiHost.ConfigFile.class), () -> pool, null, target);
+        try (var backend = org.mockito.Mockito.mockStatic(BackendLifecycleManager.class)) {
+            backend.when(BackendLifecycleManager::isRunning).thenReturn(true);
+            backend.when(() -> BackendLifecycleManager.requiredBean(DatabaseTarget.class)).thenReturn(target);
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> {
+                if (update) host.updateArtworkFolder(selected, 1, false, "new-folder");
+                else host.checkArtworkFolders(selected);
+            }).isSameAs(cleanupFatal ? cleanup : failure);
+        }
+        if (cleanupFatal) assertThat(cleanup.getSuppressed()).containsExactly(failure);
+        verify(connection).close();
+    }
 
     @Test
     @DisplayName("启动构造器把可信插件会话绑定到迁移设置服务")

@@ -496,8 +496,15 @@ final class AppDesktopUiHost implements DesktopUiHost {
         try {
             target.requireConnectionTarget(connection);
             return connection;
-        } catch (Exception failure) {
-            try { connection.close(); } catch (Exception closeFailure) { failure.addSuppressed(closeFailure); }
+        } catch (Exception | Error failure) {
+            try { connection.close(); }
+            catch (VirtualMachineError | ThreadDeath fatal) {
+                if (fatal != failure) fatal.addSuppressed(failure);
+                throw fatal;
+            }
+            catch (Exception | Error closeFailure) {
+                if (closeFailure != failure) failure.addSuppressed(closeFailure);
+            }
             throw failure;
         }
     }

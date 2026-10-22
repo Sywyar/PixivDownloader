@@ -27,20 +27,9 @@ public class DatabaseInitializer {
 
     public static void prepareOffline(java.sql.Connection connection, DatabaseTarget target) throws java.sql.SQLException {
         var registry = top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry.forBuiltInPlugins();
-        boolean autoCommit = connection.getAutoCommit();
-        if (autoCommit) connection.setAutoCommit(false);
-        var savepoint = autoCommit ? null : connection.setSavepoint();
-        try {
-            if (autoCommit) target.prepareTransaction(connection, false);
+        try (var transaction = target.beginToolTransaction(connection)) {
             target.applySchema(connection, CoreMigrationSchema.create(registry, true), true);
-            if (autoCommit) connection.commit();
-            else connection.releaseSavepoint(savepoint);
-        } catch (java.sql.SQLException | RuntimeException failure) {
-            if (autoCommit) connection.rollback();
-            else connection.rollback(savepoint);
-            throw failure;
-        } finally {
-            if (autoCommit) connection.setAutoCommit(true);
+            transaction.commit();
         }
     }
 

@@ -38,14 +38,23 @@ public final class DatabaseConnectionLease implements InvocationHandler {
 
     public static Connection wrap(Connection delegate, BooleanSupplier available) throws SQLException {
         if (delegate == null) throw unavailable();
-        if (!available.getAsBoolean()) {
-            delegate.close();
-            throw unavailable();
+        try {
+            if (!available.getAsBoolean()) throw unavailable();
+            var lease = new DatabaseConnectionLease(delegate, available, null, null);
+            var connection = (Connection) lease.proxy(Connection.class);
+            lease.connection = connection;
+            return connection;
+        } catch (SQLException | RuntimeException | Error failure) {
+            try {
+                delegate.close();
+            } catch (VirtualMachineError | ThreadDeath fatal) {
+                if (fatal != failure) fatal.addSuppressed(failure);
+                throw fatal;
+            } catch (SQLException | RuntimeException | Error cleanup) {
+                if (cleanup != failure) failure.addSuppressed(cleanup);
+            }
+            throw failure;
         }
-        var lease = new DatabaseConnectionLease(delegate, available, null, null);
-        var connection = (Connection) lease.proxy(Connection.class);
-        lease.connection = connection;
-        return connection;
     }
 
     /** 方言事务准备可使用驱动 API；普通调用方不能通过 unwrap 取得未门控的连接。 */

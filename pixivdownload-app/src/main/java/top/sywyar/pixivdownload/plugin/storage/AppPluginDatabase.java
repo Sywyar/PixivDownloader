@@ -76,19 +76,22 @@ public final class AppPluginDatabase extends AbstractDataSource implements Plugi
         if (inCallback.get() != null) throw new SQLException("STORAGE_NESTED_CALLBACK", "25000");
         try (var connection = getConnection()) {
             connection.setAutoCommit(false);
-            top.sywyar.pixivdownload.core.db.provider.DatabaseConnectionLease.prepareTransaction(connection, privateTarget, readOnly);
-            try (var session = new top.sywyar.pixivdownload.core.db.ScopedDatabaseSession(privateTarget.storageSession(connection, schema), readOnly, this::available)) {
-                inCallback.set(true);
-                try {
-                    T result = work.run(session);
-                    session.requireActive();
-                    if (session.rollbackOnly()) throw new SQLException("STORAGE_TRANSACTION_FAILED", "25000");
-                    if (readOnly) connection.rollback(); else connection.commit();
-                    return result;
-                } catch (SQLException | RuntimeException | Error failure) {
-                    try { connection.rollback(); } catch (SQLException rollback) { failure.addSuppressed(rollback); }
-                    throw failure;
-                } finally { inCallback.remove(); }
+            try {
+                top.sywyar.pixivdownload.core.db.provider.DatabaseConnectionLease.prepareTransaction(connection, privateTarget, readOnly);
+                T result;
+                try (var session = new top.sywyar.pixivdownload.core.db.ScopedDatabaseSession(privateTarget.storageSession(connection, schema), readOnly, this::available)) {
+                    inCallback.set(true);
+                    try {
+                        result = work.run(session);
+                        session.requireActive();
+                        if (session.rollbackOnly()) throw new SQLException("STORAGE_TRANSACTION_FAILED", "25000");
+                    } finally { inCallback.remove(); }
+                }
+                if (readOnly) connection.rollback(); else connection.commit();
+                return result;
+            } catch (SQLException | RuntimeException | Error failure) {
+                try { connection.rollback(); } catch (SQLException rollback) { failure.addSuppressed(rollback); }
+                throw failure;
             }
         }
     }
@@ -131,12 +134,8 @@ public final class AppPluginDatabase extends AbstractDataSource implements Plugi
             current = pool;
         }
         try {
-            Connection connection = current.getConnection();
-            if (!available()) {
-                connection.close();
-                throw new SQLNonTransientConnectionException("DATABASE_UNAVAILABLE", "08003");
-            }
-            return top.sywyar.pixivdownload.core.db.provider.DatabaseConnectionLease.wrap(connection, this::available);
+            return top.sywyar.pixivdownload.core.db.provider.DatabaseConnectionLease.wrap(
+                    current.getConnection(), this::available);
         } catch (SQLException failure) {
             // 借用超时或线程中断不撤销已建立的 owner 绑定，后续请求仍可重试。
             throw new SQLException("DATABASE_PRIVATE_STORAGE_UNAVAILABLE", "08003");

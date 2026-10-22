@@ -120,6 +120,57 @@ public final class DatabaseTarget {
         top.sywyar.pixivdownload.core.db.provider.DatabaseConnectionLease.prepareTransaction(connection, endpoint(), readOnly);
     }
 
+    /** 离线工具独占本次事务或保存点；关闭时撤回未提交的工作，不关闭调用方连接。 */
+    public ToolTransaction beginToolTransaction(Connection connection) throws SQLException {
+        var transaction = new ToolTransaction(connection);
+        try {
+            if (transaction.autoCommit) prepareTransaction(connection, false);
+            return transaction;
+        } catch (SQLException | RuntimeException | Error failure) {
+            try {
+                transaction.close();
+            } catch (VirtualMachineError | ThreadDeath fatal) {
+                if (fatal != failure) fatal.addSuppressed(failure);
+                throw fatal;
+            } catch (SQLException | RuntimeException | Error cleanup) {
+                if (cleanup != failure) failure.addSuppressed(cleanup);
+            }
+            throw failure;
+        }
+    }
+
+    public static final class ToolTransaction implements AutoCloseable {
+        private final Connection connection;
+        private final boolean autoCommit;
+        private final java.sql.Savepoint savepoint;
+        private boolean committed;
+
+        private ToolTransaction(Connection connection) throws SQLException {
+            this.connection = connection;
+            autoCommit = connection.getAutoCommit();
+            if (autoCommit) connection.setAutoCommit(false);
+            savepoint = autoCommit ? null : connection.setSavepoint();
+        }
+
+        public void commit() throws SQLException {
+            if (autoCommit) connection.commit();
+            else connection.releaseSavepoint(savepoint);
+            committed = true;
+        }
+
+        @Override public void close() throws SQLException {
+            if (!committed) {
+                if (autoCommit) connection.rollback();
+                else {
+                    connection.rollback(savepoint);
+                    connection.releaseSavepoint(savepoint);
+                }
+            }
+            // 回滚失败时不能恢复自动提交，否则可能提交尚未撤回的写入。
+            if (autoCommit) connection.setAutoCommit(true);
+        }
+    }
+
     public HikariDataSource openPool(int maximumPoolSize) throws IOException {
         try {
             try (Connection ignored = openConnection()) { }

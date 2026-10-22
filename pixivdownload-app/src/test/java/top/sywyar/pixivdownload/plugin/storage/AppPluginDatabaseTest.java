@@ -4,11 +4,17 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.core.db.UnavailableDataSource;
 import top.sywyar.pixivdownload.databasesqlite.SqliteDatabasePlugin;
 import top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionSettings;
 import top.sywyar.pixivdownload.plugin.api.database.DatabasePrivateStorageSettings;
+import top.sywyar.pixivdownload.plugin.api.schema.ColumnSpec;
+import top.sywyar.pixivdownload.plugin.api.schema.SchemaContribution;
+import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.DatabaseSession;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.database.DatabaseProviderBinding;
 import top.sywyar.pixivdownload.plugin.runtime.bootstrap.database.DatabaseProviderSelection;
 
@@ -16,13 +22,55 @@ import javax.sql.DataSource;
 import java.nio.file.Path;
 import java.sql.SQLException;
 import java.util.Optional;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
 @DisplayName("所选 provider 的 owner 私有连接池")
 class AppPluginDatabaseTest {
     @TempDir Path directory;
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("私库会话关闭失败必须回滚写入并允许后续事务重试")
+    void sessionCloseFailureRollsBack(boolean fatal) throws Exception {
+        var selected = spy(target());
+        var privateTarget = spy(selected.privateStorage(new DatabasePrivateStorageSettings(
+                "close-fixture", directory.resolve("close-fixture"), "fixture-installation", "fixture-private-secret")));
+        doReturn(privateTarget).when(selected).privateStorage(any());
+        var failClose = new AtomicBoolean();
+        Throwable failure = fatal ? new OutOfMemoryError("fixture") : new IllegalStateException("fixture");
+        doAnswer(call -> {
+            var session = spy((DatabaseSession) call.callRealMethod());
+            doAnswer(close -> {
+                close.callRealMethod();
+                if (failClose.get()) throw failure;
+                return null;
+            }).when(session).close();
+            return session;
+        }).when(privateTarget).storageSession(any(), any());
+        try (var database = database("close-fixture", selected, mock(DataSource.class))) {
+            database.initialize(List.of(new SchemaContribution(List.of(new TableSpec("facts", List.of(
+                    new ColumnSpec("id", "INTEGER", true, null, 1)), List.of())), List.of(), List.of())));
+            failClose.set(true);
+            assertThatThrownBy(() -> database.transaction(session ->
+                    session.insert("facts", Map.of("id", 1L), DatabaseSession.Conflict.error())))
+                    .isSameAs(failure);
+            failClose.set(false);
+            try (var connection = database.getConnection(); var statement = connection.createStatement();
+                 var rows = statement.executeQuery("SELECT COUNT(*) FROM facts")) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt(1)).isZero();
+            }
+            int inserted = database.transaction(session ->
+                    session.insert("facts", Map.of("id", 1L), DatabaseSession.Conflict.error()));
+            assertThat(inserted).isEqualTo(1);
+        }
+    }
 
     @Test
     @Timeout(20)

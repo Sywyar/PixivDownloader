@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.plugin.storage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import top.sywyar.pixivdownload.config.InstallIdentity;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.config.credential.PluginCredentialStore;
@@ -25,6 +27,28 @@ import static org.mockito.Mockito.*;
 @DisplayName("私库凭据持久身份")
 class PluginDatabaseFactoryTest {
     @TempDir Path directory;
+
+    @ParameterizedTest
+    @CsvSource({"false, false", "true, false", "false, true", "true, true"})
+    @DisplayName("私库初始化失败关闭已创建资源，清理致命错误仍传播")
+    void closesFailedInitialization(boolean fatal, boolean cleanupFatal) throws Exception {
+        Throwable failure = fatal ? new OutOfMemoryError("fixture") : new SQLException("fixture");
+        Throwable cleanup = cleanupFatal ? new OutOfMemoryError("cleanup fixture")
+                : new IllegalStateException("cleanup fixture");
+        try (var databases = mockConstruction(AppPluginDatabase.class, (database, context) -> {
+            doThrow(failure).when(database).initialize(anyList(), anyList());
+            doThrow(cleanup).when(database).close();
+        })) {
+            var factory = new PluginDatabaseFactory(null, null, null);
+            Throwable actual = catchThrowable(() -> factory.create("fixture-owner", List.of()));
+            if (cleanupFatal) assertThat(actual).isSameAs(cleanup).hasSuppressedException(failure);
+            else if (fatal) assertThat(actual).isSameAs(failure);
+            else assertThat(actual).isInstanceOf(IllegalStateException.class)
+                    .hasMessage("PRIVATE_STORAGE_INITIALIZATION_FAILED").hasCause(failure);
+            verify(databases.constructed().get(0)).close();
+            if (!cleanupFatal) assertThat(failure.getSuppressed()).containsExactly(cleanup);
+        }
+    }
 
     @Test
     @DisplayName("地址别名和 provider 改变不轮换同一安装 owner 密码，不同 owner 不共享密码")

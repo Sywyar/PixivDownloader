@@ -39,11 +39,14 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
         Connection connection = dataSource.getConnection();
         try {
             target.requireConnectionTarget(connection);
-        } catch (SQLException | RuntimeException e) {
+        } catch (SQLException | RuntimeException | Error e) {
             try {
                 connection.close();
-            } catch (SQLException closeFailure) {
-                e.addSuppressed(closeFailure);
+            } catch (VirtualMachineError | ThreadDeath fatal) {
+                if (fatal != e) fatal.addSuppressed(e);
+                throw fatal;
+            } catch (SQLException | RuntimeException | Error closeFailure) {
+                if (closeFailure != e) e.addSuppressed(closeFailure);
             }
             throw e;
         }
@@ -55,11 +58,14 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
             ArtworksBackFillDatabase database = new ArtworksBackFillDatabase(connection, target);
             database.ensureSchema();
             return database;
-        } catch (SQLException | RuntimeException e) {
+        } catch (SQLException | RuntimeException | Error e) {
             try {
                 connection.close();
-            } catch (SQLException closeFailure) {
-                e.addSuppressed(closeFailure);
+            } catch (VirtualMachineError | ThreadDeath fatal) {
+                if (fatal != e) fatal.addSuppressed(e);
+                throw fatal;
+            } catch (SQLException | RuntimeException | Error closeFailure) {
+                if (closeFailure != e) e.addSuppressed(closeFailure);
             }
             throw e;
         }
@@ -118,21 +124,10 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
             boolean updateTags,
             boolean updateSeries
     ) throws SQLException {
-        boolean autoCommit = connection.getAutoCommit();
-        if (autoCommit) connection.setAutoCommit(false);
-        var savepoint = autoCommit ? null : connection.setSavepoint();
-        try {
-            if (autoCommit) target.prepareTransaction(connection, false);
+        try (var transaction = target.beginToolTransaction(connection)) {
             applyUpdatesInTransaction(candidate, result, updateAuthor, updateR18, updateAi,
                     updateDescription, updateTags, updateSeries);
-            if (autoCommit) connection.commit();
-            else connection.releaseSavepoint(savepoint);
-        } catch (SQLException | RuntimeException failure) {
-            if (autoCommit) connection.rollback();
-            else connection.rollback(savepoint);
-            throw failure;
-        } finally {
-            if (autoCommit) connection.setAutoCommit(true);
+            transaction.commit();
         }
     }
 
