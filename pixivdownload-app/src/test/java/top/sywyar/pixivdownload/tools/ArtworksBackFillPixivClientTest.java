@@ -3,8 +3,12 @@ package top.sywyar.pixivdownload.tools;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.parallel.Resources;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+
+import java.util.Locale;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -74,6 +78,23 @@ class ArtworksBackFillPixivClientTest {
                         mapper
                 ).type
         );
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"en-US", "tr-TR", "az-AZ"})
+    @ResourceLock(Resources.LOCALE)
+    @DisplayName("年龄限制错误的大小写匹配不受系统语言影响")
+    void matchesRestrictionRegardlessOfDefaultLocale(String languageTag) throws Exception {
+        Locale previous = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag(languageTag));
+            var result = ArtworksBackFillPixivClient.parseResponse(
+                    200, "{\"error\":true,\"message\":\"RESTRICTED\"}", mapper);
+            assertEquals(ArtworksBackFillPixivClient.ResultType.R18_ONLY, result.type);
+            assertEquals("RESTRICTED", result.message);
+        } finally {
+            Locale.setDefault(previous);
+        }
     }
 
     @Test

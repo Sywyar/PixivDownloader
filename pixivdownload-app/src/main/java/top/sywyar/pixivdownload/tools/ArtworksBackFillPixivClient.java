@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * 查询 Pixiv 插画详情，并把 HTTP 与 JSON 响应归一为回填结果。
@@ -92,14 +93,14 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
         }
         if (root.path("error").asBoolean(false)) {
             String responseMessage = root.path("message").asText("pixiv ajax error");
-            String lower = responseMessage.toLowerCase();
+            String lower = responseMessage.toLowerCase(Locale.ROOT);
             for (String keyword : R18_KEYWORDS) {
-                if (lower.contains(keyword.toLowerCase())) {
+                if (lower.contains(keyword.toLowerCase(Locale.ROOT))) {
                     return LookupResult.r18Only(responseMessage);
                 }
             }
             for (String keyword : DELETED_KEYWORDS) {
-                if (lower.contains(keyword.toLowerCase())) {
+                if (lower.contains(keyword.toLowerCase(Locale.ROOT))) {
                     return LookupResult.deleted(responseMessage);
                 }
             }
@@ -115,7 +116,7 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
             return LookupResult.skip(message("artworks-backfill.lookup.empty-response"));
         }
         String authorName = payload.path("userName").asText("").trim();
-        if (authorId > 0 && authorName.isEmpty()) {
+        if (authorName.isEmpty()) {
             authorName = String.valueOf(authorId);
         }
         int xRestrict = payload.path("xRestrict").asInt(0);
