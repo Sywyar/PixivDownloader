@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui.panel;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import top.sywyar.pixivdownload.guiswing.SwingHost;
+import top.sywyar.pixivdownload.gui.SwingShellAction;
 
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.gui.SwingBackendLifecycle;
@@ -29,7 +30,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 
 /**
  * “状态”页：展示服务状态，并提供桌面侧的快捷操作。
@@ -67,7 +67,7 @@ public class StatusPanel extends JPanel {
     private final JButton ffmpegActionButton = new JButton(message("gui.ffmpeg.action.download"));
     private final JButton openFfmpegDirButton = new JButton(message("gui.ffmpeg.action.open-dir"));
     private final JProgressBar ffmpegProgress = new JProgressBar();
-    private final AtomicBoolean shellActionInFlight = new AtomicBoolean();
+    private final SwingShellAction shellAction = new SwingShellAction();
 
     private final Runnable themeChangeListener = this::applyUpdateBannerColors;
     private GuiThemeListenerSession themeListenerSession = GuiThemeListenerSession.none();
@@ -1019,40 +1019,16 @@ public class StatusPanel extends JPanel {
         return (value == null || value.isBlank()) ? fallback : value;
     }
 
-    /**
-     * 把可能长时间阻塞的 Shell 打开动作移出 EDT，失败后再回到 EDT 报告。
-     *
-     * <p>Windows 上把目录重解析点（符号链接 / Junction）直接交给 {@code Desktop.open} 会在原生
-     * {@code ShellExecute} 中无限阻塞；在 EDT 上执行会连带冻结窗口、托盘菜单与退出路径。
-     */
-    private void runShellAction(String threadName, ShellAction action, Consumer<Exception> reportFailure) {
-        if (!shellActionInFlight.compareAndSet(false, true)) return;
-        Thread worker = new Thread(() -> {
-            try {
-                action.run();
-            } catch (Exception failure) {
-                SwingUtilities.invokeLater(() -> reportFailure.accept(failure));
-            } finally {
-                shellActionInFlight.set(false);
-            }
-        }, threadName);
-        worker.setDaemon(true);
-        worker.start();
-    }
-
-    @FunctionalInterface
-    private interface ShellAction {
-        void run() throws Exception;
-    }
-
     public void openWebPage(String path) {
-        runShellAction("gui-open-web-page",
+        shellAction.run(
+                "gui-open-web-page",
                 () -> SwingHost.host().openExternalUri(new URI(getWebUrl(path))),
                 failure -> {
                     log.warn(logMessage("gui.status.log.open-browser-failed", path, failure.getMessage()), failure);
                     GuiErrorDialog.show(this, message("gui.dialog.error.title"),
                             message("gui.error.open-browser", failure.getMessage()));
-                });
+                }
+        );
     }
 
     private void openDownloadFolder() {
@@ -1062,24 +1038,28 @@ public class StatusPanel extends JPanel {
                     message("gui.dialog.info.title"), JOptionPane.WARNING_MESSAGE);
             return;
         }
-        runShellAction("gui-open-download-folder",
+        shellAction.run(
+                "gui-open-download-folder",
                 () -> SwingHost.host().openLocalPath(folder.toPath()),
                 failure -> {
                     log.warn(logMessage("gui.status.log.open-download-folder-failed",
                             folder.getAbsolutePath(), failure.getMessage()), failure);
                     GuiErrorDialog.show(this, message("gui.dialog.error.title"),
                             message("gui.error.open-folder", failure.getMessage()));
-                });
+                }
+        );
     }
 
     private void openFfmpegDirectory() {
-        runShellAction("gui-open-ffmpeg-dir",
+        shellAction.run(
+                "gui-open-ffmpeg-dir",
                 () -> SwingHost.host().openLocalPath(ffmpegDirectoryToOpen()),
                 failure -> {
                     log.warn(logMessage("gui.status.log.open-ffmpeg-dir-failed", failure.getMessage()), failure);
                     GuiErrorDialog.show(this, message("gui.dialog.error.title"),
                             message("gui.ffmpeg.dialog.open-dir-failed.message", failure.getMessage()));
-                });
+                }
+        );
     }
 
     /**
@@ -1938,13 +1918,15 @@ public class StatusPanel extends JPanel {
 
     /** 在系统默认浏览器中打开一个绝对外部 URL（区别于 {@link #openWebPage}：后者拼接本机服务地址）。 */
     private void openExternalUrl(String url) {
-        try {
-            Desktop.getDesktop().browse(new URI(url));
-        } catch (Exception e) {
-            log.warn(logMessage("gui.status.log.open-browser-failed", url, e.getMessage()), e);
-            GuiErrorDialog.show(this, message("gui.dialog.error.title"),
-                    message("gui.error.open-browser", e.getMessage()));
-        }
+        shellAction.run(
+                "gui-open-external-url",
+                () -> SwingHost.host().openExternalUri(new URI(url)),
+                failure -> {
+                    log.warn(logMessage("gui.status.log.open-browser-failed", url, failure.getMessage()), failure);
+                    GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                            message("gui.error.open-browser", failure.getMessage()));
+                }
+        );
     }
 
     /**

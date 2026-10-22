@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.gui.panel;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSnapshot;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldSpec;
 import top.sywyar.pixivdownload.gui.config.FieldType;
@@ -20,6 +22,7 @@ import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
+import javax.swing.JLabel;
 import javax.swing.SwingUtilities;
 import java.awt.Component;
 import java.awt.Container;
@@ -42,6 +45,7 @@ class ConfigPanelRestartTest {
     @TempDir
     Path tempDir;
     private top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings databaseSettings;
+    private java.util.function.Supplier<DesktopUiHost.GuiResponse> reloadResponse = DesktopUiHost.GuiResponse::unreachable;
 
     @Test
     @DisplayName("地址与凭据按声明联动，切回本地库和重新加载均隐藏字段")
@@ -88,7 +92,7 @@ class ConfigPanelRestartTest {
     }
 
     @Test
-    @DisplayName("保存按钮仅在数据库草稿变化时切换动作，撤销编辑恢复保存")
+    @DisplayName("重新加载保留数据库草稿和迁移动作，匹配最新保存值后恢复保存")
     void databaseSaveLabelFollowsDraft() throws Exception {
         databaseSettings = new top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings() {
             public List<ProviderChoice> providers() { return List.of(); }
@@ -98,21 +102,145 @@ class ConfigPanelRestartTest {
             public java.net.URI migrationGuide() { return java.net.URI.create("https://example.invalid/guide"); }
         };
         SwingUtilities.invokeAndWait(() -> {
-            installHost(Map.of("database.jdbc-url", "saved-target"));
+            var config = installHost(Map.of("database.jdbc-url", "saved-target", "database.password", "stored-secret"),
+                    new DesktopUiHost.UiLocale("en-US", "English", "en"));
             var group = top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups.DATABASE;
             var field = ConfigFieldSpec.builder("database.jdbc-url", "URL", FieldType.STRING, group).build();
+            var password = ConfigFieldSpec.builder("database.password", "Password", FieldType.PASSWORD, group).build();
             var panel = new ConfigPanel(tempDir.resolve("config.yaml"), 6999, path -> path,
                     ConfigFieldSnapshot.withGroupSpecs(List.of(new top.sywyar.pixivdownload.gui.config.ConfigGroupSpec(
-                            group, group, 0, true)), List.of(field), List.of(), List.of()), null, null,
+                            group, group, 0, true)), List.of(field, password), List.of(), List.of()), null, null,
                     () -> false, () -> false, () -> false, () -> false);
             var save = findButton(panel, GuiMessages.get("gui.button.save"));
             panel.setFieldValue("database.jdbc-url", "draft-target");
             assertThat(save.getText()).isEqualTo("gui.config.database.migrate");
+            panel.reloadFromDisk();
+            assertThat(panel.currentFieldValue("database.jdbc-url")).isEqualTo("draft-target");
+            assertThat(save.getText()).isEqualTo("gui.config.database.migrate");
             panel.setFieldValue("database.jdbc-url", "saved-target");
             assertThat(save.getText()).isEqualTo(GuiMessages.get("gui.button.save"));
+            panel.setFieldValue("database.jdbc-url", "draft-target");
+            config.values.put("database.jdbc-url", "external-target");
+            panel.reloadFromDisk();
+            assertThat(panel.currentFieldValue("database.jdbc-url")).isEqualTo("draft-target");
+            assertThat(save.getText()).isEqualTo("gui.config.database.migrate");
+            config.values.put("database.jdbc-url", "draft-target");
             panel.reloadFromDisk();
             assertThat(save.getText()).isEqualTo(GuiMessages.get("gui.button.save"));
+            assertThat(panel.currentFieldValue("database.password")).isEmpty();
+            panel.setFieldValue("database.password", "new-secret");
+            panel.reloadFromDisk();
+            assertThat(panel.currentFieldValue("database.password")).isEqualTo("new-secret");
+            assertThat(save.getText()).isEqualTo("gui.config.database.migrate");
+            panel.setFieldValue("database.password", "");
+            assertThat(save.getText()).isEqualTo(GuiMessages.get("gui.button.save"));
+            findButton(fieldRow(panel, "password"), GuiMessages.get("gui.button.clear-credential")).doClick();
+            assertThat(save.getText()).isEqualTo("gui.config.database.migrate");
+            panel.reloadFromDisk();
+            assertThat(save.getText()).isEqualTo("gui.config.database.migrate");
+            assertThat(config.values).containsEntry("database.password", "stored-secret");
         });
+    }
+
+    @Test
+    @DisplayName("新提示重新计时，旧提示到期不隐藏新提示，移除面板清除提示")
+    void noticeLifetimeFollowsLatestMessage() throws Exception {
+        var panel = new java.util.concurrent.atomic.AtomicReference<ConfigPanel>();
+        var notice = new java.util.concurrent.atomic.AtomicReference<JLabel>();
+        SwingUtilities.invokeAndWait(() -> {
+            installHost(Map.of(), new DesktopUiHost.UiLocale("en-US", "English", "en"));
+            panel.set(preferencePanel(new LinkedHashMap<>()));
+            panel.get().showNotice("First notice");
+            notice.set(findLabel(panel.get(), "  First notice"));
+            assertThat(notice.get()).isNotNull();
+        });
+        try {
+            Thread.sleep(6_000);
+            SwingUtilities.invokeAndWait(() -> panel.get().showNotice("Second notice"));
+            Thread.sleep(5_000);
+            SwingUtilities.invokeAndWait(() -> {
+                assertThat(notice.get().getText()).isEqualTo("  Second notice");
+                assertThat(notice.get().isVisible()).isTrue();
+            });
+            Thread.sleep(6_000);
+            SwingUtilities.invokeAndWait(() -> {
+                assertThat(notice.get().isVisible()).isFalse();
+                panel.get().showNotice("Final notice");
+                panel.get().removeNotify();
+                assertThat(notice.get().isVisible()).isFalse();
+            });
+        } finally {
+            SwingUtilities.invokeAndWait(() -> panel.get().removeNotify());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("热重载迟到结果不能覆盖新提示或恢复已移除面板的提示")
+    void staleReloadNoticeIsIgnored(boolean removePanel) throws Exception {
+        var started = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var returned = new java.util.concurrent.CountDownLatch(1);
+        var overwritten = new java.util.concurrent.CountDownLatch(1);
+        var panel = new java.util.concurrent.atomic.AtomicReference<ConfigPanel>();
+        var notice = new java.util.concurrent.atomic.AtomicReference<JLabel>();
+        reloadResponse = () -> {
+            started.countDown();
+            try {
+                assertThat(release.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                return new DesktopUiHost.GuiResponse(true, 200, null, "", false);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+            } finally {
+                returned.countDown();
+            }
+        };
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                installHost(Map.of("fixture.hot", "before"),
+                        new DesktopUiHost.UiLocale("en-US", "English", "en"));
+                String group = "Fixture";
+                var field = ConfigFieldSpec.builder("fixture.hot", "Hot fixture", FieldType.STRING, group)
+                        .effect(GuiConfigEffect.HOT_RELOAD).build();
+                panel.set(new ConfigPanel(tempDir.resolve("config.yaml"), 6999, path -> path,
+                        new ConfigFieldSnapshot(List.of(group), List.of(field), List.of()), null, null,
+                        () -> false, () -> false, () -> false, () -> false));
+                panel.get().setFieldValue("fixture.hot", "after");
+                findButton(panel.get(), GuiMessages.get("gui.button.save")).doClick();
+                notice.set(findLabel(panel.get(), "  " + GuiMessages.get("gui.config.notice.hot-reloading")));
+                assertThat(notice.get()).isNotNull();
+            });
+            assertThat(started.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            SwingUtilities.invokeAndWait(() -> {
+                panel.get().showNotice("Latest notice");
+                if (removePanel) panel.get().removeNotify();
+                notice.get().addPropertyChangeListener("text", event -> overwritten.countDown());
+            });
+            release.countDown();
+            assertThat(returned.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(overwritten.await(1, java.util.concurrent.TimeUnit.SECONDS)).isFalse();
+            SwingUtilities.invokeAndWait(() -> {
+                assertThat(notice.get().getText()).isEqualTo("  Latest notice");
+                assertThat(notice.get().isVisible()).isEqualTo(!removePanel);
+            });
+        } finally {
+            release.countDown();
+            SwingUtilities.invokeAndWait(() -> {
+                if (panel.get() != null) panel.get().removeNotify();
+            });
+        }
+    }
+
+    private static JLabel findLabel(Container root, String text) {
+        for (Component component : root.getComponents()) {
+            if (component instanceof JLabel label && text.equals(label.getText())) return label;
+            if (component instanceof Container child) {
+                JLabel found = findLabel(child, text);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     @Test
@@ -770,7 +898,8 @@ class ConfigPanelRestartTest {
                         yield null;
                     }
                     case "message" -> args[0];
-                    case "guiGet", "guiPostJson" -> DesktopUiHost.GuiResponse.unreachable();
+                    case "guiGet" -> DesktopUiHost.GuiResponse.unreachable();
+                    case "guiPostJson" -> reloadResponse.get();
                     case "autoStartSupported", "autoStartEnabled", "launchedFromExecutable",
                          "currentVersionNightly", "supportsManagedFfmpegInstall" -> false;
                     case "defaultProxyPort", "minimumPasswordLength", "recommendedPasswordLength" -> 1;

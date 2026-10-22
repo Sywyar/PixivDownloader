@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui.panel;
 
 import top.sywyar.pixivdownload.guiswing.SwingHost;
+import top.sywyar.pixivdownload.gui.SwingShellAction;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +28,7 @@ import java.util.function.Function;
  */
 @Slf4j
 public class PluginsPanel extends JPanel {
+    private final SwingShellAction shellAction = new SwingShellAction();
 
     private static final String PLUGIN_MANAGE_PAGE = "/plugin-manage.html";
     private static final int READ_TIMEOUT_MS = 60_000;
@@ -261,13 +263,15 @@ public class PluginsPanel extends JPanel {
     }
 
     private void openPluginManagePage() {
-        try {
-            Desktop.getDesktop().browse(new URI(webUrlProvider.apply(PLUGIN_MANAGE_PAGE)));
-        } catch (Exception e) {
-            log.warn(SwingHost.host().message("gui.status.log.open-browser-failed", PLUGIN_MANAGE_PAGE, e.getMessage()), e);
-            GuiErrorDialog.show(this, message("gui.dialog.error.title"),
-                    message("gui.error.open-browser", e.getMessage()));
-        }
+        shellAction.run(
+                "gui-open-plugin-manage",
+                () -> SwingHost.host().openExternalUri(new URI(webUrlProvider.apply(PLUGIN_MANAGE_PAGE))),
+                e -> {
+                    log.warn(SwingHost.host().message("gui.status.log.open-browser-failed", PLUGIN_MANAGE_PAGE, e.getMessage()), e);
+                    GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                            message("gui.error.open-browser", e.getMessage()));
+                }
+        );
     }
 
     public void dispose() {

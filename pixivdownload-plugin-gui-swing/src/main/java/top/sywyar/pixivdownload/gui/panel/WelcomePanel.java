@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui.panel;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import top.sywyar.pixivdownload.guiswing.SwingHost;
+import top.sywyar.pixivdownload.gui.SwingShellAction;
 
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.gui.SwingBackendLifecycle;
@@ -32,6 +33,7 @@ import java.util.Set;
  */
 @Slf4j
 public class WelcomePanel extends JPanel {
+    private final SwingShellAction shellAction = new SwingShellAction();
 
     private static final int POLL_INTERVAL_MS = 2000;
 
@@ -743,13 +745,15 @@ public class WelcomePanel extends JPanel {
     }
 
     private void openUrl(String url) {
-        try {
-            Desktop.getDesktop().browse(new URI(url));
-        } catch (Exception e) {
-            log.warn(SwingHost.host().message("gui.status.log.open-browser-failed", url, e.getMessage()), e);
-            GuiErrorDialog.show(this, GuiMessages.get("gui.dialog.error.title"),
-                    GuiMessages.get("gui.error.open-browser", e.getMessage()));
-        }
+        shellAction.run(
+                "gui-open-guide-page",
+                () -> SwingHost.host().openExternalUri(new URI(url)),
+                e -> {
+                    log.warn(SwingHost.host().message("gui.status.log.open-browser-failed", url, e.getMessage()), e);
+                    GuiErrorDialog.show(this, GuiMessages.get("gui.dialog.error.title"),
+                            GuiMessages.get("gui.error.open-browser", e.getMessage()));
+                }
+        );
     }
 
     private DesktopUiHost.GuiValue getJson(String path) {

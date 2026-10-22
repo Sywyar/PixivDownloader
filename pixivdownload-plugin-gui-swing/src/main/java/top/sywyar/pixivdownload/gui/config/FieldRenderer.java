@@ -22,7 +22,8 @@ import java.util.function.Supplier;
  */
 public final class FieldRenderer {
 
-    private static final String CREDENTIAL_CLEAR_REQUESTED = "pixivdownload.credential.clearRequested";
+    /** 凭据清除草稿的变更事件，供配置页刷新依赖状态。 */
+    public static final String CREDENTIAL_CLEAR_REQUESTED = "pixivdownload.credential.clearRequested";
     private static final String CREDENTIAL_STORED = "pixivdownload.credential.stored";
     private static final String CREDENTIAL_STATUS_LABEL = "pixivdownload.credential.statusLabel";
     private static final double LABEL_WIDTH_RATIO = 0.25;

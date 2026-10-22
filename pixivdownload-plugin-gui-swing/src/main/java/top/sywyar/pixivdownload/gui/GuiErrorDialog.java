@@ -8,10 +8,9 @@ import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import javax.swing.JButton;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
 import java.awt.Component;
-import java.awt.Desktop;
 import java.awt.FlowLayout;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -39,10 +38,11 @@ public final class GuiErrorDialog {
      */
     @SuppressWarnings("unused")
     public static void show(Component parent, String title, String message) {
+        SwingShellAction shellAction = new SwingShellAction();
         JButton htmlButton = new JButton(GuiMessages.get("gui.dialog.error.open-log-html"));
         JButton txtButton = new JButton(GuiMessages.get("gui.dialog.error.open-log-txt"));
-        htmlButton.addActionListener(e -> openLog(parent, LOG_HTML));
-        txtButton.addActionListener(e -> openLog(parent, LOG_TXT));
+        htmlButton.addActionListener(e -> openLog(parent, LOG_HTML, shellAction));
+        txtButton.addActionListener(e -> openLog(parent, LOG_TXT, shellAction));
 
         JPanel buttonRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
         buttonRow.add(htmlButton);
@@ -53,26 +53,26 @@ public final class GuiErrorDialog {
                 title, JOptionPane.ERROR_MESSAGE);
     }
 
-    private static void openLog(Component parent, Path logPath) {
+    private static void openLog(Component parent, Path logPath, SwingShellAction shellAction) {
         Path absolute = logPath.toAbsolutePath();
-        if (!Files.isRegularFile(absolute)) {
-            JOptionPane.showMessageDialog(parent,
-                    GuiMessages.get("gui.dialog.error.log-missing", absolute),
-                    GuiMessages.get("gui.dialog.info.title"), JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-        try {
-            if (!Desktop.isDesktopSupported()
-                    || !Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
-                throw new IOException("Desktop open action is not supported");
-            }
-            Desktop.getDesktop().open(absolute.toFile());
-        } catch (Exception e) {
-            log.warn(SwingHost.host().message("gui.dialog.error.log.open-failed",
-                    absolute, e.getMessage()), e);
-            JOptionPane.showMessageDialog(parent,
-                    GuiMessages.get("gui.dialog.error.open-log-failed", e.getMessage()),
-                    GuiMessages.get("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
-        }
+        shellAction.run(
+                "gui-open-error-log",
+                () -> {
+                    if (!Files.isRegularFile(absolute)) {
+                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(parent,
+                                GuiMessages.get("gui.dialog.error.log-missing", absolute),
+                                GuiMessages.get("gui.dialog.info.title"), JOptionPane.INFORMATION_MESSAGE));
+                        return;
+                    }
+                    SwingHost.host().openLocalPath(absolute);
+                },
+                failure -> {
+                    log.warn(SwingHost.host().message("gui.dialog.error.log.open-failed",
+                            absolute, failure.getMessage()), failure);
+                    JOptionPane.showMessageDialog(parent,
+                            GuiMessages.get("gui.dialog.error.open-log-failed", failure.getMessage()),
+                            GuiMessages.get("gui.dialog.error.title"), JOptionPane.ERROR_MESSAGE);
+                }
+        );
     }
 }

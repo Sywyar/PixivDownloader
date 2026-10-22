@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.guitheme;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
+import com.tngtech.archunit.core.importer.ClassFileImporter;
 
 import javax.xml.parsers.DocumentBuilderFactory;
 import java.nio.file.Files;
@@ -12,6 +14,15 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class GuiSwingPluginDependencyGuardTest {
+
+    @Test
+    @DisplayName("Swing 的文件与浏览器打开交给宿主，不直接依赖 AWT Desktop")
+    void shellOpeningBelongsToHost() {
+        var classes = new ClassFileImporter().importPath(locateModule().resolve("target/classes"));
+        com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses()
+                .should().dependOnClassesThat().haveFullyQualifiedName("java.awt.Desktop")
+                .check(classes);
+    }
 
     @Test
     void externalSwingPluginDoesNotDependOnAppArtifact() throws Exception {

@@ -43,9 +43,9 @@ public class ImageClassifier extends JFrame {
     // =========================================================================
 
     private File       parentFolder;
-    private List<File> subFolders;
+    private List<File> subFolders = List.of();
     private int        currentFolderIndex = 0;
-    private List<File> currentImages;
+    private List<File> currentImages = List.of();
     private int        currentGroupIndex  = 0;
     private volatile DesktopUiHost.ImageClassifierServer serverStatus =
             new DesktopUiHost.ImageClassifierServer(false, "");
@@ -90,6 +90,11 @@ public class ImageClassifier extends JFrame {
     private final ThumbnailManager thumbnailManager = new ThumbnailManager();
     private final ClassifierTask<Optional<DesktopUiHost.ImageClassifierArtwork>> artworkLoader = new ClassifierTask<>();
     private final ClassifierTask<DesktopUiHost.ImageClassifierServer> serverChecker = new ClassifierTask<>();
+    private String copiedStatus;
+    private final Timer copyFeedbackTimer = new Timer(1500, event -> {
+        statusLabel.setText(copiedStatus);
+        copiedStatus = null;
+    });
 
     // =========================================================================
     // 构造 & 入口
@@ -110,6 +115,7 @@ public class ImageClassifier extends JFrame {
 
     @Override
     public void dispose() {
+        cancelCopyFeedback();
         artworkLoader.close();
         serverChecker.close();
         thumbnailManager.shutdown();
@@ -131,32 +137,30 @@ public class ImageClassifier extends JFrame {
         folderRemarks = new ArrayList<>();
 
         try {
-            DesktopUiHost.ImageClassifierSettings settings =
-                    SwingHost.host().loadImageClassifierSettings(rootFolder);
-            config.setProperty("default.folder", settings.defaultFolder());
-            config.setProperty("show.skip.button", Boolean.toString(settings.showSkipButton()));
-            config.setProperty("server.url", settings.serverUrl());
-            for (DesktopUiHost.ImageClassifierTarget target : settings.targets()) {
-                targetFolders.add(stripTrailingSlash(target.folder()));
-                folderRemarks.add(target.remark());
-            }
+            applySettings(SwingHost.host().loadImageClassifierSettings(rootFolder));
         } catch (IOException e) {
             log.warn(logMessage("gui.image-classifier.log.config-load-fallback", e.getMessage()));
         }
     }
 
-    private void saveConfig() {
+    private void applySettings(DesktopUiHost.ImageClassifierSettings settings) {
+        config.setProperty("default.folder", settings.defaultFolder());
+        config.setProperty("show.skip.button", Boolean.toString(settings.showSkipButton()));
+        config.setProperty("server.url", settings.serverUrl());
+        targetFolders.clear();
+        folderRemarks.clear();
+        for (DesktopUiHost.ImageClassifierTarget target : settings.targets()) {
+            targetFolders.add(stripTrailingSlash(target.folder()));
+            folderRemarks.add(target.remark());
+        }
+    }
+
+    private boolean saveConfig(DesktopUiHost.ImageClassifierSettings settings) {
         try {
-            List<DesktopUiHost.ImageClassifierTarget> targets = new ArrayList<>();
-            for (int i = 0; i < targetFolders.size(); i++) {
-                targets.add(new DesktopUiHost.ImageClassifierTarget(targetFolders.get(i), folderRemarks.get(i)));
-            }
-            SwingHost.host().saveImageClassifierSettings(rootFolder, new DesktopUiHost.ImageClassifierSettings(
-                    config.getProperty("default.folder", ""),
-                    Boolean.parseBoolean(config.getProperty("show.skip.button", "true")),
-                    config.getProperty("server.url", ""),
-                    targets));
+            SwingHost.host().saveImageClassifierSettings(rootFolder, settings);
+            applySettings(settings);
             log.info(logMessage("gui.image-classifier.log.config-saved"));
+            return true;
         } catch (IOException e) {
             log.error(logMessage("gui.image-classifier.log.config-save-failed", e.getMessage()));
             JOptionPane.showMessageDialog(
@@ -165,6 +169,7 @@ public class ImageClassifier extends JFrame {
                     message("gui.dialog.error.title"),
                     JOptionPane.ERROR_MESSAGE
             );
+            return false;
         }
     }
 
@@ -193,6 +198,7 @@ public class ImageClassifier extends JFrame {
 
         add(mainPanel);
         setupEventListeners();
+        updateNavigationButtons();
     }
 
     /** 顶部工具栏：路径输入 + 操作按钮 + 服务器状态 */
@@ -266,7 +272,7 @@ public class ImageClassifier extends JFrame {
                 @Override
                 public void mouseClicked(MouseEvent e) {
                     int imgIndex = currentGroupIndex * GROUP_SIZE + slotIndex;
-                    if (currentImages != null && imgIndex < currentImages.size()
+                    if (imgIndex < currentImages.size()
                             && thumbnailLabels[slotIndex].getIcon() != null) {
                         openImageViewer(imgIndex);
                     }
@@ -460,12 +466,13 @@ public class ImageClassifier extends JFrame {
         nextGroupButton.addActionListener(e -> showNextGroup());
 
         classifyButton.addActionListener(e -> classifyFolder());
-        skipFolderButton.addActionListener(e -> skipCurrentFolder());
+        skipFolderButton.addActionListener(e -> moveToNextFolder());
         prevFolderButton.addActionListener(e -> moveToPrevFolder());
         refreshButton.addActionListener(e -> refreshCurrentFolder());
 
         folderPathField.addActionListener(e -> openParentFolderFromField());
 
+        copyFeedbackTimer.setRepeats(false);
         statusLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         statusLabel.addMouseListener(new MouseAdapter() {
             @Override
@@ -473,11 +480,9 @@ public class ImageClassifier extends JFrame {
                 if (currentArtworkId == null) return;
                 StringSelection selection = new StringSelection(String.valueOf(currentArtworkId));
                 Toolkit.getDefaultToolkit().getSystemClipboard().setContents(selection, null);
-                String prev = statusLabel.getText();
+                if (!copyFeedbackTimer.isRunning()) copiedStatus = statusLabel.getText();
                 statusLabel.setText(message("gui.image-classifier.status.artwork-id.copied", currentArtworkId));
-                Timer timer = new Timer(1500, ev -> statusLabel.setText(prev));
-                timer.setRepeats(false);
-                timer.start();
+                copyFeedbackTimer.restart();
             }
         });
 
@@ -487,6 +492,11 @@ public class ImageClassifier extends JFrame {
             @Override public void removeUpdate(javax.swing.event.DocumentEvent e)  { updateRemarkLabel(); }
             @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { updateRemarkLabel(); }
         });
+    }
+
+    private void cancelCopyFeedback() {
+        copyFeedbackTimer.stop();
+        copiedStatus = null;
     }
 
     // =========================================================================
@@ -522,18 +532,19 @@ public class ImageClassifier extends JFrame {
         mainPanel.add(buttonPanel, BorderLayout.SOUTH);
 
         saveButton.addActionListener(e -> {
-            config.setProperty("default.folder", stripTrailingSlash(defaultFolderField.getText().trim()));
-            config.setProperty("show.skip.button", String.valueOf(showSkipCheckBox.isSelected()));
-            config.setProperty("server.url", serverUrlField.getText().trim());
-
-            targetFolders.clear();
-            folderRemarks.clear();
+            List<DesktopUiHost.ImageClassifierTarget> targets = new ArrayList<>();
             for (int i = 0; i < tableModel.getRowCount(); i++) {
-                targetFolders.add(stripTrailingSlash(tableModel.getValueAt(i, 1).toString()));
-                folderRemarks.add(tableModel.getValueAt(i, 2).toString());
+                targets.add(new DesktopUiHost.ImageClassifierTarget(
+                        stripTrailingSlash(tableModel.getValueAt(i, 1).toString()),
+                        tableModel.getValueAt(i, 2).toString()
+                ));
             }
-
-            saveConfig();
+            if (!saveConfig(new DesktopUiHost.ImageClassifierSettings(
+                    stripTrailingSlash(defaultFolderField.getText().trim()),
+                    showSkipCheckBox.isSelected(),
+                    serverUrlField.getText().trim(),
+                    targets
+            ))) return;
             skipFolderButton.setVisible(showSkipCheckBox.isSelected());
             updateCategoriesPanel();
             remarkLabel.setText(targetFolderHint("gui.image-classifier.hint.number.range"));
@@ -842,7 +853,7 @@ public class ImageClassifier extends JFrame {
             return;
         }
         parentFolder = folder;
-        loadSubFolders();
+        if (!loadSubFolders()) return;
         if (!subFolders.isEmpty()) {
             loadImagesFromCurrentFolder();
             updateThumbnails();
@@ -862,35 +873,29 @@ public class ImageClassifier extends JFrame {
         fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         fc.setDialogTitle(message("gui.image-classifier.dialog.select-parent-folder.title"));
         if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-            parentFolder = fc.getSelectedFile();
-            folderPathField.setText(parentFolder.getAbsolutePath());
-            loadSubFolders();
-            if (!subFolders.isEmpty()) {
-                loadImagesFromCurrentFolder();
-                updateThumbnails();
-                updateStatus();
-            }
+            folderPathField.setText(fc.getSelectedFile().getAbsolutePath());
+            openParentFolderFromField();
         }
     }
 
-    private void loadSubFolders() {
-        artworkLoader.cancel();
-        currentArtworkId = null;
+    private boolean loadSubFolders() {
+        subFolders = List.of();
+        currentFolderIndex = 0;
+        clearCurrentFolder();
         try {
             subFolders = SwingHost.host().listImageClassifierFolders(parentFolder.toPath()).stream()
                     .map(java.nio.file.Path::toFile)
                     .toList();
-            currentFolderIndex = 0;
-            currentGroupIndex  = 0;
+            return true;
         } catch (IOException exception) {
             log.error(logMessage("gui.image-classifier.log.default-folder-invalid", parentFolder), exception);
-            subFolders = List.of();
             JOptionPane.showMessageDialog(
                     this,
                     exception.getMessage(),
                     message("gui.dialog.error.title"),
                     JOptionPane.ERROR_MESSAGE
             );
+            return false;
         }
     }
 
@@ -908,12 +913,15 @@ public class ImageClassifier extends JFrame {
         }
     }
 
-    private void skipCurrentFolder() {
-        moveToNextFolder();
+    private void clearCurrentFolder() {
+        currentImages = List.of();
+        currentGroupIndex = 0;
+        updateThumbnails();
+        updateStatus();
     }
 
     private void moveToPrevFolder() {
-        if (subFolders == null || currentFolderIndex <= 0) return;
+        if (currentFolderIndex <= 0) return;
         int temp = currentFolderIndex;
         do {
             temp--;
@@ -934,6 +942,7 @@ public class ImageClassifier extends JFrame {
     }
 
     private void moveToNextFolder() {
+        if (currentFolderIndex >= subFolders.size()) return;
         File currentFolder  = subFolders.get(currentFolderIndex);
         try {
             SwingHost.host().deleteImageClassifierFolderIfEmpty(currentFolder.toPath());
@@ -954,17 +963,14 @@ public class ImageClassifier extends JFrame {
             updateThumbnails();
             updateStatus();
         } else {
-            artworkLoader.cancel();
-            currentArtworkId = null;
+            clearCurrentFolder();
             JOptionPane.showMessageDialog(
                     this,
                     message("gui.image-classifier.dialog.all-folders-complete.message"),
                     message("gui.image-classifier.dialog.all-folders-complete.title"),
                     JOptionPane.INFORMATION_MESSAGE
             );
-            thumbnailManager.prefetch(List.of(), 150, 150);
             for (JLabel label : thumbnailLabels) {
-                thumbnailManager.clearThumbnail(label);
                 label.setText(message("gui.image-classifier.thumbnail.all-done"));
             }
             statusLabel.setText(message("gui.image-classifier.dialog.all-folders-complete.message"));
@@ -973,7 +979,7 @@ public class ImageClassifier extends JFrame {
     }
 
     private void refreshCurrentFolder() {
-        if (subFolders == null || currentFolderIndex >= subFolders.size()) return;
+        if (currentFolderIndex >= subFolders.size()) return;
         thumbnailManager.clearCache();
         loadImagesFromCurrentFolder();
         updateThumbnails();
@@ -985,7 +991,7 @@ public class ImageClassifier extends JFrame {
     // =========================================================================
 
     private void updateThumbnails() {
-        if (currentImages == null || currentImages.isEmpty()) {
+        if (currentImages.isEmpty()) {
             thumbnailManager.prefetch(List.of(), 150, 150);
             for (JLabel label : thumbnailLabels) {
                 thumbnailManager.clearThumbnail(label);
@@ -1028,7 +1034,12 @@ public class ImageClassifier extends JFrame {
     }
 
     private void updateNavigationButtons() {
-        if (currentImages == null || currentImages.isEmpty()) {
+        boolean hasFolder = currentFolderIndex < subFolders.size();
+        skipFolderButton.setEnabled(hasFolder);
+        refreshButton.setEnabled(hasFolder);
+        classifyButton.setEnabled(hasFolder && !currentImages.isEmpty());
+        prevFolderButton.setEnabled(currentFolderIndex > 0);
+        if (currentImages.isEmpty()) {
             prevGroupButton.setEnabled(false);
             nextGroupButton.setEnabled(false);
             return;
@@ -1060,9 +1071,13 @@ public class ImageClassifier extends JFrame {
     // =========================================================================
 
     private void updateStatus() {
+        cancelCopyFeedback();
         currentArtworkId = null;
         if (currentFolderIndex >= subFolders.size()) {
             artworkLoader.cancel();
+            statusLabel.setText(message("gui.image-classifier.status.select-parent-folder"));
+            statusLabel.setForeground(C_TEXT);
+            setTitle(message("gui.tools.card.image-classifier.title"));
             return;
         }
         File currentFolder = subFolders.get(currentFolderIndex);
@@ -1149,7 +1164,7 @@ public class ImageClassifier extends JFrame {
     // =========================================================================
 
     private void classifyFolder() {
-        if (currentImages == null || currentImages.isEmpty()) {
+        if (currentImages.isEmpty()) {
             JOptionPane.showMessageDialog(
                     this,
                     message("gui.image-classifier.dialog.no-images-to-classify.message"),
@@ -1280,7 +1295,8 @@ public class ImageClassifier extends JFrame {
     // =========================================================================
 
     private void openImageViewer(int initialIndex) {
-        if (currentImages == null || currentImages.isEmpty()) return;
+        if (currentImages.isEmpty()) return;
+        List<File> viewerImages = currentImages;
 
         JDialog viewer = new JDialog(this, message("gui.image-classifier.dialog.image-viewer.title"), false);
         viewer.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -1349,14 +1365,14 @@ public class ImageClassifier extends JFrame {
 
         // ── 加载图片（必须在 EDT 调用）──
         Runnable loadImage = () -> {
-            if (!viewer.isDisplayable() || currentImages == null || idx[0] >= currentImages.size()) return;
-            File imgFile = currentImages.get(idx[0]);
+            if (!viewer.isDisplayable()) return;
+            File imgFile = viewerImages.get(idx[0]);
 
-            viewer.setTitle(message("gui.image-classifier.dialog.image-viewer.page-title", idx[0] + 1, currentImages.size(), imgFile.getName()));
-            pageLabel.setText(message("gui.image-classifier.dialog.image-viewer.page-label", idx[0] + 1, currentImages.size()));
+            viewer.setTitle(message("gui.image-classifier.dialog.image-viewer.page-title", idx[0] + 1, viewerImages.size(), imgFile.getName()));
+            pageLabel.setText(message("gui.image-classifier.dialog.image-viewer.page-label", idx[0] + 1, viewerImages.size()));
             fileNameLabel.setText(imgFile.getName());
             prevBtn.setEnabled(idx[0] > 0);
-            nextBtn.setEnabled(idx[0] < currentImages.size() - 1);
+            nextBtn.setEnabled(idx[0] < viewerImages.size() - 1);
             imageLabel.setText(message("gui.image-classifier.thumbnail.loading"));
             imageLabel.setIcon(null);
 
@@ -1391,7 +1407,7 @@ public class ImageClassifier extends JFrame {
         };
 
         prevBtn.addActionListener(e -> { if (idx[0] > 0) { idx[0]--; loadImage.run(); } });
-        nextBtn.addActionListener(e -> { if (idx[0] < currentImages.size() - 1) { idx[0]++; loadImage.run(); } });
+        nextBtn.addActionListener(e -> { if (idx[0] < viewerImages.size() - 1) { idx[0]++; loadImage.run(); } });
 
         // 键盘左右键翻页
         KeyStroke left  = KeyStroke.getKeyStroke(KeyEvent.VK_LEFT,  0);

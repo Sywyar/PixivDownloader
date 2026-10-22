@@ -28,8 +28,6 @@ public class ToolsPanel extends JPanel {
 
     private static final Path BACKFILL_LOG_PATH = Path.of("log", "html", "artworks-backfill-latest.html");
     private static final Path MIGRATION_LOG_PATH = Path.of("log", "html", "json-to-sqlite-migration-latest.html");
-    private static final String BACKFILL_COUNTING_STATUS = message("gui.tools.backfill.status.counting");
-    private static final String MIGRATION_COUNTING_STATUS = message("gui.tools.migration.status.counting");
 
     private final Path configPath;
     private DesktopUiHost.BackfillOptions inheritedBackfillOptions;
@@ -447,7 +445,7 @@ public class ToolsPanel extends JPanel {
     }
 
     private void prepareBackfillInBackground(DesktopUiHost.BackfillOptions options) {
-        setBackfillStatus(BACKFILL_COUNTING_STATUS);
+        setBackfillStatus(message("gui.tools.backfill.status.counting"));
 
         Thread worker = new Thread(() -> {
             int totalCandidates;
@@ -642,7 +640,7 @@ public class ToolsPanel extends JPanel {
     }
 
     private void prepareMigrationInBackground(DesktopUiHost.MigrationOptions options) {
-        setMigrationStatus(MIGRATION_COUNTING_STATUS);
+        setMigrationStatus(message("gui.tools.migration.status.counting"));
 
         Thread worker = new Thread(() -> {
             int totalCandidates;

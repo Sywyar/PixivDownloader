@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui.panel;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import top.sywyar.pixivdownload.guiswing.SwingHost;
+import top.sywyar.pixivdownload.gui.SwingShellAction;
 
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.gui.SwingBackendLifecycle;
@@ -31,7 +32,6 @@ import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
-import java.awt.Desktop;
 import java.awt.event.HierarchyEvent;
 import java.awt.event.HierarchyListener;
 import java.io.IOException;
@@ -53,6 +53,7 @@ import java.util.function.Function;
  */
 @Slf4j
 public class ConfigPanel extends JPanel implements ConfigSectionContext {
+    private final SwingShellAction shellAction = new SwingShellAction();
 
     private static final List<String> MAINTENANCE_WEEKDAYS = List.of(
             "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday");
@@ -84,11 +85,12 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
 
     /** key → 渲染后的字段（含取值/赋值方法） */
     private final Map<String, FieldRenderer.RenderedField> renderedFields = new LinkedHashMap<>();
-    private Map<String, String> loadedDatabaseValues = Map.of();
     private final Map<String, String> loadedValues = new LinkedHashMap<>();
 
     /** 提示条（保存后显示） */
     private final JLabel noticeBar = new JLabel(" ");
+    private final javax.swing.Timer noticeTimer = new javax.swing.Timer(10_000, e -> noticeBar.setVisible(false));
+    private long noticeRevision;
     private JButton saveButton;
 
     /** 配置导航只遍历这棵显式树，避免把 section 内部的切换控件误当成菜单。 */
@@ -215,6 +217,9 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     @Override
     public void removeNotify() {
         DebugUnlockState.removeListener(debugUnlockListener);
+        noticeRevision++;
+        noticeTimer.stop();
+        noticeBar.setVisible(false);
         super.removeNotify();
     }
 
@@ -356,16 +361,10 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                                                 List<ScopedGroup> hostGroups,
                                                 List<ScopedGroup> pluginGroups) {
         List<ScopedGroup> groups = new ArrayList<>();
-        if (category.pluginCategory()) {
-            hostGroups.stream()
-                    .filter(group -> categoryContains(category, group))
-                    .forEach(groups::add);
-            groups.addAll(pluginGroups);
-            return List.copyOf(groups);
-        }
         hostGroups.stream()
                 .filter(group -> categoryContains(category, group))
                 .forEach(groups::add);
+        if (category.pluginCategory()) groups.addAll(pluginGroups);
         return List.copyOf(groups);
     }
 
@@ -819,6 +818,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         noticeBar.setForeground(new Color(133, 100, 4));
         noticeBar.setBorder(BorderFactory.createEmptyBorder(4, 12, 4, 12));
         noticeBar.setVisible(false);
+        noticeTimer.setRepeats(false);
 
         // 按钮行
         saveButton = new JButton(message("gui.button.save"));
@@ -859,6 +859,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 if (rf == null) continue;
                 String value = displayValueForLoad(spec, values.getOrDefault(spec.key(), spec.defaultValue()));
                 if (!preserveDrafts || (!isPluginCredential(spec)
+                        && !rf.credentialClearRequested()
                         && Objects.equals(rf.getValue().get(), loadedValues.get(spec.key())))) {
                     rf.setValue().accept(value);
                 }
@@ -883,11 +884,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                         loadedValues.put(spec.key(), field.getValue().get());
                 }
             }
-            loadedDatabaseValues = new HashMap<>();
-            for (String key : top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.CONNECTION_KEYS) {
-                var field = renderedFields.get(key);
-                if (field != null) loadedDatabaseValues.put(key, field.getValue().get());
-            }
             updateEnabledStates();
         } catch (IOException e) {
             log.warn(logMessage("gui.config.log.read-failed", e.getMessage()));
@@ -905,9 +901,11 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     public void updateEnabledStates() {
         ConfigSnapshot snap = buildSnapshot();
         if (saveButton != null) {
-            boolean databaseChanged = databasePanel != null && loadedDatabaseValues.entrySet().stream().anyMatch(entry ->
-                    !java.util.Objects.equals(entry.getValue(), snap.get(entry.getKey()))
-                            || renderedFields.get(entry.getKey()).credentialClearRequested());
+            boolean databaseChanged = databasePanel != null
+                    && top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings.CONNECTION_KEYS.stream()
+                            .filter(renderedFields::containsKey)
+                            .anyMatch(key -> !Objects.equals(loadedValues.get(key), snap.get(key))
+                                    || renderedFields.get(key).credentialClearRequested());
             saveButton.setText(databaseChanged
                     ? SwingHost.host().message("gui.config.database.migrate") : message("gui.button.save"));
         }
@@ -1502,12 +1500,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 if (!pluginValues.containsKey(key)) {
                     result.put(key, legacyValue);
                     migratedPluginValues.put(key, legacyValue);
-                    removableYamlPluginKeys.add(key);
-                } else if (Objects.equals(pluginValues.get(key), legacyValue)) {
-                    removableYamlPluginKeys.add(key);
-                } else {
-                    removableYamlPluginKeys.add(key);
                 }
+                removableYamlPluginKeys.add(key);
             }
             if (!migratedPluginValues.isEmpty() || !removableYamlPluginKeys.isEmpty()) {
                 try {
@@ -1556,11 +1550,6 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             }
         }
         return result;
-    }
-
-    private void writeStoredValues(Map<String, String> values,
-                                   Map<String, String> interfaceValues) throws IOException {
-        editor.withWriteLock(() -> writeStoredValuesLocked(splitStoredValues(values), interfaceValues));
     }
 
     private void writeStoredValuesLocked(StoredValuesSplit split,
@@ -1943,12 +1932,8 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     }
 
     private static boolean isMaintenanceDayEnabledKey(String key) {
-        return maintenanceDayKey(key, "enabled");
-    }
-
-    private static boolean maintenanceDayKey(String key, String suffix) {
         for (String weekday : MAINTENANCE_WEEKDAYS) {
-            if (("maintenance." + weekday + "." + suffix).equals(key)) {
+            if (("maintenance." + weekday + ".enabled").equals(key)) {
                 return true;
             }
         }
@@ -1956,6 +1941,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     }
 
     private void reloadHotConfigAsync(GuiConfigEffect pendingRestart, Set<String> hotReloadKeys) {
+        long revision = noticeRevision;
         SwingWorker<Boolean, Void> worker = new SwingWorker<>() {
             @Override
             protected Boolean doInBackground() {
@@ -1972,7 +1958,9 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
             @Override
             protected void done() {
                 try {
-                    if (Boolean.TRUE.equals(get())) {
+                    boolean reloaded = Boolean.TRUE.equals(get());
+                    if (revision != noticeRevision) return;
+                    if (reloaded) {
                         showNotice(message(pendingRestart == GuiConfigEffect.PROCESS_RESTART
                                 ? "gui.config.notice.saved-process"
                                 : pendingRestart == GuiConfigEffect.BACKEND_RESTART
@@ -1987,6 +1975,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
+                    if (revision != noticeRevision) return;
                     showNotice(message(pendingRestart == GuiConfigEffect.PROCESS_RESTART
                             ? "gui.config.notice.saved-process"
                             : pendingRestart == GuiConfigEffect.BACKEND_RESTART
@@ -1994,6 +1983,7 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                                     : "gui.config.notice.saved-hot-failed"));
                 } catch (ExecutionException e) {
                     log.warn(logMessage("gui.config.log.hot-reload-failed", safeMessage(e.getCause())));
+                    if (revision != noticeRevision) return;
                     showNotice(message(pendingRestart == GuiConfigEffect.PROCESS_RESTART
                             ? "gui.config.notice.saved-process"
                             : pendingRestart == GuiConfigEffect.BACKEND_RESTART
@@ -2025,14 +2015,16 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     }
 
     private void openConfigFile() {
-        try {
-            Desktop.getDesktop().open(configPath.toFile());
-        } catch (Exception e) {
-            log.warn(logMessage("gui.config.log.open-file-failed", configPath, e.getMessage()), e);
-            GuiErrorDialog.show(this,
-                    message("gui.dialog.error.title"),
-                    message("gui.error.open-file", e.getMessage()));
-        }
+        shellAction.run(
+                "gui-open-config-file",
+                () -> SwingHost.host().openLocalPath(configPath),
+                e -> {
+                    log.warn(logMessage("gui.config.log.open-file-failed", configPath, e.getMessage()), e);
+                    GuiErrorDialog.show(this,
+                            message("gui.dialog.error.title"),
+                            message("gui.error.open-file", e.getMessage()));
+                }
+        );
     }
 
     // ── 工具 ─────────────────────────────────────────────────────────────────────
@@ -2056,6 +2048,9 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
                 public void removeUpdate(DocumentEvent e) { handleFieldChanged(key); }
                 public void changedUpdate(DocumentEvent e) { handleFieldChanged(key); }
             });
+            if (tf instanceof JPasswordField) {
+                tf.addPropertyChangeListener(FieldRenderer.CREDENTIAL_CLEAR_REQUESTED, e -> handleFieldChanged(key));
+            }
         }
     }
 
@@ -2125,12 +2120,10 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
     }
 
     private void showNoticeInternal(String msg) {
+        noticeRevision++;
         noticeBar.setText("  " + msg);
         noticeBar.setVisible(true);
-        // 10 秒后自动隐藏
-        javax.swing.Timer t = new javax.swing.Timer(10_000, e -> noticeBar.setVisible(false));
-        t.setRepeats(false);
-        t.start();
+        noticeTimer.restart();
     }
 
     private static String safeMessage(Throwable t) {
