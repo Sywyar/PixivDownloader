@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.common.NetworkUtils;
+import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.update.UpdateCheckResult;
 import top.sywyar.pixivdownload.update.UpdateService;
 
@@ -29,6 +30,7 @@ import java.util.Map;
 public class UpdateController {
 
     private final UpdateService updateService;
+    private final AppMessages messages;
 
     /**
      * 触发一次检查并返回结果。{@code force=true} 跳过 24h 缓存窗口（手动按钮使用）。
@@ -75,7 +77,7 @@ public class UpdateController {
     }
 
     /**
-     * 返回当前安装包下载进度。无活跃下载时返回 204。GUI 在下载期间轮询此端点更新进度条。
+     * 返回最近一次安装包下载进度。尚未发起下载时返回 204，完成或失败后保留终态。
      */
     @GetMapping("/download/progress")
     public ResponseEntity<?> downloadProgress(HttpServletRequest req) {
@@ -96,7 +98,7 @@ public class UpdateController {
             updateService.launchInstallerAndExit();
             return ResponseEntity.ok(Map.of("started", true));
         } catch (IOException e) {
-            log.warn("Launching installer failed", e);
+            log.warn(messages.getForLog("update.log.install.launch-failed", e.getMessage()), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", e.getMessage()));
         }

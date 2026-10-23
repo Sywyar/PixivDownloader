@@ -47,7 +47,7 @@ import static top.sywyar.pixivdownload.update.UpdateCheckException.Reason.*;
  * 在线更新核心服务。
  * <ul>
  *   <li>{@link #checkForUpdate(boolean)} 拉取并解析 manifest，按当前平台挑选 asset。</li>
- *   <li>{@link #downloadInstaller} 走系统代理把 installer 下载到运行目录的临时位置，并校验 SHA-256。</li>
+ *   <li>{@link #downloadInstaller} 按应用代理配置下载 installer，并校验大小和 SHA-256。</li>
  *   <li>{@link #launchInstallerAndExit} 拉起安装包后退出当前 JVM，把覆盖安装交给 Inno Setup。</li>
  * </ul>
  *
@@ -105,7 +105,7 @@ public class UpdateService {
     private final PluginCatalogClientProvider httpClientProvider;
 
     /**
-     * 下载安装包时的实时进度；null 表示当前没有进行中的下载。
+     * 最近一次安装包下载的进度；null 表示尚未发起下载。
      * done=true 时 installerPath 仅用于状态展示；安装步骤只使用服务端保存的 VerifiedInstaller。
      */
     public record DownloadProgress(long received, long total, boolean done, boolean failed, String error, String installerPath) {}
@@ -116,8 +116,7 @@ public class UpdateService {
     private volatile boolean downloadInProgress;
     private volatile VerifiedInstaller verifiedInstaller;
 
-    private record VerifiedInstaller(Path path, long sizeBytes, String sha256,
-                                     String version, boolean nightly, Instant verifiedAt) {
+    private record VerifiedInstaller(Path path, long sizeBytes, String sha256) {
     }
 
     @Autowired
@@ -584,8 +583,7 @@ public class UpdateService {
         Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
         Path verifiedPath = target.toAbsolutePath().normalize();
         PlainFilePathGuard.requirePlainRegularFile(verifiedPath);
-        verifiedInstaller = new VerifiedInstaller(verifiedPath, finalSize, actual,
-                check.getLatestVersion(), check.isNightly(), Instant.now());
+        verifiedInstaller = new VerifiedInstaller(verifiedPath, finalSize, actual);
         currentDownloadProgress = new DownloadProgress(finalSize, finalSize, true, false, null, target.toAbsolutePath().toString());
         log.info(forLog("update.log.download.completed", target.toAbsolutePath(), finalSize));
     }

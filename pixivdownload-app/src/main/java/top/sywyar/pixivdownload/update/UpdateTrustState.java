@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.update;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -20,17 +21,20 @@ record UpdateTrustState(
         String nightlyVersion,
         String nightlySha256) {
 
-    private static final long MAX_BYTES = 4 * 1024;
+    private static final int MAX_BYTES = 4 * 1024;
 
     static UpdateTrustState read(Path path, ObjectMapper mapper) throws IOException {
         if (!Files.exists(path)) {
             return empty();
         }
-        long size = Files.size(path);
-        if (size <= 0 || size > MAX_BYTES) {
-            throw new IOException("invalid update trust state size: " + size);
+        byte[] bytes;
+        try (InputStream input = Files.newInputStream(path)) {
+            bytes = input.readNBytes(MAX_BYTES + 1);
         }
-        UpdateTrustState state = mapper.readValue(Files.readAllBytes(path), UpdateTrustState.class);
+        if (bytes.length == 0 || bytes.length > MAX_BYTES) {
+            throw new IOException("invalid update trust state size: " + bytes.length);
+        }
+        UpdateTrustState state = mapper.readValue(bytes, UpdateTrustState.class);
         if (state == null || state.stableSequence < 0 || state.nightlySequence < 0) {
             throw new IOException("negative update trust sequence");
         }
