@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const test = require('node:test');
+const {MiniElement} = require('./pixiv-layout-feedback-test-dom');
 const shared = path.resolve(__dirname, '../../../../scripts/shared');
 
 function runtime() {
@@ -46,6 +47,86 @@ function runtime() {
     };
 }
 
+function settingsPanel(r) {
+    if (!r.context.document) {
+        const document = {};
+        document.createElement = tag => {
+            const element = new MiniElement(tag, document);
+            element.append = (...children) => children.forEach(child => element.appendChild(child));
+            element.replaceChildren = (...children) => {
+                element.children.slice().forEach(child => element.removeChild(child));
+                element.append(...children);
+            };
+            Object.defineProperties(element, {
+                options: {get: () => element.children},
+                isConnected: {get: () => document.body.contains(element)}
+            });
+            return element;
+        };
+        document.body = document.createElement('body');
+        document.head = document.createElement('head');
+        document.getElementById = id => document.head.querySelector('#' + id);
+        r.context.document = document;
+        vm.runInContext(fs.readFileSync(path.join(shared, 'download-options-ui.js'), 'utf8'), r.context);
+    }
+    const container = r.context.document.createElement('div');
+    r.context.document.body.appendChild(container);
+    const details = r.context.mountUserscriptDownloadOptions(container);
+    return {container, details, collection: details.querySelector('[data-download-option="collection"]'),
+        refresh: () => details.querySelector('button').listeners.get('click')[0]()};
+}
+
+test('重建设置面板后，旧收藏夹查询的成功、HTTP失败或网络失败不清除新选择', async t => {
+    for (const outcome of ['success', 'http-failure', 'network-failure']) {
+        await t.test(outcome, async () => {
+            const r = runtime(), options = r.context.options;
+            options.selectCollection(7);
+            let resolve, reject;
+            const pending = new Promise((yes, no) => { resolve = yes; reject = no; });
+            r.respond(() => pending);
+            const old = settingsPanel(r), refreshing = old.refresh();
+            await Promise.resolve();
+            r.context.document.body.removeChild(old.container);
+            r.respond(() => ({status: 200, data: {collections: [{id: 9, name: 'New choice'}]}}));
+            const current = settingsPanel(r);
+            await current.refresh();
+            current.collection.value = '9';
+            current.collection.dispatchEvent({type: 'change'});
+            assert.equal(options.selectedCollectionId(), 9);
+            if (outcome === 'network-failure') reject(new Error('offline'));
+            else resolve({status: outcome === 'success' ? 200 : 500, data: {collections: [{id: 7}]}});
+            await refreshing;
+            assert.equal(options.selectedCollectionId(), 9);
+            assert.equal(current.collection.value, '9');
+            assert.equal(current.collection.disabled, false);
+        });
+    }
+});
+
+test('当前面板刷新失败清除旧选择，下载前复验不能清除请求期间的新选择', async () => {
+    const r = runtime(), options = r.context.options;
+    options.selectCollection(7);
+    const panel = settingsPanel(r);
+    r.respond(() => ({status: 403, data: {}}));
+    await panel.refresh();
+    assert.equal(options.selectedCollectionId(), null);
+    assert.equal(panel.collection.value, '');
+    options.selectCollection(7);
+    let finish;
+    r.respond(() => new Promise(resolve => { finish = resolve; }));
+    const preparing = options.other('illust');
+    await Promise.resolve();
+    options.selectCollection(9);
+    finish({status: 200, data: {collections: [{id: 7}]}});
+    await assert.rejects(preparing);
+    assert.equal(options.selectedCollectionId(), 9);
+    r.respond(() => ({status: 503, data: {}}));
+    await assert.rejects(options.other('illust'));
+    assert.equal(options.selectedCollectionId(), 9);
+    r.respond(() => ({status: 200, data: {collections: [{id: 9}]}}));
+    assert.equal((await options.other('illust')).collectionId, 9);
+});
+
 test('下载筛选组合分级、AI、翻译标签和数值范围，并按作品类型取对应字段', () => {
     const r = runtime(), options = r.context.options;
     const meta = {xRestrict: 1, aiType: 2, illustType: 1, pageCount: 5, bookmarkCount: 20,
@@ -85,6 +166,7 @@ test('下载参数重验收藏夹和管理员身份，切换后端不复用选�
     assert.ok(r.requests.every(request => request.timeout > 0 && !('Cookie' in request.headers) && !request.data));
     r.respond(() => ({status: 200, data: {collections: []}}));
     await assert.rejects(options.other('illust'));
+    assert.equal(options.selectedCollectionId(), null);
     options.selectCollection(7);
     r.context.serverBase = 'https://other.example';
     assert.equal((await options.other('illust')).collectionId, null);
