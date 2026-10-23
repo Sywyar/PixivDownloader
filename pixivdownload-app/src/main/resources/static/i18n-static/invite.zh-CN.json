@@ -118,7 +118,7 @@
     "modal.summary.all": "全部",
     "modal.summary.authors": "作者：{value}",
     "modal.summary.count": "{count} 个",
-    "modal.summary.hint": "（OR 语义：标签命中或作者命中即可见）",
+    "modal.summary.hint": "（未允许的标签或作者会优先排除作品；其余满足标签或作者条件即可）",
     "modal.summary.tags": "标签：{value}",
     "nav.description": "通过邀请分享作品，管理访客的访问权限。",
     "nav.invite-guest": "邀请访客",

@@ -68,13 +68,9 @@ public final class SystemLocaleDetector {
 
     private static DetectionResult detect() {
         LocaleCatalog catalog = LocaleCatalog.defaultCatalog();
-        Locale fromConfig = readConfigPreference();
+        DetectionResult fromConfig = readConfigPreference(catalog);
         if (fromConfig != null) {
-            LocaleDescriptor matched = catalog.match(fromConfig).orElse(null);
-            if (matched != null) {
-                return new DetectionResult(matched.toLocale(),
-                        "from config.yaml app.language=" + fromConfig.toLanguageTag());
-            }
+            return fromConfig;
         }
 
         // 必须使用启动时缓存的 OS 原始值；Locale.getDefault() 可能已被 GUI 显式切换污染
@@ -99,7 +95,7 @@ public final class SystemLocaleDetector {
                         + "), falling back to " + catalog.defaultLocale().tag());
     }
 
-    private static Locale readConfigPreference() {
+    private static DetectionResult readConfigPreference(LocaleCatalog catalog) {
         Path candidate = RuntimeFiles.peekConfigYamlPath();
         if (!Files.isRegularFile(candidate)) {
             return null;
@@ -107,8 +103,10 @@ public final class SystemLocaleDetector {
         try {
             String value = new ConfigFileEditor(candidate).read("app.language");
             Locale parsed = Locale.forLanguageTag(value.trim().replace('_', '-'));
-            if (LocaleCatalog.defaultCatalog().match(parsed).isPresent()) {
-                return parsed;
+            LocaleDescriptor matched = catalog.match(parsed).orElse(null);
+            if (matched != null) {
+                return new DetectionResult(matched.toLocale(),
+                        "from config.yaml app.language=" + parsed.toLanguageTag());
             }
         } catch (Exception e) {
             System.err.println("[i18n] Failed reading " + candidate + ": " + e.getMessage());
