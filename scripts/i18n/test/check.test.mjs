@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 import { runCheck } from '../check.mjs';
 import { runAccept } from '../accept.mjs';
@@ -94,6 +96,29 @@ test('missing / extra / empty 检测', () => {
         assert.ok(errors.some((i) => i.key === 'b' && i.type === 'missing'));
         assert.ok(errors.some((i) => i.key === 'c' && i.type === 'empty'));
         assert.ok(errors.some((i) => i.key === 'd' && i.type === 'extra'));
+    } finally {
+        cleanRepo(root);
+    }
+});
+
+test('CLI 失败摘要按覆盖率计数，缺失、过期、非法和额外词条不重复累加', () => {
+    const source = 'a=你好 {name}\nb=标题\nc=共 {count} 项\nd=完成\n';
+    const english = 'a=Hello {name}\nb=Title\nc={count} items\nd=Done\n';
+    const root = makeRepo({ 'web/common.properties': source, 'web/common_en.properties': english });
+    try {
+        assert.equal(runAccept(root, { bootstrap: true }).ok, true);
+        fs.writeFileSync(path.join(root, APP_I18N, 'web/common.properties'), source.replace('你好', '您好'), 'utf8');
+        fs.writeFileSync(path.join(root, APP_I18N, 'web/common_en.properties'),
+            'a=Hello {name}\nc=Items\nd=Finished\ne=Extra\n', 'utf8');
+        runGenerate(root);
+        const result = spawnSync(process.execPath,
+            [fileURLToPath(new URL('../check.mjs', import.meta.url)), '--repo-root', root], { encoding: 'utf8' });
+        assert.equal(result.status, 1, result.stdout + result.stderr);
+        assert.match(result.stderr, /en-US \[supported\]: 0\.00%\r?\n  missing: 1\r?\n  stale: 2\r?\n  invalid: 1\r?\n  extra: 1/);
+        assert.match(result.stderr, /ja-JP \[candidate\]: 0\.00%\r?\n  missing: 4/);
+        const report = JSON.parse(fs.readFileSync(path.join(root, 'build/reports/i18n/report.json'), 'utf8'));
+        const row = coverageRow(report, 'en-US', 'web/common');
+        assert.deepEqual([row.missing, row.stale, row.translationUnaccepted, row.invalid, row.extra], [1, 1, 1, 1, 1]);
     } finally {
         cleanRepo(root);
     }

@@ -204,7 +204,7 @@ export function runAcceptCore(repoRoot, args) {
             };
         }
         const bootstrapProblems = [];
-        for (const bundle of [...discovery.bundles.values()]) {
+        for (const bundle of discovery.bundles.values()) {
             const zhFile = bundle.files[catalog.sourceLocale];
             if (!zhFile) {
                 bootstrapProblems.push(bundle.bundleId + ': missing source bundle');
@@ -260,7 +260,7 @@ export function runAcceptCore(repoRoot, args) {
     const refused = [];
 
     for (const descriptor of targetLocales) {
-        for (const bundle of [...discovery.bundles.values()]) {
+        for (const bundle of discovery.bundles.values()) {
             if (args.module && bundle.module !== args.module) {
                 continue;
             }
@@ -384,10 +384,9 @@ function buildSourceMaps(discovery, parsed, catalog) {
  * @returns {{ok: boolean, updated: number, refused: Array<string>, messages: Array<string>}}
  */
 function rebuildLock(repoRoot, catalog, discovery, parsed, targetLocales, messages) {
-    const rebuilt = [];
     const lockIndex = new Map();
     for (const descriptor of targetLocales) {
-        for (const bundle of [...discovery.bundles.values()]) {
+        for (const bundle of discovery.bundles.values()) {
             const zhFile = bundle.files[catalog.sourceLocale];
             const zhResult = zhFile ? parsed.get(zhFile.relPath) : null;
             if (!zhResult) {

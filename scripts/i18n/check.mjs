@@ -151,8 +151,6 @@ function main() {
             if (!perLocale.has(key)) {
                 perLocale.set(key, { total: 0, translated: 0, missing: 0, stale: 0, invalid: 0, extra: 0, empty: 0 });
             }
-            const counts = perLocale.get(key);
-            counts[issue.type] = (counts[issue.type] || 0) + 1;
         }
         for (const row of report.coverage) {
             const counts = perLocale.get(row.locale) || {
@@ -212,7 +210,7 @@ function statusOf(catalog, localeTag) {
 }
 
 /** 覆盖率行。 */
-function coverageRow(catalog, descriptor, bundle, sourceKeys, counts, translated) {
+function coverageRow(descriptor, bundle, sourceKeys, counts, translated) {
     return {
         locale: descriptor.tag,
         module: bundle.module,
@@ -232,7 +230,7 @@ function coverageRow(catalog, descriptor, bundle, sourceKeys, counts, translated
 }
 
 /** 缺整个语言文件：supported → 文件级 error + 逐 key missing（error）；candidate → 逐 key missing（report）。 */
-function missingFileIssues(report, issues, fail, catalog, bundle, descriptor) {
+function missingFileIssues(issues, fail, catalog, bundle, descriptor) {
     const severity = descriptor.status === 'candidate' ? 'report' : 'error';
     const sourceResult = bundle.sourceResult;
     const sourceFile = bundle.files[catalog.sourceLocale];
@@ -254,11 +252,10 @@ function missingFileIssues(report, issues, fail, catalog, bundle, descriptor) {
             sourceFile: sourceFile ? sourceFile.relPath : null,
         });
     }
-    return targetFile;
 }
 
 /** 静态生成资源同步：用快照内容生成预期文件，与快照中的静态目录比较。 */
-function checkStaticSync(snapshotRoot, issues, fail) {
+function checkStaticSync(snapshotRoot, fail) {
     const expectedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'i18n-static-expected-'));
     let expected;
     try {
@@ -439,9 +436,9 @@ function runCheckInner({ snapshotRoot, hardcodedOnly }) {
 
             if (!file || !result) {
                 if (descriptor.status === 'supported' || descriptor.status === 'candidate') {
-                    missingFileIssues({ issues }, issues, fail, catalog, bundle, descriptor);
+                    missingFileIssues(issues, fail, catalog, bundle, descriptor);
                     // coverage：translated = 0，missing = 源 key 数
-                    coverage.push(coverageRow(catalog, descriptor, bundle, zhKeys.length,
+                    coverage.push(coverageRow(descriptor, bundle, zhKeys.length,
                         { missing: zhKeys.length, empty: 0, stale: 0, translationUnaccepted: 0, newUnaccepted: 0, invalid: 0, extra: 0 },
                         0));
                 }
@@ -558,12 +555,12 @@ function runCheckInner({ snapshotRoot, hardcodedOnly }) {
                 }
             }
 
-            coverage.push(coverageRow(catalog, descriptor, bundle, zhKeys.length, counts, translated));
+            coverage.push(coverageRow(descriptor, bundle, zhKeys.length, counts, translated));
         }
     }
 
     // ---- 静态生成资源同步（同一快照）----
-    checkStaticSync(snapshotRoot, issues, fail);
+    checkStaticSync(snapshotRoot, fail);
 
     // ---- 硬编码语言守卫 ----
     for (const hit of guard.scan(snapshotRoot, catalog)) {
@@ -572,20 +569,12 @@ function runCheckInner({ snapshotRoot, hardcodedOnly }) {
     }
 
     issues.sort(compareIssues);
-    warnings.sort(compareWarnings);
+    warnings.sort(compareIssues);
 
     return { catalog, issues, coverage, warnings };
 }
 
 function compareIssues(a, b) {
-    return String(a.locale).localeCompare(String(b.locale))
-        || String(a.module).localeCompare(String(b.module))
-        || String(a.baseName).localeCompare(String(b.baseName))
-        || String(a.key).localeCompare(String(b.key))
-        || String(a.type).localeCompare(String(b.type));
-}
-
-function compareWarnings(a, b) {
     return String(a.locale).localeCompare(String(b.locale))
         || String(a.module).localeCompare(String(b.module))
         || String(a.baseName).localeCompare(String(b.baseName))

@@ -56,15 +56,13 @@ const EXPLICIT_ALLOWED_FILES = {
     'scripts/generate-market-manifest.ps1':
         '市场 manifest 的外部格式以 zh 为基准语言拼 _<locale> 后缀，属于外部数据格式，不是应用语言配置。',
     'scripts/package-local-installer-catalog.ps1':
-        'Inno Setup 安装器的语言集（en / zh-CN）受安装器自带语言文件限制，与应用 UI 语言目录相互独立。',
+        'Inno Setup 安装器使用自己的语言文件和目录，与应用 UI 语言目录相互独立。',
     'scripts/userscript-snippets/pixiv-userscript-i18n.js':
         'userscript 是运行在 pixiv.net 的独立运行时，不依赖应用后端与 catalog，语言集由 sync-shared-snippets.ps1 原样嵌入生成的 .user.js。',
     'scripts/shared/download-options-i18n.js':
         'userscript 下载设置的独立运行时字典，由 shared-snippet 同步到独立脚本，与 userscript namespace 同步维护。',
     'pixivdownload-plugin-pixiv-batch-downloader-import/src/main/resources/userscripts/pixiv-batch-downloader-import.user.js':
         '采集 userscript 在 pixiv.net 独立运行，菜单翻译随脚本交付；本机自动导入桥、脚本列表和配置使用插件 i18n contribution。',
-    'pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch-alt/alt-extensions.js':
-        'AI 翻译目标语言的默认值（novelTranslateLang 设置缺省时的产品默认），是数据默认值而非语言清单/菜单/切换；batch 与 alt 两页默认语义本就不同，统一迁移留待页面合并。',
 };
 
 const ALLOWED_DIRS = [
