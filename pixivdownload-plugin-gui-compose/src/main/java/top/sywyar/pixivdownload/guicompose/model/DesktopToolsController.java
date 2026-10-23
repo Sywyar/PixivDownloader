@@ -238,7 +238,7 @@ final class DesktopToolsController {
 
     void runBackfill() {
         try {
-            refreshBackfillProxy();
+            inheritBackfillProxy(host.defaultBackfillOptions());
         } catch (RuntimeException failure) {
             LOG.warn(host.message("gui.tools.log.proxy-defaults.failed", failure.getMessage()), failure);
             backfillNotice = host.message("desktop.ui.tools.operation-failed");
@@ -1121,10 +1121,6 @@ final class DesktopToolsController {
         if (saved.containsKey("proxy.enabled")) inherit("tools.backfill.proxy", saved.get("proxy.enabled"));
         if (saved.containsKey("proxy.host")) inherit("tools.backfill.proxy-host", saved.get("proxy.host"));
         if (saved.containsKey("proxy.port")) inherit("tools.backfill.proxy-port", saved.get("proxy.port"));
-    }
-
-    private void refreshBackfillProxy() {
-        inheritBackfillProxy(host.defaultBackfillOptions());
     }
 
     private void inheritBackfillProxy(DesktopUiHost.BackfillOptions defaults) {

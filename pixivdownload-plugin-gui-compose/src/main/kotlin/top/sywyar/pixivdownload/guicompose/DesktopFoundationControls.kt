@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.progressSemantics
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,7 +29,6 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import io.github.robinpcrd.cupertino.LocalContentColor
 
@@ -46,10 +44,14 @@ internal fun DesktopIcon(
 ) = Image(imageVector, contentDescription, modifier.size(24.dp), colorFilter = ColorFilter.tint(tint))
 
 @Composable
-internal fun DesktopRadioButton(selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+internal fun DesktopRadioButton(
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
     val palette = LocalExperiencePalette.current
     val color = if (!enabled) palette.secondaryText else if (selected) palette.link else palette.controlBorder
-    Canvas(modifier.size(36.dp).selectable(selected, enabled = enabled, role = Role.RadioButton, onClick = onClick).padding(8.dp)) {
+    Canvas(modifier.size(36.dp).padding(8.dp)) {
         drawCircle(color, style = Stroke(2.dp.toPx()))
         if (selected) drawCircle(color, radius = size.minDimension * .25f)
     }

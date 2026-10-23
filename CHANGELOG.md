@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修正 Compose 动图引导中固定输出 WebP 的说明，实际保存格式由网页下载设置决定。
 - 修复部分 Unicode 目录和磁盘根目录的作品路径编码错误，以及事务回滚后仍引用未保存目录的问题。
 - 修复作品回填在部分系统语言下无法识别英文年龄限制提示的问题。
 - 修复作品回填和旧 JSON 导入失败后可能保留部分写入的问题，并在连接初始化失败时释放已取得的连接。

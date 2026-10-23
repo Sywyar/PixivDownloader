@@ -224,7 +224,7 @@ final class DesktopSecurityController {
                     try { file.restore(before); } catch (Exception rollback) { failure.addSuppressed(rollback); }
                     throw failure;
                 }
-                owner.securityConfigSaved(saved);
+                owner.coreConfigValuesSaved(saved);
                 succeeded("connection");
             } catch (Exception failure) {
                 notice = label("save-failed");

@@ -78,7 +78,7 @@ final class DesktopConfigurationLoader {
                     spec,
                     groups.get(spec.groupId()),
                     null,
-                    hasConditions(spec)
+                    false
             ));
         }
         Set<FieldKey> accepted = new LinkedHashSet<>(fields.stream().map(ConfigField::key).toList());
@@ -139,7 +139,7 @@ final class DesktopConfigurationLoader {
                             spec,
                             group,
                             namespace,
-                            hasConditions(spec)
+                            false
                     ));
                 }
             }
@@ -798,10 +798,6 @@ final class DesktopConfigurationLoader {
         } catch (RuntimeException ignored) {
             return source.id();
         }
-    }
-
-    private static boolean hasConditions(GuiConfigFieldContribution spec) {
-        return !spec.enabledWhen().isEmpty() || !spec.visibleWhen().isEmpty();
     }
 
     private boolean validField(GuiConfigFieldContribution field) {

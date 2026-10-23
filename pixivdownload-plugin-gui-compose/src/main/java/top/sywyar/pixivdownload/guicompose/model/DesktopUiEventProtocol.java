@@ -206,7 +206,7 @@ final class DesktopUiEventProtocol {
                 return "number input requires one numeric value";
             }
             try {
-                int value = new BigDecimal(first(event.value().values())).intValueExact();
+                int value = new BigDecimal(event.value().values().get(0)).intValueExact();
                 if (value < input.minimum() || value > input.maximum())
                     return "number is outside bounds";
                 return Math.floorMod(
@@ -336,10 +336,6 @@ final class DesktopUiEventProtocol {
             ids.add(item.id());
             collectTreeItemIds(item.children(), ids);
         }
-    }
-
-    private static String first(List<String> values) {
-        return values.isEmpty() ? "" : values.get(0);
     }
 
     record EventEndpoint(

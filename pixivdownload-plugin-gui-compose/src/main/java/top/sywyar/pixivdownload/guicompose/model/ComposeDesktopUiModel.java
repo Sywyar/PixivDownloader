@@ -772,10 +772,6 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         coreConfigValuesSaved(Map.of(key, value));
     }
 
-    void securityConfigSaved(Map<String, String> saved) {
-        coreConfigValuesSaved(saved);
-    }
-
     Map<String, String> readConfiguration(java.util.Collection<String> keys) throws java.io.IOException {
         return configuration.readCoreValues(keys);
     }
