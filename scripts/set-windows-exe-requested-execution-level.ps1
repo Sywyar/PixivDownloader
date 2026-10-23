@@ -8,11 +8,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-if (-not (Test-Path $Path)) {
+if (-not (Test-Path -LiteralPath $Path)) {
     throw "Executable not found: $Path"
 }
 
-$targetFile = Get-Item $Path
+$targetFile = Get-Item -LiteralPath $Path
 if ($targetFile.IsReadOnly) {
     $targetFile.IsReadOnly = $false
 }
@@ -29,11 +29,11 @@ function Get-MtCommand {
     )
 
     foreach ($root in $candidateRoots) {
-        if (-not (Test-Path $root)) {
+        if (-not (Test-Path -LiteralPath $root)) {
             continue
         }
 
-        $candidate = Get-ChildItem $root -Recurse -Filter "mt.exe" -ErrorAction SilentlyContinue |
+        $candidate = Get-ChildItem -LiteralPath $root -Recurse -Filter "mt.exe" -ErrorAction SilentlyContinue |
             Where-Object { $_.FullName -like "*\x64\mt.exe" } |
             Sort-Object FullName -Descending |
             Select-Object -First 1
@@ -62,7 +62,6 @@ try {
     $xml.Load($manifestPath)
 
     $namespaceManager = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
-    $namespaceManager.AddNamespace("asmv1", "urn:schemas-microsoft-com:asm.v1")
     $namespaceManager.AddNamespace("asmv3", "urn:schemas-microsoft-com:asm.v3")
 
     $executionLevelNode = $xml.SelectSingleNode("//asmv3:requestedExecutionLevel", $namespaceManager)
@@ -90,7 +89,7 @@ try {
         throw "Failed to embed updated manifest into $Path"
     }
 } finally {
-    if (Test-Path $tempDir) {
-        Remove-Item -Recurse -Force $tempDir
+    if (Test-Path -LiteralPath $tempDir) {
+        Remove-Item -Recurse -Force -LiteralPath $tempDir
     }
 }

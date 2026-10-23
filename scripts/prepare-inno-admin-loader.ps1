@@ -14,14 +14,14 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $BuildRoot = Join-Path $ProjectRoot "build"
 $PatchExecutionLevelScript = Join-Path $PSScriptRoot "set-windows-exe-requested-execution-level.ps1"
 
-if (-not (Test-Path $CompilerPath)) {
+if (-not (Test-Path -LiteralPath $CompilerPath)) {
     throw "Inno Setup compiler not found: $CompilerPath"
 }
-if (-not (Test-Path $PatchExecutionLevelScript)) {
+if (-not (Test-Path -LiteralPath $PatchExecutionLevelScript)) {
     throw "Execution level patch script not found: $PatchExecutionLevelScript"
 }
 
-$compilerItem = Get-Item $CompilerPath
+$compilerItem = Get-Item -LiteralPath $CompilerPath
 $sourceDirectory = Split-Path -Parent $compilerItem.FullName
 $targetDirectory = Assert-SafeDistributionOutputDirectory `
     -Path $OutputDirectory -ProjectRoot $ProjectRoot -ProtectedPaths @($sourceDirectory)
@@ -38,17 +38,19 @@ if (Test-Path -LiteralPath $targetDirectory) {
 }
 
 New-Item -ItemType Directory -Force -Path $targetDirectory | Out-Null
-Copy-Item -Path (Join-Path $sourceDirectory "*") -Destination $targetDirectory -Recurse -Force
+Get-ChildItem -LiteralPath $sourceDirectory -Force | ForEach-Object {
+    Copy-Item -LiteralPath $_.FullName -Destination $targetDirectory -Recurse -Force
+}
 
 foreach ($loaderName in @("SetupLdr.e32", "SetupLdr.e64")) {
     $loaderPath = Join-Path $targetDirectory $loaderName
-    if (Test-Path $loaderPath) {
+    if (Test-Path -LiteralPath $loaderPath) {
         & $PatchExecutionLevelScript -Path $loaderPath -Level "requireAdministrator"
     }
 }
 
 $preparedCompiler = Join-Path $targetDirectory "ISCC.exe"
-if (-not (Test-Path $preparedCompiler)) {
+if (-not (Test-Path -LiteralPath $preparedCompiler)) {
     throw "Prepared Inno Setup compiler was not created: $preparedCompiler"
 }
 

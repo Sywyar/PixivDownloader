@@ -40,6 +40,45 @@ $tempBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/')
 $fixture = Join-Path $tempBase ('pixiv-workflow-test-' + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($fixture) | Out-Null
 try {
+    & (Join-Path $PSScriptRoot 'distribution-archives.test.ps1')
+    & {
+        $secretName = 'PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64'
+        $previousKey = [Environment]::GetEnvironmentVariable($secretName)
+        $scriptPath = Join-Path $repo 'scripts/write-plugin-credential-key-filter.ps1'
+        $filterPath = Join-Path $fixture 'credential [output]/production.properties'
+        $fallbackPath = Join-Path $repo 'pixivdownload-app/src/main/filters/plugin-credential-key-open-source.properties'
+        $fallback = (ConvertFrom-StringData ([IO.File]::ReadAllText($fallbackPath, [Text.Encoding]::UTF8)))['plugin.credential.key.open-source-fallback-base64']
+        $validKey = [Convert]::ToBase64String([byte[]](0..31))
+        try {
+            [Environment]::SetEnvironmentVariable($secretName, $validKey)
+            Assert-Equal @(& $scriptPath -OutputPath $filterPath *>&1).Count 0
+            $expected = "plugin.credential.key.profile=production`n" +
+                "plugin.credential.key.current-base64=$validKey`n" +
+                "plugin.credential.key.open-source-fallback-base64=$fallback`n"
+            Assert-Equal ([IO.File]::ReadAllBytes($filterPath)) ([Text.Encoding]::UTF8.GetBytes($expected))
+            $invalidKeys = @(
+                @{Value=$null; Reason='must be set'},
+                @{Value=' '; Reason='must be set'},
+                @{Value='not-base64'; Reason='canonical standard Base64'},
+                @{Value=[Convert]::ToBase64String([byte[]](0..30)); Reason='exactly 32 bytes'},
+                @{Value=[Convert]::ToBase64String([byte[]](0..32)); Reason='exactly 32 bytes'},
+                @{Value=" $validKey"; Reason='canonical standard Base64'},
+                @{Value=$validKey.Substring(0, 42) + '9='; Reason='canonical standard Base64'},
+                @{Value=$fallback; Reason='committed open-source fallback'}
+            )
+            foreach ($case in $invalidKeys) {
+                [Environment]::SetEnvironmentVariable($secretName, $case.Value)
+                $output = [Collections.Generic.List[object]]::new()
+                Assert-Rejected {
+                    & $scriptPath -OutputPath $filterPath *>&1 | ForEach-Object { $output.Add($_) }
+                } $case.Reason
+                Assert-Equal $output.Count 0
+                Assert-Equal ([IO.File]::ReadAllBytes($filterPath)) ([Text.Encoding]::UTF8.GetBytes($expected))
+            }
+        } finally {
+            [Environment]::SetEnvironmentVariable($secretName, $previousKey)
+        }
+    }
     & {
         . (Join-Path $repo 'scripts/plugin-distribution-common.ps1')
         $lookupRoot = Join-Path $fixture 'maven-lookup'
@@ -283,6 +322,7 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         foreach ($definition in $program.Functions) { . ([scriptblock]::Create($definition.Extent.Text)) }
         $script:observed = [Collections.Generic.List[string]]::new()
         $script:probes = [Collections.Generic.List[string]]::new()
+        $script:processes = [Collections.Generic.List[object]]::new()
         function Expand-Archive {
             param($LiteralPath, $DestinationPath)
             [IO.Directory]::CreateDirectory($DestinationPath) | Out-Null
@@ -304,24 +344,29 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         function Wait-ArtifactProcessExit { }
         function Start-Process {
             param($FilePath, $ArgumentList, $WindowStyle, [switch]$PassThru)
-            if ($FilePath -like '*unins000.exe') { return @{ExitCode=0} }
+            $process = [pscustomobject]@{ExitCode=0; Disposed=$false}
+            $process | Add-Member -MemberType ScriptMethod -Name Dispose -Value { $this.Disposed = $true }
+            $script:processes.Add($process)
+            if ($FilePath -like '*unins000.exe') { return $process }
             $installDir = ($ArgumentList | Where-Object { $_ -like '/DIR=*' }).Substring(5).Trim('"')
             foreach ($name in @('PixivDownload.exe', 'runtime/bin/server/jvm.dll', 'unins000.exe', "app/PixivDownload-$Version.jar")) {
                 $target = Join-Path $installDir $name
                 [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
                 [IO.File]::WriteAllText($target, 'fixture')
             }
-            return @{ExitCode=0}
+            return $process
         }
         $inputFile = Join-Path $fixture 'input'
         [IO.File]::WriteAllText($inputFile, 'fixture')
         foreach ($distribution in @('java-standard', 'full-offline', 'windows-installer', 'all')) {
-            $script:observed.Clear(); $script:probes.Clear()
+            $script:observed.Clear(); $script:probes.Clear(); $script:processes.Clear()
             $parameters = @{ Version='1.2.3'; Distribution=$distribution; WorkRoot=$fixture }
             if ($distribution -in @('all', 'java-standard')) { $parameters.JavaZipPath = $inputFile }
             if ($distribution -in @('all', 'full-offline')) { $parameters.FullOfflineZipPath = $inputFile }
             if ($distribution -in @('all', 'windows-installer')) { $parameters.InstallerPath = $inputFile }
             & $program.Main @parameters
+            Assert-Equal $script:processes.Count $(if ($distribution -in @('all', 'windows-installer')) { 2 } else { 0 })
+            Assert-Equal @($script:processes | Where-Object { -not $_.Disposed }).Count 0
             $expected = @(foreach ($kind in @('java-standard', 'full-offline', 'windows-installer')) {
                 if ($distribution -in @('all', $kind)) {
                     foreach ($mode in @('headless', 'gui-compose', 'gui-swing')) { "$kind-$mode" }
@@ -335,8 +380,10 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             }
         }
         foreach ($group in @('startup', 'failures', 'recovery')) {
-            $script:observed.Clear(); $script:probes.Clear()
+            $script:observed.Clear(); $script:probes.Clear(); $script:processes.Clear()
             & $program.Main -Version 1.2.3 -Distribution windows-installer -ScenarioGroup $group -InstallerPath $inputFile -WorkRoot $fixture
+            Assert-Equal $script:processes.Count 2
+            Assert-Equal @($script:processes | Where-Object { -not $_.Disposed }).Count 0
             $expected = if ($group -eq 'startup') {
                 @('windows-installer-headless', 'windows-installer-gui-compose', 'windows-installer-gui-swing')
             } else { @("windows-installer-adverse-$group") }
@@ -881,8 +928,9 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
     }
     & {
         $fixtureEncoding = [Text.UTF8Encoding]::new($false)
-        foreach ($case in @('same', 'ancestor', 'child', 'source-root', 'outside', 'build-root', 'separate', 'patch-failure')) {
+        foreach ($case in @('same', 'ancestor', 'child', 'source-root', 'outside', 'build-root', 'separate', 'brackets', 'patch-failure')) {
             $root = Join-Path $fixture "inno-input-$case"
+            if ($case -eq 'brackets') { $root += ' [source]' }
             $scripts = Join-Path $root 'scripts'
             [IO.Directory]::CreateDirectory($scripts) | Out-Null
             foreach ($name in @('prepare-inno-admin-loader.ps1', 'plugin-distribution-common.ps1')) {
@@ -904,7 +952,7 @@ if ($case -eq 'patch-failure') { throw 'Fixture manifest patch failed.' }
                 'source-root' { $source = $root; $expectedError = 'into its source directory' }
                 'outside' { $output = Join-Path $fixture "outside-$case"; $expectedError = 'outside the build directory' }
                 'build-root' { $output = Join-Path $root 'build'; $expectedError = 'build root' }
-                'separate' { $expectedError = $null }
+                { $_ -in @('separate', 'brackets') } { $expectedError = $null }
                 'patch-failure' { $expectedError = 'Fixture manifest patch failed' }
             }
             [IO.Directory]::CreateDirectory($source) | Out-Null
@@ -922,7 +970,7 @@ if ($case -eq 'patch-failure') { throw 'Fixture manifest patch failed.' }
             foreach ($name in @('ISCC.exe', 'SetupLdr.e32', 'SetupLdr.e64')) {
                 Assert-Equal ([IO.File]::ReadAllText((Join-Path $source $name), $fixtureEncoding)) $name
             }
-            Assert-Equal (Test-Path -LiteralPath $marker) ($case -notin @('separate', 'patch-failure'))
+            Assert-Equal (Test-Path -LiteralPath $marker) ($case -notin @('separate', 'brackets', 'patch-failure'))
             if ($expectedError) {
                 if ($null -eq $failure -or $failure.Exception.Message -notlike "*$expectedError*") { throw "Unexpected Inno result: $failure" }
             } else {

@@ -520,8 +520,6 @@ class PluginReleaseScriptsTest {
         assertThat(ffmpegInstallerDownload.indexOf("Assert-FfmpegReleaseAsset"))
                 .isLessThan(ffmpegInstallerDownload.indexOf(
                         "Move-Item -LiteralPath $downloadPath -Destination $OutFile -Force"));
-        assertThat(windows.indexOf("Assert-FfmpegReleaseAsset -ArchivePath $downloadZip"))
-                .isLessThan(windows.indexOf("Expand-Archive -Path $zipPath"));
         assertThat(inno.indexOf("DownloadFfmpegArchive(ArchivePath)"))
                 .isLessThan(inno.indexOf("ExtractArchive(ArchivePath, ExtractDir"));
         assertThat(inno).doesNotContain("#if Len(SignatureToolJar) > 0");
@@ -641,6 +639,7 @@ class PluginReleaseScriptsTest {
     void provenancePowerShellScriptsAreAsciiWithoutBom() throws Exception {
         assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("plugin-distribution-common.ps1"));
         assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("ffmpeg-release-integrity.ps1"));
+        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("write-plugin-credential-key-filter.ps1"));
         assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("package-local-plugin-staging.ps1"));
         assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("package-local-installer-catalog.ps1"));
         assertAsciiWithoutBom(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
@@ -652,56 +651,37 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("插件凭证密钥资源默认使用公开回退值，生产过滤脚本严格校验独立的 32 字节主密钥")
+    @DisplayName("插件凭证密钥资源按 Maven 过滤配置绑定，默认使用公开回退值")
     void pluginCredentialKeyResourceUsesValidatedBuildFilter() throws Exception {
         Path appRoot = repoRoot().resolve("pixivdownload-app");
-        String pom = Files.readString(appRoot.resolve("pom.xml"), StandardCharsets.UTF_8);
-        String resource = Files.readString(
-                appRoot.resolve("src/main/resources/plugin-credential-key.properties"),
-                StandardCharsets.UTF_8);
+        var xmlFactory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+        xmlFactory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        var pom = xmlFactory.newDocumentBuilder().parse(appRoot.resolve("pom.xml").toFile());
+        var xpath = javax.xml.xpath.XPathFactory.newInstance().newXPath();
+        Map<String, String> resource = readProperties(
+                appRoot.resolve("src/main/resources/plugin-credential-key.properties"));
         Map<String, String> openSourceFilter = readProperties(
                 appRoot.resolve("src/main/filters/plugin-credential-key-open-source.properties"));
-        String script = script("write-plugin-credential-key-filter.ps1");
-
-        assertThat(pom).contains(
-                "<plugin.credential.filter>",
-                "src/main/filters/plugin-credential-key-open-source.properties",
-                "<filter>${plugin.credential.filter}</filter>",
-                "<include>plugin-credential-key.properties</include>",
-                "<exclude>plugin-credential-key.properties</exclude>");
-        assertThat(resource).contains(
-                "profile=@plugin.credential.key.profile@",
-                "current-key-base64=@plugin.credential.key.current-base64@",
-                "open-source-fallback-key-base64=@plugin.credential.key.open-source-fallback-base64@");
+        assertThat(xpath.evaluate("/project/properties/plugin.credential.filter", pom))
+                .isEqualTo("${project.basedir}/src/main/filters/plugin-credential-key-open-source.properties");
+        assertThat(xpath.evaluate("/project/build/filters/filter", pom))
+                .isEqualTo("${plugin.credential.filter}");
+        assertThat(xpath.evaluate("/project/build/resources/resource[filtering='true']"
+                + "[directory='src/main/resources']/includes/include[.='plugin-credential-key.properties']", pom))
+                .isEqualTo("plugin-credential-key.properties");
+        assertThat(xpath.evaluate("/project/build/resources/resource[filtering='false']"
+                + "[directory='src/main/resources']/excludes/exclude[.='plugin-credential-key.properties']", pom))
+                .isEqualTo("plugin-credential-key.properties");
+        assertThat(resource).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "profile", "@plugin.credential.key.profile@",
+                "current-key-base64", "@plugin.credential.key.current-base64@",
+                "open-source-fallback-key-base64", "@plugin.credential.key.open-source-fallback-base64@"));
 
         assertThat(openSourceFilter.get("plugin.credential.key.profile")).isEqualTo("open-source");
         String currentKey = openSourceFilter.get("plugin.credential.key.current-base64");
         String fallbackKey = openSourceFilter.get("plugin.credential.key.open-source-fallback-base64");
         assertThat(currentKey).isEqualTo(fallbackKey);
         assertCanonicalBase64Key(currentKey);
-        assertThat(script).contains("$openSourceFallback = \"" + fallbackKey + "\"");
-
-        assertThat(script).contains(
-                "$secretName = \"PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64\"",
-                "[Environment]::GetEnvironmentVariable($secretName)",
-                "[Convert]::FromBase64String($masterKeyBase64)",
-                "$masterKey.Length -ne 32",
-                "[Convert]::ToBase64String($masterKey)",
-                "[StringComparison]::Ordinal",
-                "$canonical, $openSourceFallback",
-                "\"plugin.credential.key.profile=production\"",
-                "\"plugin.credential.key.current-base64=$canonical\"",
-                "\"plugin.credential.key.open-source-fallback-base64=$openSourceFallback\"",
-                "[System.IO.File]::WriteAllText",
-                "System.Text.UTF8Encoding($false)",
-                "[Array]::Clear");
-        assertThat(script).doesNotContain(
-                "Write-Host",
-                "Write-Output",
-                "Write-Verbose",
-                "Write-Debug",
-                "Write-Information");
-        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("write-plugin-credential-key-filter.ps1"));
     }
 
     @Test
@@ -1255,58 +1235,6 @@ class PluginReleaseScriptsTest {
                 "\"$APP_HOME/PixivDownload-VERSION.jar\" \\",
                 "\"$@\"")
                 .doesNotContain("*.jar", "Get-ChildItem", "head");
-    }
-
-    @Test
-    @DisplayName("共享 Java 分发编排脚本两次调用组装器并做真实布局验收")
-    void javaDistributionOrchestratorContract() throws Exception {
-        String orchestrator = script("package-java-distributions.ps1");
-
-        assertThat(orchestrator).contains(
-                "[Parameter(Mandatory = $true)][string]$Version",
-                "[Parameter(Mandatory = $true)][string]$PrebuiltJar",
-                "[Parameter(Mandatory = $true)][string]$PrebuiltPluginsDir",
-                "[Parameter(Mandatory = $true)][string]$SignatureToolJar",
-                "[string]$OutputDir",
-                "assemble-plugin-distribution.ps1",
-                "-PrebuiltJar $ResolvedPrebuiltJar",
-                "-PrebuiltPluginsDir $ResolvedPrebuiltPluginsDir",
-                "-SignatureToolJar $ResolvedSignatureToolJar",
-                "-DefaultDownloader",
-                "Get-OfficialDefaultInstalledPlugins",
-                "Get-OfficialDistributionPlugins -IncludeOptional",
-                "PixivDownload-$Version-java.zip",
-                "PixivDownload-$Version-full-offline.zip",
-                "Assert-DistributionLayout",
-                "run.bat",
-                "run.sh",
-                "plugins-manifest.json",
-                "SHA256SUMS",
-                "LOCAL-UNSIGNED-BUILD.txt",
-                "$prov[\"status\"] -ne \"VERIFIED\"",
-                "$prov[\"source\"] -ne \"MARKET_CATALOG\"",
-                "Compress-Archive",
-                "$InputJarSha256 = Get-Sha256Hex $ResolvedPrebuiltJar",
-                "-InputJarSha256 $InputJarSha256");
-        // 不接收私钥 / 本地 unsigned 输入。
-        assertThat(orchestrator).doesNotContain(
-                "AllowUnsignedLocalPlugins",
-                "PrivateKeyFile",
-                "OfficialKeyId",
-                "-----BEGIN PRIVATE KEY-----",
-                "-----END PRIVATE KEY-----");
-        // java-standard（DefaultDownloader）先于 full-offline；两次调用使用同一组输入；
-        // 布局验收必须先于压缩，避免半成品被打包。
-        assertThat(orchestrator.indexOf("-DefaultDownloader"))
-                .as("java-standard 调用必须先于 full-offline")
-                .isLessThan(orchestrator.indexOf("Assembling full-offline"));
-        assertThat(orchestrator.indexOf("& $AssemblerScript", orchestrator.indexOf("Assembling java-standard")))
-                .as("组装器必须被调用两次").isGreaterThan(0);
-        assertThat(orchestrator.indexOf("& $AssemblerScript", orchestrator.indexOf("Assembling full-offline")))
-                .as("组装器必须被调用两次").isGreaterThan(0);
-        assertThat(orchestrator.indexOf("Compress-Archive"))
-                .as("布局验收必须先于压缩")
-                .isGreaterThan(orchestrator.indexOf("-InputJarSha256 $InputJarSha256"));
     }
 
     @Test

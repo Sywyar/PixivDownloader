@@ -100,7 +100,7 @@ function Get-InnoSetupCompiler {
     }
 
     foreach ($candidate in $candidates) {
-        if (Test-Path $candidate) {
+        if (Test-Path -LiteralPath $candidate) {
             return $candidate
         }
     }
@@ -236,10 +236,9 @@ function Ensure-FfmpegPayload {
     }
 
     Remove-PathIfExists $FfmpegUnpackDir
-    Ensure-Directory $FfmpegUnpackDir
-    Expand-Archive -Path $zipPath -DestinationPath $FfmpegUnpackDir -Force
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $FfmpegUnpackDir)
 
-    $payloadRoot = Get-ChildItem $FfmpegUnpackDir -Directory |
+    $payloadRoot = Get-ChildItem -LiteralPath $FfmpegUnpackDir -Directory |
         Where-Object { $_.Name -eq "ffmpeg-windows-x64" } |
         Select-Object -First 1
 
@@ -261,10 +260,10 @@ function Ensure-FfmpegPayload {
         }
     }
 
-    Copy-Item $sourceFfmpeg $FfmpegExe -Force
-    Copy-Item $sourceFfprobe $FfprobeExe -Force
+    Copy-Item -LiteralPath $sourceFfmpeg -Destination $FfmpegExe -Force
+    Copy-Item -LiteralPath $sourceFfprobe -Destination $FfprobeExe -Force
     Remove-PathIfExists $FfmpegLicenseDir
-    Copy-Item $sourceLicenseDir $FfmpegDir -Recurse -Force
+    Copy-Item -LiteralPath $sourceLicenseDir -Destination $FfmpegDir -Recurse -Force
 }
 
 if ($AllowUnsignedLocalPlugins) {
@@ -408,7 +407,7 @@ try {
 
     if (-not $SkipPortable) {
         Write-Step "Packaging online portable zip"
-        Compress-Archive -Path $OnlineAppDir -DestinationPath $OnlineZipPath -Force
+        [System.IO.Compression.ZipFile]::CreateFromDirectory($OnlineAppDir, $OnlineZipPath, [System.IO.Compression.CompressionLevel]::Optimal, $true)
     }
 
     if (-not $SkipOfflinePortable) {
@@ -416,7 +415,7 @@ try {
 
         Write-Step "Building offline app-image"
         Ensure-Directory $OfflineAppImageRoot
-        Copy-Item $OnlineAppDir $OfflineAppImageRoot -Recurse -Force
+        Copy-Item -LiteralPath $OnlineAppDir -Destination $OfflineAppImageRoot -Recurse -Force
         if (-not $SkipPlugins) {
             Write-Step "Staging official required + optional external plugins into offline app-image plugins/"
             $fullOfflinePlugins = @(Get-OfficialDistributionPlugins -IncludeOptional)
@@ -427,12 +426,13 @@ try {
             Write-Host ("    {0} official plugin(s) staged under plugins/ (full-offline)." -f $fullOfflineCount) -ForegroundColor Green
         }
         $offlineFfmpegDir = Join-Path $OfflineAppDir "tools\ffmpeg"
-        Copy-Item $FfmpegExe $offlineFfmpegDir -Force
-        Copy-Item $FfprobeExe $offlineFfmpegDir -Force
-        Copy-Item $FfmpegLicenseDir $offlineFfmpegDir -Recurse -Force
+        Ensure-Directory $offlineFfmpegDir
+        Copy-Item -LiteralPath $FfmpegExe -Destination $offlineFfmpegDir -Force
+        Copy-Item -LiteralPath $FfprobeExe -Destination $offlineFfmpegDir -Force
+        Copy-Item -LiteralPath $FfmpegLicenseDir -Destination $offlineFfmpegDir -Recurse -Force
 
         Write-Step "Packaging offline portable zip"
-        Compress-Archive -Path $OfflineAppDir -DestinationPath $OfflineZipPath -Force
+        [System.IO.Compression.ZipFile]::CreateFromDirectory($OfflineAppDir, $OfflineZipPath, [System.IO.Compression.CompressionLevel]::Optimal, $true)
     }
 
     if (-not $SkipInstaller) {
