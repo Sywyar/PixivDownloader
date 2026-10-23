@@ -115,28 +115,42 @@ test('真实生成入口在拒绝头像时释放正文并保留已有目录', as
   await writeFile(preload, `
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import https from 'node:https';
+import { EventEmitter } from 'node:events';
+import { syncBuiltinESMExports } from 'node:module';
+import { Readable } from 'node:stream';
 const { maintainers } = JSON.parse(readFileSync(join(process.env.FIXTURE_ROOT, 'scripts/maintainers-allowlist.json'), 'utf8'));
 const users = maintainers.map((user) => ({ ...user, type: 'User', avatar_url: 'https://avatars.githubusercontent.com/u/' + user.id }));
-globalThis.fetch = async (input) => {
+https.request = (input, options, callback) => {
   const url = new URL(input);
+  const outgoing = new EventEmitter();
+  let incoming;
   if (url.hostname === 'api.github.com') {
-    return Response.json(url.pathname.endsWith('/contributors') ? users : { owner: users[0] });
+    incoming = Readable.from([Buffer.from(JSON.stringify(url.pathname.endsWith('/contributors') ? users : { owner: users[0] }))]);
+    incoming.statusCode = 200;
+    incoming.headers = { 'content-type': 'application/json' };
+  } else {
+    const mode = process.env.FIXTURE_MODE;
+    incoming = new Readable({
+      read() {},
+      destroy(error, done) {
+        process.stdout.write('BODY_CANCELLED\\n');
+        done(mode.endsWith('-cancel-fails') ? new Error('cleanup failure') : error);
+      },
+    });
+    incoming.statusCode = mode.startsWith('status') ? 502 : 200;
+    incoming.headers = { 'content-type': 'text/plain' };
   }
-  const mode = process.env.FIXTURE_MODE;
-  return new Response(new ReadableStream({
-    start(controller) { controller.enqueue(new Uint8Array([1])); },
-    cancel() {
-      process.stdout.write('BODY_CANCELLED\\n');
-      if (mode.endsWith('-cancel-fails')) throw new Error('cleanup failure');
-    },
-  }), { status: mode.startsWith('status') ? 502 : 200, headers: { 'content-type': 'text/plain' } });
+  outgoing.end = () => queueMicrotask(() => callback(incoming));
+  return outgoing;
 };
+syncBuiltinESMExports();
 `, 'utf8');
   const allowlist = JSON.parse(await readFile(join(root, 'scripts/maintainers-allowlist.json'), 'utf8'));
   for (const mode of ['status', 'type', 'status-cancel-fails', 'type-cancel-fails']) {
     await t.test(mode, async () => {
       await writeFile(output, 'existing catalog', 'utf8');
-      const env = { ...process.env, FIXTURE_ROOT: root, FIXTURE_MODE: mode };
+      const env = { ...process.env, FIXTURE_ROOT: root, FIXTURE_MODE: mode, NO_PROXY: '*' };
       delete env.GITHUB_TOKEN;
       delete env.GH_TOKEN;
       const child = spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, join(root, 'scripts/generate-maintainers.mjs'),
