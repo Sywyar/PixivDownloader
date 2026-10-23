@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.plugin;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -44,17 +47,27 @@ class RouteDeclarationCoverageTest {
     /** 框架内部端点：非业务路由，由 ERROR dispatch / 独立 handler 旁路 AuthFilter，不要求 route 声明。 */
     private static final Set<String> FRAMEWORK_EXEMPT = Set.of("/error");
 
+    private static final Map<String, String> originalProperties = new LinkedHashMap<>();
+
     static {
-        System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, "target/test-runtime/config");
-        System.setProperty(RuntimeFiles.STATE_DIR_PROPERTY, "target/test-runtime/state");
-        System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, "target/test-runtime/data");
+        Map.of(
+                RuntimeFiles.CONFIG_DIR_PROPERTY, "target/test-runtime/config",
+                RuntimeFiles.STATE_DIR_PROPERTY, "target/test-runtime/state",
+                RuntimeFiles.DATA_DIR_PROPERTY, "target/test-runtime/data").forEach((key, value) -> {
+            originalProperties.put(key, System.getProperty(key));
+            System.setProperty(key, value);
+        });
     }
 
     @AfterAll
     static void tearDownRuntimeDirs() {
-        System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
-        System.clearProperty(RuntimeFiles.STATE_DIR_PROPERTY);
-        System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY);
+        originalProperties.forEach((key, value) -> {
+            if (value == null) {
+                System.clearProperty(key);
+            } else {
+                System.setProperty(key, value);
+            }
+        });
     }
 
     @Autowired

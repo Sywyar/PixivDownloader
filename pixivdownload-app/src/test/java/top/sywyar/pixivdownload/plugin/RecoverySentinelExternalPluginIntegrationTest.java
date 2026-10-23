@@ -119,7 +119,7 @@ class RecoverySentinelExternalPluginIntegrationTest {
     @Test
     @DisplayName("已安装但 plugins.recovery-sentinel.enabled=false：状态 DISABLED，核心进入恢复模式")
     void disabledSentinelEntersRecovery() {
-        PluginRegistry registry = registryFor(togglesWith("recovery-sentinel", false));
+        PluginRegistry registry = registryFor(disabledSentinel());
 
         // 被禁用：仍安装（PF4J 已加载），但不在活动快照内。
         assertThat(registry.find("recovery-sentinel")).isEmpty();
@@ -141,11 +141,11 @@ class RecoverySentinelExternalPluginIntegrationTest {
         return new PluginRegistry(List.of(), toggles, manager.discoverFeaturePlugins());
     }
 
-    private static PluginToggleProperties togglesWith(String pluginId, boolean enabled) {
+    private static PluginToggleProperties disabledSentinel() {
         PluginToggleProperties toggles = new PluginToggleProperties();
         PluginToggleProperties.PluginToggle toggle = new PluginToggleProperties.PluginToggle();
-        toggle.setEnabled(enabled);
-        toggles.put(pluginId, toggle);
+        toggle.setEnabled(false);
+        toggles.put("recovery-sentinel", toggle);
         return toggles;
     }
 

@@ -15,18 +15,8 @@ public final class TestDownloadTypeDescriptors {
                                                 String displayI18nKey,
                                                 int order,
                                                 String moduleUrl) {
-        return create(type, displayNamespace, displayI18nKey, order, moduleUrl,
-                DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION);
-    }
-
-    public static DownloadTypeDescriptor create(String type,
-                                                String displayNamespace,
-                                                String displayI18nKey,
-                                                int order,
-                                                String moduleUrl,
-                                                int contractVersion) {
         return new DownloadTypeDescriptor(
-                contractVersion,
+                DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
                 type,
                 displayNamespace,
                 displayI18nKey,

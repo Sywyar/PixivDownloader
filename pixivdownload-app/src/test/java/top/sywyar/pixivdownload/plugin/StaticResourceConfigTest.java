@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.plugin;
 
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Bean;
@@ -49,21 +49,27 @@ class StaticResourceConfigTest {
         }
     }
 
-    private MockMvc mockMvc;
+    private AnnotationConfigWebApplicationContext context;
 
-    @BeforeEach
-    void setUp() {
-        AnnotationConfigWebApplicationContext context = new AnnotationConfigWebApplicationContext();
+    private MockMvc mockMvc() {
+        context = new AnnotationConfigWebApplicationContext();
         context.setServletContext(new MockServletContext());
         context.register(ServingConfig.class);
         context.refresh();
-        mockMvc = MockMvcBuilders.webAppContextSetup(context).build();
+        return MockMvcBuilders.webAppContextSetup(context).build();
+    }
+
+    @AfterEach
+    void closeServingContext() {
+        if (context != null) {
+            context.close();
+        }
     }
 
     @Test
     @DisplayName("核心公共库 /js/*.js 经 contribution handler 返回 200，MIME 为 JS 类型")
     void servesCorePublicJavascript() throws Exception {
-        mockMvc.perform(get("/js/pixiv-i18n.js"))
+        mockMvc().perform(get("/js/pixiv-i18n.js"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", containsString("javascript")));
     }
@@ -71,7 +77,7 @@ class StaticResourceConfigTest {
     @Test
     @DisplayName("核心公共库 /css/*.css 经 contribution handler 返回 200，MIME 为 text/css")
     void servesCorePublicCss() throws Exception {
-        mockMvc.perform(get("/css/admin-visibility.css"))
+        mockMvc().perform(get("/css/admin-visibility.css"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", containsString("text/css")));
     }
@@ -79,7 +85,7 @@ class StaticResourceConfigTest {
     @Test
     @DisplayName("core-only 不服务外置 novel 下载行为模块")
     void externalNovelStaticResourceIsAbsentInCoreOnlyContext() throws Exception {
-        mockMvc.perform(get("/pixiv-novel-download/novel-queue-type.js"))
+        mockMvc().perform(get("/pixiv-novel-download/novel-queue-type.js"))
                 .andExpect(status().isNotFound());
     }
 
@@ -88,7 +94,7 @@ class StaticResourceConfigTest {
     void servesVendoredVueRuntime() throws Exception {
         // 单一来源的 Vue 全局构建版落在既有 classpath:/static/vendor/ → /vendor/ 处理器下，
         // 无需新增 StaticResourceContribution / 路由声明即被 serving。
-        mockMvc.perform(get("/vendor/vue/vue.global.prod.js"))
+        mockMvc().perform(get("/vendor/vue/vue.global.prod.js"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", containsString("javascript")));
     }
@@ -97,7 +103,7 @@ class StaticResourceConfigTest {
     @DisplayName("共享 Vue 槽位挂载 helper /js/pixiv-vue.js 经 /js/ contribution 返回 200，MIME 为 JS 类型")
     void servesSharedVueMountHelper() throws Exception {
         // 小说搜索网格经此 helper 懒加载核心 Vue 运行时；缺失即页面侧优雅回退命令式渲染。
-        mockMvc.perform(get("/js/pixiv-vue.js"))
+        mockMvc().perform(get("/js/pixiv-vue.js"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", containsString("javascript")));
     }
@@ -105,14 +111,14 @@ class StaticResourceConfigTest {
     @Test
     @DisplayName("不存在的静态资源返回 404")
     void missingResourceReturnsNotFound() throws Exception {
-        mockMvc.perform(get("/js/no-such-resource-xyz.js"))
+        mockMvc().perform(get("/js/no-such-resource-xyz.js"))
                 .andExpect(status().isNotFound());
     }
 
     @Test
     @DisplayName("目录穿越路径不泄露 contribution 位置之外的资源，返回 4xx")
     void directoryTraversalRejected() throws Exception {
-        mockMvc.perform(get("/js/../../application.properties"))
+        mockMvc().perform(get("/js/../../application.properties"))
                 .andExpect(status().is4xxClientError());
     }
 

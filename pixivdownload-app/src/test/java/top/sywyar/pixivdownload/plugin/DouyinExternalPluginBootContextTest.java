@@ -111,10 +111,9 @@ class DouyinExternalPluginBootContextTest {
             "douyin.account.favorite-folder",
             "douyin.account.favorite-collection");
     private static final StageResult STAGE = stageExternalDouyinJar();
-    private static final boolean STAGED = STAGE.staged();
 
     static {
-        if (STAGED) {
+        if (STAGE.staged()) {
             System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, "target/test-runtime/config");
             System.setProperty(RuntimeFiles.STATE_DIR_PROPERTY, "target/test-runtime/state");
             System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, "target/test-runtime/data");
@@ -124,7 +123,7 @@ class DouyinExternalPluginBootContextTest {
 
     @SuppressWarnings("unused")
     static boolean externalDouyinJarStaged() {
-        return STAGED;
+        return STAGE.staged();
     }
 
     @Autowired
@@ -219,7 +218,7 @@ class DouyinExternalPluginBootContextTest {
         ClassLoader externalCl = externalDouyinClassLoader();
         var sourceExecutors = child.getBeansOfType(ScheduledSourceExecutor.class).values();
 
-        assertThat(sourceExecutors).hasSize(9)
+        assertThat(sourceExecutors)
                 .allSatisfy(executor -> assertThat(executor.getClass().getClassLoader())
                         .isSameAs(externalCl));
         assertThat(sourceExecutors)
@@ -324,9 +323,9 @@ class DouyinExternalPluginBootContextTest {
         WebI18nBundleRegistry.RegisteredBundle bundle = webI18nBundleRegistry.resolve("douyin");
 
         assertThat(bundle).isNotNull();
-        assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE)).containsEntry("source.douyin", "抖音");
         assertThat(bundle.load(Locale.ENGLISH)).containsEntry("source.douyin", "Douyin");
         assertThat(bundle.load(Locale.SIMPLIFIED_CHINESE))
+                .containsEntry("source.douyin", "抖音")
                 .containsEntry("nav.gallery", "抖音")
                 .containsEntry("gallery.page.title", "抖音画廊")
                 .containsEntry("detail.page-title", "抖音作品详情");

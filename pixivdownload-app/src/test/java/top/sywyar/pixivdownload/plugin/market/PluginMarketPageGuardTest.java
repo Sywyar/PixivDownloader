@@ -44,12 +44,7 @@ class PluginMarketPageGuardTest {
             "static/plugin-market/plugin-market.css");
 
     private static String read(String resource) throws IOException {
-        try (InputStream in = PluginMarketPageGuardTest.class.getClassLoader().getResourceAsStream(resource)) {
-            if (in == null) {
-                throw new NoSuchFileException(resource);
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        return new String(readBytes(resource), StandardCharsets.UTF_8);
     }
 
     private static byte[] readBytes(String resource) throws IOException {
@@ -73,7 +68,6 @@ class PluginMarketPageGuardTest {
         int vue = html.indexOf("/plugin-market/plugin-market-vue.js");
         int fallback = html.indexOf("/plugin-market/plugin-market-fallback.js");
         int init = html.indexOf("/plugin-market/plugin-market-init.js");
-        assertThat(vueHelper).as("应加载共享 Vue 助手 /js/pixiv-vue.js").isGreaterThanOrEqualTo(0);
         assertThat(List.of(vueHelper, core, data, api, recovery, vue, fallback, init))
                 .as("各模块脚本都应在页面声明").allSatisfy(idx -> assertThat(idx).isGreaterThanOrEqualTo(0));
         assertThat(vueHelper).isLessThan(core);

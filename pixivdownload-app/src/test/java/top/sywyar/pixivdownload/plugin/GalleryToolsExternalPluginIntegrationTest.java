@@ -191,7 +191,6 @@ class GalleryToolsExternalPluginIntegrationTest {
                         .filter(s -> s.pluginId().equals("gallery-tools")
                                 && s.contribution().publicPathPrefix().startsWith("/pixiv-stats"))
                         .toList();
-        assertThat(statsResources).hasSize(2);
         assertThat(statsResources)
                 .extracting(s -> s.contribution().publicPathPrefix())
                 .containsExactlyInAnyOrder("/pixiv-stats/", "/pixiv-stats.html");

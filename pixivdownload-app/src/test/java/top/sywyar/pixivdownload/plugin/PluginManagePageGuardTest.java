@@ -154,6 +154,7 @@ class PluginManagePageGuardTest {
     @Test
     @DisplayName("执行信任、生命周期与重启提示文案中英键集合一致且关键文案非空")
     void executionAndLifecycleI18nKeysMatchAcrossLocales() throws IOException {
+        String html = read(HTML);
         Properties zh = readProperties(I18N_ZH);
         Properties en = readProperties(I18N_EN);
         assertThat(zh.stringPropertyNames()).as("plugins 中英文案键集合一致")
@@ -177,13 +178,13 @@ class PluginManagePageGuardTest {
             assertThat(zh.getProperty(key)).as("中文文案 " + key).isNotBlank();
             assertThat(en.getProperty(key)).as("英文文案 " + key).isNotBlank();
         }
-        assertThat(read(HTML)).as("插件列表与本地安装弹窗都必须直接展示执行与签名说明")
+        assertThat(html).as("插件列表与本地安装弹窗都必须直接展示执行与签名说明")
                 .containsOnlyOnce("data-i18n=\"security.notice.title\"")
                 .contains("data-i18n=\"security.notice.desc\"");
-        assertThat(read(HTML)).as("高权限宿主警告必须有固定页面锚点")
+        assertThat(html).as("高权限宿主警告必须有固定页面锚点")
                 .contains("id=\"pm-host-privilege\"", "data-i18n=\"host.elevated.title\"",
                         "data-i18n=\"host.elevated.desc\"");
-        assertThat(read(HTML)).as("本地安装必须提供 detached 签名选择入口与正式运行提示")
+        assertThat(html).as("本地安装必须提供 detached 签名选择入口与正式运行提示")
                 .contains("id=\"pm-install-signature\"", "accept=\".sig\"",
                         "data-i18n=\"install.signature.help\"");
     }
@@ -217,7 +218,6 @@ class PluginManagePageGuardTest {
         assertThat(init).as("据 plugins.segment placement 判定可选页签是否存在")
                 .contains(NavigationPlacements.PLUGINS_SEGMENT, "hasNavigationForPlacement")
                 .doesNotContain("plugin-market");
-        assertThat(init).as("init 不硬编码可选页 href（href 由导航贡献提供）").doesNotContain("/plugin-market.html");
         String core = read(CORE);
         String views = read(VIEWS);
         assertThat(core + views).as("页面状态 / 视图不复制可选页签 href、图标或标签")

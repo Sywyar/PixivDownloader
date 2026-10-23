@@ -50,7 +50,7 @@ class LandingRegistryTest {
     @DisplayName("gallery 已安装时：受邀访客 gallery(priority 20) 优先于 novel(priority 30) → 画廊落点")
     void builtInResolvesInvitedGuestToGallery() {
         LandingRegistry registry = new LandingRegistry(
-                new PluginRegistry(withGalleryAndNovelGallery(BuiltInPlugins.createAll())));
+                new PluginRegistry(withGalleryAndNovelGallery()));
         assertThat(registry.resolve(Audience.INVITED_GUEST)).contains("/pixiv-gallery.html");
     }
 
@@ -58,7 +58,7 @@ class LandingRegistryTest {
     @DisplayName("禁用画廊后受邀访客落点回退到小说画廊（注册中心只收启用插件，禁用插件不贡献落点）")
     void fallsBackToNovelWhenGalleryDisabled() {
         LandingRegistry registry = new LandingRegistry(
-                new PluginRegistry(withGalleryAndNovelGallery(BuiltInPlugins.createAll()), disabling("gallery")));
+                new PluginRegistry(withGalleryAndNovelGallery(), disabling("gallery")));
         assertThat(registry.resolve(Audience.INVITED_GUEST)).contains("/pixiv-novel-gallery.html");
         assertThat(registry.landings())
                 .extracting(LandingRegistry.RegisteredLanding::pluginId)
@@ -69,7 +69,7 @@ class LandingRegistryTest {
     @DisplayName("画廊 + 小说画廊都禁用：受邀访客落点为空（由调用方兜底回 /login.html?inviteError=1）")
     void emptyWhenBothDisabled() {
         LandingRegistry registry = new LandingRegistry(
-                new PluginRegistry(withGalleryAndNovelGallery(BuiltInPlugins.createAll()),
+                new PluginRegistry(withGalleryAndNovelGallery(),
                         disabling("gallery", "novel")));
         assertThat(registry.resolve(Audience.INVITED_GUEST)).isEmpty();
     }
@@ -94,8 +94,7 @@ class LandingRegistryTest {
                         AccessPolicy.INVITED_GUEST, 1));
             }
         };
-        List<PixivFeaturePlugin> plugins = new ArrayList<>(
-                withGalleryAndNovelGallery(BuiltInPlugins.createAll()));
+        List<PixivFeaturePlugin> plugins = withGalleryAndNovelGallery();
         plugins.add(intruder);
         LandingRegistry registry = new LandingRegistry(new PluginRegistry(plugins));
         assertThat(registry.resolve(Audience.INVITED_GUEST)).contains("/pixiv-gallery.html");
@@ -111,8 +110,7 @@ class LandingRegistryTest {
                         "contender", Audience.INVITED_GUEST, "/contender.html", 5));
             }
         };
-        List<PixivFeaturePlugin> plugins = new ArrayList<>(
-                withGalleryAndNovelGallery(BuiltInPlugins.createAll()));
+        List<PixivFeaturePlugin> plugins = withGalleryAndNovelGallery();
         plugins.add(contender);
         LandingRegistry registry = new LandingRegistry(new PluginRegistry(plugins));
         assertThat(registry.resolve(Audience.INVITED_GUEST)).contains("/contender.html");
@@ -220,7 +218,7 @@ class LandingRegistryTest {
     void builtInLandingsAreReachableByTheirAudience() {
         // 用同一插件集构建落点与路由注册中心，逐条比对：落点指向的路由必须存在且其访问策略放行该 audience，
         // 否则属配置错误（坏入口）。这是「landing 指向不可达 route 时测试明确失败」的覆盖。
-        PluginRegistry plugins = new PluginRegistry(withGalleryAndNovelGallery(BuiltInPlugins.createAll()));
+        PluginRegistry plugins = new PluginRegistry(withGalleryAndNovelGallery());
         LandingRegistry landings = new LandingRegistry(plugins);
         RouteAccessRegistry routes = new RouteAccessRegistry(plugins);
 
@@ -272,8 +270,8 @@ class LandingRegistryTest {
         }
     }
 
-    private static List<PixivFeaturePlugin> withGalleryAndNovelGallery(List<PixivFeaturePlugin> plugins) {
-        List<PixivFeaturePlugin> out = new ArrayList<>(plugins);
+    private static List<PixivFeaturePlugin> withGalleryAndNovelGallery() {
+        List<PixivFeaturePlugin> out = new ArrayList<>(BuiltInPlugins.createAll());
         out.add(new TestGalleryPlugin());
         out.add(new TestNovelGalleryPlugin());
         return out;

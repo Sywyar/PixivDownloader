@@ -159,12 +159,16 @@ class ExternalRuntimeCapabilityAdapterInvocationTest {
                 }
             }, "push-notification-nested-call");
             caller.start();
-            assertThat(rawSink.entered.await(5, TimeUnit.SECONDS)).isTrue();
+            ExternalCapabilityDrain drain;
+            try {
+                assertThat(rawSink.entered.await(5, TimeUnit.SECONDS)).isTrue();
+                drain = registrar.withdraw(publication).orElseThrow();
+            } finally {
+                rawSink.proceed.countDown();
+                caller.join(5000L);
+            }
 
-            ExternalCapabilityDrain drain = registrar.withdraw(publication).orElseThrow();
-            rawSink.proceed.countDown();
-            caller.join(5000L);
-
+            assertThat(caller.isAlive()).isFalse();
             assertThat(failure.get()).isNull();
             assertThat(sends.get()).isEqualTo(1);
             assertThat(drain.await(Duration.ofSeconds(1))).isTrue();
@@ -211,11 +215,15 @@ class ExternalRuntimeCapabilityAdapterInvocationTest {
             }
         }, "external-capability-blocking-fixture");
         caller.start();
-        assertThat(gate.entered.await(5, TimeUnit.SECONDS)).isTrue();
-        ExternalCapabilityDrain drain = registrar.withdraw(publication).orElseThrow();
-        assertThat(drain.isDrained()).isFalse();
-        gate.release.countDown();
-        caller.join(5000L);
+        ExternalCapabilityDrain drain;
+        try {
+            assertThat(gate.entered.await(5, TimeUnit.SECONDS)).isTrue();
+            drain = registrar.withdraw(publication).orElseThrow();
+            assertThat(drain.isDrained()).isFalse();
+        } finally {
+            gate.release.countDown();
+            caller.join(5000L);
+        }
         assertThat(caller.isAlive()).isFalse();
         assertThat(failure.get()).isNull();
         assertThat(drain.await(Duration.ofSeconds(1))).isTrue();

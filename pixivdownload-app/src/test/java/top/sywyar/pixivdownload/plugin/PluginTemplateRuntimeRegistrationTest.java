@@ -295,14 +295,23 @@ class PluginTemplateRuntimeRegistrationTest {
         copyTree(templateRoot.resolve("src/main/resources"), output);
         URLClassLoader classLoader = new URLClassLoader(
                 new URL[]{output.toUri().toURL()}, getClass().getClassLoader());
-        PixivFeaturePlugin feature = (PixivFeaturePlugin) Class
-                .forName(featureClassName, true, classLoader)
-                .getConstructor()
-                .newInstance();
-        Class<?> configuration = configurationClassName == null
-                ? null
-                : Class.forName(configurationClassName, true, classLoader);
-        return new LoadedTemplate(feature, configuration, classLoader);
+        try {
+            PixivFeaturePlugin feature = (PixivFeaturePlugin) Class
+                    .forName(featureClassName, true, classLoader)
+                    .getConstructor()
+                    .newInstance();
+            Class<?> configuration = configurationClassName == null
+                    ? null
+                    : Class.forName(configurationClassName, true, classLoader);
+            return new LoadedTemplate(feature, configuration, classLoader);
+        } catch (Exception | Error failure) {
+            try {
+                classLoader.close();
+            } catch (Exception closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
+            throw failure;
+        }
     }
 
     private static Optional<?> find(

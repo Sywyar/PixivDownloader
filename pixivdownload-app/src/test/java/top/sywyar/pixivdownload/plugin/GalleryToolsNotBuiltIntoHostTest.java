@@ -35,24 +35,27 @@ class GalleryToolsNotBuiltIntoHostTest {
     @Test
     @DisplayName("route / navigation / static / i18n 注册中心均无画廊工具贡献")
     void downstreamRegistriesHaveNoGalleryToolsContribution() {
-        assertThat(new RouteAccessRegistry(registry).routes())
+        var routes = new RouteAccessRegistry(registry).routes();
+        var resources = new StaticResourceRegistry(registry).resources();
+        var i18n = new WebI18nBundleRegistry(registry);
+        assertThat(routes)
                 .noneMatch(r -> r.pluginId().equals("gallery-tools"));
-        assertThat(new RouteAccessRegistry(registry).routes())
+        assertThat(routes)
                 .extracting(r -> r.route().pathPattern())
                 .doesNotContain(
                         "/api/stats/**", "/pixiv-stats.html", "/pixiv-stats/**",
                         "/api/duplicates/**", "/pixiv-duplicates.html", "/pixiv-duplicates/**");
         assertThat(new NavigationRegistry(registry).navigation())
                 .noneMatch(n -> n.pluginId().equals("gallery-tools"));
-        assertThat(new StaticResourceRegistry(registry).resources())
+        assertThat(resources)
                 .noneMatch(s -> s.pluginId().equals("gallery-tools"));
-        assertThat(new StaticResourceRegistry(registry).resources())
+        assertThat(resources)
                 .extracting(s -> s.contribution().publicPathPrefix())
                 .doesNotContain(
                         "/pixiv-stats/", "/pixiv-stats.html",
                         "/pixiv-duplicates/", "/pixiv-duplicates.html");
-        assertThat(new WebI18nBundleRegistry(registry).resolve("gallery-tools")).isNull();
-        assertThat(new WebI18nBundleRegistry(registry).resolve("stats")).isNull();
-        assertThat(new WebI18nBundleRegistry(registry).resolve("duplicates")).isNull();
+        assertThat(i18n.resolve("gallery-tools")).isNull();
+        assertThat(i18n.resolve("stats")).isNull();
+        assertThat(i18n.resolve("duplicates")).isNull();
     }
 }

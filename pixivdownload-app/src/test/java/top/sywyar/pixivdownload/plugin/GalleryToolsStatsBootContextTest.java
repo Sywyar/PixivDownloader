@@ -208,7 +208,6 @@ class GalleryToolsStatsBootContextTest {
                 staticResourceRegistry.resources().stream()
                         .filter(s -> s.pluginId().equals("gallery-tools")
                                 && s.contribution().publicPathPrefix().equals("/pixiv-stats/")).findFirst().orElseThrow();
-        assertThat(staticResource.contribution().publicPathPrefix()).isEqualTo("/pixiv-stats/");
         assertThat(staticResource.classLoader()).isSameAs(externalCl);
 
         assertThat(staticResourceRegistry.resources().stream()
@@ -372,8 +371,8 @@ class GalleryToolsStatsBootContextTest {
         ConfigurableApplicationContext beforeStop = externalPluginContextManager.contextFor("gallery-tools").orElseThrow();
         pluginLifecycleService.stop("gallery-tools");
         assertThat(pluginLifecycleService.phase("gallery-tools")).contains(PluginRuntimePhase.STOPPED);
-        assertThat(anyHandlerLoadedBy(statsCl))
-                .as("stop 后请求分发表不应残留任何由 stats classloader 加载的 handler Bean")
+        assertThat(anyHandlerLoadedBy(beforeStop.getClassLoader()))
+                .as("stop 后请求分发表不应残留当前插件 classloader 加载的 handler Bean")
                 .isFalse();
         assertThat(externalPluginContextManager.contextFor("gallery-tools")).isEmpty(); // lifecycle 不再持有子 context
         assertThat(beforeStop.isActive()).isFalse();                            // 子 context 已关闭

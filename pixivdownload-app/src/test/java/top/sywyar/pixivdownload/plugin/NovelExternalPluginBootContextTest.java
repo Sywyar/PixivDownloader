@@ -35,10 +35,16 @@ import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDirectoryState;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.MessageFormat;
 import java.util.Comparator;
 import java.util.Locale;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static top.sywyar.pixivdownload.plugin.PluginTestArtifacts.zipDirectoryAsJar;
@@ -195,37 +201,44 @@ class NovelExternalPluginBootContextTest {
 
     @Test
     @DisplayName("novel 子上下文的插件文案解析器读取 owner 资源并跟随请求语言")
-    void novelPluginMessagesUseOwnerBundleAndRequestLocale() {
+    void novelPluginMessagesUseOwnerBundleAndRequestLocale() throws IOException {
         ConfigurableApplicationContext child = externalPluginContextManager.contextFor("novel").orElseThrow();
         MessageResolver messages = child.getBean("novelPluginMessages", MessageResolver.class);
-
+        Map<String, Object[]> cases = Map.of(
+                "novel.epub.chapter", new Object[]{2},
+                "novel.series.log.refresh.failed.exception", new Object[]{7},
+                "pixiv.proxy.novel.id.invalid", new Object[]{"bad"},
+                "novel.translate.success", new Object[]{},
+                "narration.error.missing-novel", new Object[]{},
+                "narration.tts.text-too-long", new Object[]{100},
+                "download.status.completed", new Object[]{1, 2},
+                "narration.tts.error.empty-text", new Object[]{});
+        var previousLocaleContext = LocaleContextHolder.getLocaleContext();
         try {
-            LocaleContextHolder.setLocale(Locale.US);
-            assertThat(messages.get("novel.epub.chapter", 2)).isEqualTo("Chapter 2");
-            assertThat(messages.get("novel.series.log.refresh.failed.exception", 7))
-                    .isEqualTo("Failed to refresh novel series metadata: seriesId=7");
-            assertThat(messages.get("pixiv.proxy.novel.id.invalid", "bad"))
-                    .isEqualTo("Invalid novel ID: bad");
-            assertThat(messages.get("novel.translate.success")).isEqualTo("Translation complete");
-            assertThat(messages.get("narration.error.missing-novel")).isEqualTo("Missing novel id");
-            assertThat(messages.get("narration.tts.text-too-long", 100))
-                    .isEqualTo("Text too long for one request (max 100 characters)");
-            assertThat(messages.get("download.status.completed", 1, 2)).isEqualTo("Completed (1/2)");
-            assertThat(messages.get("narration.tts.error.empty-text")).isEqualTo("Text to read is empty");
-            LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
-            assertThat(messages.get("novel.epub.chapter", 2)).isEqualTo("章节 2");
-            assertThat(messages.get("novel.series.log.refresh.failed.exception", 7))
-                    .isEqualTo("刷新小说系列元数据异常: seriesId=7");
-            assertThat(messages.get("pixiv.proxy.novel.id.invalid", "bad"))
-                    .isEqualTo("无效的小说 ID: bad");
-            assertThat(messages.get("novel.translate.success")).isEqualTo("翻译完成");
-            assertThat(messages.get("narration.error.missing-novel")).isEqualTo("缺少小说 ID");
-            assertThat(messages.get("narration.tts.text-too-long", 100))
-                    .isEqualTo("单次朗读文本过长（最多 100 字）");
-            assertThat(messages.get("download.status.completed", 1, 2)).isEqualTo("已完成 (1/2)");
-            assertThat(messages.get("narration.tts.error.empty-text")).isEqualTo("朗读文本为空");
+            for (var locale : Map.of(Locale.US, "_en", Locale.SIMPLIFIED_CHINESE, "").entrySet()) {
+                Properties expectedMessages = new Properties();
+                for (String basename : List.of("i18n/messages", "i18n/novel/messages")) {
+                    try (var input = child.getClassLoader().getResourceAsStream(
+                            basename + locale.getValue() + ".properties")) {
+                        assertThat(input).isNotNull();
+                        expectedMessages.load(new InputStreamReader(input, StandardCharsets.UTF_8));
+                    }
+                }
+                LocaleContextHolder.setLocale(locale.getKey());
+                cases.forEach((key, args) -> {
+                    String pattern = expectedMessages.getProperty(key);
+                    assertThat(pattern).as(key).isNotBlank();
+                    String rendered = messages.get(key, args);
+                    assertThat(rendered).as("%s (%s)", key, locale.getKey())
+                            .isEqualTo(args.length == 0 ? pattern
+                                    : new MessageFormat(pattern, locale.getKey()).format(args));
+                    for (Object argument : args) {
+                        assertThat(rendered).as(key).contains(argument.toString());
+                    }
+                });
+            }
         } finally {
-            LocaleContextHolder.resetLocaleContext();
+            LocaleContextHolder.setLocaleContext(previousLocaleContext);
         }
     }
 
@@ -317,7 +330,6 @@ class NovelExternalPluginBootContextTest {
                                                  String className) throws Exception {
         Class<?> type = classLoader.loadClass(className);
         Object bean = child.getBean(type);
-        assertThat(AopUtils.isAopProxy(bean)).as(className).isTrue();
         assertThat(AopUtils.isCglibProxy(bean)).as(className).isTrue();
         assertThat(type.isInstance(bean)).as(className).isTrue();
     }

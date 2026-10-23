@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import top.sywyar.pixivdownload.plugin.registry.web.NavigationRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
@@ -278,12 +277,10 @@ class NavigationRegistryTest {
         NavigationRegistry registry = emptyRegistry();
         // 与必填的 PageSection.titleNamespace / QueueType.labelNamespace 刻意不同：导航 labelNamespace 允许缺省，
         // 表示该入口未绑定确定 namespace，由前端 tns 退化为裸 key、在页面首个 namespace 内解析。注册期不抛。
-        assertThatCode(() -> registry.register("a", List.of(new NavigationContribution(
-                "n-null", "app.top", null, "nav.label", "/n-null.html", "icon", AccessPolicy.ADMIN, 10))))
-                .doesNotThrowAnyException();
-        assertThatCode(() -> registry.register("b", List.of(new NavigationContribution(
-                "n-blank", "app.top", "  ", "nav.label", "/n-blank.html", "icon", AccessPolicy.ADMIN, 10))))
-                .doesNotThrowAnyException();
+        registry.register("a", List.of(new NavigationContribution(
+                "n-null", "app.top", null, "nav.label", "/n-null.html", "icon", AccessPolicy.ADMIN, 10)));
+        registry.register("b", List.of(new NavigationContribution(
+                "n-blank", "app.top", "  ", "nav.label", "/n-blank.html", "icon", AccessPolicy.ADMIN, 10)));
         // 缺省的 namespace 原样保真（消费端据此判定回退），不被规整成某个默认值。
         assertThat(registry.navigation())
                 .filteredOn(r -> r.navigation().id().equals("n-null"))

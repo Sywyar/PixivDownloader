@@ -35,15 +35,10 @@ import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 class RouteAccessMirrorTest {
 
     private static final RouteAccessRegistry REGISTRY =
-            new RouteAccessRegistry(new PluginRegistry(withExternalRouteFixtures(BuiltInPlugins.createAll())));
+            new RouteAccessRegistry(new PluginRegistry(withExternalRouteFixtures()));
 
-    /** AuthFilter 派生口径：monitor 受保护 ← ADMIN 或 INVITED_GUEST。 */
-    private static boolean isMonitorPolicy(AccessPolicy policy) {
-        return policy == AccessPolicy.ADMIN || policy == AccessPolicy.INVITED_GUEST;
-    }
-
-    private static List<PixivFeaturePlugin> withExternalRouteFixtures(List<PixivFeaturePlugin> plugins) {
-        java.util.ArrayList<PixivFeaturePlugin> out = new java.util.ArrayList<>(plugins);
+    private static List<PixivFeaturePlugin> withExternalRouteFixtures() {
+        java.util.ArrayList<PixivFeaturePlugin> out = new java.util.ArrayList<>(BuiltInPlugins.createAll());
         out.add(new TestGalleryPlugin());
         out.add(new TestNovelGalleryPlugin());
         out.add(douyinRouteFixture());
@@ -67,18 +62,9 @@ class RouteAccessMirrorTest {
         };
     }
 
-    /** AuthFilter 派生口径：访客邀请白名单 ← INVITED_GUEST 或 VISITOR_AND_INVITED_GUEST。 */
-    private static boolean isGuestPolicy(AccessPolicy policy) {
-        return policy == AccessPolicy.INVITED_GUEST || policy == AccessPolicy.VISITOR_AND_INVITED_GUEST;
-    }
-
-    private static boolean isPrefix(String pattern) {
-        return pattern.endsWith("**");
-    }
-
     /** {@code /x/**} → {@code /x/}；{@code /api/authors**} → {@code /api/authors}（与 AuthFilter 去 ** 派生一致）。 */
     private static String matcher(String pattern) {
-        return isPrefix(pattern) ? pattern.substring(0, pattern.length() - 2) : pattern;
+        return pattern.endsWith("**") ? pattern.substring(0, pattern.length() - 2) : pattern;
     }
 
     /** 与 AuthFilter 一致地把给定访问策略集合的全部路由折叠成匹配器字符串集合。 */
@@ -153,20 +139,14 @@ class RouteAccessMirrorTest {
     }
 
     @Test
-    @DisplayName("INVITED_GUEST 路由：既进入 monitor 受保护清单，又进入访客邀请白名单")
-    void invitedGuestRoutesAreBothMonitorAndGuest() {
+    @DisplayName("注册快照保留受邀访客专属路由")
+    void invitedGuestRoutesArePresent() {
         List<WebRouteContribution> invitedGuest = byPolicy(AccessPolicy.INVITED_GUEST);
         assertThat(invitedGuest).as("应有 INVITED_GUEST 路由（页面 + /api/gallery/ + 下载数据 / 缩略图等）").isNotEmpty();
-        invitedGuest.forEach(route -> {
-            assertThat(isMonitorPolicy(route.accessPolicy()))
-                    .as("INVITED_GUEST 路由 %s 应受 monitor 保护", route.pathPattern()).isTrue();
-            assertThat(isGuestPolicy(route.accessPolicy()))
-                    .as("INVITED_GUEST 路由 %s 应在访客白名单", route.pathPattern()).isTrue();
-        });
     }
 
     @Test
-    @DisplayName("ADMIN 路由：仅进入 monitor 清单，匹配器绝不出现在访客白名单或公开清单（admin-only 不变量）")
+    @DisplayName("ADMIN 路由匹配器不出现在访客白名单或公开清单")
     void adminOnlyRoutesNeverEnterGuestOrPublic() {
         Set<String> guestMatchers =
                 matchersForPolicies(Set.of(AccessPolicy.INVITED_GUEST, AccessPolicy.VISITOR_AND_INVITED_GUEST));
@@ -174,8 +154,6 @@ class RouteAccessMirrorTest {
         List<WebRouteContribution> adminOnly = byPolicy(AccessPolicy.ADMIN);
         assertThat(adminOnly).as("应有 ADMIN 路由（插件管理 / 插件市场 / 监控页等）").isNotEmpty();
         adminOnly.forEach(route -> {
-            assertThat(isMonitorPolicy(route.accessPolicy()))
-                    .as("ADMIN 路由 %s 应受 monitor 保护", route.pathPattern()).isTrue();
             assertThat(guestMatchers)
                     .as("admin-only 路由 %s 的匹配器不得出现在访客白名单", route.pathPattern())
                     .doesNotContain(matcher(route.pathPattern()));
@@ -186,15 +164,13 @@ class RouteAccessMirrorTest {
     }
 
     @Test
-    @DisplayName("VISITOR_AND_INVITED_GUEST 路由：进入访客白名单、但匹配器绝不出现在 monitor 清单")
+    @DisplayName("VISITOR_AND_INVITED_GUEST 路由匹配器不出现在 monitor 清单")
     void visitorAndInvitedGuestRoutesAreGuestButNotMonitor() {
         Set<String> monitorMatchers =
                 matchersForPolicies(Set.of(AccessPolicy.ADMIN, AccessPolicy.INVITED_GUEST));
         List<WebRouteContribution> open = byPolicy(AccessPolicy.VISITOR_AND_INVITED_GUEST);
         assertThat(open).as("应有 VISITOR_AND_INVITED_GUEST 路由（只读代理 / 下载状态前缀 + 跨页共享静态依赖）").isNotEmpty();
         open.forEach(route -> {
-            assertThat(isGuestPolicy(route.accessPolicy()))
-                    .as("VISITOR_AND_INVITED_GUEST 路由 %s 应在访客白名单", route.pathPattern()).isTrue();
             assertThat(monitorMatchers)
                     .as("VISITOR_AND_INVITED_GUEST 路由 %s 的匹配器不得出现在 monitor 清单", route.pathPattern())
                     .doesNotContain(matcher(route.pathPattern()));
