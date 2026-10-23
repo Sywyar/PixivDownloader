@@ -200,7 +200,7 @@
     // ====== 配额状态 ======
     let quotaInfo = {enabled: false, artworksUsed: 0, maxArtworks: 50, resetSeconds: 0};
     let userUUID = GM_getValue(CONFIG.KEY_USER_UUID, null);
-    const VERIFY_HISTORY_FILES_TOOLTIP = '通过检查记录的目录是否存在、文件夹是否为空、文件夹中的文件是否包含图片来判断是否有效，如果无效则会重新下载';
+    const VERIFY_HISTORY_FILES_TOOLTIP = '检查已登记的插画、漫画和动图是否完整，缺页或空文件会重新下载，检测出错则报错。历史记录会保留，已删除作品按重下设置处理。';
 
     /* ========== PromptGuard：跨脚本一次性弹窗协调 ========== */
     // localStorage + BroadcastChannel 在同源页面下被所有用户脚本共享，借此让多个脚本
@@ -505,7 +505,7 @@
             'switcher.ko-KR': '한국어',
             'common.dialog.unauthorized': 'Backend requires login. Opening login page...',
             'common.dialog.connect-notice': 'Pixiv download script first-run hint\n\nIf you use an external server instead of localhost, replace this userscript header line:\n  // @connect      YOUR_SERVER_HOST\nwith your real server IP or domain, for example:\n  // @connect      192.168.1.100\n\nPath: Tampermonkey dashboard -> target script -> Edit -> Save\n\nOr use the web UI directly:\n{serverBase}/login.html\n\n(This hint is shown only once)',
-            'common.option.verify-history-files.tooltip': 'Checks whether the recorded directory exists, whether it is empty, and whether it contains image files. Invalid records will be downloaded again.',
+            'common.option.verify-history-files.tooltip': 'Checks all recorded illustration, manga and Ugoira pages. Missing or empty files are downloaded again; check failures are reported as errors. History is kept, and deleted works follow the re-download setting.',
             'common.option.redownload-deleted.tooltip': 'Works deleted from the gallery keep a deletion mark. When unchecked (default) they are treated as already downloaded and skipped with the reason "downloaded before, but deleted"; when checked they are re-downloaded and the mark is cleared on success.',
             'common.status.ready': 'Ready',
             'common.queue.empty': 'Queue is empty',
@@ -635,7 +635,7 @@
             'switcher.label': '语言',
             'common.dialog.unauthorized': '后端服务需要登录验证，即将为您打开登录页面...',
             'common.dialog.connect-notice': 'Pixiv 下载脚本初始化提示\n\n如果您使用外部服务器（非 localhost），需将脚本头部的：\n  // @connect      YOUR_SERVER_HOST\n替换为实际的服务器 IP 或域名，例如：\n  // @connect      192.168.1.100\n\n修改路径：Tampermonkey 管理面板 -> 对应脚本 -> 编辑 -> 保存\n\n或者直接通过网页端下载作品（无需脚本）：\n{serverBase}/login.html\n\n（此提示只显示一次）',
-            'common.option.verify-history-files.tooltip': '通过检查记录的目录是否存在、文件夹是否为空、文件夹中的文件是否包含图片来判断是否有效，如果无效则会重新下载',
+            'common.option.verify-history-files.tooltip': '检查已登记的插画、漫画和动图是否完整，缺页或空文件会重新下载，检测出错则报错。历史记录会保留，已删除作品按重下设置处理。',
             'common.option.redownload-deleted.tooltip': '通过画廊删除的作品会保留删除标记：不勾选（默认）时视为已下载而跳过，原因为「已经下载过，但被删除」；勾选后重新下载，成功后删除标记自动清除',
             'common.status.ready': '准备就绪',
             'common.queue.empty': '队列为空',
@@ -765,7 +765,7 @@
             'switcher.label': '語言',
             'common.dialog.unauthorized': '後端服務需要登入驗證，即將為你開啟登入頁面…',
             'common.dialog.connect-notice': 'Pixiv 下載腳本首次執行提示\n\n如果你使用外部伺服器（非 localhost），需要將腳本標頭中的：\n  // @connect      YOUR_SERVER_HOST\n替換為實際的伺服器 IP 或網域，例如：\n  // @connect      192.168.1.100\n\n修改路徑：Tampermonkey 管理面板 → 對應腳本 → 編輯 → 儲存\n\n或直接透過網頁端下載作品（不需腳本）：\n{serverBase}/login.html\n\n（此提示只顯示一次）',
-            'common.option.verify-history-files.tooltip': '透過檢查記錄目錄是否存在、資料夾是否為空、資料夾中的檔案是否包含圖片來判斷是否有效；若無效則重新下載',
+            'common.option.verify-history-files.tooltip': '檢查已登記的插畫、漫畫和動圖是否完整，缺頁或空檔案會重新下載，檢查出錯則回報錯誤。歷史記錄會保留，已刪除作品依重新下載設定處理。',
             'common.option.redownload-deleted.tooltip': '透過畫廊刪除的作品會保留刪除標記：未勾選（預設）時視為已下載並略過，原因為「已下載過，但已被刪除」；勾選後重新下載，成功後自動清除刪除標記',
             'common.status.ready': '準備就緒',
             'common.queue.empty': '佇列為空',
@@ -899,7 +899,7 @@
             'switcher.ja-JP': '日本語',
             'common.dialog.unauthorized': 'バックエンドサービスへのログインが必要です。ログインページを開きます…',
             'common.dialog.connect-notice': 'Pixiv ダウンロードスクリプトの初回実行案内\n\nlocalhost 以外の外部サーバーを使う場合は、Userscript ヘッダーの次の行を：\n  // @connect      YOUR_SERVER_HOST\n実際のサーバー IP またはドメインに置き換えてください。例：\n  // @connect      192.168.1.100\n\n変更場所：Tampermonkey 管理画面 → 対象スクリプト → 編集 → 保存\n\nまたは Web 版から直接ダウンロードできます（スクリプト不要）：\n{serverBase}/login.html\n\n（この案内は 1 回だけ表示されます）',
-            'common.option.verify-history-files.tooltip': '記録されたディレクトリの存在、フォルダーが空でないこと、画像ファイルを含むことを確認します。無効なレコードは再ダウンロードされます。',
+            'common.option.verify-history-files.tooltip': '記録済みのイラスト・漫画・うごイラの全ページを確認します。ファイルの欠落や空ファイルがあれば再ダウンロードし、確認に失敗した場合はエラーを表示します。履歴は保持され、削除済みの作品は再ダウンロード設定に従います。',
             'common.option.redownload-deleted.tooltip': 'ギャラリーから削除した作品には削除マークが残ります。オフ（デフォルト）では「以前ダウンロード済みだが削除済み」としてスキップし、オンにすると再ダウンロードして成功時にマークを消去します。',
             'common.status.ready': '準備完了',
             'common.queue.empty': 'キューは空です',
@@ -1034,7 +1034,7 @@
             'switcher.ko-KR': '한국어',
             'common.dialog.unauthorized': '백엔드 서비스에 로그인해야 합니다. 로그인 페이지를 엽니다...',
             'common.dialog.connect-notice': 'Pixiv 다운로드 스크립트 최초 실행 안내\\n\\nlocalhost가 아닌 외부 서버를 사용하는 경우 사용자 스크립트 헤더의 다음 줄을 실제 서버 IP 또는 도메인으로 바꾸세요:\\n  // @connect      YOUR_SERVER_HOST\\n예: \\n  // @connect      192.168.1.100\\n\\n변경 경로: Tampermonkey 대시보드 → 대상 스크립트 → 편집 → 저장\\n\\n또는 웹 UI에서 직접 사용할 수 있습니다:\\n{serverBase}/login.html\\n\\n(이 안내는 한 번만 표시됩니다)',
-            'common.option.verify-history-files.tooltip': '기록된 디렉터리가 존재하는지, 비어 있지 않은지, 이미지 파일이 포함되어 있는지 확인합니다. 유효하지 않은 기록은 다시 다운로드합니다.',
+            'common.option.verify-history-files.tooltip': '기록된 일러스트·만화·우고이라의 모든 페이지를 확인합니다. 파일이 없거나 비어 있으면 다시 다운로드하며, 확인에 실패하면 오류를 표시합니다. 기록은 유지되며 삭제된 작품은 다시 다운로드 설정에 따라 처리됩니다.',
             'common.option.redownload-deleted.tooltip': '갤러리에서 삭제한 작품은 삭제 표시가 유지됩니다. 선택하지 않으면(기본값) 이미 다운로드된 것으로 처리하여 「이미 다운로드했지만 삭제됨」이라는 이유로 건너뛰고, 선택하면 다시 다운로드한 후 성공 시 표시를 지웁니다.',
             'common.status.ready': '준비 완료',
             'common.queue.empty': '대기열이 비어 있습니다',

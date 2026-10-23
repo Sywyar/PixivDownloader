@@ -231,7 +231,7 @@ function buildSettingsDrawerBody() {
     const verifyRow = settingsRow(
         bt('settings.dir-check', '实际目录检测'),
         switchControl(s.verifyHistoryFiles, v => { s.verifyHistoryFiles = v; saveSettings(); }),
-        bt('settings.dir-check.help', '检查记录目录是否存在、是否为空、是否含图片，无效则重新下载。'));
+        bt('settings.dir-check.help', '检查已登记的插画、漫画和动图是否完整，缺页或空文件会重新下载，检测出错则报错。历史记录会保留，已删除作品按重下设置处理。'));
     verifyRow.style.display = s.skipHistory ? '' : 'none';
     body.appendChild(verifyRow);
     const deletedRow = settingsRow(

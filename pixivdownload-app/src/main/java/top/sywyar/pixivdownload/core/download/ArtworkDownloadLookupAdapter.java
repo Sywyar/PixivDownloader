@@ -4,7 +4,7 @@ import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadLookup;
 
 /**
- * 将插画判重端口适配到带磁盘校验与历史恢复语义的宿主服务。
+ * 将插画判重端口适配到宿主的只读记录查询与可选文件校验。
  */
 @Component
 public class ArtworkDownloadLookupAdapter implements ArtworkDownloadLookup {

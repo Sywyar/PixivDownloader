@@ -155,7 +155,7 @@ class ArtworkDownloadPortsAdapterTest {
     }
 
     @Test
-    @DisplayName("判重适配器应保留磁盘校验与恢复语义")
+    @DisplayName("判重适配器应透传文件校验选择并保留记录存在性")
     void lookupAdapterDelegatesFileVerification() {
         DownloadedArtworkService downloadedArtworkService = mock(DownloadedArtworkService.class);
         ArtworkDownloadLookupAdapter adapter = new ArtworkDownloadLookupAdapter(downloadedArtworkService);

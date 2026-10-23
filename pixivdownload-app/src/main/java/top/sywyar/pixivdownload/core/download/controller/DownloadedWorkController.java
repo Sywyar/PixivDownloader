@@ -77,9 +77,8 @@ public class DownloadedWorkController {
     }
 
     /**
-     * pixiv-batch 两阶段恢复：当 GET verifyFiles 命中裸记录恢复或确认磁盘有匹配文件时，
-     * 前端拉到 Pixiv 元数据后 POST 到这里把缺字段补齐 / 写完整记录。
-     * 幂等：DB 已有完整记录（title 非空）直接返回原记录，不覆盖。
+     * 显式补齐已有记录的缺失元数据；标题已存在时保留原记录。
+     * 无记录时须提供完整页数，且默认命名的文件全部齐备，才能登记；GET 查询不执行恢复。
      */
     @PostMapping("/downloaded/{artworkId}/recover-metadata")
     public ResponseEntity<DownloadedResponse> recoverMetadata(
