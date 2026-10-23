@@ -34,8 +34,12 @@ class FileOperationCrashRecoveryTest {
         Path log = directory.resolve("child.log");
         Process child = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
                 "@" + arguments).redirectErrorStream(true).redirectOutput(log.toFile()).start();
-        assertThat(child.waitFor(45, TimeUnit.SECONDS)).isTrue();
-        assertThat(child.exitValue()).withFailMessage(Files.readString(log)).isEqualTo(committed ? 72 : 71);
+        try {
+            assertThat(child.waitFor(45, TimeUnit.SECONDS)).isTrue();
+            assertThat(child.exitValue()).withFailMessage(Files.readString(log)).isEqualTo(committed ? 72 : 71);
+        } finally {
+            if (child.isAlive()) child.destroyForcibly().waitFor();
+        }
         String property = RuntimeFiles.DATA_DIR_PROPERTY;
         String previous = System.getProperty(property);
         System.setProperty(property, directory.resolve("data").toString());

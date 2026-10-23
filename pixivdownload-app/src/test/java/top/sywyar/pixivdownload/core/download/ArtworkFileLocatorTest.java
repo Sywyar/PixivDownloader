@@ -31,7 +31,7 @@ class ArtworkFileLocatorTest {
 
 
     @Test
-    @DisplayName("按实际存在的原图 WebP PNG JPG 顺序选择并随作品删除媒体清单")
+    @DisplayName("按实际存在的原图 WebP PNG JPG 顺序选择并随作品删除遗留媒体清单")
     void prefersOriginalThenAvailableDerivatives() throws Exception {
         Path dir = Files.createDirectories(tempDir.resolve("42"));
         when(downloadConfig.getRootFolder()).thenReturn(tempDir.toString());
@@ -50,8 +50,9 @@ class ArtworkFileLocatorTest {
             org.junit.jupiter.api.Assertions.assertEquals(expected.toFile(), locator.resolveImageFile(record, 0));
             Files.delete(expected);
         }
+        Path legacyManifest = Files.writeString(dir.resolve("42_p0.media.properties"), "original=jpg");
         assertTrue(locator.deleteArtworkFiles(record));
-        assertFalse(Files.exists(dir.resolve("42_p0.media.properties")));
+        assertFalse(Files.exists(legacyManifest));
     }
 
     @Test
