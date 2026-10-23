@@ -61,9 +61,13 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -358,7 +362,7 @@ public class GuiLauncher {
                         openPluginMarketWithoutDesktopProvider(
                                 desktopUiHost,
                                 pluginSession,
-                                startupPluginRegistry,
+                                failure,
                                 singleInstanceManager
                         );
                     },
@@ -451,7 +455,7 @@ public class GuiLauncher {
     private static void openPluginMarketWithoutDesktopProvider(
             AppDesktopUiHost desktopUiHost,
             PluginBootstrapSession pluginSession,
-            PluginRegistry startupPluginRegistry,
+            DesktopUiFailure desktopFailure,
             SingleInstanceManager singleInstanceManager
     ) {
         Runnable openMarket = () -> {
@@ -463,28 +467,7 @@ public class GuiLauncher {
                         marketUri, safeMessage(failure)), failure);
             }
         };
-        var gate = pluginSession.installer().recoveryGateSnapshot();
-        var errors = new java.util.ArrayList<>(pluginSession.diagnostics());
-        var status = pluginSession.manager().status().orElseGet(pluginSession::status);
-        status.failures().forEach(failure -> errors.add(failure.source() + ": " + failure.reason()));
-        var report = top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport.empty();
-        if (gate.safeToScan()) {
-            try {
-                report = new top.sywyar.pixivdownload.plugin.management.PluginStatusService(
-                        startupPluginRegistry, pluginSession.manager(), pluginSession.installer(),
-                        top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.empty()).report();
-            } catch (RuntimeException failure) {
-                errors.add(failure.toString());
-            }
-        }
-        var guidance = top.sywyar.pixivdownload.plugin.recovery.RecoveryGuidance.from(
-                gate,
-                desktopRecoveryFailure,
-                report,
-                errors,
-                false,
-                status.failures()
-        );
+        var guidance = desktopRecoveryGuidance(pluginSession, desktopFailure);
         var summaries = guidance.localizedErrors(GuiLauncher::message);
         String body = message("recovery.explanation") + "\n\n"
                 + guidance.adviceKeys().stream().map(GuiLauncher::message)
@@ -522,6 +505,35 @@ public class GuiLauncher {
         );
     }
 
+    static top.sywyar.pixivdownload.plugin.recovery.RecoveryGuidance desktopRecoveryGuidance(
+            PluginBootstrapSession pluginSession,
+            DesktopUiFailure desktopFailure
+    ) {
+        var gate = pluginSession.installer().recoveryGateSnapshot();
+        var errors = new java.util.ArrayList<>(pluginSession.diagnostics());
+        var status = pluginSession.manager().status().orElseGet(pluginSession::status);
+        status.failures().forEach(failure -> errors.add(failure.source() + ": " + failure.reason()));
+        var report = top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport.empty();
+        if (gate.safeToScan()) {
+            try {
+                var registry = pluginRegistry(pluginSession, pluginSession.manager().discoverFeaturePlugins());
+                report = new top.sywyar.pixivdownload.plugin.management.PluginStatusService(
+                        registry, pluginSession.manager(), pluginSession.installer(),
+                        top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.empty()).report();
+            } catch (RuntimeException failure) {
+                errors.add(failure.toString());
+            }
+        }
+        return top.sywyar.pixivdownload.plugin.recovery.RecoveryGuidance.from(
+                gate,
+                desktopFailure,
+                report,
+                errors,
+                false,
+                status.failures()
+        );
+    }
+
     static void installJulBridge() {
         SLF4JBridgeHandler.removeHandlersForRootLogger();
         SLF4JBridgeHandler.install();
@@ -546,9 +558,8 @@ public class GuiLauncher {
     }
 
     private static void showBackendStartupFailure(Throwable error) {
-        String diag = diagnoseStartupError(error);
+        String diag = logStartupFailure(error);
         String userMessage = diag != null ? diag : message("gui.launcher.dialog.startup-error.message", safeMessage(error));
-        logStartupFailure(error);
         DesktopUiDialogs.show(
                 null,
                 message("gui.launcher.dialog.startup-error.title"),
@@ -558,13 +569,14 @@ public class GuiLauncher {
         );
     }
 
-    private static void logStartupFailure(Throwable t) {
+    private static String logStartupFailure(Throwable t) {
         String diag = diagnoseStartupError(t);
         if (diag != null) {
             log.error(logMessage("gui.launcher.log.startup.failed.diagnostic", diag), t);
         } else {
             log.error(logMessage("gui.launcher.log.startup.failed.generic", safeMessage(t)), t);
         }
+        return diag;
     }
 
     /**
@@ -572,10 +584,11 @@ public class GuiLauncher {
      * 未识别的异常返回 null，由调用方按通用错误处理。
      */
     private static String diagnoseStartupError(Throwable error) {
-        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+        Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Throwable cause = error; cause != null && visited.add(cause); cause = cause.getCause()) {
             String name = cause.getClass().getName();
             String msg = cause.getMessage() == null ? "" : cause.getMessage();
-            String low = msg.toLowerCase();
+            String low = msg.toLowerCase(Locale.ROOT);
 
             if (cause instanceof BindException
                     || name.endsWith("PortInUseException")
@@ -766,42 +779,52 @@ public class GuiLauncher {
             Supplier<PluginDiscoveryResult> discoveries,
             Function<PluginDiscoveryResult, List<DesktopUiPluginSource>> sourceFactory,
             PluginDiscoveryResult initialDiscovery,
-            List<DesktopUiPluginSource> initialSources) {
-        return new Supplier<>() {
-            private PluginDiscoveryResult discovery = initialDiscovery;
-            private List<DesktopUiPluginSource> sources = List.copyOf(initialSources);
-
-            @Override
-            public synchronized List<DesktopUiPluginSource> get() {
-                PluginDiscoveryResult current = discoveries.get();
-                if (!current.equals(discovery)) {
-                    sources = List.copyOf(sourceFactory.apply(current));
-                    discovery = current;
-                }
-                return sources;
-            }
-        };
+            List<DesktopUiPluginSource> initialSources
+    ) {
+        return memoizedDesktopUiValue(
+                discoveries,
+                discovery -> List.copyOf(sourceFactory.apply(discovery)),
+                initialDiscovery,
+                List.copyOf(initialSources)
+        );
     }
 
     static Supplier<WebI18nBundleRegistry> memoizedDesktopUiBundles(
             Supplier<PluginDiscoveryResult> discoveries,
             Function<PluginDiscoveryResult, WebI18nBundleRegistry> bundleFactory,
             PluginDiscoveryResult initialDiscovery,
-            WebI18nBundleRegistry initialBundles) {
-        return new Supplier<>() {
-            private PluginDiscoveryResult discovery = initialDiscovery;
-            private WebI18nBundleRegistry bundles = initialBundles;
+            WebI18nBundleRegistry initialBundles
+    ) {
+        return memoizedDesktopUiValue(discoveries, bundleFactory, initialDiscovery, initialBundles);
+    }
+
+    private static <T> Supplier<T> memoizedDesktopUiValue(
+            Supplier<PluginDiscoveryResult> discoveries,
+            Function<PluginDiscoveryResult, T> factory,
+            PluginDiscoveryResult initialDiscovery,
+            T initialValue
+    ) {
+        class Cache implements Supplier<T> {
+            private PluginDiscoveryResult discovery;
+            private T value;
+
+            // 构造参数只写入可替换字段，避免匿名类额外捕获初始插件快照。
+            Cache(PluginDiscoveryResult discovery, T value) {
+                this.discovery = discovery;
+                this.value = value;
+            }
 
             @Override
-            public synchronized WebI18nBundleRegistry get() {
+            public synchronized T get() {
                 PluginDiscoveryResult current = discoveries.get();
                 if (!current.equals(discovery)) {
-                    bundles = bundleFactory.apply(current);
+                    value = factory.apply(current);
                     discovery = current;
                 }
-                return bundles;
+                return value;
             }
-        };
+        }
+        return new Cache(initialDiscovery, initialValue);
     }
 
     static String resolveDesktopText(DesktopUiText token,
@@ -1081,7 +1104,7 @@ public class GuiLauncher {
             String value = new ConfigFileEditor(path).read(key);
             return value == null ? "" : value.trim();
         } catch (IOException failure) {
-            log.warn("Failed to read desktop UI provider preference from {}: {}", path, failure.toString());
+            log.warn(logMessage("gui.launcher.log.config.read-failed", path + ": " + failure));
         }
         return "";
     }

@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginLoadFailure;
 
+import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -130,16 +131,23 @@ class GuiLauncherDesktopSourcesTest {
                 .noneMatch(name -> name.contains("PixivFeaturePlugin") || name.contains("ClassLoader"));
     }
 
-    @Test
-    void replacedSourceSnapshotReleasesPluginAndClassLoader() throws Exception {
-        ReleaseProbe probe = replaceSourceSnapshot();
-
-        for (int attempt = 0; attempt < 20 && !probe.collected(); attempt++) {
-            System.gc();
-            Thread.sleep(10L);
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("仍在使用的桌面缓存替换后释放初始插件与类加载器")
+    void replacedSnapshotReleasesPluginAndClassLoader(boolean materializeBundles) throws Exception {
+        ReleaseProbe probe = replaceSnapshot(materializeBundles);
+        try {
+            for (int attempt = 0; attempt < 20 && !probe.collected(); attempt++) {
+                System.gc();
+                Thread.sleep(10L);
+            }
+            Assumptions.assumeTrue(probe.control().get() == null, "GC did not collect the unreferenced control");
+            assertThat(probe.plugin().get()).isNull();
+            assertThat(probe.classLoader().get()).isNull();
+            assertThat(probe.initialValue().get()).isNull();
+        } finally {
+            Reference.reachabilityFence(probe.cached());
         }
-        Assumptions.assumeTrue(probe.collected(),
-                "GC did not run conclusively after the deterministic source replacement checks passed");
     }
 
     @Test
@@ -209,39 +217,46 @@ class GuiLauncherDesktopSourcesTest {
         assertThat(cached.get()).isSameAs(replacement);
     }
 
-    private static ReleaseProbe replaceSourceSnapshot() {
-        PluginDiscoveryResult initial = PluginDiscoveryResult.empty();
-        PluginDiscoveryResult changed = new PluginDiscoveryResult(
-                List.of(), List.of(new PluginLoadFailure("replacement.jar", "changed")));
-        PluginDiscoveryResult[] current = {initial};
+    private static ReleaseProbe replaceSnapshot(boolean materializeBundles) {
         PixivFeaturePlugin plugin = new TestPlugin();
         ClassLoader classLoader = new ClassLoader(GuiLauncherDesktopSourcesTest.class.getClassLoader()) { };
-        DesktopUiPluginSource source = new DesktopUiPluginSource(
-                plugin.id(), false, plugin, classLoader, plugin.id(), 1L);
-        WeakReference<PixivFeaturePlugin> pluginReference = new WeakReference<>(plugin);
-        WeakReference<ClassLoader> classLoaderReference = new WeakReference<>(classLoader);
-        var sources = GuiLauncher.memoizedDesktopUiSources(
-                () -> current[0], discovery -> List.of(new DesktopUiPluginSource(
-                        "fixture", false, new TestPlugin(),
-                        GuiLauncherDesktopSourcesTest.class.getClassLoader(), "fixture", 2L)),
-                initial, List.of(source));
-
-        current[0] = changed;
-        assertThat(sources.get()).singleElement().satisfies(replacement -> {
-            assertThat(replacement.generation()).isEqualTo(2L);
-            assertThat(replacement).isNotSameAs(source);
-        });
-        return new ReleaseProbe(pluginReference, classLoaderReference);
+        PluginDiscoveryResult initial = new PluginDiscoveryResult(
+                List.of(new DiscoveredFeaturePlugin(plugin.id(), plugin.id(), plugin, classLoader)), List.of());
+        PluginDiscoveryResult[] current = {initial};
+        var registry = new PluginRegistry(List.of(), new PluginToggleProperties(), initial);
+        Supplier<?> cached = materializeBundles
+                ? GuiLauncher.memoizedDesktopUiBundles(
+                        () -> current[0],
+                        discovery -> bundles(),
+                        initial,
+                        new WebI18nBundleRegistry(registry)
+                )
+                : GuiLauncher.memoizedDesktopUiSources(
+                        () -> current[0],
+                        discovery -> List.of(),
+                        initial,
+                        GuiLauncher.buildDesktopUiPluginSources(registry)
+                );
+        Object original = cached.get();
+        current[0] = PluginDiscoveryResult.empty();
+        Object replacement = cached.get();
+        assertThat(replacement).isNotSameAs(original);
+        assertThat(cached.get()).isSameAs(replacement);
+        return new ReleaseProbe(cached, new WeakReference<>(plugin), new WeakReference<>(classLoader),
+                new WeakReference<>(original), new WeakReference<>(new Object()));
     }
 
     private static WebI18nBundleRegistry bundles() {
         return new WebI18nBundleRegistry(new PluginRegistry(List.of()));
     }
 
-    private record ReleaseProbe(WeakReference<PixivFeaturePlugin> plugin,
-                                WeakReference<ClassLoader> classLoader) {
+    private record ReleaseProbe(Supplier<?> cached,
+                                WeakReference<PixivFeaturePlugin> plugin,
+                                WeakReference<ClassLoader> classLoader,
+                                WeakReference<Object> initialValue,
+                                WeakReference<Object> control) {
         boolean collected() {
-            return plugin.get() == null && classLoader.get() == null;
+            return plugin.get() == null && classLoader.get() == null && initialValue.get() == null;
         }
     }
 
