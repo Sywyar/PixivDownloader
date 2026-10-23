@@ -144,9 +144,7 @@
         else if (status === 'skipped') text = labels.skipped;
         else if (status === 'exists') text = labels.exists;
 
-        if ((status === 'failed' || status === 'skipped') && reason) {
-            text = text + punct('colon') + reason;
-        } else if (!['success', 'failed', 'skipped', 'exists'].includes(status) && reason) {
+        if (reason && status !== 'success' && status !== 'exists') {
             text = text + punct('colon') + reason;
         }
         const tone = status === 'success' || status === 'exists'

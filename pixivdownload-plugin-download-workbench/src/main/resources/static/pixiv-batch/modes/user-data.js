@@ -343,7 +343,7 @@
         }
 
         const result = await computeFilteredItems(userState.rawItems, filters, kind, isStale);
-        if (!result) return null;
+        if (!result || isStale()) return null;
         userState.items = result.filtered;
         userState.filterSummary = result.stats;
         renderUserResults();

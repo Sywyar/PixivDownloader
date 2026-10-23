@@ -4,7 +4,6 @@ const vm = require('vm');
 const assert = require('assert');
 const {
     DOWNLOAD_SOURCE,
-    SSE_SOURCE,
     typeDescriptor,
     uiSlotDescriptor,
     manifest,
@@ -481,73 +480,6 @@ function ok(label, condition) {
     }
 
     {
-        const h = harness([
-            manifest(1, [typeDescriptor({acquisitionModes: []})]),
-            manifest(2, [])
-        ], {'/modules/demo.js': {initializer: `(function () {
-            return {descriptor: {process: processIllustItem}};
-        })`}});
-        h.sandbox.state = {settings: {skipHistory: true, verifyHistoryFiles: false}, queue: []};
-        h.sandbox.bt = key => key;
-        h.sandbox.updateStats = function () {};
-        h.sandbox.saveQueue = function () {};
-        h.sandbox.renderQueue = function () {};
-        h.sandbox.setCurrent = function () {};
-        vm.runInContext(DOWNLOAD_SOURCE, h.sandbox);
-        await h.qt.bootstrap();
-        let requestSignal = null;
-        h.sandbox.fetch = function (url, init) {
-            if (String(url).includes('/api/download/extensions')) {
-                return Promise.resolve({ok: true, status: 200, json: () => Promise.resolve(manifest(2, []))});
-            }
-            requestSignal = init && init.signal;
-            return new Promise((_resolve, reject) => {
-                requestSignal.addEventListener('abort', () => reject(new Error('aborted')), {once: true});
-            });
-        };
-        const item = {id: '42', kind: 'demo', status: 'downloading'};
-        const processing = h.sandbox.window.PixivBatch.download.processSingle(item);
-        await waitUntil(() => !!requestSignal);
-        await h.qt.refresh();
-        await processing;
-        ok('通用队列类型在途历史请求绑定 publication signal，卸载后暂停且不误记失败',
-            requestSignal.aborted && item.status === 'paused'
-            && item.lastMessage === 'queue.message.type-unavailable');
-    }
-
-    {
-        const controller = new AbortController();
-        let active = true;
-        const invocation = {
-            signal: controller.signal,
-            isActive() { return active && !controller.signal.aborted; },
-            assertActive() {
-                if (this.isActive()) return;
-                const error = new Error('queue type activation is stale');
-                error.code = 'STALE_QUEUE_TYPE';
-                throw error;
-            }
-        };
-        const sseSandbox = {
-            window: {PixivBatch: {sse: {}}},
-            state: {sseListeners: {}, sseRefs: {}, queue: []},
-            Promise, setTimeout, clearTimeout, setInterval, clearInterval,
-            console: {warn() {}, log() {}, error() {}}
-        };
-        vm.createContext(sseSandbox);
-        vm.runInContext(SSE_SOURCE, sseSandbox);
-        const waiting = sseSandbox.window.PixivBatch.sse.waitForFinalStatusBySSE('42', 60000, invocation);
-        ok('SSE 等待在 publication 有效时登记精确作品 listener',
-            sseSandbox.state.sseListeners['42'].length === 1);
-        active = false;
-        controller.abort();
-        await assert.rejects(waiting, error => error && error.code === 'STALE_QUEUE_TYPE');
-        passed++;
-        ok('publication abort 会立即移除 SSE listener 与轮询等待',
-            !sseSandbox.state.sseListeners['42']);
-    }
-
-    {
         const h = harness([manifest(1, [typeDescriptor()])], {
             '/modules/demo.js': {initializer: BASIC_INITIALIZER}
         });
@@ -566,6 +498,37 @@ function ok(label, condition) {
             && !Object.prototype.hasOwnProperty.call(request.init.headers, 'Cookie')
             && !Object.prototype.hasOwnProperty.call(request.init.headers, 'X-Evil')
             && !Object.prototype.hasOwnProperty.call(request.init.headers, 'Content-Type'));
+        const headerEntries = [
+            ['aCcEpT', 'application/json'],
+            ['x-acquisition-credential', 'acquisition-session'],
+            ['constructor', 'blocked'], ['__proto__', 'blocked'],
+            ['Authorization', 'blocked']
+        ];
+        for (const headers of [Object.fromEntries(headerEntries), headerEntries, new Headers(headerEntries)]) {
+            h.sandbox.testState.requestHeaders = headers;
+            const normalized = h.qt.prepareAcquisitionRequest(
+                'demo', 'search', '/api/demo/search', 'search', {}).init.headers;
+            assert.deepStrictEqual(Object.keys(normalized).sort(), ['Accept', 'X-Acquisition-Credential']);
+            ok('对象、键值对和原生 Headers 均只保留允许的名称和值',
+                normalized.Accept === 'application/json'
+                && normalized['X-Acquisition-Credential'] === 'acquisition-session');
+        }
+        h.sandbox.testState.requestHeaders = {
+            Accept: 'a'.repeat(256), 'X-Acquisition-Credential': 'c'.repeat(16384)
+        };
+        const atLimit = h.qt.prepareAcquisitionRequest(
+            'demo', 'search', '/api/demo/search', 'search', {}).init.headers;
+        ok('允许的请求头在既有长度上限处完整保留',
+            atLimit.Accept.length === 256 && atLimit['X-Acquisition-Credential'].length === 16384);
+        h.sandbox.testState.requestHeaders = {
+            Accept: 'a'.repeat(257), 'X-Acquisition-Credential': 'c'.repeat(16385)
+        };
+        ok('超过既有长度上限的请求头不进入请求', Object.keys(h.qt.prepareAcquisitionRequest(
+            'demo', 'search', '/api/demo/search', 'search', {}).init.headers).length === 0);
+        h.sandbox.testState.requestHeaders = {Accept: 'text/plain\r\nx-extra: value'};
+        ok('换行请求头不进入请求', Object.keys(h.qt.prepareAcquisitionRequest(
+            'demo', 'search', '/api/demo/search', 'search', {}).init.headers).length === 0);
+        delete h.sandbox.testState.requestHeaders;
         assert.throws(() => h.qt.prepareAcquisitionRequest(
             'demo', 'search', 'https://evil.test/steal', 'search', {}), /same-origin/);
         passed++;

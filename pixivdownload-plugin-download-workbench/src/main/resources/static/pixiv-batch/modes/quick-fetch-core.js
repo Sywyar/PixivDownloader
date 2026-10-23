@@ -23,6 +23,7 @@
         accountIdsByOwner: new Map(),
         accountSeq: 0,
         loadSeq: 0,
+        pageSeq: 0,
         viewType: null,   // 'works-list' | 'following-list' | 'collection-list'
         kind: null,       // 当前作品列表的后端类型 id
         rawItems: [],     // outer：当前页未经附加筛选的原始作品卡片（live 预览过滤的事实源）
@@ -280,10 +281,6 @@
         return quickActionMap()[quickState.action] || null;
     }
 
-    function assertQuickActionContext(context) {
-        if (context && typeof context.assertCurrent === 'function') context.assertCurrent();
-    }
-
     function quickActionUserWorkTypes(descriptor = currentQuickAction()) {
         if (!descriptor) return new Set();
         const declared = Array.isArray(descriptor.userWorkTypes)
@@ -400,8 +397,7 @@
                 byKind.get(k).push(it);
             });
             for (const [k, group] of byKind) {
-                await ensureBookmarkMeta(group, k, isStale);
-                if (isStale()) return null;
+                if (!await ensureBookmarkMeta(group, k, isStale) || isStale()) return null;
             }
         }
         const stats = {rawCount: source.length, filteredCount: 0, bookmarkMetaMissing: 0, bookmarkFilterActive};
@@ -418,7 +414,10 @@
         const kind = window.PixivBatch.queueTypes.resolveTypeForMode(quickState.kind, 'quick');
         if (!kind) return;
         const seq = ++quickState.filterSeq;
-        const isStale = () => seq !== quickState.filterSeq;
+        const loadSeq = quickState.loadSeq;
+        const pageSeq = quickState.pageSeq;
+        const isStale = () => seq !== quickState.filterSeq || loadSeq !== quickState.loadSeq
+            || pageSeq !== quickState.pageSeq;
         const filters = normalizeSearchFilters(getSearchFiltersFromUI());
         if (hasBookmarkFilter(filters) && quickState.rawItems.length) {
             const needsMeta = quickState.rawItems.some(it =>
@@ -429,7 +428,7 @@
             }
         }
         const result = await computeFilteredItems(quickState.rawItems, filters, kind, isStale);
-        if (!result) return;
+        if (!result || isStale()) return;
         quickState.items = result.filtered;
         quickState.filterSummary = result.stats;
         const summaryHtml = quickFilterSummaryHtml(result.stats);
@@ -440,7 +439,8 @@
     // 内层作品网格（关注画师作品 / 珍藏集内作品）：按当前附加筛选过滤 rawItems 后渲染。
     async function quickApplyInnerFilters() {
         const seq = ++quickInner.filterSeq;
-        const isStale = () => seq !== quickInner.filterSeq;
+        const loadSeq = quickInner.loadSeq;
+        const isStale = () => seq !== quickInner.filterSeq || loadSeq !== quickInner.loadSeq;
         const filters = normalizeSearchFilters(getSearchFiltersFromUI());
         const mixed = quickInner.type === 'collection';
         if (hasBookmarkFilter(filters) && quickInner.rawItems.length) {
@@ -451,7 +451,7 @@
             ? await quickComputeFilteredMixed(quickInner.rawItems, filters, isStale)
             : await computeFilteredItems(quickInner.rawItems, filters,
                 window.PixivBatch.queueTypes.resolveTypeForMode(quickInner.kind, 'quick'), isStale);
-        if (!result) return;
+        if (!result || isStale()) return;
         quickInner.items = result.filtered;
         quickInner.filterSummary = result.stats;
         renderQuickInnerGrid(quickInner.items, quickFilterSummaryHtml(result.stats));

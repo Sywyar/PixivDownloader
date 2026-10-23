@@ -80,7 +80,6 @@ function testWriteStateIdempotentAcrossTime() {
         });
         return waitForServerContext(h).then(() => {
             const first = h.api._internals.writeState('submitted');
-            const updatedAt = first.effectiveState.updatedAt;
             eq('首次 submitted 被接受', first.transitionAccepted, true);
             eq('首次写一次 setItem', stateSets(h), 1);
             eq('首次 submitted 命令一次', postsOf(h, 'submitted'), 1);

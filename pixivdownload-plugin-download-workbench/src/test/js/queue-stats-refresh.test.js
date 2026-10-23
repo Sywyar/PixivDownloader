@@ -22,12 +22,13 @@ function harness(alt, vue) {
         ? ['abStatPending', 'abStatSuccess', 'abStatFailed', 'abStatActive', 'abStatSkipped',
             'abDockBadge', 'abBtnStart', 'abBtnPause', 'abBtnPack', 'abBtnRetry']
         : ['stat-count-pending', 'stat-count-success', 'stat-count-failed', 'stat-count-active',
-            'stat-count-skipped', 'stats-bar'];
+            'stat-count-skipped', 'stats-bar', 'btn-start', 'btn-pause', 'admin-pack-btn'];
     ids.forEach(add);
     const syncs = [];
     const context = vm.createContext({console,
         state: {queue: [], stats: {success: 9, failed: 9, active: 9, skipped: 9, extra: 'retained'}, isRunning: false, isPaused: false},
         isAdmin: true,
+        start() {}, sendDownload() {}, triggerAdminPack() {}, processSingle() {}, processIllustItem() {}, bt: key => key,
         document: Object.assign(new MiniEventTarget(), {
             getElementById: id => nodes.get(id) || null, createElement: tag => new Element(tag)
         }),
@@ -40,12 +41,14 @@ function harness(alt, vue) {
     load('pixiv-batch/queue-display.js');
     if (alt) {
         load('pixiv-batch-alt/alt-core.js');
+        load('pixiv-batch-alt/alt-queue-model.js');
         load('pixiv-batch-alt/alt-queue.js');
         context.PixivBatchAlt.queueVue = {isActive: () => vue, syncStats: stats => syncs.push(stats)};
         run("pageI18n = {t: key => 'English ' + key};");
     } else {
         load('pixiv-batch/download-speed.js');
         load('pixiv-batch/batch-queue-view.js');
+        load('pixiv-batch/batch-download.js');
     }
     return {context, nodes, add, syncs, run};
 }
@@ -55,7 +58,7 @@ for (const alt of [false, true]) {
         test(`${alt ? '新版' : '经典'}统计在 ${vue ? 'Vue' : '回退'} 模式正确分类，状态变化与清空不残留计数`, () => {
             const h = harness(alt, vue), state = h.context.state;
             state.queue = ['completed', 'failed', 'downloading', 'skipped', 'idle', 'pending', 'paused',
-                'completed', 'downloading', 'unknown', undefined].map(status => Object.freeze({status}));
+                'completed', 'downloading', 'unknown', undefined].map(status => Object.freeze({status, kind: 'illust'}));
             const originalStats = state.stats;
             const check = expected => {
                 h.context.updateStats();
@@ -98,6 +101,28 @@ for (const alt of [false, true]) {
         assert.equal(h.syncs.at(-1).pending, 500);
         assert.equal(reads, 500);
     });
+
+    test(`${alt ? '新版' : '经典'}打包按钮仅在有已完成插画时启用`, () => {
+        const h = harness(alt, true), state = h.context.state;
+        const button = h.nodes.get(alt ? 'abBtnPack' : 'admin-pack-btn');
+        state.queue = [{id: '31', kind: 'novel', status: 'completed'},
+            {id: '32', kind: 'plugin-work', status: 'completed'},
+            {id: '33', kind: 'illust', status: 'pending'}];
+        h.context.updateStats();
+        h.context.updateButtonsState();
+        assert.equal(button.disabled, true);
+        state.queue[2].status = 'completed';
+        h.context.updateStats();
+        if (!alt) h.context.updateButtonsState();
+        assert.equal(button.disabled, false);
+        state.queue[2].status = 'failed';
+        h.context.updateStats();
+        if (!alt) h.context.updateButtonsState();
+        assert.equal(button.disabled, true);
+        state.queue[2].status = 'completed';
+        h.context.updateButtonsState();
+        assert.equal(button.disabled, false);
+    });
 }
 
 test('新版按钮保留未变子节点，语言、暂停状态和重新创建的按钮使用当前显示内容', () => {
@@ -138,7 +163,7 @@ test('新版按钮保留未变子节点，语言、暂停状态和重新创建�
 test('新版按钮独立刷新读取最新队列，打包权限仍随身份更新', () => {
     const h = harness(true, false), state = h.context.state;
     h.context.updateStats();
-    state.queue = [{status: 'completed'}, {status: 'failed'}];
+    state.queue = [{status: 'completed', kind: 'illust'}, {status: 'failed'}];
     h.context.updateButtonsState();
     assert.equal(h.nodes.get('abBtnPack').disabled, false);
     assert.equal(h.nodes.get('abBtnRetry').disabled, false);

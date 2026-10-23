@@ -243,6 +243,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
                         && pageI18n.lang === targetLang) {
                         break;
                     }
+                    nextClient.dispose();
                 }
                 installPageI18nClient(nextClient, namespaces);
                 if (pageLangSwitcher && typeof pageLangSwitcher.refresh === 'function') {
@@ -466,7 +467,7 @@ window.PixivBatch.modes = window.PixivBatch.modes || {};
     //（同一结果区可能有多个收起按钮，如 Search 的搜索 / 批量两个子模式）。
     function resetPreviewCollapse(areaId, pagerId) {
         applyPreviewCollapsed(areaId, pagerId, false);
-        document.querySelectorAll('.preview-collapse-btn[onclick*="' + areaId + '"]')
+        document.querySelectorAll('.preview-collapse-btn[data-pixiv-click*="' + areaId + '"]')
             .forEach(btn => syncPreviewCollapseBtn(btn, false));
     }
 

@@ -3,8 +3,6 @@
 /* ============================================================
    快捷获取模式
    ============================================================ */
-const QUICK_PAGE_SIZE = 12;
-
 const QUICK_ACTIONS = [
     {id: 'my-illust-bookmarks-show', icon: 'bookmark', labelKey: 'quick.action.bookmarks-show', label: '我的收藏（公开）'},
     {id: 'my-illust-bookmarks-hide', icon: 'bookmark', labelKey: 'quick.action.bookmarks-hide', label: '我的收藏（不公开）'},
@@ -178,9 +176,11 @@ function quickRest(action) {
 async function loadQuickWorks(action, page) {
     const stage = document.getElementById('abQuickStage');
     if (!stage) return;
+    const requestState = quickState;
     const seq = ++quickState.loadSeq;
     const source = quickState.source, kind = quickState.kind;
-    const isCurrent = () => seq === quickState.loadSeq && source === quickState.source && kind === quickState.kind;
+    const isCurrent = () => quickState === requestState && seq === quickState.loadSeq
+        && source === quickState.source && kind === quickState.kind;
     quickState.loading = true;
     quickState.error = '';
     stage.innerHTML = '';
@@ -200,6 +200,7 @@ async function loadQuickWorks(action, page) {
             };
             if (descriptor.allIdsFastPath) {
                 if (!quickState.uid) await loadQuickUid();
+                if (!isCurrent()) return;
                 if (!quickState.uid) throw new Error(bt('quick.error.no-uid', '无法解析当前账号'));
                 if (page === 1 || !quickState.allIds.length) {
                     const idsData = await altAcquisitionJson(acquisition.type, 'quick',
@@ -212,11 +213,13 @@ async function loadQuickWorks(action, page) {
                 const data = pageIds.length ? await altAcquisitionJson(acquisition.type, 'quick',
                     (descriptor.buildCardsRequest || acquisition.buildCardsRequest)(quickState.uid, pageIds), 'cards', context)
                     : {items: []};
+                if (!isCurrent()) return;
                 items = normalizeAcquisitionItems(data.items || [], acquisition, context, 'quick');
                 totalPages = Math.max(1, Math.ceil(total / limit));
             } else {
                 const data = await altAcquisitionJson(acquisition.type, 'quick',
                     descriptor.buildPageRequest(context), 'page', context);
+                if (!isCurrent()) return;
                 const raw = data.items || data.works || [];
                 items = normalizeAcquisitionItems(raw, acquisition, context, 'quick');
                 total = Number(data.total || items.length);
@@ -256,13 +259,18 @@ async function loadQuickWorks(action, page) {
 async function applyQuickFilters() {
     const stage = document.getElementById('abQuickStage');
     if (!stage) return;
+    const requestState = quickState;
     const seq = ++searchState.filterSeq;
-    const result = await computeFilteredItems(quickState.rawItems, extraFilters, quickState.kind,
-        () => seq !== searchState.filterSeq);
-    if (!result) return;
+    const {rawItems, source, kind, loadSeq} = requestState;
+    const isStale = () => quickState !== requestState || seq !== searchState.filterSeq
+        || quickState.rawItems !== rawItems || quickState.source !== source || quickState.kind !== kind
+        || quickState.loadSeq !== loadSeq;
+    const result = await computeFilteredItems(rawItems, extraFilters, kind, isStale);
+    if (!result || isStale()) return;
     quickState.items = result.filtered;
     quickState.filterSummary = result.stats;
     if (quickState.drill) await applyQuickDrillFilters(quickState.drill);
+    if (isStale()) return;
     renderQuickStage();
 }
 
@@ -353,8 +361,9 @@ function renderQuickWorks(stage, action) {
 }
 
 async function enqueueQuickAll(action) {
+    const requestState = quickState;
     const source = quickState.source, kind = quickState.kind, seq = quickState.loadSeq;
-    const isCurrent = () => source === quickState.source && kind === quickState.kind
+    const isCurrent = () => quickState === requestState && source === quickState.source && kind === quickState.kind
         && action.id === quickState.action && seq === quickState.loadSeq;
     if (!await abConfirm('quick.enqueue-all.confirm',
         '将全部 {count} 个作品加入队列？需要逐页抓取约 {pages} 页，会产生较多请求。',
@@ -366,12 +375,16 @@ async function enqueueQuickAll(action) {
         if (descriptor.allIdsFastPath) {
             try {
                 if (!quickState.uid) await loadQuickUid();
+                if (!isCurrent()) return;
+                lease.assertCurrent();
                 if (!quickState.uid) throw new Error(bt('quick.error.no-uid', '无法解析当前账号'));
                 const context = {action: action.id, uid: quickState.uid,
                     accountId: quickState.uid, accountOwner: quickState.source};
                 if (!quickState.allIds.length) {
                     const data = await altAcquisitionJson(acquisition.type, 'quick',
                         (descriptor.buildIdsRequest || acquisition.buildMyWorksIdsRequest)(quickState.uid), 'ids', context);
+                    if (!isCurrent()) return;
+                    lease.assertCurrent();
                     quickState.allIds = (data.ids || []).map(String);
                 }
                 lease.assertCurrent();
@@ -387,7 +400,7 @@ async function enqueueQuickAll(action) {
                 const added = enqueueItems(items, null, {source: QUICK_FETCH_MODE, silent: true});
                 abToast('success', bt('queue.toast.batch-added', '已批量加入 {count} 个作品', {count: added}));
             } catch (e) {
-                abToast('error', String(e && e.message || bt('common.request-failed', '请求失败')));
+                if (isCurrent()) abToast('error', String(e && e.message || bt('common.request-failed', '请求失败')));
             }
             return;
         }
@@ -409,7 +422,7 @@ async function enqueueQuickAll(action) {
                 lease.assertCurrent();
                 if (!isCurrent()) return;
             } catch (e) {
-                abToast('error', String(e && e.message || bt('common.request-failed', '请求失败')));
+                if (isCurrent()) abToast('error', String(e && e.message || bt('common.request-failed', '请求失败')));
                 return;
             }
             all.push(...normalizeAcquisitionItems(data.items || data.works || [], acquisition, context, 'quick'));
@@ -542,7 +555,7 @@ async function drillQuickUser(user) {
     await loadQuickDrillPage(1);
 }
 
-async function fetchQuickDrillPage(drill, page) {
+async function fetchQuickDrillPage(drill, page, isCurrent) {
     const acquisition = altAcquisition('quick', quickState.source, drill.kind);
     if (!acquisition) throw new Error(bt('queue.message.type-unavailable', '该类型当前不可用（其插件已禁用）'));
     const descriptor = quickActionDef(quickState.action)?.descriptor;
@@ -557,8 +570,10 @@ async function fetchQuickDrillPage(drill, page) {
             id: drill.id, userId: drill.id, name: drill.name, kind: drill.kind}
     };
     const request = async (spec, operation) => {
+        if (!isCurrent()) throw new Error('Stale preview request');
         lease.assertCurrent();
         const data = await altAcquisitionJson(acquisition.type, 'quick', spec, operation, context);
+        if (!isCurrent()) throw new Error('Stale preview request');
         lease.assertCurrent();
         return data;
     };
@@ -614,7 +629,7 @@ async function loadQuickDrillPage(page) {
     drill.error = '';
     renderQuickStage();
     try {
-        const data = await fetchQuickDrillPage(drill, page);
+        const data = await fetchQuickDrillPage(drill, page, isCurrent);
         if (!isCurrent()) return;
         Object.assign(drill, data, {rawItems: data.items});
         await applyQuickDrillFilters(drill);
@@ -629,9 +644,11 @@ async function loadQuickDrillPage(page) {
 
 async function applyQuickDrillFilters(drill) {
     const seq = drill.filterSeq = (drill.filterSeq || 0) + 1;
-    const result = await computeFilteredItems(drill.rawItems, extraFilters, drill.kind,
-        () => quickState.drill !== drill || seq !== drill.filterSeq);
-    if (!result || quickState.drill !== drill || seq !== drill.filterSeq) return;
+    const {rawItems, kind, loadSeq} = drill;
+    const isStale = () => quickState.drill !== drill || seq !== drill.filterSeq
+        || drill.rawItems !== rawItems || drill.kind !== kind || drill.loadSeq !== loadSeq;
+    const result = await computeFilteredItems(rawItems, extraFilters, kind, isStale);
+    if (!result || isStale()) return;
     quickState.drillItems = result.filtered;
     drill.filterSummary = result.stats;
 }
@@ -650,7 +667,7 @@ async function enqueueQuickDrillAll() {
         for (let page = 1; ; page++) {
             if (!isCurrent()) return;
             lease.assertCurrent();
-            const data = await fetchQuickDrillPage(drill, page);
+            const data = await fetchQuickDrillPage(drill, page, isCurrent);
             lease.assertCurrent();
             if (!isCurrent()) return;
             all.push(...data.items);
@@ -814,223 +831,4 @@ function enqueueItems(items, kind, opts) {
     }
     syncAllResultsQueueState();
     return added;
-}
-
-/* ============================================================
-   批量导入单作品模式
-   ============================================================ */
-function renderImportMode(panel) {
-    const def = AB_MODES[1];
-    panel.appendChild(modeHeader(def, [filterButton(), settingsButton()]));
-
-    const sources = el('div', 'ab-import-sources');
-    sources.appendChild(el('span', 'ab-muted', bt('import.sources', '支持的数据来源：')));
-    altSourcesForMode('single-import').forEach(src => {
-        sources.appendChild(el('span', 'ab-pill ab-pill--brand', src.label));
-    });
-    panel.appendChild(sources);
-
-    const composer = el('div', 'ab-composer card');
-    const textarea = el('textarea', 'ab-input ab-import-input');
-    textarea.id = 'abImportInput';
-    textarea.setAttribute('aria-label', bt('modes.import', '批量导入'));
-    textarea.setAttribute('aria-describedby', 'abImportResult');
-    textarea.rows = 5;
-    textarea.spellcheck = false;
-    textarea.placeholder = bt('batch:input.single-import.placeholder',
-        '粘贴插画/漫画/动图/小说单作品链接列表，兼容 One-Tab，N-Tab 等标签页管理插件导出格式...');
-    composer.appendChild(textarea);
-    composer.appendChild(el('p', 'ab-field-note', bt('import.id-hint', '数字 ID 默认为插画；小说请粘贴完整链接，或在 ID 前另起一行写 novel:。')));
-
-    const help = el('details', 'ab-import-help');
-    help.appendChild(el('summary', '', bt('import.format.title', '导入格式说明')));
-    const list = el('ul', 'ab-note-list');
-    [
-        bt('batch:label.import-format', '导入格式：') + ' url | title '
-            + bt('batch:label.import-format-or', '或') + ' id | title',
-        bt('batch:label.import-example', '每行一条，例如：')
-            + bt('batch:label.import-example-value', 'https://www.pixiv.net/artworks/12345678 | 示例标题'),
-        bt('batch:label.import-bare-id-example', '仅 ID 示例：')
-            + bt('batch:label.import-bare-id-example-value', '12345678 | 示例标题'),
-        bt('batch:hint.import-bare-id', '仅写数字 ID 时默认按插画解析（等同于 https://www.pixiv.net/artworks/{id}）；若需要按小说解析，请在该行之前加一行 <code>novel:</code> 作为区段头。'),
-        bt('batch:hint.import-section-header', '区段头 <code>artwork:</code> / <code>novel:</code> 单独成行（大小写不敏感，全/半角冒号均可）；其下方的所有「仅 ID / id | title」按该类型解析，直到遇到下一个区段头或文本结束。明确的链接始终按链接自身类型解析，与所在区段无关。'),
-        bt('batch:hint.import-title-optional', '标题可留空；下载前会自动获取真实标题。兼容 One-Tab，N-Tab 等标签页管理插件导出格式。'),
-        bt('batch:hint.import-reimport', '也兼容下方“导出全部”“导出未下载”按钮生成的作品列表，可直接重新导入。')
-    ].forEach(text => {
-        const li = el('li');
-        li.textContent = text.replace(/<\/?code>/g, '');
-        list.appendChild(li);
-    });
-    help.appendChild(list);
-    // 取得侧导入示例槽位：作品类型插件经 queueTypes 贡献各自来源的链接示例
-    //（如来源插件自己的 URL 示例），与旧布局 import-hint 槽位同契约；插件禁用时缺席。
-    const importHintSlot = document.createElement('template');
-    importHintSlot.setAttribute('data-qt-slot', 'import-hint');
-    help.appendChild(importHintSlot);
-    composer.appendChild(help);
-
-    const actions = el('div', 'ab-composer-actions');
-    const importBtn = el('button', 'ab-btn ab-btn--primary');
-    importBtn.id = 'abBtnImport';
-    importBtn.type = 'button';
-    importBtn.appendChild(abIconEl('plus'));
-    importBtn.appendChild(el('span', '', bt('import.enqueue', '导入并加入队列')));
-    importBtn.addEventListener('click', () => runImportParse(false));
-    const freshBtn = el('button', 'ab-btn ab-btn--danger-ghost');
-    freshBtn.type = 'button';
-    freshBtn.appendChild(abIconEl('refresh'));
-    freshBtn.appendChild(el('span', '', bt('import.reimport', '清空队列后重新导入')));
-    freshBtn.addEventListener('click', async () => {
-        if (!await abConfirm('dialog.confirm-reparse', '确认清除当前队列并重新解析？')) return;
-        runImportParse(true);
-    });
-    actions.appendChild(importBtn);
-    help.appendChild(freshBtn);
-    composer.appendChild(actions);
-
-    const result = el('div', 'ab-import-result');
-    result.id = 'abImportResult';
-    const announcement = el('p', 'ab-sr-only');
-    announcement.id = 'abImportAnnouncement';
-    announcement.setAttribute('role', 'status');
-    panel.appendChild(announcement);
-    composer.appendChild(result);
-    panel.appendChild(composer);
-}
-
-// 解析语义与 batch single-import 对齐：区段头 / 显式 URL 优先 / 裸 ID 按区段。
-function parseImportText(text) {
-    const contributed = altParseImportText(text);
-    if (contributed) return contributed;
-    const lines = String(text || '').split('\n').map(l => l.trim()).filter(Boolean);
-    const bareIdRegex = /^(\d+)\s*(?:\|\s*(.*))?$/;
-    const sectionHeaderRegex = /^([A-Za-z]+)\s*[:：]\s*$/;
-    const urlMatchers = [
-        {kind: 'illust', re: /https?:\/\/www\.pixiv\.net\/artworks\/(\d+)/},
-        {kind: 'novel', re: /https?:\/\/www\.pixiv\.net\/novel\/show\.php\?[^\s|]*?\bid=(\d+)/}
-    ];
-    let section = 'illust';
-    let sectionExplicit = false;
-    const items = [];
-    let skippedUnavailable = 0;
-    const rejected = [];
-    for (const ln of lines) {
-        const head = ln.match(sectionHeaderRegex);
-        if (head) {
-            const token = head[1].toLowerCase();
-            if (token === 'artwork' || token === 'illust') {
-                section = 'illust';
-                sectionExplicit = true;
-            } else if (token === 'novel') {
-                section = 'novel';
-                sectionExplicit = true;
-            } else {
-                section = null;
-                sectionExplicit = true;
-            }
-            continue;
-        }
-        let matched = null;
-        for (const m of urlMatchers) {
-            const hit = ln.match(m.re);
-            if (hit) {
-                if (matched) { matched = 'ambiguous'; break; }
-                matched = {kind: m.kind, id: hit[1]};
-            }
-        }
-        if (matched === 'ambiguous') {
-            rejected.push(ln);
-            continue;
-        }
-        if (matched) {
-            const titleRaw = (ln.split('|')[1] || '').trim();
-            items.push({id: matched.id, kind: matched.kind, title: titleRaw});
-            continue;
-        }
-        const bare = ln.match(bareIdRegex);
-        if (bare) {
-            if (!section) {
-                skippedUnavailable++;
-                continue;
-            }
-            items.push({id: bare[1], kind: section, title: (bare[2] || '').trim()});
-            continue;
-        }
-        if (/^https?:\/\//.test(ln)) rejected.push(ln);
-    }
-    // 按 id+kind 去重
-    const seen = new Set();
-    const unique = items.filter(item => {
-        const key = item.kind + ':' + item.id;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    });
-    return {items: unique, skippedUnavailable, rejected};
-}
-
-function runImportParse(clearFirst) {
-    const textarea = document.getElementById('abImportInput');
-    const result = document.getElementById('abImportResult');
-    if (!textarea || !result) return;
-    const announce = message => {
-        const live = document.getElementById('abImportAnnouncement');
-        if (live) live.textContent = message;
-    };
-    const parsed = parseImportText(textarea.value);
-    importState.parsed = parsed.items;
-    result.innerHTML = '';
-    if (!parsed.items.length) {
-        const msg = parsed.skippedUnavailable > 0
-            ? bt('status.single-import-skipped-unavailable', '已跳过 {count} 个：所属作品类型当前不可用', {count: parsed.skippedUnavailable})
-            : parsed.rejected.length
-                ? bt('status.single-import-ambiguous', '已拒绝 {count} 个归属不明确的单作品输入', {count: parsed.rejected.length})
-                : bt('status.single-import-none', '未解析到任何单作品链接');
-        result.appendChild(el('p', 'ab-import-summary ab-import-summary--error', msg));
-        announce(msg);
-        textarea.setAttribute('aria-invalid', 'true');
-        return;
-    }
-    const summary = el('p', 'ab-import-summary');
-    summary.textContent = bt('status.parsed-summary', '解析完成：共 {total} 个，新增 {added} 个',
-        {total: parsed.items.length, added: parsed.items.filter(i => !queueHas(i.id)).length});
-    result.appendChild(summary);
-    announce(summary.textContent);
-    textarea.removeAttribute('aria-invalid');
-    const preview = el('div', 'ab-import-preview');
-    parsed.items.slice(0, 60).forEach(item => {
-        const row = el('div', 'ab-import-row');
-        row.appendChild(abIconEl(item.kind === 'novel' ? 'book' : 'image'));
-        row.appendChild(el('span', 'ab-import-id', String(item.id)));
-        row.appendChild(el('span', 'ab-import-title',
-            item.title || bt('import.auto-title', '（下载前自动获取标题）')));
-        const inQueue = queueHas(item.id);
-        if (inQueue) row.appendChild(el('span', 'ab-pill ab-pill--ok', bt('queue.toast.in-queue', '已在队列中')));
-        preview.appendChild(row);
-    });
-    if (parsed.items.length > 60) {
-        preview.appendChild(el('p', 'ab-muted',
-            bt('import.preview-more', '…以及另外 {count} 个', {count: parsed.items.length - 60})));
-    }
-    result.appendChild(preview);
-    commitImport(!!clearFirst);
-}
-
-function commitImport(clearFirst) {
-    if (clearFirst) stopAndClear();
-    const items = importState.parsed;
-    if (!items.length) return;
-    let added = 0;
-    const groups = new Map();
-    items.forEach(item => {
-        const source = item.source || SINGLE_IMPORT_MODE;
-        if (!groups.has(source)) groups.set(source, []);
-        groups.get(source).push(item);
-    });
-    groups.forEach((group, source) => {
-        added += addItemsToQueue(group.map(item => item.id),
-            group.map(item => buildQueueMeta(item, item.kind, {})), source);
-    });
-    abToast('success', bt('status.parsed-summary', '解析完成：共 {total} 个，新增 {added} 个',
-        {total: items.length, added}));
 }

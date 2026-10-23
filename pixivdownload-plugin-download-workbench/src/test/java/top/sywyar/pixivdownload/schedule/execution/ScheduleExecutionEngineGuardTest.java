@@ -29,7 +29,6 @@ import top.sywyar.pixivdownload.schedule.ScheduleRunState;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -197,7 +196,10 @@ class ScheduleExecutionEngineGuardTest extends ScheduleExecutionEngineTestSuppor
 
         assertThatThrownBy(() -> engine.execute(task()))
                 .isInstanceOfSatisfying(ScheduledExecutionException.class,
-                        failure -> assertThat(failure.code()).isEqualTo("fixture.primary-failure"));
+                        failure -> {
+                            assertThat(failure.category()).isEqualTo(ScheduledFailure.Category.RETRYABLE_NETWORK);
+                            assertThat(failure.code()).isEqualTo("fixture.primary-failure");
+                        });
         assertThat(failureGuards).hasValue(1);
     }
 
@@ -470,17 +472,7 @@ class ScheduleExecutionEngineGuardTest extends ScheduleExecutionEngineTestSuppor
             return ScheduledGuardDecision.proceed();
         });
         FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
-        FakeScheduleCapabilityAccess.Publication publication = publishExecutionFixture(
-                registry,
-                sourceExecutor(1, context -> ScheduledDiscoveryResult.withoutCheckpoint()),
-                List.of(workExecutor(context -> ScheduledWorkResult.completed())),
-                List.of(guard),
-                Set.of(WORK),
-                Set.of(GUARD));
-
-        // 用包含 fatal policy 的 owner 替换普通 fixture。
-        ScheduleCapabilityTestFixture.withdraw(registry, publication).orElseThrow();
-        publication = ScheduleCapabilityTestFixture.publish(
+        FakeScheduleCapabilityAccess.Publication publication = ScheduleCapabilityTestFixture.publish(
                 registry,
                 bindingBundle(
                         new ScheduleCapabilityOwner("fixture", "fixture-package", 2L),

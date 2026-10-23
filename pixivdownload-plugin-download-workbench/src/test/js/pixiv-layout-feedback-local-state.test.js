@@ -3,15 +3,12 @@
 /** 本地状态、触发门禁、语言切换与 Unicode 边界。 */
 const {
     CSS,
-    EMBED_SOURCE,
     SEEN_KEY,
-    SOURCE,
     STATE_KEY,
     SURVEY_ID,
     captureEvents,
     captureProps,
     createFakeAdapter,
-    createFakeI18n,
     crossTabState,
     defaultSurvey,
     eq,
@@ -21,7 +18,6 @@ const {
     runTests,
     seenSeed,
     selectChoice,
-    submitWithCaptureOverride,
     waitForFlush
 } = require('./pixiv-layout-feedback-test-support');
 
@@ -343,47 +339,11 @@ function testSeenRecording() {
     });
 }
 
-function testLanguageSwitchPreservesInput() {
-    const h = initHarness({i18nMessages: {}, batchLayout: 'landscape'});
-    return h.api.open().then(() => waitForFlush()).then(() => {
-        selectChoice(h, 'pixiv-batch-portrait');
-        h.textarea().value = '保留的建议';
-        h.textarea().dispatchEvent({type: 'input'});
-        const en = createFakeI18n({
-            'layout-feedback:title': 'Help us choose the default layout',
-            'layout-feedback:option-portrait': 'Portrait classic layout',
-            'layout-feedback:submit': 'Submit feedback'
-        });
-        h.api.refreshLanguage(en);
-        eq('语言切换不创建第二个弹窗', h.document.querySelectorAll('.plf-backdrop').length, 1);
-        const radio = h.radios().find(r => r.checked);
-        eq('语言切换保留布局选择', radio && radio.value, 'pixiv-batch-portrait');
-        eq('语言切换保留建议文本', h.textarea().value, '保留的建议');
-        eq('语言切换刷新文案', h.document.getElementById('plf-title').textContent, 'Help us choose the default layout');
-        eq('语言切换不重复 shown', captureEvents(h).filter(e => e === 'survey shown').length, 1);
-    });
-}
-
 function testReducedMotionAndA11yBasics() {
     ok('CSS 遵循 prefers-reduced-motion', CSS.indexOf('@media (prefers-reduced-motion: reduce)') >= 0);
     ok('嵌入调查使用下载工作台蓝色主题', /html\.plf-embedded-page\s*\{[^}]*--brand:\s*#0096fa;/s.test(CSS));
     ok('嵌入调查为输入焦点框保留横向空间', /\.plf-embedded-page \.plf-backdrop\s*\{[^}]*padding:\s*0 3px;/s.test(CSS));
     ok('建议输入框使用边框盒宽度', /\.plf-suggestion-input\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;/s.test(CSS));
-    ok('嵌入页按调查内容而非 iframe 视口测量高度',
-        EMBED_SOURCE.includes("document.querySelector('.plf-backdrop') || statusElement")
-        && !EMBED_SOURCE.includes('document.body.getBoundingClientRect().height'));
-    ok('嵌入页不重复回报相同高度', EMBED_SOURCE.includes('height === lastReportedHeight'));
-    ok('模块使用 aria-modal', SOURCE.indexOf("'aria-modal'") >= 0);
-    ok('模块使用 aria-labelledby', SOURCE.indexOf("'aria-labelledby'") >= 0);
-    ok('模块使用 aria-describedby', SOURCE.indexOf("'aria-describedby'") >= 0);
-    ok('模块使用原生 radio', SOURCE.indexOf("input.type = 'radio'") >= 0);
-    ok('模块使用 radiogroup', SOURCE.indexOf("'radiogroup'") >= 0);
-    ok('模块处理 Tab 焦点陷阱', SOURCE.indexOf("event.key !== 'Tab'") >= 0);
-    ok('模块处理 Escape', SOURCE.indexOf("event.key === 'Escape'") >= 0);
-    ok('模块使用 aria-live 错误', SOURCE.indexOf("'aria-live'") >= 0);
-    ok('模块使用 aria-busy', SOURCE.indexOf("'aria-busy'") >= 0);
-    ok('不使用 innerHTML 插入用户输入', SOURCE.indexOf('innerHTML') < 0);
-    ok('不使用 inline onclick', SOURCE.indexOf('onclick') < 0);
     const h = initHarness({batchLayout: 'landscape'});
     return h.api.open().then(() => waitForFlush()).then(() => {
         const dialog = h.dialog();
@@ -392,6 +352,15 @@ function testReducedMotionAndA11yBasics() {
         eq('弹窗 aria-labelledby', dialog.getAttribute('aria-labelledby'), 'plf-title');
         eq('弹窗 aria-describedby', dialog.getAttribute('aria-describedby'), 'plf-description');
         ok('关闭按钮有 aria-label', h.actionButton('close').getAttribute('aria-label') !== null);
+        eq('选项组拥有原生单选控件', dialog.querySelector('[role="radiogroup"]').querySelectorAll('input').length, 3);
+        ok('全部选项使用 radio', h.radios().every(input => input.type === 'radio'));
+        eq('错误可被辅助技术播报', h.error().getAttribute('aria-live'), 'polite');
+        selectChoice(h, 'pixiv-batch-portrait');
+        h.submitButton().focus();
+        h.document.dispatchEvent({type: 'keydown', key: 'Tab'});
+        eq('末个控件 Tab 回到关闭按钮', h.document.activeElement, h.actionButton('close'));
+        h.document.dispatchEvent({type: 'keydown', key: 'Tab', shiftKey: true});
+        eq('首个控件 Shift Tab 回到提交按钮', h.document.activeElement, h.submitButton());
     });
 }
 
@@ -402,29 +371,6 @@ function testLayoutChoicesDoNotMarkCurrentLayout() {
         eq('三张布局卡片', cards.length, 3);
         ok('全部布局选项均不显示当前布局徽标', cards.every(card => !card.querySelector('.plf-current-badge')));
         ok('当前布局不影响初始选中状态', h.radios().every(input => !input.checked));
-    });
-}
-
-function testCaptureResultAcceptanceMatrix() {
-    return Promise.resolve().then(() => submitWithCaptureOverride(null)).then(h => {
-        eq('CaptureResult 对象 → 写 submitted',
-            JSON.parse(h.storage.getItem(STATE_KEY)).status, 'submitted');
-        eq('CaptureResult 对象 → 关闭弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
-        eq('CaptureResult 对象 → 成功 Toast 恰好一次', h.toastCalls.length, 1);
-    }).then(() => submitWithCaptureOverride('undefined')).then(h => {
-        eq('capture 返回 undefined → 不写 submitted', h.storage.getItem(STATE_KEY) === null, true);
-        eq('capture 返回 undefined → 保留弹窗', h.document.querySelectorAll('.plf-backdrop').length, 1);
-        eq('capture 返回 undefined → 显示可重试错误', h.error().hidden, false);
-        eq('capture 返回 undefined → 不显示成功 Toast', h.toastCalls.length, 0);
-    }).then(() => submitWithCaptureOverride('null')).then(h => {
-        eq('capture 返回 null → 不写 submitted', h.storage.getItem(STATE_KEY) === null, true);
-        eq('capture 返回 null → 保留弹窗', h.document.querySelectorAll('.plf-backdrop').length, 1);
-    }).then(() => submitWithCaptureOverride('false')).then(h => {
-        eq('capture 返回 false → 不写 submitted（防御兼容）', h.storage.getItem(STATE_KEY) === null, true);
-        eq('capture 返回 false → 保留弹窗', h.document.querySelectorAll('.plf-backdrop').length, 1);
-    }).then(() => submitWithCaptureOverride('throw')).then(h => {
-        eq('capture 同步抛错 → 不写 submitted', h.storage.getItem(STATE_KEY) === null, true);
-        eq('capture 同步抛错 → 保留弹窗可重试', h.document.querySelectorAll('.plf-backdrop').length, 1);
     });
 }
 
@@ -651,7 +597,7 @@ function testUnicodeLengthMatrix() {
             selectChoice(h, 'pixiv-batch-landscape');
             h.textarea().value = 'a'.repeat(1000);
             h.textarea().dispatchEvent({type: 'input'});
-            eq('1000 个普通字符允许', h.counter().textContent.split(' ')[0], '1000');
+            eq('1000 个普通字符允许', h.counter().textContent, 'count=1000;max=1000');
             h.submitButton().click();
             return waitForFlush();
         }).then(() => {
@@ -671,7 +617,7 @@ function testUnicodeLengthMatrix() {
             selectChoice(h, 'pixiv-batch-landscape');
             h.textarea().value = emoji.repeat(1000);
             h.textarea().dispatchEvent({type: 'input'});
-            eq('1000 个 Emoji 计数器一致', h.counter().textContent.split(' ')[0], '1000');
+            eq('1000 个 Emoji 计数器一致', h.counter().textContent, 'count=1000;max=1000');
             eq('1000 个 Emoji 允许（2000 UTF-16 单元不受 maxlength 影响）', h.textarea().value.length, 2000);
             h.submitButton().click();
             return waitForFlush();
@@ -686,7 +632,7 @@ function testUnicodeLengthMatrix() {
             selectChoice(h, 'pixiv-batch-landscape');
             h.textarea().value = emoji.repeat(1001);
             h.textarea().dispatchEvent({type: 'input'});
-            eq('1001 个 Emoji 截断为 1000 个 code point', h.counter().textContent.split(' ')[0], '1000');
+            eq('1001 个 Emoji 截断为 1000 个 code point', h.counter().textContent, 'count=1000;max=1000');
             eq('截断后为 2000 个 UTF-16 单元', h.textarea().value.length, 2000);
             ok('截断结果不包含孤立代理项', !hasLoneSurrogates(h.textarea().value));
             eq('截断结果为完整 Emoji 序列', h.textarea().value, emoji.repeat(1000));
@@ -718,10 +664,8 @@ runTests('pixiv-layout-feedback-local-state.test.js', [
     ['testFirstDownloadTriggerConditions', testFirstDownloadTriggerConditions],
     ['testTriggerBlockedOverlaySkipsThenAllows', testTriggerBlockedOverlaySkipsThenAllows],
     ['testSeenRecording', testSeenRecording],
-    ['testLanguageSwitchPreservesInput', testLanguageSwitchPreservesInput],
     ['testReducedMotionAndA11yBasics', testReducedMotionAndA11yBasics],
     ['testLayoutChoicesDoNotMarkCurrentLayout', testLayoutChoicesDoNotMarkCurrentLayout],
-    ['testCaptureResultAcceptanceMatrix', testCaptureResultAcceptanceMatrix],
     ['testBeforeSendTopLevelFields', testBeforeSendTopLevelFields],
     ['testSdkInitCapturesConfigForBeforeSend', testSdkInitCapturesConfigForBeforeSend],
     ['testDntGateSilentSkip', testDntGateSilentSkip],

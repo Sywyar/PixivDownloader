@@ -64,8 +64,12 @@ async function refreshAltI18n() {
         const previous = pageI18n;
         const lang = previous && previous.lang;
         client = await PixivI18n.create({namespaces, lang});
-        if (revision !== altLanguageRevision) return;
+        if (revision !== altLanguageRevision) {
+            client.dispose();
+            return;
+        }
         if (pageI18n === previous && (!previous || previous.lang === lang)) break;
+        client.dispose();
     }
     if (revision !== altLanguageRevision) return;
     pageI18n = client;

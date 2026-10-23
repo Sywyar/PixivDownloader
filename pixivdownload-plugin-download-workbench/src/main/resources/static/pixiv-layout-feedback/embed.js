@@ -9,7 +9,7 @@
     var storage = null;
 
     function t(key, fallback) {
-        return i18n ? i18n.t('layout-feedback:' + key, fallback) : fallback;
+        return i18n ? i18n.t('layout-feedback:layout-feedback.' + key, fallback) : fallback;
     }
 
     function showStatus(key, fallback) {

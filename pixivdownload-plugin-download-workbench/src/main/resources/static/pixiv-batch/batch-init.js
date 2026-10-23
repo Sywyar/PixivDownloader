@@ -47,8 +47,8 @@
             }
         }
         if (normalizedMode === 'schedule') {
-            loadScheduleTasks();
             startSchedulePolling();
+            loadScheduleTasks();
         } else {
             stopSchedulePolling();
         }
@@ -105,7 +105,7 @@
         // 下载页扩展点（取得侧 UI 动态装配）：先拉取已启用作品类型、加载其行为模块、把各类型贡献的取得侧
         // 控件（kind 单选 / 设置卡 / 专属筛选 / 入口按钮）注入宿主锚点，使后续 init 的事件绑定 / 设置加载在
         // 「静态 HTML + 已注入槽位」的完整 DOM 上进行。拉取失败 → 不注入
-        // 任何插件槽位（插画内置照常）；某类型禁用 → 其槽位缺席（取得侧入口自然消失，残留队列项由 processSingle 暂停）。
+        // 任何插件槽位；类型禁用时其槽位缺席，取得入口消失，残留队列项由 processSingle 暂停。
         await window.PixivBatch.queueTypes.bootstrap();
         window.PixivBatch.modeControls.bind();
         window.PixivBatch.modeControls.renderAll();
@@ -136,14 +136,14 @@
         cookieInput.addEventListener('input', applyCookieDependentUi);
         setCookieFmt(getCookieFmt());
 
-        document.getElementById('cookie-save').addEventListener('click', () => {
+        document.getElementById('cookie-save').addEventListener('click', async () => {
             const raw = document.getElementById('cookie-input').value.trim();
             const result = validateAndParseCookie(raw, getCookieFmt());
             if (!result.ok) {
                 setCookieStatus({key: 'status.cookie-save-failed', fallback: 'Cookie 保存失败：{message}', args: {message: result.errorMessage}}, 'error');
                 return;
             }
-            storeSet('pixiv_cookie', raw);
+            if (!await persistCookie(raw)) return;
             if (result.warnings.length) {
                 setCookieStatus(
                     {key: 'status.cookie-saved-warning', fallback: 'Cookie 已保存（{count} 个字段）⚠ {warnings}', args: {
@@ -170,7 +170,7 @@
 
         document.getElementById('cookie-clear').addEventListener('click', async () => {
             if (!await uiConfirmKey('dialog.confirm-clear-cookie', '确认清除已保存的 Cookie？')) return;
-            storeRemove('pixiv_cookie');
+            if (!await persistCookie(null)) return;
             document.getElementById('cookie-input').value = '';
             setCookieStatus({key: 'status.cookie-cleared', fallback: 'Cookie 已清除'}, 'success');
             applyCookieDependentUi();
@@ -220,7 +220,7 @@
             searchState.currentWord = '';
             searchState.batchInfo = null;
             searchState.localPage = 1;
-            searchState.filterSeq++;
+            invalidateSearchRequest();
             renderSearchResults();
             renderSearchPagination();
             document.getElementById('btn-add-all').disabled = true;
@@ -371,6 +371,19 @@
         if (document.visibilityState === 'visible') {
             refreshQueueTypeManifest();
             refreshScheduleSourceManifest();
+            if (state.mode === 'schedule') {
+                startSchedulePolling();
+                loadScheduleTasks();
+            }
+        } else {
+            stopSchedulePolling();
+        }
+    });
+    window.addEventListener('pagehide', stopSchedulePolling);
+    window.addEventListener('pageshow', () => {
+        if (state.mode === 'schedule') {
+            startSchedulePolling();
+            loadScheduleTasks();
         }
     });
 

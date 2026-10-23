@@ -37,8 +37,8 @@ function fixture(alt) {
         clearInterval: id => intervals.delete(id),
         getDownloadStatus: async () => { queries++; return null; }
     }, {codeGeneration: {strings: false, wasm: false}});
-    for (const file of ['pixiv-batch/queue-display.js', 'pixiv-batch/download-speed.js', 'pixiv-batch/batch-media-progress.js', 'pixiv-batch/batch-queue-model.js',
-        ...(alt ? ['pixiv-batch-alt/alt-queue.js'] : []),
+    for (const file of ['pixiv-batch/download-sse.js', 'pixiv-batch/queue-display.js', 'pixiv-batch/download-speed.js', 'pixiv-batch/batch-media-progress.js', 'pixiv-batch/batch-queue-model.js',
+        ...(alt ? ['pixiv-batch-alt/alt-queue-model.js', 'pixiv-batch-alt/alt-queue.js'] : []),
         alt ? 'pixiv-batch-alt/alt-engine-stream.js' : 'pixiv-batch/batch-sse.js']) {
         vm.runInContext(read(file), context);
     }

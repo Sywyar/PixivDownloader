@@ -28,7 +28,7 @@ for (const alt of [false, true]) {
                 settle = () => backend === 'rejected' ? reject(new Error('offline')) : resolve({ok: false, status: 503});
             });
             if (backend !== 'pending') settle();
-            const c = vm.createContext({state, BASE: '', console,
+            const c = vm.createContext({state, BASE: '', console, AbortController,
                 window: {PixivBatch: {}, PixivBatchAlt: {engine: {}}},
                 fetch(url, options) {
                     assert.equal(url, '/api/download/queue/clear');
@@ -55,13 +55,13 @@ for (const alt of [false, true]) {
             assert.equal(state.queue.length, 0);
             assert.notEqual(state.queue, queue);
             assert.deepEqual(JSON.parse(JSON.stringify(state.stats)), {success: 0, failed: 0, active: 0, skipped: 0});
-            const expected = ['endPathActionBatch', 'request', 'a1', 'a2', 'b', 'closeAllSSE',
+            const expected = ['endPathActionBatch', 'a1', 'a2', 'b', 'closeAllSSE',
                 'clearSavedQueue', 'renderQueue',
                 'updateButtonsState', 'updateStats', 'syncAllResultsQueueState', 'status'];
             assert.deepEqual(calls, expected);
             if (backend === 'pending') settle();
             await new Promise(resolve => setImmediate(resolve));
-            assert.deepEqual(calls, expected);
+            assert.deepEqual(calls, [...expected, 'request']);
         });
     }
 }

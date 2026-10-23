@@ -238,3 +238,67 @@ test('同来源编辑 A 等待校验时切到 B 后旧提交零请求', async ()
     assert.equal(h.fetchCount, 0);
     assert.equal(h.status.textContent, '');
 });
+
+for (const reopenId of [7, 8]) {
+    test(`专用设置校验期间关闭并打开任务 ${reopenId}，旧保存不再提交`, async () => {
+        const validation = deferred();
+        const h = harness({validation, supportsCredential: true});
+        h.replaceTasks([7, 8].map(id => ({
+            id, sourceType: 'source-a', sourceActivationToken: 'token-a'
+        })));
+        h.showOverride(7);
+        h.element('sch-ov-cookie-enabled').checked = true;
+        h.element('sch-ov-cookie').value = 'credential-a';
+        const pending = h.saveOverride();
+        h.closeOverride();
+        h.showOverride(reopenId);
+        validation.resolve(null);
+        await pending;
+        assert.deepEqual(h.credentialCalls.map(call => call.method), ['validateCredential']);
+        assert.equal(h.element('schedule-override-modal').hidden, false);
+        assert.equal(h.element('sch-ov-status').textContent, '');
+    });
+}
+
+for (const ok of [true, false]) {
+    test(`专用设置写入${ok ? '成功' : '失败'}不会关闭或污染新弹窗`, async () => {
+        const response = deferred();
+        const h = harness({supportsProxy: true, fetch: () => response.promise});
+        h.replaceTasks([7, 8].map(id => ({
+            id, sourceType: 'source-a', sourceActivationToken: 'token-a'
+        })));
+        h.showOverride(7);
+        h.element('sch-ov-proxy-enabled').checked = true;
+        h.element('sch-ov-proxy').value = '127.0.0.1:7890';
+        const pending = h.saveOverride();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(h.fetchCount, 1);
+        h.closeOverride();
+        h.showOverride(8);
+        h.element('sch-ov-proxy').value = 'new-draft:8080';
+        response.resolve({ok, json: async () => ({error: 'Old failure'})});
+        await pending;
+        assert.equal(h.element('schedule-override-modal').hidden, false);
+        assert.equal(h.element('sch-ov-status').textContent, '');
+        assert.equal(h.element('sch-ov-proxy').value, 'new-draft:8080');
+        assert.equal(h.requests[0].url, '/api/schedule/tasks/7/proxy');
+    });
+}
+
+test('专用设置保存期间重复点击只校验和提交一次，失败允许重试', async () => {
+    const validation = deferred();
+    const h = harness({validation, supportsCredential: true,
+        bindCredentialResult: {ok: false, error: 'Cannot bind'}});
+    h.replaceTasks([{id: 7, sourceType: 'source-a', sourceActivationToken: 'token-a'}]);
+    h.showOverride(7);
+    h.element('sch-ov-cookie-enabled').checked = true;
+    h.element('sch-ov-cookie').value = 'credential-a';
+    const first = h.saveOverride();
+    const second = h.saveOverride();
+    validation.resolve(null);
+    await Promise.all([first, second]);
+    assert.deepEqual(h.credentialCalls.map(call => call.method), ['validateCredential', 'bindCredential']);
+    assert.equal(h.element('sch-ov-status').textContent, 'Cannot bind');
+    await h.saveOverride();
+    assert.equal(h.credentialCalls.filter(call => call.method === 'bindCredential').length, 2);
+});

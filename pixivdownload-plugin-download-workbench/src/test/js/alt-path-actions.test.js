@@ -39,12 +39,12 @@ function harness(choice) {
                 } : action === 'CANCEL' ? {code: 'DOWNLOAD_PATH_CANCELLED'} : {alreadyDownloaded: true}};
         }
     });
-    for (const file of ['pixiv-batch/pixiv-schedule-defaults.js', 'pixiv-batch/media-settings.js', 'pixiv-batch/batch-download-defaults.js', 'pixiv-batch-alt/alt-state.js', 'pixiv-batch/filename-template.js', 'pixiv-batch-alt/alt-settings.js',
+    for (const file of ['pixiv-batch/pixiv-schedule-defaults.js', 'pixiv-batch/media-settings.js', 'pixiv-batch/batch-download-defaults.js', 'pixiv-batch/state-storage.js', 'pixiv-batch-alt/alt-state.js', 'pixiv-batch/filename-template.js', 'pixiv-batch-alt/alt-settings.js',
         'pixiv-batch/batch-artwork-requests.js', 'pixiv-batch/batch-archive.js', 'pixiv-batch-alt/alt-engine.js', 'pixiv-batch/download-workers.js', 'pixiv-batch-alt/alt-engine-workers.js', 'pixiv-batch/batch-path-actions.js']) {
         vm.runInContext(fs.readFileSync(path.join(root, file), 'utf8'), context, {filename: file});
     }
     vm.runInContext("isAdmin = true; state.settings.skipHistory = false; state.settings.interval = 0;", context);
-    context.window.PixivBatch.queueTypes = {get: () => ({process: context.processIllustItem})};
+    context.window.PixivBatch.queueTypes = {get: () => ({process: item => context.processIllustItem(item)})};
     const state = vm.runInContext('state', context);
     async function run(ids) {
         state.queue = ids.map(id => ({id: String(id), kind: 'illust', status: 'idle'}));
@@ -138,3 +138,29 @@ test('网页输出选项保存重载后随实际下载请求发送', async () =>
     await h.run([1]);
     for (const [key, value] of Object.entries(selected)) assert.equal(h.requests.at(-1).other[key], value);
 });
+
+for (const classic of [false, true]) {
+    test(`${classic ? '经典' : '新版'}插画 worker 将原始元数据传入下载请求，缺席时不添加字段`, async () => {
+        const h = harness(null);
+        if (classic) {
+            Object.assign(h.context, {quotaInfo: {enabled: false},
+                setCurrent() {}, setStatus() {}, resolveBatchCollectionIdForDownload: async () => null});
+            for (const name of ['batch-download-artwork.js', 'batch-download-workers.js']) {
+                vm.runInContext(fs.readFileSync(path.join(root, 'pixiv-batch', name), 'utf8'), h.context);
+            }
+            h.context.window.PixivBatch.queueTypes.get = () => ({process: item => h.context.processIllustItem(item)});
+        }
+        h.state.settings.pathOverflowAction = 'DEFAULT_NAME';
+        for (const raw of ['{"title":"作品", "unknown":{"value":42}}', null]) {
+            h.context.apiGet = async url => url.endsWith('/meta')
+                ? {illustTitle: 'Fixture', illustType: 0, rawMetaJson: raw}
+                : {urls: ['https://example.test/image.png']};
+            const queue = await h.run([42]);
+            assert.equal(queue[0].status, 'skipped');
+            const submitted = h.requests.at(-1).other;
+            assert.equal(Object.hasOwn(submitted, 'rawMetaJson'), raw !== null);
+            if (raw !== null) assert.equal(submitted.rawMetaJson, raw);
+        }
+        assert.equal(h.requests.length, 2);
+    });
+}

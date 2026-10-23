@@ -20,7 +20,7 @@
         }
 
         const result = await computeFilteredItems(seriesState.rawItems, filters, kind, isStale);
-        if (!result) return null;
+        if (!result || isStale()) return null;
         seriesState.items = result.filtered;
         seriesState.filterSummary = result.stats;
         renderSeriesResults();
@@ -137,7 +137,7 @@
         const imgEl = document.getElementById(`series-thumb-img-${idx}`);
         if (!imgEl) return;
         const blobUrl = await fetchThumbnailBlobUrl(
-            item.thumbnailUrl, seriesState.activeBlobUrls, seriesState.kind, 'series');
+            item.thumbnailUrl, () => seriesState.activeBlobUrls, seriesState.kind, 'series');
         if (renderToken !== seriesState.renderToken) {
             if (blobUrl) {
                 try { URL.revokeObjectURL(blobUrl); } catch {}

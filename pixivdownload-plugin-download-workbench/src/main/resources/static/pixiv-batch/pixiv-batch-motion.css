@@ -13,31 +13,14 @@
      7. 显隐联动：数据来源 / 类型 / 子模式切换器及其选项、类型联动的设置卡与设置子行、
         来源能力控件、快捷动作、附加筛选与存为计划卡、计划触发字段与队列折叠体、
         分页 / 工具条 / 提示区、在队列标记（hidden / display 翻转重新显示时重放入场）
-   所有时长与缓动集中在下方 token，便于统一调节；遵循 prefers-reduced-motion。
+   时长、缓动与通用关键帧复用全站共享层；遵循 prefers-reduced-motion。
    颜色一律经自定义属性引用（字面量只出现在属性定义行），深色模式经同一变量覆盖。
    ============================================================ */
 
 :root {
-    /* 时长 */
-    --motion-instant: .12s;
-    --motion-fast: .18s;
-    --motion-med: .3s;
-    --motion-slow: .45s;
-    /* 缓动 */
-    --motion-ease-standard: cubic-bezier(.2, .6, .35, 1);
-    --motion-ease-out: cubic-bezier(.22, .61, .36, 1);
-    --motion-ease-spring: cubic-bezier(.34, 1.45, .64, 1);
-    /* 阴影 / 焦点环（字面量仅允许出现在自定义属性定义行） */
-    --motion-shadow-color: rgba(16, 24, 40, .16);
-    --motion-shadow: 0 3px 10px var(--motion-shadow-color);
-    --motion-shadow-lift: 0 6px 16px var(--motion-shadow-color);
     --motion-focus-ring: color-mix(in srgb, var(--brand) 30%, transparent);
     /* 让 <details> 的 block-size 可在 0 与 auto 之间过渡（不支持的浏览器自动回退为瞬时切换） */
     interpolate-size: allow-keywords;
-}
-
-html[data-theme="dark"] {
-    --motion-shadow-color: rgba(0, 0, 0, .5);
 }
 
 /* ---- 关键帧 ---- */
@@ -49,26 +32,6 @@ html[data-theme="dark"] {
     to {
         opacity: 1;
         transform: none;
-    }
-}
-
-@keyframes batch-motion-nav-in {
-    from {
-        opacity: 0;
-        transform: translateY(-8px);
-    }
-    to {
-        opacity: 1;
-        transform: none;
-    }
-}
-
-@keyframes batch-motion-fade {
-    from {
-        opacity: 0;
-    }
-    to {
-        opacity: 1;
     }
 }
 
@@ -117,10 +80,6 @@ html[data-theme="dark"] {
 }
 
 /* ---- 1. 首屏分区域入场（backwards 填充，按区域错峰） ---- */
-.app-nav {
-    animation: batch-motion-nav-in var(--motion-med) var(--motion-ease-out);
-}
-
 .tools-drawer {
     animation: batch-motion-rise var(--motion-slow) var(--motion-ease-out) .02s backwards;
 }
@@ -148,7 +107,7 @@ html[data-theme="dark"] {
 }
 
 .app-footer {
-    animation: batch-motion-fade var(--motion-slow) ease-out .22s backwards;
+    animation: pixiv-motion-fade-in var(--motion-slow) ease-out .22s backwards;
 }
 
 /* 统计条内的统计卡再错峰一层，与整条入场叠加出阶梯感。 */
@@ -210,7 +169,7 @@ html[data-theme="dark"] {
 .schedule-save-card[open] .schedule-form,
 .filename-help[open] .filename-token-grid,
 .filename-help[open] .filename-help-note {
-    animation: batch-motion-fade var(--motion-fast) ease-out;
+    animation: pixiv-motion-fade-in var(--motion-fast) ease-out;
 }
 
 /* 各类展开箭头统一为弹性回摆。 */
@@ -229,7 +188,7 @@ html[data-theme="dark"] {
 
 /* hidden 属性移除时重放：遮罩淡入 + 对话框上浮缩放进场。 */
 .schedule-snapshot-modal:not([hidden]) {
-    animation: batch-motion-fade var(--motion-fast) ease-out;
+    animation: pixiv-motion-fade-in var(--motion-fast) ease-out;
 }
 
 .schedule-snapshot-modal:not([hidden]) .schedule-snapshot-dialog {
@@ -243,7 +202,7 @@ html[data-theme="dark"] {
 #user-results-area:not(.preview-collapsed),
 #search-results-area:not(.preview-collapsed),
 #series-results-area:not(.preview-collapsed) {
-    animation: batch-motion-fade var(--motion-fast) ease-out;
+    animation: pixiv-motion-fade-in var(--motion-fast) ease-out;
 }
 
 /* 预览卡片级联入场：换页 / 新结果重渲染时重放，只错峰前若干张避免长列表拖沓。 */
@@ -331,7 +290,7 @@ summary:focus-visible {
 .data-source-control:not([hidden]),
 .kind-switcher:not([hidden]),
 .quick-kind-switcher:not([hidden]) {
-    animation: batch-motion-fade var(--motion-fast) ease-out;
+    animation: pixiv-motion-fade-in var(--motion-fast) ease-out;
 }
 
 /* 切换器选项按可用性显隐，出现时依次轻弹入。 */
@@ -368,7 +327,7 @@ summary:focus-visible {
 #search-upstream-controls,
 #search-r18-controls,
 #search-premium-tip {
-    animation: batch-motion-fade var(--motion-fast) ease-out;
+    animation: pixiv-motion-fade-in var(--motion-fast) ease-out;
 }
 
 /* 快捷获取：动作按钮按来源显隐、关注搜索框、二层钻取区。 */
@@ -377,7 +336,7 @@ summary:focus-visible {
 }
 
 #quick-following-search {
-    animation: batch-motion-fade var(--motion-fast) ease-out;
+    animation: pixiv-motion-fade-in var(--motion-fast) ease-out;
 }
 
 #quick-inner-section,
@@ -388,7 +347,7 @@ summary:focus-visible {
 
 /* 计划任务：触发方式字段、计划卡队列折叠体与挂起面板。 */
 .sch-trigger-field {
-    animation: batch-motion-fade var(--motion-fast) ease-out;
+    animation: pixiv-motion-fade-in var(--motion-fast) ease-out;
 }
 
 .schedule-queue-body:not([hidden]),
@@ -412,7 +371,7 @@ summary:focus-visible {
 #archive-card,
 #ac-dl-area,
 #ac-expired-area {
-    animation: batch-motion-fade var(--motion-fast) ease-out;
+    animation: pixiv-motion-fade-in var(--motion-fast) ease-out;
 }
 
 /* 在队列标记：加入队列时弹性弹出（标记移除为瞬时消失）。 */
@@ -427,7 +386,7 @@ summary:focus-visible {
 #batch-end-page-hint,
 #admin-pack-btn,
 #extra-filters-quick-hint {
-    animation: batch-motion-fade var(--motion-fast) ease-out;
+    animation: pixiv-motion-fade-in var(--motion-fast) ease-out;
 }
 
 /* 布局宿主：workbench ↔ classic 布局投影切换（hidden 翻转）时上浮入场。 */

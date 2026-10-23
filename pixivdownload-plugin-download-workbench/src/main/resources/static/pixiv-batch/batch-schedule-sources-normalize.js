@@ -338,12 +338,11 @@
 
 
             Object.assign(ctx, {
-                text, sourceEditorError, normalizedModuleUrl, sourceIdentity, ownerIdentity,
-                normalizePresentation, i18nToken, normalizeFetchLimitPresentation,
-                normalizeFetchLimitMode, boundedDisplayText, normalizeCredentialContribution,
-                normalizeCredentialTaskPresentation, machineToken, normalizeCredentialPolicyAction,
+                text, sourceEditorError, normalizedModuleUrl, ownerIdentity,
+                normalizeFetchLimitPresentation, normalizeFetchLimitMode, normalizeCredentialContribution,
+                normalizeCredentialTaskPresentation,
                 normalizeCredentialPolicyGroup, normalizeCredentialOperationResult,
-                normalizeCredentialValidation, normalizedOperationPromise, normalizeSource,
+                normalizeCredentialValidation, normalizedOperationPromise,
                 normalizeManifest
             });
         }

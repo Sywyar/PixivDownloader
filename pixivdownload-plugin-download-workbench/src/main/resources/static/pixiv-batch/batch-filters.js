@@ -99,15 +99,6 @@
             || hasBookmarkFilter(filters);
     }
 
-    // 缓存键带 kind 前缀：不同作品类型 ID 命名空间不同，相同数字可能指向不同作品（内存态缓存、键格式仅内部用）。
-    function searchMetaCacheKey(id, kind = searchState.kind) {
-        return String(kind || 'illust') + ':' + String(id);
-    }
-
-    function getCachedSearchMeta(id, kind = searchState.kind) {
-        return searchState.metaCache[searchMetaCacheKey(id, kind)] || null;
-    }
-
     function getSearchBookmarkCount(item, kind = searchState.kind) {
         const cached = getCachedSearchMeta(item.id, kind);
         if (cached && cached.bookmarkResolved) {
@@ -117,66 +108,13 @@
         return getInlineSearchBookmarkCount(item);
     }
 
-    // 按需补齐逐作品收藏数 meta（收藏数筛选用）。收藏数缓存按 kind+id 全局共享（searchState.metaCache），
-    // 故 Search / User / 系列三种预览可复用。isStale() 用于在新一轮筛选发起后提前放弃过期请求。
-    async function ensureBookmarkMeta(items, kind, isStale) {
-        const missingIds = [];
-        const seen = new Set();
-        for (const item of items) {
-            const id = String(item.id);
-            if (seen.has(id)) continue;
-            seen.add(id);
-            if (getInlineSearchBookmarkCount(item) !== null) continue;
-            const cached = getCachedSearchMeta(id, kind);
-            if (!cached || !cached.bookmarkResolved) missingIds.push(id);
-        }
-        if (!missingIds.length) return;
-
-        // 收藏数 meta 抓取器由当前类型 owner 贡献；未贡献的类型按「元数据不可用」处理。
-        const typeFilters = window.PixivBatch.queueTypes.filtersFor(kind);
-        const fetchMeta = (typeFilters && typeof typeFilters.bookmarkCountFetch === 'function')
-            ? typeFilters.bookmarkCountFetch
-            : async function () { throw new Error('bookmark metadata is unavailable'); };
-        let cursor = 0;
-        const workers = [];
-        const workerCount = Math.min(6, missingIds.length);
-        for (let i = 0; i < workerCount; i++) {
-            workers.push((async () => {
-                while (cursor < missingIds.length) {
-                    if (isStale()) return;
-                    const id = missingIds[cursor++];
-                    const cacheKey = searchMetaCacheKey(id, kind);
-                    try {
-                        const meta = await fetchMeta(id);
-                        if (isStale()) return;
-                        searchState.metaCache[cacheKey] = {
-                            ...(searchState.metaCache[cacheKey] || {}),
-                            bookmarkCount: Number(meta?.bookmarkCount ?? -1),
-                            bookmarkResolved: true
-                        };
-                    } catch {
-                        if (isStale()) return;
-                        searchState.metaCache[cacheKey] = {
-                            ...(searchState.metaCache[cacheKey] || {}),
-                            bookmarkCount: -1,
-                            bookmarkResolved: true,
-                            bookmarkError: true
-                        };
-                    }
-                }
-            })());
-        }
-        await Promise.all(workers);
-    }
-
     // 通用「逐作品附加筛选」：对任意作品数组应用同一套 matchSearchFilters。
     // 返回 {filtered, stats}；当 isStale() 在 await 收藏数 meta 期间变 true 时返回 null（调用方应丢弃）。
     async function computeFilteredItems(items, filters, kind, isStale) {
         const source = Array.isArray(items) ? items : [];
         const bookmarkFilterActive = hasBookmarkFilter(filters);
         if (bookmarkFilterActive) {
-            await ensureBookmarkMeta(source, kind, isStale);
-            if (isStale()) return null;
+            if (!await ensureBookmarkMeta(source, kind, isStale) || isStale()) return null;
         }
         const stats = {
             rawCount: source.length,
@@ -304,19 +242,10 @@
             document.getElementById('btn-add-all').disabled = true;
         }
 
-        if (bookmarkFilterActive) {
-            await ensureBookmarkMeta(sourceItems, kind, () => requestSeq !== searchState.filterSeq);
-            if (requestSeq !== searchState.filterSeq) return null;
-        }
-
-        const stats = {
-            rawCount: sourceItems.length,
-            filteredCount: 0,
-            bookmarkMetaMissing: 0,
-            bookmarkFilterActive
-        };
-        const filtered = sourceItems.filter(item => matchSearchFilters(item, filters, stats, kind));
-        stats.filteredCount = filtered.length;
+        const result = await computeFilteredItems(sourceItems, filters, kind,
+            () => requestSeq !== searchState.filterSeq);
+        if (!result || requestSeq !== searchState.filterSeq) return null;
+        const {filtered, stats} = result;
 
         searchState.results = filtered;
         searchState.filterSummary = stats;
@@ -376,24 +305,8 @@
 
     async function resetSearchFilters() {
         const filters = defaultSearchFilters();
-        searchState.currentFilters = filters;
         setSearchFiltersUI(filters);
-        saveSearchFilterPrefs(filters);
-        if (state.mode === QUICK_FETCH_MODE) {
-            await quickReapplyFilters();
-            return;
-        }
-        if (state.mode === 'user') {
-            await applyUserFilters({setStatus: true});
-            return;
-        }
-        if (state.mode === 'series') {
-            await applySeriesFilters({setStatus: true});
-            return;
-        }
-        if (!searchState.currentWord) return;
-        if (searchState.submode === 'batch') searchState.localPage = 1;
-        await applyCurrentSearchFilters({setStatus: true});
+        await handleSearchFilterChange();
     }
 
 

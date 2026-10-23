@@ -21,7 +21,7 @@ function harness(queue = []) {
         state: {queue, stats: {}, settings: {}, isRunning: false, isPaused: false},
         window: {
             PixivBatch: {queueTypes: {get: () => behavior}},
-            PixivBatchAlt: {queue: {}},
+            PixivBatchAlt: {queue: {}, engine: {}},
             PixivFeedback: {confirm: async () => { calls.confirmations++; return true; }},
             addEventListener: (type, listener) => listeners.set(type, listener)
         },
@@ -30,13 +30,11 @@ function harness(queue = []) {
         setTimeout(fn, ms) { timers.set(++nextTimer, {fn, ms}); return nextTimer; },
         clearTimeout: id => timers.delete(id),
         bt: key => key,
-        novelTranslateMessage() {},
         renderQueue() {}, updateStats() {}, updateButtonsState() {},
         saveQueue() { calls.saved++; },
         storeGet: () => JSON.stringify({queue}),
         storageKey: () => 'queue',
-        dedupeQueueItems: items => items,
-        normalizeImportMode: mode => mode,
+        SINGLE_IMPORT_MODE: 'single-import', SINGLE_IMPORT_NOVEL_SOURCE: 'single-import-novel',
         checkBackend: async () => true,
         refreshBatchCollections: async () => {},
         setStatus() {}, setDockStatus() {},
@@ -44,6 +42,9 @@ function harness(queue = []) {
         desiredConcurrency: () => 1,
         getIntervalMs: () => 0,
         ensureWorkers() { calls.started++; },
+        sendDownload() { assert.fail('recovery must not submit'); },
+        ensureSharedSSE() {}, closeAllSSE() {}, openSSE() {}, closeSSE() {},
+        initQuota() {}, showArchiveCard() {}, triggerAdminPack() {},
         quotaExceededHandled: false
     });
     vm.runInContext(source('pixiv-batch/batch-queue-recovery.js'), context);
@@ -100,32 +101,33 @@ test('recovery help keeps disclosure and focus while pending actions remain visi
 
 function loadQueue(context, layout) {
     vm.runInContext(source('pixiv-batch/queue-display.js'), context);
-    const file = source(layout === 'classic' ? 'pixiv-batch/batch-queue.js' : 'pixiv-batch-alt/alt-queue.js');
-    if (layout === 'alt') {
-        const stubs = Object.fromEntries(['renderQueue', 'updateStats', 'updateButtonsState', 'setDockStatus',
-            'saveQueue', 'storageKey', 'dedupeQueueItems'].map(key => [key, context[key]]));
-        vm.runInContext(file, context);
-        Object.assign(context, stubs);
-    } else {
-        vm.runInContext(file.slice(file.indexOf('function loadQueueForMode()'),
-            file.indexOf('function clearSavedQueue()')), context);
-    }
+    const stubs = Object.fromEntries(['renderQueue', 'updateStats', 'updateButtonsState', 'setDockStatus',
+        'saveQueue', 'storageKey'].map(key => [key, context[key]]));
+    const files = layout === 'classic'
+        ? ['batch-queue-model.js', 'batch-queue-actions.js', 'batch-queue-view.js', 'batch-queue.js']
+            .map(file => 'pixiv-batch/' + file)
+        : ['pixiv-batch-alt/alt-queue-model.js', 'pixiv-batch-alt/alt-queue.js'];
+    for (const file of files) vm.runInContext(source(file), context, {filename: file});
+    Object.assign(context, stubs);
     context.loadQueueForMode();
 }
 
 for (const layout of ['classic', 'alt']) {
-    test(layout + ': 加载旧队列仅清理自动导入项，保存后重开不再出现', () => {
-        const manual = {id: '42', source: 'single', status: 'idle'};
+    test(layout + ': 恢复保留首个手动项，清理自动导入项与重复项后可再次加载', () => {
+        const manual = {id: 42, title: 'First title', source: 'single', status: 'idle'};
         const legacy = ['downloading', 'completed', 'failed', 'paused', 'cancelled'].map(status => ({
             id: 'task:' + status, workId: '42', source: 'task', taskObserved: true, status
         }));
-        const h = harness([...legacy, manual]);
+        const h = harness([...legacy, null, {}, manual,
+            {id: '42', title: 'Duplicate title', source: 'single', status: 'idle'}]);
         let saved;
         h.context.saveQueue = () => { h.calls.saved++; saved = JSON.stringify({queue: h.context.state.queue}); };
         loadQueue(h.context, layout);
         assert.equal(h.context.state.queue.length, 1);
         assert.equal(h.context.state.queue[0].id, '42');
         assert.equal(h.context.state.queue[0].status, 'idle');
+        assert.equal(h.context.state.queue[0].title, 'First title');
+        assert.equal(manual.id, 42);
         assert.equal(h.calls.saved, 1);
         assert.deepEqual(JSON.parse(saved).queue.map(item => item.id), ['42']);
         h.context.storeGet = () => saved;
@@ -138,10 +140,12 @@ for (const layout of ['classic', 'alt']) {
 }
 
 function loadStart(context, layout) {
-    const file = source(layout === 'classic'
-        ? 'pixiv-batch/batch-download-workers.js' : 'pixiv-batch-alt/alt-engine-workers.js');
-    vm.runInContext(file.slice(file.indexOf('async function start('),
-        file.indexOf('function finishBatch()')), context);
+    const ensureWorkers = context.ensureWorkers;
+    vm.runInContext(source('pixiv-batch/download-workers.js'), context);
+    context.ensureWorkers = ensureWorkers;
+    const file = layout === 'classic'
+        ? 'pixiv-batch/batch-download-workers.js' : 'pixiv-batch-alt/alt-engine-workers.js';
+    vm.runInContext(source(file), context, {filename: file});
 }
 
 test('alt: initial page load initializes recovery once and language refresh only renders', async () => {
@@ -310,6 +314,59 @@ test('request timeout and leaving the page abort checks without declaring failur
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(h.context.state.queue[0].statusMessageKey, 'batch:queue.recovery.cancelled');
     assert.equal(h.context.state.queue[0].recoveryState, undefined);
+});
+
+test('返回等待旧查询期间再次离页，不恢复查询或保存；再次返回仍能核对', async () => {
+    const item = {id: '1', status: 'paused', recoveryState: 'unknown'};
+    const h = harness([item]);
+    let release;
+    let signal;
+    h.behavior.queryDownloadStatus = (_, value) => {
+        signal = value;
+        h.calls.queries.push(item.id);
+        return new Promise(resolve => { release = resolve; });
+    };
+    h.context.initQueueRecovery();
+    const pending = h.context.reconcileRestoredQueue();
+    h.listeners.get('pagehide')();
+    h.listeners.get('pageshow')();
+    h.listeners.get('pagehide')();
+    assert.equal(signal.aborted, true);
+    h.behavior.queryDownloadStatus = async () => {
+        h.calls.queries.push(item.id);
+        return {status: 'completed'};
+    };
+    release({status: 'completed'});
+    await pending;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(h.calls.queries, ['1']);
+    assert.equal(h.calls.saved, 0);
+    assert.equal(h.timers.size, 0);
+    assert.equal(item.recoveryState, 'unknown');
+    h.listeners.get('pageshow')();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(h.calls.queries, ['1', '1']);
+    assert.equal(item.status, 'completed');
+    assert.equal(item.recoveryState, undefined);
+    assert.equal(h.calls.saved, 1);
+    assert.equal(h.timers.size, 0);
+});
+
+test('重试前核对期间离页，不再打开确认框或改写待确认项', async () => {
+    const h = harness();
+    h.context.initQueueRecovery();
+    const item = {id: '1', status: 'paused', recoveryState: 'unknown'};
+    h.context.state.queue.push(item);
+    let release;
+    h.behavior.queryDownloadStatus = () => new Promise(resolve => { release = resolve; });
+    const pending = h.context.retryUnconfirmedQueueItems();
+    h.listeners.get('pagehide')();
+    release({status: 'completed'});
+    await pending;
+    assert.equal(h.calls.confirmations, 0);
+    assert.equal(h.calls.saved, 0);
+    assert.equal(h.timers.size, 0);
+    assert.equal(item.recoveryState, 'unknown');
 });
 
 test('leave warning follows unfinished work and does not change multi or guest behavior', () => {

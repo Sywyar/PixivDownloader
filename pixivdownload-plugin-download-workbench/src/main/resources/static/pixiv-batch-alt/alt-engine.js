@@ -2,9 +2,7 @@
 /* ============================================================
    alt-engine — 下载执行引擎
    插画下载请求 / 配额与归档，
-   逐字移植 pixiv-batch/batch-download.js + batch-sse.js（UI 门面换成
-   新坞的 renderQueue/renderCurrent/updateStats/setDockStatus）。
-   worker 池与聚合 SSE 由同目录职责模块提供。
+   worker 池与聚合 SSE 由各自职责模块提供。
    ============================================================ */
 const STATUS_TIMEOUT_MS = 300000;
 
@@ -144,7 +142,9 @@ function handleQuotaExceeded(data) {
     state.queue.forEach(q => {
         if (['pending', 'idle', 'paused'].includes(q.status)) {
             q.status = 'failed';
-            q.lastMessage = bt('queue.message.failed-quota', '失败 - 达到限额');
+            q.statusMessageKey = 'batch:queue.message.failed-quota';
+            q.lastMessage = '';
+            q.lastMessageParts = null;
             q.endTime = q.endTime || new Date().toISOString();
         }
     });

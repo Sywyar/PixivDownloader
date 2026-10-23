@@ -15,7 +15,7 @@ function harness(page) {
         bt: (key, fallback, args) => `${language}:${key}:${JSON.stringify(args || {})}`});
     const html = readFileSync(resolve(root, page), 'utf8');
     for (const [, src] of html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/g)) {
-        if (/\/(queue-display|batch-queue-model|batch-queue-view|alt-queue)\.js$/.test(src)) {
+        if (/\/(queue-display|batch-queue-model|batch-queue-view|alt-queue(?:-model)?)\.js$/.test(src)) {
             vm.runInContext(readFileSync(resolve(root, '.' + src), 'utf8'), c, {filename: src});
         }
     }

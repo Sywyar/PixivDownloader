@@ -22,9 +22,13 @@ function deferred() {
 }
 
 function element() {
+    const classes = new Set();
     return {
         innerHTML: '', textContent: '', style: {}, disabled: false, value: '',
-        classList: {toggle() {}, remove() {}},
+        classList: {
+            toggle(name, force) { if (force ?? !classes.has(name)) classes.add(name); else classes.delete(name); },
+            remove(name) { classes.delete(name); }, contains(name) { return classes.has(name); }
+        },
         querySelectorAll() { return []; }
     };
 }
@@ -73,7 +77,7 @@ function userHarness(acquisition, fetchImpl) {
                 bookmarkMetaMissing: 0, bookmarkFilterActive: false}
         }),
         defaultSearchFilters() { return {}; },
-        uiLang() { return 'zh-CN'; },
+        uiLang() { return 'en-US'; },
         summaryJoin(parts) { return parts.join(' / '); },
         summarySeparator() { return ' / '; },
         getInlineSearchBookmarkCount() { return null; },
@@ -164,17 +168,18 @@ test('user 空态钩子获得 variant 上下文并替换通用文案', async () 
         buildQueueMeta() { return {}; },
         emptyMessage(context) {
             contexts.push({...context});
-            return '该二级列表为空或不可见';
+            return 'Fixture empty list';
         }
     };
     const h = userHarness(acquisition, () => {
         throw new Error('paged acquisition must not call fetch directly');
     });
     h.state.variant = 'demo-hidden-list';
+    h.sandbox.bt = key => key;
 
     await h.loadPage(1);
 
-    assert.match(h.elements['user-results-area'].innerHTML, /该二级列表为空或不可见/);
+    assert.match(h.elements['user-results-area'].innerHTML, /Fixture empty list/);
     const status = h.statuses[h.statuses.length - 1];
     assert.strictEqual(status.level, 'warning');
     assert.deepStrictEqual(JSON.parse(JSON.stringify(status.message.userEmpty.context)), {
@@ -190,7 +195,7 @@ test('user 空态钩子获得 variant 上下文并替换通用文案', async () 
 
     acquisition.emptyMessage = () => null;
     h.renderResults();
-    assert.match(h.elements['user-results-area'].innerHTML, /该用户暂无作品/);
+    assert.match(h.elements['user-results-area'].innerHTML, /status.user-no-artworks/);
 });
 
 test('user 单项与全部入队 meta 上下文均传递 variant', async () => {
@@ -478,9 +483,12 @@ test('Pixiv 来源内 /request URL 自动切回旧 userKind=request 且不跨来
 });
 
 function quickHarness(responses, contexts) {
+    const elements = new Map();
+    const listeners = new Map();
     const registry = {
         resolveTypeForMode(value) { return value; },
         acquisition() { return acquisition; },
+        acquisitionList() { return [acquisition]; },
         prepareAcquisitionRequest(_type, _mode, url) {
             return {url, init: {}, assertCurrent() {}};
         },
@@ -488,6 +496,13 @@ function quickHarness(responses, contexts) {
     };
     const acquisition = {
         type: 'demo', pageSize: 2,
+        actions: {
+            following: {userWorkTypes: ['demo']},
+            collections: {buildCollectionWorksRequest(id) { return {endpoint: `/api/collection/${id}`}; }}
+        },
+        innerCardHtml(item) { return `<div>${item.id}</div>`; },
+        render(items) { elements.get('quick-preview-area').innerHTML = items.map(item => item.id).join(','); },
+        skipThumbnail: true,
         buildUserPageRequest(_userId, context) {
             contexts.push({...context});
             return {endpoint: `/api/user?page=${context.page}`};
@@ -495,7 +510,14 @@ function quickHarness(responses, contexts) {
     };
     const sandbox = {
         window: {PixivBatch: {queueTypes: registry, modes: {}}},
-        document: {addEventListener() {}, getElementById() { return null; }, querySelectorAll() { return []; }},
+        document: {
+            addEventListener(name, listener) { listeners.set(name, listener); },
+            querySelector() { return null; }, querySelectorAll() { return []; },
+            getElementById(id) {
+                if (!elements.has(id)) elements.set(id, {...element(), scrollIntoView() {}});
+                return elements.get(id);
+            }
+        },
         state: {mode: 'quick-fetch', settings: {}, queue: []},
         console: {warn() {}, log() {}, error() {}},
         Map, Set, Promise, URL, URLSearchParams, AbortController,
@@ -509,6 +531,12 @@ function quickHarness(responses, contexts) {
         bt(_key, fallback) { return fallback; },
         esc(value) { return String(value); },
         resetPreviewCollapse() {},
+        normalizeSearchFilters(value) { return value || {}; },
+        getSearchFiltersFromUI() { return {}; },
+        hasBookmarkFilter() { return false; }, hasExtraSearchFilter() { return false; },
+        matchSearchFilters() { return true; },
+        computeFilteredItems: async items => ({filtered: items, stats: {rawCount: items.length,
+            filteredCount: items.length, bookmarkMetaMissing: 0, bookmarkFilterActive: false}}),
         updateExtraFiltersCardVisibility() {},
         updateSaveScheduleCardVisibility() {},
         applyNovelSettingsVisibility() {}
@@ -516,11 +544,297 @@ function quickHarness(responses, contexts) {
     vm.createContext(sandbox);
     vm.runInContext(QUICK_SOURCE + '\nwindow.__pagedQuickTest = '
         + '{quickState, quickInner, fetchQuickInnerUserPage, fetchQuickInnerCollectionPage, '
-        + 'quickAddAllToQueue, quickUserAcquisitionsForAction};', sandbox);
+        + 'quickAddAllToQueue, quickUserAcquisitionsForAction, quickEnterFollowingUser, quickEnterCollection};', sandbox);
     const exposed = sandbox.window.__pagedQuickTest;
     exposed.quickInner.userId = 'user-1';
     exposed.quickInner.userPageStates = new Map();
-    return {sandbox, acquisition, ...exposed};
+    return {sandbox, acquisition, elements, listeners, ...exposed};
+}
+
+for (const [label, name, args] of [
+    ['收藏', 'loadQuickIllustBookmarks', page => ['demo', 'show', page]],
+    ['我的作品', 'loadQuickMyWorks', page => ['demo', page]],
+    ['约稿', 'loadQuickMyRequest', page => ['demo', page]],
+    ['关注', 'loadQuickFollowing', page => ['show', (page - 1) * 24, 'demo']],
+    ['关注新作', 'loadQuickFollowingNew', page => ['demo', page]]
+]) {
+    test(`经典${label}后发分页完成后不再显示旧分页响应`, async () => {
+        const old = deferred();
+        const h = quickHarness([old, {items: [{id: 'new'}], users: [{userId: 'new'}], total: 120}], []);
+        Object.assign(h.acquisition, {
+            buildCardsRequest: () => '/api/cards',
+            actions: {fixture: {buildPageRequest: () => '/api/page',
+                buildIdsRequest: () => '/api/ids', buildCardsRequest: () => '/api/cards'}}
+        });
+        Object.assign(h.quickState, {kind: 'demo', action: 'fixture', uid: 'account', accountOwner: 'demo',
+            allIds: ['1', '2', '3', '4', '5', '6']});
+        h.elements.set('quick-preview-area', element());
+        h.sandbox.renderQuickFollowingGrid = () => {};
+        const pending = h.sandbox[name](...args(2));
+        await h.sandbox[name](...args(3));
+        old.resolve({items: [{id: 'old'}], users: [{userId: 'old'}], total: 120});
+        await Promise.allSettled([pending]);
+        assert.strictEqual(h.quickState.page, 3);
+        const ids = name === 'loadQuickFollowing' ? h.quickState.followingAll.map(item => item.userId)
+            : h.quickState.items.map(item => item.id);
+        assert.deepStrictEqual(Array.from(ids), ['new']);
+    });
+}
+
+test('经典关注切换用户后迟到的旧 ID 不能替换当前缓存', async () => {
+    const old = deferred();
+    const h = quickHarness([old, {ids: ['new-id']}, {items: [{id: 'new-card'}]}], []);
+    delete h.acquisition.buildUserPageRequest;
+    h.acquisition.buildUserIdsRequest = id => ({endpoint: `/api/user/${id}/ids`});
+    h.acquisition.buildCardsRequest = id => ({endpoint: `/api/user/${id}/cards`});
+    h.quickState.action = 'following';
+    h.quickState.followingAll = [{userId: 'old-user'}, {userId: 'new-user'}];
+    const pending = h.quickEnterFollowingUser(0);
+    await h.quickEnterFollowingUser(1);
+    old.resolve({ids: ['old-id']});
+    await pending;
+    assert.deepStrictEqual(Array.from(h.quickInner.idsByType.get('demo')), ['new-id']);
+    assert.deepStrictEqual(Array.from(h.quickInner.rawItems, item => item.id), ['new-card']);
+});
+
+for (const collection of [false, true]) {
+    test(`经典${collection ? '珍藏集' : '关注用户'}重复打开后旧失败不能覆盖当前预览`, async () => {
+        const old = deferred();
+        const body = collection ? {works: [{id: 'current', kind: 'demo'}]}
+            : {items: [{id: 'current'}], total: 1, hasMore: false};
+        const h = quickHarness([old, body], []);
+        h.quickState.action = collection ? 'collections' : 'following';
+        h.quickState.items = [{id: 'same-collection'}];
+        h.quickState.followingAll = [{userId: 'same-user'}];
+        const enter = collection ? h.quickEnterCollection : h.quickEnterFollowingUser;
+        const pending = enter(0);
+        await enter(0);
+        const current = h.elements.get('quick-inner-area').innerHTML;
+        assert.ok(current.includes('current'));
+        old.reject(new Error('obsolete request failed'));
+        await pending;
+        assert.strictEqual(h.elements.get('quick-inner-area').innerHTML, current);
+    });
+
+    test(`经典${collection ? '珍藏集' : '关注用户'}当前读取失败仍显示错误并可重试`, async () => {
+        const failed = deferred();
+        const body = collection ? {works: [{id: 'retry', kind: 'demo'}]}
+            : {items: [{id: 'retry'}], total: 1, hasMore: false};
+        const h = quickHarness([failed, body], []);
+        h.sandbox.bt = key => key;
+        h.quickState.action = collection ? 'collections' : 'following';
+        h.quickState.items = [{id: 'collection'}];
+        h.quickState.followingAll = [{userId: 'user'}];
+        const enter = collection ? h.quickEnterCollection : h.quickEnterFollowingUser;
+        const pending = enter(0);
+        failed.reject(new Error('current request failed'));
+        await pending;
+        assert.ok(h.elements.get('quick-inner-area').innerHTML.includes('quick.error.load-failed'));
+        await enter(0);
+        assert.ok(h.elements.get('quick-inner-area').innerHTML.includes('retry'));
+    });
+}
+
+test('经典关注用户取得 ID 后的当前卡片失败仍显示错误', async () => {
+    const failed = deferred();
+    const h = quickHarness([{ids: ['id']}, failed], []);
+    delete h.acquisition.buildUserPageRequest;
+    h.acquisition.buildUserIdsRequest = id => ({endpoint: `/api/user/${id}/ids`});
+    let requested;
+    const started = new Promise(resolve => { requested = resolve; });
+    h.acquisition.buildCardsRequest = id => {
+        requested();
+        return {endpoint: `/api/user/${id}/cards`};
+    };
+    h.sandbox.bt = key => key;
+    h.quickState.action = 'following';
+    h.quickState.followingAll = [{userId: 'user'}];
+    const pending = h.quickEnterFollowingUser(0);
+    await started;
+    failed.reject(new Error('current cards failed'));
+    await pending;
+    assert.ok(h.elements.get('quick-inner-area').innerHTML.includes('quick.error.load-failed'));
+});
+
+for (const collection of [false, true]) {
+    test(`经典${collection ? '珍藏集' : '关注用户'}分页失败显示提示且保留重试`, async () => {
+        const body = (id, hasMore) => ({items: [{id, kind: 'demo'}], total: 3,
+            nextCursor: hasMore ? 'next' : '', hasMore});
+        const h = quickHarness([body('first', true), {error: 'page failed'}, body('retry', false)], []);
+        h.sandbox.bt = key => key;
+        h.acquisition.actions.collections.buildCollectionWorksPageRequest = () => '/api/collection/page';
+        h.quickState.action = collection ? 'collections' : 'following';
+        h.quickState.items = [{id: 'collection'}];
+        h.quickState.followingAll = [{userId: 'user'}];
+        await (collection ? h.quickEnterCollection : h.quickEnterFollowingUser)(0);
+        const load = h.quickInner._jumpFn;
+        let pending;
+        h.quickInner._jumpFn = page => {
+            pending = load(page);
+            pending.catch(() => {});
+            return pending;
+        };
+        await h.sandbox.quickInnerJumpPage(2);
+        await pending.catch(() => {});
+        assert.ok(h.elements.get('quick-inner-area').innerHTML.includes('quick.error.load-failed'));
+        await h.sandbox.quickInnerJumpPage(2);
+        assert.ok(h.elements.get('quick-inner-area').innerHTML.includes('retry'));
+        assert.strictEqual(h.quickInner.page, 2);
+    });
+}
+
+test('经典外层分页忽略旧失败，当前失败显示提示且动作可以重试', async () => {
+    const old = deferred();
+    const h = quickHarness([old, {items: [{id: 'new'}]}, {error: 'page failed'}, {items: [{id: 'retry'}]}], []);
+    h.acquisition.actions.fixture = {buildPageRequest: () => '/api/page'};
+    Object.assign(h.quickState, {kind: 'demo', action: 'fixture'});
+    h.elements.set('quick-preview-area', element());
+    h.sandbox.bt = key => key;
+    h.quickState._jumpFn = page => h.sandbox.loadQuickFollowingNew('demo', page);
+    const pending = h.sandbox.quickJumpPage(2);
+    await h.sandbox.quickJumpPage(3);
+    old.reject(new Error('obsolete failure'));
+    await pending;
+    assert.strictEqual(h.elements.get('quick-preview-area').innerHTML, 'new');
+    await h.sandbox.quickJumpPage(4);
+    assert.ok(h.elements.get('quick-preview-area').innerHTML.includes('quick.error.load-failed'));
+    await h.sandbox.loadQuickFollowingNew('demo', 1);
+    assert.strictEqual(h.elements.get('quick-preview-area').innerHTML, 'retry');
+});
+
+test('经典关注切换作品类型的失败沿用分页提示并可重新选择', async () => {
+    const h = quickHarness([{ids: ['work']}, {items: [{id: 'first'}]},
+        {error: 'cards failed'}, {items: [{id: 'retry'}]}], []);
+    delete h.acquisition.buildUserPageRequest;
+    h.acquisition.buildUserIdsRequest = () => '/api/ids';
+    h.acquisition.buildCardsRequest = () => '/api/cards';
+    h.quickState.action = 'following';
+    h.quickState.followingAll = [{userId: 'user'}];
+    h.sandbox.bt = key => key;
+    await h.quickEnterFollowingUser(0);
+    h.listeners.get('change')({target: {name: 'quick-inner-kind', value: 'demo'}});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.ok(h.elements.get('quick-inner-area').innerHTML.includes('quick.error.load-failed'));
+    h.listeners.get('change')({target: {name: 'quick-inner-kind', value: 'demo'}});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.ok(h.elements.get('quick-inner-area').innerHTML.includes('retry'));
+});
+
+test('经典关注加载新类型期间不提供旧列表的批量入队操作', async () => {
+    const cards = deferred();
+    const h = quickHarness([{ids: ['first']}, {items: [{id: 'first'}]}, cards], []);
+    delete h.acquisition.buildUserPageRequest;
+    h.acquisition.buildUserIdsRequest = () => '/api/ids';
+    h.acquisition.buildCardsRequest = () => '/api/cards';
+    h.quickState.action = 'following';
+    h.quickState.followingAll = [{userId: 'user'}];
+    await h.quickEnterFollowingUser(0);
+    h.quickInner.idsByType.set('other', ['second']);
+    h.acquisition.actions.following.userWorkTypes.push('other');
+    assert.strictEqual(h.elements.get('quick-inner-add-all').style.display, '');
+
+    h.listeners.get('change')({target: {name: 'quick-inner-kind', value: 'other'}});
+    assert.strictEqual(h.elements.get('quick-inner-add-all').style.display, 'none');
+    assert.strictEqual(h.elements.get('quick-inner-add-page').style.display, 'none');
+    cards.resolve({items: [{id: 'second'}]});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.strictEqual(h.elements.get('quick-inner-add-all').style.display, '');
+    assert.deepStrictEqual(Array.from(h.quickInner.rawItems, item => [item.id, item.kind]), [['second', 'other']]);
+});
+
+for (const requestWorks of [false, true]) {
+    for (const stage of ['account', 'ids']) {
+        test(`经典${requestWorks ? '约稿' : '我的作品'}在旧 ${stage} 返回后不继续读取或覆盖新分页`, async () => {
+            const old = deferred();
+            const responses = [old, ...(stage === 'account' ? [{id: 'current-account'}] : []),
+                {ids: ['new-1', 'new-2', 'new-3']}, {items: [{id: 'current'}]}];
+            const h = quickHarness(responses, []);
+            let requests = 0;
+            const fetch = h.sandbox.fetch;
+            h.sandbox.fetch = (...args) => { requests++; return fetch(...args); };
+            Object.assign(h.acquisition, {account: {buildRequest: () => '/api/account', readId: body => body.id},
+                buildMyWorksIdsRequest: () => '/api/ids', buildCardsRequest: () => '/api/cards',
+                actions: {fixture: {buildIdsRequest: () => '/api/ids', buildCardsRequest: () => '/api/cards'}}});
+            Object.assign(h.quickState, {kind: 'demo', action: 'fixture',
+                uid: stage === 'account' ? null : 'current-account', accountOwner: 'demo'});
+            h.elements.set('quick-preview-area', element());
+            const load = requestWorks ? h.sandbox.loadQuickMyRequest : h.sandbox.loadQuickMyWorks;
+            const pending = load('demo', 1);
+            await load('demo', 2);
+            old.resolve(stage === 'account' ? {id: 'obsolete-account'} : {ids: ['obsolete']});
+            await pending;
+            assert.strictEqual(h.quickState.uid, 'current-account');
+            assert.deepStrictEqual(Array.from(h.quickState.allIds), ['new-1', 'new-2', 'new-3']);
+            assert.strictEqual(h.quickState.page, 2);
+            assert.strictEqual(h.elements.get('quick-preview-area').innerHTML, 'current');
+            assert.strictEqual(requests, stage === 'account' ? 4 : 3);
+        });
+    }
+}
+
+test('经典外层分页筛选迟到时不能恢复旧卡片或旧页码', async () => {
+    const filtering = deferred();
+    const h = quickHarness([{items: [{id: 'old'}]}, {items: [{id: 'new'}]}], []);
+    h.acquisition.actions.fixture = {buildPageRequest: () => '/api/page'};
+    Object.assign(h.quickState, {kind: 'demo', action: 'fixture'});
+    h.elements.set('quick-preview-area', element());
+    let started;
+    const ready = new Promise(resolve => { started = resolve; });
+    const compute = h.sandbox.computeFilteredItems;
+    h.sandbox.computeFilteredItems = (items, ...args) => {
+        if (items[0].id === 'old') { started(); return filtering.promise; }
+        return compute(items, ...args);
+    };
+    const pending = h.sandbox.loadQuickFollowingNew('demo', 2);
+    await ready;
+    await h.sandbox.loadQuickFollowingNew('demo', 3);
+    filtering.resolve({filtered: [{id: 'old'}], stats: {rawCount: 1, filteredCount: 1}});
+    await pending;
+    assert.strictEqual(h.quickState.page, 3);
+    assert.strictEqual(h.elements.get('quick-preview-area').innerHTML, 'new');
+    assert.ok(h.elements.get('quick-pagination').innerHTML.includes('disabled>3</button>'));
+});
+
+test('经典外层翻页保留正在全部取得的按钮禁用状态', async () => {
+    const h = quickHarness([{items: [{id: 'page'}]}], []);
+    h.acquisition.actions.fixture = {buildPageRequest: () => '/api/page'};
+    Object.assign(h.quickState, {kind: 'demo', action: 'fixture'});
+    h.elements.set('quick-preview-area', element());
+    h.sandbox.setQuickBtnLoading('quick-add-all', true);
+    await h.sandbox.loadQuickFollowingNew('demo', 2);
+    assert.strictEqual(h.elements.get('quick-add-all').disabled, true);
+});
+
+for (const collection of [false, true]) {
+    test(`经典${collection ? '珍藏集' : '用户'}全部取得的旧完成不能解锁新操作`, async () => {
+        const old = deferred(), current = deferred();
+        const body = (id, hasMore) => ({items: [{id, kind: 'demo'}], total: 3,
+            nextCursor: hasMore ? 'next' : '', hasMore});
+        const h = quickHarness([body('old-first', true), old, body('new-first', true), current], []);
+        Object.assign(h.acquisition, {queueId: item => item.id, buildQueueMeta: () => ({kind: 'demo'})});
+        h.acquisition.actions.collections.buildCollectionWorksPageRequest = () => '/api/collection/page';
+        const added = [];
+        Object.assign(h.sandbox, {setStatus() {}, uiConfirmKey: async () => true,
+            addItemsToQueue(ids) { added.push(Array.from(ids)); return ids.length; }});
+        h.quickState.action = collection ? 'collections' : 'following';
+        h.quickState.items = [{id: 'old'}, {id: 'new'}];
+        h.quickState.followingAll = [{userId: 'old'}, {userId: 'new'}];
+        const enter = collection ? h.quickEnterCollection : h.quickEnterFollowingUser;
+        await enter(0);
+        const first = h.sandbox.quickInnerAddAllToQueue();
+        await new Promise(resolve => setImmediate(resolve));
+        await enter(1);
+        assert.strictEqual(h.elements.get('quick-inner-add-all').disabled, false);
+        const second = h.sandbox.quickInnerAddAllToQueue();
+        await new Promise(resolve => setImmediate(resolve));
+        old.resolve(body('old-last', false));
+        await first;
+        assert.strictEqual(h.elements.get('quick-inner-add-all').disabled, true);
+        current.resolve(body('new-last', false));
+        await second;
+        assert.strictEqual(h.elements.get('quick-inner-add-all').disabled, false);
+        assert.deepStrictEqual(added, [['new-first', 'new-last']]);
+    });
 }
 
 test('quick user-page hook 连续两页推进 cursor 且外层陈旧请求被拒绝', async () => {
@@ -577,15 +891,6 @@ test('quick collection-page hook 连续两页推进 cursor 且只消费页内 wo
         {offset: 0, limit: 2, cursor: null},
         {offset: 2, limit: 2, cursor: 'collection-2'}
     ]);
-});
-
-test('quick host 保留旧 buildUserIdsRequest + buildCardsRequest 降级分支', () => {
-    assert.match(QUICK_SOURCE,
-        /typeof acq\.buildUserIdsRequest === 'function'[\s\S]*typeof acq\.buildCardsRequest === 'function'/);
-    assert.match(QUICK_SOURCE,
-        /if \(typeof acq\.buildUserPageRequest === 'function'\)[\s\S]*else \{/);
-    assert.match(QUICK_SOURCE,
-        /typeof action\.buildCollectionWorksPageRequest !== 'function'[\s\S]*typeof action\.buildCollectionWorksRequest !== 'function'/);
 });
 
 function quickAddAllHarness(pageResponses, fetchImpl) {
@@ -678,7 +983,7 @@ function quickAddAllHarness(pageResponses, fetchImpl) {
         rawItems: [{id: 'current'}], items: [{id: 'current'}], allIds: [],
         total: 4, page: 1, pageSize: 2, viewType: null
     });
-    return {exposed, requests, addCalls, statuses, action};
+    return {exposed, requests, addCalls, statuses, action, registry, button};
 }
 
 test('cursor quick 全部加入顺序推进真实游标、去重并只在完整成功后入队', async () => {
@@ -694,6 +999,62 @@ test('cursor quick 全部加入顺序推进真实游标、去重并只在完整�
     assert.strictEqual(h.addCalls.length, 1);
     assert.deepStrictEqual(h.addCalls[0].ids, ['1', '2', '3', '4']);
 });
+
+test('经典按页全部加入期间翻页不会遗漏后来显示的页面', async () => {
+    const reading = deferred();
+    let started;
+    const ready = new Promise(resolve => { started = resolve; });
+    const h = quickAddAllHarness([], url => {
+        const page = Number(new URL(url, 'https://local.test').searchParams.get('page'));
+        if (page === 2) {
+            started();
+            return reading.promise.then(body => ({ok: true, json: async () => body}));
+        }
+        return Promise.resolve({ok: true, json: async () => ({items: [{id: String(page)}]})});
+    });
+    h.action.cursorPaging = false;
+    h.action.buildPageRequest = context => ({endpoint: `/api/fixture?page=${context.page}`});
+    Object.assign(h.exposed.quickState, {total: 6, rawItems: [{id: '1'}], items: [{id: '1'}]});
+    const pending = h.exposed.quickAddAllToQueue();
+    await ready;
+    Object.assign(h.exposed.quickState, {page: 3, rawItems: [{id: '3'}], items: [{id: '3'}]});
+    reading.resolve({items: [{id: '2'}]});
+    await pending;
+    assert.deepStrictEqual(h.addCalls.map(call => call.ids), [['1', '2', '3']]);
+});
+
+test('经典按页全部加入在页响应交付时失效也不得提交旧结果', async () => {
+    const h = quickAddAllHarness([{items: [{id: 'stale'}]}]);
+    h.action.cursorPaging = false;
+    h.registry.prepareAcquisitionRequest = (_type, _mode, url) => ({url, init: {},
+        assertCurrent() { queueMicrotask(() => { h.exposed.quickState.loadSeq++; }); }});
+    await h.exposed.quickAddAllToQueue();
+    assert.deepStrictEqual(h.addCalls, []);
+    assert.strictEqual(h.statuses.some(status => status.level === 'error'), false);
+});
+
+for (const cursor of [false, true]) {
+    test(`经典${cursor ? '游标' : '按页'}全部加入的旧操作结束不能解锁新操作按钮`, async () => {
+        const old = deferred(), current = deferred();
+        const reads = [old, current];
+        const h = quickAddAllHarness([], () => reads.shift().promise.then(body => ({ok: true, json: async () => body})));
+        h.action.cursorPaging = cursor;
+        const first = h.exposed.quickAddAllToQueue();
+        await new Promise(resolve => setImmediate(resolve));
+        h.exposed.quickState.loadSeq++;
+        const second = h.exposed.quickAddAllToQueue();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.strictEqual(h.requests.length, 2);
+        assert.strictEqual(h.button.disabled, true);
+        old.resolve({items: [{id: 'old'}], hasMore: false});
+        await first;
+        assert.strictEqual(h.button.disabled, true);
+        current.resolve({items: [{id: 'current'}], hasMore: false});
+        await second;
+        assert.strictEqual(h.button.disabled, false);
+        assert.strictEqual(h.addCalls.length, 1);
+    });
+}
 
 test('cursor quick 游标重复或为空时不会把部分结果加入队列', async () => {
     for (const badNextCursor of ['c2', '']) {

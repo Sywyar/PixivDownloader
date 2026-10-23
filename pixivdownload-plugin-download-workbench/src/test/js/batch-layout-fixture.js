@@ -14,35 +14,10 @@ const vm = require('vm');
 const SOURCE_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch',
     'batch-layout.js');
 const HTML_PATH = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch.html');
-const CSS_FILES = [
-    'pixiv-batch.css',
-    'pixiv-batch-components.css',
-    'pixiv-batch-navigation.css',
-    'pixiv-batch-search.css',
-    'pixiv-batch-schedule.css',
-    'pixiv-batch-quick-fetch.css',
-    'pixiv-batch-workbench.css',
-    'pixiv-batch-collapsible.css'
-];
-const CSS_PATHS = CSS_FILES.map(file => path.join(
-    __dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch', file));
-const MAIN_SCRIPT_FILES = [
-    'batch-queue-types-normalize.js', 'batch-queue-types-runtime.js', 'batch-queue-types.js',
-    'batch-schedule-sources-normalize.js', 'batch-schedule-sources-runtime.js',
-    'batch-schedule-sources.js', 'filename-template.js',
-    'batch-queue-model.js', 'batch-queue-actions.js', 'download-speed.js', 'batch-queue-view.js', 'batch-queue.js',
-    'batch-archive.js', 'batch-download-quota.js', 'batch-artwork-requests.js', 'batch-download-artwork.js', 'download-workers.js', 'batch-download-workers.js',
-    'batch-download.js',
-    'modes/quick-fetch-core.js', 'modes/quick-fetch-outer.js', 'modes/quick-fetch-inner.js',
-    'modes/quick-fetch.js',
-    'modes/user-core.js', 'modes/user-data.js', 'modes/user-view.js', 'modes/user.js',
-    'modes/series-browser.js', 'modes/series-data.js', 'modes/series-view.js', 'modes/series.js',
-    'modes/schedule-core.js', 'modes/schedule-editor.js', 'modes/schedule-view.js',
-    'modes/schedule-queue.js', 'modes/schedule.js'
-];
 const SOURCE = fs.readFileSync(SOURCE_PATH, 'utf8');
 const HTML = fs.readFileSync(HTML_PATH, 'utf8');
-const CSS = CSS_PATHS.map(file => fs.readFileSync(file, 'utf8')).join('');
+const CSS = Array.from(HTML.matchAll(/<link\b[^>]*\bhref="(\/pixiv-batch\/[^"?]+\.css)"/g),
+    ([, href]) => fs.readFileSync(path.join(path.dirname(HTML_PATH), href), 'utf8')).join('\n');
 const STORAGE_KEY = 'pixiv:batch-layout:v1';
 const ACTION_IDS = ['btn-start', 'btn-pause', 'btn-retry', 'btn-export', 'btn-export-failed', 'btn-clear'];
 const API_FUNCTIONS = [
@@ -541,9 +516,6 @@ function actionsAreAtOrigins(harness) {
 }
 
 module.exports = {
-    SOURCE_PATH,
-    CSS_FILES,
-    MAIN_SCRIPT_FILES,
     HTML,
     CSS,
     STORAGE_KEY,

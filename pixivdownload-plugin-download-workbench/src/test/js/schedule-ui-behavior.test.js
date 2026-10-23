@@ -165,6 +165,7 @@ test('待重试按钮使用数据身份提交 JSON，忙碌状态禁用，失败
             })
         });
         h.setEditing(null, [{id: 7, sourceType: 'source-a', runState}]);
+        h.state.mode = 'schedule';
         h.addElement('schedule-pending-7', {querySelectorAll: () => [{
             dataset: {workType, workId},
             addEventListener(event, handler) { assert.equal(event, 'click'); click = handler; }
@@ -187,5 +188,33 @@ test('待重试按钮使用数据身份提交 JSON，忙碌状态禁用，失败
         assert.deepEqual(JSON.parse(request.init.body), {workType, workId});
         assert.equal(h.requests.length, ok ? 3 : 2);
         if (!ok) assert.equal(h.element('schedule-pending-7').innerHTML, panelHtml);
+    }
+});
+
+test('待重试查询在刷新、收起及离页后不发布旧结果或错误', async () => {
+    for (const action of ['refresh', 'collapse', 'leave']) {
+        for (const fails of [false, true]) {
+            const old = deferred();
+            let reads = 0;
+            const h = harness({fetch: async () => ++reads === 1
+                ? {ok: true, json: () => old.promise}
+                : {ok: true, json: async () => []},
+            translations: {'schedule.pending.empty': 'Empty'}});
+            h.state.mode = 'schedule';
+            h.replaceTasks([{id: 7, sourceType: 'source-a'}]);
+            const panel = h.addElement('schedule-pending-7', {hidden: false,
+                innerHTML: 'Before', querySelectorAll: () => []});
+            const pending = h.loadPending(7);
+            await new Promise(resolve => setImmediate(resolve));
+            if (action === 'refresh') await h.loadPending(7);
+            if (action === 'collapse') await h.togglePending(7);
+            if (action === 'leave') { h.stopPolling(); h.state.mode = 'user'; }
+            const expected = panel.innerHTML;
+            old.resolve(fails ? Promise.reject(new Error('Old failure'))
+                : [{workType: 'example', workId: 'old', attempts: 0}]);
+            await pending;
+            assert.equal(panel.innerHTML, expected, `${action}/${fails}`);
+            assert.equal(h.requests[0].init.signal.aborted, true);
+        }
     }
 });

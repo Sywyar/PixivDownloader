@@ -6,34 +6,31 @@
     }
 
 
-    /**
-     * 单批次内的系列元数据缓存：同一 seriesId 在一批下载中只查一次 Pixiv 系列 AJAX，
-     * 节省 N 个章节下载时的 N-1 次重复请求。kind: 'illust' | 'novel'。
-     * 返回 { caption, coverUrl, tags } —— 调用方只取需要的字段。
-     */
-    const seriesMetaPromiseCache = new Map();
-    const scopedSeriesMetaPromiseCaches = new WeakMap();
+    // 同一批次和 publication 复用系列查询；批次结束或清空后不再持有结果。
+    const seriesMetaPromiseCaches = new WeakMap();
     function seriesMetaCache(invocation) {
-        if (!invocation || !invocation.signal) return seriesMetaPromiseCache;
-        let cache = scopedSeriesMetaPromiseCaches.get(invocation.signal);
+        if (!pathActionBatch) return null;
+        let scopes = seriesMetaPromiseCaches.get(pathActionBatch);
+        if (!scopes) {
+            scopes = new WeakMap();
+            seriesMetaPromiseCaches.set(pathActionBatch, scopes);
+        }
+        const signal = processSignal(invocation) || pathActionBatch.controller.signal;
+        let cache = scopes.get(signal);
         if (!cache) {
             cache = new Map();
-            scopedSeriesMetaPromiseCaches.set(invocation.signal, cache);
+            scopes.set(signal, cache);
         }
         return cache;
     }
 
-    function fetchSeriesEnrichmentCached(seriesId, kind, invocation) {
+    function fetchSeriesEnrichmentCached(seriesId, invocation) {
         assertProcessInvocation(invocation);
         const sid = Number(seriesId);
         if (!Number.isFinite(sid) || sid <= 0) return Promise.resolve(null);
-        const key = (kind === 'novel' ? 'novel:' : 'illust:') + sid;
         const cache = seriesMetaCache(invocation);
-        if (cache.has(key)) return cache.get(key);
-        const path = kind === 'novel'
-            ? `/api/pixiv/novel/series/${sid}?page=1`
-            : `/api/pixiv/series/${sid}?page=1`;
-        const promise = fetch(BASE + path, {
+        if (cache?.has(sid)) return cache.get(sid);
+        const promise = fetch(BASE + `/api/pixiv/series/${sid}?page=1`, {
             credentials: 'same-origin',
             headers: pixivHeader(),
             signal: processSignal(invocation)
@@ -46,14 +43,13 @@
             if (!meta) return null;
             return {
                 caption: meta.caption || '',
-                coverUrl: meta.coverUrl || '',
-                tags: Array.isArray(meta.tags) ? meta.tags : []
+                coverUrl: meta.coverUrl || ''
             };
         }).catch(() => {
             assertProcessInvocation(invocation);
             return null;
         });
-        cache.set(key, promise);
+        cache?.set(sid, promise);
         return promise;
     }
 
@@ -98,7 +94,7 @@
             // 缓存一批查一次，失败/空值不阻塞下载。
             const enrich = seriesInfo.seriesDescription || seriesInfo.seriesCoverUrl
                 ? {caption: seriesInfo.seriesDescription, coverUrl: seriesInfo.seriesCoverUrl}
-                : await fetchSeriesEnrichmentCached(seriesInfo.seriesId, 'illust', invocation);
+                : await fetchSeriesEnrichmentCached(seriesInfo.seriesId, invocation);
             assertProcessInvocation(invocation);
             if (enrich) {
                 if (enrich.caption) other.seriesDescription = enrich.caption;

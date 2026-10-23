@@ -18,8 +18,6 @@ function setup() {
             [...node.children].forEach(child => node.removeChild(child));
             node.append(...children);
         };
-        const query = node.querySelectorAll.bind(node);
-        node.querySelectorAll = selector => selector.split(',').flatMap(part => query(part.trim()));
         Object.defineProperty(node, 'isConnected', {get: () => root.contains(node)});
         return node;
     };
@@ -37,16 +35,18 @@ function setup() {
     label.className = 'ab-chip-label';
     label.setAttribute('data-i18n', 'cookie.status.missing');
     const requests = [], toasts = [], renders = [];
-    const context = vm.createContext({document, console, localStorage: new MiniStorage(),
+    const context = vm.createContext({document, console, AbortController, localStorage: new MiniStorage(),
         setTimeout: () => 1, clearTimeout() {}, addEventListener() {},
         fetch: async (url, options) => { requests.push(JSON.parse(options.body)); return {ok: true}; },
     });
     context.window = context;
-    for (const name of ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', 'alt-state.js', '../pixiv-batch/cookie-storage.js', 'alt-cookie.js', 'alt-chrome.js', 'alt-mode-capture.js']) {
+    for (const name of ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', '../pixiv-batch/state-storage.js', 'alt-state.js', '../pixiv-batch/cookie-storage.js', '../pixiv-batch/cookie-sync.js', 'alt-cookie.js', 'alt-chrome.js', 'alt-mode-capture.js']) {
         vm.runInContext(readFileSync(resolve(__dirname, '../../main/resources/static/pixiv-batch-alt', name), 'utf8'), context);
     }
     Object.assign(context, {
-        abIconEl: () => document.createElement('i'), hydrateIcons() {}, refreshAltSlots() {},
+        bt: key => key,
+        abIconEl: () => document.createElement('i'), hydrateIcons() {},
+        refreshAltSlots() { assert.ok(modal.querySelector('[data-qt-slot="cookie-tools"]')); },
         appendExtensionCookieEditors() {}, abConfirm: async () => true,
         abToast: (...args) => toasts.push(args), renderStage: () => renders.push(context.hasPixivCookie()),
     });
@@ -88,7 +88,7 @@ test('Cookie 保存等待持久化后关闭弹窗，翻译重绘保留新状态�
     assert.equal(h.context.getCookieFmt(), 'json');
     assert.equal(h.context.getCookie(), 'PHPSESSID=test-only; other=value');
     assert.equal(h.label.getAttribute('data-i18n'), 'cookie.status.saved');
-    assert.equal(h.label.textContent, 'Cookie 已保存');
+    assert.equal(h.label.textContent, 'cookie.status.saved');
     assert.equal(h.run('quickState.uid'), null);
     assert.deepEqual(h.renders, [true]);
     assert.equal(h.toasts[0][0], 'success');
@@ -111,7 +111,7 @@ test('无效输入和持久化失败保留弹窗与已保存 Cookie，重试成�
     assert.equal(h.context.getCookie(), 'PHPSESSID=previous');
     assert.equal(h.context.getCookieFmt(), 'header');
     assert.equal(editor.save.disabled, false);
-    assert.match(h.document.getElementById('abCookieParseArea').textContent, /保存失败/);
+    assert.equal(h.document.getElementById('abCookieParseArea').textContent, 'status.cookie-save-failed');
     h.context.fetch = async () => ({ok: true});
     await h.click(editor.save);
     assert.equal(h.modal.open, false);
@@ -125,7 +125,7 @@ test('清除更新弹窗状态和页面凭据门槛，一键导入只关闭发�
     await h.click(old.clear);
     assert.equal(h.modal.open, true);
     assert.equal(old.input.value, '');
-    assert.equal(h.document.getElementById('abCookieStatus').textContent, '未保存 Cookie');
+    assert.equal(h.document.getElementById('abCookieStatus').textContent, 'cookie.status.missing');
     assert.deepEqual(h.renders, [false]);
     h.context.closeModal();
     h.open();
@@ -189,6 +189,36 @@ test('Cookie 更换后迟到的账号响应不能覆盖新账号', async () => {
     assert.equal(h.run('quickState.uid'), 'new-account');
 });
 
+test('新版手动保存和清除取消旧导入，迟到正文不能改回旧凭据', async () => {
+    for (const action of ['save', 'clear']) {
+        const h = setup();
+        h.run("serverState = {pixiv_cookie:'PHPSESSID=previous'}");
+        const editor = h.open();
+        let poll, releaseBody, signal;
+        h.context.setTimeout = (fn, delay) => { if (delay === 1500) poll = fn; return 1; };
+        h.context.open = () => ({close() {}});
+        h.context.fetch = async (_url, options) => {
+            if (options.body) return {ok: true};
+            signal = options.signal;
+            return {ok: true, json: () => new Promise(resolve => { releaseBody = resolve; })};
+        };
+        h.context.runScriptCookieImport();
+        const pending = poll();
+        await new Promise(resolve => setImmediate(resolve));
+        editor.input.value = 'PHPSESSID=new-manual';
+        await h.click(editor[action]);
+        const expected = action === 'save' ? 'PHPSESSID=new-manual' : '';
+        assert.equal(h.context.getCookie(), expected);
+        assert.equal(signal.aborted, true);
+        const toastCount = h.toasts.length;
+        releaseBody({state: {pixiv_cookie: 'PHPSESSID=older-import', pixiv_cookie_fmt: 'header',
+            pixiv_cookie_sync_at: 'new-sync', pixiv_cookie_sync_status: 'ok'}});
+        await pending;
+        assert.equal(h.context.getCookie(), expected);
+        assert.equal(h.toasts.length, toastCount);
+    }
+});
+
 test('贡献的通用凭据编辑器复用保存完成与失败反馈', async () => {
     const h = setup();
     for (const name of ['commitQueueItemPatch', 'addItemsToQueue', 'removeFromQueue', 'renderQueue',
@@ -205,9 +235,35 @@ test('贡献的通用凭据编辑器复用保存完成与失败反馈', async ()
     h.context.fetch = async () => ({ok:false,status:403});
     await h.click(section.querySelector('.ab-btn--primary'));
     assert.equal(h.modal.open, true);
-    assert.match(section.querySelector('[role="status"]').textContent, /保存失败/);
+    assert.equal(section.querySelector('[role="status"]').textContent, 'status.cookie-save-failed');
     h.context.fetch = async () => ({ok:true});
     await h.click(section.querySelector('.ab-btn--primary'));
     assert.equal(h.modal.open, false);
     assert.equal(h.context.getStoredCookie('test-source'), 'test-only-credential');
+});
+
+test('格式写入失败时回滚已写入的 Cookie，保留编辑器草稿并允许重新保存', async () => {
+    const h = setup();
+    h.run("appMode = 'multi'");
+    const storage = h.context.localStorage;
+    storage.setItem('pixiv_cookie', 'PHPSESSID=previous');
+    storage.setItem('pixiv_cookie_fmt', 'header');
+    const editor = h.open();
+    await h.click(editor.body.querySelector('[data-value="json"]'));
+    editor.input.value = '{"PHPSESSID":"new"}';
+    const setItem = storage.setItem.bind(storage);
+    storage.setItem = (key, value) => {
+        if (key === 'pixiv_cookie_fmt' && value === 'json') throw new Error('write denied');
+        setItem(key, value);
+    };
+    await h.click(editor.save);
+    assert.equal(storage.getItem('pixiv_cookie'), 'PHPSESSID=previous');
+    assert.equal(storage.getItem('pixiv_cookie_fmt'), 'header');
+    assert.equal(h.modal.open, true);
+    assert.equal(editor.input.value, '{"PHPSESSID":"new"}');
+    storage.setItem = setItem;
+    await h.click(editor.save);
+    assert.equal(h.modal.open, false);
+    assert.equal(h.context.getCookie(), 'PHPSESSID=new');
+    assert.equal(h.context.getCookieFmt(), 'json');
 });

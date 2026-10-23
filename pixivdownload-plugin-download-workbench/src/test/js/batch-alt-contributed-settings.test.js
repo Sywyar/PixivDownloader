@@ -55,7 +55,7 @@ function harness() {
     const load = path => vm.runInContext(readFileSync(resolve(repository, path), 'utf8'), context, {filename: path});
     const alt = 'pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch-alt/';
     load('pixivdownload-plugin-download-workbench/src/main/resources/static/pixiv-batch/filename-template-presets.js');
-    ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', 'alt-state.js', '../pixiv-batch/filename-template.js', 'alt-settings.js'].forEach(name => load(alt + name));
+    ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', '../pixiv-batch/state-storage.js', 'alt-state.js', '../pixiv-batch/filename-template.js', 'alt-settings.js'].forEach(name => load(alt + name));
     context.PixivBatch.queueTypes = context.altQueueTypes();
     context.storeSet = (_, value) => writes.push(JSON.parse(value));
     vm.runInContext('isAdmin = true', context);

@@ -14,6 +14,7 @@ function context() {
     c.PixivBatch = {};
     c.PixivBatchAlt = {state:{},filters:{},settings:{}};
     load(c, 'pixiv-batch/batch-download-defaults.js');
+    load(c, 'pixiv-batch/state-storage.js');
     load(c, 'pixiv-batch/filename-template.js');
     load(c, 'pixiv-batch/search-filters.js');
     return c;
@@ -39,11 +40,12 @@ test('两版手动下载使用同一默认设置，加载个人偏好时保留�
 
 test('收藏数和类型筛选由作品 owner 提供，不误查同 ID 的插画', async () => {
     const c = context(), calls = [];
-    c.PixivBatch.queueTypes = {filtersFor:type => type === 'custom-text' ? {
+    const ownerFilters = {
         bookmarkCountFetch: async id => { calls.push(id); return {bookmarkCount:12}; },
         matchExtra: item => item.words >= 10 && item.id === '42',
         evaluateSkip: item => item.words >= 10 ? null : 'owner-filter-reason'
-    } : null};
+    };
+    c.PixivBatch.queueTypes = {filtersFor:type => type === 'custom-text' ? ownerFilters : null};
     load(c, 'pixiv-batch-alt/alt-state.js');
     load(c, 'pixiv-batch-alt/alt-filters.js');
     const filters = c.normalizeSearchFilters({bookmarkMin:10, pageMin:100, wordsMin:100});

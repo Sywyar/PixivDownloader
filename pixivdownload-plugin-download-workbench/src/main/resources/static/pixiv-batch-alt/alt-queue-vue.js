@@ -186,9 +186,6 @@ function aqvRowModel(q) {
 /* —— 三个挂载点的组件：结构逐字镜像命令式 renderDock 统计卡 / renderCurrent / queueItemRow —— */
 function aqvStatsComponent() {
     return {
-        setup() {
-            return {store: aqvStore, t: aqvT, icon: aqvIcon};
-        },
         render() {
             const h = aqvVue.h;
             return [
@@ -479,9 +476,6 @@ function aqvSeedSchedStore(entry) {
 // empty 行 / round-list 行），行模型由 alt-schedule.js 派生，模板只读字段。
 function aqvSchedComponent(entry) {
     return {
-        setup() {
-            return {store: entry.store, t: aqvT};
-        },
         render() {
             const h = aqvVue.h;
             const store = entry.store;

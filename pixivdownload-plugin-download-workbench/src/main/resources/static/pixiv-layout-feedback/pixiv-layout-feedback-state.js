@@ -185,8 +185,8 @@
 
     /**
      * 服务端权威视图转换为客户端时钟域的伪状态（绝不保存服务端绝对时间）：
-     * - serverStatus=snoozed 且 canShow=false：本地截止时间 =
-     *   max(serverLocalBlockUntil, clientNow + retryAfterMs)，与本地状态同域可比较；
+     * - serverStatus=snoozed 且 canShow=false：复用接收视图时计算的本地截止时间，
+     *   不因重复读取延长；尚未转换时才按 clientNow + retryAfterMs 计算；
      * - 其它状态原样映射（updatedAt 为占位 0，不参与业务比较）。
      * serverBacked 关闭或无状态时返回 null。
      */
@@ -242,7 +242,7 @@
      * 截止时间）。只有 candidate 严格强于该结果时才接受状态转移并发送服务端命令。
      * 返回 {state, source} 或 null。
      */
-    function strongestLocalExcludingCandidate(candidate, clientNow) {
+    function strongestLocalState(clientNow) {
         var sources = [];
         if (runtime.pendingLocalState && runtime.pendingLocalState.surveyId === runtime.config.surveyId) {
             sources.push({state: runtime.pendingLocalState, source: 'local'});
@@ -747,22 +747,14 @@
             updatedAt: clientNow,
             snoozedUntil: snoozedUntil || 0
         };
-        var previousStrongest = strongestLocalExcludingCandidate(candidate, clientNow);
+        var previousStrongest = strongestLocalState(clientNow);
         var comparison = previousStrongest
             ? compareDecisionState(candidate, previousStrongest.state, clientNow)
             : 1;
         var transitionAccepted = comparison > 0;
-        var effectiveNext = null;
-        var effectiveSource = 'local';
-        if (transitionAccepted) {
-            effectiveNext = candidate;
-        } else if (previousStrongest) {
-            // 等强或更弱：保留已有对象（原 updatedAt），绝不覆盖。
-            effectiveNext = previousStrongest.state;
-            effectiveSource = previousStrongest.source;
-        } else {
-            effectiveNext = candidate;
-        }
+        // 等强或更弱时保留已有对象及其 updatedAt。
+        var effectiveNext = transitionAccepted ? candidate : previousStrongest.state;
+        var effectiveSource = transitionAccepted ? 'local' : previousStrongest.source;
         var serverCommandStarted = false;
         if (runtime.serverBacked) {
             // sessionState 与 STATE_KEY 只保存客户端时钟域转换后的本地协调缓存；
@@ -930,7 +922,6 @@
                 setStorageIfChanged: setStorageIfChanged,
                 stateAllowsShow: stateAllowsShow,
                 strongerDecisionState: strongerDecisionState,
-                strongestLocalExcludingCandidate: strongestLocalExcludingCandidate,
                 syncServerViewToLocalCache: syncServerViewToLocalCache,
                 writeSeen: writeSeen,
                 writeState: writeState

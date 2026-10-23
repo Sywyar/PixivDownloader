@@ -245,7 +245,8 @@ function scheduleTypeLabel(t) {
 function scheduleKindLabel(kind) {
     if (kind === 'mixed') return bt('schedule.kind.mixed', '插画+小说');
     if (kind === 'novel') return bt('schedule.kind.novel', '小说');
-    return bt('schedule.kind.illust', '插画');
+    if (kind === 'illust') return bt('schedule.kind.illust', '插画');
+    return altTypeLabel(kind);
 }
 
 function scheduleTaskKind(task) {

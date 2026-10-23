@@ -350,6 +350,17 @@ function relationMergeBehavior(reasons) {
     ok('11: 共享渲染器拒绝固定 tone 白名单外的样式注入',
         !unsafeToneHtml.includes('class="q-live-status"')
         && !unsafeToneHtml.includes('javascript:alert'));
+
+    for (const queueLiveStatus of [() => null, () => { throw new Error('unavailable'); }]) {
+        sandbox.window.PixivBatch.queueTypes.queueLiveStatus = queueLiveStatus;
+        const withoutOwner = queue.buildQueueItemHtml({
+            id: 'n42', kind: 'novel', status: 'downloading',
+            translatePhase: 'TRANSLATING', liveStatus: {phase: 'TRANSLATING', message: 'private status'}
+        });
+        ok('11: 贡献缺席或失败时不解释缓存的私有阶段',
+            !withoutOwner.includes('q-live-status') && !withoutOwner.includes('q-translate')
+            && !withoutOwner.includes('private status') && !withoutOwner.includes('TRANSLATING'));
+    }
 }
 
 // ===== 12) 外部类型 patch 只能原子更新受控字段，并立即统计 / 持久化 / 渲染 =====
@@ -469,8 +480,6 @@ function relationMergeBehavior(reasons) {
         !/data-queue-cancel-id=[^>]+onclick=/.test(cancellable)
         && typeof queue.bindQueueActions === 'function'
         && typeof queue.requestQueueItemCancel === 'function');
-    ok('14: 请求成功或失败均不写入永久 cancelRequested 模型字段',
-        !QUEUE_SOURCE.includes('cancelRequested'));
 
     const item = {
         id: 'demo:display-id', kind: 'demo', title: 'Running', status: 'downloading',
@@ -556,20 +565,37 @@ function relationMergeBehavior(reasons) {
     };
     queue.bindQueueActions(root);
     clickHandler({target: removeButton, preventDefault() {}, stopPropagation() {}});
-    ok('15: 含空白、斜杠、引号和 HTML 的原始 id 经委托属性精确移除，不拼接 CSS 选择器',
-        sandbox.state.queue.length === 0
-        && !QUEUE_SOURCE.includes('querySelector(`[data-queue-remove-id="${'));
+    ok('15: 含空白、斜杠、引号和 HTML 的原始 id 经委托属性精确移除',
+        sandbox.state.queue.length === 0);
 }
 
-ok('共享队列源码只调用中性 liveStatus 契约且不解释小说翻译阶段',
-    QUEUE_SOURCE.includes('formatQueueLiveStatusHtml')
-    && QUEUE_SOURCE.includes('registry.queueLiveStatus(q)')
-    && !QUEUE_SOURCE.includes('novelTranslateMessage')
-    && !QUEUE_SOURCE.includes('formatNovelTranslateHtml')
-    && !QUEUE_SOURCE.includes('translatePhase')
-    && !QUEUE_SOURCE.includes('queue.message.translate-'));
+// 下载完成后的收藏结果按状态决定标签、原因与色调，未知状态保留诊断。
+{
+    const {sandbox, queue} = load();
+    sandbox.bt = key => key;
+    sandbox.punct = key => key === 'colon' ? ': ' : ' | ';
+    for (const [status, label, color, withReason] of [
+        ['SUCCESS', 'success', 'var(--brand)', false],
+        ['exists', 'exists', 'var(--brand)', false],
+        ['failed', 'failed', 'var(--danger-bg)', true],
+        ['skipped', 'skipped', 'var(--danger-bg)', true],
+        ['unrecognized', 'unknown', 'var(--warning-accent)', true]
+    ]) {
+        for (const message of ['', '<reason>']) {
+            const html = queue.renderQueueMessageHtml({
+                status: 'completed', statusMessageKey: 'batch:queue.message.completed-images',
+                bookmarkResult: {status, message}
+            }, 'done');
+            const expected = 'queue.outcome.pixiv-bookmark.' + label
+                + (withReason && message ? ': &lt;reason&gt;' : '');
+            ok('收藏结果保留状态标签、色调及条件原因：' + status + '/' + message,
+                html.includes(`color:${color};font-weight:bold;">${expected}</span>`)
+                && html.includes('&lt;reason&gt;') === Boolean(withReason && message));
+        }
+    }
+}
 
-console.log(`\nbatch-queue-sync.test.js: ${passed} assertions passed (15 scenarios) ✓`);
+console.log(`\nbatch-queue-sync.test.js: ${passed} assertions passed ✓`);
 })().catch(error => {
     console.error('TEST FAILED:', error && error.stack ? error.stack : error);
     process.exit(1);

@@ -5,9 +5,9 @@ const {test} = require('node:test');
 const {readFileSync} = require('node:fs');
 const {resolve} = require('node:path');
 const vm = require('node:vm');
-const {MiniElement} = require('./pixiv-layout-feedback-test-dom');
+const {MiniElement, createFakeI18n} = require('./pixiv-layout-feedback-test-dom');
 
-function mountSettings() {
+function mountSettings(classic = false) {
     const document = {};
     class Element extends MiniElement {
         append(...nodes) { nodes.forEach(node => this.appendChild(node)); }
@@ -19,8 +19,10 @@ function mountSettings() {
             && this.valueAsNumber <= Number(this.max); }
     }
     document.createElement = tag => new Element(tag, document);
+    document.createTextNode = text => Object.assign(new Element('#text', document), {textContent: text});
     document.body = document.createElement('body');
     const dialog = document.createElement('dialog');
+    if (classic) dialog.id = 'download-settings-card';
     document.body.appendChild(dialog);
     const settings = {imageFormats: 'original', ugoiraFormats: 'webp'};
     let changes = 0;
@@ -30,6 +32,39 @@ function mountSettings() {
         '../../main/resources/static/pixiv-batch/media-settings.js'), 'utf8'), context);
     context.PixivMediaSettings.mount(dialog, settings, () => changes++, key => key, true);
     return {document, settings, changes: () => changes, media: context.PixivMediaSettings};
+}
+
+for (const classic of [false, true]) {
+    test(`${classic ? '经典页' : '设置抽屉'}媒体文案随页面翻译更新，保留控件、草稿与展开状态`, () => {
+        const {document, settings, changes} = mountSettings(classic);
+        const dropdown = document.body.querySelector('details');
+        const summary = dropdown.querySelector('summary');
+        const png = dropdown.querySelector('input[value="png"]');
+        png.checked = true;
+        png.dispatchEvent({type: 'change'});
+        dropdown.open = true;
+        const quality = document.body.querySelector('#media-setting-mediaQuality');
+        quality.value = '61';
+        quality.focus();
+        const client = createFakeI18n();
+        client.t = key => 'translated:' + key;
+        client.apply(document.body);
+        assert.equal(summary.getAttribute('aria-label'), 'translated:batch:media.image-formats.label');
+        assert.deepEqual(summary.children.map(node => node.textContent),
+            ['translated:batch:media.format.original', ', ', 'translated:batch:media.format.png']);
+        const labels = document.body.querySelectorAll('[data-i18n]');
+        for (const name of ['image-formats', 'ugoira-formats', 'quality', 'webp-lossless', 'maximum-edge']) {
+            assert.ok(labels.some(node => node.getAttribute('data-i18n') === `batch:media.${name}.label`));
+        }
+        assert.ok(labels.every(node => node.textContent.startsWith('translated:batch:media.')));
+        assert.equal(document.body.querySelector('#media-setting-mediaQuality'), quality);
+        assert.equal(document.activeElement, quality);
+        assert.equal(quality.value, '61');
+        assert.equal(dropdown.open, true);
+        assert.equal(png.checked, true);
+        assert.equal(settings.imageFormats, 'original,png');
+        assert.equal(changes(), 1);
+    });
 }
 
 test('编码控件验证范围并统一捕获独立的任务快照', () => {

@@ -41,13 +41,12 @@ function harness(acquisitions, respond = () => ({})) {
         setTimeout, clearTimeout, addEventListener() {},
         PixivBatchAlt: {state: {}, modes: {}}, PixivBatch: {queueTypes: runtime}});
     c.window = c;
-    for (const name of ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', 'alt-state.js', '../pixiv-batch/filename-template.js', 'alt-settings.js', 'alt-modes.js',
+    for (const name of ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', '../pixiv-batch/state-storage.js', 'alt-state.js', '../pixiv-batch/filename-template.js', 'alt-settings.js', 'alt-modes.js',
         'alt-mode-capture.js', 'alt-mode-discovery.js', 'alt-mode-series.js']) {
         vm.runInContext(readFileSync(resolve(staticRoot, name), 'utf8'), c, {filename: name});
     }
     Object.assign(c, {
-        bt: (key, fallback, args) => Object.entries(args || {}).reduce(
-            (s, [k, v]) => s.replaceAll('{' + k + '}', String(v)), fallback || key),
+        bt: (key, _fallback, args) => [key, ...Object.values(args || {})].join(' '),
         altQueueTypes: () => runtime,
         altTypesForSource: mode => Object.values(acquisitions[mode] || {}),
         altAcquisition: (mode, _source, type) => acquisitions[mode]?.[type] || null,
@@ -136,10 +135,36 @@ test('保存计划入口按来源能力显示，快捷入口缺少具体来源�
     h.c.run("state.mode='quick-fetch'");
     const disabled = h.c.saveScheduleButton();
     assert.equal(disabled.querySelector('button').disabled,true);
-    assert.ok(disabled.querySelector('p').textContent.includes('具体的作品列表'));
+    assert.equal(disabled.querySelector('p').textContent, 'schedule.save.quick-hint');
     h.c.altScheduleSources = () => ({previewForMode:()=>({sourceType:'demo'})});
     assert.equal(h.c.saveScheduleButton().disabled,false);
 });
+
+for (const choice of ['source', 'submode']) {
+    test(`搜索切换 ${choice} 后丢弃旧响应并结束旧加载状态`, async () => {
+        let finish, select;
+        const acquisition = quickType('image', {buildRequest: () => ({}), buildRangeRequest: () => ({})});
+        const h = harness({search: {image: acquisition}}, () => new Promise(resolve => { finish = resolve; }));
+        const control = () => h.c.document.createElement('div');
+        Object.assign(h.c, {modeHeader: control, filterButton: control, settingsButton: control,
+            saveScheduleButton: () => null, altSourcesForMode: () => [{id: 'fixture'}, {id: 'other'}],
+            renderStage() {},
+            sourceChips: (_sources, _current, callback) => { if (choice === 'source') select = callback; return control(); },
+            smallSeg: (options, _current, callback) => {
+                if (choice === 'submode' && options.some(option => option[0] === 'batch')) select = callback;
+                return control();
+            }});
+        h.c.run("Object.assign(searchState,{source:'fixture',kind:'image',word:'old'})");
+        const old = h.c.runSearch(1);
+        h.c.renderSearchMode(h.c.document.createElement('main'));
+        assert.equal(typeof select, 'function');
+        select(choice === 'source' ? 'other' : 'batch');
+        finish({items: [{id: 'old'}], total: 1});
+        await old;
+        assert.equal(h.c.run('searchState.loading'), false);
+        assert.equal(h.c.run('searchState.rawResults.length'), 0);
+    });
+}
 
 test('快捷动作按贡献的视图分派，清空旧预览并保留动作选择器', () => {
     const acquisition = quickType('image', {actions: {
@@ -231,6 +256,160 @@ test('空画师列表不请求卡片，保持正常空结果与分页状态', as
     assert.equal(h.c.run('userState.rawItems.length'), 0);
     assert.equal(h.c.run('userState.total'), 0);
     assert.equal(h.calls.length, 0);
+});
+
+for (const step of ['meta', 'page', 'ids', 'cards']) {
+    test(`画师 ${step} 迟到成功或失败不覆盖新请求，当前读取仍可完成`, async () => {
+        for (const fail of [false, true]) {
+            let finish, reject;
+            const delayed = () => new Promise((resolve, fail) => { finish = resolve; reject = fail; });
+            const acquisition = quickType('image', {
+                parseInput: value => value,
+                fetchMeta: id => step === 'meta' && id === 'old' ? delayed() : Promise.resolve(id),
+                ...(step === 'page' ? {fetchPage: id => id === 'old' ? delayed()
+                    : Promise.resolve({items: [{id}], total: 1})}
+                    : {fetchIds: id => step === 'ids' && id === 'old' ? delayed() : Promise.resolve([id]),
+                        cardsEndpoint: id => '/cards/' + id})
+            });
+            const h = harness({user: {image: acquisition}}, ({context}) => step === 'cards' && context.userId === 'old'
+                ? delayed() : {items: [{id: context.userId}]});
+            h.c.run("Object.assign(userState,{source:'fixture',kind:'image',input:'old'})");
+            const old = h.c.loadUserWorks(1);
+            await new Promise(resolve => setImmediate(resolve));
+            assert.equal(typeof finish, 'function');
+            h.c.run("userState.input='current'");
+            await h.c.loadUserWorks(1);
+            if (fail) reject(new Error('old failure'));
+            else finish(step === 'meta' ? 'Old author' : step === 'ids' ? ['old'] : {items: [{id: 'old'}], total: 1});
+            await old;
+            assert.equal(h.c.run('userState.error'), '', String(fail));
+            assert.equal(h.c.run('userState.loading'), false);
+            assert.equal(h.c.run('userState.userId'), 'current');
+            assert.equal(h.c.run('userState.username'), 'current');
+            assert.deepEqual(Array.from(h.c.run('userState.items'), item => item.id), ['image:current']);
+        }
+    });
+}
+
+for (const step of ['resolve', 'page']) {
+    test(`系列 ${step} 迟到成功或失败不覆盖新请求`, async () => {
+        for (const fail of [false, true]) {
+            let finish, reject;
+            const delayed = () => new Promise((resolve, fail) => { finish = resolve; reject = fail; });
+            const acquisition = quickType('image', {
+                parseUrl: raw => step === 'resolve' ? {resolveWorkId: raw} : {seriesId: raw},
+                resolveSeriesId: id => id === 'old' ? delayed() : Promise.resolve(id),
+                apiPath: seriesId => ({seriesId}), buildQueueMeta: item => ({title: item.id})
+            });
+            const h = harness({series: {image: acquisition}}, ({spec}) => step === 'page' && spec.seriesId === 'old'
+                ? delayed() : {items: [{id: spec.seriesId}], series: {title: spec.seriesId}, hasMore: false});
+            h.c.run("Object.assign(seriesState,{source:'fixture',kind:'image',url:'old'})");
+            const old = h.c.loadSeries(1);
+            await new Promise(resolve => setImmediate(resolve));
+            assert.equal(typeof finish, 'function');
+            h.c.run("seriesState.url='current'");
+            await h.c.loadSeries(1);
+            if (fail) reject(new Error('old failure'));
+            else finish(step === 'resolve' ? 'old' : {items: [{id: 'old'}], series: {title: 'old'}, hasMore: false});
+            await old;
+            assert.equal(h.c.run('seriesState.error'), '', String(fail));
+            assert.equal(h.c.run('seriesState.loading'), false);
+            assert.equal(h.c.run('seriesState.info.seriesId'), 'current');
+            assert.deepEqual(Array.from(h.c.run('seriesState.items'), item => item.id), ['image:current']);
+        }
+    });
+}
+
+test('快捷过期页不能清空或替换当前分页游标', async () => {
+    const pending = [];
+    const descriptor = {cursorPaging: true, initialCursor: 'start', buildPageRequest: ctx => ({page: ctx.page})};
+    const acquisition = quickType('image', {actions: {works: descriptor}});
+    const h = harness({quick: {image: acquisition}}, () => new Promise(resolve => pending.push(resolve)));
+    h.c.run("Object.assign(quickState,{source:'fixture',kind:'image',action:'works'})");
+    const action = {id: 'works', descriptor};
+    const old = h.c.loadQuickWorks(action, 1);
+    const current = h.c.loadQuickWorks(action, 1);
+    pending[1]({items: [{id: 'current'}], hasMore: true, nextCursor: 'current-tail'});
+    await current;
+    pending[0]({items: [{id: 'old'}], hasMore: true, nextCursor: 'old-tail'});
+    await old;
+    assert.equal(h.c.run('quickState.pageCursors.get(2)'), 'current-tail');
+    assert.deepEqual(Array.from(h.c.run('quickState.items'), item => item.id), ['image:current']);
+});
+
+test('快捷内层过期页不改写当前游标，替换后不再请求旧卡片', async () => {
+    for (const paging of [true, false]) {
+        const pending = [];
+        const acquisition = quickType('image', {initialCursor: 'start',
+            actions: {following: {viewType: 'following-list'}},
+            ...(paging ? {buildUserPageRequest: (_id, ctx) => ({page: ctx.page})} : {})});
+        const h = harness({quick: {image: acquisition}}, () => new Promise(resolve => pending.push(resolve)));
+        h.c.run("Object.assign(quickState,{source:'fixture',kind:'image',action:'following',drill:{type:'user',id:'author',kind:'image',loadSeq:0,cursors:new Map()}})");
+        const old = h.c.loadQuickDrillPage(1);
+        if (paging) {
+            const current = h.c.loadQuickDrillPage(1);
+            pending[1]({items: [{id: 'current'}], hasMore: true, nextCursor: 'current-tail'});
+            await current;
+        } else {
+            h.c.run('quickState.drill=null');
+        }
+        pending[0](paging ? {items: [{id: 'old'}], hasMore: true, nextCursor: 'old-tail'} : {ids: ['old']});
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(h.calls.length, paging ? 2 : 1);
+        await old;
+        if (paging) {
+            assert.equal(h.c.run('quickState.drill.cursors.get(2)'), 'current-tail');
+            assert.deepEqual(Array.from(h.c.run('quickState.drillItems'), item => item.id), ['image:current']);
+        }
+    }
+});
+
+for (const step of ['account', 'ids']) {
+    test(`快捷全量取得的 ${step} 过期响应不改缓存或继续请求，当前操作仍可入队`, async () => {
+        for (const fail of [false, true]) {
+            let finish, reject;
+            const descriptor = {allIdsFastPath: true, buildIdsRequest: uid => ({uid})};
+            const acquisition = quickType('image', {actions: {works: descriptor},
+                account: {buildRequest: () => ({}), readId: data => data.id}});
+            const h = harness({quick: {image: acquisition}}, ({operation}) =>
+                operation === step ? new Promise((resolve, fail) => { finish = resolve; reject = fail; }) : {ids: ['unused']});
+            h.c.run(`Object.assign(quickState,{source:'fixture',kind:'image',action:'works',uid:${step === 'ids' ? "'author'" : 'null'}})`);
+            const action = {id: 'works', descriptor};
+            const old = h.c.enqueueQuickAll(action);
+            await new Promise(resolve => setImmediate(resolve));
+            assert.equal(typeof finish, 'function');
+            h.c.run(`quickState.loadSeq++;quickState.uid='current-author';quickState.allIds=${step === 'ids' ? "['current']" : '[]'}`);
+            if (fail) reject(new Error('old failure'));
+            else finish(step === 'account' ? {id: 'author'} : {ids: ['old']});
+            await old;
+            assert.deepEqual(Array.from(h.c.run('quickState.allIds')), step === 'ids' ? ['current'] : []);
+            assert.equal(h.calls.length, 1);
+            assert.equal(h.batches.length, 0);
+            assert.equal(h.toasts.length, 0);
+            h.c.run("quickState.uid='current-author';quickState.allIds=['current']");
+            await h.c.enqueueQuickAll(action);
+            assert.deepEqual(h.batches[0].ids, ['image:current']);
+        }
+    });
+}
+
+test('快捷内层开始新分页后旧筛选不发布，当前分页正常完成', async () => {
+    let finishPage, finishFilter;
+    const acquisition = quickType('image', {initialCursor: 'start',
+        actions: {following: {viewType: 'following-list'}}, buildUserPageRequest: () => ({})});
+    const h = harness({quick: {image: acquisition}}, () => new Promise(resolve => { finishPage = resolve; }));
+    h.c.run("Object.assign(quickState,{source:'fixture',kind:'image',action:'following',drill:{type:'user',id:'author',kind:'image',loadSeq:0,rawItems:[{id:'old'}],cursors:new Map()}})");
+    h.c.computeFilteredItems = () => new Promise(resolve => { finishFilter = resolve; });
+    const old = h.c.applyQuickDrillFilters(h.c.run('quickState.drill'));
+    const current = h.c.loadQuickDrillPage(1);
+    finishFilter({filtered: [{id: 'old'}], stats: {}});
+    await old;
+    assert.equal(h.c.run('quickState.drillItems.length'), 0);
+    h.c.computeFilteredItems = async items => ({filtered: items, stats: {}});
+    finishPage({items: [{id: 'current'}], hasMore: false});
+    await current;
+    assert.deepEqual(Array.from(h.c.run('quickState.drillItems'), item => item.id), ['image:current']);
+    assert.equal(h.c.run('quickState.drill.loading'), false);
 });
 
 test('游标关注作品翻回已访问页使用对应游标，不借用下一页游标', async () => {
@@ -358,6 +537,89 @@ test('系列前后翻页使用各页游标', async () => {
     h.c.run("Object.assign(seriesState,{source:'fixture',kind:'image',url:'series'})");
     await h.c.loadSeries(1); await h.c.loadSeries(2); await h.c.loadSeries(1);
     assert.deepEqual(h.calls.map(call => call.spec.cursor), ['start', 'tail', 'start']);
+});
+
+test('系列全量取得确认期间重新读取后，不把确认应用到新系列', async () => {
+    let confirm;
+    const acquisition = quickType('image', {
+        parseUrl: value => ({seriesId: value}), apiPath: id => ({id}),
+        buildQueueMeta: item => ({title: item.id})
+    });
+    const h = harness({series: {image: acquisition}}, ({spec}) => ({
+        items: [{id: spec.id}], series: {title: spec.id}, isLastPage: true
+    }));
+    h.c.run("Object.assign(seriesState,{source:'fixture',kind:'image',url:'old',info:{seriesId:'old'}})");
+    h.c.abConfirm = () => new Promise(resolve => { confirm = resolve; });
+    const old = h.c.enqueueSeriesAll();
+    h.c.run("seriesState.url='current'");
+    await h.c.loadSeries(1);
+    confirm(true);
+    await old;
+    assert.equal(h.calls.length, 1);
+    assert.equal(h.batches.length, 0);
+    h.c.abConfirm = async () => true;
+    await h.c.enqueueSeriesAll();
+    assert.deepEqual(h.batches[0].ids, ['image:current']);
+});
+
+for (const step of ['page', 'filter']) {
+    test(`系列全量取得的 ${step} 返回前开始新读取，旧成功和失败均不发布`, async () => {
+        for (const fail of [false, true]) {
+            const pending = [];
+            let finishFilter, rejectFilter;
+            const acquisition = quickType('image', {
+                parseUrl: value => ({seriesId: value}), apiPath: id => ({id}),
+                buildQueueMeta: item => ({title: item.id})
+            });
+            const h = harness({series: {image: acquisition}}, () =>
+                new Promise((resolve, reject) => pending.push({resolve, reject})));
+            h.c.run("Object.assign(seriesState,{source:'fixture',kind:'image',url:'old',info:{seriesId:'old'}})");
+            if (step === 'filter') h.c.computeFilteredItems = () => new Promise((resolve, reject) => {
+                finishFilter = resolve; rejectFilter = reject;
+            });
+            const old = h.c.enqueueSeriesAll();
+            await new Promise(resolve => setImmediate(resolve));
+            if (step === 'filter') {
+                pending[0].resolve({items: [{id: 'old'}], isLastPage: true});
+                await new Promise(resolve => setImmediate(resolve));
+                assert.equal(typeof finishFilter, 'function');
+            }
+            h.c.run("seriesState.url='current'");
+            const current = h.c.loadSeries(1);
+            assert.equal(pending.length, 2);
+            if (step === 'page') {
+                if (fail) pending[0].reject(new Error('old failure'));
+                else pending[0].resolve({items: [{id: 'old'}], isLastPage: true});
+            } else if (fail) rejectFilter(new Error('old filter failure'));
+            else finishFilter({filtered: [{id: 'image:old'}], stats: {}});
+            await old;
+            assert.equal(h.batches.length, 0);
+            assert.equal(h.toasts.length, 0);
+            h.c.computeFilteredItems = async items => ({filtered: items, stats: {}});
+            pending[1].resolve({items: [{id: 'current'}], isLastPage: true});
+            await current;
+            assert.equal(h.c.run('seriesState.info.seriesId'), 'current');
+            assert.deepEqual(Array.from(h.c.run('seriesState.items'), item => item.id), ['image:current']);
+        }
+    });
+}
+
+test('系列浏览关闭后，异步选择的旧失败不显示到当前页面', async () => {
+    let rejectSelection, drawer;
+    const acquisition = quickType('image', {browser: {
+        buildPageRequest: () => ({}), readPage: data => data,
+        itemLabel: item => item.id,
+        select: () => new Promise((_resolve, reject) => { rejectSelection = reject; })
+    }});
+    const h = harness({series: {image: acquisition}}, () => ({items: [{id: 'old'}], hasMore: false}));
+    h.c.openDrawer = spec => { drawer = spec; };
+    await h.c.openSeriesBrowser(acquisition);
+    drawer.body.querySelector('.ab-collection-card').click();
+    assert.equal(typeof rejectSelection, 'function');
+    drawer.beforeClose();
+    rejectSelection(new Error('old selection failure'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.toasts.length, 0);
 });
 
 test('即时批量搜索不发送计划任务专属负一结束页', async () => {

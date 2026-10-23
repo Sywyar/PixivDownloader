@@ -464,11 +464,9 @@
                         acknowledged: true,
                         layoutIds: layoutIds
                     });
-                    ctx.syncServerViewToLocalCache();
-                } else {
-                    // 服务端视图未满足命令（例如 record_seen 缺布局）：保留 pending。
-                    ctx.syncServerViewToLocalCache();
                 }
+                // 未确认的命令同样同步视图，但保留 pending。
+                ctx.syncServerViewToLocalCache();
                 finish({
                     ok: satisfied,
                     command: command,

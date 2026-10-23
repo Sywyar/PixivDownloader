@@ -153,6 +153,7 @@ function reconcileRestoredQueue(recheck = true) {
 async function retryUnconfirmedQueueItems() {
     if (appMode !== 'solo' || !isAdmin || queueRecoveryPromise || queueRecoverySuspended) return;
     await reconcileRestoredQueue();
+    if (queueRecoverySuspended) return;
     const items = state.queue.filter(item => item.recoveryState === 'unknown');
     if (!items.length) return;
     if (!window.PixivFeedback || !await window.PixivFeedback.confirm({
@@ -186,6 +187,7 @@ function queueNeedsLeaveWarning() {
 }
 
 function initQueueRecovery() {
+    let pageRevision = 0;
     renderQueueRecovery();
     window.PixivBatch.queueTasks?.start();
     void reconcileRestoredQueue();
@@ -195,13 +197,16 @@ function initQueueRecovery() {
         event.returnValue = '';
     });
     window.addEventListener('pagehide', () => {
+        pageRevision++;
         queueRecoverySuspended = true;
         clearTimeout(queueRecoveryTimer);
         if (queueRecoveryRequest) queueRecoveryRequest.abort();
     });
     window.addEventListener('pageshow', () => {
         if (!queueRecoverySuspended) return;
+        const revision = pageRevision;
         Promise.resolve(queueRecoveryPromise).then(() => {
+            if (revision !== pageRevision) return;
             queueRecoverySuspended = false;
             return reconcileRestoredQueue();
         });

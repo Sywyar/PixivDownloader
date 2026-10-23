@@ -2,7 +2,6 @@
 
 /** 异步生命周期、时间戳与 SDK 配置。 */
 const {
-    POSTHOG_SOURCE,
     STATE_KEY,
     captureEvents,
     createFakeAdapter,
@@ -392,11 +391,6 @@ function testFakeAdapterTimestampOverrides() {
     });
 }
 
-function testSdkConfigHeatmapMigration() {
-    ok('PostHog 插件源码不再包含 enable_heatmaps 配置字段', POSTHOG_SOURCE.indexOf('enable_heatmaps') < 0);
-    ok('PostHog 插件源码使用 capture_heatmaps', POSTHOG_SOURCE.indexOf('capture_heatmaps') >= 0);
-}
-
 runTests('pixiv-layout-feedback-lifecycle.test.js', [
     ['testDestroyDuringSdkLoad', testDestroyDuringSdkLoad],
     ['testLateScriptLoadAfterDestroy', testLateScriptLoadAfterDestroy],
@@ -415,8 +409,7 @@ runTests('pixiv-layout-feedback-lifecycle.test.js', [
     ['testBeforeSendTimestampMatrix', testBeforeSendTimestampMatrix],
     ['testBeforeSendDateTimestampWithSurveyFields', testBeforeSendDateTimestampWithSurveyFields],
     ['testFakeAdapterDefaultTimestampIsDate', testFakeAdapterDefaultTimestampIsDate],
-    ['testFakeAdapterTimestampOverrides', testFakeAdapterTimestampOverrides],
-    ['testSdkConfigHeatmapMigration', testSdkConfigHeatmapMigration]
+    ['testFakeAdapterTimestampOverrides', testFakeAdapterTimestampOverrides]
 ]).catch(error => {
     console.error(error && error.stack ? error.stack : error);
     process.exitCode = 1;

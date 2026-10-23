@@ -11,6 +11,8 @@ function renderSeriesMode(panel) {
     if (!sources.some(source => source.id === seriesState.source)) seriesState.source = sources[0] && sources[0].id;
     if (sources.length > 1) {
         panel.appendChild(sourceChips(sources, seriesState.source, source => {
+            seriesState.requestSeq = (seriesState.requestSeq || 0) + 1;
+            seriesState.loading = false;
             seriesState.source = source;
             seriesState.kind = (altTypesForSource('series', source)[0] || {}).type || 'illust';
             seriesState.info = null;
@@ -25,6 +27,8 @@ function renderSeriesMode(panel) {
     }
     if (typeOptions.length > 1) {
         panel.appendChild(smallSeg(typeOptions, seriesState.kind, kind => {
+            seriesState.requestSeq = (seriesState.requestSeq || 0) + 1;
+            seriesState.loading = false;
             seriesState.kind = kind;
             seriesState.info = null;
             seriesState.rawItems = [];
@@ -134,7 +138,9 @@ async function openSeriesBrowser(acquisition) {
                         renderStage();
                         await loadSeries(1);
                     } catch (error) {
-                        abToast('error', String(error && error.message || bt('common.request-failed', '请求失败')));
+                        if (seriesState.browserSession === session && request === sequence) {
+                            abToast('error', String(error && error.message || bt('common.request-failed', '请求失败')));
+                        }
                     } finally { button.disabled = false; }
                 });
                 body.appendChild(button);
@@ -160,6 +166,8 @@ async function openSeriesBrowser(acquisition) {
 
 async function loadSeries(page) {
     const requestState = seriesState;
+    const seq = seriesState.requestSeq = (seriesState.requestSeq || 0) + 1;
+    const source = seriesState.source;
     const input = document.getElementById('abSeriesInput');
     const raw = input ? input.value : seriesState.url;
     seriesState.url = raw;
@@ -178,12 +186,15 @@ async function loadSeries(page) {
         }
     }).filter(Boolean);
     if (matches.length !== 1) {
+        seriesState.loading = false;
         seriesState.error = bt('series.status.no-url', '请先粘贴有效的系列链接');
         renderSeriesStage();
         return;
     }
     const acquisition = matches[0].acquisition;
     const parsed = matches[0].parsed;
+    const isCurrent = () => seriesState === requestState && seriesState.requestSeq === seq
+        && seriesState.source === source && seriesState.kind === acquisition.type;
     seriesState.kind = acquisition.type;
     seriesState.loading = true;
     seriesState.error = '';
@@ -193,7 +204,7 @@ async function loadSeries(page) {
         let seriesId = parsed.seriesId ?? parsed.id;
         if (seriesId == null && parsed.resolveWorkId != null && typeof acquisition.resolveSeriesId === 'function') {
             seriesId = await acquisition.resolveSeriesId(parsed.resolveWorkId, {signal: lease.signal});
-            if (seriesState !== requestState) return;
+            if (!isCurrent()) return;
             lease.assertCurrent();
         }
         if (seriesId == null) throw new Error(bt('series.status.no-url', '请先粘贴有效的系列链接'));
@@ -212,7 +223,7 @@ async function loadSeries(page) {
         };
         const spec = acquisition.apiPath(seriesId, page, context);
         let data = await altAcquisitionJson(acquisition.type, 'series', spec, 'page', context);
-        if (seriesState !== requestState) return;
+        if (!isCurrent()) return;
         if (typeof acquisition.normalizePage === 'function') data = acquisition.normalizePage(data, context);
         const info = data.series || {};
         seriesState.info = Object.assign({}, info, {
@@ -232,7 +243,7 @@ async function loadSeries(page) {
         seriesState.isLastPage = data.isLastPage === true || data.hasMore === false;
         if (data.hasMore === true) seriesState.cursors.set(page + 1, altNextCursor(data, cursor, true));
     } catch (e) {
-        if (seriesState !== requestState) return;
+        if (!isCurrent()) return;
         seriesState.info = null;
         seriesState.rawItems = [];
         seriesState.page = page;
@@ -246,9 +257,12 @@ async function loadSeries(page) {
 async function applySeriesFilters() {
     const requestState = seriesState;
     const seq = ++searchState.filterSeq;
-    const result = await computeFilteredItems(seriesState.rawItems, extraFilters, seriesState.kind,
-        () => seq !== searchState.filterSeq);
-    if (!result || seriesState !== requestState) return;
+    const {rawItems, source, kind, requestSeq} = requestState;
+    const isStale = () => seriesState !== requestState || seq !== searchState.filterSeq
+        || seriesState.rawItems !== rawItems || seriesState.source !== source || seriesState.kind !== kind
+        || seriesState.requestSeq !== requestSeq;
+    const result = await computeFilteredItems(rawItems, extraFilters, kind, isStale);
+    if (!result || isStale()) return;
     seriesState.items = result.filtered;
     seriesState.filterSummary = result.stats;
     renderSeriesStage();
@@ -338,21 +352,23 @@ function enqueueSeriesItems(items) {
 }
 
 async function enqueueSeriesAll() {
+    const requestState = seriesState;
+    const {info, source, kind, requestSeq} = requestState;
+    if (!info) return;
+    const isStale = () => seriesState !== requestState || seriesState.requestSeq !== requestSeq
+        || seriesState.info !== info || source !== seriesState.source || kind !== seriesState.kind;
     if (!await abConfirm('series.enqueue-all.confirm',
-        '将抓取并加入该系列全部作品（已加载第 {page} 页）？', {page: seriesState.page})) return;
-    const acquisition = altAcquisition('series', seriesState.source, seriesState.kind);
-    if (!acquisition || !seriesState.info) return;
-    const seriesId = seriesState.info.seriesId;
-    const info = seriesState.info;
-    const source = seriesState.source, kind = seriesState.kind;
-    const isStale = () => seriesState.info !== info || source !== seriesState.source || kind !== seriesState.kind;
+        '将抓取并加入该系列全部作品（已加载第 {page} 页）？', {page: seriesState.page}) || isStale()) return;
+    const acquisition = altAcquisition('series', source, kind);
+    if (!acquisition) return;
+    const seriesId = info.seriesId;
     const lease = altQueueTypes().acquisitionLease(acquisition.type, 'series');
     const all = [];
     let cursor = typeof acquisition.initialCursor === 'function'
         ? acquisition.initialCursor(seriesId) : acquisition.initialCursor ?? null;
     for (let page = 1; ; page++) {
         const context = {
-            seriesId, seriesTitle: seriesState.info.title || '', page, cursor,
+            seriesId, seriesTitle: info.title || '', page, cursor,
             limit: Number(acquisition.pageSize) || 12
         };
         let data;
@@ -365,14 +381,14 @@ async function enqueueSeriesAll() {
             lease.assertCurrent();
             if (isStale()) return;
         } catch (e) {
-            abToast('error', String(e && e.message || bt('common.request-failed', '请求失败')));
+            if (!isStale()) abToast('error', String(e && e.message || bt('common.request-failed', '请求失败')));
             return;
         }
         all.push(...normalizeAcquisitionItems(data.items || [], acquisition, {
-            seriesId, seriesTitle: seriesState.info.title,
+            seriesId, seriesTitle: info.title,
             orderOffset: all.length,
-            seriesAuthorId: seriesState.info.authorId,
-            seriesAuthorName: seriesState.info.authorName
+            seriesAuthorId: info.authorId,
+            seriesAuthorName: info.authorName
         }, 'series'));
         const totalPages = Number(data.totalPages) > 0 ? Number(data.totalPages)
             : Math.ceil(Number(data.series?.total ?? data.total ?? info.total) / context.limit);

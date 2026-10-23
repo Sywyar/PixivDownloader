@@ -21,7 +21,7 @@ function runtime(variant, loadCore = false) {
     function descendants(nodes) { return nodes.flatMap(item => [item, ...descendants(item.children)]); }
     function get(id) { return descendants(roots).find(item => item.id === id) || null; }
     for (const id of ['archive-card', 'ac-title', 'ac-expired-area', 'ac-dl-area', 'ac-status',
-        'ac-dl-btn', 'ac-countdown', 'abDockBody']) {
+        'ac-dl-btn', 'ac-countdown', 'abDockBody', 'admin-pack-btn']) {
         roots.push(Object.assign(node(), {id}));
     }
     get('abDockBody').appendChild(Object.assign(node(), {id:'abArchiveBox'}));
@@ -46,6 +46,7 @@ function runtime(variant, loadCore = false) {
         el: node, abIconEl: () => node('i'), novelTranslateMessage() {},
         handleStart() {}, handlePause() {}, handleRetry() {}, handleClear() {},
         applyCookieHint() {}, syncCookieToggleLabel() {},
+        setStatus() {}, updateAdminPackButton() {}, isAdmin: true, updateAuthButtons() {}, renderAuthButton() {},
         PixivBatch: {}, PixivBatchAlt: {state: {}, queue: {}}
     });
     context.window = context;
@@ -53,7 +54,7 @@ function runtime(variant, loadCore = false) {
     run("let state = {queue: []};");
     if (!loadCore) run("const BASE = '';");
     const html = fs.readFileSync(path.join(resources, variant === 'alt' ? 'pixiv-batch-alt.html' : 'pixiv-batch.html'), 'utf8');
-    const names = ['batch-archive.js', 'queue-display.js', 'alt-queue.js', 'alt-engine.js', 'batch-download-quota.js'];
+    const names = ['batch-archive.js', 'queue-display.js', 'alt-queue-model.js', 'alt-queue.js', 'alt-engine.js', 'batch-download-quota.js'];
     if (loadCore) names.push('batch-core.js');
     for (const [, id, key] of html.matchAll(/id="(ac-[^"]+)" data-i18n="([^"]+)"/g)) {
         if (get(id)) get(id).dataset.i18n = key;
@@ -101,6 +102,70 @@ function runtime(variant, loadCore = false) {
 }
 
 for (const variant of ['classic', 'alt']) {
+    test(variant + '：管理员打包只提交已完成插画，忽略同 ID 的其他类型', async () => {
+        const r = runtime(variant);
+        r.run(`state.queue = [
+            {id:'31',kind:'illust',status:'completed'},
+            {id:'31',kind:'novel',status:'completed'},
+            {id:'32',kind:'novel',status:'completed'},
+            {id:'33',kind:'plugin-work',status:'completed'},
+            {id:'34',kind:'illust',status:'pending'},
+            {id:'35',kind:'illust',status:'skipped'}
+        ];`);
+        const packing = r.context.triggerAdminPack();
+        assert.equal(r.requests.length, 1);
+        assert.equal(r.requests[0].url, '/api/archive/pack-artworks');
+        assert.equal(r.requests[0].options.method, 'POST');
+        assert.equal(r.requests[0].options.credentials, 'same-origin');
+        await r.respond(0, {archiveToken:'selected-artwork', archiveExpireSeconds:60});
+        await packing;
+        assert.deepEqual(JSON.parse(r.requests[0].options.body), {artworkIds: [31]});
+        await r.tick(2000);
+        await r.respond(1, {status:'ready', expireSeconds:60});
+        assert.equal(r.link(), '/api/archive/download/selected-artwork');
+        r.event('pagehide');
+    });
+
+    test(variant + '：没有已完成插画时不提交管理员打包请求', async () => {
+        const r = runtime(variant);
+        const messages = [];
+        r.context.setStatus = r.context.setDockStatus = message => messages.push(message);
+        r.run("state.queue = [{id:'31',kind:'novel',status:'completed'}," +
+            "{id:'32',kind:'plugin-work',status:'completed'}, {id:'33',kind:'illust',status:'failed'}];");
+        const packing = r.context.triggerAdminPack();
+        if (r.requests.length) r.requests[0].resolve({status:204});
+        await packing;
+        assert.equal(r.requests.length, 0);
+        assert.equal(messages[0].key, 'status.no-completed-to-pack');
+    });
+
+    for (const failure of ['unauthorized', 'missing', 'server', 'json', 'network']) {
+        test(variant + '：管理员打包失败仍反馈原因并刷新按钮：' + failure, async () => {
+            const r = runtime(variant), messages = [];
+            let refreshed = 0;
+            r.context.setStatus = r.context.setDockStatus = message => messages.push(message);
+            r.context.updateAdminPackButton = r.context.updateButtonsState = () => refreshed++;
+            r.run("state.queue = [{id:'31',kind:'illust',status:'completed'}];");
+            const packing = r.context.triggerAdminPack();
+            if (failure === 'network') r.requests[0].reject(new Error('offline'));
+            else r.requests[0].resolve({
+                status: failure === 'unauthorized' ? 401 : failure === 'missing' ? 204 : 500,
+                ok: false,
+                json: async () => {
+                    if (failure === 'json') throw new Error('invalid JSON');
+                    return {error:'archive unavailable'};
+                }
+            });
+            await packing;
+            const expected = {unauthorized:'status.login-expired', missing:'status.pack-folder-missing',
+                server:'archive unavailable', json:'status.pack-failed-http', network:'status.pack-request-failed'};
+            assert.equal(messages.at(-1).key || messages.at(-1), expected[failure]);
+            assert.equal(r.context.isAdmin, failure !== 'unauthorized');
+            assert.ok(refreshed > 0);
+            assert.equal(r.timers.size, 0);
+        });
+    }
+
     test(variant + '：迟到的旧归档结果不能替换当前下载链接', async () => {
         const r = runtime(variant);
         r.show('old', 60, false);

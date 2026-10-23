@@ -52,7 +52,7 @@
         }
     }
 
-    // ---- 取得侧（search 模式）行为分派：宿主只面向 queueTypes 的 search 钩子调用，插画为内置默认路径 ----
+    // 取得侧按当前类型的 search 钩子分派。
     // 当前结果类型的 search 取得钩子；类型不可用时返回 null，由调用方停止该模式请求。
     function searchAcq() {
         return window.PixivBatch.queueTypes.acquisition(searchState.kind, 'search');
@@ -198,7 +198,7 @@
         blurR18: false,
         noCookie: false,
         activeBlobUrls: [],
-        metaCache: {},
+        metaCache: new WeakMap(),
         filterSeq: 0,
         requestSeq: 0,
         pixivPageCount: 0,
@@ -211,10 +211,16 @@
         }
     };
 
-    function clearSearchPreviewForSourceChange(preserveKind = false) {
-        cleanupBlobUrls();
+    function invalidateSearchRequest() {
         searchState.filterSeq += 1;
         searchState.requestSeq += 1;
+        const fetchButton = document.getElementById('btn-batch-fetch');
+        if (fetchButton) fetchButton.disabled = false;
+    }
+
+    function clearSearchPreviewForSourceChange(preserveKind = false) {
+        cleanupBlobUrls();
+        invalidateSearchRequest();
         if (!preserveKind) searchState.kind = searchKindOwner(state.settings.searchKind);
         searchState.rawResults = [];
         searchState.results = [];
@@ -224,7 +230,7 @@
         searchState.batchInfo = null;
         searchState.localPage = 1;
         searchState.noCookie = false;
-        searchState.metaCache = {};
+        searchState.metaCache = new WeakMap();
         searchState.pixivPageCount = 0;
         searchState.currentFilters = defaultSearchFilters();
         searchState.filterSummary = {
@@ -510,8 +516,9 @@
     }
 
     // 缩略图请求由当前类型 owner 构建 endpoint，宿主只执行同源受控 GET。
-    async function fetchThumbnailBlobUrl(url, blobStore, kind, mode) {
+    async function fetchThumbnailBlobUrl(url, currentBlobStore, kind, mode) {
         if (!url) return null;
+        const blobStore = currentBlobStore();
         try {
             const registry = window.PixivBatch.queueTypes;
             const type = registry.resolveTypeForMode(kind, mode);
@@ -524,6 +531,7 @@
             if (!res.ok) return null;
             const blob = await res.blob();
             request.assertCurrent();
+            if (blobStore !== currentBlobStore()) return null;
             const blobUrl = URL.createObjectURL(blob);
             if (Array.isArray(blobStore)) blobStore.push(blobUrl);
             return blobUrl;
@@ -537,7 +545,7 @@
         const imgEl = document.getElementById(`thumb-img-${idx}`);
         if (!imgEl) return;
         const blobUrl = await fetchThumbnailBlobUrl(
-            item.thumbnailUrl, searchState.activeBlobUrls, searchState.kind, 'search');
+            item.thumbnailUrl, () => searchState.activeBlobUrls, searchState.kind, 'search');
         if (requestSeq !== searchState.requestSeq) return;
         if (blobUrl && imgEl.isConnected) imgEl.src = blobUrl;
     }
@@ -715,7 +723,7 @@
             searchState.currentWord = '';
             searchState.batchInfo = null;
             searchState.localPage = 1;
-            searchState.filterSeq++;
+            invalidateSearchRequest();
             renderSearchResults();
             renderSearchPagination();
             document.getElementById('btn-add-all').disabled = true;

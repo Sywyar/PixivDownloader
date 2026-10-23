@@ -145,7 +145,7 @@
     </details>
 
     <!-- 左：下载模式 rail（常驻；计划任务模式仍可见）。容器保留 .tabs 类（向导 / 新手引导以 .tabs 定位）。 -->
-    <aside class="mode-rail tabs" aria-label="下载模式">
+    <aside class="mode-rail tabs" aria-label="下载模式" data-i18n-aria-label="dashboard.mode-rail">
         <div class="mode-rail-title" data-i18n="dashboard.mode-rail">下载模式</div>
         <div class="tab active" id="tab-quick-fetch" data-pixiv-click="switchMode('quick-fetch')" data-i18n="mode.quick-fetch">⭐ 快捷获取</div>
         <div class="tab" id="tab-single-import" data-pixiv-click="switchMode('single-import')" data-i18n="mode.single-import">🎨 批量导入单作品</div>
@@ -531,7 +531,7 @@
         <!-- 顶部：仪表盘统计 / 主操作条 -->
         <section class="dash-strip">
             <div class="dash-inner">
-                <div class="dash-stats" role="group" aria-label="队列统计">
+                <div class="dash-stats" role="group" aria-label="队列统计" data-i18n-aria-label="dashboard.statistics">
                     <div class="stat-card stat-queued"><span class="stat-num" id="stat-count-pending">0</span><span class="stat-label" data-i18n="dashboard.stat.queued">队列</span></div>
                     <div class="stat-card stat-success"><span class="stat-num" id="stat-count-success">0</span><span class="stat-label" data-i18n="dashboard.stat.success">成功</span></div>
                     <div class="stat-card stat-failed"><span class="stat-num" id="stat-count-failed">0</span><span class="stat-label" data-i18n="dashboard.stat.failed">失败</span></div>
@@ -780,7 +780,7 @@
 
     </div><!-- /download-workbench -->
 
-    <footer class="app-footer" aria-label="Project information">
+    <footer class="app-footer" aria-label="项目信息" data-i18n-aria-label="footer.label">
         <div class="app-footer-meta">
             <span id="app-name" class="app-footer-brand">...</span>
             <span class="app-footer-separator" aria-hidden="true">|</span>
@@ -828,9 +828,11 @@
 <script src="/pixiv-batch/batch-state.js"></script>
 <script src="/pixiv-batch/batch-pagination.js"></script>
 <script src="/pixiv-batch/batch-onboarding.js"></script>
+<script src="/pixiv-batch/state-storage.js"></script>
 <script src="/pixiv-batch/batch-storage.js"></script>
 <script src="/pixiv-batch/batch-userscripts.js"></script>
 <script src="/pixiv-batch/cookie-storage.js"></script>
+<script src="/pixiv-batch/cookie-sync.js"></script>
 <script src="/pixiv-batch/batch-cookie.js"></script>
 <script src="/pixiv-batch/pixiv-schedule-defaults.js"></script>
 <script src="/pixiv-batch/media-settings.js"></script>
@@ -850,6 +852,7 @@
 <script src="/pixiv-batch/batch-queue.js"></script>
 <script src="/pixiv-batch/queue-row-sync.js"></script>
 <script src="/pixiv-batch/batch-queue-vue.js"></script>
+<script src="/pixiv-batch/download-sse.js"></script>
 <script src="/pixiv-batch/batch-sse.js"></script>
 <script src="/pixiv-batch/batch-archive.js"></script>
 <script src="/pixiv-batch/batch-download-quota.js"></script>

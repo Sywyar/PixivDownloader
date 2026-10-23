@@ -93,7 +93,7 @@
             return;
         }
         btn.style.display = 'inline-flex';
-        btn.disabled = !state.queue.some(q => q.status === 'completed');
+        btn.disabled = !state.queue.some(q => q.status === 'completed' && q.kind === 'illust');
     }
 
 // ---- PixivBatch facade ----

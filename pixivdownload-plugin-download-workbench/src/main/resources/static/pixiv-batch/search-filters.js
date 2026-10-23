@@ -119,3 +119,54 @@
         const count = Number(item?.bookmarkCount);
         return Number.isFinite(count) && count >= 0 ? count : null;
     }
+
+    // 同一页面状态按当前查询函数弱引用隔离缓存，插件换代后不复用旧结果。
+    function searchMetaCacheKey(id, kind) {
+        return String(kind || 'illust') + ':' + String(id);
+    }
+
+    function getCachedSearchMeta(id, kind = searchState.kind) {
+        const fetchMeta = window.PixivBatch.queueTypes.filtersFor(kind)?.bookmarkCountFetch;
+        return searchState.metaCache.get(fetchMeta)?.get(searchMetaCacheKey(id, kind)) || null;
+    }
+
+    async function ensureBookmarkMeta(items, kind, isStale) {
+        const contribution = window.PixivBatch.queueTypes.filtersFor(kind);
+        const fetchMeta = contribution?.bookmarkCountFetch;
+        if (typeof fetchMeta !== 'function') return !isStale();
+        const caches = searchState.metaCache;
+        let cache = caches.get(fetchMeta);
+        if (!cache) caches.set(fetchMeta, cache = new Map());
+        const isCurrent = () => !isStale() && searchState.metaCache === caches
+            && window.PixivBatch.queueTypes.filtersFor(kind)?.bookmarkCountFetch === fetchMeta;
+        const missingIds = [];
+        const seen = new Set();
+        for (const item of items) {
+            const id = String(item.__acquisitionId ?? item.id);
+            if (seen.has(id)) continue;
+            seen.add(id);
+            if (getInlineSearchBookmarkCount(item) !== null) continue;
+            if (!cache.get(searchMetaCacheKey(id, kind))?.bookmarkResolved) missingIds.push(id);
+        }
+        let cursor = 0;
+        const workers = [];
+        for (let i = 0; i < Math.min(6, missingIds.length); i++) {
+            workers.push((async () => {
+                while (cursor < missingIds.length) {
+                    if (!isCurrent()) return;
+                    const id = missingIds[cursor++];
+                    let bookmarkCount;
+                    try {
+                        const meta = await contribution.bookmarkCountFetch(id);
+                        bookmarkCount = Number(meta?.bookmarkCount ?? -1);
+                    } catch {
+                        bookmarkCount = -1;
+                    }
+                    if (!isCurrent()) return;
+                    cache.set(searchMetaCacheKey(id, kind), {bookmarkCount, bookmarkResolved: true});
+                }
+            })());
+        }
+        await Promise.all(workers);
+        return isCurrent();
+    }

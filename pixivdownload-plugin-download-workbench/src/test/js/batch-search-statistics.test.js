@@ -11,9 +11,8 @@ const SEARCH_SOURCE = fs.readFileSync(path.join(BATCH_ROOT, 'modes', 'search.js'
 const FILTER_SOURCE = fs.readFileSync(path.join(BATCH_ROOT, 'batch-filters.js'), 'utf8');
 const PIXIV_SOURCE = fs.readFileSync(path.join(BATCH_ROOT, 'pixiv-queue-type.js'), 'utf8');
 
-function interpolate(template, vars) {
-    return String(template).replace(/\{([a-zA-Z0-9_.-]+)\}/g, (match, key) =>
-        vars && Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : match);
+function translation(key, _fallback, vars) {
+    return JSON.stringify([key, vars]);
 }
 
 function hostFormatter(acquisition) {
@@ -26,7 +25,7 @@ function hostFormatter(acquisition) {
             }
         },
         defaultSearchFilters() { return {}; },
-        bt(_key, fallback, vars) { return interpolate(fallback, vars); },
+        bt: translation,
         URLSearchParams,
         console: {warn() { warnings.push(Array.from(arguments)); }, log() {}, error() {}}
     };
@@ -42,7 +41,7 @@ function hostFormatter(acquisition) {
     };
 }
 
-function pixivDescriptor() {
+function pixivDescriptor(bt = translation) {
     let descriptor = null;
     const controller = new AbortController();
     const context = {
@@ -85,7 +84,7 @@ function pixivDescriptor() {
         renderPixivSearchResults() {},
         renderQuickIllustGrid() {},
         pixivQuickInnerCard() { return ''; },
-        bt(_key, fallback, vars) { return interpolate(fallback, vars); },
+        bt,
         esc(value) { return String(value == null ? '' : value); },
         state: {queue: [], settings: {}},
         URL,
@@ -113,19 +112,23 @@ test('宿主使用来源统计格式化钩子并在异常时回退中性文案',
     assert.strictEqual(contributed.format('total', 12), 'source-total-12-search');
 
     const blank = hostFormatter({formatStats() { return '   '; }});
-    assert.strictEqual(blank.format('total', 12), '来源总数 12');
+    assert.deepStrictEqual(JSON.parse(blank.format('total', 12)),
+        ['search.summary.source-total', {count: '12'}]);
 
     const failed = hostFormatter({formatStats() { throw new Error('broken formatter'); }});
-    assert.strictEqual(failed.format('returned', 7), '来源返回 7 个');
+    assert.deepStrictEqual(JSON.parse(failed.format('returned', 7)),
+        ['search.summary.source-returned', {count: '7'}]);
     assert.strictEqual(failed.warnings.length, 1);
 
     const absent = hostFormatter({});
-    assert.strictEqual(absent.format('batch-fetched', 9), '已抓取去重 9 个');
+    assert.deepStrictEqual(JSON.parse(absent.format('batch-fetched', 9)),
+        ['search.batch.summary.fetched', {count: '9'}]);
 });
 
 test('Pixiv 行为模块贡献来源自有的搜索统计标签', () => {
     const pixiv = pixivDescriptor().acquisition.search;
-    assert.strictEqual(pixiv.formatStats('total', {count: 12}), 'Pixiv 总数 12');
+    assert.deepStrictEqual(JSON.parse(pixiv.formatStats('total', {count: 12})),
+        ['search.summary.pixiv-total', {count: '12'}]);
 });
 
 test('Pixiv 行为模块按媒体与取得来源贡献队列标签', () => {
@@ -163,15 +166,16 @@ test('Pixiv 行为模块拥有二层快捷计划来源映射', () => {
 
     assert.deepStrictEqual(JSON.parse(JSON.stringify(followingIllust)), {
         sourceType: 'user-new', type: 'USER_NEW', source: {userId: '42'},
-        kind: 'illust', label: '画师 Painter（ID 42）'
+        kind: 'illust', label: JSON.stringify(['quick.schedule.source.user', {name: 'Painter', id: '42'}])
     });
     assert.deepStrictEqual(JSON.parse(JSON.stringify(followingNovel)), {
         sourceType: 'user-new', type: 'USER_NEW', source: {userId: '43'},
-        kind: 'novel', label: '画师 Writer（ID 43）'
+        kind: 'novel', label: JSON.stringify(['quick.schedule.source.user', {name: 'Writer', id: '43'}])
     });
     assert.deepStrictEqual(JSON.parse(JSON.stringify(collection)), {
         sourceType: 'collection', type: 'COLLECTION', source: {collectionId: '77'},
-        kind: 'mixed', label: '珍藏集 Mixed collection（ID 77）', workTypes: ['illust', 'novel']
+        kind: 'mixed', label: JSON.stringify(['quick.schedule.source.collection', {name: 'Mixed collection', id: '77'}]),
+        workTypes: ['illust', 'novel']
     });
     assert.strictEqual(actions['my-following-show'].scheduleSource({inner: null}), null);
     assert.strictEqual(actions['my-collections'].scheduleSource({inner: null}), null);
@@ -203,6 +207,24 @@ test('Pixiv 各取得入口在顶层携带原始数字取消键', () => {
     assert.strictEqual(scheduled.isAi, true);
 });
 
+test('无标题插画导入只保存原始值，显示和重载随当前语言派生标题', () => {
+    let language = 'en';
+    const bt = (key, _fallback, args) => `${language}:${JSON.stringify([key, args])}`;
+    const importer = pixivDescriptor(bt).import;
+    const context = vm.createContext({bt});
+    vm.runInContext(fs.readFileSync(path.join(BATCH_ROOT, 'queue-display.js'), 'utf8'), context);
+    const item = importer.buildItem('42', '');
+    assert.strictEqual(item.title, '');
+    assert.strictEqual(context.queueItemDisplayTitle(item),
+        'en:' + JSON.stringify(['queue.artwork-fallback', {id: '42'}]));
+    const restored = JSON.parse(JSON.stringify(item));
+    language = 'ja';
+    assert.strictEqual(context.queueItemDisplayTitle(restored),
+        'ja:' + JSON.stringify(['queue.artwork-fallback', {id: '42'}]));
+    const titled = importer.buildItem('43', 'Original title');
+    assert.strictEqual(context.queueItemDisplayTitle(titled), 'Original title');
+});
+
 test('搜索和批量筛选摘要按来源渲染，切换语言保留原始计数', async () => {
     let lang = 'en';
     const calls = [];
@@ -229,7 +251,7 @@ test('搜索和批量筛选摘要按来源渲染，切换语言保留原始计�
         }})
     };
     sandbox.renderSearchResults = sandbox.renderSearchPagination = sandbox.updateBatchQueueButtons = () => {};
-    sandbox.translator = {t(key, _fallback, args) { return interpolate(key, args); }};
+    sandbox.translator = {t: translation};
     vm.runInContext('pageI18n = translator', sandbox);
     for (const submode of ['search', 'batch']) {
         calls.length = 0;

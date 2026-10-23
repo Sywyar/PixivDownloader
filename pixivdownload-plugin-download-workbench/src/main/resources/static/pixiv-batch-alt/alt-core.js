@@ -1,11 +1,5 @@
 'use strict';
-/* ============================================================
-   alt-core — PixivBatchAlt 命名空间引导 + 基础工具
-   与 pixiv-batch/batch-core.js 同源的格式化 / 请求 / 文本工具（逐字移植，
-   去掉旧 DOM 耦合），另加：SVG 图标注册表、CSS 变量缩略图、计数动画、
-   PixivFeedback 封装、抽屉 / 弹窗原语。
-   本文件不触碰页面 DOM（除抽屉 / 弹窗根节点），顶层无立即执行的 DOM 查询。
-   ============================================================ */
+// 新版工作台的命名空间、文本与请求工具、图标及对话框。
 window.PixivBatchAlt = window.PixivBatchAlt || {};
 ['core', 'state', 'data', 'cookie', 'filters', 'settings', 'chrome', 'modes',
     'schedule', 'queue', 'engine'].forEach(function (k) {
@@ -205,9 +199,8 @@ function applyThumbHue(el, seed) {
 /* ============================================================
    统计计数直接显示已确认的当前值
    ============================================================ */
-function animateCount(el, next, options) {
+function animateCount(el, next) {
     const value = String(Number(next) || 0);
-    el.dataset.countValue = value;
     if (el.textContent !== value) el.textContent = value;
 }
 
@@ -269,12 +262,10 @@ function abPrompt(key, fallback, vars, options) {
 /* ============================================================
    抽屉 / 弹窗原语（共享 #abDrawerRoot / #abModalRoot）
    ============================================================ */
-let abDrawerOpen = null;
 let abModalOpen = null;
 
 function closeDrawer() {
     closeAltDialog('abDrawerRoot');
-    abDrawerOpen = null;
 }
 
 function closeModal() {
@@ -369,7 +360,6 @@ function openAltDialog(spec, drawer) {
 }
 
 function openDrawer(spec) {
-    abDrawerOpen = spec.id || true;
     return openAltDialog(spec, true);
 }
 

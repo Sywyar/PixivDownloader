@@ -10,13 +10,13 @@ const SOURCE = [
     'batch-queue-types-runtime.js',
     'batch-queue-types.js'
 ].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
-const INIT_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-init.js'), 'utf8');
 const SETTINGS_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-settings.js'), 'utf8');
 const DOWNLOAD_SOURCE = [
     'batch-archive.js', 'batch-download-quota.js', 'filename-template.js', 'batch-artwork-requests.js', 'batch-download-artwork.js',
     'download-workers.js', 'batch-download-workers.js', 'batch-download.js'
 ].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
-const SSE_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-sse.js'), 'utf8');
+const SSE_SOURCE = ['download-sse.js', 'batch-sse.js']
+    .map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
 
 class El {
     constructor(tag) {
@@ -263,6 +263,7 @@ function harness(manifests, moduleScripts, options = {}) {
         document,
         BASE: '',
         URL,
+        Headers,
         AbortController,
         CustomEvent: function CustomEvent(type, init) { return {type, detail: init && init.detail}; },
         Node: undefined,
@@ -361,7 +362,7 @@ const BASIC_INITIALIZER = `(function (context) {
                     requestInit: function () {
                         return {
                             method: 'POST', credentials: 'include', body: 'forged-body',
-                            headers: {
+                            headers: testState.requestHeaders || {
                                 Authorization: 'secret', Cookie: 'secret',
                                 Accept: 'application/json',
                                 'X-Acquisition-Credential': 'acquisition-session',
@@ -565,7 +566,6 @@ const LATE_UI_INITIALIZER = `(function (context) {
 })`;
 
 module.exports = {
-    INIT_SOURCE,
     SETTINGS_SOURCE,
     DOWNLOAD_SOURCE,
     SSE_SOURCE,

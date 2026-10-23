@@ -81,8 +81,9 @@
         state.queue.forEach(q => {
             if (['pending', 'idle', 'paused'].includes(q.status)) {
                 q.status = 'failed';
-                q.statusMessageKey = null;
-                q.lastMessage = bt('queue.message.failed-quota', '失败 - 达到限额');
+                q.statusMessageKey = 'batch:queue.message.failed-quota';
+                q.lastMessage = '';
+                q.lastMessageParts = null;
                 q.endTime = q.endTime || new Date().toISOString();
             }
         });
@@ -156,7 +157,7 @@
 
     async function triggerAdminPack() {
         const ids = state.queue
-            .filter(q => q.status === 'completed')
+            .filter(q => q.status === 'completed' && q.kind === 'illust')
             .map(q => Number(q.id))
             .filter(Number.isFinite);
 

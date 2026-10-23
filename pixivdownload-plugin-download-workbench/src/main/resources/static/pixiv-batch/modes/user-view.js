@@ -78,7 +78,7 @@
         const imgEl = document.getElementById(`user-thumb-img-${idx}`);
         if (!imgEl) return;
         const blobUrl = await fetchThumbnailBlobUrl(
-            item.thumbnailUrl, userState.activeBlobUrls, userState.kind, 'user');
+            item.thumbnailUrl, () => userState.activeBlobUrls, userState.kind, 'user');
         if (renderToken !== userState.renderToken) return;
         if (blobUrl && imgEl.isConnected) imgEl.src = blobUrl;
     }

@@ -66,8 +66,27 @@ function harness(inner, {existing = false, downloading = false, keep = false, ch
         quickInner.open = true;
         quickInner.items = [{id: '42', kind: 'item-type', title: 'Inner'}];
     `, sandbox);
-    return {calls, statuses, cards, queue, id,
+    return {calls, statuses, cards, queue, id, sandbox,
         toggle: index => inner ? sandbox.quickInnerToggleQueue(index) : sandbox.quickToggleItemQueue(index)};
+}
+
+for (const inner of [false, true]) {
+    test(`${inner ? '内层' : '外层'}整页入队保留每件作品的类型与元数据`, () => {
+        const h = harness(inner);
+        const state = vm.runInContext(inner ? 'quickInner' : 'quickState', h.sandbox);
+        state.items.push({id: '43', kind: 'second-type', title: 'Second'});
+        let submitted;
+        h.sandbox.addItemsToQueue = (ids, metas) => {
+            submitted = {ids: Array.from(ids), metas: JSON.parse(JSON.stringify(metas))};
+            return ids.length;
+        };
+        if (inner) h.sandbox.quickInnerAddCurrentPageToQueue();
+        else h.sandbox.quickAddCurrentPageToQueue();
+        const kinds = inner ? ['item-type', 'second-type'] : ['outer-type', 'outer-type'];
+        assert.deepEqual(submitted.ids, kinds.map((kind, index) => `${kind}:${42 + index}`));
+        assert.deepEqual(submitted.metas.map(meta => meta.kind), kinds);
+        assert.deepEqual(submitted.metas.map(meta => meta.title), [inner ? 'Inner' : 'Outer', 'Second']);
+    });
 }
 
 for (const inner of [false, true]) {

@@ -16,7 +16,7 @@ function harness(layout, {enabled = true, admin = true, backend} = {}) {
     };
     const calls = {checks: 0, workers: 0, alerts: 0, statuses: []};
     const context = vm.createContext({
-        state, isAdmin: admin, console,
+        state, isAdmin: admin, console, AbortController,
         window: {PixivBatch: {}, PixivBatchAlt: {queue: {}, engine: {}}},
         SINGLE_IMPORT_MODE: 'single-import', SINGLE_IMPORT_NOVEL_SOURCE: 'single-import-novel',
         QUICK_FETCH_MODE: 'quick-fetch', quotaExceededHandled: false,
@@ -46,7 +46,7 @@ function harness(layout, {enabled = true, admin = true, backend} = {}) {
     ]) context[name] = () => {};
     const files = layout === 'classic'
         ? ['pixiv-batch/batch-queue-actions.js', 'pixiv-batch/batch-download-workers.js']
-        : ['pixiv-batch-alt/alt-queue.js', 'pixiv-batch-alt/alt-engine-workers.js'];
+        : ['pixiv-batch-alt/alt-queue-model.js', 'pixiv-batch-alt/alt-queue.js', 'pixiv-batch-alt/alt-engine-workers.js'];
     for (const file of ['pixiv-batch/queue-display.js', 'pixiv-batch/download-workers.js', ...files]) vm.runInContext(readFileSync(resolve(staticRoot, file), 'utf8'), context, {filename: file});
     for (const name of ['updateStats', 'saveQueue', 'renderQueue', 'updateButtonsState']) context[name] = () => {};
     context.queueItemCanonicalUrl = () => null;
@@ -116,6 +116,7 @@ for (const layout of ['classic', 'alt']) {
             let ready;
             const h = harness(layout, {backend: () => new Promise(resolve => { ready = resolve; })});
             h.add(['1']);
+            await flush();
             cancel(h.state);
             ready(true);
             await flush();

@@ -354,7 +354,6 @@ function testTriggerOldGenerationIsolation() {
     }).then(() => {
         eq('generation 2 完成后只启动一次 SDK / Survey 流程', h.adapter.calls.getSurveys.length, 1);
         eq('弹窗最多一个', h.document.querySelectorAll('.plf-backdrop').length, 1);
-        eq('generation 2 没有启动第二条流程', h.adapter.calls.getSurveys.length, 1);
         eq('只有 generation 1 的请求被取消（abort 恰好一次）', h.serverAbortCalls.length, 1);
     });
 }

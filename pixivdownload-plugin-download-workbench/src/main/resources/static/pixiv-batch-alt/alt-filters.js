@@ -64,60 +64,12 @@ function matchTypeExtraFilters(item, filters, kind) {
 }
 
 function getSearchBookmarkCount(item, kind) {
-    const cached = searchState.metaCache[(kind || 'illust') + ':' + String(item.__acquisitionId ?? item.id)];
+    const cached = getCachedSearchMeta(item.__acquisitionId ?? item.id, kind || 'illust');
     if (cached && cached.bookmarkResolved) {
         const count = Number(cached.bookmarkCount);
         if (Number.isFinite(count) && count >= 0) return count;
     }
     return getInlineSearchBookmarkCount(item);
-}
-
-// 按需向作品类型 owner 补齐收藏数。
-async function ensureBookmarkMeta(items, kind, isStale) {
-    const contribution = window.PixivBatch.queueTypes.filtersFor(kind);
-    const missingIds = [];
-    const seen = new Set();
-    for (const item of items) {
-        const id = String(item.__acquisitionId ?? item.id);
-        if (seen.has(id)) continue;
-        seen.add(id);
-        if (getInlineSearchBookmarkCount(item) !== null) continue;
-        const cached = searchState.metaCache[(kind || 'illust') + ':' + id];
-        if (!cached || !cached.bookmarkResolved) missingIds.push(id);
-    }
-    if (!missingIds.length) return;
-
-    let cursor = 0;
-    const workers = [];
-    const workerCount = Math.min(6, missingIds.length);
-    for (let i = 0; i < workerCount; i++) {
-        workers.push((async () => {
-            while (cursor < missingIds.length) {
-                if (isStale()) return;
-                const id = missingIds[cursor++];
-                const cacheKey = (kind || 'illust') + ':' + id;
-                try {
-                    if (typeof contribution?.bookmarkCountFetch !== 'function') throw new Error('bookmark-meta-unavailable');
-                    const meta = await contribution.bookmarkCountFetch(id);
-                    if (isStale()) return;
-                    searchState.metaCache[cacheKey] = {
-                        ...(searchState.metaCache[cacheKey] || {}),
-                        bookmarkCount: Number(meta?.bookmarkCount ?? -1),
-                        bookmarkResolved: true
-                    };
-                } catch {
-                    if (isStale()) return;
-                    searchState.metaCache[cacheKey] = {
-                        ...(searchState.metaCache[cacheKey] || {}),
-                        bookmarkCount: -1,
-                        bookmarkResolved: true,
-                        bookmarkError: true
-                    };
-                }
-            }
-        })());
-    }
-    await Promise.all(workers);
 }
 
 function matchSearchFilters(item, filters, stats, kind) {
@@ -149,8 +101,7 @@ async function computeFilteredItems(items, filters, kind, isStale) {
     const source = Array.isArray(items) ? items : [];
     const bookmarkFilterActive = hasBookmarkFilter(filters);
     if (bookmarkFilterActive) {
-        await ensureBookmarkMeta(source, kind, isStale);
-        if (isStale()) return null;
+        if (!await ensureBookmarkMeta(source, kind, isStale) || isStale()) return null;
     }
     const stats = {
         rawCount: source.length,

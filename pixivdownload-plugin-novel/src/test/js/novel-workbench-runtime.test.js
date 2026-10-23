@@ -24,7 +24,7 @@ const QUEUE_TYPES_SOURCE = [
 ].map(file => fs.readFileSync(path.join(WORKBENCH, file), 'utf8')).join('\n');
 const DOWNLOAD_SOURCE = [
     'batch-archive.js', 'batch-download-quota.js', 'filename-template.js', 'batch-artwork-requests.js', 'batch-download-artwork.js',
-    'batch-download-workers.js', 'batch-download.js'
+    'download-workers.js', 'batch-download-workers.js', 'batch-download.js'
 ].map(file => fs.readFileSync(path.join(WORKBENCH, file), 'utf8')).join('\n');
 
 function interpolate(template, vars) {

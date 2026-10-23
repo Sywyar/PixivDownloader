@@ -82,13 +82,17 @@ function ok(label, condition) {
 }
 
 function modeElement({html = 'A preview', text = 'A meta', display = 'flex'} = {}) {
+    const classes = new Set();
     return {
         innerHTML: html,
         textContent: text,
         style: {display},
         disabled: false,
         dataset: {},
-        classList: {toggle() {}, remove() {}},
+        classList: {
+            toggle(name, force) { if (force ?? !classes.has(name)) classes.add(name); else classes.delete(name); },
+            remove(name) { classes.delete(name); }, contains(name) { return classes.has(name); }
+        },
         querySelectorAll() { return []; }
     };
 }
@@ -165,7 +169,7 @@ function realModeHarness(source, stateExpression, elements, extra = {}) {
         Promise,
         QUICK_FETCH_MODE: 'quick-fetch',
         defaultSearchFilters: () => ({content: 'all'}),
-        bt: (_key, fallback) => fallback,
+        bt: key => key,
         esc: value => String(value),
         resetPreviewCollapse() {},
         updateExtraFiltersCardVisibility() {},
@@ -212,11 +216,41 @@ ok('novel setting reload 后 change 仍触发 autosave', autosaves === 1);
 const reloadedAiSetting = {id: 's-novel-translate-lang', type: 'text'};
 documentHandlers.get('input')({type: 'input', target: reloadedAiSetting});
 ok('AI setting reload 后 input 仍触发 autosave', autosaves === 2);
-ok('batch init 使用稳定 document 设置委托',
-    INIT_SOURCE.includes('bindDelegatedSettingAutosave(document)'));
-ok('search submode switcher 使用稳定 root 事件委托',
-    SEARCH_SOURCE.includes("root.addEventListener('click', event =>")
-    && !SEARCH_SOURCE.includes("lbl.addEventListener('click'"));
+{
+    const switcher = kindSwitcherElement(['search', 'batch']);
+    const listeners = [], saved = [];
+    switcher.addEventListener = (type, listener) => listeners.push({type, listener});
+    const elements = Object.fromEntries([
+        'search-mode-actions', 'batch-mode-actions', 'search-results-area',
+        'search-pagination', 'btn-add-all', 'btn-batch-add-page', 'btn-batch-add-all'
+    ].map(id => [id, modeElement()]));
+    elements['search-submode-switcher'] = switcher;
+    const h = realModeHarness(SEARCH_SOURCE, 'searchState', elements, {
+        storeSet: (key, value) => saved.push([key, value]),
+        updateBatchLimitNote() {}, updateScheduleFetchLimitVisibility() {}
+    });
+    h.sandbox.bindSubmodeSwitcher();
+    h.sandbox.bindSubmodeSwitcher();
+    assert.equal(listeners.length, 1);
+    assert.equal(listeners[0].type, 'click');
+    switcher.labels = kindSwitcherElement(['search', 'batch']).labels;
+    for (const label of switcher.labels) {
+        label.dataset.submode = label.dataset.kind;
+        label.parentNode = switcher;
+    }
+    h.state.rawResults = h.state.results = [{id: 'old'}];
+    const event = {target: {tagName: 'SPAN', parentNode: switcher.labels[1]}};
+    listeners[0].listener(event);
+    listeners[0].listener(event);
+    assert.deepEqual(saved, [['pixiv_search_submode', 'batch']]);
+    assert.equal(h.state.submode, 'batch');
+    assert.equal(h.state.results.length, 0);
+    assert.equal(elements['search-mode-actions'].style.display, 'none');
+    assert.equal(elements['batch-mode-actions'].style.display, '');
+    assert.equal(elements['btn-batch-add-all'].disabled, true);
+    ok('搜索子模式替换标签后仍响应嵌套点击，同值重复点击不保存',
+        switcher.labels[1].input.checked && !switcher.labels[0].input.checked);
+}
 
 {
     const synced = [];
@@ -706,8 +740,8 @@ ok('search submode switcher 使用稳定 root 事件委托',
         && elements['quick-pagination'].innerHTML === ''
         && elements['quick-inner-section'].style.display === 'none');
     ok('queue type loading 暂态使用普通空态，不遗留类型不可用提示',
-        elements['quick-preview-area'].innerHTML.includes('点击上方按钮加载内容')
-        && !elements['quick-preview-area'].innerHTML.includes('该类型当前不可用'));
+        elements['quick-preview-area'].innerHTML.includes('quick.preview.empty')
+        && !elements['quick-preview-area'].innerHTML.includes('queue.message.type-unavailable'));
     ok('真实 quick reconcile 隐藏并禁用旧预览入队按钮',
         elements['quick-preview-toolbar'].style.display === 'none'
         && elements['quick-add-page'].style.display === 'none'
@@ -796,10 +830,14 @@ let settingReconciles = 0;
 let queueRenders = 0;
 let currentRenders = 0;
 let scheduleLoads = 0;
+const manifestRequests = [];
 const initSandbox = {
     window: {
         PixivBatch: {
             layout: {applyStoredLayout() {}},
+            queueTypes: {refresh() {
+                return new Promise((resolve, reject) => manifestRequests.push({resolve, reject}));
+            }},
             settings: {reconcileQueueTypeSettings() { settingReconciles++; }},
             modes: {
                 user: {reconcileUserTypeAvailability() { previewClears.user++; }},
@@ -820,6 +858,7 @@ const initSandbox = {
         visibilityState: 'hidden'
     },
     state: {mode: 'user'},
+    isAdmin: false,
     PixivUserscriptDetection: {probe: async () => new Map()},
     SCRIPT_ID_TOOLBOX: 'experience-toolbox', SCRIPT_ID_ALL_IN_ONE: 'all-in-one',
     QUICK_FETCH_MODE: 'quick-fetch',
@@ -831,6 +870,8 @@ const initSandbox = {
     updateQuickAccountBar() {},
     updateSaveScheduleCardVisibility() {},
     loadScheduleTasks() { scheduleLoads++; },
+    startSchedulePolling() {},
+    stopSchedulePolling() {},
     refreshPageI18nNamespaces: () => Promise.resolve(false),
     console: {warn() {}, log() {}, error() {}},
     Promise
@@ -852,11 +893,30 @@ initSandbox.state.mode = 'schedule';
 runtimeListeners.get('pixivbatch:queuetypeschanged')({detail: {ready: true}});
 ok('计划模式在 publication 变化后会重新拉取计划队列标签',
     queueRenders === 3 && currentRenders === 3 && scheduleLoads === 1);
-ok('batch init 将新增来源控件与只读导入来源交给稳定 modeControls 委托',
-    INIT_SOURCE.includes('window.PixivBatch.modeControls.bind()')
-    && INIT_SOURCE.includes('window.PixivBatch.modeControls.renderAll()'));
+ok('类型变更事件只重绘 UI，不再请求 manifest', manifestRequests.length === 0);
 
 (async function verifyQuickPublishWorksContract() {
+    runtimeListeners.get('focus')();
+    ok('页面获得焦点时请求当前类型清单', manifestRequests.length === 1);
+    initDocumentListeners.get('visibilitychange')();
+    initSandbox.document.visibilityState = 'visible';
+    initDocumentListeners.get('visibilitychange')();
+    ok('恢复可见与焦点事件复用同一在途查询', manifestRequests.length === 1);
+    manifestRequests[0].resolve();
+    await new Promise(resolve => setImmediate(resolve));
+    initSandbox.document.visibilityState = 'hidden';
+    initDocumentListeners.get('visibilitychange')();
+    ok('页面隐藏时不发起刷新', manifestRequests.length === 1);
+    initSandbox.document.visibilityState = 'visible';
+    initDocumentListeners.get('visibilitychange')();
+    ok('页面恢复可见后重新查询', manifestRequests.length === 2);
+    manifestRequests[1].reject(new Error('manifest unavailable'));
+    await new Promise(resolve => setImmediate(resolve));
+    runtimeListeners.get('focus')();
+    ok('刷新失败后下次焦点事件仍可重试', manifestRequests.length === 3);
+    manifestRequests[2].resolve();
+    await new Promise(resolve => setImmediate(resolve));
+
     const events = [];
     const queueClasses = [new Set(), new Set()];
     const card = index => ({classList: {
