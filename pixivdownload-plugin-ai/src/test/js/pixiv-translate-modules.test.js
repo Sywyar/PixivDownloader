@@ -48,6 +48,24 @@ function evaluateModules(sandbox) {
     MODULE_FILES.forEach(function (file) { evaluateFile(sandbox, file); });
 }
 
+test('翻译目标默认值使用当前界面语言，单篇与自动翻译保持一致', async function (t) {
+    const {parse} = await import('../../../../scripts/i18n/lib/properties-parser.mjs');
+    const catalog = JSON.parse(fs.readFileSync(path.join(__dirname,
+        '../../../../pixivdownload-app/src/main/resources/i18n/locales.json'), 'utf8'));
+    for (const locale of catalog.locales.filter(l => ['source', 'supported'].includes(l.status))) {
+        await t.test(locale.tag, function () {
+            const suffix = locale.resourceSuffix ? '_' + locale.resourceSuffix : '';
+            for (const [bundle, key] of [['translate', 'dialog.language-default'], ['ai', 'batch.translate-lang-default']]) {
+                const resource = path.join(STATIC_DIR, '../../i18n/web', bundle + suffix + '.properties');
+                const entries = parse(fs.readFileSync(resource, 'utf8')).entries;
+                // 该值是发给翻译模型的目标语言，核对语言身份而非普通界面措辞。
+                assert.equal(entries.find(entry => entry.key === key)?.value.toLowerCase(),
+                    locale.nativeName.toLowerCase(), bundle);
+            }
+        });
+    }
+});
+
 async function waitFor(predicate) {
     for (let i = 0; i < 20; i++) {
         if (predicate()) return;
