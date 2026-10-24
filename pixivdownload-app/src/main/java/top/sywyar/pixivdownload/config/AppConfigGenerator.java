@@ -4,6 +4,7 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.i18n.AppMessages;
@@ -14,6 +15,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 
@@ -64,9 +66,20 @@ public class AppConfigGenerator {
             String existing = Files.readString(configFile.toPath(), StandardCharsets.UTF_8);
             var existingConfig = new YamlPropertySourceLoader().load("config",
                     new ByteArrayResource(existing.getBytes(StandardCharsets.UTF_8)));
+            var existingKeys = new HashSet<String>();
+            for (var source : existingConfig) {
+                for (String key : ((EnumerablePropertySource<?>) source).getPropertyNames()) {
+                    existingKeys.add(key);
+                    // 非空列表被展开为带下标的属性，仍代表原列表键已经存在。
+                    int listIndex = key.indexOf('[');
+                    if (listIndex > 0) {
+                        existingKeys.add(key.substring(0, listIndex));
+                    }
+                }
+            }
 
             List<ConfigBlock> missingBlocks = parseDefaultConfigBlocks(defaultConfig).stream()
-                    .filter(block -> existingConfig.stream().noneMatch(source -> source.containsProperty(block.key())))
+                    .filter(block -> !existingKeys.contains(block.key()))
                     .toList();
 
             if (missingBlocks.isEmpty()) {

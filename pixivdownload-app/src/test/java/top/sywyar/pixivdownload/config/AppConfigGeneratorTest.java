@@ -110,6 +110,32 @@ class AppConfigGeneratorTest {
         assertThat(Files.readString(configPath, StandardCharsets.UTF_8)).isEqualTo(original);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "plugin-catalog.repositories: [{id: first}, {id: second}]\n",
+            "'plugin-catalog.repositories':\n  - id: first\n  - id: second\n"
+    })
+    @DisplayName("补全配置保留非空列表且再次启动仍能解析")
+    void preservesPopulatedListWhenAppendingDefaults(String original) throws IOException {
+        Path configPath = configDir.resolve(RuntimeFiles.CONFIG_YAML);
+        Files.createDirectories(configPath.getParent());
+        Files.writeString(configPath, original, StandardCharsets.UTF_8);
+        var generator = new AppConfigGenerator(TestI18nBeans.appMessages());
+
+        generator.generateOrUpdateConfig();
+
+        String content = Files.readString(configPath, StandardCharsets.UTF_8);
+        assertThat(content).startsWith(original);
+        var sources = new YamlPropertySourceLoader().load("config", new FileSystemResource(configPath));
+        assertThat(sources).hasSize(1);
+        assertThat(sources.get(0).getProperty("plugin-catalog.repositories[0].id")).isEqualTo("first");
+        assertThat(sources.get(0).getProperty("plugin-catalog.repositories[1].id")).isEqualTo("second");
+        assertThat(sources.get(0).containsProperty("download.root-folder")).isTrue();
+
+        generator.generateOrUpdateConfig();
+        assertThat(Files.readString(configPath, StandardCharsets.UTF_8)).isEqualTo(content);
+    }
+
     @Test
     @DisplayName("补全默认配置时保留已有的显式插件开关")
     void preservesExistingExplicitPluginToggle() throws IOException {
