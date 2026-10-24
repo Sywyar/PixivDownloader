@@ -32,7 +32,10 @@ import top.sywyar.pixivdownload.core.work.service.WorkDeletionException;
 import top.sywyar.pixivdownload.core.work.service.WorkVisibilityDeniedException;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @RestControllerAdvice
@@ -314,8 +317,9 @@ public class GlobalExceptionHandler {
     }
 
     private boolean isClientDisconnect(IOException e) {
+        Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
         Throwable current = e;
-        while (current != null) {
+        while (current != null && visited.add(current)) {
             if (current instanceof AsyncRequestNotUsableException
                     || "org.apache.catalina.connector.ClientAbortException".equals(current.getClass().getName())) {
                 return true;

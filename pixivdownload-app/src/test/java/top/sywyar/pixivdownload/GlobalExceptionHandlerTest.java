@@ -137,6 +137,47 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    @DisplayName("循环原因链仍返回 IO 错误响应")
+    void cyclicIoCausesReturnErrorResponse() {
+        class GuardedFailure extends IOException {
+            private int causeReads;
+
+            @Override
+            public synchronized Throwable getCause() {
+                // 错误实现应直接失败，避免测试线程无限遍历。
+                assertThat(++causeReads).isLessThanOrEqualTo(3);
+                return super.getCause();
+            }
+        }
+        IOException first = new GuardedFailure();
+        IOException second = new GuardedFailure();
+        first.initCause(second);
+        second.initCause(first);
+
+        ResponseEntity<?> response = handler.handleIOException(first, Locale.US);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(500);
+        assertThat(response.getBody()).isInstanceOfSatisfying(ApiErrorResponse.class,
+                error -> assertThat(error.code()).isEqualTo("error.io"));
+    }
+
+    @Test
+    @DisplayName("嵌套断连原因仍返回无响应体且普通 IO 错误保留错误码")
+    void nestedIoCausesKeepResponseSemantics() {
+        IOException disconnected = new IOException("outer", new IOException("Broken pipe"));
+        IOException failed = new IOException("read failed", new IOException("disk failed"));
+
+        ResponseEntity<?> disconnectResponse = handler.handleIOException(disconnected, Locale.US);
+        ResponseEntity<?> errorResponse = handler.handleIOException(failed, Locale.US);
+
+        assertThat(disconnectResponse.getStatusCode().value()).isEqualTo(204);
+        assertThat(disconnectResponse.getBody()).isNull();
+        assertThat(errorResponse.getStatusCode().value()).isEqualTo(500);
+        assertThat(errorResponse.getBody()).isInstanceOfSatisfying(ApiErrorResponse.class,
+                error -> assertThat(error.code()).isEqualTo("error.io"));
+    }
+
+    @Test
     @DisplayName("队列清退竞态应返回本地化 503 而不是裸 500")
     void shouldHandleQuiescedQueueAsServiceUnavailable() {
         ResponseEntity<ApiErrorResponse> response = handler.handleQueueNotAccepting(
