@@ -111,6 +111,7 @@ function userHarness(acquisition, fetchImpl) {
     });
     return {
         sandbox,
+        registry,
         state,
         elements,
         statuses,
@@ -349,6 +350,8 @@ test('清空 user 预览会中止当前分页链且不显示取消错误', async
 
 test('旧 user acquisition 仍走 fetchIds/cards 兼容路径', async () => {
     const requests = [];
+    const plans = [];
+    let currentChecks = 0;
     const acquisition = {
         pageSize: 2,
         cardsEndpoint() { return '/api/legacy/cards'; },
@@ -358,16 +361,29 @@ test('旧 user acquisition 仍走 fetchIds/cards 兼容路径', async () => {
         buildQueueMeta() { return {}; },
         buildQueueMetaFromId() { return {}; }
     };
-    const h = userHarness(acquisition, (url) => {
-        requests.push(String(url));
+    const h = userHarness(acquisition, (url, init) => {
+        requests.push({url: String(url), init});
         return Promise.resolve({ok: true, json: () => Promise.resolve({items: [{id: 'legacy-1'}]})});
     });
+    h.registry.prepareAcquisitionRequest = (type, mode, url, operation, context) => {
+        plans.push({type, mode, url, operation, context});
+        return {url: url + '&lease=active', init: {
+            credentials: 'same-origin', headers: {'X-Acquisition-Credential': 'fixture-secret'}
+        }, assertCurrent() { currentChecks++; }};
+    };
     Object.assign(h.state, {pagedAcquisition: false, allIds: ['legacy-1'], total: 1, totalPages: 1});
 
     await h.loadPage(1);
 
     assert.strictEqual(requests.length, 1);
-    assert.match(requests[0], /^\/api\/legacy\/cards\?/);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(plans)), [{
+        type: 'demo', mode: 'user', url: '/api/legacy/cards?ids=legacy-1', operation: 'cards',
+        context: {userId: 'user-1', ids: ['legacy-1']}
+    }]);
+    assert.strictEqual(requests[0].url, '/api/legacy/cards?ids=legacy-1&lease=active');
+    assert.strictEqual(requests[0].init.credentials, 'same-origin');
+    assert.deepStrictEqual(requests[0].init.headers, {'X-Acquisition-Credential': 'fixture-secret'});
+    assert.strictEqual(currentChecks, 1);
     assert.deepStrictEqual(Array.from(h.state.rawItems, item => item.id), ['legacy-1']);
 });
 

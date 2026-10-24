@@ -41,9 +41,6 @@ const DOUYIN_SOURCE = fs.readFileSync(DOUYIN_PATH, 'utf8');
 const SERIES_SOURCE = readModeScripts([
     'series-browser.js', 'series-data.js', 'series-view.js', 'series.js'
 ]);
-const USER_SOURCE = readModeScripts([
-    'user-core.js', 'user-data.js', 'user-view.js', 'user.js'
-]);
 const SEARCH_SOURCE = readModeScripts(['search.js']);
 const QUICK_SOURCE = readModeScripts([
     'quick-fetch-core.js', 'quick-fetch-outer.js', 'quick-fetch-inner.js', 'quick-fetch.js'
@@ -107,6 +104,7 @@ async function loadDescriptor(source, type, globals, entryPath, submoduleSources
 (async function () {
 const pixivDescriptor = await loadDescriptor(PIXIV_SOURCE, 'illust', {
     getCookie: () => 'pixiv-secret',
+    hasPixivCookie: () => true,
     processIllustItem: noOp,
     SINGLE_IMPORT_MODE: 'single-import-artwork',
     parseUserIdInput: noOp,
@@ -131,6 +129,7 @@ const pixivDescriptor = await loadDescriptor(PIXIV_SOURCE, 'illust', {
 }, '/pixiv-batch/pixiv-queue-type.js');
 const novelDescriptor = await loadDescriptor(NOVEL_SOURCE, 'novel', {
     getCookie: () => 'novel-pixiv-secret',
+    hasPixivCookie: () => true,
     parseUserIdInput: noOp,
     getUserMeta: noOp,
     SINGLE_IMPORT_NOVEL_SOURCE: 'single-import-novel',
@@ -185,19 +184,80 @@ ok('Douyin series 预览请求携带中性取得凭证且不使用来源专用�
     && !douyinInit.headers['X-Douyin-Cookie']);
 ok('Douyin series 预览请求保持同源凭据策略', douyinInit.credentials === 'same-origin');
 
-ok('user 宿主卡片请求经 runtime 受控门构建',
-    USER_SOURCE.includes('queueTypes.prepareAcquisitionRequest('));
-ok('search 宿主搜索与范围请求经 runtime 受控门构建',
-    SEARCH_SOURCE.includes('queueTypes.prepareAcquisitionRequest(')
-    && SEARCH_SOURCE.includes("prepareSearchRequest(acq, 'search'")
-    && SEARCH_SOURCE.includes("prepareSearchRequest(acq, 'range'"));
-ok('series 宿主页请求经 runtime 受控门构建',
-    SERIES_SOURCE.includes('queueTypes.prepareAcquisitionRequest('));
-ok('Pixiv user/series 解析与请求已移回 owner 模块',
-    PIXIV_SOURCE.includes('function parsePixivUserInput(')
-    && PIXIV_SOURCE.includes('function parsePixivSeriesUrl(')
-    && !USER_SOURCE.includes('function parseUserIdInput(')
-    && !SERIES_SOURCE.includes('function parsePixivSeriesInput('));
+for (const [input, expected] of [
+    [' 42 ', '42'], ['https://www.pixiv.net/users/73/request', '73'], ['invalid', ''], ['', '']
+]) {
+    assert.strictEqual(pixivDescriptor.acquisition.user.parseInput(input), expected);
+}
+for (const [input, expected] of [
+    [' 42 ', {seriesId: 42}], ['https://www.pixiv.net/user/73/series/91', {seriesId: 91}],
+    ['https://www.pixiv.net/artworks/87', {resolveWorkId: '87'}], ['invalid', null]
+]) {
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(pixivDescriptor.acquisition.series.parseUrl(input))), expected);
+}
+
+for (const [type, descriptor, endpoint, credential] of [
+    ['illust', pixivDescriptor, '/api/pixiv/search', 'pixiv-secret'],
+    ['novel', novelDescriptor, '/api/pixiv/novel-search', 'novel-pixiv-secret'],
+    ['douyin', douyinDescriptor, '/api/douyin/search', 'ttwid=tt; passport_csrf_token=csrf; sessionid=sid']
+]) {
+    const events = [];
+    const plans = [];
+    const sent = [];
+    const elements = new Map();
+    const element = id => {
+        if (!elements.has(id)) elements.set(id, {value: '', style: {}, innerHTML: '', disabled: false});
+        return elements.get(id);
+    };
+    element('search-word').value = 'works & text';
+    element('batch-start-page').value = '2';
+    element('batch-end-page').value = '4';
+    const sandbox = {
+        window: {PixivBatch: {queueTypes: {
+            acquisitionList: () => [{type}],
+            acquisition: () => descriptor.acquisition.search,
+            prepareAcquisitionRequest(owner, mode, url, operation) {
+                const init = descriptor.acquisition.search.requestInit();
+                plans.push({owner, mode, url, operation});
+                return {url: url + '&lease=active', init, isCurrent: () => true,
+                    assertCurrent() { events.push('current'); }};
+            }
+        }}},
+        document: {getElementById: element, querySelector: () => ({value: 'fixture-option'})},
+        state: {settings: {searchKind: type}},
+        defaultSearchFilters: () => ({}),
+        resetPreviewCollapse: noOp,
+        bt: key => key,
+        esc: String,
+        appMode: 'solo', isAdmin: true,
+        URLSearchParams,
+        console,
+        async fetch(url, init) {
+            sent.push({url, init});
+            return {ok: false, async json() { events.push('body'); return {error: 'fixture-rejection'}; }};
+        }
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(SEARCH_SOURCE, sandbox);
+    await sandbox.window.PixivBatch.modes.search.performSearch(3);
+    await sandbox.window.PixivBatch.modes.search.runBatchFetch();
+    assert.deepStrictEqual(plans.map(plan => [plan.owner, plan.mode, plan.operation]),
+        [[type, 'search', 'search'], [type, 'search', 'range']]);
+    assert.deepStrictEqual(events, ['body', 'current', 'body', 'current']);
+    assert.strictEqual(sent.length, 2);
+    sent.forEach(({url, init}, index) => {
+        assert.strictEqual(url, plans[index].url + '&lease=active');
+        const parsed = new URL(url, 'https://local.test');
+        assert.strictEqual(parsed.pathname, endpoint + (index ? '/range' : ''));
+        assert.strictEqual(parsed.searchParams.get('word'), 'works & text');
+        assert.strictEqual(init.credentials, 'same-origin');
+        assert.deepStrictEqual(JSON.parse(JSON.stringify(init.headers)), {'X-Acquisition-Credential': credential});
+    });
+    assert.strictEqual(new URL(sent[0].url, 'https://local.test').searchParams.get('page'), '3');
+    assert.strictEqual(new URL(sent[1].url, 'https://local.test').searchParams.get('startPage'), '2');
+    assert.strictEqual(new URL(sent[1].url, 'https://local.test').searchParams.get('endPage'), '4');
+    assert.strictEqual(element('btn-batch-fetch').disabled, false);
+}
 
 const requests = [];
 const descriptors = {illust: pixivDescriptor, novel: novelDescriptor, douyin: douyinDescriptor};
@@ -762,7 +822,7 @@ vm.runInContext(SERIES_SOURCE + [
         && realSources[1].displayI18nKey === 'source.douyin'
         && realSources[1].order === 20);
 
-    console.log(`\npreview-request-ownership.integration.test.js: ${passed} assertions passed ✓`);
+    console.log(`\npreview-request-ownership.integration.test.cjs: ${passed} 项命名检查及解析/请求断言通过`);
 })().catch(err => {
     console.error('TEST FAILED:', err && err.message ? err.message : err);
     process.exit(1);
