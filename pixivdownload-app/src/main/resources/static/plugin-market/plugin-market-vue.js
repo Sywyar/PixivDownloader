@@ -313,7 +313,7 @@
             ]),
             PMK.operations ? h('div', { ref: PMK.operations.mountPanel }) : null,
             vm.loading ? loading() : vm.error ? h('div', { class: 'pmk-banner pmk-banner--error' },
-                [icon('fa-solid fa-triangle-exclamation'), h('div', { class: 'pmk-banner-body' }, vm.error)]) : [
+                [icon('fa-solid fa-triangle-exclamation'), h('div', { class: 'pmk-banner-body' }, t(vm.error))]) : [
                 !vm.masterEnabled ? h('div', { class: 'pmk-banner pmk-banner--warn' }, [icon('fa-solid fa-circle-exclamation'), h('div', { class: 'pmk-banner-body' }, [
                     h('div', { class: 'pmk-banner-title' }, t('master.disabled.title', '插件市场未开启')),
                     h('div', t('master.disabled.desc', '请在配置中开启受信 catalog 后再浏览仓库与安装插件。'))
@@ -333,7 +333,7 @@
                 h('div', { class: 'pmk-banner pmk-banner--warn pmk-security-notice' }, [icon('fa-solid fa-shield-halved'),
                     h('div', { class: 'pmk-banner-body' }, t('security.notice', '插件执行与签名说明：宿主进程完全信任插件与主程序运行在同一 JVM；声明式插件进入使用同一系统账号的有限隔离 worker。签名只证明来源与内容完整性，不代表安全审查；请仅安装你信任的插件。'))]),
                 vm.showCatalogLoading ? loading() : vm.showCatalogError ? h('div', { class: 'pmk-banner pmk-banner--error' }, [icon('fa-solid fa-triangle-exclamation'),
-                    h('div', { class: 'pmk-banner-body' }, [h('div', { class: 'pmk-banner-title' }, t('error.catalog.title', '无法加载插件清单')), h('div', vm.catalogError)])])
+                    h('div', { class: 'pmk-banner-body' }, [h('div', { class: 'pmk-banner-title' }, t('error.catalog.title', '无法加载插件清单')), h('div', t(vm.catalogError))])])
                     : vm.showBody ? body() : null
             ],
             h('div', { class: 'pmk-disclaimer' }, t('disclaimer', '插件运行于本地，仅供个人学习与研究使用；无法验证、未签名或用户放行的插件请自行确认来源与安全性，我们无法保证未验证插件的安全；请尊重创作者版权 · 本工具与 Pixiv 无任何关联')),
@@ -362,9 +362,7 @@
                     repositories: [],
                     activeRepositoryId: null,
                     catalog: null,
-                    // 异步竞态护栏：每次仓库列表 / catalog 拉取自增对应 token，回调只在 token 仍为最新时落地，
-                    // 仓库快速切换时旧仓库的响应被丢弃、绝不覆盖当前仓库状态。
-                    reloadToken: 0,
+                    reloadRequest: null,
                     catalogToken: 0,
                     category: 'all',
                     search: '',
@@ -378,6 +376,8 @@
                     selectedVersion: null,
                     selectedFacts: null,
                     detailToken: 0,
+                    detailRequest: null,
+                    factsRequest: null,
                     detailLoadingMore: false,
                     installing: {},
                     installResults: {},
@@ -430,8 +430,9 @@
                 modalMeta: function () { this.i18nRev; return PMK.installMeta(this.modalState()); },
                 modalLabel: function () { return this.installLabel(this.modalState(), this.selectedVersion); },
                 installResultFor: function () {
+                    this.i18nRev;
                     if (!this.selectedPluginId) return null;
-                    return this.installResults[this.installKey(this.activeCatalogRepositoryId, this.selectedPluginId)] || null;
+                    return PMK.data.responseModel(this.installResults[this.installKey(this.activeCatalogRepositoryId, this.selectedPluginId)]);
                 },
                 showCatalogLoading: function () { return this.masterEnabled && this.catalogLoading; },
                 showCatalogError: function () { return this.masterEnabled && !!this.catalogError; },
@@ -448,12 +449,23 @@
                 this.reload();
             },
             beforeUnmount: function () {
-                this.catalogToken++;
-                if (PMK.api.cancelCatalog) PMK.api.cancelCatalog();
+                this.suspend();
                 document.removeEventListener('keydown', this.onKeydown);
                 document.body.style.overflow = '';
             },
             methods: {
+                suspend: function () {
+                    if (this.reloadRequest) this.reloadRequest.abort();
+                    this.suspendDetail();
+                    this.catalogToken++;
+                    PMK.api.cancelCatalog();
+                },
+                suspendDetail: function () {
+                    this.detailToken++;
+                    this.detailLoadingMore = false;
+                    if (this.detailRequest) this.detailRequest.abort();
+                    if (this.factsRequest) this.factsRequest.abort();
+                },
                 t: function (key, fallback, vars) { this.i18nRev; return PMK.t(key, fallback, vars); },
                 bumpI18n: function () { this.i18nRev++; },
                 repoTitle: function (repo) {
@@ -465,14 +477,13 @@
                     return parts.filter(Boolean).join(' · ');
                 },
                 reload: function () {
+                    if (!PMK.state.pageActive) return;
                     var self = this;
-                    // 让在途的旧仓库列表 / catalog 拉取全部失效（其回调将被 token 守卫丢弃）。
-                    var token = ++this.reloadToken;
-                    if (PMK.api.cancelCatalog) PMK.api.cancelCatalog();
-                    this.catalogToken++;
+                    this.suspend();
+                    var request = this.reloadRequest = new AbortController();
                     this.loading = true; this.error = null; this.catalogError = null;
-                    Promise.all([PMK.api.fetchRepositories(), PMK.api.fetchPluginStatus()]).then(function (responses) {
-                        if (token !== self.reloadToken) return;   // 已有更新的 reload，丢弃旧响应
+                    Promise.all([PMK.api.fetchRepositories(request.signal), PMK.api.fetchPluginStatus(request.signal)]).then(function (responses) {
+                        if (request.signal.aborted) return;
                         var repos = responses[0];
                         var status = responses[1];
                         self.masterEnabled = !!repos.enabled;
@@ -488,20 +499,27 @@
                         var stillValid = self.repositories.some(function (r) {
                             return r.repositoryId === self.activeRepositoryId && r.enabled;
                         });
-                        if (!stillValid) self.activeRepositoryId = repos.defaultRepositoryId || null;
+                        if (!stillValid) {
+                            var nextRepository = repos.defaultRepositoryId || null;
+                            if (self.activeRepositoryId !== nextRepository) self.closeDetail();
+                            self.activeRepositoryId = nextRepository;
+                        }
                         self.loading = false;
                         if (self.masterEnabled && self.activeRepositoryId) {
                             self.loadCatalog(self.activeRepositoryId);
+                            if (self.selectedPluginId) self.loadDetail(true);
                         } else {
+                            self.closeDetail();
                             self.catalog = null;
                         }
                     }).catch(function () {
-                        if (token !== self.reloadToken) return;
-                        self.error = self.t('error.load', '加载插件市场失败，请稍后重试。');
+                        if (request.signal.aborted) return;
+                        self.error = 'error.load';
                         self.loading = false;
                     });
                 },
                 loadCatalog: function (repoId) {
+                    if (!PMK.state.pageActive) return;
                     var self = this;
                     var token = ++this.catalogToken;
                     this.loadingMore = false;
@@ -514,7 +532,7 @@
                         if (token !== self.catalogToken) return;
                         if (failure.name === 'AbortError') return;
                         self.catalog = null;
-                        self.catalogError = self.t('error.catalog', '无法加载该仓库的插件清单，请检查仓库状态或稍后重试。');
+                        self.catalogError = 'error.catalog';
                         self.catalogLoading = false;
                     });
                 },
@@ -538,6 +556,7 @@
                 },
                 switchRepository: function (repo) {
                     if (!repo.enabled || repo.repositoryId === this.activeRepositoryId) return;
+                    this.closeDetail();
                     this.activeRepositoryId = repo.repositoryId;
                     this.category = 'all'; this.search = '';
                     this.loadCatalog(repo.repositoryId);
@@ -554,17 +573,19 @@
                     this.loadDetail();
                 },
                 loadDetail: function (preserveVersions) {
+                    if (!PMK.state.pageActive) return;
                     var self = this;
-                    var token = ++this.detailToken;
-                    this.detailLoadingMore = false;
+                    this.suspendDetail();
+                    var token = this.detailToken;
+                    var request = this.detailRequest = new AbortController();
                     var repository = this.activeCatalogRepositoryId;
                     var pluginId = this.selectedPluginId;
                     var previous = this.selectedDetail;
                     function current() {
-                        return token === self.detailToken && self.activeCatalogRepositoryId === repository
+                        return !request.signal.aborted && token === self.detailToken && self.activeCatalogRepositoryId === repository
                             && self.activeRepositoryId === repository && self.selectedPluginId === pluginId;
                     }
-                    PMK.api.refreshPluginDetail(repository, pluginId, preserveVersions ? previous : null, current).then(function (detail) {
+                    PMK.api.refreshPluginDetail(repository, pluginId, preserveVersions ? previous : null, current, request.signal).then(function (detail) {
                         if (!current() || !detail) return;
                         self.selectedDetail = detail;
                         self.selectedVersion = PMK.data.resolveVersion(detail, self.selectedVersion);
@@ -575,6 +596,8 @@
                     });
                 },
                 loadPackageFacts: function () {
+                    if (this.factsRequest) this.factsRequest.abort();
+                    if (!PMK.state.pageActive) return;
                     var self = this;
                     var token = this.detailToken;
                     var repository = this.activeCatalogRepositoryId;
@@ -582,11 +605,12 @@
                     var version = this.selectedVersion;
                     this.selectedFacts = null;
                     if (!plugin || !version) return;
-                    PMK.api.fetchPackageFacts(repository, plugin, version).then(function (facts) {
-                        if (token === self.detailToken && self.activeCatalogRepositoryId === repository && self.selectedPluginId === plugin
+                    var request = this.factsRequest = new AbortController();
+                    PMK.api.fetchPackageFacts(repository, plugin, version, request.signal).then(function (facts) {
+                        if (!request.signal.aborted && token === self.detailToken && self.activeCatalogRepositoryId === repository && self.selectedPluginId === plugin
                             && self.selectedVersion === version) self.selectedFacts = facts;
                     }).catch(function () {
-                        if (token === self.detailToken && self.activeCatalogRepositoryId === repository && self.selectedPluginId === plugin && self.selectedVersion === version)
+                        if (!request.signal.aborted && token === self.detailToken && self.activeCatalogRepositoryId === repository && self.selectedPluginId === plugin && self.selectedVersion === version)
                             PMK.toast(self.t('error.detail', '无法加载插件详情，请稍后重试。'), 'error');
                     });
                 },
@@ -608,7 +632,7 @@
                     var cursor = detail.nextVersionCursor;
                     this.detailLoadingMore = true;
                     PMK.api.fetchPluginDetail(repository, detail.pluginId,
-                        { cursor: cursor }).then(function (page) {
+                        { cursor: cursor, signal: this.detailRequest.signal }).then(function (page) {
                         if (token !== self.detailToken || self.activeCatalogRepositoryId !== repository) return;
                         var current = self.selectedDetail;
                         if (!current || current.versionsGeneration !== detail.versionsGeneration
@@ -629,11 +653,11 @@
                     }).finally(function () { if (token === self.detailToken) self.detailLoadingMore = false; });
                 },
                 closeDetail: function () {
-                    this.detailToken++;
-                    this.detailLoadingMore = false;
+                    this.suspendDetail();
                     this.selectedPluginId = null;
                     this.selectedDetail = null;
                     this.selectedVersion = null;
+                    this.selectedFacts = null;
                     document.body.style.overflow = '';
                     var target = this.detailReturnFocus;
                     this.$nextTick(function () { if (target && target.isConnected) target.focus(); });
@@ -651,7 +675,8 @@
                 cardStatus: function (card) {
                     var key = this.installKey(card.repositoryId, card.pluginId);
                     if (this.installing[key]) return 'INSTALLING';
-                    var result = this.installResults[key];
+                    var response = this.installResults[key];
+                    var result = response && response.body;
                     return PMK.data.installResultStatus(result && result.version === card.targetVersion ? result : null, card.installStatus);
                 },
                 cardMeta: function (card) { return PMK.installMeta(this.cardStatus(card)); },
@@ -685,19 +710,13 @@
                     this.installing[key] = 'preview';
                     delete this.installResults[key];
                     PMK.installPluginWithConfirmation(repositoryId, pluginId, version, function (phase) { self.installing[key] = phase; }, self.catalog && self.catalog.entries).then(function (res) {
-                        var model = res.kind === 'install'
-                            ? PMK.data.installResult(res.body)
-                            : PMK.data.catalogError(res.body, res.httpStatus);
-                        self.installResults[key] = model;
-                        self.recordDependencyInstallResults(repositoryId, model);
+                        var model = PMK.data.responseModel(res);
+                        self.installResults[key] = res;
+                        self.recordDependencyInstallResults(repositoryId, res.body);
                         var feedback = PMK.data.installFeedback(model);
                         PMK.toast(feedback.message, feedback.tone);
                     }).catch(function () {
-                        self.installResults[key] = {
-                            tone: 'bad', accepted: false, recoveryBlocked: false,
-                            effectiveAfterRestart: false, outcome: null,
-                            message: self.t('error.install.generic', '安装请求失败，请重试。'), warnings: [], errors: []
-                        };
+                        self.installResults[key] = {kind: 'error', body: {}};
                         PMK.toast(self.t('error.install.generic', '安装请求失败，请重试。'), 'error');
                     }).then(function () {
                         delete self.installing[key];
@@ -714,10 +733,13 @@
                     var self = this;
                     (model.dependencyInstallResults || []).forEach(function (dependencyResult) {
                         if (!dependencyResult.pluginId) return;
-                        self.installResults[self.installKey(repositoryId, dependencyResult.pluginId)] = dependencyResult;
+                        self.installResults[self.installKey(repositoryId, dependencyResult.pluginId)] = {kind: 'install', body: dependencyResult};
                     });
                 },
                 refreshCatalogAfterInstall: function (repositoryId) {
+                    if (!PMK.state.pageActive) return;
+                    if (global.PixivNav) global.PixivNav.mount();
+                    if (PMK.recovery) PMK.recovery.refresh();
                     if (repositoryId && repositoryId === this.activeCatalogRepositoryId && repositoryId === this.activeRepositoryId) {
                         this.loadCatalog(repositoryId);
                         if (this.selectedPluginId) this.loadDetail(true);
@@ -727,7 +749,8 @@
                 modalState: function () {
                     var entry = this.selectedEntry;
                     if (!entry) return 'NOT_INSTALLED';
-                    var result = this.installResults[this.installKey(this.activeCatalogRepositoryId, entry.pluginId)];
+                    var response = this.installResults[this.installKey(this.activeCatalogRepositoryId, entry.pluginId)];
+                    var result = response && response.body;
                     var pkg = PMK.data.packageOf(entry, this.selectedVersion);
                     if (!pkg) return entry.installStatus;   // 无可安装版本制品 → 沿用后端状态（UNAVAILABLE / 已安装）
                     var status = PMK.data.selectedInstallStatus(entry, pkg, this.selectedFacts, true);
@@ -825,6 +848,7 @@
             var vm = app.mount(rootEl);
             PMK.state.activeView = {
                 reload: function () { vm.reload(); },
+                suspend: function () { vm.suspend(); },
                 rerender: function () { vm.bumpI18n(); }
             };
             return true;

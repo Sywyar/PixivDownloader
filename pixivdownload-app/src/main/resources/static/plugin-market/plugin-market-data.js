@@ -392,18 +392,11 @@
         return Array.isArray(response.unsatisfiedDependencies) ? response.unsatisfiedDependencies : [];
     }
 
-    function dependencyInstallResults(response) {
-        if (!Array.isArray(response.dependencyInstallResults)) {
-            return [];
-        }
-        return response.dependencyInstallResults.map(function (dependency) {
-            return D.installResult(dependency);
-        }).filter(function (result) {
-            return !!(result && result.pluginId);
-        });
-    }
-
-    D.dependencyInstallResults = dependencyInstallResults;
+    D.responseModel = function (response) {
+        if (!response) return null;
+        return response.kind === 'install' ? D.installResult(response.body)
+            : D.catalogError(response.body, response.httpStatus);
+    };
 
     D.installResult = function (response) {
         var r = response || {};
@@ -431,8 +424,7 @@
             runtimePhase: r.runtimePhase || null,
             updated: r.updated === true,
             errors: Array.isArray(r.diagnostics) ? r.diagnostics : [],
-            warnings: dependencyWarnings(r),
-            dependencyInstallResults: dependencyInstallResults(r)
+            warnings: dependencyWarnings(r)
         };
     };
 
@@ -477,18 +469,30 @@
         };
     };
 
-    // 后端 catalog 错误响应（{code, message, ...}）→ 结果区可渲染的本地化提示（按稳定 code 选 i18n 文案，回退后端 message）。
+    D.previewConflictMessages = function (conflicts) {
+        return (conflicts || []).map(function (conflict) {
+            return PMK.t('install.preview.conflict.' + conflict.code.toLowerCase(), '', {
+                plugin: conflict.pluginId, details: (conflict.arguments || []).join(', ')
+            });
+        }).concat(PMK.t('install.preview.boundary'));
+    };
+
+    // 本地提示按 key 重新翻译，未知错误保留后端诊断。
     D.catalogError = function (body, httpStatus) {
         var code = body && body.code ? body.code : null;
-        var message = code ? PMK.t('error.code.' + code, (body && (body.message || body.error)) || code)
+        var message = body && body.messageKey ? PMK.t(body.messageKey, null, body.messageArgs)
+            : code ? PMK.t('error.code.' + code, (body && (body.message || body.error)) || code)
             : ((body && (body.message || body.error)) || PMK.t('error.install.generic', '安装请求失败，请重试。'));
+        if (code === 'INSTALL_PREVIEW_BLOCKED' && body.conflicts) {
+            message = D.previewConflictMessages(body.conflicts).join('\n\n');
+        }
+        if (code === 'OPERATION_UNKNOWN' && body.operationId) message += ' (' + body.operationId + ')';
         return {
             outcome: code, accepted: false, recoveryBlocked: false, effectiveAfterRestart: false,
             activated: false, rolledBack: false, tone: code === 'CANCELLED' ? 'info' : 'bad',
             message: message, pluginId: body && body.pluginId, version: body && body.version,
             previousVersion: null, packageId: null, targetVersion: null, operation: null,
             runtimePhase: null, updated: false, errors: [], warnings: [],
-            dependencyInstallResults: dependencyInstallResults(body || {}),
             httpStatus: httpStatus || null
         };
     };

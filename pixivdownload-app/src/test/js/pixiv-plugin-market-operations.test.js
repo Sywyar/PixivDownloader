@@ -37,11 +37,11 @@ function fixture() {
     document.createElement = node;
     const market = {currentLang: () => language, t: (key, fallback, values) =>
         language + ':' + (fallback || key) + ' ' + JSON.stringify(values || {}),
-        api: {fetchOperations() {
+        api: {fetchOperations(signal) {
             requests++;
-            return new Promise((resolve, reject) => pending.push({resolve, reject}));
+            return new Promise((resolve, reject) => pending.push({signal, resolve, reject}));
         }}};
-    const context = {document, window: {PixivPluginMarket: market,
+    const context = {document, AbortController, window: {PixivPluginMarket: market,
         addEventListener(type, fn) { pageEvents[type] = fn; }},
         setTimeout(fn, delay) { assert.equal(delay, 2000); timers.set(++timerId, fn); return timerId; },
         clearTimeout(id) { timers.delete(id); }};
@@ -147,4 +147,26 @@ test('离页丢弃迟到响应，返回查询原操作；安装结束时合并�
     assert.equal(phases.length, phaseCount);
     f.market.operations.mount();
     assert.equal(f.requests, 5);
+});
+
+test('隐藏和离页立即释放操作查询，恢复不等待旧响应且旧结算不影响新轮询', async () => {
+    const f = fixture();
+    const first = f.pending.shift();
+    f.document.hidden = true; f.events.visibilitychange();
+    first.resolve([{...running, pluginId: 'hidden-result'}]); await flush();
+    assert.doesNotMatch(f.host.textContent, /hidden-result/);
+    assert.equal(first.signal.aborted, true);
+    f.document.hidden = false; f.events.visibilitychange();
+    const second = f.pending.shift();
+    f.pageEvents.pagehide();
+    f.pageEvents.pageshow();
+    assert.equal(f.requests, 3, '恢复立即发起当前查询，不等待离页前的请求');
+    const current = f.pending.shift();
+    second.reject(new Error('late failure')); await flush();
+    assert.equal(second.signal.aborted, true);
+    assert.doesNotMatch(f.host.textContent, /operations.query-failed/);
+    assert.equal(f.requests, 3);
+    current.resolve([running]); await flush();
+    assert.match(f.host.textContent, /sample/);
+    assert.equal(f.timers.size, 1);
 });

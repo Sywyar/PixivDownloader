@@ -49,6 +49,7 @@
 
     // 轻提示（安装结果 / 错误反馈）。文案由调用方解析后传入，本函数只设文本（textContent，不拼 HTML）。
     PMK.toast = function (message, tone) {
+        if (!PMK.state.pageActive) return;
         var el = document.getElementById('pmk-toast');
         if (!el) return;
         el.textContent = message;
@@ -90,8 +91,17 @@
     } else {
         init();
     }
-    global.addEventListener('pagehide', function () { PMK.api.cancelCatalog(); });
+    global.addEventListener('pagehide', function () {
+        PMK.state.pageActive = false;
+        PMK.state.pageRevision++;
+        if (PMK.state.activeView) PMK.state.activeView.suspend();
+        else PMK.api.cancelCatalog();
+        clearTimeout(toastTimer);
+        var toast = document.getElementById('pmk-toast');
+        if (toast) toast.className = 'pmk-toast';
+    });
     global.addEventListener('pageshow', function (event) {
+        PMK.state.pageActive = true;
         if (event.persisted && PMK.state.activeView) PMK.state.activeView.reload();
     });
 })(window);

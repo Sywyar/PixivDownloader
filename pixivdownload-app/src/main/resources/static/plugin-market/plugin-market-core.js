@@ -15,7 +15,9 @@
     PMK.state = {
         i18n: { client: null },
         hostElevated: false,
-        activeView: null   // { reload: fn, rerender: fn } —— 由实际挂载的渲染器登记
+        pageActive: true,
+        pageRevision: 0,
+        activeView: null
     };
 
     function interpolate(template, vars) {
@@ -84,6 +86,9 @@
     };
 
     PMK.installPluginWithConfirmation = function (repositoryId, pluginId, version, onPhase, entries) {
+        var pageRevision = PMK.state.pageRevision;
+        function current() { return PMK.state.pageActive && pageRevision === PMK.state.pageRevision; }
+        function cancelled() { return rememberDependencies({kind: 'error', body: {code: 'CANCELLED', messageKey: 'install.preview.cancelled'}}); }
         function pluginLabel(id) { return PMK.data.pluginLabel(id, entries); }
         function phase(value) { if (onPhase) onPhase(value); }
         function canConfirm() {
@@ -105,10 +110,12 @@
             return response;
         }
         function previewAndAttempt(confirmations) {
+            if (!current()) return Promise.resolve(cancelled());
             phase('preview');
             return PMK.api.previewInstall(repositoryId, pluginId, version).then(function (preview) {
+                if (!current()) return cancelled();
                 if (!canConfirm() || !preview || !/^[0-9a-f]{64}$/.test(preview.fingerprint)) {
-                    throw new Error(PMK.t('install.preview.unavailable'));
+                    return rememberDependencies({kind: 'error', body: {code: 'REQUEST_FAILED', messageKey: 'install.preview.unavailable'}});
                 }
                 var sections = (preview.packages || []).map(function (item) {
                     var none = PMK.t('common:plugin-info.no-consumers');
@@ -130,16 +137,10 @@
                     return {title: pluginLabel(item.pluginId) + ' · SHA-256', collapsed: true,
                         fields: [{label: 'SHA-256', value: item.sha256 || PMK.t('common:plugin-info.unknown'), mono: true}]};
                 });
-                var lines = [];
-                (preview.conflicts || []).forEach(function (conflict) {
-                    lines.push(PMK.t('install.preview.conflict.' + conflict.code.toLowerCase(), '', {
-                        plugin: conflict.pluginId, details: (conflict.arguments || []).join(', ')
-                    }));
-                });
-                lines.push(PMK.t('install.preview.boundary'));
+                var lines = PMK.data.previewConflictMessages(preview.conflicts);
                 if ((preview.conflicts || []).length) {
                     return rememberDependencies({kind: 'error', body: {
-                        code: 'INSTALL_PREVIEW_BLOCKED', message: lines.join('\n\n')
+                        code: 'INSTALL_PREVIEW_BLOCKED', conflicts: preview.conflicts
                     }});
                 }
                 // 指纹还包含运行期代次；仅计划内容不变时沿用本次确认，执行仍绑定最新指纹。
@@ -152,15 +153,14 @@
                     sections: sections.concat([{title: PMK.t('common:plugin-info.effect'), paragraphs: lines}], artifactSections),
                     confirmLabel: PMK.t('install.preview.confirm'), cancelLabel: PMK.t('install.trust.cancel')
                 }).then(function (confirmed) {
-                    if (!confirmed) return rememberDependencies({ kind: 'error', body: {
-                        code: 'CANCELLED', message: PMK.t('install.preview.cancelled')
-                    } });
+                    if (!confirmed || !current()) return cancelled();
                     confirmedPlan = plan;
                     return attempt(confirmations);
                 });
             });
         }
         function attempt(confirmations) {
+            if (!current()) return Promise.resolve(cancelled());
             phase('installing');
             return PMK.api.installPlugin(repositoryId, pluginId, version, confirmations, phase).then(function (response) {
                 rememberDependencies(response);
@@ -168,13 +168,13 @@
                 var trustRequired = body.outcome === PMK.TRUST_CONFIRMATION_REQUIRED
                     || body.code === PMK.TRUST_CONFIRMATION_REQUIRED;
                 pendingOperationId = trustRequired ? response.operationId || null : null;
-                if (trustRequired && body.trustRequirement && canConfirm()) {
+                if (trustRequired && body.trustRequirement && canConfirm() && current()) {
                     var sha256 = String(body.trustRequirement.artifactSha256 || '').toLowerCase();
                     if (!/^[0-9a-f]{64}$/.test(sha256) || confirmedArtifacts[sha256]) return response;
                     phase('trust');
                     return global.PixivFeedback.confirm(PMK.trustConfirmationOptions(body.trustRequirement))
                         .then(function (confirmed) {
-                        if (!confirmed) return response;
+                        if (!confirmed || !current()) return response;
                         confirmedArtifacts[sha256] = true;
                         return previewAndAttempt({ trustSha256: sha256, previousOperationId: pendingOperationId });
                     });
@@ -183,9 +183,10 @@
             });
         }
         return previewAndAttempt({ trustSha256: null }).catch(function (failure) {
+            if (!current()) return cancelled();
             return rememberDependencies({kind: 'error', body: {
                 code: failure.body && failure.body.code || 'REQUEST_FAILED',
-                message: failure.message || PMK.t('install.preview.unavailable')
+                message: failure.message, messageKey: failure.message ? null : 'install.preview.unavailable'
             }});
         }).finally(function () {
             if (pendingOperationId && PMK.api.discardOperation) {
@@ -205,66 +206,6 @@
     PMK.installPhaseKey = function (phase) {
         return ['PREPARING', 'DOWNLOADING', 'INSTALLING', 'UPDATING', 'ROLLING_BACK'].indexOf(phase) >= 0
             ? 'operations.state.' + phase : 'install.phase.' + (phase || 'installing');
-    };
-
-    // 恢复横幅原因：直接投影 /api/plugins/status 的结构化恢复原因，不另造页面私有状态协议。
-    PMK.recoveryReasons = function (report) {
-        if (!report || !report.recoveryMode) return [];
-        var reasons = [];
-        var transaction = report.transactionRecovery;
-        if (transaction && transaction.safeToScan === false) {
-            var failures = Array.isArray(transaction.failures) ? transaction.failures : [];
-            if (failures.length) {
-                failures.forEach(function (failure) {
-                    var detail = [failure.kind, failure.transactionId, failure.detail].filter(Boolean).join(' · ');
-                    reasons.push(PMK.t('recovery.reason.transaction', '插件安装事务恢复失败：{detail}', { detail: detail }));
-                });
-            } else {
-                reasons.push(PMK.t('recovery.reason.transaction-unknown', '插件安装事务尚未完成恢复，请查看日志并重启程序。'));
-            }
-        }
-        function appendPluginReason(reason) {
-            if (!reason) return;
-            var pluginId = reason.pluginId || reason.id;
-            var status = String(reason.status || '');
-            if (status === 'MISSING_REQUIRED') {
-                reasons.push(PMK.t('recovery.reason.missing', '必装插件 {pluginId} 尚未安装，请先安装或修复。', {
-                    pluginId: pluginId
-                }));
-                return;
-            }
-            if (status === 'FAILED') {
-                if (reason.messageKey === 'plugin.recovery.transaction' && transaction) return;
-                var detail = Array.isArray(reason.messages) ? reason.messages.filter(Boolean).join(' · ') : '';
-                reasons.push(detail
-                    ? PMK.t('recovery.reason.failed', '插件 {pluginId} 启动失败：{detail}', {
-                        pluginId: pluginId, detail: detail
-                    })
-                    : PMK.t('recovery.reason.failed-no-detail', '插件 {pluginId} 启动失败，请查看日志并修复或重新安装。', {
-                        pluginId: pluginId
-                    }));
-                return;
-            }
-            if (status !== 'STARTED') {
-                reasons.push(PMK.t('recovery.reason.unavailable', '必装插件 {pluginId} 当前不可用（{status}），请安装或修复。', {
-                    pluginId: pluginId, status: status
-                }));
-            }
-        }
-        var structuredReasons = Array.isArray(report.recoveryReasons) ? report.recoveryReasons : null;
-        if (structuredReasons) {
-            structuredReasons.forEach(appendPluginReason);
-        } else {
-            (Array.isArray(report.plugins) ? report.plugins : [])
-                .filter(function (plugin) {
-                    return plugin && (plugin.requiredByPolicy || plugin.status === 'FAILED');
-                })
-                .forEach(appendPluginReason);
-        }
-        if (!reasons.length) {
-            reasons.push(PMK.t('recovery.reason.unknown', '插件状态异常，请查看日志并修复或重新安装相关插件。'));
-        }
-        return reasons;
     };
 
     PMK.escapeHtml = function (str) {

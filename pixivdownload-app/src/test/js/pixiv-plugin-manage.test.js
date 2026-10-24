@@ -859,8 +859,8 @@ async function removalInteractionTest() {
             return elements.get(id);
         }
     };
-    const context = { document, console, FormData: FormDataStub,
-        PixivNav: { ready: async () => {}, refresh() {}, pluginUpdates: async () => {
+    const context = { document, console, AbortController, FormData: FormDataStub,
+        PixivNav: { ready: async () => {}, refresh() {}, mount() {}, pluginUpdates: async () => {
             const summary = { enabled: true, compatibleUpdates: 2, sdkBlockedUpdates: 1, checkFailed: true };
             listeners.get('pixivnav:rendered')({detail: {items: [], updateSummary: summary}});
             return summary;

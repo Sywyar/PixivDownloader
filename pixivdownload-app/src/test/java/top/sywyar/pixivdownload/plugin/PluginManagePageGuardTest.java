@@ -169,7 +169,7 @@ class PluginManagePageGuardTest {
                 "verification.io-error", "verification.provenance-invalid",
                 "trust.state.approved", "trust.state.confirmation-required", "trust.state.revoked",
                 "trust.confirm.risk", "trust.confirm.declarative-risk", "trust.confirm.elevated-risk",
-                "trust.confirm.unsigned-risk", "trust.confirm.details",
+                "trust.confirm.unsigned-risk",
                 "trust.confirm.allow", "trust.action.approve", "trust.action.revoke",
                 "trust.revoke.message", "trust.toast.approved", "trust.toast.revoked",
                 "security.notice.title", "security.notice.desc", "host.elevated.title", "host.elevated.desc",

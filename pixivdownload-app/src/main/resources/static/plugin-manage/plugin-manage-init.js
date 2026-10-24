@@ -7,6 +7,9 @@
 (function (global) {
     var PM = global.PixivPluginManage;
     var loadedNamespaces = ['plugins', 'common'];
+    var languageControl = null;
+    var statusRequest = null;
+    var pageActive = true;
 
     function applyStaticTranslations() {
         if (PM.i18n.client) {
@@ -41,12 +44,13 @@
         }
     }
 
-    // 在固定锚点（重）挂载绿色变体的语言切换 + 主题切换；幂等（先清空锚点，避免命名空间扩展时重复挂载）。
-    // await 语言切换挂载完成再返回，避免在途挂载与下一次重挂（命名空间增长时）竞态。
     async function mountChrome() {
+        if (languageControl) {
+            languageControl.refresh(PM.i18n.client);
+            return;
+        }
         var anchor = document.getElementById('langSwitcherAnchor');
-        anchor.innerHTML = '';
-        await PixivLangSwitcher.mount({
+        languageControl = await PixivLangSwitcher.mount({
             mountPoint: anchor,
             i18n: PM.i18n.client,
             variant: 'green',
@@ -60,44 +64,61 @@
         PixivTheme.mount({ mountPoint: anchor, variant: 'green' });
     }
 
-    // 确保 i18n 客户端已加载所需 namespace（含插件展示名所在的动态 namespace）；命名空间增长时重建并重挂 chrome。
-    async function ensureI18n(extraNamespaces) {
-        var need = loadedNamespaces.slice();
+    async function ensureI18n(extraNamespaces, signal) {
+        var need = ['plugins', 'common'];
         (extraNamespaces || []).forEach(function (ns) {
             if (need.indexOf(ns) === -1) need.push(ns);
         });
-        var grew = need.length !== loadedNamespaces.length;
-        if (!PM.i18n.client || grew) {
-            loadedNamespaces = need;
-            PM.i18n.client = await PixivI18n.create({
-                lang: PM.i18n.client ? PM.i18n.client.lang : undefined,
-                namespaces: loadedNamespaces
+        var changed = need.length !== loadedNamespaces.length || need.some(function (ns) {
+            return loadedNamespaces.indexOf(ns) === -1;
+        });
+        while (!signal.aborted && (!PM.i18n.client || changed)) {
+            var previous = PM.i18n.client;
+            var client = await PixivI18n.create({
+                lang: previous ? previous.lang : undefined,
+                namespaces: need,
+                signal: signal
             });
+            if (signal.aborted || previous !== PM.i18n.client) {
+                client.dispose();
+                continue;
+            }
+            loadedNamespaces = need;
+            PM.i18n.client = client;
             await mountChrome();
+            break;
         }
-        applyStaticTranslations();
+        if (!signal.aborted) applyStaticTranslations();
     }
 
     // 拉取插件状态：先确定需要的展示 namespace，再据此（重）建 i18n，最后整体渲染。
     async function load(resetOrder) {
+        if (!pageActive) return;
+        if (statusRequest) statusRequest.abort();
+        var request = new AbortController();
+        statusRequest = request;
         PM.state.loading = true;
         PM.state.error = null;
         PM.renderAll();
-        var report = null;
         try {
-            report = await PM.fetchStatus();
+            if (!PM.i18n.client) await ensureI18n([], request.signal);
+            if (request.signal.aborted) return;
+            var report = await PM.fetchStatus(request.signal);
+            if (request.signal.aborted) return;
+            await ensureI18n(PM.collectNamespaces(report), request.signal);
+            if (request.signal.aborted) return;
             PM.applyReport(report, !!resetOrder);
         } catch (e) {
-            PM.state.error = PM.t('status.error', '加载插件状态失败，请重试。');
+            if (!request.signal.aborted) PM.state.error = 'status.error';
         } finally {
-            PM.state.loading = false;
+            if (statusRequest === request) {
+                statusRequest = null;
+                PM.state.loading = false;
+                PM.renderAll();
+            }
         }
-        if (report) {
-            await ensureI18n(PM.collectNamespaces(report));
-        }
-        PM.renderAll();
         if (global.PixivNav) PixivNav.ready().then(function () {
-            return PixivNav.pluginUpdates();
+            if (pageActive && !request.signal.aborted) return PixivNav.pluginUpdates();
         });
     }
 
@@ -194,7 +215,7 @@
             PM.renderAll();
         }
         await load();
-        if (global.PixivNav) PixivNav.refresh();
+        if (global.PixivNav) PixivNav.mount();
     }
 
     async function onRevocationRefresh(repositoryId, button) {
@@ -281,18 +302,18 @@
         if (!file) {
             // 未选文件：本地校验，不发请求。
             PM.showInstallResult(PM.localInstallNotice(
-                PM.t('install.choose-file', '请先选择要安装的插件包（.jar / .zip）。'), 'warn'));
+                'install.choose-file', 'warn'));
             return;
         }
         if (!PM.hasAcceptedExtension(file.name)) {
             // 扩展名非 .jar / .zip：本地校验，不发请求（后端仍是权威校验）。
             PM.showInstallResult(PM.localInstallNotice(
-                PM.t('install.invalid-extension', '仅支持 .jar / .zip 插件包，请重新选择。'), 'warn'));
+                'install.invalid-extension', 'warn'));
             return;
         }
         if (signature && !PM.hasAcceptedSignatureExtension(signature.name)) {
             PM.showInstallResult(PM.localInstallNotice(
-                PM.t('install.invalid-signature-extension', '仅支持 .sig detached 签名文件，请重新选择。'), 'warn'));
+                'install.invalid-signature-extension', 'warn'));
             return;
         }
         var allow = document.getElementById('pm-install-allow-downgrade');
@@ -309,17 +330,19 @@
         } catch (e) {
             if (e && e.invalidSignatureExtension) {
                 PM.showInstallResult(PM.localInstallNotice(
-                    PM.t('install.invalid-signature-extension', '仅支持 .sig detached 签名文件，请重新选择。'), 'warn'));
+                    'install.invalid-signature-extension', 'warn'));
             } else if (e && e.localValidation) {
                 PM.showInstallResult(PM.localInstallNotice(
-                    PM.t('install.choose-file', '请先选择要安装的插件包（.jar / .zip）。'), 'warn'));
+                    'install.choose-file', 'warn'));
             } else {
                 PM.showInstallResult(PM.localInstallNotice(
-                    PM.t('install.error.generic', '安装请求失败，请重试。'), 'bad'));
+                    'install.error.generic', 'bad'));
                 PM.toast(PM.t('install.error.generic', '安装请求失败，请重试。'), 'error');
             }
         } finally {
             PM.setInstallSubmitting(false);
+            await load();
+            if (global.PixivNav) PixivNav.mount();
         }
     }
 
@@ -368,6 +391,17 @@
             syncPluginSegment(e.detail && e.detail.items);
         });
         document.getElementById('refreshBtn').addEventListener('click', function () { load(true); });
+        window.addEventListener('pagehide', function () {
+            pageActive = false;
+            if (statusRequest) statusRequest.abort();
+            statusRequest = null;
+            PM.state.loading = false;
+        });
+        window.addEventListener('pageshow', function () {
+            if (pageActive) return;
+            pageActive = true;
+            load();
+        });
         wireInstall();
 
         var search = document.getElementById('pm-search-input');
@@ -472,8 +506,7 @@
     async function init() {
         PixivActions.bind(document, { click: { pmLogout: global.pmLogout } });
         wireEvents();
-        await ensureI18n([]);   // 初始 i18n（plugins + common）+ 挂载语言 / 主题切换，先把页面 chrome 翻译就位
-        await load();           // 拉取状态、按需扩展 namespace、整体渲染
+        await load();
     }
 
     // 顶部导航栏「退出」：登出后回到本页（未登录将由 AuthFilter 重定向到登录页）。

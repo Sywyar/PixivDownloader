@@ -86,3 +86,57 @@ test('历史投影刷新在上下文失效时停止，目录换代时重取首�
         assert.equal(previous.packages.length, 2, '失败或过期响应不能修改原详情');
     }
 });
+
+test('读取取消覆盖正文解析期间的成功和 HTTP 错误', async () => {
+    for (const ok of [true, false]) {
+        const market = {};
+        let finish;
+        vm.runInNewContext(fs.readFileSync(path.join(__dirname,
+            '../../main/resources/static/plugin-market/plugin-market-api.js'), 'utf8'), {
+            window: {PixivPluginMarket: market},
+            fetch: async () => ({ok, status: ok ? 200 : 503, json: () => new Promise(resolve => { finish = resolve; })})
+        });
+        const controller = new AbortController();
+        const pending = market.api.fetchRepositories(controller.signal);
+        await new Promise(resolve => setImmediate(resolve));
+        controller.abort(); finish({enabled: true, error: 'obsolete'});
+        await assert.rejects(pending, {name: 'AbortError'});
+    }
+});
+
+test('离页前未完成的安装预览和确认不得继续提交，恢复也不重放', async () => {
+    for (const waitAt of ['preview', 'confirmation', 'restored']) {
+        const events = {};
+        const sandbox = {console, window: null, clearTimeout,
+            document: {readyState: 'loading', addEventListener() {}, getElementById: () => null},
+            addEventListener(name, handler) { events[name] = handler; }}; sandbox.window = sandbox;
+        vm.createContext(sandbox);
+        for (const part of ['core', 'data', 'init'])
+            vm.runInContext(fs.readFileSync(path.join(__dirname,
+                '../../main/resources/static/plugin-market/plugin-market-' + part + '.js'), 'utf8'), sandbox);
+        const market = sandbox.PixivPluginMarket;
+        const preview = {fingerprint: 'a'.repeat(64), packages: [], conflicts: []};
+        const calls = [];
+        let finish;
+        market.api = {
+            cancelCatalog() {},
+            previewInstall: () => waitAt === 'preview' ? new Promise(resolve => { finish = () => resolve(preview); }) : Promise.resolve(preview),
+            installPlugin: async () => { calls.push('install'); return {kind: 'install', body: {accepted: true}}; }
+        };
+        sandbox.PixivFeedback = {confirm: () => {
+            calls.push('confirm');
+            return waitAt !== 'preview' ? new Promise(resolve => { finish = () => resolve(true); }) : Promise.resolve(true);
+        }};
+        const pending = market.installPluginWithConfirmation('repo', 'plugin', '1.2.3');
+        await new Promise(resolve => setImmediate(resolve));
+        events.pagehide();
+        if (waitAt === 'restored') events.pageshow({persisted: true});
+        finish();
+        const response = await pending;
+        assert.equal(response.body.code, 'CANCELLED');
+        assert.deepEqual(calls, waitAt === 'preview' ? [] : ['confirm']);
+        events.pageshow({persisted: true});
+        await new Promise(resolve => setImmediate(resolve));
+        assert.ok(!calls.includes('install'));
+    }
+});

@@ -18,7 +18,6 @@
     --brand-text: #ffffff;
     --warning-bg: #fff8e1;
     --warning-text: #856404;
-    --progress-bg: #e0e0e0;
 
     /* 设计稿强调色板（页面强调、图标贴片、徽标、按钮变体、每插件强调色） */
     --accent-pixiv: #0096fa;
@@ -67,7 +66,6 @@ html[data-theme="dark"] {
     --brand-text: #f4f7fb;
     --warning-bg: #332910;
     --warning-text: #facc15;
-    --progress-bg: #2b3342;
 
     --accent-pixiv: #38a8ff;
     --accent-blue: #4d9bff;
@@ -499,9 +497,6 @@ textarea {
 .pmk-install { flex: 1; }
 .pmk-install-progress { flex: 1; display: flex; flex-direction: column; gap: 4px; }
 .pmk-install-progress-label { font-size: 0.6875rem; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-.pmk-progressbar { height: 6px; border-radius: 999px; background: var(--progress-bg); overflow: hidden; }
-.pmk-progressbar > span { display: block; height: 100%; width: 100%; background: var(--brand); border-radius: 999px; animation: pmk-indet 1.1s ease-in-out infinite; }
-@keyframes pmk-indet { 0% { opacity: .45; } 50% { opacity: 1; } 100% { opacity: .45; } }
 
 /* ── 空状态 ── */
 .pmk-empty { text-align: center; padding: 60px 20px; color: var(--muted); }
@@ -576,7 +571,6 @@ textarea {
 .pmk-version-select:focus { outline: none; border-color: var(--accent-pixiv); box-shadow: 0 0 0 3px rgba(0, 150, 250, .25); }
 
 .pmk-modal-body { padding: 1.5rem 1.75rem; display: flex; flex-direction: column; gap: 1.25rem; overflow-y: auto; min-height: 0; }
-.pmk-modal-col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 
 .pmk-section-label { font-size: 0.6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 8px; }
 .pmk-section-text { font-size: 0.84375rem; line-height: 1.7; color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; }
@@ -630,8 +624,6 @@ textarea {
 .pmk-version-notes li { word-break: break-word; }
 .pmk-version-empty { font-size: 0.78125rem; color: var(--muted); }
 
-.pmk-deps { display: flex; flex-wrap: wrap; gap: 6px; }
-.pmk-dep { font-size: 0.75rem; font-family: var(--font-mono); color: var(--text-secondary); background: var(--control-muted-bg); border: 1px solid var(--border); padding: 2px 8px; border-radius: var(--radius-xs); }
 
 /* 安装结果区（详情弹窗内，据 PluginInstallResponse 渲染；全部转义） */
 .pmk-install-result:empty { display: none; }
@@ -737,22 +729,15 @@ textarea {
     .pmk-title { font-size: 1.3125rem; }
     .pmk-titlebar-actions,
     .pmk-toolbar,
-    .pmk-toolbar-actions,
-    .pmk-repo-row,
-    .pmk-modal-foot,
     .pmk-install-result-head {
         width: 100%;
     }
     .pmk-search { width: 100%; }
-    .pmk-btn,
-    .pmk-repo-tab,
-    .pmk-modal-foot .pmk-btn {
+    .pmk-btn {
         flex: 1 1 140px;
     }
     .pmk-toolbar-head { width: 100%; }
     .pmk-modal { padding: 20px 12px; }
-    .pmk-modal-card { border-radius: var(--radius-md); }
-    .pmk-modal-foot,
     .pmk-install-result-head {
         flex-wrap: wrap;
         justify-content: stretch;
@@ -828,11 +813,12 @@ html[data-theme="dark"] .pixiv-lang-switcher--green .pixiv-lang-switcher__select
 .pmk-content-screenshots { display: flex; gap: .75rem; overflow-x: auto; padding-block: .75rem; }
 .pmk-content-screenshots figure { margin: 0; flex: 0 0 80%; max-width: 30rem; }
 .pmk-content-screenshots img { width: 100%; height: auto; max-height: 22rem; object-fit: contain; }
-.pmk-content-dialog { color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 1rem; padding: 0; width: min(52rem, 94vw); max-height: 90dvh; }
+.pmk-content-dialog { color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 1rem; padding: 0; width: min(52rem, 94vw); max-height: 90dvh; overflow: hidden; }
+.pmk-content-dialog[open] { display: flex; flex-direction: column; }
 .pmk-content-dialog::backdrop { background: var(--modal-backdrop); }
-.pmk-content-dialog-head { display: flex; gap: 1rem; justify-content: space-between; align-items: center; padding: 1rem; border-bottom: 1px solid var(--border); }
+.pmk-content-dialog-head { display: flex; flex-shrink: 0; gap: 1rem; justify-content: space-between; align-items: center; padding: 1rem; border-bottom: 1px solid var(--border); }
 .pmk-content-dialog-head h2 { font-size: 1.25rem; margin: 0; overflow-wrap: anywhere; }
-.pmk-content-dialog-body { padding: 1rem; overflow-y: auto; max-height: 72dvh; }
+.pmk-content-dialog-body { padding: 1rem; min-height: 0; overflow-y: auto; }
 .pmk-content-dialog .pmk-version-notes { white-space: pre-wrap; margin-top: 1rem; }
 .pmk-content :focus-visible, .pmk-content-dialog :focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 3px; }
 .pmk-operation-list { list-style: none; margin: .75rem 0 0; padding: 0; }
@@ -894,8 +880,8 @@ html[data-theme="dark"] .pixiv-lang-switcher--green .pixiv-lang-switcher__select
     .pmk-info-row, .pmk-facts > div { grid-template-columns: minmax(0, 1fr); gap: .25rem; }
 }
 @media (max-height: 28rem) {
-    .pmk-modal-panel { overflow-y: auto; }
-    .pmk-modal-body { overflow: visible; }
+    .pmk-modal-panel, .pmk-content-dialog { overflow-y: auto; }
+    .pmk-modal-body, .pmk-content-dialog-body { overflow: visible; }
 }
 
 .pmk-detail-overview { margin: 0; padding: .875rem 1rem; background: var(--soft-bg); border-radius: var(--radius-sm); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem 1.25rem; }

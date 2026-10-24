@@ -445,6 +445,7 @@ async function main() {
         ok('离页后的迟到结果不重绘导航', renderedCount(runtime.record) === renders);
 
         runtime.dispatch({type: 'pageshow', persisted: true});
+        await new Promise(resolve => setImmediate(resolve));
         ok('历史返回自动恢复更新查询', requests.length === 2);
         const second = runtime.PixivNav.pluginUpdates();
         ok('历史返回只发起一个共享更新请求', requests.length === 2);
@@ -457,6 +458,7 @@ async function main() {
         const old = runtime.PixivNav.pluginUpdates();
         runtime.dispatch({type: 'pagehide', persisted: true});
         runtime.dispatch({type: 'pageshow', persisted: true});
+        await new Promise(resolve => setImmediate(resolve));
         const current = runtime.PixivNav.pluginUpdates();
         requests[2].resolve({ok: true, json: async () => ({enabled: true, compatibleUpdates: 9})});
         await old;
@@ -469,6 +471,30 @@ async function main() {
         const last = runtime.record.events.filter(event => event.type === 'pixivnav:rendered').at(-1);
         ok('真正的查询失败仍发布失败状态并释放计时器', last.detail.updateSummary.checkFailed
             && timers.size === 0);
+    }
+    for (const pixivVue of [true, false]) {
+        const slot = navSlot('app.top'), requests = [];
+        const runtime = load({slots: [slot], pixivVue, fetch: (url, options) =>
+            new Promise((resolve, reject) => requests.push({resolve, reject, signal: options.signal}))});
+        const old = requests[0];
+        const current = runtime.PixivNav.mount();
+        ok('重新读取导航取消旧请求', old.signal && old.signal.aborted);
+        requests[1].resolve({ok: true, json: async () => ITEMS});
+        await current;
+        old.resolve({ok: true, json: async () => []});
+        await new Promise(resolve => setImmediate(resolve));
+        const html = () => pixivVue ? slot.children.filter(e => e.tag === 'a').map(e => e.attrs.href).join(',') : slot.innerHTML;
+        ok('导航旧正文不能撤销新入口', html().includes('/pixiv-gallery.html'));
+        const leaving = runtime.PixivNav.mount();
+        runtime.dispatch({type: 'pagehide', persisted: true});
+        ok('离页取消导航读取', requests[2].signal.aborted);
+        requests[2].reject(new Error('late failure'));
+        await leaving;
+        runtime.dispatch({type: 'pageshow', persisted: true});
+        ok('返回页面重新读取活动导航', requests.length === 4);
+        requests[3].resolve({ok: true, json: async () => []});
+        await new Promise(resolve => setImmediate(resolve));
+        ok('返回后的空导航真实撤回旧入口', !html().includes('/pixiv-gallery.html'));
     }
     console.log(`\npixiv-navigation.test.js: ${passed} assertions passed ✓`);
 }

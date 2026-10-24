@@ -49,7 +49,7 @@
     var updateStylesLoaded = false;
 
     function pluginUpdates() {
-        if (pageHidden || !(state.items || []).some(function (item) {
+        if (pageHidden || navRequest || !(state.items || []).some(function (item) {
             return itemMarkers(item).indexOf('plugin-update-summary') !== -1;
         })) return global.Promise.resolve(null);
         if (updateRequest) return updateRequest.promise;
@@ -116,7 +116,7 @@
 
     var state = { items: null };   // 最近一次成功的 /api/navigation 响应（按身份过滤、已排序）
     var loaded = false;            // 是否至少成功拉取过一次
-    var inFlight = false;          // 初次拉取是否在途（避免与 refresh 重复拉取）
+    var navRequest = null;
     var languageSubscribed = false;
     var renderRevision = 0;
     var currentI18n = null;        // 最近一次按当前语言构造的 i18n 解析器（命令式 + Vue 共用）
@@ -448,8 +448,8 @@
         }
     }
 
-    async function fetchNav() {
-        var res = await global.fetch(NAV_ENDPOINT, { credentials: 'same-origin' });
+    async function fetchNav(signal) {
+        var res = await global.fetch(NAV_ENDPOINT, { credentials: 'same-origin', signal: signal });
         if (!res.ok) {
             throw new Error('navigation http ' + res.status);
         }
@@ -465,18 +465,33 @@
         }
     }
 
-    // 初次装配：拉取 /api/navigation 并渲染全部 slot。幂等（重复调用在途时直接返回）。
+    // 重新读取活动贡献；写后刷新与离页使先前的读取失效。
+    function cancelReads() {
+        if (navRequest) navRequest.abort();
+        navRequest = null;
+        if (updateRequest) {
+            global.clearTimeout(updateRequest.timer);
+            updateRequest.controller.abort();
+            updateRequest = null;
+        }
+    }
+
     async function mount() {
-        if (inFlight) return;
-        inFlight = true;
+        if (pageHidden) return;
+        cancelReads();
+        var request = new global.AbortController();
+        navRequest = request;
         try {
-            state.items = await fetchNav();
+            var items = await fetchNav(request.signal);
+            if (request.signal.aborted) return;
+            state.items = items;
             loaded = true;
         } catch (e) {
+            if (request.signal.aborted) return;
             state.items = null;
             console.warn('[PixivNav] 拉取导航失败，隐藏跨插件入口：', e);
         } finally {
-            inFlight = false;
+            if (navRequest === request) navRequest = null;
         }
         await renderFromState();
         subscribeLanguageOnce();
@@ -486,7 +501,7 @@
 
     // 重渲染（语言切换后由宿主调用，或跨标签页语言广播触发）：复用已缓存导航数据、按当前语言重解析标签。
     async function refresh() {
-        if (inFlight) return;          // 初次装配在途：其完成时会用当前语言渲染
+        if (navRequest) return;        // 读取完成后会用当前语言渲染
         if (!loaded) return mount();   // 尚未成功拉取过：走初次装配
         await renderFromState();
     }
@@ -511,17 +526,12 @@
         global.addEventListener('pagehide', function () {
             pageHidden = true;
             renderRevision++;
-            if (updateRequest) {
-                global.clearTimeout(updateRequest.timer);
-                updateRequest.controller.abort();
-                updateRequest = null;
-            }
+            cancelReads();
         });
         global.addEventListener('pageshow', function (event) {
             pageHidden = false;
             if (event.persisted) {
-                refresh();
-                pluginUpdates();
+                mount();
             }
         });
     }

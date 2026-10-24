@@ -34,7 +34,6 @@ function fixture(selectedProvider = 'server-owner') {
     const api = {
         fetchDatabaseSettings: async () => response,
         checkDatabase: async draft => { calls.push(['check', draft]); return {outcome: 'CONNECTED', target: 'draft-target'}; },
-        saveDatabase: async draft => { calls.push(['save', draft]); return {saved: true, restartRequired: true}; },
         previewDatabaseMigration: async draft => { calls.push(['preview', draft]); return {token: 'plan', ready: true,
             stores: [{owner: 'main', source: 'source-main', target: 'target-main', phase: 'REPLACE_TARGET'},
                 {owner: 'private:fixture', source: 'source-private', target: 'target-private', phase: 'READY'}]}; },

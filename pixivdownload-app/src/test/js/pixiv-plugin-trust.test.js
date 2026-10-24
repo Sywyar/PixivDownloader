@@ -84,8 +84,9 @@ test('市场与本地安装确认使用相同包内事实，并显示更新新�
     p.PixivPluginManage.applyReport({ plugins: [{ id: 'demo', source: 'external', status: 'STARTED',
         executionMode: 'HOST_PROCESS_FULL_TRUST', verification: requirement, messages: [] }] }, true);
     const model = p.PixivPluginManage.allViewModels()[0];
-    assert.ok(model.trustLines.some(line => line.includes('<img')));
-    assert.ok(p.PixivPluginManage.escapeHtml(model.trustLines.join('\n')).includes('&lt;img'));
+    const detail = p.PixivPluginManage.renderDetailHtml(model);
+    assert.ok(detail.includes('&lt;img'));
+    assert.ok(!detail.includes('<img'));
 });
 
 test('有签名但缺少指纹与未签名的指纹不适用分别显示', () => {

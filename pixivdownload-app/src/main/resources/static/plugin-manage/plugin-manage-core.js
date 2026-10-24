@@ -251,8 +251,6 @@
         }
         var name = tns(entry.displayNamespace, entry.displayNameKey, entry.id);
         var version = entry.version ? ('v' + entry.version) : null;
-        // 副标题只保留稳定 id：版本上移到名称行，来源由名称行徽标表达。
-        var sub = String(entry.id);
         var verification = entry.verification || {};
         var verificationStatus = verification.status || null;
         var verificationInfo = verificationMeta(verificationStatus);
@@ -286,7 +284,6 @@
             fields: detailFields(entry),
             name: name,
             version: version,
-            sub: sub,
             source: source,
             status: status,
             statusLabel: t(meta.key, status),
@@ -301,8 +298,6 @@
             executionMode: executionMode,
             trustFacts: verification,
             trustSections: global.PixivPluginPresentationTokens.trustSections(verification, i18n.client, running || !!entry.loadedVersion || phase === 'QUIESCED'),
-            trustLines: global.PixivPluginPresentationTokens.trustLines(verification, i18n.client,
-                running || !!entry.loadedVersion || phase === 'QUIESCED'),
             executionLabel: t(executionInfo.key, executionInfo.fallback),
             executionTone: executionInfo.tone,
             showExecutionTag: source === 'external',
@@ -316,15 +311,11 @@
             verificationStatus: verificationStatus,
             verificationLabel: verificationStatus ? t(verificationInfo.key, verificationStatus) : null,
             verificationTone: verificationInfo.tone,
-            verificationTrustLabel: verification.trustLabel || verification.publisher || null,
             trustState: trustState,
             trustLabel: t(trustInfo.key, trustInfo.fallback),
             trustTone: trustInfo.tone,
             trustArtifactSha256: trust.artifactSha256 || null,
             trustPublisherKeyFingerprint: trust.publisherKeyFingerprint || null,
-            trustApprovalType: trust.approvalType || null,
-            trustApprovedAt: trust.approvedAt || null,
-            trustRevokedAt: trust.revokedAt || null,
             trustApprovable: trust.approvable === true,
             trustRevocable: trust.revocable === true,
             trustSource: verification.source || source,
@@ -349,7 +340,6 @@
             toggleable: toggleable,
             requiredByPolicy: !!entry.requiredByPolicy,
             allowDisable: entry.allowDisable !== false,
-            generation: entry.generation == null ? null : entry.generation,
             operation: entry.operation || 'IDLE',
             updating: !!entry.operation && entry.operation !== 'IDLE' && entry.operation !== 'FAILED'
         };
@@ -423,7 +413,7 @@
     }
 
     function filterModels(models) {
-        var list = models.slice();
+        var list = models;
         var tab = state.activeTab;
         if (tab === 'enabled') {
             list = list.filter(function (p) { return p.enabled; });
@@ -538,14 +528,9 @@
     }
 
     // 纯前端的本地校验提示（未选文件 / 非法选择 / 网络异常等）：与 buildInstallResult 同形态，供结果区统一渲染。
-    function localInstallNotice(message, tone) {
+    function localInstallNotice(messageKey, tone) {
         return {
-            outcome: null, accepted: false, recoveryBlocked: false, effectiveAfterRestart: false, status: null,
-            tone: tone || 'warn', message: message || null,
-            pluginId: null, version: null, previousVersion: null, packageId: null, targetVersion: null,
-            operation: null, runtimePhase: null, updated: false, transactionId: null,
-            activated: false, rolledBack: false, rollbackVersion: null,
-            errors: [], warnings: [], localValidation: true
+            tone: tone || 'warn', messageKey: messageKey, localValidation: true
         };
     }
 

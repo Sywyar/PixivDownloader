@@ -249,24 +249,6 @@ ok('依赖判定只消费中性 category', PMK.data.entryDependency(dependency))
 ok('默认安装判定不硬编码任何插件 id', DATA_SRC.includes('m.defaultInstalled') && !DATA_SRC.includes("'douyin'"));
 
 PMK.state.i18n.client = null;
-const missingReasons = PMK.recoveryReasons({
-    recoveryMode: true,
-    transactionRecovery: {safeToScan: true, failures: []},
-    recoveryReasons: [{pluginId: 'download-workbench', status: 'MISSING_REQUIRED', messages: []}],
-    plugins: []
-});
-ok('恢复横幅指出缺失的必装插件', missingReasons.length === 1 && missingReasons[0].includes('download-workbench'));
-const failedReasons = PMK.recoveryReasons({
-    recoveryMode: true,
-    transactionRecovery: {safeToScan: true, failures: []},
-    recoveryReasons: [{pluginId: 'crashy', status: 'FAILED', messageKey: 'plugin.recovery.failed', messages: ['startup exploded']}],
-    plugins: [{id: 'bad-signature', status: 'FAILED', requiredByPolicy: false, messages: ['signature rejected']}]
-});
-ok('恢复横幅指出崩溃插件及诊断', failedReasons.length === 1
-    && failedReasons[0].includes('crashy') && failedReasons[0].includes('startup exploded'));
-ok('恢复横幅不把其它 FAILED 诊断冒充恢复原因', !failedReasons[0].includes('bad-signature'));
-eq('正常模式不显示恢复原因', PMK.recoveryReasons({recoveryMode: false, plugins: []}).length, 0);
-
 const blockedMessage = '安装事务已阻断；请重启后完成恢复';
 const blockedResult = PMK.data.installResult({
     outcome: 'INSTALLED', accepted: true, activated: true, effectiveAfterRestart: true,
