@@ -14,7 +14,6 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -183,10 +182,9 @@ public final class RuntimeFiles {
     }
 
     /**
-     * 作品删除的暂存目录：{@code data/delete-staging/}。原子删除时先把待删文件复制到本目录下的独立子目录
-     * （并写一份恢复清单 {@code manifest.properties}），删原文件失败再从这里复制回滚；放在 {@code data/} 下而非
-     * 系统临时目录，避免跨卷拷贝、不受 OS 临时清理影响、位置可预测。进程中途崩溃残留的子目录由
-     * {@link #recoverDeleteStagingLeftovers(String)} 在启动时按清单恢复或保留（不再无条件清扫）。
+     * 文件操作的耐久备份目录：{@code data/delete-staging/}，不受系统临时文件清理影响。
+     * 新操作按数据库提交标记恢复或清理；旧版 properties 清单由
+     * {@link #recoverDeleteStagingLeftovers(String)} 受限恢复，未知残留保留供人工处理。
      */
     public static Path deleteStagingDirectory() {
         Path target = dataDirectory().resolve(DELETE_STAGING_DIR);
@@ -358,14 +356,10 @@ public final class RuntimeFiles {
     }
 
     private static Path resolveManagedFile(Path target, List<Path> legacyCandidates) {
-        return resolveManagedFile(target, legacyCandidates, List.of());
-    }
-
-    private static Path resolveManagedFile(Path target, List<Path> legacyCandidates, List<String> companionSuffixes) {
         try {
             Files.createDirectories(target.getParent());
             for (Path legacy : legacyCandidates) {
-                adoptLegacyFile(target, legacy, companionSuffixes);
+                adoptLegacyFile(target, legacy);
             }
             return target.normalize();
         } catch (IOException e) {
@@ -404,7 +398,7 @@ public final class RuntimeFiles {
         return normalized;
     }
 
-    private static void adoptLegacyFile(Path target, Path legacy, List<String> companionSuffixes) throws IOException {
+    private static void adoptLegacyFile(Path target, Path legacy) throws IOException {
         if (legacy == null) {
             return;
         }
@@ -416,18 +410,14 @@ public final class RuntimeFiles {
         }
 
         if (!Files.exists(target)) {
-            if (hasAnyCompanion(target, companionSuffixes)) {
-                Logging.log.warn(logMessage("runtime.log.legacy-conflict.retained", normalizedLegacy, normalizedTarget));
-                return;
-            }
-            copyFileUnit(legacy, target, companionSuffixes);
-            deleteFileUnit(legacy, companionSuffixes);
+            copyVerifiedFile(legacy, target);
+            Files.deleteIfExists(legacy);
             Logging.log.info(logMessage("runtime.log.file.migrated", normalizedLegacy, normalizedTarget));
             return;
         }
 
-        if (fileUnitsMatch(legacy, target, companionSuffixes)) {
-            deleteFileUnit(legacy, companionSuffixes);
+        if (sameFileContents(legacy, target)) {
+            Files.deleteIfExists(legacy);
             Logging.log.info(logMessage("runtime.log.legacy-duplicate.deleted", normalizedLegacy));
             return;
         }
@@ -459,7 +449,7 @@ public final class RuntimeFiles {
                 }
                 Path targetFile = target.resolve(legacy.relativize(source));
                 Files.createDirectories(targetFile.getParent());
-                adoptLegacyFile(targetFile, source, List.of());
+                adoptLegacyFile(targetFile, source);
             }
         }
 
@@ -499,64 +489,26 @@ public final class RuntimeFiles {
         return targetDirectory.resolveSibling(fileName);
     }
 
-    private static void copyFileUnit(Path legacy, Path target, List<String> companionSuffixes) throws IOException {
-        List<Path> copiedTargets = new ArrayList<>();
+    private static void copyVerifiedFile(Path legacy, Path target) throws IOException {
+        Files.copy(legacy, target, StandardCopyOption.COPY_ATTRIBUTES);
         try {
-            for (String suffix : companionSuffixes) {
-                Path legacyCompanion = Path.of(legacy + suffix);
-                if (Files.exists(legacyCompanion)) {
-                    Path targetCompanion = Path.of(target + suffix);
-                    Files.copy(legacyCompanion, targetCompanion, StandardCopyOption.COPY_ATTRIBUTES);
-                    copiedTargets.add(targetCompanion);
-                }
-            }
-            Files.copy(legacy, target, StandardCopyOption.COPY_ATTRIBUTES);
-            copiedTargets.add(target);
-            if (!fileUnitsMatch(legacy, target, companionSuffixes)) {
+            if (!sameFileContents(legacy, target)) {
                 throw new IOException("runtime file migration verification failed: " + legacy + " -> " + target);
             }
         } catch (IOException failure) {
-            for (int i = copiedTargets.size() - 1; i >= 0; i--) {
-                try {
-                    Files.deleteIfExists(copiedTargets.get(i));
-                } catch (IOException cleanupFailure) {
-                    failure.addSuppressed(cleanupFailure);
-                }
+            try {
+                Files.deleteIfExists(target);
+            } catch (IOException cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
             }
             throw failure;
         }
-    }
-
-    private static void deleteFileUnit(Path legacy, List<String> companionSuffixes) throws IOException {
-        Files.deleteIfExists(legacy);
-        for (String suffix : companionSuffixes) {
-            Files.deleteIfExists(Path.of(legacy + suffix));
-        }
-    }
-
-    private static boolean fileUnitsMatch(Path legacy, Path target, List<String> companionSuffixes) throws IOException {
-        if (!sameFileContents(legacy, target)) {
-            return false;
-        }
-        for (String suffix : companionSuffixes) {
-            Path legacyCompanion = Path.of(legacy + suffix);
-            Path targetCompanion = Path.of(target + suffix);
-            if (Files.exists(legacyCompanion) != Files.exists(targetCompanion)
-                    || Files.exists(legacyCompanion) && !sameFileContents(legacyCompanion, targetCompanion)) {
-                return false;
-            }
-        }
-        return true;
     }
 
     private static boolean sameFileContents(Path first, Path second) throws IOException {
         return Files.exists(first) && Files.exists(second)
                 && Files.size(first) == Files.size(second)
                 && Files.mismatch(first, second) == -1;
-    }
-
-    private static boolean hasAnyCompanion(Path path, List<String> companionSuffixes) {
-        return companionSuffixes.stream().anyMatch(suffix -> Files.exists(Path.of(path + suffix)));
     }
 
     private static void addDownloadRootCandidate(Set<Path> paths, String rootFolder, String fileName) {

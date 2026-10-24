@@ -30,7 +30,7 @@ class DatabaseUnavailableBootContextTest {
         Path missingOriginal = directory.resolve("downloads/deleted-before-crash.txt");
         Path backupDirectory = Files.createDirectories(directory.resolve("data/delete-staging/legacy"));
         Path backup = Files.writeString(backupDirectory.resolve("0.bak"), "retained backup");
-        top.sywyar.pixivdownload.config.DeleteStagingManifest.write(backupDirectory,
+        top.sywyar.pixivdownload.config.DeleteStagingManifestFixture.write(backupDirectory,
                 java.util.List.of(new top.sywyar.pixivdownload.config.DeleteStagingManifest.Entry(missingOriginal, "0.bak")));
         Path config = directory.resolve("config/config.yaml");
         Files.createDirectories(config.getParent());

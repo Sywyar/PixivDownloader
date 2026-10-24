@@ -5,9 +5,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import top.sywyar.pixivdownload.common.AppInfo;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,6 +18,9 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.mockStatic;
 
 @DisplayName("RuntimeFiles path migration tests")
 class RuntimeFilesTest {
@@ -64,6 +70,55 @@ class RuntimeFilesTest {
         assertThat(legacyConfig).doesNotExist();
         assertThat(RuntimeFiles.readDownloadRootFromConfig(resolved, RuntimeFiles.DEFAULT_DOWNLOAD_ROOT))
                 .isEqualTo("custom-download");
+    }
+
+    @Test
+    @DisplayName("相同内容的旧配置可去重，等长但不同的内容仍保留")
+    void removesOnlyIdenticalLegacyConfig() throws IOException {
+        Path legacy = tempDir.resolve(RuntimeFiles.CONFIG_YAML);
+        Path target = configDir.resolve(RuntimeFiles.CONFIG_YAML);
+        Files.createDirectories(configDir);
+        Files.writeString(target, "server.port: 7001\n", StandardCharsets.UTF_8);
+        Files.writeString(legacy, "server.port: 7002\n", StandardCharsets.UTF_8);
+
+        assertThat(RuntimeFiles.resolveConfigYamlPath()).isEqualTo(target);
+        assertThat(legacy).hasContent("server.port: 7002\n");
+        assertThat(target).hasContent("server.port: 7001\n");
+
+        Files.writeString(legacy, "server.port: 7001\n", StandardCharsets.UTF_8);
+        assertThat(RuntimeFiles.resolveConfigYamlPath()).isEqualTo(target);
+        assertThat(legacy).doesNotExist();
+        assertThat(target).hasContent("server.port: 7001\n");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("迁移核验失败保留源文件，清理失败附加到原始异常")
+    void preservesSourceWhenMigrationVerificationFails(boolean cleanupFails) throws IOException {
+        Path legacy = tempDir.resolve(RuntimeFiles.CONFIG_YAML);
+        Path target = configDir.resolve(RuntimeFiles.CONFIG_YAML);
+        Files.writeString(legacy, "server.port: 7001\n", StandardCharsets.UTF_8);
+        IOException verification = new IOException("fixture verification failure");
+        IOException cleanup = new IOException("fixture cleanup failure");
+
+        try (var files = mockStatic(Files.class, CALLS_REAL_METHODS)) {
+            files.when(() -> Files.mismatch(legacy, target)).thenThrow(verification);
+            if (cleanupFails) files.when(() -> Files.deleteIfExists(target)).thenThrow(cleanup);
+
+            UncheckedIOException failure = catchThrowableOfType(
+                    RuntimeFiles::resolveConfigYamlPath, UncheckedIOException.class);
+
+            assertThat(failure).hasCause(verification);
+        }
+
+        assertThat(legacy).hasContent("server.port: 7001\n");
+        if (cleanupFails) {
+            assertThat(target).hasContent("server.port: 7001\n");
+            assertThat(verification.getSuppressed()).containsExactly(cleanup);
+        } else {
+            assertThat(target).doesNotExist();
+            assertThat(verification.getSuppressed()).isEmpty();
+        }
     }
 
     @Test
@@ -301,7 +356,7 @@ class RuntimeFilesTest {
         // 模拟「已暂存、原文件已删、未来得及回滚 / 软删」：原文件缺失，暂存副本仍在，清单记录映射
         Path original = downloadRoot.resolve("300").resolve("300_p0.jpg");
         Files.writeString(subdir.resolve("0_300_p0.jpg"), "p0-bytes", StandardCharsets.UTF_8);
-        DeleteStagingManifest.write(subdir, List.of(new DeleteStagingManifest.Entry(
+        DeleteStagingManifestFixture.write(subdir, List.of(new DeleteStagingManifest.Entry(
                 original.toAbsolutePath().normalize(), "0_300_p0.jpg")));
 
         RuntimeFiles.recoverDeleteStagingLeftovers(downloadRoot.toString());
