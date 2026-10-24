@@ -126,6 +126,8 @@ Besides runtime-managing already-installed plugins, this page also gives admins 
 
 ---
 
+Development mode also loads plugins from the installation directory. A package that conflicts with a running source plugin is saved without activation. To keep using the source build, move the conflicting package out of the installation directory. To use the package, exclude the corresponding source module from the development build. Then restart the application.
+
 ## Web plugin marketplace
 
 The **Plugin Marketplace** is a separate admin-only page for browsing and installing plugins from **trusted repositories**. It does not replace the runtime status and lifecycle operations on this Plugin Management page.
