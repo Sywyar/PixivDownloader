@@ -90,7 +90,7 @@ final class DesktopConfigurationFieldView {
         nodes.add(formField(
                 "interface.language",
                 key("gui.interface.language.label"),
-                new TextToken("gui-compose", "gui.compose.settings.language-help", "", List.of()),
+                key("gui.interface.language.help"),
                 choice(
                         "interface.language.input",
                         "interface.language",
