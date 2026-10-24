@@ -2,7 +2,7 @@
 // @name              Pixiv作品图片下载器(Local download)
 // @name:en           Pixiv Artwork Downloader (Local download)
 // @namespace         http://tampermonkey.net/
-// @version           1.4.1
+// @version           1.4.2
 // @updateURL         https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E5%8D%95%E4%BD%9C%E5%93%81%E5%9B%BE%E7%89%87%E4%B8%8B%E8%BD%BD%E5%99%A8(Local%20Download).user.js
 // @downloadURL       https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E5%8D%95%E4%BD%9C%E5%93%81%E5%9B%BE%E7%89%87%E4%B8%8B%E8%BD%BD%E5%99%A8(Local%20Download).user.js
 // @description       下载 Pixiv 单个作品的所有图片，并记录已下载的作品（本地存储，不通过后端数据库）
@@ -318,7 +318,6 @@
             'local.menu.download-current': 'Download all images of current artwork',
             'local.menu.history': 'View download history',
             'local.menu.clear-history': 'Clear download history',
-            'local.menu.reset-folder-index': 'Reset folder index',
             // Alerts
             'local.alert.no-artwork-id': 'Could not retrieve artwork ID',
             'local.alert.start-download': 'Starting download for artwork {id}...',
@@ -328,11 +327,9 @@
             'local.alert.download-failed': 'Download failed: {message}',
             'local.alert.history-empty': 'No download records yet',
             'local.alert.history-cleared': 'Download history cleared',
-            'local.alert.folder-index-reset': 'Folder index reset',
             // Confirms
             'local.confirm.redownload': 'Artwork {id} was already downloaded at {time}\nLocation: folder {folder}\nImages: {count}\n\nRe-download?',
             'local.confirm.clear-history': 'Are you sure you want to clear all download records? This action cannot be undone.',
-            'local.confirm.reset-folder-index': 'Reset the folder index? Next download will start from folder 0.',
             // History dialog
             'local.history.header': 'Total downloaded artworks: {count}\n\n',
             'local.history.entry': 'Artwork ID: {id}\nDownloaded at: {time}\nLocation: {folder}\nImages: {count}\n---\n',
@@ -370,7 +367,6 @@
             'local.menu.download-current': '下载当前作品所有图片',
             'local.menu.history': '查看下载历史',
             'local.menu.clear-history': '清空下载记录',
-            'local.menu.reset-folder-index': '重置文件夹索引',
             'local.alert.no-artwork-id': '无法获取作品ID',
             'local.alert.start-download': '开始下载作品 {id} 的图片...',
             'local.alert.ugoira-unsupported': '作品 {id} 是动图（ugoira）。\n此版本不支持动图合成，请使用「Pixiv作品图片下载器（Java后端版）」下载动图，后端会自动合成为WebP格式。',
@@ -379,10 +375,8 @@
             'local.alert.download-failed': '下载失败: {message}',
             'local.alert.history-empty': '还没有下载记录',
             'local.alert.history-cleared': '下载记录已清空',
-            'local.alert.folder-index-reset': '文件夹索引已重置',
             'local.confirm.redownload': '作品 {id} 已经在 {time} 下载过\n保存位置: 文件夹 {folder}\n图片数量: {count}张\n\n是否重新下载？',
             'local.confirm.clear-history': '确定要清空所有下载记录吗？此操作不可恢复。',
-            'local.confirm.reset-folder-index': '确定要重置文件夹索引吗？下次下载将从文件夹0开始。',
             'local.history.header': '已下载作品数量: {count}\n\n',
             'local.history.entry': '作品ID: {id}\n下载时间: {time}\n保存位置: {folder}\n图片数量: {count}张\n---\n',
             'local.history.novel-header': '\n已下载小说数量: {count}\n\n',
@@ -413,7 +407,6 @@
             'local.menu.download-current': '下載目前作品的所有圖片',
             'local.menu.history': '檢視下載歷史',
             'local.menu.clear-history': '清除下載記錄',
-            'local.menu.reset-folder-index': '重設資料夾索引',
             'local.alert.no-artwork-id': '無法取得作品 ID',
             'local.alert.start-download': '正在下載作品 {id} 的圖片…',
             'local.alert.ugoira-unsupported': '作品 {id} 是動圖（ugoira）。\n此版本不支援動圖合成，請使用「Pixiv 作品圖片下載器（Java 後端版）」下載動圖，後端會自動合成為 WebP 格式。',
@@ -422,10 +415,8 @@
             'local.alert.download-failed': '下載失敗：{message}',
             'local.alert.history-empty': '目前還沒有下載記錄',
             'local.alert.history-cleared': '下載記錄已清除',
-            'local.alert.folder-index-reset': '資料夾索引已重設',
             'local.confirm.redownload': '作品 {id} 已於 {time} 下載過\n儲存位置：資料夾 {folder}\n圖片數量：{count} 張\n\n要重新下載嗎？',
             'local.confirm.clear-history': '確定要清除所有下載記錄嗎？此操作無法復原。',
-            'local.confirm.reset-folder-index': '確定要重設資料夾索引嗎？下次下載會從資料夾 0 開始。',
             'local.history.header': '已下載作品數量：{count}\n\n',
             'local.history.entry': '作品 ID：{id}\n下載時間：{time}\n儲存位置：{folder}\n圖片數量：{count} 張\n---\n',
             'local.history.novel-header': '\n已下載小說數量：{count}\n\n',
@@ -455,7 +446,6 @@
             'local.menu.download-current': '現在の作品の画像をすべてダウンロード',
             'local.menu.history': 'ダウンロード履歴を表示',
             'local.menu.clear-history': 'ダウンロード履歴を消去',
-            'local.menu.reset-folder-index': 'フォルダー番号をリセット',
             'local.alert.no-artwork-id': '作品 ID を取得できません',
             'local.alert.start-download': '作品 {id} のダウンロードを開始中…',
             'local.alert.ugoira-unsupported': '作品 {id} はアニメーション（うごイラ）です。\nこの版はフレーム合成に対応していません。「Pixiv 作品ダウンローダー（Java バックエンド）」を使ってください。フレームを自動的に WebP へ合成します。',
@@ -464,10 +454,8 @@
             'local.alert.download-failed': 'ダウンロードに失敗しました：{message}',
             'local.alert.history-empty': 'ダウンロード履歴はまだありません',
             'local.alert.history-cleared': 'ダウンロード履歴を消去しました',
-            'local.alert.folder-index-reset': 'フォルダー番号をリセットしました',
             'local.confirm.redownload': '作品 {id} は {time} にダウンロード済みです\n保存先：フォルダー {folder}\n画像：{count} 枚\n\n再ダウンロードしますか？',
             'local.confirm.clear-history': 'すべてのダウンロード履歴を消去しますか？この操作は元に戻せません。',
-            'local.confirm.reset-folder-index': 'フォルダー番号をリセットしますか？次のダウンロードはフォルダー 0 から始まります。',
             'local.history.header': 'ダウンロード済み作品：{count} 件\n\n',
             'local.history.entry': '作品 ID：{id}\nダウンロード日時：{time}\n保存先：{folder}\n画像：{count} 枚\n---\n',
             'local.history.novel-header': '\nダウンロード済み小説：{count} 件\n\n',
@@ -497,23 +485,20 @@
             'local.menu.download-current': '현재 작품의 모든 이미지 다운로드',
             'local.menu.history': '다운로드 기록 보기',
             'local.menu.clear-history': '다운로드 기록 지우기',
-            'local.menu.reset-folder-index': '폴더 인덱스 초기화',
             'local.alert.no-artwork-id': '작품 ID를 가져올 수 없습니다',
             'local.alert.start-download': '작품 {id}의 이미지 다운로드를 시작합니다...',
-            'local.alert.ugoira-unsupported': '작품 {id}은(는) 움직이는 이미지(ugoira)입니다.\\n이 버전은 프레임 합성을 지원하지 않습니다. 「Pixiv 작품 이미지 다운로드 도구(Java 백엔드 버전)」를 사용하세요. 프레임을 자동으로 WebP로 합성합니다.',
+            'local.alert.ugoira-unsupported': '작품 {id}은(는) 움직이는 이미지(ugoira)입니다.\n이 버전은 프레임 합성을 지원하지 않습니다. 「Pixiv 작품 이미지 다운로드 도구(Java 백엔드 버전)」를 사용하세요. 프레임을 자동으로 WebP로 합성합니다.',
             'local.alert.no-images': '이미지를 찾을 수 없습니다',
-            'local.alert.download-summary': '다운로드 완료!\\n성공: {success}/{total}개 이미지\\n저장 위치: 기본 다운로드 폴더',
+            'local.alert.download-summary': '다운로드 완료!\n성공: {success}/{total}개 이미지\n저장 위치: 기본 다운로드 폴더',
             'local.alert.download-failed': '다운로드 실패: {message}',
             'local.alert.history-empty': '아직 다운로드 기록이 없습니다',
             'local.alert.history-cleared': '다운로드 기록을 지웠습니다',
-            'local.alert.folder-index-reset': '폴더 인덱스를 초기화했습니다',
-            'local.confirm.redownload': '작품 {id}은(는) {time}에 이미 다운로드되었습니다\\n저장 위치: 폴더 {folder}\\n이미지 수: {count}개\\n\\n다시 다운로드하시겠습니까?',
+            'local.confirm.redownload': '작품 {id}은(는) {time}에 이미 다운로드되었습니다\n저장 위치: 폴더 {folder}\n이미지 수: {count}개\n\n다시 다운로드하시겠습니까?',
             'local.confirm.clear-history': '모든 다운로드 기록을 지우시겠습니까? 이 작업은 취소할 수 없습니다.',
-            'local.confirm.reset-folder-index': '폴더 인덱스를 초기화하시겠습니까? 다음 다운로드는 폴더 0부터 시작합니다.',
-            'local.history.header': '다운로드한 작품 수: {count}개\\n\\n',
-            'local.history.entry': '작품 ID: {id}\\n다운로드 시간: {time}\\n저장 위치: {folder}\\n이미지 수: {count}개\\n---\\n',
-            'local.history.novel-header': '\\n다운로드한 소설 수: {count}개\\n\\n',
-            'local.history.novel-entry': '소설 ID: {id}\\n제목: {title}\\n다운로드 시간: {time}\\n---\\n',
+            'local.history.header': '다운로드한 작품 수: {count}개\n\n',
+            'local.history.entry': '작품 ID: {id}\n다운로드 시간: {time}\n저장 위치: {folder}\n이미지 수: {count}개\n---\n',
+            'local.history.novel-header': '\n다운로드한 소설 수: {count}개\n\n',
+            'local.history.novel-entry': '소설 ID: {id}\n제목: {title}\n다운로드 시간: {time}\n---\n',
             'local.ui.status.downloaded': '✅ 이미 다운로드됨',
             'local.ui.status.available': '⬇️ 다운로드할 수 있음',
             'local.ui.button.download': '📥 모든 이미지 다운로드',
@@ -522,9 +507,9 @@
             'local.menu.download-current-novel': '현재 소설을 EPUB으로 다운로드',
             'local.alert.no-novel-id': '소설 ID를 가져올 수 없습니다',
             'local.alert.novel-start-download': '소설 {id}을(를) EPUB으로 다운로드합니다...',
-            'local.alert.novel-summary': '소설 다운로드 완료!\\n파일: {title}.epub\\n포함된 이미지: {images}개\\n저장 위치: 기본 다운로드 폴더',
+            'local.alert.novel-summary': '소설 다운로드 완료!\n파일: {title}.epub\n포함된 이미지: {images}개\n저장 위치: 기본 다운로드 폴더',
             'local.alert.novel-failed': '소설 다운로드 실패: {message}',
-            'local.confirm.novel-redownload': '소설 {id}은(는) {time}에 이미 다운로드되었습니다\\n\\n다시 다운로드하시겠습니까?',
+            'local.confirm.novel-redownload': '소설 {id}은(는) {time}에 이미 다운로드되었습니다\n\n다시 다운로드하시겠습니까?',
             'local.ui.status.novel-downloaded': '✅ 소설이 이미 다운로드됨',
             'local.ui.status.novel-available': '⬇️ 소설을 다운로드할 수 있음(EPUB)',
             'local.ui.button.download-novel': '📕 소설 다운로드(EPUB)',
@@ -551,33 +536,6 @@
             } else {
                 resolve();
             }
-        });
-    }
-
-    // 等待特定元素出现
-    function waitForElement(selector, timeout = 10000) {
-        return new Promise((resolve, reject) => {
-            if (document.querySelector(selector)) {
-                resolve(document.querySelector(selector));
-                return;
-            }
-
-            const observer = new MutationObserver(() => {
-                if (document.querySelector(selector)) {
-                    observer.disconnect();
-                    resolve(document.querySelector(selector));
-                }
-            });
-
-            observer.observe(document.body, {
-                childList: true,
-                subtree: true
-            });
-
-            setTimeout(() => {
-                observer.disconnect();
-                reject(new Error(`Element ${selector} not found within ${timeout}ms`));
-            }, timeout);
         });
     }
 
@@ -814,44 +772,39 @@
 
     // 把 Pixiv 小说 markup 渲染为分章 XHTML（与后端 NovelMarkupParser 行为对齐的子集）
     function renderNovelPagesHtml(content, imageNameById) {
-        const pages = String(content || '').split('[newpage]');
-        return pages.map((raw) => {
-            const placeholders = [];
-            const ph = (html) => {
-                placeholders.push(html);
-                return 'PH' + (placeholders.length - 1) + 'PH';
-            };
-            let s = raw;
-            s = s.replace(/\[\[rb:([^>\]]+)>([^\]]+)\]\]/g, (_, base, ruby) =>
-                ph(`<ruby>${escapeXml(base.trim())}<rt>${escapeXml(ruby.trim())}</rt></ruby>`));
-            s = s.replace(/\[\[jumpuri:([^>\]]+)>([^\]]+)\]\]/g, (_, text, rawUrl) => {
-                const label = escapeXml(text.trim());
-                try {
-                    const candidate = rawUrl.trim();
-                    if (!/^https?:\/\//i.test(candidate) || /[\u0000-\u001F\u007F]/.test(candidate)) {
-                        return ph(label);
+        const text = value => escapeXml(value).replace(/\r\n/g, '\n').replace(/\n/g, '<br/>');
+        return String(content || '').split('[newpage]').map(raw => {
+            const tokens = /\[\[rb:([^>\]]+)>([^\]]+)\]\]|\[\[jumpuri:([^>\]]+)>([^\]]+)\]\]|\[chapter:([^\]]+)\]|\[(?:uploadedimage|pixivimage):([0-9]+(?:-\d+)?)\]|\[jump:\d+\]/g;
+            let html = '', cursor = 0;
+            for (const match of raw.matchAll(tokens)) {
+                html += text(raw.slice(cursor, match.index));
+                cursor = match.index + match[0].length;
+                const [, base, ruby, label, rawUrl, title, id] = match;
+                if (base !== undefined) {
+                    html += `<ruby>${escapeXml(base.trim())}<rt>${escapeXml(ruby.trim())}</rt></ruby>`;
+                } else if (label !== undefined) {
+                    let link = escapeXml(label.trim());
+                    try {
+                        const candidate = rawUrl.trim();
+                        if (/^https?:\/\//i.test(candidate) && !/[\u0000-\u001F\u007F]/.test(candidate)) {
+                            const url = new URL(candidate);
+                            if ((url.protocol === 'http:' || url.protocol === 'https:')
+                                    && url.hostname && !url.username && !url.password) {
+                                link = `<a href="${escapeXml(url.href)}">${link}</a>`;
+                            }
+                        }
+                    } catch (_) {
+                        // 非绝对 URL 不生成可点击链接。
                     }
-                    const url = new URL(candidate);
-                    if ((url.protocol === 'http:' || url.protocol === 'https:')
-                            && url.hostname && !url.username && !url.password) {
-                        return ph(`<a href="${escapeXml(url.href)}">${label}</a>`);
-                    }
-                } catch (_) {
-                    // 非绝对 URL 不生成可点击链接。
+                    html += link;
+                } else if (title !== undefined) {
+                    html += `</p><h2>${escapeXml(title.trim())}</h2><p>`;
+                } else if (id !== undefined) {
+                    const file = imageNameById[id] || imageNameById[id.split('-')[0]];
+                    if (file) html += `</p><div class="img"><img src="images/${escapeXml(file)}" alt=""/></div><p>`;
                 }
-                return ph(label);
-            });
-            s = s.replace(/\[chapter:([^\]]+)\]/g, (_, title) =>
-                ph(`</p><h2>${escapeXml(title.trim())}</h2><p>`));
-            s = s.replace(/\[(?:uploadedimage|pixivimage):([0-9]+(?:-\d+)?)\]/g, (_, id) => {
-                const file = imageNameById[id] || imageNameById[String(id).split('-')[0]];
-                return file ? ph(`</p><div class="img"><img src="images/${file}" alt=""/></div><p>`) : '';
-            });
-            s = s.replace(/\[jump:\d+\]/g, '');
-            s = escapeXml(s);
-            s = s.replace(/\r\n/g, '\n').replace(/\n/g, '<br/>');
-            s = s.replace(/PH(\d+)PH/g, (_, i) => placeholders[Number(i)]);
-            return `<p>${s}</p>`.replace(/<p><\/p>/g, '');
+            }
+            return `<p>${html}${text(raw.slice(cursor))}</p>`.replace(/<p><\/p>/g, '');
         });
     }
 
@@ -999,41 +952,47 @@
             // 优先用原生 <a download> 触发浏览器下载（对 blob: 最可靠、跨管理器一致）；
             // 失败再回退 GM_download。GM_download 对 blob: URL 在多数管理器下会静默失败，
             // GM_download 的 onerror/ontimeout 必须拒绝，避免把失败报告为成功。
-            let triggered = false;
             try {
-                const a = document.createElement('a');
-                a.href = blobUrl;
-                a.download = fname;
-                a.rel = 'noopener';
-                a.style.display = 'none';
-                (document.body || document.documentElement).appendChild(a);
-                a.click();
-                a.remove();
-                triggered = true;
-            } catch (e) {
-                console.warn('anchor download failed, will try GM_download', e);
-            }
-            if (!triggered && typeof GM_download === 'function') {
-                await new Promise((resolve, reject) => {
+                let triggered = false;
+                try {
+                    const a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = fname;
+                    a.rel = 'noopener';
+                    a.style.display = 'none';
+                    (document.body || document.documentElement).appendChild(a);
                     try {
-                        GM_download({
-                            url: blobUrl,
-                            name: fname,
-                            onload: () => {
-                                triggered = true;
-                                resolve();
-                            },
-                            onerror: (err) => reject(new Error((err && (err.error || err.details)) || 'GM_download error')),
-                            ontimeout: () => reject(new Error('GM_download timeout'))
-                        });
-                    } catch (e) {
-                        reject(e);
+                        a.click();
+                        triggered = true;
+                    } finally {
+                        a.remove();
                     }
-                });
-            }
-            setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
-            if (!triggered) {
-                throw new Error('download was not triggered');
+                } catch (e) {
+                    console.warn('anchor download failed, will try GM_download', e);
+                }
+                if (!triggered && typeof GM_download === 'function') {
+                    await new Promise((resolve, reject) => {
+                        try {
+                            GM_download({
+                                url: blobUrl,
+                                name: fname,
+                                onload: () => {
+                                    triggered = true;
+                                    resolve();
+                                },
+                                onerror: (err) => reject(new Error((err && (err.error || err.details)) || 'GM_download error')),
+                                ontimeout: () => reject(new Error('GM_download timeout'))
+                            });
+                        } catch (e) {
+                            reject(e);
+                        }
+                    });
+                }
+                if (!triggered) {
+                    throw new Error('download was not triggered');
+                }
+            } finally {
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
             }
 
             markNovelDownloaded(novelId, title);
@@ -1159,12 +1118,6 @@
                 return;
             }
 
-            // 获取下一个文件夹索引
-            let folderIndex = GM_getValue('downloadFolderIndex', 0);
-
-            // 创建下载文件夹
-            const folderName = folderIndex.toString();
-
             // 下载所有图片
             let successCount = 0;
             for (let i = 0; i < imageUrls.length; i++) {
@@ -1198,9 +1151,6 @@
                 // 添加延迟避免请求过快
                 await new Promise(resolve => setTimeout(resolve, 1000));
             }
-
-            // 更新文件夹索引
-            GM_setValue('downloadFolderIndex', folderIndex + 1);
 
             // 记录已下载的作品
             if (successCount > 0) {
@@ -1271,15 +1221,6 @@
             GM_setValue('downloadedNovels', {});
             alert(t('local.alert.history-cleared'));
             createDownloadUI();
-        }
-    }
-
-    // 重置文件夹索引
-    function resetFolderIndex() {
-        const confirmReset = confirm(t('local.confirm.reset-folder-index'));
-        if (confirmReset) {
-            GM_setValue('downloadFolderIndex', 0);
-            alert(t('local.alert.folder-index-reset'));
         }
     }
 
@@ -1423,48 +1364,10 @@
             margin-top: 5px;
         `;
 
-        // 语言切换器
-        const switcherRow = document.createElement('div');
-        switcherRow.style.cssText = `
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 6px;
-            margin-top: 8px;
-            padding-top: 6px;
-            border-top: 1px solid #eee;
-            font-size: 11px;
-            color: #888;
-        `;
-        const switcherLabel = document.createElement('span');
-        switcherLabel.textContent = t('local.switcher.label');
-        const switcherSelect = document.createElement('select');
-        switcherSelect.style.cssText = `
-            flex: 1;
-            padding: 2px 4px;
-            border: 1px solid #ccc;
-            border-radius: 3px;
-            background: #fff;
-            font-size: 11px;
-            cursor: pointer;
-        `;
-        PixivUserscriptI18n.listSupported().forEach(lang => {
-            const opt = document.createElement('option');
-            opt.value = lang;
-            opt.textContent = t('switcher.option.' + lang);
-            if (lang === PixivUserscriptI18n.getLang()) opt.selected = true;
-            switcherSelect.appendChild(opt);
-        });
-        switcherSelect.addEventListener('change', () => {
-            PixivUserscriptI18n.setLang(switcherSelect.value);
-        });
-        switcherRow.appendChild(switcherLabel);
-        switcherRow.appendChild(switcherSelect);
-
         container.appendChild(statusDiv);
         container.appendChild(button);
         container.appendChild(artworkIdDiv);
-        container.appendChild(switcherRow);
+        container.appendChild(buildSwitcherRow());
         document.body.appendChild(container);
         attachLocalPanelChrome(container, t('local.fab.title'));
     }
@@ -1527,6 +1430,7 @@
     const menuCommandIds = [];
 
     function registerAllMenuCommands() {
+        if (menuCommandIds.length && typeof GM_unregisterMenuCommand !== 'function') return;
         if (typeof GM_unregisterMenuCommand === 'function') {
             while (menuCommandIds.length) {
                 try {
@@ -1534,14 +1438,11 @@
                 } catch (e) {
                 }
             }
-        } else {
-            menuCommandIds.length = 0;
         }
         menuCommandIds.push(GM_registerMenuCommand(t('local.menu.download-current'), downloadImages));
         menuCommandIds.push(GM_registerMenuCommand(t('local.menu.download-current-novel'), downloadNovel));
         menuCommandIds.push(GM_registerMenuCommand(t('local.menu.history'), showDownloadHistory));
         menuCommandIds.push(GM_registerMenuCommand(t('local.menu.clear-history'), clearDownloadHistory));
-        menuCommandIds.push(GM_registerMenuCommand(t('local.menu.reset-folder-index'), resetFolderIndex));
         menuCommandIds.push(GM_registerMenuCommand(t('local.menu.open'), () => setLocalPanelCollapsed(false, true)));
     }
 
@@ -1550,9 +1451,6 @@
         try {
             // 等待页面基本加载
             await waitForPageLoad();
-
-            // 等待Pixiv主要内容区域加载
-            await waitForElement('main, [role="main"], .sc-1n7super, .gtm-first-view', 15000);
 
             // 创建UI
             createDownloadUI();
