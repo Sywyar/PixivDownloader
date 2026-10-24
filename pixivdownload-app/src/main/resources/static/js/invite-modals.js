@@ -487,7 +487,7 @@
     // ---------- create / edit form ----------
     function openInviteFormModal(opts) {
         const prefill = opts.prefill || {};
-        // 默认全部年龄分级勾选（O6）
+        // 默认全部年龄分级勾选
         const isEdit = !!prefill.id || !!opts.editing;
         let allowSfw = isEdit ? prefill.allowSfw !== false : true;
         let allowR18 = isEdit ? !!prefill.allowR18 : true;
@@ -584,9 +584,11 @@
                     : kind === 'tag' || kind === 'novel-tag' ? 'modal.btn.config-tags' : 'modal.btn.config-authors'),
                 onclick: async () => {
                     errorBox.textContent = '';
+                    if (document.activeElement === btn) backdrop.querySelector('.invite-modal-close').focus();
                     btn.disabled = true;
                     try {
                         const items = await getItemsFn();
+                        if (!backdrop.isConnected) return;
                         const state = getState();
                         openVisibilityPicker({
                             kind, items,
