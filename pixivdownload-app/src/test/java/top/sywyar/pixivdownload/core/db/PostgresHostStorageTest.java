@@ -284,8 +284,8 @@ class PostgresHostStorageTest {
         new TransactionTemplate(transactions).executeWithoutResult(status -> {
             jdbc.update("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time)"
                     + " VALUES(91,'download','{0}/file',1,'png',1700000000123)");
-            capture.captureForwardedArtwork(91, "{\"illustTitle\":\"原快照\",\"isOriginal\":true}");
-            capture.captureForwardedArtwork(91, "{\"illustTitle\":\"被拒快照\",\"isOriginal\":false}");
+            capture.captureForwarded(WorkType.ARTWORK, 91, "{\"illustTitle\":\"原快照\",\"isOriginal\":true}");
+            capture.captureForwarded(WorkType.ARTWORK, 91, "{\"illustTitle\":\"被拒快照\",\"isOriginal\":false}");
             jdbc.update("INSERT INTO tags(name) VALUES ('after metadata failure')");
         });
         assertThat(jdbc.queryForObject("SELECT metadata_json FROM artworks", String.class))

@@ -5,6 +5,8 @@ import org.springframework.transaction.annotation.Transactional;
 import top.sywyar.pixivdownload.core.db.MainDatabase;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.TagDto;
+import top.sywyar.pixivdownload.core.metadata.query.WorkQueryPredicates;
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
 import top.sywyar.pixivdownload.plugin.api.storage.relational.*;
 import java.util.*;
 import static top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.*;
@@ -72,10 +74,15 @@ public class NovelMetadataRepository {
                 List.of(new Query.Order(column("novels", "series_order"), false, true),
                         new Query.Order(column("novels", "time"), false, true)), Integer.MAX_VALUE);
     }
-    public List<Long> getAllNovelIdsSortedByTimeDesc() {
-        return database.read(s -> s.query(new Query("novels", fields("novels", "novel_id"), equal("novels", "deleted", 0),
-                List.of(), List.of(new Query.Order(column("novels", "time"), true, false)), Integer.MAX_VALUE, 0))).stream()
-                .map(row -> (Long) row.get("novel_id")).toList();
+    public List<NovelMetadataRow> findSearchCandidates(WorkQuery query) {
+        Expression where = call(AND, equal("novels", "deleted", 0),
+                WorkQueryPredicates.visible("novels", "novel_id", "novel_tags", "novel_collections", query.restriction()));
+        if (query.collectionIds() != null && !query.collectionIds().isEmpty()) {
+            where = call(AND, where, WorkQueryPredicates.exists("novel_collections", "selected_collection",
+                    call(AND, call(EQUAL, column("selected_collection", "novel_id"), column("novels", "novel_id")),
+                            in("selected_collection", "collection_id", query.collectionIds()))));
+        }
+        return novels(where, List.of(new Query.Order(column("novels", "time"), true, false)), Integer.MAX_VALUE);
     }
     private NovelMetadataRow novel(Map<String, Object> row) {
         return new NovelMetadataRow((Long) row.get("novel_id"), (String) row.get("title"),

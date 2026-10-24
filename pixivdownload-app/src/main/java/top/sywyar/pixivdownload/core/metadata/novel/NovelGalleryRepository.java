@@ -46,7 +46,6 @@ public class NovelGalleryRepository {
         return r == null ? List.of() : ids(query(Map.of("novel_id", n("novel_id")), visibility(r),
                 List.of(), List.of(), List.of(order(n("time"), true)), Integer.MAX_VALUE));
     }
-    public Set<Long> findVisibleNovelIdSet(WorkRestriction r) { return new LinkedHashSet<>(findVisibleNovelIds(r)); }
     public long countVisibleNovels(WorkRestriction r) {
         return r == null ? 0 : (Long) rows(query(Map.of("cnt", call(COUNT)), visibility(r), List.of(),
                 List.of(), List.of(), 1)).get(0).get("cnt");

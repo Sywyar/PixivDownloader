@@ -17,6 +17,8 @@ import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
+import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelWorkSearch;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.query.WorkQuery;
@@ -124,8 +126,19 @@ class GuestCollectionVisibilityTest {
         WorkRestriction filters = restriction(false, List.of(1L, 2L));
         assertThat(artworks.findArtworkIds(query(filters, List.of(3L))).totalElements()).isZero();
         assertThat(artworks.findArtworkIds(query(filters, List.of(1L))).ids()).containsExactly(1L);
-        var search = new NovelWorkSearch(null, novels, null);
+        var paths = mock(PathPrefixCodec.class);
+        when(paths.resolve(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
+        var metadata = new NovelMetadataRepository(
+                top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(source), paths);
+        var search = new NovelWorkSearch(metadata, null);
         assertThat(search.filteredIds(WorkQuery.builder(WorkType.NOVEL).collectionIds(List.of(3L)).restriction(filters).build())).isEmpty();
+        assertThat(search.filteredIds(WorkQuery.builder(WorkType.NOVEL)
+                .collectionIds(List.of(1L, 2L)).restriction(filters).build())).containsExactly(3L, 1L);
+        assertThat(search.filteredIds(WorkQuery.builder(WorkType.NOVEL)
+                .collectionIds(List.of(1L, 2L)).restriction(restriction(true, List.of(1L, 2L))).build()))
+                .containsExactly(1L);
+        assertThat(search.filteredIds(WorkQuery.builder(WorkType.NOVEL)
+                .restriction(restriction(true, List.of(1L, 2L))).build())).containsExactly(4L, 1L);
     }
 
     @ParameterizedTest

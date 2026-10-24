@@ -17,6 +17,7 @@ import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMapper;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.db.MainDatabase;
 import top.sywyar.pixivdownload.core.db.InsertArtworkArgument;
 import top.sywyar.pixivdownload.core.db.PixivMapper;
 import top.sywyar.pixivdownload.core.db.TagDto;
@@ -41,7 +42,11 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @DisplayName("CoreWorkQueryService 集成测试")
@@ -54,6 +59,7 @@ class CoreWorkQueryServiceTest {
     private JdbcTemplate jdbc;
     private PixivDatabase pixivDatabase;
     private NovelMetadataRepository novelMetadataRepository;
+    private MainDatabase novelStorage;
     private AuthorService authorService;
     private CoreWorkQueryService service;
 
@@ -80,7 +86,8 @@ class CoreWorkQueryServiceTest {
         pixivDatabase = new PixivDatabase(
                 new PixivMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)), TestI18nBeans.appMessages(), codec, initializer);
         pixivDatabase.init();
-        novelMetadataRepository = new NovelMetadataRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), codec);
+        novelStorage = spy(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
+        novelMetadataRepository = new NovelMetadataRepository(novelStorage, codec);
 
         authorService = mock(AuthorService.class);
         service = new CoreWorkQueryService(
@@ -458,6 +465,20 @@ class CoreWorkQueryServiceTest {
     @Nested
     @DisplayName("小说列表与关联查询")
     class NovelQueryTests {
+
+        @Test
+        @DisplayName("小说列表一次读取候选元数据，不随作品数量逐篇查询")
+        void shouldReadNovelCandidatesInOneStorageOperation() {
+            for (long id = 1; id <= 32; id++) {
+                insertNovel(id, id, null, null);
+            }
+
+            var result = service.searchAll(WorkQuery.builder(WorkType.NOVEL).build());
+
+            assertThat(ids(result)).containsExactlyElementsOf(
+                    java.util.stream.LongStream.iterate(32, id -> id - 1).limit(32).boxed().toList());
+            verify(novelStorage, times(1)).read(any());
+        }
 
         @Test
         @DisplayName("小说 search 默认过滤软删除行，时间倒序，分页字段完整")

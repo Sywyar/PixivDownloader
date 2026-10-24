@@ -66,7 +66,7 @@ public class CoreWorkQueryService implements WorkQueryService {
         this.pixivDatabase = pixivDatabase;
         this.novelMetadataRepository = novelMetadataRepository;
         this.authorService = authorService;
-        this.novelWorkSearch = new NovelWorkSearch(novelMetadataRepository, novelGalleryRepository, authorService);
+        this.novelWorkSearch = new NovelWorkSearch(novelMetadataRepository, authorService);
     }
 
     @Override

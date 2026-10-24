@@ -32,7 +32,6 @@ public class NovelWorkSearch {
     private static final int AUTHOR_NAME_BATCH_SIZE = 500;
 
     private final NovelMetadataRepository novelMetadataRepository;
-    private final NovelGalleryRepository novelGalleryRepository;
     private final AuthorService authorService;
 
     /**
@@ -45,45 +44,14 @@ public class NovelWorkSearch {
                 && q.collectionIds().stream().anyMatch(id -> id == null || !restriction.isCollectionVisible(id))) {
             return List.of();
         }
-        Set<Long> idCandidates;
-        if (q.collectionIds() != null && !q.collectionIds().isEmpty()) {
-            // 多收藏夹取并集（与 pixiv-gallery 收藏夹筛选语义一致：勾选任一即可见）
-            idCandidates = new HashSet<>();
-            for (Long cid : q.collectionIds()) {
-                if (cid == null) continue;
-                idCandidates.addAll(novelMetadataRepository.getNovelIdsInCollection(cid));
-            }
-            if (idCandidates.isEmpty()) {
-                return List.of();
-            }
-        } else {
-            idCandidates = null;
-        }
-        // 访客可见性下沉到 SQL：把可见 id 集合与 collection 过滤求交集
-        if (restriction != null) {
-            Set<Long> visible = novelGalleryRepository.findVisibleNovelIdSet(restriction);
-            if (idCandidates == null) {
-                idCandidates = visible;
-            } else {
-                idCandidates.retainAll(visible);
-            }
-            if (idCandidates.isEmpty()) {
-                return List.of();
-            }
-        }
         String searchType = q.searchType() == null ? "all" : q.searchType();
         String searchRaw = q.search() == null ? "" : q.search().trim();
         String search = searchRaw.toLowerCase(Locale.ROOT);
         Long searchId = parseLongOrNull(searchRaw);
         boolean searchUsesAuthorNames = !searchRaw.isEmpty() && usesAuthorNameSearch(searchType);
         Set<Long> searchAuthorIds = searchUsesAuthorNames ? new LinkedHashSet<>() : Set.of();
-        List<Long> allIds = novelMetadataRepository.getAllNovelIdsSortedByTimeDesc();
-        List<NovelMetadataRow> candidateRecords = new ArrayList<>();
-        for (Long id : allIds) {
-            if (idCandidates != null && !idCandidates.contains(id)) continue;
-            NovelMetadataRow r = novelMetadataRepository.getNovel(id);
-            if (r == null) continue;
-            candidateRecords.add(r);
+        List<NovelMetadataRow> candidateRecords = novelMetadataRepository.findSearchCandidates(q);
+        for (NovelMetadataRow r : candidateRecords) {
             if (searchUsesAuthorNames && r.authorId() != null && r.authorId() > 0) {
                 searchAuthorIds.add(r.authorId());
             }
