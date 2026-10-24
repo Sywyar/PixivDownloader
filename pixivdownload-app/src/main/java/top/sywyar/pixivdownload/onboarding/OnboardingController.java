@@ -20,12 +20,10 @@ import java.util.regex.Pattern;
 /**
  * 浏览器侧引导接口。
  *
- * <p>本路径在 {@code AuthFilter.isAlwaysPublicApi} 放行（浏览器无 GUI 令牌），故每个端点都由控制器
- * 自身做权限校验：步骤完成回调仅限同机调用；{@code GET /profile} 用「全局可见」范围
- * （solo 模式任意请求 / multi 模式登录管理员）放行，专门作为前端新手向导的资格闸（403 = 不参与向导）；
- * {@code POST /profile}（写入称呼）与 {@code GET /connectivity}（触发外部探测）必须是真正已登录的管理员
- * （{@link SetupService#isAdminLoggedIn}），不再依赖 {@code hasAdminScope} —— 否则 solo 模式下未登录请求也能
- * 改写 {@code setup_config.json} 中的 displayName 并触发对 Pixiv 的探测。</p>
+ * <p>路由声明为 {@code PUBLIC}，每个端点另行校验权限：步骤完成回调只接受本机可信请求；
+ * {@code GET /profile} 通过 {@link SetupService#hasAdminScope} 排除邀请访客，允许 solo 请求与
+ * multi 模式已登录管理员读取；{@code POST /profile}（写入称呼）与 {@code GET /connectivity}
+ * （触发外部探测）均要求 {@link SetupService#isAdminLoggedIn}，避免未登录请求产生写入或外联。</p>
  *
  * <p>称呼（displayName）是非敏感的个性化展示信息，写入 {@code setup_config.json}；连通性探测固定只访问
  * {@code https://www.pixiv.net/}，不携带 Cookie、不回显上游正文（见 {@link PixivConnectivityProbe}）。</p>
@@ -56,8 +54,7 @@ public class OnboardingController {
     }
 
     /**
-     * 读取当前称呼（个性化问候）。前端把 403 作为新手向导的 ineligible 信号，因此保留 hasAdminScope
-     * （solo 模式任意请求 / multi 模式登录管理员）放行；写入与探测端点单独收紧。
+     * 读取当前称呼；前端把 403 作为不参与新手向导的信号，读取资格与写入、探测权限分别判定。
      */
     @GetMapping("/profile")
     public ResponseEntity<ProfileResponse> getProfile(HttpServletRequest req) {

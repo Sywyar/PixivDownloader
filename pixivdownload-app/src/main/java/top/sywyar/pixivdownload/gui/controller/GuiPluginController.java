@@ -38,8 +38,7 @@ import java.util.Set;
  * {@code AuthFilter} / {@code RouteAccessRegistry}，也不持有任何 PF4J 类型。
  *
  * <p>插件展示名称在<b>服务端</b>按请求 locale 解析（复用 {@link WebI18nService} 的 classloader-aware i18n 流水线，
- * 覆盖外置插件），解析失败回退到插件 id——GUI 因此无需自行解析外置插件的 i18n bundle（GUI 的 {@code ConfigFieldRegistry}
- * 只遍历内置插件、解析不到外置）。
+ * 覆盖外置插件），解析失败回退到插件 id，GUI 无需自行解析外置插件的 i18n bundle。
  */
 @RestController
 @RequestMapping("/api/gui/plugins")
