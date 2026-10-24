@@ -2,16 +2,20 @@ package top.sywyar.pixivdownload.setup;
 
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
+import org.jsoup.Jsoup;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
 import org.springframework.boot.web.server.WebServer;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -32,6 +36,8 @@ import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
 import top.sywyar.pixivdownload.plugin.CorePlugin;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.web.resource.StaticResourceConfig;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
@@ -89,6 +95,7 @@ class AuthFilterServletTest {
         when(locale.resolveLocale(any())).thenReturn(Locale.ENGLISH);
         var staticLimits = mock(StaticResourceRateLimitService.class);
         when(staticLimits.isAllowed(anyString())).thenReturn(true);
+        when(staticLimits.isAllowedForInvite(anyString())).thenReturn(true);
         var limits = mock(RateLimitService.class);
         when(limits.isAllowed(anyString())).thenReturn(true);
         when(limits.isAllowedForInvite(anyString())).thenReturn(true);
@@ -122,7 +129,9 @@ class AuthFilterServletTest {
                 new GuestAccessGuard(new GuestWorkVisibilityScopeFactory(), visibility));
 
         context = new AnnotationConfigWebApplicationContext();
-        context.register(WebConfig.class);
+        context.register(WebConfig.class, StaticResourceConfig.class);
+        context.addBeanFactoryPostProcessor(factory -> factory.registerSingleton("staticResources",
+                new StaticResourceRegistry(new PluginRegistry(List.of()))));
         context.addBeanFactoryPostProcessor(factory -> factory.registerSingleton("assets", controller));
         context.addBeanFactoryPostProcessor(factory -> factory.registerSingleton("policy", policyController));
         var factory = new TomcatServletWebServerFactory(0);
@@ -177,6 +186,51 @@ class AuthFilterServletTest {
 
     private HttpResponse<byte[]> request(String path, String cookie) throws Exception {
         return request("GET", path, cookie, false);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "false, solo, login.html",
+            "true, solo, login.html",
+            "true, multi, login.html",
+            "true, solo, intro.html",
+            "true, solo, maintenance.html",
+            "true, solo, error/404.html",
+            "false, solo, setup.html"
+    })
+    @DisplayName("匿名与受邀访客能读取实际页面及转换后注入的脚本和样式")
+    void pageDependenciesPreservePublicAccess(boolean setupComplete, String mode, String page) throws Exception {
+        when(setup.isSetupComplete()).thenReturn(setupComplete);
+        when(setup.getMode()).thenReturn(mode);
+        try {
+            for (String cookie : setupComplete ? List.of("", "pixiv_invite_token=invited") : List.of("")) {
+                var response = request("GET", "/" + page, cookie, !setupComplete);
+                assertThat(response.statusCode()).as(page).isEqualTo(200);
+                var html = Jsoup.parse(new String(response.body(), StandardCharsets.UTF_8));
+                assertThat(html.select("script[data-pixiv-assets]")).hasSize(1);
+                var dependencies = html.select("script[src], link[href]");
+                assertThat(dependencies).isNotEmpty();
+                for (var element : dependencies) {
+                    URI url = URI.create(element.attr(element.tagName().equals("script") ? "src" : "href"));
+                    if (url.isAbsolute() || url.getRawAuthority() != null) continue;
+                    String path = url.getRawPath().replaceFirst("^/test/", "/");
+                    String target = path + (url.getRawQuery() == null ? "" : "?" + url.getRawQuery());
+                    var asset = request("GET", target, cookie, !setupComplete);
+                    assertThat(asset.statusCode()).as("%s 引用的 %s", page, target).isEqualTo(200);
+                    assertThat(asset.headers().firstValue("Location")).as(target).isEmpty();
+                    assertThat(asset.body()).as(target).isNotEmpty();
+                    if (path.endsWith(".css")) {
+                        assertThat(asset.headers().firstValue("Content-Type")).hasValue("text/css");
+                    } else if (path.endsWith(".js")) {
+                        assertThat(asset.headers().firstValue("Content-Type").orElseThrow())
+                                .isIn("text/javascript", "application/javascript");
+                        assertThat(asset.body()).isEqualTo(new ClassPathResource("static" + path).getContentAsByteArray());
+                    }
+                }
+            }
+        } finally {
+            when(setup.isSetupComplete()).thenReturn(true);
+        }
     }
 
     @Test
