@@ -8,10 +8,6 @@ import java.nio.file.Path;
  */
 public record FfmpegInstallation(Path ffmpegPath, Path ffprobePath, Path homeDir, Source source) {
 
-    public boolean hasFfmpeg() {
-        return ffmpegPath != null && Files.isRegularFile(ffmpegPath);
-    }
-
     public boolean hasFfprobe() {
         return ffprobePath != null && Files.isRegularFile(ffprobePath);
     }

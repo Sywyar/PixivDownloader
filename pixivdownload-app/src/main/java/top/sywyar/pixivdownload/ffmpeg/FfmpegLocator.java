@@ -121,14 +121,6 @@ public final class FfmpegLocator {
         }
     }
 
-    public static String resolveFfmpegCommand() {
-        return locate()
-                .filter(FfmpegInstallation::hasFfmpeg)
-                .map(FfmpegInstallation::ffmpegPath)
-                .map(Path::toString)
-                .orElseGet(FfmpegLocator::fallbackCommand);
-    }
-
     public static Path managedRootDir() {
         return packagedApplicationRoot()
                 .or(FfmpegLocator::workingDirectory)

@@ -57,7 +57,6 @@ class FfmpegLocatorTest {
         assertEquals(ffprobe, installation.ffprobePath());
         assertEquals(tempDir, installation.homeDir());
         assertEquals(FfmpegInstallation.Source.MANAGED, installation.source());
-        assertTrue(installation.hasFfmpeg());
         assertTrue(installation.hasFfprobe());
     }
 
