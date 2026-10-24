@@ -1,6 +1,5 @@
 package top.sywyar.pixivdownload.logback;
 
-import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.pattern.TargetLengthBasedClassNameAbbreviator;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.IThrowableProxy;
@@ -43,7 +42,6 @@ public class HtmlLogLayout extends LayoutBase<ILoggingEvent> {
     private static final String COLOR_ERROR   = "#f87171"; // ANSI 31 RED
     private static final String COLOR_DEBUG   = "#22d3ee"; // ANSI 36 CYAN
     private static final String COLOR_TRACE   = "#c084fc"; // ANSI 35 MAGENTA
-    private static final String COLOR_DEFAULT = "#d4d4d4";
 
     // ── HTML 文档头部（包含 CSS） ────────────────────────────────────────────────
 
@@ -169,16 +167,4 @@ public class HtmlLogLayout extends LayoutBase<ILoggingEvent> {
         return name == null ? "" : LOGGER_ABBREVIATOR.abbreviate(name);
     }
 
-    /** 根据日志级别返回对应的 CSS 颜色（与 MdcColorConverter 一致）。 */
-    @SuppressWarnings("unused") // 保留供外部工具 / 测试调用
-    public static String colorForLevel(Level level) {
-        return switch (level.levelInt) {
-            case Level.INFO_INT  -> COLOR_INFO;
-            case Level.WARN_INT  -> COLOR_WARN;
-            case Level.ERROR_INT -> COLOR_ERROR;
-            case Level.DEBUG_INT -> COLOR_DEBUG;
-            case Level.TRACE_INT -> COLOR_TRACE;
-            default              -> COLOR_DEFAULT;
-        };
-    }
 }

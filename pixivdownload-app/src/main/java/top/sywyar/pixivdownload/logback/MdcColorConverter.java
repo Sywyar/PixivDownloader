@@ -6,8 +6,6 @@ import ch.qos.logback.core.pattern.color.ANSIConstants;
 import ch.qos.logback.core.pattern.color.ForegroundCompositeConverterBase;
 
 public class MdcColorConverter extends ForegroundCompositeConverterBase<ILoggingEvent> {
-    public static final String key = "MDCCOLORCONVERTER_KEY";
-
     @Override
     protected String getForegroundColorCode(ILoggingEvent event) {
         return switch (event.getLevel().levelInt) {
