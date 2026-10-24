@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复图片分类器混合数字与文字目录排序不一致，以及无法解析作品编号时出现空指针的问题。
 - 修复手写 YAML 配置中的 Unicode 转义和带 `#` 的值被错误读取的问题。
 - 修复保存插件仓库列表或回滚失败的导入时，覆盖其它入口已保存配置的问题。
 - 修复插件配置含转义键或续行时保存、删除不完整的问题，并拒绝同一配置键的重复转义写法。

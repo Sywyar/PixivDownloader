@@ -21,6 +21,71 @@ class DesktopUiToolsTest {
     Path tempDir;
 
     @Test
+    @org.junit.jupiter.api.DisplayName("分类目录混合数字及文字名称时保留全部目录并按稳定顺序排列")
+    void sortsMixedClassifierFolderNames() throws Exception {
+        for (String name : List.of("2", "10", "1a", "01", "1", "2147483648", "中文")) {
+            Files.createDirectory(tempDir.resolve(name));
+        }
+        Files.writeString(tempDir.resolve("ignored.txt"), "not a directory", StandardCharsets.UTF_8);
+
+        assertThat(new DesktopUiTools(() -> "").listImageClassifierFolders(tempDir))
+                .extracting(path -> path.getFileName().toString())
+                .containsExactly("01", "1", "2", "10", "2147483648", "1a", "中文");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"0", "-1", "unknown", "9223372036854775808"})
+    @org.junit.jupiter.api.DisplayName("无法取得正数作品编号的目录返回空结果")
+    void rejectsUnresolvedClassifierArtwork(String name) {
+        assertThat(new DesktopUiTools(() -> "").resolveImageClassifierArtwork(tempDir.resolve(name), null))
+                .isEmpty();
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("文件系统根目录没有作品编号时返回空结果")
+    void rejectsClassifierRootWithoutArtworkId() {
+        assertThat(new DesktopUiTools(() -> "").resolveImageClassifierArtwork(tempDir.getRoot(), null))
+                .isEmpty();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"0", "-1", "1.5", "18446744073709551625"})
+    @org.junit.jupiter.api.DisplayName("服务有效正数编号优先，非法编号回退目录，无法解析时不查询详情")
+    void resolvesOnlyPositiveServerArtworkIds(String invalidId) throws Exception {
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("localhost", 0), 0);
+        var requests = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        var serverArtworkId = new java.util.concurrent.atomic.AtomicReference<>(invalidId);
+        server.createContext("/api/downloaded/", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            requests.add(path);
+            byte[] body = (path.endsWith("by-move-folder")
+                    ? "{\"artworkId\":" + serverArtworkId.get() + "}" : "{\"title\":\"Example\"}")
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(body);
+            }
+        });
+        server.start();
+        try {
+            var target = new DesktopUiToolHost.ImageClassifierServer(true, "http://localhost:" + server.getAddress().getPort());
+            var tools = new DesktopUiTools(() -> "");
+            assertThat(tools.resolveImageClassifierArtwork(tempDir.resolve("42"), target))
+                    .contains(new DesktopUiToolHost.ImageClassifierArtwork(42L, "Example", null));
+            serverArtworkId.set("-1");
+            assertThat(tools.resolveImageClassifierArtwork(tempDir.resolve("0"), target)).isEmpty();
+            serverArtworkId.set("99");
+            assertThat(tools.resolveImageClassifierArtwork(tempDir.resolve("42"), target))
+                    .contains(new DesktopUiToolHost.ImageClassifierArtwork(99L, "Example", null));
+            assertThat(requests).containsExactly("/api/downloaded/by-move-folder", "/api/downloaded/42",
+                    "/api/downloaded/by-move-folder", "/api/downloaded/by-move-folder", "/api/downloaded/99");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     @org.junit.jupiter.api.DisplayName("分类器自动地址跟随后端，显式指定的其它实例地址仍优先")
     void classifierUsesCurrentInstanceUnlessConfigured() throws Exception {
         var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("localhost", 0), 0);

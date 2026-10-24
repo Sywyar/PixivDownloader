@@ -155,7 +155,11 @@ final class DesktopUiTools {
 
     List<Path> listImageClassifierFolders(Path parent) throws IOException {
         try (var paths = Files.list(parent)) {
-            return paths.filter(Files::isDirectory).sorted(DesktopUiTools::compareFolderNames).toList();
+            return paths.filter(Files::isDirectory)
+                    .sorted(Comparator.comparing((Path path) -> parseLongOrNull(path.getFileName().toString()),
+                                    Comparator.nullsLast(Comparator.naturalOrder()))
+                            .thenComparing(path -> path.getFileName().toString()))
+                    .toList();
         }
     }
 
@@ -202,22 +206,19 @@ final class DesktopUiTools {
                 if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                     Object value = response.getBody().get("artworkId");
                     if (value instanceof Number number) {
-                        artworkId = number.longValue();
+                        artworkId = parseLongOrNull(number.toString());
                     }
                 }
             } catch (Exception exception) {
                 log.debug("Failed to resolve artwork by move folder: {}", exception.getMessage());
             }
         }
-        if (artworkId == null) {
-            try {
-                long parsed = Long.parseLong(folder.getFileName().toString());
-                if (parsed > 0) {
-                    artworkId = parsed;
-                }
-            } catch (NumberFormatException ignored) {
-                return Optional.empty();
-            }
+        if (artworkId == null || artworkId <= 0) {
+            Path name = folder.getFileName();
+            artworkId = name == null ? null : parseLongOrNull(name.toString());
+        }
+        if (artworkId == null || artworkId <= 0) {
+            return Optional.empty();
         }
 
         String title = null;
@@ -337,13 +338,11 @@ final class DesktopUiTools {
         }
     }
 
-    private static int compareFolderNames(Path left, Path right) {
-        String leftName = left.getFileName().toString();
-        String rightName = right.getFileName().toString();
+    private static Long parseLongOrNull(String value) {
         try {
-            return Integer.compare(Integer.parseInt(leftName), Integer.parseInt(rightName));
+            return Long.parseLong(value);
         } catch (NumberFormatException ignored) {
-            return leftName.compareTo(rightName);
+            return null;
         }
     }
 
