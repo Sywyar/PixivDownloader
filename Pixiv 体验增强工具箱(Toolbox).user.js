@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv 体验增强工具箱
 // @namespace    http://tampermonkey.net/
-// @version      1.2.1
+// @version      1.2.2
 // @updateURL    https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E4%BD%93%E9%AA%8C%E5%A2%9E%E5%BC%BA%E5%B7%A5%E5%85%B7%E7%AE%B1(Toolbox).user.js
 // @downloadURL  https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E4%BD%93%E9%AA%8C%E5%A2%9E%E5%BC%BA%E5%B7%A5%E5%85%B7%E7%AE%B1(Toolbox).user.js
 // @description  Pixiv 使用体验增强工具箱
@@ -670,9 +670,11 @@
             const finish = (arr, err) => {
                 if (settled) return;
                 settled = true;
+                clearTimeout(guard);
                 if (err) console.warn(COOKIE_LOG, 'GM_cookie.list error', details, err);
                 resolve(Array.isArray(arr) ? arr : null);
             };
+            const guard = setTimeout(() => finish(null, 'timeout'), 4000);
             try {
                 const ret = api.list(details, (cookies, error) => finish(cookies, error));
                 if (ret && typeof ret.then === 'function') {
@@ -681,7 +683,6 @@
             } catch (e) {
                 finish(null, e);
             }
-            setTimeout(() => finish(null, 'timeout'), 4000);
         });
     }
 
@@ -735,7 +736,7 @@
 
     async function pushPixivCookieToServer(base) {
         const raw = (await readPixivCookieHeader()).trim();
-        const hasPhp = !!raw && /(?:^|;\s*)PHPSESSID=/.test(raw);
+        const hasPhp = /(?:^|;\s*)PHPSESSID=[^;\s]/.test(raw);
         const status = hasPhp ? 'ok' : (raw ? 'no-php' : 'empty');
         const stateUrl = base + '/api/batch/state';
         try {
@@ -743,12 +744,10 @@
             if (getRes.status === 401) return { code: 'unauthorized' };
             if (getRes.status !== 200) return { code: 'http', status: getRes.status };
 
-            let state = {};
-            try {
-                const parsed = JSON.parse(getRes.responseText || '{}');
-                const s = parsed && parsed.state;
-                if (s && typeof s === 'object') state = s;
-            } catch (e) { state = {}; }
+            const state = JSON.parse(getRes.responseText)?.state;
+            if (!state || typeof state !== 'object' || Array.isArray(state)) {
+                throw new TypeError('batch state must be an object');
+            }
 
             // 仅在拿到登录态 PHPSESSID 时才写入 Cookie，避免用无登录态的
             // Cookie 覆盖用户已手动粘贴的可用 Cookie。
@@ -782,6 +781,7 @@
         const listeners = new Set();
         let state = { phase: 'checking', local: false, mode: null, loggedIn: false };
         let inFlight = null;
+        let inFlightBase = null;
 
         function isLocalHost(base) {
             try {
@@ -806,20 +806,32 @@
         async function refresh() {
             const base = serverBase;
             const local = isLocalHost(base);
-            if (inFlight) return inFlight;
+            if (inFlight) {
+                if (inFlightBase === base) return inFlight;
+                setState({ phase: 'checking', local, mode: null, loggedIn: false });
+                await inFlight;
+                if (base === serverBase) return refresh();
+                return;
+            }
+            inFlightBase = base;
             setState({ phase: 'checking', local });
             inFlight = (async () => {
                 try {
-                    const [statusRes, checkRes] = await Promise.all([
+                    const results = await Promise.allSettled([
                         gmRequest({ method: 'GET', url: base + '/api/setup/status', timeout: 6000 }),
                         gmRequest({ method: 'GET', url: base + '/api/auth/check', timeout: 6000 })
                     ]);
+                    if (base !== serverBase) return;
+                    const failure = results.find(result => result.status === 'rejected');
+                    if (failure) throw failure.reason;
+                    const [statusRes, checkRes] = results.map(result => result.value);
                     let mode = null;
                     let loggedIn = false;
                     try { mode = (JSON.parse(statusRes.responseText) || {}).mode || null; } catch (e) {}
                     try { loggedIn = (JSON.parse(checkRes.responseText) || {}).valid === true; } catch (e) {}
                     setState({ phase: 'resolved', local, mode, loggedIn });
                 } catch (e) {
+                    if (base !== serverBase) return;
                     console.warn(t('log.server-status-check-failed', '服务器状态检测失败'), e);
                     setState({ phase: 'unreachable', local, mode: null, loggedIn: false });
                 }
