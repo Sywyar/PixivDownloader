@@ -317,16 +317,17 @@ public class NovelDownloadController {
                     false, messages.get("download.status.not-found"),
                     novelId, null, null, null, false, false, null, 0, 0, 0L, 0L, null, null));
         }
+        NovelDownloadStatus.State state = status.getState();
         return ResponseEntity.ok(new NovelDownloadStatusResponse(
                 true,
-                messages.get(statusMessageCode(status), status.isFailed() && status.getErrorMessage() != null
-                        ? new Object[]{status.getErrorMessage()} : new Object[0]),
+                messages.get(statusMessageCode(state), state.failed() && state.errorMessage() != null
+                        ? new Object[]{state.errorMessage()} : new Object[0]),
                 novelId,
                 status.getTitle(),
                 status.getFormat(),
-                status.getStage(),
-                status.isCompleted(),
-                status.isFailed(),
+                state.stage(),
+                state.completed(),
+                state.failed(),
                 status.getDownloadPath(),
                 status.getEmbeddedTotal(),
                 status.getEmbeddedDone(),
@@ -524,11 +525,11 @@ public class NovelDownloadController {
         };
     }
 
-    private static String statusMessageCode(NovelDownloadStatus s) {
-        if (s.isCancelled()) return "download.status.cancelled";
-        if (s.isFailed()) return "download.status.failed";
-        if (s.isCompleted()) return "download.status.completed";
-        return "download.status.in-progress";
+    private static String statusMessageCode(NovelDownloadStatus.State s) {
+        if (s.cancelled()) return "download.status.cancelled";
+        if (s.failed()) return "download.status.failed";
+        if (s.completed()) return "novel.download.status.completed";
+        return "novel.download.status.in-progress";
     }
 
     private void stripUnauthorizedCollectionSelection(NovelDownloadCommand request, String mode, boolean isAdmin) {

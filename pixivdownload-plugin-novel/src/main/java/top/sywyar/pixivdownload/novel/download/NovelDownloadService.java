@@ -441,8 +441,7 @@ public class NovelDownloadService implements NovelDownloader {
             }
 
             ensureNotCancelled(status);
-            status.setStage("completed");
-            status.setCompleted(true);
+            status.complete();
             log.info("novel download completed: id={}, format={}, path={}", novelId, ext, downloadPath);
             succeeded = true;
             recorded = true;
@@ -470,15 +469,11 @@ public class NovelDownloadService implements NovelDownloader {
             cancelTrackedStatus(status);
         } catch (top.sywyar.pixivdownload.core.database.DatabaseUnavailableException unavailable) {
             succeeded = false;
-            status.setCompleted(true);
-            status.setFailed(true);
-            status.setErrorMessage(messages.get("plugin.recovery.database-unavailable"));
+            status.fail(messages.get("plugin.recovery.database-unavailable"));
             throw unavailable;
         } catch (Exception e) {
             log.error("novel download failed: id={}", novelId, e);
-            status.setCompleted(true);
-            status.setFailed(true);
-            status.setErrorMessage(e instanceof DownloadPathRejectedException
+            status.fail(e instanceof DownloadPathRejectedException
                     ? messages.get("download.path.segment.invalid", other.getUsername())
                     : e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         } finally {
@@ -609,11 +604,7 @@ public class NovelDownloadService implements NovelDownloader {
     }
 
     private void cancelTrackedStatus(NovelDownloadStatus status) {
-        status.setCancelled(true);
-        status.setCompleted(true);
-        status.setFailed(false);
-        status.setStage("cancelled");
-        status.setErrorMessage(messages.get("download.cancelled"));
+        status.cancel(messages.get("download.cancelled"));
     }
 
     private static void rethrow(Throwable failure) {
