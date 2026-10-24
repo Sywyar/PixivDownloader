@@ -37,7 +37,10 @@ final class DesktopWindowStateStore {
                     || Files.size(file) > MAX_FILE_BYTES) {
                 throw new IllegalArgumentException("invalid window state file");
             }
-            byte[] bytes = Files.readAllBytes(file);
+            byte[] bytes;
+            try (var input = Files.newInputStream(file)) {
+                bytes = input.readNBytes(MAX_FILE_BYTES + 1);
+            }
             if (bytes.length > MAX_FILE_BYTES) throw new IllegalArgumentException("invalid window state file");
             JsonNode root = MAPPER.readTree(bytes);
             if (root == null || !root.isObject() || root.size() != 3

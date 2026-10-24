@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复窗口状态文件在读取期间增大时仍被完整读入内存的问题。
 - 修复图片下载、缩略图代理及 Pixiv JSON、收藏请求完整缓冲上游错误正文的问题；缩略图代理拒绝超过 100 MiB 的响应。
 - 修复独立下载脚本重建设置面板或准备下载时，旧收藏夹查询清除新选择的问题。
 - 修正独立下载脚本的翻译分段说明：大小为 0 时整章翻译。
