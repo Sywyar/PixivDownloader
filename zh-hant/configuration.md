@@ -176,10 +176,12 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 | --- | --- | --- |
 | `app.language` | 空 | 跟隨系統；也可使用受支持語言代碼 |
 | `app.theme` | `system` | GUI 主題 id |
-| `app.config-menu-expand-all` | `false` | 是否默認展開全部配置菜單 |
-| `app.gui-provider` | `gui-swing` | 桌面 GUI provider id；只能選擇當前活動插件提供的值 |
+| `app.config-menu-expand-all` | `false` | 只控制 Swing 的設定選單展開；Compose 不提供此選項，也不改寫此偏好 |
+| `app.gui-provider` | 空 | 桌面 GUI provider id；只能選擇當前活動插件提供的值 |
 
-可用主題由已安裝的主題插件貢獻；GUI provider 下拉項同樣由當前活動的 `DesktopUiProvider` 動態提供，不是宿主硬編碼清單。官方 `gui-swing` 默認安裝，`gui-compose` 按需安裝。切換 provider 必須完整重啓；配置的 provider 不可用時，只會回退到唯一默認 provider，不按發現順序任選。
+兩個桌面介面都提供 `system`、`light`、`dark`，額外佈景主題由目前選擇的介面提供。GUI provider 下拉選單來自目前啟用的 `DesktopUiProvider`。發行套件預設包含 Compose 和 Swing，首次未指定時選擇 Compose；切換介面需要完整重新啟動。
+
+語言和佈景主題可立即預覽，按下設定頁共用的儲存按鈕後才會記住選擇。語言設定只影響介面，日誌使用英文。
 
 ### 在線更新
 

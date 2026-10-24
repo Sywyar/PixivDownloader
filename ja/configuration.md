@@ -139,10 +139,12 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 | --- | --- | --- |
 | `app.language` | 空 | システムに従うか、対応言語コードを指定 |
 | `app.theme` | `system` | GUI テーマ ID |
-| `app.config-menu-expand-all` | `false` | 初期状態で全グループを展開 |
-| `app.gui-provider` | `gui-swing` | デスクトップ GUI provider ID。選択肢は有効な provider プラグインから取得 |
+| `app.config-menu-expand-all` | `false` | Swing の設定メニューの展開だけを制御。Compose はこの項目を表示せず、保存済みの値も変更しません |
+| `app.gui-provider` | 空 | デスクトップ GUI provider ID。選択肢は有効な provider プラグインから取得 |
 
-テーマはインストール済みテーマプラグインから提供されます。GUI provider の選択肢も有効な `DesktopUiProvider` から動的に取得され、ホストには固定一覧がありません。公式 `gui-swing` は既定でインストールされ、`gui-compose` はオンデマンドです。切り替えにはアプリケーション全体の再起動が必要です。指定した provider が利用できない場合は、唯一の既定 provider にだけフォールバックできます。
+どちらのデスクトップ UI でも `system`、`light`、`dark` を選べます。追加テーマは、選択した UI が提供します。GUI provider の選択肢は有効な `DesktopUiProvider` から取得します。配布物には Compose と Swing が含まれ、初回起動で未指定の場合は Compose を選択します。UI の切り替えにはアプリケーション全体の再起動が必要です。
+
+言語とテーマはすぐにプレビューできます。選択を保持するには、設定ページ共通の保存操作を使ってください。言語設定は画面表示に適用され、ログは英語で出力されます。
 
 ### 更新とスケジュールホスト
 

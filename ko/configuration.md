@@ -50,7 +50,11 @@ HTTPS 종료를 프록시에서 수행하는 경우 `Forwarded` 또는 `X-Forwar
 
 `app.language`에 `ko-KR`, `en-US`, `zh-CN`, `zh-Hant`, `ja-JP` 같은 BCP 47 태그를 지정할 수 있습니다. 비워 두면 시스템 언어를 따르며, 현재 UI 언어와 콘텐츠 번역 언어는 서로 독립적입니다.
 
-`app.gui-provider`의 기본값은 `gui-swing`입니다. GUI의 선택지는 현재 활성화된 `DesktopUiProvider` 플러그인이 동적으로 제공하며 호스트에 내장된 목록이 아닙니다. 공식 `gui-swing`은 기본 설치이고 `gui-compose`는 필요할 때 설치합니다. provider 전환에는 전체 애플리케이션 재시작이 필요하며, 설정한 provider를 사용할 수 없으면 유일한 기본 provider로만 fallback합니다.
+두 데스크톱 UI 모두 `system`, `light`, `dark`를 제공하며 추가 테마는 선택한 UI에 따라 달라집니다. GUI 공급자 목록은 활성 `DesktopUiProvider`에서 가져옵니다. 배포본에는 Compose와 Swing이 포함되며, 최초 실행 시 공급자를 지정하지 않으면 Compose를 선택합니다. UI 전환에는 앱 전체 재시작이 필요합니다.
+
+언어와 테마는 즉시 미리 볼 수 있습니다. 선택을 유지하려면 설정 페이지의 공통 저장 기능을 사용하세요. 언어 설정은 화면에 적용되며 로그는 영어로 출력됩니다.
+
+`app.config-menu-expand-all`은 Swing의 설정 메뉴 펼침만 제어합니다. Compose는 이 옵션을 제공하거나 저장된 값을 변경하지 않습니다
 
 ### 업데이트 및 예약 호스트
 
