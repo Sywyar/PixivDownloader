@@ -79,8 +79,8 @@ import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionReg
  * </ol>
  *
  * <p>承载 probe loader 强引用的 {@link #registerAssertAndTearDown} 把 probe loader / 插件 / 执行器 / 注册条目全部
- * 限定在该方法栈帧内，返回后这些强引用即出帧不可达；GC 探针前各注册中心已确定性证明不含该插件，故仍存活的注册中心
- * 不再 pin probe loader、可安全留作诊断重查。
+ * 限定在该方法栈帧内，避免调用方局部变量继续持有它们；注册中心保留用于诊断重查，
+ * 其公开快照不含该插件不能证明内部所有持有路径均已释放。
  *
  * <p>controller 映射注销后不再持有子 context handler 的回归由真实 PF4J 子 context 的
  * {@code GalleryToolsStatsBootContextTest} 覆盖；本探针聚焦不依赖子 context 的 classLoader 字段链 / Bean 实例链。

@@ -18,13 +18,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static top.sywyar.pixivdownload.plugin.PluginTestArtifacts.zipDirectoryAsJar;
 
 /**
- * 真实外置插件 classloader <b>物理卸载后可被 GC 回收</b>的端到端泄漏回归：用真实 stats 插件 jar（编译产物 + 根部
+ * 真实外置插件 classloader 物理卸载后的回收探针：用 gallery-tools 插件 jar（编译产物 + 根部
  * {@code plugin.properties} 组装）经 {@link PluginRuntimeManager} 真实加载 / 启动，捕获其插件 classloader 的弱引用，
- * 经 PF4J <b>物理卸载</b>（{@code stopPlugins} + {@code unloadPlugins}，释放 {@code PluginWrapper} 与 jar 文件句柄）后
- * 丢弃全部强引用，断言该 classloader 可被回收。
+ * 经 {@link PluginRuntimeManager#unloadPlugin(String)} 物理卸载后，
+ * 释放测试直接持有的强引用，检查 JAR 句柄释放并观察 classloader 是否被回收。
  *
  * <p>这条用例补足 {@link PluginClassLoaderLeakProbeTest}（受控合成 loader）<b>没有</b>覆盖的那一段——真实 PF4J
- * {@code PluginClassLoader}（含真实加载的类、jar 文件句柄）在物理卸载后确实失去全部强引用、可被回收。
+ * {@code PluginClassLoader}（含真实加载的类、jar 文件句柄）的物理卸载与回收观测。
  *
  * <h2>强引用约束</h2>
  * 捕获 classloader 与物理卸载收口在 {@link #loadCaptureAndUnload} <b>独立栈帧</b>内：{@link PluginRuntimeManager}、
@@ -32,12 +32,11 @@ import static top.sywyar.pixivdownload.plugin.PluginTestArtifacts.zipDirectoryAs
  * 调用方不残留任何 pin 住 classloader 的局部。
  *
  * <p>gallery-tools 构建产物目录经 surefire 系统属性 {@code gallery-tools.plugin.classes} 传入；未就绪时
- *（如 IDE 未触发 reactor 构建）整条用例 {@link Assumptions assume} 跳过。允许弱引用 GC 在 Windows / JVM 下不稳定：
- * 物理卸载后若本环境未回收，则判为环境 inconclusive（{@link Assumptions#abort}）而非业务失败——是否真有强引用残留由
- * {@link PluginClassLoaderLeakProbeTest} 的确定性引用链检查与生命周期 teardown 用例守住。
+ *（如 IDE 未触发 reactor 构建）整条用例 {@link Assumptions assume} 跳过。预算内未观察到回收时，
+ * 以 {@link Assumptions#abort} 保留原因未确定的边界；其它 teardown 用例只证明各自覆盖的引用或资源已释放。
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@DisplayName("真实外置 stats 插件 classloader 物理卸载后可被 GC 回收")
+@DisplayName("真实外置插件物理卸载后的 JAR 释放与 classloader 回收探针")
 class ExternalPluginClassLoaderReleaseTest {
 
     private static final String STATS_CLASSES_PROPERTY = "gallery-tools.plugin.classes";
@@ -46,7 +45,7 @@ class ExternalPluginClassLoaderReleaseTest {
 
     @AfterAll
     void cleanup() {
-        // jar 文件句柄已在用例内经 unloadPlugins 释放（Windows 下否则删不掉），此处只删临时目录。
+        // 用例内已验证 JAR 可移动并删除，此处清理剩余临时文件。
         deleteRecursivelyQuietly(tempPluginsDir);
     }
 
@@ -66,7 +65,7 @@ class ExternalPluginClassLoaderReleaseTest {
         PluginTestProvenance.writeVerifiedLocalUpload(tempPluginsDir, jar);
 
         WeakReference<ClassLoader> weakCl = loadCaptureAndUnload(tempPluginsDir);
-        assertThat(weakCl).as("加载时应已捕获到真实 stats classloader 的弱引用").isNotNull();
+        assertThat(weakCl).as("加载时应已捕获到真实插件 classloader 的弱引用").isNotNull();
 
         Path moved = tempPluginsDir.resolve("gallery-tools-plugin-moved.jar");
         Files.move(jar, moved);
@@ -75,16 +74,13 @@ class ExternalPluginClassLoaderReleaseTest {
 
         boolean collected = ClassLoaderLeakProbes.awaitCollected(weakCl);
         if (!collected) {
-            // 物理卸载已释放 PF4J 侧强引用；本环境仍未回收 → 归为 Windows / JVM GC 不稳定（inconclusive），非业务泄漏。
-            Assumptions.abort("真实 stats classloader 物理卸载后未在本环境被 GC 回收——判为环境不稳定（inconclusive）；"
-                    + "确定性引用链 / teardown 回归由 PluginClassLoaderLeakProbeTest 与生命周期用例守住。");
+            Assumptions.abort("真实插件物理卸载后 JAR 已可移动并删除，但预算内未观察到 classloader 被 GC 回收；"
+                    + "尚未确定未回收原因，JAR 句柄释放不能排除其它强引用。");
         }
-        assertThat(collected).as("真实 stats classloader 物理卸载后应可被 GC 回收").isTrue();
     }
 
     /**
-     * 在独立栈帧内加载真实 stats jar、捕获其 classloader 弱引用并 PF4J 物理卸载；{@link PluginRuntimeManager} 与
-     * {@link PluginInstallation} 等强引用都是本方法局部，返回即出帧不可达，调用方只拿到弱引用。
+     * 在独立栈帧内加载真实插件、捕获 classloader 弱引用并物理卸载，避免调用方局部变量保留强引用。
      */
     private static WeakReference<ClassLoader> loadCaptureAndUnload(Path pluginsDir) {
         PluginRuntimeManager manager = new PluginRuntimeManager(pluginsDir, PluginTestProvenance.verifier());
@@ -94,7 +90,7 @@ class ExternalPluginClassLoaderReleaseTest {
                 .findFirst().orElseThrow();
         WeakReference<ClassLoader> weakCl = new WeakReference<>(stats.classLoader());
         manager.unloadPlugin("gallery-tools");
-        return weakCl; // manager / stats / inventory 在此出帧 → 强引用图可回收
+        return weakCl;
     }
 
     // --- helpers（与 GalleryToolsExternalPluginIntegrationTest 同口径）---
