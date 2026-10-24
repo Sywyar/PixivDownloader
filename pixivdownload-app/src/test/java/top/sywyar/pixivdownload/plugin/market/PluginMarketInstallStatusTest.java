@@ -189,6 +189,26 @@ class PluginMarketInstallStatusTest {
         assertThat(previewOnly.assuranceLevel()).isEqualTo(versions.get(0).verification().assuranceLevel());
     }
 
+    @ParameterizedTest
+    @CsvSource({"7.2.3-.,stable", "7.2.3,.."})
+    @DisplayName("空版本后缀或未知发布渠道不阻断市场展示且不自动推荐")
+    void emptySuffixOrChannelKeepsMarketAvailable(String version, String channel) {
+        var unusual = new PluginMarketPackageView(version, 100, "digest", true,
+                null, true, false, List.of(), null, List.of(), channel, false,
+                top.sywyar.pixivdownload.plugin.verification.PluginVerificationProjector.builtInOfficial()
+                        .withRevocation("CLEAR"), true);
+        var versions = List.of(unusual, projected("6.0.0", true, "CLEAR"));
+
+        var view = PluginMarketEntryView.from(entry("example"), true, "5.0.0", versions);
+
+        assertThat(view.packages()).containsExactlyElementsOf(versions);
+        assertThat(view.recommendedVersion()).isEqualTo("6.0.0");
+        assertThat(view.updateAvailable()).isTrue();
+        var unusualOnly = PluginMarketEntryView.from(entry("example"), true, "5.0.0", List.of(unusual));
+        assertThat(unusualOnly.recommendedVersion()).isNull();
+        assertThat(unusualOnly.installStatus()).isEqualTo(MarketInstallStatus.NO_RECOMMENDATION);
+    }
+
     @Test
     @DisplayName("只有不兼容预发布时保留真实 SDK 限制，不宣称存在可安装版本")
     void incompatiblePrereleaseHasNoRecommendation() {

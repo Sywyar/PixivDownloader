@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复版本后缀或发布渠道仅含句点时，更新比较和插件市场展示失败的问题。
 - 修复处理 IO 异常时，循环原因链导致请求无法结束的问题。
 - 修复图片分类器混合数字与文字目录排序不一致，以及无法解析作品编号时出现空指针的问题。
 - 修复手写 YAML 配置中的 Unicode 转义和带 `#` 的值被错误读取的问题。

@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.common;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -71,6 +73,26 @@ class SemanticVersionTest {
         assertThat(SemanticVersion.compare("1.0.0-weird.1", "1.0.0-nightly.1")).isNegative();
         assertThat(SemanticVersion.compare("1.0.0", "1.0.0-weird.99")).isPositive();
         assertThat(SemanticVersion.compare("1.0.0-weird.2", "1.0.0-weird.1")).isPositive();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"7.2.3-.", "7.2.3-..", "v7.2.3-...+build"})
+    @DisplayName("仅含分隔符的后缀按未知渠道比较并保留原始身份")
+    void emptySuffixTokensHaveUnknownRank(String version) {
+        SemanticVersion parsed = SemanticVersion.parseOrNull(version);
+
+        assertThat(parsed).isNotNull();
+        assertThat(parsed.raw()).isEqualTo(version);
+        assertThat(parsed.preReleaseRank()).isEqualTo(SemanticVersion.RANK_UNKNOWN);
+        assertThat(SemanticVersion.compare(version, "7.2.3-weird")).isZero();
+        assertThat(SemanticVersion.compare(version, "7.2.3-nightly")).isNegative();
+    }
+
+    @Test
+    @DisplayName("尾部空数字段保持补零语义，空后缀保持正式版语义")
+    void trailingEmptyTokensKeepExistingOrdering() {
+        assertThat(SemanticVersion.compare("7.2.3-rc.1..", "7.2.3-rc.1.0")).isZero();
+        assertThat(SemanticVersion.compare("7.2.3-", "7.2.3")).isZero();
     }
 
     @Test
