@@ -143,7 +143,11 @@ public class PluginInstallService {
         if (bytes.length > MAX_SIGNATURE_BYTES) {
             throw new IOException("detached signature is too large");
         }
-        return SIGNATURE_MAPPER.readValue(bytes, SignatureMetadata.class);
+        SignatureMetadata signature = SIGNATURE_MAPPER.readValue(bytes, SignatureMetadata.class);
+        if (signature == null) {
+            throw new IOException("detached signature is null");
+        }
+        return signature;
     }
 
     /**

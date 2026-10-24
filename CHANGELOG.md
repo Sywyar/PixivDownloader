@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复本地安装插件时，将内容为 JSON `null` 的签名文件当作未提供签名继续安装的问题。
 - 修复插件状态变更后，迟到的查询使恢复模式继续沿用旧判定的问题。
 - 修复版本后缀或发布渠道仅含句点时，更新比较和插件市场展示失败的问题。
 - 修复处理 IO 异常时，循环原因链导致请求无法结束的问题。

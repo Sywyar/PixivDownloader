@@ -28,7 +28,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -201,6 +203,22 @@ class PluginInstallServiceLifecyclePolicyTest {
         assertThat(service(false).install(packageUpload(), oversized, false).outcome())
                 .isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
         verify(coordinator, never()).installOrUpdate(any(), eq(false), any());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("JSON null 签名在正式和开发模式下均于读取插件包前拒绝")
+    void nullDetachedSignatureIsRejectedBeforeStaging(boolean developmentModeEnabled) throws Exception {
+        var upload = spy(packageUpload());
+        var signature = new MockMultipartFile(
+                "signature", "plugin.sig", "application/json", "null".getBytes(StandardCharsets.UTF_8));
+
+        var report = service(developmentModeEnabled).install(upload, signature, false);
+
+        assertThat(report.outcome()).isEqualTo(PluginInstallOutcome.REJECTED_INTEGRITY);
+        assertThat(report.accepted()).isFalse();
+        verify(upload, never()).getInputStream();
+        verifyNoInteractions(coordinator, dependencyResolver);
     }
 
     private PluginInstallService service() {
