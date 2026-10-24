@@ -106,6 +106,7 @@ test('Cookie 同步保留完整已有状态并只替换自己的字段', async (
     h.respond(0, {state: {queue: ['keep'], nested: {x: 1}, pixiv_cookie: 'old'}});
     await flush();
     const posted = JSON.parse(h.requests[1].data).state;
+    assert.equal(h.requests[1].headers.Origin, 'http://localhost:8101');
     assert.deepEqual(posted.queue, ['keep']);
     assert.deepEqual(posted.nested, {x: 1});
     assert.equal(posted.pixiv_cookie, h.context.document.cookie);

@@ -22,6 +22,11 @@ class SSEManager {
     // 共享连接由批量任务生命周期统一开关。
     openShared() {
         if (this.closing) this._cleanup();
+        if (!this.batchActive) {
+            this.url = CONFIG.SSE_BASE;
+            this.closeUrl = CONFIG.SSE_CLOSE_BASE;
+            this.uuid = userUUID;
+        }
         this.batchActive = true;
         this.closing = false;
         this._ensureConnection();
@@ -54,11 +59,11 @@ class SSEManager {
         this.closing = false;
         this._buffer = '';
         const headers = {};
-        if (userUUID) headers['X-User-UUID'] = userUUID;
+        if (this.uuid) headers['X-User-UUID'] = this.uuid;
         try {
             const handle = GM_xmlhttpRequest({
                 method: 'GET',
-                url: CONFIG.SSE_BASE, // 聚合端点：不带 artworkId
+                url: this.url, // 聚合端点：不带 artworkId
                 headers,
                 responseType: 'stream',
                 onloadstart: (res) => {
@@ -188,11 +193,12 @@ class SSEManager {
 
     _notifyAggregatedClose(connectionId) {
         const headers = {};
-        if (userUUID) headers['X-User-UUID'] = userUUID;
+        if (this.uuid) headers['X-User-UUID'] = this.uuid;
         try {
+            headers.Origin = new URL(this.closeUrl).origin;
             GM_xmlhttpRequest({
                 method: 'POST',
-                url: `${CONFIG.SSE_CLOSE_BASE}/${encodeURIComponent(connectionId)}`,
+                url: `${this.closeUrl}/${encodeURIComponent(connectionId)}`,
                 headers,
                 timeout: 2000,
                 onload: () => {

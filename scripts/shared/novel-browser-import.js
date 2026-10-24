@@ -1,4 +1,4 @@
-/* Exchange a browser-authenticated Pixiv novel response only with an exact loopback backend. */
+// 仅向精确回环后端交换浏览器取得的小说响应。
 const NovelBrowserImport = (() => {
     function isLoopback(serverBase) {
         try {
@@ -32,7 +32,8 @@ const NovelBrowserImport = (() => {
         }
     }
 
-    async function importResponse(serverBase, novelId, responseText) {
+    async function importResponse(serverBase, novelId, responseText, signal) {
+        signal?.throwIfAborted();
         if (!isLoopback(serverBase)) return null;
         const id = Number(novelId);
         if (!Number.isSafeInteger(id) || id <= 0 || typeof responseText !== 'string') return null;
@@ -41,6 +42,7 @@ const NovelBrowserImport = (() => {
             method: 'GET',
             url: `${serverBase}/api/novel/browser-import/token`
         });
+        signal?.throwIfAborted();
         if (tokenResponse.status === 403 || tokenResponse.status === 404) return null;
         const tokenBody = parse(tokenResponse);
         if (tokenResponse.status !== 200 || typeof tokenBody.token !== 'string' || !tokenBody.token) {
@@ -51,11 +53,13 @@ const NovelBrowserImport = (() => {
             method: 'POST',
             url: `${serverBase}/api/novel/browser-import/${encodeURIComponent(id)}`,
             headers: {
+                Origin: new URL(serverBase).origin,
                 'Content-Type': 'application/json',
                 'X-Novel-Import-Token': tokenBody.token
             },
             data: responseText
         });
+        signal?.throwIfAborted();
         if (importResponse.status === 403 || importResponse.status === 404) return null;
         const importBody = parse(importResponse);
         if (importResponse.status !== 200

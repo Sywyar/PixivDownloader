@@ -28,6 +28,8 @@ function loadUserscript(file, respond, novel = false) {
         CONFIG: {CHECK_DOWNLOADED_URL: 'http://localhost/api/downloaded'},
         getDownloadedCheckBase: () => 'http://localhost/api/downloaded', handleUnauthorized() {}, t: key => key};
     vm.createContext(context);
+    if (!single) vm.runInContext(fs.readFileSync(path.join(root,
+        'scripts/shared/download-queue-runner.js'), 'utf8'), context);
     vm.runInContext(single ? method + '; this.check = ' + name + ';' : 'this.check = ({' + method + '}).' + name + ';', context);
     return context.check;
 }
@@ -142,6 +144,7 @@ for (const file of ['Pixiv User 批量下载器(User Batch).user.js',
         vm.runInContext('this.process = ({' + source.slice(start, end) + '})._processSingle;', context);
         const item = {id: '42', title: 'fixture', status: 'downloading'};
         await context.process.call({queue: [item], skipHistory: true,
+            _queueController: new AbortController(),
             globalSettings: {skipHistory: true},
             sse: {close() {}}, ui: {renderQueue() {}, setStatus() {}, setCurrent() {}},
             updateStats() {}, saveToStorage() { saves++; }

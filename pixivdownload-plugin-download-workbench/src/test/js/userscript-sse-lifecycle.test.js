@@ -10,7 +10,7 @@ function runtime(onRequest) {
     const requests = [], timers = new Map();
     let timerId = 0;
     const context = vm.createContext({
-        TextDecoder, userUUID: 'queue-owner', console: {warn() {}, error() {}},
+        URL, TextDecoder, userUUID: 'queue-owner', console: {warn() {}, error() {}},
         CONFIG: {SSE_BASE: 'http://localhost/events', SSE_CLOSE_BASE: 'http://localhost/events/close'},
         setTimeout(fn, delay) { timers.set(++timerId, {fn, delay}); return timerId; },
         clearTimeout(id) { timers.delete(id); },
@@ -23,7 +23,7 @@ function runtime(onRequest) {
     });
     const source = path.resolve(__dirname, '../../../../scripts/shared/sse-manager.js');
     vm.runInContext(fs.readFileSync(source, 'utf8') + '\nglobalThis.manager = new SSEManager();', context);
-    return {manager: context.manager, requests, timers,
+    return {manager: context.manager, requests, timers, context,
         fire(delay) {
             const entry = [...timers].find(([, timer]) => timer.delay === delay);
             assert.ok(entry, `missing ${delay} ms timer`);
@@ -168,4 +168,31 @@ test('请求同步失败时释放迟到的句柄，正常重连仍可接收分�
     r.manager.closeAll();
     r.fire(1000);
     await flush();
+});
+
+
+test('服务器或用户变化不改写活动 SSE 的重连与关闭目标，下批使用新目标', async () => {
+    const r = runtime();
+    r.manager.openShared();
+    const first = connect(r.requests[0]);
+    r.context.CONFIG.SSE_BASE = 'http://localhost:8102/events';
+    r.context.CONFIG.SSE_CLOSE_BASE = 'http://localhost:8102/events/close';
+    r.context.userUUID = 'new-owner';
+    first.fail();
+    await flush();
+    r.fire(2000);
+    assert.equal(r.requests[1].options.url, 'http://localhost/events');
+    assert.equal(r.requests[1].options.headers['X-User-UUID'], 'queue-owner');
+    connect(r.requests[1]).send('event: aggregated-ready\ndata: old/id\n\n');
+    await flush();
+    r.manager.closeAll();
+    assert.equal(r.requests[2].options.url, 'http://localhost/events/close/old%2Fid');
+    assert.equal(r.requests[2].options.headers.Origin, 'http://localhost');
+    assert.equal(r.requests[2].options.headers['X-User-UUID'], 'queue-owner');
+    r.manager.openShared();
+    assert.equal(r.requests[3].options.url, 'http://localhost:8102/events');
+    assert.equal(r.requests[3].options.headers['X-User-UUID'], 'new-owner');
+    r.manager.closeAll();
+    r.fire(1000);
+    r.fire(1000);
 });

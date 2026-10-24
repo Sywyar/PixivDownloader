@@ -125,6 +125,7 @@ function createIllustExactCancelClient(options) {
             }
 
             const headers = {
+                Origin: new URL(capturedServerBase).origin,
                 'Accept': 'application/json',
                 'Content-Type': 'application/json'
             };

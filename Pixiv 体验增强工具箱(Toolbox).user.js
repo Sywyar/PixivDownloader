@@ -763,7 +763,7 @@
             const postRes = await gmRequest({
                 method: 'POST',
                 url: stateUrl,
-                headers: { 'Content-Type': 'application/json' },
+                headers: {Origin: new URL(stateUrl).origin, 'Content-Type': 'application/json'},
                 data: JSON.stringify({ state }),
                 timeout: 10000
             });
@@ -1254,7 +1254,7 @@
                     const res = await api.gmRequest({
                         method: 'POST',
                         url,
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {Origin: new URL(url).origin, 'Content-Type': 'application/json'},
                         data: JSON.stringify({ [bodyKey]: ids, includeDeleted: true }),
                         timeout: 15000
                     });

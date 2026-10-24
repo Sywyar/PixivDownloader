@@ -18,6 +18,7 @@ function loadDownloadedBorderFeature(environment = {}) {
 
     let feature;
     vm.runInNewContext(toolboxSource.slice(start, end), {
+        URL,
         ...environment,
         FeatureRegistry: { register(definition) { feature = definition; } },
         console,
@@ -146,6 +147,7 @@ test('批量响应只保存有效和软删除正命中，不保存未命中的 f
     feature._applyMarks = () => {};
     let requestBody;
     const api = apiWith({}, async request => {
+        assert.equal(request.headers.Origin, 'http://localhost:6999');
         requestBody = JSON.parse(request.data);
         return {
             status: 200,
