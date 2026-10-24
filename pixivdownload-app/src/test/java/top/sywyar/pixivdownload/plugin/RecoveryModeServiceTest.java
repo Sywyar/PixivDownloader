@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import top.sywyar.pixivdownload.sdk.SdkVersion;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
@@ -15,6 +17,11 @@ import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.RequiredPlugin;
 
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
@@ -79,6 +86,53 @@ class RecoveryModeServiceTest {
 
         RecoveryModeDecision first = service.decision();
         assertThat(service.decision()).isSameAs(first);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("生命周期刷新后，迟到的正常判定不能覆盖缺失插件的恢复状态")
+    void refreshRejectsLateDecision(boolean queryFreshBeforeOldCompletes) throws Exception {
+        var inventory = new AtomicReference<>(startedDownloadWorkbenchInventory());
+        var firstRead = new AtomicBoolean(true);
+        var captured = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var registry = new PluginRegistry(List.of(new TestPlugin("core", PluginKind.CORE)),
+                new PluginToggleProperties(), inventory.get().toDiscoveryResult());
+        var status = new PluginStatusService(registry, () -> {
+            PluginInventory snapshot = inventory.get();
+            if (firstRead.getAndSet(false)) {
+                captured.countDown();
+                try {
+                    assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(interrupted);
+                }
+            }
+            return snapshot;
+        }, List::of, POLICY);
+        var service = new RecoveryModeService(status, POLICY, org.mockito.Mockito.mock(javax.sql.DataSource.class));
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            var oldRead = executor.submit(service::decision);
+            assertThat(captured.await(5, TimeUnit.SECONDS)).isTrue();
+            inventory.set(PluginInventory.empty());
+            service.refresh();
+            RecoveryModeDecision refreshed = queryFreshBeforeOldCompletes ? service.decision() : null;
+            release.countDown();
+            assertThat(oldRead.get(5, TimeUnit.SECONDS).active()).isFalse();
+            RecoveryModeDecision current = service.decision();
+            assertThat(current.active()).isTrue();
+            assertThat(current.firstReason().orElseThrow().pluginId()).isEqualTo("download-workbench");
+            assertThat(service.decision()).isSameAs(current);
+            if (refreshed != null) {
+                assertThat(current).isSameAs(refreshed);
+            }
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
     }
 
     @Test

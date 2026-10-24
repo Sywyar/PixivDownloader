@@ -11,6 +11,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecover
 import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 import top.sywyar.pixivdownload.core.db.UnavailableDataSource;
 import javax.sql.DataSource;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 恢复模式判定服务（后端）：综合 {@link PluginStatusService} 的插件状态报告与必选插件策略
@@ -31,7 +32,7 @@ public class RecoveryModeService {
     private final RecoveryModeEvaluator evaluator = new RecoveryModeEvaluator();
 
     private record CachedDecision(java.util.Map<String, String> failures, RecoveryModeDecision decision) {}
-    private volatile CachedDecision cached;
+    private volatile AtomicReference<CachedDecision> cache = new AtomicReference<>();
 
     public RecoveryModeService(PluginStatusService pluginStatusService,
                                RequiredPluginPolicy requiredPluginPolicy, DataSource dataSource) {
@@ -51,11 +52,12 @@ public class RecoveryModeService {
                     "database", PluginStatus.FAILED, "plugin.recovery.database-unavailable",
                     VersionRequirement.unspecified(), java.util.List.of("DATABASE_UNAVAILABLE"))));
         }
+        AtomicReference<CachedDecision> currentCache = cache;
         java.util.Map<String, String> failures = pluginStatusService.failureSnapshot();
-        CachedDecision current = cached;
+        CachedDecision current = currentCache.get();
         if (current == null || !current.failures().equals(failures)) {
             current = new CachedDecision(failures, evaluator.evaluate(pluginStatusService.report(), requiredPluginPolicy));
-            cached = current;
+            currentCache.set(current);
         }
         return current.decision();
     }
@@ -90,6 +92,7 @@ public class RecoveryModeService {
 
     /** 插件运行态变化后使下一次查询重新评估恢复条件。 */
     public void refresh() {
-        cached = null;
+        // 旧查询只能写回原容器，不能重新发布刷新前的判定。
+        cache = new AtomicReference<>();
     }
 }
