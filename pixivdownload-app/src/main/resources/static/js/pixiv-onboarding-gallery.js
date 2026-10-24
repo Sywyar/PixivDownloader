@@ -187,8 +187,10 @@
     }
 
     function phaseDetail() {
+        var revision = overlay.revision;
         var doneLabel = t('onboarding.common.done', '完成');
         var runResolved = function () {
+            if (overlay.revision !== revision) return;
             var steps = resolveDetailSteps();
             if (steps.length) {
                 runRegionSteps(steps, renderDetailDone, doneLabel);

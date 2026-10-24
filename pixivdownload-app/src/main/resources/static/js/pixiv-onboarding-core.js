@@ -229,7 +229,12 @@
     // （首屏异步渲染时），这是预期的：命中后由 found 负责建立 overlay。
     function waitForElement(getter, found, timeout, timeoutMs) {
         var start = Date.now();
+        var revision = ctx.overlay.revision;
         var timer = global.setInterval(function () {
+            if (ctx.overlay.revision !== revision) {
+                global.clearInterval(timer);
+                return;
+            }
             var el = null;
             try {
                 el = getter();

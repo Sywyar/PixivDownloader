@@ -79,6 +79,7 @@ window.PixivArtwork = window.PixivArtwork || {};
             onChange: function (nextClient) {
                 pageI18n = nextClient;
                 applyStaticPageTranslations();
+                if (window.PixivOnboarding) PixivOnboarding.refreshFab(nextClient);
                 if (state.artwork) {
                     renderDetail();
                     renderAuthor();

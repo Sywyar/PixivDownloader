@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -88,22 +87,22 @@ class LocaleCatalogTest {
     @DisplayName("精确规范化 tag 匹配（大小写与 _ / - 容错）")
     void matchesExactNormalizedTags() {
         LocaleCatalog catalog = fixture();
-        assertThat(catalog.match("zh-CN")).contains(fixture().sourceLocale());
-        assertThat(catalog.match("en-US")).contains(fixture().fallbackLocale());
-        assertThat(catalog.match("ZH_CN")).contains(fixture().sourceLocale());
-        assertThat(catalog.match("  en-us ")).contains(fixture().fallbackLocale());
-        assertThat(catalog.match(Locale.SIMPLIFIED_CHINESE)).contains(fixture().sourceLocale());
+        assertThat(catalog.match("zh-CN")).contains(catalog.sourceLocale());
+        assertThat(catalog.match("en-US")).contains(catalog.fallbackLocale());
+        assertThat(catalog.match("ZH_CN")).contains(catalog.sourceLocale());
+        assertThat(catalog.match("  en-us ")).contains(catalog.fallbackLocale());
+        assertThat(catalog.match(Locale.SIMPLIFIED_CHINESE)).contains(catalog.sourceLocale());
     }
 
     @Test
     @DisplayName("alias 匹配（zh / zh-Hans / zh-SG → zh-CN）")
     void matchesAliases() {
         LocaleCatalog catalog = fixture();
-        assertThat(catalog.match("zh")).contains(fixture().sourceLocale());
-        assertThat(catalog.match("zh-Hans")).contains(fixture().sourceLocale());
-        assertThat(catalog.match("zh-SG")).contains(fixture().sourceLocale());
-        assertThat(catalog.match("ZH")).contains(fixture().sourceLocale());
-        assertThat(catalog.match("en")).contains(fixture().fallbackLocale());
+        assertThat(catalog.match("zh")).contains(catalog.sourceLocale());
+        assertThat(catalog.match("zh-Hans")).contains(catalog.sourceLocale());
+        assertThat(catalog.match("zh-SG")).contains(catalog.sourceLocale());
+        assertThat(catalog.match("ZH")).contains(catalog.sourceLocale());
+        assertThat(catalog.match("en")).contains(catalog.fallbackLocale());
     }
 
     @Test
@@ -115,16 +114,16 @@ class LocaleCatalogTest {
                     .as("match(Locale.forLanguageTag(\"" + candidate + "\"))")
                     .isEqualTo(catalog.match(candidate));
         }
-        assertThat(catalog.match(Locale.forLanguageTag("zh-Hans"))).contains(fixture().sourceLocale());
-        assertThat(catalog.match(Locale.forLanguageTag("zh-hans"))).contains(fixture().sourceLocale());
+        assertThat(catalog.match(Locale.forLanguageTag("zh-Hans"))).contains(catalog.sourceLocale());
+        assertThat(catalog.match(Locale.forLanguageTag("zh-hans"))).contains(catalog.sourceLocale());
         assertThat(catalog.match(Locale.forLanguageTag("zh-Hant-HK")))
-                .contains(fixture().allLocales().stream().filter(d -> d.tag().equals("zh-HK")).findFirst().orElseThrow());
+                .contains(catalog.allLocales().stream().filter(d -> d.tag().equals("zh-HK")).findFirst().orElseThrow());
         // 精确 tag 形态也不漂移
-        assertThat(catalog.match(Locale.forLanguageTag("zh-CN"))).contains(fixture().sourceLocale());
-        assertThat(catalog.match(Locale.SIMPLIFIED_CHINESE)).contains(fixture().sourceLocale());
-        assertThat(catalog.match(Locale.forLanguageTag("en-US"))).contains(fixture().fallbackLocale());
+        assertThat(catalog.match(Locale.forLanguageTag("zh-CN"))).contains(catalog.sourceLocale());
+        assertThat(catalog.match(Locale.SIMPLIFIED_CHINESE)).contains(catalog.sourceLocale());
+        assertThat(catalog.match(Locale.forLanguageTag("en-US"))).contains(catalog.fallbackLocale());
         // 字符串形态容忍 _ / - 混用（Locale.forLanguageTag 无法承载下划线，String 路径覆盖）
-        assertThat(catalog.match("ZH_HANS")).contains(fixture().sourceLocale());
+        assertThat(catalog.match("ZH_HANS")).contains(catalog.sourceLocale());
     }
 
     @Test
@@ -135,12 +134,12 @@ class LocaleCatalogTest {
         assertThat(catalog.match(Locale.forLanguageTag("zh-TW"))).isEmpty();
         assertThat(catalog.match("zh-TW")).isEmpty();
         // zh-Hans 是 zh-CN 的显式 alias → 非歧义命中
-        assertThat(catalog.match(Locale.forLanguageTag("zh-Hans"))).contains(fixture().sourceLocale());
+        assertThat(catalog.match(Locale.forLanguageTag("zh-Hans"))).contains(catalog.sourceLocale());
         // zh-Hant-HK 是 zh-HK 的显式 alias → 非歧义命中
         assertThat(catalog.match(Locale.forLanguageTag("zh-Hant-HK")))
-                .contains(fixture().allLocales().stream().filter(d -> d.tag().equals("zh-HK")).findFirst().orElseThrow());
+                .contains(catalog.allLocales().stream().filter(d -> d.tag().equals("zh-HK")).findFirst().orElseThrow());
         // en 语言唯一 → en-GB 唯一命中 en-US（String 与 Locale 一致）
-        assertThat(catalog.match(Locale.forLanguageTag("en-GB"))).contains(fixture().fallbackLocale());
+        assertThat(catalog.match(Locale.forLanguageTag("en-GB"))).contains(catalog.fallbackLocale());
         assertThat(catalog.match(Locale.forLanguageTag("en-GB"))).isEqualTo(catalog.match("en-GB"));
         // null / 空语言 Locale → 无匹配
         assertThat(catalog.match((Locale) null)).isEmpty();
@@ -154,10 +153,10 @@ class LocaleCatalogTest {
         // zh-HK 与 zh-CN 同为 zh 语言 → "zh-TW" 语言级匹配歧义 → 无匹配
         assertThat(catalog.match("zh-TW")).isEmpty();
         // en 语言只有一个 → "en-GB" 唯一命中 en-US
-        assertThat(catalog.match("en-GB")).contains(fixture().fallbackLocale());
+        assertThat(catalog.match("en-GB")).contains(catalog.fallbackLocale());
         // ja 语言只有一个候选 locale → "ja-JP" 精确匹配
         assertThat(catalog.match("ja-JP")).contains(
-                fixture().allLocales().stream().filter(d -> d.tag().equals("ja-JP")).findFirst().orElseThrow());
+                catalog.allLocales().stream().filter(d -> d.tag().equals("ja-JP")).findFirst().orElseThrow());
     }
 
     @Test

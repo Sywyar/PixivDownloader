@@ -327,7 +327,7 @@
             ? this.t('tour:common.done', '完成')
             : this.t('tour:common.next', '下一步');
 
-        // 步骤自定义动作按钮（如「我已安装 All-in-One」直接进入下一步骤）
+        // 步骤自定义动作按钮
         var actionBtn = this.pop.querySelector('.pt-btn-action');
         if (step && step.actionKey) {
             actionBtn.textContent = this.t(step.actionKey, step.actionFallback || '');
@@ -362,10 +362,12 @@
             this._gateTimer = global.setInterval(tick, 400);
         }
         // 等待 scrollIntoView 平滑滚动后再定位高亮框与气泡
+        var pop = this.pop;
         global.requestAnimationFrame(function () {
             global.setTimeout(function () {
+                if (self.pop !== pop) return;
                 self._reposition();
-                self.pop.classList.add('pt-pop-in');
+                pop.classList.add('pt-pop-in');
             }, 60);
         });
     };
@@ -473,6 +475,14 @@
         },
         get: function (pageKey) {
             return controllers[pageKey] || null;
+        },
+        refreshTranslations: function (client) {
+            Object.keys(controllers).forEach(function (pageKey) {
+                var ctrl = controllers[pageKey];
+                ctrl.i18n = client || ctrl.i18n;
+                ctrl.refreshHelpFabLabel();
+                ctrl.refresh();
+            });
         }
     };
 })(window);

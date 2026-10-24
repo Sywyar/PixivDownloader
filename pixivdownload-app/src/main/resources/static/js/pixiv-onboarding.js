@@ -74,17 +74,6 @@
         }
     }
 
-    var languageRevision = 0;
-    if (global.PixivI18n && typeof global.PixivI18n.onLanguageChange === 'function') {
-        global.PixivI18n.onLanguageChange(async function (event) {
-            if (!ctx.config || !ctx.config.eligible) return;
-            var revision = ++languageRevision;
-            var client = await global.PixivI18n.create({lang: event.lang, namespaces: ['tour']});
-            if (revision !== languageRevision) return;
-            refreshTranslations(client);
-        });
-    }
-
     function refreshTranslations(client) {
         if (client) ctx.i18n = client;
         ctx.refreshRestartLabel();

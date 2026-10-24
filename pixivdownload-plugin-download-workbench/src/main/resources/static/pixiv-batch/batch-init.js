@@ -412,6 +412,7 @@
 
     // 语言切换后刷新当前身份对应的引导入口。
     function refreshGuideFab() {
+        if (typeof PixivTour !== 'undefined') PixivTour.refreshTranslations(pageI18n);
         const eligible = (appMode === 'solo') || isAdmin;
         if (eligible && typeof PixivOnboarding !== 'undefined') {
             PixivOnboarding.refreshFab(pageI18n);
