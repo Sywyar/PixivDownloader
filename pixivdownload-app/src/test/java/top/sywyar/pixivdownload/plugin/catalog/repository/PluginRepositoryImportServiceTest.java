@@ -58,6 +58,7 @@ class PluginRepositoryImportServiceTest {
     }
 
     @Test
+    @DisplayName("仓库草稿确认不写盘，保存重新验签且信任写入失败时恢复配置")
     void confirmedDraftDefersWritesAndRechecksBytesBeforeSaving() throws Exception {
         String url = "https://repo.example/repository.json";
         String spki = Base64.getEncoder().encodeToString(
@@ -72,38 +73,37 @@ class PluginRepositoryImportServiceTest {
         var trustState = spy(new PluginCatalogTrustStateStore(temp.resolve("trust.json")));
         var service = new PluginRepositoryImportService(new PluginRepositoryRegistry(new PluginCatalogProperties()),
                 ignored -> mock(PluginCatalogHttpClient.class), trustState);
-        var config = mock(top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.ConfigFile.class);
-        var disk = new java.util.concurrent.atomic.AtomicReference<>(
-                new top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.ConfigSnapshot(true,
-                        List.of("# retained", "app.language: zh-CN", "plugin-catalog.repositories:")));
-        when(config.snapshot()).thenAnswer(ignored -> disk.get());
-        doAnswer(call -> { disk.set(call.getArgument(0)); return null; }).when(config).restore(any());
-        var original = disk.get();
+        Path configPath = temp.resolve("config.yaml");
+        java.nio.file.Files.write(configPath,
+                List.of("# retained", "app.language: zh-CN", "plugin-catalog.repositories:"),
+                java.nio.charset.StandardCharsets.UTF_8);
+        var config = new top.sywyar.pixivdownload.gui.config.ConfigFileEditor(configPath).asConfigFile();
+        byte[] original = java.nio.file.Files.readAllBytes(configPath);
         try (var construction = mockConstruction(PluginCatalogHttpClient.class, (client, context) ->
                 when(client.fetchBytes(eq(url), anyLong())).thenAnswer(ignored -> remote.get()))) {
             var preview = service.preview(url);
             assertThatThrownBy(() -> service.prepare(url, preview.descriptorSha256(), false))
                     .isInstanceOf(top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException.class);
             var draft = service.prepare(url, preview.descriptorSha256(), true);
-            assertThat(disk.get()).isSameAs(original);
+            assertThat(java.nio.file.Files.readAllBytes(configPath)).isEqualTo(original);
             assertThat(java.nio.file.Files.exists(temp.resolve("trust.json"))).isFalse();
             remote.set((new String(bytes, java.nio.charset.StandardCharsets.UTF_8) + " ")
                     .getBytes(java.nio.charset.StandardCharsets.UTF_8));
             assertThatThrownBy(() -> service.writeDraft(config, List.of(draft)))
                     .isInstanceOf(top.sywyar.pixivdownload.plugin.catalog.error.PluginCatalogException.class);
-            assertThat(disk.get()).isSameAs(original);
+            assertThat(java.nio.file.Files.readAllBytes(configPath)).isEqualTo(original);
             remote.set(bytes);
             var manual = top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry.create(
                     "another.repo", "", "https://another.example/manifest.json", true, "direct-strict", 0, 0, 0, 0);
             doThrow(new java.io.IOException("trust state write failed")).when(trustState).acceptUpdateSequences(anyMap());
             assertThatThrownBy(() -> service.writeDraft(config, List.of(manual, draft)))
                     .isInstanceOf(java.io.IOException.class);
-            assertThat(disk.get()).isSameAs(original);
+            assertThat(java.nio.file.Files.readAllBytes(configPath)).isEqualTo(original);
             doCallRealMethod().when(trustState).acceptUpdateSequences(anyMap());
             service.writeDraft(config, List.of(manual, draft));
             assertThat(new PluginRepositoryConfigEditor(config).read()).containsExactly(manual, draft);
-            assertThat(disk.get().lines()).contains("# retained", "app.language: zh-CN");
-            verify(config, times(3)).restore(any());
+            assertThat(java.nio.file.Files.readAllLines(configPath, java.nio.charset.StandardCharsets.UTF_8))
+                    .contains("# retained", "app.language: zh-CN");
         }
     }
 
@@ -243,6 +243,54 @@ class PluginRepositoryImportServiceTest {
         } finally {
             if (old == null) System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
             else System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, old);
+        }
+    }
+
+    @Test
+    @DisplayName("仓库信任保存失败回滚不覆盖并发保存的其它配置")
+    void failedDraftRollbackCannotOverwriteConcurrentSave() throws Exception {
+        Path file = temp.resolve("config.yaml");
+        java.nio.file.Files.write(file, List.of("server.port: 7011", "plugin-catalog.repositories:"),
+                java.nio.charset.StandardCharsets.UTF_8);
+        var config = new top.sywyar.pixivdownload.gui.config.ConfigFileEditor(file).asConfigFile();
+        var store = spy(new PluginCatalogTrustStateStore(temp.resolve("trust.json")));
+        var service = new PluginRepositoryImportService(new PluginRepositoryRegistry(new PluginCatalogProperties()),
+                ignored -> mock(PluginCatalogHttpClient.class), store);
+        var written = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var saving = new java.util.concurrent.CountDownLatch(1);
+        doAnswer(call -> {
+            written.countDown();
+            if (!release.await(5, java.util.concurrent.TimeUnit.SECONDS)) throw new java.io.IOException("fixture timeout");
+            throw new java.io.IOException("trust state write failed");
+        }).when(store).acceptUpdateSequences(anyMap());
+        var workers = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var failed = workers.submit(() -> {
+                service.writeDraft(config, List.of(top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry.create(
+                        "fixture", "", "https://example.test/manifest.json", true, "direct-strict", 0, 0, 0, 0)));
+                return null;
+            });
+            assertThat(written.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            var saved = workers.submit(() -> {
+                saving.countDown();
+                new top.sywyar.pixivdownload.gui.config.ConfigFileEditor(file).write("server.port", "7012");
+                return null;
+            });
+            assertThat(saving.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> saved.get(100, java.util.concurrent.TimeUnit.MILLISECONDS))
+                    .isInstanceOf(java.util.concurrent.TimeoutException.class);
+            release.countDown();
+            assertThatThrownBy(() -> failed.get(5, java.util.concurrent.TimeUnit.SECONDS))
+                    .isInstanceOf(java.util.concurrent.ExecutionException.class)
+                    .hasCauseInstanceOf(java.io.IOException.class);
+            saved.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(config.read("server.port")).isEqualTo("7012");
+            assertThat(new PluginRepositoryConfigEditor(file).read()).isEmpty();
+        } finally {
+            release.countDown();
+            workers.shutdown();
+            assertThat(workers.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
         }
     }
 }

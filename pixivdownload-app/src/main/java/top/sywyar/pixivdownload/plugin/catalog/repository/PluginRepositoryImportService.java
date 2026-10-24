@@ -187,15 +187,17 @@ public final class PluginRepositoryImportService {
 
     private void writeVerified(DesktopUiHost.ConfigFile configFile, List<RepositoryConfigEntry> entries,
                                Map<String, Long> sequences) throws IOException {
-        DesktopUiHost.ConfigSnapshot before = configFile.snapshot();
-        new PluginRepositoryConfigEditor(configFile).write(entries);
-        try {
-            stateStore.acceptUpdateSequences(sequences);
-        } catch (IOException failure) {
-            try { configFile.restore(before); }
-            catch (IOException rollback) { failure.addSuppressed(rollback); }
-            throw failure;
-        }
+        configFile.withWriteLock(() -> {
+            DesktopUiHost.ConfigSnapshot before = configFile.snapshot();
+            new PluginRepositoryConfigEditor(configFile).write(entries);
+            try {
+                stateStore.acceptUpdateSequences(sequences);
+            } catch (IOException failure) {
+                try { configFile.restore(before); }
+                catch (IOException rollback) { failure.addSuppressed(rollback); }
+                throw failure;
+            }
+        });
     }
 
     private record VerifiedImport(RepositoryConfigEntry entry, RepositoryUpdateDocument proof) {}

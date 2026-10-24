@@ -257,7 +257,7 @@ public class ConfigFileEditor {
     }
 
     /** 从行中提取 value（冒号后、行尾注释前的内容，去引号 / 反转义后返回）。 */
-    private String extractValue(String trimmed) {
+    private String extractValue(String trimmed) throws IOException {
         String work = trimmed.startsWith("#") ? trimmed.substring(1).trim() : trimmed;
         int colonIdx = work.indexOf(':');
         if (colonIdx < 0) return "";
@@ -265,49 +265,24 @@ public class ConfigFileEditor {
     }
 
     /**
-     * 解析 value 区域：跳过前导空白；引号标量按各自转义规则解码并忽略其后的行尾注释；
-     * 否则取到首个 {@code #} 之前（裸标量内不会含 {@code #}——含 {@code #} 的值写入时一律加引号）。
+     * 引号标量沿用启动加载器的转义规则；裸值只移除空白分隔的行尾注释。
      */
-    private String parseValueToken(String region) {
+    private String parseValueToken(String region) throws IOException {
         int i = 0;
         int n = region.length();
         while (i < n && Character.isWhitespace(region.charAt(i))) i++;
         if (i < n && (region.charAt(i) == '"' || region.charAt(i) == '\'')) {
-            char quote = region.charAt(i);
-            StringBuilder out = new StringBuilder();
-            i++;
-            while (i < n) {
-                char c = region.charAt(i);
-                if (quote == '"' && c == '\\' && i + 1 < n) {
-                    char next = region.charAt(i + 1);
-                    switch (next) {
-                        case 'n' -> out.append('\n');
-                        case 'r' -> out.append('\r');
-                        case 't' -> out.append('\t');
-                        case '"' -> out.append('"');
-                        case '\\' -> out.append('\\');
-                        default -> out.append(next);
-                    }
-                    i += 2;
-                    continue;
-                }
-                if (quote == '\'' && c == '\'' && i + 1 < n && region.charAt(i + 1) == '\'') {
-                    out.append('\'');
-                    i += 2;
-                    continue;
-                }
-                if (c == quote) {
-                    return out.toString();
-                }
-                out.append(c);
-                i++;
+            try {
+                var sources = new YamlPropertySourceLoader().load("config-value",
+                        new ByteArrayResource(("value: " + region.substring(i)).getBytes(StandardCharsets.UTF_8)));
+                return (String) sources.get(0).getProperty("value");
+            } catch (RuntimeException invalid) {
+                // 解析器异常可能包含凭证原文，调用方只接收不含配置值的诊断。
+                throw new IOException("Invalid quoted config value");
             }
-            // 未闭合的引号：兜底返回去掉起始引号后的内容
-            return out.toString();
         }
-        String rest = region.substring(i);
-        int hashIdx = rest.indexOf('#');
-        return (hashIdx >= 0 ? rest.substring(0, hashIdx) : rest).trim();
+        int hashIdx = commentStart(region);
+        return (hashIdx >= 0 ? region.substring(i, hashIdx) : region.substring(i)).trim();
     }
 
     /** 从行中提取行尾注释（"# ..." 部分）；跳过引号标量内部的 {@code #}。 */
@@ -346,7 +321,10 @@ public class ConfigFileEditor {
             }
             return region.indexOf('#', i);
         }
-        return region.indexOf('#');
+        for (; i < n; i++) {
+            if (region.charAt(i) == '#' && (i == 0 || Character.isWhitespace(region.charAt(i - 1)))) return i;
+        }
+        return -1;
     }
 
     /** 获取行首导空白（用于保留缩进）。 */

@@ -22,6 +22,9 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.spy;
 
 @DisplayName("插件仓库列表结构化读写：往返 / 顺序 / 未知字段 / 注释保留")
 class PluginRepositoryConfigEditorTest {
@@ -483,6 +486,49 @@ class PluginRepositoryConfigEditorTest {
         assertThat(editor.read()).isEmpty();
         assertThat(new ConfigFileEditor(file).read("proxy.enabled")).isEqualTo("true");
         assertThat(bind(file).getRepositories()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("仓库列表保存与其它句柄的标量保存串行且互不覆盖")
+    void repositorySaveCannotOverwriteConcurrentScalarSave() throws Exception {
+        Path file = writeFile("server.port: 7011", "plugin-catalog.repositories:");
+        var config = spy(new ConfigFileEditor(file).asConfigFile());
+        var captured = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var saving = new java.util.concurrent.CountDownLatch(1);
+        doAnswer(call -> {
+            Object snapshot = call.callRealMethod();
+            captured.countDown();
+            if (!release.await(5, java.util.concurrent.TimeUnit.SECONDS)) throw new IOException("fixture timeout");
+            return snapshot;
+        }).when(config).snapshot();
+        var workers = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var repositorySave = workers.submit(() -> {
+                new PluginRepositoryConfigEditor(config).write(List.of(
+                        repo("fixture", "https://example.test/manifest.json", true, "direct-strict")));
+                return null;
+            });
+            assertThat(captured.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            var scalarSave = workers.submit(() -> {
+                saving.countDown();
+                new ConfigFileEditor(file).write("server.port", "7012");
+                return null;
+            });
+            assertThat(saving.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> scalarSave.get(100, java.util.concurrent.TimeUnit.MILLISECONDS))
+                    .isInstanceOf(java.util.concurrent.TimeoutException.class);
+            release.countDown();
+            repositorySave.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            scalarSave.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(new ConfigFileEditor(file).read("server.port")).isEqualTo("7012");
+            assertThat(new PluginRepositoryConfigEditor(file).read()).extracting(RepositoryConfigEntry::id)
+                    .containsExactly("fixture");
+        } finally {
+            release.countDown();
+            workers.shutdown();
+            assertThat(workers.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        }
     }
 
     private static PluginCatalogProperties bind(Path file) throws IOException {

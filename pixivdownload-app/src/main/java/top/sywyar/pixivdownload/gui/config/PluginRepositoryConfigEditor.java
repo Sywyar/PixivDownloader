@@ -156,7 +156,11 @@ public final class PluginRepositoryConfigEditor {
      * 把仓库列表写回 {@code config.yaml} 的 {@code plugin-catalog.repositories} 块，文件其余内容逐字保留。
      * 键已存在 → 整块替换；不存在 → 插入到最后一个 {@code plugin-catalog.*} 行之后（否则追加到文件末尾）。
      */
-    public synchronized void write(List<RepositoryConfigEntry> entries) throws IOException {
+    public void write(List<RepositoryConfigEntry> entries) throws IOException {
+        configFile.withWriteLock(() -> writeLocked(entries));
+    }
+
+    private void writeLocked(List<RepositoryConfigEntry> entries) throws IOException {
         DesktopUiHost.ConfigSnapshot snapshot = configFile.snapshot();
         List<String> lines = snapshot.existed()
                 ? new ArrayList<>(snapshot.lines())

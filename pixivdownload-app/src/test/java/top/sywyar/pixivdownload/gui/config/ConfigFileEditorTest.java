@@ -249,6 +249,48 @@ class ConfigFileEditorTest {
                 .doesNotContain("bad:key");
     }
 
+    @Test
+    @DisplayName("双引号 Unicode 转义值与启动加载结果一致且读取不改文件")
+    void readsQuotedUnicodeEscapes() throws IOException {
+        Path file = writeTemplate("fixture.value: \"\\u4e2d\\x20\\U0001F600\"  # keep");
+        byte[] original = Files.readAllBytes(file);
+        ConfigFileEditor editor = new ConfigFileEditor(file);
+
+        var sources = new YamlPropertySourceLoader().load("config", new FileSystemResource(file));
+        assertThat(sources.get(0).getProperty("fixture.value")).isEqualTo("中 😀");
+        assertThat(editor.read("fixture.value")).isEqualTo("中 😀");
+        assertThat(editor.readAll(List.of("fixture.value"))).containsEntry("fixture.value", "中 😀");
+        assertThat(Files.readAllBytes(file)).isEqualTo(original);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://example.test/#part", "secret#part"})
+    @DisplayName("裸值中的井号不截断内容且保存只保留真正的注释")
+    void preservesHashInsidePlainValue(String value) throws IOException {
+        Path file = writeTemplate("fixture.value: " + value + "  # keep", "other.value: untouched");
+        ConfigFileEditor editor = new ConfigFileEditor(file);
+
+        var sources = new YamlPropertySourceLoader().load("config", new FileSystemResource(file));
+        assertThat(sources.get(0).getProperty("fixture.value")).isEqualTo(value);
+        assertThat(editor.read("fixture.value")).isEqualTo(value);
+        assertThat(editor.readAll(List.of("fixture.value"))).containsEntry("fixture.value", value);
+        editor.write("fixture.value", "after");
+        assertThat(Files.readAllLines(file, StandardCharsets.UTF_8))
+                .containsExactly("fixture.value: after  # keep", "other.value: untouched");
+    }
+
+    @Test
+    @DisplayName("非法引号转义不得作为成功读取的配置值")
+    void rejectsInvalidQuotedEscape() throws IOException {
+        Path file = writeTemplate("fixture.value: \"bad\\q\"");
+        byte[] original = Files.readAllBytes(file);
+        ConfigFileEditor editor = new ConfigFileEditor(file);
+
+        assertThatThrownBy(() -> editor.read("fixture.value")).isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> editor.readAll(List.of("fixture.value"))).isInstanceOf(IOException.class);
+        assertThat(Files.readAllBytes(file)).isEqualTo(original);
+    }
+
     @SuppressWarnings("unchecked")
     private static Map<String, String> flatten(Map<String, Object> tree) {
         Map<String, String> out = new java.util.LinkedHashMap<>();
