@@ -13,7 +13,10 @@ import org.apache.hc.core5.http.protocol.HttpContext;
 import org.springframework.beans.factory.DisposableBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import org.springframework.web.client.DefaultResponseErrorHandler;
+import org.springframework.web.client.NoOpResponseErrorHandler;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 
@@ -39,7 +42,15 @@ public class RestTemplateConfig {
      */
     @Bean("pixivCredentialRestTemplate")
     public RestTemplate pixivCredentialRestTemplate() {
-        return buildRestTemplate(15_000, 30_000, false, false);
+        RestTemplate restTemplate = buildRestTemplate(15_000, 30_000, false, false);
+        restTemplate.setErrorHandler(new DefaultResponseErrorHandler() {
+            @Override
+            protected byte[] getResponseBody(ClientHttpResponse response) {
+                // 保留 HTTP 失败异常，避免缓冲或记录可能包含凭据的错误正文。
+                return new byte[0];
+            }
+        });
+        return restTemplate;
     }
 
     /**
@@ -55,7 +66,10 @@ public class RestTemplateConfig {
      */
     @Bean("pixivImageRestTemplate")
     public RestTemplate pixivImageRestTemplate() {
-        return buildRestTemplate(30_000, 60_000, false, false);
+        RestTemplate restTemplate = buildRestTemplate(30_000, 60_000, false, false);
+        // 两个图片端口先检查状态，避免默认错误处理器完整缓冲无用的错误正文。
+        restTemplate.setErrorHandler(new NoOpResponseErrorHandler());
+        return restTemplate;
     }
 
     private RestTemplate buildRestTemplate(int connectTimeoutMs, int socketTimeoutMs) {

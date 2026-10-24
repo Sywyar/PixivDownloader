@@ -1,9 +1,15 @@
 package top.sywyar.pixivdownload.core.pixiv;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.mock.http.client.MockClientHttpResponse;
@@ -11,6 +17,8 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.DefaultResponseErrorHandler;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
+import top.sywyar.pixivdownload.config.ProxyConfig;
+import top.sywyar.pixivdownload.config.RestTemplateConfig;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -28,13 +36,29 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 @DisplayName("PixivAjaxProxyClient 稳定端口")
 class PixivAjaxProxyClientTest {
 
+    private RestTemplate restTemplate;
+    private MockRestServiceServer server;
+
+    @BeforeEach
+    void setUp() {
+        restTemplate = new RestTemplateConfig(new ProxyConfig()).pixivCredentialRestTemplate();
+        server = MockRestServiceServer.bindTo(restTemplate).build();
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        try {
+            server.verify();
+        } finally {
+            ((DisposableBean) restTemplate).destroy();
+        }
+    }
+
     @Test
     @DisplayName("按原 URI 发送统一 AJAX 请求头并显式按 UTF-8 解码")
     void shouldUseExactUriAjaxHeadersAndUtf8() {
         URI uri = URI.create("https://www.pixiv.net/ajax/novel/42?lang=zh");
         byte[] body = "{\"title\":\"日本語\"}".getBytes(StandardCharsets.UTF_8);
-        RestTemplate restTemplate = new RestTemplate();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
         server.expect(requestTo(uri))
                 .andExpect(header(HttpHeaders.USER_AGENT, PixivRequestHeaders.USER_AGENT))
                 .andExpect(header(HttpHeaders.COOKIE, "PHPSESSID=test"))
@@ -45,26 +69,20 @@ class PixivAjaxProxyClientTest {
 
         assertThat(client.get(uri, "PHPSESSID=test"))
                 .isEqualTo("{\"title\":\"日本語\"}");
-        server.verify();
     }
 
     @Test
     @DisplayName("空响应体映射为空字符串")
     void shouldMapNullBodyToEmptyString() {
         URI uri = URI.create("https://www.pixiv.net/ajax/novel/42");
-        RestTemplate restTemplate = new RestTemplate();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
         server.expect(requestTo(uri)).andRespond(withSuccess());
 
         assertThat(new PixivAjaxProxyClient(restTemplate).get(uri, null)).isEmpty();
-        server.verify();
     }
 
     @Test
     @DisplayName("携带 Cookie 前拒绝非 HTTPS Pixiv JSON 目标")
     void shouldRejectUnsafeTargetsBeforeDispatch() {
-        RestTemplate restTemplate = new RestTemplate();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
         PixivAjaxProxyClient client = new PixivAjaxProxyClient(restTemplate);
 
         for (URI uri : List.of(
@@ -83,56 +101,51 @@ class PixivAjaxProxyClientTest {
                     });
         }
 
-        server.verify();
     }
 
     @Test
     @DisplayName("搜索词的普通 UTF-8 路径编码仍可发送")
     void shouldAllowEncodedUtf8PathSegment() {
         URI uri = URI.create("https://www.pixiv.net/ajax/search/novels/%E5%B0%8F%E8%AF%B4?lang=zh");
-        RestTemplate restTemplate = new RestTemplate();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
         server.expect(requestTo(uri)).andRespond(withSuccess(
                 "{}".getBytes(StandardCharsets.UTF_8),
                 MediaType.APPLICATION_JSON));
 
         assertThat(new PixivAjaxProxyClient(restTemplate).get(uri, null)).isEqualTo("{}");
-        server.verify();
     }
 
-    @Test
-    @DisplayName("上游 HTTP 失败收敛为不携响应体的稳定异常")
-    void shouldTranslateHttpFailureWithoutLeakingResponse() {
+    @ParameterizedTest
+    @ValueSource(ints = {403, 503})
+    @DisplayName("上游 HTTP 失败不读取正文并收敛为稳定异常")
+    void shouldTranslateHttpFailureWithoutLeakingResponse(int status) {
         URI uri = URI.create("https://www.pixiv.net/ajax/novel/42");
-        RestTemplate restTemplate = new RestTemplate();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
-        server.expect(requestTo(uri)).andRespond(withStatus(HttpStatus.FORBIDDEN)
-                .body("sensitive-upstream-body"));
+        CountingInputStream body = new CountingInputStream(1024);
+        server.expect(requestTo(uri)).andRespond(request -> new MockClientHttpResponse(
+                body, HttpStatusCode.valueOf(status)));
 
         assertThatThrownBy(() -> new PixivAjaxProxyClient(restTemplate)
                 .get(uri, "PHPSESSID=secret"))
                 .isInstanceOfSatisfying(PixivAjaxException.class, failure -> {
                     assertThat(failure.failure()).isEqualTo(PixivAjaxFailure.HTTP_STATUS);
-                    assertThat(failure.statusCode()).isEqualTo(403);
+                    assertThat(failure.statusCode()).isEqualTo(status);
                     assertThat(failure.getCause()).isNull();
                     assertThat(failure.getMessage())
                             .doesNotContain("sensitive-upstream-body", "PHPSESSID", "secret");
                 });
-        server.verify();
+        assertThat(body.bytesRead).isZero();
+        assertThat(body.closed).isTrue();
     }
 
     @Test
     @DisplayName("自定义错误处理器返回的非 2xx 响应仍归类为 HTTP 失败")
     void shouldClassifyReturnedNonSuccessResponse() {
         URI uri = URI.create("https://www.pixiv.net/ajax/novel/42");
-        RestTemplate restTemplate = new RestTemplate();
         restTemplate.setErrorHandler(new DefaultResponseErrorHandler() {
             @Override
             public boolean hasError(ClientHttpResponse response) {
                 return false;
             }
         });
-        MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
         server.expect(requestTo(uri)).andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE)
                 .body("ignored-body"));
 
@@ -142,15 +155,12 @@ class PixivAjaxProxyClientTest {
                     assertThat(failure.statusCode()).isEqualTo(503);
                     assertThat(failure.getMessage()).doesNotContain("ignored-body");
                 });
-        server.verify();
     }
 
     @Test
     @DisplayName("传输失败收敛为不携客户端实现的稳定类别")
     void shouldTranslateTransportFailure() {
         URI uri = URI.create("https://www.pixiv.net/ajax/novel/42");
-        RestTemplate restTemplate = new RestTemplate();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
         server.expect(requestTo(uri)).andRespond(request -> {
             throw new IOException("timeout for sensitive target");
         });
@@ -162,7 +172,6 @@ class PixivAjaxProxyClientTest {
                     assertThat(failure.getCause()).isNull();
                     assertThat(failure.getMessage()).doesNotContain("sensitive target");
                 });
-        server.verify();
     }
 
     @Test
@@ -170,8 +179,6 @@ class PixivAjaxProxyClientTest {
     void shouldRejectDeclaredOversizedNovelResponse() {
         URI uri = URI.create("https://www.pixiv.net/ajax/novel/42");
         CountingInputStream body = new CountingInputStream(16);
-        RestTemplate boundedRestTemplate = new RestTemplate();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(boundedRestTemplate).build();
         server.expect(requestTo(uri)).andRespond(request -> {
             MockClientHttpResponse response = new MockClientHttpResponse(new byte[0], HttpStatus.OK) {
                 @Override
@@ -183,12 +190,11 @@ class PixivAjaxProxyClientTest {
             return response;
         });
 
-        assertThatThrownBy(() -> new PixivAjaxProxyClient(boundedRestTemplate).get(uri, null))
+        assertThatThrownBy(() -> new PixivAjaxProxyClient(restTemplate).get(uri, null))
                 .isInstanceOfSatisfying(PixivAjaxException.class, failure ->
                         assertThat(failure.failure()).isEqualTo(PixivAjaxFailure.RESPONSE_TOO_LARGE));
         assertThat(body.bytesRead).isZero();
         assertThat(body.closed).isTrue();
-        server.verify();
     }
 
     @Test
@@ -197,8 +203,6 @@ class PixivAjaxProxyClientTest {
         URI uri = URI.create("https://www.pixiv.net/ajax/novel/series_content/42");
         CountingInputStream body = new CountingInputStream(
                 PixivAjaxProxyClient.MAX_SERIES_RESPONSE_BYTES + 1024);
-        RestTemplate boundedRestTemplate = new RestTemplate();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(boundedRestTemplate).build();
         server.expect(requestTo(uri)).andRespond(request -> new MockClientHttpResponse(
                 new byte[0], HttpStatus.OK) {
             @Override
@@ -207,13 +211,12 @@ class PixivAjaxProxyClientTest {
             }
         });
 
-        assertThatThrownBy(() -> new PixivAjaxProxyClient(boundedRestTemplate).get(uri, null))
+        assertThatThrownBy(() -> new PixivAjaxProxyClient(restTemplate).get(uri, null))
                 .isInstanceOfSatisfying(PixivAjaxException.class, failure ->
                         assertThat(failure.failure()).isEqualTo(PixivAjaxFailure.RESPONSE_TOO_LARGE));
         assertThat(body.bytesRead)
                 .isEqualTo(PixivAjaxProxyClient.MAX_SERIES_RESPONSE_BYTES + 1);
         assertThat(body.closed).isTrue();
-        server.verify();
     }
 
     private static final class CountingInputStream extends InputStream {

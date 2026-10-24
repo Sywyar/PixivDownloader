@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复图片下载、缩略图代理及 Pixiv JSON、收藏请求完整缓冲上游错误正文的问题；缩略图代理拒绝超过 100 MiB 的响应。
 - 修复独立下载脚本重建设置面板或准备下载时，旧收藏夹查询清除新选择的问题。
 - 修正独立下载脚本的翻译分段说明：大小为 0 时整章翻译。
 - 修复日语、韩语和繁体中文界面的小说翻译目标默认填入简体中文的问题。
