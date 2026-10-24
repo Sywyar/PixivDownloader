@@ -15,6 +15,8 @@ This page lists the external network destinations that the current PixivDownload
 
 ## Core and default network requests
 
+Opening the login page checks the session at the application’s same-origin `/api/auth/check`. On submission, the browser sends the administrator username, password, and remember-me choice to `/api/auth/login`, or the invitation code to `/api/auth/invite-redeem`, with same-origin session cookies. The two methods share one pending submission; failures allow a retry without automatic resubmission. Administrator return paths must remain on the same origin after browser URL parsing; invalid destinations fall back to the default download page. These requests use browser network settings, not the backend outbound proxy. Leaving the login page stops later actions, but authentication requests already sent may complete.
+
 When a page opens or its language changes, the browser reads the language catalog and dictionaries from the application's `/api/i18n/meta` and `/api/i18n/messages/{namespace}?lang=...`, falling back to static resources under the page-relative `i18n-static/` path. Requests send the language, namespace, and same-origin session cookies. They do not contact a translation service or use the backend proxy. Each request has a 10-second timeout and bypasses the cache. Missing dictionaries retry automatically for up to three rounds after 1.5, 5, and 15 seconds; successful dictionaries are retained. Reconnecting or focusing the page can trigger another recovery attempt. Closing the page or replacing the language client stops that client's subsequent retries.
 
 | Request owner | Destination | Purpose and main data sent | Trigger and default state | Proxy and disable control |

@@ -17,6 +17,8 @@
 
 ## 核心功能及默認網絡請求
 
+登入頁開啟時向應用同源的 `/api/auth/check` 檢查工作階段；使用者提交後，向 `/api/auth/login` 傳送管理員帳號、密碼和保持登入選項，或向 `/api/auth/invite-redeem` 傳送邀請碼，並按同源規則攜帶工作階段 Cookie。兩個入口共用一個進行中的提交，失敗後可重試，不自動重送。管理員登入回跳僅接受經瀏覽器解析後仍同源的站內路徑，非法地址回到預設下載頁。這些請求使用瀏覽器網路設定，不經過後端出站代理；離開登入頁可停止後續操作，已發出的認證請求仍可能完成。
+
 | 請求所有者 | 目標地址 | 用途與主要發送內容 | 觸發場景與默認狀態 | 代理與關閉方式 |
 | --- | --- | --- | --- | --- |
 | 應用宿主 | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/update.json` 與相鄰的 `update.json.sig`；nightly 使用 `/releases/download/nightly/` 下的同名文件；重定向後可能進入 GitHub Release 資產 CDN | 獲取正式版或 nightly 更新清單及 Ed25519 detached 簽名；只發送 User-Agent、IP 等標準連接元數據，不發送當前版本、平臺、Pixiv Cookie 或其它憑據。響應分別受 1 MiB / 16 KiB 上限約束，清單會在解析前使用應用內置官方公鑰驗籤 | 應用就緒後自動檢查；`update.enabled=true`、`update.auto-check=true` 時啓用，默認均開啓；手動檢查也會訪問 | 使用宿主出站代理配置；僅允許 HTTPS 和默認公網地址，最多跟隨五跳重定向且每一跳都重新校驗。可關閉在線更新或自動檢查；自定義 manifest 必須是持有有效官方簽名的公網 HTTPS 鏡像 |
