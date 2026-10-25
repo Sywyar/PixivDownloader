@@ -39,6 +39,111 @@ $context = New-TestSessionRoot
 $children = @()
 try {
     & {
+        $port = Get-FreePort
+        $responseFile = Join-Path $context.Session 'health-response.json'
+        $readyFile = Join-Path $context.Session 'health-ready'
+        $server = Start-Job -ArgumentList $port, $responseFile, $readyFile -ScriptBlock {
+            param($Port, $ResponseFile, $ReadyFile)
+            $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $Port)
+            try {
+                $listener.Start()
+                [IO.File]::WriteAllText($ReadyFile, 'ready')
+                while ($true) {
+                    $client = $listener.AcceptTcpClient()
+                    try {
+                        $stream = $client.GetStream()
+                        $reader = [IO.StreamReader]::new($stream)
+                        $path = $reader.ReadLine().Split(' ')[1]
+                        while ($reader.ReadLine()) {}
+                        $code = 200
+                        $body = '{}'
+                        $contentType = 'application/json'
+                        if ($path -eq '/actuator/health') {
+                            $reply = Get-Content -Raw -LiteralPath $ResponseFile | ConvertFrom-Json
+                            $code = $reply.code
+                            $body = $reply.body
+                            $contentType = $reply.contentType
+                        } elseif ($path -eq '/api/plugins/status') {
+                            $body = '{"recoveryMode":true,"plugins":[]}'
+                        }
+                        $bytes = [Text.Encoding]::UTF8.GetBytes($body)
+                        $headers = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 $code Fixture`r`nContent-Type: $contentType`r`nContent-Length: $($bytes.Length)`r`nConnection: close`r`n`r`n")
+                        $stream.Write($headers, 0, $headers.Length)
+                        $stream.Write($bytes, 0, $bytes.Length)
+                    } finally {
+                        if ($null -ne $reader) { $reader.Dispose() }
+                        $client.Dispose()
+                    }
+                }
+            } finally { $listener.Stop() }
+        }
+        $process = Get-Process -Id $PID
+        try {
+            $deadline = [DateTime]::UtcNow.AddSeconds(15)
+            while (-not [IO.File]::Exists($readyFile)) {
+                if ($server.State -ne 'Running' -or [DateTime]::UtcNow -ge $deadline) { throw 'Health fixture did not start.' }
+                Start-Sleep -Milliseconds 50
+            }
+            foreach ($case in @(
+                @{code=200; body='{"status":"UP"}'; expected='UP'; valid=$true},
+                @{code=503; body='{"status":"DOWN"}'; expected='DOWN'; valid=$true},
+                @{code=201; body='{"status":"UP"}'; expected='UP'; valid=$false},
+                @{code=503; body='{"status":"DOWN"}'; expected='UP'; valid=$false},
+                @{code=200; body='{"status":"UP"}'; expected='DOWN'; valid=$false},
+                @{code=200; body='{"status":"DOWN"}'; expected='DOWN'; valid=$false},
+                @{code=503; body='{"status":"UP"}'; expected='DOWN'; valid=$false},
+                @{code=500; body='{"status":"DOWN"}'; expected='DOWN'; valid=$false},
+                @{code=503; body='invalid'; expected='DOWN'; valid=$false}
+            )) {
+                foreach ($contentType in @('application/json', 'application/vnd.spring-boot.actuator.v3+json')) {
+                    $case.contentType = $contentType
+                    [IO.File]::WriteAllText($responseFile, ($case | ConvertTo-Json), [Text.Encoding]::ASCII)
+                    if ($case.valid) {
+                        Wait-ForHealthyApplication $port $process 'Health fixture' $case.expected
+                        Assert-ReleaseStable -Process $process -Port $port -ExpectedHealth $case.expected -Seconds 0
+                        if ($case.expected -eq 'DOWN') {
+                            Assert-ReleaseStatus $port $null @() -Recovery $true -ExpectedHealth 'DOWN' | Out-Null
+                        }
+                    } else {
+                        $rejected = $false
+                        try { Assert-ReleaseHealth $port $case.expected } catch { $rejected = $true }
+                        if (-not $rejected) { throw "Invalid health response accepted: $($case | ConvertTo-Json -Compress)" }
+                    }
+                }
+            }
+        } finally {
+            $process.Dispose()
+            Stop-Job $server
+            Remove-Job $server
+        }
+    }
+    foreach ($kind in @('bat', 'exe')) {
+        foreach ($code in @(0, 17)) {
+            $launcher = $env:ComSpec
+            $arguments = @('/d', '/c', 'exit', "$code")
+            if ($kind -eq 'bat') {
+                $launcher = Join-Path $context.Session 'unobserved launcher.bat'
+                [IO.File]::WriteAllText($launcher, "@echo off`r`nexit /b %1`r`n", [Text.Encoding]::ASCII)
+                $arguments = @("$code")
+            }
+            foreach ($wait in @($false, $true)) {
+                $result = Start-ArtifactProcess -Launcher $launcher -WorkingDirectory $context.Session `
+                    -Arguments $arguments -LogPrefix (Join-Path $context.Session "unobserved-$kind-$code-$wait") -Wait:$wait
+                if ($wait) {
+                    $exitCode = $result
+                } else {
+                    try {
+                        Wait-ArtifactProcessExit $result 'Unobserved launcher' 15
+                        $exitCode = $result.ExitCode
+                    } finally { $result.Dispose() }
+                }
+                if ($exitCode -isnot [int] -or $exitCode -ne $code) {
+                    throw "$kind lost exit code $code without a handle observer (wait=$wait)."
+                }
+            }
+        }
+    }
+    & {
         $launched = [Collections.Generic.List[object]]::new()
         $failures = [Collections.Generic.List[string]]::new()
         function Start-Process {
@@ -49,10 +154,6 @@ try {
             return $process
         }
         $waitForExit = ${function:Wait-ArtifactProcessExit}
-        function Wait-ArtifactProcessExit {
-            param($Process, $Label, $TimeoutSeconds)
-            & $waitForExit -Process $Process -Label $Label -TimeoutSeconds 1
-        }
         try {
             foreach ($kind in @('bat', 'exe')) {
                 foreach ($code in @(0, 17)) {
@@ -73,11 +174,17 @@ try {
                     }
                 }
             }
-            Assert-Rejected {
-                Start-ArtifactProcess -Launcher $env:ComSpec -WorkingDirectory $context.Session `
-                    -Arguments @('/d', '/c', 'ping', '-n', '30', '127.0.0.1') `
-                    -LogPrefix (Join-Path $context.Session 'timed-out') -Wait
-            } 'did not exit'
+            & {
+                function Wait-ArtifactProcessExit {
+                    param($Process, $Label, $TimeoutSeconds)
+                    & $waitForExit -Process $Process -Label $Label -TimeoutSeconds 1
+                }
+                Assert-Rejected {
+                    Start-ArtifactProcess -Launcher $env:ComSpec -WorkingDirectory $context.Session `
+                        -Arguments @('/d', '/c', 'ping', '-n', '30', '127.0.0.1') `
+                        -LogPrefix (Join-Path $context.Session 'timed-out') -Wait
+                } 'did not exit'
+            }
             if (Get-Process -Id $launched[-1].Id -ErrorAction SilentlyContinue) { throw 'Timed out launcher still runs.' }
             if (-not $launched[-1].Handle.IsClosed) { $failures.Add('Timed out launcher retained its process handle') }
             $process = Start-ArtifactProcess -Launcher $env:ComSpec -WorkingDirectory $context.Session `
@@ -424,8 +531,11 @@ try {
     # Drive the real observation loop with a process which exits after readiness.
     function Invoke-RestMethod {
         param($Uri, [switch]$UseBasicParsing, $WebSession, $TimeoutSec)
-        if ($Uri.EndsWith('/actuator/health')) { return [pscustomobject]@{status='UP'} }
         return $script:status
+    }
+    function Invoke-WebRequest {
+        param($Uri, [switch]$UseBasicParsing, $TimeoutSec)
+        return [pscustomobject]@{StatusCode=200; Content='{"status":"UP"}'}
     }
     $exitSignal = Join-Path $context.Session 'exit-after-health'
     $exitFixture = Join-Path $context.Session 'exit-after-health.ps1'
@@ -438,17 +548,17 @@ exit 0
         '-File', "`"$exitFixture`"", '-Signal', "`"$exitSignal`"") -PassThru -WindowStyle Hidden
     $children += $child
     Assert-ArtifactAlive $child 'ready'
-    $readStatus = ${function:Invoke-RestMethod}
-    function Invoke-RestMethod {
-        param($Uri, [switch]$UseBasicParsing, $WebSession, $TimeoutSec)
+    $readHealth = ${function:Invoke-WebRequest}
+    function Invoke-WebRequest {
+        param($Uri, [switch]$UseBasicParsing, $TimeoutSec)
         [IO.File]::WriteAllText($exitSignal, 'exit', [Text.Encoding]::ASCII)
         if (-not $child.WaitForExit(15000)) { throw 'Ready fixture did not exit after its health response.' }
-        return & $readStatus @PSBoundParameters
+        return & $readHealth @PSBoundParameters
     }
     try {
         Assert-Rejected { Assert-ReleaseStable -Process $child -Seconds 3 } 'code 0'
     } finally {
-        Set-Item Function:Invoke-RestMethod $readStatus
+        Set-Item Function:Invoke-WebRequest $readHealth
     }
     $script:status = [pscustomobject]@{recoveryMode=$false; plugins=@(
         [pscustomobject]@{id='optional'; status='STARTED'; runtimePhase='STARTED'})}

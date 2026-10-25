@@ -1018,7 +1018,6 @@ class PluginReleaseScriptsTest {
                 "Expand-Archive -LiteralPath $Archive",
                 "PixivDownload-$Version.jar",
                 "runtime\\bin\\server\\jvm.dll",
-                "/actuator/health",
                 "/actuator/info",
                 "Wait-ArtifactProcessExit",
                 "-TimeoutSeconds 600",

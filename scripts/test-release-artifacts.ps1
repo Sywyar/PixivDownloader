@@ -160,6 +160,7 @@ function Start-ArtifactProcess {
     $process = Start-Process -FilePath $executable -ArgumentList $Arguments `
         -WorkingDirectory $WorkingDirectory -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    $null = $process.Handle
     if ($Wait) {
         try {
             Wait-ArtifactProcessExit -Process $process -Label $Launcher -TimeoutSeconds 180
@@ -209,21 +210,18 @@ function Get-FreePort {
 }
 
 function Wait-ForHealthyApplication {
-    param([int]$Port, $Process, [string]$Label)
+    param([int]$Port, $Process, [string]$Label, [string]$ExpectedHealth = 'UP')
     $deadline = [DateTime]::UtcNow.AddMinutes(3)
     do {
         Assert-ArtifactAlive $Process "$Label before becoming healthy"
         try {
-            $health = Invoke-RestMethod -UseBasicParsing -Uri "http://127.0.0.1:$Port/actuator/health" `
+            Assert-ReleaseHealth $Port $ExpectedHealth
+            $info = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/actuator/info" `
                 -TimeoutSec 5
-            if ($health.status -eq "UP") {
-                $info = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/actuator/info" `
-                    -TimeoutSec 5
-                if ($info.StatusCode -ne 200) {
-                    throw "$Label actuator info returned HTTP $($info.StatusCode)"
-                }
-                return
+            if ($info.StatusCode -ne 200) {
+                throw "$Label actuator info returned HTTP $($info.StatusCode)"
             }
+            return
         } catch {
             if ([DateTime]::UtcNow -ge $deadline) {
                 throw

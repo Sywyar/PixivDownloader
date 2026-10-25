@@ -146,11 +146,35 @@ function New-ReleaseLogin {
     return $session
 }
 
+function Assert-ReleaseHealth {
+    param([int]$Port, [ValidateSet('UP', 'DOWN')][string]$ExpectedHealth = 'UP')
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/actuator/health" -TimeoutSec 5
+        $statusCode = [int]$response.StatusCode
+        $body = if ($response.Content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($response.Content) } else { $response.Content }
+    } catch {
+        if ($ExpectedHealth -ne 'DOWN' -or $null -eq $_.Exception.Response -or
+            [int]$_.Exception.Response.StatusCode -ne 503) { throw }
+        $statusCode = 503
+        $body = if ($null -ne $_.ErrorDetails) {
+            $_.ErrorDetails.Message
+        } else {
+            $reader = [IO.StreamReader]::new($_.Exception.Response.GetResponseStream(), [Text.Encoding]::UTF8)
+            try { $reader.ReadToEnd() } finally { $reader.Dispose() }
+        }
+    }
+    $health = $body | ConvertFrom-Json
+    $expectedCode = if ($ExpectedHealth -eq 'DOWN') { 503 } else { 200 }
+    if ($health.status -ne $ExpectedHealth -or $statusCode -ne $expectedCode) {
+        throw "Unexpected application health: $($health.status) (HTTP $statusCode), expected $ExpectedHealth (HTTP $expectedCode)."
+    }
+}
+
 function Assert-ReleaseStatus {
     param([int]$Port, $Session, [string[]]$ExpectedIds, [string[]]$CrashedIds = @(),
-        [string[]]$UnavailableIds = @(), [bool]$Recovery = $false, [string]$EvidencePath = '')
-    $health = Invoke-RestMethod -UseBasicParsing -Uri "http://127.0.0.1:$Port/actuator/health" -TimeoutSec 5
-    if ($health.status -ne 'UP') { throw 'Application became unhealthy.' }
+        [string[]]$UnavailableIds = @(), [bool]$Recovery = $false, [string]$EvidencePath = '',
+        [string]$ExpectedHealth = 'UP')
+    Assert-ReleaseHealth $Port $ExpectedHealth
     $status = Invoke-RestMethod -UseBasicParsing -Uri "http://127.0.0.1:$Port/api/plugins/status" `
         -WebSession $Session -TimeoutSec 60
     if ($EvidencePath) { $status | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $EvidencePath -Encoding UTF8 }
@@ -200,17 +224,17 @@ function Test-ReleaseDesktopReady {
 function Assert-ReleaseStable {
     param($Process, [string]$ProbeRoot, [int]$Port, $Session, [string[]]$ExpectedIds,
         [string]$Provider = '', [string[]]$CrashedIds = @(), [string[]]$UnavailableIds = @(),
-        [bool]$Recovery = $false, [switch]$BootstrapPrompt, [int]$Seconds = 10)
+        [bool]$Recovery = $false, [switch]$BootstrapPrompt, [int]$Seconds = 10,
+        [string]$ExpectedHealth = 'UP')
     $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
     do {
         Assert-ArtifactAlive $Process 'Runtime observation'
         if ($null -ne $Session) {
             Assert-ReleaseStatus -Port $Port -Session $Session -ExpectedIds $ExpectedIds `
                 -CrashedIds $CrashedIds -UnavailableIds $UnavailableIds -Recovery $Recovery `
-                -EvidencePath (Join-Path $ProbeRoot 'plugins.json') | Out-Null
+                -EvidencePath (Join-Path $ProbeRoot 'plugins.json') -ExpectedHealth $ExpectedHealth | Out-Null
         } elseif (-not $BootstrapPrompt) {
-            $health = Invoke-RestMethod -UseBasicParsing -Uri "http://127.0.0.1:$Port/actuator/health" -TimeoutSec 5
-            if ($health.status -ne 'UP') { throw 'Application became unhealthy.' }
+            Assert-ReleaseHealth $Port $ExpectedHealth
         }
         if ($Provider -or $BootstrapPrompt) {
             $desktop = Invoke-ReleaseProbe $Process $ProbeRoot 'desktop'
