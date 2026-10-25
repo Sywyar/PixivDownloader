@@ -364,6 +364,8 @@ JDBC 的 TCP / TLS 连接不经过 Pixiv HTTP 代理；TLS 由 `sslmode` 和可�
 | Windows CI | Chocolatey 配置的软件源 | 安装 Inno Setup 等打包工具 |
 | SDK 的 Douyin 兼容性检查 | `https://github.com/Sywyar/PixivDownloader-Plugin-Douyin.git` 的固定提交；该工程 POM 声明的 Maven 依赖仓库 | `scripts/ci/sdk-consumer.mjs` 在 SDK 验证时用 Git HTTPS 获取 `scripts/ci/douyin-source.json` 固定的提交，单次 Git 获取和检出最多 300 秒；不跟随 `main`。随后以待验 SDK 在线构建、离线重建并运行 Java、JavaScript、产物和宿主集成测试。Git 获取关闭凭据助手及交互提示，使用 Git 自身的代理配置；发送仓库路径和提交身份，不需要发布凭据。显式传入 `--douyin-source` 可改用本地源码并省去 GitHub 源码请求，依赖解析仍遵循 Maven 配置。此流程不由已安装客户端执行 |
 
+Windows 安装包构建使用 `actions/setup-java` 查询最新可用的 Temurin 17（`check-latest: true`），再使用匹配版本的缓存或下载 JDK。版本查询访问 Adoptium 分发 API，下载由 Action 解析到 GitHub Release 及其资产重定向；请求包含 Java 版本、平台和架构，沿用 Action 与 runner 的代理设置。维护者可在安装包构建 Action 中调整版本选择。`jlink` 裁剪后的证书信任清理及问题链回归均在本地离线执行，不向 CA、OCSP 或事件测试站点请求数据；这些步骤不由已安装应用执行。
+
 构建机、代理、镜像或包管理器配置可以改写最终下载主机，因此这些传递依赖无法仅凭仓库源码列出稳定的完整域名集合。
 
 ## 链接及非请求型 URL
