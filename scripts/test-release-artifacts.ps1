@@ -281,6 +281,7 @@ function Assert-PackagedRuntime {
         -not (Test-Path -LiteralPath $jvm -PathType Leaf)) {
         throw "$Label does not contain PixivDownload.exe and its packaged JVM"
     }
+    & (Join-Path $PSScriptRoot 'runtime-security/test-runtime-trust.ps1') -RuntimeHome (Join-Path $Root 'runtime') | Out-Host
     return $launcher
 }
 

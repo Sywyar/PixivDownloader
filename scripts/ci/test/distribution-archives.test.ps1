@@ -125,6 +125,12 @@ Write-FixtureFile (Join-Path $OutputDir 'plugins-manifest.json') (ConvertTo-Json
             $metadata = 'pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties'
             Write-FixtureFile (Join-Path $root $metadata) ([IO.File]::ReadAllText((Join-Path $repo $metadata), $utf8))
             Write-FixtureFile (Join-Path $scripts 'set-windows-exe-requested-execution-level.ps1') 'param($Path, $Level)'
+            Write-FixtureFile (Join-Path $scripts 'runtime-security/test-runtime-trust.ps1') @'
+param($RuntimeHome)
+Assert-Equal $RuntimeHome (Join-Path $root 'build/runtime')
+if ($rejectRuntimeTrust) { throw 'Rejected fixture runtime trust.' }
+'@
+            $rejectRuntimeTrust = $false
             $inputJar = Join-Path $root 'inputs/core.jar'
             [IO.Directory]::CreateDirectory((Split-Path $inputJar)) | Out-Null
             $archive = [IO.Compression.ZipFile]::Open($inputJar, [IO.Compression.ZipArchiveMode]::Create)
@@ -168,6 +174,14 @@ Write-FixtureFile (Join-Path $OutputDir 'plugins-manifest.json') (ConvertTo-Json
                 Assert-Equal ([IO.File]::ReadAllText((Join-Path $offline 'tools/ffmpeg/ffprobe.exe'), $utf8)) 'bin/ffprobe.exe'
                 Assert-Equal @(Get-ChildItem -LiteralPath (Join-Path $offline 'tools/ffmpeg/licenses') -File).Count 3
             }
+            $rejectRuntimeTrust = $true
+            $failed = $false
+            try { & (Join-Path $scripts 'package-local.ps1') -Version 1.2.3 -PrebuiltJar $inputJar -SignatureToolJar $signatureTool -SkipPlugins -SkipInstaller }
+            catch { if (-not $_.Exception.Message.Contains('Rejected fixture runtime trust')) { throw }; $failed = $true }
+            Assert-Equal $failed $true
+            Assert-Equal @(Get-ChildItem -LiteralPath (Join-Path $root 'build/out') -File).Count 0
+            Assert-Equal (Test-Path -LiteralPath (Join-Path $root 'build/app-image-online')) $false
+            $rejectRuntimeTrust = $false
             function curl.exe {
                 $destination = $args[[Array]::IndexOf($args, '-o') + 1]
                 Copy-Item -LiteralPath $destination.Substring(0, $destination.Length - '.download'.Length) -Destination $destination
@@ -179,7 +193,7 @@ Write-FixtureFile (Join-Path $OutputDir 'plugins-manifest.json') (ConvertTo-Json
                 $manifest.assets['ffmpeg-windows-x64.zip'].expectedSizeBytes = (Get-Item -LiteralPath $zip).Length + [int]($fault -eq 'size')
                 $manifest.assets['ffmpeg-windows-x64.zip'].sha256 = if ($fault -eq 'hash') { '0' * 64 } else { (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash }
                 Write-FixtureFile (Join-Path $ffmpeg 'ffmpeg-release.json') ($manifest | ConvertTo-Json -Depth 5)
-                function java { $global:LASTEXITCODE = [int]($fault -eq 'signature') }
+                function java { $global:LASTEXITCODE = [int]($fault -eq 'signature' -and $args -contains 'verify-manifest') }
                 $failed = $false
                 $expectedError = @{size='length mismatch'; hash='SHA-256 mismatch'; signature='signature verification failed'}[$fault]
                 try { & (Join-Path $scripts 'package-local.ps1') -Version 1.2.3 -PrebuiltJar $inputJar -SignatureToolJar $signatureTool -SkipPlugins -SkipInstaller }

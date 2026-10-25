@@ -160,6 +160,12 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 - 修复分钟切换时清理旧计数可能重置游客和邀请访客请求额度、额外放行请求的问题。
 - 修复新版下载页计划任务无法绑定或撤销凭证、绑定状态不显示的问题；绑定失败后重试不会重复创建任务。
 
+## [v1.14.3] - 2026.10.22
+
+### Security
+
+- Windows 安装包及含内置 Java 运行时的便携包移除 emSign ECC Root CA - G3 信任根，阻断 eMudhra 弱密钥中间 CA 的相关证书链；依赖该根的正常 HTTPS 服务也将不再受信任。使用自备 Java 或自定义信任库的用户需单独更新其证书信任配置。
+
 ## [v1.14.2] - 2026.10.16
 
 ### Changed

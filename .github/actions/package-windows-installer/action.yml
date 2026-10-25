@@ -15,6 +15,7 @@ runs:
         verify-signature: true
         java-version: '17'
         distribution: temurin
+        check-latest: true
 
     - name: Set up Inno Setup
       shell: pwsh

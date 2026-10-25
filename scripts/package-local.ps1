@@ -300,6 +300,8 @@ try {
     $mavenCmd = if (-not $resolvedPrebuiltJar) { Get-MavenCommand $ProjectRoot } else { $null }
     Assert-Command "jlink"
     Assert-Command "jpackage"
+    Assert-Command "java"
+    Assert-Command "javac"
     if (-not $SkipInstaller) {
         $innoCompilerSource = Get-InnoSetupCompiler
     }
@@ -351,6 +353,14 @@ try {
         "--compress=2",
         "--output", $RuntimeDir
     )
+
+    Write-Step "Removing distrusted CA from bundled runtime"
+    Invoke-External "java" @(
+        "-Dfile.encoding=UTF-8", "--source", "17",
+        (Join-Path $PSScriptRoot "runtime-security/RemoveDistrustedCa.java"),
+        (Join-Path $RuntimeDir "lib/security/cacerts")
+    )
+    & (Join-Path $PSScriptRoot "runtime-security/test-runtime-trust.ps1") -RuntimeHome $RuntimeDir
 
     Write-Step "Building app-image"
     Invoke-External "jpackage" @(
