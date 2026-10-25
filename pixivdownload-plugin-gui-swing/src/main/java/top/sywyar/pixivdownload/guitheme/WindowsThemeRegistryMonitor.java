@@ -74,12 +74,16 @@ final class WindowsThemeRegistryMonitor {
             log.debug("Listening for Windows theme registry changes");
 
             while (worker == Thread.currentThread()) {
-                rc = Advapi32.INSTANCE.RegNotifyChangeKeyValue(
-                        key,
-                        false,
-                        WinNT.REG_NOTIFY_CHANGE_LAST_SET,
-                        event,
-                        true);
+                synchronized (this) {
+                    if (worker != Thread.currentThread()) return;
+                    // 注册通知会重置事件，必须与 stop 的唤醒保持互斥。
+                    rc = Advapi32.INSTANCE.RegNotifyChangeKeyValue(
+                            key,
+                            false,
+                            WinNT.REG_NOTIFY_CHANGE_LAST_SET,
+                            event,
+                            true);
+                }
                 if (rc != WinError.ERROR_SUCCESS) {
                     log.debug("Failed to register Windows theme change notification, error code: {}", rc);
                     return;
