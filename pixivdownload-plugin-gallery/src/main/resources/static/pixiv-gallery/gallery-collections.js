@@ -1,10 +1,36 @@
 'use strict';
+
+    let collectionPending = false;
+    let collectionReadRevision = 0;
+    let collectionModalRevision = 0;
+
+    function syncCollectionControls() {
+        document.getElementById('quickCreateBtn').disabled = collectionPending;
+        document.getElementById('addToCollectionList').querySelectorAll('.collection-row').forEach(row => {
+            const checkbox = row.querySelector('input[type="checkbox"]');
+            checkbox.disabled = collectionPending;
+            if (!collectionPending) checkbox.checked = state.collectionMembership.has(Number(row.dataset.id));
+        });
+    }
+
+    function setCollectionPending(pending) {
+        collectionPending = pending;
+        ++galleryMembershipRevision;
+        ++collectionReadRevision;
+        ++collectionLoadRevision;
+        syncCollectionControls();
+    }
+
     let collectionIconPreviewUrl = null;
+    let collectionFormRevision = 0;
 
     // ---------- Collections sidebar ----------
+    let collectionLoadRevision = 0;
     async function loadCollections() {
+        const revision = ++collectionLoadRevision;
         try {
             const resp = await api('/api/collections');
+            if (revision !== collectionLoadRevision || collectionPending) return;
             state.collections = resp.collections || [];
             renderCollections();
         } catch (e) {
@@ -94,38 +120,11 @@
     }
 
     function resetFiltersForSidebarCollection(id) {
-        state.r18 = 'any';
-        state.ai = 'any';
-        state.formats.clear();
-        state.collectionIds.clear();
-        state.collectionIds.add(id);
-        clearFilterSelections('tag');
-        clearFilterSelections('author');
-        state.seriesFilter = {id: null, title: ''};
-        clearFilterSearch('tag');
-        clearFilterSearch('series');
-        clearFilterSearch('author');
-        state.tagFilters.mode = 'must';
-        state.authorFilters.mode = 'must';
-        state.authorNames.clear();
-        document.querySelectorAll('.chip[data-r18]').forEach(c => c.classList.toggle('active', c.dataset.r18 === 'any'));
-        document.querySelectorAll('.chip[data-ai]').forEach(c => c.classList.toggle('active', c.dataset.ai === 'any'));
-        document.querySelectorAll('.chip[data-format]').forEach(c => c.classList.remove('active'));
-        state.page = 0;
-        renderFilterModeButtons('tag');
-        renderFilterModeButtons('author');
-        syncTagFilterBar();
-        syncAuthorFilterBar();
-        syncSeriesFilterBar();
-        renderCollections();
-        renderTagChips();
-        renderSeriesFilterChips();
-        renderAuthorChips();
-        updateFilterBadge();
-        refreshGalleryForCurrentState();
+        resetGalleryFilters([id]);
     }
 
     function openCollectionFormModal(collection) {
+        ++collectionFormRevision;
         state.editingCollection = collection;
         state.pendingIconFile = null;
         state.pendingIconClear = false;
@@ -141,6 +140,7 @@
     }
 
     function closeCollectionFormModal() {
+        ++collectionFormRevision;
         document.getElementById('modalCollectionForm').classList.remove('open');
         state.editingCollection = null;
         state.pendingIconFile = null;
@@ -286,6 +286,81 @@
         });
     }
 
+
+    // ---------- Add to collection ----------
+    async function refreshCollectionMembership() {
+        const artworkId = state.activeArtworkId;
+        if (artworkId == null) return;
+        const revision = ++collectionReadRevision;
+        try {
+            const resp = await api(`/api/collections/of/${artworkId}`);
+            if (revision !== collectionReadRevision || collectionPending || artworkId !== state.activeArtworkId) return;
+            state.collectionMembership = new Set(resp.collectionIds || []);
+            syncCollectionControls();
+        } catch (_) { /* 保留已确认的收藏状态 */ }
+    }
+
+    async function openAddToCollectionModal(artworkId) {
+        const revision = ++collectionModalRevision;
+        state.activeArtworkId = artworkId;
+        state.collectionMembership = new Set();
+        await refreshCollectionMembership();
+        if (revision !== collectionModalRevision) return;
+        renderAddToCollectionList();
+        document.getElementById('modalAddToCollection').classList.add('open');
+    }
+
+    function closeAddToCollectionModal() {
+        ++collectionModalRevision;
+        ++collectionReadRevision;
+        document.getElementById('modalAddToCollection').classList.remove('open');
+        state.activeArtworkId = null;
+        loadCollections();
+        const ids = [...document.querySelectorAll('.work-card[data-id]')].map(el => Number(el.dataset.id));
+        if (ids.length) loadMembershipsForCurrentPage(ids);
+    }
+
+    function renderAddToCollectionList() {
+        const list = document.getElementById('addToCollectionList');
+        if (!state.collections.length) {
+            list.innerHTML = '<div class="empty-state" style="padding:24px">' + escapeHtml(t('status.no-collections-hint', 'No collections yet. Create one first.')) + '</div>';
+            return;
+        }
+        list.innerHTML = state.collections.map(c => `
+            <label class="collection-row" data-id="${c.id}">
+                <input type="checkbox" ${state.collectionMembership.has(c.id) ? 'checked' : ''}>
+                <div class="collection-row-icon">${iconHtml(c)}</div>
+                <div class="collection-row-name">${escapeHtml(c.name)}</div>
+                <span class="collection-count">${c.artworkCount}</span>
+            </label>
+        `).join('');
+        list.querySelectorAll('.collection-row').forEach(row => {
+            const id = Number(row.dataset.id);
+            const cb = row.querySelector('input[type="checkbox"]');
+            cb.addEventListener('change', async () => {
+                if (collectionPending) return;
+                const artworkId = state.activeArtworkId;
+                if (artworkId == null) return;
+                const membership = state.collectionMembership;
+                const selected = cb.checked;
+                setCollectionPending(true);
+                try {
+                    await api(`/api/collections/${id}/artworks/${artworkId}`, {method: selected ? 'POST' : 'DELETE'});
+                    if (selected) membership.add(id);
+                    else membership.delete(id);
+                } catch (e) {
+                    toast(e.message || t('toast.action-failed', 'Action failed'), 'error');
+                } finally {
+                    setCollectionPending(false);
+                    await refreshCollectionMembership();
+                    loadCollections();
+                    const ids = [...document.querySelectorAll('.work-card[data-id]')].map(el => Number(el.dataset.id));
+                    if (ids.length) loadMembershipsForCurrentPage(ids);
+                }
+            });
+        });
+        syncCollectionControls();
+    }
 
 // ---- PixivGallery facade ----
 window.PixivGallery.collections = Object.assign(window.PixivGallery.collections || {}, { loadCollections, renderCollections, renderCollectionFilterChips, iconHtml, toggleCollectionFilter, switchCollectionFilter, resetFiltersForSidebarCollection, openCollectionFormModal, closeCollectionFormModal, defaultCollectionDownloadRoot, syncCollectionDownloadRootControls, renderCollectionDownloadRootPreview, expandCollectionDownloadRoot, safeCollectionNamePathSegment, isAbsoluteCollectionDownloadRoot, stripLeadingPathSeparators, joinPreviewPath, readCollectionDownloadRoot, hasControlCharacter, updateFormIconPreview, openCollectionContextMenu, closeContextMenu, updateOrderToggleLabel, syncCollectionFormTitle, bindTristate });

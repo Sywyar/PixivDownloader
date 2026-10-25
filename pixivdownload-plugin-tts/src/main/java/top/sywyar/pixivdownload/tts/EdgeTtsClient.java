@@ -125,11 +125,9 @@ public class EdgeTtsClient {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new EdgeTtsException(message("tts.edge.error.interrupted"), e);
-            } catch (ExecutionException | CompletionException e) {
-                throw synthesisFailure(unwrap(e));
             } catch (EdgeTtsException e) {
                 throw e;
-            } catch (RuntimeException e) {
+            } catch (ExecutionException | RuntimeException e) {
                 throw synthesisFailure(unwrap(e));
             }
         } finally {
@@ -159,10 +157,7 @@ public class EdgeTtsClient {
             Thread.currentThread().interrupt();
             abandonConnect(session, connecting, e);
             throw new EdgeTtsException(message("tts.edge.error.interrupted"), e);
-        } catch (ExecutionException | CompletionException e) {
-            abandonConnect(session, connecting, e);
-            throw connectFailure(unwrap(e));
-        } catch (RuntimeException e) {
+        } catch (ExecutionException | RuntimeException e) {
             abandonConnect(session, connecting, e);
             throw connectFailure(unwrap(e));
         } catch (VirtualMachineError | ThreadDeath fatal) {
@@ -242,7 +237,7 @@ public class EdgeTtsClient {
         Throwable fatalFailure = null;
         for (AsyncSession session : draining) {
             try {
-                session.stopNow();
+                session.requestStop(false);
             } catch (VirtualMachineError | ThreadDeath fatal) {
                 fatalFailure = firstFailure(fatalFailure, fatal);
             }
@@ -260,7 +255,7 @@ public class EdgeTtsClient {
     private void finishAndDrain(AsyncSession session) {
         Throwable fatalFailure = null;
         try {
-            session.finishGracefully();
+            session.requestStop(true);
         } catch (VirtualMachineError | ThreadDeath fatal) {
             fatalFailure = fatal;
         }
@@ -484,7 +479,6 @@ public class EdgeTtsClient {
         private WebSocket webSocket;
         private boolean connectResolved;
         private boolean stopRequested;
-        private boolean listenerSealed;
         private boolean gracefulStopStarted;
         private boolean abortStopStarted;
         private boolean socketStopped = true;
@@ -551,7 +545,7 @@ public class EdgeTtsClient {
 
         private boolean enterCallback() {
             synchronized (monitor) {
-                if (listenerSealed) {
+                if (stopRequested) {
                     return false;
                 }
                 activeCallbacks++;
@@ -574,7 +568,7 @@ public class EdgeTtsClient {
                     requestAllowed = false;
                 } else {
                     observeSocketLocked(socket);
-                    requestAllowed = !stopRequested && !listenerSealed;
+                    requestAllowed = !stopRequested;
                     if (!requestAllowed) {
                         action = claimSocketStopLocked(false);
                     }
@@ -607,7 +601,7 @@ public class EdgeTtsClient {
 
         private boolean shouldRequestNext() {
             synchronized (monitor) {
-                return !listenerSealed && !stopRequested;
+                return !stopRequested;
             }
         }
 
@@ -618,35 +612,18 @@ public class EdgeTtsClient {
             result.completeExceptionally(actual);
         }
 
-        private void finishGracefully() {
+        private void requestStop(boolean graceful) {
             StopAction action;
             synchronized (monitor) {
-                requestStopLocked();
-                action = claimSocketStopLocked(true);
+                stopRequested = true;
+                connected.completeExceptionally(ClientStopping.INSTANCE);
+                result.completeExceptionally(ClientStopping.INSTANCE);
+                action = claimSocketStopLocked(graceful);
                 completeTerminalIfReadyLocked();
             }
             if (action != null) {
                 stopSocket(action);
             }
-        }
-
-        private void stopNow() {
-            StopAction action;
-            synchronized (monitor) {
-                requestStopLocked();
-                action = claimSocketStopLocked(false);
-                completeTerminalIfReadyLocked();
-            }
-            if (action != null) {
-                stopSocket(action);
-            }
-        }
-
-        private void requestStopLocked() {
-            stopRequested = true;
-            listenerSealed = true;
-            connected.completeExceptionally(ClientStopping.INSTANCE);
-            result.completeExceptionally(ClientStopping.INSTANCE);
         }
 
         private void observeSocketLocked(WebSocket socket) {

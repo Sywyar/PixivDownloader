@@ -21,10 +21,15 @@ surveys and all optional extensions so no external CDN dependency is loaded
 at runtime). It is committed byte-for-byte; it is never re-built or re-minified
 by this project.
 
-Update procedure (see docs/layout-survey.md):
-  1. change the exact version in pixivdownload-plugin-download-workbench/pom.xml
-     (<posthog-js.version>);
-  2. re-run the npm commands above for the new version;
-  3. replace static/vendor/posthog-js/<version>/array.full.js and this
-     directory's LICENSE / INTEGRITY.txt / SOURCE.txt;
-  4. bump plugin.version and publish a new immutable plugin release.
+Update procedure (paths relative to the repository root):
+  1. re-run the npm commands above for the chosen version;
+  2. replace pixivdownload-plugin-posthog/src/main/resources/static/vendor/
+     posthog-js/<version>/array.full.js and this directory's LICENSE,
+     INTEGRITY.txt and SOURCE.txt;
+  3. update SDK_VERSION in pixivdownload-plugin-posthog/src/main/resources/
+     static/pixiv-posthog/pixiv-posthog.js, then update the versioned resource
+     paths and SDK behavior checks in the PostHog and download-workbench tests;
+  4. run the PostHog tests (including real-posthog-sdk-identity.test.js),
+     the layout-feedback tests and DistributionPackagingBoundaryTest;
+  5. update plugin.version in pixivdownload-plugin-posthog/src/main/resources/
+     plugin.properties before publishing a new immutable plugin release.

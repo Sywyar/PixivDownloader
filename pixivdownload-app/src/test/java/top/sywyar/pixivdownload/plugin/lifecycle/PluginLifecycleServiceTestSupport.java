@@ -165,13 +165,12 @@ abstract class PluginLifecycleServiceTestSupport {
         /** {@code queueType != null} 时让 ext-demo 声明该作品类型并注册对应队列操作适配器（验证 drain）。 */
         MockHarness(String queueType) {
             plugin.queueType = queueType;
+            queueRegistry = new QueueOperationRegistry(List.of());
             if (queueType != null) {
                 ops = new RecordingQueueOperations(queueType);
-                queueRegistry = new QueueOperationRegistry(List.of());
                 queueRegistry.register("ext-demo", List.of(ops));
             } else {
                 ops = null;
-                queueRegistry = new QueueOperationRegistry(List.of());
             }
             when(runtime.inspectContextModules()).thenReturn(List.of());
             doAnswer(invocation -> {

@@ -124,10 +124,6 @@ public final class PixivRequestHeaders {
         applySecFetchDefaultsIfAbsent(headers, uri);
     }
 
-    private static void applyBase(HttpHeaders headers, String referer, String cookie) {
-        applyBase(writer(headers), referer, cookie);
-    }
-
     private static void applyAjax(HeaderWriter headers, String cookie) {
         applyBase(headers, PIXIV_HOME, cookie);
         headers.set(HttpHeaders.ACCEPT, ACCEPT_JSON);
@@ -163,10 +159,6 @@ public final class PixivRequestHeaders {
         if (StringUtils.hasText(cookie)) {
             headers.set(HttpHeaders.COOKIE, cookie);
         }
-    }
-
-    private static void applyClientHints(HttpHeaders headers) {
-        applyClientHints(writer(headers));
     }
 
     private static void applyClientHints(HeaderWriter headers) {

@@ -198,7 +198,6 @@ function formatNovelReadingDuration(seconds) {
     if (hour > 0) parts.push(bt('duration.hour', '{count} 小时', {count: hour}));
     if (minute > 0) parts.push(bt('duration.minute', '{count} 分钟', {count: minute}));
     if (second > 0 && hour === 0) parts.push(bt('duration.second', '{count} 秒', {count: second}));
-    if (!parts.length) parts.push(bt('duration.second', '{count} 秒', {count: total}));
     return parts.join(' ');
 }
 

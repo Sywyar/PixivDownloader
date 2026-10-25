@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.core.work.model.WorkMetadata;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkAssetService;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataRepository;
+import top.sywyar.pixivdownload.core.work.service.WorkQueryService;
 import top.sywyar.pixivdownload.plugin.api.gui.media.DesktopMediaTool;
 
 import java.nio.file.Files;
@@ -23,6 +24,45 @@ import static org.mockito.Mockito.*;
 
 class MediaMaintenanceServiceTest {
     @TempDir Path directory;
+    private final top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry runtimeTasks =
+            new top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry();
+
+    @Test
+    @DisplayName("共享媒体工具失效只尝试一页并交付失败终态，修复后可再次处理")
+    void stopsSharedFailureAndReportsCompletion() throws Exception {
+        var assets = mock(WorkAssetService.class);
+        var metadata = mock(WorkMetadataRepository.class);
+        var images = mock(ImageOutputService.class);
+        var first = new WorkAssetFile(0, Files.writeString(directory.resolve("42_p0.jpg"), "first"), "jpg");
+        var second = new WorkAssetFile(1, Files.writeString(directory.resolve("42_p1.jpg"), "second"), "jpg");
+        when(assets.findAsset(WorkType.ARTWORK, 42L)).thenReturn(Optional.of(
+                new LocalWorkAsset(WorkType.ARTWORK, 42, directory, 2, List.of(first, second))));
+        when(assets.rawFile(WorkType.ARTWORK, 42L, 0)).thenReturn(Optional.of(first));
+        when(assets.rawFile(WorkType.ARTWORK, 42L, 1)).thenReturn(Optional.of(second));
+        when(metadata.find(WorkType.ARTWORK, 42L)).thenReturn(Optional.of(mock(WorkMetadata.class)));
+        doThrow(new top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.UnavailableException(
+                "missing-ffmpeg", new java.io.IOException("not found")))
+                .when(images).addMissingFormats(anyLong(), anyInt(), any(), anyString(), any());
+        try (var service = new MediaMaintenanceService(assets, metadata, query(), images,
+                mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(), () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), runtimeTasks.registrarForPlugin("sample"))) {
+            var desktop = new DesktopMediaMaintenance(service, mock(MediaCapabilityService.class));
+            var request = new DesktopMediaTool.Request("png", null, false);
+            var preview = desktop.preview(request).valueOrThrow();
+            var result = new java.util.concurrent.CompletableFuture<DesktopMediaTool.Status>();
+            desktop.start(preview.token(), result::complete).valueOrThrow();
+            var terminal = result.get(5, TimeUnit.SECONDS);
+            assertEquals("failed", terminal.state());
+            assertEquals(2, terminal.total());
+            assertEquals(1, terminal.completed());
+            assertEquals(1, terminal.failed());
+            verify(images, times(1)).addMissingFormats(anyLong(), anyInt(), any(), anyString(), any());
+            reset(images);
+            var retry = new java.util.concurrent.CompletableFuture<DesktopMediaTool.Status>();
+            desktop.start(desktop.preview(request).valueOrThrow().token(), retry::complete).valueOrThrow();
+            assertEquals("completed", retry.get(5, TimeUnit.SECONDS).state());
+            verify(images, times(2)).addMissingFormats(anyLong(), anyInt(), any(), anyString(), any());
+        }
+    }
 
     @Test
     @DisplayName("外部只读作品不参与媒体写入，预览后所有权变化也拒绝处理")
@@ -37,7 +77,7 @@ class MediaMaintenanceServiceTest {
         when(metadata.find(WorkType.ARTWORK, 42L)).thenReturn(Optional.of(mock(WorkMetadata.class)));
         when(assets.findAsset(WorkType.ARTWORK, 42L)).thenReturn(Optional.of(new LocalWorkAsset(WorkType.ARTWORK, 42, directory, 1, List.of(file))));
         when(assets.rawFile(WorkType.ARTWORK, 42L, 0)).thenReturn(Optional.of(file));
-        try (var service = new MediaMaintenanceService(assets, metadata, query(), images, animations, new MemoryMediaStore(), () -> true)) {
+        try (var service = new MediaMaintenanceService(assets, metadata, query(), images, animations, new MemoryMediaStore(), () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), runtimeTasks.registrarForPlugin("sample"))) {
             when(assets.isReadOnly(WorkType.ARTWORK, 42L)).thenReturn(true);
             assertTrue(service.preview(new MediaMaintenanceService.Request("png", null, false)).get(5, TimeUnit.SECONDS).files().isEmpty());
             when(assets.isReadOnly(WorkType.ARTWORK, 42L)).thenReturn(false);
@@ -70,7 +110,7 @@ class MediaMaintenanceServiceTest {
             while (!cancelled.getAsBoolean()) Thread.sleep(10);
             throw new java.util.concurrent.CancellationException();
         }).when(images).addMissingFormats(eq(42L), eq(0), eq(source), eq("png"), any());
-        try (var service = new MediaMaintenanceService(assets, metadata, query(), images, mock(top.sywyar.pixivdownload.download.UgoiraService.class), new top.sywyar.pixivdownload.download.media.MemoryMediaStore(), () -> true)) {
+        try (var service = new MediaMaintenanceService(assets, metadata, query(), images, mock(top.sywyar.pixivdownload.download.UgoiraService.class), new top.sywyar.pixivdownload.download.media.MemoryMediaStore(), () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), runtimeTasks.registrarForPlugin("sample"))) {
             var desktop = new DesktopMediaMaintenance(service, mock(MediaCapabilityService.class));
             var rejected = assertThrows(DesktopMediaTool.OperationException.class, () -> desktop.start("unreviewed").valueOrThrow());
             assertEquals("media.error.preview-required", rejected.text().key());
@@ -99,7 +139,7 @@ class MediaMaintenanceServiceTest {
         when(metadata.find(WorkType.ARTWORK, 42L)).thenReturn(Optional.of(mock(WorkMetadata.class)));
         when(assets.findAsset(WorkType.ARTWORK, 42L)).thenReturn(Optional.of(new LocalWorkAsset(WorkType.ARTWORK, 42, directory, 1, List.of(file))));
         when(assets.rawFile(WorkType.ARTWORK, 42L, 0)).thenReturn(Optional.of(file));
-        try (var service = new MediaMaintenanceService(assets, metadata, query(), images, mock(top.sywyar.pixivdownload.download.UgoiraService.class), new top.sywyar.pixivdownload.download.media.MemoryMediaStore(), () -> true)) {
+        try (var service = new MediaMaintenanceService(assets, metadata, query(), images, mock(top.sywyar.pixivdownload.download.UgoiraService.class), new top.sywyar.pixivdownload.download.media.MemoryMediaStore(), () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), runtimeTasks.registrarForPlugin("sample"))) {
             var preview = service.preview(new MediaMaintenanceService.Request( "png", null, false)).get(5, TimeUnit.SECONDS);
             Files.writeString(source, "new content");
             service.start(preview.token());
@@ -136,7 +176,7 @@ class MediaMaintenanceServiceTest {
                     ids.stream().map(id -> new top.sywyar.pixivdownload.core.work.model.WorkSummary(WorkType.ARTWORK, id)).toList(),
                     4, request.page(), 100, 2);
         });
-        try (var service = new MediaMaintenanceService(assets, metadata, query, images, animations, new top.sywyar.pixivdownload.download.media.MemoryMediaStore(), () -> true)) {
+        try (var service = new MediaMaintenanceService(assets, metadata, query, images, animations, new top.sywyar.pixivdownload.download.media.MemoryMediaStore(), () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), runtimeTasks.registrarForPlugin("sample"))) {
             var result = service.preview(new MediaMaintenanceService.Request("png", "webp", true)).get(5, TimeUnit.SECONDS);
             assertEquals(List.of(2L, 3L), result.files().stream().map(MediaMaintenanceService.Item::artworkId).toList());
             assertEquals(List.of("png"), result.files().get(0).missingFormats());
@@ -163,7 +203,7 @@ class MediaMaintenanceServiceTest {
                 WorkType.ARTWORK, 42, directory, 1, List.of(new WorkAssetFile(0, source, "webp")))));
         var images = mock(ImageOutputService.class);
         try (var service = new MediaMaintenanceService(assets, mock(WorkMetadataRepository.class), query(), images,
-                mock(top.sywyar.pixivdownload.download.UgoiraService.class), new top.sywyar.pixivdownload.download.media.MemoryMediaStore(), () -> true)) {
+                mock(top.sywyar.pixivdownload.download.UgoiraService.class), new top.sywyar.pixivdownload.download.media.MemoryMediaStore(), () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), runtimeTasks.registrarForPlugin("sample"))) {
             var result = service.preview(new MediaMaintenanceService.Request("png", "gif", false)).get(5, TimeUnit.SECONDS);
             assertTrue(result.files().isEmpty());
             assertEquals(1, result.skipped());
@@ -189,7 +229,7 @@ class MediaMaintenanceServiceTest {
             throw new AssertionError("Query should be interrupted");
         });
         try (var service = new MediaMaintenanceService(mock(WorkAssetService.class), mock(WorkMetadataRepository.class), query,
-                mock(ImageOutputService.class), mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(), () -> true)) {
+                mock(ImageOutputService.class), mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(), () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), runtimeTasks.registrarForPlugin("sample"))) {
             var future = service.preview(new MediaMaintenanceService.Request("png", "webp", true));
             assertTrue(entered.await(5, TimeUnit.SECONDS));
             assertFalse(future.isDone());
@@ -221,7 +261,7 @@ class MediaMaintenanceServiceTest {
             return new top.sywyar.pixivdownload.core.work.model.PagedResult<>(List.of(), 0, 0, 100, 0);
         });
         var service = new MediaMaintenanceService(mock(WorkAssetService.class), mock(WorkMetadataRepository.class), query,
-                mock(ImageOutputService.class), mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(), () -> true);
+                mock(ImageOutputService.class), mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(), () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), runtimeTasks.registrarForPlugin("sample"));
         var closer = java.util.concurrent.Executors.newSingleThreadExecutor();
         try {
             var result = service.preview(new MediaMaintenanceService.Request("png", null, false));
@@ -253,12 +293,55 @@ class MediaMaintenanceServiceTest {
                     501, page, 100, 6);
         });
         try (var service = new MediaMaintenanceService(assets, mock(WorkMetadataRepository.class), query,
-                mock(ImageOutputService.class), mock(top.sywyar.pixivdownload.download.UgoiraService.class), new top.sywyar.pixivdownload.download.media.MemoryMediaStore(), () -> true)) {
+                mock(ImageOutputService.class), mock(top.sywyar.pixivdownload.download.UgoiraService.class), new top.sywyar.pixivdownload.download.media.MemoryMediaStore(), () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), runtimeTasks.registrarForPlugin("sample"))) {
             var result = service.preview(new MediaMaintenanceService.Request("png", "webp", false)).get(5, TimeUnit.SECONDS);
             assertTrue(result.limited());
             assertEquals(500, result.files().size());
             verify(query, times(5)).search(any());
         }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("插件关闭或排空中断正在处理的文件，并且只交付一次取消终态")
+    void closeDeliversTerminalStatus(boolean quiesce) throws Exception {
+        var assets = mock(WorkAssetService.class);
+        var metadata = mock(WorkMetadataRepository.class);
+        var images = mock(ImageOutputService.class);
+        var file = new WorkAssetFile(0, Files.writeString(directory.resolve("42_p0.jpg"), "source"), "jpg");
+        when(assets.findAsset(WorkType.ARTWORK, 42L)).thenReturn(Optional.of(
+                new LocalWorkAsset(WorkType.ARTWORK, 42, directory, 1, List.of(file))));
+        when(assets.rawFile(WorkType.ARTWORK, 42L, 0)).thenReturn(Optional.of(file));
+        when(metadata.find(WorkType.ARTWORK, 42L)).thenReturn(Optional.of(mock(WorkMetadata.class)));
+        var entered = new CountDownLatch(1);
+        doAnswer(call -> {
+            entered.countDown();
+            new CountDownLatch(1).await();
+            throw new AssertionError("Processing must be interrupted");
+        }).when(images).addMissingFormats(anyLong(), anyInt(), any(), anyString(), any());
+        var results = new java.util.concurrent.LinkedBlockingQueue<MediaMaintenanceService.Status>();
+        try (var service = new MediaMaintenanceService(assets, metadata, query(), images,
+                mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(),
+                () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), runtimeTasks.registrarForPlugin("sample"))) {
+            var preview = service.preview(new MediaMaintenanceService.Request("png", null, false)).get(5, TimeUnit.SECONDS);
+            service.start(preview.token(), results::add);
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            if (quiesce) {
+                assertEquals(1, runtimeTasks.activeTaskCount("sample"));
+                var drain = runtimeTasks.prepareQuiesce("sample");
+                runtimeTasks.cancelQuiescedTasks("sample", drain);
+                assertTrue(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(5)));
+            }
+            service.close();
+            assertEquals(0, runtimeTasks.activeTaskCount("sample"));
+            var terminal = results.poll(5, TimeUnit.SECONDS);
+            assertNotNull(terminal);
+            assertEquals("cancelled", terminal.state());
+            assertEquals(0, terminal.completed());
+            assertEquals(0, terminal.failed());
+            assertTrue(results.isEmpty());
+        }
+        assertTrue(results.isEmpty());
     }
 
     private static top.sywyar.pixivdownload.core.work.service.WorkQueryService query() {
@@ -280,7 +363,7 @@ class MediaMaintenanceServiceTest {
             return new top.sywyar.pixivdownload.core.work.model.PagedResult<>(List.of(), 0, 0, 100, 0);
         });
         try (var service = new MediaMaintenanceService(assets, mock(WorkMetadataRepository.class), query,
-                images, mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(), available::get)) {
+                images, mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(), available::get, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), runtimeTasks.registrarForPlugin("sample"))) {
             var failure = assertThrows(java.util.concurrent.ExecutionException.class,
                     () -> service.preview(new MediaMaintenanceService.Request("png", null, false)).get(5, TimeUnit.SECONDS));
             assertInstanceOf(top.sywyar.pixivdownload.core.database.DatabaseUnavailableException.class, failure.getCause());
@@ -310,10 +393,11 @@ class MediaMaintenanceServiceTest {
             throw new java.util.concurrent.CancellationException();
         }).when(images).addMissingFormats(eq(42L), eq(0), eq(source), eq("png"), any());
         try (var service = new MediaMaintenanceService(assets, metadata, query(), images,
-                mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(), available::get)) {
+                mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(), available::get, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), runtimeTasks.registrarForPlugin("sample"))) {
             var preview = service.preview(new MediaMaintenanceService.Request("png", null, true)).get(5, TimeUnit.SECONDS);
-            service.start(preview.token());
-            awaitFinished(service);
+            var terminal = new java.util.concurrent.CompletableFuture<MediaMaintenanceService.Status>();
+            service.start(preview.token(), terminal::complete);
+            assertEquals("unavailable", terminal.get(5, TimeUnit.SECONDS).state());
             assertEquals("unavailable", service.status().state());
             assertEquals(0, service.status().completed());
             verify(assets, never()).thumbnail(any(), anyLong(), anyInt());
@@ -321,9 +405,219 @@ class MediaMaintenanceServiceTest {
         }
     }
 
+    @Test
+    @DisplayName("真实 owner 排空中断扫描但等待查询实际退出，拒绝提交后不会卡在扫描状态")
+    void runtimeQuiesceWaitsForScanExit() throws Exception {
+        var tasks = new top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry();
+        var query = mock(WorkQueryService.class);
+        var entered = new CountDownLatch(1);
+        var interrupted = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        when(query.search(any())).thenAnswer(call -> {
+            entered.countDown();
+            try { release.await(); }
+            catch (InterruptedException cancelled) {
+                interrupted.countDown();
+                assertTrue(release.await(5, TimeUnit.SECONDS));
+            }
+            return new top.sywyar.pixivdownload.core.work.model.PagedResult<>(List.of(), 0, 0, 100, 0);
+        });
+        try (var service = new MediaMaintenanceService(mock(WorkAssetService.class), mock(WorkMetadataRepository.class), query,
+                mock(ImageOutputService.class), mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(),
+                () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), tasks.registrarForPlugin("independent"))) {
+            var preview = service.preview(new MediaMaintenanceService.Request("png", null, false));
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            assertEquals(1, tasks.activeTaskCount("independent"));
+            var drain = tasks.prepareQuiesce("independent");
+            tasks.cancelQuiescedTasks("independent", drain);
+            assertTrue(interrupted.await(5, TimeUnit.SECONDS));
+            assertFalse(drain.isDrained());
+            release.countDown();
+            assertTrue(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(5)));
+            assertThrows(java.util.concurrent.CancellationException.class, preview::join);
+            assertThrows(top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRejectedException.class,
+                    () -> service.preview(new MediaMaintenanceService.Request("png", null, false)));
+            assertEquals("idle", service.status().state());
+            assertEquals(0, tasks.activeTaskCount("independent"));
+            verify(query, times(1)).search(any());
+        } finally { release.countDown(); }
+    }
+
     private static void awaitFinished(MediaMaintenanceService service) throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
         while (service.status().state().equals("running") && System.nanoTime() < deadline) Thread.sleep(10);
         assertNotEquals("running", service.status().state());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("prepare 与取消之间取出排队任务仍恰好一次交付取消且无需关闭服务")
+    void dequeuedDuringQuiesceDeliversCancellation(boolean processing) throws Exception {
+        var assets = mock(WorkAssetService.class);
+        var query = query();
+        var images = mock(ImageOutputService.class);
+        var file = new WorkAssetFile(0, Files.writeString(directory.resolve("42_p0.jpg"), "source"), "jpg");
+        when(assets.findAsset(WorkType.ARTWORK, 42L)).thenReturn(Optional.of(
+                new LocalWorkAsset(WorkType.ARTWORK, 42, directory, 1, List.of(file))));
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        try (var service = new MediaMaintenanceService(assets, mock(WorkMetadataRepository.class), query, images,
+                mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(),
+                () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), runtimeTasks.registrarForPlugin("sample"))) {
+            var request = new MediaMaintenanceService.Request("png", null, false);
+            var token = processing ? service.preview(request).get(5, TimeUnit.SECONDS).token() : null;
+            var executor = executor(service);
+            executor.execute(() -> {
+                entered.countDown();
+                try { assertTrue(release.await(5, TimeUnit.SECONDS)); }
+                catch (InterruptedException failure) { throw new AssertionError(failure); }
+            });
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            var completions = new java.util.concurrent.atomic.AtomicInteger();
+            java.util.concurrent.CompletableFuture<?> result;
+            if (processing) {
+                var terminal = new java.util.concurrent.CompletableFuture<MediaMaintenanceService.Status>();
+                service.start(token, status -> { completions.incrementAndGet(); terminal.complete(status); });
+                result = terminal;
+            } else {
+                result = service.preview(request);
+                result.whenComplete((value, error) -> completions.incrementAndGet());
+            }
+            var drain = runtimeTasks.prepareQuiesce("sample");
+            release.countDown();
+            executor.submit(() -> {}).get(5, TimeUnit.SECONDS);
+            runtimeTasks.cancelQuiescedTasks("sample", drain);
+            assertTrue(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(5)));
+            if (processing) assertEquals("cancelled", ((MediaMaintenanceService.Status) result.get(1, TimeUnit.SECONDS)).state());
+            else assertThrows(java.util.concurrent.CancellationException.class, () -> result.get(1, TimeUnit.SECONDS));
+            assertEquals("cancelled", service.status().state());
+            runtimeTasks.cancelQuiescedTasks("sample", drain);
+            service.close();
+            assertEquals(1, completions.get());
+            verify(query, times(processing ? 1 : 0)).search(any());
+            verifyNoInteractions(images);
+        } finally { release.countDown(); }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    @DisplayName("后台处理与完成回调的进程级错误保留原对象并逃逸工作线程")
+    void startPreservesFatalFailure(boolean callbackFailure, boolean threadDeath) throws Exception {
+        var assets = mock(WorkAssetService.class);
+        var metadata = mock(WorkMetadataRepository.class);
+        var images = mock(ImageOutputService.class);
+        var file = new WorkAssetFile(0, Files.writeString(directory.resolve("42_p0.jpg"), "source"), "jpg");
+        when(assets.findAsset(WorkType.ARTWORK, 42L)).thenReturn(Optional.of(
+                new LocalWorkAsset(WorkType.ARTWORK, 42, directory, 1, List.of(file))));
+        when(assets.rawFile(WorkType.ARTWORK, 42L, 0)).thenReturn(Optional.of(file));
+        when(metadata.find(WorkType.ARTWORK, 42L)).thenReturn(Optional.of(mock(WorkMetadata.class)));
+        Error fatal = threadDeath ? new ThreadDeath() : new OutOfMemoryError("simulated fatal failure");
+        if (!callbackFailure) doThrow(fatal).when(images).addMissingFormats(anyLong(), anyInt(), any(), anyString(), any());
+        var escaped = new java.util.concurrent.CompletableFuture<Throwable>();
+        var completions = new java.util.concurrent.atomic.AtomicInteger();
+        try (var service = new MediaMaintenanceService(assets, metadata, query(), images,
+                mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(),
+                () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), runtimeTasks.registrarForPlugin("sample"))) {
+            executor(service).submit(() -> Thread.currentThread().setUncaughtExceptionHandler(
+                    (thread, failure) -> escaped.complete(failure))).get(5, TimeUnit.SECONDS);
+            var desktop = new DesktopMediaMaintenance(service, mock(MediaCapabilityService.class));
+            var preview = desktop.preview(new DesktopMediaTool.Request("png", null, false)).valueOrThrow();
+            desktop.start(preview.token(), status -> {
+                completions.incrementAndGet();
+                assertEquals(callbackFailure ? "completed" : "failed", status.state());
+                if (callbackFailure) throw fatal;
+            }).valueOrThrow();
+            assertSame(fatal, escaped.get(5, TimeUnit.SECONDS));
+            assertEquals(1, completions.get());
+            assertEquals(0, runtimeTasks.activeTaskCount("sample"));
+        }
+        assertEquals(1, completions.get());
+    }
+
+    private static java.util.concurrent.ExecutorService executor(MediaMaintenanceService service) throws Exception {
+        var field = MediaMaintenanceService.class.getDeclaredField("executor");
+        field.setAccessible(true);
+        return (java.util.concurrent.ExecutorService) field.get(service);
+    }
+
+    @Test
+    @DisplayName("扫描的进程级错误保留原身份，不降格为普通操作失败")
+    void previewPreservesFatalFailure() {
+        var query = mock(WorkQueryService.class);
+        var fatal = new OutOfMemoryError("simulated fatal failure");
+        when(query.search(any())).thenThrow(fatal);
+        try (var service = new MediaMaintenanceService(mock(WorkAssetService.class), mock(WorkMetadataRepository.class), query,
+                mock(ImageOutputService.class), mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(),
+                () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), runtimeTasks.registrarForPlugin("sample"))) {
+            var desktop = new DesktopMediaMaintenance(service, mock(MediaCapabilityService.class));
+            assertSame(fatal, assertThrows(OutOfMemoryError.class,
+                    () -> desktop.preview(new DesktopMediaTool.Request("png", null, false))));
+        }
+        assertEquals(0, runtimeTasks.activeTaskCount("sample"));
+    }
+
+    @Test
+    @DisplayName("注册后排队前撤回仍完成取消，关闭不会留下等待中的预览")
+    void cancellationBeforeSubmissionReleasesPreview() {
+        var scoped = runtimeTasks.registrarForPlugin("independent");
+        var registrar = mock(top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar.class,
+                org.mockito.AdditionalAnswers.delegatesTo(scoped));
+        var drain = new java.util.concurrent.atomic.AtomicReference<top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskDrain>();
+        doAnswer(call -> {
+            var task = scoped.registerOneShot(call.getArgument(0));
+            drain.set(runtimeTasks.prepareQuiesce("independent"));
+            runtimeTasks.cancelQuiescedTasks("independent", drain.get());
+            return task;
+        }).when(registrar).registerOneShot(any());
+        var query = mock(WorkQueryService.class);
+        try (var service = new MediaMaintenanceService(mock(WorkAssetService.class), mock(WorkMetadataRepository.class), query,
+                mock(ImageOutputService.class), mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(),
+                () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), registrar)) {
+            var preview = service.preview(new MediaMaintenanceService.Request("png", null, false));
+            assertTrue(drain.get().awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(5)));
+            assertThrows(java.util.concurrent.CancellationException.class, () -> preview.get(1, TimeUnit.SECONDS));
+            service.close();
+            verifyNoInteractions(query);
+        }
+    }
+
+    @Test
+    @DisplayName("执行在排队前撤回时无需关闭服务就交付一次取消，且不处理任何文件")
+    void cancellationBeforeRunDeliversCompletion() throws Exception {
+        var scoped = runtimeTasks.registrarForPlugin("independent");
+        var registrar = mock(top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar.class,
+                org.mockito.AdditionalAnswers.delegatesTo(scoped));
+        var quiesce = new java.util.concurrent.atomic.AtomicBoolean();
+        var drain = new java.util.concurrent.atomic.AtomicReference<top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskDrain>();
+        doAnswer(call -> {
+            var task = scoped.registerOneShot(call.getArgument(0));
+            if (quiesce.get()) {
+                drain.set(runtimeTasks.prepareQuiesce("independent"));
+                runtimeTasks.cancelQuiescedTasks("independent", drain.get());
+            }
+            return task;
+        }).when(registrar).registerOneShot(any());
+        var assets = mock(WorkAssetService.class);
+        var images = mock(ImageOutputService.class);
+        var file = new WorkAssetFile(0, Files.writeString(directory.resolve("42_p0.jpg"), "source"), "jpg");
+        when(assets.findAsset(WorkType.ARTWORK, 42L)).thenReturn(Optional.of(
+                new LocalWorkAsset(WorkType.ARTWORK, 42, directory, 1, List.of(file))));
+        var completions = new java.util.concurrent.LinkedBlockingQueue<MediaMaintenanceService.Status>();
+        try (var service = new MediaMaintenanceService(assets, mock(WorkMetadataRepository.class), query(), images,
+                mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(),
+                () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), registrar)) {
+            var preview = service.preview(new MediaMaintenanceService.Request("png", null, false)).get(5, TimeUnit.SECONDS);
+            assertEquals(1, preview.files().size());
+            quiesce.set(true);
+            service.start(preview.token(), completions::add);
+            var completion = completions.poll(1, TimeUnit.SECONDS);
+            assertNotNull(completion);
+            assertEquals("cancelled", completion.state());
+            assertEquals(0, completion.completed());
+            assertTrue(drain.get().awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(5)));
+            service.close();
+            assertTrue(completions.isEmpty());
+            verifyNoInteractions(images);
+        }
     }
 }

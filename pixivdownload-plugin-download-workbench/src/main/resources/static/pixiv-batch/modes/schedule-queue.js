@@ -1,9 +1,9 @@
 'use strict';
-    function renderScheduleQueueSection(t) {
+    function renderScheduleQueueSection(t, includeBody = true) {
         const id = Number(t.id);
         const expanded = scheduleExpandedQueues.has(id);
         const title = escHtml(bt('schedule.queue.title', '本轮队列详情'));
-        const bodyHtml = expanded ? renderScheduleQueueBody(id) : '';
+        const bodyHtml = expanded && includeBody ? renderScheduleQueueBody(id) : '';
         return `
             <div class="schedule-queue" data-task-id="${id}">
                 <button type="button" class="schedule-queue-toggle" aria-expanded="${expanded}" data-pixiv-click="toggleScheduleQueue(${id})">
@@ -145,9 +145,6 @@
     // 不在这里 bake bt() 结果：模型会落到 localStorage 与跨语言切换的渲染轮次，bake 后无法跟随语言变化。
     function scheduleStatusToQueue(it) {
         switch (it.status) {
-            case 'cancelled':
-                lastMessage = bt('queue.stage.cancelled', null);
-                break;
             case 'paused':
                 return {status: 'paused', rawStatus: 'paused'};
             case 'downloaded':
@@ -362,6 +359,8 @@
         const caret = wrap.querySelector('.schedule-queue-caret');
         if (scheduleExpandedQueues.has(id)) {
             scheduleExpandedQueues.delete(id);
+            scheduleQueueRequests.get(id)?.abort();
+            scheduleQueueRequests.delete(id);
             unsubscribeScheduleQueueSse(id);
             cancelScheduleQueueFlush(id); // 折叠：取消待执行的局部刷新，隐藏视图不再消耗主线程
             const qvCollapse = scheduleQueueVue();
@@ -388,7 +387,7 @@
 
     // 列表重渲染后：运行 / 排队中的展开卡片拉取最新队列（实现「运行中展开则自动刷新」），
     // 运行刚结束的那一拍补拉一次终态快照，其余非运行态保持缓存渲染、撤掉 SSE 监听。
-    function refreshExpandedScheduleQueues() {
+    function refreshExpandedScheduleQueues(force = false) {
         scheduleTasksCache.forEach(t => {
             const id = Number(t.id);
             const running = ['RUNNING', 'QUEUED', 'CANCEL_REQUESTED'].includes(t.runState);
@@ -400,21 +399,38 @@
                 scheduleQueueWasRunning.add(id);
                 fetchScheduleQueue(id);
             } else if (scheduleQueueWasRunning.has(id)) {
-                scheduleQueueWasRunning.delete(id);
                 fetchScheduleQueue(id); // 运行刚结束：拉取最终终态快照
             } else {
                 unsubscribeScheduleQueueSse(id);
+                if (force) fetchScheduleQueue(id);
             }
         });
     }
 
     async function fetchScheduleQueue(id) {
         id = Number(id);
+        if (state.mode !== 'schedule' || document.visibilityState === 'hidden'
+                || !scheduleExpandedQueues.has(id) || scheduleQueueRequests.has(id)) return;
         const task = scheduleTaskById(id);
+        if (!task) return;
+        const request = new AbortController();
+        scheduleQueueRequests.set(id, request);
+        const current = () => {
+            const latest = scheduleTaskById(id);
+            return scheduleQueueRequests.get(id) === request && !request.signal.aborted
+                && state.mode === 'schedule' && document.visibilityState !== 'hidden'
+                && scheduleExpandedQueues.has(id) && latest
+                && latest.runStartedTime === task.runStartedTime
+                && latest.lastRunTime === task.lastRunTime
+                && latest.sourceActivationToken === task.sourceActivationToken;
+        };
         try {
-            const res = await fetch(`${BASE}/api/schedule/tasks/${id}/queue`, {credentials: 'same-origin'});
+            const res = await fetch(`${BASE}/api/schedule/tasks/${id}/queue`, {
+                credentials: 'same-origin', signal: request.signal
+            });
             if (!res.ok) return; // 失败时保留已有模型渲染
             const data = await res.json();
+            if (!current()) return;
             const incoming = Array.isArray(data.items) ? data.items : [];
             const cached = readScheduleQueueCache(id);
             // 后端无当轮队列（如进程重启后）而本地仍有缓存时，保留缓存继续展示，不被空队列覆盖。
@@ -440,9 +456,13 @@
                 && ['RUNNING', 'QUEUED', 'CANCEL_REQUESTED'].includes(task.runState)) {
                 subscribeScheduleQueueSse(id);
             } else {
+                scheduleQueueWasRunning.delete(id);
                 unsubscribeScheduleQueueSse(id);
             }
         } catch (e) { /* 网络异常：保留模型渲染 */ }
+        finally {
+            if (scheduleQueueRequests.get(id) === request) scheduleQueueRequests.delete(id);
+        }
     }
 
     // 按工作区口径统计模型各状态计数（与 updateStats 同义）。
@@ -687,8 +707,14 @@
             if (!liveIds.has(id)) stale.add(id);
         });
         for (const id of scheduleQueueWasRunning) if (!liveIds.has(id)) stale.add(id);
+        for (const id of scheduleQueueRequests.keys()) if (!liveIds.has(id)) stale.add(id);
+        for (const id of schedulePendingRequests.keys()) if (!liveIds.has(id)) stale.add(id);
         const qvRelease = scheduleQueueVue();
         stale.forEach(id => {
+            scheduleQueueRequests.get(id)?.abort();
+            scheduleQueueRequests.delete(id);
+            schedulePendingRequests.get(id)?.abort();
+            schedulePendingRequests.delete(id);
             unsubscribeScheduleQueueSse(id);
             if (qvRelease) qvRelease.unmountScheduleQueue(id); // 任务下线：卸载其 reactive 岛
             scheduleExpandedQueues.delete(id);

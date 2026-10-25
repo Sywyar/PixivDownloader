@@ -73,19 +73,21 @@ class RuntimeConfigReloadServiceTest {
     }
 
     @Test
-    @DisplayName("热重载会重绑插件配置 Bean 并返回插件字段 key")
+    @DisplayName("热重载会重绑插件配置 Bean，并按应用顺序返回去重的宿主与插件字段")
     void reloadsPluginConfigurationPropertiesAndReportsKeys() throws IOException {
         Path configDir = useTempConfigDir();
         Files.createDirectories(configDir.resolve(RuntimeFiles.PLUGIN_CONFIG_DIR));
         Files.writeString(configDir.resolve(RuntimeFiles.CONFIG_YAML),
-                "download.user-flat-folder: false\n", StandardCharsets.UTF_8);
+                "download.user-flat-folder: false\nguest-invite.tts-request-limit-minute: 7\n", StandardCharsets.UTF_8);
         Files.writeString(configDir.resolve(RuntimeFiles.PLUGIN_CONFIG_DIR).resolve("fixture.properties"),
                 "fixture.endpoint=new-value\n", StandardCharsets.UTF_8);
 
         FixturePluginConfig pluginConfig = new FixturePluginConfig();
         pluginConfig.setEndpoint("old-value");
+        FixtureGuestInviteConfig guestConfig = new FixtureGuestInviteConfig();
         AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext();
         child.registerBean(FixturePluginConfig.class, () -> pluginConfig);
+        child.registerBean(FixtureGuestInviteConfig.class, () -> guestConfig);
         child.refresh();
         try {
             PluginLifecycleService lifecycleService = mock(PluginLifecycleService.class);
@@ -94,12 +96,65 @@ class RuntimeConfigReloadServiceTest {
             RuntimeConfigReloadService service = newService(provider(lifecycleService), new StandardEnvironment());
 
             RuntimeConfigReloadService.ReloadResult result =
-                    service.reloadHotConfig(List.of("fixture.endpoint"));
+                    service.reloadHotConfig(List.of(" fixture.endpoint ",
+                            "guest-invite.tts-request-limit-minute", "fixture.endpoint"));
 
             assertThat(pluginConfig.getEndpoint()).isEqualTo("new-value");
-            assertThat(result.appliedKeys()).containsExactly("fixture.endpoint");
+            assertThat(guestConfig.getTtsRequestLimitMinute()).isEqualTo(7);
+            assertThat(result.appliedKeys())
+                    .containsExactly("guest-invite.tts-request-limit-minute", "fixture.endpoint");
         } finally {
             child.close();
+        }
+    }
+
+    @Test
+    @DisplayName("同轮热重载共用普通插件配置快照，后续重载读取更新并撤回删除的来源")
+    void sharesPluginPropertiesAcrossOneReload() throws IOException {
+        Path configDir = useTempConfigDir();
+        Path pluginDirectory = Files.createDirectories(configDir.resolve(RuntimeFiles.PLUGIN_CONFIG_DIR));
+        Files.writeString(configDir.resolve(RuntimeFiles.CONFIG_YAML),
+                "download.user-flat-folder: false\n", StandardCharsets.UTF_8);
+        Path properties = pluginDirectory.resolve("fixture.properties");
+        Files.writeString(properties, "fixture.endpoint=first\n", StandardCharsets.UTF_8);
+        var lifecycleService = mock(PluginLifecycleService.class);
+        var environment = new StandardEnvironment();
+        var service = newService(provider(lifecycleService), environment);
+        try (var first = new AnnotationConfigApplicationContext();
+             var second = new AnnotationConfigApplicationContext()) {
+            first.register(FixturePluginConfiguration.class);
+            second.register(FixturePluginConfiguration.class);
+            first.refresh();
+            second.refresh();
+            serveContext(lifecycleService, "first", first);
+            serveContext(lifecycleService, "second", second);
+            when(lifecycleService.servingPluginIds()).thenReturn(
+                    new java.util.LinkedHashSet<>(List.of("first", "second")));
+            doAnswer(invocation -> {
+                Consumer<ConfigurableApplicationContext> operation = invocation.getArgument(1);
+                operation.accept(first);
+                Files.writeString(properties, "fixture.endpoint=second\n", StandardCharsets.UTF_8);
+                return true;
+            }).when(lifecycleService).withServingContext(eq("first"), any());
+
+            service.reloadHotConfig(List.of("fixture.endpoint"));
+
+            assertThat(first.getBean(FixturePluginConfig.class).getEndpoint()).isEqualTo("first");
+            assertThat(second.getBean(FixturePluginConfig.class).getEndpoint()).isEqualTo("first");
+            assertThat(environment.getProperty("fixture.endpoint")).isEqualTo("first");
+            service.reloadHotConfig(List.of("fixture.endpoint"));
+            assertThat(first.getBean(FixturePluginConfig.class).getEndpoint()).isEqualTo("second");
+            assertThat(second.getBean(FixturePluginConfig.class).getEndpoint()).isEqualTo("second");
+
+            serveContext(lifecycleService, "first", first);
+            serveContext(lifecycleService, "second", second);
+            when(lifecycleService.servingPluginIds()).thenReturn(
+                    new java.util.LinkedHashSet<>(List.of("first", "second")));
+            Files.delete(properties);
+            service.reloadHotConfig(List.of("fixture.endpoint"));
+            assertThat(environment.getProperty("fixture.endpoint")).isNull();
+            assertThat(first.getEnvironment().getProperty("fixture.endpoint")).isNull();
+            assertThat(second.getEnvironment().getProperty("fixture.endpoint")).isNull();
         }
     }
 

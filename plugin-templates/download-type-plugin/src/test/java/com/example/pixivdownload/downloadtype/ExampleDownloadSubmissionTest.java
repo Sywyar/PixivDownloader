@@ -38,7 +38,33 @@ class ExampleDownloadSubmissionTest {
         assertTrue(queue.find("456", RequestOwnerIdentity.adminScope()).isEmpty());
     }
 
-    static final class RecordingLifecycle implements DownloadLifecycle {
+    @Test
+    @DisplayName("执行与终结同时失败时保留致命原始错误且释放任务")
+    void preservesExecutionFailureAcrossTermination() {
+        var original = new ThreadDeath();
+        var termination = new IllegalStateException("termination");
+        var taskRef = new java.util.concurrent.atomic.AtomicReference<QueueTaskTracker.Task>();
+        var queue = new ExampleDownloadQueue();
+        var lifecycle = new RecordingLifecycle() {
+            @Override public void track(DownloadAttempt attempt, QueueTaskTracker.Task task, String owner,
+                                        String type, String title, boolean queued) {
+                taskRef.set(task);
+                task.onTermination(() -> { exited = true; throw termination; });
+            }
+            @Override public void publish(DownloadEvent event) { throw original; }
+        };
+        var handler = new ExampleDownloadSubmission(queue, lifecycle);
+        var command = new DownloadSubmission(UUID.randomUUID(), handler.workType(), "123", Map.of());
+        var attempt = new DownloadAttempt(UUID.randomUUID(), command.workType(), command.workId());
+
+        assertSame(original, assertThrows(ThreadDeath.class, () -> handler.submit(command, attempt, null)));
+        assertArrayEquals(new Throwable[]{termination}, original.getSuppressed());
+        assertTrue(lifecycle.exited);
+        assertFalse(taskRef.get().publishIfActive(() -> fail("任务已经终结")));
+        assertTrue(queue.find("123", RequestOwnerIdentity.adminScope()).isEmpty());
+    }
+
+    static class RecordingLifecycle implements DownloadLifecycle {
         final List<DownloadEvent> events = new ArrayList<>();
         boolean exited;
         @Override public void register(DownloadAttempt attempt, String owner, String type, String title) {}

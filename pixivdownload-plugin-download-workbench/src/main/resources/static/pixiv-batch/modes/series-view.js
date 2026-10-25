@@ -20,7 +20,7 @@
         }
 
         const result = await computeFilteredItems(seriesState.rawItems, filters, kind, isStale);
-        if (!result) return null;
+        if (!result || isStale()) return null;
         seriesState.items = result.filtered;
         seriesState.filterSummary = result.stats;
         renderSeriesResults();
@@ -137,7 +137,7 @@
         const imgEl = document.getElementById(`series-thumb-img-${idx}`);
         if (!imgEl) return;
         const blobUrl = await fetchThumbnailBlobUrl(
-            item.thumbnailUrl, seriesState.activeBlobUrls, seriesState.kind, 'series');
+            item.thumbnailUrl, () => seriesState.activeBlobUrls, seriesState.kind, 'series');
         if (renderToken !== seriesState.renderToken) {
             if (blobUrl) {
                 try { URL.revokeObjectURL(blobUrl); } catch {}
@@ -184,26 +184,7 @@
         if (!item) return;
         const queueId = getSeriesQueueId(item);
         const meta = buildSeriesQueueMeta(item, idx);
-        const alreadyInQueue = state.queue.find(q => q.id === queueId);
-        if (alreadyInQueue) {
-            const merged = reconcileQueueItemTypeData(alreadyInQueue, meta, 'toggle');
-            if (merged.keepExisting) {
-                if (merged.changed) {
-                    updateStats();
-                    saveQueue();
-                    renderQueue();
-                }
-                setStatus({key: 'status.already-in-queue', fallback: '已在队列中：{title}', args: {title: item.title}}, 'info');
-                return;
-            }
-            const removed = removeFromQueue(queueId);
-            if (removed) {
-                setStatus({key: 'status.removed-from-queue', fallback: '已从队列移除：{title}', args: {title: item.title}}, 'info');
-            } else {
-                setStatus({key: 'status.cannot-remove-downloading', fallback: '无法移除（正在下载中）：{title}', args: {title: item.title}}, 'warning');
-            }
-            return;
-        }
+        if (toggleExistingQueueItem(queueId, meta, item.title)) return;
         const added = addItemsToQueue(
             [queueId],
             [meta],

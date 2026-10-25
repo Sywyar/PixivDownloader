@@ -77,6 +77,22 @@ class ScheduledCredentialPolicyManagementContractTest {
     }
 
     @Test
+    @DisplayName("策略 JSON 保留首尾空白供精确 CAS 比较")
+    void policyStatePreservesWhitespaceForCas() {
+        String previous = "  {\"ack\":900} \n";
+        String next = "\t{\"ack\":1000}  ";
+        ScheduledCredentialTaskSnapshot snapshot = new ScheduledCredentialTaskSnapshot(
+                7L, 3L, false, true, false, "UPSTREAM_WARNING", previous, next);
+        ScheduledCredentialTaskStateUpdate update =
+                new ScheduledCredentialTaskStateUpdate(7L, 3L, previous, next);
+
+        assertThat(snapshot.suspendDetailJson()).isEqualTo(previous);
+        assertThat(snapshot.policyStateJson()).isEqualTo(next);
+        assertThat(update.expectedPolicyStateJson()).isEqualTo(previous);
+        assertThat(update.nextPolicyStateJson()).isEqualTo(next);
+    }
+
+    @Test
     @DisplayName("任务状态与账号事件只投影受控机器码、标量和时间参数")
     void taskAndIncidentPresentationsKeepSafeTypedValues() {
         ScheduledCredentialTaskPresentation taskPresentation =

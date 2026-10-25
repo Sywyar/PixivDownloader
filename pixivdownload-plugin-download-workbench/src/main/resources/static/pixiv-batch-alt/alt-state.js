@@ -1,9 +1,6 @@
 'use strict';
 /* ============================================================
-   alt-state — 页面状态对象 + 统一存储层
-   状态形状与 pixiv-batch/batch-state.js 对齐（便于后续整引擎并轨）；
-   storeGet/storeSet/storeRemove 逐字移植自 batch-storage.js：
-   solo 读写服务器 /api/batch/state，multi 读写 localStorage。
+   alt-state — 页面状态、运行模式与登录态
    ============================================================ */
 const DEFAULT_FILE_NAME_TEMPLATE = '{artwork_id}_p{page}';
 const QUICK_FETCH_MODE = 'quick-fetch';
@@ -125,7 +122,7 @@ let searchState = {
     loading: false,
     error: '',
     filterSummary: null,
-    metaCache: {},
+    metaCache: new WeakMap(),
     filterSeq: 0
 };
 
@@ -155,7 +152,7 @@ let scheduleState = {
 
 let dockState = {
     quota: {enabled: false, adminMode: false, artworksUsed: 0, maxArtworks: 50, resetSeconds: 0},
-    archive: {visible: false, token: '', expireSeconds: 0, ready: false, expired: false, title: ''},
+    archive: null,
     statusMessage: null,
     statusTone: 'info',
     // 最近一次格式化的下载速度（下载坞 Vue 岛重挂后播种用；命令式路径实时写 DOM 不读这里）
@@ -170,7 +167,7 @@ let chromeState = {
 };
 
 /* ============================================================
-   统一存储（逐字移植 batch-storage.js 语义）
+   运行模式、服务端初始快照与登录态
    ============================================================ */
 async function detectMode() {
     try {
@@ -208,93 +205,6 @@ async function detectAuthState() {
     } catch {
         isAdmin = false;
     }
-}
-
-let _saveTimer = null;
-let _saveRequest = Promise.resolve();
-
-function persistStoreEntries(entries) {
-    const apply = (target) => Object.entries(entries).forEach(([key, value]) => {
-        if (value == null) delete target[key];
-        else target[key] = value;
-    });
-    if (appMode !== 'solo') {
-        const previous = Object.fromEntries(Object.keys(entries).map(key => [key, localStorage.getItem(key)]));
-        const write = values => Object.entries(values).forEach(([key, value]) => {
-            if (value == null) localStorage.removeItem(key);
-            else localStorage.setItem(key, value);
-        });
-        try { write(entries); } catch (error) {
-            try { write(previous); } catch {}
-            return Promise.reject(error);
-        }
-        return Promise.resolve();
-    }
-    // Batch state is replaced as a whole; serialize writes so an older autosave cannot undo credentials.
-    _saveRequest = _saveRequest.catch(() => {}).then(async () => {
-        const snapshot = {...serverState};
-        apply(snapshot);
-        const response = await fetch(BASE + '/api/batch/state', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({state: snapshot}), credentials: 'same-origin'
-        });
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        apply(serverState);
-    });
-    return _saveRequest;
-}
-
-function scheduleServerSave() {
-    if (_saveTimer) clearTimeout(_saveTimer);
-    _saveTimer = setTimeout(() => {
-        _saveTimer = null;
-        persistStoreEntries({}).catch(() => {});
-    }, 400);
-}
-
-function flushServerState() {
-    if (_saveTimer) clearTimeout(_saveTimer);
-    _saveTimer = null;
-    return appMode === 'solo' ? persistStoreEntries({}) : Promise.resolve();
-}
-
-/** 统一存储读取：solo 模式读服务器内存，multi 模式读 localStorage */
-function storeGet(key) {
-    if (appMode === 'solo') {
-        const v = serverState[key];
-        return v != null ? String(v) : null;
-    }
-    return localStorage.getItem(key);
-}
-
-function storeSet(key, value) {
-    if (appMode === 'solo') {
-        serverState[key] = value;
-        scheduleServerSave();
-    } else localStorage.setItem(key, value);
-}
-
-function storeRemove(key) {
-    if (appMode === 'solo') {
-        delete serverState[key];
-        scheduleServerSave();
-    } else localStorage.removeItem(key);
-}
-
-async function doLogout() {
-    // solo 模式下退出登录同时清除服务器保存的 Cookie；必须在 logout 使 session 失效前持久化
-    if (appMode === 'solo') {
-        if (_saveTimer) clearTimeout(_saveTimer);
-        try {
-            await persistStoreEntries({pixiv_cookie: null});
-        } catch {
-        }
-    }
-    try {
-        await fetch('/api/auth/logout', {method: 'POST', credentials: 'same-origin'});
-    } catch {
-    }
-    window.location.href = '/pixiv-batch.html';
 }
 
 window.PixivBatchAlt.state = Object.assign(window.PixivBatchAlt.state, {

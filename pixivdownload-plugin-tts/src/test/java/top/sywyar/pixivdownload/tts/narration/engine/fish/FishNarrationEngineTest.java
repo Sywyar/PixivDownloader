@@ -69,7 +69,7 @@ class FishNarrationEngineTest {
         assertThat(body.get("format")).isEqualTo("mp3");
         HttpHeaders headers = capturedHeaders(direct);
         assertThat(headers.getFirst(HttpHeaders.AUTHORIZATION)).isEqualTo("Bearer sk-fish");
-        assertThat(headers.getFirst("model")).isEqualTo("s1");
+        assertThat(headers.getFirst("model")).isEqualTo(cfg.getFish().getModel());
     }
 
     @Test

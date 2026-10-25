@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.novel.narration;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Locale;
 
 public final class UploadedAudioValidator {
@@ -38,7 +40,8 @@ public final class UploadedAudioValidator {
         if (data.length < 44 || !fourCc(data, 0, "RIFF") || !fourCc(data, 8, "WAVE")) {
             return null;
         }
-        long riffSize = readLEUInt(data, 4);
+        ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
+        long riffSize = Integer.toUnsignedLong(buffer.getInt(4));
         if (riffSize + 8L != data.length) {
             return null;
         }
@@ -50,20 +53,20 @@ public final class UploadedAudioValidator {
         int bitsPerSample = 0;
         long dataSize = -1;
         int pos = 12;
-        while (pos + 8 <= data.length) {
-            long chunkSize = readLEUInt(data, pos + 4);
+        while (pos <= data.length - 8) {
+            long chunkSize = Integer.toUnsignedLong(buffer.getInt(pos + 4));
             long body = pos + 8L;
             long next = body + chunkSize + (chunkSize & 1L);
             if (next > data.length) {
                 return null;
             }
             if (fourCc(data, pos, "fmt ") && chunkSize >= 16) {
-                audioFormat = readLEUShort(data, (int) body);
-                channels = readLEUShort(data, (int) body + 2);
-                sampleRate = (int) readLEUInt(data, (int) body + 4);
-                byteRate = (int) readLEUInt(data, (int) body + 8);
-                blockAlign = readLEUShort(data, (int) body + 12);
-                bitsPerSample = readLEUShort(data, (int) body + 14);
+                audioFormat = Short.toUnsignedInt(buffer.getShort((int) body));
+                channels = Short.toUnsignedInt(buffer.getShort((int) body + 2));
+                sampleRate = buffer.getInt((int) body + 4);
+                byteRate = buffer.getInt((int) body + 8);
+                blockAlign = Short.toUnsignedInt(buffer.getShort((int) body + 12));
+                bitsPerSample = Short.toUnsignedInt(buffer.getShort((int) body + 14));
             } else if (fourCc(data, pos, "data")) {
                 dataSize = chunkSize;
             }
@@ -257,17 +260,6 @@ public final class UploadedAudioValidator {
                 && data[offset + 1] == value.charAt(1)
                 && data[offset + 2] == value.charAt(2)
                 && data[offset + 3] == value.charAt(3);
-    }
-
-    private static long readLEUInt(byte[] b, int off) {
-        return (b[off] & 0xFFL)
-                | ((b[off + 1] & 0xFFL) << 8)
-                | ((b[off + 2] & 0xFFL) << 16)
-                | ((b[off + 3] & 0xFFL) << 24);
-    }
-
-    private static int readLEUShort(byte[] b, int off) {
-        return (b[off] & 0xFF) | ((b[off + 1] & 0xFF) << 8);
     }
 
     public record Result(String extension, double seconds, int sampleRate, int channels) {

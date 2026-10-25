@@ -12,10 +12,8 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Properties;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -93,10 +91,10 @@ class LayoutSurveyContractTest {
         return workingDirectory.resolve("pixivdownload-plugin-download-workbench/src/main/resources");
     }
 
-    private static Set<String> i18nKeys(String resource) throws IOException {
+    private static Properties i18nProperties(String resource) throws IOException {
         Properties properties = new Properties();
         properties.load(new StringReader(read(resource)));
-        return new LinkedHashSet<>(properties.stringPropertyNames());
+        return properties;
     }
 
     @Test
@@ -240,16 +238,17 @@ class LayoutSurveyContractTest {
     @Test
     @DisplayName("中英文调查文案键集合一致且非空")
     void i18nKeySetsMatch() throws IOException {
-        Set<String> zh = i18nKeys(I18N_ZH);
-        Set<String> en = i18nKeys(I18N_EN);
+        Properties zh = i18nProperties(I18N_ZH);
+        Properties en = i18nProperties(I18N_EN);
         assertThat(zh).as("中文文案键集合").isNotEmpty();
         assertThat(en).as("英文文案键集合").isNotEmpty();
-        assertThat(zh).as("中英文键集合一致").isEqualTo(en);
-        for (String key : zh) {
-            assertThat(read(I18N_ZH)).as("中文值非空: " + key).contains(key + "=");
-            assertThat(read(I18N_EN)).as("英文值非空: " + key).contains(key + "=");
+        assertThat(zh.stringPropertyNames()).as("中英文键集合一致")
+                .isEqualTo(en.stringPropertyNames());
+        for (String key : zh.stringPropertyNames()) {
+            assertThat(zh.getProperty(key)).as("中文值非空: " + key).isNotBlank();
+            assertThat(en.getProperty(key)).as("英文值非空: " + key).isNotBlank();
         }
-        assertThat(zh).contains("layout-feedback.title")
+        assertThat(zh.stringPropertyNames()).contains("layout-feedback.title")
                 .contains("layout-feedback.description")
                 .contains("layout-feedback.option-landscape")
                 .contains("layout-feedback.option-portrait")
@@ -275,7 +274,7 @@ class LayoutSurveyContractTest {
     }
 
     @Test
-    @DisplayName("宿主不新增 PostHog 配置、不新增后端配置接口、不硬编码真实值")
+    @DisplayName("源码 lint：宿主不得引用调查专有配置或接口标识")
     void hostHasNoPostHogConfigOrBackendEndpoint() throws IOException {
         Path repoRoot = repoRoot();
         Path appJava = repoRoot.resolve("pixivdownload-app/src/main/java");
@@ -290,15 +289,14 @@ class LayoutSurveyContractTest {
                 .as("application.properties 不得硬编码真实调查值")
                 .doesNotContain("posthog")
                 .doesNotContain("pixiv.layout-survey");
-        assertThat(findIn(appJava, "layout-feedback-config"))
-                .as("不得新增 /api/app/layout-feedback-config 后端接口")
-                .isEmpty();
-        assertThat(findIn(appJava, "LayoutSurvey"))
-                .as("不得新增 LayoutSurvey 后端配置类")
-                .isEmpty();
-        assertThat(findIn(appJava, "pixiv.layout-survey"))
-                .as("宿主代码不得读取 pixiv.layout-survey 属性")
-                .isEmpty();
+        try (var paths = Files.walk(appJava)) {
+            var javaFiles = paths.filter(path -> path.toString().endsWith(".java")).iterator();
+            while (javaFiles.hasNext()) {
+                Path file = javaFiles.next();
+                assertThat(Files.readString(file, StandardCharsets.UTF_8)).as(file.toString())
+                        .doesNotContain("layout-feedback-config", "LayoutSurvey", "pixiv.layout-survey");
+            }
+        }
     }
 
     private static String readAppTemplate(Path repoRoot) throws IOException {
@@ -313,25 +311,6 @@ class LayoutSurveyContractTest {
             return "";
         }
         return Files.readString(file, StandardCharsets.UTF_8);
-    }
-
-    private static List<Path> findIn(Path root, String needle) throws IOException {
-        List<Path> hits = new ArrayList<>();
-        if (!Files.isDirectory(root)) {
-            return hits;
-        }
-        try (var stream = Files.walk(root)) {
-            stream.filter(path -> path.toString().endsWith(".java"))
-                    .filter(path -> {
-                        try {
-                            return Files.readString(path, StandardCharsets.UTF_8).contains(needle);
-                        } catch (IOException e) {
-                            return false;
-                        }
-                    })
-                    .forEach(hits::add);
-        }
-        return hits;
     }
 
     @Test

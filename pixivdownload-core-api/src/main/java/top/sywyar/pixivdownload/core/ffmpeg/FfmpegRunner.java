@@ -9,6 +9,18 @@ import java.util.function.Consumer;
 
 /** 同步、有界的宿主媒体进程执行；调用方拥有参数和产物，宿主拥有进程生命周期。 */
 public interface FfmpegRunner {
+    /** 媒体进程无法启动，调用方应停止依赖同一工具的整批处理。 */
+    final class UnavailableException extends IOException {
+        /**
+         * 保留实际执行路径及系统拒绝原因。
+         * @param command 实际媒体工具命令
+         * @param cause 启动失败原因
+         */
+        public UnavailableException(String command, IOException cause) {
+            super(command + ": " + cause.getMessage(), cause);
+        }
+    }
+
     /** 由宿主解析实际路径的媒体工具。 */
     enum Tool {
         /** 转码工具。 */

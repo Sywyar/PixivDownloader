@@ -36,6 +36,61 @@ class FfmpegInstallerTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Test
+    @DisplayName("启用的代理配置无效时拒绝连接，不退回直连")
+    void rejectsInvalidEnabledProxy() {
+        assertThatThrownBy(() -> new FfmpegInstaller.ProxySettings(true, " ", 17891).toProxySelector())
+                .isInstanceOf(IllegalArgumentException.class);
+        for (int port : new int[]{-1, 0, 65536}) {
+            assertThatThrownBy(() -> new FfmpegInstaller.ProxySettings(true, "127.0.0.1", port).toProxySelector())
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Test
+    @DisplayName("实际下载只使用显式代理，关闭后不继承进程默认代理")
+    void routesDownloadUsingExplicitProxy() throws Exception {
+        var origin = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        var proxy = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        var proxyCalls = new java.util.concurrent.atomic.AtomicInteger();
+        var previous = java.net.ProxySelector.getDefault();
+        origin.createContext("/", exchange -> {
+            byte[] bytes = "direct fixture".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (var output = exchange.getResponseBody()) { output.write(bytes); }
+        });
+        proxy.createContext("/", exchange -> {
+            proxyCalls.incrementAndGet();
+            byte[] bytes = "proxy fixture".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (var output = exchange.getResponseBody()) { output.write(bytes); }
+        });
+        try {
+            origin.start();
+            proxy.start();
+            java.net.ProxySelector.setDefault(java.net.ProxySelector.of(proxy.getAddress()));
+            var download = FfmpegInstaller.class.getDeclaredMethod("openDownload", URI.class, FfmpegInstaller.ProxySettings.class);
+            download.setAccessible(true);
+            var direct = (java.net.http.HttpResponse<?>) download.invoke(null,
+                    URI.create("http://127.0.0.1:" + origin.getAddress().getPort() + "/fixture"),
+                    FfmpegInstaller.ProxySettings.disabled());
+            try (var body = (java.io.InputStream) direct.body()) {
+                assertThat(new String(body.readAllBytes(), StandardCharsets.UTF_8)).isEqualTo("direct fixture");
+            }
+            assertThat(proxyCalls.get()).isZero();
+            var proxied = (java.net.http.HttpResponse<?>) download.invoke(null, URI.create("http://unreachable.invalid/fixture"),
+                    new FfmpegInstaller.ProxySettings(true, "127.0.0.1", proxy.getAddress().getPort()));
+            try (var body = (java.io.InputStream) proxied.body()) {
+                assertThat(new String(body.readAllBytes(), StandardCharsets.UTF_8)).isEqualTo("proxy fixture");
+            }
+            assertThat(proxyCalls.get()).isEqualTo(1);
+        } finally {
+            java.net.ProxySelector.setDefault(previous);
+            origin.stop(0);
+            proxy.stop(0);
+        }
+    }
+
+    @Test
     @DisplayName("按操作系统与架构选择对应的稳定版资产")
     void selectsStableAssetForSupportedPlatform() {
         assertAsset("Windows 11", "amd64", "ffmpeg-windows-x64.zip");
@@ -49,9 +104,9 @@ class FfmpegInstallerTest {
     @Test
     @DisplayName("没有对应构建的系统保持手动安装降级")
     void rejectsUnsupportedPlatform() {
-        assertThat(FfmpegInstaller.archiveUri("Windows 11", "aarch64")).isEmpty();
-        assertThat(FfmpegInstaller.archiveUri("Linux", "x86")).isEmpty();
-        assertThat(FfmpegInstaller.archiveUri("FreeBSD", "amd64")).isEmpty();
+        assertThat(FfmpegInstaller.assetName("Windows 11", "aarch64")).isEmpty();
+        assertThat(FfmpegInstaller.assetName("Linux", "x86")).isEmpty();
+        assertThat(FfmpegInstaller.assetName("FreeBSD", "amd64")).isEmpty();
     }
 
     @Test
@@ -330,8 +385,7 @@ class FfmpegInstallerTest {
     }
 
     private static void assertAsset(String osName, String osArch, String asset) {
-        assertThat(FfmpegInstaller.archiveUri(osName, osArch))
-                .contains(URI.create(FfmpegInstaller.RELEASE_BASE_URL + asset));
+        assertThat(FfmpegInstaller.assetName(osName, osArch)).contains(asset);
     }
 
     private static void addEntry(ZipOutputStream zip, String name) throws IOException {

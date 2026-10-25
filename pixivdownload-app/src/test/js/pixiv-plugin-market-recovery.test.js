@@ -134,8 +134,9 @@ function node(tag) {
 }
 function fixture() {
     const root = node('section');
+    const events = {};
     const sandbox = {document: {createElement: node, getElementById: () => root, addEventListener() {}},
-        addEventListener() {}, console};
+        addEventListener(name, handler) { events[name] = handler; }, AbortController, console};
     sandbox.window = sandbox;
     vm.createContext(sandbox);
     for (const file of ['js/pixiv-plugin-presentation-tokens.js', 'plugin-market/plugin-market-core.js',
@@ -152,7 +153,7 @@ function fixture() {
     sandbox.PixivFeedback = {confirm: async () => true};
     market.recovery.mount();
     const buttons = () => root.children.find(child => child.className === 'pmk-recovery-actions').children;
-    return {root, market, calls, sandbox, buttons, setReport(value) { report = value; }};
+    return {root, market, calls, sandbox, events, buttons, setReport(value) { report = value; }};
 }
 
 test('正常模式和无法确认状态时，前端按钮与动作都禁用', async () => {
@@ -248,6 +249,31 @@ test('旧状态响应不能覆盖新状态，取消确认不发送请求', async
     await f.market.recovery.refresh();
     f.sandbox.PixivFeedback.confirm = async () => false;
     assert.equal(await f.market.recovery.perform('exit'), false);
+    assert.deepEqual(f.calls, []);
+});
+
+test('离页取消恢复查询与未提交确认，返回只读取当前状态', async () => {
+    const f = fixture();
+    f.setReport({active: true, actionsAllowed: true});
+    await f.market.recovery.refresh();
+    let confirm;
+    f.sandbox.PixivFeedback.confirm = () => new Promise(resolve => { confirm = resolve; });
+    const action = f.market.recovery.perform('restart');
+    f.events.pagehide?.();
+    confirm(true); await action;
+    assert.deepEqual(f.calls, [], '离页前尚未提交的确认不得启动重启');
+    f.events.pageshow({persisted: true});
+    await new Promise(resolve => setImmediate(resolve));
+    const requests = [];
+    f.market.api.fetchRecovery = signal => new Promise(resolve => requests.push({signal, resolve}));
+    const old = f.market.recovery.refresh();
+    f.events.pagehide(); f.events.pageshow({persisted: true});
+    assert.equal(requests.length, 2);
+    requests[1].resolve({active: false, actionsAllowed: false});
+    await new Promise(resolve => setImmediate(resolve));
+    requests[0].resolve({active: true, actionsAllowed: true}); await old;
+    assert.equal(requests[0].signal.aborted, true);
+    assert.ok(f.buttons().every(button => button.disabled));
     assert.deepEqual(f.calls, []);
 });
 

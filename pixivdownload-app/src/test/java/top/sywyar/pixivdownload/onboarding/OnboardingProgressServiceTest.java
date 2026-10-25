@@ -14,10 +14,11 @@ class OnboardingProgressServiceTest {
         OnboardingProgressService service = new OnboardingProgressService();
 
         service.markStepCompleted("local-gallery-guide");
+        service.markStepCompleted("  local-gallery-guide  ");
         service.markStepCompleted("alpha-guide");
         service.markStepCompleted("  ");
+        service.markStepCompleted(null);
 
-        assertThat(service.isStepCompleted("local-gallery-guide")).isTrue();
         assertThat(service.completedSteps()).containsExactly("alpha-guide", "local-gallery-guide");
     }
 }

@@ -90,7 +90,6 @@ class MultiModeDecisionSurveyPluginTest {
                 .containsPattern("surveyId: '[^']+'");
         assertThat(script).contains(
                 "var POSTHOG = global.PixivMultiModeDecisionSurveyPostHog || Object.freeze({})",
-                "var CHOICES = ['Yes', 'No', 'Other']",
                 "IDENTITY_URL + '?surveyId=' + encodeURIComponent(POSTHOG.surveyId)");
         assertThat(script)
                 .doesNotContain("snooze", "never");
@@ -107,9 +106,7 @@ class MultiModeDecisionSurveyPluginTest {
                 .contains("/pixiv-multi-mode-decision-survey/posthog-config.js");
         assertThat(script)
                 .contains("global.PixivSurveyFrameBridge.ready()")
-                .contains("global.PixivPostHog.showSurveyLoading")
                 .contains("global.PixivSurveyFrameBridge.post({")
-                .doesNotContain("status('loading'")
                 .doesNotContain("parent.postMessage")
                 .doesNotContain("global.localStorage");
     }

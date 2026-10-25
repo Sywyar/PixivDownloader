@@ -69,6 +69,17 @@ class InboxNotificationSinkTest {
     }
 
     @Test
+    @DisplayName("空场景的发送失败不向业务调用方传播且不写入消息")
+    void isolatesNullScenarioWithoutPublishing() {
+        NotificationInboxServiceTest.MemoryMapper mapper = new NotificationInboxServiceTest.MemoryMapper();
+        InboxNotificationSink sink = new InboxNotificationSink(
+                catalog(true), new NotificationInboxService(mapper, () -> true), verifyLocales(), () -> true);
+
+        assertThatCode(() -> sink.deliver(null, Locale.US, Map.of())).doesNotThrowAnyException();
+        assertThat(mapper.findLatest(null, false, 10)).isEmpty();
+    }
+
+    @Test
     @DisplayName("系统场景按其分类写入系统消息")
     void persistsScenarioCategory() {
         NotificationScenario systemScenario = NotificationScenario.MAINTENANCE_TASK_FAILED;

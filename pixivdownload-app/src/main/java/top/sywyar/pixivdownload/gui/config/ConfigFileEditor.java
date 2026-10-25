@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.gui.config;
 
+import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.core.env.EnumerablePropertySource;
+import org.springframework.core.io.ByteArrayResource;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -68,7 +72,7 @@ public class ConfigFileEditor {
             String safeKey = requireSafeKey(key);
             for (String line : readLines()) {
                 String trimmed = line.trim();
-                if (matchesActiveKey(trimmed, safeKey)) {
+                if (safeKey.equals(keyFromLine(trimmed, false))) {
                     return requireSafeValue(extractValue(trimmed));
                 }
             }
@@ -83,10 +87,9 @@ public class ConfigFileEditor {
             Map<String, String> result = new LinkedHashMap<>();
             for (String line : readLines()) {
                 String trimmed = line.trim();
-                for (String key : keySet) {
-                    if (!result.containsKey(key) && matchesActiveKey(trimmed, key)) {
-                        result.put(key, requireSafeValue(extractValue(trimmed)));
-                    }
+                String key = keyFromLine(trimmed, false);
+                if (key != null && keySet.contains(key) && !result.containsKey(key)) {
+                    result.put(key, requireSafeValue(extractValue(trimmed)));
                 }
             }
             return result;
@@ -110,7 +113,7 @@ public class ConfigFileEditor {
             List<String> lines = new ArrayList<>(readLines());
             boolean found = false;
             for (int i = 0; i < lines.size(); i++) {
-                if (matchesKey(lines.get(i).trim(), safeKey)) {
+                if (safeKey.equals(keyFromLine(lines.get(i).trim(), true))) {
                     lines.set(i, buildLine(lines.get(i), safeKey, safeValue));
                     found = true;
                     break;
@@ -138,13 +141,9 @@ public class ConfigFileEditor {
 
             for (int i = 0; i < lines.size(); i++) {
                 String trimmed = lines.get(i).trim();
-                for (Map.Entry<String, String> entry : safeValues.entrySet()) {
-                    String key = entry.getKey();
-                    if (!written.contains(key) && matchesKey(trimmed, key)) {
-                        lines.set(i, buildLine(lines.get(i), key, entry.getValue()));
-                        written.add(key);
-                        break;
-                    }
+                String key = keyFromLine(trimmed, true);
+                if (key != null && safeValues.containsKey(key) && written.add(key)) {
+                    lines.set(i, buildLine(lines.get(i), key, safeValues.get(key)));
                 }
             }
 
@@ -174,14 +173,8 @@ public class ConfigFileEditor {
             boolean removed = false;
             for (String line : lines) {
                 String trimmed = line.trim();
-                boolean match = false;
-                for (String key : keySet) {
-                    if (matchesActiveKey(trimmed, key)) {
-                        match = true;
-                        break;
-                    }
-                }
-                if (match) {
+                String key = keyFromLine(trimmed, false);
+                if (key != null && keySet.contains(key)) {
                     removed = true;
                 } else {
                     kept.add(line);
@@ -195,7 +188,7 @@ public class ConfigFileEditor {
 
     public FileSnapshot snapshot() throws IOException {
         synchronized (WRITE_LOCK) {
-            return new FileSnapshot(Files.exists(configPath), new ArrayList<>(readLines()));
+            return new FileSnapshot(Files.exists(configPath), readLines());
         }
     }
 
@@ -245,33 +238,26 @@ public class ConfigFileEditor {
         }
     }
 
-    /**
-     * 判断某行（已 trim）是否与 key 匹配——仅匹配活跃行（未注释）。
-     * 供 read()/readAll() 使用，避免读取注释中的示例值。
-     */
-    private boolean matchesActiveKey(String trimmed, String key) {
-        return startsWithKey(trimmed, key);
-    }
-
-    /**
-     * 判断某行（已 trim）是否与 key 匹配（活跃行或注释行均算）。
-     * 供 write()/writeAll() 使用：若配置文件中曾有注释行，也能定位并将其改写为活跃行。
-     */
-    private boolean matchesKey(String trimmed, String key) {
-        if (startsWithKey(trimmed, key)) return true;
-        if (trimmed.startsWith("#")) {
-            String uncommented = trimmed.substring(1).trim();
-            return startsWithKey(uncommented, key);
+    /** 定位单行扁平键；引号与转义交给启动配置加载器，注释键仅供显式保存恢复。 */
+    static String keyFromLine(String line, boolean includeCommented) throws IOException {
+        if (line.startsWith("#")) {
+            if (!includeCommented) return null;
+            line = line.substring(1).trim();
         }
-        return false;
-    }
-
-    private boolean startsWithKey(String line, String key) {
-        return line.startsWith(key + ":") || line.startsWith(key + " :");
+        int colon = line.indexOf(':');
+        if (colon <= 0) return null;
+        String key = line.substring(0, colon).trim();
+        if (key.startsWith("'") || key.startsWith("\"")) {
+            if (key.length() < 2 || key.charAt(key.length() - 1) != key.charAt(0)) return null;
+            var sources = new YamlPropertySourceLoader().load("config-key",
+                    new ByteArrayResource((key + ": ").getBytes(StandardCharsets.UTF_8)));
+            return ((EnumerablePropertySource<?>) sources.get(0)).getPropertyNames()[0];
+        }
+        return key;
     }
 
     /** 从行中提取 value（冒号后、行尾注释前的内容，去引号 / 反转义后返回）。 */
-    private String extractValue(String trimmed) {
+    private String extractValue(String trimmed) throws IOException {
         String work = trimmed.startsWith("#") ? trimmed.substring(1).trim() : trimmed;
         int colonIdx = work.indexOf(':');
         if (colonIdx < 0) return "";
@@ -279,46 +265,27 @@ public class ConfigFileEditor {
     }
 
     /**
-     * 解析 value 区域：跳过前导空白；若是双引号标量则去引号 + 反转义并忽略其后的行尾注释；
-     * 否则取到首个 {@code #} 之前（裸标量内不会含 {@code #}——含 {@code #} 的值写入时一律加引号）。
+     * 引号标量沿用启动加载器的转义规则；裸值只移除空白分隔的行尾注释。
      */
-    private String parseValueToken(String region) {
+    private String parseValueToken(String region) throws IOException {
         int i = 0;
         int n = region.length();
         while (i < n && Character.isWhitespace(region.charAt(i))) i++;
-        if (i < n && region.charAt(i) == '"') {
-            StringBuilder out = new StringBuilder();
-            i++;
-            while (i < n) {
-                char c = region.charAt(i);
-                if (c == '\\' && i + 1 < n) {
-                    char next = region.charAt(i + 1);
-                    switch (next) {
-                        case 'n' -> out.append('\n');
-                        case 'r' -> out.append('\r');
-                        case 't' -> out.append('\t');
-                        case '"' -> out.append('"');
-                        case '\\' -> out.append('\\');
-                        default -> out.append(next);
-                    }
-                    i += 2;
-                    continue;
-                }
-                if (c == '"') {
-                    return out.toString();
-                }
-                out.append(c);
-                i++;
+        if (i < n && (region.charAt(i) == '"' || region.charAt(i) == '\'')) {
+            try {
+                var sources = new YamlPropertySourceLoader().load("config-value",
+                        new ByteArrayResource(("value: " + region.substring(i)).getBytes(StandardCharsets.UTF_8)));
+                return (String) sources.get(0).getProperty("value");
+            } catch (RuntimeException invalid) {
+                // 解析器异常可能包含凭证原文，调用方只接收不含配置值的诊断。
+                throw new IOException("Invalid quoted config value");
             }
-            // 未闭合的引号：兜底返回去掉起始引号后的内容
-            return out.toString();
         }
-        String rest = region.substring(i);
-        int hashIdx = rest.indexOf('#');
-        return (hashIdx >= 0 ? rest.substring(0, hashIdx) : rest).trim();
+        int hashIdx = commentStart(region);
+        return (hashIdx >= 0 ? region.substring(i, hashIdx) : region.substring(i)).trim();
     }
 
-    /** 从行中提取行尾注释（"# ..." 部分，含前导空格）；跳过双引号标量内部的 {@code #}。 */
+    /** 从行中提取行尾注释（"# ..." 部分）；跳过引号标量内部的 {@code #}。 */
     private String extractInlineComment(String trimmed) {
         String work = trimmed.startsWith("#") ? trimmed.substring(1).trim() : trimmed;
         int colonIdx = work.indexOf(':');
@@ -328,20 +295,25 @@ public class ConfigFileEditor {
         return hashIdx >= 0 ? afterColon.substring(hashIdx).trim() : "";
     }
 
-    /** 找到 value 区域中行尾注释 {@code #} 的下标；跳过前导双引号标量，找不到返回 -1。 */
+    /** 找到 value 区域中行尾注释 {@code #} 的下标；跳过引号标量，找不到返回 -1。 */
     private int commentStart(String region) {
         int i = 0;
         int n = region.length();
         while (i < n && Character.isWhitespace(region.charAt(i))) i++;
-        if (i < n && region.charAt(i) == '"') {
+        if (i < n && (region.charAt(i) == '"' || region.charAt(i) == '\'')) {
+            char quote = region.charAt(i);
             i++;
             while (i < n) {
                 char c = region.charAt(i);
-                if (c == '\\') {
+                if (quote == '"' && c == '\\') {
                     i += 2;
                     continue;
                 }
-                if (c == '"') {
+                if (quote == '\'' && c == '\'' && i + 1 < n && region.charAt(i + 1) == '\'') {
+                    i += 2;
+                    continue;
+                }
+                if (c == quote) {
                     i++;
                     break;
                 }
@@ -349,7 +321,10 @@ public class ConfigFileEditor {
             }
             return region.indexOf('#', i);
         }
-        return region.indexOf('#');
+        for (; i < n; i++) {
+            if (region.charAt(i) == '#' && (i == 0 || Character.isWhitespace(region.charAt(i - 1)))) return i;
+        }
+        return -1;
     }
 
     /** 获取行首导空白（用于保留缩进）。 */

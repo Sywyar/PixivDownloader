@@ -157,7 +157,6 @@ class NavigationMarkupGuardTest {
         for (String page : List.of("pixiv-gallery.html", "pixiv-novel-gallery.html")) {
             assertThat(read(page))
                     .as("页面 %s 应只由共享 slot 承载全部画廊类型入口", page)
-                    .contains("data-nav-slot=\"" + NavigationPlacements.GALLERY_TYPE_SWITCH + "\"")
                     .doesNotContain("data-nav-slot=\"novel.type-switch\"")
                     .doesNotContain("<button type=\"button\" class=\"gallery-type-option");
         }

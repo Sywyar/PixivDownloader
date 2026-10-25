@@ -29,7 +29,7 @@ public record LocaleDescriptor(
         if (status == null) {
             throw new IllegalArgumentException("locale " + tag + " has no status");
         }
-        if (direction == null || !(direction.equals("ltr") || direction.equals("rtl"))) {
+        if (!"ltr".equals(direction) && !"rtl".equals(direction)) {
             throw new IllegalArgumentException("locale " + tag + " has invalid direction: " + direction);
         }
         if (resourceSuffix == null) {

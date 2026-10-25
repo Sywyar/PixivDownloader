@@ -8,6 +8,7 @@
     modules.dialog = Object.freeze({
         install: function (ctx) {
             var runtime = ctx.runtime;
+            var i18nPrefix = ctx.I18N_NS + ':' + ctx.I18N_NS + '.';
 
     /* ============================================================
        i18n 与文案
@@ -16,7 +17,7 @@
     function t(key, fallback) {
         if (runtime.i18nClient && typeof runtime.i18nClient.t === 'function') {
             try {
-                return runtime.i18nClient.t(ctx.I18N_NS + ':' + key, fallback);
+                return runtime.i18nClient.t(i18nPrefix + key, fallback);
             } catch (_) {
                 return fallback;
             }
@@ -100,24 +101,24 @@
             var closeButton = buildElement('button', 'plf-close');
             closeButton.type = 'button';
             closeButton.setAttribute('data-plf-action', 'close');
-            closeButton.setAttribute('data-i18n-aria-label', ctx.I18N_NS + ':close');
+            closeButton.setAttribute('data-i18n-aria-label', i18nPrefix + 'close');
             closeButton.setAttribute('aria-label', t('close', '关闭'));
             closeButton.textContent = '\u00d7';
 
             var title = buildElement('h2', 'plf-title');
             title.id = 'plf-title';
-            title.setAttribute('data-i18n', ctx.I18N_NS + ':title');
+            title.setAttribute('data-i18n', i18nPrefix + 'title');
             title.textContent = t('title', '帮助我们选择默认布局');
 
             var description = buildElement('p', 'plf-description');
             description.id = 'plf-description';
-            description.setAttribute('data-i18n', ctx.I18N_NS + ':description');
+            description.setAttribute('data-i18n', i18nPrefix + 'description');
             description.textContent = t('description', '新版本提供了三种下载工作台布局。请选择你更愿意长期使用的一种。');
 
             var group = buildElement('div', 'plf-cards');
             group.setAttribute('role', 'radiogroup');
             group.setAttribute('aria-label', t('choices-group', '选择你更愿意长期使用的布局'));
-            group.setAttribute('data-i18n-aria-label', ctx.I18N_NS + ':choices-group');
+            group.setAttribute('data-i18n-aria-label', i18nPrefix + 'choices-group');
 
             ctx.LAYOUT_IDS.forEach(function (layoutId, index) {
                 var card = buildElement('label', 'plf-card');
@@ -130,9 +131,9 @@
                 if (index === 0) input.setAttribute('data-plf-first-radio', 'true');
                 var nameSpan = buildElement('span', 'plf-card-name');
                 var descSpan = buildElement('span', 'plf-card-desc');
-                nameSpan.setAttribute('data-i18n', ctx.I18N_NS + ':option-' + layoutOptionKey(layoutId));
+                nameSpan.setAttribute('data-i18n', i18nPrefix + 'option-' + layoutOptionKey(layoutId));
                 nameSpan.textContent = t('option-' + layoutOptionKey(layoutId), optionFallbackName(layoutId));
-                descSpan.setAttribute('data-i18n', ctx.I18N_NS + ':option-' + layoutOptionKey(layoutId) + '-desc');
+                descSpan.setAttribute('data-i18n', i18nPrefix + 'option-' + layoutOptionKey(layoutId) + '-desc');
                 descSpan.textContent = t('option-' + layoutOptionKey(layoutId) + '-desc', optionFallbackDesc(layoutId));
                 card.appendChild(input);
                 card.appendChild(nameSpan);
@@ -144,7 +145,7 @@
             var suggestionWrap = buildElement('div', 'plf-suggestion');
             var suggestionLabel = buildElement('label', 'plf-suggestion-label');
             suggestionLabel.setAttribute('for', 'plf-suggestion-input');
-            suggestionLabel.setAttribute('data-i18n', ctx.I18N_NS + ':suggestion-label');
+            suggestionLabel.setAttribute('data-i18n', i18nPrefix + 'suggestion-label');
             suggestionLabel.textContent = t('suggestion-label', '优化建议（可选）');
             var textarea = buildElement('textarea', 'plf-suggestion-input');
             textarea.id = 'plf-suggestion-input';
@@ -152,7 +153,7 @@
             // 不设原生 maxlength：它按 UTF-16 code unit 计数，与 1000 个
             // Unicode code point 的限制语义冲突；截断统一在 input 事件中按
             // code point 完成（onSuggestionInput）。
-            textarea.setAttribute('data-i18n-placeholder', ctx.I18N_NS + ':suggestion-placeholder');
+            textarea.setAttribute('data-i18n-placeholder', i18nPrefix + 'suggestion-placeholder');
             textarea.placeholder = t('suggestion-placeholder', '例如：信息密度、导航位置、按钮大小、队列展示或移动端体验……');
             var counter = buildElement('span', 'plf-suggestion-counter');
             counter.id = 'plf-suggestion-counter';
@@ -169,7 +170,7 @@
             suggestionWrap.appendChild(counter);
 
             var privacy = buildElement('p', 'plf-privacy');
-            privacy.setAttribute('data-i18n', ctx.I18N_NS + ':privacy');
+            privacy.setAttribute('data-i18n', i18nPrefix + 'privacy');
             privacy.textContent = t('privacy', '本问卷使用固定版本的 PostHog SDK，并向固定的事件接收接口发送问卷回答、调查标识、调查专用匿名标识、用于投递去重的稳定事件标识、应用版本、当前布局、调查结构版本、事件时间，以及传输所需的事件名和公开项目令牌。不发送原始安装身份、账号、Cookie、作品或本地路径。');
 
             var error = buildElement('p', 'plf-error');
@@ -182,17 +183,17 @@
             var snoozeButton = buildElement('button', 'plf-button plf-button--secondary');
             snoozeButton.type = 'button';
             snoozeButton.setAttribute('data-plf-action', 'snooze');
-            snoozeButton.setAttribute('data-i18n', ctx.I18N_NS + ':snooze');
+            snoozeButton.setAttribute('data-i18n', i18nPrefix + 'snooze');
             snoozeButton.textContent = t('snooze', '稍后再说');
             var neverButton = buildElement('button', 'plf-button plf-button--ghost');
             neverButton.type = 'button';
             neverButton.setAttribute('data-plf-action', 'never');
-            neverButton.setAttribute('data-i18n', ctx.I18N_NS + ':never');
+            neverButton.setAttribute('data-i18n', i18nPrefix + 'never');
             neverButton.textContent = t('never', '不再询问');
             var submitButton = buildElement('button', 'plf-button plf-button--primary');
             submitButton.type = 'button';
             submitButton.setAttribute('data-plf-action', 'submit');
-            submitButton.setAttribute('data-i18n', ctx.I18N_NS + ':submit');
+            submitButton.setAttribute('data-i18n', i18nPrefix + 'submit');
             submitButton.textContent = t('submit', '提交反馈');
             submitButton.disabled = true;
             actions.appendChild(snoozeButton);
@@ -204,8 +205,8 @@
             githubLink.href = 'https://github.com/Sywyar/PixivDownloader';
             githubLink.target = '_blank';
             githubLink.rel = 'noopener noreferrer';
-            githubLink.setAttribute('data-i18n-title', ctx.I18N_NS + ':github-repo');
-            githubLink.setAttribute('data-i18n-aria-label', ctx.I18N_NS + ':github-repo');
+            githubLink.setAttribute('data-i18n-title', i18nPrefix + 'github-repo');
+            githubLink.setAttribute('data-i18n-aria-label', i18nPrefix + 'github-repo');
             githubLink.title = t('github-repo', '跳转到代码仓库');
             githubLink.setAttribute('aria-label', t('github-repo', '跳转到代码仓库'));
             var svgNs = 'http://www.w3.org/2000/svg';
@@ -323,17 +324,9 @@
     function updateCounterText() {
         if (!runtime.dialogElements || !runtime.dialogElements.counter || !runtime.dialogElements.textarea) return;
         var count = ctx.codePointLength(runtime.dialogElements.textarea.value);
-        var template = t('suggestion-counter', '{count} / {max}');
-        var isFallback = template === '{count} / {max}';
-        var text = template;
-        if (isFallback) {
-            text = count + ' / ' + ctx.SUGGESTION_MAX_CODE_POINTS;
-        } else {
-            text = template
-                .replace('{count}', String(count))
-                .replace('{max}', String(ctx.SUGGESTION_MAX_CODE_POINTS));
-        }
-        runtime.dialogElements.counter.textContent = text;
+        runtime.dialogElements.counter.textContent = t('suggestion-counter', '{count} / {max}')
+            .replace('{count}', String(count))
+            .replace('{max}', String(ctx.SUGGESTION_MAX_CODE_POINTS));
     }
 
     function updateSubmitLabel() {
@@ -363,7 +356,7 @@
 
     var lastErrorKey = null;
     function currentErrorKey() {
-        return lastErrorKey || 'error-submit-failed';
+        return lastErrorKey || 'submit-failed';
     }
 
     function errorFallback(key) {
@@ -491,13 +484,11 @@
     function submitFeedback() {
         if (runtime.submitting || !runtime.dialogOpen) return;
         if (!runtime.selectedChoice || !runtime.dialogChoiceQuestion) {
-            lastErrorKey = 'error-required';
             showError('error-required');
             return;
         }
         var suggestion = trimSuggestion();
         if (ctx.codePointLength(suggestion) > ctx.SUGGESTION_MAX_CODE_POINTS) {
-            lastErrorKey = 'error-suggestion-too-long';
             showError('error-suggestion-too-long');
             return;
         }
@@ -575,20 +566,10 @@
         preflight.then(function (result) {
             if (!ctx.isRuntimeGenerationActive(generation)) return;
             result = result || {status: ctx.REFRESH_UNAVAILABLE, reason: 'unknown'};
-            if (result.status === ctx.REFRESH_CANCELLED) {
-                // 当前 generation 仍活动但 operation 被取代：不继续 capture，
-                // 恢复控件并显示同一可重试错误（不得静默继续）。
+            if (result.status === ctx.REFRESH_CANCELLED || result.status === ctx.REFRESH_INVALID) {
+                // 活动 generation 的操作被取代或视图非法时，保留表单供重试。
                 runtime.submitting = false;
                 setSubmittingState(false);
-                lastErrorKey = 'error-state-verification';
-                showError('error-state-verification');
-                return;
-            }
-            if (result.status === ctx.REFRESH_INVALID) {
-                // 协议 / 身份 / 快照异常：fail-closed。
-                runtime.submitting = false;
-                setSubmittingState(false);
-                lastErrorKey = 'error-state-verification';
                 showError('error-state-verification');
                 return;
             }
@@ -618,8 +599,7 @@
             if (!ctx.isRuntimeGenerationActive(generation)) return;
             runtime.submitting = false;
             setSubmittingState(false);
-            lastErrorKey = 'error-submit-failed';
-            showError('error-submit-failed');
+            showError('submit-failed');
         });
     }
 

@@ -61,14 +61,6 @@ public class NovelPixivProxyController {
     private final NovelBrowserFetchTicketStore browserFetchTicketStore;
     private final MessageResolver messages;
 
-    private String proxyGet(String url, String cookie) {
-        return pixivAjaxClient.get(URI.create(url), cookie);
-    }
-
-    private String proxyGetUri(URI uri, String cookie) {
-        return pixivAjaxClient.get(uri, cookie);
-    }
-
     private static String acquisitionCredential(HttpServletRequest request, String legacyCredential) {
         return AcquisitionCredentialResolver.resolve(
                 request == null ? null : request.getHeader(AcquisitionCredentialResolver.HEADER_NAME),
@@ -128,7 +120,7 @@ public class NovelPixivProxyController {
                 .buildAndExpand(Map.of("id", parsedId))
                 .encode()
                 .toUri();
-        String body = proxyGetUri(uri, cookie);
+        String body = pixivAjaxClient.get(uri, cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
@@ -174,7 +166,7 @@ public class NovelPixivProxyController {
                 .buildAndExpand(Map.of("id", parsedId))
                 .encode()
                 .toUri();
-        String body = proxyGetUri(uri, cookie);
+        String body = pixivAjaxClient.get(uri, cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
@@ -204,7 +196,7 @@ public class NovelPixivProxyController {
                 .buildAndExpand(Map.of("id", parsedId))
                 .encode()
                 .toUri();
-        String metaBody = proxyGetUri(metaUri, cookie);
+        String metaBody = pixivAjaxClient.get(metaUri, cookie);
         JsonNode metaRoot = objectMapper.readTree(metaBody);
         if (metaRoot.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest().body(new NovelErrorResponse(metaRoot.path("message").asText()));
@@ -223,7 +215,7 @@ public class NovelPixivProxyController {
                 .buildAndExpand(Map.of("id", parsedId))
                 .encode()
                 .toUri();
-        String contentBody = proxyGetUri(contentUri, cookie);
+        String contentBody = pixivAjaxClient.get(contentUri, cookie);
         JsonNode contentRoot = objectMapper.readTree(contentBody);
         List<NovelSeriesResponse.NovelSeriesItem> items = contentRoot.path("error").asBoolean(false)
                 ? List.of()
@@ -283,11 +275,8 @@ public class NovelPixivProxyController {
         }
         try {
             int limitPage = resolveSearchFillLimitPage(request);
-            return ResponseEntity.ok(buildSearchRange(startPage, endPage, 24, limitPage, p -> {
-                NovelSearchResponse r = fetchNovelSearchPage(word, order, mode, sMode, p, resolvedCredential);
-                return new RangePage(r.getItems(), r.getTotal(),
-                        o -> ((NovelSearchResponse.NovelSearchItem) o).id());
-            }));
+            return ResponseEntity.ok(buildSearchRange(startPage, endPage, 24, limitPage,
+                    p -> fetchNovelSearchPage(word, order, mode, sMode, p, resolvedCredential)));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(new NovelErrorResponse(e.getMessage()));
         }
@@ -301,8 +290,8 @@ public class NovelPixivProxyController {
         cookie = acquisitionCredential(request, cookie);
         ResponseEntity<?> deny = checkMultiModeAccess(request);
         if (deny != null) return deny;
-        String body = proxyGet(
-                "https://www.pixiv.net/ajax/user/" + userId + "/profile/all", cookie);
+        String body = pixivAjaxClient.get(
+                URI.create("https://www.pixiv.net/ajax/user/" + userId + "/profile/all"), cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
@@ -341,7 +330,7 @@ public class NovelPixivProxyController {
                 .buildAndExpand(Map.of("userId", userId))
                 .encode()
                 .toUri();
-        String body = proxyGetUri(uri, cookie);
+        String body = pixivAjaxClient.get(uri, cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
@@ -381,7 +370,7 @@ public class NovelPixivProxyController {
                 .buildAndExpand(Map.of("uid", uid))
                 .encode()
                 .toUri();
-        String body = proxyGetUri(uri, cookie);
+        String body = pixivAjaxClient.get(uri, cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
             return ResponseEntity.badRequest().body(new NovelErrorResponse(root.path("message").asText()));
@@ -409,7 +398,7 @@ public class NovelPixivProxyController {
                 .buildAndExpand(Map.of("word", word))
                 .encode()
                 .toUri();
-        String body = proxyGetUri(searchUri, cookie);
+        String body = pixivAjaxClient.get(searchUri, cookie);
         JsonNode root = objectMapper.readTree(body);
         if (root.path("error").asBoolean(false)) {
             throw new IllegalArgumentException(root.path("message").asText(messages.get("pixiv.proxy.search.failed")));
@@ -433,12 +422,12 @@ public class NovelPixivProxyController {
 
         for (int p = startPage; p <= cappedEnd; p++) {
             if (p > totalPages) break;
-            RangePage pageResponse = fetcher.fetch(p);
-            total = pageResponse.total();
+            NovelSearchResponse pageResponse = fetcher.fetch(p);
+            total = pageResponse.getTotal();
             totalPages = Math.max(1, (int) Math.ceil(total / (double) perPage));
             if (p > totalPages) break;
-            for (Object item : pageResponse.items()) {
-                deduped.putIfAbsent(pageResponse.idOf().apply(item), item);
+            for (NovelSearchResponse.NovelSearchItem item : pageResponse.getItems()) {
+                deduped.putIfAbsent(item.id(), item);
             }
             fetchedPages++;
             endPage = p;
@@ -459,10 +448,7 @@ public class NovelPixivProxyController {
 
     @FunctionalInterface
     private interface RangePageFetcher {
-        RangePage fetch(int page) throws IOException;
-    }
-
-    private record RangePage(List<?> items, int total, java.util.function.Function<Object, String> idOf) {
+        NovelSearchResponse fetch(int page) throws IOException;
     }
 
     public record SearchRangeResponse(

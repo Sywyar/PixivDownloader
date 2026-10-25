@@ -118,10 +118,6 @@ public class NotificationInboxTestController {
             return new InboxTestResponse(true, total, total, List.of());
         }
 
-        static InboxTestResponse failed(List<String> scenarioIds) {
-            return of(scenarioIds.size(), scenarioIds);
-        }
-
         static InboxTestResponse of(int total, List<String> scenarioIds) {
             List<Failure> failures = scenarioIds.stream().map(Failure::new).toList();
             return new InboxTestResponse(failures.isEmpty(), total, total - failures.size(), failures);

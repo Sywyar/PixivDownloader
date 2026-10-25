@@ -4,13 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
-import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
-import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRelation;
-import top.sywyar.pixivdownload.schedule.security.ScheduleCredentialRedactor;
 
 import java.util.List;
 import java.util.Map;
@@ -90,15 +86,13 @@ class PixivSchedulePersistenceCodecTest {
     }
 
     @Test
-    @DisplayName("定义、失败详情与内嵌 JSON 都拒绝重复键绕过凭证扫描")
+    @DisplayName("定义与内嵌 JSON 都拒绝重复键绕过凭证扫描")
     void rejectsDuplicateKeysAtEveryPixivJsonBoundary() {
         String duplicateDefinition = "{\"kind\":\"illust\",\"note\":"
                 + "\"PHPSESSID=secret\",\"note\":\"safe\"}";
         String trailingDefinition = "{} {}";
-        String duplicateDetail = "{\"note\":\"PHPSESSID=secret\",\"note\":\"safe\"}";
         String embeddedDuplicate = "{\"message\":\"{\\\"cookie\\\":\\\"hidden\\\","
                 + "\\\"cookie\\\":\\\"safe\\\"}\"}";
-        ScheduledWork work = codec.createWorkEnvelope("illust", "7");
 
         assertThatThrownBy(() -> codec.createDefinition(
                 0, "任务", "user-new", duplicateDefinition))
@@ -108,12 +102,8 @@ class PixivSchedulePersistenceCodecTest {
                 0, "任务", "user-new", trailingDefinition))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("exactly one JSON value");
-        assertThatThrownBy(() -> codec.toPendingWork(
-                1, work, "NETWORK", duplicateDetail, 0, 1L, 1L))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("invalid JSON");
-        assertThatThrownBy(() -> codec.toPendingWork(
-                1, work, "NETWORK", embeddedDuplicate, 0, 1L, 1L))
+        assertThatThrownBy(() -> codec.createDefinition(
+                0, "任务", "user-new", embeddedDuplicate))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("invalid JSON");
     }
@@ -165,15 +155,14 @@ class PixivSchedulePersistenceCodecTest {
     }
 
     @Test
-    @DisplayName("作品载荷、展示、关系与失败详情都拒绝凭证材料")
-    void pendingEnvelopeRejectsCredentialMaterial() {
+    @DisplayName("作品载荷解码拒绝凭证材料及伪装的元数据字段")
+    void workPayloadRejectsCredentialMaterial() {
         ScheduledWork base = codec.createWorkEnvelope("illust", "7");
         ScheduledWork unsafePayload = new ScheduledWork(
                 base.key(), base.payloadSchema(), base.payloadVersion(),
                 "{\"workId\":\"7\",\"note\":\"Bearer pending-secret\"}",
                 base.presentation(), base.relations());
-        assertThatThrownBy(() -> codec.toPendingWork(
-                1, unsafePayload, "NETWORK", "{}", 0, 1L, 1L))
+        assertThatThrownBy(() -> codec.decodeWorkId(unsafePayload))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("schedule work payload contains forbidden credential material")
                 .hasMessageNotContaining("pending-secret");
@@ -192,73 +181,11 @@ class PixivSchedulePersistenceCodecTest {
                     base.key(), base.payloadSchema(), base.payloadVersion(),
                     "{\"workId\":\"7\",\"" + fieldName + "\":\"pending-secret\"}",
                     base.presentation(), base.relations());
-            assertThatThrownBy(() -> codec.toPendingWork(
-                    1, disguisedPayload, "NETWORK", "{}", 0, 1L, 1L))
+            assertThatThrownBy(() -> codec.decodeWorkId(disguisedPayload))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessage("schedule work payload contains forbidden credential material")
                     .hasMessageNotContaining("pending-secret");
         }
-
-        assertThatThrownBy(() -> new ScheduledWorkPresentation(
-                "Authorization: Bearer pending-secret", null, null, Map.of()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("credential material")
-                .hasMessageNotContaining("pending-secret");
-
-        ScheduledWork unsafeRelation = new ScheduledWork(
-                base.key(), base.payloadSchema(), base.payloadVersion(), base.payloadJson(),
-                base.presentation(), List.of(new ScheduledWorkRelation(
-                "source", "1", "fixture.relation", 1,
-                "{\"token\":\"pending-secret\"}")));
-        assertThatThrownBy(() -> codec.toPendingWork(
-                1, unsafeRelation, "NETWORK", "{}", 0, 1L, 1L))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("schedule work relations contains forbidden credential material")
-                .hasMessageNotContaining("pending-secret");
-
-        assertThatThrownBy(() -> codec.toPendingWork(
-                1, base, "NETWORK", "{\"message\":\"token: pending-secret\"}", 0, 1L, 1L))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("pending reason detail contains forbidden credential material")
-                .hasMessageNotContaining("pending-secret");
-    }
-
-    @Test
-    @DisplayName("pending 详情接受脱敏器生成的安全占位文本")
-    void pendingEnvelopeAcceptsRedactedDetail() throws Exception {
-        ScheduledWork work = codec.createWorkEnvelope("illust", "7");
-        String redacted = ScheduleCredentialRedactor.redact(
-                "Authorization: Bearer pending-secret token: second-secret");
-        String detailJson = objectMapper.writeValueAsString(Map.of("message", redacted));
-
-        ScheduledPendingWork pending = codec.toPendingWork(
-                1, work, "NETWORK", detailJson, 0, 1L, 1L);
-
-        assertThat(pending.reasonDetailJson()).contains("[redacted]")
-                .doesNotContain("pending-secret", "second-secret");
-    }
-
-    @Test
-    @DisplayName("pending 行往返完整保留展示数据和关系")
-    void pendingRoundTripPreservesPresentationAndRelations() {
-        ScheduledWork base = codec.createWorkEnvelope("illust", "123456789");
-        ScheduledWork work = new ScheduledWork(
-                base.key(), base.payloadSchema(), base.payloadVersion(), base.payloadJson(),
-                new ScheduledWorkPresentation("标题", "作者", "thumb:123", Map.of("xRestrict", "1")),
-                List.of(new ScheduledWorkRelation(
-                        "series", "9988", "pixiv.schedule.relation", 1, "{\"order\":\"2\"}")));
-
-        ScheduledPendingWork pending = codec.toPendingWork(
-                9, work, "NETWORK", "{\"status\":\"timeout\"}", 2, 100L, 200L);
-        ScheduledWork restored = codec.fromPendingWork(pending);
-
-        assertThat(restored).isEqualTo(work);
-        assertThat(pending.taskId()).isEqualTo(9);
-        assertThat(pending.reasonCode()).isEqualTo("NETWORK");
-        assertThat(pending.reasonDetailJson()).isEqualTo("{\"status\":\"timeout\"}");
-        assertThat(pending.attempts()).isEqualTo(2);
-        assertThat(pending.firstSeenTime()).isEqualTo(100L);
-        assertThat(pending.lastAttemptTime()).isEqualTo(200L);
     }
 
     @Test

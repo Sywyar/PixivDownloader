@@ -76,7 +76,7 @@
             host.className = 'pm-recovery';
             host.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i>'
                 + '<div><div class="pm-recovery-title">' + E(PM.t('recovery.title', '恢复 / 补齐模式')) + '</div>'
-                + '<div class="pm-recovery-desc">' + E(PM.t('recovery.desc', '缺少必须的下载插件，正常业务功能未开放。')) + '</div></div>';
+                + '<div class="pm-recovery-desc">' + E(PM.t('recovery.desc', '当前处于恢复模式，部分功能暂不可用。请查看插件状态和启动日志，按具体原因处理。')) + '</div></div>';
         } else {
             host.hidden = true;
             host.innerHTML = '';
@@ -318,7 +318,7 @@
         }
         if (PM.state.error && !PM.state.report) {
             grid.innerHTML = '';
-            stateHost.innerHTML = stateHtml('error', PM.state.error);
+            stateHost.innerHTML = stateHtml('error', PM.t(PM.state.error));
             countEl.textContent = '';
             return;
         }
@@ -331,18 +331,16 @@
             stateHost.innerHTML = emptyHtml(models.length === 0);
             return;
         }
-        stateHost.innerHTML = PM.state.error ? stateHtml('error', PM.state.error) : '';
+        stateHost.innerHTML = PM.state.error ? stateHtml('error', PM.t(PM.state.error)) : '';
         var existing = new Map(Array.from(grid.children).map(function (node) { return [node.getAttribute('data-pm-card'), node]; }));
         var focus = document.activeElement;
         var focusCard = focus && focus.closest && focus.closest('[data-pm-card]');
         var focusId = focusCard && focusCard.getAttribute('data-pm-card');
         if (focusId) {
-            var owner = focus.closest('[data-pm-section]');
             var attribute = focus.hasAttribute('data-pm-details') ? 'data-pm-details'
                 : focus.hasAttribute('data-pm-toggle') ? 'data-pm-toggle'
-                : owner && focus.tagName === 'SUMMARY' ? 'data-pm-section' : 'data-pm-action-menu-toggle';
-            pendingFocus = {id: focusId, attribute: attribute,
-                value: attribute === 'data-pm-section' ? owner.getAttribute(attribute) : null};
+                : 'data-pm-action-menu-toggle';
+            pendingFocus = {id: focusId, attribute: attribute};
         }
         filtered.forEach(function (vm, index) {
             var html = cardHtml(vm);
@@ -350,12 +348,10 @@
             existing.delete(vm.id);
             if (!node || node.pmMarkup !== html) {
                 var menuOpen = node && node.querySelector('.pm-action-menu.open');
-                var open = node ? Array.from(node.querySelectorAll('details[open]')).map(function (item) { return item.getAttribute('data-pm-section'); }) : [];
                 var holder = document.createElement('template');
                 holder.innerHTML = html;
                 var replacement = holder.content.firstElementChild;
                 replacement.pmMarkup = html;
-                replacement.querySelectorAll('details').forEach(function (item) { item.open = open.indexOf(item.getAttribute('data-pm-section')) !== -1; });
                 if (menuOpen && replacement.querySelector('.pm-action-menu')) {
                     replacement.querySelector('.pm-action-menu').classList.add('open');
                     replacement.querySelector('.pm-action-menu').classList.toggle('pm-action-menu--above', menuOpen.classList.contains('pm-action-menu--above'));
@@ -367,10 +363,7 @@
             }
             if (grid.children[index] !== node) grid.insertBefore(node, grid.children[index] || null);
             if (pendingFocus && pendingFocus.id === vm.id && (document.activeElement === document.body || !focus.isConnected)) {
-                var target = Array.from(node.querySelectorAll('[' + pendingFocus.attribute + ']')).find(function (item) {
-                    return pendingFocus.value == null || item.getAttribute(pendingFocus.attribute) === pendingFocus.value;
-                });
-                if (target && target.tagName === 'DETAILS') target = target.querySelector('summary');
+                var target = node.querySelector('[' + pendingFocus.attribute + ']');
                 if (target && !target.disabled) { target.focus({preventScroll: true}); pendingFocus = null; }
             }
         });
@@ -420,7 +413,7 @@
         parts.push('<div class="pm-install-result-head">');
         parts.push('<i class="fa-solid ' + installToneIcon(tone) + '"></i>');
         parts.push('<span class="pm-install-result-msg">'
-            + E(model.localValidation ? model.message : PM.installFeedback(model).message) + '</span>');
+            + E(model.localValidation ? PM.t(model.messageKey) : PM.installFeedback(model).message) + '</span>');
         parts.push('</div>'); // head
 
         // 恢复阻断优先于落盘 / 激活成功字段：事务恢复完成前不得渲染任何绿色成功说明。
@@ -518,7 +511,13 @@
 
     function setInstallSubmitting(busy) {
         var btn = document.getElementById('pm-install-submit');
-        if (btn) btn.disabled = !!busy;
+        if (busy && document.activeElement === btn) {
+            installModalEl().querySelector('.pm-modal-close').focus();
+        }
+        ['pm-install-submit', 'pm-install-file', 'pm-install-signature', 'pm-install-allow-downgrade'].forEach(function (id) {
+            var control = document.getElementById(id);
+            if (control) control.disabled = !!busy;
+        });
         PM.state.installBusy = !!busy;
     }
 

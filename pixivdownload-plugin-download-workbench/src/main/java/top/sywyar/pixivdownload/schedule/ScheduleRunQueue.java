@@ -8,8 +8,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentati
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -19,7 +18,7 @@ import java.util.concurrent.ConcurrentMap;
 /**
  * 计划任务<b>每轮运行的作品队列</b>登记（仅内存，不落库）。
  *
- * <p>与 {@link ScheduleRunState}（只记 QUEUED / RUNNING 这两个瞬时灯态）互补：本登记记录某一轮
+ * <p>与 {@link ScheduleRunState} 的进程内运行态互补：本登记记录某一轮
  * 实际发现到的<b>每一个作品</b>及其处理结果，供前端在任务卡片底部的「本轮队列详情」可折叠区域展示。
  *
  * <p>每个任务只保留<b>最近一轮</b>的队列：下一轮运行 {@link #begin(long)} 即整体替换旧队列
@@ -77,8 +76,7 @@ public class ScheduleRunQueue {
     public static final class Run {
 
         private final long startedTime;
-        private final List<ScheduledWorkKey> order = new ArrayList<>();
-        private final Map<ScheduledWorkKey, Item> byKey = new HashMap<>();
+        private final Map<ScheduledWorkKey, Item> byKey = new LinkedHashMap<>();
         private long retainedUtf8Bytes;
         private boolean truncated;
 
@@ -103,7 +101,7 @@ public class ScheduleRunQueue {
             if (byKey.containsKey(key)) {
                 return;
             }
-            if (truncated || order.size() >= MAX_ITEMS) {
+            if (truncated || byKey.size() >= MAX_ITEMS) {
                 truncated = true;
                 return;
             }
@@ -117,7 +115,6 @@ public class ScheduleRunQueue {
                 truncated = true;
                 return;
             }
-            order.add(key);
             byKey.put(key, item);
             retainedUtf8Bytes += itemBytes;
         }
@@ -168,11 +165,7 @@ public class ScheduleRunQueue {
 
         /** 拷贝当前全部条目，供对外视图组装；调用方拿到的是快照，不随后续写入变化。 */
         public synchronized List<Item> snapshot() {
-            List<Item> copy = new ArrayList<>(order.size());
-            for (ScheduledWorkKey key : order) {
-                copy.add(byKey.get(key).copy());
-            }
-            return List.copyOf(copy);
+            return List.copyOf(byKey.values());
         }
 
         private void replaceOrDrop(
@@ -184,7 +177,6 @@ public class ScheduleRunQueue {
             long withoutCurrent = retainedUtf8Bytes - currentBytes;
             if (replacementBytes > MAX_RETAINED_UTF8_BYTES - withoutCurrent) {
                 byKey.remove(key);
-                order.remove(key);
                 retainedUtf8Bytes = withoutCurrent;
                 truncated = true;
                 return;
@@ -249,16 +241,6 @@ public class ScheduleRunQueue {
                     nextMessage);
         }
 
-        Item copy() {
-            return new Item(
-                    key,
-                    presentation,
-                    workExecutorOwner,
-                    workExecutorPublicationId,
-                    result,
-                    status,
-                    message);
-        }
     }
 
     private static long itemUtf8Bytes(Item item) {

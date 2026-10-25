@@ -26,7 +26,7 @@ public final class ScheduleTiming {
      * @param intervalMinutes interval 模式的周期分钟数
      * @param cronExpr        cron 模式的表达式
      * @param fromMillis      计算基准时刻（epoch 毫秒）
-     * @return 下次运行 epoch 毫秒；无法计算（参数非法）时返回 {@code null}
+     * @return 下次运行 epoch 毫秒；参数非法或没有未来触发时刻时返回 {@code null}
      */
     public static Long computeNextRun(String triggerKind, Integer intervalMinutes,
                                       String cronExpr, long fromMillis) {

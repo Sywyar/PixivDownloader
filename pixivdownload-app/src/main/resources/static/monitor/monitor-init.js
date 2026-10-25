@@ -36,6 +36,8 @@
         bindDeclarativeActions();
         artworkModal = new bootstrap.Modal(document.getElementById('artworkModal'));
         imageModal   = new bootstrap.Modal(document.getElementById('imageModal'));
+        document.getElementById('artworkModal').addEventListener('hide.bs.modal', cancelArtworkRequest);
+        document.getElementById('imageModal').addEventListener('hide.bs.modal', releaseFullImage);
 
         // 点击外部关闭弹出框
         document.addEventListener('click', () => {
@@ -55,9 +57,7 @@
 
         // 立即异步触发数据加载（与 i18n 初始化并行），避免主界面被慢请求阻塞
         initDashboard();
-        updateInterval = setInterval(updateDashboard, 5000);
-        foregroundBurstUntil = Date.now() + 10000; // 页面打开后 10s 内每秒轮询
-        scheduleActiveSync();
+        startDashboardUpdates();
 
         document.addEventListener('keydown', e => {
             if (!document.getElementById('imageModal').classList.contains('show')) return;
@@ -88,17 +88,42 @@
         }
     });
 
-    window.addEventListener('beforeunload', () => {
+    function startDashboardUpdates() {
+        if (updateInterval !== null) return;
+        pageSuspended = false;
+        updateInterval = setInterval(updateDashboard, 5000);
+        foregroundBurstUntil = Date.now() + 10000;
+        ensureSharedSSE();
+        scheduleActiveSync(true);
+    }
+
+    window.addEventListener('pageshow', event => {
+        if (event.persisted) {
+            startDashboardUpdates();
+            loadStatistics();
+            loadAllDataForChart();
+            if (document.getElementById('imageModal').classList.contains('show')) loadFullImage();
+        }
+    });
+
+    window.addEventListener('pagehide', () => {
+        pageSuspended = true;
         clearInterval(updateInterval);
+        updateInterval = null;
         clearTimeout(activeUpdateTimer);
-        sseSubscribed.clear();
+        activeUpdateTimer = null;
+        const controller = activeSyncController;
+        activeSyncController = null;
+        if (controller) controller.abort();
+        cancelDashboardRequests();
+        cancelArtworkRequest();
+        releaseFullImage();
         closeSharedSSE();
     });
 
     function initDashboard() {
         loadStatistics();
         loadAllDataForChart();
-        syncActiveIds();
 
         document.getElementById('th-extensions').addEventListener('click', toggleFormatFilter);
         document.getElementById('th-R18').addEventListener('click', toggleR18Filter);
@@ -130,8 +155,9 @@
 
     // ===================== 定期更新 =====================
     function updateDashboard() {
+        if (pageSuspended) return;
         updateLastUpdatedTime();
-        loadStatistics();
+        if (!statisticsController) loadStatistics();
     }
 
     function updateLastUpdatedTime() {

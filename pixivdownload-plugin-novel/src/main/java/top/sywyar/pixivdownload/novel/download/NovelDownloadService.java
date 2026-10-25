@@ -49,8 +49,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.IntSupplier;
+import java.util.function.Predicate;
 import top.sywyar.pixivdownload.novel.NovelSeriesService;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 
@@ -162,14 +163,22 @@ public class NovelDownloadService implements NovelDownloader {
             downloadLifecycle.track(attempt, task, userUuid, "novel", request.getTitle(), true);
             task.bind(() -> downloadTracked(task, request, userUuid, plan, attempt));
             downloadExecutionLane.execute(task);
-            return attempt;
         } catch (RuntimeException | Error failure) {
+            Throwable combined = failure;
             try {
                 if (!(failure instanceof VirtualMachineError) && !(failure instanceof ThreadDeath))
                     downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.FAILED));
-            } finally { task.rejectSubmission(); }
-            throw failure;
+            } catch (RuntimeException | Error publicationFailure) {
+                combined = mergeFailure(combined, publicationFailure);
+            }
+            try {
+                task.rejectSubmission();
+            } catch (RuntimeException | Error terminationFailure) {
+                combined = mergeFailure(combined, terminationFailure);
+            }
+            rethrow(combined);
         }
+        return attempt;
     }
 
     private DownloadAttempt prepareAttempt(DownloadAttempt supplied, NovelDownloadRequest request) {
@@ -255,11 +264,19 @@ public class NovelDownloadService implements NovelDownloader {
         DownloadAttempt attempt = prepareAttempt(null, request);
         FilePlan plan = filePlan(request);
         QueueTaskTracker.Task task = taskTracker.beginRunning(NovelQueueTaskOwners.download(userUuid));
+        Throwable failure = null;
         try {
             downloadLifecycle.track(attempt, task, userUuid, "novel", request.getTitle(), false);
             return downloadTracked(task, request, userUuid, plan, attempt);
+        } catch (RuntimeException | Error original) {
+            failure = original;
+            throw original;
         } finally {
-            task.completeRunning();
+            try {
+                task.completeRunning();
+            } catch (RuntimeException | Error terminationFailure) {
+                rethrow(mergeFailure(failure, terminationFailure));
+            }
         }
     }
 
@@ -277,7 +294,7 @@ public class NovelDownloadService implements NovelDownloader {
         NovelDownloadStatus status = new NovelDownloadStatus(novelId, title, format.ext(), userUuid);
         String statusKey = statusKey(novelId, userUuid);
         AtomicLong remainingImageBytes = new AtomicLong(PixivImageTransferObserver.MAX_TASK_BYTES);
-        task.onCancellation(() -> cancelTrackedStatus(statusKey, status));
+        task.onCancellation(() -> cancelTrackedStatus(status));
         if (!task.publishIfActive(() -> statusMap.put(statusKey, status))) {
             downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.CANCELLED));
             return false;
@@ -293,7 +310,6 @@ public class NovelDownloadService implements NovelDownloader {
             Path downloadRoot = plan.root();
             Path downloadPath = plan.directory();
             downloadPathGuard.requireWithinRoot(downloadRoot, downloadPath);
-            status.setFolderName(displayFolderName(downloadRoot, downloadPath));
             Files.createDirectories(downloadPath);
             status.setDownloadPath(downloadPath.toString());
             ensureNotCancelled(status);
@@ -425,9 +441,7 @@ public class NovelDownloadService implements NovelDownloader {
             }
 
             ensureNotCancelled(status);
-            status.setStage("completed");
-            status.setCompleted(true);
-            status.setEndTime(java.time.LocalDateTime.now());
+            status.complete();
             log.info("novel download completed: id={}, format={}, path={}", novelId, ext, downloadPath);
             succeeded = true;
             recorded = true;
@@ -452,24 +466,14 @@ public class NovelDownloadService implements NovelDownloader {
                 }
             }
         } catch (CancellationException e) {
-            status.setCancelled(true);
-            status.setCompleted(true);
-            status.setFailed(false);
-            status.setStage("cancelled");
-            status.setEndTime(java.time.LocalDateTime.now());
-            status.setErrorMessage(messages.get("download.cancelled"));
+            cancelTrackedStatus(status);
         } catch (top.sywyar.pixivdownload.core.database.DatabaseUnavailableException unavailable) {
             succeeded = false;
-            status.setCompleted(true);
-            status.setFailed(true);
-            status.setErrorMessage(messages.get("plugin.recovery.database-unavailable"));
-            status.setEndTime(java.time.LocalDateTime.now());
+            status.fail(messages.get("plugin.recovery.database-unavailable"));
             throw unavailable;
         } catch (Exception e) {
             log.error("novel download failed: id={}", novelId, e);
-            status.setCompleted(true);
-            status.setFailed(true);
-            status.setErrorMessage(e instanceof DownloadPathRejectedException
+            status.fail(e instanceof DownloadPathRejectedException
                     ? messages.get("download.path.segment.invalid", other.getUsername())
                     : e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         } finally {
@@ -523,43 +527,32 @@ public class NovelDownloadService implements NovelDownloader {
         return findAnyStatus(novelId);
     }
 
-    public NovelDownloadStatus getStatus(Long novelId, String ownerUuid, boolean admin) {
-        if (admin) {
-            return findAnyStatus(novelId);
-        }
+    public NovelDownloadStatus getStatus(Long novelId, String ownerUuid) {
         return statusMap.get(statusKey(novelId, ownerUuid));
     }
 
     public int forceClearDownloads() {
-        int cancelledTasks = 0;
-        int clearedStatuses = 0;
-        Throwable failure = null;
-        try {
-            cancelledTasks = taskTracker.cancelMatchingOwners(NovelQueueTaskOwners::isDownload);
-        } catch (Throwable error) {
-            failure = error;
-        }
-        try {
-            clearedStatuses = forceClearDownloads(status -> true);
-        } catch (Throwable error) {
-            failure = mergeFailure(failure, error);
-        }
-        rethrow(failure);
-        return clearedStatuses > 0 ? clearedStatuses : cancelledTasks;
+        return cancelAndClearDownloads(
+                () -> taskTracker.cancelMatchingOwners(NovelQueueTaskOwners::isDownload), status -> true);
     }
 
     public int forceClearDownloadsForOwner(String ownerUuid) {
+        return cancelAndClearDownloads(
+                () -> taskTracker.cancelForOwner(NovelQueueTaskOwners.download(ownerUuid)),
+                status -> java.util.Objects.equals(status.getOwnerUuid(), ownerUuid));
+    }
+
+    private int cancelAndClearDownloads(IntSupplier cancelTasks, Predicate<NovelDownloadStatus> matcher) {
         int cancelledTasks = 0;
         int clearedStatuses = 0;
         Throwable failure = null;
         try {
-            cancelledTasks = taskTracker.cancelForOwner(NovelQueueTaskOwners.download(ownerUuid));
+            cancelledTasks = cancelTasks.getAsInt();
         } catch (Throwable error) {
             failure = error;
         }
         try {
-            clearedStatuses = forceClearDownloads(
-                    status -> java.util.Objects.equals(status.getOwnerUuid(), ownerUuid));
+            clearedStatuses = forceClearDownloads(matcher);
         } catch (Throwable error) {
             failure = mergeFailure(failure, error);
         }
@@ -588,8 +581,8 @@ public class NovelDownloadService implements NovelDownloader {
         rethrow(failure);
     }
 
-    private int forceClearDownloads(java.util.function.Predicate<NovelDownloadStatus> matcher) {
-        AtomicInteger cleared = new AtomicInteger();
+    private int forceClearDownloads(Predicate<NovelDownloadStatus> matcher) {
+        int cleared = 0;
         Throwable failure = null;
         for (var entry : List.copyOf(statusMap.entrySet())) {
             String key = entry.getKey();
@@ -598,30 +591,20 @@ public class NovelDownloadService implements NovelDownloader {
                 if (status == null || !matcher.test(status)) {
                     continue;
                 }
-                status.setCancelled(true);
-                status.setCompleted(true);
-                status.setFailed(false);
-                status.setStage("cancelled");
-                status.setEndTime(java.time.LocalDateTime.now());
-                status.setErrorMessage(messages.get("download.cancelled"));
+                cancelTrackedStatus(status);
                 if (statusMap.remove(key, status)) {
-                    cleared.incrementAndGet();
+                    cleared++;
                 }
             } catch (Throwable error) {
                 failure = mergeFailure(failure, error);
             }
         }
         rethrow(failure);
-        return cleared.get();
+        return cleared;
     }
 
-    private void cancelTrackedStatus(String statusKey, NovelDownloadStatus status) {
-        status.setCancelled(true);
-        status.setCompleted(true);
-        status.setFailed(false);
-        status.setStage("cancelled");
-        status.setEndTime(java.time.LocalDateTime.now());
-        status.setErrorMessage(messages.get("download.cancelled"));
+    private void cancelTrackedStatus(NovelDownloadStatus status) {
+        status.cancel(messages.get("download.cancelled"));
     }
 
     private static void rethrow(Throwable failure) {
@@ -695,16 +678,6 @@ public class NovelDownloadService implements NovelDownloader {
             return collectionDownloadRootResolver.resolveDownloadRoot(other.getCollectionId(), defaultRoot);
         }
         return defaultRoot;
-    }
-
-    private String displayFolderName(Path root, Path downloadPath) {
-        try {
-            return root.toAbsolutePath().normalize()
-                    .relativize(downloadPath.toAbsolutePath().normalize())
-                    .toString();
-        } catch (IllegalArgumentException e) {
-            return downloadPath.toString();
-        }
     }
 
     private void ensureNotCancelled(NovelDownloadStatus status) {

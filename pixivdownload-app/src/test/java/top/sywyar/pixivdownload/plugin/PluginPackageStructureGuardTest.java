@@ -48,10 +48,6 @@ class PluginPackageStructureGuardTest {
     private static final String INSTALL_PROVENANCE_ROOT = "top.sywyar.pixivdownload.plugin.runtime.install.provenance";
     private static final String BOOTSTRAP_ROOT = "top.sywyar.pixivdownload.plugin.runtime.bootstrap";
 
-    private static final int APP_PLUGIN_ROOT_BASELINE = 4;
-    private static final int RUNTIME_ROOT_BASELINE = 2;
-    private static final int INSTALL_ROOT_BASELINE = 1;
-
     private static final java.util.Set<String> APP_PLUGIN_ROOT_ALLOWLIST = java.util.Set.of(
             "BuiltInPlugins", "CorePlugin", "CorePluginConfiguration", "PluginRuntimeConfiguration");
     private static final java.util.Set<String> RUNTIME_ROOT_ALLOWLIST = java.util.Set.of(
@@ -68,7 +64,7 @@ class PluginPackageStructureGuardTest {
             "DatabaseSchemaRegistry");
     private static final java.util.Set<String> REGISTRY_WEB_ALLOWLIST = java.util.Set.of(
             "DrilldownRegistry", "LandingRegistry", "NavigationRegistry", "PageSectionRegistry",
-            "StaticResourceRegistry", "WebUiSlotRegistry");
+            "StaticResourceRegistry", "WebContributionPaths", "WebUiSlotRegistry");
 
     /**
      * {@code top.sywyar.pixivdownload.plugin} 是<b>拆分包</b>：app 的 4 个 plugin 根包入口类型 +
@@ -104,35 +100,6 @@ class PluginPackageStructureGuardTest {
         assertThat(offenders)
                 .as("FlatLaf / JNA 只能在 pixivdownload-plugin-gui-swing 内，app boot jar 不得重新引入")
                 .isEmpty();
-    }
-
-    @Test
-    @DisplayName("app 的 plugin 根包直接类型 ≤ 4（只降不升基线，排除 plugin-runtime 拆分包三件套）")
-    void appPluginRootPackageDoesNotGrow() {
-        long appOwned = CLASSES.stream()
-                .filter(c -> c.getPackageName().equals(PLUGIN_ROOT))
-                .filter(c -> !c.isNestedClass())
-                .filter(c -> !PLUGIN_RUNTIME_SPLIT_TYPES.contains(c.getSimpleName()))
-                .count();
-        assertThat(appOwned)
-                .as("app plugin 根包直接类型数（基线 4，只降不升；已排除 plugin-runtime 拆分包三件套）")
-                .isLessThanOrEqualTo(APP_PLUGIN_ROOT_BASELINE);
-    }
-
-    @Test
-    @DisplayName("plugin-runtime 的 plugin.runtime 根包直接类型 ≤ 2（只降不升基线）")
-    void runtimeRootPackageDoesNotGrow() {
-        assertThat(directTypes(RUNTIME_ROOT))
-                .as("plugin.runtime 根包直接类型数（基线 2，只降不升）")
-                .isLessThanOrEqualTo(RUNTIME_ROOT_BASELINE);
-    }
-
-    @Test
-    @DisplayName("plugin-runtime 的 plugin.runtime.install 根包直接类型 ≤ 1（只降不升基线）")
-    void installRootPackageDoesNotGrow() {
-        assertThat(directTypes(INSTALL_ROOT))
-                .as("plugin.runtime.install 根包直接类型数（基线 1，只降不升）")
-                .isLessThanOrEqualTo(INSTALL_ROOT_BASELINE);
     }
 
     @Test

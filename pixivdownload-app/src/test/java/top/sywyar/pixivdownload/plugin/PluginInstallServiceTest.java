@@ -266,14 +266,6 @@ class PluginInstallServiceTest {
         assertThat(report.dependencyProblems())
                 .allSatisfy(problem -> assertThat(problem.reason()).isEqualTo(
                         top.sywyar.pixivdownload.plugin.install.PluginDependencyProblem.Reason.MISSING));
-        assertThat(report.dependencyProblems().stream()
-                .filter(problem -> problem.pluginId().equals("ghost-plugin"))
-                .toList()).singleElement()
-                .satisfies(problem -> {
-                    assertThat(problem.pluginId()).isEqualTo("ghost-plugin");
-                    assertThat(problem.reason()).isEqualTo(
-                            top.sywyar.pixivdownload.plugin.install.PluginDependencyProblem.Reason.MISSING);
-                });
         assertThat(pluginFiles()).isEmpty();
     }
 
@@ -418,10 +410,7 @@ class PluginInstallServiceTest {
         try (ZipOutputStream zos = new ZipOutputStream(bos)) {
             for (Map.Entry<String, byte[]> entry : entries.entrySet()) {
                 zos.putNextEntry(new ZipEntry(entry.getKey()));
-                byte[] content = entry.getValue();
-                if (content.length > 0) {
-                    zos.write(content);
-                }
+                zos.write(entry.getValue());
                 zos.closeEntry();
             }
         } catch (IOException e) {

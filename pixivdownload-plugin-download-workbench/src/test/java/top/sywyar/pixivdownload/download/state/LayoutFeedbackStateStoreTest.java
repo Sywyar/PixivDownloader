@@ -2,20 +2,19 @@ package top.sywyar.pixivdownload.download.state;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-import top.sywyar.pixivdownload.download.request.LayoutFeedbackCommandRequest;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -74,32 +73,27 @@ class LayoutFeedbackStateStoreTest extends LayoutFeedbackStateStoreTestSupport {
         int threads = 8;
         ExecutorService executor = Executors.newFixedThreadPool(threads);
         CountDownLatch start = new CountDownLatch(1);
-        CountDownLatch done = new CountDownLatch(threads);
-        java.util.concurrent.atomic.AtomicReference<LayoutFeedbackStateSnapshot> first =
-                new java.util.concurrent.atomic.AtomicReference<>();
-        for (int i = 0; i < threads; i++) {
-            executor.submit(() -> {
-                try {
+        try {
+            List<Future<LayoutFeedbackStateSnapshot>> snapshots = new ArrayList<>();
+            for (int i = 0; i < threads; i++) {
+                snapshots.add(executor.submit(() -> {
                     start.await();
-                    LayoutFeedbackStateSnapshot snapshot = store.snapshot();
-                    first.compareAndSet(null, snapshot);
-                    if (first.get() != snapshot) {
-                        throw new AssertionError("并发首次加载必须返回同一快照实例");
-                    }
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                } finally {
-                    done.countDown();
-                }
-            });
+                    return store.snapshot();
+                }));
+            }
+            start.countDown();
+            LayoutFeedbackStateSnapshot first = snapshots.get(0).get(30, TimeUnit.SECONDS);
+            for (Future<LayoutFeedbackStateSnapshot> snapshot : snapshots) {
+                assertThat(snapshot.get(30, TimeUnit.SECONDS)).isSameAs(first);
+            }
+            assertThat(store.snapshot()).isSameAs(first);
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(30, TimeUnit.SECONDS)).as("并发读取线程应结束").isTrue();
         }
-        start.countDown();
-        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
-        executor.shutdownNow();
 
         assertThat(corruptFiles()).as("并发首次加载只隔离一次").hasSize(1);
         assertThat(store.degraded()).isFalse();
-        assertThat(store.snapshot()).isSameAs(first.get());
     }
 
     @Test

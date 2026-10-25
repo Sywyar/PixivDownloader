@@ -15,7 +15,6 @@ import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceRequest;
 import top.sywyar.pixivdownload.tts.narration.engine.TtsPluginConfig;
 import top.sywyar.pixivdownload.tts.narration.engine.http.AbstractHttpNarrationEngine;
 
-import java.util.Base64;
 import java.util.EnumSet;
 import java.util.Locale;
 import java.util.Set;
@@ -37,7 +36,6 @@ public class DoubaoNarrationEngine extends AbstractHttpNarrationEngine implement
 
     private static final String TTS_PATH = "/api/v1/tts";
     private static final String OPERATION_QUERY = "query";
-    private static final int SUCCESS_CODE = 3000;
     /** 调用方标识：火山要求 {@code user.uid} 非空，固定一个非敏感的本应用标识即可。 */
     private static final String UID = "pixiv-narration";
 
@@ -87,10 +85,7 @@ public class DoubaoNarrationEngine extends AbstractHttpNarrationEngine implement
         if (doubao == null || doubao.getBaseUrl() == null || doubao.getBaseUrl().isBlank()) {
             throw new NarrationVoiceException(localized("narration.tts.error.unavailable"), null);
         }
-        String text = req == null ? null : req.text();
-        if (NarrationSpeechText.blankToNull(text) == null) {
-            throw new NarrationVoiceException(localized("narration.tts.error.empty-text"), null);
-        }
+        String text = requireText(req);
 
         String encoding = normalizeEncoding(doubao.getEncoding());
         String accessToken = doubao.getAccessToken();
@@ -178,20 +173,7 @@ public class DoubaoNarrationEngine extends AbstractHttpNarrationEngine implement
                     + (response.message() == null ? "" : ": " + response.message()), accessToken);
             throw new NarrationVoiceException(localized("narration.tts.error.request-failed", detail), null);
         }
-        String data = response.data();
-        if (NarrationSpeechText.blankToNull(data) == null) {
-            throw new NarrationVoiceException(localized("narration.tts.error.empty-audio"), null);
-        }
-        try {
-            byte[] bytes = Base64.getDecoder().decode(data.trim());
-            if (bytes.length == 0) {
-                throw new NarrationVoiceException(localized("narration.tts.error.empty-audio"), null);
-            }
-            return bytes;
-        } catch (IllegalArgumentException e) {
-            throw new NarrationVoiceException(
-                    localized("narration.tts.error.request-failed", redact(safeMessage(e), accessToken)), e);
-        }
+        return decodeBase64Audio(response.data(), accessToken);
     }
 
     /** JSON 请求头 + 火山特有的 {@code Authorization: Bearer;<token>}（带分号、无空格）；token 空 / 空白则不带。 */

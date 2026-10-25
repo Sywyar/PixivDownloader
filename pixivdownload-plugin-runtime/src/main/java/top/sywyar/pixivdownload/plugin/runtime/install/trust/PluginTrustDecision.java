@@ -3,8 +3,11 @@ package top.sywyar.pixivdownload.plugin.runtime.install.trust;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 
 import java.time.Instant;
-import java.util.Locale;
 import java.util.Objects;
+
+import static top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustPolicy.optionalSha256;
+import static top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustPolicy.optionalText;
+import static top.sywyar.pixivdownload.plugin.runtime.install.trust.PluginTrustPolicy.requiredText;
 
 /** 宿主对一个已验证插件制品作出的持久化执行信任决定。 */
 public record PluginTrustDecision(
@@ -47,35 +50,11 @@ public record PluginTrustDecision(
         REPOSITORY
     }
 
-    private static String requiredText(String value, String field) {
-        String normalized = optionalText(value);
-        if (normalized == null) {
-            throw new IllegalArgumentException(field + " is required");
-        }
-        return normalized;
-    }
-
     private static String requiredSha256(String value, String field) {
         String normalized = optionalSha256(value, field);
         if (normalized == null) {
             throw new IllegalArgumentException(field + " is required");
         }
         return normalized;
-    }
-
-    private static String optionalSha256(String value, String field) {
-        String normalized = optionalText(value);
-        if (normalized != null && !normalized.matches("[0-9a-fA-F]{64}")) {
-            throw new IllegalArgumentException(field + " is not a SHA-256 digest");
-        }
-        return normalized != null ? normalized.toLowerCase(Locale.ROOT) : null;
-    }
-
-    private static String optionalText(String value) {
-        if (value == null) {
-            return null;
-        }
-        String normalized = value.trim();
-        return normalized.isEmpty() ? null : normalized;
     }
 }

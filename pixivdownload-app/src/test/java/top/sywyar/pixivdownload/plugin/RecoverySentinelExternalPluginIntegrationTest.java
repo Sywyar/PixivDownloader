@@ -17,15 +17,13 @@ import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy;
 import top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.RequiredPlugin;
 
 import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static top.sywyar.pixivdownload.plugin.PluginTestArtifacts.zipDirectoryAsJar;
 import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
@@ -121,7 +119,7 @@ class RecoverySentinelExternalPluginIntegrationTest {
     @Test
     @DisplayName("已安装但 plugins.recovery-sentinel.enabled=false：状态 DISABLED，核心进入恢复模式")
     void disabledSentinelEntersRecovery() {
-        PluginRegistry registry = registryFor(togglesWith("recovery-sentinel", false));
+        PluginRegistry registry = registryFor(disabledSentinel());
 
         // 被禁用：仍安装（PF4J 已加载），但不在活动快照内。
         assertThat(registry.find("recovery-sentinel")).isEmpty();
@@ -143,34 +141,17 @@ class RecoverySentinelExternalPluginIntegrationTest {
         return new PluginRegistry(List.of(), toggles, manager.discoverFeaturePlugins());
     }
 
-    private static PluginToggleProperties togglesWith(String pluginId, boolean enabled) {
+    private static PluginToggleProperties disabledSentinel() {
         PluginToggleProperties toggles = new PluginToggleProperties();
         PluginToggleProperties.PluginToggle toggle = new PluginToggleProperties.PluginToggle();
-        toggle.setEnabled(enabled);
-        toggles.put(pluginId, toggle);
+        toggle.setEnabled(false);
+        toggles.put("recovery-sentinel", toggle);
         return toggles;
     }
 
     private static Path locateSentinelClasses() {
         String configured = System.getProperty(SENTINEL_CLASSES_PROPERTY);
         return (configured == null || configured.isBlank()) ? null : Path.of(configured);
-    }
-
-    /** 把一个目录（recovery-sentinel 的 {@code target/classes}，根部已含 {@code plugin.properties}）打成 PF4J 可加载的 jar。 */
-    private static void zipDirectoryAsJar(Path sourceDir, Path jarPath) throws IOException {
-        try (OutputStream out = Files.newOutputStream(jarPath);
-             ZipOutputStream zos = new ZipOutputStream(out)) {
-            List<Path> files;
-            try (var walk = Files.walk(sourceDir)) {
-                files = walk.filter(Files::isRegularFile).sorted().toList();
-            }
-            for (Path file : files) {
-                String entryName = sourceDir.relativize(file).toString().replace('\\', '/');
-                zos.putNextEntry(new ZipEntry(entryName));
-                Files.copy(file, zos);
-                zos.closeEntry();
-            }
-        }
     }
 
     private static void deleteRecursivelyQuietly(Path root) {

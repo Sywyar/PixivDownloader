@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui.panel;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import top.sywyar.pixivdownload.guiswing.SwingHost;
+import top.sywyar.pixivdownload.gui.SwingShellAction;
 
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.gui.SwingBackendLifecycle;
@@ -17,8 +18,6 @@ import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.io.IOException;
 import java.net.URI;
-import java.util.Map;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -34,6 +33,7 @@ import java.util.Set;
  */
 @Slf4j
 public class WelcomePanel extends JPanel {
+    private final SwingShellAction shellAction = new SwingShellAction();
 
     private static final int POLL_INTERVAL_MS = 2000;
 
@@ -71,8 +71,6 @@ public class WelcomePanel extends JPanel {
     // （否则每次轮询重建会打断配置步骤的输入焦点）
     private boolean lastServiceReady;
     private boolean lastSetupComplete;
-    private boolean lastBatchVisited;
-    private boolean lastGuideStepCompleted;
 
     private final StatusDot statusDot = new StatusDot();
     private final JLabel statusText = new JLabel();
@@ -225,8 +223,6 @@ public class WelcomePanel extends JPanel {
     private void snapshotFlags() {
         lastServiceReady = serviceReady;
         lastSetupComplete = setupComplete;
-        lastBatchVisited = batchVisited;
-        lastGuideStepCompleted = guideStepCompleted;
     }
 
     private int firstIncompleteStep() {
@@ -388,10 +384,10 @@ public class WelcomePanel extends JPanel {
         String host = SwingHost.host().defaultProxyHost();
         String port = Integer.toString(SwingHost.host().defaultProxyPort());
         try {
-            DesktopUiHost.ConfigFile editor = SwingHost.host().applicationConfig();
-            String e = editor.read("proxy.enabled");
-            String h = editor.read("proxy.host");
-            String p = editor.read("proxy.port");
+            var stored = SwingHost.readConfiguration(java.util.List.of("proxy.enabled", "proxy.host", "proxy.port"));
+            String e = stored.get("proxy.enabled");
+            String h = stored.get("proxy.host");
+            String p = stored.get("proxy.port");
             if (e != null && !e.isBlank()) {
                 enabled = Boolean.parseBoolean(e.trim());
             }
@@ -472,9 +468,9 @@ public class WelcomePanel extends JPanel {
 
     /** 异步触发 /api/gui/config/reload，让代理改动立即生效；失败仅记日志（下次启动仍会生效）。 */
     private void triggerHotReloadAsync() {
-        new SwingWorker<int[], Void>() {
+        new SwingWorker<Integer, Void>() {
             @Override
-            protected int[] doInBackground() {
+            protected Integer doInBackground() {
                 return postJson("/api/gui/config/reload", Map.of(), b -> {
                 });
             }
@@ -482,7 +478,7 @@ public class WelcomePanel extends JPanel {
             @Override
             protected void done() {
                 try {
-                    int status = get()[0];
+                    int status = get();
                     if (status != 200) {
                         log.warn(SwingHost.host().message("gui.config.log.hot-reload-failed", "status=" + status));
                     }
@@ -608,11 +604,11 @@ public class WelcomePanel extends JPanel {
 
         Map<String, Object> payload = Map.of("username", username, "password", password, "mode", mode);
 
-        new SwingWorker<int[], Void>() {
+        new SwingWorker<Integer, Void>() {
             private String errorBody = "";
 
             @Override
-            protected int[] doInBackground() {
+            protected Integer doInBackground() {
                 return postJson("/api/gui/setup/init", payload, b -> errorBody = b);
             }
 
@@ -621,7 +617,7 @@ public class WelcomePanel extends JPanel {
                 submitting = false;
                 int status;
                 try {
-                    status = get()[0];
+                    status = get();
                 } catch (Exception e) {
                     handleConfigFailure(safe(e.getMessage()));
                     return;
@@ -661,7 +657,7 @@ public class WelcomePanel extends JPanel {
     }
 
     // ── 后端联动 ─────────────────────────────────────────────────────────────
-    private void applyBackendState(SwingBackendLifecycle.Snapshot snapshot) {
+    private void applyBackendState(DesktopUiHost.BackendSnapshot snapshot) {
         switch (snapshot.state()) {
             case RUNNING -> {
                 serviceReady = true;
@@ -749,13 +745,15 @@ public class WelcomePanel extends JPanel {
     }
 
     private void openUrl(String url) {
-        try {
-            Desktop.getDesktop().browse(new URI(url));
-        } catch (Exception e) {
-            log.warn(SwingHost.host().message("gui.status.log.open-browser-failed", url, e.getMessage()), e);
-            GuiErrorDialog.show(this, GuiMessages.get("gui.dialog.error.title"),
-                    GuiMessages.get("gui.error.open-browser", e.getMessage()));
-        }
+        shellAction.run(
+                "gui-open-guide-page",
+                () -> SwingHost.host().openExternalUri(new URI(url)),
+                e -> {
+                    log.warn(SwingHost.host().message("gui.status.log.open-browser-failed", url, e.getMessage()), e);
+                    GuiErrorDialog.show(this, GuiMessages.get("gui.dialog.error.title"),
+                            GuiMessages.get("gui.error.open-browser", e.getMessage()));
+                }
+        );
     }
 
     private DesktopUiHost.GuiValue getJson(String path) {
@@ -763,10 +761,10 @@ public class WelcomePanel extends JPanel {
         return response.is2xx() ? response.body() : null;
     }
 
-    private int[] postJson(String path, Object body, java.util.function.Consumer<String> errorSink) {
+    private int postJson(String path, Object body, java.util.function.Consumer<String> errorSink) {
         DesktopUiHost.GuiResponse response = SwingHost.host().guiPostJson(path, body, 4_000);
         if (response.status() >= 400) errorSink.accept(response.rawBody());
-        return new int[]{response.reachable() ? response.status() : -1};
+        return response.reachable() ? response.status() : -1;
     }
 
     private static String safe(String s) {
@@ -1049,11 +1047,6 @@ public class WelcomePanel extends JPanel {
             running = true;
             startedAtNanos = System.nanoTime();
             timer.start();
-        }
-
-        void startAtForTest(long nowNanos) {
-            running = true;
-            startedAtNanos = nowNanos;
         }
 
         void stop() {

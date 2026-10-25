@@ -300,15 +300,12 @@ public record PluginProvenanceRecord(
                 || !SignatureMetadata.ED25519.equals(signature.algorithm())) {
             throw new IllegalArgumentException("provenance signature envelope is unsupported");
         }
-        String signatureKeyId = requiredText(signature.keyId(), "signature.keyId");
+        requiredText(signature.keyId(), "signature.keyId");
         String signatureValue = requiredText(signature.value(), "signature.value");
         try {
             Base64.getDecoder().decode(signatureValue);
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("provenance signature.value is not valid Base64", e);
-        }
-        if (!signatureKeyId.equals(signature.keyId())) {
-            throw new IllegalArgumentException("signature.keyId must not contain surrounding whitespace");
         }
     }
 

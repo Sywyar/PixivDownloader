@@ -21,14 +21,6 @@ public final class PluginCatalogTrustStores {
     private PluginCatalogTrustStores() {
     }
 
-    /**
-     * 兼容旧调用点的默认 trust store：只包含内置官方 root。自定义仓库必须经 {@link #forRepository(PluginRepository)}
-     * 或 {@link #verifierResolver(PluginRepositoryRegistry)} 按来源解析，不能从这里继承其它仓库 key。
-     */
-    public static PluginTrustStore fromRegistry(PluginRepositoryRegistry registry) {
-        return PluginTrustStores.builtInOfficialPlugins();
-    }
-
     public static PluginTrustStore forRepository(PluginRepository repository) {
         if (repository != null && repository.official()) {
             return PluginTrustStores.builtInOfficialPlugins();

@@ -163,7 +163,7 @@ class MiniElement extends MiniEventTarget {
         return child;
     }
     matches(selector) {
-        return matchSelector(this, selector);
+        return selector.split(',').some(part => matchSelector(this, part));
     }
     dispatchEvent(event) {
         if (!event || !event.type) throw new Error('event.type is required');
@@ -227,7 +227,7 @@ function matchSelector(element, selector) {
         const token = /^([a-zA-Z][a-zA-Z0-9-]*)/.exec(rest);
         const dot = /^\.([a-zA-Z0-9_-]+)/.exec(rest);
         const hash = /^#([a-zA-Z0-9_-]+)/.exec(rest);
-        const attr = /^\[([a-zA-Z0-9_-]+)(?:="([^"]*)")?\]/.exec(rest);
+        const attr = /^\[([a-zA-Z0-9_-]+)(?:([*]?=)"([^"]*)")?\]/.exec(rest);
         const not = /^:not\(\[([a-zA-Z0-9_-]+)\]\)/.exec(rest);
         if (token) {
             parts.push({kind: 'tag', value: token[1].toUpperCase()});
@@ -239,7 +239,7 @@ function matchSelector(element, selector) {
             parts.push({kind: 'id', value: hash[1]});
             rest = rest.slice(hash[0].length);
         } else if (attr) {
-            parts.push({kind: 'attr', name: attr[1], value: attr[2]});
+            parts.push({kind: 'attr', name: attr[1], operator: attr[2], value: attr[3]});
             rest = rest.slice(attr[0].length);
         } else if (not) {
             parts.push({kind: 'notAttr', name: not[1]});
@@ -256,6 +256,7 @@ function matchSelector(element, selector) {
         if (part.kind === 'id') return element.id === part.value;
         if (part.kind === 'attr') {
             if (!element.hasAttribute(part.name)) return false;
+            if (part.operator === '*=') return element.getAttribute(part.name).includes(part.value);
             return part.value === undefined || element.getAttribute(part.name) === part.value;
         }
         if (part.kind === 'notAttr') return !element.hasAttribute(part.name);
@@ -355,7 +356,7 @@ function createFakeTimers(initialWall) {
 
 function createFakeI18n(messages) {
     const client = {
-        lang: 'zh-CN',
+        lang: 'en-US',
         t(key, fallback) {
             return messages && Object.prototype.hasOwnProperty.call(messages, key)
                 ? messages[key]
@@ -394,7 +395,7 @@ function createFakeAdapter(overrides) {
     let sdkDistinctId = null;
     const adapter = {
         calls,
-        ackOk: !['throw', 'undefined', 'null', 'false', 'reject'].includes(overrides.capture),
+        ackOk: overrides.ackOk !== false,
         surveys: overrides.surveys || [],
         lastSurveyCallback: null,
         sdkConfig() { return sdkConfig; },
@@ -419,11 +420,6 @@ function createFakeAdapter(overrides) {
         },
         capture(name, properties) {
             calls.capture.push({name, properties});
-            if (overrides.capture === 'throw') throw new Error('capture failed');
-            if (overrides.capture === 'undefined') return undefined;
-            if (overrides.capture === 'null') return null;
-            if (overrides.capture === 'false') return false;
-            if (overrides.capture === 'reject') return undefined;
             // 真实 posthog-js 1.409.5 语义：capture 构造 CaptureResult 事件对象，
             // timestamp 为 Date（b.timestamp = (options.timestamp) || new Date()），
             // 并把当前 SDK distinct_id 写入 properties，
@@ -464,12 +460,7 @@ function createFakeAdapter(overrides) {
             if (overrides.syncFlagsCallback) {
                 // 真实 SDK 竞态：flags 已加载时同步调用 callback，然后才返回 off。
                 cb();
-                return function off() {
-                    calls.offCalls = (calls.offCalls || 0) + 1;
-                    if (flagsListener === cb) flagsListener = null;
-                };
-            }
-            if (!overrides.stallFlags) {
+            } else if (!overrides.stallFlags) {
                 Promise.resolve().then(() => {
                     if (flagsListener === cb) cb();
                 });

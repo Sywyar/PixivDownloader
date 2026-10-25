@@ -84,9 +84,6 @@ public record DesktopAutomationTaskContribution(
         status = Objects.requireNonNull(status, "status");
         lastResult = Objects.requireNonNull(lastResult, "lastResult");
         nextRuns = List.copyOf(nextRuns == null ? List.of() : nextRuns);
-        if (nextRuns.stream().anyMatch(Objects::isNull)) {
-            throw new IllegalArgumentException("nextRuns must not contain null");
-        }
         observedAt = Objects.requireNonNull(observedAt, "observedAt");
     }
 }

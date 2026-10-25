@@ -181,6 +181,32 @@ class GuiConfigContributionAggregatorTest {
         }
     }
 
+    @Test
+    @DisplayName("重复字段在后续贡献中仍被拒绝，并级联撤销依赖条件")
+    void duplicateFieldsRemainRejectedWithDependentConditions() {
+        var shared = new GuiConfigFieldContribution("shared.enabled", "shared", "Enabled",
+                GuiConfigFieldType.BOOL, "false", 1);
+        var dependent = new GuiConfigFieldContribution("alpha.dependent", "shared", "Dependent",
+                GuiConfigFieldType.STRING, "", 2).requiredWhen(
+                top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition.isTrue("shared.enabled"));
+        var transitive = new GuiConfigFieldContribution("alpha.transitive", "shared", "Transitive",
+                GuiConfigFieldType.STRING, "", 3).requiredWhen(
+                top.sywyar.pixivdownload.plugin.api.gui.GuiConfigCondition.isTrue("alpha.dependent"));
+        var healthy = new GuiConfigFieldContribution("alpha.healthy", "shared", "Healthy",
+                GuiConfigFieldType.STRING, "", 4);
+        var alpha = plugin("alpha", new GuiConfigContribution(
+                List.of(), List.of(shared, dependent, transitive, healthy), List.of()));
+        var beta = plugin("beta", new GuiConfigContribution(List.of(), List.of(shared), List.of()));
+        var gamma = plugin("gamma", new GuiConfigContribution(List.of(), List.of(shared), List.of()));
+
+        for (var sources : List.of(List.of(alpha, beta, gamma), List.of(gamma, beta, alpha))) {
+            var result = GuiConfigContributionAggregator.fromRegisteredPlugins(sources);
+            assertThat(result.fields()).extracting(ConfigFieldSpec::key).containsExactly("alpha.healthy");
+            assertThat(result.diagnostics()).extracting(GuiConfigContributionDiagnostic::key)
+                    .contains("shared.enabled", "alpha.dependent", "alpha.transitive");
+        }
+    }
+
     private static DesktopUiPluginSnapshot plugin(String owner, GuiConfigContribution contribution) {
         return new DesktopUiPluginSnapshot(
                 owner,

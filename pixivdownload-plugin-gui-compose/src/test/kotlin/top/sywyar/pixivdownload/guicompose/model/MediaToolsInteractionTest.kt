@@ -117,8 +117,8 @@ class MediaToolsInteractionTest {
                 waitUntil(timeoutMillis = 5_000) { fixture.state.get().state() == "cancelled" }
                 waitUntil(timeoutMillis = 5_000) { onAllNodesWithTag(prefix + ".preview").fetchSemanticsNodes().isNotEmpty() }
                 onNodeWithTag("tools.media.tab.ffmpeg").performClick()
-                onNodeWithTag("tools.media.advanced").performScrollTo().performClick()
-                onNodeWithTag("tools.ffmpeg.path").performScrollTo().assertIsDisplayed()
+                onNodeWithTag("status.ffmpeg.settings").performScrollTo().assertIsDisplayed().assertIsEnabled()
+                onNodeWithTag("tools.ffmpeg.path").assertDoesNotExist()
                 onNodeWithText(messages.getProperty("gui.config.field.ffmpeg.executable-path.help")).assertDoesNotExist()
                 onNodeWithTag(prefix + ".results.toggle").assertDoesNotExist()
                 onNodeWithTag(prefix + ".check").performScrollTo().performClick()

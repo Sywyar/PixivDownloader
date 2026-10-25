@@ -84,7 +84,7 @@ public final class SemanticVersion implements Comparable<SemanticVersion> {
             preReleaseRank = RANK_RELEASE;
             preReleaseNumbers = new long[0];
         } else {
-            String[] tokens = preReleasePart.toLowerCase(Locale.ROOT).split("\\.");
+            String[] tokens = preReleasePart.toLowerCase(Locale.ROOT).split("\\.", -1);
             List<Long> numbers = new ArrayList<>();
 
             // 首段可能是纯后缀（snapshot）或后缀粘连数字（rc1）。

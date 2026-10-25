@@ -73,10 +73,7 @@ public class CosyVoiceNarrationEngine extends AbstractHttpNarrationEngine implem
         if (cosy == null || cosy.getBaseUrl() == null || cosy.getBaseUrl().isBlank()) {
             throw new NarrationVoiceException(localized("narration.tts.error.unavailable"), null);
         }
-        String text = req == null ? null : req.text();
-        if (NarrationSpeechText.blankToNull(text) == null) {
-            throw new NarrationVoiceException(localized("narration.tts.error.empty-text"), null);
-        }
+        String text = requireText(req);
 
         boolean clone = req.hasReferenceVoice() && cosy.getEnableClone() && mode != NarrationVoiceMode.VOICE_DESIGN;
         String format = normalizeFormat(cosy.getResponseFormat());

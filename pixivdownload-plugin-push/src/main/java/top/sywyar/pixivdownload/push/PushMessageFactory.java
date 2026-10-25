@@ -8,7 +8,6 @@ import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateCont
 
 import java.util.Locale;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -66,25 +65,22 @@ public class PushMessageFactory {
         if (text == null || text.isEmpty()) {
             return text == null ? "" : text;
         }
-        return substitute(text, key -> {
-            String value = values.getOrDefault(key, "");
-            return escapeMarkdown && !isRawMarkup(key) ? MarkdownEscape.escape(value) : value;
-        });
+        Matcher matcher = PLACEHOLDER.matcher(text);
+        StringBuilder out = new StringBuilder(text.length());
+        while (matcher.find()) {
+            String key = matcher.group(1);
+            String replacement = values.getOrDefault(key, "");
+            if (escapeMarkdown && !isRawMarkup(key)) {
+                replacement = MarkdownEscape.escape(replacement);
+            }
+            matcher.appendReplacement(out, Matcher.quoteReplacement(replacement == null ? "" : replacement));
+        }
+        matcher.appendTail(out);
+        return out.toString();
     }
 
     /** 标记型占位符：键以 {@code _md} / {@code _html} 结尾的值本身即 Markdown / HTML 片段，原样代入、不转义。 */
     private static boolean isRawMarkup(String key) {
         return key.endsWith("_md") || key.endsWith("_html");
-    }
-
-    private static String substitute(String text, Function<String, String> resolver) {
-        Matcher matcher = PLACEHOLDER.matcher(text);
-        StringBuilder out = new StringBuilder(text.length());
-        while (matcher.find()) {
-            String replacement = resolver.apply(matcher.group(1));
-            matcher.appendReplacement(out, Matcher.quoteReplacement(replacement == null ? "" : replacement));
-        }
-        matcher.appendTail(out);
-        return out.toString();
     }
 }

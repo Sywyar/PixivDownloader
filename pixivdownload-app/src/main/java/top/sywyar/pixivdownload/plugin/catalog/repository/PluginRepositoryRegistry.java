@@ -6,11 +6,13 @@ import top.sywyar.pixivdownload.plugin.signature.SignatureMetadata;
 import top.sywyar.pixivdownload.plugin.signature.TrustedPluginKey;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 插件仓库列表的<b>只读注册中心</b>：在启动期从服务端配置 {@link PluginCatalogProperties} + 内嵌官方默认仓库合成一份
@@ -75,11 +77,7 @@ public class PluginRepositoryRegistry {
         }
 
         // 3) 自定义仓库列表（按配置顺序；id / manifest-url 校验，重复 / 保留字 fail-fast）。
-        Map<String, Boolean> seen = new LinkedHashMap<>();
-        seen.put(PluginRepository.OFFICIAL_ID, Boolean.TRUE);
-        if (properties.hasManifestUrl()) {
-            seen.put(PluginRepository.LEGACY_CONFIGURED_ID, Boolean.TRUE);
-        }
+        Set<String> seen = new HashSet<>();
         for (PluginCatalogProperties.RepositoryConfig config : properties.getRepositories()) {
             result.add(toRepository(config, seen, connectTimeout, readTimeout, maxManifest, maxPackage));
         }
@@ -87,7 +85,7 @@ public class PluginRepositoryRegistry {
     }
 
     private static PluginRepository toRepository(PluginCatalogProperties.RepositoryConfig config,
-                                                 Map<String, Boolean> seen,
+                                                 Set<String> seen,
                                                  long defaultConnect, long defaultRead,
                                                  long defaultManifest, long defaultPackage) {
         String id = config.getId() == null ? "" : config.getId().trim();
@@ -101,7 +99,7 @@ public class PluginRepositoryRegistry {
             throw new IllegalStateException("plugin-catalog.repositories[*].id '" + id
                     + "' is reserved for a built-in repository");
         }
-        if (seen.putIfAbsent(normalizedId, Boolean.TRUE) != null) {
+        if (!seen.add(normalizedId)) {
             throw new IllegalStateException("duplicate plugin-catalog repository id: " + id);
         }
         String manifestUrl = config.getManifestUrl() == null ? "" : config.getManifestUrl().trim();

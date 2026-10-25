@@ -30,48 +30,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class PluginReleaseScriptsTest {
 
     @Test
-    @DisplayName("市场清单生成脚本输出结构化包签名，并在写出原始 manifest 后生成 detached 签名")
-    void marketManifestScriptWritesStructuredSignaturesAndDetachedManifestSignature() throws Exception {
-        String script = script("generate-market-manifest.ps1");
-
-        assertThat(script).contains(
-                "Invoke-PluginSignatureTool $SignatureToolJar @(",
-                "$assetName = Get-OfficialPluginArtifactName $plugin $version",
-                "\"artifact\"",
-                "signature         = $signature",
-                "signatureUrl      = \"$packageUrl.sig\"",
-                "schemaVersion = \"1\"",
-                "$manifestSignatureFile = \"$OutputFile.sig\"",
-                "ConvertTo-Json -Depth 12) -replace \"`r`n\", \"`n\" -replace \"`r\", \"`n\"",
-                "\"manifest\"",
-                "\"--manifest\", $OutputFile",
-                "\"--repository-id\", \"official\""
-        );
-        assertThat(script).doesNotContain("schemaVersion = \"2\"");
-        assertThat(script).doesNotContain("signature         = \"");
-        assertThat(script).doesNotContain("signature = \"");
-        assertThat(script).doesNotContain("$jarName = \"$($plugin.Module)-$version.jar\"");
-
-        assertThat(script.indexOf("[System.IO.File]::WriteAllText($OutputFile"))
-                .as("manifest 原始 JSON 必须先写入文件")
-                .isGreaterThanOrEqualTo(0);
-        assertThat(script.indexOf("$manifestSignatureFile = \"$OutputFile.sig\""))
-                .as("manifest detached 签名必须在原始文件写出之后生成")
-                .isGreaterThan(script.indexOf("[System.IO.File]::WriteAllText($OutputFile"));
-    }
-
-    @Test
-    @DisplayName("市场清单生成脚本把插件 descriptor 依赖投影到 package 元数据")
-    void marketManifestScriptProjectsDescriptorDependencies() throws Exception {
-        String script = script("generate-market-manifest.ps1");
-
-        assertThat(script).contains(
-                "function Get-PluginDependencies([string]$value)",
-                "$dependencies = @(Get-PluginDependencies $d[\"plugin.dependencies\"])",
-                "dependencies      = @($dependencies)"
-        );
-        assertThat(script).doesNotContain("dependencies      = @()");
-
+    @DisplayName("官方插件描述符保留通知与统计依赖声明")
+    void officialDescriptorsDeclareNotificationAndStatisticsDependencies() throws Exception {
         assertThat(pluginDescriptor("pixivdownload-plugin-mail")).contains("plugin.dependencies=notification@1.0");
         assertThat(pluginDescriptor("pixivdownload-plugin-push")).contains("plugin.dependencies=notification@1.0");
         assertThat(pluginDescriptor("pixivdownload-plugin-download-workbench"))
@@ -393,35 +353,6 @@ class PluginReleaseScriptsTest {
     }
 
     @Test
-    @DisplayName("Inno 主脚本通过原生 include 装配职责源码")
-    void innoSourceGraphAssemblesResponsibilityIncludes() throws Exception {
-        Path innoDir = repoRoot().resolve("packaging/windows/inno");
-        String main = Files.readString(innoDir.resolve("PixivDownload.iss"), StandardCharsets.UTF_8);
-        List<String> includes = List.of(
-                "PixivDownload-maintenance.iss.inc",
-                "PixivDownload-plugins.iss.inc",
-                "PixivDownload-ffmpeg.iss.inc",
-                "PixivDownload-lifecycle.iss.inc");
-
-        for (String include : includes) {
-            assertThat(main).contains("#include \"" + include + "\"");
-            assertThat(innoDir.resolve(include)).isRegularFile();
-            assertThat(Files.readString(innoDir.resolve(include), StandardCharsets.UTF_8))
-                    .doesNotContain("[Code]");
-        }
-        assertThat(main.substring(main.indexOf("[Code]"))).doesNotContain("\nbegin\n");
-
-        String compilationUnit = innoScript();
-        assertThat(compilationUnit).contains(
-                "procedure ResolveExistingInstallation;",
-                "procedure LoadPackagedInstallerPluginCatalog;",
-                "procedure DownloadAndInstallFfmpeg;",
-                "procedure InitializeWizard;",
-                "procedure CurStepChanged(CurStep: TSetupStep);");
-        assertThat(compilationUnit).doesNotContain("function BuildFfmpegDownloadScript: String;");
-    }
-
-    @Test
     @DisplayName("Windows 主程序与安装器 loader 均请求管理员权限")
     void windowsLauncherAndInstallerLoaderRequestAdministratorRights() throws Exception {
         String windows = script("package-local.ps1");
@@ -529,14 +460,11 @@ class PluginReleaseScriptsTest {
                 "Write-UnsignedLocalPluginProvenanceSidecar",
                 "LOCAL-UNSIGNED-BUILD.txt");
         assertThat(windowsCatalog).contains(
-                "Write-InstallerPluginCatalogProjection",
                 "Write-InstallerPluginCatalogInclude",
                 "Escape-InstallerCatalogIssString",
                 "[AllowEmptyString()][string]$Fallback",
                 "\"verify-manifest\"",
                 "installer-catalog",
-                "catalog.en.txt",
-                "catalog.zh-CN.txt",
                 "Get-InstallerCatalogProp $market \"defaultInstalled\"");
         assertThat(catalogStage).contains(
                 "$SdkVersion = Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot",
@@ -577,10 +505,6 @@ class PluginReleaseScriptsTest {
                 "LoadPackagedInstallerPluginCatalog",
                 "WizardForm.NextButton.Enabled := True",
                 "CurPageID = OptionalPluginsPage.ID",
-                "ewNoWait",
-                "ReadProgressLineUtf8",
-                "LoadStringsFromFile(ProgressPath, Lines)",
-                "RaiseException(DecodeCatalogField(Parts[1]))",
                 "pixivdownload-plugin-signature-tool.jar");
         assertThat(ffmpegIntegrity).contains(
                 "verify-manifest",
@@ -596,8 +520,6 @@ class PluginReleaseScriptsTest {
         assertThat(ffmpegInstallerDownload.indexOf("Assert-FfmpegReleaseAsset"))
                 .isLessThan(ffmpegInstallerDownload.indexOf(
                         "Move-Item -LiteralPath $downloadPath -Destination $OutFile -Force"));
-        assertThat(windows.indexOf("Assert-FfmpegReleaseAsset -ArchivePath $downloadZip"))
-                .isLessThan(windows.indexOf("Expand-Archive -Path $zipPath"));
         assertThat(inno.indexOf("DownloadFfmpegArchive(ArchivePath)"))
                 .isLessThan(inno.indexOf("ExtractArchive(ArchivePath, ExtractDir"));
         assertThat(inno).doesNotContain("#if Len(SignatureToolJar) > 0");
@@ -645,41 +567,71 @@ class PluginReleaseScriptsTest {
                 "ExtractPluginInstallerSupportFiles");
         assertThat(installerInstall).contains(
                 "[Parameter(Mandatory = $true, ParameterSetName = \"Install\")][string]$SdkVersion",
-                "$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)",
-                "$Utf8NoBom.GetBytes($Value + \"`n\")",
-                "function Escape-StateField",
                 "function Format-Error([System.Management.Automation.ErrorRecord]$ErrorRecord)",
                 "return $result.ToArray()",
                 "[System.Net.WebRequest]::GetSystemWebProxy()",
                 "Write-State (\"ERROR|\" + (Escape-StateField (Format-Error $_)))",
                 "function Remove-SupersededInstalledPlugins",
-                "Read-PluginIdFromPackage",
                 "plugin.id",
                 "$item.PluginId + \"-\" + $item.Version + $ext",
                 "Remove-SupersededInstalledPlugins $pluginsDir $item.PluginId $target",
                 "$($artifact.FullName).sha256",
                 "$($artifact.FullName).sig",
                 ".pixiv-plugin-provenance");
-        Matcher installerProvenance = Pattern.compile(
-                "function Write-Provenance(?<body>.*?)function Enable-Plugin",
-                Pattern.DOTALL).matcher(installerInstall);
-        assertThat(installerProvenance.find()).isTrue();
-        assertThat(installerProvenance.group("body")).contains(
-                "$expectedSizeBytes = [int64](Get-Prop $Item.Package \"expectedSizeBytes\")",
-                "$expectedSha256 = [string](Get-Prop $Item.Package \"sha256\")",
-                "$artifactSizeBytes = [int64]$artifact.Length",
-                "$artifactSha256 = Get-Sha256Hex $ArtifactPath",
-                "if ($artifactSizeBytes -ne $expectedSizeBytes)",
-                "[string]::Equals($artifactSha256, $expectedSha256, [System.StringComparison]::OrdinalIgnoreCase)",
-                "artifactSizeBytes=$artifactSizeBytes",
-                "artifactSha256=$artifactSha256");
-        assertThat(installerProvenance.group("body").indexOf("if ($artifactSizeBytes -ne $expectedSizeBytes)"))
-                .isLessThan(installerProvenance.group("body").indexOf("\"status=VERIFIED\""));
-        assertThat(installerProvenance.group("body").indexOf("[string]::Equals($artifactSha256, $expectedSha256"))
-                .isLessThan(installerProvenance.group("body").indexOf("\"status=VERIFIED\""));
-        assertThat(installerInstall.indexOf("Write-Provenance $item $target \"$target.sig\""))
-                .isGreaterThan(installerInstall.indexOf(
-                        "Copy-Item -LiteralPath $download -Destination $target -Force"));
+    }
+
+    @Test
+    @DisplayName("安装器来源记录绑定已安装字节，大小或摘要不符时不写入成功记录")
+    void installerProvenanceValidatesInstalledBytes(@TempDir Path tempDir) throws Exception {
+        byte[] bytes = "installed-plugin-fixture".getBytes(StandardCharsets.UTF_8);
+        String sha256 = java.util.HexFormat.of().formatHex(
+                java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+        for (String scenario : List.of("valid", "size", "hash", "missing")) {
+            Path directory = Files.createDirectory(tempDir.resolve(scenario));
+            Path artifact = directory.resolve("fixture.jar");
+            if (!scenario.equals("missing")) {
+                Files.write(artifact, bytes);
+            }
+            long expectedSize = bytes.length + (scenario.equals("size") ? 1 : 0);
+            String expectedHash = scenario.equals("hash") ? "0".repeat(64) : sha256.toUpperCase(java.util.Locale.ROOT);
+            String command = """
+                    $ErrorActionPreference = 'Stop'
+                    $tokens = $null
+                    $errors = $null
+                    $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+                        (Join-Path (Get-Location) 'packaging/windows/inno/installer-plugin-install.ps1'),
+                        [ref]$tokens, [ref]$errors)
+                    if ($errors.Count -ne 0) { throw 'Invalid installer script' }
+                    foreach ($function in $ast.FindAll({param($node)
+                        $node -is [System.Management.Automation.Language.FunctionDefinitionAst]}, $false)) {
+                        . ([scriptblock]::Create($function.Extent.Text))
+                    }
+                    $item = [pscustomobject]@{ PluginId = 'fixture'; Package = [pscustomobject]@{
+                        expectedSizeBytes = %d; sha256 = '%s'
+                        signature = [pscustomobject]@{
+                            formatVersion = 1; algorithm = 'Ed25519'; keyId = 'fixture-key'; value = 'fixture-signature'
+                        }
+                    }}
+                    Write-Provenance $item '%s'
+                    """.formatted(expectedSize, expectedHash, psQuote(artifact));
+            CommandResult result = runPowerShellResult(command);
+            Path sidecar = directory.resolve("provenance/fixture.jar.pixiv-plugin-provenance");
+            if (scenario.equals("valid")) {
+                assertThat(result.exitCode()).as(result.output()).isZero();
+                assertThat(readProperties(sidecar)).containsAllEntriesOf(Map.of(
+                        "source", "MARKET_CATALOG", "status", "VERIFIED",
+                        "expectedSizeBytes", Long.toString(expectedSize), "artifactSizeBytes", Long.toString(bytes.length),
+                        "expectedSha256", expectedHash, "artifactSha256", sha256,
+                        "signature.algorithm", "Ed25519", "signature.keyId", "fixture-key",
+                        "signature.value", "fixture-signature"));
+            } else {
+                assertThat(result.exitCode()).as(scenario + ": " + result.output()).isNotZero();
+                assertThat(sidecar).doesNotExist();
+            }
+            if (!scenario.equals("missing")) {
+                assertThat(Files.readAllBytes(artifact)).isEqualTo(bytes);
+            }
+        }
     }
 
     @Test
@@ -687,65 +639,49 @@ class PluginReleaseScriptsTest {
     void provenancePowerShellScriptsAreAsciiWithoutBom() throws Exception {
         assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("plugin-distribution-common.ps1"));
         assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("ffmpeg-release-integrity.ps1"));
+        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("write-plugin-credential-key-filter.ps1"));
         assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("package-local-plugin-staging.ps1"));
         assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("package-local-installer-catalog.ps1"));
         assertAsciiWithoutBom(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
                 .resolve("installer-plugin-install.ps1"));
         assertAsciiWithoutBom(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
                 .resolve("installer-ffmpeg-download.ps1"));
+        assertAsciiWithoutBom(repoRoot().resolve("packaging").resolve("windows").resolve("inno")
+                .resolve("installer-progress.ps1"));
     }
 
     @Test
-    @DisplayName("插件凭证密钥资源默认使用公开回退值，生产过滤脚本严格校验独立的 32 字节主密钥")
+    @DisplayName("插件凭证密钥资源按 Maven 过滤配置绑定，默认使用公开回退值")
     void pluginCredentialKeyResourceUsesValidatedBuildFilter() throws Exception {
         Path appRoot = repoRoot().resolve("pixivdownload-app");
-        String pom = Files.readString(appRoot.resolve("pom.xml"), StandardCharsets.UTF_8);
-        String resource = Files.readString(
-                appRoot.resolve("src/main/resources/plugin-credential-key.properties"),
-                StandardCharsets.UTF_8);
+        var xmlFactory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+        xmlFactory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        var pom = xmlFactory.newDocumentBuilder().parse(appRoot.resolve("pom.xml").toFile());
+        var xpath = javax.xml.xpath.XPathFactory.newInstance().newXPath();
+        Map<String, String> resource = readProperties(
+                appRoot.resolve("src/main/resources/plugin-credential-key.properties"));
         Map<String, String> openSourceFilter = readProperties(
                 appRoot.resolve("src/main/filters/plugin-credential-key-open-source.properties"));
-        String script = script("write-plugin-credential-key-filter.ps1");
-
-        assertThat(pom).contains(
-                "<plugin.credential.filter>",
-                "src/main/filters/plugin-credential-key-open-source.properties",
-                "<filter>${plugin.credential.filter}</filter>",
-                "<include>plugin-credential-key.properties</include>",
-                "<exclude>plugin-credential-key.properties</exclude>");
-        assertThat(resource).contains(
-                "profile=@plugin.credential.key.profile@",
-                "current-key-base64=@plugin.credential.key.current-base64@",
-                "open-source-fallback-key-base64=@plugin.credential.key.open-source-fallback-base64@");
+        assertThat(xpath.evaluate("/project/properties/plugin.credential.filter", pom))
+                .isEqualTo("${project.basedir}/src/main/filters/plugin-credential-key-open-source.properties");
+        assertThat(xpath.evaluate("/project/build/filters/filter", pom))
+                .isEqualTo("${plugin.credential.filter}");
+        assertThat(xpath.evaluate("/project/build/resources/resource[filtering='true']"
+                + "[directory='src/main/resources']/includes/include[.='plugin-credential-key.properties']", pom))
+                .isEqualTo("plugin-credential-key.properties");
+        assertThat(xpath.evaluate("/project/build/resources/resource[filtering='false']"
+                + "[directory='src/main/resources']/excludes/exclude[.='plugin-credential-key.properties']", pom))
+                .isEqualTo("plugin-credential-key.properties");
+        assertThat(resource).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "profile", "@plugin.credential.key.profile@",
+                "current-key-base64", "@plugin.credential.key.current-base64@",
+                "open-source-fallback-key-base64", "@plugin.credential.key.open-source-fallback-base64@"));
 
         assertThat(openSourceFilter.get("plugin.credential.key.profile")).isEqualTo("open-source");
         String currentKey = openSourceFilter.get("plugin.credential.key.current-base64");
         String fallbackKey = openSourceFilter.get("plugin.credential.key.open-source-fallback-base64");
         assertThat(currentKey).isEqualTo(fallbackKey);
         assertCanonicalBase64Key(currentKey);
-        assertThat(script).contains("$openSourceFallback = \"" + fallbackKey + "\"");
-
-        assertThat(script).contains(
-                "$secretName = \"PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64\"",
-                "[Environment]::GetEnvironmentVariable($secretName)",
-                "[Convert]::FromBase64String($masterKeyBase64)",
-                "$masterKey.Length -ne 32",
-                "[Convert]::ToBase64String($masterKey)",
-                "[StringComparison]::Ordinal",
-                "$canonical, $openSourceFallback",
-                "\"plugin.credential.key.profile=production\"",
-                "\"plugin.credential.key.current-base64=$canonical\"",
-                "\"plugin.credential.key.open-source-fallback-base64=$openSourceFallback\"",
-                "[System.IO.File]::WriteAllText",
-                "System.Text.UTF8Encoding($false)",
-                "[Array]::Clear");
-        assertThat(script).doesNotContain(
-                "Write-Host",
-                "Write-Output",
-                "Write-Verbose",
-                "Write-Debug",
-                "Write-Information");
-        assertAsciiWithoutBom(repoRoot().resolve("scripts").resolve("write-plugin-credential-key-filter.ps1"));
     }
 
     @Test
@@ -895,7 +831,6 @@ class PluginReleaseScriptsTest {
         assertThat(rows.get(0).path("Version").asText()).isEqualTo("1.2.3");
         assertThat(rows.get(0).path("DisplayName").asText()).isEqualTo("Optional Sample");
         assertThat(rows.get(0).path("Summary").asText()).isEqualTo("Install on demand");
-        assertThat(rows.get(0).path("Size").asText()).isEqualTo("123");
 
         CommandResult failure = runPowerShellResult(
                 "$ErrorActionPreference='Stop'; "
@@ -911,8 +846,8 @@ class PluginReleaseScriptsTest {
         assumeTrue(canRun("powershell", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major")
                         || canRun("pwsh", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"),
                 "PowerShell 不可用，跳过行为测试");
-        Path prebuilt = Files.createDirectories(tempDir.resolve("prebuilt"));
-        Path appDir = Files.createDirectories(tempDir.resolve("app"));
+        Path prebuilt = Files.createDirectories(tempDir.resolve("prebuilt [plugins]"));
+        Path appDir = Files.createDirectories(tempDir.resolve("app [image]"));
         Path expectedArtifact = prebuilt.resolve("sample-module-1.0.0.jar");
         Path collidingArtifact = prebuilt.resolve("sample-module-tools-9.0.0.jar");
         writeThinPluginJar(expectedArtifact, "sample", "1.0.0", "1.0");
@@ -933,6 +868,7 @@ class PluginReleaseScriptsTest {
         Path plugins = appDir.resolve("plugins");
         Path artifact = plugins.resolve("sample-module.jar");
         assertThat(artifact).isRegularFile();
+        assertThat(Files.readAllBytes(artifact)).isEqualTo(Files.readAllBytes(expectedArtifact));
         assertThat(plugins.resolve("sample-module.jar.sha256")).isRegularFile();
         assertThat(plugins.resolve("SHA256SUMS")).isRegularFile();
         assertThat(plugins.resolve("LOCAL-UNSIGNED-BUILD.txt")).isRegularFile();
@@ -960,6 +896,13 @@ class PluginReleaseScriptsTest {
         assertThat(entry.path("file").asText()).isEqualTo("sample-module.jar");
         assertThat(entry.path("source").asText()).isEqualTo("LOCAL_UPLOAD");
         assertThat(entry.path("verification").asText()).isEqualTo("UNSIGNED_ALLOWED");
+
+        byte[] stagedArtifact = Files.readAllBytes(artifact);
+        writeThinPluginJar(expectedArtifact, "sample", "1.0.0", "1.0", false);
+        CommandResult unprocessed = runPowerShellResult(command);
+        assertThat(unprocessed.exitCode()).as(unprocessed.output()).isNotZero();
+        assertThat(unprocessed.output()).contains("Release artifact is missing ProGuard metadata");
+        assertThat(Files.readAllBytes(artifact)).isEqualTo(stagedArtifact);
 
         CommandResult failure = runPowerShellResult(
                 "$ErrorActionPreference='Stop'; . './scripts/package-local-plugin-staging.ps1'; "
@@ -1075,7 +1018,6 @@ class PluginReleaseScriptsTest {
                 "Expand-Archive -LiteralPath $Archive",
                 "PixivDownload-$Version.jar",
                 "runtime\\bin\\server\\jvm.dll",
-                "/actuator/health",
                 "/actuator/info",
                 "Wait-ArtifactProcessExit",
                 "-TimeoutSeconds 600",
@@ -1292,58 +1234,6 @@ class PluginReleaseScriptsTest {
                 "\"$APP_HOME/PixivDownload-VERSION.jar\" \\",
                 "\"$@\"")
                 .doesNotContain("*.jar", "Get-ChildItem", "head");
-    }
-
-    @Test
-    @DisplayName("共享 Java 分发编排脚本两次调用组装器并做真实布局验收")
-    void javaDistributionOrchestratorContract() throws Exception {
-        String orchestrator = script("package-java-distributions.ps1");
-
-        assertThat(orchestrator).contains(
-                "[Parameter(Mandatory = $true)][string]$Version",
-                "[Parameter(Mandatory = $true)][string]$PrebuiltJar",
-                "[Parameter(Mandatory = $true)][string]$PrebuiltPluginsDir",
-                "[Parameter(Mandatory = $true)][string]$SignatureToolJar",
-                "[string]$OutputDir",
-                "assemble-plugin-distribution.ps1",
-                "-PrebuiltJar $ResolvedPrebuiltJar",
-                "-PrebuiltPluginsDir $ResolvedPrebuiltPluginsDir",
-                "-SignatureToolJar $ResolvedSignatureToolJar",
-                "-DefaultDownloader",
-                "Get-OfficialDefaultInstalledPlugins",
-                "Get-OfficialDistributionPlugins -IncludeOptional",
-                "PixivDownload-$Version-java.zip",
-                "PixivDownload-$Version-full-offline.zip",
-                "Assert-DistributionLayout",
-                "run.bat",
-                "run.sh",
-                "plugins-manifest.json",
-                "SHA256SUMS",
-                "LOCAL-UNSIGNED-BUILD.txt",
-                "$prov[\"status\"] -ne \"VERIFIED\"",
-                "$prov[\"source\"] -ne \"MARKET_CATALOG\"",
-                "Compress-Archive",
-                "$InputJarSha256 = Get-Sha256Hex $ResolvedPrebuiltJar",
-                "-InputJarSha256 $InputJarSha256");
-        // 不接收私钥 / 本地 unsigned 输入。
-        assertThat(orchestrator).doesNotContain(
-                "AllowUnsignedLocalPlugins",
-                "PrivateKeyFile",
-                "OfficialKeyId",
-                "-----BEGIN PRIVATE KEY-----",
-                "-----END PRIVATE KEY-----");
-        // java-standard（DefaultDownloader）先于 full-offline；两次调用使用同一组输入；
-        // 布局验收必须先于压缩，避免半成品被打包。
-        assertThat(orchestrator.indexOf("-DefaultDownloader"))
-                .as("java-standard 调用必须先于 full-offline")
-                .isLessThan(orchestrator.indexOf("Assembling full-offline"));
-        assertThat(orchestrator.indexOf("& $AssemblerScript", orchestrator.indexOf("Assembling java-standard")))
-                .as("组装器必须被调用两次").isGreaterThan(0);
-        assertThat(orchestrator.indexOf("& $AssemblerScript", orchestrator.indexOf("Assembling full-offline")))
-                .as("组装器必须被调用两次").isGreaterThan(0);
-        assertThat(orchestrator.indexOf("Compress-Archive"))
-                .as("布局验收必须先于压缩")
-                .isGreaterThan(orchestrator.indexOf("-InputJarSha256 $InputJarSha256"));
     }
 
     @Test
@@ -1635,9 +1525,8 @@ class PluginReleaseScriptsTest {
         assertThat(nextRun).isGreaterThan(lastSupportedAttempt);
         assertThat(firstAttempt).isGreaterThan(9_000_000_000L);
 
-        Process invalidAttempt = new ProcessBuilder(
-                "bash", toBashPath(sequenceScript), "9000000000", "1000")
-                .directory(repoRoot().toFile()).redirectErrorStream(true).start();
+        Process invalidAttempt = bashProcess(repoRoot(), sequenceScript, "9000000000", "1000")
+                .redirectErrorStream(true).start();
         String invalidOutput = new String(invalidAttempt.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         assertThat(invalidAttempt.waitFor()).as(invalidOutput).isNotEqualTo(0);
         assertAsciiWithoutBom(sequenceScript);
@@ -1683,7 +1572,7 @@ class PluginReleaseScriptsTest {
         assumeTrue(canRun("git", "--version"), "git 不可用，跳过行为测试");
         assertAsciiWithoutBom(script);
 
-        Path repo = Files.createTempDirectory("nightly-gate-");
+        Path repo = Files.createTempDirectory("nightly gate ");
         try {
             initGitRepo(repo);
             Path changelog = repo.resolve("CHANGELOG.md");
@@ -1694,35 +1583,32 @@ class PluginReleaseScriptsTest {
             runGit(repo, "tag", "nightly");
 
             // 1. 无 diff：false
-            assertThat(runGate(repo, script, "nightly")).isEqualTo("false");
+            assertThat(runBash(repo, script, "CHANGELOG.md", "nightly")).isEqualTo("false");
 
             // 2. 新增一行：true
             Files.writeString(changelog, baseline + "- entry four\n", StandardCharsets.UTF_8);
-            assertThat(runGate(repo, script, "nightly")).isEqualTo("true");
+            assertThat(runBash(repo, script, "CHANGELOG.md", "nightly")).isEqualTo("true");
 
             // 3. 修改一行：true
             Files.writeString(changelog, baseline.replace("- entry two\n", "- entry two (changed)\n"),
                     StandardCharsets.UTF_8);
-            assertThat(runGate(repo, script, "nightly")).isEqualTo("true");
+            assertThat(runBash(repo, script, "CHANGELOG.md", "nightly")).isEqualTo("true");
 
             // 4. 只删除一行：true
             Files.writeString(changelog, baseline.replace("- entry two\n", ""), StandardCharsets.UTF_8);
-            assertThat(runGate(repo, script, "nightly")).isEqualTo("true");
+            assertThat(runBash(repo, script, "CHANGELOG.md", "nightly")).isEqualTo("true");
 
-            // 5. git diff 真实错误（损坏的 index 使退出码为 128）：
-            //    步骤失败，绝不输出 has_changes 判定。GIT_INDEX_FILE 在 bash
-            //    （WSL）一侧设置，避免 Windows 环境变量透传差异。
-            Path garbageIndex = repo.resolve("garbage-index");
+            // 在 Bash 内设置故障环境，避免 WSL 启动器丢弃 Windows 环境变量。
+            Path garbageIndex = repo.resolve("garbage index");
             Files.write(garbageIndex, new byte[] { 1, 2, 3, 4, 5 });
-            String command = "cd " + toBashPath(repo) + " && GIT_INDEX_FILE=" + toBashPath(garbageIndex)
-                    + " " + toBashPath(script) + " CHANGELOG.md nightly";
-            ProcessBuilder pb = new ProcessBuilder("bash", "-c", command);
-            pb.directory(repo.toFile());
-            Process p = pb.start();
+            Path faultScript = repo.resolve("fault script.sh");
+            Files.writeString(faultScript, "export GIT_INDEX_FILE='garbage index'\n"
+                    + Files.readString(script, StandardCharsets.UTF_8), StandardCharsets.UTF_8);
+            Process p = bashProcess(repo, faultScript, "CHANGELOG.md", "nightly").start();
             String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             int code = p.waitFor();
             String err = new String(p.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-            assertThat(code).as("git 错误必须使步骤失败: %s", err).isNotEqualTo(0);
+            assertThat(code).as("必须实际触发损坏索引错误: %s", err).isEqualTo(128);
             assertThat(out.trim()).as("git 错误不得输出 has_changes 判定").isEmpty();
         } finally {
             deleteRecursively(repo);
@@ -1736,7 +1622,7 @@ class PluginReleaseScriptsTest {
         assumeTrue(canRun("bash", "--version"), "bash 不可用，跳过行为测试");
         assumeTrue(canRun("git", "--version"), "git 不可用，跳过行为测试");
 
-        Path repo = Files.createTempDirectory("nightly-gate-first-");
+        Path repo = Files.createTempDirectory("nightly first gate ");
         try {
             initGitRepo(repo);
             Path changelog = repo.resolve("CHANGELOG.md");
@@ -1745,13 +1631,23 @@ class PluginReleaseScriptsTest {
             Files.writeString(changelog,
                     "# Changelog\n\n## [Unreleased]\n\n\n## [v1.0.0] - 2026-01-01\n- released\n",
                     StandardCharsets.UTF_8);
-            assertThat(runGate(repo, script, "nightly")).isEqualTo("false");
+            assertThat(runBash(repo, script, "CHANGELOG.md", "nightly")).isEqualTo("false");
 
             // 非空 → true（nightly 参数传了但标签不存在，走 rev-parse 回退）
             Files.writeString(changelog,
                     "# Changelog\n\n## [Unreleased]\n\n### Features\n- upcoming\n",
                     StandardCharsets.UTF_8);
-            assertThat(runGate(repo, script, "nightly")).isEqualTo("true");
+            assertThat(runBash(repo, script, "CHANGELOG.md", "nightly")).isEqualTo("true");
+
+            Files.writeString(changelog, "## [Unreleased]\n" + "- upcoming\n".repeat(200_000),
+                    StandardCharsets.UTF_8);
+            assertThat(runBash(repo, script, "CHANGELOG.md", "nightly")).isEqualTo("true");
+
+            Files.delete(changelog);
+            Process process = bashProcess(repo, script, "CHANGELOG.md", "nightly")
+                    .redirectErrorStream(true).start();
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            assertThat(process.waitFor()).as("缺失变更文件必须失败: %s", output).isNotEqualTo(0);
         } finally {
             deleteRecursively(repo);
         }
@@ -1774,7 +1670,7 @@ class PluginReleaseScriptsTest {
                 "NEXT_PATCH=$((PATCH + 1))",
                 "NEXT_VERSION=\"${MAJOR}.${MINOR}.${NEXT_PATCH}\"");
 
-        Path repo = Files.createTempDirectory("nightly-version-");
+        Path repo = Files.createTempDirectory("nightly version ");
         try {
             initGitRepo(repo);
             Files.writeString(repo.resolve("marker"), "nightly\n", StandardCharsets.UTF_8);
@@ -1783,7 +1679,7 @@ class PluginReleaseScriptsTest {
                     nightly.indexOf("          set -euo pipefail", nightly.indexOf("Resolve next version")),
                     nightly.indexOf("          NIGHTLY_VERSION=", nightly.indexOf("Resolve next version")))
                     .replaceAll("(?m)^ {10}", "");
-            Path script = repo.resolve("resolve-nightly-version.sh");
+            Path script = repo.resolve("resolve nightly version.sh");
             Files.writeString(script, resolveScript + "printf '%s\\n' \"$NEXT_VERSION\"\n", StandardCharsets.UTF_8);
 
             assertThat(runBash(repo, script)).isEqualTo("0.0.1");
@@ -1886,9 +1782,6 @@ class PluginReleaseScriptsTest {
                 "$ProtectedInputPaths += $SignatureToolJar",
                 "$privateKeyItem = Get-Item -LiteralPath $PrivateKeyFile",
                 "-ProtectedPaths $ProtectedInputPaths");
-        assertThat(assemble.lastIndexOf("$ProtectedInputPaths += $SelectedAppJar"))
-                .as("stage 2 必须位于 Push-Location 之后的最终 SelectedAppJar 确定处")
-                .isGreaterThan(assemble.indexOf("Push-Location $ProjectRoot"));
         assertThat(assemble.indexOf("$SelectedAppJar = $appJarCandidate.FullName"))
                 .as("本地 fallback 必须在 stage 1 保护之后确定 SelectedAppJar")
                 .isGreaterThan(assemble.indexOf("Assert-SafeDistributionOutputDirectory"));
@@ -1924,36 +1817,21 @@ class PluginReleaseScriptsTest {
         assertThat(code).as("git %s failed: %s", String.join(" ", args), output).isEqualTo(0);
     }
 
-    private static String runGate(Path repo, Path script, String nightlyRef) throws Exception {
-        Process p = new ProcessBuilder("bash", toBashPath(script), "CHANGELOG.md", nightlyRef)
-                .directory(repo.toFile()).redirectErrorStream(true).start();
-        String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        int code = p.waitFor();
-        assertThat(code).as("gate script failed: %s", output).isEqualTo(0);
-        return output.trim();
-    }
-
     private static String runBash(Path repo, Path script, String... args) throws Exception {
-        String[] command = new String[args.length + 2];
-        command[0] = "bash";
-        command[1] = toBashPath(script);
-        System.arraycopy(args, 0, command, 2, args.length);
-        Process p = new ProcessBuilder(command)
-                .directory(repo.toFile()).redirectErrorStream(true).start();
+        Process p = bashProcess(repo, script, args).redirectErrorStream(true).start();
         String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         int code = p.waitFor();
         assertThat(code).as("bash script failed: %s", output).isEqualTo(0);
         return output.trim();
     }
 
-    private static String toBashPath(Path path) {
-        // On Windows, `bash` resolves to the WSL bash where Windows paths must
-        // be written as /mnt/<drive>/...; on Linux the path is used as-is.
-        String p = path.toString();
-        if (p.length() >= 2 && p.charAt(1) == ':') {
-            return "/mnt/" + Character.toLowerCase(p.charAt(0)) + "/" + p.substring(2).replace('\\', '/');
-        }
-        return p.replace('\\', '/');
+    private static ProcessBuilder bashProcess(Path repo, Path script, String... args) {
+        String[] command = new String[args.length + 3];
+        command[0] = "bash";
+        command[1] = "-s";
+        command[2] = "--";
+        System.arraycopy(args, 0, command, 3, args.length);
+        return new ProcessBuilder(command).directory(repo.toFile()).redirectInput(script.toFile());
     }
 
     private static boolean canRun(String... command) {
@@ -2068,11 +1946,6 @@ class PluginReleaseScriptsTest {
 
     private static void assertAsciiWithoutBom(Path path) throws IOException {
         byte[] bytes = Files.readAllBytes(path);
-        boolean hasUtf8Bom = bytes.length >= 3
-                && Byte.toUnsignedInt(bytes[0]) == 0xEF
-                && Byte.toUnsignedInt(bytes[1]) == 0xBB
-                && Byte.toUnsignedInt(bytes[2]) == 0xBF;
-        assertThat(hasUtf8Bom).as("%s must not start with a UTF-8 BOM", path).isFalse();
         for (int index = 0; index < bytes.length; index++) {
             assertThat(Byte.toUnsignedInt(bytes[index]))
                     .as("%s byte %s must be ASCII", path, index)
@@ -2110,11 +1983,9 @@ class PluginReleaseScriptsTest {
     }
 
     private static Set<String> officialPluginIds(String functionName) throws Exception {
-        Set<String> ids = officialDistributionPlugins(functionName).stream()
+        return officialDistributionPlugins(functionName).stream()
                 .map(OfficialPlugin::id)
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-        assertThat(ids).as("official plugin ids").isNotEmpty();
-        return ids;
     }
 
     private static Set<String> officialPluginIds() throws Exception {

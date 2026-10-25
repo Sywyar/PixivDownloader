@@ -26,27 +26,6 @@
     /* ============================================================
        API
     ============================================================ */
-    const COOKIE_FORMATS = new Set(['header', 'json', 'netscape']);
-
-    function normalizeCookieType(type) {
-        const value = String(type || 'pixiv').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '');
-        return value || 'pixiv';
-    }
-
-    function cookieStorageKey(type) {
-        const normalized = normalizeCookieType(type);
-        return normalized === 'pixiv' ? 'pixiv_cookie' : 'pixiv_' + normalized + '_cookie';
-    }
-
-    function normalizeCookieFormat(fmt) {
-        const value = String(fmt || '').trim().toLowerCase();
-        return COOKIE_FORMATS.has(value) ? value : 'header';
-    }
-
-    function getCookieFmt() {
-        return normalizeCookieFormat(storeGet('pixiv_cookie_fmt') || 'header');
-    }
-
     function setCookieFmt(fmt) {
         const normalized = normalizeCookieFormat(fmt);
         storeSet('pixiv_cookie_fmt', normalized);
@@ -62,51 +41,6 @@
         } catch (e) {
             // Older browsers without CustomEvent still keep the selected format in storage.
         }
-    }
-
-    function parseCookieToHeaderString(raw, fmt) {
-        if (!raw) return '';
-        const format = normalizeCookieFormat(fmt);
-        try {
-            if (format === 'json') {
-                const obj = JSON.parse(raw);
-                return Object.entries(obj).map(([k, v]) => `${k}=${String(v)}`).join('; ');
-            }
-            if (format === 'netscape') {
-                return raw.split('\n')
-                    .filter(l => l.trim() && !l.trim().startsWith('#'))
-                    .map(l => {
-                        const p = l.split('\t');
-                        return p.length >= 7 ? `${p[5]}=${p[6].trim()}` : null;
-                    })
-                    .filter(Boolean)
-                    .join('; ');
-            }
-        } catch (e) {
-            console.warn(bt('cookie.warn.parse-fallback', 'Cookie 解析失败，原样使用: {message}', {message: e.message}));
-        }
-        // header string 或解析失败时原样返回
-        return raw;
-    }
-
-    function getStoredCookie(type) {
-        return storeGet(cookieStorageKey(type)) || '';
-    }
-
-    function setStoredCookie(type, raw) {
-        storeSet(cookieStorageKey(type), raw || '');
-    }
-
-    function removeStoredCookie(type) {
-        storeRemove(cookieStorageKey(type));
-    }
-
-    function getCookieHeaderStringFor(type) {
-        return parseCookieToHeaderString(getStoredCookie(type), getCookieFmt());
-    }
-
-    function getCookie() {
-        return getCookieHeaderStringFor('pixiv');
     }
 
     function getCookieInputHeaderString() {
@@ -266,27 +200,33 @@
         return !!getCookie().trim();
     }
 
+    let cookieSaveInProgress = false;
+    async function persistCookie(raw) {
+        if (cookieSaveInProgress) return false;
+        cancelCookieSync();
+        cookieSaveInProgress = true;
+        const controls = ['cookie-input', 'cookie-save', 'cookie-clear', 'cookie-import',
+            'fmt-header', 'fmt-json', 'fmt-netscape']
+            .map(id => document.getElementById(id)).filter(Boolean)
+            .map(node => [node, node.disabled]);
+        controls.forEach(([node]) => { node.disabled = true; });
+        try {
+            await persistStoreEntries({pixiv_cookie: raw});
+            return true;
+        } catch {
+            // 传输和存储错误可能含凭据，只展示固定的本地化错误。
+            setCookieStatus({key: 'status.cookie-persist-failed', fallback: '无法保存 Cookie，请重试。'}, 'error');
+            return false;
+        } finally {
+            cookieSaveInProgress = false;
+            controls.forEach(([node, disabled]) => { node.disabled = disabled; });
+        }
+    }
+
     /* ------------------------------------------------------------------
        一键导入 Cookie：让 pixiv.net 上的体验增强工具箱自动取 Cookie 回传
     ------------------------------------------------------------------ */
     const COOKIE_SYNC_SIGNAL = '__pixiv_cookie_sync__';
-
-    async function fetchServerPixivCookie() {
-        try {
-            const res = await fetch(BASE + '/api/batch/state', {credentials: 'same-origin'});
-            if (!res.ok) return null;
-            const data = await res.json();
-            const st = data.state || {};
-            return {
-                cookie: st.pixiv_cookie != null ? String(st.pixiv_cookie) : '',
-                fmt: st.pixiv_cookie_fmt || 'header',
-                syncAt: st.pixiv_cookie_sync_at != null ? String(st.pixiv_cookie_sync_at) : '',
-                syncStatus: st.pixiv_cookie_sync_status != null ? String(st.pixiv_cookie_sync_status) : ''
-            };
-        } catch (e) {
-            return null;
-        }
-    }
 
     function applyImportedCookie(snapshot) {
         serverState['pixiv_cookie'] = snapshot.cookie;
@@ -324,32 +264,16 @@
             return;
         }
         setCookieStatus({key: 'status.cookie-import-opening', fallback: '正在打开 Pixiv 自动获取 Cookie...'}, 'info');
-        const deadline = Date.now() + 25000;
-        const poll = () => {
-            setTimeout(async () => {
-                const cur = await fetchServerPixivCookie();
-                // 本次同步已结束（时间戳变化）。无论成功与否工具箱都会更新时间戳，
-                // 故缺 PHPSESSID 时也能立即停下并给出明确提示，不再空等到超时。
-                if (cur && cur.syncAt && cur.syncAt !== baselineSyncAt) {
-                    try { win.close(); } catch (e) {}
-                    // 同步内存基线，避免下次重试用旧时间戳瞬间误判
-                    serverState['pixiv_cookie_sync_at'] = cur.syncAt;
-                    if (cur.syncStatus === 'ok' || /(?:^|;\s*)PHPSESSID=/.test(cur.cookie || '')) {
-                        applyImportedCookie(cur);
-                    } else {
-                        setCookieStatus({key: 'status.cookie-imported-no-phpsessid', fallback: '已导入 Cookie，但未检测到 PHPSESSID，可能未登录 Pixiv'}, 'error');
-                    }
-                    return;
-                }
-                if (Date.now() > deadline) {
-                    setCookieStatus({key: 'status.cookie-import-timeout', fallback: '未能自动获取 Cookie，请确认已安装并启用「体验增强工具箱」且已登录 Pixiv，或手动粘贴'},
-                        'error');
-                    return;
-                }
-                poll();
-            }, 1500);
-        };
-        poll();
+        startCookieSync(win, baselineSyncAt, cur => {
+            serverState['pixiv_cookie_sync_at'] = cur.syncAt;
+            if (cur.syncStatus === 'ok' || /(?:^|;\s*)PHPSESSID=/.test(cur.cookie || '')) {
+                applyImportedCookie(cur);
+            } else {
+                setCookieStatus({key: 'status.cookie-imported-no-phpsessid', fallback: '已导入 Cookie，但未检测到 PHPSESSID，可能未登录 Pixiv'}, 'error');
+            }
+        }, () => {
+            setCookieStatus({key: 'status.cookie-import-timeout', fallback: '未能自动获取 Cookie，请确认已安装并启用「体验增强工具箱」且已登录 Pixiv，或手动粘贴'}, 'error');
+        });
     }
 
     function importCookieViaScript() {

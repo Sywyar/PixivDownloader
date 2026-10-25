@@ -292,14 +292,12 @@
         try {
             var value = await (action === 'check' ? PMK.api.checkDatabase : PMK.api.previewDatabaseMigration)(submitted, request.signal);
             if (token !== generation) return;
-            if (action === 'save') {
-                if (edited !== revision) feedback = 'database.stale';
-                else {
-                    migrationPlan = value; planRevision = edited;
-                    feedback = value.ready ? 'database.migration.ready' : '';
-                    if (settingsDetails && value.ready) settingsDetails.open = false;
-                }
-            } else if (edited !== revision) feedback = 'database.stale';
+            if (edited !== revision) feedback = 'database.stale';
+            else if (action === 'save') {
+                migrationPlan = value; planRevision = edited;
+                feedback = value.ready ? 'database.migration.ready' : '';
+                if (settingsDetails && value.ready) settingsDetails.open = false;
+            }
             else {
                 var outcomes = {CONNECTED: 'connected', NOT_CREATED: 'not-created', FAILED: 'connection-failed', BUSY: 'busy'};
                 feedback = value.outcome === 'FAILED' ? value.errorKey || 'database.error.unknown'

@@ -1,11 +1,5 @@
 package top.sywyar.pixivdownload.core.hash;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.Configuration;
-import org.apache.ibatis.session.SqlSession;
-import org.apache.ibatis.session.SqlSessionFactory;
-import org.apache.ibatis.session.SqlSessionFactoryBuilder;
-import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -21,7 +15,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ImageHashMapperTest {
 
     private SingleConnectionDataSource dataSource;
-    private SqlSession sqlSession;
     private JdbcTemplate jdbc;
     private ImageHashMapper mapper;
 
@@ -32,13 +25,6 @@ class ImageHashMapperTest {
         dataSource.setUrl("jdbc:sqlite::memory:");
         dataSource.setSuppressClose(true);
 
-        Environment env = new Environment("test", new JdbcTransactionFactory(), dataSource);
-        Configuration config = new Configuration(env);
-        config.setMapUnderscoreToCamelCase(true);
-
-
-        SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
-        sqlSession = factory.openSession(true);
         mapper = new ImageHashMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
         jdbc = new JdbcTemplate(dataSource);
         createTables();
@@ -46,7 +32,6 @@ class ImageHashMapperTest {
 
     @AfterEach
     void tearDown() {
-        sqlSession.close();
         dataSource.destroy();
     }
 

@@ -6,6 +6,12 @@ import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
+import top.sywyar.pixivdownload.core.db.DatabaseTarget;
+import top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures;
+import top.sywyar.pixivdownload.plugin.api.storage.relational.DatabaseSession;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -17,9 +23,134 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.*;
 
 @DisplayName("作品回填数据库")
 class ArtworksBackFillDatabaseTest {
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("回填普通失败后的回滚致命错误不被原错误掩盖")
+    void fatalRollbackEscapesOrdinaryFailure(boolean nested, @TempDir Path directory) throws Exception {
+        var target = spy(DatabaseProviderTestFixtures.sqlite(directory.resolve("rollback.db")));
+        try (var raw = target.openConnection()) {
+            top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(raw, target);
+            var connection = mock(Connection.class, org.mockito.AdditionalAnswers.delegatesTo(raw));
+            var source = mock(javax.sql.DataSource.class);
+            when(source.getConnection()).thenReturn(connection);
+            try (var database = ArtworksBackFillDatabase.open(source, target)) {
+                if (nested) connection.setAutoCommit(false);
+                var failure = new java.sql.SQLException("controlled storage failure");
+                var cleanup = new ThreadDeath();
+                doAnswer(ignored -> {
+                    if (nested) doThrow(cleanup).when(connection).rollback(any(java.sql.Savepoint.class));
+                    else doThrow(cleanup).when(connection).rollback();
+                    throw failure;
+                }).when(target).storageSession(eq(connection), any());
+                var candidate = new ArtworksBackFillDatabase.Candidate(1, true, true, true, true, true, true);
+                var result = ArtworksBackFillPixivClient.LookupResult.found(
+                        42, "author", 1, true, "description", List.of(), 0, 0, null);
+
+                assertThatThrownBy(() -> database.applyUpdates(candidate, result, true, false, false, false, false, false))
+                        .isSameAs(cleanup).hasSuppressedException(failure);
+                assertThat(connection.getAutoCommit()).isFalse();
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"target, false", "pooled-schema, false",
+            "independent-schema, false", "target, true", "pooled-schema, true", "independent-schema, true"})
+    @DisplayName("目标或结构校验失败关闭已取得的连接，清理致命错误仍传播")
+    void closesConnectionWhenPreparationFails(String stage, boolean cleanupFatal) throws Exception {
+        var connection = mock(Connection.class);
+        var target = mock(DatabaseTarget.class);
+        var pool = mock(javax.sql.DataSource.class);
+        Throwable failure = cleanupFatal ? new java.sql.SQLException("controlled failure")
+                : new OutOfMemoryError("controlled failure");
+        var cleanup = new OutOfMemoryError("controlled close failure");
+        if (cleanupFatal) doThrow(cleanup).when(connection).close();
+        when(pool.getConnection()).thenReturn(connection);
+        when(target.openConnection()).thenReturn(connection);
+        if (stage.equals("target")) doThrow(failure).when(target).requireConnectionTarget(connection);
+        else when(target.readSchema(connection)).thenThrow(failure);
+
+        assertThatThrownBy(() -> {
+            if (stage.equals("independent-schema")) ArtworksBackFillDatabase.open(target);
+            else ArtworksBackFillDatabase.open(pool, target);
+        }).isSameAs(cleanupFatal ? cleanup : failure);
+        if (cleanupFatal) assertThat(cleanup.getSuppressed()).containsExactly(failure);
+        verify(connection).close();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("回填中途致命错误撤回本作品写入并保留外层事务")
+    void rollsBackPartialWritesOnFatalFailure(boolean nested, @TempDir Path directory) throws Exception {
+        exerciseFatalRollback(DatabaseProviderTestFixtures.sqlite(directory.resolve("atomic.db")), nested);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable(named = "PIXIV_TEST_POSTGRES_URL", matches = ".+")
+    @DisplayName("PostgreSQL 回填致命失败撤回本作品写入并保留外层事务")
+    void postgresRollsBackPartialWritesOnFatalFailure(boolean nested) throws Exception {
+        try (var database = new top.sywyar.pixivdownload.core.db.PostgresTestDatabase()) {
+            exerciseFatalRollback(DatabaseProviderTestFixtures.resolve(database.properties(), "unused"), nested);
+        }
+    }
+
+    private void exerciseFatalRollback(DatabaseTarget configured, boolean nested) throws Exception {
+        var target = spy(configured);
+        try (var connection = target.openConnection()) {
+            top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target);
+            try (var statement = connection.createStatement()) {
+                statement.executeUpdate("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time)"
+                        + " VALUES(1,'original','folder',1,'png',1)");
+            }
+        }
+        try (var connection = target.openConnection()) {
+            try (var database = ArtworksBackFillDatabase.open(new SingleConnectionDataSource(connection, true), target)) {
+                if (nested) {
+                    connection.setAutoCommit(false);
+                    try (var statement = connection.createStatement()) {
+                        statement.executeUpdate("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time)"
+                                + " VALUES(2,'outer','folder',1,'png',2)");
+                    }
+                }
+                var failure = new OutOfMemoryError("controlled failure after write");
+                doAnswer(invocation -> {
+                    DatabaseSession real = (DatabaseSession) invocation.callRealMethod();
+                    var session = mock(DatabaseSession.class, org.mockito.AdditionalAnswers.delegatesTo(real));
+                    doAnswer(update -> {
+                        real.update(update.getArgument(0), update.getArgument(1), update.getArgument(2));
+                        throw failure;
+                    }).when(session).update(eq("artworks"), anyMap(), any());
+                    return session;
+                }).when(target).storageSession(any(), any());
+                var candidate = new ArtworksBackFillDatabase.Candidate(1, true, true, true, true, true, true);
+                var result = ArtworksBackFillPixivClient.LookupResult.found(
+                        42, "author", 1, true, "new description", List.of(), 0, 0, null);
+
+                assertThatThrownBy(() -> database.applyUpdates(candidate, result, true, true, true, true, false, false))
+                        .isSameAs(failure);
+                try (var statement = connection.createStatement()) {
+                    assertThat(queryString(statement, "SELECT description FROM artworks WHERE artwork_id=1")).isNull();
+                    assertThat(connection.getAutoCommit()).isEqualTo(!nested);
+                    if (nested) {
+                        assertThat(queryString(statement, "SELECT title FROM artworks WHERE artwork_id=2")).isEqualTo("outer");
+                        connection.commit();
+                    }
+                }
+            }
+        }
+        try (var connection = target.openConnection(); var statement = connection.createStatement()) {
+            assertThat(queryString(statement, "SELECT description FROM artworks WHERE artwork_id=1")).isNull();
+        }
+    }
 
     @Test
     @DisplayName("过滤不可达作品并持久化回填元数据")

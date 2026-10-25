@@ -20,7 +20,7 @@ public final class TestMessageResolver implements MessageResolver {
 
     @Override
     public String get(String code, Object... args) {
-        return get(Locale.SIMPLIFIED_CHINESE, code, args);
+        return get(Locale.US, code, args);
     }
 
     @Override
@@ -33,7 +33,7 @@ public final class TestMessageResolver implements MessageResolver {
 
     @Override
     public String getOrDefault(String code, String defaultMessage, Object... args) {
-        return getOrDefault(Locale.SIMPLIFIED_CHINESE, code, defaultMessage, args);
+        return getOrDefault(Locale.US, code, defaultMessage, args);
     }
 
     @Override
@@ -46,14 +46,14 @@ public final class TestMessageResolver implements MessageResolver {
 
     @Override
     public String getForLog(String code, Object... args) {
-        return get(Locale.SIMPLIFIED_CHINESE, code, args);
+        return get(Locale.US, code, args);
     }
 
     private static String lookup(Locale locale, String code, String fallback) {
         try {
             ResourceBundle bundle = ResourceBundle.getBundle(
                     BASE_NAME,
-                    locale == null ? Locale.SIMPLIFIED_CHINESE : locale,
+                    locale == null ? Locale.US : locale,
                     TestMessageResolver.class.getClassLoader(),
                     CONTROL);
             return bundle.containsKey(code) ? bundle.getString(code) : fallback;

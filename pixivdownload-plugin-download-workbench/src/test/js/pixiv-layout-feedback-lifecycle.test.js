@@ -2,78 +2,21 @@
 
 /** 异步生命周期、时间戳与 SDK 配置。 */
 const {
-    CONFIG_SOURCE,
-    CONFIG_SOURCE_PATH,
-    CONFIG_WINDOW,
-    CSS,
-    CSS_PATH,
-    EMBED_SOURCE,
-    EMBED_SOURCE_PATH,
-    LAYOUT_IDS,
-    MiniClassList,
-    MiniCustomEvent,
-    MiniElement,
-    MiniEventTarget,
-    MiniStorage,
-    POSTHOG_SOURCE,
-    POSTHOG_SOURCE_PATH,
-    SEEN_KEY,
-    SERVER_RAW_UUID,
-    SERVER_SCOPED_ID,
-    SNOOZE_MS,
-    SOURCE,
-    SOURCES,
-    SOURCE_NAMES,
-    SOURCE_PATHS,
     STATE_KEY,
-    SUBMISSION_ID,
-    SUGGESTION_MAX,
-    SURVEY_ID,
-    ackEvents,
-    assert,
-    assertFailClosedInvariants,
     captureEvents,
-    captureProps,
     createFakeAdapter,
-    createFakeI18n,
-    createFakeTimers,
     createHarness,
-    crossTabFallbackMatrix,
-    crossTabState,
-    dataAttributeName,
     defaultSurvey,
-    directRefresh,
     doesNotThrow,
     eq,
-    fs,
-    hasLoneSurrogates,
     initHarness,
-    jsonEq,
     listenerCountFor,
-    localStateValue,
-    matchSelector,
-    neverView,
     ok,
-    openAndPrepareSubmit,
-    path,
-    refreshSecond,
-    refreshWith,
     reinitOptions,
     runTests,
-    seenObject,
-    seenSeed,
     selectChoice,
     serverStateResponse,
-    snoozeStorageValue,
-    snoozedView,
-    submitWithCaptureOverride,
-    submittedView,
-    surveyState,
-    validFirst,
-    vm,
-    waitForFlush,
-    waitForServerContext,
-    walkAll
+    waitForFlush
 } = require('./pixiv-layout-feedback-test-support');
 
 function testDestroyDuringSdkLoad() {
@@ -448,11 +391,6 @@ function testFakeAdapterTimestampOverrides() {
     });
 }
 
-function testSdkConfigHeatmapMigration() {
-    ok('PostHog 插件源码不再包含 enable_heatmaps 配置字段', POSTHOG_SOURCE.indexOf('enable_heatmaps') < 0);
-    ok('PostHog 插件源码使用 capture_heatmaps', POSTHOG_SOURCE.indexOf('capture_heatmaps') >= 0);
-}
-
 runTests('pixiv-layout-feedback-lifecycle.test.js', [
     ['testDestroyDuringSdkLoad', testDestroyDuringSdkLoad],
     ['testLateScriptLoadAfterDestroy', testLateScriptLoadAfterDestroy],
@@ -471,8 +409,7 @@ runTests('pixiv-layout-feedback-lifecycle.test.js', [
     ['testBeforeSendTimestampMatrix', testBeforeSendTimestampMatrix],
     ['testBeforeSendDateTimestampWithSurveyFields', testBeforeSendDateTimestampWithSurveyFields],
     ['testFakeAdapterDefaultTimestampIsDate', testFakeAdapterDefaultTimestampIsDate],
-    ['testFakeAdapterTimestampOverrides', testFakeAdapterTimestampOverrides],
-    ['testSdkConfigHeatmapMigration', testSdkConfigHeatmapMigration]
+    ['testFakeAdapterTimestampOverrides', testFakeAdapterTimestampOverrides]
 ]).catch(error => {
     console.error(error && error.stack ? error.stack : error);
     process.exitCode = 1;

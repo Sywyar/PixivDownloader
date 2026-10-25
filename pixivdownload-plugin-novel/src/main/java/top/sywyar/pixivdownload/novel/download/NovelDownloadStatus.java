@@ -1,9 +1,9 @@
 package top.sywyar.pixivdownload.novel.download;
 
 import lombok.Data;
+import lombok.AccessLevel;
+import lombok.Setter;
 import top.sywyar.pixivdownload.core.work.WorkActionResult;
-
-import java.time.LocalDateTime;
 
 @Data
 public class NovelDownloadStatus {
@@ -11,8 +11,8 @@ public class NovelDownloadStatus {
     private String title;
     private String ownerUuid;
     private String format;
-    private String stage;
-    private String folderName;
+    @Setter(AccessLevel.NONE)
+    private volatile State state = new State("pending", false, false, false, null);
     private String downloadPath;
     /** 内嵌图片总数（本次需下载的占位符数量）；无内嵌图时为 0。 */
     private int embeddedTotal;
@@ -22,25 +22,51 @@ public class NovelDownloadStatus {
     private long coverTotalBytes;
     /** 封面图片已下载字节数，用于流式进度条。 */
     private long coverDownloadedBytes;
-    private boolean completed;
-    private boolean failed;
-    private boolean cancelled;
-    private String errorMessage;
     private WorkActionResult bookmarkResult;
     private WorkActionResult collectionResult;
-    private LocalDateTime startTime;
-    private LocalDateTime endTime;
-
-    public NovelDownloadStatus(Long novelId, String title, String format) {
-        this(novelId, title, format, null);
-    }
 
     public NovelDownloadStatus(Long novelId, String title, String format, String ownerUuid) {
         this.novelId = novelId;
         this.title = title;
         this.ownerUuid = ownerUuid;
         this.format = format;
-        this.stage = "pending";
-        this.startTime = LocalDateTime.now();
+    }
+
+    public record State(String stage, boolean completed, boolean failed, boolean cancelled, String errorMessage) {}
+
+    public synchronized void setStage(String stage) {
+        if (!state.completed()) state = new State(stage, false, false, false, null);
+    }
+
+    public synchronized void complete() {
+        if (!state.cancelled()) state = new State("completed", true, false, false, null);
+    }
+
+    public synchronized void fail(String errorMessage) {
+        if (!state.cancelled()) state = new State(state.stage(), true, true, false, errorMessage);
+    }
+
+    public synchronized void cancel(String errorMessage) {
+        state = new State("cancelled", true, false, true, errorMessage);
+    }
+
+    public boolean isCancelled() {
+        return state.cancelled();
+    }
+
+    public boolean isCompleted() {
+        return state.completed();
+    }
+
+    public boolean isFailed() {
+        return state.failed();
+    }
+
+    public String getStage() {
+        return state.stage();
+    }
+
+    public String getErrorMessage() {
+        return state.errorMessage();
     }
 }

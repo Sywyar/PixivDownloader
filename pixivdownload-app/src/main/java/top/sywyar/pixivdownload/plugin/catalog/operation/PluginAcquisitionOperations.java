@@ -69,9 +69,17 @@ public class PluginAcquisitionOperations implements AutoCloseable {
         // 记录本身不授予安装权限；执行仍在写预约内重新生成并校验完整计划。
         synchronized (this) {
             expire();
+            var previous = previousOperationId == null ? null : require(previousOperationId);
+            if (previous != null && (!waitingForTrust(previous) || previous.downloads == null
+                    || !Objects.equals(repositoryId, previous.repositoryId)
+                    || !Objects.equals(pluginId, previous.pluginId) || !Objects.equals(version, previous.version)
+                    || !previous.report.trustRequirement().artifactSha256().equalsIgnoreCase(confirmTrust))) {
+                throw new PluginCatalogException(PluginCatalogErrorCode.INSTALL_PREVIEW_CHANGED,
+                        "pending artifact confirmation does not match the previous operation");
+            }
             // ponytail: 只有一条实际写链且不排队；需要多仓库并行时再细分预约域。
             if (entries.size() >= MAX_RECORDS) {
-                entries.values().stream().filter(value -> !value.started || value.finished).findFirst()
+                entries.values().stream().filter(value -> value != previous && (!value.started || value.finished)).findFirst()
                         .ifPresent(oldest -> { discardDownload(oldest); entries.remove(oldest.id); });
             }
             if (entries.size() >= MAX_RECORDS) {
@@ -79,15 +87,7 @@ public class PluginAcquisitionOperations implements AutoCloseable {
             }
             String id = UUID.randomUUID().toString();
             var entry = new Entry(id, repositoryId, pluginId, version, fingerprint, confirmTrust, clock.instant());
-            if (previousOperationId != null) {
-                var previous = require(previousOperationId);
-                if (!waitingForTrust(previous) || previous.downloads == null
-                        || !Objects.equals(repositoryId, previous.repositoryId)
-                        || !Objects.equals(pluginId, previous.pluginId) || !Objects.equals(version, previous.version)
-                        || !previous.report.trustRequirement().artifactSha256().equalsIgnoreCase(confirmTrust)) {
-                    throw new PluginCatalogException(PluginCatalogErrorCode.INSTALL_PREVIEW_CHANGED,
-                            "pending artifact confirmation does not match the previous operation");
-                }
+            if (previous != null) {
                 entry.downloads = previous.downloads;
                 previous.downloads = null;
                 cancelExpiry(previous);
@@ -267,7 +267,7 @@ public class PluginAcquisitionOperations implements AutoCloseable {
         boolean started, finished;
         PluginInstallReport report;
         Failure failure;
-        PluginCatalogDownloadSession downloads = new PluginCatalogDownloadSession();
+        PluginCatalogDownloadSession downloads;
         java.util.concurrent.ScheduledFuture<?> expiry;
 
         Entry(String id, String repositoryId, String pluginId, String version,

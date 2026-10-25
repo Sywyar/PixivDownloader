@@ -47,10 +47,6 @@ public record ScheduledCredentialAccountActionPlan(
             List<ScheduledCredentialTaskStateUpdate> copy = List.copyOf(stateUpdates);
             Set<Long> taskIds = new LinkedHashSet<>();
             for (ScheduledCredentialTaskStateUpdate update : copy) {
-                if (update == null) {
-                    throw new IllegalArgumentException(
-                            "credential account action contains a null state update");
-                }
                 if (!taskIds.add(update.taskId())) {
                     throw new IllegalArgumentException(
                             "credential account action contains duplicate state updates");

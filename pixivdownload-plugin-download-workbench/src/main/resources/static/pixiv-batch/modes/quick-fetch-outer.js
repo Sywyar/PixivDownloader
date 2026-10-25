@@ -2,6 +2,7 @@
     function quickResetView() {
         cleanupQuickBlobUrls();
         resetQuickActionUi();
+        setQuickBtnLoading('quick-add-all', false);
         quickState.loadSeq++;
         quickState.renderToken++;
         quickState.filterSeq++;
@@ -44,7 +45,7 @@
         addPage.style.display = opts.showAdd ? '' : 'none';
         addPage.disabled = !opts.showAdd;
         addAll.style.display = opts.showAdd ? '' : 'none';
-        addAll.disabled = !opts.showAdd;
+        addAll.disabled = !opts.showAdd || addAll.classList.contains('is-loading');
         document.getElementById('quick-following-search').style.display = opts.showSearch ? '' : 'none';
         // 收起按钮仅在有作品网格（可加入队列）时出现，与「加入队列」按钮同显隐。
         const collapseBtn = document.getElementById('quick-collapse-page');
@@ -202,7 +203,14 @@
         return data;
     }
 
+    function beginQuickPage() {
+        const loadSeq = quickState.loadSeq;
+        const pageSeq = ++quickState.pageSeq;
+        return () => loadSeq === quickState.loadSeq && pageSeq === quickState.pageSeq;
+    }
+
     async function loadQuickIllustBookmarks(kind, rest, page) {
+        const isCurrent = beginQuickPage();
         const acq = window.PixivBatch.queueTypes.acquisition(kind, 'quick');
         const action = currentQuickAction();
         if (!action || typeof action.buildPageRequest !== 'function') {
@@ -212,6 +220,7 @@
         const offset = (page - 1) * pageSize;
         const endpoint = quickRequestUrl(action.buildPageRequest({rest, offset, limit: pageSize, page}));
         const data = await quickFetchJson(endpoint, kind);
+        if (!isCurrent()) return;
         quickState.kind = kind;
         quickState.rawItems = data.items || [];
         quickState.total = data.total || 0;
@@ -222,6 +231,7 @@
         quickSetTitle(`${bt(titleKey, titleFallback)} · ${bt('quick.title.count', '{count} 件', {count: quickState.total.toLocaleString()})}`);
         quickShowToolbar({showBack: false, showAdd: quickState.rawItems.length > 0, showSearch: false, showKindSwitcher: false});
         await quickRenderOuterWorks();
+        if (!isCurrent()) return;
         renderQuickPagination(page, Math.max(1, Math.ceil(quickState.total / pageSize)),
             p => loadQuickIllustBookmarks(kind, rest, p));
         updateExtraFiltersCardVisibility();
@@ -229,14 +239,14 @@
         applyNovelSettingsVisibility();
     }
 
-    async function loadQuickMyWorks(kind, page, context) {
-        assertQuickActionContext(context);
+    async function loadQuickMyWorks(kind, page) {
+        const isCurrent = beginQuickPage();
         const acq = window.PixivBatch.queueTypes.acquisition(kind, 'quick');
         const accountOwner = window.PixivBatch.queueTypes.resolveTypeForMode(kind, 'quick');
         if (!quickState.uid || quickState.accountOwner !== accountOwner) {
             const spec = acq.account && acq.account.buildRequest();
             const data = await quickFetchJson(quickRequestUrl(spec), kind, 'account');
-            assertQuickActionContext(context);
+            if (!isCurrent()) return;
             quickState.uid = String(acq.account.readId(data));
             quickState.accountOwner = accountOwner;
             quickState.accountIdsByOwner.set(accountOwner, quickState.uid);
@@ -249,7 +259,7 @@
         if (!quickState.allIds.length || quickState.action.endsWith('-refresh')) {
             const data = await quickFetchJson(
                 quickRequestUrl(acq.buildMyWorksIdsRequest(uid)), kind);
-            assertQuickActionContext(context);
+            if (!isCurrent()) return;
             quickState.allIds = data.ids || [];
         }
         const pageSize = acq.pageSize;
@@ -261,7 +271,7 @@
         if (slice.length > 0) {
             const data = await quickFetchJson(
                 quickRequestUrl(acq.buildCardsRequest(uid, slice)), kind);
-            assertQuickActionContext(context);
+            if (!isCurrent()) return;
             items = data.items || [];
         }
         quickState.kind = window.PixivBatch.queueTypes.resolveTypeForMode(kind, 'quick');
@@ -274,8 +284,8 @@
         quickSetTitle(`${bt(titleKey, titleFallback)} · ${bt('quick.title.count', '{count} 件', {count: total.toLocaleString()})}`);
         quickShowToolbar({showBack: false, showAdd: items.length > 0, showSearch: false, showKindSwitcher: false});
         await quickRenderOuterWorks();
-        assertQuickActionContext(context);
-        renderQuickPagination(safePage, totalPages, p => loadQuickMyWorks(kind, p, context));
+        if (!isCurrent()) return;
+        renderQuickPagination(safePage, totalPages, p => loadQuickMyWorks(kind, p));
         updateExtraFiltersCardVisibility();
         updateSaveScheduleCardVisibility();
         applyNovelSettingsVisibility();
@@ -283,6 +293,7 @@
 
     // 我的约稿作品（账号自身已完成并公开的约稿成品）：先拉全 ID（约稿发现端点）再本地分页取 illust 卡片，渲染同插画。
     async function loadQuickMyRequest(kind, page) {
+        const isCurrent = beginQuickPage();
         const acq = window.PixivBatch.queueTypes.acquisition(kind, 'quick');
         const accountOwner = window.PixivBatch.queueTypes.resolveTypeForMode(kind, 'quick');
         const action = currentQuickAction();
@@ -293,6 +304,7 @@
         if (!quickState.uid || quickState.accountOwner !== accountOwner) {
             const data = await quickFetchJson(
                 quickRequestUrl(acq.account.buildRequest()), kind, 'account');
+            if (!isCurrent()) return;
             quickState.uid = String(acq.account.readId(data));
             quickState.accountOwner = accountOwner;
             quickState.accountIdsByOwner.set(accountOwner, quickState.uid);
@@ -302,6 +314,7 @@
         const uid = quickState.uid;
         if (!quickState.allIds.length || quickState.action.endsWith('-refresh')) {
             const data = await quickFetchJson(quickRequestUrl(action.buildIdsRequest(uid)), kind);
+            if (!isCurrent()) return;
             quickState.allIds = data.ids || [];
         }
         const pageSize = acq.pageSize;
@@ -313,6 +326,7 @@
         if (slice.length > 0) {
             const data = await quickFetchJson(
                 quickRequestUrl(action.buildCardsRequest(uid, slice)), kind);
+            if (!isCurrent()) return;
             items = data.items || [];
         }
         quickState.kind = kind;
@@ -323,6 +337,7 @@
         quickSetTitle(`${bt('quick.title.my-request', '我的约稿作品')} · ${bt('quick.title.count', '{count} 件', {count: total.toLocaleString()})}`);
         quickShowToolbar({showBack: false, showAdd: items.length > 0, showSearch: false, showKindSwitcher: false});
         await quickRenderOuterWorks();
+        if (!isCurrent()) return;
         renderQuickPagination(safePage, totalPages, p => loadQuickMyRequest(kind, p));
         updateExtraFiltersCardVisibility();
         updateSaveScheduleCardVisibility();
@@ -330,6 +345,7 @@
     }
 
     async function loadQuickFollowing(rest, offset, kind = quickState.kind) {
+        const isCurrent = beginQuickPage();
         const action = currentQuickAction();
         if (!action || typeof action.buildPageRequest !== 'function') {
             throw new Error(bt('quick.error.unknown-action', '该入口当前不可用'));
@@ -337,6 +353,7 @@
         const data = await quickFetchJson(quickRequestUrl(action.buildPageRequest({
             rest, offset, limit: QUICK_FOLLOWING_PAGE_SIZE
         })), kind);
+        if (!isCurrent()) return;
         quickState.followingAll = data.users || [];
         quickState.total = data.total || 0;
         quickState.offset = offset;
@@ -346,7 +363,7 @@
         quickSetTitle(`${bt(titleKey, titleFallback)} · ${bt('quick.title.count', '{count} 件', {count: quickState.total.toLocaleString()})}`);
         quickShowToolbar({showBack: false, showAdd: false, showSearch: true, showKindSwitcher: false});
         document.getElementById('quick-following-search').value = '';
-        renderQuickFollowingGrid(quickState.followingAll, rest);
+        renderQuickFollowingGrid(quickState.followingAll);
         const totalPages = Math.max(1, Math.ceil(quickState.total / QUICK_FOLLOWING_PAGE_SIZE));
         renderQuickPagination(quickState.page, totalPages,
             p => loadQuickFollowing(rest, (p - 1) * QUICK_FOLLOWING_PAGE_SIZE, kind));
@@ -359,6 +376,7 @@
     // 已关注的用户的新作（フォロー新着作品）：插画/漫画/动图卡片，按页翻阅。
     // Pixiv follow_latest 不返回总数，分页仅有 hasNext，故用专用的「上一页/下一页」翻页器。
     async function loadQuickFollowingNew(kind, page) {
+        const isCurrent = beginQuickPage();
         const safePage = Math.max(1, page);
         const action = currentQuickAction();
         if (!action || typeof action.buildPageRequest !== 'function') {
@@ -366,6 +384,7 @@
         }
         const data = await quickFetchJson(
             quickRequestUrl(action.buildPageRequest({page: safePage})), kind);
+        if (!isCurrent()) return;
         quickState.rawItems = data.items || [];
         quickState.followHasNext = !!data.hasNext;
         quickState.page = safePage;
@@ -375,6 +394,7 @@
         quickSetTitle(`${bt('quick.title.following-new', '已关注的用户的新作')} · ${bt('quick.title.page', '第 {page} 页', {page: safePage})}`);
         quickShowToolbar({showBack: false, showAdd: quickState.rawItems.length > 0, showSearch: false, showKindSwitcher: false});
         await quickRenderOuterWorks();
+        if (!isCurrent()) return;
         renderQuickFollowNewPagination(safePage, quickState.followHasNext, kind);
         updateExtraFiltersCardVisibility();
         updateSaveScheduleCardVisibility();
@@ -406,17 +426,19 @@
         quickState.followingFilter = q;
         const filtered = !q ? quickState.followingAll : quickState.followingAll.filter(u =>
             (u.userName || '').toLowerCase().includes(q) || String(u.userId || '').includes(q));
-        renderQuickFollowingGrid(filtered, null);
+        renderQuickFollowingGrid(filtered);
     }
 
     // 珍藏集列表：不分公开/不公开、不分插画/小说；Pixiv 无分页，一次性返回全部。
     async function loadQuickCollections() {
+        const isCurrent = beginQuickPage();
         const action = currentQuickAction();
         if (!action || typeof action.buildPageRequest !== 'function') {
             throw new Error(bt('quick.error.unknown-action', '该入口当前不可用'));
         }
         const data = await quickFetchJson(
             quickRequestUrl(action.buildPageRequest({})), action.ownerType);
+        if (!isCurrent()) return;
         quickState.items = data.collections || [];
         quickState.total = data.total || quickState.items.length;
         quickState.page = 1;
@@ -467,9 +489,11 @@
         loadQuickThumbnailsBatched(items, idPrefix, renderToken);
     }
 
-    function renderQuickFollowingGrid(users, restHint) {
+    function renderQuickFollowingGrid(users) {
         const area = document.getElementById('quick-preview-area');
         if (!area) return;
+        cleanupQuickBlobUrls();
+        const renderToken = ++quickState.renderToken;
         if (!users.length) {
             area.innerHTML = `<div class="quick-empty">${esc(bt('quick.empty.no-following', '没有匹配的关注用户'))}</div>`;
             return;
@@ -487,11 +511,10 @@
             </div>
         `).join('')}</div>`;
         // 头像异步加载
-        const renderToken = quickState.renderToken;
         users.forEach((u, idx) => {
             if (!u.profileImageUrl) return;
             fetchThumbnailBlobUrl(
-                u.profileImageUrl, quickState.blobUrls, quickState.kind, 'quick')
+                u.profileImageUrl, () => quickState.blobUrls, quickState.kind, 'quick')
                 .then(blobUrl => {
                     if (!blobUrl || renderToken !== quickState.renderToken) return;
                     const el = document.getElementById(`quick-follow-ava-${idx}`);
@@ -504,6 +527,8 @@
     function renderQuickCollectionGrid(collections) {
         const area = document.getElementById('quick-preview-area');
         if (!area) return;
+        cleanupQuickBlobUrls();
+        const renderToken = ++quickState.renderToken;
         if (!collections.length) {
             area.innerHTML = `<div class="quick-empty">${esc(bt('quick.empty.no-collections', '没有珍藏集'))}</div>`;
             return;
@@ -524,11 +549,10 @@
                 </div>
             </div>`;
         }).join('')}</div>`;
-        const renderToken = quickState.renderToken;
         collections.forEach((c, idx) => {
             if (!c.coverUrl) return;
             fetchThumbnailBlobUrl(
-                c.coverUrl, quickState.blobUrls, quickState.kind, 'quick')
+                c.coverUrl, () => quickState.blobUrls, quickState.kind, 'quick')
                 .then(blobUrl => {
                     if (!blobUrl || renderToken !== quickState.renderToken) return;
                     const el = document.getElementById(`quick-col-cover-${idx}`);
@@ -562,8 +586,18 @@
                 {current: cur, total: totalPages, count: quickState.total.toLocaleString()}))}</span>`;
     }
 
-    function quickJumpPage(p) {
-        if (typeof quickState._jumpFn === 'function') quickState._jumpFn(p);
+    async function quickJumpPage(p) {
+        if (typeof quickState._jumpFn !== 'function') return;
+        const pending = quickState._jumpFn(p);
+        const loadSeq = quickState.loadSeq;
+        const pageSeq = quickState.pageSeq;
+        try {
+            await pending;
+        } catch (e) {
+            if (shouldIgnoreQuickOperationError(e,
+                loadSeq === quickState.loadSeq && pageSeq === quickState.pageSeq)) return;
+            quickRenderEmpty(bt('quick.error.load-failed', '加载失败：{message}', {message: e.message || String(e)}));
+        }
     }
 
     async function loadQuickThumbnailsBatched(items, idPrefix, renderToken) {
@@ -580,7 +614,7 @@
         const imgEl = document.getElementById(`${idPrefix}-thumb-img-${idx}`);
         if (!imgEl) return;
         const blobUrl = await fetchThumbnailBlobUrl(
-            url, quickState.blobUrls, quickState.kind, 'quick');
+            url, () => quickState.blobUrls, quickState.kind, 'quick');
         if (renderToken !== quickState.renderToken) return;
         if (blobUrl && imgEl.isConnected) imgEl.src = blobUrl;
     }
@@ -590,6 +624,10 @@
         if (!item) return;
         const id = quickQueueId(item, quickState.kind);
         const meta = buildQuickQueueMeta(item);
+        quickToggleQueueEntry(item, id, meta);
+    }
+
+    function quickToggleQueueEntry(item, id, meta) {
         const existing = state.queue.find(q => q.id === id);
         if (existing) {
             const merged = reconcileQueueItemTypeData(existing, meta, 'toggle');
@@ -669,7 +707,7 @@
     function quickAddCurrentPageToQueue() {
         if (!quickState.items.length) return;
         const ids = quickState.items.map(item => quickQueueId(item, quickState.kind));
-        const metas = quickState.items.map(buildQuickQueueMeta);
+        const metas = quickState.items.map(item => buildQuickQueueMeta(item));
         const added = addItemsToQueue(ids, metas, QUICK_FETCH_MODE, '', null, '');
         setStatus(
             {key: 'status.added-current-series-page-to-queue', fallback: '已将当前页 {added} 个作品加入队列（本页 {total} 个，{existing} 个已在队列中）', args: {added, total: ids.length, existing: ids.length - added}},
@@ -729,7 +767,7 @@
                 if (shouldIgnoreQuickOperationError(e, isCurrent())) return;
                 setStatus({key: 'status.fetch-failed', fallback: '获取作品列表失败：{message}', args: {message: e.message}}, 'error');
             } finally {
-                setQuickBtnLoading('quick-add-all', false);
+                if (isCurrent()) setQuickBtnLoading('quick-add-all', false);
             }
             return;
         }
@@ -820,7 +858,7 @@
                 if (shouldIgnoreQuickOperationError(e, isCurrent())) return;
                 setStatus({key: 'status.fetch-failed', fallback: '获取作品列表失败：{message}', args: {message: e.message}}, 'error');
             } finally {
-                setQuickBtnLoading('quick-add-all', false);
+                if (isCurrent()) setQuickBtnLoading('quick-add-all', false);
             }
             return;
         }
@@ -845,13 +883,15 @@
         // 「全部加入队列」入队全量（未过滤）作品，实际不符合附加筛选者在下载时逐作品跳过；预览筛选只影响「当前页加入队列」。
         // 当前页可能不是第 1 页（用户停在第 N 页才点「全部」），需要遍历 1..totalPages 全部页码，
         // 当前页直接复用 rawItems 以避免重复请求；collectedIds 兜底去重。
+        const currentPage = quickState.page;
         acc(quickState.rawItems);
         setQuickBtnLoading('quick-add-all', true);
         try {
             for (let p = 1; p <= totalPages; p++) {
-                if (p === quickState.page) continue;
+                if (p === currentPage) continue;
                 setStatus({key: 'status.user-fetch-all-progress', fallback: '正在抓取画师作品卡片 {done} / {total}...', args: {done: ids.length, total: quickState.total}}, 'info');
                 const more = await quickFetchPage(p);
+                if (!isCurrent()) return;
                 acc(more);
             }
             const added = addItemsToQueue(ids, metas, QUICK_FETCH_MODE, '', null, '');
@@ -864,7 +904,7 @@
             if (shouldIgnoreQuickOperationError(e, isCurrent())) return;
             setStatus({key: 'status.fetch-failed', fallback: '获取作品列表失败：{message}', args: {message: e.message}}, 'error');
         } finally {
-            setQuickBtnLoading('quick-add-all', false);
+            if (isCurrent()) setQuickBtnLoading('quick-add-all', false);
         }
     }
 

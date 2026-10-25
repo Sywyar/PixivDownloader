@@ -46,17 +46,15 @@ import top.sywyar.pixivdownload.scripts.ScriptRegistry;
 import top.sywyar.pixivdownload.scripts.UserscriptRegistry;
 
 import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static top.sywyar.pixivdownload.plugin.PluginTestArtifacts.zipDirectoryAsJar;
 
 @SpringBootTest(properties = {
         "pixivdownload.config-dir=target/test-runtime/config-external-download-workbench",
@@ -603,24 +601,6 @@ class DownloadWorkbenchExternalPluginBootContextTest {
         } catch (IOException failure) {
             throw new IllegalStateException(
                     "Could not stage the configured download-workbench classes", failure);
-        }
-    }
-
-    private static void zipDirectoryAsJar(Path sourceDir, Path jarPath)
-            throws IOException {
-        try (OutputStream output = Files.newOutputStream(jarPath);
-             ZipOutputStream zip = new ZipOutputStream(output)) {
-            List<Path> files;
-            try (var walk = Files.walk(sourceDir)) {
-                files = walk.filter(Files::isRegularFile).sorted().toList();
-            }
-            for (Path file : files) {
-                String entryName =
-                        sourceDir.relativize(file).toString().replace('\\', '/');
-                zip.putNextEntry(new ZipEntry(entryName));
-                Files.copy(file, zip);
-                zip.closeEntry();
-            }
         }
     }
 

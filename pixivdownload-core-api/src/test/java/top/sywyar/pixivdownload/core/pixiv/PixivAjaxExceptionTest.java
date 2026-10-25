@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 @DisplayName("Pixiv JSON 稳定失败模型")
 class PixivAjaxExceptionTest {
@@ -23,9 +24,16 @@ class PixivAjaxExceptionTest {
     @Test
     @DisplayName("状态码必须与失败类别保持一致")
     void shouldRejectInconsistentStatusCode() {
+        assertThatNullPointerException()
+                .isThrownBy(() -> new PixivAjaxException(null, 0)).withMessage("failure");
         assertThatIllegalArgumentException()
                 .isThrownBy(() -> new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 0));
         assertThatIllegalArgumentException()
+                .isThrownBy(() -> new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 600));
+        assertThatIllegalArgumentException()
                 .isThrownBy(() -> new PixivAjaxException(PixivAjaxFailure.TRANSPORT, 500));
+        assertThat(new PixivAjaxException(PixivAjaxFailure.TRANSPORT, 0).statusCode()).isZero();
+        assertThat(new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 100).statusCode()).isEqualTo(100);
+        assertThat(new PixivAjaxException(PixivAjaxFailure.HTTP_STATUS, 599).statusCode()).isEqualTo(599);
     }
 }

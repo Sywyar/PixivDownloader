@@ -124,7 +124,7 @@ final class DesktopControlCenterView {
         TextToken proxy = composeToken("home.freshness.unavailable");
         TextToken endpoint = null;
         try {
-            Map<String, String> config = host.applicationConfig().readAll(
+            Map<String, String> config = owner.readConfiguration(
                     List.of("proxy.enabled", "proxy.host", "proxy.port"));
             boolean enabled = Boolean.parseBoolean(config.getOrDefault("proxy.enabled", "false"));
             if (enabled) {

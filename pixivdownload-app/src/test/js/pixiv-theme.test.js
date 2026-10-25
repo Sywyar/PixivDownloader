@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-test('theme labels follow language changes and discard late translations after replacement or removal', async () => {
+test('主题标签跟随最新语言，成功、过期、移除与读取失败均释放临时客户端', async () => {
     const element = () => ({
         style: {}, dataset: {}, attrs: {},
         setAttribute(key, value) { this.attrs[key] = value; },
@@ -15,7 +15,7 @@ test('theme labels follow language changes and discard late translations after r
         appendChild(child) { child.parentNode = this; },
         removeChild(child) { child.parentNode = null; }
     });
-    const pending = [];
+    const pending = [], disposed = [];
     let listener;
     let unsubscribed = 0;
     const window = {
@@ -30,7 +30,7 @@ test('theme labels follow language changes and discard late translations after r
     vm.runInNewContext(fs.readFileSync(path.join(__dirname,
         '../../main/resources/static/js/pixiv-theme.js'), 'utf8'), { window, document: window.document });
     const mounted = window.PixivTheme.mount({ mountPoint: element() });
-    const translated = prefix => ({ t: key => prefix + key });
+    const translated = prefix => ({ t: key => prefix + key, dispose: () => disposed.push(prefix) });
     pending.shift().resolve(translated('first:'));
     await new Promise(setImmediate);
     assert.equal(mounted.element.title, 'first:theme.to-dark');
@@ -45,10 +45,15 @@ test('theme labels follow language changes and discard late translations after r
     old.resolve(translated('old:'));
     await new Promise(setImmediate);
     assert.equal(mounted.element.title, 'new:theme.to-light');
+    listener({ lang: 'failed' });
+    pending.shift().resolve({ t() { throw new Error('translation failed'); }, dispose: () => disposed.push('failed:') });
+    await new Promise(setImmediate);
+    assert.equal(mounted.element.title, 'new:theme.to-light');
     listener({ lang: 'removed' });
     mounted.destroy();
     pending.shift().resolve(translated('removed:'));
     await new Promise(setImmediate);
     assert.equal(unsubscribed, 1);
     assert.equal(mounted.element.title, 'new:theme.to-light');
+    assert.deepEqual(disposed, ['first:', 'new:', 'old:', 'failed:', 'removed:']);
 });

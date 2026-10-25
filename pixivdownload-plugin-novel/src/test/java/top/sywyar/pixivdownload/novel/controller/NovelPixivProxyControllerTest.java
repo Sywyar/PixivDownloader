@@ -17,6 +17,7 @@ import org.springframework.web.bind.support.WebDataBinderFactory;
 import org.springframework.web.context.request.NativeWebRequest;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;
 import org.springframework.web.method.support.ModelAndViewContainer;
+import org.springframework.web.util.UriComponentsBuilder;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessOutcome;
@@ -42,6 +43,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -178,6 +180,66 @@ class NovelPixivProxyControllerTest {
                     .withMessage("Conflicting acquisition credential headers");
 
             verifyNoInteractions(pixivAjaxClient);
+        }
+    }
+
+    @Nested
+    @DisplayName("小说范围搜索")
+    class RangeSearchTests {
+
+        @Test
+        @DisplayName("倒序范围按页上限取得结果，重复作品保留首次出现的内容与顺序")
+        void capsPagesAndKeepsFirstOccurrence() throws Exception {
+            when(accessPolicy.resolveSearchFillLimitPage(anyBoolean())).thenReturn(2);
+            when(pixivAjaxClient.get(any(URI.class), isNull())).thenReturn("""
+                    {"error":false,"body":{"novel":{"total":72,"data":[
+                      {"id":"10","title":"first"},{"id":"20","title":"second"}]}}}
+                    """, """
+                    {"error":false,"body":{"novel":{"total":72,"data":[
+                      {"id":"10","title":"duplicate"},{"id":"30","title":"third"}]}}}
+                    """);
+
+            mockMvc.perform(get("/api/pixiv/novel-search/range")
+                            .param("word", "story").param("startPage", "3").param("endPage", "1"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.items", hasSize(3)))
+                    .andExpect(jsonPath("$.items[0].id").value("10"))
+                    .andExpect(jsonPath("$.items[1].id").value("20"))
+                    .andExpect(jsonPath("$.items[2].id").value("30"))
+                    .andExpect(jsonPath("$.items[0].title").value("first"))
+                    .andExpect(jsonPath("$.total").value(72))
+                    .andExpect(jsonPath("$.startPage").value(1))
+                    .andExpect(jsonPath("$.endPage").value(2))
+                    .andExpect(jsonPath("$.requestedPages").value(3))
+                    .andExpect(jsonPath("$.acceptedPages").value(2))
+                    .andExpect(jsonPath("$.fetchedPages").value(2))
+                    .andExpect(jsonPath("$.limitPage").value(2));
+            ArgumentCaptor<URI> requests = ArgumentCaptor.forClass(URI.class);
+            verify(pixivAjaxClient, times(2)).get(requests.capture(), isNull());
+            org.assertj.core.api.Assertions.assertThat(requests.getAllValues())
+                    .extracting(uri -> UriComponentsBuilder.fromUri(uri).build().getQueryParams().getFirst("p"))
+                    .containsExactly("1", "2");
+        }
+
+        @Test
+        @DisplayName("起始页超过实际总页数时不计入已取得页且不继续请求")
+        void stopsBeyondTotalPages() throws Exception {
+            when(pixivAjaxClient.get(any(URI.class), isNull())).thenReturn("""
+                    {"error":false,"body":{"novel":{"total":24,"data":[{"id":"10"}]}}}
+                    """);
+
+            mockMvc.perform(get("/api/pixiv/novel-search/range")
+                            .param("word", "story").param("startPage", "4").param("endPage", "5"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.items", hasSize(0)))
+                    .andExpect(jsonPath("$.total").value(24))
+                    .andExpect(jsonPath("$.startPage").value(4))
+                    .andExpect(jsonPath("$.endPage").value(4))
+                    .andExpect(jsonPath("$.requestedPages").value(2))
+                    .andExpect(jsonPath("$.acceptedPages").value(2))
+                    .andExpect(jsonPath("$.fetchedPages").value(0))
+                    .andExpect(jsonPath("$.limitPage").value(0));
+            verify(pixivAjaxClient).get(any(URI.class), isNull());
         }
     }
 

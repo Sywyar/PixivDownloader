@@ -137,17 +137,17 @@ public final class ScheduleOwnerBundle {
                 LegacyPersistenceEntry::sourceType);
 
         for (LegacyPersistenceEntry persistence : preparedLegacyPersistence) {
-            if (!descriptorByType.containsKey(persistence.sourceType())) {
+            SourceDescriptorEntry descriptor = descriptorByType.get(persistence.sourceType());
+            if (descriptor == null) {
                 throw failure(owner, "legacy persistence descriptor has no source descriptor: "
                         + persistence.sourceType());
             }
-            SourceDescriptorEntry descriptor = descriptorByType.get(persistence.sourceType());
-            if (descriptor != null && (!descriptor.descriptor().definitionSchema()
+            if (!descriptor.descriptor().definitionSchema()
                     .equals(persistence.definitionSchema())
                     || descriptor.descriptor().definitionVersion() != persistence.definitionVersion()
                     || !descriptor.descriptor().possibleWorkTypes().equals(persistence.possibleWorkTypes())
                     || !descriptor.descriptor().credentialPolicyIds()
-                            .equals(persistence.credentialPolicyIds()))) {
+                            .equals(persistence.credentialPolicyIds())) {
                 throw failure(owner, "legacy persistence descriptor differs from source descriptor: "
                         + persistence.sourceType());
             }
@@ -385,7 +385,7 @@ public final class ScheduleOwnerBundle {
         }
         Set<String> copy = new LinkedHashSet<>();
         for (String value : values) {
-            String alias = requireAlias(value);
+            String alias = requireCapabilityId(value, "source alias");
             if (alias.equals(canonical)) {
                 throw new IllegalStateException("source alias duplicates its canonical type: " + canonical);
             }
@@ -462,26 +462,6 @@ public final class ScheduleOwnerBundle {
             if (Character.isWhitespace(normalized.charAt(index))
                     || Character.isISOControl(normalized.charAt(index))) {
                 throw new IllegalStateException(label + " contains whitespace or control characters: " + value);
-            }
-        }
-        return normalized;
-    }
-
-    private static String requireAlias(String value) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalStateException("source alias must not be blank");
-        }
-        String normalized = value.trim();
-        if (!normalized.equals(value)) {
-            throw new IllegalStateException("source alias must already be normalized: " + value);
-        }
-        if (normalized.getBytes(StandardCharsets.UTF_8).length > MAX_CAPABILITY_ID_BYTES) {
-            throw new IllegalStateException("source alias exceeds size limit");
-        }
-        for (int index = 0; index < normalized.length(); index++) {
-            if (Character.isWhitespace(normalized.charAt(index))
-                    || Character.isISOControl(normalized.charAt(index))) {
-                throw new IllegalStateException("source alias contains whitespace or control characters: " + value);
             }
         }
         return normalized;

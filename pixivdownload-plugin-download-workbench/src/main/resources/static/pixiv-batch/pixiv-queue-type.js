@@ -457,7 +457,7 @@
                         id: String(id),
                         kind: type,
                         cancelWorkKey: pixivCancelWorkKey(id),
-                        title: title || bt('queue.artwork-fallback', '作品 {id}', {id})
+                        title: title || ''
                     };
                 },
                 source: SINGLE_IMPORT_MODE
@@ -628,7 +628,7 @@
                                 });
                             },
                             load: requirePixivQuickSession(() => loadQuickIllustBookmarks(type, 'show', 1)),
-                            scheduleSource(ctx) {
+                            scheduleSource() {
                                 const kindLabel = bt('schedule.kind.' + type, type);
                                 const restLabel = bt('quick.schedule.rest.show', '公开');
                                 return scheduleSource('my-bookmarks', 'MY_BOOKMARKS', {rest: 'show'}, type,

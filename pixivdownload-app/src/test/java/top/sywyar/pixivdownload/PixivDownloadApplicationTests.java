@@ -40,10 +40,6 @@ class PixivDownloadApplicationTests {
         System.clearProperty(RuntimeFiles.PLUGINS_DIR_PROPERTY);
     }
 
-    @Test
-    void contextLoads() {
-    }
-
     /**
      * 自定义的宿主专用 {@code TaskExecutor} bean 会触发 Spring Boot 的
      * {@code applicationTaskExecutor}（{@code @ConditionalOnMissingBean(Executor.class)}）不再自动创建，

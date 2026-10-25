@@ -54,11 +54,10 @@ class HostRequestOwnerIdentityResolverTest {
     }
 
     @Test
-    @DisplayName("solo 模式邀请访客仍按宿主验证后的邀请行标识限流")
+    @DisplayName("邀请访客按宿主验证后的邀请行标识限流")
     void resolvesInvitedGuestRateLimitSubject() {
         SetupService setupService = mock(SetupService.class);
         MockHttpServletRequest request = new MockHttpServletRequest();
-        when(setupService.getMode()).thenReturn("solo");
         request.setAttribute(GuestInviteSession.REQUEST_ATTR, new GuestInviteSession(
                 42L, "secret-code", true, false, false,
                 true, Set.of(), true, Set.of(), true, Set.of(), true, Set.of()));

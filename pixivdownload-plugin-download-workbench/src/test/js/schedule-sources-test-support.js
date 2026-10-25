@@ -71,9 +71,9 @@ function harness(manifests, installers, options) {
                 script.onerror();
                 return;
             }
-            if (spec && spec.never) return;
+            if (spec.never) return;
             const installer = typeof spec === 'function' ? spec : spec.install;
-            const evaluatedScript = spec && spec.forgeCurrentScript
+            const evaluatedScript = spec.forgeCurrentScript
                 ? Object.assign({dataset: {}}, script, {dataset: Object.assign({}, script.dataset)})
                 : script;
             document.currentScript = evaluatedScript;
@@ -121,7 +121,7 @@ function harness(manifests, installers, options) {
     vm.runInContext(runtimeSource, context, {filename: 'batch-schedule-sources.js'});
     const runtime = context.window.PixivBatch.scheduleSources;
     const exposed = Object.create(runtime);
-    exposed.__test = {document, get requestCount() { return requestCount; }};
+    exposed.__test = {get requestCount() { return requestCount; }};
     return exposed;
 }
 

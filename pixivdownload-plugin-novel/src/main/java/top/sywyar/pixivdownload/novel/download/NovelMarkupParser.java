@@ -84,7 +84,7 @@ public final class NovelMarkupParser {
         for (String line : lines) {
             Matcher chapter = CHAPTER_LINE.matcher(line);
             if (chapter.matches()) {
-                if (started || buf.toString().strip().length() > 0) {
+                if (started || !buf.toString().isBlank()) {
                     segments.add(new Segment(currentTitle, buf.toString()));
                 }
                 buf.setLength(0);
@@ -95,7 +95,7 @@ public final class NovelMarkupParser {
             if (buf.length() > 0) buf.append('\n');
             buf.append(line);
         }
-        if (started || buf.toString().strip().length() > 0 || segments.isEmpty()) {
+        if (started || !buf.toString().isBlank() || segments.isEmpty()) {
             segments.add(new Segment(currentTitle, buf.toString()));
         }
         return segments;
@@ -311,9 +311,7 @@ public final class NovelMarkupParser {
 
     private static String renderHtml(List<Block> blocks, boolean xhtml, ImageResolver resolver, ImageLabels labels) {
         StringBuilder out = new StringBuilder();
-        boolean sectionOpen = false;
         out.append(openSection(xhtml));
-        sectionOpen = true;
         for (Block b : blocks) {
             switch (b.kind) {
                 case CHAPTER -> {
@@ -322,12 +320,8 @@ public final class NovelMarkupParser {
                             .append("</h2>\n");
                 }
                 case NEWPAGE -> {
-                    if (sectionOpen) {
-                        out.append("</section>\n");
-                        sectionOpen = false;
-                    }
+                    out.append("</section>\n");
                     out.append(openSection(xhtml));
-                    sectionOpen = true;
                 }
                 case PARAGRAPH -> {
                     String[] paragraphs = b.text.split("\n{2,}");
@@ -338,7 +332,7 @@ public final class NovelMarkupParser {
                 }
             }
         }
-        if (sectionOpen) out.append("</section>\n");
+        out.append("</section>\n");
         return out.toString();
     }
 
@@ -367,7 +361,7 @@ public final class NovelMarkupParser {
                     out.append(label);
                 } else {
                     out.append("<a href=\"")
-                            .append(escapeAttr(href))
+                            .append(escapeHtml(href))
                             .append("\" rel=\"noopener noreferrer\" target=\"_blank\">")
                             .append(label)
                             .append("</a>");
@@ -408,12 +402,12 @@ public final class NovelMarkupParser {
                                           String id, String label, boolean xhtml) {
         out.append("<figure class=\"novel-image\" ")
                 .append(dataAttr).append("=\"")
-                .append(escapeAttr(id))
+                .append(escapeHtml(id))
                 .append("\">");
         if (url != null && !url.isBlank()) {
             String selfClose = xhtml ? " />" : ">";
-            out.append("<img src=\"").append(escapeAttr(url))
-                    .append("\" alt=\"").append(escapeAttr(label)).append("\"")
+            out.append("<img src=\"").append(escapeHtml(url))
+                    .append("\" alt=\"").append(escapeHtml(label)).append("\"")
                     .append(" loading=\"lazy\"")
                     .append(selfClose);
         } else {
@@ -448,10 +442,6 @@ public final class NovelMarkupParser {
             }
         }
         return out.toString();
-    }
-
-    private static String escapeAttr(String s) {
-        return escapeHtml(s);
     }
 
     private enum BlockKind { PARAGRAPH, CHAPTER, NEWPAGE }

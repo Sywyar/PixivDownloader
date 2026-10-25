@@ -37,9 +37,6 @@
 
 .pm-btn--primary { background: var(--brand); }
 .pm-btn--teal { background: var(--accent-teal); }
-.pm-btn--blue { background: var(--accent-blue); }
-.pm-btn--amber { background: var(--accent-amber); }
-
 /* 描边按钮（设置 / 卸载等次级动作） */
 .pm-btn--gray,
 .pm-btn--danger {
@@ -64,12 +61,6 @@
 .pm-btn--danger:hover {
     background: color-mix(in srgb, var(--accent-red) 12%, transparent);
     filter: none;
-}
-
-.pm-btn--sm {
-    height: 28px;
-    padding: 0 11px;
-    font-size: 0.75rem;
 }
 
 /* ── 恢复 / 补齐模式横幅 ── */
@@ -191,10 +182,6 @@
     box-shadow: var(--shadow-card);
 }
 
-.pm-tab.active.pm-tab--amber {
-    color: var(--accent-amber);
-}
-
 .pm-tab i {
     font-size: 0.75rem;
 }
@@ -307,18 +294,6 @@
 .pm-card-status--info .pm-status-dot { background: var(--status-blue); }
 .pm-card-status--warn .pm-status-dot { background: var(--status-yellow); }
 .pm-card-status--bad .pm-status-dot { background: var(--status-red); }
-
-.pm-card-ribbon {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    margin: -14px -16px 0;
-    padding: 7px 16px;
-    background: var(--warning-bg);
-    color: var(--warning-text);
-    font-size: 0.75rem;
-    font-weight: 700;
-}
 
 .pm-card-head {
     display: flex;
@@ -440,59 +415,6 @@
     font-size: 0.6875rem;
 }
 
-.pm-progress-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: var(--muted);
-    margin-bottom: 5px;
-}
-
-.pm-progressbar {
-    height: 6px;
-    border-radius: 999px;
-    background: var(--progress-bg);
-    overflow: hidden;
-}
-
-.pm-progressbar > span {
-    display: block;
-    height: 100%;
-    background: var(--status-green);
-    border-radius: 999px;
-    transition: width .25s ease;
-}
-
-/* ── 卡片底栏 ── */
-.pm-card-foot {
-    margin-top: auto;
-    padding-top: 10px;
-    border-top: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    flex-wrap: wrap;
-}
-
-.pm-meta {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    font-size: 0.75rem;
-    color: var(--muted);
-    flex-wrap: wrap;
-}
-
-.pm-meta-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    white-space: nowrap;
-}
-
 .pm-status-dot {
     width: 7px;
     height: 7px;
@@ -610,36 +532,6 @@
 .pm-action-menu button:disabled {
     opacity: .55;
     cursor: not-allowed;
-}
-
-/* ── 徽标 ── */
-.pm-badge {
-    display: inline-flex;
-    align-items: center;
-    min-height: 1.125rem;
-    padding: 0 .5rem;
-    border-radius: var(--radius-pill);
-    font-size: 0.6875rem;
-    font-weight: 700;
-    line-height: 1.4;
-    border: 1px solid transparent;
-}
-
-.pm-badge--success {
-    background: var(--status-green);
-    color: var(--on-accent);
-}
-
-.pm-badge--idle {
-    background: transparent;
-    color: var(--muted);
-    border-color: var(--border);
-}
-
-.pm-badge--warn {
-    background: transparent;
-    color: var(--accent-amber);
-    border-color: color-mix(in srgb, var(--accent-amber) 45%, transparent);
 }
 
 /* ── 开关（启用 / 停用） ── */

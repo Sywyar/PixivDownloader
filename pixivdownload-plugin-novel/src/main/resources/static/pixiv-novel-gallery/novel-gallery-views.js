@@ -1,5 +1,6 @@
 'use strict';
 
+let galleryMembershipRevision = 0;
 // ---------- View switching ----------
 function switchView(v) {
     v = normalizeView(v);
@@ -106,7 +107,6 @@ function formatReadingDuration(seconds) {
     if (hour > 0) parts.push(pageI18n.t('novel-gallery:duration.hour', '{count} 小时', { count: hour }));
     if (minute > 0) parts.push(pageI18n.t('novel-gallery:duration.minute', '{count} 分钟', { count: minute }));
     if (second > 0 && hour === 0) parts.push(pageI18n.t('novel-gallery:duration.second', '{count} 秒', { count: second }));
-    if (!parts.length) parts.push(pageI18n.t('novel-gallery:duration.second', '{count} 秒', { count: total }));
     return parts.join(' ');
 }
 
@@ -202,6 +202,7 @@ function renderGrid(items) {
 }
 
 async function loadMembershipsForNovels(novelIds) {
+    const revision = ++galleryMembershipRevision;
     if (!novelIds.length) return;
     let memberships = {};
     try {
@@ -215,6 +216,7 @@ async function loadMembershipsForNovels(novelIds) {
         const data = await r.json();
         memberships = data.memberships || {};
     } catch (e) { return; }
+    if (revision !== galleryMembershipRevision || collectionPending) return;
     const byId = new Map((state.collections || []).map(c => [c.id, c]));
     novelIds.forEach(id => {
         const collectionIds = memberships[id] || [];
@@ -484,7 +486,6 @@ async function loadSeriesNovels(seriesId, strip, leftBtn, rightBtn) {
 /** 系列横排尺寸常量，需与 .series-row .series-works-pager / .author-work-card 默认尺寸保持一致。 */
 const SERIES_CARD_WIDTH_PX = 140;
 const SERIES_COLUMN_GAP_PX = 10;
-const SERIES_ROW_GAP_PX = 12;
 /** 卡高 = 140 缩略图 + ~36 标题（两行）+ 上下间距，给一个保守的 180px。 */
 const SERIES_CARD_HEIGHT_PX = 180;
 /** 左右各 40px 留给 .author-works-arrow 浮层。 */
@@ -609,12 +610,10 @@ function renderSeriesPagedStrip(strip, items, leftBtn, rightBtn) {
             if (rightBtn) rightBtn.onclick = () => {
                 strip.scrollBy({ left: pageStridePx, behavior: 'smooth' });
             };
-            const onScroll = () => apply();
-            strip.addEventListener('scroll', onScroll, { passive: true });
-            scrollListenerCleanup = () => strip.removeEventListener('scroll', onScroll);
+            strip.addEventListener('scroll', apply, { passive: true });
+            scrollListenerCleanup = () => strip.removeEventListener('scroll', apply);
             apply();
         } else {
-            pageIndex = Math.min(pageIndex, totalPages - 1);
             const apply = () => {
                 pager.style.transform = `translateX(-${pageIndex * pageStridePx}px)`;
                 if (leftBtn) leftBtn.disabled = pageIndex === 0;
@@ -766,74 +765,4 @@ function commitPageJump(input, totalPages, onClick) {
     const target = Math.min(Math.max(pageNumber, 1), totalPages) - 1;
     onClick(target);
     return true;
-}
-
-// ---------- Add to collection (novel) ----------
-const collectionState = { activeNovelId: null, membership: new Set() };
-
-async function openAddToCollectionModal(novelId) {
-    collectionState.activeNovelId = novelId;
-    try {
-        const r = await fetch(`/api/collections/novels/of/${novelId}`, { credentials: 'same-origin' });
-        if (r.ok) {
-            const data = await r.json();
-            collectionState.membership = new Set(data.collectionIds || []);
-        } else {
-            collectionState.membership = new Set();
-        }
-    } catch (e) {
-        collectionState.membership = new Set();
-    }
-    renderAddToCollectionList();
-    document.getElementById('modalAddToCollection').classList.add('open');
-}
-
-function closeAddToCollectionModal() {
-    document.getElementById('modalAddToCollection').classList.remove('open');
-    collectionState.activeNovelId = null;
-    loadCollections();
-    const ids = [...document.querySelectorAll('.card[data-novel-id]')].map(el => Number(el.dataset.novelId));
-    if (ids.length) loadMembershipsForNovels(ids);
-}
-
-function renderAddToCollectionList() {
-    const list = document.getElementById('addToCollectionList');
-    if (!state.collections.length) {
-        list.innerHTML = `<div class="empty" style="padding:24px">${esc(pageI18n.t('status.no-collections-hint', '暂无收藏夹，请先新建'))}</div>`;
-        return;
-    }
-    list.innerHTML = state.collections.map(c => {
-        const icon = c.iconExt
-            ? `<img src="/api/collections/${c.id}/icon?v=${c.createdTime}" alt="">`
-            : HEART_SVG;
-        const checked = collectionState.membership.has(c.id) ? 'checked' : '';
-        return `<label class="collection-row" data-id="${c.id}">
-            <input type="checkbox" ${checked}>
-            <div class="collection-row-icon">${icon}</div>
-            <div class="collection-row-name">${esc(c.name)}</div>
-            <span class="collection-count">${c.novelCount ?? 0}</span>
-        </label>`;
-    }).join('');
-    list.querySelectorAll('.collection-row').forEach(row => {
-        const id = Number(row.dataset.id);
-        const cb = row.querySelector('input[type="checkbox"]');
-        cb.addEventListener('change', async () => {
-            const novelId = collectionState.activeNovelId;
-            if (novelId == null) return;
-            try {
-                if (cb.checked) {
-                    const r = await fetch(`/api/collections/${id}/novels/${novelId}`, { method: 'POST', credentials: 'same-origin' });
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    collectionState.membership.add(id);
-                } else {
-                    const r = await fetch(`/api/collections/${id}/novels/${novelId}`, { method: 'DELETE', credentials: 'same-origin' });
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    collectionState.membership.delete(id);
-                }
-            } catch (e) {
-                cb.checked = !cb.checked;
-                toast(pageI18n.t('toast.action-failed', '操作失败'), 'error');
-            }
-        });
-    });
 }

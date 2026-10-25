@@ -2,12 +2,13 @@ package top.sywyar.pixivdownload.novel.narration.analysis;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import top.sywyar.pixivdownload.ai.AiChatClient;
 import top.sywyar.pixivdownload.ai.AiClientException;
 import top.sywyar.pixivdownload.ai.model.AiChatResult;
-import top.sywyar.pixivdownload.novel.narration.analysis.NarrationAnalysisRequest;
-import top.sywyar.pixivdownload.novel.narration.analysis.NarrationCharacter;
-import top.sywyar.pixivdownload.novel.narration.analysis.NarrationLineVoice;
 
 import java.util.List;
 
@@ -42,8 +43,8 @@ class NarrationScriptServiceTest {
                 + "{\"i\":1,\"speaker\":2,\"delivery\":\"\"}],"
                 + "\"newCharacters\":[{\"id\":2,\"name\":\"少年\",\"gender\":\"male\",\"age\":\"teen\","
                 + "\"instruction\":\"A bright teenage boy.\"}],"
-                + "\"updatedCharacters\":[{\"id\":1,\"instruction\":\"refined\"}],"
-                + "\"conflicts\":[]}";
+                + "\"updatedCharacters\":[{\"id\":1,\"name\":\"皇太后\",\"instruction\":\"refined\"}],"
+                + "\"conflicts\":[{\"id\":1,\"type\":\"incomplete\",\"reason\":\"missing age\",\"suggestion\":\"older\"}]}";
         when(ai.chat(eq(NarrationAnalysisRequest.CALL_TYPE), any(), any())).thenReturn(result(json));
         NarrationScriptService service = new NarrationScriptService(ai);
 
@@ -58,6 +59,8 @@ class NarrationScriptServiceTest {
         assertEquals(2, a.newCharacters().get(0).id());
         assertEquals("少年", a.newCharacters().get(0).name());
         assertEquals("refined", a.updatedCharacters().get(1));
+        assertEquals("皇太后", a.renamedCharacters().get(1));
+        assertEquals(List.of(new NarrationConflict(1, "incomplete", "missing age", "older")), a.conflicts());
     }
 
     @Test
@@ -79,25 +82,63 @@ class NarrationScriptServiceTest {
         assertTrue(a.conflicts().isEmpty());
     }
 
-    @Test
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"null", " null ", "```json\nnull\n```", " ", "not json"})
+    @DisplayName("空值与无法解析的分析响应按原句顺序回退到旁白")
+    void invalidResponsePreservesNarratorFallback(String content) throws Exception {
+        AiChatClient ai = mock(AiChatClient.class);
+        when(ai.chat(eq(NarrationAnalysisRequest.CALL_TYPE), any(), any())).thenReturn(result(content));
+        NarrationSegmentAnalysis analysis = new NarrationScriptService(ai)
+                .analyzeSegment(List.of(narrator("N"), ch(1, "Speaker", "V")), List.of("a", "b"), 2);
+
+        assertEquals(List.of(NarrationLineVoice.narratorAt(0), NarrationLineVoice.narratorAt(1)), analysis.lines());
+        assertTrue(analysis.newCharacters().isEmpty());
+        assertTrue(analysis.updatedCharacters().isEmpty());
+        assertTrue(analysis.renamedCharacters().isEmpty());
+        assertTrue(analysis.conflicts().isEmpty());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"2,1,1", "5,1,3", "2,3,3"})
     @DisplayName("analyzeSegment：新角色临时 id 小于 nextId / 撞既有名册时整段归旁白")
-    void analyzeSegmentFallsBackWhenNewCharacterIdConflictsWithRoster() throws Exception {
+    void analyzeSegmentFallsBackWhenNewCharacterIdConflictsWithRoster(int nextId, int existingId, int newId) throws Exception {
         AiChatClient ai = mock(AiChatClient.class);
         String json = "{\"lines\":[{\"i\":0,\"speaker\":1,\"delivery\":\"confused\"}],"
-                + "\"newCharacters\":[{\"id\":1,\"name\":\"少年\",\"gender\":\"male\",\"age\":\"teen\","
+                + "\"newCharacters\":[{\"id\":" + newId + ",\"name\":\"少年\",\"gender\":\"male\",\"age\":\"teen\","
                 + "\"instruction\":\"A bright teenage boy.\"}],"
                 + "\"updatedCharacters\":[],\"conflicts\":[]}";
         when(ai.chat(eq(NarrationAnalysisRequest.CALL_TYPE), any(), any())).thenReturn(result(json));
         NarrationScriptService service = new NarrationScriptService(ai);
 
         NarrationSegmentAnalysis a = service.analyzeSegment(
-                List.of(narrator("N"), ch(1, "哀家", "V1")), List.of("s0"), 2);
+                List.of(narrator("N"), ch(existingId, "哀家", "V1")), List.of("s0"), nextId);
 
         assertEquals(1, a.lines().size());
         assertEquals(0, a.lines().get(0).speakerId());
         assertTrue(a.newCharacters().isEmpty());
         assertTrue(a.updatedCharacters().isEmpty());
         assertTrue(a.conflicts().isEmpty());
+    }
+
+    @Test
+    @DisplayName("新角色先丢弃空项、非法项并按临时编号去重，再参与逐句归属")
+    void analyzesNormalizedCharacters() throws Exception {
+        AiChatClient ai = mock(AiChatClient.class);
+        when(ai.chat(eq(NarrationAnalysisRequest.CALL_TYPE), any(), any())).thenReturn(result("""
+                {"lines":[{"i":0,"speaker":2}],"newCharacters":[null,{},
+                 {"id":2,"name":"少年","instruction":"first"},
+                 {"id":2,"name":"重复","instruction":"second"},
+                 {"id":3,"name":"无画像"}]}
+                """));
+        NarrationSegmentAnalysis analysis = new NarrationScriptService(ai)
+                .analyzeSegment(List.of(narrator("N")), List.of("a", "b"), 2);
+        assertEquals(List.of(2, 0), analysis.lines().stream().map(NarrationLineVoice::speakerId).toList());
+        assertEquals(List.of(new NarrationCharacter(2, "少年", "unknown", "unknown", "first", false, false)),
+                analysis.newCharacters());
+        assertTrue(analysis.updatedCharacters().isEmpty());
+        assertTrue(analysis.renamedCharacters().isEmpty());
+        assertTrue(analysis.conflicts().isEmpty());
     }
 
     @Test

@@ -66,8 +66,9 @@ public final class ArtworkMediaDecoder {
     }
 
     private BufferedImage read(Path source, int edge, boolean cover) throws IOException {
-        if (source.getFileName().toString().toLowerCase(java.util.Locale.ROOT).endsWith(".zip")) return readZipFrame(source, edge, cover);
-        if (source.getFileName().toString().toLowerCase(java.util.Locale.ROOT).endsWith(".webp") && Files.size(source) > MAX_BYTES) {
+        String fileName = source.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+        if (fileName.endsWith(".zip")) return readZipFrame(source, edge, cover);
+        if (fileName.endsWith(".webp") && Files.size(source) > MAX_BYTES) {
             Path cache = RuntimeFiles.galleryThumbnailDirectory();
             Files.createDirectories(cache);
             Path frame = Files.createTempFile(cache, "webp-frame-", ".webp");

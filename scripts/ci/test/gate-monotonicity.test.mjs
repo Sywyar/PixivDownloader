@@ -77,13 +77,6 @@ function parity(f, ref, extra = []) {
     });
 }
 
-function mutateJson(root, rel, mutate) {
-    const file = path.join(root, ...rel.split('/'));
-    const value = JSON.parse(fs.readFileSync(file, 'utf8'));
-    mutate(value);
-    fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n', 'utf8');
-}
-
 test('trusted release core：root 不变量通过，required job 删除被拒绝', () => {
     const f = fixture();
     try {

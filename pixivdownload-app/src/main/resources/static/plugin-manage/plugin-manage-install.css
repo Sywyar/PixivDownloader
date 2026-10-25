@@ -13,12 +13,6 @@
     display: none;
 }
 
-.pm-modal-backdrop {
-    position: absolute;
-    inset: 0;
-    background: var(--overlay-bg);
-}
-
 .pm-modal-card {
     position: relative;
     width: 100%;
@@ -236,18 +230,6 @@
     font-weight: 600;
     color: var(--text);
     line-height: 1.5;
-}
-
-.pm-install-code {
-    flex-shrink: 0;
-    font-family: var(--font-mono);
-    font-size: 0.6875rem;
-    font-weight: 700;
-    color: var(--muted);
-    background: var(--control-muted-bg);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-xs);
-    padding: 2px 7px;
 }
 
 .pm-install-restart {

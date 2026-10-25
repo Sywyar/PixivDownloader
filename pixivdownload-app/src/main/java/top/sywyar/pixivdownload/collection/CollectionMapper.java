@@ -58,9 +58,13 @@ public class CollectionMapper {
     public int updateIconExt(long id, String iconExt) { return update(id, "icon_ext", iconExt); }
     public int updateDownloadRoot(long id, String downloadRoot) { return update(id, "download_root", downloadRoot); }
     public int updateSortOrder(long id, int sortOrder) { return update(id, "sort_order", sortOrder); }
-    public int deleteById(long id) { return database.transaction(s -> s.delete(TABLE, identity(id))); }
-    public int deleteArtworkLinksByCollection(long id) {
-        return database.transaction(s -> s.delete(LINKS, call(EQUAL, column(LINKS, "collection_id"), value(id))));
+    public int deleteById(long id) {
+        return database.transaction(s -> {
+            for (String links : List.of(LINKS, "novel_collections")) {
+                s.delete(links, call(EQUAL, column(links, "collection_id"), value(id)));
+            }
+            return s.delete(TABLE, identity(id));
+        });
     }
     public int addArtwork(long collectionId, long artworkId, long addedTime) {
         return database.transaction(s -> s.insert(LINKS, Map.of("collection_id", collectionId, "artwork_id", artworkId,

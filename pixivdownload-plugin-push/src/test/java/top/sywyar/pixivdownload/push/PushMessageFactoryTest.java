@@ -4,12 +4,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
+import top.sywyar.pixivdownload.plugin.api.notification.ImmutableNotificationTemplateCatalog;
+import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateContribution;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -77,6 +80,27 @@ class PushMessageFactoryTest {
             assertThat(bundle.stringPropertyNames())
                     .noneMatch(key -> key.startsWith("push.message."));
         }
+    }
+
+    @Test
+    @DisplayName("替换值中的美元反斜杠和占位符保持字面值且空值不外发")
+    void replacementValuesRemainLiteral() {
+        String template = "{{value}}|{{missing}}|{{nullable}}|{{raw_md}}|{{raw_html}}";
+        PushMessageFactory custom = new PushMessageFactory(new ImmutableNotificationTemplateCatalog(
+                List.of(new NotificationTemplateContribution("sample", "push", Locale.US, template, template))));
+        Map<String, String> values = new HashMap<>();
+        values.put("value", "$1\\* {{nested}}");
+        values.put("nullable", null);
+        values.put("raw_md", "**bold** $1\\ {{nested}}");
+        values.put("raw_html", "<b>raw</b>");
+
+        PushMessage message = custom.render("sample", NotificationSeverity.INFO, Locale.US, values);
+
+        assertThat(message.title()).isEqualTo("$1\\* {{nested}}|||**bold** $1\\ {{nested}}|<b>raw</b>");
+        assertThat(message.content()).isEqualTo("$1\\\\\\* {{nested}}|||**bold** $1\\ {{nested}}|<b>raw</b>");
+        PushMessage empty = custom.render("sample", null, Locale.US, null);
+        assertThat(empty.title()).isEqualTo("||||");
+        assertThat(empty.content()).isEqualTo("||||");
     }
 
     private static Properties loadProperties(String resource) throws IOException {

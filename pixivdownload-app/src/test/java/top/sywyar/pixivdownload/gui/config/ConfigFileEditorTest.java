@@ -3,6 +3,10 @@ package top.sywyar.pixivdownload.gui.config;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.core.io.FileSystemResource;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.IOException;
@@ -25,6 +29,43 @@ class ConfigFileEditorTest {
         Path file = tempDir.resolve("config.yaml");
         Files.write(file, List.of(lines), StandardCharsets.UTF_8);
         return file;
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"server.port", "'server.port'", "\"server.port\"", "\"server\\u002eport\""})
+    @DisplayName("标量读写与删除识别引号和转义键，保留其它行与注释")
+    void quotedKeysRoundTrip(String key) throws IOException {
+        Path file = writeTemplate("# 配置", key + "  : 7011  # 端口", "server.port.extra: keep");
+        byte[] original = Files.readAllBytes(file);
+        ConfigFileEditor editor = new ConfigFileEditor(file);
+
+        assertThat(editor.read("server.port")).isEqualTo("7011");
+        assertThat(editor.readAll(List.of("server.port"))).containsExactlyEntriesOf(Map.of("server.port", "7011"));
+        assertThat(Files.readAllBytes(file)).isEqualTo(original);
+        editor.write("server.port", "7012");
+        assertThat(Files.readAllLines(file)).containsExactly("# 配置", "server.port: 7012  # 端口", "server.port.extra: keep");
+
+        Files.write(file, original);
+        editor.writeAll(Map.of("server.port", "7013"));
+        var sources = new YamlPropertySourceLoader().load("config", new FileSystemResource(file));
+        assertThat(sources.get(0).getProperty("server.port")).isEqualTo(7013);
+        assertThat(Files.readAllLines(file)).containsExactly("# 配置", "server.port: 7013  # 端口", "server.port.extra: keep");
+
+        Files.write(file, original);
+        editor.removeAll(List.of("server.port"));
+        assertThat(Files.readAllLines(file)).containsExactly("# 配置", "server.port.extra: keep");
+    }
+
+    @Test
+    @DisplayName("注释中的引号键不参与读取，保存时恢复为活跃条目")
+    void quotedCommentedKeyIsOnlyRestoredWhenWriting() throws IOException {
+        Path file = writeTemplate("# 'server.port': 7011  # 端口");
+        ConfigFileEditor editor = new ConfigFileEditor(file);
+
+        assertThat(editor.read("server.port")).isNull();
+        assertThat(editor.readAll(List.of("server.port"))).isEmpty();
+        editor.writeAll(Map.of("server.port", "7012"));
+        assertThat(Files.readAllLines(file)).containsExactly("server.port: 7012  # 端口");
     }
 
     @Test
@@ -147,6 +188,54 @@ class ConfigFileEditorTest {
     }
 
     @Test
+    @DisplayName("单引号路径保留反斜杠、井号和转义单引号，读取不回写文件")
+    void singleQuotedValuesAreReadWithoutRewriting() throws IOException {
+        Path file = writeTemplate(
+                "download.root-folder: 'D:\\artist''s # archive'  # 下载目录",
+                "ffmpeg.executable-path: 'C:\\Program Files\\FFmpeg\\ffmpeg.exe'",
+                "app.language: 'en'",
+                "empty.value: ''",
+                "spaced.value: '  # value  '");
+        byte[] before = Files.readAllBytes(file);
+        ConfigFileEditor editor = new ConfigFileEditor(file);
+        Map<String, String> expected = Map.of(
+                "download.root-folder", "D:\\artist's # archive",
+                "ffmpeg.executable-path", "C:\\Program Files\\FFmpeg\\ffmpeg.exe",
+                "app.language", "en",
+                "empty.value", "",
+                "spaced.value", "  # value  ");
+
+        for (var entry : expected.entrySet()) {
+            assertThat(editor.read(entry.getKey())).isEqualTo(entry.getValue());
+        }
+        assertThat(editor.readAll(expected.keySet())).containsExactlyInAnyOrderEntriesOf(expected);
+        assertThat(Files.readAllBytes(file)).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("覆盖单引号值时只保留真正的行尾注释，其它配置不变")
+    void replacingSingleQuotedValuesPreservesOnlyInlineComments() throws IOException {
+        Path file = writeTemplate(
+                "# Paths",
+                "download.root-folder: 'D:/artist''s # old'  # 下载目录",
+                "ffmpeg.executable-path: 'D:/tools#old/ffmpeg.exe'",
+                "server.port: 6999  # untouched");
+        ConfigFileEditor editor = new ConfigFileEditor(file);
+
+        editor.write("download.root-folder", "D:/new");
+        editor.writeAll(Map.of("ffmpeg.executable-path", "D:/tools/ffmpeg.exe"));
+
+        assertThat(Files.readAllLines(file, StandardCharsets.UTF_8)).containsExactly(
+                "# Paths",
+                "download.root-folder: D:/new  # 下载目录",
+                "ffmpeg.executable-path: D:/tools/ffmpeg.exe",
+                "server.port: 6999  # untouched");
+        Map<String, Object> parsed = new Yaml().load(Files.readString(file, StandardCharsets.UTF_8));
+        assertThat(parsed).containsEntry("download.root-folder", "D:/new")
+                .containsEntry("ffmpeg.executable-path", "D:/tools/ffmpeg.exe");
+    }
+
+    @Test
     @DisplayName("非法配置 key 被拒绝且不改写文件")
     void unsafeKeyIsRejectedWithoutChangingFile() throws IOException {
         Path file = writeTemplate("server.port: 6999");
@@ -158,6 +247,48 @@ class ConfigFileEditorTest {
         assertThat(Files.readString(file, StandardCharsets.UTF_8))
                 .contains("server.port: 6999")
                 .doesNotContain("bad:key");
+    }
+
+    @Test
+    @DisplayName("双引号 Unicode 转义值与启动加载结果一致且读取不改文件")
+    void readsQuotedUnicodeEscapes() throws IOException {
+        Path file = writeTemplate("fixture.value: \"\\u4e2d\\x20\\U0001F600\"  # keep");
+        byte[] original = Files.readAllBytes(file);
+        ConfigFileEditor editor = new ConfigFileEditor(file);
+
+        var sources = new YamlPropertySourceLoader().load("config", new FileSystemResource(file));
+        assertThat(sources.get(0).getProperty("fixture.value")).isEqualTo("中 😀");
+        assertThat(editor.read("fixture.value")).isEqualTo("中 😀");
+        assertThat(editor.readAll(List.of("fixture.value"))).containsEntry("fixture.value", "中 😀");
+        assertThat(Files.readAllBytes(file)).isEqualTo(original);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://example.test/#part", "secret#part"})
+    @DisplayName("裸值中的井号不截断内容且保存只保留真正的注释")
+    void preservesHashInsidePlainValue(String value) throws IOException {
+        Path file = writeTemplate("fixture.value: " + value + "  # keep", "other.value: untouched");
+        ConfigFileEditor editor = new ConfigFileEditor(file);
+
+        var sources = new YamlPropertySourceLoader().load("config", new FileSystemResource(file));
+        assertThat(sources.get(0).getProperty("fixture.value")).isEqualTo(value);
+        assertThat(editor.read("fixture.value")).isEqualTo(value);
+        assertThat(editor.readAll(List.of("fixture.value"))).containsEntry("fixture.value", value);
+        editor.write("fixture.value", "after");
+        assertThat(Files.readAllLines(file, StandardCharsets.UTF_8))
+                .containsExactly("fixture.value: after  # keep", "other.value: untouched");
+    }
+
+    @Test
+    @DisplayName("非法引号转义不得作为成功读取的配置值")
+    void rejectsInvalidQuotedEscape() throws IOException {
+        Path file = writeTemplate("fixture.value: \"bad\\q\"");
+        byte[] original = Files.readAllBytes(file);
+        ConfigFileEditor editor = new ConfigFileEditor(file);
+
+        assertThatThrownBy(() -> editor.read("fixture.value")).isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> editor.readAll(List.of("fixture.value"))).isInstanceOf(IOException.class);
+        assertThat(Files.readAllBytes(file)).isEqualTo(original);
     }
 
     @SuppressWarnings("unchecked")

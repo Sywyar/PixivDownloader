@@ -131,7 +131,7 @@ public class RouteAccessRegistry {
         synchronized (lock) {
             snapshot = snapshot.stream()
                     .filter(registered -> !registered.pluginId().equals(pluginId))
-                    .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+                    .collect(Collectors.toUnmodifiableList());
         }
     }
 
@@ -146,7 +146,7 @@ public class RouteAccessRegistry {
         synchronized (lock) {
             snapshot = snapshot.stream()
                     .filter(registered -> !requestOwner.equals(registered.requestOwner()))
-                    .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+                    .collect(Collectors.toUnmodifiableList());
         }
     }
 

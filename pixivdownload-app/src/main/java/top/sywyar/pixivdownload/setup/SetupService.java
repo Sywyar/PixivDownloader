@@ -12,6 +12,7 @@ import top.sywyar.pixivdownload.common.SessionUtils;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
+import top.sywyar.pixivdownload.plugin.api.web.Audience;
 
 import org.springframework.boot.ApplicationArguments;
 
@@ -24,10 +25,10 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @Slf4j
@@ -56,11 +57,11 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
     private volatile boolean configurationCorrupted = false;
     private volatile boolean sessionStorageMigrationNeeded = false;
 
-    /** SHA-256(token) → expiry timestamp (ms)，内存中同时保存短期和长期 session */
-    private final ConcurrentHashMap<String, Long> sessions = new ConcurrentHashMap<>();
+    /** SHA-256(token) → 到期毫秒；两张会话表均由实例监视器保护。 */
+    private final Map<String, Long> sessions = new HashMap<>();
 
     /** 需要持久化的长期 session token 集合 */
-    private final ConcurrentHashMap<String, Long> persistentSessions = new ConcurrentHashMap<>();
+    private final Map<String, Long> persistentSessions = new HashMap<>();
 
     private static final long SESSION_SHORT = 2L  * 3600 * 1000;       // 2 小时
     private static final long SESSION_LONG  = 30L * 24 * 3600 * 1000;  // 30 天
@@ -270,12 +271,15 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
     // ---- Session 管理 --------------------------------------------------
 
     public synchronized String createSession(boolean remember) throws IOException {
+        long now = System.currentTimeMillis();
+        sessions.entrySet().removeIf(entry -> entry.getValue() <= now
+                && !persistentSessions.containsKey(entry.getKey()));
         byte[] tokenBytes = new byte[32];
         SESSION_RANDOM.nextBytes(tokenBytes);
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
         Arrays.fill(tokenBytes, (byte) 0);
         String digest = tokenDigest(token);
-        long expiry = System.currentTimeMillis() + (remember ? SESSION_LONG : SESSION_SHORT);
+        long expiry = now + (remember ? SESSION_LONG : SESSION_SHORT);
         if (remember) {
             long latestExpiry = persistentSessions.values().stream().mapToLong(Long::longValue).max().orElse(0L);
             expiry = Math.max(expiry, latestExpiry + 1);
@@ -326,6 +330,14 @@ public class SetupService implements ServerStateProvider, ApplicationModeProvide
     public boolean hasAdminScope(HttpServletRequest request) {
         return !GuestInviteSession.isGuestRequest(request)
                 && (!"multi".equals(getMode()) || isAdminLoggedIn(request));
+    }
+
+    /** 将已通过路由鉴权的请求投影为页面身份；已解析的邀请会话优先。 */
+    public Audience resolveAudience(HttpServletRequest request) {
+        if (request.getAttribute(GuestInviteSession.REQUEST_ATTR) instanceof GuestInviteSession) {
+            return Audience.INVITED_GUEST;
+        }
+        return hasAdminScope(request) ? Audience.ADMIN : Audience.VISITOR;
     }
 
     public synchronized void removeSession(String token) throws IOException {

@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 请求速率限制服务，使用分钟级滑动窗口追踪每个限流键在当前分钟内的请求总数。
+ * 请求速率限制服务，使用固定分钟窗口追踪每个限流键在当前分钟内的请求总数。
  * <ul>
  *   <li>多人模式游客按 UUID 限流，上限取 {@code multi-mode.request-limit-minute}；</li>
  *   <li>邀请访客按邀请码限流（{@link #isAllowedForInvite}），上限取 {@code guest-invite.request-limit-minute}，
@@ -67,10 +67,8 @@ public class RateLimitService {
     public void cleanupExpiredCounters() {
         long currentWindow = System.currentTimeMillis() / 60_000L;
         int removed = 0;
-        var iter = counters.entrySet().iterator();
-        while (iter.hasNext()) {
-            if (iter.next().getValue().window < currentWindow) {
-                iter.remove();
+        for (var entry : counters.entrySet()) {
+            if (entry.getValue().window < currentWindow && counters.remove(entry.getKey(), entry.getValue())) {
                 removed++;
             }
         }

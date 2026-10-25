@@ -136,13 +136,8 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         return PluginKind.FEATURE;
     }
 
-    // 下载页与其提交 / 队列 / 状态 API：下载页 /pixiv-batch.html、其拆分静态目录 /pixiv-batch/**，以及
-    // 下载提交（/api/download/pixiv）、历史取消墓碑（/api/cancel/**、/api/download/cancel/**）、
-    // 精确取消与队列清理（/api/download/queue/**）、批量状态（/api/batch/state）、扩展点装配
-    //（/api/download/extensions）一律
-    // VISITOR——复刻现状「未受管页面 / 未声明 API」的涌现行为：multi 访客可达（走配额） / solo 需会话 /
-    // 邀请访客 403 / 不入 monitor。AuthFilter 不为 VISITOR 派生任何清单、命中后落默认会话 / 访客分支，
-    // 访问行为与未声明时逐字等价；声明只为消除「未声明路由」歧义、纳入路由归属与全 URL 声明守卫。
+    // VISITOR 允许 multi 匿名游客与管理员访问，solo 仍需会话，不放行邀请访客。
+    // 管理、只读分享与本地端点分别声明更具体的访问策略。
     private static final List<WebRouteContribution> ROUTES = List.of(
         WebRouteContribution.visitor("/pixiv-batch.html"),
         WebRouteContribution.visitor("/pixiv-batch/**"),
@@ -212,10 +207,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         return List.of(new StartupRouteContribution("/pixiv-batch.html", 10, Set.of(StartupRouteContext.MULTI)));
     }
 
-    // 下载工作台跨页入口。VISITOR：multi 匿名访客与管理员在 /api/navigation 可见、受邀访客看不到
-    //（下载页对受邀访客 403，故不进其导航栏）。宿主发行策略将本插件列为必选，配置写 false 也仍贡献导航。
-    // placement：顶部栏 + 各侧栏（含中立主侧栏 app.sidebar）+ 桌面快速开始；priority 10 让该官方基础页面
-    // 按既定顺序靠前展示。标签走本插件自有 namespace batch 的 nav.label。
+    // 下载页拒绝邀请访客，因此导航也只对 multi 匿名游客与管理员可见。
     private static final List<NavigationContribution> NAVIGATION = List.of(new NavigationContribution(
         ID,
         Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,

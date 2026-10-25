@@ -45,10 +45,10 @@ function cleanRepo(root) {
 }
 
 /** fixture：scripts/shared/sse-manager.js + 引用它的 test.user.js（可注入 drift）。 */
-function makeSyncFixture(scriptContent, userJsContent) {
+function makeSyncFixture(scriptContent, userJsContent, sharedContent = 'export const sse = 1;\n') {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv sync fixture '));
     fs.mkdirSync(path.join(dir, 'scripts', 'shared'), { recursive: true });
-    fs.writeFileSync(path.join(dir, 'scripts', 'shared', 'sse-manager.js'), 'export const sse = 1;\n', 'utf8');
+    fs.writeFileSync(path.join(dir, 'scripts', 'shared', 'sse-manager.js'), sharedContent, 'utf8');
     fs.writeFileSync(path.join(dir, 'scripts', 'sync-shared-snippets.ps1'), scriptContent, 'utf8');
     fs.writeFileSync(path.join(dir, 'test.user.js'), userJsContent, 'utf8');
     return dir;
@@ -91,6 +91,36 @@ test('sync-shared-snippets.ps1 -Check：无 drift 时 exit 0', { skip: !hasPwsh(
         cleanRepo(fixture);
     }
 });
+
+for (const [label, shared, lines] of [
+    ['空片段', '', []],
+    ['纯空白片段', ' \t\r\n\t\r\n', []],
+    ['保留正文缩进与内部空行', '  const first = 1;\r\n\r\nconst second = 2; \t\r\n \t\r\n',
+        ['  const first = 1;', '', 'const second = 2; \t']]
+]) {
+    for (const [eolLabel, eol] of [['LF', '\n'], ['CRLF', '\r\n']]) {
+        test(`共享片段同步：${label}，保留 ${eolLabel} 换行且再次检查无漂移`,
+            { skip: !hasPwsh() && 'pwsh 不可用' }, () => {
+                const start = '    // >>> SHARED:sse-manager.js';
+                const end = '    // <<< SHARED:sse-manager.js';
+                const fixture = makeSyncFixture(fs.readFileSync(SYNC, 'utf8'),
+                    [start, '    // stale block', end].join(eol), shared);
+                try {
+                    assert.notEqual(runCheck(fixture).status, 0);
+                    const sync = spawnSync('pwsh', ['-NoProfile', '-File',
+                        path.join(fixture, 'scripts', 'sync-shared-snippets.ps1')],
+                    { cwd: fixture, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+                    assert.equal(sync.status, 0, sync.stdout + sync.stderr);
+                    assert.equal(fs.readFileSync(path.join(fixture, 'test.user.js'), 'utf8'),
+                        [start, ...lines.map(line => line ? '    ' + line : ''), end].join(eol));
+                    const checked = runCheck(fixture);
+                    assert.equal(checked.status, 0, checked.stdout + checked.stderr);
+                } finally {
+                    cleanRepo(fixture);
+                }
+            });
+    }
+}
 
 test('sync-shared-snippets.ps1 恶意 stub：drift 不被发现（exit 0）→ 必须由 trusted contract 内容守卫拒绝', { skip: !hasPwsh() && 'pwsh 不可用' }, () => {
     const fixture = makeSyncFixture(STUB, DRIFTED_USER_JS);

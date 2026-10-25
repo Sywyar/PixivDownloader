@@ -88,10 +88,11 @@ function makeGitRepo(base = os.tmpdir()) {
     fs.rmSync(path.join(dir, 'scripts', 'i18n', 'gate-policy.json'), { force: true });
     fs.cpSync(path.join(REPO_ROOT, 'scripts', 'hooks'), path.join(dir, 'scripts', 'hooks'), { recursive: true });
     // 当前 verifier baseline：anchor 必须携带完整 gate bundle（scripts/ci + workflow + package）
-    fs.cpSync(path.join(REPO_ROOT, 'scripts', 'ci'), path.join(dir, 'scripts', 'ci'), { recursive: true });
-    fs.mkdirSync(path.join(dir, '.github', 'workflows'), { recursive: true });
-    fs.copyFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'quality-gate.yml'),
-        path.join(dir, '.github', 'workflows', 'quality-gate.yml'));
+    // 保留真实 verifier 实现，不把其它测试的语言样本作为夹具的生产代码。
+    fs.cpSync(path.join(REPO_ROOT, 'scripts', 'ci'), path.join(dir, 'scripts', 'ci'), {
+        recursive: true,
+        filter: source => source !== path.join(REPO_ROOT, 'scripts', 'ci', 'test'),
+    });
     copyGateSurfaceFiles(REPO_ROOT, dir);
     fs.copyFileSync(path.join(REPO_ROOT, 'package.json'), path.join(dir, 'package.json'));
     fs.copyFileSync(path.join(REPO_ROOT, 'package-lock.json'), path.join(dir, 'package-lock.json'));

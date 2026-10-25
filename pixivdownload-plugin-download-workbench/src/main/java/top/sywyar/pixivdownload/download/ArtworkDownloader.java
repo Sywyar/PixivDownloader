@@ -40,8 +40,8 @@ public interface ArtworkDownloader {
 
     /**
      * 判定作品是否已下载（去重）。{@code verifyFiles=false} 时只查数据库记录；
-     * {@code verifyFiles=true} 时还会做「实际目录检测」：磁盘缺文件则删陈旧记录视为未下载，
-     * 数据库无记录但磁盘已有文件则补登记视为已下载。
+     * {@code verifyFiles=true} 时还会核对已登记的全部页文件；缺失或为空视为未下载，
+     * 检测错误向上传播，原记录保持不变，无记录时也不补登记。软删除记录仍由调用方决定是否重下。
      *
      * @return {@code true} 表示已下载、应跳过
      */

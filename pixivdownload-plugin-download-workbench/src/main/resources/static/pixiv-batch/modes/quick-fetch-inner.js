@@ -30,9 +30,14 @@
         quickInner.blobUrls = [];
     }
 
+    function beginQuickInnerLoad() {
+        setQuickBtnLoading('quick-inner-add-all', false);
+        return ++quickInner.loadSeq;
+    }
+
     function quickCloseInner() {
         quickInner.open = false;
-        quickInner.loadSeq++;
+        beginQuickInnerLoad();
         quickInner.renderToken++;
         quickInner.filterSeq++;
         quickInner.type = null;
@@ -171,7 +176,7 @@
         if (!url) return;
         const imgEl = document.getElementById(`quick-inner-img-${idx}`);
         if (!imgEl) return;
-        const blobUrl = await fetchThumbnailBlobUrl(url, quickInner.blobUrls, kind, 'quick');
+        const blobUrl = await fetchThumbnailBlobUrl(url, () => quickInner.blobUrls, kind, 'quick');
         if (renderToken !== quickInner.renderToken) return;
         if (blobUrl && imgEl.isConnected) imgEl.src = blobUrl;
     }
@@ -200,8 +205,21 @@
                 {current: cur, total: totalPages, count: quickInner.total.toLocaleString()}))}</span>`;
     }
 
-    function quickInnerJumpPage(p) {
-        if (typeof quickInner._jumpFn === 'function') quickInner._jumpFn(p);
+    function quickRenderInnerError(error, stillCurrent) {
+        if (shouldIgnoreQuickOperationError(error, stillCurrent)) return;
+        document.getElementById('quick-inner-area').innerHTML =
+            `<div class="quick-empty">${esc(bt('quick.error.load-failed', '加载失败：{message}', {message: error.message || String(error)}))}</div>`;
+    }
+
+    async function quickInnerJumpPage(p) {
+        if (typeof quickInner._jumpFn !== 'function') return;
+        const pending = quickInner._jumpFn(p);
+        const loadSeq = quickInner.loadSeq;
+        try {
+            await pending;
+        } catch (e) {
+            quickRenderInnerError(e, loadSeq === quickInner.loadSeq && quickInner.open);
+        }
     }
 
     // 珍藏集 → 集内作品（插画+小说混合）；支持中性 cursor 页钩子并保留旧一次性响应。
@@ -210,7 +228,9 @@
         if (!c) return;
         const cid = String(c.id);
         const outerLoadSeq = quickState.loadSeq;
-        const enterSeq = ++quickInner.loadSeq;
+        const enterSeq = beginQuickInnerLoad();
+        const isCurrent = () => enterSeq === quickInner.loadSeq && outerLoadSeq === quickState.loadSeq
+            && quickInner.open && quickInner.id === cid;
         quickCleanupInnerBlobUrls();
         quickInner.open = true;
         quickInner.type = 'collection';
@@ -228,28 +248,27 @@
                 throw new Error(bt('quick.error.unknown-action', '该入口当前不可用'));
             }
             if (typeof action.buildCollectionWorksPageRequest === 'function') {
-                await loadQuickInnerCollectionWorks(action, cid, 1);
+                await loadQuickInnerCollectionWorks(action, cid, 1, enterSeq);
             } else {
                 const data = await quickFetchJson(
                     quickRequestUrl(action.buildCollectionWorksRequest(cid)), action.ownerType);
-                if (enterSeq !== quickInner.loadSeq || outerLoadSeq !== quickState.loadSeq
-                    || !quickInner.open || quickInner.id !== cid) return;
+                if (!isCurrent()) return;
                 quickInner.rawItems = data.works || [];
                 quickInner.total = data.total || quickInner.rawItems.length;
                 quickInner.page = 1;
                 quickShowInnerToolbar({showAdd: quickInner.rawItems.length > 0, showKindSwitcher: false});
                 quickSetInnerTitle(`${bt('quick.title.collections', '我的珍藏集')} › ${quickInner.name} · ${bt('quick.title.count', '{count} 件', {count: quickInner.total.toLocaleString()})}`);
                 await quickApplyInnerFilters();
+                if (!isCurrent()) return;
                 renderQuickInnerPagination(1, 1, () => {});
             }
+            if (!isCurrent()) return;
             // 珍藏集内为混合作品（无单画师来源）：显示附加筛选与小说设置，但不提供「存为计划任务」。
             updateExtraFiltersCardVisibility();
             updateSaveScheduleCardVisibility();
             applyNovelSettingsVisibility();
         } catch (e) {
-            if (outerLoadSeq !== quickState.loadSeq || !quickInner.open || quickInner.id !== cid) return;
-            document.getElementById('quick-inner-area').innerHTML =
-                `<div class="quick-empty">${esc(bt('quick.error.load-failed', '加载失败：{message}', {message: e.message || String(e)}))}</div>`;
+            quickRenderInnerError(e, isCurrent());
         }
     }
 
@@ -297,8 +316,7 @@
         return result;
     }
 
-    async function loadQuickInnerCollectionWorks(action, collectionId, page) {
-        const loadSeq = ++quickInner.loadSeq;
+    async function loadQuickInnerCollectionWorks(action, collectionId, page, loadSeq = beginQuickInnerLoad()) {
         const safePage = Math.max(1, Number(page) || 1);
         const pageData = await fetchQuickInnerCollectionPage(action, collectionId, safePage);
         if (loadSeq !== quickInner.loadSeq || !quickInner.open
@@ -368,7 +386,9 @@
         const userId = String(u.userId);
         const userName = u.userName || userId;
         const outerLoadSeq = quickState.loadSeq;
-        const enterSeq = ++quickInner.loadSeq;
+        const enterSeq = beginQuickInnerLoad();
+        const isCurrent = () => enterSeq === quickInner.loadSeq && outerLoadSeq === quickState.loadSeq
+            && quickInner.open && quickInner.userId === userId;
         quickCleanupInnerBlobUrls();
         quickInner.open = true;
         quickInner.type = 'following-user';
@@ -388,11 +408,11 @@
                 } else {
                     const data = await quickFetchJson(
                         quickRequestUrl(acq.buildUserIdsRequest(userId)), acq.type);
+                    if (!isCurrent()) return;
                     quickInner.idsByType.set(acq.type, data.ids || []);
                 }
             }));
-            if (enterSeq !== quickInner.loadSeq || outerLoadSeq !== quickState.loadSeq
-                || !quickInner.open || quickInner.userId !== userId) return;
+            if (!isCurrent()) return;
             quickInner.kind = acquisitions.find(acq => {
                 if (typeof acq.buildUserPageRequest === 'function') {
                     const first = quickInnerUserPageState(acq.type).pages.get(1);
@@ -404,17 +424,15 @@
             if (!quickInner.kind) {
                 throw new Error(bt('quick.error.unknown-action', '该入口当前不可用'));
             }
-            await loadQuickInnerFollowingUserWorks(quickInner.kind, 1);
+            await loadQuickInnerFollowingUserWorks(quickInner.kind, 1, enterSeq);
         } catch (e) {
-            if (outerLoadSeq !== quickState.loadSeq || !quickInner.open || quickInner.userId !== userId) return;
-            document.getElementById('quick-inner-area').innerHTML =
-                `<div class="quick-empty">${esc(bt('quick.error.load-failed', '加载失败：{message}', {message: e.message || String(e)}))}</div>`;
+            quickRenderInnerError(e, isCurrent());
         }
     }
 
-    async function loadQuickInnerFollowingUserWorks(kind, page) {
-        const loadSeq = ++quickInner.loadSeq;
+    async function loadQuickInnerFollowingUserWorks(kind, page, loadSeq = beginQuickInnerLoad()) {
         quickInner.kind = kind;
+        quickShowInnerToolbar({showAdd: false, showKindSwitcher: true, kind});
         const acq = window.PixivBatch.queueTypes.acquisition(kind, 'quick');
         const limit = acq.pageSize;
         let safePage = Math.max(1, Number(page) || 1);
@@ -468,32 +486,7 @@
         if (!item) return;
         const id = quickInnerQueueId(item);
         const meta = buildQuickQueueMeta(item, item.kind || quickInner.kind);
-        const existing = state.queue.find(q => q.id === id);
-        if (existing) {
-            const merged = reconcileQueueItemTypeData(existing, meta, 'toggle');
-            if (merged.keepExisting) {
-                if (merged.changed) {
-                    updateStats();
-                    saveQueue();
-                    renderQueue();
-                }
-                setStatus({key: 'status.already-in-queue', fallback: '已在队列中：{title}', args: {title: item.title || id}}, 'info');
-                return;
-            }
-            const removed = removeFromQueue(id);
-            setStatus(removed
-                    ? {key: 'status.removed-from-queue', fallback: '已从队列移除：{title}', args: {title: item.title || id}}
-                    : {key: 'status.cannot-remove-downloading', fallback: '无法移除（正在下载中）：{title}', args: {title: item.title || id}},
-                removed ? 'info' : 'warning');
-            syncQuickQueueState();
-            return;
-        }
-        const added = addItemsToQueue([id], [meta], QUICK_FETCH_MODE, '', meta.authorId, meta.authorName);
-        setStatus(added > 0
-                ? {key: 'status.added-to-queue', fallback: '已加入队列：{title}', args: {title: item.title || id}}
-                : {key: 'status.already-in-queue', fallback: '已在队列中：{title}', args: {title: item.title || id}},
-            added > 0 ? 'success' : 'info');
-        syncQuickQueueState();
+        quickToggleQueueEntry(item, id, meta);
     }
 
     function quickInnerAddCurrentPageToQueue() {
@@ -557,7 +550,7 @@
                     setStatus({key: 'status.fetch-failed', fallback: '获取作品列表失败：{message}', args: {message: e.message}}, 'error');
                     return;
                 } finally {
-                    setQuickBtnLoading('quick-inner-add-all', false);
+                    if (isCurrent()) setQuickBtnLoading('quick-inner-add-all', false);
                 }
             }
             const added = addItemsToQueue(ids, metas, QUICK_FETCH_MODE, '', null, '');
@@ -626,7 +619,7 @@
             if (shouldIgnoreQuickOperationError(e, isCurrent())) return;
             setStatus({key: 'status.fetch-failed', fallback: '获取作品列表失败：{message}', args: {message: e.message}}, 'error');
         } finally {
-            setQuickBtnLoading('quick-inner-add-all', false);
+            if (isCurrent()) setQuickBtnLoading('quick-inner-add-all', false);
         }
     }
 
@@ -663,5 +656,7 @@
         document.querySelectorAll('#quick-inner-kind-switcher label').forEach(l => {
             l.classList.toggle('quick-kind-active', l.dataset.quickKind === target.value);
         });
-        loadQuickInnerFollowingUserWorks(target.value, 1);
+        const kind = target.value;
+        quickInner._jumpFn = page => loadQuickInnerFollowingUserWorks(kind, page);
+        quickInnerJumpPage(1);
     });

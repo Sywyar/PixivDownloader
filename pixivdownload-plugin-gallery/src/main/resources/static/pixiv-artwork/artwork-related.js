@@ -156,20 +156,13 @@
     }
 
     function resetSeriesNav() {
-        const navWrap = document.getElementById('seriesNav');
-        const prevBtn = document.getElementById('seriesPrevBtn');
-        const indexBtn = document.getElementById('seriesIndexBtn');
-        const nextBtn = document.getElementById('seriesNextBtn');
-        navWrap.style.display = 'none';
-        prevBtn.style.display = 'none';
-        indexBtn.style.display = 'none';
-        nextBtn.style.display = 'none';
-        prevBtn.removeAttribute('href');
-        indexBtn.removeAttribute('href');
-        nextBtn.removeAttribute('href');
-        prevBtn.textContent = '';
-        indexBtn.textContent = '';
-        nextBtn.textContent = '';
+        document.getElementById('seriesNav').style.display = 'none';
+        for (const id of ['seriesPrevBtn', 'seriesIndexBtn', 'seriesNextBtn']) {
+            const button = document.getElementById(id);
+            button.style.display = 'none';
+            button.removeAttribute('href');
+            button.textContent = '';
+        }
     }
 
     function numericSeriesOrder(value) {

@@ -111,7 +111,7 @@ public final class ScheduledSensitiveFieldNames {
         boolean hasTrailer = false;
         String metadataSuffix = null;
         while (true) {
-            SuffixMatch metadata = stripMetadataSuffix(remaining);
+            SuffixMatch metadata = stripSuffix(remaining, METADATA_SUFFIXES);
             if (metadata != null) {
                 metadataSuffix = metadata.suffix();
                 metadataDepth++;
@@ -119,7 +119,7 @@ public final class ScheduledSensitiveFieldNames {
                 remaining = metadata.base();
                 continue;
             }
-            SuffixMatch trailer = stripSensitiveTrailer(remaining);
+            SuffixMatch trailer = stripSuffix(remaining, SENSITIVE_METADATA_TRAILERS);
             if (trailer != null) {
                 hasTrailer = true;
                 depth++;
@@ -135,32 +135,15 @@ public final class ScheduledSensitiveFieldNames {
         }
     }
 
-    private static SuffixMatch stripMetadataSuffix(String fieldName) {
+    private static SuffixMatch stripSuffix(String fieldName, Iterable<String> suffixes) {
         String normalized = fieldName.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
-        for (String suffix : METADATA_SUFFIXES) {
+        for (String suffix : suffixes) {
             if (!normalized.endsWith(suffix) || normalized.length() == suffix.length()) {
                 continue;
             }
             String base = fieldName.replaceFirst(metadataSuffixPattern(suffix), "");
             if (!base.equals(fieldName) && !base.isBlank()) {
                 return new SuffixMatch(suffix, base);
-            }
-        }
-        return null;
-    }
-
-    private static SuffixMatch stripSensitiveTrailer(String fieldName) {
-        String normalized = fieldName.toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9]", "");
-        for (String trailer : SENSITIVE_METADATA_TRAILERS) {
-            if (!normalized.endsWith(trailer)
-                    || normalized.length() == trailer.length()) {
-                continue;
-            }
-            String base = fieldName.replaceFirst(
-                    metadataSuffixPattern(trailer), "");
-            if (!base.equals(fieldName) && !base.isBlank()) {
-                return new SuffixMatch(trailer, base);
             }
         }
         return null;

@@ -145,7 +145,7 @@
     </details>
 
     <!-- 左：下载模式 rail（常驻；计划任务模式仍可见）。容器保留 .tabs 类（向导 / 新手引导以 .tabs 定位）。 -->
-    <aside class="mode-rail tabs" aria-label="下载模式">
+    <aside class="mode-rail tabs" aria-label="下载模式" data-i18n-aria-label="dashboard.mode-rail">
         <div class="mode-rail-title" data-i18n="dashboard.mode-rail">下载模式</div>
         <div class="tab active" id="tab-quick-fetch" data-pixiv-click="switchMode('quick-fetch')" data-i18n="mode.quick-fetch">⭐ 快捷获取</div>
         <div class="tab" id="tab-single-import" data-pixiv-click="switchMode('single-import')" data-i18n="mode.single-import">🎨 批量导入单作品</div>
@@ -531,7 +531,7 @@
         <!-- 顶部：仪表盘统计 / 主操作条 -->
         <section class="dash-strip">
             <div class="dash-inner">
-                <div class="dash-stats" role="group" aria-label="队列统计">
+                <div class="dash-stats" role="group" aria-label="队列统计" data-i18n-aria-label="dashboard.statistics">
                     <div class="stat-card stat-queued"><span class="stat-num" id="stat-count-pending">0</span><span class="stat-label" data-i18n="dashboard.stat.queued">队列</span></div>
                     <div class="stat-card stat-success"><span class="stat-num" id="stat-count-success">0</span><span class="stat-label" data-i18n="dashboard.stat.success">成功</span></div>
                     <div class="stat-card stat-failed"><span class="stat-num" id="stat-count-failed">0</span><span class="stat-label" data-i18n="dashboard.stat.failed">失败</span></div>
@@ -585,7 +585,7 @@
                     <div class="setting-item" id="s-verify-files-wrap" style="display:none;">
                         <input type="checkbox" id="s-verify-files">
                         <label for="s-verify-files" style="cursor:pointer;" data-i18n="label.settings.verify">实际目录检测</label>
-                        <span class="setting-help-icon" data-i18n-title="dialog.verify-files" title="通过检查记录的目录是否存在、文件夹是否为空、文件夹中的文件是否包含图片来判断是否有效，如果无效则会重新下载">?</span>
+                        <span class="setting-help-icon" data-i18n-title="dialog.verify-files" title="检查已登记的插画、漫画和动图是否完整，缺页或空文件会重新下载，检测出错则报错。历史记录会保留，已删除作品按重下设置处理。">?</span>
                     </div>
                     <div class="setting-item" id="s-redownload-deleted-wrap" style="display:none;">
                         <input type="checkbox" id="s-redownload-deleted">
@@ -727,8 +727,8 @@
 
             <!-- Archive download card -->
             <div id="archive-card">
-                <div class="ac-title" id="ac-title" data-i18n="status.archive-limit">已达到下载限额</div>
-                <div class="ac-status" id="ac-status" data-i18n="status.archive-packing">正在打包已下载文件，请稍候...</div>
+                <div class="ac-title" id="ac-title"></div>
+                <div class="ac-status" id="ac-status"></div>
                 <div id="ac-dl-area" style="display:none;">
                     <a id="ac-dl-btn" class="btn-download" href="#" download data-i18n="status.archive-download">下载压缩包</a>
                     <div class="ac-countdown" id="ac-countdown"></div>
@@ -780,7 +780,7 @@
 
     </div><!-- /download-workbench -->
 
-    <footer class="app-footer" aria-label="Project information">
+    <footer class="app-footer" aria-label="项目信息" data-i18n-aria-label="footer.label">
         <div class="app-footer-meta">
             <span id="app-name" class="app-footer-brand">...</span>
             <span class="app-footer-separator" aria-hidden="true">|</span>
@@ -812,6 +812,7 @@
 </div><!-- /wb-shell -->
 
 <script src="/js/pixiv-actions.js"></script>
+<script src="/pixiv-batch/queue-display.js"></script>
 <script src="/pixiv-batch/batch-core.js"></script>
 <script src="/pixiv-batch/batch-fetch-json.js"></script>
 <script src="/pixiv-batch/userscript-detection.js"></script>
@@ -827,27 +828,38 @@
 <script src="/pixiv-batch/batch-state.js"></script>
 <script src="/pixiv-batch/batch-pagination.js"></script>
 <script src="/pixiv-batch/batch-onboarding.js"></script>
+<script src="/pixiv-batch/state-storage.js"></script>
 <script src="/pixiv-batch/batch-storage.js"></script>
 <script src="/pixiv-batch/batch-userscripts.js"></script>
+<script src="/pixiv-batch/cookie-storage.js"></script>
+<script src="/pixiv-batch/cookie-sync.js"></script>
 <script src="/pixiv-batch/batch-cookie.js"></script>
 <script src="/pixiv-batch/pixiv-schedule-defaults.js"></script>
 <script src="/pixiv-batch/media-settings.js"></script>
 <script src="/pixiv-batch/filename-template-presets.js"></script>
+<script src="/pixiv-batch/filename-template.js"></script>
 <script src="/pixiv-batch/page-layout.js"></script>
 <script src="/pixiv-batch/batch-settings.js"></script>
+<script src="/pixiv-batch/search-filters.js"></script>
 <script src="/pixiv-batch/batch-filters.js"></script>
 <script src="/pixiv-batch/batch-media-progress.js"></script>
 <script src="/pixiv-batch/batch-queue-model.js"></script>
 <script src="/pixiv-batch/batch-queue-actions.js"></script>
+<script src="/pixiv-batch/download-speed.js"></script>
 <script src="/pixiv-batch/batch-queue-view.js"></script>
 <script src="/pixiv-batch/batch-queue-recovery.js"></script>
 <script src="/pixiv-batch/batch-queue-tasks.js"></script>
 <script src="/pixiv-batch/batch-queue.js"></script>
+<script src="/pixiv-batch/queue-row-sync.js"></script>
 <script src="/pixiv-batch/batch-queue-vue.js"></script>
+<script src="/pixiv-batch/download-sse.js"></script>
 <script src="/pixiv-batch/batch-sse.js"></script>
+<script src="/pixiv-batch/batch-archive.js"></script>
 <script src="/pixiv-batch/batch-download-quota.js"></script>
+<script src="/pixiv-batch/batch-artwork-requests.js"></script>
 <script src="/pixiv-batch/batch-download-artwork.js"></script>
 <script src="/pixiv-batch/batch-path-actions.js"></script>
+<script src="/pixiv-batch/download-workers.js"></script>
 <script src="/pixiv-batch/batch-download-workers.js"></script>
 <script src="/pixiv-batch/batch-download.js"></script>
 <script src="/pixiv-batch/modes/quick-fetch-core.js"></script>

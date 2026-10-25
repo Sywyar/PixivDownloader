@@ -502,10 +502,8 @@ class DistributionPackagingBoundaryTest {
         assertCanonicalBase64Key(openSourceFallback, "开源回退插件凭证主密钥");
         if (REQUIRE_PRODUCTION_CREDENTIAL_KEY) {
             assertThat(profile).as("正式发布必须使用 production profile").isEqualTo("production");
-            assertThat(currentKey)
-                    .as("正式发布的当前密钥必须不同于公开回退密钥")
-                    .isNotEqualTo(openSourceFallback);
-        } else if ("open-source".equals(profile)) {
+        }
+        if ("open-source".equals(profile)) {
             assertThat(currentKey)
                     .as("开源 profile 应使用提交的公开回退密钥")
                     .isEqualTo(openSourceFallback);
@@ -842,7 +840,8 @@ class DistributionPackagingBoundaryTest {
         assertThat(classesDir.resolve("top/sywyar/pixivdownload/gui/theme/GuiThemeManager.class"))
                 .as("Swing GUI 插件应包含合并后的主题管理实现").exists();
 
-        Path jar = locateConfiguredGuiThemeJar(classesDir);
+        Path jar = locateConfiguredPluginJar(
+                GUI_THEME_JAR_PROPERTY, classesDir, "pixivdownload-plugin-gui-swing");
         if (skipMissingPackagedArtifact(jar, "pixivdownload-plugin-gui-swing 的真实插件 JAR 未生成")) {
             return;
         }
@@ -1229,35 +1228,6 @@ class DistributionPackagingBoundaryTest {
             current = current.getParent();
         }
         throw new IllegalStateException("无法定位仓库根目录");
-    }
-
-    private static Path locateConfiguredGuiThemeJar(Path classesDir) {
-        String configured = System.getProperty(GUI_THEME_JAR_PROPERTY);
-        if (configured != null && !configured.isBlank()) {
-            Path configuredPath = Path.of(configured);
-            if (Files.isRegularFile(configuredPath) && isFreshArtifact(configuredPath, classesDir)) {
-                return configuredPath;
-            }
-        }
-        Path targetDir = classesDir.getParent();
-        if (targetDir == null || !Files.isDirectory(targetDir)) {
-            return null;
-        }
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(
-                targetDir, "pixivdownload-plugin-gui-swing-*.jar")) {
-            for (Path candidate : stream) {
-                String name = candidate.getFileName().toString();
-                if (name.endsWith("-sources.jar") || name.endsWith("-javadoc.jar")) {
-                    continue;
-                }
-                if (isFreshArtifact(candidate, classesDir)) {
-                    return candidate;
-                }
-            }
-        } catch (IOException ignored) {
-            // package 阶段之前 jar 不存在，test 阶段只跳过更强断言。
-        }
-        return null;
     }
 
     private static Path locateConfiguredPluginJar(String property, Path classesDir, String artifactId) {

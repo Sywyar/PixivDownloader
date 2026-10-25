@@ -31,25 +31,14 @@ public class NotificationSinkRegistry {
     private record OwnerKey(String pluginId, long publicationId) {
     }
 
-    private record Snapshot(List<PreparedSink> preparedSinks, List<NotificationSink> sinks) {
-        private Snapshot {
-            preparedSinks = List.copyOf(preparedSinks);
-            sinks = List.copyOf(sinks);
-        }
-
-        private static Snapshot empty() {
-            return new Snapshot(List.of(), List.of());
-        }
-    }
-
-    private record State(Map<OwnerKey, List<PreparedSink>> byOwner, Snapshot snapshot) {
+    private record State(Map<OwnerKey, List<PreparedSink>> byOwner, List<PreparedSink> snapshot) {
         private State {
             byOwner = Collections.unmodifiableMap(new LinkedHashMap<>(byOwner));
-            snapshot = java.util.Objects.requireNonNull(snapshot, "notification sink snapshot");
+            snapshot = List.copyOf(snapshot);
         }
 
         private static State empty() {
-            return new State(Map.of(), Snapshot.empty());
+            return new State(Map.of(), List.of());
         }
     }
 
@@ -125,11 +114,11 @@ public class NotificationSinkRegistry {
     }
 
     public List<NotificationSink> sinks() {
-        return state.snapshot().sinks();
+        return preparedSinks().stream().map(PreparedSink::sink).toList();
     }
 
     List<PreparedSink> preparedSinks() {
-        return state.snapshot().preparedSinks();
+        return state.snapshot();
     }
 
     private void publishState(State next) {
@@ -137,16 +126,10 @@ public class NotificationSinkRegistry {
         state = next;
     }
 
-    private static Snapshot rebuild(Map<OwnerKey, List<PreparedSink>> owners) {
+    private static List<PreparedSink> rebuild(Map<OwnerKey, List<PreparedSink>> owners) {
         List<PreparedSink> prepared = new ArrayList<>();
-        List<NotificationSink> next = new ArrayList<>();
-        for (List<PreparedSink> sinks : owners.values()) {
-            for (PreparedSink sink : sinks) {
-                prepared.add(sink);
-                next.add(sink.sink());
-            }
-        }
-        return new Snapshot(prepared, next);
+        owners.values().forEach(prepared::addAll);
+        return prepared;
     }
 
     private static OwnerKey owner(String pluginId, long publicationId) {

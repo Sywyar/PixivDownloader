@@ -47,7 +47,7 @@ class SetupControllerTest {
 
     @BeforeEach
     void setUp() {
-        LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
+        LocaleContextHolder.setLocale(Locale.US);
         MessageSource messageSource = TestI18nBeans.messageSource();
         AppMessages appMessages = TestI18nBeans.appMessages(messageSource);
         SetupController controller = new SetupController(
@@ -55,7 +55,7 @@ class SetupControllerTest {
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(appMessages))
                 .setValidator(TestI18nBeans.validator(messageSource))
-                .defaultRequest(get("/").header("Accept-Language", "zh-CN"))
+                .defaultRequest(get("/").header("Accept-Language", "en-US"))
                 .build();
     }
 
@@ -152,7 +152,8 @@ class SetupControllerTest {
                                     "mode", "solo"
                             ))))
                     .andExpect(status().isForbidden())
-                    .andExpect(jsonPath("$.error").value("已完成配置，不可重复初始化"));
+                    .andExpect(jsonPath("$.code").value("setup.init.already-completed"))
+                    .andExpect(jsonPath("$.error").value(not(emptyOrNullString())));
         }
 
         @Test
@@ -168,7 +169,8 @@ class SetupControllerTest {
                                     "mode", "solo"
                             ))))
                     .andExpect(status().isServiceUnavailable())
-                    .andExpect(jsonPath("$.error").value(containsString("安装状态文件已损坏")));
+                    .andExpect(jsonPath("$.code").value("setup.init.config-corrupted"))
+                    .andExpect(jsonPath("$.error").value(not(emptyOrNullString())));
 
             verify(setupService, never()).init(any(), any(), any());
         }
@@ -184,7 +186,10 @@ class SetupControllerTest {
                                     "mode", "solo"
                             ))))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error").value(containsString("用户名不能为空")));
+                    .andExpect(jsonPath("$.code").value("error.request.validation"))
+                    .andExpect(jsonPath("$.error").value(not(emptyOrNullString())));
+
+            verify(setupService, never()).init(any(), any(), any());
         }
 
         @Test
@@ -198,7 +203,10 @@ class SetupControllerTest {
                                     "mode", "solo"
                             ))))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error").value(containsString("密码长度必须为 8 到 1024 个字符")));
+                    .andExpect(jsonPath("$.code").value("error.request.validation"))
+                    .andExpect(jsonPath("$.error").value(not(emptyOrNullString())));
+
+            verify(setupService, never()).init(any(), any(), any());
         }
 
         @Test
@@ -242,7 +250,7 @@ class SetupControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.ok").value(true))
                     .andExpect(jsonPath("$.mode").value("solo"))
-                    .andExpect(jsonPath("$.warning").value(containsString("代理配置写入 config.yaml 失败")));
+                    .andExpect(jsonPath("$.warning").value(containsString("disk full")));
 
             verify(setupService).init("admin", "password1234", "solo");
         }
@@ -279,7 +287,10 @@ class SetupControllerTest {
                                     "mode", "invalid"
                             ))))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error").value(containsString("无效的使用模式")));
+                    .andExpect(jsonPath("$.code").value("error.request.validation"))
+                    .andExpect(jsonPath("$.error").value(not(emptyOrNullString())));
+
+            verify(setupService, never()).init(any(), any(), any());
         }
     }
 
@@ -328,7 +339,8 @@ class SetupControllerTest {
                                     "password", "wrong"
                             ))))
                     .andExpect(status().isUnauthorized())
-                    .andExpect(jsonPath("$.error").value("用户名或密码错误"));
+                    .andExpect(jsonPath("$.code").value("setup.login.invalid-credentials"))
+                    .andExpect(jsonPath("$.error").value(not(emptyOrNullString())));
         }
 
         @Test
@@ -341,7 +353,8 @@ class SetupControllerTest {
                                     "password", "x".repeat(1025)
                             ))))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.error").value(containsString("密码不能超过 1024 个字符")));
+                    .andExpect(jsonPath("$.code").value("error.request.validation"))
+                    .andExpect(jsonPath("$.error").value(not(emptyOrNullString())));
 
             verify(setupService, never()).checkLogin(any(), any());
         }

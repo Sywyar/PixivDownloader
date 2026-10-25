@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
@@ -29,6 +30,11 @@ class NavigationControllerTest {
     private final SetupService setupService = mock(SetupService.class);
     private final NavigationRegistry registry = seededRegistry();
     private final NavigationController controller = new NavigationController(registry, setupService);
+
+    @BeforeEach
+    void useRequestAudience() {
+        when(setupService.resolveAudience(any())).thenCallRealMethod();
+    }
 
     /** 注册顺序刻意与 priority 不一致，以便验证响应按 priority 排序而非注册顺序。含一条 VISITOR 项验证身份模型。 */
     private static NavigationRegistry seededRegistry() {
@@ -77,8 +83,7 @@ class NavigationControllerTest {
     @Test
     @DisplayName("管理员范围可见全部导航项（含 VISITOR 项）并按 priority 升序排序")
     void adminSeesAllSortedByPriority() {
-        when(setupService.hasAdminScope(any())).thenReturn(true);
-        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletRequest request = adminRequest();
 
         List<NavigationController.NavigationView> result = controller.navigation(request);
 
@@ -89,9 +94,8 @@ class NavigationControllerTest {
     @Test
     @DisplayName("访客邀请会话仅可见 PUBLIC 与 INVITED_GUEST（不含 VISITOR / ADMIN 项；访客判定优先于管理员范围）")
     void guestSeesPublicAndGuestRead() {
-        // solo 模式下 hasAdminScope 对任意请求为真：访客判定必须优先，否则访客会看到 admin 项
-        when(setupService.hasAdminScope(any())).thenReturn(true);
-        MockHttpServletRequest request = new MockHttpServletRequest();
+        // 即使管理员范围为真，已解析的邀请会话仍必须优先。
+        MockHttpServletRequest request = adminRequest();
         request.setAttribute(GuestInviteSession.REQUEST_ATTR, guestSession());
 
         List<NavigationController.NavigationView> result = controller.navigation(request);
@@ -117,8 +121,7 @@ class NavigationControllerTest {
     @Test
     @DisplayName("视图只暴露渲染字段（id/placements/labelI18nKey/href/icon/priority/markers），刻意不含 visibleTo")
     void viewExposesOnlyRenderFields() {
-        when(setupService.hasAdminScope(any())).thenReturn(true);
-        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletRequest request = adminRequest();
 
         NavigationController.NavigationView first = controller.navigation(request).get(0);
 
@@ -142,9 +145,7 @@ class NavigationControllerTest {
         NavigationRegistry reg = new NavigationRegistry(new PluginRegistry(List.of()));
         reg.register("plug", List.of(new NavigationContribution(
                 "n-null", "app.top", null, "nav.n", "/n-null.html", "i", AccessPolicy.PUBLIC, 10)));
-        when(setupService.hasAdminScope(any())).thenReturn(true);
-
-        NavigationController.NavigationView view = controllerFor(reg).navigation(new MockHttpServletRequest()).get(0);
+        NavigationController.NavigationView view = controllerFor(reg).navigation(adminRequest()).get(0);
 
         assertThat(view.id()).isEqualTo("n-null");
         assertThat(view.labelNamespace()).isNull();
@@ -184,8 +185,7 @@ class NavigationControllerTest {
 
         // 禁用画廊只撤掉画廊这一条贡献：主侧栏其余按权限应显示的入口不受影响、顺序不变（插件管理已移入顶部栏，不在主侧栏）。
         assertThat(idsInPlacement(controller, adminRequest(), "app.sidebar"))
-                .containsExactly("invite-manage")
-                .doesNotContain("gallery");
+                .containsExactly("invite-manage");
     }
 
     @Test
@@ -194,7 +194,7 @@ class NavigationControllerTest {
         PixivFeaturePlugin thirdParty = new TestNavPlugin("third-party-demo", List.of(
                 new NavigationContribution("third-party-demo", "app.top", "ns", "nav.tp", "/third-party-demo.html",
                         "icon", AccessPolicy.ADMIN, -100)));
-        List<PixivFeaturePlugin> plugins = new ArrayList<>(builtInWithGalleryAndNovelGallery());
+        List<PixivFeaturePlugin> plugins = builtInWithGalleryAndNovelGallery();
         plugins.add(thirdParty);
         NavigationController controller = controllerFor(new NavigationRegistry(new PluginRegistry(plugins)));
 
@@ -252,8 +252,7 @@ class NavigationControllerTest {
     void invitedGuestSeesNoAdminItems() {
         NavigationController controller = controllerFor(
                 new NavigationRegistry(new PluginRegistry(builtInWithGalleryAndNovelGallery())));
-        when(setupService.hasAdminScope(any())).thenReturn(true); // solo 下恒真，访客判定须优先
-        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletRequest request = adminRequest();
         request.setAttribute(GuestInviteSession.REQUEST_ATTR, guestSession());
 
         List<String> ids = controller.navigation(request).stream()

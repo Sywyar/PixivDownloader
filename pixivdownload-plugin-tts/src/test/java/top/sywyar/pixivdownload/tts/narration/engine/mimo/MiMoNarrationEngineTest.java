@@ -3,6 +3,9 @@ package top.sywyar.pixivdownload.tts.narration.engine.mimo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -71,7 +74,7 @@ class MiMoNarrationEngineTest {
                 NarrationVoiceRequest.of("你好世界", "An elderly woman, low cold voice"));
 
         Map<String, Object> body = capturedBody(direct);
-        assertThat(body.get("model")).isEqualTo("mimo-v2.5-tts-voicedesign");
+        assertThat(body.get("model")).isEqualTo("design-test-model");
         List<Map<String, Object>> messages = messages(body);
         assertThat(messages).hasSize(2);
         assertThat(messages.get(0)).containsEntry("role", "user").containsEntry("content", "An elderly woman, low cold voice");
@@ -90,7 +93,7 @@ class MiMoNarrationEngineTest {
         engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("hi", "bright"));
 
         Map<String, Object> body = capturedBody(direct);
-        assertThat(body.get("model")).isEqualTo("mimo-v2.5-tts");
+        assertThat(body.get("model")).isEqualTo("preset-test-model");
         assertThat(audio(body)).containsEntry("voice", "Chloe");
         assertThat(messages(body).get(0)).containsEntry("content", "bright");
     }
@@ -104,7 +107,7 @@ class MiMoNarrationEngineTest {
                 NarrationVoiceRequest.of("正文", "  "));
 
         Map<String, Object> body = capturedBody(direct);
-        assertThat(body.get("model")).isEqualTo("mimo-v2.5-tts-voicedesign");
+        assertThat(body.get("model")).isEqualTo("design-test-model");
         assertThat((String) messages(body).get(0).get("content")).isNotBlank();
     }
 
@@ -119,7 +122,7 @@ class MiMoNarrationEngineTest {
         engine(config("https://h/v1", "")).synthesize(NarrationVoiceMode.CLONE, req);
 
         Map<String, Object> body = capturedBody(direct);
-        assertThat(body.get("model")).isEqualTo("mimo-v2.5-tts-voiceclone");
+        assertThat(body.get("model")).isEqualTo("clone-test-model");
         assertThat((String) audio(body).get("voice")).startsWith("data:audio/wav;base64,");
         assertThat(messages(body).get(0)).containsEntry("role", "user").containsEntry("content", "angry");
     }
@@ -137,7 +140,7 @@ class MiMoNarrationEngineTest {
         engine(cfg).synthesize(NarrationVoiceMode.CLONE, req);
 
         Map<String, Object> body = capturedBody(direct);
-        assertThat(body.get("model")).isEqualTo("mimo-v2.5-tts-voicedesign");
+        assertThat(body.get("model")).isEqualTo("design-test-model");
         assertThat((String) audio(body).getOrDefault("voice", "")).doesNotStartWith("data:");
     }
 
@@ -154,16 +157,42 @@ class MiMoNarrationEngineTest {
         assertThat(headers.getFirst(HttpHeaders.AUTHORIZATION)).isNull();
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     @DisplayName("响应 base64 解码为音频字节，contentType=audio/wav")
-    void decodesBase64Audio() {
-        when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(AUDIO_B64));
+    void decodesBase64Audio(boolean padded) {
+        when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class)))
+                .thenReturn(json(padded ? " " + AUDIO_B64 + " " : AUDIO_B64));
 
         NarrationAudio audio = engine(config("https://h/v1", ""))
                 .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci"));
 
         assertThat(audio.data()).containsExactly(0x52, 0x49, 0x46, 0x46);
         assertThat(audio.contentType()).isEqualTo("audio/wav");
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"   "})
+    @DisplayName("空音频字段返回受控异常")
+    void rejectsEmptyAudio(String data) {
+        when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(data));
+
+        assertThatThrownBy(() -> engine(config("https://h/v1", ""))
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci")))
+                .isInstanceOf(NarrationVoiceException.class).hasNoCause();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"!", "a", "===="})
+    @DisplayName("非法音频编码保留解码失败原因")
+    void rejectsMalformedAudio(String data) {
+        when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(data));
+
+        assertThatThrownBy(() -> engine(config("https://h/v1", "sk-secret"))
+                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci")))
+                .isInstanceOf(NarrationVoiceException.class)
+                .hasCauseInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -216,12 +245,16 @@ class MiMoNarrationEngineTest {
         TtsPluginConfig.Mimo mimo = new TtsPluginConfig.Mimo();
         mimo.setBaseUrl(baseUrl);
         mimo.setApiKey(apiKey);
+        mimo.setModel("preset-test-model");
+        mimo.setVoiceDesignModel("design-test-model");
+        mimo.setVoiceCloneModel("clone-test-model");
         cfg.setMimo(mimo);
         return cfg;
     }
 
     private static ResponseEntity<byte[]> json(String audioBase64) {
-        return jsonRaw("{\"choices\":[{\"message\":{\"audio\":{\"data\":\"" + audioBase64 + "\"}}}]}");
+        String data = audioBase64 == null ? "null" : "\"" + audioBase64 + "\"";
+        return jsonRaw("{\"choices\":[{\"message\":{\"audio\":{\"data\":" + data + "}}}]}");
     }
 
     private static ResponseEntity<byte[]> jsonRaw(String body) {

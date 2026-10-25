@@ -2,7 +2,7 @@ package top.sywyar.pixivdownload.core.metadata.novel;
 
 import org.springframework.stereotype.Repository;
 import top.sywyar.pixivdownload.core.db.MainDatabase;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.work.query.AuthorSummary;
 import top.sywyar.pixivdownload.core.work.query.TagOption;
 import top.sywyar.pixivdownload.plugin.api.storage.relational.Expression;
@@ -18,7 +18,7 @@ public class NovelGalleryRepository {
     private final MainDatabase database;
     public NovelGalleryRepository(MainDatabase database) { this.database = database; }
     private static Expression n(String name) { return column("n", name); }
-    private static Expression visibility(GuestRestriction r) {
+    private static Expression visibility(WorkRestriction r) {
         return and(eq(n("deleted"), 0), visible("n", "novel_id", "novel_tags", "novel_collections", r));
     }
     private static Query.Order order(Expression expression, boolean descending) {
@@ -34,7 +34,7 @@ public class NovelGalleryRepository {
     private List<Map<String, Object>> rows(Query query) { return database.read(s -> s.query(query)); }
     private List<Long> ids(Query query) { return rows(query).stream().map(row -> (Long) row.get("novel_id")).toList(); }
 
-    public Map<Long, Long> countVisibleWorksByCollection(GuestRestriction r) {
+    public Map<Long, Long> countVisibleWorksByCollection(WorkRestriction r) {
         var counts = new LinkedHashMap<Long, Long>();
         rows(query(Map.of("id", column("c", "collection_id"), "cnt", call(COUNT)), visibility(r),
                 List.of(join("novel_collections", "c", call(EQUAL, column("c", "novel_id"), n("novel_id")))),
@@ -42,30 +42,29 @@ public class NovelGalleryRepository {
                 .forEach(row -> counts.put((Long) row.get("id"), (Long) row.get("cnt")));
         return counts;
     }
-    public List<Long> findVisibleNovelIds(GuestRestriction r) {
+    public List<Long> findVisibleNovelIds(WorkRestriction r) {
         return r == null ? List.of() : ids(query(Map.of("novel_id", n("novel_id")), visibility(r),
                 List.of(), List.of(), List.of(order(n("time"), true)), Integer.MAX_VALUE));
     }
-    public Set<Long> findVisibleNovelIdSet(GuestRestriction r) { return new LinkedHashSet<>(findVisibleNovelIds(r)); }
-    public long countVisibleNovels(GuestRestriction r) {
+    public long countVisibleNovels(WorkRestriction r) {
         return r == null ? 0 : (Long) rows(query(Map.of("cnt", call(COUNT)), visibility(r), List.of(),
                 List.of(), List.of(), 1)).get(0).get("cnt");
     }
-    private List<Map<String, Object>> dimensionCounts(String column, GuestRestriction r) {
+    private List<Map<String, Object>> dimensionCounts(String column, WorkRestriction r) {
         return rows(query(Map.of("id", n(column), "cnt", call(COUNT)),
                 and(visibility(r), call(GREATER, n(column), value(0))), List.of(),
                 List.of(n(column)), List.of(order(n(column), false)), Integer.MAX_VALUE));
     }
-    public List<AuthorSummary> findVisibleNovelAuthorCounts(GuestRestriction r) {
+    public List<AuthorSummary> findVisibleNovelAuthorCounts(WorkRestriction r) {
         return dimensionCounts("author_id", r).stream()
                 .map(row -> new AuthorSummary((Long) row.get("id"), null, (Long) row.get("cnt"))).toList();
     }
-    public Map<Long, Long> countVisibleNovelsBySeries(GuestRestriction r) {
+    public Map<Long, Long> countVisibleNovelsBySeries(WorkRestriction r) {
         var counts = new LinkedHashMap<Long, Long>();
         dimensionCounts("series_id", r).forEach(row -> counts.put((Long) row.get("id"), (Long) row.get("cnt")));
         return Collections.unmodifiableMap(counts);
     }
-    public List<TagOption> findVisibleNovelTagCounts(GuestRestriction r, String search, int limit) {
+    public List<TagOption> findVisibleNovelTagCounts(WorkRestriction r, String search, int limit) {
         Expression where = visibility(r);
         Expression name = column("t", "name"), translated = column("t", "translated_name"), tagId = column("t", "tag_id");
         if (search != null && !search.isBlank()) {

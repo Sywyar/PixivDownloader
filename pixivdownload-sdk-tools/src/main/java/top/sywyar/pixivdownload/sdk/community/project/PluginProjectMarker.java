@@ -38,7 +38,7 @@ public final class PluginProjectMarker {
                 end--;
                 if (end > start && bytes[end - 1] == '\r') end--;
             }
-            if (!Arrays.equals(VERSION, Arrays.copyOfRange(bytes, start, end))) {
+            if (!Arrays.equals(VERSION, 0, VERSION.length, bytes, start, end)) {
                 throw new IOException("PROJECT_MARKER_INVALID");
             }
         }

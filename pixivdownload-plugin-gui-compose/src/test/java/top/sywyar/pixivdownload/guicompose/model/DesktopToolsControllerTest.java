@@ -23,6 +23,17 @@ import java.util.function.Function;
 @DisplayName("Compose 工具表单默认值")
 class DesktopToolsControllerTest {
     @Test
+    @DisplayName("工具配置读取失败不会阻断页面加载")
+    void configurationFailureKeepsToolsAvailable() throws Exception {
+        var overrides = new HashMap<String, Function<Object[], Object>>();
+        overrides.put("defaultBackfillOptions", args -> { throw new IllegalStateException("Configuration unavailable"); });
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+            awaitMediaReady(model);
+            assertTrue(descendants(overview(model)).anyMatch(node -> "tools.backfill.run".equals(node.id())));
+        }
+    }
+
+    @Test
     @DisplayName("远程主库在回填、导入和目录检查中保留宿主目标且禁止文件选择")
     void remoteDatabaseTargetRemainsReadOnly() throws Exception {
         String target = "postgresql:configured-database";
@@ -47,6 +58,86 @@ class DesktopToolsControllerTest {
                     .findFirst().orElseThrow();
             assertEquals(target, input.value());
             assertFalse(input.enabled());
+        }
+    }
+
+    @Test
+    @DisplayName("查看日志只打开已有页面，不新建或覆盖日志会话")
+    void viewingLogsDoesNotCreateSessions() throws Exception {
+        var opened = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        var created = new ArrayList<Path>();
+        var overrides = new HashMap<String, Function<Object[], Object>>();
+        overrides.put("findToolLog", args -> java.util.Optional.of(Path.of("log", "html", (String) args[0]).toAbsolutePath()));
+        overrides.put("openExternalUri", args -> { opened.add(Path.of((java.net.URI) args[0]).getFileName().toString()); return null; });
+        overrides.put("openToolLog", args -> { throw new AssertionError("Viewing must not create a session"); });
+        try {
+            for (String stem : List.of("artworks-backfill", "json-to-sqlite-migration")) {
+                Path log = Path.of("log", "html", stem + "-latest.html");
+                java.nio.file.Files.createDirectories(log.getParent());
+                if (!java.nio.file.Files.exists(log)) {
+                    java.nio.file.Files.writeString(log, "existing diagnostic");
+                    created.add(log);
+                }
+            }
+            try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+                awaitMediaReady(model);
+                activate(model, "tools.backfill.log");
+                DesktopConfigurationControllerTest.awaitReady(model);
+                activate(model, "tools.migration.log");
+                DesktopConfigurationControllerTest.awaitReady(model);
+                assertEquals(List.of("artworks-backfill-latest.html", "json-to-sqlite-migration-latest.html"), opened);
+            }
+        } finally {
+            for (Path log : created) {
+                assertEquals("existing diagnostic", java.nio.file.Files.readString(log));
+                java.nio.file.Files.delete(log);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("回填跟随已保存代理，临时覆盖不写配置且后续保存不覆盖临时草稿")
+    void backfillInheritsConfigurationAndKeepsTemporaryOverrides() throws Exception {
+        Map<String, String> stored = new java.util.concurrent.ConcurrentHashMap<>(Map.of(
+                "proxy.enabled", "false", "proxy.host", "saved.proxy", "proxy.port", "17891"));
+        var captured = new java.util.concurrent.atomic.AtomicReference<DesktopUiHost.BackfillOptions>();
+        Map<String, Function<Object[], Object>> overrides = new HashMap<>();
+        overrides.put("defaultBackfillOptions", args -> new DesktopUiHost.BackfillOptions(
+                "data/test.db", stored.get("proxy.host"), Integer.parseInt(stored.get("proxy.port")),
+                Boolean.parseBoolean(stored.get("proxy.enabled")), 0, 0, false));
+        overrides.put("backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null));
+        overrides.put("countBackfillCandidates", args -> 0);
+        overrides.put("recordToolHistory", args -> null);
+        overrides.put("openToolLog", args -> new DesktopUiHost.ToolLogSession() {
+            public Path latestPath() { return Path.of("latest.html"); }
+            public Path sessionPath() { return Path.of("session.html"); }
+            public void openLatestInBrowser() {}
+            public void close() {}
+        });
+        overrides.put("runBackfill", args -> {
+            captured.set((DesktopUiHost.BackfillOptions) args[0]);
+            return new DesktopUiHost.BackfillSummary(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false);
+        });
+        try (var model = DesktopConfigurationControllerTest.model(stored, overrides)) {
+            awaitMediaReady(model);
+            stored.put("proxy.port", "17892");
+            activate(model, "tools.backfill.run");
+            DesktopConfigurationControllerTest.awaitReady(model);
+            assertEquals(17892, captured.get().proxyPort());
+            assertFalse(captured.get().useProxy());
+            model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "tools.backfill.proxy", DesktopUiNode.Value.bool(true)));
+            model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "tools.backfill.proxy-host", DesktopUiNode.Value.text("temporary.proxy")));
+            stored.put("proxy.host", "wizard.proxy");
+            model.coreConfigValuesSaved(Map.of("proxy.host", "wizard.proxy"));
+            model.rebuild();
+            activate(model, "tools.backfill.run");
+            DesktopConfigurationControllerTest.awaitReady(model);
+            assertEquals("temporary.proxy", captured.get().proxyHost());
+            assertTrue(captured.get().useProxy());
+            assertEquals("wizard.proxy", stored.get("proxy.host"));
+            assertEquals(3, stored.size());
         }
     }
 
@@ -134,10 +225,44 @@ class DesktopToolsControllerTest {
                             overview(model).activity().message().key());
                     assertEquals("gui.tools.backend-status", overview(model).backend().text().key());
                     assertEquals(DesktopUiHost.ToolOutcome.CANCELLED, records.get(0)[1]);
+                    assertEquals(cancelDuringCount ? null : 1, records.get(0)[3]);
+                    assertEquals(cancelDuringCount ? null : Path.of("session.html"), records.get(0)[6]);
                     var next = new java.util.concurrent.CompletableFuture<Boolean>();
                     model.executeAsync(() -> next.complete(Thread.currentThread().isInterrupted()));
                     assertFalse(next.get(5, java.util.concurrent.TimeUnit.SECONDS));
                 }
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("回填和迁移失败后仍记录本次日志路径并关闭日志会话")
+    void failedToolsKeepTheirLogPath() throws Exception {
+        for (boolean migration : List.of(false, true)) {
+            var records = new java.util.concurrent.CopyOnWriteArrayList<Object[]>();
+            var closed = new java.util.concurrent.atomic.AtomicBoolean();
+            Map<String, Function<Object[], Object>> overrides = new HashMap<>();
+            overrides.put("backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null));
+            overrides.put("stopBackend", args -> { ((Runnable) args[0]).run(); return true; });
+            overrides.put("startBackend", args -> { ((Runnable) args[0]).run(); return true; });
+            overrides.put("recordToolHistory", args -> { records.add(args); return null; });
+            overrides.put("openToolLog", args -> new DesktopUiHost.ToolLogSession() {
+                public Path latestPath() { return Path.of("latest.html"); }
+                public Path sessionPath() { return Path.of("session.html"); }
+                public void openLatestInBrowser() {}
+                public void close() { closed.set(true); }
+            });
+            overrides.put(migration ? "runMigration" : "runBackfill", args -> {
+                throw new IllegalStateException("simulated operation failure");
+            });
+            try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+                awaitMediaReady(model);
+                activate(model, migration ? "tools.migration.run" : "tools.backfill.run");
+                DesktopConfigurationControllerTest.awaitReady(model);
+                assertEquals(1, records.size());
+                assertEquals(DesktopUiHost.ToolOutcome.FAILED, records.get(0)[1]);
+                assertEquals(Path.of("session.html"), records.get(0)[6]);
+                assertTrue(closed.get());
             }
         }
     }
@@ -232,7 +357,7 @@ class DesktopToolsControllerTest {
     }
 
     @Test
-    @DisplayName("媒体检查不随表单编辑重复执行，路径校验失败不写配置，安装保留真实进度")
+    @DisplayName("媒体检查不随表单编辑重复执行，工具不保存路径，安装保留真实进度")
     void mediaActionsUseHostValidationAndProgress() throws Exception {
         Map<String, String> stored = new java.util.concurrent.ConcurrentHashMap<>();
         var probes = new java.util.concurrent.atomic.AtomicInteger();
@@ -243,10 +368,6 @@ class DesktopToolsControllerTest {
         Map<String, Function<Object[], Object>> overrides = new HashMap<>();
         overrides.put("locateFfmpeg", args -> { probes.incrementAndGet(); return installed.get() ? java.util.Optional.of(installation) : java.util.Optional.empty(); });
         overrides.put("supportsManagedFfmpegInstall", args -> true);
-        overrides.put("validateCoreConfigValue", args -> {
-            if (args[1].equals("bad")) throw new IllegalArgumentException("invalid executable");
-            return null;
-        });
         overrides.put("installManagedFfmpeg", args -> {
             ((DesktopUiHost.FfmpegProgressListener) args[1]).onProgress(DesktopUiHost.FfmpegInstallStage.DOWNLOADING, 3, 10);
             started.countDown();
@@ -258,16 +379,11 @@ class DesktopToolsControllerTest {
             awaitMediaReady(model);
             int baseline = probes.get();
             model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
-                    "tools.ffmpeg.path", DesktopUiNode.Value.text("bad")));
+                    "tools.backfill.proxy-host", DesktopUiNode.Value.text("temporary.proxy")));
             assertEquals(baseline, probes.get());
-            activate(model, "status.ffmpeg.path.save");
-            awaitMediaReady(model);
+            assertFalse(descendants(overview(model).media()).anyMatch(node -> node.id().equals("tools.ffmpeg.path")));
+            activate(model, "status.ffmpeg.settings");
             assertFalse(stored.containsKey("ffmpeg.executable-path"));
-            model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
-                    "tools.ffmpeg.path", DesktopUiNode.Value.text("")));
-            activate(model, "status.ffmpeg.path.save");
-            awaitMediaReady(model);
-            assertEquals("", stored.get("ffmpeg.executable-path"));
             activate(model, "status.ffmpeg.install");
             assertTrue(model.snapshot().document().dialogs().isEmpty());
             activate(model, "ffmpeg.confirm.install");
@@ -285,7 +401,7 @@ class DesktopToolsControllerTest {
         } finally { release.countDown(); }
     }
 
-    private static void awaitMediaReady(ComposeDesktopUiModel model) {
+    static void awaitMediaReady(ComposeDesktopUiModel model) {
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
             while (model.busy() || descendants(overview(model).media()).filter(DesktopUiNode.Button.class::isInstance)
                     .map(DesktopUiNode.Button.class::cast).noneMatch(button -> button.id().equals("status.ffmpeg.refresh") && button.enabled())) Thread.sleep(10);

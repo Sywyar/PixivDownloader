@@ -9,49 +9,35 @@ async function scheduleHttpError(response, fallbackKey, fallback) {
         || bt(fallbackKey || 'common.request-failed', fallback || '请求失败'));
 }
 
-async function schedulePost(task, verb, body) {
+async function schedulePost(task, verb, body, signal) {
     const res = await fetch(`${BASE}/api/schedule/tasks/${task.id}/${verb}`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         credentials: 'same-origin',
+        signal,
         body: body ? JSON.stringify(body) : undefined
     });
     if (!res.ok) throw await scheduleHttpError(res);
     return res.json().catch(() => ({}));
 }
 
-async function scheduleCredentialValue(sourceType) {
-    const runtime = altScheduleSources();
-    if (!runtime) throw new Error(bt('schedule.error.source-editor-unavailable', '计划任务来源编辑器当前不可用'));
-    return runtime.invokeCredentialAction(sourceType, 'savedCookie', [], {});
-}
-
 async function validateScheduleCredential(sourceType, credential, task) {
     const runtime = altScheduleSources();
     if (!runtime) throw new Error(bt('schedule.error.source-editor-unavailable', '计划任务来源编辑器当前不可用'));
-    const error = await runtime.invokeCredentialAction(
-        sourceType, 'validateCookie', [credential], {task: task || null});
+    const error = await runtime.validateCredential(sourceType, credential, {task: task || null});
     if (error) throw new Error(String(error));
 }
 
-async function bindScheduleCredential(taskId, sourceType, credential) {
+async function bindScheduleCredential(taskId, sourceType, credential, task) {
     const runtime = altScheduleSources();
     if (!runtime) throw new Error(bt('schedule.error.source-editor-unavailable', '计划任务来源编辑器当前不可用'));
-    const lease = runtime.activationLease(sourceType);
-    const res = await fetch(`${BASE}/api/schedule/tasks/${taskId}/authorize-cookie`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-Acquisition-Credential': credential
-        },
-        signal: lease.signal,
-        body: JSON.stringify({activationToken: lease.activationToken})
-    });
-    lease.assertCurrent();
-    if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
-        throw new Error(payload.error || payload.message || bt('schedule.error.authorize', '授权失败'));
+    const result = credential
+        ? await runtime.bindCredential(sourceType, taskId, credential, {task: task || null})
+        : await runtime.bindSavedCredential(sourceType, taskId, {task: task || null});
+    if (!result?.ok) {
+        throw new Error(result?.error || (result?.status === 'missing'
+            ? bt('schedule.error.no-credential', '当前来源没有可用的已保存凭证')
+            : bt('schedule.error.authorize', '授权失败')));
     }
 }
 
@@ -63,7 +49,7 @@ async function scheduleVerb(task, verb) {
     } catch (e) {
         abToast('error', String(e && e.message || bt('schedule.feedback.failed', '操作失败')));
     }
-    await loadScheduleTasks(true);
+    await loadScheduleTasks();
 }
 
 async function scheduleSetEnabled(task, enabled) {
@@ -74,7 +60,7 @@ async function scheduleSetEnabled(task, enabled) {
     } catch (e) {
         abToast('error', String(e && e.message || bt('schedule.feedback.failed', '操作失败')));
     }
-    await loadScheduleTasks(true);
+    await loadScheduleTasks();
     return saved;
 }
 
@@ -95,7 +81,7 @@ async function deleteScheduleTask(task) {
     if (vueDelete && typeof vueDelete.unmountScheduleQueue === 'function') {
         vueDelete.unmountScheduleQueue(task.id);
     }
-    loadScheduleTasks(true);
+    loadScheduleTasks();
 }
 
 /* ============================================================
@@ -226,7 +212,7 @@ function refreshScheduleQueueView(task, entry) {
         vue.syncScheduleQueue(task.id);
         return;
     }
-    renderScheduleQueue(box, task, entry.data);
+    renderScheduleQueue(box, entry.data);
 }
 
 function subscribeScheduleQueue(task, entry) {
@@ -346,11 +332,7 @@ function scheduleQueueDetailModel(data) {
     };
 }
 
-function scheduleQueueVueContext(_id, box, data) {
-    return {boxEl: box, read: () => scheduleQueueDetailModel(data)};
-}
-
-function renderScheduleQueue(box, task, data) {
+function renderScheduleQueue(box, data) {
     const model = scheduleQueueDetailModel(data);
     const scroll = box.querySelector('.ab-round-list')?.scrollTop || 0;
     box.replaceChildren();
@@ -430,7 +412,7 @@ function openScheduleSnapshot(task) {
             task.sourceAvailable === false ? sourceType : scheduleTypeLabel(task)],
         [bt('schedule.snapshot.field.trigger', '触发方式'), scheduleTriggerLabel(task)],
         [bt('schedule.snapshot.field.credential', '来源凭证'), credentialUi.badgeLabel
-            || (task.cookieBound
+            || (task.credentialPolicy?.bound === true
                 ? bt('schedule.credential.bound', '已绑定凭证')
                 : bt('schedule.credential.unbound', '未绑定凭证'))],
         [bt('schedule.snapshot.field.proxy', '单独代理'), task.proxy

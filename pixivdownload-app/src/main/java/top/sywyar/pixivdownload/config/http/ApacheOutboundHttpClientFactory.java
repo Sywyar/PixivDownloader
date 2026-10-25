@@ -187,7 +187,6 @@ final class ApacheOutboundHttpClientFactory implements OutboundHttpClientFactory
         private static final class ApacheResponseBodyInputStream extends FilterInputStream {
 
             private final ClassicHttpResponse response;
-            private final AtomicBoolean closed = new AtomicBoolean();
 
             private ApacheResponseBodyInputStream(
                     InputStream body,
@@ -199,9 +198,7 @@ final class ApacheOutboundHttpClientFactory implements OutboundHttpClientFactory
 
             @Override
             public void close() throws IOException {
-                if (closed.compareAndSet(false, true)) {
-                    response.close();
-                }
+                response.close();
             }
         }
     }

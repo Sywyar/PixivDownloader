@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
@@ -45,10 +45,13 @@ class NovelEpubWriterTest {
         Map<String, EntryInfo> entries = readEntries(epub);
 
         // mimetype 必须存在且 STORED 写入（不被压缩）
-        assertThat(entries).containsKey("mimetype");
+        assertThat(entries.keySet().iterator().next()).isEqualTo("mimetype");
         assertThat(entries.get("mimetype").method).isEqualTo(ZipEntry.STORED);
         assertThat(new String(entries.get("mimetype").data, StandardCharsets.US_ASCII))
                 .isEqualTo("application/epub+zip");
+        entries.forEach((path, entry) -> {
+            if (!path.equals("mimetype")) assertThat(entry.method).isEqualTo(ZipEntry.DEFLATED);
+        });
 
         // container.xml 指向 OEBPS/content.opf
         String container = new String(entries.get("META-INF/container.xml").data, StandardCharsets.UTF_8);
@@ -224,18 +227,8 @@ class NovelEpubWriterTest {
         assertThat(ncx).contains("<text>Custom chapter 1</text>");
     }
 
-    @Test
-    @DisplayName("contentHash 对相同内容稳定，对不同内容不同")
-    void contentHashStable() {
-        var a = List.of(new NovelEpubWriter.Chapter("c", "body"));
-        var b = List.of(new NovelEpubWriter.Chapter("c", "body"));
-        var c = List.of(new NovelEpubWriter.Chapter("c", "different"));
-        assertThat(NovelEpubWriter.contentHash(a)).isEqualTo(NovelEpubWriter.contentHash(b));
-        assertThat(NovelEpubWriter.contentHash(a)).isNotEqualTo(NovelEpubWriter.contentHash(c));
-    }
-
     private static Map<String, EntryInfo> readEntries(byte[] epub) throws Exception {
-        Map<String, EntryInfo> map = new HashMap<>();
+        Map<String, EntryInfo> map = new LinkedHashMap<>();
         try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(epub))) {
             ZipEntry e;
             while ((e = zis.getNextEntry()) != null) {

@@ -1,9 +1,7 @@
 package top.sywyar.pixivdownload.core.pixiv;
 
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
@@ -13,6 +11,7 @@ import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetchExceptio
 import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFailure;
 import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 
+import java.io.IOException;
 import java.net.URI;
 import java.util.Locale;
 
@@ -30,19 +29,25 @@ public class PixivThumbnailFetchService implements PixivThumbnailFetcher {
     public byte[] fetch(URI source) {
         requireAllowedTarget(source);
         try {
-            HttpEntity<Void> entity = new HttpEntity<>(PixivRequestHeaders.image(null));
-            ResponseEntity<byte[]> response =
-                    restTemplate.exchange(source, HttpMethod.GET, entity, byte[].class);
-            if (!response.getStatusCode().is2xxSuccessful()) {
-                throw new PixivThumbnailFetchException(
-                        PixivThumbnailFailure.HTTP_STATUS,
-                        response.getStatusCode().value()
-                );
-            }
-            byte[] body = response.getBody();
-            return body == null ? new byte[0] : body;
-        } catch (PixivThumbnailFetchException e) {
-            throw e;
+            return restTemplate.execute(source, HttpMethod.GET,
+                    request -> request.getHeaders().putAll(PixivRequestHeaders.image(null)),
+                    response -> {
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            throw new PixivThumbnailFetchException(
+                                    PixivThumbnailFailure.HTTP_STATUS,
+                                    response.getStatusCode().value()
+                            );
+                        }
+                        int maximumBytes = Math.toIntExact(PixivImageTransferObserver.MAX_IMAGE_BYTES);
+                        if (response.getHeaders().getContentLength() > maximumBytes) {
+                            throw new IOException("Pixiv thumbnail exceeds the transfer byte limit");
+                        }
+                        byte[] body = response.getBody().readNBytes(maximumBytes + 1);
+                        if (body.length > maximumBytes) {
+                            throw new IOException("Pixiv thumbnail exceeds the transfer byte limit");
+                        }
+                        return body;
+                    });
         } catch (RestClientResponseException e) {
             throw new PixivThumbnailFetchException(
                     PixivThumbnailFailure.HTTP_STATUS,

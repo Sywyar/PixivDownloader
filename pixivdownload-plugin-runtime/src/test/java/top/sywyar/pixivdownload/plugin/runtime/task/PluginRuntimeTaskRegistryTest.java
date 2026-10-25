@@ -92,6 +92,31 @@ class PluginRuntimeTaskRegistryTest {
     }
 
     @Test
+    @DisplayName("清退后被执行器取出的任务仍交付取消，拒绝取消时保留重试")
+    void skippedOneShotRetainsBoundCancellation() {
+        PluginRuntimeTaskRegistry registry = new PluginRuntimeTaskRegistry();
+        AtomicInteger calls = new AtomicInteger();
+        PluginRuntimeTask task = registry.registrarForPlugin("ext-demo")
+                .registerOneShot(calls::incrementAndGet);
+        ToggleFuture future = new ToggleFuture();
+        task.bindCancellation(future);
+        PluginRuntimeTaskDrain drain = registry.prepareQuiesce("ext-demo");
+
+        task.run();
+        assertThat(calls).hasValue(0);
+        assertThat(drain.activeCount()).isOne();
+        assertThatThrownBy(() -> registry.cancelQuiescedTasks("ext-demo", drain))
+                .isInstanceOf(IllegalStateException.class);
+        task.run();
+        assertThat(drain.isDrained()).isFalse();
+        future.allowCancellation.set(true);
+        registry.cancelQuiescedTasks("ext-demo", drain);
+        registry.cancelQuiescedTasks("ext-demo", drain);
+        assertThat(future.cancelCalls).hasValue(2);
+        assertThat(drain.isDrained()).isTrue();
+    }
+
+    @Test
     @DisplayName("prepare 后包装器不再直接持插件 delegate 且 drain 不回指全局 registry")
     void preparedWrapperAndDrainDoNotRetainPluginObjects() throws Exception {
         PluginRuntimeTaskRegistry registry = new PluginRuntimeTaskRegistry();

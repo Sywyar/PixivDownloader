@@ -71,7 +71,8 @@
             if (!confirmed) return;
         }
         // 编辑时取消勾选 = 清除已生效的单独代理 / 凭证：先确认后果再保存。
-        const confirmedClears = await confirmScheduleOverrideClears(ov, prevTask, sourceLease);
+        const confirmedClears = await confirmScheduleOverrideClears(
+            ov, prevTask, () => scheduleSubmissionCurrent(sourceLease, editingToken));
         if (!scheduleSubmissionCurrent(sourceLease, editingToken)) return;
         if (!confirmedClears) return;
         const triggerKind = document.getElementById('sch-trigger').value;
@@ -307,7 +308,7 @@
     }
 
     // 取消勾选 = 清除已生效的单独设置：弹窗确认回退全局代理或解除凭证的后果。
-    async function confirmScheduleOverrideClears(ov, prevTask, sourceLease) {
+    async function confirmScheduleOverrideClears(ov, prevTask, isCurrent) {
         if (!prevTask) return true;
         if (ov.supportsProxy && !ov.proxyChecked && prevTask.proxy) {
             const confirmed = await uiConfirmKey(
@@ -315,7 +316,7 @@
                     || 'schedule.confirm.clear-proxy',
                 (ov.presentation || {}).clearProxyConfirm
                     || '将清除该任务的单独代理，此后使用全局代理设置。确定吗？');
-            if (sourceLease && !scheduleLeaseCurrent(sourceLease)) return false;
+            if (!isCurrent()) return false;
             if (!confirmed) return false;
         }
         if (ov.supportsCredential && !ov.credentialChecked
@@ -325,7 +326,7 @@
                     || 'schedule.confirm.clear-credential',
                 (ov.presentation || {}).clearCredentialConfirm
                     || '将解除该任务绑定的凭证；需要登录态的来源可能无法继续运行。确定吗？');
-            if (sourceLease && !scheduleLeaseCurrent(sourceLease)) return false;
+            if (!isCurrent()) return false;
             if (!confirmed) return false;
         }
         return true;

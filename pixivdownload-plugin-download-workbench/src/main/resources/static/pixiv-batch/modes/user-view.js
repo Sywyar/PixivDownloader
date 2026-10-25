@@ -78,7 +78,7 @@
         const imgEl = document.getElementById(`user-thumb-img-${idx}`);
         if (!imgEl) return;
         const blobUrl = await fetchThumbnailBlobUrl(
-            item.thumbnailUrl, userState.activeBlobUrls, userState.kind, 'user');
+            item.thumbnailUrl, () => userState.activeBlobUrls, userState.kind, 'user');
         if (renderToken !== userState.renderToken) return;
         if (blobUrl && imgEl.isConnected) imgEl.src = blobUrl;
     }
@@ -110,25 +110,7 @@
         if (!item) return;
         const queueId = userQueueId(item);
         const meta = buildUserQueueMeta(item);
-        const alreadyInQueue = state.queue.find(q => q.id === queueId);
-        if (alreadyInQueue) {
-            const merged = reconcileQueueItemTypeData(alreadyInQueue, meta, 'toggle');
-            if (merged.keepExisting) {
-                if (merged.changed) {
-                    updateStats();
-                    saveQueue();
-                    renderQueue();
-                }
-                setStatus({key: 'status.already-in-queue', fallback: '已在队列中：{title}', args: {title: item.title}}, 'info');
-                return;
-            }
-            const removed = removeFromQueue(queueId);
-            setStatus(removed
-                    ? {key: 'status.removed-from-queue', fallback: '已从队列移除：{title}', args: {title: item.title}}
-                    : {key: 'status.cannot-remove-downloading', fallback: '无法移除（正在下载中）：{title}', args: {title: item.title}},
-                removed ? 'info' : 'warning');
-            return;
-        }
+        if (toggleExistingQueueItem(queueId, meta, item.title)) return;
         const added = addItemsToQueue(
             [queueId],
             [meta],
@@ -163,9 +145,9 @@
         if (!hasUserResults()) return;
         const acq = userAcq();
         const metaCtx = userAcquisitionContext();
-        const uiFilters = normalizeSearchFilters(getSearchFiltersFromUI());
+        const filters = normalizeSearchFilters(getSearchFiltersFromUI());
         // 无附加筛选：直接按全部 ID 入队（最省请求，等价于旧版「获取全部作品」）。
-        if (!userState.pagedAcquisition && !hasExtraSearchFilter(uiFilters)) {
+        if (!userState.pagedAcquisition && !hasExtraSearchFilter(filters)) {
             const ids = userState.allIds.map(id => userQueueId({id}));
             const metas = userState.allIds.map(id => acq.buildQueueMetaFromId(id, metaCtx));
             const added = addItemsToQueue(
@@ -183,7 +165,7 @@
         const lease = window.PixivBatch.queueTypes.acquisitionLease(userState.kind, 'user');
         beginUserOperation();
         const requestSeq = ++userState.requestSeq;
-        if (hasExtraSearchFilter(uiFilters)) {
+        if (hasExtraSearchFilter(filters)) {
             const confirmed = await uiConfirmKey(
                 'dialog.user-add-all-warning',
                 '「全部加入队列」会按附加筛选逐页请求该画师的全部 {total} 个作品卡片，作品较多时会增加 Pixiv 请求量并耗时，确认继续？',
@@ -195,7 +177,6 @@
         }
         updateUserQueueButtons(true);
         try {
-            const filters = uiFilters;
             const kind = userState.kind;
             const matched = [];
             const pageSize = userPageSize();

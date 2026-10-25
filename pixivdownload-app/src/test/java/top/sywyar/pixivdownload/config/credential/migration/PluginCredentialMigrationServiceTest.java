@@ -458,6 +458,29 @@ class PluginCredentialMigrationServiceTest {
     }
 
     @Test
+    @DisplayName("转义键和续行凭证迁入加密存储后完整清理旧配置项")
+    void migratesEscapedAndContinuedPropertyWithoutLeavingPlaintext() throws Exception {
+        String owner = "escaped";
+        String key = "escaped.api-key";
+        Path file = RuntimeFiles.resolvePluginConfigPath(owner, "properties");
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, "# keep\nescaped.api\\u002dkey=test-\\\n  secret\nescaped.ordinary=keep\n",
+                StandardCharsets.UTF_8);
+        var store = new PluginCredentialStore();
+        var registry = new PluginRegistry(List.of(plugin(owner, Set.of(key))));
+        var migration = service(registry, store, new StandardEnvironment());
+
+        migration.migrateOwner(owner);
+
+        assertThat(store.readAll(owner)).containsExactlyEntriesOf(Map.of(key, "test-secret"));
+        assertThat(Files.readAllLines(file, StandardCharsets.UTF_8))
+                .containsExactly("# keep", "escaped.ordinary=keep");
+        byte[] encrypted = Files.readAllBytes(RuntimeFiles.resolvePluginCredentialPath(owner));
+        migration.migrateOwner(owner);
+        assertThat(Files.readAllBytes(RuntimeFiles.resolvePluginCredentialPath(owner))).isEqualTo(encrypted);
+    }
+
+    @Test
     @DisplayName("插件 properties 空白时继续迁移 YAML 非空凭证并清理两个旧源")
     void skipsBlankPluginPropertyAndMigratesNonBlankYamlCredential() throws Exception {
         String owner = "blank-property";

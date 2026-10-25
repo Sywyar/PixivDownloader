@@ -2,20 +2,20 @@ package top.sywyar.pixivdownload.download.state;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.download.request.LayoutFeedbackCommandRequest;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -82,58 +82,21 @@ class LayoutFeedbackStateConcurrencyTest extends LayoutFeedbackStateStoreTestSup
     @DisplayName("并发写在同一 JVM 内串行：全部命令最终生效且无丢失")
     void concurrentWritesSerialize() throws Exception {
         LayoutFeedbackStateStore store = store();
-        int threads = 6;
-        ExecutorService executor = Executors.newFixedThreadPool(threads);
-        CountDownLatch start = new CountDownLatch(1);
-        CountDownLatch done = new CountDownLatch(threads);
-        AtomicInteger conflicts = new AtomicInteger();
         String[] layouts = {"pixiv-batch-landscape", "pixiv-batch-portrait", "pixiv-batch-alt"};
-        for (int i = 0; i < threads; i++) {
-            String layout = layouts[i % layouts.length];
-            executor.submit(() -> {
-                try {
-                    start.await();
-                    store.apply(recordSeen(layout), NOW);
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                } finally {
-                    done.countDown();
-                }
-            });
-        }
-        start.countDown();
-        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
-        executor.shutdownNow();
+        applyConcurrently(store, List.of(
+                recordSeen(layouts[0]), recordSeen(layouts[1]), recordSeen(layouts[2]),
+                recordSeen(layouts[0]), recordSeen(layouts[1]), recordSeen(layouts[2])));
 
         LayoutFeedbackStateSnapshot snapshot = store.snapshot();
         assertThat(snapshot.seen().keySet()).containsExactlyInAnyOrder(layouts);
         assertThat(snapshot.revision()).isEqualTo(3);
-        assertThat(conflicts.get()).isZero();
     }
 
     @Test
     @DisplayName("并发 snooze 串行后 snoozedUntil 不缩短（至少最后一次处理的 7 天）")
     void concurrentSnoozesNeverShorten() throws Exception {
         LayoutFeedbackStateStore store = store();
-        int threads = 6;
-        ExecutorService executor = Executors.newFixedThreadPool(threads);
-        CountDownLatch start = new CountDownLatch(1);
-        CountDownLatch done = new CountDownLatch(threads);
-        for (int i = 0; i < threads; i++) {
-            executor.submit(() -> {
-                try {
-                    start.await();
-                    store.apply(snooze(), NOW);
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                } finally {
-                    done.countDown();
-                }
-            });
-        }
-        start.countDown();
-        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
-        executor.shutdownNow();
+        applyConcurrently(store, Collections.nCopies(6, snooze()));
 
         LayoutFeedbackStateSnapshot snapshot = store.snapshot();
         assertThat(snapshot.state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.SNOOZED);
@@ -146,32 +109,7 @@ class LayoutFeedbackStateConcurrencyTest extends LayoutFeedbackStateStoreTestSup
     @DisplayName("snooze 与 submitted 并发：submitted 最终胜出")
     void concurrentSnoozeAndSubmittedSubmittedWins() throws Exception {
         LayoutFeedbackStateStore store = store();
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        CountDownLatch start = new CountDownLatch(1);
-        CountDownLatch done = new CountDownLatch(2);
-        executor.submit(() -> {
-            try {
-                start.await();
-                store.apply(snooze(), NOW);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            } finally {
-                done.countDown();
-            }
-        });
-        executor.submit(() -> {
-            try {
-                start.await();
-                store.apply(submitted(), NOW);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            } finally {
-                done.countDown();
-            }
-        });
-        start.countDown();
-        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
-        executor.shutdownNow();
+        applyConcurrently(store, List.of(snooze(), submitted()));
 
         assertThat(store.snapshot().state(SURVEY_ID).status())
                 .isEqualTo(LayoutFeedbackDecision.SUBMITTED);
@@ -181,32 +119,7 @@ class LayoutFeedbackStateConcurrencyTest extends LayoutFeedbackStateStoreTestSup
     @DisplayName("never 与 submitted 并发：submitted 最终胜出")
     void concurrentNeverAndSubmittedSubmittedWins() throws Exception {
         LayoutFeedbackStateStore store = store();
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        CountDownLatch start = new CountDownLatch(1);
-        CountDownLatch done = new CountDownLatch(2);
-        executor.submit(() -> {
-            try {
-                start.await();
-                store.apply(never(), NOW);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            } finally {
-                done.countDown();
-            }
-        });
-        executor.submit(() -> {
-            try {
-                start.await();
-                store.apply(submitted(), NOW);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            } finally {
-                done.countDown();
-            }
-        });
-        start.countDown();
-        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
-        executor.shutdownNow();
+        applyConcurrently(store, List.of(never(), submitted()));
 
         assertThat(store.snapshot().state(SURVEY_ID).status())
                 .isEqualTo(LayoutFeedbackDecision.SUBMITTED);
@@ -216,32 +129,7 @@ class LayoutFeedbackStateConcurrencyTest extends LayoutFeedbackStateStoreTestSup
     @DisplayName("record_seen 与 submitted 并发：submitted 保留，seen 正常合并")
     void concurrentRecordSeenAndSubmitted() throws Exception {
         LayoutFeedbackStateStore store = store();
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        CountDownLatch start = new CountDownLatch(1);
-        CountDownLatch done = new CountDownLatch(2);
-        executor.submit(() -> {
-            try {
-                start.await();
-                store.apply(recordSeen("pixiv-batch-landscape"), NOW);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            } finally {
-                done.countDown();
-            }
-        });
-        executor.submit(() -> {
-            try {
-                start.await();
-                store.apply(submitted(), NOW);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            } finally {
-                done.countDown();
-            }
-        });
-        start.countDown();
-        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
-        executor.shutdownNow();
+        applyConcurrently(store, List.of(recordSeen("pixiv-batch-landscape"), submitted()));
 
         LayoutFeedbackStateSnapshot snapshot = store.snapshot();
         assertThat(snapshot.state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
@@ -252,36 +140,31 @@ class LayoutFeedbackStateConcurrencyTest extends LayoutFeedbackStateStoreTestSup
     @DisplayName("旧 Survey A 与新 Survey B 命令并发：各自 states 条目独立，不互相覆盖")
     void concurrentDifferentSurveyCommandsIndependent() throws Exception {
         LayoutFeedbackStateStore store = store();
-        ExecutorService executor = Executors.newFixedThreadPool(2);
-        CountDownLatch start = new CountDownLatch(1);
-        CountDownLatch done = new CountDownLatch(2);
-        executor.submit(() -> {
-            try {
-                start.await();
-                store.apply(submitted(), NOW);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            } finally {
-                done.countDown();
-            }
-        });
-        executor.submit(() -> {
-            try {
-                start.await();
-                store.apply(command(OTHER_SURVEY_ID, "never", null), NOW);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            } finally {
-                done.countDown();
-            }
-        });
-        start.countDown();
-        assertThat(done.await(30, TimeUnit.SECONDS)).isTrue();
-        executor.shutdownNow();
+        applyConcurrently(store, List.of(submitted(), command(OTHER_SURVEY_ID, "never", null)));
 
         LayoutFeedbackStateSnapshot snapshot = store.snapshot();
         assertThat(snapshot.state(SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.SUBMITTED);
         assertThat(snapshot.state(OTHER_SURVEY_ID).status()).isEqualTo(LayoutFeedbackDecision.NEVER);
+    }
+
+    private void applyConcurrently(LayoutFeedbackStateStore store, List<LayoutFeedbackCommandRequest> commands)
+            throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(commands.size());
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<?>> futures = new ArrayList<>();
+            for (LayoutFeedbackCommandRequest command : commands) {
+                futures.add(executor.submit(() -> {
+                    start.await();
+                    return store.apply(command, NOW);
+                }));
+            }
+            start.countDown();
+            for (Future<?> future : futures) future.get(30, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(30, TimeUnit.SECONDS)).as("并发写入线程应结束").isTrue();
+        }
     }
 
 }

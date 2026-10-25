@@ -5,7 +5,7 @@ function Test-ApplicationScenario {
         [string]$Provider = '', [string]$ConfiguredProvider = '', [switch]$Headless,
         [switch]$FirstRun, [switch]$BootstrapPrompt, [bool]$Recovery = $false,
         [string[]]$CrashedIds = @(), [string[]]$UnavailableIds = @(), [scriptblock]$Exercise,
-        [switch]$InjectsFailure)
+        [switch]$InjectsFailure, [string]$ExpectedHealth = 'UP')
     $expected = @(Read-ExpectedPluginIds (Get-ManifestPath $Root))
     Set-IsolatedRuntimeEnvironment $RuntimeRoot
     $port = Get-FreePort
@@ -22,10 +22,10 @@ function Test-ApplicationScenario {
     $result = [ordered]@{ label = $Label; passed = $false; error = ''; provider = $Provider }
     try {
         if (-not $FirstRun) {
-            $setup = Start-ArtifactProcess -Launcher $Launcher -WorkingDirectory $Root -Arguments @(
+            $exitCode = Start-ArtifactProcess -Launcher $Launcher -WorkingDirectory $Root -Arguments @(
                 '--setup', "--username=$Username", "--password=$Password", '--mode=solo', '--proxy-enabled=false'
             ) -LogPrefix "$LogRoot-setup" -Wait
-            if ($setup.ExitCode -ne 0) { throw "$Label setup failed with exit code $($setup.ExitCode)" }
+            if ($exitCode -ne 0) { throw "$Label setup failed with exit code $exitCode" }
         }
         $env:JAVA_TOOL_OPTIONS += " -javaagent:`"$($script:ReleaseTools.Agent)=$probeRoot`""
         $arguments = @('--server.address=127.0.0.1', "--server.port=$port")
@@ -35,7 +35,7 @@ function Test-ApplicationScenario {
         Connect-ReleaseProbe $application $probeRoot
         $session = $null
         if (-not $BootstrapPrompt) {
-            Wait-ForHealthyApplication -Port $port -Process $application -Label $Label
+            Wait-ForHealthyApplication -Port $port -Process $application -Label $Label -ExpectedHealth $ExpectedHealth
             if (-not $FirstRun) { $session = New-ReleaseLogin $port }
         }
         if (-not $Headless) {
@@ -43,7 +43,7 @@ function Test-ApplicationScenario {
         }
         Assert-ReleaseStable -Process $application -ProbeRoot $probeRoot -Port $port -Session $session `
             -ExpectedIds $expected -Provider $Provider -Recovery $Recovery -CrashedIds $CrashedIds `
-            -UnavailableIds $UnavailableIds -BootstrapPrompt:$BootstrapPrompt
+            -UnavailableIds $UnavailableIds -BootstrapPrompt:$BootstrapPrompt -ExpectedHealth $ExpectedHealth
         if (-not $CrashedIds.Count -and -not $UnavailableIds.Count) { Assert-ReleaseNoFatalLog $Root }
         $run = [pscustomobject]@{ Process = $application; ProbeRoot = $probeRoot; Port = $port;
             Session = $session; ExpectedIds = $expected; Root = $Root; Launcher = $Launcher;
@@ -70,6 +70,10 @@ function Test-ApplicationScenario {
         throw
     } finally {
         try { Stop-ArtifactProcess $application } finally {
+            if ($null -ne $application) {
+                if ($application.PSObject.Properties['EngineProcess']) { $application.EngineProcess.Dispose() }
+                $application.Dispose()
+            }
             Save-ReleaseEvidence -Label $Label -Root $Root -RuntimeRoot $RuntimeRoot -LogRoot $LogRoot -Result $result
         }
     }
@@ -122,31 +126,38 @@ function Assert-ReleaseLogParity {
 function Test-ReleaseLogRotation {
     param([string]$Root, [string]$Launcher, [string]$RuntimeRoot, [string]$Label)
     Set-IsolatedRuntimeEnvironment $RuntimeRoot
-    $markers = @()
+    $sessions = @()
+    $previousText = ''
+    $previousHtml = ''
     $result = [ordered]@{ label = $Label; passed = $false; error = '' }
     try {
         for ($run = 0; $run -lt 7; $run++) {
-            $marker = 'rotation-' + [Guid]::NewGuid().ToString('N')
-            $markers += $marker
-            $process = Start-ArtifactProcess -Launcher $Launcher -WorkingDirectory $Root `
-                -Arguments @('--help', "--probe=$marker") -LogPrefix (Join-Path $RuntimeRoot $marker) -Wait
-            if ($process.ExitCode -ne 0) { throw "Help command exited with $($process.ExitCode)" }
+            $before = @(Get-ChildItem -LiteralPath (Join-Path $Root 'log') -Filter 'pixiv-download_*.log' | ForEach-Object { $_.BaseName })
+            $exitCode = Start-ArtifactProcess -Launcher $Launcher -WorkingDirectory $Root `
+                -Arguments @('--help') -LogPrefix (Join-Path $RuntimeRoot "rotation-$run") -Wait
+            if ($exitCode -ne 0) { throw "Help command exited with $exitCode" }
             $text = Get-Content -LiteralPath (Join-Path $Root 'log/latest.log') -Raw -Encoding UTF8
             $html = Get-Content -LiteralPath (Join-Path $Root 'log/html/latest.html') -Raw -Encoding UTF8
-            if (-not $text.Contains($marker) -or -not $html.Contains($marker)) { throw 'Current log is missing its run marker.' }
-            if ($run -gt 0 -and ($text.Contains($markers[$run - 1]) -or $html.Contains($markers[$run - 1]))) {
+            if ($run -gt 0 -and ($text.Contains($previousText) -or $html.Contains($previousHtml))) {
                 throw 'Latest logs contain a previous run.'
             }
             $textHistory = @(Get-ChildItem -LiteralPath (Join-Path $Root 'log') -Filter 'pixiv-download_*.log' | Sort-Object Name)
             $htmlHistory = @(Get-ChildItem -LiteralPath (Join-Path $Root 'log/html') -Filter 'pixiv-download_*.html' | Sort-Object Name)
             if ($textHistory.Count -gt 6 -or $htmlHistory.Count -ne $textHistory.Count) { throw 'Log retention or pairing failed.' }
             if (($textHistory.BaseName -join ',') -ne ($htmlHistory.BaseName -join ',')) { throw 'Text and HTML sessions differ.' }
+            $created = @($textHistory | Where-Object { $_.BaseName -notin $before })
+            if ($created.Count -ne 1 -or $created[0].BaseName -ne $textHistory[-1].BaseName) {
+                throw 'Each launch must create one new current log session.'
+            }
+            $sessions += $created[0].BaseName
             if ($text -cne (Get-Content $textHistory[-1].FullName -Raw -Encoding UTF8) -or
                 $html -cne (Get-Content $htmlHistory[-1].FullName -Raw -Encoding UTF8)) { throw 'Latest and dated logs differ.' }
+            $previousText = $text
+            $previousHtml = $html
         }
         if ($textHistory.Count -ne 6) { throw 'Expected current run plus exactly five historical runs.' }
-        foreach ($file in @($textHistory) + @($htmlHistory)) {
-            if ((Get-Content $file.FullName -Raw -Encoding UTF8).Contains($markers[0])) { throw 'Oldest run was not removed.' }
+        if (($textHistory.BaseName -join ',') -ne (($sessions | Select-Object -Last 6) -join ',')) {
+            throw 'Log history does not contain exactly the six latest sessions.'
         }
         $result.passed = $true
         Write-Host "PASS: $Label (current plus five previous runs)" -ForegroundColor Green
@@ -164,9 +175,9 @@ function Test-ReleaseDuplicateInstance {
     $options = $env:JAVA_TOOL_OPTIONS
     try {
         Set-IsolatedRuntimeEnvironment $Run.RuntimeRoot
-        $second = Start-ArtifactProcess -Launcher $Run.Launcher -WorkingDirectory $Run.Root `
+        $exitCode = Start-ArtifactProcess -Launcher $Run.Launcher -WorkingDirectory $Run.Root `
             -Arguments @('--no-gui') -LogPrefix "$($Run.LogRoot)-second" -Wait
-        if ($second.ExitCode -ne 0) { throw 'Second instance did not exit normally.' }
+        if ($exitCode -ne 0) { throw 'Second instance did not exit normally.' }
         Assert-ArtifactAlive $Run.Process 'Original instance'
         $after = Get-Content (Join-Path $Run.Root 'log/latest.log') -Raw -Encoding UTF8
         if (-not $after.StartsWith($before)) { throw 'Second instance overwrote the active log.' }
@@ -303,10 +314,12 @@ function Test-ReleaseUnavailableLayouts {
             $prompt = $scenario -eq 'no-gui'
             $headless = $scenario -eq 'core-shell'
             $provider = if ($prompt -or $headless) { '' } else { 'gui-compose' }
+            $health = if ($scenario -eq 'core-shell') { 'DOWN' } else { 'UP' }
             $exercise = if ($prompt) { $null } else { ${function:Assert-ReleaseRecoveryGate} }
             Test-ApplicationScenario -Label "$Label-$scenario" -Root $Root -Launcher $Launcher `
                 -RuntimeRoot "$RuntimeRoot-$scenario" -LogRoot "$LogRoot-$scenario" -Provider $provider `
-                -BootstrapPrompt:$prompt -Headless:$headless -Recovery:(-not $prompt) -UnavailableIds $ids -Exercise $exercise
+                -BootstrapPrompt:$prompt -Headless:$headless -Recovery:(-not $prompt) -UnavailableIds $ids -Exercise $exercise `
+                -ExpectedHealth $health
         } finally {
             foreach ($entry in $hidden) {
                 if (Test-Path -LiteralPath $entry.File) { Remove-Item -LiteralPath $entry.File }

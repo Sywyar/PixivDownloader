@@ -26,16 +26,8 @@ public record ScheduledWorkKey(String workType, String id) {
      * @param id 标识
      */
     public ScheduledWorkKey {
-        workType = validateCanonical(workType, "work type", MAX_WORK_TYPE_BYTES);
+        workType = validateOpaque(workType, "work type", MAX_WORK_TYPE_BYTES).trim();
         id = validateOpaque(id, "work id", MAX_ID_BYTES);
-    }
-
-    private static String validateCanonical(String value, String label, int maxBytes) {
-        String normalized = validateOpaque(value, label, maxBytes).trim();
-        if (normalized.getBytes(StandardCharsets.UTF_8).length > maxBytes) {
-            throw new IllegalArgumentException(label + " exceeds size limit");
-        }
-        return normalized;
     }
 
     private static String validateOpaque(String value, String label, int maxBytes) {

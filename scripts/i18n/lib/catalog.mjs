@@ -103,8 +103,6 @@ function validate(raw) {
         if (byTag.has(tag)) {
             throw new Error('duplicate locale tag: ' + tag);
         }
-        byTag.set(tag, item);
-
         const suffix = item.resourceSuffix.trim();
         if (ILLEGAL_SUFFIX.test(suffix)) {
             throw new Error('locale ' + tag + ' has illegal resourceSuffix "' + item.resourceSuffix
@@ -127,14 +125,16 @@ function validate(raw) {
         if (item.aliases != null && !Array.isArray(item.aliases)) {
             throw new Error('locale ' + tag + ': aliases must be an array');
         }
-        descriptors.push({
+        const descriptor = {
             tag,
             nativeName: item.nativeName.trim(),
             resourceSuffix: suffix,
             status: item.status,
             direction: item.direction,
             aliases: [],
-        });
+        };
+        descriptors.push(descriptor);
+        byTag.set(tag, descriptor);
     }
 
     // 第二遍：alias 规范化与冲突检查（对完整 tag 集合，声明顺序无关）
@@ -165,7 +165,7 @@ function validate(raw) {
             byAlias.set(canonical, { tag, raw: alias.trim() });
             aliases.push(alias.trim());
         }
-        descriptors[i] = { ...descriptors[i], aliases };
+        descriptors[i].aliases = aliases;
     }
 
     if (sourceCount !== 1) {

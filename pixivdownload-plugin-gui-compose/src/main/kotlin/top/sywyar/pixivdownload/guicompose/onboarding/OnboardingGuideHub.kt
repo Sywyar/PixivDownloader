@@ -62,7 +62,8 @@ internal fun OnboardingGuideHub(
     val reducedMotion = scope.coroutineContext[MotionDurationScale]?.scaleFactor == 0f
     var selectedId by remember(node.id()) { mutableStateOf<String?>(null) }
     var lastSelectedId by remember(node.id()) { mutableStateOf<String?>(null) }
-    val focus = remember(node.cards().map { it.id() }) { node.cards().associate { it.id() to FocusRequester() } }
+    val cardIds = node.cards().map { it.id() }
+    val focus = remember(cardIds) { node.cards().associate { it.id() to FocusRequester() } }
     val expanded = selectedId != null
     val expansion by animateFloatAsState(
         if (expanded) 1f else 0f,
@@ -83,7 +84,7 @@ internal fun OnboardingGuideHub(
             focus[lastSelectedId]?.requestFocus()
         }
     }
-    LaunchedEffect(node.cards().map { it.id() }) {
+    LaunchedEffect(cardIds) {
         if (node.cards().none { it.id() == selectedId }) selectedId = null
     }
     LaunchedEffect(node.cards().map { it.settings()?.validationAttempt() }) {

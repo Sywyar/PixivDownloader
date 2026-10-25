@@ -94,13 +94,24 @@ class WorkMetaCuratorTest {
         JsonNode novel = json("""
                 {"title":"n","description":"desc","content":"很长的正文……",
                  "textEmbeddedImages":{"1":{"urls":{"original":"u"}}},
-                 "uploadDate":"2026-06-06T21:27:00+00:00","isOriginal":true,
+                 "uploadDate":"2026-06-06T21:27:00+00:00","isOriginal":true,"isUnlisted":false,
+                 "createDate":"2026-06-05T20:00:00+00:00","reuploadDate":"2026-06-07T22:00:00+00:00",
+                 "titleCaptionTranslation":{"workTitle":"译名","workCaption":"译文"},
                  "bookmarkCount":10,"likeData":false}""");
 
         CuratedWorkMeta c = curator.curateNovel(5L, novel, "schedule");
 
         assertThat(c.uploadTime()).isEqualTo(epoch("2026-06-06T21:27:00+00:00"));
         assertThat(c.isOriginal()).isTrue();
+
+        JsonNode normalized = c.document().path("normalized");
+        assertThat(normalized.path("uploadTime").asLong()).isEqualTo(epoch("2026-06-06T21:27:00+00:00"));
+        assertThat(normalized.path("createTime").asLong()).isEqualTo(epoch("2026-06-05T20:00:00+00:00"));
+        assertThat(normalized.path("reuploadTime").asLong()).isEqualTo(epoch("2026-06-07T22:00:00+00:00"));
+        assertThat(normalized.path("isOriginal").asBoolean()).isTrue();
+        assertThat(normalized.path("isUnlisted").asBoolean(true)).isFalse();
+        assertThat(normalized.path("titleTranslation").asText()).isEqualTo("译名");
+        assertThat(normalized.path("captionTranslation").asText()).isEqualTo("译文");
 
         JsonNode raw = c.document().path("raw");
         assertThat(raw.has("content")).as("正文已在 raw_content，剥除").isFalse();

@@ -12,6 +12,8 @@ import top.sywyar.pixivdownload.core.schedule.migration.LegacyScheduledTaskSnaps
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -201,6 +203,32 @@ class PixivLegacyScheduledTaskMigrationAdapterTest {
                 throw new AssertionError(e);
             }
         });
+    }
+
+    @Test
+    @DisplayName("拒绝详情超限时只省略 pending 展示并保留汇总与原始数据")
+    void compactsOversizedRejectionWithoutChangingItsSummary() throws Exception {
+        var row = new LegacyScheduledTaskSnapshot.PendingRow(
+                7, "42", "pending-secret", 1, 10L, 20L);
+        List<LegacyScheduledTaskSnapshot.PendingRow> pending = Collections.nCopies(
+                LegacyScheduledTaskMigrationResult.MAX_SAFE_DETAIL_BYTES / 32, row);
+        LegacyScheduledTaskSnapshot source = snapshot(
+                "COLLECTION", "{\"kind\":\"mixed\",\"source\":{\"collectionId\":\"9\"}}",
+                null, true, 99L, pending);
+
+        LegacyScheduledTaskMigrationResult result = adapter.migrate(source);
+
+        assertThat(result).isInstanceOf(LegacyScheduledTaskMigrationResult.Rejected.class);
+        var rejected = (LegacyScheduledTaskMigrationResult.Rejected) result;
+        assertThat(rejected.code())
+                .isEqualTo(PixivLegacyScheduledTaskMigrationAdapter.REJECTION_AMBIGUOUS_WORK_TYPE);
+        assertThat(objectMapper.readTree(rejected.safeDetailJson())).isEqualTo(objectMapper.readTree(
+                "{\"taskId\":\"7\",\"legacySourceType\":\"COLLECTION\","
+                        + "\"reasonCode\":\"collection-pending-work-type-unknown\","
+                        + "\"legacyDataPreserved\":true,\"pendingCount\":" + pending.size() + "}"));
+        assertThat(rejected.safeDetailJson().getBytes(StandardCharsets.UTF_8).length)
+                .isLessThanOrEqualTo(LegacyScheduledTaskMigrationResult.MAX_SAFE_DETAIL_BYTES);
+        assertThat(source.pending()).hasSize(pending.size()).containsOnly(row);
     }
 
     @Test

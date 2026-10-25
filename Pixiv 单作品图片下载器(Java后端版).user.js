@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv作品图片下载器（Java后端版）
 // @namespace    http://tampermonkey.net/
-// @version      2.2.0
+// @version      2.2.1
 // @updateURL    https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E5%8D%95%E4%BD%9C%E5%93%81%E5%9B%BE%E7%89%87%E4%B8%8B%E8%BD%BD%E5%99%A8(Java%E5%90%8E%E7%AB%AF%E7%89%88).user.js
 // @downloadURL  https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E5%8D%95%E4%BD%9C%E5%93%81%E5%9B%BE%E7%89%87%E4%B8%8B%E8%BD%BD%E5%99%A8(Java%E5%90%8E%E7%AB%AF%E7%89%88).user.js
 // @description  通过Java后端服务下载 Pixiv 单个作品图片
@@ -32,13 +32,11 @@
     const KEY_VERIFY_HISTORY_FILES = 'pixiv_single_verify_history_files';
     const KEY_REDOWNLOAD_DELETED = 'pixiv_single_redownload_deleted';
     const KEY_NOVEL_FORMAT = 'pixiv_single_novel_format';
-    const VERIFY_HISTORY_FILES_TOOLTIP = '通过检查记录的目录是否存在、文件夹是否为空、文件夹中的文件是否包含图片来判断是否有效，如果无效则会重新下载';
+    const VERIFY_HISTORY_FILES_TOOLTIP = '检查已登记的插画、漫画和动图是否完整，缺页或空文件会重新下载，检测出错则报错。历史记录会保留，已删除作品按重下设置处理。';
 
     // 动态 URL 计算
     const getBackendURL = () => serverBase + '/api/download/pixiv';
     const getQuotaInitURL = () => serverBase + '/api/quota/init';
-    const getArchiveStatusBase = () => serverBase + '/api/archive/status';
-    const getArchiveDownloadBase = () => serverBase + '/api/archive/download';
     const getDownloadedCheckBase = () => serverBase + '/api/downloaded';
 
     let userUUID = GM_getValue(KEY_USER_UUID, null);
@@ -196,15 +194,7 @@
         return api;
     })();
 
-    function loadPanelCollapsed() {
-        return PixivPanelState.get();
-    }
-
-    function savePanelCollapsed(collapsed) {
-        PixivPanelState.set(collapsed);
-    }
-
-    let panelCollapsed = loadPanelCollapsed();
+    let panelCollapsed = PixivPanelState.get();
 
     /* ========== PixivUserscriptI18n: shared userscript i18n runtime ==========
      * Same-origin Pixiv userscripts share localStorage + BroadcastChannel state
@@ -421,6 +411,9 @@
 
     PixivUserscriptI18n.register({
         'en-US': {
+            "common.bookmark.csrf-missing": "Could not read the Pixiv CSRF token. Check that you are logged in to Pixiv.",
+            "common.bookmark.request-failed": "The Pixiv request failed.",
+            "common.bookmark.login-required": "Bookmark failed. Log in to Pixiv again.",
             'switcher.label': 'Language',
             'switcher.zh-CN': '简体中文',
             'switcher.zh-Hant': '繁體中文',
@@ -429,7 +422,7 @@
             'switcher.ko-KR': '한국어',
             'common.dialog.unauthorized': 'Backend requires login. Opening login page...',
             'common.dialog.connect-notice': 'Pixiv download script first-run hint\n\nIf you use an external server instead of localhost, replace this userscript header line:\n  // @connect      YOUR_SERVER_HOST\nwith your real server IP or domain, for example:\n  // @connect      192.168.1.100\n\nPath: Tampermonkey dashboard -> target script -> Edit -> Save\n\nOr use the web UI directly:\n{serverBase}/login.html\n\n(This hint is shown only once)',
-            'common.option.verify-history-files.tooltip': 'Checks whether the recorded directory exists, whether it is empty, and whether it contains image files. Invalid records will be downloaded again.',
+            'common.option.verify-history-files.tooltip': 'Checks all recorded illustration, manga and Ugoira pages. Missing or empty files are downloaded again; check failures are reported as errors. History is kept, and deleted works follow the re-download setting.',
             'common.option.redownload-deleted.tooltip': 'Works deleted from the gallery keep a deletion mark. When unchecked (default) they are treated as already downloaded and skipped; when checked they are re-downloaded and the mark is cleared on success.',
             'common.archive.download-link': 'Download Archive',
             'common.archive.expired': 'Download link expired',
@@ -485,6 +478,9 @@
             'single.alert.novel-start-download': 'Starting download for novel {novelId}...'
         },
         'zh-CN': {
+            "common.bookmark.csrf-missing": "无法获取 Pixiv CSRF token，请检查是否已登录 Pixiv。",
+            "common.bookmark.request-failed": "Pixiv 请求失败。",
+            "common.bookmark.login-required": "收藏失败，请重新登录 Pixiv。",
             'switcher.label': '语言',
             'switcher.zh-CN': '简体中文',
             'switcher.zh-Hant': '繁體中文',
@@ -492,7 +488,7 @@
             'switcher.en-US': 'English',
             'common.dialog.unauthorized': '后端服务需要登录验证，即将为您打开登录页面...',
             'common.dialog.connect-notice': 'Pixiv 下载脚本初始化提示\n\n如果您使用外部服务器（非 localhost），需将脚本头部的：\n  // @connect      YOUR_SERVER_HOST\n替换为实际的服务器 IP 或域名，例如：\n  // @connect      192.168.1.100\n\n修改路径：Tampermonkey 管理面板 -> 对应脚本 -> 编辑 -> 保存\n\n或者直接通过网页端下载作品（无需脚本）：\n{serverBase}/login.html\n\n（此提示只显示一次）',
-            'common.option.verify-history-files.tooltip': '通过检查记录的目录是否存在、文件夹是否为空、文件夹中的文件是否包含图片来判断是否有效，如果无效则会重新下载',
+            'common.option.verify-history-files.tooltip': '检查已登记的插画、漫画和动图是否完整，缺页或空文件会重新下载，检测出错则报错。历史记录会保留，已删除作品按重下设置处理。',
             'common.option.redownload-deleted.tooltip': '通过画廊删除的作品会保留删除标记：不勾选（默认）时视为已下载而跳过；勾选后重新下载，成功后删除标记自动清除',
             'common.archive.download-link': '下载压缩包',
             'common.archive.expired': '下载链接已过期',
@@ -548,6 +544,9 @@
             'single.alert.novel-start-download': '开始下载小说 {novelId} ...'
         },
         'zh-Hant': {
+            "common.bookmark.csrf-missing": "無法取得 Pixiv CSRF token，請檢查是否已登入 Pixiv。",
+            "common.bookmark.request-failed": "Pixiv 請求失敗。",
+            "common.bookmark.login-required": "收藏失敗，請重新登入 Pixiv。",
             'switcher.label': '語言',
             'switcher.zh-CN': '簡體中文',
             'switcher.zh-Hant': '繁體中文',
@@ -555,7 +554,7 @@
             'switcher.en-US': 'English',
             'common.dialog.unauthorized': '後端服務需要登入驗證，即將為你開啟登入頁面…',
             'common.dialog.connect-notice': 'Pixiv 下載腳本首次執行提示\n\n如果你使用外部伺服器（非 localhost），需要將腳本標頭中的：\n  // @connect      YOUR_SERVER_HOST\n替換為實際的伺服器 IP 或網域，例如：\n  // @connect      192.168.1.100\n\n修改路徑：Tampermonkey 管理面板 → 對應腳本 → 編輯 → 儲存\n\n或直接透過網頁端下載作品（不需腳本）：\n{serverBase}/login.html\n\n（此提示只顯示一次）',
-            'common.option.verify-history-files.tooltip': '透過檢查記錄目錄是否存在、資料夾是否為空、資料夾中的檔案是否包含圖片來判斷是否有效；若無效則重新下載',
+            'common.option.verify-history-files.tooltip': '檢查已登記的插畫、漫畫和動圖是否完整，缺頁或空檔案會重新下載，檢查出錯則回報錯誤。歷史記錄會保留，已刪除作品依重新下載設定處理。',
             'common.option.redownload-deleted.tooltip': '透過畫廊刪除的作品會保留刪除標記：未勾選（預設）時視為已下載並略過；勾選後重新下載，成功後自動清除刪除標記',
             'common.archive.download-link': '下載壓縮檔',
             'common.archive.expired': '下載連結已過期',
@@ -611,6 +610,9 @@
             'single.alert.novel-start-download': '正在下載小說 {novelId}…'
         },
         'ja-JP': {
+            "common.bookmark.csrf-missing": "Pixiv の CSRF トークンを取得できません。Pixiv にログインしているか確認してください。",
+            "common.bookmark.request-failed": "Pixiv へのリクエストに失敗しました。",
+            "common.bookmark.login-required": "ブックマークに失敗しました。Pixiv に再度ログインしてください。",
             'switcher.label': '言語',
             'switcher.zh-CN': '簡体字中国語',
             'switcher.zh-Hant': '繁体字中国語',
@@ -618,7 +620,7 @@
             'switcher.ja-JP': '日本語',
             'common.dialog.unauthorized': 'バックエンドサービスへのログインが必要です。ログインページを開きます…',
             'common.dialog.connect-notice': 'Pixiv ダウンロードスクリプトの初回実行案内\n\nlocalhost 以外の外部サーバーを使う場合は、Userscript ヘッダーの次の行を：\n  // @connect      YOUR_SERVER_HOST\n実際のサーバー IP またはドメインに置き換えてください。例：\n  // @connect      192.168.1.100\n\n変更場所：Tampermonkey 管理画面 → 対象スクリプト → 編集 → 保存\n\nまたは Web 版から直接ダウンロードできます（スクリプト不要）：\n{serverBase}/login.html\n\n（この案内は 1 回だけ表示されます）',
-            'common.option.verify-history-files.tooltip': '記録されたディレクトリの存在、フォルダーが空でないこと、画像ファイルを含むことを確認します。無効なレコードは再ダウンロードされます。',
+            'common.option.verify-history-files.tooltip': '記録済みのイラスト・漫画・うごイラの全ページを確認します。ファイルの欠落や空ファイルがあれば再ダウンロードし、確認に失敗した場合はエラーを表示します。履歴は保持され、削除済みの作品は再ダウンロード設定に従います。',
             'common.option.redownload-deleted.tooltip': 'ギャラリーから削除した作品には削除マークが残ります。オフ（デフォルト）ではダウンロード済みとして扱いスキップし、オンにすると再ダウンロードして成功時にマークを消去します。',
             'common.archive.download-link': 'アーカイブをダウンロード',
             'common.archive.expired': 'ダウンロードリンクの有効期限が切れています',
@@ -674,6 +676,9 @@
             'single.alert.novel-start-download': '小説 {novelId} のダウンロードを開始中…'
         },
         'ko-KR': {
+            "common.bookmark.csrf-missing": "Pixiv CSRF 토큰을 가져오지 못했습니다. Pixiv에 로그인되어 있는지 확인하세요.",
+            "common.bookmark.request-failed": "Pixiv 요청에 실패했습니다.",
+            "common.bookmark.login-required": "즐겨찾기에 추가하지 못했습니다. Pixiv에 다시 로그인하세요.",
             'switcher.label': '언어',
             'switcher.zh-CN': '简体中文',
             'switcher.zh-Hant': '繁體中文',
@@ -681,8 +686,8 @@
             'switcher.en-US': 'English',
             'switcher.ko-KR': '한국어',
             'common.dialog.unauthorized': '백엔드 서비스에 로그인해야 합니다. 로그인 페이지를 엽니다...',
-            'common.dialog.connect-notice': 'Pixiv 다운로드 스크립트 최초 실행 안내\\n\\nlocalhost가 아닌 외부 서버를 사용하는 경우 사용자 스크립트 헤더의 다음 줄을 실제 서버 IP 또는 도메인으로 바꾸세요:\\n  // @connect      YOUR_SERVER_HOST\\n예: \\n  // @connect      192.168.1.100\\n\\n변경 경로: Tampermonkey 대시보드 → 대상 스크립트 → 편집 → 저장\\n\\n또는 웹 UI에서 직접 사용할 수 있습니다(스크립트 불필요):\\n{serverBase}/login.html\\n\\n(이 안내는 한 번만 표시됩니다)',
-            'common.option.verify-history-files.tooltip': '기록된 디렉터리가 존재하는지, 비어 있지 않은지, 이미지 파일이 포함되어 있는지 확인합니다. 유효하지 않은 기록은 다시 다운로드합니다.',
+            'common.dialog.connect-notice': 'Pixiv 다운로드 스크립트 최초 실행 안내\n\nlocalhost가 아닌 외부 서버를 사용하는 경우 사용자 스크립트 헤더의 다음 줄을 실제 서버 IP 또는 도메인으로 바꾸세요:\n  // @connect      YOUR_SERVER_HOST\n예: \n  // @connect      192.168.1.100\n\n변경 경로: Tampermonkey 대시보드 → 대상 스크립트 → 편집 → 저장\n\n또는 웹 UI에서 직접 사용할 수 있습니다(스크립트 불필요):\n{serverBase}/login.html\n\n(이 안내는 한 번만 표시됩니다)',
+            'common.option.verify-history-files.tooltip': '기록된 일러스트·만화·우고이라의 모든 페이지를 확인합니다. 파일이 없거나 비어 있으면 다시 다운로드하며, 확인에 실패하면 오류를 표시합니다. 기록은 유지되며 삭제된 작품은 다시 다운로드 설정에 따라 처리됩니다.',
             'common.option.redownload-deleted.tooltip': '갤러리에서 삭제한 작품은 삭제 표시가 유지됩니다. 선택하지 않으면(기본값) 이미 다운로드된 것으로 처리하여 건너뛰고, 선택하면 다시 다운로드한 후 성공 시 표시를 지웁니다.',
             'common.archive.download-link': '압축 패키지 다운로드',
             'common.archive.expired': '다운로드 링크가 만료되었습니다',
@@ -712,12 +717,12 @@
             'single.prompt.server': '백엔드 서버 URL을 입력하세요(끝의 슬래시 제외):',
             'single.alert.server-updated': '서버 URL이 업데이트되었습니다: {serverBase}',
             'single.alert.no-artwork-id': '작품 ID를 감지할 수 없습니다',
-            'single.alert.backend-not-running': '백엔드가 실행 중이 아닙니다.\\nJava Spring 서버를 {serverBase}에서 사용할 수 있는지 확인하세요',
+            'single.alert.backend-not-running': '백엔드가 실행 중이 아닙니다.\nJava Spring 서버를 {serverBase}에서 사용할 수 있는지 확인하세요',
             'single.alert.history-skipped': '작품 {artworkId}이(가) 이미 다운로드 기록에 있어 건너뛰었습니다.',
             'single.alert.history-skipped-deleted': '작품 {artworkId}은(는) 이전에 다운로드되었지만 갤러리에서 삭제되어 건너뛰었습니다. 「삭제된 작품 다시 다운로드 허용」을 활성화하면 다시 다운로드할 수 있습니다.',
             'single.alert.start-download': '작품 {artworkId} 다운로드를 시작합니다...',
             'single.alert.no-images': '이미지를 찾을 수 없습니다',
-            'single.alert.download-submitted': '다운로드 작업을 백엔드에 제출했습니다.\\n{typeHint}\\n{message}',
+            'single.alert.download-submitted': '다운로드 작업을 백엔드에 제출했습니다.\n{typeHint}\n{message}',
             'single.alert.download-failed': '다운로드 실패: {message}',
             'single.type.ugoira': '움직이는 이미지(WebP로 변환됨)',
             'single.type.images': '이미지: {count}개',
@@ -763,7 +768,7 @@
             'download.options.refresh': 'Refresh collections',
             'download.options.autoTranslate': 'Automatically translate new novels',
             'download.options.autoTranslateLanguage': 'Translation language',
-            'download.options.autoTranslateSegmentSize': 'Segment size (0 = automatic)',
+            'download.options.autoTranslateSegmentSize': 'Segment size (0 = whole chapter)',
             'download.options.autoTranslateMerge': 'Merge translated series',
             'download.options.autoTranslateMergeFormat': 'Merged translation format',
             'download.options.admin': 'Log in to the backend as an administrator; translation also requires configured AI.',
@@ -801,7 +806,7 @@
             'download.options.refresh': '刷新收藏夹',
             'download.options.autoTranslate': '新下载小说自动翻译',
             'download.options.autoTranslateLanguage': '翻译目标语言',
-            'download.options.autoTranslateSegmentSize': '分段大小（0 为自动）',
+            'download.options.autoTranslateSegmentSize': '分段大小（0 为整章）',
             'download.options.autoTranslateMerge': '合订系列译文',
             'download.options.autoTranslateMergeFormat': '译文合订格式',
             'download.options.admin': '需在后端以管理员身份登录；翻译还需配置 AI。',
@@ -839,7 +844,7 @@
             'download.options.refresh': '重新整理收藏夾',
             'download.options.autoTranslate': '自動翻譯新下載的小說',
             'download.options.autoTranslateLanguage': '翻譯目標語言',
-            'download.options.autoTranslateSegmentSize': '分段大小（0 為自動）',
+            'download.options.autoTranslateSegmentSize': '分段大小（0 為整章）',
             'download.options.autoTranslateMerge': '合訂系列譯文',
             'download.options.autoTranslateMergeFormat': '譯文合訂格式',
             'download.options.admin': '需在後端以管理員身分登入；翻譯還需設定 AI。',
@@ -877,7 +882,7 @@
             'download.options.refresh': 'コレクションを更新',
             'download.options.autoTranslate': '新しくダウンロードした小説を自動翻訳',
             'download.options.autoTranslateLanguage': '翻訳先の言語',
-            'download.options.autoTranslateSegmentSize': '分割サイズ（0 = 自動）',
+            'download.options.autoTranslateSegmentSize': '分割サイズ（0 = 章全体）',
             'download.options.autoTranslateMerge': 'シリーズの訳文を合本にする',
             'download.options.autoTranslateMergeFormat': '翻訳合本の形式',
             'download.options.admin': 'バックエンドへの管理者ログインが必要です。翻訳には AI の設定も必要です。',
@@ -915,7 +920,7 @@
             'download.options.refresh': '컬렉션 새로 고침',
             'download.options.autoTranslate': '새로 다운로드한 소설 자동 번역',
             'download.options.autoTranslateLanguage': '번역 대상 언어',
-            'download.options.autoTranslateSegmentSize': '분할 크기 (0 = 자동)',
+            'download.options.autoTranslateSegmentSize': '분할 크기 (0 = 장 전체)',
             'download.options.autoTranslateMerge': '시리즈 번역문 합본 생성',
             'download.options.autoTranslateMergeFormat': '번역 합본 형식',
             'download.options.admin': '백엔드에 관리자로 로그인해야 합니다. 번역하려면 AI 설정도 필요합니다.',
@@ -1021,12 +1026,9 @@
             const result = await request('/api/collections');
             if (captured !== scope()) throw new Error(text('unavailable'));
             if (result.status !== 200 || !Array.isArray(result.data?.collections)) {
-                collection = null;
                 throw new Error(text('unavailable'));
             }
-            const rows = result.data.collections.filter(row => number(row.id) > 0);
-            if (collection && (collection.scope !== captured || !rows.some(row => Number(row.id) === collection.id))) collection = null;
-            return rows;
+            return result.data.collections.filter(row => number(row.id) > 0);
         }
 
         function selectCollection(id) {
@@ -1041,8 +1043,12 @@
             if (collection?.scope !== captured) collection = null;
             const selected = collection;
             if (selected) {
-                await collections();
+                const rows = await collections();
                 if (collection !== selected) throw new Error(text('collection-changed'));
+                if (!rows.some(row => Number(row.id) === selected.id)) {
+                    collection = null;
+                    throw new Error(text('collection-changed'));
+                }
             }
             const result = {fileNameTemplate: settings.fileNameTemplate || null, collectionId: collection?.id || null};
             if (kind === 'novel') {
@@ -1199,6 +1205,7 @@
             try {
                 const rows = await options.collections();
                 if (!details.isConnected) return;
+                if (!rows.some(row => Number(row.id) === options.selectedCollectionId())) options.selectCollection(null);
                 collection.replaceChildren();
                 for (const row of [{id: '', name: text('none')}, ...rows]) {
                     const option = document.createElement('option');
@@ -1209,6 +1216,7 @@
                 collection.value = String(options.selectedCollectionId() || '');
                 collection.disabled = false;
             } catch (_) {
+                if (!details.isConnected) return;
                 collection.value = '';
                 options.selectCollection(null);
                 message.textContent = text('unavailable');
@@ -1414,12 +1422,8 @@
         return null;
     }
 
-    /* ========== Pixiv 小说 meta 解析 helper ==========
-     * 直连 https://www.pixiv.net/ajax/novel/{id} 时，把 Pixiv 原始 body 转成与后端
-     * NovelMetaResponse 等价的 JS 对象，保持 downloadNovel 的字段访问不变。description
-     * 与 series caption 的 HTML 归一化由后端 NovelDownloadService / NovelSeriesService
-     * 在落库前完成，脚本传原始字符串即可。
-     * ------------------------------------------------------------------------ */
+    // >>> SHARED:pixiv-metadata.js
+    // 浏览器取得的 Pixiv 元数据保留原始正文与 HTML，由后端负责持久化校验和归一化。
     function _pn_parsePositiveLong(value) {
         if (value == null) return null;
         const n = Number(String(value).trim());
@@ -1539,6 +1543,49 @@
         return '';
     }
 
+    function buildNovelMetaFromPixivBody(novelId, body) {
+        const nav = body && body.seriesNavData;
+        const hasSeries = nav && Number(nav.seriesId) > 0;
+        return {
+            novelId: Number(novelId),
+            title: String((body && body.title) || ''),
+            xRestrict: Number((body && body.xRestrict) || 0),
+            isAi: Number((body && body.aiType) || 0) >= 2,
+            bookmarkCount: body && body.bookmarkCount != null ? Number(body.bookmarkCount) : -1,
+            authorId: _pn_parsePositiveLong(body && body.userId),
+            authorName: String((body && body.userName) || ''),
+            description: String((body && body.description) || ''),
+            tags: _pn_extractTags(body),
+            seriesId: hasSeries ? Number(nav.seriesId) : null,
+            seriesOrder: hasSeries ? Number(nav.order || 0) : null,
+            seriesTitle: hasSeries ? String(nav.title || '') : null,
+            content: String((body && body.content) || ''),
+            wordCount: body && body.wordCount != null ? Number(body.wordCount) : null,
+            textLength: body && body.characterCount != null ? Number(body.characterCount) : null,
+            readingTimeSeconds: _pn_extractReadingTimeSeconds(body),
+            pageCount: _pn_countPages(body && body.content),
+            isOriginal: !!(body && body.isOriginal),
+            language: String((body && body.language) || ''),
+            coverUrl: _pn_extractCoverUrl(body),
+            uploadTimestamp: _pn_extractUploadTimestamp(body),
+            textEmbeddedImages: _pn_extractTextEmbeddedImages(body)
+        };
+    }
+
+    function buildForwardMetaJson(meta) {
+        if (!meta || typeof meta !== 'object') return null;
+        try {
+            const pruned = { ...meta };
+            const stripKeys = ['userIllusts', 'userNovels', 'zoneConfig', 'extraData', 'noLoginData',
+                'comicPromotion', 'fanboxPromotion', 'contestBanners', 'contestData',
+                'pollData', 'imageResponseData', 'imageResponseOutData'];
+            stripKeys.forEach(k => { delete pruned[k]; });
+            return JSON.stringify(pruned);
+        } catch (_) {
+            return null;
+        }
+    }
+    // <<< SHARED:pixiv-metadata.js
     /* ========== Pixiv bookmark helper ==========
      * 直连 Pixiv 发 bookmark 请求（GM_xmlhttpRequest 自带浏览器登录态含 HttpOnly
      * PHPSESSID）；不再把 document.cookie 透传给后端让后端代发，那条路径取不到 PHPSESSID
@@ -1572,10 +1619,10 @@
                             return resolve(_pixivCsrfToken);
                         }
                     }
-                    reject(new Error('无法获取 CSRF token（可能未登录 Pixiv）'));
+                    reject(new Error(t('common.bookmark.csrf-missing')));
                 },
-                onerror: () => reject(new Error('获取 CSRF token 请求失败')),
-                ontimeout: () => reject(new Error('获取 CSRF token 请求失败'))
+                onerror: () => reject(new Error(t('common.bookmark.request-failed'))),
+                ontimeout: () => reject(new Error(t('common.bookmark.request-failed')))
             });
         });
     }
@@ -1606,18 +1653,20 @@
                             resolve({status: 'failed', message: body.message || 'pixiv error'});
                             return;
                         }
-                        resolve({status: 'success'});
+                        resolve(body && body.error === false
+                            ? {status: 'success'}
+                            : {status: 'failed', message: UserscriptDownloadOptions.text('unavailable')});
                         return;
                     }
                     if (res.status === 401 || res.status === 403) {
                         _resetPixivCsrfToken();
-                        resolve({status: 'failed', message: '收藏失败（未登录或登录已过期）'});
+                        resolve({status: 'failed', message: t('common.bookmark.login-required')});
                         return;
                     }
                     resolve({status: 'failed', message: 'HTTP ' + res.status});
                 },
-                onerror: () => resolve({status: 'failed', message: '收藏请求失败'}),
-                ontimeout: () => resolve({status: 'failed', message: '收藏请求失败'})
+                onerror: () => resolve({status: 'failed', message: t('common.bookmark.request-failed')}),
+                ontimeout: () => resolve({status: 'failed', message: t('common.bookmark.request-failed')})
             });
         });
     }
@@ -1640,37 +1689,9 @@
         });
     }
 
-    function buildNovelMetaFromPixivBody(novelId, body) {
-        const nav = body && body.seriesNavData;
-        const hasSeries = nav && Number(nav.seriesId) > 0;
-        return {
-            novelId: Number(novelId),
-            title: String((body && body.title) || ''),
-            xRestrict: Number((body && body.xRestrict) || 0),
-            isAi: Number((body && body.aiType) || 0) >= 2,
-            bookmarkCount: body && body.bookmarkCount != null ? Number(body.bookmarkCount) : -1,
-            authorId: _pn_parsePositiveLong(body && body.userId),
-            authorName: String((body && body.userName) || ''),
-            description: String((body && body.description) || ''),
-            tags: _pn_extractTags(body),
-            seriesId: hasSeries ? Number(nav.seriesId) : null,
-            seriesOrder: hasSeries ? Number(nav.order || 0) : null,
-            seriesTitle: hasSeries ? String(nav.title || '') : null,
-            content: String((body && body.content) || ''),
-            wordCount: body && body.wordCount != null ? Number(body.wordCount) : null,
-            textLength: body && body.characterCount != null ? Number(body.characterCount) : null,
-            readingTimeSeconds: _pn_extractReadingTimeSeconds(body),
-            pageCount: _pn_countPages(body && body.content),
-            isOriginal: !!(body && body.isOriginal),
-            language: String((body && body.language) || ''),
-            coverUrl: _pn_extractCoverUrl(body),
-            uploadTimestamp: _pn_extractUploadTimestamp(body),
-            textEmbeddedImages: _pn_extractTextEmbeddedImages(body)
-        };
-    }
 
     // >>> SHARED:novel-browser-import.js
-    /* Exchange a browser-authenticated Pixiv novel response only with an exact loopback backend. */
+    // 仅向精确回环后端交换浏览器取得的小说响应。
     const NovelBrowserImport = (() => {
         function isLoopback(serverBase) {
             try {
@@ -1704,7 +1725,8 @@
             }
         }
 
-        async function importResponse(serverBase, novelId, responseText) {
+        async function importResponse(serverBase, novelId, responseText, signal) {
+            signal?.throwIfAborted();
             if (!isLoopback(serverBase)) return null;
             const id = Number(novelId);
             if (!Number.isSafeInteger(id) || id <= 0 || typeof responseText !== 'string') return null;
@@ -1713,6 +1735,7 @@
                 method: 'GET',
                 url: `${serverBase}/api/novel/browser-import/token`
             });
+            signal?.throwIfAborted();
             if (tokenResponse.status === 403 || tokenResponse.status === 404) return null;
             const tokenBody = parse(tokenResponse);
             if (tokenResponse.status !== 200 || typeof tokenBody.token !== 'string' || !tokenBody.token) {
@@ -1723,11 +1746,13 @@
                 method: 'POST',
                 url: `${serverBase}/api/novel/browser-import/${encodeURIComponent(id)}`,
                 headers: {
+                    Origin: new URL(serverBase).origin,
                     'Content-Type': 'application/json',
                     'X-Novel-Import-Token': tokenBody.token
                 },
                 data: responseText
             });
+            signal?.throwIfAborted();
             if (importResponse.status === 403 || importResponse.status === 404) return null;
             const importBody = parse(importResponse);
             if (importResponse.status !== 200
@@ -1747,6 +1772,7 @@
     // 不要走后端代理 + document.cookie —— document.cookie 取不到 HttpOnly 会话 Cookie，
     // 导致后端以匿名身份请求 Pixiv，受限小说被隐藏或元信息缺失）。
     async function getNovelMeta(novelId) {
+        const requestedBase = serverBase;
         return new Promise((resolve, reject) => {
             GM_xmlhttpRequest({
                 method: 'GET',
@@ -1764,7 +1790,9 @@
                             return;
                         }
                         const meta = buildNovelMetaFromPixivBody(novelId, data.body || {});
-                        meta.fetchToken = await NovelBrowserImport.importResponse(serverBase, novelId, response.responseText);
+                        if (requestedBase !== serverBase) throw new Error(UserscriptDownloadOptions.text('unavailable'));
+                        meta.fetchToken = await NovelBrowserImport.importResponse(requestedBase, novelId, response.responseText);
+                        if (requestedBase !== serverBase) throw new Error(UserscriptDownloadOptions.text('unavailable'));
                         resolve(meta);
                     } catch (e) {
                         reject(e);
@@ -1821,6 +1849,7 @@
                 }
             }
             alert(t('single.alert.novel-start-download', null, {novelId: novelId}));
+            const requestedBase = serverBase;
             const meta = await getNovelMeta(novelId);
             if (!UserscriptDownloadOptions.matches(meta, 'novel')) {
                 showUserscriptDownloadNotice(UserscriptDownloadOptions.text('filtered'));
@@ -1839,8 +1868,9 @@
                     format: fmt
                 }
             };
+            if (requestedBase !== serverBase) throw new Error(UserscriptDownloadOptions.text('unavailable'));
             const response = await new Promise((resolve, reject) => {
-                const headers = {'Content-Type': 'application/json'};
+                const headers = {Origin: new URL(requestedBase).origin, 'Content-Type': 'application/json'};
                 if (userUUID) headers['X-User-UUID'] = userUUID;
                 GM_xmlhttpRequest({
                     method: 'POST',
@@ -1848,14 +1878,17 @@
                     headers,
                     data: JSON.stringify(body),
                     onload: (res) => {
-                        let data = {};
+                        if (requestedBase !== serverBase) { reject(new Error(UserscriptDownloadOptions.text('unavailable'))); return; }
+                        let data = null;
                         try {
                             data = JSON.parse(res.responseText);
                         } catch (_) {
                         }
                         if (res.status === 401) {
                             handleUnauthorized();
-                            reject(new Error('需要登录'));
+                            reject(new Error(t('common.dialog.unauthorized')));
+                        } else if (!data || typeof data !== 'object' || Array.isArray(data)) {
+                            reject(new Error(UserscriptDownloadOptions.text('unavailable')));
                         } else if (res.status === 429 && data.quotaExceeded) {
                             const err = new Error('quota_exceeded');
                             err.quotaData = data;
@@ -1863,16 +1896,17 @@
                         } else if (res.status === 200) {
                             resolve(data);
                         } else {
-                            reject(new Error(data.message || '下载请求失败'));
+                            reject(new Error(data.message || UserscriptDownloadOptions.text('unavailable')));
                         }
                     },
                     onerror: reject
                 });
             });
+            if (requestedBase !== serverBase) throw new Error(UserscriptDownloadOptions.text('unavailable'));
             if (quotaInfo.enabled) {
                 quotaInfo.artworksUsed = Math.min(quotaInfo.maxArtworks, quotaInfo.artworksUsed + 1);
             }
-            updateDownloadUI();
+            createDownloadUI();
             if (body.other.autoTranslate && !response.alreadyDownloaded) {
                 const item = {novelId};
                 singleNovelTranslation = item;
@@ -1946,33 +1980,12 @@
             }));
     }
 
-    // 转发给后端的轻剪枝原始 meta：meta 本就已抓（零额外请求），仅去掉体积巨大 / 与本次下载无关的
-    // 噪声字段以减小转发体积；后端再独立做权威白名单 + 限长 + 超大拒绝。任何异常返回 null（不阻断下载）。
-    function buildForwardMetaJson(meta, extraStripKeys) {
-        if (!meta || typeof meta !== 'object') return null;
-        try {
-            const pruned = { ...meta };
-            const stripKeys = ['userIllusts', 'userNovels', 'zoneConfig', 'extraData', 'noLoginData',
-                'comicPromotion', 'fanboxPromotion', 'contestBanners', 'contestData',
-                'pollData', 'imageResponseData', 'imageResponseOutData'];
-            if (Array.isArray(extraStripKeys)) stripKeys.push(...extraStripKeys);
-            stripKeys.forEach(k => { delete pruned[k]; });
-            return JSON.stringify(pruned);
-        } catch (_) {
-            return null;
-        }
-    }
 
-    // 单次脚本生命周期的系列元数据缓存。插画系列：直连 Pixiv（与 fetchNovelSeriesEnrichment
-    // 同理，避免后端代理 + document.cookie 取不到 HttpOnly PHPSESSID 导致受限漫画系列 caption
-    // 缺失）。漫画系列通常没有独立封面字段（Pixiv UI 展示的"封面"是作者指定某话首图），
-    // _pn_extractSeriesCoverUrl 大概率返回空串。
-    const seriesEnrichmentCache = new Map();
+    // 单作品每次下载只查询一次系列，避免跨导航保留失败或过期资料。
     function fetchSeriesEnrichment(seriesId) {
         const sid = Number(seriesId);
         if (!Number.isFinite(sid) || sid <= 0) return Promise.resolve(null);
-        if (seriesEnrichmentCache.has(sid)) return seriesEnrichmentCache.get(sid);
-        const p = new Promise((resolve) => {
+        return new Promise((resolve) => {
             GM_xmlhttpRequest({
                 method: 'GET',
                 url: `https://www.pixiv.net/ajax/series/${sid}?p=1&lang=zh`,
@@ -1993,8 +2006,6 @@
                 onerror: () => resolve(null)
             });
         });
-        seriesEnrichmentCache.set(sid, p);
-        return p;
     }
 
     // 获取作品元数据
@@ -2037,7 +2048,7 @@
 
     // 初始化配额
     function initQuota() {
-        const headers = { 'Content-Type': 'application/json' };
+        const headers = {Origin: new URL(getQuotaInitURL()).origin, 'Content-Type': 'application/json'};
         if (userUUID) headers['X-User-UUID'] = userUUID;
         return new Promise((resolve) => {
             GM_xmlhttpRequest({
@@ -2062,7 +2073,9 @@
 
     // 发送下载请求到后端
     async function sendDownloadRequest(artworkId, title, imageUrls, other) {
+        const requestedUrl = getBackendURL();
         other = {...other, ...await UserscriptDownloadOptions.other('illust')};
+        if (requestedUrl !== getBackendURL()) throw new Error(UserscriptDownloadOptions.text('unavailable'));
         return new Promise((resolve, reject) => {
             const requestData = {
                 artworkId: parseInt(artworkId),
@@ -2073,28 +2086,35 @@
                 cookie: null,
                 other: other || {}
             };
-            const headers = { 'Content-Type': 'application/json' };
+            const headers = {Origin: new URL(requestedUrl).origin, 'Content-Type': 'application/json'};
             if (userUUID) headers['X-User-UUID'] = userUUID;
 
             GM_xmlhttpRequest({
                 method: 'POST',
-                url: getBackendURL(),
+                url: requestedUrl,
                 headers,
                 data: JSON.stringify(requestData),
                 onload: function (response) {
+                    if (requestedUrl !== getBackendURL()) { reject(new Error(UserscriptDownloadOptions.text('unavailable'))); return; }
+                    if (response.status === 401) {
+                        handleUnauthorized();
+                        reject(new Error(t('common.dialog.unauthorized')));
+                        return;
+                    }
                     try {
                         const data = JSON.parse(response.responseText);
-                        if (response.status === 401) {
-                            handleUnauthorized();
-                            reject(new Error('需要登录'));
-                        } else if (response.status === 429 && data.quotaExceeded) {
+                        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+                            reject(new Error(UserscriptDownloadOptions.text('unavailable')));
+                            return;
+                        }
+                        if (response.status === 429 && data.quotaExceeded) {
                             const err = new Error('quota_exceeded');
                             err.quotaData = data;
                             reject(err);
                         } else if (response.status === 200 && data.success) {
                             resolve(data);
                         } else {
-                            reject(new Error(data.message || '下载请求失败'));
+                            reject(new Error(data.message || UserscriptDownloadOptions.text('unavailable')));
                         }
                     } catch (e) {
                         reject(e);
@@ -2260,7 +2280,7 @@
             if (quotaInfo.enabled) {
                 quotaInfo.artworksUsed = Math.min(quotaInfo.maxArtworks, quotaInfo.artworksUsed + 1);
             }
-            updateDownloadUI();
+            createDownloadUI();
 
             const typeHint = other.isUgoira
                 ? t('single.type.ugoira', '动图（将合成为WebP）')
@@ -2570,19 +2590,19 @@
         if (quotaInfo.enabled) renderSingleQuotaBar();
 
         // 恢复已有压缩包卡片（如果有）
-        if (window._pixivSingleArchiveState) {
-            const s = window._pixivSingleArchiveState;
+        const s = singleArchiveMonitor.snapshot();
+        if (s) {
             renderSingleArchiveCard(s.token, s.expireSec, s.ready);
         }
 
         // 检查后端状态
+        const checkedBase = serverBase;
         checkBackendStatus().then(available => {
-            const statusDiv = document.getElementById('backend-status');
-            if (statusDiv) {
-                statusDiv.textContent = available
+            if (backendStatusDiv.isConnected && checkedBase === serverBase) {
+                backendStatusDiv.textContent = available
                     ? t('single.backend.available', '✅ 后端服务可用')
                     : t('single.backend.unavailable', '❌ 后端服务未启动');
-                statusDiv.style.color = available ? 'var(--pixiv-panel-success)' : 'var(--pixiv-panel-danger)';
+                backendStatusDiv.style.color = available ? 'var(--pixiv-panel-success)' : 'var(--pixiv-panel-danger)';
             }
         });
     }
@@ -2603,102 +2623,159 @@
         </div>`;
     }
 
+    // >>> SHARED:archive-monitor.js
+    class UserscriptArchiveMonitor {
+        constructor() {
+            this.current = null;
+            this.timer = null;
+            this.request = null;
+            this.hidden = false;
+            window.addEventListener('pagehide', () => {
+                this.hidden = true;
+                this.stop();
+            });
+            window.addEventListener('pageshow', () => {
+                this.hidden = false;
+                this.resume();
+            });
+        }
+
+        stop() {
+            clearTimeout(this.timer);
+            this.timer = null;
+            const request = this.request;
+            this.request = null;
+            try { request?.handle?.abort(); } catch { /* 旧回调已失效。 */ }
+        }
+
+        watch(token, expireSeconds, ready, update, countdown) {
+            this.stop();
+            if (!this.current || this.current.token !== token || this.current.base !== serverBase) {
+                this.current = {token, base: serverBase, status: 'pending', seconds: expireSeconds};
+            }
+            if (ready && this.current.status === 'pending') this.markReady(this.current, expireSeconds);
+            Object.assign(this.current, {update, countdown});
+            this.resume();
+        }
+
+        markReady(state, expireSeconds) {
+            const seconds = Number.parseInt(expireSeconds, 10);
+            state.status = 'ready';
+            state.deadline = Date.now() + (Number.isFinite(seconds) ? Math.max(0, seconds) : 0) * 1000;
+        }
+
+        snapshot() {
+            const state = this.current;
+            return state && state.base === serverBase ? {
+                token: state.token, expireSec: state.seconds, ready: state.status === 'ready'
+            } : null;
+        }
+
+        resume() {
+            const state = this.current;
+            if (!state || this.hidden || state.base !== serverBase) return;
+            this.stop();
+            if (state.status === 'ready' && Date.now() >= state.deadline) state.status = 'expired';
+            state.update(state.status, state.token, state.base);
+            if (state.status === 'ready') this.countdown(state);
+            else if (state.status === 'pending') this.timer = setTimeout(() => this.poll(state), 2000);
+        }
+
+        countdown(state) {
+            const remaining = Math.max(0, Math.ceil((state.deadline - Date.now()) / 1000));
+            state.countdown(remaining);
+            this.timer = setTimeout(() => {
+                if (this.current !== state || this.hidden || state.base !== serverBase) return;
+                if (Date.now() >= state.deadline) {
+                    state.status = 'expired';
+                    state.update('expired', state.token, state.base);
+                    this.timer = null;
+                } else this.countdown(state);
+            }, 1000);
+        }
+
+        poll(state) {
+            if (this.current !== state || this.hidden || state.base !== serverBase) return;
+            this.timer = null;
+            const request = {};
+            this.request = request;
+            const finish = data => {
+                if (this.request !== request) return;
+                this.request = null;
+                if (this.current !== state || this.hidden || state.base !== serverBase) return;
+                if (['ready', 'expired', 'empty'].includes(data?.status)) {
+                    if (data.status === 'ready') this.markReady(state, data.expireSeconds ?? state.seconds);
+                    else state.status = data.status;
+                    this.resume();
+                } else this.timer = setTimeout(() => this.poll(state), 2000);
+            };
+            try {
+                request.handle = GM_xmlhttpRequest({
+                    method: 'GET', url: state.base + '/api/archive/status/' + encodeURIComponent(state.token),
+                    timeout: 10000,
+                    onload: response => {
+                        let data;
+                        try { if (response.status === 200) data = JSON.parse(response.responseText); } catch {}
+                        finish(data);
+                    },
+                    onerror: () => finish(), ontimeout: () => finish(), onabort: () => finish()
+                });
+            } catch { finish(); }
+        }
+    }
+    // <<< SHARED:archive-monitor.js
+    const singleArchiveMonitor = new UserscriptArchiveMonitor();
+
     function renderSingleArchiveCard(token, expireSec, ready) {
-        window._pixivSingleArchiveState = { token, expireSec, ready };
         const card = document.getElementById('pixiv-single-archive-card');
-        if (!card) return;
-        card.style.display = 'block';
-        card.innerHTML = `<div style="font-weight:bold;color:var(--pixiv-panel-warning, #856404);margin-bottom:4px;">${t('single.archive.download-limit', '已达到下载限额')}</div>
+        if (card) {
+            card.style.display = 'block';
+            card.innerHTML = `<div style="font-weight:bold;color:var(--pixiv-panel-warning, #856404);margin-bottom:4px;">${t('single.archive.download-limit', '已达到下载限额')}</div>
           <div id="pixiv-single-ac-status" style="color:var(--pixiv-panel-muted, #666);">${ready ? t('common.archive.ready', '压缩包已就绪：') : t('common.archive.preparing', '正在打包已下载文件，请稍候...')}</div>
           <div id="pixiv-single-ac-dl" style="display:${ready ? 'block' : 'none'};margin-top:4px;"></div>
           <div id="pixiv-single-ac-expired" style="display:none;color:var(--pixiv-panel-danger, #dc3545);font-weight:bold;">${t('common.archive.expired', '下载链接已过期')}</div>`;
-        if (ready) {
-            activateSingleArchiveDl(token, expireSec);
-        } else {
-            pollSingleArchive(token, expireSec);
         }
+        singleArchiveMonitor.watch(token, expireSec, ready, (status, currentToken, base) => {
+            const statusEl = document.getElementById('pixiv-single-ac-status');
+            const expired = document.getElementById('pixiv-single-ac-expired');
+            const download = document.getElementById('pixiv-single-ac-dl');
+            if (status === 'ready') activateSingleArchiveDl(currentToken, base);
+            else if (status === 'expired') {
+                if (expired) expired.style.display = 'block';
+                if (download) download.style.display = 'none';
+                if (statusEl) statusEl.textContent = '';
+            } else if (status === 'empty' && statusEl) {
+                statusEl.textContent = t('common.archive.empty', '暂无可打包文件');
+            }
+        }, remaining => {
+            const hours = Math.floor(remaining / 3600);
+            const minutes = String(Math.floor(remaining % 3600 / 60)).padStart(2, '0');
+            const seconds = String(remaining % 60).padStart(2, '0');
+            const time = hours > 0 ? `${hours}h ${minutes}m ${seconds}s` : `${minutes}:${seconds}`;
+            const countdown = document.getElementById('pixiv-single-ac-countdown');
+            if (countdown) countdown.textContent = t('common.archive.validity', '有效期：{time}', {time});
+        });
     }
 
-    function pollSingleArchive(token, expireSec) {
-        const timer = setInterval(() => {
-            GM_xmlhttpRequest({
-                method: 'GET',
-                url: `${getArchiveStatusBase()}/${token}`,
-                onload: (res) => {
-                    try {
-                        const data = JSON.parse(res.responseText);
-                        if (data.status === 'ready') {
-                            clearInterval(timer);
-                            activateSingleArchiveDl(token, data.expireSeconds || expireSec);
-                        } else if (data.status === 'expired') {
-                            clearInterval(timer);
-                            const expired = document.getElementById('pixiv-single-ac-expired');
-                            const status = document.getElementById('pixiv-single-ac-status');
-                            if (expired) expired.style.display = 'block';
-                            if (status) status.textContent = '';
-                        } else if (data.status === 'empty') {
-                            clearInterval(timer);
-                            const status = document.getElementById('pixiv-single-ac-status');
-                            if (status) status.textContent = t('common.archive.empty', '暂无可打包文件');
-                        }
-                    } catch {}
-                },
-                onerror: () => {}
-            });
-        }, 2000);
-    }
-
-    function activateSingleArchiveDl(token, expireSec) {
+    function activateSingleArchiveDl(token, base) {
         const statusEl = document.getElementById('pixiv-single-ac-status');
         const dlEl = document.getElementById('pixiv-single-ac-dl');
         if (statusEl) statusEl.textContent = t('common.archive.ready', '压缩包已就绪：');
         if (dlEl) {
             dlEl.style.display = 'block';
             const filename = 'pixiv_download_' + token.substring(0, 8) + '.zip';
-            dlEl.innerHTML = `<a href="${getArchiveDownloadBase()}/${token}" download="${filename}"
+            dlEl.innerHTML = `<a href="${base}/api/archive/download/${token}" download="${filename}"
               style="display:inline-block;padding:4px 10px;background:#28a745;color:white;
                      border-radius:4px;text-decoration:none;font-size:11px;font-weight:bold;">
               ${t('common.archive.download-link', '下载压缩包')}
             </a>
             <span id="pixiv-single-ac-countdown" style="font-size:10px;color:var(--pixiv-panel-muted, #888);margin-left:6px;"></span>`;
-            let remaining = Math.max(0, parseInt(expireSec));
-            const fmtSec = (s) => {
-                s = Math.max(0, Math.round(s));
-                const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-                if (h > 0) return h + 'h ' + String(m).padStart(2,'0') + 'm ' + String(sec).padStart(2,'0') + 's';
-                return String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
-            };
-            const el = () => document.getElementById('pixiv-single-ac-countdown');
-            if (el()) el().textContent = t('common.archive.validity', '有效期：{time}', { time: fmtSec(remaining) });
-            const timer = setInterval(() => {
-                remaining--;
-                if (remaining <= 0) {
-                    clearInterval(timer);
-                    const expired = document.getElementById('pixiv-single-ac-expired');
-                    if (dlEl) dlEl.style.display = 'none';
-                    if (expired) expired.style.display = 'block';
-                } else {
-                    if (el()) el().textContent = t('common.archive.validity', '有效期：{time}', { time: fmtSec(remaining) });
-                }
-            }, 1000);
         }
     }
 
     function showQuotaExceededUI(data) {
-        window._pixivSingleArchiveState = null;
-        const card = document.getElementById('pixiv-single-archive-card');
-        if (card) {
-            renderSingleArchiveCard(data.archiveToken, data.archiveExpireSeconds || 3600, false);
-        } else {
-            // UI 还未创建，暂存状态，等下次 createDownloadUI 时恢复
-            window._pixivSingleArchiveState = { token: data.archiveToken, expireSec: data.archiveExpireSeconds || 3600, ready: false };
-            updateDownloadUI();
-        }
-    }
-
-    // 更新下载UI状态
-    function updateDownloadUI() {
-        createDownloadUI();
+        renderSingleArchiveCard(data.archiveToken, data.archiveExpireSeconds ?? 3600, false);
+        if (!document.getElementById('pixiv-single-archive-card')) createDownloadUI();
     }
 
     // 面板收起/展开：收起态显示 Mini FAB，展开态显示面板
@@ -2722,7 +2799,7 @@
             document.dispatchEvent(new CustomEvent('pixiv_panel_active', { detail: 'single-java' }));
         }
         // 仅用户手动收/展写入共享状态；自动收起不持久化
-        if (manual) savePanelCollapsed(panelCollapsed);
+        if (manual) PixivPanelState.set(panelCollapsed);
     }
 
     function toggleSinglePanel(manual) {
@@ -2761,12 +2838,13 @@
         if (input !== null) {
             serverBase = input.trim().replace(/\/$/, '') || 'http://localhost:6999';
             GM_setValue(KEY_SERVER_URL, serverBase);
+            createDownloadUI();
             alert(t('single.alert.server-updated', null, { serverBase: serverBase }));
         }
     });
 
     PixivUserscriptI18n.onChange(() => {
-        updateDownloadUI();
+        createDownloadUI();
     });
     PixivUserscriptI18n.enrichFromBackend(serverBase);
 
@@ -2817,11 +2895,8 @@
                 };
                 // 恢复已有压缩包
                 if (data.archive && data.archive.token) {
-                    window._pixivSingleArchiveState = {
-                        token: data.archive.token,
-                        expireSec: data.archive.expireSeconds || 3600,
-                        ready: data.archive.status === 'ready'
-                    };
+                    renderSingleArchiveCard(data.archive.token, data.archive.expireSeconds ?? 3600,
+                        data.archive.status === 'ready');
                 }
                 renderSingleQuotaBar();
             }

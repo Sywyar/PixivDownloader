@@ -53,16 +53,12 @@ public final class NarrationSpeechText {
         while (end > 0 && (Character.isWhitespace(s.charAt(end - 1)) || DANGLING_TAIL.indexOf(s.charAt(end - 1)) >= 0)) {
             end--;
         }
-        boolean strippedDangling = end < afterClosers;
-        if (!strippedDangling && closerTail.isEmpty()) {
+        if (end == afterClosers) {
             return s;
         }
         String core = s.substring(0, end);
-        if (core.isEmpty() || !hasSpeakable(core)) {
-            return "";
-        }
         char last = core.charAt(core.length() - 1);
-        if (strippedDangling && SENTENCE_FINAL.indexOf(last) < 0) {
+        if (SENTENCE_FINAL.indexOf(last) < 0) {
             String terminator = last <= 0x7F && Character.isLetterOrDigit(last) ? "." : "。";
             return core + terminator + closerTail;
         }

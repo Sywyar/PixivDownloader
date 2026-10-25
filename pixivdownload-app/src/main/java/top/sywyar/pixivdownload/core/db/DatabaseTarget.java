@@ -120,8 +120,62 @@ public final class DatabaseTarget {
         top.sywyar.pixivdownload.core.db.provider.DatabaseConnectionLease.prepareTransaction(connection, endpoint(), readOnly);
     }
 
+    /** 离线工具独占本次事务或保存点；结束时撤回未提交的工作，不关闭调用方连接。 */
+    public ToolTransaction beginToolTransaction(Connection connection) throws SQLException {
+        var transaction = new ToolTransaction(connection);
+        try {
+            if (transaction.autoCommit) prepareTransaction(connection, false);
+            return transaction;
+        } catch (SQLException | RuntimeException | Error failure) {
+            transaction.finish(failure);
+            throw failure;
+        }
+    }
+
+    public static final class ToolTransaction {
+        private final Connection connection;
+        private final boolean autoCommit;
+        private final java.sql.Savepoint savepoint;
+        private boolean committed;
+
+        private ToolTransaction(Connection connection) throws SQLException {
+            this.connection = connection;
+            autoCommit = connection.getAutoCommit();
+            if (autoCommit) connection.setAutoCommit(false);
+            savepoint = autoCommit ? null : connection.setSavepoint();
+        }
+
+        public void commit() throws SQLException {
+            if (autoCommit) connection.commit();
+            else connection.releaseSavepoint(savepoint);
+            committed = true;
+        }
+
+        /** 显式结束以保持致命清理错误优先，避免被资源语法降为 suppressed。 */
+        public void finish(Throwable failure) throws SQLException {
+            try {
+                if (!committed) {
+                    if (autoCommit) connection.rollback();
+                    else {
+                        connection.rollback(savepoint);
+                        connection.releaseSavepoint(savepoint);
+                    }
+                }
+                // 回滚失败时不能恢复自动提交，否则可能提交尚未撤回的写入。
+                if (autoCommit) connection.setAutoCommit(true);
+            } catch (VirtualMachineError | ThreadDeath fatal) {
+                if (failure != null && fatal != failure) fatal.addSuppressed(failure);
+                throw fatal;
+            } catch (SQLException | RuntimeException | Error cleanup) {
+                if (failure == null) throw cleanup;
+                if (cleanup != failure) failure.addSuppressed(cleanup);
+            }
+        }
+    }
+
     public HikariDataSource openPool(int maximumPoolSize) throws IOException {
-        try (Connection ignored = openConnection()) {
+        try {
+            try (Connection ignored = openConnection()) { }
             HikariConfig config = new HikariConfig();
             config.setPoolName("pixiv-database");
             config.setDataSource(new AbstractDataSource() {
@@ -132,7 +186,7 @@ public final class DatabaseTarget {
             });
             config.setMaximumPoolSize(maximumPoolSize);
             config.setMinimumIdle(1);
-            return new HikariDataSource(config);
+            return top.sywyar.pixivdownload.core.db.provider.DatabaseConnectionPool.create(config);
         } catch (VirtualMachineError | ThreadDeath fatal) {
             throw fatal;
         } catch (Throwable failure) {

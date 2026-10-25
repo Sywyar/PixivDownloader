@@ -67,11 +67,11 @@ class MiniMaxNarrationEngineTest {
         when(direct.exchange(eq("https://api.minimax.io/v1/t2a_v2?GroupId=" + GROUP_ID), eq(HttpMethod.POST), any(), eq(byte[].class)))
                 .thenReturn(json(AUDIO_HEX));
 
-        engine(config("https://api.minimax.io/v1/", "k", "English_expressive_narrator"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("你好", "ci"));
+        TtsPluginConfig cfg = config("https://api.minimax.io/v1/", "k", "English_expressive_narrator");
+        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("你好", "ci"));
 
         Map<String, Object> body = capturedBody(direct);
-        assertThat(body.get("model")).isEqualTo("speech-2.8-hd");
+        assertThat(body.get("model")).isEqualTo(cfg.getMinimax().getModel());
         assertThat(body.get("text")).isEqualTo("你好");
         assertThat(body.get("output_format")).isEqualTo("hex");
         assertThat(voiceSetting(body).get("voice_id")).isEqualTo("English_expressive_narrator");
@@ -92,7 +92,7 @@ class MiniMaxNarrationEngineTest {
     }
 
     @Test
-    @DisplayName("delivery 未命中关键词时回退配置 emotion；非法配置值则不下发")
+    @DisplayName("delivery 未命中关键词时回退配置 emotion")
     void fallsBackToConfiguredEmotion() throws Exception {
         when(direct.exchange(anyString(), eq(HttpMethod.POST), any(), eq(byte[].class))).thenReturn(json(AUDIO_HEX));
         TtsPluginConfig cfg = config("https://h/v1", "k", "v1");

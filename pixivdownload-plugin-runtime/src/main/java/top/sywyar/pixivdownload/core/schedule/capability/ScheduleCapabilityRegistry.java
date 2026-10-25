@@ -722,9 +722,7 @@ public class ScheduleCapabilityRegistry implements ScheduleCapabilityAccess {
                 if (published == null
                         || published.leaseState() != planning.leaseState()
                         || !published.activationToken().equals(planning.activationToken())
-                        || source == null
-                        || !source.owner().equals(planning.owner())
-                        || source.publicationId() != planning.publicationId()) {
+                        || !matchesSourceOwner(source, planning)) {
                     return Optional.empty();
                 }
                 return Optional.of(Objects.requireNonNull(

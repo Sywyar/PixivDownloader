@@ -184,7 +184,7 @@ public class PixivMapper {
     public int countByTime(long time) { return Math.toIntExact(count(eq(ARTWORKS, "time", time))); }
     public Long findMaxTime() { return (Long) scalar(ARTWORKS, call(MAX, column(ARTWORKS, "time")), null); }
     public long countAll() { return count(active()); }
-    private List<Long> ids(Expression where, boolean time, boolean author, int limit, int offset) {
+    private List<Long> ids(Expression where, boolean time, boolean author, int limit, long offset) {
         var order = new ArrayList<Query.Order>();
         if (author) order.add(new Query.Order(call(COALESCE, column(ARTWORKS, "author_id"), value(Long.MAX_VALUE)), false, true));
         if (time) order.add(new Query.Order(column(ARTWORKS, "time"), true, false));
@@ -194,8 +194,8 @@ public class PixivMapper {
     public List<Long> findAllIds() { return ids(active(), false, false, Integer.MAX_VALUE, 0); }
     public List<Long> findAllIdsSortedByTimeDesc() { return ids(active(), true, false, Integer.MAX_VALUE, 0); }
     public List<Long> findAllIdsSortedByAuthorIdAsc() { return ids(active(), true, true, Integer.MAX_VALUE, 0); }
-    public List<Long> findIdsSortedByTimeDescPaged(int size, int offset) { return ids(active(), true, false, size, offset); }
-    public List<Long> findIdsSortedByAuthorIdAscPaged(int size, int offset) { return ids(active(), true, true, size, offset); }
+    public List<Long> findIdsSortedByTimeDescPaged(int size, long offset) { return ids(active(), true, false, size, offset); }
+    public List<Long> findIdsSortedByAuthorIdAscPaged(int size, long offset) { return ids(active(), true, true, size, offset); }
     public List<ArtworkRecord> findByTimeBefore(long beforeTime) {
         return artworks(call(AND, call(LESS, column(ARTWORKS, "time"), value(beforeTime)), active()), Integer.MAX_VALUE);
     }

@@ -20,8 +20,12 @@ class ArchiveExportRulesTest {
         List<Long> ids = Arrays.asList(3L, null, 0L, -1L, 3L, 5L, 7L);
 
         assertThat(ArchiveExportRules.normalizeIds(ids)).containsExactly(3L, 5L, 7L);
+        assertThat(ArchiveExportRules.normalizeIds(null)).isEmpty();
         assertThat(ArchiveExportRules.normalizeIdSet(ids)).containsExactly(3L, 5L, 7L);
         assertThat(ArchiveExportRules.applyExclusions(ids, List.of(5L, 99L)))
+                .containsExactly(3L, 7L);
+        assertThat(ArchiveExportRules.applyExclusions(ids, null)).containsExactly(3L, 5L, 7L);
+        assertThat(ArchiveExportRules.applyExclusions(ids, Arrays.asList(null, 0L, 5L, 5L)))
                 .containsExactly(3L, 7L);
     }
 
@@ -29,6 +33,8 @@ class ArchiveExportRulesTest {
     @DisplayName("分组与格式 token 应保持既有大小写和空白规则")
     void normalizesGroupingAndFormatTokens() {
         assertThat(ArchiveExportRules.groupById(" ID ")).isTrue();
+        assertThat(ArchiveExportRules.groupById("id")).isTrue();
+        assertThat(ArchiveExportRules.groupById(null)).isFalse();
         assertThat(ArchiveExportRules.groupById("author")).isFalse();
         assertThat(ArchiveExportRules.normalizeFormatToken(null)).isEqualTo("zip");
         assertThat(ArchiveExportRules.normalizeFormatToken(" ZIP ")).isEqualTo("zip");
@@ -40,7 +46,16 @@ class ArchiveExportRulesTest {
     void sanitizesArchiveEntryPaths() {
         assertThat(ArchiveExportRules.safeSegment("a/b:c*d", "fallback")).isEqualTo("a_b_c_d");
         assertThat(ArchiveExportRules.safeSegment("name...", "fallback")).isEqualTo("name");
+        assertThat(ArchiveExportRules.safeSegment(".", "fallback")).isEqualTo("fallback");
+        assertThat(ArchiveExportRules.safeSegment("..", "fallback")).isEqualTo("fallback");
+        assertThat(ArchiveExportRules.safeSegment(" . . ", "fallback")).isEqualTo("fallback");
+        assertThat(ArchiveExportRules.safeSegment("name . . ", "fallback")).isEqualTo("name");
         assertThat(ArchiveExportRules.safeRelativePath("a\\..\\b")).isEqualTo("a/file/b");
+        assertThat(ArchiveExportRules.safeRelativePath(null)).isEqualTo("file");
+        assertThat(ArchiveExportRules.safeSegment(null, "fallback")).isEqualTo("fallback");
+        assertThat(ArchiveExportRules.safeSegment("x".repeat(200), "fallback")).hasSize(120);
+        assertThat(ArchiveExportRules.authorSegment(7L, "Artist")).isEqualTo("Artist");
+        assertThat(ArchiveExportRules.authorSegment(null, " ")).isEqualTo("unknown-author");
         assertThat(ArchiveExportRules.authorSegment(7L, null)).isEqualTo("author-7");
         assertThat(ArchiveExportRules.workSegment(9L, "title/name")).isEqualTo("9 - title_name");
     }

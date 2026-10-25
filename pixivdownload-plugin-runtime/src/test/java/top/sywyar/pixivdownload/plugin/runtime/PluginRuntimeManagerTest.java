@@ -299,6 +299,41 @@ class PluginRuntimeManagerTest {
     }
 
     @Test
+    @DisplayName("深目录中的声明式插件可重新启动并在卸载后清理工作区")
+    void startsWorkerInDeepInstallationAndCleansWorkspace() throws IOException {
+        int nameLength = 182 - tempDir.toAbsolutePath().toString().length() - 1;
+        org.junit.jupiter.api.Assumptions.assumeTrue(nameLength > 0,
+                "测试临时根已经超过深目录夹具长度");
+        Path plugins = tempDir.resolve("p".repeat(nameLength));
+        Path jar = plugins.resolve("probe.jar");
+        writeDeclarativeProbeJar(jar);
+        writeConfirmedLocalProvenance(plugins, jar);
+        top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager manager =
+                new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> false);
+        try {
+            manager.loadPlugin(jar);
+            long generation = manager.generation(PROBE_ID).orElseThrow();
+            long previousPid = 0;
+            for (int attempt = 0; attempt < 3; attempt++) {
+                manager.startPlugin(PROBE_ID);
+                ProcessHandle worker = ProcessHandle.of(manager.isolatedWorkerPidForTest(PROBE_ID)).orElseThrow();
+                assertThat(worker.isAlive()).isTrue();
+                assertThat(worker.pid()).isNotEqualTo(previousPid);
+                previousPid = worker.pid();
+                manager.stopPlugin(PROBE_ID);
+                assertThat(worker.isAlive()).isFalse();
+                assertThat(manager.generation(PROBE_ID)).contains(generation);
+            }
+            manager.unloadPlugin(PROBE_ID);
+            try (var entries = Files.list(new PluginRuntimeLayout(plugins).runtimeDirectory())) {
+                assertThat(entries).isEmpty();
+            }
+        } finally {
+            manager.shutdown();
+        }
+    }
+
+    @Test
     @DisplayName("声明式 worker 崩溃后报告 CRASHED 并按有界退避恢复同一 generation")
     void reportsAndRecoversCrashedDeclarativeWorker() throws Exception {
         Path plugins = tempDir.resolve("plugins-isolated-recovery");

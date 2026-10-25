@@ -78,7 +78,7 @@ class RestTemplatePluginOwnershipTest {
                 }
                 beanNames.forEach(beanName -> declarations.add(
                         new RestTemplateBeanDeclaration(
-                                beanName, type.getName(), method.getName())));
+                                beanName, type.getName())));
             }
         }
         return List.copyOf(declarations);
@@ -110,8 +110,7 @@ class RestTemplatePluginOwnershipTest {
 
     private record RestTemplateBeanDeclaration(
             String beanName,
-            String owner,
-            String method
+            String owner
     ) {
     }
 }

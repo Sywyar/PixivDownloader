@@ -27,4 +27,18 @@ class AppMessagesTest {
 
         assertThat(new AppMessages(source).getForLog("sample")).isEqualTo("English");
     }
+
+    @Test
+    @DisplayName("文件名模板提示保留字面占位符并格式化作品标识")
+    void filenameTemplateMessagePreservesLiteralPlaceholder() {
+        LocaleCatalog catalog = LocaleCatalog.defaultCatalog();
+        AppMessages messages = new AppMessages(new CatalogMessageSource(catalog, "i18n.messages"));
+
+        for (LocaleDescriptor locale : catalog.visibleLocales()) {
+            assertThat(messages.get(locale.toLocale(), "download.file.log.author-name-missing", "work-42"))
+                    .as(locale.tag())
+                    .contains("{author_name}", "work-42")
+                    .doesNotContain("{0}");
+        }
+    }
 }

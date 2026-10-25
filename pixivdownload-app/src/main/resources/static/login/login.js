@@ -99,15 +99,22 @@ function mountThemeToggle() {
 function getRedirect() {
   const params = new URLSearchParams(window.location.search);
   const r = params.get('redirect');
-  if (r && r.startsWith('/') && !r.startsWith('//')) return r;
+  if (r && r.startsWith('/') && !r.startsWith('//')) {
+    try {
+      const target = new URL(r, window.location.href);
+      if (target.origin === window.location.origin) return target.href;
+    } catch (_) { /* 无效回跳地址使用默认页面。 */ }
+  }
   return '/pixiv-batch.html';
 }
 
-function showError(msg) {
-  showLoginErrorText(msg);
+function setAuthButtonsDisabled(disabled) {
+  document.getElementById('login-btn').disabled = disabled;
+  document.getElementById('invite-btn').disabled = disabled;
 }
 
 async function doLogin() {
+  if (document.getElementById('login-btn').disabled) return;
   const username  = document.getElementById('username').value.trim();
   const password  = document.getElementById('password').value;
   const rememberMe = document.getElementById('remember').checked;
@@ -117,9 +124,8 @@ async function doLogin() {
     return;
   }
 
-  const btn = document.getElementById('login-btn');
-  btn.disabled = true;
-  showError('');
+  setAuthButtonsDisabled(true);
+  showLoginErrorText('');
 
   try {
     const res = await fetch('/api/auth/login', {
@@ -135,29 +141,25 @@ async function doLogin() {
       } else {
         showLoginErrorKey('error.login-failed', '登录失败');
       }
-      btn.disabled = false;
+      setAuthButtonsDisabled(false);
       return;
     }
     window.location.href = getRedirect();
   } catch (e) {
     showLoginErrorKey('error.network', 'error.network', {message: e.message});
-    btn.disabled = false;
+    setAuthButtonsDisabled(false);
   }
 }
 
-function showInviteError(msg) {
-  showInviteErrorText(msg);
-}
-
 async function doInviteRedeem() {
+  if (document.getElementById('invite-btn').disabled) return;
   const code = document.getElementById('inviteCodeInput').value.trim();
   if (!code) {
     showInviteErrorKey('validation.invite-required', '请输入邀请码');
     return;
   }
-  const btn = document.getElementById('invite-btn');
-  btn.disabled = true;
-  showInviteError('');
+  setAuthButtonsDisabled(true);
+  showInviteErrorText('');
   try {
     const res = await fetch('/api/auth/invite-redeem', {
       method: 'POST',
@@ -172,20 +174,19 @@ async function doInviteRedeem() {
       } else {
         showInviteErrorKey('error.invite-invalid', '邀请码无效');
       }
-      btn.disabled = false;
+      setAuthButtonsDisabled(false);
       return;
     }
     // 后端按受邀访客可见落点贡献解析 redirect；仅当响应异常缺失 redirect 时才用公开首页兜底。
     window.location.href = data.redirect || '/';
   } catch (e) {
     showInviteErrorKey('error.network', 'error.network', {message: e.message});
-    btn.disabled = false;
+    setAuthButtonsDisabled(false);
   }
 }
 
 document.getElementById('useInviteCode').addEventListener('click', () => {
-  document.getElementById('loginCard').classList.add('hidden');
-  document.getElementById('inviteCard').classList.remove('hidden');
+  showInvitePanel();
   document.getElementById('inviteCodeInput').focus();
 });
 document.getElementById('backToLogin').addEventListener('click', () => {

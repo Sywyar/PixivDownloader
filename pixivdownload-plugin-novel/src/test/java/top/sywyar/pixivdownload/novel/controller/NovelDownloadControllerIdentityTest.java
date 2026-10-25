@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.i18n.LocaleContextHolder;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
@@ -20,18 +21,21 @@ import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.novel.db.NovelDatabase;
 import top.sywyar.pixivdownload.novel.browser.NovelBrowserFetchTicketStore;
 import top.sywyar.pixivdownload.novel.download.NovelDownloadService;
+import top.sywyar.pixivdownload.novel.download.NovelDownloadStatus;
 import top.sywyar.pixivdownload.novel.export.NovelMergeService;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadCommand;
 import top.sywyar.pixivdownload.novel.request.NovelDownloadRequest;
 import top.sywyar.pixivdownload.novel.response.NovelQuotaExceededResponse;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
+import top.sywyar.pixivdownload.novel.testsupport.NovelTestMessages;
 import top.sywyar.pixivdownload.novel.schedule.PixivNovelMetadata;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
-import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
+
+import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -58,7 +62,6 @@ class NovelDownloadControllerIdentityTest {
     @Mock private NovelTranslationService novelTranslationService;
     @Mock private ApplicationModeProvider applicationModeProvider;
     @Mock private RequestOwnerIdentityResolver requestOwnerIdentityResolver;
-    @Mock private WorkVisibilityService workVisibilityService;
     @Mock private VisitorDownloadQuotaService visitorDownloadQuotaService;
     @Mock private MultiModeSettings multiModeSettings;
     @Mock private PixivAjaxClient pixivAjaxClient;
@@ -67,6 +70,50 @@ class NovelDownloadControllerIdentityTest {
     @Mock private NovelBrowserFetchTicketStore browserFetchTicketStore;
     @Mock private HttpServletRequest httpRequest;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Test
+    @DisplayName("查询期间下载失败不混用前后终态与提示")
+    void statusUsesOneStateDuringConcurrentFailure() {
+        NovelDownloadStatus status = new NovelDownloadStatus(7L, "title", "txt", "owner");
+        when(requestOwnerIdentityResolver.resolve(httpRequest)).thenReturn(RequestOwnerIdentity.adminScope());
+        when(novelDownloadService.getStatus(7L)).thenReturn(status);
+        when(messages.get(eq("novel.download.status.in-progress"), any(Object[].class))).thenAnswer(call -> {
+            status.fail("transfer failed");
+            return call.getArgument(0);
+        });
+        var first = controller().getStatus(7L, httpRequest).getBody();
+        assertThat(first.message()).isEqualTo("novel.download.status.in-progress");
+        assertThat(first.completed()).isFalse();
+        assertThat(first.failed()).isFalse();
+        assertThat(first.stage()).isEqualTo("pending");
+
+        when(messages.get("download.status.failed", "transfer failed")).thenReturn("failed");
+        var second = controller().getStatus(7L, httpRequest).getBody();
+        assertThat(second.message()).isEqualTo("failed");
+        assertThat(second.completed()).isTrue();
+        assertThat(second.failed()).isTrue();
+    }
+
+    @Test
+    @DisplayName("小说进度与完成提示无需插画页数且没有未解析占位符")
+    void statusMessagesUseNovelResources() {
+        var previousLocale = LocaleContextHolder.getLocale();
+        try {
+            LocaleContextHolder.setLocale(Locale.US);
+            messages = NovelTestMessages.messageResolver();
+            var status = new NovelDownloadStatus(7L, "title", "txt", "owner");
+            when(requestOwnerIdentityResolver.resolve(httpRequest)).thenReturn(RequestOwnerIdentity.adminScope());
+            when(novelDownloadService.getStatus(7L)).thenReturn(status);
+            String pending = controller().getStatus(7L, httpRequest).getBody().message();
+            assertThat(pending).isNotBlank().doesNotContain("{", "}", "novel.download.", "download.status.");
+            status.complete();
+            String completed = controller().getStatus(7L, httpRequest).getBody().message();
+            assertThat(completed).isNotBlank().doesNotContain("{", "}", "novel.download.", "download.status.");
+            assertThat(completed).isNotEqualTo(pending);
+        } finally {
+            LocaleContextHolder.setLocale(previousLocale);
+        }
+    }
 
     @Test
     @DisplayName("小说单项判重核对文件完整性并独立保留软删除状态")
@@ -348,7 +395,6 @@ class NovelDownloadControllerIdentityTest {
                 novelTranslationService,
                 applicationModeProvider,
                 requestOwnerIdentityResolver,
-                workVisibilityService,
                 visitorDownloadQuotaService,
                 multiModeSettings,
                 objectMapper,
@@ -369,13 +415,8 @@ class NovelDownloadControllerIdentityTest {
     }
 
     private void verifyDownload(String ownerUuid, Long collectionId, boolean autoTranslate) {
-        if (ownerUuid == null) {
-            verify(novelDownloadService).submit(isNull(), argThat(request -> matchesDownload(
-                    request, collectionId, autoTranslate)), isNull());
-        } else {
-            verify(novelDownloadService).submit(isNull(), argThat(request -> matchesDownload(
-                    request, collectionId, autoTranslate)), eq(ownerUuid));
-        }
+        verify(novelDownloadService).submit(isNull(), argThat(request -> matchesDownload(
+                request, collectionId, autoTranslate)), eq(ownerUuid));
     }
 
     private static boolean matchesDownload(

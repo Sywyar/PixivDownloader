@@ -8,12 +8,13 @@ const assert = require('node:assert/strict');
 const root = path.resolve(__dirname, '../../../..');
 const staticRoot = path.resolve(__dirname, '../../main/resources/static');
 
-function loadWeb(file, respond) {
+function loadWeb(respond) {
     const context = {state: {settings: {verifyHistoryFiles: true}}, BASE: '',
-        bt: key => key, fetch: respond};
+        bt: key => key, fetch: respond, apiGet: respond, console: {warn() {}}};
     vm.createContext(context);
-    vm.runInContext(fs.readFileSync(path.join(staticRoot, file), 'utf8') + '\nthis.check = checkDownloaded;', context);
-    return context.check;
+    vm.runInContext(fs.readFileSync(path.join(staticRoot,
+        'pixiv-batch/batch-artwork-requests.js'), 'utf8'), context);
+    return context;
 }
 
 function loadUserscript(file, respond, novel = false) {
@@ -27,26 +28,82 @@ function loadUserscript(file, respond, novel = false) {
         CONFIG: {CHECK_DOWNLOADED_URL: 'http://localhost/api/downloaded'},
         getDownloadedCheckBase: () => 'http://localhost/api/downloaded', handleUnauthorized() {}, t: key => key};
     vm.createContext(context);
+    if (!single) vm.runInContext(fs.readFileSync(path.join(root,
+        'scripts/shared/download-queue-runner.js'), 'utf8'), context);
     vm.runInContext(single ? method + '; this.check = ' + name + ';' : 'this.check = ({' + method + '}).' + name + ';', context);
     return context.check;
 }
 
-for (const file of ['pixiv-batch/batch-download-artwork.js', 'pixiv-batch-alt/alt-engine.js']) {
-    test(file + '：仅明确无记录时允许继续，服务错误和损坏响应中止判重', async () => {
-        let result = {status: 400};
-        const check = loadWeb(file, async () => result);
-        assert.equal(await check(42), null);
-        result = {status: 200, json: async () => ({artworkId: 42, deleted: true})};
-        assert.equal((await check(42)).deleted, true);
-        for (const status of [401, 403, 404, 503]) {
-            result = {status};
-            await assert.rejects(() => check(42));
-        }
-        result = {status: 200, json: async () => ({})};
+test('两版工作台共享历史检查：仅明确无记录时继续，服务错误和损坏响应中止判重', async () => {
+    let result = {status: 400};
+    const check = loadWeb(async () => result).checkDownloaded;
+    assert.equal(await check(42), null);
+    result = {status: 200, json: async () => ({artworkId: 42, deleted: true})};
+    assert.equal((await check(42)).deleted, true);
+    for (const status of [401, 403, 404, 503]) {
+        result = {status};
         await assert.rejects(() => check(42));
-        await assert.rejects(loadWeb(file, async () => { throw new Error('offline'); })(42));
+    }
+    result = {status: 200, json: async () => ({})};
+    await assert.rejects(() => check(42));
+    await assert.rejects(loadWeb(async () => { throw new Error('offline'); }).checkDownloaded(42));
+});
+
+test('作品资料请求保留路径、原始响应与服务端错误', async () => {
+    let response = {title: 'fixture', urls: ['image-url']};
+    const paths = [];
+    const api = loadWeb(async path => { paths.push(path); return response; });
+    assert.equal(await api.getArtworkMeta('42'), response);
+    assert.equal(await api.getArtworkPages('42'), response.urls);
+    assert.equal(await api.getUgoiraMeta('42'), response);
+    assert.deepEqual(paths, ['/api/pixiv/artwork/42/meta', '/api/pixiv/artwork/42/pages',
+        '/api/pixiv/artwork/42/ugoira']);
+    response = {};
+    assert.deepEqual(Array.from(await api.getArtworkPages('42')), []);
+    response = {error: 'source unavailable'};
+    for (const method of ['getArtworkMeta', 'getArtworkPages', 'getUgoiraMeta']) {
+        await assert.rejects(api[method]('42'), /source unavailable/);
+    }
+});
+
+test('作品请求在执行失效后拒绝迟到结果并透传取消信号', async () => {
+    for (const method of ['getArtworkMeta', 'getArtworkPages', 'getUgoiraMeta',
+        'checkDownloaded', 'recoverArtworkMetadata', 'getDownloadStatus']) {
+        const signal = new AbortController().signal;
+        let active = true;
+        let requests = 0;
+        const invocation = {signal, assertActive() { if (!active) throw new Error('stale'); }};
+        const api = loadWeb(async (_path, options) => {
+            requests++;
+            assert.equal(options.signal, signal);
+            active = false;
+            return {status: 200, json: async () => ({artworkId: 42})};
+        });
+        const args = method === 'recoverArtworkMetadata' ? ['42', {}, invocation] : ['42', invocation];
+        await assert.rejects(api[method](...args), /stale/);
+        assert.equal(requests, 1);
+        await assert.rejects(api[method](...args), /stale/);
+        assert.equal(requests, 1, '失效执行不得再发送请求');
+    }
+});
+
+test('元数据补齐保留请求体且普通失败只返回缺席结果', async () => {
+    let result = {status: 503};
+    const metadata = {title: 'fixture', tags: ['tag']};
+    const api = loadWeb(async (path, options) => {
+        assert.equal(path, '/api/downloaded/42/recover-metadata');
+        assert.equal(options.method, 'POST');
+        assert.equal(options.headers['Content-Type'], 'application/json');
+        assert.deepEqual(JSON.parse(options.body), metadata);
+        return result;
     });
-}
+    assert.equal(await api.recoverArtworkMetadata('42', metadata), null);
+    const recovered = {artworkId: 42};
+    result = {status: 200, json: async () => recovered};
+    assert.equal(await api.recoverArtworkMetadata('42', metadata), recovered);
+    assert.equal(await loadWeb(async () => { throw new Error('offline'); })
+        .recoverArtworkMetadata('42', metadata), null);
+});
 
 for (const file of ['Pixiv User 批量下载器(User Batch).user.js',
     'Pixiv URL 批量导入单作品下载器(URL Batch).user.js', 'Pixiv 页面批量下载器(Page Scrape).user.js',
@@ -87,6 +144,7 @@ for (const file of ['Pixiv User 批量下载器(User Batch).user.js',
         vm.runInContext('this.process = ({' + source.slice(start, end) + '})._processSingle;', context);
         const item = {id: '42', title: 'fixture', status: 'downloading'};
         await context.process.call({queue: [item], skipHistory: true,
+            _queueController: new AbortController(),
             globalSettings: {skipHistory: true},
             sse: {close() {}}, ui: {renderQueue() {}, setStatus() {}, setCurrent() {}},
             updateStats() {}, saveToStorage() { saves++; }

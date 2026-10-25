@@ -514,22 +514,80 @@ async function main() {
         passed++;
     }
 
-    {
-        const {sandbox, languageListeners, languageRequests} = loadScenario(true);
+    for (const page of ['gallery', 'artwork']) {
+        const {sandbox, document, languageListeners, languageRequests} = loadScenario(true);
         const ctx = sandbox.PixivOnboardingRuntime;
         ctx.gallery.phaseGalleryRedirect();
         const pop = ctx.overlay.pop;
-        const oldChange = languageListeners[0]({lang: 'zh-CN'});
-        const newChange = languageListeners[0]({lang: 'en-US'});
-        languageRequests[1].resolve(translatedClient('en-US'));
-        await newChange;
-        languageRequests[0].resolve(translatedClient('zh-CN'));
-        await oldChange;
-        assert.strictEqual(ctx.i18n.lang, 'en-US');
+        languageListeners.forEach(listener => listener({lang: 'en-US'}));
+        assert.equal(languageRequests.length, 0, '引导复用页面词典，不再独立请求');
+        const nodes = new Map();
+        document.getElementById = id => {
+            if (!nodes.has(id)) {
+                const node = new El('div');
+                node.parentElement = new El('div');
+                nodes.set(id, node);
+            }
+            return nodes.get(id);
+        };
+        sandbox.state = {view: 'all'};
+        for (const name of ['updateOrderToggleLabel', 'syncCollectionFormTitle', 'renderCollections',
+            'renderTagChips', 'renderSeriesFilterChips', 'renderAuthorChips', 'syncTagFilterBar',
+            'syncAuthorFilterBar', 'syncSeriesFilterBar', 'reloadCurrentView']) sandbox[name] = () => {};
+        let change, creations = 0;
+        sandbox.PixivI18n.create = async options => {
+            assert.ok(options.namespaces.includes('tour'));
+            creations++;
+            return translatedClient('zh-CN');
+        };
+        sandbox.PixivLangSwitcher = {mount: async options => { change = options.onChange; }};
+        sandbox.PixivTheme = {mount() {}};
+        sandbox.PixivNav.refresh = () => {};
+        const source = fs.readFileSync(path.join(REPO_ROOT,
+            `pixivdownload-plugin-gallery/src/main/resources/static/pixiv-${page}/${page}-core.js`), 'utf8');
+        vm.runInContext(source, sandbox);
+        await sandbox.initPageI18n();
+        const client = translatedClient('en-US');
+        change(client);
+        assert.strictEqual(ctx.i18n, client, page + ': 页面切换与恢复使用同一词典');
+        assert.equal(creations, 1);
         assert.strictEqual(ctx.overlay.pop, pop);
         const title = pop.querySelectorAll('[data-po-message]').find(node =>
             JSON.parse(node.getAttribute('data-po-message')).key === 'onboarding.redirect.title');
-        assert.strictEqual(title.textContent, translatedClient('en-US').t('tour:onboarding.redirect.title'));
+        assert.strictEqual(title.textContent, client.t('tour:onboarding.redirect.title'));
+        passed++;
+    }
+
+    for (const found of [true, false]) {
+        const {sandbox} = loadScenario(true);
+        const ctx = sandbox.PixivOnboardingRuntime;
+        let tick, cleared = false, now = 0;
+        sandbox.Date = class extends Date { static now() { return now; } };
+        sandbox.setInterval = callback => { tick = callback; return 42; };
+        sandbox.clearInterval = id => { if (id === 42) cleared = true; };
+        ctx.config.hooks = {getExampleCard: () => found ? new El('a') : null};
+        ctx.gallery.phaseGallery();
+        ctx.skip();
+        now = 10000;
+        tick();
+        assert.equal(ctx.overlay.pop, null, '跳过后卡片出现或等待超时均不能重开引导');
+        assert.equal(cleared, true);
+        passed++;
+    }
+
+    {
+        const {sandbox, document} = loadScenario(true);
+        const ctx = sandbox.PixivOnboardingRuntime;
+        let tick, delayed;
+        sandbox.setInterval = callback => { tick = callback; return 42; };
+        sandbox.setTimeout = callback => { delayed = callback; return 43; };
+        document.elements['#detail'] = new El('section');
+        ctx.config.sel.detail = '#detail';
+        ctx.gallery.phaseDetail();
+        tick();
+        ctx.skip();
+        delayed();
+        assert.equal(ctx.overlay.pop, null, '详情已出现后的延迟不能重开已结束的引导');
         passed++;
     }
 

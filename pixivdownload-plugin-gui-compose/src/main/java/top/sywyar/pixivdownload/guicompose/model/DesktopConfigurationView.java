@@ -25,18 +25,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.function.Consumer;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import static top.sywyar.pixivdownload.guicompose.model.GuiActionResponseSafety.responseDetail;
-import static top.sywyar.pixivdownload.guicompose.model.GuiActionResponseSafety.safeJsonPath;
-import static top.sywyar.pixivdownload.guicompose.model.GuiActionResponseSafety.sanitizeActionText;
 import static top.sywyar.pixivdownload.guicompose.model.DesktopUiNodes.*;
 import static top.sywyar.pixivdownload.guicompose.model.DesktopConfigurationController.*;
 import static top.sywyar.pixivdownload.guicompose.model.DesktopConfigurationFieldView.*;
@@ -45,16 +35,12 @@ import static top.sywyar.pixivdownload.guicompose.model.DesktopConfigurationFiel
  * 配置页节点树与交互绑定构建。
  */
 final class DesktopConfigurationView {
-    private static final Logger LOG = LoggerFactory.getLogger(DesktopConfigurationView.class);
-    private static final String APP_OWNER = "app";
-
     private final DesktopConfigurationController model;
     private final ComposeDesktopUiModel owner;
     private final DesktopUiHost host;
     private final Map<String, String> formValues;
     private final DesktopRepositorySettingsController repositories;
     private final Map<FieldKey, String> values;
-    private final Map<FieldKey, String> savedValues;
     final DesktopConfigurationFieldView fields;
     private final Map<String, String> groupCategories = new LinkedHashMap<>();
 
@@ -65,7 +51,6 @@ final class DesktopConfigurationView {
         this.formValues = model.formValues;
         this.repositories = model.repositories;
         this.values = model.values;
-        this.savedValues = model.savedValues;
         this.fields = new DesktopConfigurationFieldView(model);
     }
 
@@ -587,12 +572,11 @@ final class DesktopConfigurationView {
                 nodes.addAll(presetNodes(
                         base,
                         section,
-                        null,
                         section.presets().stream().filter(preset -> preset.cardId() == null).toList(),
                         nextSelections
                 ));
                 String binding = base + ".card.selection";
-                String selectedCard = fields.form(binding, cards.keySet().iterator().next());
+                String selectedCard = formValues.getOrDefault(binding, cards.keySet().iterator().next());
                 if (!cards.containsKey(selectedCard))
                     selectedCard = cards.keySet().iterator().next();
                 List<DesktopUiNode.Option> options = new ArrayList<>();
@@ -673,7 +657,6 @@ final class DesktopConfigurationView {
             nodes.addAll(presetNodes(
                     base,
                     section,
-                    null,
                     section.presets().stream().filter(preset -> preset.cardId() == null).toList(),
                     nextSelections
             ));
@@ -800,7 +783,6 @@ final class DesktopConfigurationView {
         nodes.addAll(presetNodes(
                 base,
                 section,
-                cardId,
                 presets,
                 nextSelections
         ));
@@ -827,7 +809,6 @@ final class DesktopConfigurationView {
     private List<DesktopUiNode> presetNodes(
             String base,
             ConfigSection section,
-            String cardId,
             List<ConfigPreset> presets,
             Map<String, Consumer<List<String>>> nextSelections
     ) {

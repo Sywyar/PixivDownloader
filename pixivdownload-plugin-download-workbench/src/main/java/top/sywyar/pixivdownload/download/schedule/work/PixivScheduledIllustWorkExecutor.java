@@ -33,7 +33,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Pixiv 插画、漫画与动图的 ID 引用解析、筛选及同步下载执行器。 */
 @PluginManagedBean
@@ -49,9 +48,7 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
     private final PixivSchedulePersistenceCodec persistenceCodec;
     private final ObjectMapper objectMapper;
     private final DownloadSettings downloadSettings;
-    private final Map<SeriesKey, PixivFetchService.IllustSeriesMeta> seriesCache =
-            new ConcurrentHashMap<>();
-    private final Map<Long, ScheduledTaskDefinition> seriesCacheRuns =
+    private final Map<Long, SeriesRunCache> seriesCacheRuns =
             new ConcurrentHashMap<>();
 
     public PixivScheduledIllustWorkExecutor(
@@ -102,7 +99,7 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
         try {
             return executeOnce(work, context);
         } catch (ScheduledExecutionException | RuntimeException | Error failure) {
-            clearFailedRunCache(task);
+            clearRunCache(task);
             throw failure;
         }
     }
@@ -284,54 +281,24 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
     }
 
     private void clearRunCache(ScheduledTaskDefinition task) {
-        detachRun(task);
-        clearSeriesEntries(task.taskId());
+        seriesCacheRuns.computeIfPresent(task.taskId(), (taskId, current) ->
+                current.task() == task ? null : current);
     }
 
     private PixivFetchService.IllustSeriesMeta seriesMeta(
             ScheduledTaskDefinition task,
             long seriesId,
             String cookie) {
-        prepareRunCache(task);
-        SeriesKey key = new SeriesKey(task.taskId(), seriesId);
-        return seriesCache.computeIfAbsent(key, ignored -> {
+        SeriesRunCache run = seriesCacheRuns.compute(task.taskId(), (taskId, current) ->
+                current != null && current.task() == task
+                        ? current : new SeriesRunCache(task, new ConcurrentHashMap<>()));
+        return run.series().computeIfAbsent(seriesId, ignored -> {
             try {
                 return fetchService.fetchIllustSeriesMeta(seriesId, cookie);
             } catch (Exception failure) {
                 return new PixivFetchService.IllustSeriesMeta("", "");
             }
         });
-    }
-
-    private void prepareRunCache(ScheduledTaskDefinition task) {
-        seriesCacheRuns.compute(task.taskId(), (taskId, current) -> {
-            if (current != task) {
-                clearSeriesEntries(taskId);
-            }
-            return task;
-        });
-    }
-
-    private void clearFailedRunCache(ScheduledTaskDefinition task) {
-        if (detachRun(task)) {
-            clearSeriesEntries(task.taskId());
-        }
-    }
-
-    private boolean detachRun(ScheduledTaskDefinition task) {
-        AtomicBoolean detached = new AtomicBoolean(false);
-        seriesCacheRuns.computeIfPresent(task.taskId(), (taskId, current) -> {
-            if (current == task) {
-                detached.set(true);
-                return null;
-            }
-            return current;
-        });
-        return detached.get();
-    }
-
-    private void clearSeriesEntries(long taskId) {
-        seriesCache.keySet().removeIf(key -> key.taskId() == taskId);
     }
 
     private ScheduleTaskSnapshot parseSnapshot(ScheduledWorkContext context)
@@ -391,6 +358,8 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
         return node == null ? null : node.toString();
     }
 
-    private record SeriesKey(long taskId, long seriesId) {
+    private record SeriesRunCache(
+            ScheduledTaskDefinition task,
+            ConcurrentHashMap<Long, PixivFetchService.IllustSeriesMeta> series) {
     }
 }

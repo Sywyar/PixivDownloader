@@ -94,6 +94,25 @@ public record DesktopMediaTool(Identity identity, Description description) {
     }
 
     /**
+     * 可报告异步终态的媒体来源。宿主仍按精确 publication 准入；已接纳的任务在
+     * 完成、失败、取消或运行依赖不可用后必须通知一次，关闭来源须先结束任务并交付终态。
+     * 通知只传纯值，不因界面关闭而丢失；观察者失败不改变已经完成的业务结果。
+     * 撤回后拒绝新提交，已接纳任务仍交付终态；交付后释放观察者，关闭后不再通知。
+     */
+    public interface CompletionSource extends Source {
+        /**
+         * 提交任务并绑定本次执行的终态观察者；拒绝提交时不调用观察者。
+         * @param token 一次性预览凭据
+         * @param completion 本次执行结束后的观察者
+         * @return 已接纳状态或明确拒绝
+         */
+        Result<Status> start(String token, java.util.function.Consumer<Status> completion);
+
+        @Override
+        default Result<Status> start(String token) { return start(token, ignored -> {}); }
+    }
+
+    /**
      * 用户选择的媒体格式与缩略图补齐范围。
      *
      * @param imageFormats 图片格式
@@ -153,7 +172,7 @@ public record DesktopMediaTool(Identity identity, Description description) {
     /**
      * 媒体维护任务的进度、计数与失败文件。
      *
-     * @param state idle/scanning/running/completed/cancelled
+     * @param state idle/scanning/running/completed/cancelled/failed/unavailable
      * @param total 总数
      * @param completed 已处理数
      * @param failed 失败数

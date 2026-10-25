@@ -57,13 +57,9 @@
             });
         }
 
-        function onSlotsRendered() {
-            render();
-        }
-
-        global.addEventListener('pixivbatch:slotsrendered', onSlotsRendered);
+        global.addEventListener('pixivbatch:slotsrendered', render);
         context.onCleanup(function () {
-            global.removeEventListener('pixivbatch:slotsrendered', onSlotsRendered);
+            global.removeEventListener('pixivbatch:slotsrendered', render);
             if (mounted && mounted.app) mounted.app.unmount();
             mounted = null;
         });

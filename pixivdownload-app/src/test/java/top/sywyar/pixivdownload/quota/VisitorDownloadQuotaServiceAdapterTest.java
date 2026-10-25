@@ -22,7 +22,7 @@ class VisitorDownloadQuotaServiceAdapterTest {
     @DisplayName("应保留媒体权重预留结果的全部配额字段")
     void preservesQuotaReservationFields() {
         when(userQuotaService.checkAndReserve("visitor-1", 7))
-                .thenReturn(new UserQuotaService.QuotaCheckResult(false, 3, 5, 60));
+                .thenReturn(new VisitorDownloadQuotaReservation(false, 3, 5, 60));
 
         VisitorDownloadQuotaReservation result = adapter.checkAndReserve("visitor-1", 7);
 

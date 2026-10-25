@@ -1,6 +1,5 @@
 'use strict';
 
-const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
@@ -38,13 +37,14 @@ window.__mergeScheduleQueueModel = mergeScheduleQueueModel;
 window.__setScheduleQueueModel = function (id, items) {
     scheduleQueueModels[Number(id)] = items || [];
 };
+window.__setScheduleExpanded = function (id, expanded) {
+    if (expanded) scheduleExpandedQueues.add(id);
+    else scheduleExpandedQueues.delete(id);
+};
 window.__getScheduleQueueModel = function (id) {
     return scheduleQueueModels[Number(id)] || [];
 };
 window.__loadScheduleQueueModel = getScheduleQueueModel;
-window.__clearScheduleQueueModel = function (id) {
-    delete scheduleQueueModels[Number(id)];
-};
 window.__readScheduleQueueCache = readScheduleQueueCache;
 window.__writeScheduleQueueCache = writeScheduleQueueCache;
 window.__applyScheduleQueueSse = applyScheduleQueueSse;
@@ -92,10 +92,10 @@ function harness(options) {
     const storage = new Map(Object.entries(config.storageEntries || {}));
     const elements = new Map();
     const element = (id, values) => {
-        const value = Object.assign({
+        const value = Object.defineProperties({
             id, value: '', checked: false, textContent: '', hidden: false,
             style: {}, dataset: {}, classList: {add() {}, remove() {}, toggle() {}}
-        }, values || {});
+        }, Object.getOwnPropertyDescriptors(values || {}));
         elements.set(id, value);
         return value;
     };
@@ -107,7 +107,14 @@ function harness(options) {
     element('sch-proxy', {value: ''});
     element('sch-cookie-enabled', {checked: !!config.cookieChecked});
     element('sch-cookie', {value: config.cookieValue || ''});
-    element('schedule-override-modal', {hidden: true});
+    element('schedule-override-modal', {
+        hidden: true,
+        querySelectorAll: () => ['sch-ov-proxy-enabled', 'sch-ov-proxy',
+            'sch-ov-cookie-enabled', 'sch-ov-cookie', 'sch-ov-save', 'sch-ov-use-saved']
+            .map(id => elements.get(id))
+    });
+    element('sch-ov-save');
+    element('sch-ov-use-saved');
     element('schedule-override-title');
     element('schedule-override-intro');
     element('sch-ov-status');
@@ -126,9 +133,9 @@ function harness(options) {
 
     let current = true;
     let fetchCount = 0;
+    let poll;
     const requests = [];
     const confirmCalls = [];
-    const promptCalls = [];
     const credentialCalls = [];
     const switchedModes = [];
     const sseListeners = new Map();
@@ -141,6 +148,7 @@ function harness(options) {
         }
     };
     const runtime = {
+        refresh: () => config.refresh ? config.refresh() : Promise.resolve(),
         captureForMode() {
             if (config.captureError) throw config.captureError;
             return {
@@ -210,6 +218,7 @@ function harness(options) {
             PixivBatch: {
                 scheduleSources: runtime,
                 queueTypes: config.queueTypes,
+                queueVue: config.queueVue,
                 modes: {}
             }
         },
@@ -217,12 +226,15 @@ function harness(options) {
             visibilityState: 'visible', body: {classList: {add() {}, remove() {}}},
             getElementById: id => elements.get(id) || null,
             querySelectorAll: () => [],
+            querySelector: config.querySelector || (() => null),
+            createElement: config.createElement,
             addEventListener() {}
         },
         state: {mode: 'user', queue: [], currentItemId: null, sseListeners: {}},
         QUICK_FETCH_MODE: 'quick-fetch',
         isAdmin: true,
         appMode: 'solo',
+        uiLang: () => config.language || 'en-US',
         BASE: '',
         STATUS_COLORS: {info: 'info', error: 'error', success: 'success'},
         bt: (key, fallback, vars) => {
@@ -248,8 +260,7 @@ function harness(options) {
             switchedModes.push(mode);
             sandbox.state.mode = mode;
         },
-        uiPromptKey(key, fallback, value, options) {
-            promptCalls.push({key, fallback, value, options});
+        uiPromptKey(key, fallback, value) {
             return config.prompt ? config.prompt.promise : Promise.resolve(value);
         },
         mergeUgoiraProgress(current, incoming) {
@@ -282,11 +293,12 @@ function harness(options) {
         fetch(url, init) {
             fetchCount++;
             requests.push({url, init: init || {}});
+            if (config.fetch) return config.fetch(url, init || {});
             if (config.response) return Promise.resolve(config.response);
             throw new Error('unexpected fetch');
         },
-        setInterval: () => 1,
-        clearInterval() {},
+        setInterval: callback => { poll = callback; return 1; },
+        clearInterval() { poll = null; },
         setTimeout,
         clearTimeout,
         AbortController,
@@ -308,9 +320,9 @@ function harness(options) {
         queueKey: sandbox.window.__scheduleQueueItemKey,
         mergeQueue: sandbox.window.__mergeScheduleQueueModel,
         setQueueModel: sandbox.window.__setScheduleQueueModel,
+        setExpanded: sandbox.window.__setScheduleExpanded,
         getQueueModel: sandbox.window.__getScheduleQueueModel,
         loadQueueModel: sandbox.window.__loadScheduleQueueModel,
-        clearQueueModel: sandbox.window.__clearScheduleQueueModel,
         readQueueCache: sandbox.window.__readScheduleQueueCache,
         writeQueueCache: sandbox.window.__writeScheduleQueueCache,
         applyQueueSse: sandbox.window.__applyScheduleQueueSse,
@@ -334,10 +346,25 @@ function harness(options) {
         renderCredentialPolicyBanners: sandbox.window.__renderCredentialPolicyBanners,
         applyCredentialPolicyAction: sandbox.window.__applyScheduleCredentialPolicyAction,
         showOverride: sandbox.window.__showScheduleOverrideModal,
+        closeOverride: sandbox.closeScheduleOverrideModal,
         saveOverride: sandbox.window.__saveScheduleOverride,
+        loadTasks: sandbox.loadScheduleTasks,
+        taskById: sandbox.scheduleTaskById,
+        replaceCard: sandbox.replaceScheduleCardPreservingInner,
+        fetchQueue: sandbox.fetchScheduleQueue,
+        refreshQueues: sandbox.refreshExpandedScheduleQueues,
+        toggleQueue: sandbox.toggleScheduleQueue,
+        togglePending: sandbox.togglePendingPanel,
+        startPolling: sandbox.startSchedulePolling,
+        stopPolling: sandbox.stopSchedulePolling,
+        poll: () => poll && poll(),
+        state: sandbox.state,
+        document: sandbox.document,
+        loadPending: sandbox.loadPendingPanel,
         updateFetchLimit: sandbox.window.__updateScheduleFetchLimitVisibility,
         sourceContext: sandbox.window.__scheduleSourceContext,
         element: id => elements.get(id),
+        addElement: element,
         status,
         stale() { current = false; },
         switchToken(value) { lease.activationToken = value; },
@@ -345,7 +372,6 @@ function harness(options) {
         get requests() { return requests; },
         get confirmCount() { return confirmCalls.length; },
         get confirmCalls() { return confirmCalls.slice(); },
-        get promptCalls() { return promptCalls.slice(); },
         get credentialCalls() { return credentialCalls.slice(); },
         get switchedModes() { return switchedModes.slice(); },
         storageValue(key) { return storage.get(String(key)); }

@@ -18,6 +18,44 @@ import static org.mockito.Mockito.*;
 
 @DisplayName("JDBC 租约派生对象的数据库失效语义")
 class DatabaseConnectionLeaseTest {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("租约接管时状态检查抛错仍释放已取得的真实连接")
+    void failedAvailabilityCheckClosesConnection(boolean fatal,
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        var target = DatabaseProviderTestFixtures.sqlite(directory.resolve("acquire.db"));
+        var error = new OutOfMemoryError("controlled availability failure");
+        var failure = new IllegalStateException("controlled availability failure");
+        try (var connection = target.openConnection()) {
+            assertThatThrownBy(() -> DatabaseConnectionLease.wrap(connection, () -> {
+                if (fatal) throw error;
+                throw failure;
+            })).isSameAs(fatal ? error : failure);
+            assertThat(connection.isClosed()).isTrue();
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("租约接管拒绝后保留不可用状态，关闭致命错误仍传播")
+    void rejectedLeasePreservesAvailabilityFailure(boolean fatal) throws Exception {
+        var connection = mock(Connection.class);
+        Throwable cleanup = fatal ? new ThreadDeath() : new SQLException("controlled close failure");
+        doThrow(cleanup).when(connection).close();
+        Throwable actual = org.assertj.core.api.Assertions.catchThrowable(
+                () -> DatabaseConnectionLease.wrap(connection, () -> false));
+        if (fatal) {
+            assertThat(actual).isSameAs(cleanup);
+            assertThat(actual.getSuppressed()).singleElement().satisfies(failure ->
+                    assertThat(failure).isInstanceOf(java.sql.SQLNonTransientConnectionException.class)
+                            .hasMessage("DATABASE_UNAVAILABLE"));
+        } else {
+            assertThat(actual).isInstanceOf(java.sql.SQLNonTransientConnectionException.class)
+                    .hasMessage("DATABASE_UNAVAILABLE").hasSuppressedException(cleanup);
+        }
+        verify(connection).close();
+    }
+
     @Test
     @DisplayName("Spring 连接代理可准备真实 SQLite 事务，普通 unwrap 和失效准备仍拒绝")
     void springProxyPreservesProviderPreparationAndLease(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory)

@@ -74,7 +74,7 @@
   "database-postgresql": {
     "defaultLocale": "zh-CN",
     "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
-    "description": {"zh":"连接 PostgreSQL 17 / UTF8，为私有存储创建独立受限角色与 schema。须配置具备所需管理权限的连接；安装和切换后须完整重启，切换不自动迁移数据。", "en":"Connects to PostgreSQL 17 / UTF8 and creates restricted roles and schemas for private storage. Requires connection credentials with the necessary management privileges. Installation and switching require a full restart; switching does not migrate data automatically."},
+    "description": {"zh":"支持 PostgreSQL 17 / 18（UTF8），为私有存储创建独立受限角色与 schema。须配置具备所需管理权限的连接，安装后须完整重启。切换数据库请在设置页检查并确认迁移；直接修改连接配置不会迁移数据。", "en":"Supports PostgreSQL 17 and 18 with UTF8 and creates restricted roles and schemas for private storage. Requires connection credentials with the necessary management privileges and a full restart after installation. To switch databases, check and confirm migration in Settings; editing the connection configuration directly does not migrate data."},
     "author": "Sywyar",
     "sourceType": "official",
     "category": "database",
@@ -102,7 +102,7 @@
   "gui-compose": {
     "defaultLocale": "zh-CN",
     "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
-    "description": { "zh": "提供可按 app.gui-provider=gui-compose 显式选择的 Compose Multiplatform 桌面渲染器，覆盖稳定声明式 UI 节点契约。", "en": "Provides an explicitly selectable Compose Multiplatform desktop renderer for the stable declarative UI node contract via app.gui-provider=gui-compose." },
+    "description": { "zh": "提供默认的 Compose Multiplatform 桌面界面，也可通过 app.gui-provider=gui-compose 显式选择。", "en": "Provides the default Compose Multiplatform desktop UI. You can also select it explicitly with app.gui-provider=gui-compose." },
     "author": "Sywyar",
     "sourceType": "official",
     "category": "ui",

@@ -7,7 +7,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 
 import java.nio.file.Files;
@@ -52,17 +51,14 @@ class DatabaseConfigTest {
     @Test
     @DisplayName("连接池容量只读取宿主数据库设置而不随下载业务并发推导")
     void poolCapacityComesFromDatabaseProperties() throws Exception {
-        DownloadConfig downloadConfig = new DownloadConfig();
-        downloadConfig.setRootFolder(tempDir.resolve("downloads").toString());
-        downloadConfig.setMaxConcurrent(120);
         DatabasePoolProperties poolProperties = new DatabasePoolProperties();
         poolProperties.setMaximumPoolSize(34);
 
-        var target = org.mockito.Mockito.spy(DatabaseProviderTestFixtures.resolve(poolProperties, downloadConfig.getRootFolder()));
+        var target = org.mockito.Mockito.spy(DatabaseProviderTestFixtures.resolve(poolProperties, tempDir.resolve("downloads").toString()));
         var pool = mock(HikariDataSource.class);
         org.mockito.Mockito.doReturn(pool).when(target).openPool(org.mockito.ArgumentMatchers.anyInt());
         try (var source = (top.sywyar.pixivdownload.core.db.provider.ProviderDataSource) new DatabaseConfig(
-                downloadConfig, poolProperties, mock(AppMessages.class)).dataSource(target, DatabaseProviderTestFixtures.registry(target), DatabaseProviderTestFixtures.session())) {
+                poolProperties, mock(AppMessages.class)).dataSource(target, DatabaseProviderTestFixtures.registry(target), DatabaseProviderTestFixtures.session())) {
             org.mockito.Mockito.verify(target).openPool(34);
         }
         org.mockito.Mockito.verify(pool).close();
@@ -77,11 +73,9 @@ class DatabaseConfigTest {
         Files.createDirectories(downloads);
         seed(database, "managed");
         seed(downloads.resolve("pixiv_download.db"), "legacy");
-        DownloadConfig download = new DownloadConfig();
-        download.setRootFolder(downloads.toString());
-        DatabaseConfig config = new DatabaseConfig(download, new DatabasePoolProperties(), mock(AppMessages.class));
+        DatabaseConfig config = new DatabaseConfig(new DatabasePoolProperties(), mock(AppMessages.class));
 
-        var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(new DatabasePoolProperties(), download.getRootFolder());
+        var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(new DatabasePoolProperties(), downloads.toString());
         try (var pool = (top.sywyar.pixivdownload.core.db.provider.ProviderDataSource) config.dataSource(target, DatabaseProviderTestFixtures.registry(target), DatabaseProviderTestFixtures.session());
              Connection first = pool.getConnection();
              Connection second = pool.getConnection();
@@ -111,10 +105,8 @@ class DatabaseConfigTest {
         Path downloads = Files.createDirectories(tempDir.resolve("downloads"));
         Path legacy = downloads.resolve("pixiv_download.db");
         seed(legacy, "retained");
-        DownloadConfig download = new DownloadConfig();
-        download.setRootFolder(downloads.toString());
-        DatabaseConfig config = new DatabaseConfig(download, new DatabasePoolProperties(), mock(AppMessages.class));
-        var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(new DatabasePoolProperties(), download.getRootFolder());
+        DatabaseConfig config = new DatabaseConfig(new DatabasePoolProperties(), mock(AppMessages.class));
+        var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.resolve(new DatabasePoolProperties(), downloads.toString());
         for (int restart = 0; restart < 2; restart++) {
             try (var pool = (top.sywyar.pixivdownload.core.db.provider.ProviderDataSource) config.dataSource(target, DatabaseProviderTestFixtures.registry(target), DatabaseProviderTestFixtures.session());
                  Connection connection = pool.getConnection()) {
@@ -146,7 +138,7 @@ class DatabaseConfigTest {
     @DisplayName("读后写事务等待写者且不阻塞普通查询，两次写入均成功提交")
     void readThenWriteTransactionsWaitWithoutBlockingQueries() throws Exception {
         var workers = Executors.newSingleThreadExecutor();
-        var config = new DatabaseConfig(new DownloadConfig(), new DatabasePoolProperties(), mock(AppMessages.class));
+        var config = new DatabaseConfig(new DatabasePoolProperties(), mock(AppMessages.class));
         var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(tempDir.resolve("data/transactions.db"));
         try (var source = (top.sywyar.pixivdownload.core.db.provider.ProviderDataSource)
                 config.dataSource(target, DatabaseProviderTestFixtures.registry(target), DatabaseProviderTestFixtures.session())) {

@@ -48,8 +48,16 @@ public final class PluginDatabaseFactory {
             List<top.sywyar.pixivdownload.plugin.api.storage.relational.StorageMigration> migrations) {
         var database = (AppPluginDatabase) create(owner);
         try { database.initialize(schema, migrations); return database; }
-        catch (Exception failure) {
-            database.close();
+        catch (Exception | Error failure) {
+            try { database.close(); }
+            catch (VirtualMachineError | ThreadDeath fatal) {
+                if (fatal != failure) fatal.addSuppressed(failure);
+                throw fatal;
+            }
+            catch (RuntimeException | Error cleanup) {
+                if (cleanup != failure) failure.addSuppressed(cleanup);
+            }
+            if (failure instanceof Error fatal) throw fatal;
             throw new IllegalStateException("PRIVATE_STORAGE_INITIALIZATION_FAILED", failure);
         }
     }

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.lifecycle;
 
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.mergeFailure;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
@@ -45,6 +47,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
+
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.addSuppressedSafely;
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.isFatal;
 
 /**
  * 外置插件运行期热启停 / quiesce 生命周期服务：把单个外置插件的 {@code load} / {@code start} / {@code quiesce} /
@@ -1132,69 +1137,8 @@ public class PluginLifecycleService {
         String pluginId = record.pluginId;
         // serving 句柄仍 current 时不破坏 controller/capability/plugin/context，保留完整 QUIESCED 足迹供重试。
         withdrawWebContribution(record, "unregistering");
-        Throwable fatal = null;
         List<String> pending = new ArrayList<>();
-        if (record.capabilityPreparation != null) {
-            try {
-                discardCapabilityPreparation(record);
-            } catch (Throwable failure) {
-                fatal = mergeFatal(fatal, failure);
-                pending.add("capability-preparation=" + failure.getClass().getName());
-            }
-        }
-        if (!record.controllerCleanupComplete) {
-            try {
-                controllerRegistrar.unregisterControllers(pluginId);
-                record.controllerCleanupComplete = true;
-            } catch (Throwable failure) {
-                fatal = mergeFatal(fatal, failure);
-                pending.add("controller=" + failure.getClass().getName());
-            }
-        }
-        if (!record.capabilityCleanupComplete) {
-            try {
-                capabilityContributionRegistrar.unregisterLegacy(pluginId);
-                record.capabilityCleanupComplete = true;
-            } catch (Throwable failure) {
-                fatal = mergeFatal(fatal, failure);
-                pending.add("capability=" + failure.getClass().getName());
-            }
-        }
-        if (!record.capabilityRetirementComplete && record.drains.capabilityDrain() != null) {
-            try {
-                ExternalCapabilityDrain drain = Objects.requireNonNull(
-                        record.drains.capabilityDrain(), "missing external capability drain");
-                capabilityContributionRegistrar.retireDrained(drain);
-                afterCapabilityRetireReturnProbe.run();
-                record.capabilityRetirementComplete = true;
-            } catch (Throwable failure) {
-                fatal = mergeFatal(fatal, failure);
-                pending.add("capability-retirement=" + failure.getClass().getName());
-            }
-        }
-        if (!record.capabilityRetirementAcknowledged && record.drains.capabilityDrain() != null) {
-            try {
-                ExternalCapabilityDrain drain = Objects.requireNonNull(
-                        record.drains.capabilityDrain(), "missing acknowledged external capability drain");
-                capabilityContributionRegistrar.acknowledgeRetired(drain);
-                afterCapabilityAcknowledgeReturnProbe.run();
-                record.capabilityRetirementAcknowledged = true;
-                afterCapabilityAcknowledgeFlagProbe.run();
-            } catch (Throwable failure) {
-                fatal = mergeFatal(fatal, failure);
-                pending.add("capability-acknowledgement=" + failure.getClass().getName());
-            }
-        }
-        if (!record.scheduleRetirementAcknowledged && record.drains.scheduleDrain() != null) {
-            try {
-                scheduleContributionRegistrar.acknowledgeRetired(
-                        scheduleMutationAuthority, record.drains.scheduleDrain());
-                record.scheduleRetirementAcknowledged = true;
-            } catch (Throwable failure) {
-                fatal = mergeFatal(fatal, failure);
-                pending.add("schedule-acknowledgement=" + failure.getClass().getName());
-            }
-        }
+        Throwable fatal = cleanUpServingResources(record, pending);
         if (fatal != null) {
             rethrowFatal(fatal);
         }
@@ -1217,16 +1161,38 @@ public class PluginLifecycleService {
      * 若 serving 撤回失败且原句柄仍是 current，先保留已启动的插件与 context 并落 {@link PluginRuntimePhase#QUIESCED}，
      * 再向上抛出以阻断 unload；故障解除后可通过 stop 精确重试。其余各步隔离、异常只记日志。
      */
-    private void rollBackBringUp(ManagedPlugin record, boolean capabilitiesRegistered,
-                                 boolean pluginStarted) {
+    private void rollBackBringUp(ManagedPlugin record, boolean pluginStarted) {
         try {
             cleanUpFailedBringUp(record);
         } catch (PluginLifecycleException failure) {
             lifecycleState.set(record.pluginId, PluginRuntimePhase.QUIESCED);
             throw failure;
         }
-        Throwable fatal = null;
         List<String> pending = new ArrayList<>();
+        Throwable fatal = cleanUpServingResources(record, pending);
+        if (fatal != null) {
+            lifecycleState.set(record.pluginId, PluginRuntimePhase.QUIESCED);
+            rethrowFatal(fatal);
+        }
+        if (!pending.isEmpty()) {
+            lifecycleState.set(record.pluginId, PluginRuntimePhase.QUIESCED);
+            throw new PluginLifecycleException("bring-up cleanup remains pending for plugin '"
+                    + record.pluginId + "': " + pending);
+        }
+        if (pluginStarted && record.registered != null) {
+            pluginRegistry.stopFeature(record.registered);
+        }
+        try {
+            closeQuietly(record);
+            resetQuiesceState(record);
+        } catch (Throwable failure) {
+            lifecycleState.set(record.pluginId, PluginRuntimePhase.QUIESCED);
+            throw failure;
+        }
+    }
+
+    private Throwable cleanUpServingResources(ManagedPlugin record, List<String> pending) {
+        Throwable fatal = null;
         if (record.capabilityPreparation != null) {
             try {
                 discardCapabilityPreparation(record);
@@ -1288,25 +1254,7 @@ public class PluginLifecycleService {
                 pending.add("schedule-acknowledgement=" + failure.getClass().getName());
             }
         }
-        if (fatal != null) {
-            lifecycleState.set(record.pluginId, PluginRuntimePhase.QUIESCED);
-            rethrowFatal(fatal);
-        }
-        if (!pending.isEmpty()) {
-            lifecycleState.set(record.pluginId, PluginRuntimePhase.QUIESCED);
-            throw new PluginLifecycleException("bring-up cleanup remains pending for plugin '"
-                    + record.pluginId + "': " + pending);
-        }
-        if (pluginStarted && record.registered != null) {
-            pluginRegistry.stopFeature(record.registered);
-        }
-        try {
-            closeQuietly(record);
-            resetQuiesceState(record);
-        } catch (Throwable failure) {
-            lifecycleState.set(record.pluginId, PluginRuntimePhase.QUIESCED);
-            throw failure;
-        }
+        return fatal;
     }
 
     /**
@@ -1442,7 +1390,7 @@ public class PluginLifecycleService {
                     cleanupFailure);
         }
         try {
-            rollBackBringUp(record, true, pluginStarted);
+            rollBackBringUp(record, pluginStarted);
         } catch (Throwable failure) {
             cleanupFailure = mergeFailure(cleanupFailure, failure);
         }
@@ -1566,10 +1514,6 @@ public class PluginLifecycleService {
         }
     }
 
-    private static boolean isFatal(Throwable failure) {
-        return failure instanceof VirtualMachineError || failure instanceof ThreadDeath;
-    }
-
     private Throwable unregisterAfterFailedRegistration(
             PluginRegistry.RegisteredPlugin registered, Throwable currentFailure) {
         try {
@@ -1609,32 +1553,6 @@ public class PluginLifecycleService {
         }
         addSuppressedSafely(current, failure);
         return current;
-    }
-
-    private static Throwable mergeFailure(Throwable current, Throwable failure) {
-        if (failure == null) {
-            return current;
-        }
-        if (current == null) {
-            return failure;
-        }
-        if (!isFatal(current) && isFatal(failure)) {
-            addSuppressedSafely(failure, current);
-            return failure;
-        }
-        addSuppressedSafely(current, failure);
-        return current;
-    }
-
-    private static void addSuppressedSafely(Throwable target, Throwable suppressed) {
-        if (target == null || suppressed == null || target == suppressed) {
-            return;
-        }
-        try {
-            target.addSuppressed(suppressed);
-        } catch (Throwable ignored) {
-            // 诊断附加失败不得覆盖主异常。
-        }
     }
 
     private List<PluginRegistry.RegisteredPlugin> externalRegisteredPlugins() {

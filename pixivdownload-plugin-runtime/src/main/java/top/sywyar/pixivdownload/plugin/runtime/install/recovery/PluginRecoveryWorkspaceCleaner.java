@@ -1,7 +1,5 @@
 package top.sywyar.pixivdownload.plugin.runtime.install.recovery;
 
-import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport.FailureKind;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -11,8 +9,11 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.stream.Stream;
+
+import static top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestStore.readAttributesIfPresent;
+import static top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator.invalidManifest;
+import static top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator.unsafePath;
 
 /** 清理恢复扫描面之外的非权威隐藏事务工作区。 */
 public final class PluginRecoveryWorkspaceCleaner {
@@ -90,22 +91,5 @@ public final class PluginRecoveryWorkspaceCleaner {
             }
         }
         return workspaces;
-    }
-
-    private static Optional<BasicFileAttributes> readAttributesIfPresent(Path path) throws IOException {
-        try {
-            return Optional.of(Files.readAttributes(
-                    path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS));
-        } catch (java.nio.file.NoSuchFileException e) {
-            return Optional.empty();
-        }
-    }
-
-    private static PluginRecoveryValidationException invalidManifest(String message) {
-        return new PluginRecoveryValidationException(FailureKind.INVALID_MANIFEST, message);
-    }
-
-    private static PluginRecoveryValidationException unsafePath(String message) {
-        return new PluginRecoveryValidationException(FailureKind.UNSAFE_PATH, message);
     }
 }

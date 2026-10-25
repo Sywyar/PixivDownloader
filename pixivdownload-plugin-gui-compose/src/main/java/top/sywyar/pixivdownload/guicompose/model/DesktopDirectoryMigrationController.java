@@ -134,33 +134,28 @@ final class DesktopDirectoryMigrationController {
                                 column(base + ".content", card)
                         ));
                     }
-                    rows.add(row(
-                            "migrate.actions",
-                            button(
-                                    "migrate.apply",
-                                    "migrate.apply",
-                                    "desktop.ui.action.apply",
-                                    !owner.busy(),
-                                    nextActions,
-                                    this::prepare
-                            ),
-                            button(
-                                    "migrate.cancel",
-                                    dismissAction,
-                                    "desktop.ui.action.cancel",
-                                    !owner.busy(),
-                                    nextActions,
-                                    dismiss
-                            )
-                    ));
-                    return new DesktopUiNode.Dock(
+                    return dialogContent(
                             "migrate.layout",
-                            12,
-                            null,
-                            scroll("migrate.scroll", column("migrate.rows", rows)),
-                            null,
-                            null,
-                            null
+                            column("migrate.rows", rows),
+                            row(
+                                    "migrate.actions",
+                                    button(
+                                            "migrate.apply",
+                                            "migrate.apply",
+                                            "desktop.ui.action.apply",
+                                            !owner.busy(),
+                                            nextActions,
+                                            this::prepare
+                                    ),
+                                    button(
+                                            "migrate.cancel",
+                                            dismissAction,
+                                            "desktop.ui.action.cancel",
+                                            !owner.busy(),
+                                            nextActions,
+                                            dismiss
+                                    )
+                            )
                     );
                 },
                 700,
@@ -233,7 +228,7 @@ final class DesktopDirectoryMigrationController {
                 "migrate.confirm",
                 "gui.migrate-dir.title",
                 DesktopUiDocument.DialogStyle.QUESTION,
-                (nextActions, dismissAction, dismiss) -> column(
+                (nextActions, dismissAction, dismiss) -> dialogContent(
                         "migrate.confirm.content",
                         new DesktopUiNode.Text(
                                 "migrate.confirm.message",
@@ -272,7 +267,7 @@ final class DesktopDirectoryMigrationController {
                 "migrate.root-choice",
                 "gui.migrate-dir.title",
                 DesktopUiDocument.DialogStyle.QUESTION,
-                (nextActions, dismissAction, dismiss) -> column(
+                (nextActions, dismissAction, dismiss) -> dialogContent(
                         "migrate.root-choice.content",
                         new DesktopUiNode.Text(
                                 "migrate.root-choice.message",
@@ -373,11 +368,9 @@ final class DesktopDirectoryMigrationController {
                 return;
             }
             try {
-                host.applicationConfig().write(
-                        "download.root-folder",
-                        host.normalizeRootFolder(rootSyncPath)
-                );
-                owner.loadConfiguration();
+                String savedRoot = host.normalizeRootFolder(rootSyncPath);
+                host.applicationConfig().write("download.root-folder", savedRoot);
+                owner.coreConfigValueSaved("download.root-folder", savedRoot);
             } catch (Exception failure) {
                 LOG.warn("Unable to persist migrated download root", failure);
                 owner.showDialog(
@@ -396,7 +389,7 @@ final class DesktopDirectoryMigrationController {
                     "migrate.restart",
                     "gui.migrate-dir.title",
                     DesktopUiDocument.DialogStyle.SUCCESS,
-                    (nextActions, dismissAction, dismiss) -> column(
+                    (nextActions, dismissAction, dismiss) -> dialogContent(
                             "migrate.restart.content",
                             new DesktopUiNode.Text(
                                     "migrate.restart.message",
@@ -534,30 +527,33 @@ final class DesktopDirectoryMigrationController {
                             form("symbolic-orphan.path", suggestedPath),
                             true
                     ));
-                    nodes.add(row(
-                            "symbolic-orphan.actions",
-                            button(
-                                    "symbolic-orphan.repair",
-                                    "symbolic-orphan.repair",
-                                    "desktop.ui.action.confirm",
-                                    true,
-                                    nextActions,
-                                    this::repairSymbolicOrphan
-                            ),
-                            button(
-                                    "symbolic-orphan.cancel",
-                                    "symbolic-orphan.cancel",
-                                    "desktop.ui.action.cancel",
-                                    true,
-                                    nextActions,
-                                    this::confirmSymbolicOrphanCancel
+                    return dialogContent(
+                            "symbolic-orphan.content",
+                            column("symbolic-orphan.fields", nodes),
+                            row(
+                                    "symbolic-orphan.actions",
+                                    button(
+                                            "symbolic-orphan.repair",
+                                            "symbolic-orphan.repair",
+                                            "desktop.ui.action.confirm",
+                                            true,
+                                            nextActions,
+                                            this::repairSymbolicOrphan
+                                    ),
+                                    button(
+                                            "symbolic-orphan.cancel",
+                                            "symbolic-orphan.cancel",
+                                            "desktop.ui.action.cancel",
+                                            true,
+                                            nextActions,
+                                            this::confirmSymbolicOrphanCancel
+                                    )
                             )
-                    ));
-                    return column("symbolic-orphan.content", nodes);
+                    );
                 },
                 false,
                 620,
-                0
+                420
         );
     }
 
@@ -567,7 +563,7 @@ final class DesktopDirectoryMigrationController {
                 "symbolic-orphan.cancel",
                 "gui.startup.symbolic-orphan.title",
                 DesktopUiDocument.DialogStyle.WARNING,
-                (nextActions, dismissAction, dismiss) -> column(
+                (nextActions, dismissAction, dismiss) -> dialogContent(
                         "symbolic-orphan.cancel.content",
                         text(
                                 "symbolic-orphan.cancel.message",

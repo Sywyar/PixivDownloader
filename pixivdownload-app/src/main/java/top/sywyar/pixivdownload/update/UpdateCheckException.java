@@ -9,6 +9,9 @@ import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.net.http.HttpTimeoutException;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
 import javax.net.ssl.SSLException;
 
 /** 更新检查的受控失败原因；异常详情仅供日志，界面使用原因码与 HTTP 状态。 */
@@ -39,7 +42,8 @@ final class UpdateCheckException extends IOException {
 
     static UpdateCheckException classify(Throwable failure, boolean signature) {
         if (failure instanceof UpdateCheckException known) return known;
-        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+        Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Throwable cause = failure; cause != null && visited.add(cause); cause = cause.getCause()) {
             Reason reason = cause instanceof HttpTimeoutException || cause instanceof SocketTimeoutException ? Reason.TIMEOUT
                     : cause instanceof UnknownHostException ? Reason.DNS_FAILED
                     : cause instanceof SSLException ? Reason.TLS_FAILED

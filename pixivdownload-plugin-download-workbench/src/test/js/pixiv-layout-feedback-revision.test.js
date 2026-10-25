@@ -2,78 +2,26 @@
 
 /** revision 单调性、并发命令与超时隔离。 */
 const {
-    CONFIG_SOURCE,
-    CONFIG_SOURCE_PATH,
-    CONFIG_WINDOW,
-    CSS,
-    CSS_PATH,
-    EMBED_SOURCE,
-    EMBED_SOURCE_PATH,
     LAYOUT_IDS,
-    MiniClassList,
-    MiniCustomEvent,
-    MiniElement,
-    MiniEventTarget,
-    MiniStorage,
-    POSTHOG_SOURCE,
-    POSTHOG_SOURCE_PATH,
     SEEN_KEY,
-    SERVER_RAW_UUID,
-    SERVER_SCOPED_ID,
     SNOOZE_MS,
-    SOURCE,
-    SOURCES,
-    SOURCE_NAMES,
-    SOURCE_PATHS,
     STATE_KEY,
-    SUBMISSION_ID,
-    SUGGESTION_MAX,
-    SURVEY_ID,
-    ackEvents,
-    assert,
-    assertFailClosedInvariants,
-    captureEvents,
-    captureProps,
-    createFakeAdapter,
-    createFakeI18n,
-    createFakeTimers,
-    createHarness,
     crossTabFallbackMatrix,
-    crossTabState,
-    dataAttributeName,
-    defaultSurvey,
     directRefresh,
-    doesNotThrow,
     eq,
-    fs,
-    hasLoneSurrogates,
     initHarness,
-    jsonEq,
-    listenerCountFor,
     localStateValue,
-    matchSelector,
-    neverView,
     ok,
-    openAndPrepareSubmit,
-    path,
-    refreshSecond,
     refreshWith,
-    reinitOptions,
     runTests,
     seenObject,
-    seenSeed,
     selectChoice,
     serverStateResponse,
     snoozeStorageValue,
     snoozedView,
-    submitWithCaptureOverride,
-    submittedView,
     surveyState,
-    validFirst,
-    vm,
     waitForFlush,
-    waitForServerContext,
-    walkAll
+    waitForServerContext
 } = require('./pixiv-layout-feedback-test-support');
 
 function testSnapshotRevisionMonotonic() {
@@ -153,7 +101,7 @@ function testSnapshotSameRevisionPersistentContent() {
             })
         });
         return waitForServerContext(h2).then(() => {
-            const warnsBefore = h2.consoleWarn.length;
+            warnsBefore = h2.consoleWarn.length;
             h2.setServerState(serverStateResponse({
                 revision: 2,
                 status: 'submitted',
@@ -320,7 +268,6 @@ function testOutOfOrderCommandResponses() {
     // D. record_seen 的 revision 1 响应延迟；submitted 命令先以 revision 2 成功；
     // 最后 record_seen 的 revision 1 响应到达：低 revision 无副作用。
     let releaseRecordSeen = null;
-    let submittedCount = 0;
     const h = initHarness({
         batchLayout: 'landscape',
         serverState: serverStateResponse({seenLayouts: []}),
@@ -340,7 +287,6 @@ function testOutOfOrderCommandResponses() {
                 });
             }
             if (body.command === 'submitted') {
-                submittedCount++;
                 return {
                     ok: true,
                     json: () => Promise.resolve(serverStateResponse({
@@ -426,7 +372,6 @@ function testCrossTabSeenFallback() {
         eq('pendingLocalSeen 合并两个布局', h.api._internals.distinctSeenCount(effective), 2);
         const stored = JSON.parse(h.storage.getItem(SEEN_KEY));
         eq('localStorage 不被清空（保留两个布局）', h.api._internals.distinctSeenCount(stored), 2);
-        ok('seenCount 达到 2', h.api._internals.distinctSeenCount(effective) >= 2);
     });
 }
 
@@ -554,7 +499,6 @@ function testConcurrentCommandOperations() {
         gates[2]();
         return waitForFlush();
     }).then(() => {
-        eq('B 最终正常完成', h.api._internals.serverCommandOperations.size, 0);
         eq('Set 最终为空', h.api._internals.serverCommandOperations.size, 0);
     });
 }
@@ -606,6 +550,9 @@ function testDestroyCancelsInFlightCommands() {
     }).then(() => {
         eq('destroy 后无残留 operation', h.api._internals.serverCommandOperations.size, 0);
         eq('destroy 后无残留定时器', h.timers.pending().length, 0);
+        const commands = h.fetchCalls.filter(call => call.init && call.init.method === 'POST');
+        eq('已结束命令不取消', commands[0].init.signal.aborted, false);
+        ok('剩余命令已取消', commands.slice(1).every(call => call.init.signal.aborted));
         // 迟到响应：B/C 的 gate 现在才解析
         gates[1]();
         gates[2]();
@@ -614,6 +561,7 @@ function testDestroyCancelsInFlightCommands() {
         eq('迟到响应不修改 localStorage', h.storage.getItem(STATE_KEY), storedBefore);
         eq('迟到响应不修改 seen 缓存', h.storage.getItem(SEEN_KEY), seenBefore);
         eq('destroy 后无弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('迟到响应不显示 Toast', h.toastCalls.length, 0);
         eq('无残留定时器', h.timers.pending().length, 0);
     });
 }
@@ -668,7 +616,6 @@ function testGetReconciliationTimeoutSeparation() {
         // 手动 open 的弹窗在 reconciliation 完成后正常打开（skipStateGate 不受
         // 服务端 submitted 门禁影响；触发式门禁由其它测试覆盖）。
         eq('手动 open 流程正常完成', h.document.querySelectorAll('.plf-backdrop').length, 1);
-        eq('不会叠加第二个弹窗', h.document.querySelectorAll('.plf-backdrop').length, 1);
     });
 }
 
@@ -684,7 +631,7 @@ function testReconciliationCommandTimeoutBounded() {
         serverState: serverStateResponse({seenLayouts: []}),
         serverPostResponse: () => new Promise(() => {})
     });
-    const promise = h.api.open().then(v => { settled = true; return v; });
+    h.api.open().then(() => { settled = true; });
     return waitForFlush().then(() => {
         h.timers.advance(4000);
         return waitForFlush();
@@ -694,7 +641,6 @@ function testReconciliationCommandTimeoutBounded() {
         eq('门禁使用 effectiveState', h.api._internals.effectiveState().status, 'never');
         // 手动 open 的弹窗（skipStateGate）正常打开。
         eq('手动 open 流程正常完成', h.document.querySelectorAll('.plf-backdrop').length, 1);
-        eq('不叠加第二个弹窗', h.document.querySelectorAll('.plf-backdrop').length, 1);
         // 弹窗焦点定时器（0ms）等一次性定时器已执行，无残留。
         h.timers.advance(0);
         return waitForFlush();

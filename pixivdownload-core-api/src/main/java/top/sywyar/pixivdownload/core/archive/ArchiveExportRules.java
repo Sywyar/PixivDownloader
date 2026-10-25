@@ -69,7 +69,7 @@ public final class ArchiveExportRules {
      */
     public static List<Long> applyExclusions(Collection<Long> ids, Collection<Long> excludeIds) {
         List<Long> normalized = normalizeIds(ids);
-        Set<Long> exclusions = new LinkedHashSet<>(normalizeIds(excludeIds));
+        Set<Long> exclusions = normalizeIdSet(excludeIds);
         if (exclusions.isEmpty()) {
             return normalized;
         }
@@ -166,7 +166,7 @@ public final class ArchiveExportRules {
         while (clean.endsWith(".")) {
             clean = clean.substring(0, clean.length() - 1).trim();
         }
-        if (!hasText(clean) || ".".equals(clean) || "..".equals(clean)) {
+        if (!hasText(clean)) {
             clean = fallback;
         }
         if (clean.length() > 120) {

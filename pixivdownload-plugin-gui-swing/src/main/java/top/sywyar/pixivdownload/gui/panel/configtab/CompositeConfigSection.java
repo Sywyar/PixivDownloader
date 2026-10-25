@@ -51,8 +51,7 @@ final class CompositeConfigSection implements ConfigSection {
                     new ConsumingConfigSectionContext(ctx, renderedKeys);
             ConfigSection section = block.createSection(blockCtx);
             builtSections.add(section);
-            JComponent blockComponent = unwrapSectionContent(section.build());
-            removeTrailingVerticalGlue(blockComponent);
+            JComponent blockComponent = ConfigSection.embeddedContent(section.build());
             blockComponent.setAlignmentX(Component.LEFT_ALIGNMENT);
             content.add(blockComponent);
             content.add(Box.createVerticalStrut(2));
@@ -90,32 +89,6 @@ final class CompositeConfigSection implements ConfigSection {
             }
         }
         return changed;
-    }
-
-    List<ConfigSectionBlock> blocks() {
-        return blocks;
-    }
-
-    private static JComponent unwrapSectionContent(JComponent component) {
-        if (component instanceof JScrollPane scrollPane
-                && scrollPane.getViewport().getView() instanceof JComponent content) {
-            return content;
-        }
-        return component;
-    }
-
-    private static void removeTrailingVerticalGlue(JComponent component) {
-        if (!(component instanceof JPanel panel)) {
-            return;
-        }
-        while (panel.getComponentCount() > 0) {
-            Component last = panel.getComponent(panel.getComponentCount() - 1);
-            if (!(last instanceof Box.Filler filler)
-                    || filler.getMaximumSize().height < Short.MAX_VALUE) {
-                return;
-            }
-            panel.remove(panel.getComponentCount() - 1);
-        }
     }
 
     private static final class ConsumingConfigSectionContext implements ConfigSectionContext {

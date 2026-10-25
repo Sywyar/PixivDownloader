@@ -118,7 +118,7 @@
     "modal.summary.all": "All",
     "modal.summary.authors": "Authors: {value}",
     "modal.summary.count": "{count}",
-    "modal.summary.hint": "(OR semantics: visible if any tag matches OR the author matches)",
+    "modal.summary.hint": "(Disallowed tags or authors exclude a work first; remaining works must meet either the tag or author condition.)",
     "modal.summary.tags": "Tags: {value}",
     "nav.description": "Share artwork through invitations and manage guest access.",
     "nav.invite-guest": "Invite a guest",

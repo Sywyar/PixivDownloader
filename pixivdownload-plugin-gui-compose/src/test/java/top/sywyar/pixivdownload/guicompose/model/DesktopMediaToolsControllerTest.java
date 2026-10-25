@@ -166,11 +166,6 @@ class DesktopMediaToolsControllerTest {
             }
         });
     }
-    private static void change(ComposeDesktopUiModel model, String id, DesktopUiNode.Value value) {
-        synchronized (model) {
-            model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE, id, value));
-        }
-    }
     private static DesktopUiNode node(ComposeDesktopUiModel model, String id) {
         return nodes(model).filter(value -> value.id().equals(id)).findFirst().orElseThrow();
     }

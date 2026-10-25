@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
@@ -22,9 +25,7 @@ import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.novel.translation.NovelTranslationService;
 import top.sywyar.pixivdownload.novelgallery.NovelGalleryService;
 import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
-import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
-import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 
@@ -33,6 +34,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -44,7 +46,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-@DisplayName("NovelDownloadController#downloadMergedSeries 单元测试")
+@DisplayName("小说系列合订与附件下载")
 class NovelDownloadControllerMergeDownloadTest {
 
     @Mock private NovelDownloadService novelDownloadService;
@@ -55,7 +57,6 @@ class NovelDownloadControllerMergeDownloadTest {
     @Mock private NovelTranslationService novelTranslationService;
     @Mock private ApplicationModeProvider applicationModeProvider;
     @Mock private RequestOwnerIdentityResolver requestOwnerIdentityResolver;
-    @Mock private WorkVisibilityService workVisibilityService;
     @Mock private VisitorDownloadQuotaService visitorDownloadQuotaService;
     @Mock private MultiModeSettings multiModeSettings;
     @Mock private MessageResolver messages;
@@ -70,7 +71,6 @@ class NovelDownloadControllerMergeDownloadTest {
                 novelTranslationService,
                 applicationModeProvider,
                 requestOwnerIdentityResolver,
-                workVisibilityService,
                 visitorDownloadQuotaService,
                 multiModeSettings,
                 new ObjectMapper(),
@@ -80,37 +80,56 @@ class NovelDownloadControllerMergeDownloadTest {
                 new NovelBrowserFetchTicketStore());
     }
 
-    @Test
-    @DisplayName("lang 为空时按原文基准合订并以 EPUB MIME + RFC 5987 attachment 头流式回传文件字节")
-    void streamsOriginalEpubAsAttachment() throws Exception {
-        Path tmp = Files.createTempFile("novel-series-merged-", ".epub");
+    @ParameterizedTest
+    @MethodSource("mergeFormats")
+    @DisplayName("合订与附件下载采用相同格式语义，保留 Unicode 文件名、MIME 和文件字节")
+    void returnsOriginalAsAttachment(String format, NovelDownloadService.NovelFormat expected, String mime)
+            throws Exception {
+        Path tmp = Files.createTempFile("章节 合订", "." + expected.ext());
         byte[] payload = "EPUB-bytes".getBytes(StandardCharsets.UTF_8);
         Files.write(tmp, payload);
         try {
-            when(novelMergeService.merge(eq(42L), eq(NovelDownloadService.NovelFormat.EPUB)))
+            when(novelMergeService.merge(eq(42L), eq(expected)))
                     .thenReturn(new NovelMergeService.MergeResult(true, "ok", tmp.toString(), 3));
 
             ResponseEntity<byte[]> resp = controller().downloadMergedSeries(
-                    42L, null, null, WorkVisibilityScope.unrestricted());
+                    42L, format, null, WorkVisibilityScope.unrestricted());
 
             assertThat(resp.getStatusCode().value()).isEqualTo(200);
             assertThat(resp.getBody()).isEqualTo(payload);
 
             HttpHeaders headers = resp.getHeaders();
-            assertThat(headers.getContentType()).isEqualTo(MediaType.parseMediaType("application/epub+zip"));
+            assertThat(headers.getContentType()).isEqualTo(MediaType.parseMediaType(mime));
             String disposition = headers.getFirst(HttpHeaders.CONTENT_DISPOSITION);
             assertThat(disposition).startsWith("attachment;");
-            assertThat(disposition).contains("filename=\"" + tmp.getFileName() + "\"");
-            assertThat(disposition).contains("filename*=UTF-8''");
+            assertThat(disposition).contains("filename=\"__ __");
+            assertThat(disposition).contains("filename*=UTF-8''%E7%AB%A0%E8%8A%82%20%E5%90%88%E8%AE%A2");
+            assertThat(disposition.chars().allMatch(c -> c >= 0x20 && c <= 0x7e)).isTrue();
+            assertThat(headers.getCacheControl()).isEqualTo("no-store");
 
-            verify(novelMergeService, times(1))
-                    .merge(eq(42L), eq(NovelDownloadService.NovelFormat.EPUB));
+            var merged = controller().mergeSeries(42L, format, " \t ");
+            assertThat(merged.getStatusCode().value()).isEqualTo(200);
+            assertThat(merged.getBody()).isEqualTo(new NovelDownloadController.MergeResponse(
+                    true, "ok", tmp.toString(), 3, expected.ext()));
+
+            verify(novelMergeService, times(2)).merge(eq(42L), eq(expected));
             verify(novelMergeService, never())
-                    .mergeVariant(eq(42L), eq(NovelDownloadService.NovelFormat.EPUB), eq("zh-CN"));
-            verifyNoInteractions(novelDatabase, workVisibilityService);
+                    .mergeVariant(eq(42L), eq(expected), org.mockito.ArgumentMatchers.anyString());
+            verifyNoInteractions(novelDatabase);
         } finally {
             Files.deleteIfExists(tmp);
         }
+    }
+
+    private static Stream<Arguments> mergeFormats() {
+        return Stream.of(
+                Arguments.of(null, NovelDownloadService.NovelFormat.EPUB, "application/epub+zip"),
+                Arguments.of("", NovelDownloadService.NovelFormat.EPUB, "application/epub+zip"),
+                Arguments.of(" \t ", NovelDownloadService.NovelFormat.EPUB, "application/epub+zip"),
+                Arguments.of(" EPUB ", NovelDownloadService.NovelFormat.EPUB, "application/epub+zip"),
+                Arguments.of(" HTML ", NovelDownloadService.NovelFormat.HTML, "text/html; charset=UTF-8"),
+                Arguments.of("txt", NovelDownloadService.NovelFormat.TXT, "text/plain; charset=UTF-8"),
+                Arguments.of("unknown", NovelDownloadService.NovelFormat.TXT, "text/plain; charset=UTF-8"));
     }
 
     @Test
@@ -124,14 +143,16 @@ class NovelDownloadControllerMergeDownloadTest {
                     .thenReturn(new NovelMergeService.MergeResult(true, "ok", tmp.toString(), 1));
 
             ResponseEntity<byte[]> resp = controller().downloadMergedSeries(
-                    7L, "epub", "zh-CN", WorkVisibilityScope.unrestricted());
+                    7L, "epub", " zh-CN ", WorkVisibilityScope.unrestricted());
 
             assertThat(resp.getStatusCode().value()).isEqualTo(200);
-            verify(novelMergeService).mergeVariant(
+            assertThat(controller().mergeSeries(7L, "epub", " zh-CN ").getBody())
+                    .isEqualTo(new NovelDownloadController.MergeResponse(true, "ok", tmp.toString(), 1, "epub"));
+            verify(novelMergeService, times(2)).mergeVariant(
                     eq(7L), eq(NovelDownloadService.NovelFormat.EPUB), eq("zh-CN"));
             verify(novelMergeService, never())
                     .merge(eq(7L), eq(NovelDownloadService.NovelFormat.EPUB));
-            verifyNoInteractions(novelDatabase, workVisibilityService);
+            verifyNoInteractions(novelDatabase);
         } finally {
             Files.deleteIfExists(tmp);
         }

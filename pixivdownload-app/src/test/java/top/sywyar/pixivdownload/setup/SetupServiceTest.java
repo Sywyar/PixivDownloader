@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.mock.web.MockHttpServletRequest;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
@@ -15,6 +17,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -240,6 +243,38 @@ class SetupServiceTest {
 
             assertThat(token).isNotNull().isNotBlank();
             assertThat(setupService.isValidSession(token)).isTrue();
+        }
+
+        @ParameterizedTest
+        @ValueSource(booleans = {false, true})
+        @DisplayName("创建会话清除不再访问的过期短期条目，保留有效会话和持久化边界")
+        @SuppressWarnings("unchecked")
+        void creationReleasesExpiredShortSessions(boolean remember) throws Exception {
+            String activeShort = setupService.createSession(false);
+            String activeLong = setupService.createSession(true);
+            var field = SetupService.class.getDeclaredField("sessions");
+            field.setAccessible(true);
+            Map<String, Long> retained = (Map<String, Long>) field.get(setupService);
+            var activeKeys = new HashSet<>(retained.keySet());
+            for (int i = 0; i < 8; i++) setupService.createSession(false);
+            var expiredKeys = new HashSet<>(retained.keySet());
+            expiredKeys.removeAll(activeKeys);
+            // 仅推进夹具中的到期时间；清理前不查询这些 token，避免触发访问时清理。
+            expiredKeys.forEach(key -> retained.put(key, System.currentTimeMillis() - 1_000));
+            Path configPath = stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON);
+            byte[] before = Files.readAllBytes(configPath);
+
+            String created = setupService.createSession(remember);
+
+            assertThat(retained).hasSize(3).doesNotContainKeys(expiredKeys.toArray(String[]::new));
+            assertThat(setupService.isValidSession(activeShort)).isTrue();
+            assertThat(setupService.isValidSession(activeLong)).isTrue();
+            assertThat(setupService.isValidSession(created)).isTrue();
+            if (!remember) assertThat(Files.readAllBytes(configPath)).isEqualTo(before);
+            SetupService reloaded = createSetupService();
+            assertThat(reloaded.isValidSession(activeShort)).isFalse();
+            assertThat(reloaded.isValidSession(activeLong)).isTrue();
+            assertThat(reloaded.isValidSession(created)).isEqualTo(remember);
         }
 
         @Test
@@ -471,19 +506,20 @@ class SetupServiceTest {
         }
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(strings = {"{broken", "null"})
     @DisplayName("损坏的安装状态应保持原文件并阻止重新初始化")
-    void shouldFailClosedOnCorruptedConfig() throws IOException {
+    void shouldFailClosedOnCorruptedConfig(String content) throws IOException {
         Path configPath = stateDir.resolve(RuntimeFiles.SETUP_CONFIG_JSON);
         Files.createDirectories(configPath.getParent());
-        Files.writeString(configPath, "{broken", StandardCharsets.UTF_8);
+        Files.writeString(configPath, content, StandardCharsets.UTF_8);
 
         SetupService corrupted = createSetupService();
 
         assertThat(corrupted.isConfigurationCorrupted()).isTrue();
         assertThatThrownBy(() -> corrupted.init("admin", "password1234", "solo"))
                 .isInstanceOf(IllegalStateException.class);
-        assertThat(Files.readString(configPath, StandardCharsets.UTF_8)).isEqualTo("{broken");
+        assertThat(Files.readString(configPath, StandardCharsets.UTF_8)).isEqualTo(content);
     }
 
     @Test

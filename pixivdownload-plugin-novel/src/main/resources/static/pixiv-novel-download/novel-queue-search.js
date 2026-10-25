@@ -2,7 +2,7 @@
 (function () {
 if (!window.PixivBatch || !window.PixivBatch.queueTypes) return;
 window.PixivBatch.queueTypes.registerSubmodule(function (shared) {
-let _novelSearchVue = null;          // { app, vm, state, root, area } 或 null（未挂载）
+let _novelSearchVue = null;          // { app, state, root, area } 或 null（未挂载）
 let _novelSearchLatestModel = null;  // 供在途异步挂载读取的最新模型
 let _novelSearchMounting = false;    // 防止并发触发多次挂载
 let _novelSearchArea = null;
@@ -27,19 +27,19 @@ function renderNovelSearchResults(area, view) {
     // 尚未挂载，或 area 被宿主清空（空结果 / 切到插画搜索）→ 先命令式即时出图（兼作回退与首屏占位），
     // 再异步挂载 Vue 覆盖（运行时已缓存时挂载发生在同帧微任务内、无可见闪烁）。
     applyNovelSearchImperative(area, view);
-    ensureNovelSearchMounted(area);
+    ensureNovelSearchMounted();
 }
 
 // 异步确保 Vue 组件挂到 area 内的专属根节点（与宿主直接写 area.innerHTML 的命令式路径隔离，
 // 便于按 area.contains(root) 探测「被宿主清空」并按需重挂）。挂载失败一律收敛、不打断宿主。
-function ensureNovelSearchMounted(area) {
+function ensureNovelSearchMounted() {
     if (_novelSearchMounting) return;
     _novelSearchMounting = true;
     const generation = _novelSearchGeneration;
     let mountingApp = null;
     window.PixivVue.ensure().then(function (Vue) {
         if (generation !== _novelSearchGeneration || !shared.context || !shared.context.isActive()) return;
-        area = _novelSearchArea;
+        const area = _novelSearchArea;
         if (!area || area.isConnected === false) return;
         // 卸载可能存在的旧 app（area 曾被宿主清空 → 旧挂载已失效，避免悬挂的 vnode 树）。
         if (_novelSearchVue) {
@@ -53,7 +53,7 @@ function ensureNovelSearchMounted(area) {
         const root = document.createElement('div');
         root.className = 'novel-search-vue-root';
         const app = mountingApp = Vue.createApp(buildNovelSearchComponent(state, Vue));
-        const vm = app.mount(root);
+        app.mount(root);
         if (generation !== _novelSearchGeneration || !shared.context || !shared.context.isActive()) {
             try { app.unmount(); } catch (e) { /* best effort */ }
             return;
@@ -61,7 +61,7 @@ function ensureNovelSearchMounted(area) {
         // 挂载成功，才用 Vue 根替换命令式首屏结果，并登记句柄。
         area.innerHTML = '';
         area.appendChild(root);
-        _novelSearchVue = {app: app, vm: vm, state: state, root: root, area: area};
+        _novelSearchVue = {app: app, state: state, root: root, area: area};
     }).catch(function (e) {
         // Vue 运行时不可用 / createApp / mount 抛错 → 命令式首屏结果原样保留（area 未被清空），
         // _novelSearchVue 置空，绝不向宿主 init 抛异常（优雅降级）。
@@ -76,11 +76,7 @@ function ensureNovelSearchMounted(area) {
     });
 }
 
-// 据当前搜索视图构造 reactive 模型：cards 只存原始数据（显示文案模板期派生）；summary 为本次 render 的
-// 瞬时文案数组（与命令式实现同源、同样每次 render 重算）；inQueueIds 为队列 id 集合（驱动 in-queue 高亮）。
-function buildNovelSearchModel(view) {
-    view = view || getSearchView();
-    const inQueue = new Set(state.queue.map(q => q.id));
+function buildNovelSearchSummary(view) {
     const summary = searchState.submode === 'batch'
         ? [batchSummaryText(view)]
         : [
@@ -91,6 +87,15 @@ function buildNovelSearchModel(view) {
     if (searchState.submode !== 'batch' && hasExtraSearchFilter()) {
         summary.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: searchState.results.length}));
     }
+    return summary;
+}
+
+// 据当前搜索视图构造 reactive 模型：cards 只存原始数据（显示文案模板期派生）；summary 为本次 render 的
+// 瞬时文案数组（与命令式实现同源、同样每次 render 重算）；inQueueIds 为队列 id 集合（驱动 in-queue 高亮）。
+function buildNovelSearchModel(view) {
+    view = view || getSearchView();
+    const inQueue = new Set(state.queue.map(q => q.id));
+    const summary = buildNovelSearchSummary(view);
     const cards = view.items.map((item, i) => ({
         idx: view.base + i,
         id: item.id,
@@ -179,16 +184,7 @@ function buildNovelSearchComponent(reactiveState, Vue) {
 function applyNovelSearchImperative(area, view) {
     view = view || getSearchView();
     const inQueue = new Set(state.queue.map(q => q.id));
-    const summary = searchState.submode === 'batch'
-        ? [batchSummaryText(view)]
-        : [
-            searchStatText('total', searchState.total),
-            bt('search.summary.current-page-index', '当前第 {page} 页', {page: searchState.currentPage}),
-            searchStatText('returned', searchState.pixivPageCount)
-        ];
-    if (searchState.submode !== 'batch' && hasExtraSearchFilter()) {
-        summary.push(bt('search.summary.extra-filtered', '附加筛选后 {count} 个', {count: searchState.results.length}));
-    }
+    const summary = buildNovelSearchSummary(view);
     const cards = view.items.map((item, i) => {
         const idx = view.base + i;
         const xr = Number(item.xRestrict ?? 0);

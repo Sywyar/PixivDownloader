@@ -1,7 +1,5 @@
 package top.sywyar.pixivdownload.plugin.web.registration;
 
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.i18n.WebI18nBundleRegistry;
 import top.sywyar.pixivdownload.plugin.TestDownloadTypeDescriptors;
@@ -11,7 +9,6 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.web.DrilldownContribution;
-import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.LandingContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
@@ -22,7 +19,6 @@ import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.UserscriptContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
-import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestGenerationDrain;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLease;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLeaseRegistry;
 import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner;
@@ -38,34 +34,18 @@ import top.sywyar.pixivdownload.plugin.registry.route.StartupRouteRegistry;
 import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.registry.web.WebUiSlotRegistry;
 import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator;
-import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionHandle;
 import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionRegistrar;
 import top.sywyar.pixivdownload.scripts.ScriptRegistry;
 import top.sywyar.pixivdownload.scripts.UserscriptRegistry;
 
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.clearInvocations;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 /**
  * {@link PluginWebContributionRegistrar} 单测：验证把一个插件的十类 web 贡献
@@ -437,7 +417,6 @@ abstract class PluginWebContributionRegistrarTestSupport {
         @Override public String displayName() { return "download.plugin.name"; }
         @Override public String description() { return "download.plugin.summary"; }
         @Override public PluginKind kind() { return PluginKind.FEATURE; }
-        @Override public List<WebRouteContribution> routes() { return routes; }
 
         @Override
         public List<DownloadTypeDescriptor> downloadTypes() {
@@ -559,30 +538,6 @@ abstract class PluginWebContributionRegistrarTestSupport {
     }
 
     /** 在 getter 阶段暂停，用于证明准备不持有 web/plugin registry 锁。 */
-    protected record BlockingEmptyDownloadWebPlugin(
-            CountDownLatch entered,
-            CountDownLatch release
-    ) implements PixivFeaturePlugin {
-        @Override public String id() { return "empty-download-web"; }
-        @Override public String displayName() { return "empty-download-web.name"; }
-        @Override public String description() { return "empty-download-web.summary"; }
-        @Override public PluginKind kind() { return PluginKind.FEATURE; }
-
-        @Override
-        public List<WebRouteContribution> routes() {
-            entered.countDown();
-            try {
-                if (!release.await(5, TimeUnit.SECONDS)) {
-                    throw new AssertionError("timed out waiting to release plugin getter");
-                }
-            } catch (InterruptedException failure) {
-                Thread.currentThread().interrupt();
-                throw new AssertionError("plugin getter interrupted");
-            }
-            return List.of(WebRouteContribution.admin("/empty-download-web/**"));
-        }
-    }
-
     protected record BlockingRoutePlugin(
             String id,
             CountDownLatch entered,

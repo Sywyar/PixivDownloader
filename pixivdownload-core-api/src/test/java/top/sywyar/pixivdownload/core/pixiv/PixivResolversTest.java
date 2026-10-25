@@ -18,6 +18,7 @@ class PixivResolversTest {
         assertThat(PixivCookieUserResolver.extractUidFromCookie(null)).isNull();
         assertThat(PixivCookieUserResolver.extractUidFromCookie("PHPSESSID=ab12_xyz")).isNull();
         assertThat(PixivCookieUserResolver.extractUidFromCookie("PHPSESSID=12345")).isNull();
+        assertThat(PixivCookieUserResolver.extractUidFromCookie("PHPSESSID=_suffix")).isNull();
     }
 
     @Test
@@ -30,5 +31,8 @@ class PixivResolversTest {
         assertThat(PixivCoverUrlResolver.downloadCandidates(cached)).containsExactly(high, cached);
         assertThat(PixivCoverUrlResolver.downloadCandidates(high)).containsExactly(high);
         assertThat(PixivCoverUrlResolver.downloadCandidates(" ")).isEmpty();
+        assertThat(PixivCoverUrlResolver.downloadCandidates(null)).isEmpty();
+        assertThat(PixivCoverUrlResolver.downloadCandidates("  " + cached + "  ")).containsExactly(high, cached);
+        assertThat(PixivCoverUrlResolver.downloadCandidates(" not a URI ")).containsExactly("not a URI");
     }
 }

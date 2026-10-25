@@ -18,6 +18,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @DisplayName("PushService 派发器单元测试")
 class PushServiceTest {
@@ -27,6 +29,37 @@ class PushServiceTest {
     private static final PushChannelId CHANNEL_A = new PushChannelId("channel-a");
     private static final PushChannelId CHANNEL_B = new PushChannelId("channel-b");
     private static final PushChannelId CHANNEL_C = new PushChannelId("channel-c");
+
+    @Test
+    @DisplayName("冲突保留原通道且旧发布撤回不影响替代实例及注册顺序")
+    void preservesPreparedSnapshotAcrossConflictsAndReplacement() {
+        PushChannelRegistry registry = new PushChannelRegistry(List.of());
+        PushChannel first = mock(PushChannel.class);
+        PushChannel second = mock(PushChannel.class);
+        PushChannel replacement = mock(PushChannel.class);
+        registry.registerPrepared("owner-a", 1L, List.of(
+                new PushChannelRegistry.PreparedChannel(CHANNEL_A, first, "first.Type")));
+        registry.registerPrepared("owner-b", 1L, List.of(
+                new PushChannelRegistry.PreparedChannel(CHANNEL_B, second, "second.Type")));
+        List<PushChannel> before = registry.channels();
+
+        assertThat(catchThrowable(() -> registry.registerPrepared("owner-a", 1L, List.of(
+                new PushChannelRegistry.PreparedChannel(CHANNEL_B, replacement, "replacement.Type")))))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(registry.channels()).containsExactly(first, second);
+        assertThat(registry.byId(CHANNEL_A)).containsSame(first);
+        assertThat(registry.preparedById(CHANNEL_B).orElseThrow().channel()).isSameAs(second);
+
+        registry.unregisterPrepared("owner-a", 1L);
+        registry.registerPrepared("owner-a", 2L, List.of(
+                new PushChannelRegistry.PreparedChannel(CHANNEL_A, replacement, "replacement.Type")));
+        registry.unregisterPrepared("owner-a", 1L);
+        assertThat(registry.channels()).containsExactly(second, replacement);
+        assertThat(registry.byId(new PushChannelId("channel-a"))).containsSame(replacement);
+        assertThat(registry.preparedById(CHANNEL_A).orElseThrow().channel()).isSameAs(replacement);
+        assertThat(before).containsExactly(first, second);
+        verifyNoInteractions(first, second, replacement);
+    }
 
     @Test
     @DisplayName("状态发布失败时推送 owner 与可见快照保持原子一致")

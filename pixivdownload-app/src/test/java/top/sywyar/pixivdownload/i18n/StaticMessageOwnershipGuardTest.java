@@ -21,6 +21,7 @@ class StaticMessageOwnershipGuardTest {
             "(?:message|MessageBundles\\.get)\\(\\s*\"([^\"]+)\"");
     private static final List<String> SOURCES = List.of(
             "src/main/java/top/sywyar/pixivdownload/gui/GuiLauncher.java",
+            "src/main/java/top/sywyar/pixivdownload/gui/StartupSchemaBackfill.java",
             "src/main/java/top/sywyar/pixivdownload/ffmpeg/FfmpegInstaller.java");
 
     @Test
@@ -46,12 +47,11 @@ class StaticMessageOwnershipGuardTest {
         Locale previous = Locale.getDefault();
         try {
             Locale.setDefault(Locale.SIMPLIFIED_CHINESE);
-            assertThat(MessageBundles.getForLog("gui.launcher.log.starting", "[]"))
-                    .isEqualTo(MessageBundles.get(Locale.US, "gui.launcher.log.starting", "[]"))
+            assertThat(MessageBundles.getForLog("gui.launcher.log.starting"))
+                    .isEqualTo(MessageBundles.get(Locale.US, "gui.launcher.log.starting"))
                     .isNotEqualTo(MessageBundles.get(
                             Locale.SIMPLIFIED_CHINESE,
-                            "gui.launcher.log.starting",
-                            "[]"
+                            "gui.launcher.log.starting"
                     ));
         } finally {
             Locale.setDefault(previous);

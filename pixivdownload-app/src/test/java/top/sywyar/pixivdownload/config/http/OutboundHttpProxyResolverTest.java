@@ -85,7 +85,7 @@ class OutboundHttpProxyResolverTest {
 
     @Test
     @DisplayName("required global 路由无有效端点时 fail-closed，scoped direct 仍优先")
-    void requiredGlobalRouteFailsClosedWithoutEndpoint() {
+    void requiredGlobalRouteFailsClosedWithoutEndpoint() throws Exception {
         proxyConfig.setHost(" ");
         proxyConfig.setPort(0);
 
@@ -95,7 +95,7 @@ class OutboundHttpProxyResolverTest {
                 .hasMessageContaining("required");
 
         OutboundProxyOverride.setDirect();
-        assertThatCodeDoesNotThrowAndReturnsDirect();
+        assertThat(resolver.resolve(OutboundHttpRoute.requiredGlobalProxy())).isNull();
     }
 
     @Test
@@ -133,14 +133,6 @@ class OutboundHttpProxyResolverTest {
                         OutboundHttpProxyResolver.OutboundProxyResolutionException.class)
                 .hasMessageContaining("resolution failed")
                 .hasCause(providerFailure);
-    }
-
-    private void assertThatCodeDoesNotThrowAndReturnsDirect() {
-        try {
-            assertThat(resolver.resolve(OutboundHttpRoute.requiredGlobalProxy())).isNull();
-        } catch (OutboundHttpProxyResolver.OutboundProxyResolutionException e) {
-            throw new AssertionError(e);
-        }
     }
 
     private static void assertProxy(OutboundProxyEndpoint proxy, String host, int port) {

@@ -41,7 +41,7 @@ final class FlatLafSetup {
 
     private static volatile ThemePreference currentPreference = ThemePreference.SYSTEM;
     private static volatile boolean currentDark;
-    private static Timer systemFallbackWatcher;
+    private static volatile Timer systemFallbackWatcher;
     private static SystemThemeChangeMonitor systemThemeChangeMonitor;
     private static final AtomicBoolean systemProbeInFlight = new AtomicBoolean(false);
     private static final List<GuiThemeChangeListener> changeListeners = new ArrayList<>();
@@ -60,15 +60,29 @@ final class FlatLafSetup {
         notifyChange(appearanceFor(dark));
     }
 
-    static GuiThemeListenerSession openListener(ThemePreference preference, GuiThemeChangeListener listener) {
+    static GuiThemeListenerSession openListener(GuiThemeChangeListener listener) {
         if (listener == null) {
             return GuiThemeListenerSession.none();
         }
         synchronized (changeListeners) {
             changeListeners.add(listener);
         }
-        listener.appearanceChanged(appearanceFor(currentDark));
-        return new ListenerSession(listener);
+        ListenerSession session = new ListenerSession(listener);
+        try {
+            updateSystemWatcher();
+            listener.appearanceChanged(appearanceFor(currentDark));
+            return session;
+        } catch (RuntimeException | Error failure) {
+            session.close();
+            throw failure;
+        }
+    }
+
+    static void close() {
+        stopSystemWatcher();
+        synchronized (changeListeners) {
+            changeListeners.clear();
+        }
     }
 
     private static boolean resolveDarkFor(ThemePreference preference) {
@@ -212,39 +226,41 @@ final class FlatLafSetup {
     }
 
     private static void updateSystemWatcher() {
-        if (currentPreference == ThemePreference.SYSTEM) {
-            startSystemWatcher();
-        } else {
-            stopSystemWatcher();
+        synchronized (changeListeners) {
+            if (currentPreference == ThemePreference.SYSTEM && !changeListeners.isEmpty()) {
+                startSystemWatcher();
+            } else {
+                stopSystemWatcher();
+            }
         }
     }
 
     private static void startSystemWatcher() {
-        if (systemThemeChangeMonitor == null) {
-            systemThemeChangeMonitor = new SystemThemeChangeMonitor(FlatLafSetup::requestSystemThemeRefresh);
-        }
-        systemThemeChangeMonitor.start();
-
         if (systemFallbackWatcher == null) {
             systemFallbackWatcher = new Timer(SYSTEM_POLL_INTERVAL_MS, e -> requestSystemThemeRefresh());
             systemFallbackWatcher.setInitialDelay(SYSTEM_POLL_INTERVAL_MS);
             systemFallbackWatcher.start();
-        } else if (!systemFallbackWatcher.isRunning()) {
-            systemFallbackWatcher.start();
         }
+        if (systemThemeChangeMonitor == null) {
+            systemThemeChangeMonitor = new SystemThemeChangeMonitor(FlatLafSetup::requestSystemThemeRefresh);
+        }
+        systemThemeChangeMonitor.start();
     }
 
     private static void stopSystemWatcher() {
+        Timer watcher = systemFallbackWatcher;
+        systemFallbackWatcher = null;
+        if (watcher != null) {
+            watcher.stop();
+        }
         if (systemThemeChangeMonitor != null) {
             systemThemeChangeMonitor.stop();
-        }
-        if (systemFallbackWatcher != null && systemFallbackWatcher.isRunning()) {
-            systemFallbackWatcher.stop();
         }
     }
 
     private static void requestSystemThemeRefresh() {
-        if (currentPreference != ThemePreference.SYSTEM) {
+        Timer watcher = systemFallbackWatcher;
+        if (watcher == null || currentPreference != ThemePreference.SYSTEM) {
             return;
         }
         if (!systemProbeInFlight.compareAndSet(false, true)) {
@@ -254,7 +270,8 @@ final class FlatLafSetup {
             try {
                 boolean dark = SystemThemeDetector.isSystemDark();
                 SwingUtilities.invokeLater(() -> {
-                    if (currentPreference == ThemePreference.SYSTEM && dark != currentDark) {
+                    if (systemFallbackWatcher == watcher
+                            && currentPreference == ThemePreference.SYSTEM && dark != currentDark) {
                         applyDarkInternal(dark);
                     }
                 });
@@ -316,6 +333,7 @@ final class FlatLafSetup {
             synchronized (changeListeners) {
                 changeListeners.remove(listener);
             }
+            updateSystemWatcher();
         }
     }
 }

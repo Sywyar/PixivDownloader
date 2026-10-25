@@ -15,6 +15,7 @@ import java.util.Base64;
 import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
  * 插件 artifact 与 catalog manifest 共用的宿主 owned 验签门面。
@@ -58,8 +59,8 @@ public final class PluginSupplyChainVerifier {
         if (!hasText(request.pluginId()) || !hasText(request.version())) {
             return fail(VerificationStatus.IDENTITY_MISMATCH, request, null, size, sha256Hex, "IDENTITY_MISSING");
         }
-        return verifySignedEnvelope(request.signature(), policy, request.pluginId(), request.version(), size, sha256Bytes,
-                sha256Hex, key -> EnvelopeV1Codec.artifactMessage(
+        return verifySignedEnvelope(request.signature(), policy, request.pluginId(), request.version(), size,
+                sha256Hex, () -> EnvelopeV1Codec.artifactMessage(
                         request.signature().algorithm(),
                         request.signature().keyId(),
                         request.pluginId(),
@@ -82,8 +83,8 @@ public final class PluginSupplyChainVerifier {
             return fail(VerificationStatus.IDENTITY_MISMATCH, null, null, bytes.length, sha256Hex,
                     "REPOSITORY_ID_MISSING");
         }
-        return verifySignedEnvelope(request.signature(), policy, null, null, bytes.length, sha256Bytes, sha256Hex,
-                key -> EnvelopeV1Codec.manifestMessage(request.repositoryId(), bytes.length, sha256Bytes),
+        return verifySignedEnvelope(request.signature(), policy, null, null, bytes.length, sha256Hex,
+                () -> EnvelopeV1Codec.manifestMessage(request.repositoryId(), bytes.length, sha256Bytes),
                 null);
     }
 
@@ -129,7 +130,7 @@ public final class PluginSupplyChainVerifier {
                     size != request.expectedSizeBytes() ? "SIZE_MISMATCH" : "SHA256_MISMATCH");
         }
         return verifyCommunityEnvelope(request.signature(), request.retiredKeysAllowed(), request.pluginId(),
-                request.version(), size, hash, key -> EnvelopeV1Codec.communityPackageMessage(
+                request.version(), size, hash, () -> EnvelopeV1Codec.communityPackageMessage(
                         request.signature().algorithm(), request.signature().keyId(), request.repositoryId(),
                         request.pluginId(), request.version(), size, hash, request.assuranceLevel(),
                         request.sourceCommit(), HexFormat.of().parseHex(request.reviewRecordSha256())), artifact);
@@ -146,7 +147,7 @@ public final class PluginSupplyChainVerifier {
                     Hashing.hex(hash), "DOCUMENT_IDENTITY_INVALID");
         }
         return verifyCommunityEnvelope(request.signature(), request.retiredKeysAllowed(), null, null,
-                bytes.length, hash, key -> EnvelopeV1Codec.communityDirectoryMessage(
+                bytes.length, hash, () -> EnvelopeV1Codec.communityDirectoryMessage(
                         request.repositoryId(), request.sequence(), bytes.length, hash), null);
     }
 
@@ -166,12 +167,12 @@ public final class PluginSupplyChainVerifier {
                     "REQUEST_ID_MISMATCH");
         }
         return verifyCommunityEnvelope(request.signature(), request.retiredKeysAllowed(), null, null,
-                bytes.length, hash, key -> EnvelopeV1Codec.communityOperationMessage(request.operation(),
+                bytes.length, hash, () -> EnvelopeV1Codec.communityOperationMessage(request.operation(),
                         request.signature().algorithm(), request.signature().keyId(), bytes.length, hash), null);
     }
 
     private VerificationResult verifyCommunityEnvelope(SignatureMetadata metadata, boolean allowRetired,
-            String pluginId, String version, long size, byte[] hash, MessageFactory message,
+            String pluginId, String version, long size, byte[] hash, Supplier<byte[]> message,
             ArtifactVerificationRequest artifact) {
         String hex = Hashing.hex(hash);
         if (metadata != null) {
@@ -205,7 +206,7 @@ public final class PluginSupplyChainVerifier {
             }
         }
         return verifySignedEnvelope(metadata, new VerificationPolicy(true, false, false, allowRetired, "community"),
-                pluginId, version, size, hash, hex, message, artifact);
+                pluginId, version, size, hex, message, artifact);
     }
 
     private static boolean lowercaseSha256(String value) {
@@ -225,8 +226,8 @@ public final class PluginSupplyChainVerifier {
             return fail(VerificationStatus.IDENTITY_MISMATCH, null, signature, bytes.length, sha256Hex,
                     "DOCUMENT_IDENTITY_INVALID");
         }
-        return verifySignedEnvelope(signature, effectivePolicy, null, null, bytes.length, sha256Bytes, sha256Hex,
-                key -> repositoryUpdate
+        return verifySignedEnvelope(signature, effectivePolicy, null, null, bytes.length, sha256Hex,
+                () -> repositoryUpdate
                         ? EnvelopeV1Codec.repositoryUpdateMessage(repositoryId, sequence, bytes.length, sha256Bytes)
                         : EnvelopeV1Codec.pluginRevocationsMessage(repositoryId, sequence, bytes.length, sha256Bytes),
                 null);
@@ -256,9 +257,8 @@ public final class PluginSupplyChainVerifier {
                 to.pluginId(),
                 request.version(),
                 request.artifactSizeBytes(),
-                sha256,
                 request.artifactSha256().toLowerCase(Locale.ROOT),
-                key -> EnvelopeV1Codec.identityMigrationMessage(
+                () -> EnvelopeV1Codec.identityMigrationMessage(
                         signature.algorithm(),
                         signature.keyId(),
                         from.pluginId(),
@@ -286,8 +286,8 @@ public final class PluginSupplyChainVerifier {
     }
 
     private VerificationResult verifySignedEnvelope(SignatureMetadata metadata, VerificationPolicy policy,
-                                                    String pluginId, String version, long size, byte[] sha256Bytes,
-                                                    String sha256Hex, MessageFactory messageFactory,
+                                                    String pluginId, String version, long size,
+                                                    String sha256Hex, Supplier<byte[]> messageFactory,
                                                     ArtifactVerificationRequest artifactRequest) {
         if (metadata == null) {
             VerificationStatus status = policy.unsignedAllowed()
@@ -334,7 +334,7 @@ public final class PluginSupplyChainVerifier {
                     algorithm, key.publisher(), key.trustLabel(), key.publicKeyFingerprint(), Instant.now(), size, sha256Hex,
                     "RETIRED_KEY_NOT_ALLOWED");
         }
-        boolean valid = Ed25519Verifier.verify(key.publicKeySpkiBase64(), messageFactory.message(key), signature);
+        boolean valid = Ed25519Verifier.verify(key.publicKeySpkiBase64(), messageFactory.get(), signature);
         if (!valid) {
             return new VerificationResult(VerificationStatus.INVALID_SIGNATURE, pluginId, version, metadata.keyId(),
                     algorithm, key.publisher(), key.trustLabel(), key.publicKeyFingerprint(), Instant.now(), size, sha256Hex,
@@ -396,8 +396,4 @@ public final class PluginSupplyChainVerifier {
                 diagnosticCode);
     }
 
-    @FunctionalInterface
-    private interface MessageFactory {
-        byte[] message(TrustedPluginKey key);
-    }
 }

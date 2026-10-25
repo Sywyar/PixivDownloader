@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures;
 import top.sywyar.pixivdownload.core.db.PostgresTestDatabase;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings;
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,7 +22,7 @@ import static org.assertj.core.api.Assertions.*;
 class DatabaseSettingsServiceTest {
     @TempDir Path directory;
 
-    private TestDesktopConfigFile file() { return new TestDesktopConfigFile(directory.resolve("config.yaml")); }
+    private DesktopUiHost.ConfigFile file() { return new ConfigFileEditor(directory.resolve("config.yaml")).asConfigFile(); }
 
     private DatabaseSettingsService service(DatabaseTarget active) {
         return new DatabaseSettingsService(file(), () -> DatabaseTarget.configurationEnvironment(

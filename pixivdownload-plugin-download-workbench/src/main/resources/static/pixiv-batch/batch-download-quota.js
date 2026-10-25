@@ -1,9 +1,4 @@
 'use strict';
-    const WINDOWS_RESERVED_FILE_NAMES = new Set([
-        'CON', 'PRN', 'AUX', 'NUL',
-        'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
-        'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
-    ]);
 
     const STATUS_TIMEOUT_MS = 300000;
 
@@ -11,8 +6,6 @@
        配额 & 压缩包
     ============================================================ */
     let quotaInfo = {enabled: false, adminMode: false, artworksUsed: 0, maxArtworks: 50, resetSeconds: 0};
-    let archiveCountdownTimer = null;
-    let archivePollTimer = null;
     let quotaResetTimer = null;
     let quotaExceededHandled = false;
 
@@ -88,8 +81,9 @@
         state.queue.forEach(q => {
             if (['pending', 'idle', 'paused'].includes(q.status)) {
                 q.status = 'failed';
-                q.statusMessageKey = null;
-                q.lastMessage = bt('queue.message.failed-quota', '失败 - 达到限额');
+                q.statusMessageKey = 'batch:queue.message.failed-quota';
+                q.lastMessage = '';
+                q.lastMessageParts = null;
                 q.endTime = q.endTime || new Date().toISOString();
             }
         });
@@ -102,86 +96,41 @@
         setStatus({key: 'status.archive-limit', fallback: '已达到下载限额'}, 'error');
 
         const token = data.archiveToken;
-        const expireSeconds = data.archiveExpireSeconds || 3600;
+        const expireSeconds = data.archiveExpireSeconds ?? 3600;
         showArchiveCard(token, expireSeconds, false);
     }
 
-    function showArchiveCard(token, expireSeconds, ready, title = bt('status.archive-limit', '已达到下载限额')) {
-        clearInterval(archiveCountdownTimer);
-        clearInterval(archivePollTimer);
+    const archiveMonitor = new PixivArchiveMonitor(renderArchiveCard, updateArchiveCountdown);
 
+    function showArchiveCard(token, expireSeconds, ready, title = {key: 'status.archive-limit', fallback: '已达到下载限额'}) {
+        archiveMonitor.watch(token, expireSeconds, ready, title);
+    }
+
+    function renderArchiveCard(archive = archiveMonitor.current) {
+        if (!archive) return;
         document.getElementById('archive-card').style.display = 'block';
-        document.getElementById('ac-title').textContent = title;
-        document.getElementById('ac-expired-area').style.display = 'none';
-        document.getElementById('ac-dl-area').style.display = 'none';
-
-        if (ready) {
-            activateArchiveDownload(token, expireSeconds);
-        } else {
-            document.getElementById('ac-status').textContent = bt('status.archive-packing', '正在打包已下载文件，请稍候...');
-            pollArchiveReady(token, expireSeconds);
-        }
+        document.getElementById('ac-title').textContent = bt(archive.title.key, archive.title.fallback, archive.title.args);
+        document.getElementById('ac-expired-area').style.display = archive.status === 'expired' ? 'block' : 'none';
+        document.getElementById('ac-dl-area').style.display = archive.status === 'ready' ? 'block' : 'none';
+        const status = document.getElementById('ac-status');
+        if (archive.status === 'ready') {
+            status.textContent = bt('status.archive-ready', '压缩包已就绪，请在有效期内下载：');
+            updateArchiveCountdown(archiveMonitor.remainingSeconds());
+            const button = document.getElementById('ac-dl-btn');
+            button.href = BASE + '/api/archive/download/' + archive.token;
+            button.removeAttribute('disabled');
+        } else if (archive.status === 'empty') {
+            status.textContent = bt('status.archive-empty', '暂无可打包文件（当前下载仍在进行中，完成后自动包含）');
+        } else if (archive.status === 'expired') status.textContent = '';
+        else status.textContent = bt('status.archive-packing', '正在打包已下载文件，请稍候...');
     }
 
-    function pollArchiveReady(token, expireSeconds) {
-        archivePollTimer = setInterval(async () => {
-            try {
-                const res = await fetch(BASE + '/api/archive/status/' + token);
-                const data = await res.json();
-                if (data.status === 'ready') {
-                    clearInterval(archivePollTimer);
-                    activateArchiveDownload(token, data.expireSeconds || expireSeconds);
-                } else if (data.status === 'expired') {
-                    clearInterval(archivePollTimer);
-                    showArchiveExpired();
-                } else if (data.status === 'empty') {
-                    clearInterval(archivePollTimer);
-                    document.getElementById('ac-status').textContent = bt(
-                        'status.archive-empty',
-                        '暂无可打包文件（当前下载仍在进行中，完成后自动包含）'
-                    );
-                }
-            } catch {
-            }
-        }, 2000);
-    }
-
-    function activateArchiveDownload(token, expireSeconds) {
-        document.getElementById('ac-status').textContent = bt(
-            'status.archive-ready',
-            '压缩包已就绪，请在有效期内下载：'
-        );
-        const dlArea = document.getElementById('ac-dl-area');
-        dlArea.style.display = 'block';
-        const btn = document.getElementById('ac-dl-btn');
-        btn.href = BASE + '/api/archive/download/' + token;
-        btn.removeAttribute('disabled');
-
-        let remaining = Math.max(0, parseInt(expireSeconds));
+    function updateArchiveCountdown(remaining) {
         document.getElementById('ac-countdown').textContent = bt(
             'status.archive-validity',
             '下载链接有效期：{time}',
             {time: formatSeconds(remaining)}
         );
-        archiveCountdownTimer = setInterval(() => {
-            remaining--;
-            if (remaining <= 0) {
-                clearInterval(archiveCountdownTimer);
-                showArchiveExpired();
-            } else {
-                document.getElementById('ac-countdown').textContent = bt(
-                    'status.archive-validity',
-                    '下载链接有效期：{time}',
-                    {time: formatSeconds(remaining)}
-                );
-            }
-        }, 1000);
-    }
-
-    function showArchiveExpired() {
-        document.getElementById('ac-dl-area').style.display = 'none';
-        document.getElementById('ac-expired-area').style.display = 'block';
-        document.getElementById('ac-status').textContent = '';
     }
 
     async function autoPackAfterQueue() {
@@ -197,9 +146,9 @@
                 setStatus({key: 'status.batch-finished-packing', fallback: '批量下载结束，正在打包文件...'}, 'info');
                 showArchiveCard(
                     data.archiveToken,
-                    data.archiveExpireSeconds || 3600,
+                    data.archiveExpireSeconds ?? 3600,
                     false,
-                    bt('status.download-complete-packing', '下载完成，正在打包')
+                    {key: 'status.download-complete-packing', fallback: '下载完成，正在打包'}
                 );
             }
         } catch {
@@ -208,7 +157,7 @@
 
     async function triggerAdminPack() {
         const ids = state.queue
-            .filter(q => q.status === 'completed')
+            .filter(q => q.status === 'completed' && q.kind === 'illust')
             .map(q => Number(q.id))
             .filter(Number.isFinite);
 
@@ -263,9 +212,9 @@
             );
             showArchiveCard(
                 data.archiveToken,
-                data.archiveExpireSeconds || 3600,
+                data.archiveExpireSeconds ?? 3600,
                 false,
-                bt('status.admin-packing', '管理员打包中（{count} 个作品）', {count: ids.length})
+                {key: 'status.admin-packing', fallback: '管理员打包中（{count} 个作品）', args: {count: ids.length}}
             );
         } catch (e) {
             setStatus({key: 'status.pack-request-failed', fallback: '打包请求失败：{message}', args: {message: e.message}}, 'error');

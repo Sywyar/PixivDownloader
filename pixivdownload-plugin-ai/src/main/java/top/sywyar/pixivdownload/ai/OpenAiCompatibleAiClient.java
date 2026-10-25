@@ -259,17 +259,10 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
             log.info(logMessage("ai.log.chat.success", type, model, elapsedMs,
                     tokenStr(result.promptTokens()), tokenStr(result.completionTokens())));
             return result;
-        } catch (RestClientResponseException e) {
-            long elapsedMs = (System.nanoTime() - startedAtNs) / 1_000_000;
-            // 已连通但返回非 2xx：附带状态码与（脱敏 / 截断后的）响应正文摘要。
-            // 部分 OpenAI 兼容服务会把请求里的 API Key 原样回显在 "invalid api key" 类错误体中，
-            // 这里必须先脱敏再写日志 / 抛 AiException / 回 GUI。
-            String msg = responseError(e, apiKey);
-            log.warn(logMessage("ai.log.chat.failed", type, model, elapsedMs, msg));
-            throw new AiClientException(msg, e);
         } catch (RestClientException e) {
             long elapsedMs = (System.nanoTime() - startedAtNs) / 1_000_000;
-            String msg = safeMessage(e, apiKey);
+            String msg = e instanceof RestClientResponseException response
+                    ? responseError(response, apiKey) : safeMessage(e, apiKey);
             log.warn(logMessage("ai.log.chat.failed", type, model, elapsedMs, msg));
             throw new AiClientException(msg, e);
         }
@@ -379,7 +372,7 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
             return "";
         }
         String s = msg;
-        if (apiKey != null && apiKey.length() >= 4) {
+        if (apiKey != null && !apiKey.isEmpty()) {
             s = s.replace(apiKey, "***");
             String trimmed = apiKey.trim();
             if (!trimmed.isEmpty() && !trimmed.equals(apiKey)) {
@@ -447,10 +440,12 @@ public class OpenAiCompatibleAiClient implements AiChatClient {
 
     private record ModelEntry(String id, @JsonProperty("owned_by") String ownedBy,
                               String type, Capabilities capabilities) {
+        private static final Set<String> NON_CHAT_TYPES = Set.of(
+                "embedding", "embeddings", "rerank", "text2image", "text2video", "tts", "asr");
+
         boolean chatCandidate() {
             return (capabilities == null || !Boolean.FALSE.equals(capabilities.completionChat()))
-                    && (type == null || !Set.of("embedding", "embeddings", "rerank", "text2image",
-                    "text2video", "tts", "asr").contains(type));
+                    && (type == null || !NON_CHAT_TYPES.contains(type));
         }
     }
 

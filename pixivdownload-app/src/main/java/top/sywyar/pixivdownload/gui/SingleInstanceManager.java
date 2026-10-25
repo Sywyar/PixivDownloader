@@ -68,22 +68,21 @@ public final class SingleInstanceManager implements AutoCloseable {
                 StandardOpenOption.CREATE,
                 StandardOpenOption.WRITE);
 
-        FileLock fileLock;
+        FileLock fileLock = null;
+        ServerSocket activationServer = null;
+        boolean acquired = false;
         try {
-            fileLock = channel.tryLock();
-        } catch (OverlappingFileLockException e) {
-            closeQuietly(channel);
-            return null;
-        }
+            try {
+                fileLock = channel.tryLock();
+            } catch (OverlappingFileLockException e) {
+                return null;
+            }
+            if (fileLock == null) {
+                return null;
+            }
 
-        if (fileLock == null) {
-            closeQuietly(channel);
-            return null;
-        }
-
-        Path activationFile = instanceDir.resolve(ACTIVATION_FILE);
-        try {
-            ServerSocket activationServer = new ServerSocket();
+            Path activationFile = instanceDir.resolve(ACTIVATION_FILE);
+            activationServer = new ServerSocket();
             activationServer.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
             String activationToken = UUID.randomUUID().toString();
             writeActivationFile(activationFile, activationServer.getLocalPort(), activationToken);
@@ -91,11 +90,14 @@ public final class SingleInstanceManager implements AutoCloseable {
             SingleInstanceManager manager = new SingleInstanceManager(
                     activationFile, channel, fileLock, activationServer, activationToken);
             manager.startActivationListener();
+            acquired = true;
             return manager;
-        } catch (IOException e) {
-            closeQuietly(fileLock);
-            closeQuietly(channel);
-            throw e;
+        } finally {
+            if (!acquired) {
+                closeQuietly(activationServer);
+                closeQuietly(fileLock);
+                closeQuietly(channel);
+            }
         }
     }
 

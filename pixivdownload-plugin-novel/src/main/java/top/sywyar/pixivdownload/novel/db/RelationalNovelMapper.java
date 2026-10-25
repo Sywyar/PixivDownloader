@@ -59,7 +59,7 @@ public class RelationalNovelMapper implements NovelMapper {
     }
     private int update(String table, Expression where, Object... pairs) {
         var changes = new LinkedHashMap<String, Expression>();
-        row(pairs).forEach((name, v) -> changes.put(name, value(v)));
+        for (int i = 0; i < pairs.length; i += 2) changes.put((String) pairs[i], literal(pairs[i + 1]));
         return database.transaction(s -> s.update(table, changes, where));
     }
     private void delete(String table, Expression where) { database.transaction(s -> s.delete(table, where)); }
@@ -331,11 +331,6 @@ public class RelationalNovelMapper implements NovelMapper {
     }
 
     @Override
-    public int updateNarrationCastName(long id, String name, long updatedTime) {
-        return update("novel_narration_casts", eq("novel_narration_casts", "id", id), "name", name, "updated_time", updatedTime);
-    }
-
-    @Override
     public int touchNarrationCast(long id, long updatedTime) {
         return update("novel_narration_casts", eq("novel_narration_casts", "id", id), "updated_time", updatedTime);
     }
@@ -343,11 +338,6 @@ public class RelationalNovelMapper implements NovelMapper {
     @Override
     public int countNarrationCastById(long id) {
         return Math.toIntExact(count("novel_narration_casts", eq("novel_narration_casts", "id", id)));
-    }
-
-    @Override
-    public void deleteNarrationCast(long id) {
-        delete("novel_narration_casts", eq("novel_narration_casts", "id", id));
     }
 
     @Override
@@ -401,17 +391,7 @@ public class RelationalNovelMapper implements NovelMapper {
 
     @Override
     public int updateNarrationVoiceName(long castId, int characterId, String name) {
-        return update(V, voice(castId, characterId), "name", name);
-    }
-
-    @Override
-    public void deleteNarrationVoices(long castId) {
-        delete("novel_narration_voices", eq("novel_narration_voices", "cast_id", castId));
-    }
-
-    @Override
-    public void deleteNarrationVoice(long castId, int characterId) {
-        delete(V, voice(castId, characterId));
+        return update(V, call(AND, voice(castId, characterId), eq(V, "edited_by_user", 0)), "name", name);
     }
 
     @Override

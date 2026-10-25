@@ -2,12 +2,15 @@ package top.sywyar.pixivdownload.notificationbase;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import top.sywyar.pixivdownload.notification.NotificationSeverity;
 import top.sywyar.pixivdownload.plugin.api.http.OutboundHttpTransportException;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -158,6 +161,59 @@ class RemoteAnnouncementValidationTest extends RemoteAnnouncementImporterTestSup
         assertThat(harness.inbox.find(existing.id())).isNotNull();
         assertThat(harness.inbox.find("remote-announcement:good")).isNotNull();
         assertThat(harness.inbox.find("remote-announcement:BAD")).isNull();
+    }
+
+    @Test
+    @DisplayName("索引和正文媒体类型接受大小写、首尾空白和分号参数，重复轮询复用正文")
+    void acceptsMediaTypeVariantsAndReusesSnapshots() {
+        for (String[] types : List.of(
+                new String[]{"application/json", "text/html"},
+                new String[]{" APPLICATION/JSON ; charset=utf-8", " TEXT/HTML ; charset=utf-8"})) {
+            Harness harness = harness(Locale.US);
+            harness.client.respond(200, Map.of("Content-Type", List.of(types[0])),
+                    index(item("media-type", PUBLISHED, "info")));
+            harness.client.contentPlan = new ResponsePlan(
+                    200, Map.of("Content-Type", List.of(types[1])), bytes(htmlBody()), null);
+
+            harness.importer.poll();
+
+            assertThat(harness.inbox.find("remote-announcement:media-type").contentHtml()).isEmpty();
+            assertThat(harness.inbox.htmlContent("remote-announcement:media-type").html()).isEqualTo(htmlBody());
+            assertThat(harness.client.requests).hasValue(4);
+            assertThat(harness.client.contentRequests).hasValue(2);
+            harness.importer.poll();
+            assertThat(harness.client.requests).hasValue(6);
+            assertThat(harness.client.contentRequests).hasValue(2);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("索引和正文均拒绝缺失、空、多个、错误及逗号拼接的媒体类型")
+    void rejectsInvalidMediaTypesBeforeImport(boolean indexResponse) {
+        String expectedType = indexResponse ? "application/json" : "text/html";
+        String wrongType = indexResponse ? "text/html" : "application/json";
+        List<Map<String, List<String>>> invalidHeaders = List.of(
+                Map.of(),
+                Map.of("Content-Type", List.of()),
+                Map.of("Content-Type", List.of("")),
+                Map.of("Content-Type", List.of(expectedType, expectedType)),
+                Map.of("Content-Type", List.of(wrongType)),
+                Map.of("Content-Type", List.of(expectedType + ", " + expectedType)));
+        for (Map<String, List<String>> headers : invalidHeaders) {
+            Harness harness = harness(Locale.US);
+            harness.client.respond(200, indexResponse ? headers : jsonHeaders(),
+                    index(item("media-type", PUBLISHED, "info")));
+            if (!indexResponse) {
+                harness.client.contentPlan = new ResponsePlan(200, headers, bytes(htmlBody()), null);
+            }
+
+            harness.importer.poll();
+
+            assertThat(harness.inbox.find("remote-announcement:media-type")).isNull();
+            assertThat(harness.client.requests).hasValue(indexResponse ? 1 : 3);
+            assertThat(harness.client.contentRequests).hasValue(indexResponse ? 0 : 1);
+        }
     }
 
     private static void assertRejectedIndexPreservesExisting(String index) {

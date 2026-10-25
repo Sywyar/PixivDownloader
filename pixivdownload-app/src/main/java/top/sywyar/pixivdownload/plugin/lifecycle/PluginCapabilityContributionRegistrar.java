@@ -20,6 +20,9 @@ import java.util.ListIterator;
 import java.util.Map;
 import java.util.Optional;
 
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.addSuppressedSafely;
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.isFatal;
+
 /** Coordinates unpublished external capability preparation, atomic admission and exact-owner teardown. */
 @Component
 public class PluginCapabilityContributionRegistrar {
@@ -91,8 +94,6 @@ public class PluginCapabilityContributionRegistrar {
     private final Runnable centralCleanupProbe;
     private final Object publicationLock = new Object();
     private final Map<Long, PublishedOwner> published = new HashMap<>();
-    private final Map<String, ExternalCapabilityPublication> legacyPublications = new HashMap<>();
-    private final Map<String, ExternalCapabilityDrain> legacyDrains = new HashMap<>();
 
     /** Test/legacy constructor retaining the original immediate adapter contract. */
     public PluginCapabilityContributionRegistrar(List<PluginCapabilityContributionAdapter<?>> adapters) {
@@ -301,11 +302,7 @@ public class PluginCapabilityContributionRegistrar {
                 batch.centralAcknowledged = true;
             }
             if (!batch.centralForgotten) {
-                boolean forgotten = invocationRegistry.forgetRetirementAcknowledgement(drain);
-                if (!forgotten && !batch.centralAcknowledged) {
-                    throw new IllegalStateException("external capability retirement acknowledgement is missing: "
-                            + batch.owner());
-                }
+                invocationRegistry.forgetRetirementAcknowledgement(drain);
                 // A false result after an acknowledged exact owner means a prior remove completed before return.
                 batch.centralForgotten = true;
             }
@@ -452,11 +449,7 @@ public class PluginCapabilityContributionRegistrar {
                 owner.centralAcknowledged = true;
             }
             if (!owner.centralForgotten) {
-                boolean forgotten = invocationRegistry.forgetRetirementAcknowledgement(drain);
-                if (!forgotten && !owner.centralAcknowledged) {
-                    throw new IllegalStateException("external capability retirement acknowledgement is missing: "
-                            + drain.owner());
-                }
+                invocationRegistry.forgetRetirementAcknowledgement(drain);
                 owner.centralForgotten = true;
             }
         }
@@ -476,61 +469,10 @@ public class PluginCapabilityContributionRegistrar {
                 throw new IllegalStateException("external capability retirement proof is not releasable: "
                         + drain.owner());
             }
-            legacyPublications.remove(drain.owner().pluginId(), owner.publication());
-            legacyDrains.remove(drain.owner().pluginId(), drain);
             owner.adapters().clear();
             owner.preparedOwner.cleanupBatch = null;
             published.remove(drain.owner().publicationId(), owner);
             return true;
-        }
-    }
-
-    /**
-     * Compatibility bridge used until lifecycle wiring passes package/generation explicitly. Production migrated
-     * adapters still use the unpublished boundary; remaining legacy adapters retain their established behavior.
-     */
-    public void register(String pluginId, ConfigurableApplicationContext context) {
-        if (context == null) {
-            unregister(pluginId);
-            return;
-        }
-        PreparedOwner preparedOwner = null;
-        boolean legacyRegistered = false;
-        try {
-            registerLegacy(pluginId, context);
-            legacyRegistered = true;
-            if (!runtimeAdapters.isEmpty()) {
-                preparedOwner = allocateOwner(pluginId, pluginId, 0L);
-                prepareInto(preparedOwner, context);
-                ExternalCapabilityPublication publication = publish(preparedOwner);
-                synchronized (publicationLock) {
-                    legacyPublications.put(pluginId, publication);
-                }
-            }
-        } catch (Throwable failure) {
-            if (preparedOwner != null && !preparedOwner.consumed) {
-                discardUnpublished(preparedOwner);
-            }
-            Throwable cleanupFatal = null;
-            if (legacyRegistered) {
-                try {
-                    unregisterLegacy(pluginId);
-                } catch (Throwable cleanupFailure) {
-                    cleanupFatal = mergeFatal(cleanupFatal, cleanupFailure);
-                    addSuppressedSafely(failure, cleanupFailure);
-                }
-            }
-            if (isFatal(failure)) {
-                rethrowFatal(failure);
-            }
-            if (cleanupFatal != null) {
-                rethrowFatal(cleanupFatal);
-            }
-            if (failure instanceof RuntimeException runtimeFailure) {
-                throw runtimeFailure;
-            }
-            throw new IllegalStateException("failed to register runtime capabilities for plugin '"
-                    + pluginId + "' (failureType=" + failure.getClass().getName() + ")");
         }
     }
 
@@ -568,60 +510,6 @@ public class PluginCapabilityContributionRegistrar {
             }
             throw new IllegalStateException("failed to register legacy runtime capabilities for plugin '"
                     + pluginId + "' (failureType=" + failure.getClass().getName() + ")");
-        }
-    }
-
-    public void unregister(String pluginId) {
-        List<String> failureTypes = new ArrayList<>();
-        Throwable fatal = null;
-        ExternalCapabilityPublication publication;
-        ExternalCapabilityDrain existingDrain;
-        synchronized (publicationLock) {
-            publication = legacyPublications.get(pluginId);
-            existingDrain = legacyDrains.get(pluginId);
-        }
-        if (publication != null) {
-            try {
-                ExternalCapabilityDrain drain = existingDrain;
-                if (drain == null) {
-                    drain = withdraw(publication).orElse(null);
-                    if (drain != null) {
-                        synchronized (publicationLock) {
-                            legacyDrains.put(pluginId, drain);
-                        }
-                    }
-                }
-                if (drain != null) {
-                    if (!drain.isDrained()) {
-                        failureTypes.add("in-flight external capability invocation");
-                    } else {
-                        retireDrained(drain);
-                        acknowledgeRetired(drain);
-                        releaseRetirementProof(drain);
-                    }
-                }
-            } catch (Throwable failure) {
-                fatal = mergeFatal(fatal, failure);
-                if (!isFatal(failure)) {
-                    failureTypes.add(failure.getClass().getName());
-                }
-            }
-        }
-        try {
-            unregisterLegacy(pluginId);
-        } catch (Throwable failure) {
-            fatal = mergeFatal(fatal, failure);
-            if (!isFatal(failure)) {
-                failureTypes.add(failure.getClass().getName());
-            }
-        }
-        if (fatal != null) {
-            rethrowFatal(fatal);
-        }
-        if (!failureTypes.isEmpty()) {
-            throw new IllegalStateException(
-                    "failed to unregister one or more runtime capabilities for plugin '" + pluginId
-                            + "' (failureTypes=" + failureTypes + ")");
         }
     }
 
@@ -828,24 +716,10 @@ public class PluginCapabilityContributionRegistrar {
         }
     }
 
-    private static boolean isFatal(Throwable failure) {
-        return failure instanceof VirtualMachineError || failure instanceof ThreadDeath;
-    }
-
     private static Throwable mergeFatal(Throwable current, Throwable failure) {
         if (!isFatal(failure)) {
             return current;
         }
         return current == null ? failure : current;
-    }
-
-    private static void addSuppressedSafely(Throwable target, Throwable suppressed) {
-        if (target != null && suppressed != null && target != suppressed) {
-            try {
-                target.addSuppressed(suppressed);
-            } catch (Throwable ignored) {
-                // Preserve the original legacy failure while still completing every cleanup action.
-            }
-        }
     }
 }

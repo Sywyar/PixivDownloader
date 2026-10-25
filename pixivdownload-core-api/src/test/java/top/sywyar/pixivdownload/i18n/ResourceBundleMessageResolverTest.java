@@ -11,8 +11,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("资源包消息解析器（策略驱动）")
 class ResourceBundleMessageResolverTest {
 
-    private static final List<String> BASE_NAMES = List.of("i18n.test.messages");
-
     @Test
     @DisplayName("旧构造器走 legacy 策略：root 语言精确命中、回退语言 fallback 优先")
     void legacyConstructorKeepsOldContract() {

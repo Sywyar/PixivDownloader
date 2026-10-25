@@ -9,7 +9,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
-import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
@@ -27,16 +26,9 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 /**
- * 作品删除暂存区（{@code data/delete-staging/<操作 id>/}）的<b>恢复清单</b>读写与<b>启动恢复</b>。
- *
- * <p>原子删除在删除任何原文件之前，会先把「每个原文件的绝对路径 + 它在暂存子目录里的副本文件名」写进
- * 该子目录下的 {@value #MANIFEST_FILE_NAME}。这样即使进程在「已暂存、已删部分原文件、尚未完成回滚或软删」
- * 之间崩溃，下次启动也能据清单把仍缺失的原文件从暂存复制回原位、把这次中断的删除回滚掉，而不会误删唯一备份、
- * 把半删除状态永久化。
- *
- * <p>纯 JDK 实现（{@link Properties} + UTF-8），不引入 Spring / Jackson —— 因为它要在 Spring 上下文启动之前的
- * 静态运行期路径里被调用（见 {@link RuntimeFiles#recoverDeleteStagingLeftovers(String)}）。日志走与 {@link RuntimeFiles}
- * 一致的静态 {@link MessageBundles}（启动期、可能无请求上下文）。
+ * 读取旧版 {@code manifest.properties}，在数据库就绪后恢复中断删除留下的文件。
+ * 清单损坏、目标冲突或恢复失败时保留备份；新文件操作的提交事实由数据库日志管理。
+ * 日志使用静态 {@link MessageBundles}，不依赖请求上下文。
  */
 @Slf4j
 public final class DeleteStagingManifest {
@@ -59,59 +51,6 @@ public final class DeleteStagingManifest {
 
     /** 一条恢复记录：原文件的绝对路径 + 它在暂存子目录内的副本文件名。 */
     public record Entry(Path originalFile, String stagedFileName) {
-    }
-
-    /**
-     * 写出恢复清单（覆盖既有）。由原子删除在「复制原文件之前」调用：清单先于删除落盘，崩溃后启动方能据此恢复。
-     */
-    public static void write(Path stagingDir, List<Entry> entries) throws IOException {
-        if (entries == null || entries.isEmpty()) {
-            throw new IOException("delete-staging manifest has no entries");
-        }
-        if (entries.size() > MAX_ENTRIES) {
-            throw new IOException("delete-staging manifest has too many entries");
-        }
-        Properties props = new Properties();
-        props.setProperty(VERSION_KEY, Integer.toString(VERSION));
-        props.setProperty(COUNT_KEY, Integer.toString(entries.size()));
-        Set<Path> originals = new HashSet<>();
-        Set<String> stagedNames = new HashSet<>();
-        for (int i = 0; i < entries.size(); i++) {
-            Entry entry = entries.get(i);
-            if (entry == null) {
-                throw new IOException("delete-staging manifest entry is missing");
-            }
-            Path original = entry.originalFile();
-            String staged = entry.stagedFileName();
-            if (original == null || !original.isAbsolute()
-                    || original.toString().length() > MAX_ORIGINAL_PATH_CHARS) {
-                throw new IOException("delete-staging original path must be absolute");
-            }
-            Path normalizedOriginal = original.normalize();
-            if (staged == null || staged.isBlank()
-                    || staged.length() > MAX_STAGED_FILE_NAME_CHARS
-                    || isUnsafeStagedName(stagingDir, staged)) {
-                throw new IOException("delete-staging staged file name is unsafe");
-            }
-            if (!originals.add(normalizedOriginal) || !stagedNames.add(staged)) {
-                throw new IOException("delete-staging manifest contains duplicate entries");
-            }
-            props.setProperty(i + ORIGINAL_SUFFIX, normalizedOriginal.toString());
-            props.setProperty(i + STAGED_SUFFIX, staged);
-        }
-        Path manifest = stagingDir.resolve(MANIFEST_FILE_NAME);
-        PlainFilePathGuard.requirePlainParent(manifest, false);
-        if (Files.exists(manifest, LinkOption.NOFOLLOW_LINKS)
-                && !PlainFilePathGuard.isPlainRegularFile(manifest)) {
-            throw new IOException("delete-staging manifest path is unsafe");
-        }
-        try (Writer writer = Files.newBufferedWriter(manifest, StandardCharsets.UTF_8)) {
-            props.store(writer, "PixivDownload delete-staging recovery manifest");
-        }
-        if (Files.size(manifest) > MAX_MANIFEST_BYTES) {
-            Files.deleteIfExists(manifest);
-            throw new IOException("delete-staging manifest is too large");
-        }
     }
 
     /**
@@ -286,7 +225,7 @@ public final class DeleteStagingManifest {
 
     /**
      * 暂存副本名必须是暂存子目录内的<b>单个普通文件名</b>。恢复时它是复制的<b>来源</b>
-     * （{@code stagingDir.resolve(stagedName)}），生产写入的名称（{@code index_文件名}）天然满足；
+     * （{@code stagingDir.resolve(stagedName)}），旧版写入的名称为 {@code index_文件名}；
      * 但损坏 / 手改的清单可能塞入绝对路径、含路径分隔符或 {@code ..} 逃逸的值，信任它会读到子目录之外的任意文件。
      * 凡不是「子目录内单个文件名」的一律视为清单损坏。
      */

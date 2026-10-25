@@ -28,10 +28,6 @@ final class DesktopUiDialogs {
 
     private DesktopUiDialogs() {}
 
-    static void invokeLater(Runnable action) {
-        if (action != null) action.run();
-    }
-
     static void showMessageDialog(Object owner, Object message, String title, int messageType) {
         DesktopUiSession ui = owner instanceof DesktopUiSession session ? session : GuiLauncher.activeUi();
         if (ui == null) {

@@ -59,14 +59,14 @@ class ElevenLabsNarrationEngineTest {
         NarrationVoiceRequest req = new NarrationVoiceRequest(
                 "原句", "An elderly woman", "whispers", null);
 
-        engine(config("https://api.elevenlabs.io/", "xi-key", "voice-123"))
-                .synthesize(NarrationVoiceMode.VOICE_DESIGN, req);
+        TtsPluginConfig cfg = config("https://api.elevenlabs.io/", "xi-key", "voice-123");
+        engine(cfg).synthesize(NarrationVoiceMode.VOICE_DESIGN, req);
 
         assertThat(capturedUrl(direct))
                 .isEqualTo("https://api.elevenlabs.io/v1/text-to-speech/voice-123?output_format=mp3_44100_128");
         Map<String, Object> body = capturedBody(direct);
         assertThat(body.get("text")).isEqualTo("[whispers] 原句");
-        assertThat(body.get("model_id")).isEqualTo("eleven_v3");
+        assertThat(body.get("model_id")).isEqualTo(cfg.getElevenlabs().getModel());
         HttpHeaders headers = capturedHeaders(direct);
         assertThat(headers.getFirst("xi-api-key")).isEqualTo("xi-key");
         assertThat(headers.getFirst(HttpHeaders.AUTHORIZATION)).isNull();

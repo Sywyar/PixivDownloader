@@ -9,19 +9,19 @@ async function loadSeriesNav() {
         const nav = await r.json();
         if (!nav.seriesId) return;
         cachedSeriesNav = nav;
-        renderSeriesNavSet(nav, {
-            wrap: 'series-nav',
-            prev: 'series-prev',
-            index: 'series-index',
-            next: 'series-next'
-        });
-        renderSeriesNavSet(nav, {
-            wrap: 'series-nav-bottom',
-            prev: 'series-prev-bottom',
-            index: 'series-index-bottom',
-            next: 'series-next-bottom'
-        });
+        renderSeriesNav(nav);
     } catch {}
+}
+
+function renderSeriesNav(nav) {
+    for (const suffix of ['', '-bottom']) {
+        renderSeriesNavSet(nav, {
+            wrap: 'series-nav' + suffix,
+            prev: 'series-prev' + suffix,
+            index: 'series-index' + suffix,
+            next: 'series-next' + suffix
+        });
+    }
 }
 
 function renderSeriesNavSet(nav, ids) {

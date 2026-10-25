@@ -14,6 +14,7 @@
     var languageChannelInitialized = false;
     var storageListenerInitialized = false;
     var languageChangeListeners = [];
+    var languageRequestRevision = 0;
 
     function normalizeLang(lang) {
         if (!lang) {
@@ -190,52 +191,83 @@
         };
     }
 
-    async function fetchJson(url) {
-        var response = await global.fetch(url, { credentials: 'same-origin' });
-        var payload = null;
-        try {
-            payload = await response.json();
-        } catch (e) {
-            payload = null;
+    function checkActive(requests) {
+        if (requests.cancelled) {
+            var error = new Error('i18n request cancelled');
+            error.name = 'AbortError';
+            throw error;
         }
-        if (!response.ok) {
-            var message = payload && payload.error ? payload.error : response.statusText;
-            throw new Error(message || 'Request failed');
-        }
-        return payload || {};
     }
 
-    async function fetchJsonOrDefault(url, fallbackValue) {
+    async function fetchJson(url, requests) {
+        checkActive(requests);
+        var controller = global.AbortController ? new global.AbortController() : null;
+        if (controller) requests.controllers.add(controller);
+        var timeout = controller && global.setTimeout ? global.setTimeout(function () { controller.abort(); }, 10000) : null;
         try {
-            return await fetchJson(url);
+            var response = await global.fetch(url, {
+                credentials: 'same-origin', cache: 'no-store', signal: controller ? controller.signal : undefined
+            });
+            checkActive(requests);
+            if (!response.ok) throw new Error('i18n HTTP ' + response.status);
+            var payload = await response.json();
+            checkActive(requests);
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+                throw new Error('Invalid i18n JSON: ' + url);
+            }
+            return payload;
+        } finally {
+            if (timeout !== null) global.clearTimeout(timeout);
+            if (controller) requests.controllers.delete(controller);
+        }
+    }
+
+    async function fetchJsonOrDefault(url, fallbackValue, requests) {
+        try {
+            return await fetchJson(url, requests);
         } catch (e) {
+            checkActive(requests);
             return fallbackValue;
         }
     }
 
     // 语言元数据来源：优先后端 /api/i18n/meta，后端不可用时读构建生成的 i18n-static/meta.json。
     // 不允许在 JavaScript 中写死默认语言或语言数组。
-    async function fetchMeta(preferredLang) {
+    async function fetchMeta(preferredLang, requests) {
         var backendMeta = await fetchJsonOrDefault(
             '/api/i18n/meta?lang=' + encodeURIComponent(preferredLang || ''),
-            null
+            null,
+            requests
         );
         if (backendMeta && backendMeta.supportedLocales && backendMeta.supportedLocales.length) {
             return backendMeta;
         }
-        return await fetchJsonOrDefault(STATIC_BUNDLE_BASE + 'meta.json', null);
+        return await fetchJsonOrDefault(STATIC_BUNDLE_BASE + 'meta.json', null, requests);
     }
 
-    async function fetchMessagesBundle(namespace, lang) {
+    async function fetchMessagesBundle(namespace, lang, requests) {
+        async function load(url) {
+            var bundle = await fetchJson(url, requests);
+            if (!bundle.messages || typeof bundle.messages !== 'object' || Array.isArray(bundle.messages)
+                    || Object.keys(bundle.messages).some(function (key) { return typeof bundle.messages[key] !== 'string'; })) {
+                throw new Error('Invalid i18n bundle: ' + url);
+            }
+            return bundle;
+        }
         try {
-            return await fetchJson(
+            return await load(
                 '/api/i18n/messages/' + encodeURIComponent(namespace) + '?lang=' + encodeURIComponent(lang)
             );
         } catch (e) {
-            // Backend unavailable (static hosting): fall back to a prebuilt bundle.
+            checkActive(requests);
             var staticUrl = STATIC_BUNDLE_BASE +
                 encodeURIComponent(namespace) + '.' + encodeURIComponent(lang) + '.json';
-            return await fetchJsonOrDefault(staticUrl, { messages: {} });
+            try { return await load(staticUrl); }
+            catch (fallbackFailure) {
+                checkActive(requests);
+                global.console.warn('i18n bundle unavailable', namespace, lang, e, fallbackFailure);
+                return null;
+            }
         }
     }
 
@@ -276,7 +308,7 @@
     function translate(client, key, fallback, vars) {
         var resolved = resolveKey(client.namespaces, key);
         var namespaceMessages = client.bundleMap[resolved.namespace] || {};
-        var template = namespaceMessages[resolved.key];
+        var template = Object.prototype.hasOwnProperty.call(namespaceMessages, resolved.key) ? namespaceMessages[resolved.key] : null;
         if (template == null) {
             template = fallback != null ? fallback : key;
         }
@@ -328,7 +360,89 @@
         applyAttributeBinding(root, client, '[data-i18n-href]', 'href', 'data-i18n-href');
     }
 
-    function buildClient(meta, namespaces, bundleMap) {
+    function buildClient(meta, namespaces, bundleMap, missing, requests) {
+        var listeners = [];
+        var appliedRoot = null;
+        var disposed = false;
+        var suspended = false;
+        var recovering = false;
+        var timer = null;
+        var attempts = 0;
+        var delays = [1500, 5000, 15000];
+        function releaseRecovery() {
+            if (timer !== null) global.clearTimeout(timer);
+            timer = null;
+            if (global.removeEventListener) {
+                global.removeEventListener('online', retry);
+                global.removeEventListener('focus', retry);
+                global.removeEventListener('pagehide', hide);
+                global.removeEventListener('pageshow', show);
+            }
+        }
+        function schedule() {
+            if (!disposed && !suspended && missing.length && attempts < delays.length && global.setTimeout) {
+                timer = global.setTimeout(recover, delays[attempts++]);
+            }
+        }
+        function retry() {
+            if (disposed || suspended || recovering || !missing.length) return;
+            if (timer !== null) global.clearTimeout(timer);
+            timer = null;
+            attempts = 0;
+            recover();
+        }
+        function hide(event) {
+            if (!event || !event.persisted) { client.dispose(); return; }
+            suspended = true;
+            requests.cancel();
+            if (timer !== null) global.clearTimeout(timer);
+            timer = null;
+        }
+        function show() {
+            if (disposed || !suspended) return;
+            suspended = false;
+            // 缓存恢复使用新的请求作用域，旧响应仍保持取消状态。
+            requests = createRequests();
+            recovering = false;
+            retry();
+        }
+        async function recover() {
+            timer = null;
+            if (disposed || suspended || recovering) return;
+            recovering = true;
+            var activeRequests = requests;
+            var changed = false;
+            try {
+                var bundles = await Promise.all(missing.map(function (namespace) {
+                    return fetchMessagesBundle(namespace, client.lang, activeRequests);
+                }));
+                if (disposed || suspended || requests !== activeRequests) return;
+                if (readStoredLang() && normalizeLang(readStoredLang()) !== normalizeLang(client.lang)) {
+                    client.dispose();
+                    return;
+                }
+                missing = missing.filter(function (namespace, index) {
+                    if (!bundles[index]) return true;
+                    bundleMap[namespace] = bundles[index].messages;
+                    changed = true;
+                    return false;
+                });
+                if (changed) {
+                    if (appliedRoot) client.apply(appliedRoot);
+                    listeners.slice().forEach(function (listener) {
+                        try { listener(client); } catch (failure) { global.console.warn('i18n update failed', failure); }
+                    });
+                }
+            } catch (failure) {
+                if (!activeRequests.cancelled) global.console.warn('i18n recovery failed', failure);
+            } finally {
+                if (requests === activeRequests) {
+                    recovering = false;
+                    if (!missing.length) releaseRecovery();
+                    else schedule();
+                }
+            }
+        }
         var client = {
             lang: meta.currentLang,
             defaultLang: meta.defaultLang,
@@ -350,7 +464,7 @@
                     return translate(client, key, fallback, vars);
                 }
                 var namespaceMessages = client.bundleMap[ns] || {};
-                var template = namespaceMessages[key];
+                var template = Object.prototype.hasOwnProperty.call(namespaceMessages, key) ? namespaceMessages[key] : null;
                 if (template == null) {
                     template = fallback != null ? fallback : key;
                 }
@@ -362,62 +476,117 @@
                 return Object.prototype.hasOwnProperty.call(namespaceMessages, resolved.key);
             },
             apply: function (root) {
-                applyBindings(root || global.document, client);
+                appliedRoot = root || global.document;
+                applyBindings(appliedRoot, client);
                 return client;
             },
-            setLanguage: function (lang) {
+            onUpdate: function (listener) {
+                listeners.push(listener);
+                return function () { listeners = listeners.filter(function (value) { return value !== listener; }); };
+            },
+            dispose: function () {
+                disposed = true;
+                requests.cancel();
+                releaseRecovery();
+                listeners = [];
+                appliedRoot = null;
+            },
+            setLanguage: function (lang, options) {
                 return create({
                     lang: lang,
-                    namespaces: namespaces.slice()
+                    namespaces: namespaces.slice(),
+                    signal: options && options.signal
                 });
             }
         };
+        if (missing.length) {
+            if (global.addEventListener) {
+                global.addEventListener('online', retry);
+                global.addEventListener('focus', retry);
+                global.addEventListener('pagehide', hide);
+                global.addEventListener('pageshow', show);
+            }
+            schedule();
+        }
         return client;
+    }
+
+    function createRequests() {
+        var requests = {
+            cancelled: false,
+            controllers: new Set(),
+            cancel: function () {
+                requests.cancelled = true;
+                requests.controllers.forEach(function (controller) { controller.abort(); });
+                requests.controllers.clear();
+            }
+        };
+        return requests;
     }
 
     async function create(options) {
         var config = options || {};
-        var namespaces = Array.isArray(config.namespaces) && config.namespaces.length
-            ? config.namespaces.slice()
-            : [DEFAULT_NAMESPACE];
-        var storedLang = readStoredLang();
-        var preferredLang = normalizeLang(config.lang || storedLang || global.navigator.language);
-        var meta = await fetchMeta(preferredLang);
-        if (!meta || !meta.defaultLang || !meta.currentLang) {
-            // 后端与静态 meta 都不可用：客户端仍可工作，但语言菜单 / 归一化缺失，
-            // 直接以首选语言尝试加载 bundle。不在此处写死任何语言。
-            meta = {
-                currentLang: preferredLang || '',
-                sourceLang: '',
-                defaultLang: '',
-                fallbackLang: '',
-                languageCookieName: '',
-                languageParamName: '',
-                supportedLocales: [],
-                supportedNamespaces: []
-            };
-        } else {
-            meta.currentLang = resolveSupportedLang(preferredLang || meta.currentLang, meta) || meta.currentLang;
+        var requests = createRequests();
+        if (config.signal) {
+            if (config.signal.aborted) requests.cancel();
+            else config.signal.addEventListener('abort', requests.cancel, { once: true });
         }
-        var bundleMap = {};
-
-        for (var i = 0; i < namespaces.length; i += 1) {
-            var namespace = namespaces[i];
-            var bundle = await fetchMessagesBundle(namespace, meta.currentLang);
-            bundleMap[namespace] = bundle.messages || {};
-        }
-
-        // 字典请求期间可能已切换语言；旧客户端不能把共享偏好写回去。
-        if (readStoredLang() !== storedLang) {
-            if (!config.lang) return create(config);
-        } else {
-            writeStoredLang(meta.currentLang);
-            if (global.document && global.document.documentElement) {
-                global.document.documentElement.lang = meta.currentLang;
+        try {
+            checkActive(requests);
+            var revision = config.lang ? ++languageRequestRevision : languageRequestRevision;
+            var namespaces = Array.isArray(config.namespaces) && config.namespaces.length
+                ? config.namespaces.slice()
+                : [DEFAULT_NAMESPACE];
+            var storedLang = readStoredLang();
+            var preferredLang = normalizeLang(config.lang || storedLang || global.navigator.language);
+            var meta = await fetchMeta(preferredLang, requests);
+            if (!meta || !meta.defaultLang || !meta.currentLang) {
+                // 后端与静态 meta 都不可用：客户端仍可工作，但语言菜单 / 归一化缺失，
+                // 直接以首选语言尝试加载 bundle。不在此处写死任何语言。
+                meta = {
+                    currentLang: preferredLang || '',
+                    sourceLang: '',
+                    defaultLang: '',
+                    fallbackLang: '',
+                    languageCookieName: '',
+                    languageParamName: '',
+                    supportedLocales: [],
+                    supportedNamespaces: []
+                };
+            } else {
+                meta.currentLang = resolveSupportedLang(preferredLang || meta.currentLang, meta) || meta.currentLang;
             }
-        }
+            var bundleMap = Object.create(null);
+            var missing = [];
 
-        return buildClient(meta, namespaces, bundleMap);
+            for (var i = 0; i < namespaces.length; i += 1) {
+                var namespace = namespaces[i];
+                var bundle = await fetchMessagesBundle(namespace, meta.currentLang, requests);
+                bundleMap[namespace] = bundle ? bundle.messages : {};
+                if (!bundle) missing.push(namespace);
+            }
+
+            checkActive(requests);
+            // 字典请求期间可能已切换语言；旧客户端不能把共享偏好写回去。
+            if (readStoredLang() !== storedLang) {
+                if (!config.lang) {
+                    requests.cancel();
+                    return create(config);
+                }
+            } else if (revision === languageRequestRevision) {
+                writeStoredLang(meta.currentLang);
+                if (global.document && global.document.documentElement) {
+                    global.document.documentElement.lang = meta.currentLang;
+                }
+            }
+
+            return buildClient(meta, namespaces, bundleMap, missing, requests);
+        } catch (failure) {
+            requests.cancel();
+            throw failure;
+        } finally {
+            if (config.signal) config.signal.removeEventListener('abort', requests.cancel);
+        }
     }
 
     global.PixivI18n = {

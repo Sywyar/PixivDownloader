@@ -10,7 +10,6 @@ import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.web.DrilldownContribution;
 import top.sywyar.pixivdownload.setup.SetupService;
-import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.util.Comparator;
 import java.util.List;
@@ -26,7 +25,7 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
  * 可见性与排序口径同 {@link NavigationController} / {@link PageSectionController}：复用
  * {@link AccessPolicy#isVisibleTo(Audience)} 的页面身份投影，按「来源层级（内置先于第三方）→ placement 内
  * {@link DrilldownContribution#priority()}
- * → id」三级稳定排序。请求身份按三档解析（访客优先于管理员，因 solo 模式下 {@code hasAdminScope} 对任意请求为真）。
+ * → id」三级稳定排序。请求身份由 {@link SetupService#resolveAudience(HttpServletRequest)} 投影，邀请会话优先。
  * <p>
  * 响应只暴露渲染所需字段（{@code id} / {@code placements} / {@code hrefTemplate} / {@code priority}，<b>不含</b>
  * {@code visibleTo}），不泄露内部访问策略模型。前端隐藏不是安全边界——下钻链接指向的目标 URL 仍由 {@code AuthFilter}
@@ -45,7 +44,7 @@ public class DrilldownController {
     @GetMapping
     public List<DrilldownView> drilldowns(HttpServletRequest request,
                                           @RequestParam(value = "placement", required = false) String placement) {
-        Audience audience = resolveAudience(request);
+        Audience audience = setupService.resolveAudience(request);
         return drilldownRegistry.drilldowns().stream()
                 .filter(registered -> placement == null
                         || registered.drilldown().placements().contains(placement))
@@ -64,16 +63,6 @@ public class DrilldownController {
     /** 来源层级：内置插件 = 0，第三方插件 = 1（第三方贡献恒排在全部内置贡献之后，与 priority 大小无关）。 */
     private static int sourceRank(DrilldownRegistry.RegisteredDrilldown registered) {
         return BuiltInPlugins.isBuiltIn(registered.pluginId()) ? 0 : 1;
-    }
-
-    private Audience resolveAudience(HttpServletRequest request) {
-        if (request.getAttribute(GuestInviteSession.REQUEST_ATTR) instanceof GuestInviteSession) {
-            return Audience.INVITED_GUEST;
-        }
-        if (setupService.hasAdminScope(request)) {
-            return Audience.ADMIN;
-        }
-        return Audience.VISITOR;
     }
 
     /**

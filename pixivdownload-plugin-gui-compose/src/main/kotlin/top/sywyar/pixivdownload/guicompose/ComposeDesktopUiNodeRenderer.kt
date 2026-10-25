@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.TooltipArea
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -234,7 +235,7 @@ object ComposeDesktopUiNodeRenderer {
                 modifier = modifier.hand(node.enabled()).clickable(
                     enabled = node.enabled(),
                     role = Role.Button,
-                    onClick = { emit(activate(node.id(), node.actionId())) },
+                    onClick = { emit(activate(node.id())) },
                 ),
                 color = if (node.enabled()) LocalExperiencePalette.current.link
                     else LocalExperiencePalette.current.text.copy(alpha = .38f),
@@ -397,23 +398,21 @@ object ComposeDesktopUiNodeRenderer {
         val actionId = node.actionId()
         val interactive = if (actionId == null) sized else sized.hand(true).clickable(
             role = Role.Button,
-            onClick = { emit(activate(node.id(), actionId)) },
+            onClick = { emit(activate(node.id())) },
         )
         if (node.style() == DesktopUiNode.SurfaceStyle.PLAIN) {
             Box(interactive) { Node(node.content(), text, emit, contentModifier) }
             return
         }
-        val cardModifier = interactive
         val content: @Composable () -> Unit = { Node(node.content(), text, emit, contentModifier) }
         val containerColor = when (node.style()) {
             DesktopUiNode.SurfaceStyle.CARD -> LocalExperiencePalette.current.surface
-            DesktopUiNode.SurfaceStyle.MUTED -> LocalExperiencePalette.current.secondarySurface
             else -> LocalExperiencePalette.current.secondarySurface
         }
         CupertinoSurface(
             modifier = if (node.style() == DesktopUiNode.SurfaceStyle.CARD)
-                cardModifier.border(1.dp, LocalExperiencePalette.current.separator, CupertinoTheme.shapes.large)
-                else cardModifier,
+                interactive.border(1.dp, LocalExperiencePalette.current.separator, CupertinoTheme.shapes.large)
+                else interactive,
             shape = CupertinoTheme.shapes.large,
             color = containerColor,
             contentColor = LocalExperiencePalette.current.text,
@@ -696,15 +695,6 @@ object ComposeDesktopUiNodeRenderer {
             is DesktopUiNode.Dock -> Dock(node, text, emit, modifier, true)
             else -> Node(node, text, emit, modifier)
         }
-    }
-
-    private fun usesCompactFormRow(node: DesktopUiNode): Boolean = when (node) {
-        is DesktopUiNode.Toggle -> true
-        is DesktopUiNode.Choice -> node.choiceStyle() == DesktopUiNode.ChoiceStyle.COMBO_BOX
-        is DesktopUiNode.NumberInput -> node.numberStyle() == DesktopUiNode.NumberStyle.SPINNER
-        is DesktopUiNode.TextInput -> node.inputKind() == DesktopUiNode.InputKind.NUMBER ||
-            node.inputKind() == DesktopUiNode.InputKind.TIME
-        else -> false
     }
 
     @Composable
@@ -1211,7 +1201,7 @@ object ComposeDesktopUiNodeRenderer {
         fun update(next: TextFieldValue) {
             val changed = value.text != next.text
             value = next
-            if (changed) emit(change(node.id(), node.bindingId(), DesktopUiNode.Value.text(next.text)))
+            if (changed) emit(change(node.id(), DesktopUiNode.Value.text(next.text)))
         }
         val content: @Composable () -> Unit = {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1228,7 +1218,7 @@ object ComposeDesktopUiNodeRenderer {
                         onValueChange = ::update,
                         enabled = node.enabled(),
                         singleLine = node.inputKind() != DesktopUiNode.InputKind.MULTILINE,
-                        visualTransformation = if (node.inputKind() == DesktopUiNode.InputKind.PASSWORD)
+                        visualTransformation = if (password)
                             PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
                         modifier = Modifier.fillMaxWidth()
                             .semantics { contentDescription = resolve(node.label(), text) }
@@ -1286,7 +1276,6 @@ object ComposeDesktopUiNodeRenderer {
                                     emit(
                                         selection(
                                             suggestions.id(),
-                                            suggestions.bindingId(),
                                             DesktopUiNode.Value.selection(option.id()),
                                         ),
                                     )
@@ -1367,7 +1356,7 @@ object ComposeDesktopUiNodeRenderer {
         LaunchedEffect(documentRevision, node.selected()) { checked = node.selected() }
         val update: (Boolean) -> Unit = {
             checked = it
-            emit(change(node.id(), node.bindingId(), DesktopUiNode.Value.bool(it)))
+            emit(change(node.id(), DesktopUiNode.Value.bool(it)))
         }
         val labelledCheckbox = includeLabel && node.toggleStyle() != DesktopUiNode.ToggleStyle.SWITCH
         Row(
@@ -1420,20 +1409,26 @@ object ComposeDesktopUiNodeRenderer {
                 DesktopUiNode.Value.selection(selected.firstOrNull()) else DesktopUiNode.Value.selections(
                     selectedIdsInDocumentOrder(node.options().map { it.id() }, selected),
                 )
-            emit(selection(node.id(), node.bindingId(), value))
+            emit(selection(node.id(), value))
         }
         val content: @Composable () -> Unit = {
             when (node.choiceStyle()) {
                 DesktopUiNode.ChoiceStyle.COMBO_BOX -> ComboChoice(node, selected, text, ::choose)
-                DesktopUiNode.ChoiceStyle.RADIO_BUTTONS -> Column {
+                DesktopUiNode.ChoiceStyle.RADIO_BUTTONS -> Column(Modifier.selectableGroup()) {
                     node.options().forEach { option ->
                         Row(
-                            Modifier.fillMaxWidth().hand(node.enabled() && option.enabled()),
+                            Modifier.fillMaxWidth().hand(node.enabled() && option.enabled()).selectable(
+                                selected = selected.contains(option.id()),
+                                enabled = node.enabled() && option.enabled(),
+                                role = Role.RadioButton,
+                                onClick = { choose(option.id()) },
+                            ),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            DesktopRadioButton(selected.contains(option.id()), { choose(option.id()) },
+                            DesktopRadioButton(
+                                selected = selected.contains(option.id()),
                                 enabled = node.enabled() && option.enabled(),
-                                modifier = Modifier.semantics { contentDescription = resolve(option.label(), text) })
+                            )
                             CupertinoText(resolve(option.label(), text), style = CupertinoTheme.typography.body)
                         }
                     }
@@ -1441,12 +1436,19 @@ object ComposeDesktopUiNodeRenderer {
                 DesktopUiNode.ChoiceStyle.CHECK_BOXES -> Column {
                     node.options().forEach { option ->
                         Row(
-                            Modifier.fillMaxWidth().hand(node.enabled() && option.enabled()),
+                            Modifier.fillMaxWidth().hand(node.enabled() && option.enabled()).toggleable(
+                                value = selected.contains(option.id()),
+                                enabled = node.enabled() && option.enabled(),
+                                role = Role.Checkbox,
+                                onValueChange = { choose(option.id()) },
+                            ),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            CupertinoCheckBox(selected.contains(option.id()), { choose(option.id()) },
+                            CupertinoCheckBox(
+                                checked = selected.contains(option.id()),
+                                onCheckedChange = null,
                                 enabled = node.enabled() && option.enabled(),
-                                modifier = Modifier.semantics { contentDescription = resolve(option.label(), text) })
+                            )
                             CupertinoText(resolve(option.label(), text), style = CupertinoTheme.typography.body)
                         }
                     }
@@ -1544,7 +1546,7 @@ object ComposeDesktopUiNodeRenderer {
         LaunchedEffect(documentRevision, node.value()) { value = node.value() }
         fun update(next: Long) {
             value = alignedNumberValue(next, node.minimum(), node.maximum(), node.step())
-            emit(change(node.id(), node.bindingId(), DesktopUiNode.Value.number(value)))
+            emit(change(node.id(), DesktopUiNode.Value.number(value)))
         }
         val content: @Composable () -> Unit = {
             if (node.numberStyle() == DesktopUiNode.NumberStyle.SLIDER) {
@@ -1576,7 +1578,7 @@ object ComposeDesktopUiNodeRenderer {
                         draft = next
                         numericInputValue(next.text, node.minimum(), node.maximum(), node.step())?.let {
                             value = it
-                            emit(change(node.id(), node.bindingId(), DesktopUiNode.Value.number(it)))
+                            emit(change(node.id(), DesktopUiNode.Value.number(it)))
                         }
                     },
                     enabled = node.enabled(),
@@ -1628,7 +1630,7 @@ object ComposeDesktopUiNodeRenderer {
                 DesktopUiNode.Value.selection(selected.firstOrNull()) else DesktopUiNode.Value.selections(
                     selectedIdsInDocumentOrder(node.rows().map { it.id() }, selected),
                 )
-            emit(selection(node.id(), node.bindingId(), value))
+            emit(selection(node.id(), value))
         }
         CupertinoSurface(
             modifier = modifier.border(1.dp, LocalExperiencePalette.current.separator, CupertinoTheme.shapes.medium),
@@ -1702,7 +1704,7 @@ object ComposeDesktopUiNodeRenderer {
                 DesktopUiNode.Value.selection(selected.firstOrNull()) else DesktopUiNode.Value.selections(
                     selectedIdsInDocumentOrder(treeItemIds(node.items()), selected),
             )
-            emit(selection(node.id(), node.bindingId(), value))
+            emit(selection(node.id(), value))
         }
         fun toggle(id: String) {
             expandedIds = ArrayList(if (expandedIds.contains(id)) expandedIds - id else expandedIds + id)
@@ -1822,7 +1824,7 @@ object ComposeDesktopUiNodeRenderer {
         emit: (DesktopUiNode.Event) -> Unit,
         modifier: Modifier,
     ) {
-        val click = { emit(activate(node.id(), node.actionId())) }
+        val click = { emit(activate(node.id())) }
         val content: @Composable RowScope.() -> Unit = {
             node.icon()?.let { DesktopIcon(desktopIcon(it), null, Modifier.padding(end = 7.dp).size(18.dp)) }
             CupertinoText(
@@ -1931,15 +1933,15 @@ object ComposeDesktopUiNodeRenderer {
             chooser.selectedFile.absolutePath else null
     }
 
-    private fun activate(nodeId: String, actionId: String) = DesktopUiNode.Event(
+    private fun activate(nodeId: String) = DesktopUiNode.Event(
         DesktopUiNode.EventType.ACTIVATE, nodeId, DesktopUiNode.Value.empty(),
     )
 
-    private fun change(nodeId: String, bindingId: String, value: DesktopUiNode.Value) = DesktopUiNode.Event(
+    private fun change(nodeId: String, value: DesktopUiNode.Value) = DesktopUiNode.Event(
         DesktopUiNode.EventType.CHANGE, nodeId, value,
     )
 
-    private fun selection(nodeId: String, bindingId: String, value: DesktopUiNode.Value) = DesktopUiNode.Event(
+    private fun selection(nodeId: String, value: DesktopUiNode.Value) = DesktopUiNode.Event(
         DesktopUiNode.EventType.SELECTION, nodeId, value,
     )
 }

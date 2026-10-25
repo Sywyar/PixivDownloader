@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.maintenance;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.notification.NotificationDispatcher;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
@@ -12,6 +14,9 @@ import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapa
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -26,6 +31,48 @@ import static org.mockito.Mockito.when;
 
 @DisplayName("MaintenanceCoordinator 调度配置测试")
 class MaintenanceCoordinatorTest {
+
+    @ParameterizedTest
+    @CsvSource({"false, false", "true, false", "false, true"})
+    @DisplayName("维护运行中拒绝重复请求，关闭窗口后允许再次执行")
+    void rejectsDuplicateRequestDuringActiveWindow(boolean scheduled, boolean duplicateScheduled) throws Exception {
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var runs = new AtomicInteger();
+        MaintenanceTask task = new MaintenanceTask() {
+            public String name() { return "held-maintenance"; }
+            public void execute(MaintenanceContext context) throws Exception {
+                runs.incrementAndGet();
+                entered.countDown();
+                assertThat(release.await(20, TimeUnit.SECONDS)).isTrue();
+            }
+        };
+        var coordinator = new MaintenanceCoordinator(List.of(task), new MaintenanceProperties());
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var first = workers.submit(() -> scheduled
+                    ? coordinator.runScheduledIfDue(LocalDateTime.of(2026, 5, 25, 10, 0))
+                    : coordinator.runManually());
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(coordinator.isPaused()).isTrue();
+            var duplicate = workers.submit(() -> duplicateScheduled
+                    ? coordinator.runScheduledIfDue(LocalDateTime.of(2026, 5, 25, 10, 0))
+                    : coordinator.runManually());
+            assertThat(duplicate.get(5, TimeUnit.SECONDS)).isFalse();
+            assertThat(runs).hasValue(1);
+            assertThat(MaintenanceStatusHolder.snapshot().active()).isTrue();
+            release.countDown();
+            assertThat(first.get(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(coordinator.isPaused()).isFalse();
+            assertThat(MaintenanceStatusHolder.snapshot().active()).isFalse();
+            assertThat(coordinator.runManually()).isTrue();
+            assertThat(runs).hasValue(2);
+        } finally {
+            release.countDown();
+            workers.shutdown();
+            assertThat(workers.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
 
     @Test
     @DisplayName("缺库不打开维护窗口也不消费时段，运行中失效停止后续任务和通知")

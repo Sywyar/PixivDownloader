@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import top.sywyar.pixivdownload.plugin.catalog.community.CommunityDirectoryService;
 import top.sywyar.pixivdownload.config.RuntimeFiles;
+import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.config.PluginRepositoryConfigEditor;
 import top.sywyar.pixivdownload.plugin.api.gui.RepositoryConfigEntry;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
@@ -134,15 +135,17 @@ public final class PluginRepositoryImportService {
     public RepositoryTrustResult trust(String descriptorUrl, String expectedDescriptorSha256,
                                        boolean trustConfirmed) {
         VerifiedImport verified = verifyImport(descriptorUrl, expectedDescriptorSha256, trustConfirmed);
-        PluginRepositoryConfigEditor editor = new PluginRepositoryConfigEditor(RuntimeFiles.resolveConfigYamlPath());
+        var configFile = new ConfigFileEditor(RuntimeFiles.resolveConfigYamlPath()).asConfigFile();
         try {
-            List<RepositoryConfigEntry> entries = new ArrayList<>(editor.read());
-            entries.removeIf(current -> current.id().equalsIgnoreCase(verified.entry().id()));
-            entries.add(verified.entry());
-            editor.write(entries);
-            acceptUpdate(verified);
+            configFile.withWriteLock(() -> {
+                var entries = new ArrayList<>(new PluginRepositoryConfigEditor(configFile).read());
+                entries.removeIf(current -> current.id().equalsIgnoreCase(verified.entry().id()));
+                entries.add(verified.entry());
+                writeVerified(configFile, entries, verified.proof() == null ? Map.of()
+                        : Map.of(verified.entry().id(), verified.proof().sequence()));
+            });
         } catch (IOException failure) {
-            throw new PluginCatalogException(PluginCatalogErrorCode.REPOSITORY_CONFIG_WRITE_FAILED, failure.getMessage());
+            throw new PluginCatalogException(PluginCatalogErrorCode.REPOSITORY_CONFIG_WRITE_FAILED, failure.getMessage(), failure);
         }
         return new RepositoryTrustResult(verified.entry().id(), expectedDescriptorSha256,
                 true, true, String.valueOf(verified.entry().extraFields().get("trust-source")));
@@ -179,24 +182,25 @@ public final class PluginRepositoryImportService {
             }
             if (verified.proof() != null) sequences.put(entry.id(), verified.proof().sequence());
         }
-        DesktopUiHost.ConfigSnapshot before = configFile.snapshot();
-        editor.write(entries);
-        try {
-            stateStore.acceptUpdateSequences(sequences);
-        } catch (IOException failure) {
-            try { configFile.restore(before); }
-            catch (IOException rollback) { failure.addSuppressed(rollback); }
-            throw failure;
-        }
+        writeVerified(configFile, entries, sequences);
+    }
+
+    private void writeVerified(DesktopUiHost.ConfigFile configFile, List<RepositoryConfigEntry> entries,
+                               Map<String, Long> sequences) throws IOException {
+        configFile.withWriteLock(() -> {
+            DesktopUiHost.ConfigSnapshot before = configFile.snapshot();
+            new PluginRepositoryConfigEditor(configFile).write(entries);
+            try {
+                stateStore.acceptUpdateSequences(sequences);
+            } catch (IOException failure) {
+                try { configFile.restore(before); }
+                catch (IOException rollback) { failure.addSuppressed(rollback); }
+                throw failure;
+            }
+        });
     }
 
     private record VerifiedImport(RepositoryConfigEntry entry, RepositoryUpdateDocument proof) {}
-
-    private void acceptUpdate(VerifiedImport verified) throws IOException {
-        if (verified.proof() != null) {
-            stateStore.acceptUpdateSequence(verified.entry().id(), verified.proof().sequence());
-        }
-    }
 
     private VerifiedImport verifyImport(String descriptorUrl, String expectedDescriptorSha256, boolean trustConfirmed) {
         if (!trustConfirmed) {
@@ -224,7 +228,7 @@ public final class PluginRepositoryImportService {
                 || !knownHosts(existing).containsAll(parsed.networkHosts()));
         var certification = certification(parsed);
         boolean communityCertified = certified(parsed, certification);
-        RepositoryUpdateDocument proof = updateRequired && !communityCertified ? verifiedUpdateProof(existing, parsed, true) : null;
+        RepositoryUpdateDocument proof = updateRequired && !communityCertified ? verifiedUpdateProof(existing, parsed) : null;
         return new VerifiedImport(configurationEntry(parsed, communityCertified ? certification : null), proof);
     }
 
@@ -249,7 +253,7 @@ public final class PluginRepositoryImportService {
     private String updateProofStatus(PluginRepository existing, ParsedRepositoryDescriptor parsed) {
         if (existing == null || existing.updateProofUrl() == null) return "NOT_AVAILABLE";
         try {
-            verifiedUpdateProof(existing, parsed, false);
+            verifiedUpdateProof(existing, parsed);
             return "VERIFIED";
         } catch (PluginCatalogException failure) {
             return "INVALID";
@@ -257,11 +261,9 @@ public final class PluginRepositoryImportService {
     }
 
     private RepositoryUpdateDocument verifiedUpdateProof(PluginRepository existing,
-                                                          ParsedRepositoryDescriptor parsed,
-                                                          boolean required) {
+                                                          ParsedRepositoryDescriptor parsed) {
         if (existing == null || existing.updateProofUrl() == null) {
-            if (required) throw updateInvalid("existing descriptor does not declare updateProofUrl");
-            return null;
+            throw updateInvalid("existing descriptor does not declare updateProofUrl");
         }
         try {
             byte[] documentBytes = clients.clientFor(existing)

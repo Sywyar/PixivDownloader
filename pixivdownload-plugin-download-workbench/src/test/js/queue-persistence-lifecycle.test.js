@@ -31,14 +31,18 @@ function harness(variant) {
     const run = code => vm.runInContext(code, context);
     const load = name => run(fs.readFileSync(path.resolve(__dirname, '../../main/resources/static', name), 'utf8'));
     run("const BASE = '';");
+    load('pixiv-batch/queue-display.js');
+    load('pixiv-batch/state-storage.js');
+    load('pixiv-batch/download-workers.js');
     if (variant === 'alt') {
         load('pixiv-batch/batch-download-defaults.js'); load('pixiv-batch-alt/alt-state.js');
+        load('pixiv-batch-alt/alt-queue-model.js');
         load('pixiv-batch-alt/alt-queue.js');
         load('pixiv-batch-alt/alt-engine-workers.js');
     } else {
         run("let appMode = 'solo', serverState = {}, state = {queue: [], stats: {}};");
         load('pixiv-batch/batch-storage.js');
-        for (const name of ['batch-queue-model.js','batch-queue-actions.js','batch-queue-view.js','batch-queue.js','batch-download-workers.js']) {
+        for (const name of ['batch-queue-model.js','batch-queue-actions.js','download-speed.js', 'batch-queue-view.js','batch-queue.js','batch-download-workers.js']) {
             load('pixiv-batch/' + name);
         }
     }

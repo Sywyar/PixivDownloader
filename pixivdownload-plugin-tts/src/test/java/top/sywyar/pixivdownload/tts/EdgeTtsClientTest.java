@@ -54,7 +54,7 @@ class EdgeTtsClientTest {
 
         connector.awaitConnect();
         connector.succeed(socket);
-        socket.awaitTextFrames(2);
+        socket.awaitTextFrames();
         byte[] expected = {3, 1, 4, 1, 5};
         connector.listener().onBinary(socket, ByteBuffer.wrap(audioFrame(expected)), true);
         connector.listener().onText(socket, "Path:turn.end", true);
@@ -74,6 +74,35 @@ class EdgeTtsClientTest {
     }
 
     @Test
+    @DisplayName("停止可中止等待中的正常关闭且保留已经完成的音频")
+    void closeAbortsPendingGracefulStopWithoutLosingAudio() throws Exception {
+        ControlledConnector connector = new ControlledConnector();
+        TestWebSocket socket = TestWebSocket.withPendingClose();
+        EdgeTtsClient client = client(connector);
+        Invocation invocation = startSynthesis(client);
+
+        connector.awaitConnect();
+        connector.succeed(socket);
+        socket.awaitTextFrames();
+        byte[] expected = {2, 7, 1};
+        connector.listener().onBinary(socket, ByteBuffer.wrap(audioFrame(expected)), true);
+        connector.listener().onText(socket, "Path:turn.end", true);
+        socket.awaitCloseStarted();
+
+        CompletableFuture.runAsync(client::close).get(2, TimeUnit.SECONDS);
+        invocation.join();
+
+        assertArrayEquals(expected, invocation.result.get());
+        assertEquals(null, invocation.failure.get());
+        assertEquals(1, socket.closeCount.get());
+        assertTrue(socket.abortCount.get() >= 1);
+        int requestsAtTerminal = socket.requestCount.get();
+        connector.listener().onText(socket, "Path:turn.end", true);
+        assertEquals(requestsAtTerminal, socket.requestCount.get());
+        client.close();
+    }
+
+    @Test
     @DisplayName("停止会等待已进入的回调并让停止后的回调全部失效")
     void closeDrainsEnteredCallbackAndRejectsLateCallbacks() throws Exception {
         ControlledConnector connector = new ControlledConnector();
@@ -83,7 +112,7 @@ class EdgeTtsClientTest {
 
         connector.awaitConnect();
         connector.succeed(socket);
-        socket.awaitTextFrames(2);
+        socket.awaitTextFrames();
 
         BlockingCharSequence blockedText = new BlockingCharSequence("Path:turn.end");
         Thread callback = daemonThread(() -> connector.listener().onText(socket, blockedText, true));
@@ -221,7 +250,7 @@ class EdgeTtsClientTest {
 
         connector.awaitConnect();
         connector.succeed(socket);
-        socket.awaitTextFrames(2);
+        socket.awaitTextFrames();
         connector.listener().onError(socket, new IOException("token=do-not-expose"));
         invocation.join();
 
@@ -277,7 +306,7 @@ class EdgeTtsClientTest {
 
         connector.awaitConnect();
         connector.succeed(socket);
-        socket.awaitTextFrames(2);
+        socket.awaitTextFrames();
         connector.listener().onError(socket, fatal);
         invocation.join();
 
@@ -313,20 +342,6 @@ class EdgeTtsClientTest {
         Thread thread = new Thread(runnable, "edge-tts-client-test");
         thread.setDaemon(true);
         return thread;
-    }
-
-    private static void awaitWaiting(Thread thread) throws InterruptedException {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-        while (thread.isAlive()
-                && thread.getState() != Thread.State.WAITING
-                && thread.getState() != Thread.State.TIMED_WAITING
-                && System.nanoTime() < deadline) {
-            Thread.onSpinWait();
-        }
-        assertTrue(thread.isAlive());
-        assertTrue(thread.getState() == Thread.State.WAITING
-                || thread.getState() == Thread.State.TIMED_WAITING,
-                () -> "线程未进入等待态: " + thread.getState());
     }
 
     private static byte[] audioFrame(byte[] audio) {
@@ -449,8 +464,7 @@ class EdgeTtsClientTest {
             return new TestWebSocket(true);
         }
 
-        private void awaitTextFrames(int expected) throws InterruptedException {
-            assertEquals(2, expected);
+        private void awaitTextFrames() throws InterruptedException {
             assertTrue(textFrames.await(2, TimeUnit.SECONDS));
         }
 

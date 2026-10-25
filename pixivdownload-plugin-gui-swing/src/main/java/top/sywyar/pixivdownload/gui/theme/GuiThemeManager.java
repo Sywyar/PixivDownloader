@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui.theme;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeAppearance;
+import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeChangeListener;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeListenerSession;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
@@ -24,8 +25,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Swing-only GUI theme manager. The core owns only theme id persistence, contribution selection, listener lifetime,
- * and system/JDK fallback. Concrete theme engines live in startup plugins.
+ * Swing 的主题应用、贡献监听与系统回退；主题持久化由设置页负责。
  */
 public final class GuiThemeManager {
 
@@ -36,10 +36,9 @@ public final class GuiThemeManager {
 
     private static String configuredThemeId = DEFAULT_THEME_ID;
     private static String activeThemeId = DEFAULT_THEME_ID;
-    private static GuiThemeAppearance currentAppearance = GuiThemeAppearance.UNKNOWN;
     private static boolean currentDark;
-    private static Map<String, RegisteredTheme> themes = Map.of();
-    private static GuiThemeListenerSession activeContributionListener = GuiThemeListenerSession.none();
+    private static Map<String, GuiThemeContribution> themes;
+    private static ActiveThemeListener activeContributionListener;
     private static final List<Runnable> changeListeners = new ArrayList<>();
 
     private GuiThemeManager() {
@@ -55,8 +54,10 @@ public final class GuiThemeManager {
         return DEFAULT_THEME_ID;
     }
 
-    public static void applyBeforeFirstWindow(DesktopUiHost.ConfigFile configFile, String configuredThemeId,
-                                              Collection<DesktopUiPluginSnapshot> activePlugins) {
+    public static void applyBeforeFirstWindow(
+            String configuredThemeId,
+            Collection<DesktopUiPluginSnapshot> activePlugins
+    ) {
         Runnable task = () -> {
             synchronized (LOCK) {
                 GuiThemeManager.configuredThemeId = normalizeThemeId(configuredThemeId);
@@ -87,18 +88,18 @@ public final class GuiThemeManager {
     public static List<ThemeChoice> choices(Locale locale, String unavailableLabel, String fallbackLabel) {
         List<ThemeChoice> result = new ArrayList<>();
         String configured;
-        Map<String, RegisteredTheme> snapshot;
+        Map<String, GuiThemeContribution> snapshot;
         synchronized (LOCK) {
             configured = configuredThemeId;
-            snapshot = themes;
+            snapshot = themes == null ? Map.of() : themes;
         }
         if (!snapshot.containsKey(configured) && !DEFAULT_THEME_ID.equals(configured)) {
             result.add(new ThemeChoice(configured, unavailableLabel + " (" + configured + ")",
                     GuiThemeAppearance.UNKNOWN, true));
         }
-        for (RegisteredTheme theme : snapshot.values()) {
-            result.add(new ThemeChoice(theme.id(), safeDisplayName(theme.contribution(), locale),
-                    theme.contribution().appearance(), false));
+        for (var theme : snapshot.entrySet()) {
+            result.add(new ThemeChoice(theme.getKey(), safeDisplayName(theme.getValue(), locale),
+                    theme.getValue().appearance(), false));
         }
         boolean hasAvailable = result.stream().anyMatch(choice -> !choice.unavailable());
         if (!hasAvailable) {
@@ -107,43 +108,24 @@ public final class GuiThemeManager {
         return List.copyOf(result);
     }
 
-    public static boolean applyUserSelection(DesktopUiHost.ConfigFile configFile, String themeId) {
-        String normalized = normalizeThemeId(themeId);
-        boolean persisted = persistThemeId(configFile, normalized);
-        synchronized (LOCK) {
-            GuiThemeManager.configuredThemeId = normalized;
-        }
-        Runnable task = () -> applyConfiguredTheme(true);
-        if (SwingUtilities.isEventDispatchThread()) {
-            task.run();
-        } else {
-            SwingUtilities.invokeLater(task);
-        }
-        return persisted;
-    }
-
     public static void applyThemeId(String themeId) {
         String normalized = normalizeThemeId(themeId);
+        Map<String, GuiThemeContribution> snapshot;
         synchronized (LOCK) {
+            if (themes == null) return;
+            snapshot = themes;
             configuredThemeId = normalized;
         }
-        Runnable task = () -> applyConfiguredTheme(true);
+        Runnable task = () -> {
+            synchronized (LOCK) {
+                if (themes != snapshot) return;
+            }
+            applyConfiguredTheme(true);
+        };
         if (SwingUtilities.isEventDispatchThread()) {
             task.run();
         } else {
             SwingUtilities.invokeLater(task);
-        }
-    }
-
-    public static boolean persistThemeId(DesktopUiHost.ConfigFile configFile, String themeId) {
-        if (configFile == null) return false;
-        String normalized = normalizeThemeId(themeId);
-        try {
-            configFile.write("app.theme", normalized);
-            return true;
-        } catch (IOException | RuntimeException e) {
-            log.warn("Failed to write app.theme: {}", e.toString());
-            return false;
         }
     }
 
@@ -179,20 +161,25 @@ public final class GuiThemeManager {
         }
     }
 
-    static void resetForTests() {
+    public static void close() {
         synchronized (LOCK) {
             closeContributionListener();
-            configuredThemeId = DEFAULT_THEME_ID;
-            activeThemeId = DEFAULT_THEME_ID;
-            currentAppearance = GuiThemeAppearance.UNKNOWN;
-            currentDark = false;
-            themes = Map.of();
+            themes = null;
             changeListeners.clear();
         }
     }
 
+    static void resetForTests() {
+        close();
+        synchronized (LOCK) {
+            configuredThemeId = DEFAULT_THEME_ID;
+            activeThemeId = DEFAULT_THEME_ID;
+            currentDark = false;
+        }
+    }
+
     private static void applyConfiguredTheme(boolean refreshExistingWindows) {
-        RegisteredTheme registered;
+        GuiThemeContribution registered;
         String target;
         synchronized (LOCK) {
             target = configuredThemeId;
@@ -205,7 +192,7 @@ public final class GuiThemeManager {
             return;
         }
         try {
-            registered.contribution().applyOnEventDispatchThread();
+            registered.applyOnEventDispatchThread();
         } catch (Throwable failure) {
             throwIfJvmFatal(failure);
             log.error("GUI theme '{}' failed to apply; using system/JDK fallback", target, failure);
@@ -215,15 +202,12 @@ public final class GuiThemeManager {
 
         synchronized (LOCK) {
             closeContributionListener();
-            activeThemeId = registered.id();
-            currentAppearance = registered.contribution().appearance();
-            currentDark = deriveDark(currentAppearance);
+            activeThemeId = target;
+            currentDark = deriveDark(registered.appearance());
             try {
-                activeContributionListener = registered.contribution().openListener(
-                        appearance -> SwingUtilities.invokeLater(() -> applyAppearance(appearance)));
+                activeContributionListener = new ActiveThemeListener(registered);
             } catch (Throwable failure) {
                 throwIfJvmFatal(failure);
-                activeContributionListener = GuiThemeListenerSession.none();
                 log.warn("GUI theme '{}' listener failed to start: {}",
                         target, failure.toString(), failure);
             }
@@ -250,29 +234,37 @@ public final class GuiThemeManager {
         synchronized (LOCK) {
             closeContributionListener();
             activeThemeId = DEFAULT_THEME_ID;
-            currentAppearance = GuiThemeAppearance.UNKNOWN;
             currentDark = deriveDarkFromSwing();
         }
         notifyListeners();
     }
 
-    private static void applyAppearance(GuiThemeAppearance appearance) {
-        synchronized (LOCK) {
-            currentAppearance = appearance == null ? GuiThemeAppearance.UNKNOWN : appearance;
-            currentDark = deriveDark(currentAppearance);
+    private static final class ActiveThemeListener implements GuiThemeChangeListener {
+        private final GuiThemeListenerSession session;
+
+        private ActiveThemeListener(GuiThemeContribution contribution) {
+            session = contribution.openListener(this);
         }
-        notifyListeners();
+
+        @Override
+        public void appearanceChanged(GuiThemeAppearance appearance) {
+            SwingUtilities.invokeLater(() -> {
+                synchronized (LOCK) {
+                    if (activeContributionListener != this) return;
+                    currentDark = deriveDark(appearance);
+                }
+                notifyListeners();
+            });
+        }
     }
 
-    private static Map<String, RegisteredTheme> collectThemes(
+    private static Map<String, GuiThemeContribution> collectThemes(
             Collection<DesktopUiPluginSnapshot> plugins
     ) {
-        if (plugins == null || plugins.isEmpty()) {
-            return Map.of();
-        }
-        Map<String, RegisteredTheme> collected = new LinkedHashMap<>();
+        // 空集合也承担本次会话身份，不能跨会话复用空单例。
+        Map<String, GuiThemeContribution> collected = new LinkedHashMap<>();
         List<String> duplicates = new ArrayList<>();
-        for (DesktopUiPluginSnapshot source : plugins) {
+        for (DesktopUiPluginSnapshot source : plugins == null ? List.<DesktopUiPluginSnapshot>of() : plugins) {
             if (source == null) {
                 continue;
             }
@@ -293,10 +285,10 @@ public final class GuiThemeManager {
                     log.error("Duplicate GUI theme id '{}' from plugin '{}' ignored", id, pluginId);
                     continue;
                 }
-                collected.put(id, new RegisteredTheme(id, pluginId, contribution));
+                collected.put(id, contribution);
             }
         }
-        return Collections.unmodifiableMap(new LinkedHashMap<>(collected));
+        return Collections.unmodifiableMap(collected);
     }
 
     private static String safeDisplayName(GuiThemeContribution contribution, Locale locale) {
@@ -311,13 +303,14 @@ public final class GuiThemeManager {
     }
 
     private static void closeContributionListener() {
+        ActiveThemeListener previous = activeContributionListener;
+        activeContributionListener = null;
+        if (previous == null) return;
         try {
-            activeContributionListener.close();
+            previous.session.close();
         } catch (Throwable failure) {
             throwIfJvmFatal(failure);
             log.warn("Failed to close GUI theme listener: {}", failure.toString(), failure);
-        } finally {
-            activeContributionListener = GuiThemeListenerSession.none();
         }
     }
 
@@ -398,14 +391,6 @@ public final class GuiThemeManager {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(displayName, "displayName");
             Objects.requireNonNull(appearance, "appearance");
-        }
-    }
-
-    private record RegisteredTheme(String id, String pluginId, GuiThemeContribution contribution) {
-        private RegisteredTheme {
-            Objects.requireNonNull(id, "id");
-            Objects.requireNonNull(pluginId, "pluginId");
-            Objects.requireNonNull(contribution, "contribution");
         }
     }
 }

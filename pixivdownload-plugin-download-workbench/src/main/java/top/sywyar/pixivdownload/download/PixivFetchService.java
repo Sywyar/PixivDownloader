@@ -218,7 +218,7 @@ public class PixivFetchService {
      */
     public List<String> discoverSearchArtworkIds(String word, String order, String mode,
                                                  String sMode, int maxPages, String cookie) throws IOException {
-        LinkedHashMap<String, Boolean> ids = new LinkedHashMap<>();
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
         int pages = Math.max(1, maxPages);
         for (int p = 1; p <= pages; p++) {
             URI uri = UriComponentsBuilder
@@ -239,13 +239,13 @@ public class PixivFetchService {
             int before = ids.size();
             for (JsonNode item : data) {
                 String id = item.path("id").asText("");
-                if (!id.isEmpty()) ids.put(id, Boolean.TRUE);
+                if (!id.isEmpty()) ids.add(id);
             }
             int total = body.path("illustManga").path("total").asInt(0);
             if (total > 0 && ids.size() >= total) break;
             if (ids.size() == before) break;
         }
-        return new ArrayList<>(ids.keySet());
+        return new ArrayList<>(ids);
     }
 
     /**
@@ -303,11 +303,11 @@ public class PixivFetchService {
                 if (!id.isEmpty()) members.add(new Member(id, entry.path("order").asInt(0)));
             }
         }
-        LinkedHashMap<String, Boolean> ids = new LinkedHashMap<>();
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
         members.stream()
                 .sorted(Comparator.comparingInt(Member::order))
-                .forEach(m -> ids.put(m.id(), Boolean.TRUE));
-        return new ArrayList<>(ids.keySet());
+                .forEach(m -> ids.add(m.id()));
+        return new ArrayList<>(ids);
     }
 
     // ---- 账号私有来源发现（收藏 / 已关注用户的新作 / 珍藏集，均需含 PHPSESSID 的 cookie） ----
@@ -485,30 +485,12 @@ public class PixivFetchService {
     /** 按关键词搜索发现小说 ID，翻 {@code maxPages} 页去重后返回（按出现顺序）。 */
     public List<String> discoverSearchNovelIds(String word, String order, String mode,
                                                String sMode, int maxPages, String cookie) throws IOException {
-        LinkedHashMap<String, Boolean> ids = new LinkedHashMap<>();
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
         int pages = Math.max(1, maxPages);
         for (int p = 1; p <= pages; p++) {
-            URI uri = UriComponentsBuilder
-                    .fromUriString("https://www.pixiv.net/ajax/search/novels/{word}")
-                    .queryParam("word", "{word}")
-                    .queryParam("order", order)
-                    .queryParam("mode", mode)
-                    .queryParam("s_mode", sMode)
-                    .queryParam("p", p)
-                    .queryParam("lang", "zh")
-                    .buildAndExpand(Map.of("word", word))
-                    .encode()
-                    .toUri();
-            JsonNode data = requireBody(proxyGetUri(uri, cookie)).path("novel").path("data");
-            if (!data.isArray() || data.isEmpty()) break;
-            int before = ids.size();
-            for (JsonNode item : data) {
-                String id = item.path("id").asText("");
-                if (!id.isEmpty()) ids.put(id, Boolean.TRUE);
-            }
-            if (ids.size() == before) break;
+            if (!ids.addAll(discoverSearchNovelIdsPage(word, order, mode, sMode, p, cookie))) break;
         }
-        return new ArrayList<>(ids.keySet());
+        return new ArrayList<>(ids);
     }
 
     /**
@@ -546,7 +528,7 @@ public class PixivFetchService {
      * 直到某页不足一页为止。
      */
     public List<String> discoverNovelSeriesIds(String seriesId, String cookie) throws IOException {
-        LinkedHashMap<String, Boolean> ids = new LinkedHashMap<>();
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
         int limit = 30;
         for (int p = 1; p <= 200; p++) {
             URI uri = UriComponentsBuilder
@@ -566,13 +548,13 @@ public class PixivFetchService {
             for (JsonNode entry : arr) {
                 String id = entry.path("id").asText("");
                 if (!id.isEmpty()) {
-                    ids.put(id, Boolean.TRUE);
+                    ids.add(id);
                     count++;
                 }
             }
             if (count < limit) break;
         }
-        return new ArrayList<>(ids.keySet());
+        return new ArrayList<>(ids);
     }
 
     // ---- 解析辅助（与 PixivProxyController 同源，供服务端发现路径复用） ----------

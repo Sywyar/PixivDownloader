@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 import { runCheck } from '../check.mjs';
 import { runAccept } from '../accept.mjs';
@@ -94,6 +96,29 @@ test('missing / extra / empty 检测', () => {
         assert.ok(errors.some((i) => i.key === 'b' && i.type === 'missing'));
         assert.ok(errors.some((i) => i.key === 'c' && i.type === 'empty'));
         assert.ok(errors.some((i) => i.key === 'd' && i.type === 'extra'));
+    } finally {
+        cleanRepo(root);
+    }
+});
+
+test('CLI 失败摘要按覆盖率计数，缺失、过期、非法和额外词条不重复累加', () => {
+    const source = 'a=你好 {name}\nb=标题\nc=共 {count} 项\nd=完成\n';
+    const english = 'a=Hello {name}\nb=Title\nc={count} items\nd=Done\n';
+    const root = makeRepo({ 'web/common.properties': source, 'web/common_en.properties': english });
+    try {
+        assert.equal(runAccept(root, { bootstrap: true }).ok, true);
+        fs.writeFileSync(path.join(root, APP_I18N, 'web/common.properties'), source.replace('你好', '您好'), 'utf8');
+        fs.writeFileSync(path.join(root, APP_I18N, 'web/common_en.properties'),
+            'a=Hello {name}\nc=Items\nd=Finished\ne=Extra\n', 'utf8');
+        runGenerate(root);
+        const result = spawnSync(process.execPath,
+            [fileURLToPath(new URL('../check.mjs', import.meta.url)), '--repo-root', root], { encoding: 'utf8' });
+        assert.equal(result.status, 1, result.stdout + result.stderr);
+        assert.match(result.stderr, /en-US \[supported\]: 0\.00%\r?\n  missing: 1\r?\n  stale: 2\r?\n  invalid: 1\r?\n  extra: 1/);
+        assert.match(result.stderr, /ja-JP \[candidate\]: 0\.00%\r?\n  missing: 4/);
+        const report = JSON.parse(fs.readFileSync(path.join(root, 'build/reports/i18n/report.json'), 'utf8'));
+        const row = coverageRow(report, 'en-US', 'web/common');
+        assert.deepEqual([row.missing, row.stale, row.translationUnaccepted, row.invalid, row.extra], [1, 1, 1, 1, 1]);
     } finally {
         cleanRepo(root);
     }
@@ -489,32 +514,41 @@ test('lock orphan：check 失败并提示 prune；prune 只删已确认消失的
     const root = makeRepo({ 'web/common.properties': OK_ZH, 'web/common_en.properties': OK_EN });
     try {
         runAccept(root, { bootstrap: true });
-        // 锁里塞一个不存在的 key 条目
+        // 失效条目不能借用同名 bundle 或去掉 web/ 前缀后命中的记录。
         const lock = staleLock.load(root);
-        lock.entries.push({
-            locale: 'en-US', module: 'pixivdownload-app', baseName: 'web/common',
-            key: 'deleted.key',
-            acceptedSourceHash: '0'.repeat(64),
-            acceptedTranslationHash: '0'.repeat(64),
-        });
+        const orphanEntries = [
+            { module: 'pixivdownload-app', baseName: 'web/common', key: 'deleted.key' },
+            { module: 'removed-plugin', baseName: 'web/common', key: 'greeting' },
+            { module: 'pixivdownload-app', baseName: 'common', key: 'greeting' },
+        ];
+        for (const entry of orphanEntries) {
+            lock.entries.push({
+                locale: 'en-US', ...entry,
+                acceptedSourceHash: '0'.repeat(64),
+                acceptedTranslationHash: '0'.repeat(64),
+            });
+        }
         staleLock.save(root, lock);
+        fs.writeFileSync(path.join(root, APP_I18N, 'web/common.properties'),
+            OK_ZH.replace('你好', '您好'), 'utf8');
 
-        let report = runCheck(root);
-        assert.ok(report.issues.some((i) => i.type === 'orphan-lock-entry'));
+        const report = runCheck(root);
+        assert.deepEqual(new Set(errorsOf(report, 'orphan-lock-entry').map(({ module, baseName, key }) =>
+            ({ module, baseName, key }))), new Set(orphanEntries));
         assert.ok(report.issues.some((i) => /i18n:accept -- --prune/.test(i.message)));
+        assert.ok(errorsOf(report, 'stale', 'en-US').some((i) => i.key === 'greeting'));
 
         // 普通 check 不自动修改 lock
         const lockAfter = staleLock.load(root);
-        assert.equal(lockAfter.entries.length, 3);
+        assert.equal(lockAfter.entries.length, 5);
 
         // prune 只删除 orphan；仍存在的 stale 条目不删除
         const pruned = runAccept(root, { prune: true });
         assert.equal(pruned.ok, true);
-        assert.match(pruned.messages[0], /pruned 1/);
+        assert.match(pruned.messages[0], /pruned 3/);
         const lockPruned = staleLock.load(root);
-        assert.equal(lockPruned.entries.length, 2);
-        // 仍存在的 key 条目不受影响
-        assert.ok(lockPruned.entries.some((e) => e.key === 'greeting'));
+        assert.deepEqual(lockPruned.entries, lockAfter.entries.filter((e) =>
+            e.module === 'pixivdownload-app' && e.baseName === 'web/common' && e.key !== 'deleted.key'));
     } finally {
         cleanRepo(root);
     }

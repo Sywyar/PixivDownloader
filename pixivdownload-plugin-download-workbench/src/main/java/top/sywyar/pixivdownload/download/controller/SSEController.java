@@ -352,13 +352,6 @@ public class SSEController {
         }
     }
 
-    private void completeArtworkEmitter(String subscriptionKey) {
-        ArtworkSubscription subscription = emitters.get(subscriptionKey);
-        if (subscription != null) {
-            completeArtworkEmitter(subscriptionKey, subscription);
-        }
-    }
-
     private void cleanupAggregatedEmitter(String connectionId) {
         AggregatedSubscription subscription = aggregatedEmitters.get(connectionId);
         if (subscription == null) {

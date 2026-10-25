@@ -2,78 +2,30 @@
 
 /** 刷新结果、提交预检与代际隔离。 */
 const {
-    CONFIG_SOURCE,
-    CONFIG_SOURCE_PATH,
-    CONFIG_WINDOW,
-    CSS,
-    CSS_PATH,
-    EMBED_SOURCE,
-    EMBED_SOURCE_PATH,
     LAYOUT_IDS,
-    MiniClassList,
-    MiniCustomEvent,
-    MiniElement,
-    MiniEventTarget,
-    MiniStorage,
-    POSTHOG_SOURCE,
-    POSTHOG_SOURCE_PATH,
     SEEN_KEY,
-    SERVER_RAW_UUID,
-    SERVER_SCOPED_ID,
-    SNOOZE_MS,
-    SOURCE,
-    SOURCES,
-    SOURCE_NAMES,
-    SOURCE_PATHS,
     STATE_KEY,
-    SUBMISSION_ID,
-    SUGGESTION_MAX,
-    SURVEY_ID,
-    ackEvents,
-    assert,
     assertFailClosedInvariants,
     captureEvents,
-    captureProps,
-    createFakeAdapter,
     createFakeI18n,
-    createFakeTimers,
-    createHarness,
-    crossTabFallbackMatrix,
-    crossTabState,
-    dataAttributeName,
-    defaultSurvey,
     directRefresh,
-    doesNotThrow,
     eq,
-    fs,
-    hasLoneSurrogates,
     initHarness,
-    jsonEq,
-    listenerCountFor,
     localStateValue,
-    matchSelector,
-    neverView,
     ok,
     openAndPrepareSubmit,
-    path,
     refreshSecond,
     refreshWith,
     reinitOptions,
     runTests,
     seenObject,
-    seenSeed,
-    selectChoice,
     serverStateResponse,
-    snoozeStorageValue,
     snoozedView,
-    submitWithCaptureOverride,
     submittedView,
     surveyState,
     validFirst,
-    vm,
     waitForFlush,
-    waitForServerContext,
-    walkAll
+    waitForServerContext
 } = require('./pixiv-layout-feedback-test-support');
 
 function testRefreshResultContract() {
@@ -164,8 +116,7 @@ function testRefreshResultContract() {
         });
     }).then(() => {
         // B2. 超时 → unavailable
-        let gateResolve = null;
-        const h = initHarness({serverFetch: refreshSecond(() => new Promise(resolve => { gateResolve = resolve; }))});
+        const h = initHarness({serverFetch: refreshSecond(() => new Promise(() => {}))});
         return waitForServerContext(h).then(() => {
             const p = directRefresh(h);
             return waitForFlush().then(() => h.timers.advance(3000)).then(() => p).then(result => {
@@ -244,8 +195,7 @@ function testRefreshResultContract() {
         }), Promise.resolve());
     }).then(() => {
         // D1. destroy → cancelled
-        let gateResolve = null;
-        const h = initHarness({serverFetch: refreshSecond(() => new Promise(resolve => { gateResolve = resolve; }))});
+        const h = initHarness({serverFetch: refreshSecond(() => new Promise(() => {}))});
         return waitForServerContext(h).then(() => {
             const g = h.api._internals.currentGeneration();
             const p = h.api._internals.refreshServerContext(g);
@@ -312,11 +262,10 @@ function testSubmitPreflightFailClosed() {
         }).then(() => {
             assertFailClosedInvariants(h, '身份冲突');
             h.api.refreshLanguage(createFakeI18n({
-                'layout-feedback:error-state-verification':
-                    'The survey state could not be verified. Please try again later.'
+                'layout-feedback:layout-feedback.error-state-verification': 'translated-state-error'
             }));
             eq('语言切换后错误文案刷新', h.error().textContent,
-                'The survey state could not be verified. Please try again later.');
+                'translated-state-error');
             eq('语言切换不重复 shown', captureEvents(h).filter(e => e === 'survey shown').length, 1);
             const warns = JSON.stringify(h.consoleWarn);
             ok('warning 不含 A/B 身份、token、Survey ID',
@@ -385,10 +334,9 @@ function testSubmitPreflightFailClosed() {
 function testSubmitPreflightUnavailableFailOpen() {
     return Promise.resolve().then(() => {
         // 5. 网络超时 → 按设计 fail-open：本地无阻断状态时仍发送一次 survey sent
-        let gateResolve = null;
         const h = initHarness({
             batchLayout: 'landscape',
-            serverFetch: refreshSecond(() => new Promise(resolve => { gateResolve = resolve; }))
+            serverFetch: refreshSecond(() => new Promise(() => {}))
         });
         return waitForServerContext(h).then(() => openAndPrepareSubmit(h)).then(() => {
             h.submitButton().click();
@@ -405,10 +353,9 @@ function testSubmitPreflightUnavailableFailOpen() {
         });
     }).then(() => {
         // 6. 超时后 localStorage 出现 submitted（无 storage 事件）：unavailable 也阻止提交
-        let gateResolve = null;
         const h = initHarness({
             batchLayout: 'landscape',
-            serverFetch: refreshSecond(() => new Promise(resolve => { gateResolve = resolve; }))
+            serverFetch: refreshSecond(() => new Promise(() => {}))
         });
         return waitForServerContext(h).then(() => openAndPrepareSubmit(h)).then(() => {
             h.submitButton().click();

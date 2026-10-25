@@ -152,18 +152,22 @@ function Start-ArtifactProcess {
     Assert-SafeArguments $Arguments
     $stdout = "$LogPrefix.stdout.log"
     $stderr = "$LogPrefix.stderr.log"
+    $executable = $Launcher
     if ([System.IO.Path]::GetExtension($Launcher) -ieq ".bat") {
-        $commandLine = "/d /s /c `"`"$Launcher`" $($Arguments -join ' ')`""
-        $process = Start-Process -FilePath $env:ComSpec -ArgumentList $commandLine `
-            -WorkingDirectory $WorkingDirectory -WindowStyle Hidden -PassThru `
-            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-    } else {
-        $process = Start-Process -FilePath $Launcher -ArgumentList $Arguments `
-            -WorkingDirectory $WorkingDirectory -WindowStyle Hidden -PassThru `
-            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        $executable = $env:ComSpec
+        $Arguments = @("/d /s /c `"`"$Launcher`" $($Arguments -join ' ')`"")
     }
+    $process = Start-Process -FilePath $executable -ArgumentList $Arguments `
+        -WorkingDirectory $WorkingDirectory -WindowStyle Hidden -PassThru `
+        -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    $null = $process.Handle
     if ($Wait) {
-        Wait-ArtifactProcessExit -Process $process -Label $Launcher -TimeoutSeconds 180
+        try {
+            Wait-ArtifactProcessExit -Process $process -Label $Launcher -TimeoutSeconds 180
+            return $process.ExitCode
+        } finally {
+            $process.Dispose()
+        }
     }
     return $process
 }
@@ -173,16 +177,15 @@ function Stop-ArtifactProcess {
     if ($null -eq $Process) {
         return
     }
-    $Process.Refresh()
-    if (-not $Process.HasExited) {
-        & taskkill.exe /PID $Process.Id /T /F | Out-Null
-        $Process.WaitForExit(30000) | Out-Null
-    }
+    $targets = @($Process)
     if ($Process.PSObject.Properties['EngineProcess']) {
-        $Process.EngineProcess.Refresh()
-        if (-not $Process.EngineProcess.HasExited) {
-            & taskkill.exe /PID $Process.EngineProcess.Id /T /F | Out-Null
-            $Process.EngineProcess.WaitForExit(30000) | Out-Null
+        $targets += $Process.EngineProcess
+    }
+    foreach ($target in $targets) {
+        $target.Refresh()
+        if (-not $target.HasExited) {
+            & taskkill.exe /PID $target.Id /T /F | Out-Null
+            $target.WaitForExit(30000) | Out-Null
         }
     }
 }
@@ -207,21 +210,18 @@ function Get-FreePort {
 }
 
 function Wait-ForHealthyApplication {
-    param([int]$Port, $Process, [string]$Label)
+    param([int]$Port, $Process, [string]$Label, [string]$ExpectedHealth = 'UP')
     $deadline = [DateTime]::UtcNow.AddMinutes(3)
     do {
         Assert-ArtifactAlive $Process "$Label before becoming healthy"
         try {
-            $health = Invoke-RestMethod -UseBasicParsing -Uri "http://127.0.0.1:$Port/actuator/health" `
+            Assert-ReleaseHealth $Port $ExpectedHealth
+            $info = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/actuator/info" `
                 -TimeoutSec 5
-            if ($health.status -eq "UP") {
-                $info = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/actuator/info" `
-                    -TimeoutSec 5
-                if ($info.StatusCode -ne 200) {
-                    throw "$Label actuator info returned HTTP $($info.StatusCode)"
-                }
-                return
+            if ($info.StatusCode -ne 200) {
+                throw "$Label actuator info returned HTTP $($info.StatusCode)"
             }
+            return
         } catch {
             if ([DateTime]::UtcNow -ge $deadline) {
                 throw
@@ -281,6 +281,7 @@ function Assert-PackagedRuntime {
         -not (Test-Path -LiteralPath $jvm -PathType Leaf)) {
         throw "$Label does not contain PixivDownload.exe and its packaged JVM"
     }
+    & (Join-Path $PSScriptRoot 'runtime-security/test-runtime-trust.ps1') -RuntimeHome (Join-Path $Root 'runtime') | Out-Host
     return $launcher
 }
 
@@ -345,9 +346,13 @@ try {
             "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/NOICONS", "/LANG=en",
             "/DIR=`"$installDir`""
         ) -WindowStyle Hidden -PassThru
-        Wait-ArtifactProcessExit -Process $installer -Label "Windows installer" -TimeoutSeconds 600
-        if ($installer.ExitCode -ne 0) {
-            throw "Windows installer failed with exit code $($installer.ExitCode)"
+        try {
+            Wait-ArtifactProcessExit -Process $installer -Label "Windows installer" -TimeoutSeconds 600
+            if ($installer.ExitCode -ne 0) {
+                throw "Windows installer failed with exit code $($installer.ExitCode)"
+            }
+        } finally {
+            $installer.Dispose()
         }
         $launcher = Assert-PackagedRuntime $installDir "Installed application"
         if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) {
@@ -361,6 +366,7 @@ try {
     $uninstallFailure = ""
     if (-not [string]::IsNullOrWhiteSpace($uninstaller) -and
         (Test-Path -LiteralPath $uninstaller -PathType Leaf)) {
+        $uninstall = $null
         try {
             $uninstall = Start-Process -FilePath $uninstaller -ArgumentList @(
                 "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
@@ -371,6 +377,8 @@ try {
             }
         } catch {
             $uninstallFailure = "Windows uninstaller failed: $($_.Exception.Message)"
+        } finally {
+            if ($null -ne $uninstall) { $uninstall.Dispose() }
         }
     }
     $env:JAVA_TOOL_OPTIONS = $oldJavaToolOptions

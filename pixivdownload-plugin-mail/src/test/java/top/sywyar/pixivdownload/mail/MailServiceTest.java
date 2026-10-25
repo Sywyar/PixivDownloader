@@ -1,9 +1,16 @@
 package top.sywyar.pixivdownload.mail;
 
 import jakarta.mail.Session;
+import jakarta.mail.internet.ContentType;
 import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSender;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
@@ -16,7 +23,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -65,31 +71,51 @@ class MailServiceTest {
         assertThat(service.createSenderCalls).isZero();
     }
 
-    @Test
-    @DisplayName("send 在 sender 抛 MailException 时仅记日志、不外抛（best-effort）")
-    void sendShouldSwallowMailException() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @ExtendWith(OutputCaptureExtension.class)
+    @DisplayName("发送失败保留脱敏诊断，不外抛或在异常栈中泄露密码")
+    void sendShouldRedactFailures(boolean mailException, CapturedOutput output) {
         MailConfig config = enabledConfig();
         JavaMailSender sender = mockSender();
-        doThrow(new MailSendException("boom")).when(sender).send(any(MimeMessage.class));
+        var cause = new IllegalStateException("authentication rejected: " + config.getPassword());
+        RuntimeException failure = mailException
+                ? new MailSendException("sender rejected", cause)
+                : new IllegalArgumentException("sender rejected", cause);
+        doThrow(failure).when(sender).send(any(MimeMessage.class));
 
         TrackingMailService service = new TrackingMailService(config, messages, settings -> sender);
         assertThatNoException().isThrownBy(() -> service.send("hi", "<p>body</p>"));
         verify(sender, times(1)).send(any(MimeMessage.class));
+        assertThat(output.getAll()).contains("sender rejected", "authentication rejected", "[redacted]")
+                .doesNotContain(config.getPassword());
     }
 
     @Test
     @DisplayName("send 在 sender 成功时实际发出一封信，subject 自动拼接前缀")
     void sendShouldDeliverWithSubjectPrefix() throws Exception {
         MailConfig config = enabledConfig();
-        config.setSubjectPrefix("[PD]");
+        config.setSubjectPrefix("  [PD]  ");
+        config.setFrom(" ");
+        config.setTo(" admin@example.com, , second@example.com ");
         JavaMailSender sender = mockSender();
 
         TrackingMailService service = new TrackingMailService(config, messages, settings -> sender);
-        service.send("Hello", "<p>body</p>");
+        service.send("Hello 世界", "<p>正文 🌸</p>");
 
         verify(sender, times(1)).createMimeMessage();
-        verify(sender, times(1)).send(any(MimeMessage.class));
-        // 通过反射读不到拼接后的 subject；这里只确认 send 实际被触发，subject 拼接逻辑由专门测试覆盖
+        ArgumentCaptor<MimeMessage> sent = ArgumentCaptor.forClass(MimeMessage.class);
+        verify(sender).send(sent.capture());
+        MimeMessage message = sent.getValue();
+        message.saveChanges();
+        assertThat(message.getSubject()).isEqualTo("[PD] Hello 世界");
+        assertThat(message.getFrom()).extracting(Object::toString).containsExactly("u@example.com");
+        assertThat(message.getAllRecipients()).extracting(Object::toString)
+                .containsExactly("admin@example.com", "second@example.com");
+        assertThat(message.getContent()).isEqualTo("<p>正文 🌸</p>");
+        ContentType contentType = new ContentType(message.getContentType());
+        assertThat(contentType.getBaseType()).isEqualTo("text/html");
+        assertThat(contentType.getParameter("charset")).isEqualToIgnoringCase("UTF-8");
     }
 
     @Test
@@ -120,25 +146,42 @@ class MailServiceTest {
                 .isInstanceOf(MailService.MailSendException.class);
     }
 
-    @Test
-    @DisplayName("sendTest 在 sender 失败时透传异常并把摘要写进 MailSendException")
-    void sendTestShouldPropagateSenderError() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("草稿发送失败统一返回脱敏摘要，保留原始原因供内部诊断")
+    void sendTestShouldPropagateSenderError(boolean mailException) {
         JavaMailSender sender = mockSender();
-        doThrow(new MailSendException("smtp denied: 535 Auth failed"))
-                .when(sender).send(any(MimeMessage.class));
-
-        TrackingMailService service = new TrackingMailService(new MailConfig(), messages, settings -> sender);
         MailSenderSettings settings = new MailSenderSettings("smtp.example.com", 465, MailSecurity.SSL,
                 "u@example.com", "secret-not-shown", "u@example.com", "to@example.com", "", "[X]");
+        var cause = new IllegalStateException("authentication rejected: " + settings.password());
+        RuntimeException failure = mailException
+                ? new MailSendException("smtp denied", cause)
+                : new IllegalArgumentException("smtp denied", cause);
+        doThrow(failure).when(sender).send(any(MimeMessage.class));
+        TrackingMailService service = new TrackingMailService(new MailConfig(), messages, supplied -> sender);
 
         assertThatThrownBy(() -> service.sendTest(settings, "Hi", "<p>body</p>"))
                 .isInstanceOf(MailService.MailSendException.class)
+                .hasCause(failure)
                 .hasMessageContaining("smtp denied")
+                .hasMessageContaining("authentication rejected")
+                .hasMessageContaining("[redacted]")
                 .satisfies(ex -> {
                     // 失败摘要必须脱敏：绝不回显密码
                     assertThat(ex.getMessage()).doesNotContain("secret-not-shown");
                 });
         verify(sender, times(1)).send(any(MimeMessage.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"x", "a7q", "long-secret"})
+    @DisplayName("异常摘要对任意非空密码脱敏，不按密码长度跳过")
+    void redactsPasswordsRegardlessOfLength(String password) {
+        var failure = new IllegalArgumentException("smtp rejected",
+                new IllegalStateException("authentication: " + password));
+
+        assertThat(MailService.safeMessage(failure, password))
+                .isEqualTo("smtp rejected; authentication: [redacted]");
     }
 
     private MailConfig enabledConfig() {

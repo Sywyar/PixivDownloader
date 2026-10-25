@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.PixivMapper;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMapper;
+import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -351,21 +352,19 @@ class DatabaseSchemaInspectorTest {
         @DisplayName("差异多于 limit 时应附加 more-differences 提示")
         void shouldTruncateSummaryAndAppendMoreHint() {
             DatabaseSchemaInspector.SchemaDifference d1 = new DatabaseSchemaInspector.SchemaDifference(
-                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t1", null, "缺少表: t1");
+                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t1", null, "first difference");
             DatabaseSchemaInspector.SchemaDifference d2 = new DatabaseSchemaInspector.SchemaDifference(
-                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t2", null, "缺少表: t2");
+                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t2", null, "second difference");
             DatabaseSchemaInspector.SchemaDifference d3 = new DatabaseSchemaInspector.SchemaDifference(
-                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t3", null, "缺少表: t3");
+                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t3", null, "third difference");
 
             DatabaseSchemaInspector.SchemaComparison comparison =
                     new DatabaseSchemaInspector.SchemaComparison(false, List.of(d1, d2, d3));
 
             String summary = comparison.summary(2);
 
-            assertThat(summary).contains("缺少表: t1", "缺少表: t2");
-            assertThat(summary).doesNotContain("缺少表: t3");
-            // i18n 模板里写着 "另有 {0} 项差异"
-            assertThat(summary).contains("1");
+            assertThat(summary.lines()).containsExactly("first difference", "second difference",
+                    MessageBundles.get("download.db.schema.more-differences", 1));
         }
 
         @Test
@@ -402,14 +401,7 @@ class DatabaseSchemaInspectorTest {
             ds.setUrl("jdbc:sqlite::memory:");
             ds.setSuppressClose(true);
 
-            org.apache.ibatis.mapping.Environment env = new org.apache.ibatis.mapping.Environment(
-                    "test", new org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory(), ds);
-            org.apache.ibatis.session.Configuration config = new org.apache.ibatis.session.Configuration(env);
-            config.setMapUnderscoreToCamelCase(true);
-            org.apache.ibatis.session.SqlSessionFactory factory =
-                    new org.apache.ibatis.session.SqlSessionFactoryBuilder().build(config);
-
-            try (org.apache.ibatis.session.SqlSession session = factory.openSession(true)) {
+            try {
                 PixivMapper mapper = new PixivMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(ds));
                 PathPrefixMapper pathPrefixMapper = new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(ds));
                 DatabaseInitializer initializer = newInitializer(ds);
@@ -496,14 +488,7 @@ class DatabaseSchemaInspectorTest {
             ds.setUrl("jdbc:sqlite::memory:");
             ds.setSuppressClose(true);
 
-            org.apache.ibatis.mapping.Environment env = new org.apache.ibatis.mapping.Environment(
-                    "test", new org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory(), ds);
-            org.apache.ibatis.session.Configuration config = new org.apache.ibatis.session.Configuration(env);
-            config.setMapUnderscoreToCamelCase(true);
-            org.apache.ibatis.session.SqlSessionFactory factory =
-                    new org.apache.ibatis.session.SqlSessionFactoryBuilder().build(config);
-
-            try (org.apache.ibatis.session.SqlSession session = factory.openSession(true)) {
+            try {
                 top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskMapper mapper =
                         new top.sywyar.pixivdownload.core.schedule.db.ScheduledTaskMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(ds));
                 DatabaseInitializer initializer = newInitializer(ds);

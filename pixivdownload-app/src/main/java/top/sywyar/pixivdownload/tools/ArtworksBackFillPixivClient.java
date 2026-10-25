@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * 查询 Pixiv 插画详情，并把 HTTP 与 JSON 响应归一为回填结果。
@@ -48,6 +49,7 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
 
         var clientBuilder = HttpClients.custom()
                 .setDefaultRequestConfig(requestConfig)
+                .disableAutomaticRetries()
                 .disableCookieManagement();
         if (options.useProxy()) {
             clientBuilder.setProxy(new HttpHost("http", options.proxyHost(), options.proxyPort()));
@@ -55,7 +57,7 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
         return new ArtworksBackFillPixivClient(clientBuilder.build(), mapper);
     }
 
-    LookupResult query(long artworkId) {
+    LookupResult query(long artworkId) throws IOException {
         HttpGet request = new HttpGet(PIXIV_AJAX + artworkId);
         PixivRequestHeaders.applyAjax(request, null);
 
@@ -65,8 +67,9 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
                     EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8),
                     mapper
             ));
-        } catch (Exception e) {
-            return LookupResult.skip(message("artworks-backfill.lookup.request-error", e.getMessage()));
+        } catch (IOException e) {
+            throw new IOException("artwork=" + artworkId + " "
+                    + message("artworks-backfill.lookup.request-error", e.getMessage()), e);
         }
     }
 
@@ -77,6 +80,12 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
         if (status == 404) {
             return LookupResult.deleted("HTTP 404");
         }
+        if (status == 401 || status == 403 || status == 407 || status >= 500) {
+            throw new IOException(message("artworks-backfill.lookup.request-error", "HTTP " + status));
+        }
+        if (status < 200 || status >= 300) {
+            return LookupResult.skip("HTTP " + status);
+        }
 
         JsonNode root = mapper.readTree(body);
         if (root == null) {
@@ -84,14 +93,14 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
         }
         if (root.path("error").asBoolean(false)) {
             String responseMessage = root.path("message").asText("pixiv ajax error");
-            String lower = responseMessage.toLowerCase();
+            String lower = responseMessage.toLowerCase(Locale.ROOT);
             for (String keyword : R18_KEYWORDS) {
-                if (lower.contains(keyword.toLowerCase())) {
+                if (lower.contains(keyword.toLowerCase(Locale.ROOT))) {
                     return LookupResult.r18Only(responseMessage);
                 }
             }
             for (String keyword : DELETED_KEYWORDS) {
-                if (lower.contains(keyword.toLowerCase())) {
+                if (lower.contains(keyword.toLowerCase(Locale.ROOT))) {
                     return LookupResult.deleted(responseMessage);
                 }
             }
@@ -99,9 +108,15 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
         }
 
         JsonNode payload = root.path("body");
+        if (!payload.isObject() || payload.isEmpty()) {
+            return LookupResult.skip(message("artworks-backfill.lookup.empty-response"));
+        }
         long authorId = payload.path("userId").asLong(0);
+        if (authorId <= 0) {
+            return LookupResult.skip(message("artworks-backfill.lookup.empty-response"));
+        }
         String authorName = payload.path("userName").asText("").trim();
-        if (authorId > 0 && authorName.isEmpty()) {
+        if (authorName.isEmpty()) {
             authorName = String.valueOf(authorId);
         }
         int xRestrict = payload.path("xRestrict").asInt(0);

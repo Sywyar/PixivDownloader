@@ -36,10 +36,6 @@ import java.nio.file.Path;
 @EnableScheduling
 public class PixivDownloadApplication {
 
-    /*public static void main(String[] args) {
-        start(args);
-    }*/
-
     /**
      * headless / 普通入口：由 Spring 创建 CONTEXT 拥有的 bootstrap 会话（恢复事务 + 一次扫描 start），context 关闭时释放。
      * Spring 默认注册 JVM shutdown hook 负责关闭 context——headless 部署不注册 {@code BackendShutdownCoordinator}，

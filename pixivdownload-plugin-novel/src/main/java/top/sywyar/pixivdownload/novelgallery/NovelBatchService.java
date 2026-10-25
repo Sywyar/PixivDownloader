@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.novelgallery;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportEntry;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportRequest;
@@ -37,7 +36,6 @@ import java.util.Set;
  * 不再直接依赖底层数据库与作者池实现；打包经核心归档端口执行。
  * 插画侧批量操作通过独立插件提供，两者互不依赖。
  */
-@Slf4j
 @PluginManagedBean
 @RequiredArgsConstructor
 public class NovelBatchService {

@@ -130,6 +130,7 @@ function mountUserscriptDownloadOptions(container, legacyR18 = false) {
         try {
             const rows = await options.collections();
             if (!details.isConnected) return;
+            if (!rows.some(row => Number(row.id) === options.selectedCollectionId())) options.selectCollection(null);
             collection.replaceChildren();
             for (const row of [{id: '', name: text('none')}, ...rows]) {
                 const option = document.createElement('option');
@@ -140,6 +141,7 @@ function mountUserscriptDownloadOptions(container, legacyR18 = false) {
             collection.value = String(options.selectedCollectionId() || '');
             collection.disabled = false;
         } catch (_) {
+            if (!details.isConnected) return;
             collection.value = '';
             options.selectCollection(null);
             message.textContent = text('unavailable');

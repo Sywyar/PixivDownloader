@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.task.SyncTaskExecutor;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -26,6 +28,7 @@ import top.sywyar.pixivdownload.schedule.ScheduleRunQueue;
 import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -38,7 +41,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -48,6 +51,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -231,7 +235,7 @@ class ScheduleWorkCoordinatorTest {
         assertThat(completions).isNotNull();
         assertThat(inFlightWork).isNotNull();
         assertThat(inFlightByType).isNotNull();
-        inFlightWork.put(failed, new ScheduleWorkCoordinator.InFlightWork(work, false, ILLUST));
+        inFlightWork.put(failed, new ScheduleWorkCoordinator.InFlightWork(work, false));
         inFlightByType.put(ILLUST, 1);
         ReflectionTestUtils.setField(coordinator, "inFlight", 1);
         completions.add(failed);
@@ -401,6 +405,173 @@ class ScheduleWorkCoordinatorTest {
         assertThat(observed).isSameAs(fatal);
         verify(store).upsertPendingWork(argThatPending(
                 ILLUST, "dispatch", "schedule.work.dispatch-failed"));
+        assertCoordinatorAccountingCleared(coordinator, limiter);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @Timeout(5)
+    @DisplayName("在途登记失败不派发作品，撤回部分登记并允许后续作品使用容量")
+    void accountingFailurePreventsDispatchAndReleasesCapacity(boolean insertedBeforeFailure) throws Exception {
+        TestVirtualMachineError fatal = new TestVirtualMachineError("fixture accounting fatal");
+        ScheduledTaskStore store = store();
+        ScheduleWorkConcurrencyLimiter limiter = new ScheduleWorkConcurrencyLimiter();
+        AtomicInteger executions = new AtomicInteger();
+        ScheduleWorkCoordinator coordinator = coordinator(
+                store,
+                Map.of(ILLUST, executor(ILLUST, (work, context) -> {
+                    executions.incrementAndGet();
+                    return ScheduledWorkResult.completed();
+                })),
+                new SyncTaskExecutor(), 5, limiter, 1);
+        Map<Future<?>, ScheduleWorkCoordinator.InFlightWork> failingRegistration = new HashMap<>() {
+            private boolean failed;
+
+            @Override
+            public ScheduleWorkCoordinator.InFlightWork put(
+                    Future<?> future, ScheduleWorkCoordinator.InFlightWork work) {
+                if (!failed) {
+                    failed = true;
+                    if (insertedBeforeFailure) {
+                        super.put(future, work);
+                    }
+                    throw fatal;
+                }
+                return super.put(future, work);
+            }
+        };
+        ReflectionTestUtils.setField(coordinator, "inFlightWork", failingRegistration);
+
+        assertThat(catchThrowable(() -> coordinator.submit(work(ILLUST, "rejected")))).isSameAs(fatal);
+        assertThat(executions).hasValue(0);
+        assertCoordinatorAccountingCleared(coordinator, limiter);
+        coordinator.drain();
+        verify(store).upsertPendingWork(argThatPending(ILLUST, "rejected", "schedule.work.dispatch-failed"));
+
+        coordinator.submit(work(ILLUST, "next"));
+        coordinator.drain();
+        assertThat(executions).hasValue(1);
+        assertThat(coordinator.completedWorkCount()).isEqualTo(1);
+        assertCoordinatorAccountingCleared(coordinator, limiter);
+    }
+
+    @Test
+    @DisplayName("执行器入队后报错会撤销尚未开始的作品，迟到执行不产生副作用")
+    void executorFailureAfterQueueingCancelsUnstartedWork() {
+        AtomicReference<Runnable> queued = new AtomicReference<>();
+        AtomicInteger executions = new AtomicInteger();
+        ScheduledTaskStore store = store();
+        ScheduleWorkConcurrencyLimiter limiter = new ScheduleWorkConcurrencyLimiter();
+        ScheduleWorkCoordinator coordinator = coordinator(
+                store,
+                Map.of(ILLUST, executor(ILLUST, (work, context) -> {
+                    executions.incrementAndGet();
+                    return ScheduledWorkResult.completed();
+                })),
+                task -> {
+                    queued.set(task);
+                    throw new IllegalStateException("fixture executor failure after queueing");
+                },
+                5, limiter, 1);
+
+        assertThatThrownBy(() -> coordinator.submit(work(ILLUST, "queued")))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("schedule.work.dispatch-failed"));
+        queued.get().run();
+        assertThat(executions).hasValue(0);
+        verify(store).upsertPendingWork(argThatPending(ILLUST, "queued", "schedule.work.dispatch-failed"));
+        assertCoordinatorAccountingCleared(coordinator, limiter);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @Timeout(10)
+    @DisplayName("执行器在作品开始后报错仍等待实际退出，并按作品结果结算")
+    void executorFailureAfterStartRetainsWorkUntilCompletion(boolean workerFails) throws Exception {
+        TestVirtualMachineError dispatchFatal = new TestVirtualMachineError("fixture executor failure after start");
+        TestVirtualMachineError workerFatal = new TestVirtualMachineError("fixture worker failure");
+        ScheduledTaskStore store = store();
+        ScheduleWorkConcurrencyLimiter limiter = new ScheduleWorkConcurrencyLimiter();
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        ExecutorService drainer = Executors.newSingleThreadExecutor();
+        ScheduleWorkCoordinator coordinator = coordinator(
+                store,
+                Map.of(ILLUST, executor(ILLUST, (work, context) -> {
+                    entered.countDown();
+                    try {
+                        if (!release.await(5, TimeUnit.SECONDS)) {
+                            throw new AssertionError("fixture worker was not released");
+                        }
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw ScheduledExecutionException.cancelled();
+                    }
+                    if (workerFails) {
+                        throw workerFatal;
+                    }
+                    return ScheduledWorkResult.completed();
+                })),
+                task -> {
+                    worker.execute(task);
+                    try {
+                        assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError(interrupted);
+                    }
+                    throw dispatchFatal;
+                },
+                5, limiter, 1);
+        try {
+            assertThat(catchThrowable(() -> coordinator.submit(work(ILLUST, "running")))).isSameAs(dispatchFatal);
+            verify(store, never()).upsertPendingWork(any());
+            Future<Throwable> drained = drainer.submit(() -> catchThrowable(coordinator::drain));
+            assertThatThrownBy(() -> drained.get(150, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+            assertThat((Map<?, ?>) ReflectionTestUtils.getField(limiter, "states")).isNotEmpty();
+
+            release.countDown();
+            assertThat(drained.get(5, TimeUnit.SECONDS)).isSameAs(workerFails ? workerFatal : null);
+            assertThat(coordinator.completedWorkCount()).isEqualTo(workerFails ? 0 : 1);
+            if (workerFails) {
+                verify(store).upsertPendingWork(argThatPending(ILLUST, "running", "schedule.work.plugin-failure"));
+            } else {
+                verify(store, never()).upsertPendingWork(any());
+                verify(store).deletePendingWork(1L, ILLUST, "running");
+            }
+            assertCoordinatorAccountingCleared(coordinator, limiter);
+        } finally {
+            release.countDown();
+            worker.shutdownNow();
+            drainer.shutdownNow();
+            worker.awaitTermination(5, TimeUnit.SECONDS);
+            drainer.awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @DisplayName("同步执行完成后的派发异常保留真实结果，不重复写入待重试作品")
+    void executorFailureAfterInlineCompletionPreservesResult() throws Exception {
+        ScheduledTaskStore store = store();
+        ScheduleWorkConcurrencyLimiter limiter = new ScheduleWorkConcurrencyLimiter();
+        ScheduleWorkCoordinator coordinator = coordinator(
+                store,
+                Map.of(ILLUST, executor(ILLUST, (work, context) -> ScheduledWorkResult.completed())),
+                task -> {
+                    task.run();
+                    throw new IllegalStateException("fixture executor failure after completion");
+                },
+                5, limiter, 1);
+
+        assertThatThrownBy(() -> coordinator.submit(work(ILLUST, "completed")))
+                .isInstanceOfSatisfying(ScheduledExecutionException.class,
+                        failure -> assertThat(failure.code()).isEqualTo("schedule.work.dispatch-failed"));
+        coordinator.drain();
+
+        assertThat(coordinator.completedWorkCount()).isEqualTo(1);
+        verify(store, never()).upsertPendingWork(any());
+        verify(store).deletePendingWork(1L, ILLUST, "completed");
         assertCoordinatorAccountingCleared(coordinator, limiter);
     }
 

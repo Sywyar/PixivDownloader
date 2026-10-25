@@ -9,7 +9,7 @@
                 CONTRACT_VERSION, KNOWN_MODES, QUEUE_TAG_ID_PATTERN, MAX_QUEUE_TAGS,
                 MAX_QUEUE_TAG_LABEL_LENGTH, QUEUE_LIVE_STATUS_TONES,
                 MAX_QUEUE_LIVE_STATUS_LABEL_LENGTH, MAX_QUEUE_LIVE_STATUS_MESSAGE_LENGTH,
-                MAX_CANCEL_WORK_KEY_LENGTH, EMPTY_QUEUE_TAGS, SLOT_MODE
+                MAX_CANCEL_WORK_KEY_LENGTH, EMPTY_QUEUE_TAGS
             } = ctx;
     function text(value) {
         return value == null ? '' : String(value).trim();
@@ -32,7 +32,6 @@
 
     function queueKey(itemOrType, workId) {
         const item = itemOrType && typeof itemOrType === 'object' ? itemOrType : null;
-        if (item && item.taskObserved) return 'task:' + encodedQueueIdentityPart(item.taskId);
         const type = item
             ? text(item.workType != null ? item.workType : item.kind)
             : text(itemOrType);
@@ -182,6 +181,7 @@
         const out = {};
         if (!raw) return Object.freeze(out);
         const allowed = Object.freeze({
+            __proto__: null,
             accept: {name: 'Accept', maxLength: 256},
             'x-acquisition-credential': {name: 'X-Acquisition-Credential', maxLength: 16384}
         });
@@ -320,10 +320,10 @@
 
 
             Object.assign(ctx, {
-                text, opaqueText, encodedQueueIdentityPart, queueKey, normalizedCancelWorkKey,
-                isPlainObject, freezeJsonValue, queueItemSnapshot, normalizedQueueTags,
-                normalizedQueueLiveStatus, normalizedModuleUrl, normalizedEndpoint,
-                sanitizedRequestHeaders, normalizeType, normalizeUiSlot, normalizeManifest
+                text, opaqueText, queueKey, normalizedCancelWorkKey,
+                isPlainObject, queueItemSnapshot, normalizedQueueTags,
+                normalizedQueueLiveStatus, normalizedEndpoint,
+                sanitizedRequestHeaders, normalizeManifest
             });
         }
     });

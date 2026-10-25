@@ -144,26 +144,23 @@ public class MaintenanceCoordinator {
             return false;
         }
         lastScheduledSlot = slotId;
-        runMaintenance("schedule");
-        return true;
+        return runMaintenance("schedule");
     }
 
     /**
      * 手动触发；若禁用或已在运行返回 {@code false}。
      */
-    public synchronized boolean runManually() {
+    public boolean runManually() {
         database.requireAvailable();
         if (!properties.isEnabled()) return false;
-        if (paused.get()) return false;
-        runMaintenance("manual");
-        return true;
+        return runMaintenance("manual");
     }
 
-    private synchronized void runMaintenance(String trigger) {
+    private boolean runMaintenance(String trigger) {
         database.requireAvailable();
         if (!paused.compareAndSet(false, true)) {
             log.warn(MessageBundles.getForLog("maintenance.log.already-running", trigger));
-            return;
+            return false;
         }
         long started = System.currentTimeMillis();
         lastStartedAt = started;
@@ -205,10 +202,11 @@ public class MaintenanceCoordinator {
         } finally {
             long finished = System.currentTimeMillis();
             lastFinishedAt = finished;
-            paused.set(false);
             MaintenanceStatusHolder.clear();
+            paused.set(false);
             log.info(MessageBundles.getForLog("maintenance.log.window.closed", finished - started));
         }
+        return true;
     }
 
     private void notifyTaskFailure(String taskName, String trigger, Throwable failure) {

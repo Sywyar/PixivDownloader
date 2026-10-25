@@ -77,9 +77,10 @@ public final class ChangelogSections {
             }
         }
         result.append('\n');
-        if (result.toString().getBytes(StandardCharsets.UTF_8).length > MarketContent.DOCUMENT_BYTES) {
+        String text = result.toString();
+        if (text.getBytes(StandardCharsets.UTF_8).length > MarketContent.DOCUMENT_BYTES) {
             throw CommunityJson.limit("/content/releaseNotes", MarketContent.DOCUMENT_BYTES, "bytes");
         }
-        return result.toString();
+        return text;
     }
 }

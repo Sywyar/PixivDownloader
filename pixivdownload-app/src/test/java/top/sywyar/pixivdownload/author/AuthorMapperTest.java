@@ -1,11 +1,5 @@
 package top.sywyar.pixivdownload.author;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.Configuration;
-import org.apache.ibatis.session.SqlSession;
-import org.apache.ibatis.session.SqlSessionFactory;
-import org.apache.ibatis.session.SqlSessionFactoryBuilder;
-import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -13,7 +7,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
-import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 
@@ -25,7 +18,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AuthorMapperTest {
 
     private SingleConnectionDataSource dataSource;
-    private SqlSession sqlSession;
     private AuthorMapper authorMapper;
 
     @BeforeEach
@@ -35,13 +27,6 @@ class AuthorMapperTest {
         dataSource.setUrl("jdbc:sqlite::memory:");
         dataSource.setSuppressClose(true);
 
-        Environment env = new Environment("test", new JdbcTransactionFactory(), dataSource);
-        Configuration config = new Configuration(env);
-        config.setMapUnderscoreToCamelCase(true);
-
-
-        SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
-        sqlSession = factory.openSession(true);
         authorMapper = new AuthorMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
 
         // 建表 / 补列 / 索引统一由 DatabaseInitializer 执行（含 PagedAuthorsTests 用的 artworks 表）
@@ -53,7 +38,6 @@ class AuthorMapperTest {
 
     @AfterEach
     void tearDown() {
-        sqlSession.close();
         dataSource.destroy();
     }
 

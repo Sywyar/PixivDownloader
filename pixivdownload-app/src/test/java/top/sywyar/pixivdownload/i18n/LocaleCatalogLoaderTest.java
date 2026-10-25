@@ -75,8 +75,8 @@ class LocaleCatalogLoaderTest {
     }
 
     @Test
-    @DisplayName("缺少 defaultLocale / fallbackLocale 立即失败")
-    void defaultAndFallbackMustExist() {
+    @DisplayName("缺少 defaultLocale 指向的语言立即失败")
+    void defaultLocaleMustExist() {
         assertThatThrownBy(() -> parse(withLocales("""
                 {"tag": "zh-CN", "nativeName": "简体中文", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": []},
                 {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "supported", "direction": "ltr", "aliases": []}""")
@@ -86,7 +86,7 @@ class LocaleCatalogLoaderTest {
     }
 
     @Test
-    @DisplayName("恰好一个 source；fallback 必须 source/supported；default 必须可见")
+    @DisplayName("拒绝多个 source 和 candidate 回退语言")
     void statusRulesEnforced() {
         String twoSources = withLocales("""
                 {"tag": "zh-CN", "nativeName": "简体中文", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": []},
@@ -98,8 +98,7 @@ class LocaleCatalogLoaderTest {
 
         String candidateFallback = withLocales("""
                 {"tag": "zh-CN", "nativeName": "简体中文", "resourceSuffix": "", "status": "source", "direction": "ltr", "aliases": []},
-                {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "candidate", "direction": "ltr", "aliases": []}""")
-                .replace("\"fallbackLocale\": \"en-US\"", "\"fallbackLocale\": \"en-US\"");
+                {"tag": "en-US", "nativeName": "English", "resourceSuffix": "en", "status": "candidate", "direction": "ltr", "aliases": []}""");
         assertThatThrownBy(() -> parse(candidateFallback))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("fallbackLocale");

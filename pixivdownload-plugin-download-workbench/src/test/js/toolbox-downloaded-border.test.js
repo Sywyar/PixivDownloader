@@ -18,6 +18,7 @@ function loadDownloadedBorderFeature(environment = {}) {
 
     let feature;
     vm.runInNewContext(toolboxSource.slice(start, end), {
+        URL,
         ...environment,
         FeatureRegistry: { register(definition) { feature = definition; } },
         console,
@@ -146,6 +147,7 @@ test('批量响应只保存有效和软删除正命中，不保存未命中的 f
     feature._applyMarks = () => {};
     let requestBody;
     const api = apiWith({}, async request => {
+        assert.equal(request.headers.Origin, 'http://localhost:6999');
         requestBody = JSON.parse(request.data);
         return {
             status: 200,
@@ -391,11 +393,18 @@ test('虚拟列表复用容器时会重建新作品边框的定位上下文', ()
     assert.equal(host.classList.contains(feature.HOST_CLASS), false);
 });
 
-test('设置面板声明式支持复选框、条件显示和继承控制', () => {
-    assert.match(toolboxSource, /sd\.type === 'checkbox'/);
-    assert.match(toolboxSource, /sd\.visibleWhen/);
-    assert.match(toolboxSource, /sd\.inheritFrom/);
-    assert.match(toolboxSource, /downloaded-border\.setting\.show-deleted': '为删除的作品显示边框'/);
+test('已删除边框选项使用已注册的本地化标签', () => {
+    const start = toolboxSource.indexOf('PixivUserscriptI18n.register({');
+    const end = toolboxSource.indexOf('const t = ', start);
+    assert.ok(start >= 0 && end > start);
+    let dictionaries;
+    vm.runInNewContext(toolboxSource.slice(start, end), {
+        PixivUserscriptI18n: {register(value) { dictionaries = value; }}
+    });
+    const option = loadDownloadedBorderFeature().settingDefs.find(def => def.key === 'showDeleted');
+    assert.equal(option.labelKey, 'downloaded-border.setting.show-deleted');
+    assert.ok(Object.keys(dictionaries).length > 0);
+    for (const dictionary of Object.values(dictionaries)) assert.ok(dictionary[option.labelKey]?.trim());
 });
 
 test('设置面板可实际切换已删除选项、显隐独立样式并恢复继承', () => {

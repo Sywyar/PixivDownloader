@@ -120,7 +120,7 @@
 
 .quick-account-hint {
     font-size: 0.75rem;
-    color: var(--danger-bg, var(--danger-bg));
+    color: var(--danger-bg);
 }
 
 .quick-actions {
@@ -173,7 +173,7 @@
 
 .quick-search-input {
     padding: 4px 8px;
-    border: 1px solid var(--line, var(--line));
+    border: 1px solid var(--line);
     border-radius: 4px;
     background: var(--surface, var(--fixed-white));
     color: var(--text);
@@ -183,7 +183,7 @@
 
 .quick-kind-switcher {
     display: inline-flex;
-    border: 1px solid var(--line, var(--line));
+    border: 1px solid var(--line);
     border-radius: 4px;
     overflow: hidden;
     font-size: 0.75rem;
@@ -192,18 +192,15 @@
 .quick-kind-switcher label {
     padding: 4px 10px;
     cursor: pointer;
-    background: var(--surface-muted, var(--surface-muted));
+    background: var(--surface-muted);
     color: var(--text);
     user-select: none;
 }
 
-.quick-kind-switcher label:not(:first-child) {
-    border-left: 1px solid var(--line, var(--line));
-}
-
-/* 同 .kind-switcher：快捷获取二层 kind 槽位贡献的 <label> 渲染在 display:contents 宿主内，补左分隔线。 */
+/* 槽位宿主内的首个 label 也需左分隔线。 */
+.quick-kind-switcher label:not(:first-child),
 .quick-kind-switcher [data-vue-slot] > label {
-    border-left: 1px solid var(--line, var(--line));
+    border-left: 1px solid var(--line);
 }
 
 .quick-kind-switcher label.quick-kind-active {
@@ -347,7 +344,7 @@
 .quick-spinner {
     width: 18px;
     height: 18px;
-    border: 2px solid var(--line, var(--line));
+    border: 2px solid var(--line);
     border-top-color: var(--brand, var(--accent));
     border-radius: 50%;
     animation: quick-spin 0.8s linear infinite;
@@ -379,7 +376,7 @@
 
 /* 快捷按钮加载态（浅底按钮上的深色 spinner） */
 .quick-action.is-loading::after {
-    border-color: var(--line, var(--line));
+    border-color: var(--line);
     border-top-color: var(--brand, var(--accent));
 }
 

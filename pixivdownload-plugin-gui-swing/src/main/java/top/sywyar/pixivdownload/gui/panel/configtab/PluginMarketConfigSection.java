@@ -5,6 +5,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.RepositoryProxyPoli
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import top.sywyar.pixivdownload.guiswing.SwingHost;
+import top.sywyar.pixivdownload.gui.SwingShellAction;
 
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
@@ -24,9 +25,11 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -42,6 +45,7 @@ import java.util.function.Function;
  */
 @Slf4j
 public final class PluginMarketConfigSection implements ConfigSection {
+    private final SwingShellAction shellAction = new SwingShellAction();
 
     /** 市场页路径（核心壳的 admin-only Web 市场页；经共享 webUrlProvider 打开，不新增任何 GUI 写端点）。 */
     static final String MARKET_PAGE = "/plugin-market.html";
@@ -69,7 +73,6 @@ public final class PluginMarketConfigSection implements ConfigSection {
     private JButton upButton;
     private JButton downButton;
     private JButton openMarketButton;
-    private boolean marketToggleReadFailureLogged;
 
     public PluginMarketConfigSection(ConfigSectionContext ctx, DesktopUiHost.ConfigFile configFile, Function<String, String> webUrlProvider) {
         this.ctx = ctx;
@@ -323,8 +326,7 @@ public final class PluginMarketConfigSection implements ConfigSection {
         if (openMarketButton == null) {
             return;
         }
-        // 仅当 plugin-market 插件启用时市场页才存在；catalog 主开关关闭仍可打开页看「未开启」诊断，故不据它禁用。
-        boolean marketPluginEnabled = isMarketEntryEnabled(readPluginMarketToggle());
+        boolean marketPluginEnabled = isMarketEntryEnabled();
         openMarketButton.setEnabled(marketPluginEnabled);
         openMarketButton.setToolTipText(marketPluginEnabled
                 ? message("gui.config.market.action.open-web.help")
@@ -411,13 +413,17 @@ public final class PluginMarketConfigSection implements ConfigSection {
     }
 
     private void openMarketPage() {
-        try {
-            Desktop.getDesktop().browse(new URI(webUrlProvider.apply(MARKET_PAGE)));
-        } catch (Exception e) {
-            log.warn(logMessage("gui.status.log.open-browser-failed", MARKET_PAGE, safeMessage(e)), e);
-            GuiErrorDialog.show(openMarketButton, message("gui.dialog.error.title"),
-                    message("gui.error.open-browser", safeMessage(e)));
-        }
+        afterEnabledStates();
+        if (!openMarketButton.isEnabled()) return;
+        shellAction.run(
+                "gui-open-plugin-market",
+                () -> SwingHost.host().openExternalUri(new URI(webUrlProvider.apply(MARKET_PAGE))),
+                e -> {
+                    log.warn(logMessage("gui.status.log.open-browser-failed", MARKET_PAGE, safeMessage(e)), e);
+                    GuiErrorDialog.show(openMarketButton, message("gui.dialog.error.title"),
+                            message("gui.error.open-browser", safeMessage(e)));
+                }
+        );
     }
 
     // ── 表格模型 ────────────────────────────────────────────────────────────────
@@ -462,26 +468,10 @@ public final class PluginMarketConfigSection implements ConfigSection {
         }
     }
 
-    /**
-     * 「打开 Web 插件市场」入口是否可用：仅当 {@code plugins.plugin-market.enabled} 未被显式置为 {@code false} 时可用
-     * （插件默认启用、缺省视为启用）。禁用时按钮置灰并给出「页已停用」提示，<b>不</b>打开一个必然 404 的坏入口。
-     */
-    static boolean isMarketEntryEnabled(String pluginToggleValue) {
-        return !"false".equalsIgnoreCase(pluginToggleValue == null ? "" : pluginToggleValue.trim());
-    }
-
-    private String readPluginMarketToggle() {
-        try {
-            String value = scalarEditor.read("plugins.plugin-market.enabled");
-            marketToggleReadFailureLogged = false;
-            return value;
-        } catch (IOException e) {
-            if (!marketToggleReadFailureLogged) {
-                log.warn(logMessage("gui.config.log.read-failed", safeMessage(e)));
-                marketToggleReadFailureLogged = true;
-            }
-            return null;
-        }
+    private static boolean isMarketEntryEnabled() {
+        return SwingHost.context().currentPluginSnapshots().stream()
+                .flatMap(plugin -> plugin.navigation().stream())
+                .anyMatch(entry -> MARKET_PAGE.equals(entry.href()));
     }
 
     static String proxyPolicyLabel(String configId) {
@@ -544,19 +534,37 @@ public final class PluginMarketConfigSection implements ConfigSection {
     }
 
     static boolean hasDuplicateTrustedKeyIds(List<TrustedKeyConfigEntry> keys) {
-        List<String> seen = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
         for (TrustedKeyConfigEntry key : keys) {
             String keyId = key.keyId() == null ? "" : key.keyId().trim();
             if (keyId.isEmpty()) {
                 continue;
             }
-            String normalized = keyId.toLowerCase(Locale.ROOT);
-            if (seen.contains(normalized)) {
+            if (!seen.add(keyId.toLowerCase(Locale.ROOT))) {
                 return true;
             }
-            seen.add(normalized);
         }
         return false;
+    }
+
+    private static JLabel addFormRow(
+            JPanel form,
+            GridBagConstraints gbc,
+            int[] rowIndex,
+            String labelKey,
+            JComponent field
+    ) {
+        JLabel label = new JLabel(message(labelKey) + message("gui.punctuation.colon"));
+        gbc.gridx = 0;
+        gbc.gridy = rowIndex[0];
+        gbc.weightx = 0;
+        gbc.gridwidth = 1;
+        form.add(label, gbc);
+        gbc.gridx = 1;
+        gbc.weightx = 1;
+        form.add(field, gbc);
+        rowIndex[0]++;
+        return label;
     }
 
     // ── 编辑对话框 ──────────────────────────────────────────────────────────────
@@ -783,20 +791,6 @@ public final class PluginMarketConfigSection implements ConfigSection {
             panel.add(buttons);
             updateTrustedKeyButtons();
             return panel;
-        }
-
-        private JLabel addFormRow(JPanel form, GridBagConstraints gbc, int[] rowIndex,
-                                  String labelKey, JComponent field) {
-            JLabel label = new JLabel(message(labelKey) + message("gui.punctuation.colon"));
-            gbc.gridx = 0;
-            gbc.gridy = rowIndex[0];
-            gbc.weightx = 0;
-            form.add(label, gbc);
-            gbc.gridx = 1;
-            gbc.weightx = 1;
-            form.add(field, gbc);
-            rowIndex[0]++;
-            return label;
         }
 
         private void addTrustedKey() {
@@ -1128,21 +1122,6 @@ public final class PluginMarketConfigSection implements ConfigSection {
             getContentPane().add(form, BorderLayout.CENTER);
             getContentPane().add(buttons, BorderLayout.SOUTH);
             getRootPane().setDefaultButton(ok);
-        }
-
-        private JLabel addFormRow(JPanel form, GridBagConstraints gbc, int[] rowIndex,
-                                  String labelKey, JComponent field) {
-            JLabel label = new JLabel(message(labelKey) + message("gui.punctuation.colon"));
-            gbc.gridx = 0;
-            gbc.gridy = rowIndex[0];
-            gbc.weightx = 0;
-            gbc.gridwidth = 1;
-            form.add(label, gbc);
-            gbc.gridx = 1;
-            gbc.weightx = 1;
-            form.add(field, gbc);
-            rowIndex[0]++;
-            return label;
         }
 
         private void populate(TrustedKeyConfigEntry entry) {

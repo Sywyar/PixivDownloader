@@ -318,27 +318,41 @@ public class AiPlugin implements PixivFeaturePlugin {
                 GuiConfigPresetMatchMode.TRIMMED_TRAILING_SLASH_IGNORE_CASE);
     }
 
-    private static GuiConfigFieldContribution bool(String key, String defaultValue, int order,
-                                                   GuiConfigCondition... enabledWhen) {
-        return field(key, GuiConfigFieldType.BOOL, defaultValue, order, List.of(), enabledWhen);
+    private static GuiConfigFieldContribution bool(String key, String defaultValue, int order) {
+        return field(key, GuiConfigFieldType.BOOL, defaultValue, order);
     }
 
-    private static GuiConfigFieldContribution string(String key, String defaultValue, int order,
-                                                     GuiConfigCondition... enabledWhen) {
-        return field(key, GuiConfigFieldType.STRING, defaultValue, order, List.of(), enabledWhen);
+    private static GuiConfigFieldContribution string(String key, String defaultValue, int order) {
+        return field(key, GuiConfigFieldType.STRING, defaultValue, order);
     }
 
-    private static GuiConfigFieldContribution password(String key, String defaultValue, int order,
-                                                       GuiConfigCondition... enabledWhen) {
-        return field(key, GuiConfigFieldType.PASSWORD, defaultValue, order, List.of(), enabledWhen);
+    private static GuiConfigFieldContribution password(String key, String defaultValue, int order) {
+        return field(key, GuiConfigFieldType.PASSWORD, defaultValue, order);
     }
 
-    private static GuiConfigFieldContribution field(String key, GuiConfigFieldType type, String defaultValue,
-                                                    int order, List<String> enumValues,
-                                                    GuiConfigCondition... enabledWhen) {
+    private static GuiConfigFieldContribution field(
+            String key,
+            GuiConfigFieldType type,
+            String defaultValue,
+            int order
+    ) {
         String prefix = "gui.config.field." + key;
-        return new GuiConfigFieldContribution(key, GuiConfigGroups.AI, prefix + ".label", prefix + ".help",
-                ID, type, defaultValue, order, false, GuiConfigEffect.HOT_RELOAD, enumValues,
-                List.of(enabledWhen), List.of(), null, null);
+        return new GuiConfigFieldContribution(
+                key,
+                GuiConfigGroups.AI,
+                prefix + ".label",
+                prefix + ".help",
+                ID,
+                type,
+                defaultValue,
+                order,
+                false,
+                GuiConfigEffect.HOT_RELOAD,
+                List.of(),
+                List.of(),
+                List.of(),
+                null,
+                null
+        );
     }
 }

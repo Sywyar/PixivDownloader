@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui.panel;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import top.sywyar.pixivdownload.guiswing.SwingHost;
+import top.sywyar.pixivdownload.gui.SwingShellAction;
 
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.gui.SwingBackendLifecycle;
@@ -29,7 +30,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 
 /**
  * “状态”页：展示服务状态，并提供桌面侧的快捷操作。
@@ -67,12 +67,11 @@ public class StatusPanel extends JPanel {
     private final JButton ffmpegActionButton = new JButton(message("gui.ffmpeg.action.download"));
     private final JButton openFfmpegDirButton = new JButton(message("gui.ffmpeg.action.open-dir"));
     private final JProgressBar ffmpegProgress = new JProgressBar();
-    private final AtomicBoolean shellActionInFlight = new AtomicBoolean();
+    private final SwingShellAction shellAction = new SwingShellAction();
 
     private final Runnable themeChangeListener = this::applyUpdateBannerColors;
     private GuiThemeListenerSession themeListenerSession = GuiThemeListenerSession.none();
 
-    private final int serverPort;
     private final String rootFolder;
     private final Path configPath;
     private final Runnable onConfigChanged;
@@ -111,8 +110,8 @@ public class StatusPanel extends JPanel {
     private volatile String savedBannerVersionText;
     private volatile Timer downloadProgressTimer;
 
-    /** 一份待安装的更新选项：URL、安装包大小、发布说明、发布页 URL、最新版本号。 */
-    private record PendingInstall(String url, long size, String releaseNotes, String releaseNotesUrl, String latestVersion) {}
+    /** 一份待安装的更新选项：安装包大小、发布说明、发布页 URL、最新版本号。 */
+    private record PendingInstall(long size, String releaseNotes, String releaseNotesUrl, String latestVersion) {}
     public StatusPanel(int serverPort, String rootFolder, Path configPath,
                        Runnable onConfigChanged) {
         this(serverPort, rootFolder, configPath, null, onConfigChanged, GuiWebEntrySnapshot.empty());
@@ -133,7 +132,6 @@ public class StatusPanel extends JPanel {
     public StatusPanel(int serverPort, String rootFolder, Path configPath,
                        Runnable onLocaleChanged, Runnable onConfigChanged,
                        GuiWebEntrySnapshot guiWebEntries) {
-        this.serverPort = serverPort;
         this.rootFolder = rootFolder;
         this.configPath = configPath;
         this.onConfigChanged = onConfigChanged;
@@ -524,7 +522,7 @@ public class StatusPanel extends JPanel {
         triggerPixivConnectivityCheck(false);
     }
 
-    private void applyBackendSnapshot(SwingBackendLifecycle.Snapshot snapshot) {
+    private void applyBackendSnapshot(DesktopUiHost.BackendSnapshot snapshot) {
         switch (snapshot.state()) {
             case STARTING -> enterStartingState();
             case STOPPING -> {
@@ -548,19 +546,19 @@ public class StatusPanel extends JPanel {
         }
     }
 
-    private void applyOfflineState(SwingBackendLifecycle.Snapshot snapshot) {
-        if (snapshot.state() == SwingBackendLifecycle.State.RUNNING) {
+    private void applyOfflineState(DesktopUiHost.BackendSnapshot snapshot) {
+        if (snapshot.state() == DesktopUiHost.BackendState.RUNNING) {
             leaveStartingState();
             stopLiveStatusTimer();
             statusBadge.setText(message("gui.status.state.connection-failed"));
             statusBadge.setForeground(new Color(180, 60, 60));
-        } else if (snapshot.state() == SwingBackendLifecycle.State.STOPPED) {
+        } else if (snapshot.state() == DesktopUiHost.BackendState.STOPPED) {
             leaveStartingState();
             applyStoppedBadge();
-        } else if (snapshot.state() == SwingBackendLifecycle.State.STOPPING) {
+        } else if (snapshot.state() == DesktopUiHost.BackendState.STOPPING) {
             leaveStartingState();
             applyStoppingBadge();
-        } else if (snapshot.state() == SwingBackendLifecycle.State.STARTING) {
+        } else if (snapshot.state() == DesktopUiHost.BackendState.STARTING) {
             enterStartingState();
         } else {
             leaveStartingState();
@@ -713,7 +711,7 @@ public class StatusPanel extends JPanel {
         }
         String tool = ExclusiveToolHolder.get();
         if (tool != null && !tool.isBlank()
-                && SwingBackendLifecycle.state() == SwingBackendLifecycle.State.STOPPED) {
+                && SwingBackendLifecycle.state() == DesktopUiHost.BackendState.STOPPED) {
             renderStoppedByToolBadge(tool);
             return;
         }
@@ -807,7 +805,7 @@ public class StatusPanel extends JPanel {
 
     private void applyPixivConnectivityResult(DesktopUiHost.GuiValue node) {
         pixivConnectivityChecking = false;
-        boolean backendRunning = SwingBackendLifecycle.snapshot().state() == SwingBackendLifecycle.State.RUNNING;
+        boolean backendRunning = SwingBackendLifecycle.snapshot().state() == DesktopUiHost.BackendState.RUNNING;
         pixivConnectivityCheckButton.setEnabled(backendRunning);
         if (!backendRunning) {
             pixivConnectivityLabel.setText("--");
@@ -1006,26 +1004,14 @@ public class StatusPanel extends JPanel {
     }
 
     private DesktopUiHost.FfmpegProxy loadProxySettings() {
-        if (configPath == null || !Files.exists(configPath)) {
-            return new DesktopUiHost.FfmpegProxy(false, "", 0);
-        }
         try {
-            DesktopUiHost.ConfigFile editor = SwingHost.host().applicationConfig();
-            boolean enabled = Boolean.parseBoolean(defaultIfBlank(editor.read("proxy.enabled"), "false"));
-            if (!enabled) {
-                return new DesktopUiHost.FfmpegProxy(false, "", 0);
-            }
-
-            String host = defaultIfBlank(editor.read("proxy.host"), "");
-            String portValue = defaultIfBlank(editor.read("proxy.port"), "0");
-            int port = Integer.parseInt(portValue.trim());
-            if (host.isBlank() || port <= 0) {
-                return new DesktopUiHost.FfmpegProxy(false, "", 0);
-            }
-            return new DesktopUiHost.FfmpegProxy(true, host, port);
-        } catch (Exception e) {
-            log.warn(logMessage("gui.status.log.ffmpeg-proxy.read-failed", e.getMessage()));
-            return new DesktopUiHost.FfmpegProxy(false, "", 0);
+            var values = SwingHost.readConfiguration(java.util.List.of("proxy.enabled", "proxy.host", "proxy.port"));
+            return new DesktopUiHost.FfmpegProxy(
+                    Boolean.parseBoolean(values.get("proxy.enabled")),
+                    values.getOrDefault("proxy.host", SwingHost.host().defaultProxyHost()),
+                    Integer.parseInt(values.getOrDefault("proxy.port", Integer.toString(SwingHost.host().defaultProxyPort()))));
+        } catch (java.io.IOException failure) {
+            throw new java.io.UncheckedIOException(failure);
         }
     }
 
@@ -1033,40 +1019,16 @@ public class StatusPanel extends JPanel {
         return (value == null || value.isBlank()) ? fallback : value;
     }
 
-    /**
-     * 把可能长时间阻塞的 Shell 打开动作移出 EDT，失败后再回到 EDT 报告。
-     *
-     * <p>Windows 上把目录重解析点（符号链接 / Junction）直接交给 {@code Desktop.open} 会在原生
-     * {@code ShellExecute} 中无限阻塞；在 EDT 上执行会连带冻结窗口、托盘菜单与退出路径。
-     */
-    private void runShellAction(String threadName, ShellAction action, Consumer<Exception> reportFailure) {
-        if (!shellActionInFlight.compareAndSet(false, true)) return;
-        Thread worker = new Thread(() -> {
-            try {
-                action.run();
-            } catch (Exception failure) {
-                SwingUtilities.invokeLater(() -> reportFailure.accept(failure));
-            } finally {
-                shellActionInFlight.set(false);
-            }
-        }, threadName);
-        worker.setDaemon(true);
-        worker.start();
-    }
-
-    @FunctionalInterface
-    private interface ShellAction {
-        void run() throws Exception;
-    }
-
     public void openWebPage(String path) {
-        runShellAction("gui-open-web-page",
+        shellAction.run(
+                "gui-open-web-page",
                 () -> SwingHost.host().openExternalUri(new URI(getWebUrl(path))),
                 failure -> {
                     log.warn(logMessage("gui.status.log.open-browser-failed", path, failure.getMessage()), failure);
                     GuiErrorDialog.show(this, message("gui.dialog.error.title"),
                             message("gui.error.open-browser", failure.getMessage()));
-                });
+                }
+        );
     }
 
     private void openDownloadFolder() {
@@ -1076,24 +1038,28 @@ public class StatusPanel extends JPanel {
                     message("gui.dialog.info.title"), JOptionPane.WARNING_MESSAGE);
             return;
         }
-        runShellAction("gui-open-download-folder",
+        shellAction.run(
+                "gui-open-download-folder",
                 () -> SwingHost.host().openLocalPath(folder.toPath()),
                 failure -> {
                     log.warn(logMessage("gui.status.log.open-download-folder-failed",
                             folder.getAbsolutePath(), failure.getMessage()), failure);
                     GuiErrorDialog.show(this, message("gui.dialog.error.title"),
                             message("gui.error.open-folder", failure.getMessage()));
-                });
+                }
+        );
     }
 
     private void openFfmpegDirectory() {
-        runShellAction("gui-open-ffmpeg-dir",
+        shellAction.run(
+                "gui-open-ffmpeg-dir",
                 () -> SwingHost.host().openLocalPath(ffmpegDirectoryToOpen()),
                 failure -> {
                     log.warn(logMessage("gui.status.log.open-ffmpeg-dir-failed", failure.getMessage()), failure);
                     GuiErrorDialog.show(this, message("gui.dialog.error.title"),
                             message("gui.ffmpeg.dialog.open-dir-failed.message", failure.getMessage()));
-                });
+                }
+        );
     }
 
     /**
@@ -1329,7 +1295,7 @@ public class StatusPanel extends JPanel {
         }
 
         Thread worker = new Thread(() -> {
-            DesktopUiHost.GuiValue node = callLocalGuiEndpointJson("POST", "/api/gui/path-prefixes", payload,
+            DesktopUiHost.GuiValue node = callLocalGuiEndpointJson("/api/gui/path-prefixes", payload,
                     15_000, "gui.status.log.path-prefix.call-failed");
             SwingUtilities.invokeLater(() -> applyDirectoryMigrationResult(node, rootSyncPath));
         }, "gui-path-prefixes-apply");
@@ -1642,7 +1608,7 @@ public class StatusPanel extends JPanel {
         }
         Map<String, Object> payload = Map.of("path", path);
         Thread worker = new Thread(() -> {
-            DesktopUiHost.GuiValue node = callLocalGuiEndpointJson("POST", "/api/gui/path-prefixes/pin", payload,
+            DesktopUiHost.GuiValue node = callLocalGuiEndpointJson("/api/gui/path-prefixes/pin", payload,
                     15_000, "gui.status.log.path-prefix.call-failed");
             SwingUtilities.invokeLater(() -> {
                 if (node != null && node.path("success").asBoolean(false)) {
@@ -1802,7 +1768,6 @@ public class StatusPanel extends JPanel {
 
     private static PendingInstall extractPendingInstall(DesktopUiHost.GuiValue node) {
         return new PendingInstall(
-                node.path("assetUrl").asText(null),
                 node.path("assetSizeBytes").asLong(0L),
                 node.path("releaseNotes").asText(null),
                 node.path("releaseNotesUrl").asText(null),
@@ -1953,13 +1918,15 @@ public class StatusPanel extends JPanel {
 
     /** 在系统默认浏览器中打开一个绝对外部 URL（区别于 {@link #openWebPage}：后者拼接本机服务地址）。 */
     private void openExternalUrl(String url) {
-        try {
-            Desktop.getDesktop().browse(new URI(url));
-        } catch (Exception e) {
-            log.warn(logMessage("gui.status.log.open-browser-failed", url, e.getMessage()), e);
-            GuiErrorDialog.show(this, message("gui.dialog.error.title"),
-                    message("gui.error.open-browser", e.getMessage()));
-        }
+        shellAction.run(
+                "gui-open-external-url",
+                () -> SwingHost.host().openExternalUri(new URI(url)),
+                failure -> {
+                    log.warn(logMessage("gui.status.log.open-browser-failed", url, failure.getMessage()), failure);
+                    GuiErrorDialog.show(this, message("gui.dialog.error.title"),
+                            message("gui.error.open-browser", failure.getMessage()));
+                }
+        );
     }
 
     /**
@@ -2132,8 +2099,7 @@ public class StatusPanel extends JPanel {
     }
 
     /** 同上，但以 {@code application/json} 发送 body。 */
-    private DesktopUiHost.GuiValue callLocalGuiEndpointJson(String method,
-                                              String path,
+    private DesktopUiHost.GuiValue callLocalGuiEndpointJson(String path,
                                               Object jsonBody,
                                               int readTimeoutMs,
                                               String failureLogCode) {

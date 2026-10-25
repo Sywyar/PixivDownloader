@@ -30,6 +30,7 @@ import java.util.Optional;
 import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
@@ -206,8 +207,18 @@ class PluginStatusServiceTest {
 
         assertThat(diagnostic.status()).isEqualTo(PluginStatus.CRASHED);
         assertThat(diagnostic.messages()).containsExactly("worker exited");
+        Map<String, String> failed = service.failureSnapshot();
+        assertThat(failed).containsEntry("crashy", "CRASHED");
         assertThat(service.startupFailuresById()).isEmpty();
         assertThat(new RecoveryModeService(service, RequiredPluginPolicy.empty(), org.mockito.Mockito.mock(javax.sql.DataSource.class)).isActive()).isFalse();
+        assertThatThrownBy(() -> failed.put("other", "failure"))
+                .isInstanceOf(UnsupportedOperationException.class);
+        when(runtime.status()).thenReturn(Optional.of(new PluginRuntimeStatus(
+                Path.of("plugins"), PluginDirectoryState.POPULATED,
+                List.of("crashy"), List.of("crashy"), List.of())));
+        when(runtime.packagePhases()).thenReturn(Map.of("crashy", PluginRuntimePackagePhase.STARTED));
+        assertThat(service.failureSnapshot()).isEmpty();
+        assertThat(failed).containsOnlyKeys("crashy");
     }
 
     @Test

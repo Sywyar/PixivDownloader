@@ -65,6 +65,8 @@ class SqliteReplacementTest {
             copy(exported, imported);
             assertThat(body(target)).isEqualTo("old\0retained");
             imported.commit();
+            assertThatThrownBy(imported::abort).hasMessage("MIGRATION_COMMIT_OUTCOME_UNKNOWN");
+            assertThatThrownBy(imported::commit).hasMessage("MIGRATION_SESSION_CLOSED");
         }
         assertThat(body(target)).isEqualTo("new 🌸");
         assertThat(body(DatabaseProviderTestFixtures.sqlite(request.backup()).migrationEndpoint())).isEqualTo("old\0retained");

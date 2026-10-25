@@ -118,7 +118,7 @@
     "modal.summary.all": "全部",
     "modal.summary.authors": "作者：{value}",
     "modal.summary.count": "{count} 項",
-    "modal.summary.hint": "（OR 語義：符合標籤或作者即可查看）",
+    "modal.summary.hint": "（未允許的標籤或作者會優先排除作品；其餘符合標籤或作者條件即可）",
     "modal.summary.tags": "標籤：{value}",
     "nav.description": "透過邀請分享作品，管理訪客的存取權限。",
     "nav.invite-guest": "邀請訪客",

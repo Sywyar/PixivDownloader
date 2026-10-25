@@ -7,7 +7,6 @@ import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator;
 
 import java.util.Optional;
-import java.util.function.Predicate;
 
 /** 仅供 app 测试调用 registry 包级生命周期入口与构造伪造身份；生产代码没有对应入口。 */
 public final class ScheduleCapabilityRegistryTestAccess {
@@ -63,26 +62,6 @@ public final class ScheduleCapabilityRegistryTestAccess {
         return new ScheduleCapabilityRegistry(ignored -> true, postCommitProbe);
     }
 
-    public static ScheduleCapabilityRegistry withAcquireProbe(Runnable postAcquireProbe) {
-        return new ScheduleCapabilityRegistry(ignored -> true, () -> {
-        }, postAcquireProbe);
-    }
-
-    public static ScheduleCapabilityRegistry withReleaseProbes(
-            Runnable beforeReleaseProbe,
-            Runnable afterReleaseProbe) {
-        return new ScheduleCapabilityRegistry(
-                ignored -> true,
-                () -> {
-                },
-                () -> {
-                },
-                () -> {
-                },
-                beforeReleaseProbe,
-                afterReleaseProbe);
-    }
-
     public static ScheduleCapabilityRegistry withTransitionProbes(
             Runnable postReserveProbe,
             Runnable postWithdrawProbe,
@@ -106,19 +85,9 @@ public final class ScheduleCapabilityRegistryTestAccess {
                 });
     }
 
-    public static ScheduleCapabilityRegistry withAdmission(Predicate<String> ownerAdmission) {
-        return new ScheduleCapabilityRegistry(ownerAdmission, () -> {
-        });
-    }
-
     public static Optional<ScheduleGenerationDrain> withdraw(
             ScheduleCapabilityRegistry registry, ScheduleCapabilityPublication publication) {
         return registry.withdraw(publication);
-    }
-
-    public static Optional<ScheduleCapabilityPublication> publication(
-            ScheduleCapabilityRegistry registry, ScheduleCapabilityOwner owner) {
-        return registry.publication(owner);
     }
 
     public static ScheduleCapabilityPublication equivalent(

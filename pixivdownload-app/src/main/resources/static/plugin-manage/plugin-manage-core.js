@@ -8,8 +8,7 @@
  *     version, kind, sdkRequirement, dependencies, source, status, runtimePhase, managed, requiredByPolicy,
  *     allowDisable, executionMode, lifecyclePolicy, configuredEnabled, toggleable, availableActions, messages } ] }
  * 其中 descriptionKey 是纯 i18n key（在 displayNamespace 内解析）；iconKey / colorToken 是<b>受控展示 token</b>
- * （非 URL / CSS / 远程资源），经共享 PixivPluginPresentationTokens 映射为图标 class / 颜色 class，未知值回退默认。设计稿里后端仍未
- * 提供的字段（更新机制 / 体积 / 下载量 / 作者）在此处优雅留空（见各 vm.hasUpdate 等占位字段），待后端补齐后再点亮。
+ * （非 URL / CSS / 远程资源），经共享 PixivPluginPresentationTokens 映射为图标 class / 颜色 class，未知值回退默认。
  */
 (function (global) {
     var STATUS_URL = '/api/plugins/status';
@@ -252,8 +251,6 @@
         }
         var name = tns(entry.displayNamespace, entry.displayNameKey, entry.id);
         var version = entry.version ? ('v' + entry.version) : null;
-        // 副标题只保留稳定 id：版本上移到名称行，来源由名称行徽标表达。
-        var sub = String(entry.id);
         var verification = entry.verification || {};
         var verificationStatus = verification.status || null;
         var verificationInfo = verificationMeta(verificationStatus);
@@ -287,7 +284,6 @@
             fields: detailFields(entry),
             name: name,
             version: version,
-            sub: sub,
             source: source,
             status: status,
             statusLabel: t(meta.key, status),
@@ -302,8 +298,6 @@
             executionMode: executionMode,
             trustFacts: verification,
             trustSections: global.PixivPluginPresentationTokens.trustSections(verification, i18n.client, running || !!entry.loadedVersion || phase === 'QUIESCED'),
-            trustLines: global.PixivPluginPresentationTokens.trustLines(verification, i18n.client,
-                running || !!entry.loadedVersion || phase === 'QUIESCED'),
             executionLabel: t(executionInfo.key, executionInfo.fallback),
             executionTone: executionInfo.tone,
             showExecutionTag: source === 'external',
@@ -317,15 +311,11 @@
             verificationStatus: verificationStatus,
             verificationLabel: verificationStatus ? t(verificationInfo.key, verificationStatus) : null,
             verificationTone: verificationInfo.tone,
-            verificationTrustLabel: verification.trustLabel || verification.publisher || null,
             trustState: trustState,
             trustLabel: t(trustInfo.key, trustInfo.fallback),
             trustTone: trustInfo.tone,
             trustArtifactSha256: trust.artifactSha256 || null,
             trustPublisherKeyFingerprint: trust.publisherKeyFingerprint || null,
-            trustApprovalType: trust.approvalType || null,
-            trustApprovedAt: trust.approvedAt || null,
-            trustRevokedAt: trust.revokedAt || null,
             trustApprovable: trust.approvable === true,
             trustRevocable: trust.revocable === true,
             trustSource: verification.source || source,
@@ -350,12 +340,8 @@
             toggleable: toggleable,
             requiredByPolicy: !!entry.requiredByPolicy,
             allowDisable: entry.allowDisable !== false,
-            generation: entry.generation == null ? null : entry.generation,
             operation: entry.operation || 'IDLE',
-            hasUpdate: false,
-            latest: null,
-            updating: !!entry.operation && entry.operation !== 'IDLE' && entry.operation !== 'FAILED',
-            progress: 0
+            updating: !!entry.operation && entry.operation !== 'IDLE' && entry.operation !== 'FAILED'
         };
     }
 
@@ -427,7 +413,7 @@
     }
 
     function filterModels(models) {
-        var list = models.slice();
+        var list = models;
         var tab = state.activeTab;
         if (tab === 'enabled') {
             list = list.filter(function (p) { return p.enabled; });
@@ -471,8 +457,7 @@
     // 安装结果色调：恢复阻断优先于 accepted（落盘存在）与 activated（运行时已加载），必须作为失败态展示；其余 accepted
     // 结果里 DUPLICATE（已存在、无改动）记为中性 info，新装 / 升级 / 降级记为成功 ok，未 accepted 记为 bad。
     function installTone(outcome, accepted, recoveryBlocked) {
-        if (recoveryBlocked) return 'bad';
-        if (!accepted) return 'bad';
+        if (recoveryBlocked || !accepted) return 'bad';
         return outcome === 'DUPLICATE' ? 'info' : 'ok';
     }
 
@@ -543,14 +528,9 @@
     }
 
     // 纯前端的本地校验提示（未选文件 / 非法选择 / 网络异常等）：与 buildInstallResult 同形态，供结果区统一渲染。
-    function localInstallNotice(message, tone) {
+    function localInstallNotice(messageKey, tone) {
         return {
-            outcome: null, accepted: false, recoveryBlocked: false, effectiveAfterRestart: false, status: null,
-            tone: tone || 'warn', message: message || null,
-            pluginId: null, version: null, previousVersion: null, packageId: null, targetVersion: null,
-            operation: null, runtimePhase: null, updated: false, transactionId: null,
-            activated: false, rolledBack: false, rollbackVersion: null,
-            errors: [], warnings: [], localValidation: true
+            tone: tone || 'warn', messageKey: messageKey, localValidation: true
         };
     }
 

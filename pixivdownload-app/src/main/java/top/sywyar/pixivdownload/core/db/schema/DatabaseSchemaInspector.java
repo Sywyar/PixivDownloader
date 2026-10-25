@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.core.db.schema;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
-import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;

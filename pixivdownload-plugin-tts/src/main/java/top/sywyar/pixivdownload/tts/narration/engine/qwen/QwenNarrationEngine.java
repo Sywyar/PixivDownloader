@@ -77,10 +77,7 @@ public class QwenNarrationEngine extends AbstractHttpNarrationEngine implements 
         if (qwen == null || qwen.getBaseUrl() == null || qwen.getBaseUrl().isBlank()) {
             throw new NarrationVoiceException(localized("narration.tts.error.unavailable"), null);
         }
-        String text = req == null ? null : req.text();
-        if (NarrationSpeechText.blankToNull(text) == null) {
-            throw new NarrationVoiceException(localized("narration.tts.error.empty-text"), null);
-        }
+        String text = requireText(req);
 
         String apiKey = qwen.getApiKey();
         boolean useProxy = qwen.getUseProxy();
@@ -137,10 +134,6 @@ public class QwenNarrationEngine extends AbstractHttpNarrationEngine implements 
                 throw new NarrationVoiceException(localized("narration.tts.error.empty-audio"), null);
             }
             return new NarrationAudio(audio, resolveContentType(resp, "wav"));
-        } catch (RestClientResponseException e) {
-            throw new NarrationVoiceException(
-                    localized("narration.tts.error.request-failed",
-                            redact(audioDownloadFailureDetail(audioUri, e), apiKey)), e);
         } catch (RestClientException e) {
             throw new NarrationVoiceException(
                     localized("narration.tts.error.request-failed",

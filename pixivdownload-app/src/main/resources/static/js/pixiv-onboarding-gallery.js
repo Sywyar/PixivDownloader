@@ -8,12 +8,9 @@
     }
 
     var EXAMPLE_ID = ctx.EXAMPLE_ID;
-    var EXAMPLE_URL = ctx.EXAMPLE_URL;
     var t = ctx.message;
     var escapeHtml = ctx.messageHtml;
-    var loadState = ctx.loadState;
     var patchState = ctx.patchState;
-    var markCompleted = ctx.markCompleted;
     var SKIP_BTN = ctx.SKIP_BTN;
     var overlay = ctx.overlay;
     var footHtml = ctx.footHtml;
@@ -22,7 +19,6 @@
     var finish = ctx.finish;
     var hook = ctx.hook;
     var callHook = ctx.callHook;
-    var waitFor = ctx.waitFor;
     var waitForElement = ctx.waitForElement;
     var notifyCompletionStepDone = ctx.notifyCompletionStepDone;
 
@@ -191,8 +187,10 @@
     }
 
     function phaseDetail() {
+        var revision = overlay.revision;
         var doneLabel = t('onboarding.common.done', '完成');
         var runResolved = function () {
+            if (overlay.revision !== revision) return;
             var steps = resolveDetailSteps();
             if (steps.length) {
                 runRegionSteps(steps, renderDetailDone, doneLabel);

@@ -45,9 +45,9 @@ function setup(overrides={}) {
         'stopSchedulePolling','renderScheduleMode','renderScheduleTaskList','scheduleStatusLight','openScheduleSnapshot',
         'toggleDock','animateWorkspace','enqueueItems','buildQueueMeta','pixivCancelWorkKey','refreshQuickCredentialGate'])context[name]=()=>{};
     const read=file=>readFileSync(resolve(__dirname,'../../main/resources/static/pixiv-batch-alt',file),'utf8');
-    for(const file of ['alt-core.js','../pixiv-batch/batch-download-defaults.js','alt-state.js','alt-filters.js','alt-settings.js','alt-modes.js','alt-mode-discovery.js','alt-mode-series.js',
+    for(const file of ['../pixiv-batch/queue-display.js', 'alt-core.js','../pixiv-batch/batch-download-defaults.js','../pixiv-batch/state-storage.js', 'alt-state.js','../pixiv-batch/search-filters.js','alt-filters.js','../pixiv-batch/filename-template.js', 'alt-settings.js','alt-modes.js','alt-mode-discovery.js','alt-mode-series.js',
         'alt-extensions.js','../pixiv-batch/pixiv-schedule-defaults.js','../pixiv-batch/media-settings.js','alt-schedule-presentation.js',
-        'alt-schedule-pixiv.js','alt-schedule-session.js','alt-schedule-editor.js'])
+        'alt-schedule.js','alt-schedule-pixiv.js','alt-schedule-session.js','alt-schedule-editor.js'])
         vm.runInContext(read(file),context);
     const lease=sourceType=>({sourceType,activationToken:'activation-a',signal:new AbortController().signal,
         assertCurrent(){if(!current)throw new Error('Stale source');}});
@@ -55,6 +55,8 @@ function setup(overrides={}) {
         registerModule(url,init){init({descriptors:['search','user-new','user-request','series','my-bookmarks','follow-latest','collection']
             .map(sourceType=>({sourceType})),registerSource:(type,handler)=>handlers.set(type,handler)});},
         activationLease:lease,restoreTask:value=>handlers.get(value.sourceType).restore(value),
+        isAvailable:type=>handlers.has(type),
+        credentialContribution:type=>handlers.get(type)?.credentialContribution?.(),
         previewForMode(mode,ctx){
             const entry=Array.from(handlers).find(([,value])=>value.matches(ctx));
             return entry ? {...entry[1].preview(ctx), sourceType:entry[0]} : null;
@@ -70,6 +72,7 @@ function setup(overrides={}) {
         acquisitionList:()=>[],contributionsOf:()=>[]};
     vm.runInContext(read('../pixiv-batch/pixiv-schedule-sources.js'),context);
     Object.assign(context,{bt:(key,fallback)=>fallback||key,abToast:(...args)=>toasts.push(args),
+        enterScheduleMode:()=>{},loadScheduleTasks:()=>{},
         abConfirm:async()=>confirm,
         openDrawer:value=>{drawer=value;document.body.append(value.body,value.footer);},
         closeDrawer:()=>{drawer?.body.remove();drawer?.footer.remove();drawer=null;},

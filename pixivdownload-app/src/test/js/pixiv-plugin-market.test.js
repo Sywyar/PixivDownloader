@@ -63,6 +63,25 @@ vm.runInContext(DATA_SRC, sandbox);
 vm.runInContext(API_SRC, sandbox);
 
 const PMK = sandbox.window.PixivPluginMarket;
+{
+    const entry = {pluginId: 'selection-fixture', latestVersion: '2.0.0', recommendedVersion: '1.0.0',
+        packages: [
+            {version: '2.0.0', expectedSizeBytes: 4096, verification: {publisher: 'Latest publisher'}},
+            {version: '1.0.0', expectedSizeBytes: 2048, verification: {publisher: 'Recommended publisher'}}
+        ]};
+    const recommended = PMK.data.cardModel(entry);
+    eq('卡片版本使用推荐版本而非最新版本', recommended.targetVersion, '1.0.0');
+    eq('卡片版本标签对应推荐版本', recommended.versionLabel, 'v1.0.0');
+    eq('卡片体积对应推荐制品', recommended.sizeLabel, '2 KB');
+    eq('卡片发布者对应推荐制品', recommended.publisher, 'Recommended publisher');
+    entry.recommendedVersion = '2.0.0';
+    const refreshed = PMK.data.cardModel(entry);
+    eq('后续卡片使用新推荐版本', refreshed.targetVersion, '2.0.0');
+    eq('后续卡片重新读取制品体积', refreshed.sizeLabel, '4 KB');
+    eq('后续卡片重新读取制品发布者', refreshed.publisher, 'Latest publisher');
+    entry.packages = [];
+    eq('制品撤回后不保留旧体积', PMK.data.cardModel(entry).sizeLabel, null);
+}
 for (const [match, expected] of [['SAME_ARTIFACT', 'INSTALLED_SAME'],
     ['DIFFERENT_ARTIFACT', 'INSTALL_DIFFERENT'], ['UNKNOWN', 'INSTALL_UNVERIFIED']]) {
     const pkg = {version: '7.0.0', installationMatch: match, compatible: true, installable: true,
@@ -230,24 +249,6 @@ ok('依赖判定只消费中性 category', PMK.data.entryDependency(dependency))
 ok('默认安装判定不硬编码任何插件 id', DATA_SRC.includes('m.defaultInstalled') && !DATA_SRC.includes("'douyin'"));
 
 PMK.state.i18n.client = null;
-const missingReasons = PMK.recoveryReasons({
-    recoveryMode: true,
-    transactionRecovery: {safeToScan: true, failures: []},
-    recoveryReasons: [{pluginId: 'download-workbench', status: 'MISSING_REQUIRED', messages: []}],
-    plugins: []
-});
-ok('恢复横幅指出缺失的必装插件', missingReasons.length === 1 && missingReasons[0].includes('download-workbench'));
-const failedReasons = PMK.recoveryReasons({
-    recoveryMode: true,
-    transactionRecovery: {safeToScan: true, failures: []},
-    recoveryReasons: [{pluginId: 'crashy', status: 'FAILED', messageKey: 'plugin.recovery.failed', messages: ['startup exploded']}],
-    plugins: [{id: 'bad-signature', status: 'FAILED', requiredByPolicy: false, messages: ['signature rejected']}]
-});
-ok('恢复横幅指出崩溃插件及诊断', failedReasons.length === 1
-    && failedReasons[0].includes('crashy') && failedReasons[0].includes('startup exploded'));
-ok('恢复横幅不把其它 FAILED 诊断冒充恢复原因', !failedReasons[0].includes('bad-signature'));
-eq('正常模式不显示恢复原因', PMK.recoveryReasons({recoveryMode: false, plugins: []}).length, 0);
-
 const blockedMessage = '安装事务已阻断；请重启后完成恢复';
 const blockedResult = PMK.data.installResult({
     outcome: 'INSTALLED', accepted: true, activated: true, effectiveAfterRestart: true,

@@ -15,6 +15,70 @@ import static org.assertj.core.api.Assertions.assertThat;
 class JsonToSqliteMigrationTest {
 
     @Test
+    @DisplayName("JSON 导入普通失败后的回滚致命错误优先传播且关闭连接")
+    void fatalRollbackEscapesOrdinaryFailure(@TempDir Path directory) throws Exception {
+        var target = org.mockito.Mockito.spy(
+                top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("rollback.db")));
+        Files.writeString(directory.resolve(JsonToSqliteMigration.DOWNLOAD_HISTORY_FILE),
+                "{\"downloaded\":{}}", StandardCharsets.UTF_8);
+        try (var raw = target.openConnection()) {
+            var connection = org.mockito.Mockito.mock(java.sql.Connection.class,
+                    org.mockito.AdditionalAnswers.delegatesTo(raw));
+            var failure = new java.sql.SQLException("controlled storage failure");
+            var cleanup = new ThreadDeath();
+            org.mockito.Mockito.doAnswer(ignored -> {
+                org.mockito.Mockito.doThrow(cleanup).when(connection).rollback();
+                throw failure;
+            }).when(target).storageSession(org.mockito.ArgumentMatchers.eq(connection), org.mockito.ArgumentMatchers.any());
+            var options = new JsonToSqliteMigration.Options(target.displayName(), directory.toString(), target);
+            var source = org.mockito.Mockito.mock(javax.sql.DataSource.class);
+            org.mockito.Mockito.when(source.getConnection()).thenReturn(connection);
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> JsonToSqliteMigration.run(options, null, source))
+                    .isSameAs(cleanup).hasSuppressedException(failure);
+            assertThat(connection.isClosed()).isTrue();
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("导入报告或存储会话关闭致命失败时撤回作品和统计")
+    void fatalFailureRollsBackImportedRows(boolean failOnClose, @TempDir Path directory) throws Exception {
+        var target = org.mockito.Mockito.spy(
+                top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("fatal.db")));
+        Files.writeString(directory.resolve(JsonToSqliteMigration.DOWNLOAD_HISTORY_FILE), """
+                {"downloaded":{"1":{"title":"fixture","folder":"folder","count":1,"extensions":"png","time":1}}}
+                """, StandardCharsets.UTF_8);
+        Files.writeString(directory.resolve(JsonToSqliteMigration.STATISTICS_FILE),
+                "{\"totalArtworks\":1,\"totalImages\":1,\"totalMoved\":0}", StandardCharsets.UTF_8);
+        var failure = new OutOfMemoryError("controlled reporter failure");
+        if (failOnClose) {
+            org.mockito.Mockito.doAnswer(invocation -> {
+                var real = (top.sywyar.pixivdownload.plugin.api.storage.relational.DatabaseSession) invocation.callRealMethod();
+                var session = org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.api.storage.relational.DatabaseSession.class,
+                        org.mockito.AdditionalAnswers.delegatesTo(real));
+                org.mockito.Mockito.doAnswer(ignored -> { real.close(); throw failure; }).when(session).close();
+                return session;
+            }).when(target).storageSession(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        }
+        var reports = new java.util.concurrent.atomic.AtomicInteger();
+        var options = new JsonToSqliteMigration.Options(target.displayName(), directory.toString(), target);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> JsonToSqliteMigration.run(options, ignored -> {
+            if (!failOnClose && reports.incrementAndGet() == 2) throw failure;
+        })).isSameAs(failure);
+        try (var connection = target.openConnection(); var statement = connection.createStatement()) {
+            try (var rows = statement.executeQuery("SELECT count(*) FROM artworks")) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt(1)).isZero();
+            }
+            try (var rows = statement.executeQuery("SELECT count(*) FROM statistics")) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt(1)).isZero();
+            }
+        }
+    }
+
+    @Test
     @DisplayName("离线迁移写入指定 SQLite，重跑保留已有作品与统计")
     void importsIntoRequestedDatabaseWithoutOverwritingOnRetry(@TempDir Path tempDir) throws Exception {
         Path database = tempDir.resolve("existing.db");

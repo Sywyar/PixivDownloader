@@ -1,5 +1,12 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { fetchGitHub, gitContributorIdentities, readBounded, selectMaintainers } from '../../generate-maintainers.mjs';
 
@@ -48,8 +55,113 @@ test('提交协作者产生独立提交后自动成为提交贡献者', async ()
   ]);
 });
 
-test('头像响应超过上限时立即拒绝', async () => {
-  await assert.rejects(readBounded(new Response(new Uint8Array(5)), 4), /too large/);
+test('有界读取在声明超限或累计超限时取消正文并释放读取锁', async () => {
+  for (const headers of [{ 'content-length': '5' }, {}]) {
+    let cancelled = 0;
+    const response = new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new Uint8Array(5)); },
+      cancel() { cancelled++; },
+    }), { headers });
+    await assert.rejects(readBounded(response, 4), /too large/);
+    assert.equal(cancelled, 1);
+    assert.equal(response.body.locked, false);
+  }
+});
+
+test('有界读取在成功和正文失败后释放读取锁并保留原结果', async () => {
+  const response = new Response(new Uint8Array([1, 2, 3]));
+  assert.deepEqual(await readBounded(response, 3), Buffer.from([1, 2, 3]));
+  assert.equal(response.body.locked, false);
+  const failure = new Error('body failed');
+  const broken = new Response(new ReadableStream({ start(controller) { controller.error(failure); } }));
+  await assert.rejects(readBounded(broken, 3), (error) => error === failure);
+  assert.equal(broken.body.locked, false);
+});
+
+test('正文取消失败不能覆盖原始大小拒绝', async () => {
+  const response = new Response(new ReadableStream({
+    start(controller) { controller.enqueue(new Uint8Array(5)); },
+    cancel() { throw new Error('cancel failed'); },
+  }));
+  await assert.rejects(readBounded(response, 4), /too large/);
+  assert.equal(response.body.locked, false);
+});
+
+test('拒绝超大声明后关闭仍在发送正文的真实连接', { timeout: 5000 }, async (t) => {
+  let disconnected;
+  const closed = new Promise((resolve) => { disconnected = resolve; });
+  const server = createServer((_request, response) => {
+    response.on('close', disconnected);
+    response.writeHead(200, { 'content-length': '100' });
+    response.write('first');
+  });
+  t.after(() => {
+    server.closeAllConnections();
+    return new Promise((resolve) => server.close(resolve));
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/`);
+  await assert.rejects(readBounded(response, 4), /too large/);
+  await closed;
+});
+
+test('真实生成入口在拒绝头像时释放正文并保留已有目录', async (t) => {
+  const root = fileURLToPath(new URL('../../../', import.meta.url));
+  const fixture = await mkdtemp(join(tmpdir(), 'maintainer-response-'));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  const preload = join(fixture, 'fetch.mjs');
+  const output = join(fixture, 'maintainers.json');
+  await writeFile(preload, `
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import https from 'node:https';
+import { EventEmitter } from 'node:events';
+import { syncBuiltinESMExports } from 'node:module';
+import { Readable } from 'node:stream';
+const { maintainers } = JSON.parse(readFileSync(join(process.env.FIXTURE_ROOT, 'scripts/maintainers-allowlist.json'), 'utf8'));
+const users = maintainers.map((user) => ({ ...user, type: 'User', avatar_url: 'https://avatars.githubusercontent.com/u/' + user.id }));
+https.request = (input, options, callback) => {
+  const url = new URL(input);
+  const outgoing = new EventEmitter();
+  let incoming;
+  if (url.hostname === 'api.github.com') {
+    incoming = Readable.from([Buffer.from(JSON.stringify(url.pathname.endsWith('/contributors') ? users : { owner: users[0] }))]);
+    incoming.statusCode = 200;
+    incoming.headers = { 'content-type': 'application/json' };
+  } else {
+    const mode = process.env.FIXTURE_MODE;
+    incoming = new Readable({
+      read() {},
+      destroy(error, done) {
+        process.stdout.write('BODY_CANCELLED\\n');
+        done(mode.endsWith('-cancel-fails') ? new Error('cleanup failure') : error);
+      },
+    });
+    incoming.statusCode = mode.startsWith('status') ? 502 : 200;
+    incoming.headers = { 'content-type': 'text/plain' };
+  }
+  outgoing.end = () => queueMicrotask(() => callback(incoming));
+  return outgoing;
+};
+syncBuiltinESMExports();
+`, 'utf8');
+  const allowlist = JSON.parse(await readFile(join(root, 'scripts/maintainers-allowlist.json'), 'utf8'));
+  for (const mode of ['status', 'type', 'status-cancel-fails', 'type-cancel-fails']) {
+    await t.test(mode, async () => {
+      await writeFile(output, 'existing catalog', 'utf8');
+      const env = { ...process.env, FIXTURE_ROOT: root, FIXTURE_MODE: mode, NO_PROXY: '*' };
+      delete env.GITHUB_TOKEN;
+      delete env.GH_TOKEN;
+      const child = spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, join(root, 'scripts/generate-maintainers.mjs'),
+        '--repo-root', root, '--output', output], { env, encoding: 'utf8', timeout: 30_000 });
+      assert.ifError(child.error);
+      assert.equal(child.status, 1, mode);
+      assert.match(child.stderr, mode.startsWith('status') ? /Avatar download 502/ : /Avatar is not an image/);
+      assert.equal((child.stdout.match(/BODY_CANCELLED/g) ?? []).length, allowlist.maintainers.length, mode);
+      assert.equal(await readFile(output, 'utf8'), 'existing catalog');
+    });
+  }
 });
 
 function requests(...responses) {

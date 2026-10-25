@@ -2,10 +2,10 @@ package top.sywyar.pixivdownload.plugin.runtime.bootstrap;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
 
 /**
  * 启动前插件启用配置的不可变快照（中性、纯 JDK）。
@@ -13,7 +13,7 @@ import java.util.TreeSet;
  * <p>承载 config.yaml 中 {@code plugins.<featureId>.enabled} 的解析结果：未在快照中标记为禁用的 feature id
  * 一律视为启用（与 {@code PluginToggleProperties} 缺项默认启用语义一致）。本类只<b>记录</b>启用 / 禁用事实，
  * 不影响 PF4J 扫描——已安装但配置禁用的插件仍允许 PF4J 加载、诊断、出现在 inventory 中；禁用态仅供启动前消费者
- * 按需读取（当前运行期尚不消费该快照）。
+ * 选择能力时按需读取。
  *
  * <p>本类是 plugin-runtime bootstrap 的中性载体，<b>不</b>读 config.yaml、<b>不</b>依赖 Spring / ConfigFileEditor——
  * 由 app 侧把已解析的原始 {@code plugins} 段（或禁用集合）传入。配置读取失败由调用方收敛为 {@link #empty()} 并附诊断。
@@ -36,7 +36,7 @@ public final class PluginEnabledSnapshot {
     /** 直接按已知禁用 feature id 集合构造（调用方已解析完毕）。 */
     public static PluginEnabledSnapshot ofDisabled(Collection<String> disabledFeatureIds, Collection<String> diagnostics) {
         return new PluginEnabledSnapshot(
-                disabledFeatureIds == null ? Set.of() : new TreeSet<>(disabledFeatureIds),
+                disabledFeatureIds == null ? Set.of() : disabledFeatureIds,
                 diagnostics == null ? List.of() : diagnostics);
     }
 
@@ -53,7 +53,7 @@ public final class PluginEnabledSnapshot {
         if (rawPluginsSection == null || rawPluginsSection.isEmpty()) {
             return empty();
         }
-        Set<String> disabled = new TreeSet<>();
+        Set<String> disabled = new HashSet<>();
         List<String> diagnostics = new ArrayList<>();
         for (Map.Entry<String, ?> entry : rawPluginsSection.entrySet()) {
             String featureId = entry.getKey();
@@ -69,9 +69,6 @@ public final class PluginEnabledSnapshot {
     }
 
     private static EnabledParse parseEnabled(String featureId, Object value, String source) {
-        if (value == null) {
-            return EnabledParse.enabledByDefault();
-        }
         if (value instanceof Map<?, ?> map) {
             return parseBooleanish(map.get("enabled"), featureId, source);
         }
@@ -102,7 +99,7 @@ public final class PluginEnabledSnapshot {
     }
 
     private static String describe(Object value) {
-        return value == null ? "null" : (value.getClass().getSimpleName() + ":" + value);
+        return value.getClass().getSimpleName() + ":" + value;
     }
 
     /** 给定 feature id 是否启用；未标记为禁用者一律返回 true（缺项默认启用）。 */
@@ -110,7 +107,7 @@ public final class PluginEnabledSnapshot {
         return featureId == null || !disabledFeatureIds.contains(featureId);
     }
 
-    /** 被显式禁用的 feature id（不可变、按自然序）。 */
+    /** 被显式禁用的 feature id（不可变，不保证迭代顺序）。 */
     public Set<String> disabledFeatureIds() {
         return disabledFeatureIds;
     }

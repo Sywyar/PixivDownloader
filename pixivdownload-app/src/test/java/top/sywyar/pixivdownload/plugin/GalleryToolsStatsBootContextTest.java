@@ -25,16 +25,13 @@ import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
 import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeStatus;
 
 import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
-import java.util.List;
 import java.util.Locale;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static top.sywyar.pixivdownload.plugin.PluginTestArtifacts.zipDirectoryAsJar;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager;
@@ -211,7 +208,6 @@ class GalleryToolsStatsBootContextTest {
                 staticResourceRegistry.resources().stream()
                         .filter(s -> s.pluginId().equals("gallery-tools")
                                 && s.contribution().publicPathPrefix().equals("/pixiv-stats/")).findFirst().orElseThrow();
-        assertThat(staticResource.contribution().publicPathPrefix()).isEqualTo("/pixiv-stats/");
         assertThat(staticResource.classLoader()).isSameAs(externalCl);
 
         assertThat(staticResourceRegistry.resources().stream()
@@ -375,8 +371,8 @@ class GalleryToolsStatsBootContextTest {
         ConfigurableApplicationContext beforeStop = externalPluginContextManager.contextFor("gallery-tools").orElseThrow();
         pluginLifecycleService.stop("gallery-tools");
         assertThat(pluginLifecycleService.phase("gallery-tools")).contains(PluginRuntimePhase.STOPPED);
-        assertThat(anyHandlerLoadedBy(statsCl))
-                .as("stop 后请求分发表不应残留任何由 stats classloader 加载的 handler Bean")
+        assertThat(anyHandlerLoadedBy(beforeStop.getClassLoader()))
+                .as("stop 后请求分发表不应残留当前插件 classloader 加载的 handler Bean")
                 .isFalse();
         assertThat(externalPluginContextManager.contextFor("gallery-tools")).isEmpty(); // lifecycle 不再持有子 context
         assertThat(beforeStop.isActive()).isFalse();                            // 子 context 已关闭
@@ -455,23 +451,6 @@ class GalleryToolsStatsBootContextTest {
             return true;
         } catch (IOException | RuntimeException ex) {
             return false;
-        }
-    }
-
-    /** 把一个目录（stats 的 {@code target/classes}，根部已含 {@code plugin.properties}）打成 PF4J 可加载的 jar。 */
-    private static void zipDirectoryAsJar(Path sourceDir, Path jarPath) throws IOException {
-        try (OutputStream out = Files.newOutputStream(jarPath);
-             ZipOutputStream zos = new ZipOutputStream(out)) {
-            List<Path> files;
-            try (var walk = Files.walk(sourceDir)) {
-                files = walk.filter(Files::isRegularFile).sorted().toList();
-            }
-            for (Path file : files) {
-                String entryName = sourceDir.relativize(file).toString().replace('\\', '/');
-                zos.putNextEntry(new ZipEntry(entryName));
-                Files.copy(file, zos);
-                zos.closeEntry();
-            }
         }
     }
 

@@ -84,25 +84,6 @@ function Assert-Command {
     }
 }
 
-function Get-MavenCommand {
-    $wrapper = Join-Path $ProjectRoot "mvnw.cmd"
-    if (Test-Path $wrapper) {
-        return $wrapper
-    }
-
-    $maven = Get-Command "mvn.cmd" -ErrorAction SilentlyContinue
-    if ($maven) {
-        return $maven.Source
-    }
-
-    $maven = Get-Command "mvn" -ErrorAction SilentlyContinue
-    if ($maven) {
-        return $maven.Source
-    }
-
-    throw "Missing Maven command. Install Maven or use the Maven wrapper."
-}
-
 function Get-InnoSetupCompiler {
     $command = Get-Command "iscc.exe" -ErrorAction SilentlyContinue
     if ($command) {
@@ -119,7 +100,7 @@ function Get-InnoSetupCompiler {
     }
 
     foreach ($candidate in $candidates) {
-        if (Test-Path $candidate) {
+        if (Test-Path -LiteralPath $candidate) {
             return $candidate
         }
     }
@@ -129,8 +110,8 @@ function Get-InnoSetupCompiler {
 
 function Remove-PathIfExists {
     param([string]$Path)
-    if (Test-Path $Path) {
-        Remove-Item -Recurse -Force $Path
+    if (Test-Path -LiteralPath $Path) {
+        Remove-Item -Recurse -Force -LiteralPath $Path
     }
 }
 
@@ -152,12 +133,13 @@ function Invoke-External {
 }
 
 function Get-BuiltJar {
-    $bootCandidate = Get-ChildItem (Join-Path $ProjectRoot "pixivdownload-app\target\PixivDownload-*-boot.jar") -File
+    $targetDir = Join-Path $ProjectRoot "pixivdownload-app/target"
+    $bootCandidate = Get-ChildItem -LiteralPath $targetDir -Filter "PixivDownload-*-boot.jar" -File
     if ($bootCandidate) {
         return ($bootCandidate | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
     }
 
-    $jar = Get-ChildItem (Join-Path $ProjectRoot "pixivdownload-app\target\PixivDownload-*.jar") -File |
+    $jar = Get-ChildItem -LiteralPath $targetDir -Filter "PixivDownload-*.jar" -File |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
 
@@ -254,10 +236,9 @@ function Ensure-FfmpegPayload {
     }
 
     Remove-PathIfExists $FfmpegUnpackDir
-    Ensure-Directory $FfmpegUnpackDir
-    Expand-Archive -Path $zipPath -DestinationPath $FfmpegUnpackDir -Force
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $FfmpegUnpackDir)
 
-    $payloadRoot = Get-ChildItem $FfmpegUnpackDir -Directory |
+    $payloadRoot = Get-ChildItem -LiteralPath $FfmpegUnpackDir -Directory |
         Where-Object { $_.Name -eq "ffmpeg-windows-x64" } |
         Select-Object -First 1
 
@@ -279,10 +260,10 @@ function Ensure-FfmpegPayload {
         }
     }
 
-    Copy-Item $sourceFfmpeg $FfmpegExe -Force
-    Copy-Item $sourceFfprobe $FfprobeExe -Force
+    Copy-Item -LiteralPath $sourceFfmpeg -Destination $FfmpegExe -Force
+    Copy-Item -LiteralPath $sourceFfprobe -Destination $FfprobeExe -Force
     Remove-PathIfExists $FfmpegLicenseDir
-    Copy-Item $sourceLicenseDir $FfmpegDir -Recurse -Force
+    Copy-Item -LiteralPath $sourceLicenseDir -Destination $FfmpegDir -Recurse -Force
 }
 
 if ($AllowUnsignedLocalPlugins) {
@@ -303,7 +284,7 @@ if ($AllowUnsignedLocalPlugins) {
         throw "AllowUnsignedLocalPlugins is only for building a local test installer; SkipInstaller is not allowed."
     }
 }
-Push-Location $ProjectRoot
+Push-Location -LiteralPath $ProjectRoot
 try {
     Write-Step "Checking local toolchain"
     if ($AllowUnsignedLocalPlugins) {
@@ -315,33 +296,42 @@ try {
     if (-not $SkipPlugins) {
         $resolvedPrebuiltPluginsDir = Resolve-PrebuiltPluginsDir $PrebuiltPluginsDir
     }
-    $mavenCmd = $null
-    if (-not $PrebuiltJar) {
-        $mavenCmd = Get-MavenCommand
-    }
+    $resolvedPrebuiltJar = Resolve-PrebuiltJar $PrebuiltJar
+    $mavenCmd = if (-not $resolvedPrebuiltJar) { Get-MavenCommand $ProjectRoot } else { $null }
     Assert-Command "jlink"
     Assert-Command "jpackage"
+    Assert-Command "java"
+    Assert-Command "javac"
     if (-not $SkipInstaller) {
         $innoCompilerSource = Get-InnoSetupCompiler
     }
 
+    $cleanPaths = @($InputDir, $RuntimeDir, $OnlineAppImageRoot, $OfflineAppImageRoot, $InnoToolchainDir, $OutDir, $WixDir, $InstallerCatalogIncludePath)
+    $protectedInputs = @($resolvedPrebuiltJar, $resolvedPrebuiltPluginsDir)
+    if (-not $SkipInstaller) {
+        $protectedInputs += Split-Path -Parent $innoCompilerSource
+    }
+    foreach ($path in @($PrivateKeyFile, $SignatureToolJar)) {
+        if (-not [string]::IsNullOrWhiteSpace($path)) {
+            $protectedInputs += $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($path)
+        }
+    }
+    foreach ($path in $cleanPaths) {
+        [void](Assert-SafeDistributionOutputDirectory -Path $path -ProjectRoot $ProjectRoot -ProtectedPaths $protectedInputs)
+    }
     Write-Step "Cleaning local packaging directories"
-    foreach ($path in @($InputDir, $RuntimeDir, $OnlineAppImageRoot, $OfflineAppImageRoot, $InnoToolchainDir, $OutDir, $WixDir, $InstallerCatalogIncludePath)) {
+    foreach ($path in $cleanPaths) {
         Remove-PathIfExists $path
     }
     Ensure-Directory $InputDir
     Ensure-Directory $OutDir
 
     $stagedJar = Join-Path $InputDir "$AppName-$Version.jar"
-    $resolvedPrebuiltJar = Resolve-PrebuiltJar $PrebuiltJar
     if ($resolvedPrebuiltJar) {
         Write-Step "Staging prebuilt application JAR"
-        Copy-Item $resolvedPrebuiltJar $stagedJar -Force
+        Copy-Item -LiteralPath $resolvedPrebuiltJar -Destination $stagedJar -Force
     } else {
         Write-Step "Building application JAR"
-        if (-not $mavenCmd) {
-            $mavenCmd = Get-MavenCommand
-        }
         if ($RunTests) {
             Invoke-External $mavenCmd @("verify", "-Dapp.release.version=$Version")
         } else {
@@ -349,7 +339,7 @@ try {
         }
 
         $jar = Get-BuiltJar
-        Copy-Item $jar.FullName $stagedJar -Force
+        Copy-Item -LiteralPath $jar.FullName -Destination $stagedJar -Force
     }
 
     Assert-ProguardProcessedArtifact $stagedJar
@@ -363,6 +353,14 @@ try {
         "--compress=2",
         "--output", $RuntimeDir
     )
+
+    Write-Step "Removing distrusted CA from bundled runtime"
+    Invoke-External "java" @(
+        "-Dfile.encoding=UTF-8", "--source", "17",
+        (Join-Path $PSScriptRoot "runtime-security/RemoveDistrustedCa.java"),
+        (Join-Path $RuntimeDir "lib/security/cacerts")
+    )
+    & (Join-Path $PSScriptRoot "runtime-security/test-runtime-trust.ps1") -RuntimeHome $RuntimeDir
 
     Write-Step "Building app-image"
     Invoke-External "jpackage" @(
@@ -419,7 +417,7 @@ try {
 
     if (-not $SkipPortable) {
         Write-Step "Packaging online portable zip"
-        Compress-Archive -Path $OnlineAppDir -DestinationPath $OnlineZipPath -Force
+        [System.IO.Compression.ZipFile]::CreateFromDirectory($OnlineAppDir, $OnlineZipPath, [System.IO.Compression.CompressionLevel]::Optimal, $true)
     }
 
     if (-not $SkipOfflinePortable) {
@@ -427,7 +425,7 @@ try {
 
         Write-Step "Building offline app-image"
         Ensure-Directory $OfflineAppImageRoot
-        Copy-Item $OnlineAppDir $OfflineAppImageRoot -Recurse -Force
+        Copy-Item -LiteralPath $OnlineAppDir -Destination $OfflineAppImageRoot -Recurse -Force
         if (-not $SkipPlugins) {
             Write-Step "Staging official required + optional external plugins into offline app-image plugins/"
             $fullOfflinePlugins = @(Get-OfficialDistributionPlugins -IncludeOptional)
@@ -438,12 +436,13 @@ try {
             Write-Host ("    {0} official plugin(s) staged under plugins/ (full-offline)." -f $fullOfflineCount) -ForegroundColor Green
         }
         $offlineFfmpegDir = Join-Path $OfflineAppDir "tools\ffmpeg"
-        Copy-Item $FfmpegExe $offlineFfmpegDir -Force
-        Copy-Item $FfprobeExe $offlineFfmpegDir -Force
-        Copy-Item $FfmpegLicenseDir $offlineFfmpegDir -Recurse -Force
+        Ensure-Directory $offlineFfmpegDir
+        Copy-Item -LiteralPath $FfmpegExe -Destination $offlineFfmpegDir -Force
+        Copy-Item -LiteralPath $FfprobeExe -Destination $offlineFfmpegDir -Force
+        Copy-Item -LiteralPath $FfmpegLicenseDir -Destination $offlineFfmpegDir -Recurse -Force
 
         Write-Step "Packaging offline portable zip"
-        Compress-Archive -Path $OfflineAppDir -DestinationPath $OfflineZipPath -Force
+        [System.IO.Compression.ZipFile]::CreateFromDirectory($OfflineAppDir, $OfflineZipPath, [System.IO.Compression.CompressionLevel]::Optimal, $true)
     }
 
     if (-not $SkipInstaller) {

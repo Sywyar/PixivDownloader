@@ -314,6 +314,9 @@
     function commonMessages() {
         const lang = document.documentElement.lang || '';
         if (!commonI18n || lang !== commonI18nLang) {
+            if (commonI18n) commonI18n.then(function (client) {
+                if (client && client.dispose) client.dispose();
+            });
             commonI18nLang = lang;
             commonI18n = global.PixivI18n
                 ? global.PixivI18n.create({lang: lang || undefined, namespaces: ['common']})

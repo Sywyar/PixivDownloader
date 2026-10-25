@@ -91,16 +91,17 @@ class OutboundWebSocketContractTest {
     @Test
     @DisplayName("请求只接受绝对 WS URI 且保留原始编码")
     void requestAcceptsOnlyAbsoluteWebSocketTargets() {
-        OutboundWebSocketRequest request = request(
-                URI.create("wss://example.test/path?signature=%2B"));
-
-        assertThat(request.uri().toASCIIString())
-                .isEqualTo("wss://example.test/path?signature=%2B");
+        for (String scheme : List.of("ws", "wss", "Ws", "WsS")) {
+            String target = scheme + "://example.test/path?signature=%2B";
+            assertThat(request(URI.create(target)).uri().toASCIIString()).isEqualTo(target);
+        }
 
         for (String invalid : List.of(
                 "/relative",
+                "//example.test/socket",
                 "https://example.test/socket",
                 "ws:/missing-authority",
+                "wss:opaque",
                 "wss://user@example.test/socket",
                 "wss://example.test/socket#fragment")) {
             assertThatThrownBy(() -> request(URI.create(invalid)))

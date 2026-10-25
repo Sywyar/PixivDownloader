@@ -48,12 +48,10 @@ function Stage-OfficialPlugins {
             $sourceArtifact = Find-ModulePluginArtifact $plugin $ProjectRoot
         }
         $descriptor = Assert-OfficialPluginArtifact $sourceArtifact $plugin
-        if (-not $PrebuiltPluginsDir) {
-            Assert-ProguardProcessedArtifact $sourceArtifact
-        }
+        Assert-ProguardProcessedArtifact $sourceArtifact
         $stableName = "$($plugin.Module).$extension"
         $targetArtifact = Join-Path $pluginsDir $stableName
-        Copy-Item $sourceArtifact $targetArtifact -Force
+        Copy-Item -LiteralPath $sourceArtifact -Destination $targetArtifact -Force
         $sha = Get-Sha256Hex $targetArtifact
         [System.IO.File]::WriteAllText("$targetArtifact.sha256", "$sha  $stableName`n", $utf8NoBom)
         $verifiedAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")

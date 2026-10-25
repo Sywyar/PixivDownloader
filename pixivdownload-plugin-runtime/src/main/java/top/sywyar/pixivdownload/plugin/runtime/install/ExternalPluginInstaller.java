@@ -415,14 +415,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
     public void prepareRuntimeScan() {
         installLock.lock();
         try {
-            if (directorySessionLock == null) {
-                requireRecoverySafe("scan plugin runtime");
-                return;
-            }
-            if (!acquireDirectorySessionLock(false)) {
-                requireRecoverySafe("scan plugin runtime");
-                return;
-            }
+            acquireDirectorySessionLock(false);
             requireRecoverySafe("scan plugin runtime");
         } finally {
             installLock.unlock();
@@ -635,7 +628,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
             publishTransaction(unpublishedTransaction, transaction);
             unpublishedTransaction = null;
             afterInstallTransactionPublished(transaction);
-            validatePublishedTransaction(pluginsRoot, transaction);
+            validatePublishedTransaction(transaction);
             PreparedPluginTransaction prepared = new PreparedPluginTransaction(transactionId, result, transaction,
                     staged, target, expectedCurrent);
             return prepared;
@@ -999,25 +992,17 @@ public class ExternalPluginInstaller implements AutoCloseable {
     /** 提交完成：删除旧包 backup 与事务清单。 */
     public void completeTransaction(CommittedPluginTransaction transaction) {
         installLock.lock();
-        boolean persistenceAttempted = false;
         try {
             acquireDirectorySessionLockForMutation();
             requireRecoverySafe("complete transaction");
             RecoveryManifest manifest;
             try {
-                persistenceAttempted = true;
                 writeManifest(transaction.prepared(), PluginTransactionState.COMMITTED, transaction.backups());
                 transaction.confirmDurableState(CommittedPluginTransaction.DurableState.COMMITTED);
                 afterCommittedManifestPersisted(transaction.prepared().transactionDirectory());
                 manifest = requireManagedCommittedManifest(transaction, PluginTransactionState.COMMITTED);
             } catch (Throwable persistenceFailure) {
                 Throwable terminalFailure = persistenceFailure;
-                if (!persistenceAttempted) {
-                    rethrowIfError(persistenceFailure);
-                    if (persistenceFailure instanceof RuntimeException runtimeFailure) {
-                        throw runtimeFailure;
-                    }
-                }
                 PluginTransactionState durable = reconcileDurableActivationAfterFailure(
                         transaction, persistenceFailure, "finalize plugin transaction");
                 if (durable != PluginTransactionState.NEW_PLACED) {
@@ -1187,7 +1172,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                     return prepared.commitState() == PreparedPluginTransaction.CommitState.DISCARDED
                             || prepared.commitState() == PreparedPluginTransaction.CommitState.ROLLED_BACK;
                 }
-                PluginRecoveryPlan plan = prepareRecoveryPlan(pluginsRoot, transaction);
+                PluginRecoveryPlan plan = prepareRecoveryPlan(transaction);
                 if (plan == null) {
                     Files.delete(transaction);
                     deleteStagingRootIfEmpty();
@@ -1323,7 +1308,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                             "staging entry must be a direct plain directory"));
                     continue;
                 }
-                PluginRecoveryPlan plan = prepareRecoveryPlan(pluginsRoot, transaction, recoveryBudget);
+                PluginRecoveryPlan plan = prepareRecoveryPlan(transaction, recoveryBudget);
                 if (plan == null) {
                     emptyTransactions.add(transaction);
                 } else {
@@ -1468,13 +1453,12 @@ public class ExternalPluginInstaller implements AutoCloseable {
     }
 
     /** 校验单个事务并建立只读恢复计划；返回 null 表示无 manifest 的空事务目录。 */
-    private PluginRecoveryPlan prepareRecoveryPlan(Path pluginsRoot, Path transaction)
+    private PluginRecoveryPlan prepareRecoveryPlan(Path transaction)
             throws IOException, PluginRecoveryValidationException {
-        return prepareRecoveryPlan(pluginsRoot, transaction, null);
+        return prepareRecoveryPlan(transaction, null);
     }
 
     private PluginRecoveryPlan prepareRecoveryPlan(
-            Path pluginsRoot,
             Path transaction,
             PluginRecoveryResourceBudget budget)
             throws IOException, PluginRecoveryValidationException {
@@ -1618,11 +1602,6 @@ public class ExternalPluginInstaller implements AutoCloseable {
         recoveryArtifactInspector.validateTransactionTree(plan.transaction(), rolledBack);
         recoveryArtifactInspector.validateState(rolledBack, budget);
         retireTransaction(new PluginRecoveryPlan(plan.transactionId(), plan.transaction(), rolledBack), budget);
-    }
-
-    private RecoveryManifest persistRecoveryState(PluginRecoveryPlan plan, PluginTransactionState state)
-            throws IOException {
-        return persistRecoveryState(plan, state, new PluginRecoveryResourceBudget());
     }
 
     private RecoveryManifest persistRecoveryState(
@@ -2094,7 +2073,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 publishTransaction(unpublishedTransaction, transaction);
                 unpublishedTransaction = null;
                 afterRemovalTransactionPublished(transaction);
-                validatePublishedRemovalTransaction(pluginsRoot, transaction);
+                validatePublishedRemovalTransaction(transaction);
                 Files.createDirectories(backupDir);
                 for (Backup backup : backups) {
                     moveArtifactWithSidecar(backup.origin(), backup.backup());
@@ -2102,7 +2081,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 writeRemovalManifest(transaction, packageId, PluginTransactionState.COMMITTED, backups);
                 committedManifestPersisted = true;
                 afterRemovalCommittedManifestPersisted(transaction);
-                PluginRecoveryPlan completed = prepareRecoveryPlan(pluginsRoot, transaction);
+                PluginRecoveryPlan completed = prepareRecoveryPlan(transaction);
                 if (completed == null || completed.manifest().operation() != RecoveryOperation.REMOVE
                         || completed.manifest().state() != PluginTransactionState.COMMITTED) {
                     throw new IOException("completed removal transaction could not be verified");
@@ -2268,22 +2247,6 @@ public class ExternalPluginInstaller implements AutoCloseable {
         }
     }
 
-    private boolean restoreBackups(List<CommittedPluginTransaction.BackupArtifact> backups) {
-        boolean restored = true;
-        for (CommittedPluginTransaction.BackupArtifact backup : backups) {
-            if (!Files.exists(backup.backup())) {
-                continue;
-            }
-            try {
-                moveArtifactWithSidecar(backup.backup(), backup.origin());
-            } catch (IOException e) {
-                restored = false;
-                log.error("Failed to restore plugin backup {}: {}", backup.backup(), e.toString());
-            }
-        }
-        return restored;
-    }
-
     private void moveArtifactWithSidecar(Path source, Path target) throws IOException {
         provenanceStore.moveWithArtifact(source, target, ExternalPluginInstaller::moveIntoPlace);
     }
@@ -2361,9 +2324,9 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 List.copyOf(backups));
     }
 
-    private void validatePublishedTransaction(Path pluginsRoot, Path transaction) throws IOException {
+    private void validatePublishedTransaction(Path transaction) throws IOException {
         try {
-            PluginRecoveryPlan plan = prepareRecoveryPlan(pluginsRoot, transaction);
+            PluginRecoveryPlan plan = prepareRecoveryPlan(transaction);
             if (plan == null || plan.manifest().operation() != RecoveryOperation.INSTALL
                     || plan.manifest().state() != PluginTransactionState.PREPARED) {
                 throw new IOException("published transaction is not a valid prepared install");
@@ -2373,9 +2336,9 @@ public class ExternalPluginInstaller implements AutoCloseable {
         }
     }
 
-    private void validatePublishedRemovalTransaction(Path pluginsRoot, Path transaction) throws IOException {
+    private void validatePublishedRemovalTransaction(Path transaction) throws IOException {
         try {
-            PluginRecoveryPlan plan = prepareRecoveryPlan(pluginsRoot, transaction);
+            PluginRecoveryPlan plan = prepareRecoveryPlan(transaction);
             if (plan == null || plan.manifest().operation() != RecoveryOperation.REMOVE
                     || plan.manifest().state() != PluginTransactionState.PREPARED) {
                 throw new IOException("published transaction is not a valid prepared removal");
@@ -2400,8 +2363,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 }
                 return RemovalFailureOutcome.ROLLED_BACK;
             }
-            Path pluginsRoot = pluginsDir.toAbsolutePath().normalize();
-            PluginRecoveryPlan plan = prepareRecoveryPlan(pluginsRoot, transaction);
+            PluginRecoveryPlan plan = prepareRecoveryPlan(transaction);
             if (plan == null || plan.manifest().operation() != RecoveryOperation.REMOVE) {
                 throw new IOException("removal transaction is not safely recoverable");
             }
@@ -2520,14 +2482,6 @@ public class ExternalPluginInstaller implements AutoCloseable {
         RecoveryManifest existing = requireManagedInstallManifest(prepared);
         recoveryManifestWriter.requireInstallStateTransition(existing.state(), state);
 
-        ExpectedArtifact newArtifact = existing != null
-                ? existing.newArtifact()
-                : recoveryArtifactSnapshotter.snapshotInstallArtifact(
-                        prepared.stagedArtifact(),
-                        prepared.target(),
-                        descriptor.id(),
-                        descriptor.version(),
-                        verificationService);
         List<RecoveryBackup> frozenBackups = recoveryArtifactSnapshotter.freezeInstallBackups(
                 existing,
                 backups);
@@ -2535,7 +2489,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
                 RecoveryOperation.INSTALL, state, descriptor.id(), descriptor.version(),
                 prepared.target().toAbsolutePath().normalize(),
                 prepared.stagedArtifact().toAbsolutePath().normalize(),
-                newArtifact, List.copyOf(descriptor.replaces()), frozenBackups);
+                existing.newArtifact(), List.copyOf(descriptor.replaces()), frozenBackups);
         recoveryManifestWriter.persist(
                 prepared.transactionDirectory(),
                 prepared.transactionId(),
@@ -2634,7 +2588,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
         Path transaction;
         try {
             transaction = requirePreparedTransactionPath(pluginsRoot, prepared);
-            PluginRecoveryPlan plan = prepareRecoveryPlan(pluginsRoot, transaction);
+            PluginRecoveryPlan plan = prepareRecoveryPlan(transaction);
             if (plan == null) {
                 throw new IOException("plugin transaction has no recovery manifest");
             }

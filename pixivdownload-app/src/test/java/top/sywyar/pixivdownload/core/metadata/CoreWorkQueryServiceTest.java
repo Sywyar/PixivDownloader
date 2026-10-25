@@ -4,12 +4,6 @@ import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.Configuration;
-import org.apache.ibatis.session.SqlSession;
-import org.apache.ibatis.session.SqlSessionFactory;
-import org.apache.ibatis.session.SqlSessionFactoryBuilder;
-import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -23,6 +17,7 @@ import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixMapper;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
+import top.sywyar.pixivdownload.core.db.MainDatabase;
 import top.sywyar.pixivdownload.core.db.InsertArtworkArgument;
 import top.sywyar.pixivdownload.core.db.PixivMapper;
 import top.sywyar.pixivdownload.core.db.TagDto;
@@ -47,7 +42,11 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @DisplayName("CoreWorkQueryService 集成测试")
@@ -57,10 +56,10 @@ class CoreWorkQueryServiceTest {
             new WorkRestriction(Set.of(0, 1, 2), true, List.of(), true, List.of());
 
     private SingleConnectionDataSource dataSource;
-    private SqlSession sqlSession;
     private JdbcTemplate jdbc;
     private PixivDatabase pixivDatabase;
     private NovelMetadataRepository novelMetadataRepository;
+    private MainDatabase novelStorage;
     private AuthorService authorService;
     private CoreWorkQueryService service;
 
@@ -71,12 +70,6 @@ class CoreWorkQueryServiceTest {
         dataSource.setUrl("jdbc:sqlite::memory:");
         dataSource.setSuppressClose(true);
         jdbc = new JdbcTemplate(dataSource);
-
-        Environment env = new Environment("test", new JdbcTransactionFactory(), dataSource);
-        Configuration config = new Configuration(env);
-        config.setMapUnderscoreToCamelCase(true);
-        SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
-        sqlSession = factory.openSession(true);
 
         DatabaseSchemaRegistry registry = DatabaseSchemaRegistry.forBuiltInPlugins();
         DatabaseInitializer initializer = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(
@@ -93,7 +86,8 @@ class CoreWorkQueryServiceTest {
         pixivDatabase = new PixivDatabase(
                 new PixivMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource)), TestI18nBeans.appMessages(), codec, initializer);
         pixivDatabase.init();
-        novelMetadataRepository = new NovelMetadataRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource), codec);
+        novelStorage = spy(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
+        novelMetadataRepository = new NovelMetadataRepository(novelStorage, codec);
 
         authorService = mock(AuthorService.class);
         service = new CoreWorkQueryService(
@@ -106,7 +100,6 @@ class CoreWorkQueryServiceTest {
 
     @AfterEach
     void tearDown() {
-        sqlSession.close();
         dataSource.destroy();
     }
 
@@ -474,6 +467,20 @@ class CoreWorkQueryServiceTest {
     class NovelQueryTests {
 
         @Test
+        @DisplayName("小说列表一次读取候选元数据，不随作品数量逐篇查询")
+        void shouldReadNovelCandidatesInOneStorageOperation() {
+            for (long id = 1; id <= 32; id++) {
+                insertNovel(id, id, null, null);
+            }
+
+            var result = service.searchAll(WorkQuery.builder(WorkType.NOVEL).build());
+
+            assertThat(ids(result)).containsExactlyElementsOf(
+                    java.util.stream.LongStream.iterate(32, id -> id - 1).limit(32).boxed().toList());
+            verify(novelStorage, times(1)).read(any());
+        }
+
+        @Test
         @DisplayName("小说 search 默认过滤软删除行，时间倒序，分页字段完整")
         void shouldFilterSoftDeletedAndPageNovels() {
             insertNovel(11L, 100L, null, null);
@@ -508,6 +515,19 @@ class CoreWorkQueryServiceTest {
         }
 
         @Test
+        @DisplayName("小说超大页码返回空页并保留计数")
+        void shouldReturnEmptyNovelPageBeyondIntegerOffset() {
+            insertNovel(11L, 100L, null, null);
+            for (int page : List.of(1_073_741_824, Integer.MAX_VALUE)) {
+                var result = service.search(WorkQuery.builder(WorkType.NOVEL).page(page).size(2).build());
+                assertThat(result.content()).isEmpty();
+                assertThat(result.totalElements()).isEqualTo(1);
+                assertThat(result.page()).isEqualTo(page);
+                assertThat(result.totalPages()).isEqualTo(1);
+            }
+        }
+
+        @Test
         @DisplayName("小说 search 带访客限制：携带白名单外标签的小说被排除")
         void shouldApplyGuestRestrictionToNovels() {
             insertNovel(11L, 100L, null, null);
@@ -533,6 +553,49 @@ class CoreWorkQueryServiceTest {
             assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
                     .size(1).authorIds(List.of(88L)).build())))
                     .containsExactly(12L, 11L);
+        }
+
+        @Test
+        @DisplayName("小说标签筛选保留全选、排除和任选的组合语义")
+        void shouldCombineNovelTagFilters() {
+            insertNovel(11L, 100L, null, null);
+            insertNovel(12L, 200L, null, null);
+            insertNovel(13L, 300L, null, null);
+            saveNovelTags(11L, List.of(new TagDto("魔法", null), new TagDto("冒险", null)));
+            saveNovelTags(12L, List.of(new TagDto("魔法", null)));
+            long magic = tagId("魔法");
+            long adventure = tagId("冒险");
+
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .tagIds(List.of(magic, adventure)).build()))).containsExactly(11L);
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .excludedTagIds(List.of(adventure)).build()))).containsExactly(13L, 12L);
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .optionalTagIds(List.of(adventure)).build()))).containsExactly(11L);
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .optionalTagIds(List.of(Long.MAX_VALUE)).build()))).isEmpty();
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .tagIds(List.of(magic)).excludedTagIds(List.of(adventure))
+                    .optionalTagIds(List.of(magic, adventure)).build()))).containsExactly(12L);
+        }
+
+        @Test
+        @DisplayName("小说作者和系列排除保持空值身份及组合筛选")
+        void shouldCombineNovelAuthorAndSeriesFilters() {
+            insertNovel(11L, 100L, 88L, 700L);
+            insertNovel(12L, 200L, 99L, 701L);
+            insertNovel(13L, 300L, null, null);
+
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .excludedAuthorIds(List.of(88L)).build()))).containsExactly(13L, 12L);
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .authorIds(List.of(88L, 99L)).optionalAuthorIds(List.of(99L))
+                    .excludedAuthorIds(List.of(88L)).build()))).containsExactly(12L);
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .excludedSeriesIds(List.of(700L)).build()))).containsExactly(13L, 12L);
+            assertThat(ids(service.searchAll(WorkQuery.builder(WorkType.NOVEL)
+                    .seriesIds(List.of(700L, 701L)).excludedSeriesIds(List.of(700L)).build())))
+                    .containsExactly(12L);
         }
 
         @Test

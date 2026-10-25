@@ -2,8 +2,7 @@ package top.sywyar.pixivdownload.novel.narration.analysis;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import top.sywyar.pixivdownload.novel.ai.AiResponseParser;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -34,9 +33,6 @@ public record NarrationAnalysisResponse(
         @JsonProperty("updatedCharacters") List<RawUpdate> rawUpdatedCharacters,
         @JsonProperty("conflicts") List<RawConflict> rawConflicts
 ) {
-
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     private static final Set<String> GENDERS = Set.of("male", "female", "unknown");
     private static final Set<String> AGES = Set.of("child", "teen", "young", "middle", "elderly", "unknown");
@@ -231,31 +227,6 @@ public record NarrationAnalysisResponse(
 
     /** 解析模型回复的 JSON 文本；无法解析时抛 {@link IllegalArgumentException}。 */
     public static NarrationAnalysisResponse parse(String content) {
-        if (content == null || content.isBlank()) {
-            throw new IllegalArgumentException("empty AI response");
-        }
-        try {
-            return MAPPER.readValue(content, NarrationAnalysisResponse.class);
-        } catch (Exception first) {
-            String extracted = extractJsonObject(content);
-            if (extracted != null) {
-                try {
-                    return MAPPER.readValue(extracted, NarrationAnalysisResponse.class);
-                } catch (Exception ignored) {
-                    // fall through to throwing the original failure
-                }
-            }
-            throw new IllegalArgumentException("unparseable AI response: " + first.getMessage(), first);
-        }
-    }
-
-    /** 截取首个 '{' 到末个 '}' 的子串，容忍模型在 JSON 外包裹少量说明文字 / 代码围栏。 */
-    private static String extractJsonObject(String content) {
-        int start = content.indexOf('{');
-        int end = content.lastIndexOf('}');
-        if (start >= 0 && end > start) {
-            return content.substring(start, end + 1);
-        }
-        return null;
+        return AiResponseParser.parse(content, NarrationAnalysisResponse.class);
     }
 }

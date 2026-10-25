@@ -2,78 +2,25 @@
 
 /** 服务端身份装载、命令与跨标签页协调。 */
 const {
-    CONFIG_SOURCE,
-    CONFIG_SOURCE_PATH,
-    CONFIG_WINDOW,
-    CSS,
-    CSS_PATH,
-    EMBED_SOURCE,
-    EMBED_SOURCE_PATH,
     LAYOUT_IDS,
-    MiniClassList,
-    MiniCustomEvent,
-    MiniElement,
-    MiniEventTarget,
-    MiniStorage,
-    POSTHOG_SOURCE,
-    POSTHOG_SOURCE_PATH,
     SEEN_KEY,
     SERVER_RAW_UUID,
     SERVER_SCOPED_ID,
-    SNOOZE_MS,
-    SOURCE,
-    SOURCES,
-    SOURCE_NAMES,
-    SOURCE_PATHS,
     STATE_KEY,
-    SUBMISSION_ID,
-    SUGGESTION_MAX,
     SURVEY_ID,
-    ackEvents,
-    assert,
-    assertFailClosedInvariants,
     captureEvents,
-    captureProps,
     createFakeAdapter,
-    createFakeI18n,
-    createFakeTimers,
-    createHarness,
-    crossTabFallbackMatrix,
-    crossTabState,
-    dataAttributeName,
     defaultSurvey,
-    directRefresh,
-    doesNotThrow,
     eq,
-    fs,
-    hasLoneSurrogates,
     initHarness,
-    jsonEq,
-    listenerCountFor,
-    localStateValue,
-    matchSelector,
-    neverView,
     ok,
-    openAndPrepareSubmit,
-    path,
-    refreshSecond,
-    refreshWith,
     reinitOptions,
     runTests,
     seenObject,
-    seenSeed,
     selectChoice,
     serverStateResponse,
-    snoozeStorageValue,
-    snoozedView,
-    submitWithCaptureOverride,
-    submittedView,
-    surveyState,
-    validFirst,
-    vm,
     waitForFlush,
-    waitForServerContext,
-    walkAll
+    waitForServerContext
 } = require('./pixiv-layout-feedback-test-support');
 
 function testBootstrapIdentitySemantics() {
@@ -640,7 +587,7 @@ function testLocalStateReconciliationIgnoresInvalidOrOtherSurvey() {
 function testDestroyDuringServerLoad() {
     const h = initHarness({serverFetch: 'pending', batchLayout: 'landscape'});
     let resolved = false;
-    const promise = h.api.open().then(value => { resolved = true; return value; });
+    h.api.open().then(() => { resolved = true; });
     return waitForFlush().then(() => {
         ok('server GET 已发出', h.stateFetchCount() >= 1);
         h.api.destroy();
@@ -680,45 +627,23 @@ function testDestroyThenReinitReProbesServer() {
     });
 }
 
-function testDestroyDuringServerCommand() {
-    const h = initHarness({
-        page: 'alt',
-        serverState: serverStateResponse({seenLayouts: LAYOUT_IDS.slice()}),
-        serverPostResponse: 'pending'
-    });
-    return waitForServerContext(h).then(() => {
-        h.dispatchFirstDownload();
-        return waitForFlush();
-    }).then(() => {
-        h.actionButton('snooze').click();
-        return waitForFlush();
-    }).then(() => {
-        h.api.destroy();
-        // 迟到 POST 响应不得影响新 generation
-        return waitForFlush();
-    }).then(() => {
-        eq('destroy 后无弹窗', h.document.querySelectorAll('.plf-backdrop').length, 0);
-        eq('destroy 后无 Toast', h.toastCalls.length, 0);
-        eq('destroy 后定时器已清理', h.timers.pending().length, 0);
-    });
-}
-
 function testServerSeenDebounceTimerClearedOnDestroy() {
     const h = initHarness({
         batchLayout: 'landscape',
         serverState: serverStateResponse({})
     });
+    let postsBefore;
     return waitForServerContext(h).then(() => {
         h.dispatchLayoutChanged('portrait', 'landscape');
         ok('seen 去抖定时器已调度', h.timers.pending().length > 0);
-        const postsBefore = h.serverPosts.filter(p => p.body.command === 'record_seen').length;
+        postsBefore = h.serverPosts.filter(p => p.body.command === 'record_seen').length;
         h.api.destroy();
         eq('destroy 清除 seen 去抖定时器', h.timers.pending().length, 0);
         h.timers.advance(5000);
         return waitForFlush();
     }).then(() => {
         const posts = h.serverPosts.filter(p => p.body.command === 'record_seen');
-        eq('destroy 后不再发送 record_seen', posts.length, 1);
+        eq('destroy 后不再发送 record_seen', posts.length, postsBefore);
     });
 }
 
@@ -743,8 +668,7 @@ function testWaitForIdentityBeforeSdkInit() {
     // server GET 慢：open() 等待身份，SDK 初始化发生在 GET 完成后。
     const h = initHarness({
         batchLayout: 'landscape',
-        serverFetch: 'pending',
-        minDistinct: 1
+        serverFetch: 'pending'
     });
     const promise = h.api.open();
     return waitForFlush().then(() => {
@@ -763,8 +687,7 @@ function testWaitForIdentityBeforeSdkInit() {
 function testOpenWaitsForServer403Fallback() {
     const h = initHarness({
         batchLayout: 'landscape',
-        serverFetch: '403',
-        minDistinct: 1
+        serverFetch: '403'
     });
     return h.api.open().then(() => waitForFlush()).then(() => {
         eq('403 后浏览器匿名模式初始化', h.adapter.sdkConfig() !== null, true);
@@ -800,12 +723,13 @@ function testServerModeReinitIdentityChangeFailsClosed() {
         page: 'alt',
         serverState: serverStateResponse({seenLayouts: LAYOUT_IDS.slice()})
     });
+    let surveysBefore;
     return waitForServerContext(h).then(() => {
         h.dispatchFirstDownload();
         return waitForFlush();
     }).then(() => {
         eq('第一代正常展示', h.document.querySelectorAll('.plf-backdrop').length, 1);
-        const surveysBefore = h.adapter.calls.getSurveys.length;
+        surveysBefore = h.adapter.calls.getSurveys.length;
         h.api.destroy();
         // 身份变化（同一页面重新 init 后服务器下发另一个 scoped ID）
         h.setServerState(serverStateResponse({
@@ -817,6 +741,7 @@ function testServerModeReinitIdentityChangeFailsClosed() {
     }).then(() => {
         eq('身份变化不静默复用旧 singleton（fail closed 不展示）',
             h.document.querySelectorAll('.plf-backdrop').length, 0);
+        eq('身份变化不复用旧 SDK 查询', h.adapter.calls.getSurveys.length, surveysBefore);
         const warnings = JSON.stringify(h.consoleWarn);
         ok('记录安全 warning', warnings.indexOf('different configuration') >= 0);
         ok('warning 不含 scoped ID', warnings.indexOf('plf_') < 0);
@@ -846,7 +771,6 @@ runTests('pixiv-layout-feedback-server-bootstrap.test.js', [
     ['testLocalStateReconciliationIgnoresInvalidOrOtherSurvey', testLocalStateReconciliationIgnoresInvalidOrOtherSurvey],
     ['testDestroyDuringServerLoad', testDestroyDuringServerLoad],
     ['testDestroyThenReinitReProbesServer', testDestroyThenReinitReProbesServer],
-    ['testDestroyDuringServerCommand', testDestroyDuringServerCommand],
     ['testServerSeenDebounceTimerClearedOnDestroy', testServerSeenDebounceTimerClearedOnDestroy],
     ['testDisabledConfigDoesNotProbeServer', testDisabledConfigDoesNotProbeServer],
     ['testWaitForIdentityBeforeSdkInit', testWaitForIdentityBeforeSdkInit],

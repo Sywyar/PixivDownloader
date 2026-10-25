@@ -23,26 +23,18 @@
     var ENDPOINT = '/api/drilldowns';
     var PLACEHOLDER = /\{([A-Za-z0-9_]+)\}/g;
 
-    var byPlacement = {};   // placement -> [drilldown, ...]（后端已按来源层级 → priority → id 排序）
-    var loaded = false;
+    var byPlacement = Object.create(null);   // placement -> 后端排序后的首个链接模板
 
     var resolveReady;
-    var readyResolved = false;
     var readyPromise = new global.Promise(function (resolve) { resolveReady = resolve; });
 
-    function markReady() {
-        if (readyResolved) return;
-        readyResolved = true;
-        resolveReady();
-    }
-
     function indexByPlacement(list) {
-        var map = {};
+        var map = Object.create(null);
         (Array.isArray(list) ? list : []).forEach(function (d) {
             if (!d || !d.hrefTemplate || !Array.isArray(d.placements)) return;
             d.placements.forEach(function (placement) {
                 if (!placement) return;
-                (map[placement] = map[placement] || []).push(d);
+                if (!map[placement]) map[placement] = d.hrefTemplate;
             });
         });
         return map;
@@ -56,14 +48,12 @@
             });
             if (!res.ok) throw new Error('drilldowns http ' + res.status);
             byPlacement = indexByPlacement(await res.json());
-            loaded = true;
         } catch (e) {
             // 失败降级：清空贡献、href() 一律返回 null（宿主回退纯展示），不把错误抛给调用方。
-            byPlacement = {};
-            loaded = false;
+            byPlacement = Object.create(null);
             console.warn('[PixivDrilldowns] 拉取下钻贡献失败，下钻链接降级为纯展示：', e);
         } finally {
-            markReady();
+            resolveReady();
         }
     }
 
@@ -86,10 +76,7 @@
 
     // 解析某语义 placement 下、以给定变量替换后的下钻 href；无贡献 / 未加载 / 模板不可用时返回 null。
     function href(placement, variables) {
-        if (!loaded) return null;
-        var list = byPlacement[placement];
-        if (!list || !list.length) return null;
-        var template = list[0].hrefTemplate;   // 取后端排序后的胜者（来源层级 → priority → id）
+        var template = byPlacement[placement];
         if (!template) return null;
         return fillTemplate(template, variables);
     }

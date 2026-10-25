@@ -2,8 +2,7 @@ package top.sywyar.pixivdownload.novel.translation.ai;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import top.sywyar.pixivdownload.novel.ai.AiResponseParser;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,9 +31,6 @@ public record TranslationResponse(
     public static final String STATUS_OK = "ok";
     public static final String STATUS_INVALID_LANGUAGE = "invalid_language";
 
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
     /** 模型回报的一条新名词映射（原文 → 译名）。 */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record NewTerm(
@@ -53,10 +49,7 @@ public record TranslationResponse(
      * 缺省 / 空白 / 字面 {@code "null"} 一律视为「本段未译标题」，返回 {@code null}。
      */
     public String translatedTitle() {
-        if (title == null) return null;
-        String trimmed = title.trim();
-        if (trimmed.isEmpty() || trimmed.equalsIgnoreCase("null")) return null;
-        return trimmed;
+        return translatedText(title);
     }
 
     /**
@@ -64,8 +57,12 @@ public record TranslationResponse(
      * 缺省 / 空白 / 字面 {@code "null"} 一律视为「本段未译简介」，返回 {@code null}。
      */
     public String translatedDescription() {
-        if (description == null) return null;
-        String trimmed = description.trim();
+        return translatedText(description);
+    }
+
+    static String translatedText(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
         if (trimmed.isEmpty() || trimmed.equalsIgnoreCase("null")) return null;
         return trimmed;
     }
@@ -92,35 +89,10 @@ public record TranslationResponse(
 
     /** 解析模型回复的 JSON 文本；无法解析时抛 {@link IllegalArgumentException}。 */
     public static TranslationResponse parse(String content) {
-        if (content == null || content.isBlank()) {
-            throw new IllegalArgumentException("empty AI response");
-        }
-        try {
-            return MAPPER.readValue(content, TranslationResponse.class);
-        } catch (Exception first) {
-            String extracted = extractJsonObject(content);
-            if (extracted != null) {
-                try {
-                    return MAPPER.readValue(extracted, TranslationResponse.class);
-                } catch (Exception ignored) {
-                    // fall through to throwing the original failure
-                }
-            }
-            throw new IllegalArgumentException("unparseable AI response: " + first.getMessage(), first);
-        }
+        return AiResponseParser.parse(content, TranslationResponse.class);
     }
 
-    /** 截取首个 '{' 到末个 '}' 的子串，容忍模型在 JSON 外包裹少量说明文字 / 代码围栏。 */
-    private static String extractJsonObject(String content) {
-        int start = content.indexOf('{');
-        int end = content.lastIndexOf('}');
-        if (start >= 0 && end > start) {
-            return content.substring(start, end + 1);
-        }
-        return null;
-    }
-
-    private static String trimmed(String s) {
+    static String trimmed(String s) {
         return s == null ? null : s.trim();
     }
 }

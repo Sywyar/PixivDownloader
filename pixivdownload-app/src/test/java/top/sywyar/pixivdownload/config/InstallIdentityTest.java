@@ -13,7 +13,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -21,11 +20,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("InstallIdentity 安装身份标识")
 class InstallIdentityTest {
 
-    private static final Pattern UUID_TEXT =
-            Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
-
     /** 真实 UUID v4（version 4 / RFC 4122 variant）。 */
-    private static final String V4_ID = "11111111-2222-4333-8444-555555555555";
+    private static final String V4_ID = "abcdefab-cdef-4abc-8def-abcdefabcdef";
 
     /** 外形合法但 version 为 1 的普通 UUID。 */
     private static final String VERSION_NOT_4 = "11111111-2222-1333-8444-555555555555";
@@ -56,10 +52,10 @@ class InstallIdentityTest {
     void generatesAndPersistsIdentity() {
         String first = InstallIdentity.get();
 
-        assertThat(first).matches(UUID_TEXT);
-        assertThat(UuidUtils.parseUuidV4(first))
-                .as("生成的身份必须是真实 UUID v4")
-                .isNotNull();
+        assertThat(first).matches(UuidUtils.UUID_PATTERN);
+        UUID uuid = UUID.fromString(first);
+        assertThat(uuid.version()).isEqualTo(4);
+        assertThat(uuid.variant()).isEqualTo(2);
         assertThat(Files.isRegularFile(dataDir.resolve(RuntimeFiles.INSTALL_IDENTITY_FILE)))
                 .as("标识文件必须写入 data 目录")
                 .isTrue();
@@ -113,9 +109,6 @@ class InstallIdentityTest {
         Files.createDirectories(dataDir);
         Files.writeString(file, VERSION_NOT_4 + "\n", StandardCharsets.UTF_8);
 
-        assertThat(UuidUtils.parseUuidV4(VERSION_NOT_4))
-                .as("parseUuidV4 必须拒绝 version 非 4")
-                .isNull();
         assertThatThrownBy(InstallIdentity::get)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("corrupt install identity");
@@ -128,9 +121,6 @@ class InstallIdentityTest {
         Files.createDirectories(dataDir);
         Files.writeString(file, VARIANT_NOT_2 + "\n", StandardCharsets.UTF_8);
 
-        assertThat(UuidUtils.parseUuidV4(VARIANT_NOT_2))
-                .as("parseUuidV4 必须拒绝 variant 非 2")
-                .isNull();
         assertThatThrownBy(InstallIdentity::get)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("corrupt install identity");
@@ -150,15 +140,5 @@ class InstallIdentityTest {
                 .isEqualTo("corrupt-content\n");
         assertThatThrownBy(InstallIdentity::get)
                 .isInstanceOf(IllegalStateException.class);
-    }
-
-    @Test
-    @DisplayName("标识值符合标准 UUID v4 格式校验")
-    void generatedIdentityMatchesUuidPattern() {
-        String generated = InstallIdentity.get();
-        assertThat(UuidUtils.UUID_PATTERN.matcher(generated).matches()).isTrue();
-        UUID uuid = UUID.fromString(generated);
-        assertThat(uuid.version()).isEqualTo(4);
-        assertThat(uuid.variant()).isEqualTo(2);
     }
 }

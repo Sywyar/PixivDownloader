@@ -3,15 +3,12 @@ package top.sywyar.pixivdownload.guicompose.model;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopControlCenterAvailability;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
-import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiTone;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.Alignment;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.ButtonStyle;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.ContainerLayout;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.InputKind;
-import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.NumberStyle;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextStyle;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextToken;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.ToggleStyle;
@@ -106,6 +103,22 @@ final class DesktopUiNodes {
         return new DesktopUiNode.Scroll(id, child);
     }
 
+    static DesktopUiNode.Dock dialogContent(
+            String id,
+            DesktopUiNode body,
+            DesktopUiNode actions
+    ) {
+        return new DesktopUiNode.Dock(
+                id,
+                12,
+                null,
+                scroll(id + ".scroll", body),
+                actions,
+                null,
+                null
+        );
+    }
+
     static DesktopUiNode.Group group(
             String id,
             String titleKey,
@@ -122,14 +135,6 @@ final class DesktopUiNodes {
                 true,
                 style == TextStyle.CODE
         );
-    }
-
-    static DesktopUiNode.Text secondary(String id, String messageKey) {
-        return text(id, messageKey, TextStyle.SECONDARY);
-    }
-
-    static DesktopUiNode.Text bullet(String id, String messageKey) {
-        return text(id, messageKey, TextStyle.BULLET);
     }
 
     static DesktopUiNode.Text raw(String id, String value, TextStyle style) {
@@ -186,30 +191,6 @@ final class DesktopUiNodes {
         );
     }
 
-    static DesktopUiNode.NumberInput number(
-            String id,
-            String binding,
-            String label,
-            String help,
-            int value,
-            int minimum,
-            int maximum,
-            boolean enabled
-    ) {
-        return new DesktopUiNode.NumberInput(
-                id,
-                binding,
-                key(label),
-                help == null ? null : key(help),
-                NumberStyle.SPINNER,
-                Math.max(minimum, Math.min(maximum, value)),
-                minimum,
-                maximum,
-                1,
-                enabled
-        );
-    }
-
     static DesktopUiNode.Button button(
             String id,
             String actionId,
@@ -253,16 +234,7 @@ final class DesktopUiNodes {
     }
 
     static TextToken token(String namespace, String key, String fallback) {
-        if (key == null || key.isBlank()) return TextToken.raw(fallback == null ? "" : fallback);
-        if (!validId(key) || (namespace != null && !validId(namespace))) {
-            return TextToken.raw(fallback == null ? key : fallback);
-        }
-        return new TextToken(
-                namespace,
-                key,
-                fallback == null ? key : fallback,
-                List.of()
-        );
+        return token(namespace, key, fallback, List.of());
     }
 
     static TextToken token(
@@ -318,22 +290,6 @@ final class DesktopUiNodes {
         List<DesktopUiHost.GuiValue> values = new ArrayList<>();
         for (DesktopUiHost.GuiValue item : value) values.add(item);
         return List.copyOf(values);
-    }
-
-    static DesktopUiIcon icon(String value) {
-        try {
-            return DesktopUiIcon.valueOf(value);
-        } catch (IllegalArgumentException ignored) {
-            return DesktopUiIcon.INFO;
-        }
-    }
-
-    static DesktopUiTone tone(String value) {
-        try {
-            return DesktopUiTone.valueOf(value);
-        } catch (IllegalArgumentException ignored) {
-            return DesktopUiTone.DEFAULT;
-        }
     }
 
     static DesktopControlCenterAvailability availability(String value) {

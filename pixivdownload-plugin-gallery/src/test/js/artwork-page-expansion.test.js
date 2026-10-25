@@ -242,6 +242,27 @@ test('没有观察器时使用原生懒加载并在收起时释放图片', async
     for (const {image} of requests) assert.equal(image.src, undefined);
 });
 
+test('附页点击保留各自页码，重绘作品恢复展开入口', async () => {
+    const {sandbox, state, nodes} = harness();
+    state.artwork.count = 4;
+    sandbox.renderViewer();
+    await sandbox.expandAll(4);
+    const boxes = nodes.get('morePages').children;
+    for (const index of [2, 0, 1]) {
+        boxes[index].listeners.get('click')();
+        assert.equal(state.lightboxIndex, index + 1);
+        sandbox.closeLightbox();
+    }
+    sandbox.renderViewer();
+    assert.equal(nodes.get('morePages').children.length, 0);
+    assert.equal(nodes.get('expandBtn').style.display, '');
+    assert.equal(nodes.get('collapseBtn').style.display, 'none');
+    state.artwork.count = 1;
+    sandbox.renderViewer();
+    assert.equal(nodes.get('expandBtn').style.display, 'none');
+    assert.equal(nodes.get('collapseBtn').style.display, 'none');
+});
+
 test('已访问预览按数量和像素预算复用，原图不进入缓存，文档退出释放引用', async () => {
     for (const [width, height, maxRetained] of [[100, 100, 32], [1200, 1600, 26]]) {
         const {sandbox, requests, events} = harness();

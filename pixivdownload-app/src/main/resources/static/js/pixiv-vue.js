@@ -33,7 +33,7 @@
     function loadScript(url) {
         return new Promise(function (resolve, reject) {
             var s = document.createElement('script');
-            s.src = url;
+            s.src = global.PixivAssets ? global.PixivAssets.url(url) : url;
             s.async = false;
             s.onload = function () { resolve(); };
             s.onerror = function () { reject(new Error('script load failed: ' + url)); };
@@ -149,13 +149,9 @@
     }
     // 清掉 el 现存（可能被 Vue 半渲染留下的）子节点，再把快照的 fallback 子节点逐一接回。
     function restoreChildNodes(el, saved) {
-        var list = el.childNodes || el.children;
-        if (list) {
-            var leftover = [];
-            for (var i = 0; i < list.length; i++) leftover.push(list[i]);
-            for (var j = 0; j < leftover.length; j++) {
-                if (leftover[j] && typeof leftover[j].remove === 'function') leftover[j].remove();
-            }
+        var leftover = snapshotChildNodes(el);
+        for (var j = 0; j < leftover.length; j++) {
+            if (leftover[j] && typeof leftover[j].remove === 'function') leftover[j].remove();
         }
         for (var k = 0; k < saved.length; k++) el.appendChild(saved[k]);
     }

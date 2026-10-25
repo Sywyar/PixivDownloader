@@ -2,23 +2,12 @@ package top.sywyar.pixivdownload.download.state;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-import top.sywyar.pixivdownload.download.request.LayoutFeedbackCommandRequest;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("布局调查状态迁移规则")
 class LayoutFeedbackStateTransitionTest extends LayoutFeedbackStateStoreTestSupport {
@@ -171,7 +160,7 @@ class LayoutFeedbackStateTransitionTest extends LayoutFeedbackStateStoreTestSupp
     @DisplayName("重复 snooze，第二次 now 比第一次早 1 小时：snoozedUntil 不缩短、updatedAt 不倒退、no-op 不落盘")
     void repeatedSnoozeWithRollbackDoesNotShorten() throws IOException {
         LayoutFeedbackStateStore store = store();
-        LayoutFeedbackStateStore.ApplyResult first = store.apply(snooze(), NOW);
+        store.apply(snooze(), NOW);
         String before = Files.readString(stateFile(), StandardCharsets.UTF_8);
 
         LayoutFeedbackStateStore.ApplyResult second = store.apply(snooze(), NOW - 60 * 60 * 1000);
@@ -184,25 +173,10 @@ class LayoutFeedbackStateTransitionTest extends LayoutFeedbackStateStoreTestSupp
                 .as("updatedAt 不得倒退")
                 .isEqualTo(NOW);
         assertThat(second.snapshot().revision()).isEqualTo(1);
+        assertThat(store.snapshot()).isEqualTo(second.snapshot());
         assertThat(Files.readString(stateFile(), StandardCharsets.UTF_8))
                 .as("no-op 不重写状态文件")
                 .isEqualTo(before);
-    }
-
-    @Test
-    @DisplayName("重复 snooze，回拨后 proposedUntil 仍小于旧值：no-op、revision 不变、文件字节不变")
-    void repeatedSnoozeRollbackIsNoOpAndDoesNotRewrite() throws IOException {
-        LayoutFeedbackStateStore store = store();
-        store.apply(snooze(), NOW);
-        String before = Files.readString(stateFile(), StandardCharsets.UTF_8);
-        long revisionBefore = store.snapshot().revision();
-
-        LayoutFeedbackStateStore.ApplyResult result = store.apply(snooze(), NOW - 60 * 60 * 1000);
-
-        assertThat(result.changed()).as("墙钟回拨后重复 snooze 是 no-op").isFalse();
-        assertThat(store.snapshot().revision()).as("no-op 保持 revision").isEqualTo(revisionBefore);
-        String after = Files.readString(stateFile(), StandardCharsets.UTF_8);
-        assertThat(after).as("no-op 不重写状态文件").isEqualTo(before);
         assertThat(corruptFiles()).isEmpty();
     }
 

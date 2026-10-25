@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.plugin.runtime.bootstrap;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -115,12 +117,19 @@ class PluginEnabledSnapshotTest {
     @Test
     @DisplayName("ofDisabled 直接构造：保留传入禁用集与诊断")
     void ofDisabledDirect() {
+        var disabled = new ArrayList<>(List.of("novel", "stats", "novel"));
+        var diagnostics = new ArrayList<>(List.of("a diagnostic"));
         PluginEnabledSnapshot snapshot = PluginEnabledSnapshot.ofDisabled(
-                List.of("novel", "stats"), List.of("a diagnostic"));
+                disabled, diagnostics);
+        disabled.clear();
+        diagnostics.clear();
         assertThat(snapshot.isEnabled("novel")).isFalse();
         assertThat(snapshot.isEnabled("core")).isTrue();
         assertThat(snapshot.disabledFeatureIds()).containsExactlyInAnyOrder("novel", "stats");
         assertThat(snapshot.diagnostics()).containsExactly("a diagnostic");
+        assertThat(PluginEnabledSnapshot.ofDisabled(null, null).disabledFeatureIds()).isEmpty();
+        assertThatThrownBy(() -> PluginEnabledSnapshot.ofDisabled(Arrays.asList("novel", null), List.of()))
+                .isInstanceOf(NullPointerException.class);
     }
 
     @Test

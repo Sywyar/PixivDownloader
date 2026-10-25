@@ -40,6 +40,38 @@ const view = title => ({base: 4, items: [{id: '42', title, userName: '作者', w
     isOriginal: true, aiType: 2, xRestrict: 1, bookmarkCount: 9}]});
 const settle = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
 
+for (const mode of ['page', 'filtered', 'batch']) {
+    test(`小说 ${mode} 搜索摘要在 Vue、首屏和回退中保持参数与语言刷新`, async () => {
+        const h = harness(), area = new Element('section');
+        const results = view('Novel');
+        Object.assign(h.sandbox.searchState, {
+            submode: mode === 'batch' ? 'batch' : 'page', total: 93,
+            currentPage: 3, pixivPageCount: 24, results: results.items
+        });
+        h.sandbox.hasExtraSearchFilter = () => mode !== 'page';
+        h.sandbox.batchSummaryText = value => `batch:${value.base}:${value.items.length}`;
+        h.sandbox.bt = (key, _fallback, vars = {}) => `${key}:${Object.values(vars).join(',')}`;
+        const expected = mode === 'batch' ? ['batch:4:1'] : [
+            'total:93', 'search.summary.current-page-index:3', 'returned:24',
+            ...(mode === 'filtered' ? ['search.summary.extra-filtered:1'] : [])
+        ];
+        h.shared.renderNovelSearchResults(area, results);
+        assert.ok(area.innerHTML.includes(expected.map(value => `<span>${value}</span>`).join(' | ')));
+        await settle();
+        assert.equal(all(area, n => n.props.class === 'novel-search-card').length, 1);
+        assert.ok(textOf(area).includes(expected.join(' | ')));
+        h.sandbox.bt = (key, _fallback, vars = {}) => `en:${key}:${Object.values(vars).join(',')}`;
+        h.shared.renderNovelSearchResults(area, results);
+        await h.Vue.nextTick();
+        if (mode !== 'batch') assert.ok(textOf(area).includes('en:search.summary.current-page-index:3'));
+        h.stop();
+        delete h.sandbox.window.PixivVue;
+        h.shared.renderNovelSearchResults(area, results);
+        const translated = expected.map(value => value.startsWith('search.') ? 'en:' + value : value);
+        assert.ok(area.innerHTML.includes(translated.map(value => `<span>${value}</span>`).join(' | ')));
+    });
+}
+
 test('严格 CSP 下小说卡片保持节点、文本安全与队列交互，撤回释放实例', async () => {
     const h = harness(), area = new Element('section');
     h.shared.renderNovelSearchResults(area, view('<img src=x>'));
@@ -85,13 +117,33 @@ test('在途挂载采用最新宿主，撤回后迟到运行时不能复活旧�
     assert.deepEqual(other.counts(), {mounts: 0, unmounts: 0});
 });
 
-test('真实挂载失败仍保留首屏回退并释放部分应用', async () => {
-    const h = harness(), area = new Element('section');
-    let released = 0;
-    h.Vue.createApp = () => ({mount() { throw Error('mount failed'); }, unmount() { released++; }});
-    h.shared.renderNovelSearchResults(area, view('回退结果'));
-    await settle();
-    assert.match(area.innerHTML, /回退结果/);
-    assert.equal(released, 1);
-    assert.equal(h.warnings.length, 1);
-});
+for (const failure of ['runtime', 'createApp', 'mount']) {
+    test(`小说搜索 ${failure} 失败保留首屏回退，释放后仍可重新挂载`, async () => {
+        const h = harness(), area = new Element('section');
+        const createApp = h.Vue.createApp;
+        let released = 0;
+        if (failure === 'runtime') {
+            h.sandbox.window.PixivVue.ensure = () => Promise.reject(Error('runtime failed'));
+        } else if (failure === 'createApp') {
+            h.Vue.createApp = () => { throw Error('createApp failed'); };
+        } else {
+            h.Vue.createApp = () => ({mount() { throw Error('mount failed'); }, unmount() { released++; }});
+        }
+        h.shared.renderNovelSearchResults(area, view('回退结果'));
+        assert.match(area.innerHTML, /回退结果/, '运行时返回前已显示首屏');
+        await settle();
+        assert.match(area.innerHTML, /回退结果/);
+        assert.equal(released, failure === 'mount' ? 1 : 0);
+        assert.equal(h.warnings.length, 1);
+
+        h.Vue.createApp = createApp;
+        h.sandbox.window.PixivVue.ensure = () => Promise.resolve(h.Vue);
+        h.shared.renderNovelSearchResults(area, view('重试结果'));
+        await settle();
+        assert.ok(textOf(area).includes('重试结果'));
+        assert.equal(all(area, n => n.props.class === 'novel-search-card').length, 1);
+        assert.deepEqual(h.counts(), {mounts: 1, unmounts: 0});
+        h.stop();
+        assert.deepEqual(h.counts(), {mounts: 1, unmounts: 1});
+    });
+}

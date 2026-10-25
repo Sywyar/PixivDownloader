@@ -11,6 +11,8 @@ import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -69,12 +71,16 @@ public class NarrationReferenceVoiceService {
     public record GenerateResult(Outcome outcome, NovelNarrationVoiceRef ref) {}
 
     /**
-     * 解析某角色的参考音：无参考音元数据 / 音频文件缺失 → {@code null}。供合成时塞进请求；最大努力，绝不抛出。
+     * 在角色锁内读取元数据与音频；未配置、文件缺失或读取失败时返回 {@code null}。
      */
     public NarrationReferenceVoice resolve(long castId, int characterId) {
         if (castId <= 0) {
             return null;
         }
+        return fileStore.withLock(castId, characterId, () -> readReference(castId, characterId));
+    }
+
+    private NarrationReferenceVoice readReference(long castId, int characterId) {
         NovelNarrationVoiceRef ref = novelMapper.findNarrationVoiceRef(castId, characterId);
         if (ref == null || !ref.present()) {
             return null;
@@ -94,15 +100,6 @@ public class NarrationReferenceVoiceService {
                     castId, characterId, e.getMessage());
             return null;
         }
-    }
-
-    /** 某角色参考音元数据（用于试听 / 状态展示）；无则 {@code null}。 */
-    public NovelNarrationVoiceRef reference(long castId, int characterId) {
-        if (castId <= 0) {
-            return null;
-        }
-        NovelNarrationVoiceRef ref = novelMapper.findNarrationVoiceRef(castId, characterId);
-        return ref != null && ref.present() ? ref : null;
     }
 
     /** 某花名册各角色的参考音来源（characterId → {@code auto}/{@code upload}），供前端展示状态。 */
@@ -138,7 +135,7 @@ public class NarrationReferenceVoiceService {
         database.requireAvailable();
         byte[] data = audio == null ? null : audio.data();
         String ext = extForContentType(audio == null ? null : audio.contentType());
-        if (data == null || !acceptableSeed(data, ext)) {
+        if (data == null || !acceptableSeed(data)) {
             return new GenerateResult(Outcome.TOO_SHORT, null);
         }
         NovelNarrationVoiceRef ref = store(castId, characterId, data, ext, text, SOURCE_AUTO);
@@ -157,46 +154,51 @@ public class NarrationReferenceVoiceService {
 
     /** 删除某角色的参考音（文件 + 库内元数据），并推进花名册 updated_time 使缓存失效。 */
     public void delete(long castId, int characterId) {
-        synchronized (fileStore.lockFor(castId, characterId)) {
+        fileStore.withLock(castId, characterId, () -> {
             database.requireAvailable();
-            fileStore.deleteCharacterFiles(castId, characterId);
-            database.requireAvailable();
-            novelMapper.clearNarrationVoiceReference(castId, characterId);
-            novelMapper.touchNarrationCast(castId, System.currentTimeMillis());
-        }
+            fileStore.deleteCharacterFiles(castId, characterId, () -> {
+                database.requireAvailable();
+                novelMapper.clearNarrationVoiceReference(castId, characterId);
+                novelMapper.touchNarrationCast(castId, System.currentTimeMillis());
+            });
+            return null;
+        });
     }
 
     // ── 内部 ─────────────────────────────────────────────────────────────────
 
     /**
-     * 落盘 + 写库某角色的参考音元数据，按 {@code (castId, characterId)} 串行：先确认角色行存在（避免写出无元数据
-     * 绑定的孤儿文件）→ 原子写文件 → 写库（{@code UPDATE} 行数为 0 时回滚刚写入的文件）→ 推进缓存键。角色不在册
-     * 返回 {@code null}。
+     * 按角色串行发布音频与记录；角色消失或记录写入失败时，由宿主恢复旧文件。
      */
     private NovelNarrationVoiceRef store(long castId, int characterId, byte[] data, String ext,
                                          String refText, String source) {
-        synchronized (fileStore.lockFor(castId, characterId)) {
+        return fileStore.withLock(castId, characterId, () -> {
             database.requireAvailable();
-            // 旁白行可能尚未持久化：先确保有行。其它角色必须已在该花名册，否则不落盘（避免孤儿文件）。
-            ensureVoiceRow(castId, characterId);
-            if (novelMapper.findNarrationVoiceRef(castId, characterId) == null) {
+            if (characterId != NarrationCharacter.NARRATOR_ID
+                    && novelMapper.findNarrationVoiceRef(castId, characterId) == null) {
                 return null;
             }
-            database.requireAvailable();
-            fileStore.write(castId, characterId, data, ext);
             database.requireAvailable();
             long now = System.currentTimeMillis();
             String text = refText == null || refText.isBlank() ? null : refText.trim();
-            int updated = novelMapper.updateNarrationVoiceReference(castId, characterId, ext, text, source, now);
-            if (updated <= 0) {
-                // 并发删除等极端情况：DB 未更新，回滚刚写入的文件，避免孤儿。
-                fileStore.deleteCharacterFiles(castId, characterId);
+            try {
+                fileStore.write(castId, characterId, data, ext, () -> {
+                    database.requireAvailable();
+                    ensureVoiceRow(castId, characterId);
+                    if (novelMapper.updateNarrationVoiceReference(castId, characterId, ext, text, source, now) <= 0) {
+                        throw new MissingVoiceException();
+                    }
+                    novelMapper.touchNarrationCast(castId, now);
+                });
+            } catch (MissingVoiceException missing) {
+                if (missing.getSuppressed().length != 0) throw missing;
                 return null;
             }
-            novelMapper.touchNarrationCast(castId, now);
-            return novelMapper.findNarrationVoiceRef(castId, characterId);
-        }
+            return new NovelNarrationVoiceRef(castId, characterId, ext, text, source, now);
+        });
     }
+
+    private static final class MissingVoiceException extends RuntimeException {}
 
     private void ensureVoiceRow(long castId, int characterId) {
         if (characterId == NarrationCharacter.NARRATOR_ID
@@ -223,7 +225,7 @@ public class NarrationReferenceVoiceService {
     }
 
     /** 校验种子音是否够长：优先解析 WAV 时长，无法解析时按字节数兜底。 */
-    private static boolean acceptableSeed(byte[] data, String ext) {
+    private static boolean acceptableSeed(byte[] data) {
         if (data.length < MIN_SEED_BYTES) {
             return false;
         }
@@ -240,38 +242,34 @@ public class NarrationReferenceVoiceService {
                 || data[8] != 'W' || data[9] != 'A' || data[10] != 'V' || data[11] != 'E') {
             return -1;
         }
+        ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN);
         int sampleRate = 0;
         int channels = 0;
         int bitsPerSample = 0;
         long dataSize = -1;
         int pos = 12;
-        while (pos + 8 <= data.length) {
+        while (pos <= data.length - 8) {
             int id0 = data[pos] & 0xFF, id1 = data[pos + 1] & 0xFF, id2 = data[pos + 2] & 0xFF, id3 = data[pos + 3] & 0xFF;
-            long chunkSize = readLEUInt(data, pos + 4);
+            long chunkSize = Integer.toUnsignedLong(buffer.getInt(pos + 4));
             int body = pos + 8;
-            if (id0 == 'f' && id1 == 'm' && id2 == 't' && id3 == ' ' && body + 16 <= data.length) {
-                channels = (int) readLEUShort(data, body + 2);
-                sampleRate = (int) readLEUInt(data, body + 4);
-                bitsPerSample = (int) readLEUShort(data, body + 14);
-            } else if (id0 == 'd' && id1 == 'a' && id2 == 't' && id3 == 'a') {
-                dataSize = Math.min(chunkSize, data.length - (long) body);
+            long next = body + chunkSize + (chunkSize & 1L);
+            if (next > data.length) {
+                return -1;
             }
-            pos = body + (int) (chunkSize + (chunkSize & 1)); // chunks word-aligned
+            if (id0 == 'f' && id1 == 'm' && id2 == 't' && id3 == ' ' && chunkSize >= 16) {
+                channels = Short.toUnsignedInt(buffer.getShort(body + 2));
+                sampleRate = buffer.getInt(body + 4);
+                bitsPerSample = Short.toUnsignedInt(buffer.getShort(body + 14));
+            } else if (id0 == 'd' && id1 == 'a' && id2 == 't' && id3 == 'a') {
+                dataSize = chunkSize;
+            }
+            pos = (int) next;
         }
         long bytesPerSecond = (long) sampleRate * channels * (bitsPerSample / 8);
         if (dataSize <= 0 || bytesPerSecond <= 0) {
             return -1;
         }
         return (double) dataSize / bytesPerSecond;
-    }
-
-    private static long readLEUInt(byte[] b, int off) {
-        return (b[off] & 0xFFL) | ((b[off + 1] & 0xFFL) << 8)
-                | ((b[off + 2] & 0xFFL) << 16) | ((b[off + 3] & 0xFFL) << 24);
-    }
-
-    private static long readLEUShort(byte[] b, int off) {
-        return (b[off] & 0xFFL) | ((b[off + 1] & 0xFFL) << 8);
     }
 
     /** 受支持的参考音扩展名归一：未知 → wav。 */

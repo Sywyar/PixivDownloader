@@ -7,6 +7,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import top.sywyar.pixivdownload.common.GuiTokenProvider;
 import top.sywyar.pixivdownload.config.http.LocalGuiWebServerCustomizer;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiActionInvocationHeaders;
@@ -44,6 +45,8 @@ class DesktopUiLocalApiClientTest {
             server = server(exchange -> respond(exchange, 200, "{}".getBytes(StandardCharsets.UTF_8)));
             var host = new AppDesktopUiHost(port());
             assertThat(host.guiGet("status", 2_000).reachable()).isFalse();
+            assertThat(host.guiToken()).isNull();
+            assertThat(host.guiTokenHeader()).isEqualTo(GuiTokenProvider.HEADER_NAME);
             for (int attempt = 0; attempt < 2; attempt++) {
                 if (attempt > 0) {
                     server.stop(0);
@@ -51,6 +54,8 @@ class DesktopUiLocalApiClientTest {
                 }
                 try {
                     startBackend("generation-" + attempt);
+                    new GuiTokenService().init();
+                    assertThat(host.guiToken()).isEqualTo("generation-" + attempt);
                     assertThat(host.backendPort(1)).isEqualTo(18443);
                     assertThat(host.backendUri("/invite?code=test").toString())
                             .isEqualTo("https://unreachable.invalid:18443/invite?code=test");
@@ -59,6 +64,7 @@ class DesktopUiLocalApiClientTest {
                     stopBackend();
                 }
                 assertThat(host.guiGet("status", 2_000).reachable()).isFalse();
+                assertThat(host.guiToken()).isNull();
             }
         } finally {
             BackendLifecycleManager.resetForTests();
@@ -93,7 +99,6 @@ class DesktopUiLocalApiClientTest {
     void stopServer() throws Exception {
         stopBackend();
         if (server != null) server.stop(0);
-        GuiTokenHolder.set(null);
     }
 
     @Test
@@ -102,13 +107,12 @@ class DesktopUiLocalApiClientTest {
         AtomicReference<String> token = new AtomicReference<>();
         AtomicReference<String> owner = new AtomicReference<>();
         server = server(exchange -> {
-            token.set(exchange.getRequestHeaders().getFirst(GuiTokenHolder.HEADER_NAME));
+            token.set(exchange.getRequestHeaders().getFirst(GuiTokenProvider.HEADER_NAME));
             owner.set(exchange.getRequestHeaders().getFirst(GuiActionInvocationHeaders.PLUGIN_OWNER));
             assertThat(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8))
                     .isEqualTo("{\"path\":\"迁移目录\"}");
             respond(exchange, 409, "{\"error\":\"目录冲突\"}".getBytes(StandardCharsets.UTF_8));
         });
-        GuiTokenHolder.set("test-token");
 
         DesktopUiHost.GuiResponse response = client("test-token").exchange(
                 DesktopUiHost.GuiRequest.json("mail/test", Map.of("path", "迁移目录"), 2_000, "mail"));
@@ -174,11 +178,11 @@ class DesktopUiLocalApiClientTest {
         AtomicReference<String> token = new AtomicReference<>();
         server = server(exchange -> {
             method.set(exchange.getRequestMethod());
-            token.set(exchange.getRequestHeaders().getFirst(GuiTokenHolder.HEADER_NAME));
+            token.set(exchange.getRequestHeaders().getFirst(GuiTokenProvider.HEADER_NAME));
             respond(exchange, 200, new byte[0]);
         });
         startBackend("restart-token");
-        GuiTokenHolder.set("unrelated-token");
+        new GuiTokenService().init();
 
         assertThat(new AppDesktopUiHost(port()).restartApplication()).isTrue();
         assertThat(method).hasValue("POST");

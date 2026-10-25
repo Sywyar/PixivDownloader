@@ -58,12 +58,12 @@ final class DesktopOnboardingController {
                 host.defaultProxyPort()
         );
         try {
-            host.applicationConfig().readAll(List.of("proxy.enabled", "proxy.host", "proxy.port"))
+            owner.readConfiguration(List.of("proxy.enabled", "proxy.host", "proxy.port"))
                     .forEach((key, value) -> formValues.put("welcome." + key, value));
         } catch (java.io.IOException ignored) {
             // 配置暂不可读时保留宿主默认值，只有显式保存才写入。
         }
-        this.welcomeStep = initialWelcomeStep();
+        this.welcomeStep = hostSetupWelcomeStep(host.onboardingState(rootFolder));
     }
 
     void credentialsChanged() {
@@ -224,7 +224,7 @@ final class DesktopOnboardingController {
                 null,
                 openedCards.contains("download")
         ));
-        GuiOnboardingStepContribution step = guideStep();
+        GuiOnboardingStepContribution step = firstGuideStep(owner.currentSources());
         if (step != null) {
             cards.add(new DesktopUiNode.OnboardingCard(
                     "guide." + step.stepId(),
@@ -433,13 +433,6 @@ final class DesktopOnboardingController {
         owner.rebuild();
     }
 
-    private int initialWelcomeStep() {
-        DesktopUiHost.OnboardingSnapshot onboarding = host.onboardingState(rootFolder);
-        int required = hostSetupWelcomeStep(onboarding);
-        if (required < STEP_HUB) return required;
-        return normalizeStep(Math.max(STEP_HUB, onboarding.progress()));
-    }
-
     private int hostSetupWelcomeStep(DesktopUiHost.OnboardingSnapshot onboarding) {
         if (owner.backendSnapshot().state() != DesktopUiHost.BackendState.RUNNING) return STEP_SERVICE;
         if (!onboarding.setupComplete()) return STEP_CONFIG;
@@ -529,14 +522,16 @@ final class DesktopOnboardingController {
         owner.runBusy(() -> {
             try {
                 try {
-                    host.applicationConfig().writeAll(Map.of(
+                    Map<String, String> saved = Map.of(
                             "proxy.enabled",
                             Boolean.toString(enabled),
                             "proxy.host",
                             savedHost,
                             "proxy.port",
                             Integer.toString(savedPort)
-                    ));
+                    );
+                    host.applicationConfig().writeAll(saved);
+                    owner.coreConfigValuesSaved(saved);
                     host.markOnboardingProxyConfigured();
                 } catch (Exception failure) {
                     setWelcomeNotice(
@@ -596,10 +591,6 @@ final class DesktopOnboardingController {
         }
         // 检测可能启动系统命令，复用后台刷新，避免阻塞表单输入。
         if (welcomeStep == STEP_HUB) ffmpegReady = host.locateFfmpeg().isPresent();
-    }
-
-    private GuiOnboardingStepContribution guideStep() {
-        return firstGuideStep(owner.currentSources());
     }
 
     static GuiOnboardingStepContribution firstGuideStep(List<DesktopUiPluginSnapshot> sources) {

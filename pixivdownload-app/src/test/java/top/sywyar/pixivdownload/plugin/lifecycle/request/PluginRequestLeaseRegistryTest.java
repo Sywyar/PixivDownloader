@@ -61,6 +61,33 @@ class PluginRequestLeaseRegistryTest {
     }
 
     @Test
+    @DisplayName("激活与补偿同时失败时保留首个致命错误且精确租约归零")
+    void activationAndCleanupFailurePreserveFatalPriority() {
+        Error ordinary = new AssertionError("activation");
+        Error threadDeath = new ThreadDeath();
+        Error vmFailure = new OutOfMemoryError("injected");
+        for (Error[] failures : new Error[][]{
+                {ordinary, threadDeath, threadDeath},
+                {threadDeath, vmFailure, threadDeath},
+                {vmFailure, threadDeath, vmFailure},
+                {ordinary, new AssertionError("cleanup"), ordinary}}) {
+            PluginRequestLeaseRegistry failing = new PluginRequestLeaseRegistry(
+                    () -> { throw failures[0]; }, () -> {}, () -> {}, () -> { throw failures[1]; });
+            PluginRequestOwner owner = new PluginRequestOwner("lease-owner", 1L, 1L);
+            failing.publish(owner);
+            PluginRequestLease lease = failing.prepareLease(owner).orElseThrow();
+
+            assertThat(catchThrowable(() -> failing.activate(lease))).isSameAs(failures[2]);
+            assertThat(lease.isActive()).isFalse();
+            lease.close();
+            PluginRequestGenerationDrain drain = failing.withdraw(owner).orElseThrow();
+            assertThat(drain.activeLeaseCount()).isZero();
+            assertThat(drain.isDrained()).isTrue();
+            assertThat(failing.retire(owner)).isTrue();
+        }
+    }
+
+    @Test
     @DisplayName("重复撤回返回同一 drain 且租约关闭幂等")
     void withdrawalAndLeaseCloseAreIdempotent() {
         PluginRequestOwner owner = new PluginRequestOwner("stats", 3L, 4L);

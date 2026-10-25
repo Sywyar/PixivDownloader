@@ -9,6 +9,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRelation;
+import top.sywyar.pixivdownload.schedule.security.ScheduleCredentialRedactor;
 
 import java.util.List;
 import java.util.Map;
@@ -84,6 +85,9 @@ class ScheduleWorkPersistenceCodecTest {
                 2, 123L, 456L);
 
         assertThat(pending.payloadJson()).isEqualTo(payload);
+        assertThat(pending.taskId()).isEqualTo(11L);
+        assertThat(pending.reasonCode()).isEqualTo("REMOTE_RETRY");
+        assertThat(pending.reasonDetailJson()).isEqualTo("{\"category\":\"network\"}");
         assertThat(pending.attempts()).isEqualTo(2);
         assertThat(pending.firstSeenTime()).isEqualTo(123L);
         assertThat(pending.lastAttemptTime()).isEqualTo(456L);
@@ -183,7 +187,8 @@ class ScheduleWorkPersistenceCodecTest {
         assertThatThrownBy(() -> codec.toPendingWork(
                 1L, secretPayload, "RETRYABLE", null, 0, 1L, null))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("credential material");
+                .hasMessageContaining("credential material")
+                .hasMessageNotContaining("top-secret");
         assertThatThrownBy(() -> codec.toPendingWork(
                 1L, phpSessionPayload, "RETRYABLE", null, 0, 1L, null))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -208,16 +213,41 @@ class ScheduleWorkPersistenceCodecTest {
         assertThatThrownBy(() -> new ScheduledWorkPresentation(
                 "Authorization: Bearer abc.def", null, null, Map.of()))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("credential material");
+                .hasMessageContaining("credential material")
+                .hasMessageNotContaining("abc.def");
         assertThatThrownBy(() -> codec.toPendingWork(
                 1L, secretRelation, "RETRYABLE", null, 0, 1L, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("credential material");
+        assertThatThrownBy(() -> codec.validateWork(secretRelation))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("relations");
+        assertThatThrownBy(() -> codec.toPendingWork(
+                1L, secretRelation, "token=reason-secret", null, 0, 1L, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("relations")
+                .hasMessageNotContaining("reason-secret");
+        ScheduledWork tokenRelation = new ScheduledWork(
+                secretRelation.key(), secretRelation.payloadSchema(), secretRelation.payloadVersion(),
+                secretRelation.payloadJson(), secretRelation.presentation(),
+                List.of(new ScheduledWorkRelation(
+                        "source", "1", "example.relation", 1, "{\"token\":\"pending-secret\"}")));
+        assertThatThrownBy(() -> codec.toPendingWork(
+                1L, tokenRelation, "RETRYABLE", null, 0, 1L, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("credential material")
+                .hasMessageNotContaining("pending-secret");
         assertThatThrownBy(() -> codec.toPendingWork(
                 1L, work("example.work", "id-4", "{}"),
                 "RETRYABLE", "{\"password\":\"secret\"}", 0, 1L, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("credential material");
+        assertThatThrownBy(() -> codec.toPendingWork(
+                1L, work("example.work", "id-4", "{}"),
+                "RETRYABLE", "{\"message\":\"token: pending-secret\"}", 0, 1L, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("credential material")
+                .hasMessageNotContaining("pending-secret");
 
         assertThatThrownBy(() -> codec.fromPendingWork(pending(
                 "{\"nested\":\"{\\\"cookie\\\":\\\"PHPSESSID=abc\\\"}\"}",
@@ -261,6 +291,30 @@ class ScheduleWorkPersistenceCodecTest {
                 1L, embeddedDuplicate, "RETRYABLE", null, 0, 1L, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("invalid JSON");
+        for (String detail : List.of(duplicatePayload.payloadJson(), embeddedDuplicate.payloadJson())) {
+            assertThatThrownBy(() -> codec.toPendingWork(
+                    1L, work("example.work", "id-detail", "{}"),
+                    "RETRYABLE", detail, 0, 1L, null))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("invalid JSON");
+        }
+    }
+
+    @Test
+    @DisplayName("pending 详情接受脱敏器生成的安全占位文本")
+    void acceptsRedactedDetail() throws Exception {
+        String redacted = ScheduleCredentialRedactor.redact(
+                "Authorization: Bearer pending-secret token: second-secret");
+        String detailJson = new ObjectMapper().writeValueAsString(Map.of("message", redacted));
+
+        ScheduledPendingWork pending = codec.toPendingWork(
+                1L, work("example.work", "id-detail", "{}"),
+                "RETRYABLE", detailJson, 0, 1L, null);
+
+        assertThat(pending.reasonDetailJson()).contains("[redacted]")
+                .doesNotContain("pending-secret", "second-secret");
+        assertThat(codec.fromPendingWork(pending).key())
+                .isEqualTo(new ScheduledWorkKey("example.work", "id-detail"));
     }
 
     private static ScheduledWork work(String workType, String id, String payloadJson) {

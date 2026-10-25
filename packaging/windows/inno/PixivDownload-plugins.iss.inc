@@ -7,37 +7,17 @@ begin
 end;
 
 procedure SetPluginInstallProgress(const Title: String; const Detail: String; const Percent: Integer);
-var
-  SafePercent: Integer;
 begin
-  SafePercent := Percent;
-  if SafePercent < 0 then
-    SafePercent := 0;
-  if SafePercent > 100 then
-    SafePercent := 100;
-  if PluginInstallProgressTitle <> Title then
-  begin
-    PluginInstallProgressTitle := Title;
-    PluginInstallProgressLastPercent := -1;
-  end;
-  if SafePercent < PluginInstallProgressLastPercent then
-    SafePercent := PluginInstallProgressLastPercent;
-  PluginInstallProgressLastPercent := SafePercent;
-
-  PluginInstallTitleLabel.Caption := Title;
-  PluginInstallDetailLabel.Caption := Detail;
-  PluginInstallProgressBar.Position := SafePercent;
-  WizardForm.StatusLabel.Caption := Title;
-  ProcessInstallerMessages;
+  SetInstallerProgress(
+    PluginInstallTitleLabel,
+    PluginInstallDetailLabel,
+    PluginInstallProgressBar,
+    Title,
+    Detail,
+    Percent
+  );
 end;
 
-
-function DecodeCatalogField(const Value: String): String;
-begin
-  Result := Value;
-  StringChangeEx(Result, '%7C', '|', True);
-  StringChangeEx(Result, '%25', '%', True);
-end;
 
 function IsInstallerPluginCatalogEnabled: Boolean;
 begin
@@ -56,6 +36,7 @@ end;
 procedure ExtractPluginInstallerSupportFiles;
 begin
   ExtractTemporaryFile(PluginInstallScriptName);
+  ExtractTemporaryFile('installer-progress.ps1');
 #if InstallerPluginCatalogEnabled == "1"
   ExtractTemporaryFile('installer-plugin-catalog.json');
   ExtractTemporaryFile('installer-plugin-catalog.json.sig');
@@ -125,7 +106,6 @@ begin
   if Assigned(PluginCheckList) then
     PluginCheckList.Items.Clear;
   SetArrayLength(PluginIds, 0);
-  SetArrayLength(PluginVersions, 0);
 end;
 
 procedure AddPluginCatalogItem(const PluginId, Version, DisplayName, Summary: String);
@@ -135,9 +115,7 @@ var
 begin
   Index := GetArrayLength(PluginIds);
   SetArrayLength(PluginIds, Index + 1);
-  SetArrayLength(PluginVersions, Index + 1);
   PluginIds[Index] := PluginId;
-  PluginVersions[Index] := Version;
   Caption := DisplayName + '  v' + Version;
   if Summary <> '' then
     Caption := Caption + ' - ' + Summary;
@@ -195,28 +173,6 @@ begin
   WizardForm.NextButton.Enabled := True;
 end;
 
-function ReadProgressLineUtf8(const ProgressPath: String; var ProgressText: String): Boolean;
-var
-  Lines: TArrayOfString;
-  I: Integer;
-begin
-  Result := False;
-  ProgressText := '';
-  if not FileExists(ProgressPath) then
-    exit;
-  if not LoadStringsFromFile(ProgressPath, Lines) then
-    exit;
-  for I := GetArrayLength(Lines) - 1 downto 0 do
-  begin
-    if Trim(Lines[I]) <> '' then
-    begin
-      ProgressText := Lines[I];
-      Result := True;
-      exit;
-    end;
-  end;
-end;
-
 procedure ApplyPluginInstallProgress(const Line: String);
 var
   CleanLine: String;
@@ -228,20 +184,16 @@ begin
   StringChangeEx(CleanLine, #13, '', True);
   StringChangeEx(CleanLine, #10, '', True);
   Parts := StringSplit(CleanLine, ['|'], stAll);
-  if GetArrayLength(Parts) = 0 then
+  if GetArrayLength(Parts) < 4 then
     exit;
   if Parts[0] = 'PLUGIN' then
   begin
-    Detail := '';
-    if GetArrayLength(Parts) >= 4 then
-      Detail := Parts[1] + ' (' + Parts[2] + ' / ' + Parts[3] + ')';
+    Detail := Parts[1] + ' (' + Parts[2] + ' / ' + Parts[3] + ')';
     SetPluginInstallProgress(CustomMessage('PluginInstalling'), Detail, 0);
   end
   else if Parts[0] = 'PROGRESS' then
   begin
-    Percent := 0;
-    if GetArrayLength(Parts) >= 4 then
-      Percent := StrToIntDef(Parts[3], 0);
+    Percent := StrToIntDef(Parts[3], 0);
     SetPluginInstallProgress(CustomMessage('PluginInstalling'), Parts[1] + ' / ' + Parts[2] + ' bytes', Percent);
   end;
 end;
@@ -251,9 +203,6 @@ var
   ScriptPath: String;
   ProgressPath: String;
   Params: String;
-  ResultCode: Integer;
-  ProgressText: String;
-  Parts: TArrayOfString;
 begin
   if not IsInstallerPluginCatalogEnabled then
     exit;
@@ -276,36 +225,11 @@ begin
     ' -SdkVersion ' + QuoteArg('{#SdkVersion}');
 
   SetPluginInstallProgress(CustomMessage('PluginInstalling'), '', 0);
-  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+  RunInstallerHelper(ExpandConstant('{sysnative}\WindowsPowerShell\v1.0\powershell.exe'),
     '-NoProfile -ExecutionPolicy Bypass -File ' + QuoteArg(ScriptPath) + ' ' + Params,
-    '', SW_HIDE, ewNoWait, ResultCode) then
-    RaiseException('Could not start optional plugin installer: ' + SysErrorMessage(ResultCode));
-
-  while True do
-  begin
-    if ReadProgressLineUtf8(ProgressPath, ProgressText) then
-    begin
-      ApplyPluginInstallProgress(ProgressText);
-      Parts := StringSplit(ProgressText, ['|'], stAll);
-      if GetArrayLength(Parts) > 0 then
-      begin
-        if Parts[0] = 'DONE' then
-        begin
-          SetPluginInstallProgress(CustomMessage('PluginCompleted'), '', 100);
-          PluginInstalled := True;
-          exit;
-        end
-        else if Parts[0] = 'ERROR' then
-        begin
-          if GetArrayLength(Parts) >= 2 then
-            RaiseException(DecodeCatalogField(Parts[1]))
-          else
-            RaiseException('Optional plugin installation failed.');
-        end;
-      end;
-    end;
-    ResponsiveSleep(200);
-  end;
+    ProgressPath, CustomMessage('PluginFailed'), @ApplyPluginInstallProgress);
+  SetPluginInstallProgress(CustomMessage('PluginCompleted'), '', 100);
+  PluginInstalled := True;
 end;
 
 procedure ReconcileBundledDefaultPlugins;

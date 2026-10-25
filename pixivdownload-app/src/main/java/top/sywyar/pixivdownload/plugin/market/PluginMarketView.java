@@ -15,7 +15,7 @@ import java.util.Map;
  * @param sdkVersion 当前 PixivDownloader SDK 版本（semver；版本兼容标记参考）
  * @param installedCount 本仓库 catalog 中当前已安装的插件数（{@link MarketInstallStatus#INSTALLED} 或
  *                       {@link MarketInstallStatus#UPDATE_AVAILABLE}），供标题区「已安装 N」联动管理页入口显示
- * @param categories     分类计数（聚合 {@code all} 在首，其余为存在条目的分类）
+ * @param categories     分类计数（聚合 {@code all} 在首，随后为全部已知分类，包含零计数）
  * @param entries        可安装条目摘要（含市场元数据 + 版本列表 + 安装状态投影）
  */
 public record PluginMarketView(

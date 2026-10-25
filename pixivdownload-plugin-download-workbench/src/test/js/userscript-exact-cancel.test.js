@@ -18,7 +18,7 @@ const userscriptPaths = [
 const validOwnerUuid = '01234567-89ab-cdef-0123-456789abcdef';
 
 function loadFactory() {
-    const context = {};
+    const context = {URL};
     vm.runInNewContext(
         sharedSource + '\nthis.factory = createIllustExactCancelClient;',
         context);
@@ -100,6 +100,7 @@ test('页面初始化时捕获一次插画 publication，并以完整 owner 精�
         cancelRequest.url,
         'http://localhost:6999/api/download/queue/illust/cancel');
     assert.equal(cancelRequest.headers.Accept, 'application/json');
+    assert.equal(cancelRequest.headers.Origin, 'http://localhost:6999');
     assert.equal(cancelRequest.headers['Content-Type'], 'application/json');
     assert.equal(cancelRequest.headers['X-User-UUID'], validOwnerUuid);
     assert.deepEqual(JSON.parse(cancelRequest.data), {

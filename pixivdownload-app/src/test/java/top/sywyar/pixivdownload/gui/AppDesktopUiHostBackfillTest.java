@@ -5,6 +5,8 @@ import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import javax.sql.DataSource;
@@ -19,6 +21,35 @@ import static org.mockito.Mockito.when;
 
 @DisplayName("桌面宿主作品回填数据源")
 class AppDesktopUiHostBackfillTest {
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"false, false", "true, false", "false, true", "true, true"})
+    @DisplayName("目录工具目标校验失败归还宿主连接，清理致命错误仍传播")
+    void closesBorrowedConnectionOnFatalTargetFailure(boolean update, boolean cleanupFatal) throws Exception {
+        var target = mock(DatabaseTarget.class);
+        var connection = mock(Connection.class);
+        var pool = mock(DataSource.class);
+        var selected = Path.of("database-target");
+        Throwable failure = cleanupFatal ? new java.sql.SQLException("controlled target failure")
+                : new OutOfMemoryError("controlled target failure");
+        var cleanup = new OutOfMemoryError("controlled close failure");
+        if (cleanupFatal) org.mockito.Mockito.doThrow(cleanup).when(connection).close();
+        when(target.providerOwner()).thenReturn("fixture-provider");
+        when(target.displayName()).thenReturn(selected.toString());
+        when(pool.getConnection()).thenReturn(connection);
+        org.mockito.Mockito.doThrow(failure).when(target).requireConnectionTarget(connection);
+        var host = new AppDesktopUiHost(0, mock(DesktopUiHost.ConfigFile.class), () -> pool, null, target);
+        try (var backend = org.mockito.Mockito.mockStatic(BackendLifecycleManager.class)) {
+            backend.when(BackendLifecycleManager::isRunning).thenReturn(true);
+            backend.when(() -> BackendLifecycleManager.requiredBean(DatabaseTarget.class)).thenReturn(target);
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> {
+                if (update) host.updateArtworkFolder(selected, 1, false, "new-folder");
+                else host.checkArtworkFolders(selected);
+            }).isSameAs(cleanupFatal ? cleanup : failure);
+        }
+        if (cleanupFatal) assertThat(cleanup.getSuppressed()).containsExactly(failure);
+        verify(connection).close();
+    }
 
     @Test
     @DisplayName("启动构造器把可信插件会话绑定到迁移设置服务")
@@ -49,7 +80,7 @@ class AppDesktopUiHostBackfillTest {
     @Test
     @DisplayName("无效主库配置不阻断桌面修正入口，工具不能退回 SQLite")
     void keepsConfigurationRecoveryAvailable(@TempDir Path tempDir) throws Exception {
-        var file = new top.sywyar.pixivdownload.gui.config.TestDesktopConfigFile(tempDir.resolve("config.yaml"));
+        var file = new top.sywyar.pixivdownload.gui.config.ConfigFileEditor(tempDir.resolve("config.yaml")).asConfigFile();
         file.writeAll(java.util.Map.of("database.engine", "postgresql", "database.jdbc-url", "invalid"));
         String previous = System.getProperty("spring.config.location");
         try {
@@ -76,6 +107,38 @@ class AppDesktopUiHostBackfillTest {
             if (previous == null) System.clearProperty("spring.config.location");
             else System.setProperty("spring.config.location", previous);
         }
+    }
+
+    @Test
+    @DisplayName("回填默认参数读取当前保存的代理并保留关闭状态")
+    void backfillDefaultsFollowSavedProxy(@TempDir Path tempDir) throws Exception {
+        var file = new top.sywyar.pixivdownload.gui.config.ConfigFileEditor(tempDir.resolve("config.yaml")).asConfigFile();
+        file.writeAll(java.util.Map.of("proxy.enabled", "true", "proxy.host", "192.0.2.55", "proxy.port", "17891"));
+        var host = new AppDesktopUiHost(0, file);
+        var first = host.defaultBackfillOptions();
+        assertThat(first.useProxy()).isTrue();
+        assertThat(first.proxyHost()).isEqualTo("192.0.2.55");
+        assertThat(first.proxyPort()).isEqualTo(17891);
+
+        file.writeAll(java.util.Map.of("proxy.enabled", "false", "proxy.port", "17892"));
+        var changed = host.defaultBackfillOptions();
+        assertThat(changed.useProxy()).isFalse();
+        assertThat(changed.proxyPort()).isEqualTo(17892);
+        assertThat(file.read("proxy.enabled")).isEqualTo("false");
+        var startup = StartupSchemaBackfill.options(host);
+        assertThat(startup.useProxy()).isFalse();
+        assertThat(startup.proxyHost()).isEqualTo("192.0.2.55");
+        assertThat(startup.proxyPort()).isEqualTo(17892);
+    }
+
+    @Test
+    @DisplayName("代理配置读取失败时不回退到另一条网络连接")
+    void unreadableProxyConfigurationRejectsBackfillDefaults() throws Exception {
+        var file = mock(DesktopUiHost.ConfigFile.class);
+        when(file.readAll(org.mockito.ArgumentMatchers.anyCollection())).thenThrow(new java.io.IOException("fixture"));
+        var host = new AppDesktopUiHost(0, file);
+        org.assertj.core.api.Assertions.assertThatThrownBy(host::defaultBackfillOptions)
+                .isInstanceOf(java.io.UncheckedIOException.class);
     }
 
     @Test

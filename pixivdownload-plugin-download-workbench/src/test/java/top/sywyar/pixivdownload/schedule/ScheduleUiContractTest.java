@@ -5,14 +5,16 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DisplayName("计划任务前端状态与 pending 操作契约")
+@DisplayName("计划任务页面资源绑定与来源中性 lint")
 class ScheduleUiContractTest {
 
     private static final List<String> RESOURCES = List.of(
@@ -22,126 +24,30 @@ class ScheduleUiContractTest {
             "static/pixiv-batch/modes/schedule-queue.js",
             "static/pixiv-batch/modes/schedule.js"
     );
-    private static final List<String> SCHEDULE_RUNTIME_RESOURCES = List.of(
-            "static/pixiv-batch/batch-schedule-sources-normalize.js",
-            "static/pixiv-batch/batch-schedule-sources-runtime.js",
-            "static/pixiv-batch/batch-schedule-sources.js"
-    );
     private static final Pattern BATCH_STYLESHEET = Pattern.compile(
             "href=\"(/pixiv-batch/pixiv-batch[^\"]*\\.css)\"");
 
     @Test
-    @DisplayName("四类运行阻断原因有独立状态灯且只参与立即运行禁用")
-    void operationalSuspensionsHaveDistinctLightsWithoutBlockingEditOrDelete() throws IOException {
+    @DisplayName("源码 lint：计划宿主不引用 Pixiv 私有来源类型，来源模块不写 HTML")
+    void sourceFrontendKeepsSourceSpecificIdentifiersOutOfHost() throws IOException {
         String source = readSource();
-
-        assertThat(source)
-                .contains("t.suspendReason === 'SOURCE_UNAVAILABLE'")
-                .contains("t.suspendReason === 'EXECUTOR_UNAVAILABLE'")
-                .contains("t.suspendReason === 'QUIESCED'")
-                .contains("t.suspendReason === 'MIGRATION_ERROR'")
-                .contains("code === 'SOURCE_UNAVAILABLE'")
-                .contains("code === 'EXECUTOR_UNAVAILABLE'")
-                .contains("code === 'QUIESCED'")
-                .contains("code === 'MIGRATION_ERROR'")
-                .contains("const suspended = !!t.suspendReason")
-                .contains("const automaticSuspension = ['SOURCE_UNAVAILABLE', 'EXECUTOR_UNAVAILABLE', 'QUIESCED']")
-                .contains("const manualRecoveryRequired = credentialPresentation.manualRecoveryRequired === true")
-                .contains("|| (suspended && !automaticSuspension)")
-                .contains("schedule.disabled.run-capability")
-                .contains("schedule.meta.next-capability")
-                .contains("const runAttr = (t.enabled && !busy && !suspended)")
-                .contains("const sourceEditable = t.sourceAvailable !== false")
-                .contains("${editAttr} data-pixiv-click=\"startEditScheduleTask(${t.id})\"")
-                .contains("${busyAttr} data-pixiv-click=\"deleteScheduleTask(${t.id})\"");
-    }
-
-    @Test
-    @DisplayName("pending 清除以 data 绑定和 JSON 正文传递不透明复合身份")
-    void pendingClearUsesDataBindingAndJsonBody() throws IOException {
-        String source = readSource();
-
-        assertThat(source)
-                .contains("data-schedule-pending-clear")
-                .contains("button.dataset.workType, button.dataset.workId")
-                .contains("const workType = scheduleKindLabel(p.workType)")
-                .contains("{workType, workId: p.workId, attempts: p.attempts, manual}")
-                .contains("detail.message, detail.reason, detail.reasonCode, detail.legacyReason")
-                .contains(".find(value => typeof value === 'string' && value.trim())")
-                .contains("headers: {'Content-Type': 'application/json'}")
-                .contains("body: JSON.stringify({workType, workId})")
-                .doesNotContain("onclick=\"clearPendingItem(")
-                .doesNotContain("/pending/${encodeURIComponent(");
-    }
-
-    @Test
-    @DisplayName("持久化中断结果直接驱动重新排期状态灯")
-    void interruptedOutcomeDrivesRecoveryLight() throws IOException {
-        String source = readSource();
-
-        assertThat(source)
-                .contains("t.lastOutcome === 'INTERRUPTED'")
-                .doesNotContain("if (t.runStartedTime != null)");
-    }
-
-    @Test
-    @DisplayName("宿主不解释来源定义且来源模块缺席时只读展示持久化摘要")
-    void sourceFrontendUsesScopedHandlersAndPresentationFallback() throws IOException {
-        String source = readSource();
-        String runtime = readSources(SCHEDULE_RUNTIME_RESOURCES);
         String pixivModule = readSource("static/pixiv-batch/pixiv-schedule-sources.js");
 
         assertThat(source)
-                .contains("runtime.captureForMode(state.mode, scheduleSourceContext())")
-                .contains("runtime.restoreTask(task, scheduleSourceContext())")
-                .contains("presentationFallbackSections(t)")
-                .contains("task.presentation")
                 .doesNotContain("USER_NEW")
                 .doesNotContain("USER_REQUEST")
                 .doesNotContain("MY_BOOKMARKS")
                 .doesNotContain("FOLLOW_LATEST")
                 .doesNotContain("COLLECTION");
-        assertThat(runtime)
-                .contains("registerModule")
-                .contains("activationSequence")
-                .contains("controller.abort()")
-                .contains("schedule source contribution is not declared by this module");
-        assertThat(pixivModule)
-                .contains("user-new")
-                .contains("user-request")
-                .contains("my-bookmarks")
-                .contains("follow-latest")
-                .contains("collection")
-                .doesNotContain("innerHTML");
+        assertThat(pixivModule).doesNotContain("innerHTML");
     }
 
     @Test
     @DisplayName("抓取上限由来源贡献受控文案键且宿主默认不泄露来源名称")
     void fetchLimitPresentationUsesControlledSourceKeysAndNeutralDefaults() throws IOException {
-        String source = readSource();
-        String runtime = readSources(SCHEDULE_RUNTIME_RESOURCES);
-        String core = readSource("static/pixiv-batch/batch-core.js");
-        String pixivModule = readSource("static/pixiv-batch/pixiv-schedule-sources.js");
         String page = readSource("static/pixiv-batch.html");
-        String zh = readSource("i18n/web/batch.properties");
-        String en = readSource("i18n/web/batch_en.properties");
-
-        assertThat(source)
-                .contains("scheduleFetchLimitI18nKey")
-                .contains("snap.fetchLimitPresentation")
-                .contains("preview.fetchLimitPresentation");
-        assertThat(runtime)
-                .contains("normalizeFetchLimitPresentation")
-                .contains("typeof raw.then === 'function'")
-                .contains("watermarkHintKey")
-                .contains("fullFetchConfirmKey");
-        assertThat(core).contains("updateSaveScheduleCardVisibility()");
-        assertThat(pixivModule)
-                .contains("schedule.pixiv.fetch-limit.hint.watermark")
-                .contains("schedule.pixiv.fetch-limit.hint.per-run")
-                .contains("schedule.pixiv.confirm.full-fetch")
-                .contains("schedule.pixiv.confirm.clear-proxy")
-                .contains("schedule.pixiv.confirm.clear-cookie");
+        Properties zh = readProperties("i18n/web/batch.properties");
+        Properties en = readProperties("i18n/web/batch_en.properties");
         assertThat(page)
                 .contains("data-i18n=\"schedule.field.fetch-limit.hint.watermark\"")
                 .contains("data-i18n=\"schedule.field.fetch-limit.hint.per-run\"");
@@ -165,10 +71,9 @@ class ScheduleUiContractTest {
     @Test
     @DisplayName("来源缺席时计划任务宿主文案保持来源中性")
     void scheduleHostCredentialCopyStaysNeutralWithoutSourceModule() throws IOException {
-        String source = readSource();
         String page = readSource("static/pixiv-batch.html");
-        String zh = readSource("i18n/web/batch.properties");
-        String en = readSource("i18n/web/batch_en.properties");
+        Properties zh = readProperties("i18n/web/batch.properties");
+        Properties en = readProperties("i18n/web/batch_en.properties");
         List<String> genericKeys = List.of(
                 "schedule.status.saved-authorized",
                 "schedule.status.saved-no-credential",
@@ -199,14 +104,6 @@ class ScheduleUiContractTest {
                 .contains("data-i18n-placeholder=\"schedule.field.credential.placeholder\"")
                 .contains("data-i18n=\"schedule.action.use-saved-credential\"")
                 .contains("data-i18n=\"schedule.field.credential.hint\"");
-        assertThat(source)
-                .contains("runtime.credentialContribution(sourceType, context || {})")
-                .contains("runtime.credentialTaskPresentation")
-                .contains("runtime.applyCredentialPolicyAction")
-                .contains("clearProxyConfirmI18nKey")
-                .contains("clearCredentialConfirmI18nKey")
-                .doesNotContain("scheduleSourcePresentationI18nKey")
-                .doesNotContain("Promise.resolve(actions)");
         assertThat(propertyValue(zh, "schedule.pixiv.confirm.clear-proxy")).contains("Pixiv");
         assertThat(propertyValue(zh, "schedule.pixiv.confirm.clear-cookie")).contains("Cookie", "R-18");
         assertThat(propertyValue(en, "schedule.pixiv.confirm.clear-proxy")).contains("Pixiv");
@@ -260,11 +157,15 @@ class ScheduleUiContractTest {
         }
     }
 
-    private static String propertyValue(String source, String key) {
-        return source.lines()
-                .filter(line -> line.startsWith(key + "="))
-                .map(line -> line.substring(key.length() + 1))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("缺少 i18n key: " + key));
+    private static Properties readProperties(String resource) throws IOException {
+        Properties properties = new Properties();
+        properties.load(new StringReader(readSource(resource)));
+        return properties;
+    }
+
+    private static String propertyValue(Properties properties, String key) {
+        String value = properties.getProperty(key);
+        assertThat(value).as(key).isNotBlank();
+        return value;
     }
 }

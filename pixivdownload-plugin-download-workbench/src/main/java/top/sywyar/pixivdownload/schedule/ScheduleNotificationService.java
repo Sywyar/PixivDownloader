@@ -100,11 +100,7 @@ final class ScheduleNotificationService {
             ScheduleCredentialSuspensionNotice notice,
             long triggerTime) {
         Locale locale = messages.normalizeLocale(Locale.getDefault());
-        Map<String, String> ph = new LinkedHashMap<>();
-        ph.put("task_name", task.name() == null ? "-" : task.name());
-        ph.put("task_id", String.valueOf(task.id()));
-        ph.put("task_type", taskTypeLabel(locale, task.sourceType()));
-        ph.put("task_trigger", triggerLabel(locale, task.triggerKind(), task.intervalMinutes(), task.cronExpr()));
+        Map<String, String> ph = baseTaskPlaceholders(task, locale);
         ph.put("trigger_time", formatTime(triggerTime));
         if (notice.reason()
                 == ScheduleCredentialSuspensionNotice.Reason.FAILURE_CIRCUIT_OPEN) {
@@ -168,11 +164,7 @@ final class ScheduleNotificationService {
     /** 单个 pending-exhausted 事件的邮件 + 推送通知，best-effort、不影响调度。 */
     private void notifyPendingExhausted(ScheduledTask task, PendingExhaustedNotification event, Long nextRun) {
         Locale locale = messages.normalizeLocale(Locale.getDefault());
-        Map<String, String> ph = new LinkedHashMap<>();
-        ph.put("task_name", task.name() == null ? "-" : task.name());
-        ph.put("task_id", String.valueOf(task.id()));
-        ph.put("task_type", taskTypeLabel(locale, task.sourceType()));
-        ph.put("task_trigger", triggerLabel(locale, task.triggerKind(), task.intervalMinutes(), task.cronExpr()));
+        Map<String, String> ph = baseTaskPlaceholders(task, locale);
         ph.put("work_id", displayToken(event.workId()));
         ph.put("work_kind", workKindLabel(locale, event.workType(), event.presentation()));
         ph.put("work_url", event.presentation() == null

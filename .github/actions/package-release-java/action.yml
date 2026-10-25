@@ -44,8 +44,7 @@ runs:
           throw "Expected exactly one staged app-shell JAR under build/release-jars, found $($jars.Count)"
         }
         $signatureTools = @(Get-ChildItem artifacts/signature-tool/pixivdownload-plugin-signature-*.jar -File |
-          Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" } |
-          Sort-Object LastWriteTime -Descending)
+          Where-Object { $_.Name -notlike "*-sources.jar" -and $_.Name -notlike "*-javadoc.jar" })
         if ($signatureTools.Count -ne 1) {
           throw "Could not find pixivdownload-plugin-signature tool jar."
         }

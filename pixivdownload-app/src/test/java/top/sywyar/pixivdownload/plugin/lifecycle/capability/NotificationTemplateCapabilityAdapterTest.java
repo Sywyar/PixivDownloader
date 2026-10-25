@@ -32,27 +32,28 @@ class NotificationTemplateCapabilityAdapterTest {
         PluginCapabilityContributionRegistrar registrar = new PluginCapabilityContributionRegistrar(
                 List.of(), List.of(), List.of(adapter), invocations);
 
-        AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
-        context.registerBean(NotificationTemplateContributor.class, () -> () -> List.of(template));
-        context.refresh();
+        ExternalCapabilityDrain drain;
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(NotificationTemplateContributor.class, () -> () -> List.of(template));
+            context.refresh();
 
-        PluginCapabilityContributionRegistrar.PreparedOwner prepared =
-                registrar.allocateOwner("schedule-owner", "schedule-package", 1L);
-        registrar.prepareInto(prepared, context);
-        ExternalCapabilityPublication publication = registrar.publish(prepared);
+            PluginCapabilityContributionRegistrar.PreparedOwner prepared =
+                    registrar.allocateOwner("schedule-owner", "schedule-package", 1L);
+            registrar.prepareInto(prepared, context);
+            ExternalCapabilityPublication publication = registrar.publish(prepared);
 
-        assertThat(registry.find("run-summary", "mail", Locale.ENGLISH)).contains(template);
-        assertThatThrownBy(() -> registry.registerPrepared(
-                "competing-owner", publication.owner().publicationId() + 1L, List.of(template)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("duplicate notification template");
-        assertThat(registry.find("run-summary", "mail", Locale.US)).contains(template);
+            assertThat(registry.find("run-summary", "mail", Locale.ENGLISH)).contains(template);
+            assertThatThrownBy(() -> registry.registerPrepared(
+                    "competing-owner", publication.owner().publicationId() + 1L, List.of(template)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("duplicate notification template");
+            assertThat(registry.find("run-summary", "mail", Locale.US)).contains(template);
 
-        ExternalCapabilityDrain drain = registrar.withdraw(publication).orElseThrow();
-        assertThat(drain.isDrained()).isTrue();
-        registrar.retireDrained(drain);
-        assertThat(registry.find("run-summary", "mail", Locale.US)).isEmpty();
-        context.close();
+            drain = registrar.withdraw(publication).orElseThrow();
+            assertThat(drain.isDrained()).isTrue();
+            registrar.retireDrained(drain);
+            assertThat(registry.find("run-summary", "mail", Locale.US)).isEmpty();
+        }
         registrar.acknowledgeRetired(drain);
         assertThat(registrar.releaseRetirementProof(drain)).isTrue();
     }

@@ -71,18 +71,16 @@ import top.sywyar.pixivdownload.plugin.web.registration.PluginWebContributionReg
  *       拥有的执行器 Bean 实例（实例经其 {@code Class} 反向持有定义它的 classloader）。</li>
  * </ul>
  *
- * <h2>两段验证（区分业务泄漏与环境不稳定）</h2>
+ * <h2>注册快照与回收观察</h2>
  * <ol>
- *   <li><b>确定性引用链检查</b>（始终执行、与环境无关）：注销后逐个断言各注册中心快照不再暴露该插件——这是
- *       「无残留强引用」的<b>硬性业务保证</b>（这些注册中心的不可变快照即唯一持有点，快照不含即已释放）。</li>
- *   <li><b>GC 探针</b>（环境容忍）：放掉直接强引用后用 {@link ClassLoaderLeakProbes} 尽力触发回收并观察弱引用。
- *       回收成功 → 更强证据；不稳定环境（Windows / CI）下未回收 → 因①已确定性排除业务泄漏，判为环境 inconclusive
- *       （输出关键 registry 状态诊断后 {@link Assumptions#abort}），不误报失败。</li>
+ *   <li><b>注册快照检查</b>：注销后逐个断言各注册中心快照不再暴露该插件，不据此排除其它持有路径。</li>
+ *   <li><b>GC 探针</b>：放掉直接强引用后用 {@link ClassLoaderLeakProbes} 尽力触发回收并观察弱引用。
+ *       未观察到回收时输出 registry 状态诊断并 {@link Assumptions#abort}，保留原因未确定的边界。</li>
  * </ol>
  *
  * <p>承载 probe loader 强引用的 {@link #registerAssertAndTearDown} 把 probe loader / 插件 / 执行器 / 注册条目全部
- * 限定在该方法栈帧内，返回后这些强引用即出帧不可达；GC 探针前各注册中心已确定性证明不含该插件，故仍存活的注册中心
- * 不再 pin probe loader、可安全留作诊断重查。
+ * 限定在该方法栈帧内，避免调用方局部变量继续持有它们；注册中心保留用于诊断重查，
+ * 其公开快照不含该插件不能证明内部所有持有路径均已释放。
  *
  * <p>controller 映射注销后不再持有子 context handler 的回归由真实 PF4J 子 context 的
  * {@code GalleryToolsStatsBootContextTest} 覆盖；本探针聚焦不依赖子 context 的 classLoader 字段链 / Bean 实例链。
@@ -134,20 +132,19 @@ class PluginClassLoaderLeakProbeTest {
         WeakHandles handles = registerAssertAndTearDown(
                 empty, web, routes, statics, i18n, navigation, userscripts, scripts, schedule, streams);
 
-        // —— 注销后（确定性引用链检查：业务级「无残留引用」硬性保证，与环境无关）——
+        // 注销后检查注册快照不再暴露该插件。
         assertNoResidualReference(routes, statics, i18n, navigation, userscripts, scripts, schedule, streams);
 
         // —— GC 探针（环境容忍）：强引用已出帧后 probe loader 应可回收 ——
         ClassLoaderLeakProbes.awaitCollected(handles.workExecutor());
         boolean clCollected = ClassLoaderLeakProbes.awaitCollected(handles.classLoader());
         if (!clCollected) {
-            // 业务级残留已被上面的确定性断言排除（各注册中心快照不含该插件）；到此仍未回收 → 归为环境 / JVM GC 不稳定。
-            Assumptions.abort("probe classloader 未在本环境被 GC 回收，但确定性引用链已确认各注册中心无残留——"
-                    + "判为环境不稳定（非业务泄漏）。" + leakDiagnostic(
+            // 注册中心撤回断言不覆盖所有持有路径；GC 未观察到回收时保留诊断，不判定原因。
+            Assumptions.abort("未观察到 probe classloader 被 GC 回收；注册快照已撤回该插件。"
+                    + "尚未确定未回收原因。" + leakDiagnostic(
                     routes, statics, i18n, navigation, userscripts, scripts, schedule, streams,
                     handles.workExecutor()));
         }
-        assertThat(clCollected).as("probe classloader 注销后应可被 GC 回收").isTrue();
     }
 
     @Test
@@ -175,11 +172,10 @@ class PluginClassLoaderLeakProbeTest {
         boolean allCollected = sourceCollected && workCollected && policyCollected && guardCollected
                 && sourceClCollected && workClCollected && policyClCollected && guardClCollected;
         if (!allCollected) {
-            Assumptions.abort("复合调度能力未在本环境全部被 GC 回收，但确定性引用链已确认 registry 与关闭租约无残留——"
-                    + "判为环境不稳定（非业务泄漏）。"
+            Assumptions.abort("未观察到复合调度能力全部被 GC 回收；注册快照已撤回且租约已关闭。"
+                    + "尚未确定未回收原因。"
                     + compositeLeakDiagnostic(schedule, handles));
         }
-        assertThat(allCollected).as("复合调度能力 Bean 与四个 probe classloader 均应可回收").isTrue();
     }
 
     /**
@@ -431,7 +427,7 @@ class PluginClassLoaderLeakProbeTest {
         return new WeakHandles(weakCl, weakWorkExecutor);
     }
 
-    /** 注销后各注册中心快照不再暴露该插件（确定性引用链：快照即唯一持有点，不含即已释放）。 */
+    /** 注销后各注册中心快照不再暴露该插件。 */
     private static void assertNoResidualReference(
             RouteAccessRegistry routes, StaticResourceRegistry statics, WebI18nBundleRegistry i18n,
             NavigationRegistry navigation, UserscriptRegistry userscripts,
@@ -522,9 +518,6 @@ class PluginClassLoaderLeakProbeTest {
 
     /** 新式复合租约的来源执行器探针；行为不会被调用，只用于验证租约强引用的建立与释放。 */
     public static final class LeakProbeSourceExecutor implements ScheduledSourceExecutor {
-        public LeakProbeSourceExecutor() {
-        }
-
         @Override
         public String sourceType() {
             return "ext-leak-probe-composite-source";
@@ -545,9 +538,6 @@ class PluginClassLoaderLeakProbeTest {
 
     /** 新式复合租约的作品执行器探针。 */
     public static final class LeakProbeWorkExecutor implements ScheduledWorkExecutor {
-        public LeakProbeWorkExecutor() {
-        }
-
         @Override
         public String workType() {
             return "ext-leak-probe-composite-work";
@@ -563,9 +553,6 @@ class PluginClassLoaderLeakProbeTest {
 
     /** 新式复合租约的凭证策略探针。 */
     public static final class LeakProbeCredentialPolicy implements ScheduledCredentialPolicy {
-        public LeakProbeCredentialPolicy() {
-        }
-
         @Override
         public String policyId() {
             return "ext-leak-probe-composite-policy";
@@ -580,9 +567,6 @@ class PluginClassLoaderLeakProbeTest {
 
     /** 新式复合租约的执行 Guard 探针。 */
     public static final class LeakProbeExecutionGuard implements ScheduledExecutionGuard {
-        public LeakProbeExecutionGuard() {
-        }
-
         @Override
         public String guardId() {
             return "ext-leak-probe-composite-guard";
@@ -601,10 +585,6 @@ class PluginClassLoaderLeakProbeTest {
      */
     static final class ProbeClassLoader extends ClassLoader {
         private final List<Class<?>> probeClasses;
-
-        ProbeClassLoader(ClassLoader parent) {
-            this(parent, LeakProbeWorkExecutor.class);
-        }
 
         ProbeClassLoader(ClassLoader parent, Class<?>... probeClasses) {
             super(parent);

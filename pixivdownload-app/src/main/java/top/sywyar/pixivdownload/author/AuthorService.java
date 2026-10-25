@@ -38,8 +38,6 @@ public class AuthorService {
     private final RestTemplate downloadRestTemplate;
     private final TaskScheduler taskScheduler;
     private final AppMessages messages;
-    /** 不直接使用：仅表达对 {@link DatabaseInitializer} 的初始化顺序依赖（{@link #init()} 要求表已建好）。 */
-    @SuppressWarnings("unused")
     private final DatabaseInitializer databaseInitializer;
     private final ConcurrentHashMap<Long, Long> lastRenameValidationAtMs = new ConcurrentHashMap<>();
 
@@ -91,7 +89,7 @@ public class AuthorService {
             List<AuthorSummary> rows = total == 0
                     ? Collections.emptyList()
                     : authorMapper.findAuthorsWithArtworks(
-                            normalizedSearch, normalizedSort, safeSize, safePage * safeSize);
+                            normalizedSearch, normalizedSort, safeSize, (long) safePage * safeSize);
             int totalPages = (int) Math.ceil((double) total / safeSize);
             return new PagedAuthors(rows, total, safePage, safeSize, totalPages);
         }
@@ -106,8 +104,8 @@ public class AuthorService {
                 .toList();
         long total = filtered.size();
         int totalPages = (int) Math.ceil((double) total / safeSize);
-        int from = Math.min(safePage * safeSize, filtered.size());
-        int to = Math.min(from + safeSize, filtered.size());
+        int from = (int) Math.min((long) safePage * safeSize, filtered.size());
+        int to = (int) Math.min((long) from + safeSize, filtered.size());
         return new PagedAuthors(filtered.subList(from, to), total, safePage, safeSize, totalPages);
     }
 
@@ -149,10 +147,13 @@ public class AuthorService {
         requireDatabase();
         long nowMs = System.currentTimeMillis();
         Long lastMs = lastRenameValidationAtMs.get(authorId);
-        if (lastMs != null && nowMs - lastMs < RENAME_VALIDATE_COOLDOWN.toMillis()) {
+        boolean claimed = lastMs == null
+                ? lastRenameValidationAtMs.putIfAbsent(authorId, nowMs) == null
+                : nowMs - lastMs >= RENAME_VALIDATE_COOLDOWN.toMillis()
+                        && lastRenameValidationAtMs.replace(authorId, lastMs, nowMs);
+        if (!claimed) {
             return;
         }
-        lastRenameValidationAtMs.put(authorId, nowMs);
         taskScheduler.schedule(() -> validateRename(authorId), Instant.now());
     }
 

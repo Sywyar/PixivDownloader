@@ -24,9 +24,8 @@ public class OnboardingProgressService {
     }
 
     public void markStepCompleted(String stepId) {
-        String normalized = normalize(stepId);
-        if (normalized != null) {
-            completedSteps.add(normalized);
+        if (stepId != null && !stepId.isBlank()) {
+            completedSteps.add(stepId.trim());
         }
     }
 
@@ -34,16 +33,7 @@ public class OnboardingProgressService {
         return batchVisited.get();
     }
 
-    public boolean isStepCompleted(String stepId) {
-        String normalized = normalize(stepId);
-        return normalized != null && completedSteps.contains(normalized);
-    }
-
     public List<String> completedSteps() {
         return completedSteps.stream().sorted().toList();
-    }
-
-    private static String normalize(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
     }
 }

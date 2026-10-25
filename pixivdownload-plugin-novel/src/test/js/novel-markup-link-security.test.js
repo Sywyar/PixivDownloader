@@ -50,7 +50,7 @@ test('小说阅读页只链接无凭据的 HTTP(S) 绝对地址', () => {
     assertAllowlist(sandbox.PixivNovelRender.render(MARKUP));
 });
 
-test('独立小说下载脚本使用相同的外链白名单', () => {
+function localRenderer() {
     const start = LOCAL_USERSCRIPT.indexOf('function renderNovelPagesHtml');
     const end = LOCAL_USERSCRIPT.indexOf('async function downloadNovel', start);
     assert.ok(start >= 0 && end > start, '应能定位独立脚本的小说正文渲染器');
@@ -66,5 +66,20 @@ test('独立小说下载脚本使用相同的外链白名单', () => {
     vm.createContext(sandbox);
     vm.runInContext(LOCAL_USERSCRIPT.slice(start, end), sandbox);
 
-    assertAllowlist(sandbox.renderNovelPagesHtml(MARKUP, {}).join(''));
+    return sandbox.renderNovelPagesHtml;
+}
+
+test('独立小说下载脚本使用相同的外链白名单', () => {
+    assertAllowlist(localRenderer()(MARKUP, {}).join(''));
+});
+
+test('本地 EPUB 正文保留形似内部占位符的文本和标记参数', () => {
+    const render = localRenderer();
+    assert.equal(render('PH0PH PH42PH', {})[0], '<p>PH0PH PH42PH</p>');
+    const result = render('PH0PH [[rb:本>ほん]] [chapter:PH42PH]\n<text> [pixivimage:123-2]', {'123-2': 'page.png'})[0];
+    assert.match(result, /^<p>PH0PH <ruby>本<rt>ほん<\/rt><\/ruby>/);
+    assert.match(result, /<h2>PH42PH<\/h2>/);
+    assert.match(result, /&lt;text&gt;/);
+    assert.match(result, /src="images\/page.png"/);
+    assert.doesNotMatch(result, /undefined/);
 });

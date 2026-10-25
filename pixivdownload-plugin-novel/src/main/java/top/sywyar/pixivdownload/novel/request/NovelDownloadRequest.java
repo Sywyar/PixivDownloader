@@ -67,11 +67,8 @@ public class NovelDownloadRequest {
         /** 译文合订本格式（{@code epub}/{@code txt}/{@code html}）。 */
         private String autoTranslateMergeFormat;
         /**
-         * 前端转发的、轻剪枝后的 Pixiv 小说原始 body（{@code /ajax/novel/{id}}）JSON 串。
-         * 由油猴脚本在下载前顺手附带（脚本本就已抓到完整 body，零额外请求），下载成功且小说行已落库后，
-         * 后端旁路归一化为 meta 数据库快照 + {@code upload_time} 列投影；best-effort，解析 / 落盘失败不影响
-         * 下载结果。前端剪枝额外去掉正文 {@code content} 与内嵌图 {@code textEmbeddedImages}（后端各有专属落点），
-         * 但后端仍独立再剪 + 白名单 + 限长。仅前端交互下载链路填充；计划任务走后端自抓 body，不读此字段。
+         * 正文与内嵌图片另有存储，此处仅保留下载入口裁剪并限长的 Pixiv 原始元数据 JSON，
+         * 供下载成功后的 best-effort 元数据快照使用。
          */
         private String rawMetaJson;
 

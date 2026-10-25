@@ -47,6 +47,10 @@ class PixivWorkFileNameFormatterTest {
     void shouldFallBackToNormalizeWhenSuffixEmpty() {
         String result = PixivWorkFileNameFormatter.normalizeBaseNameWithSuffix("title", "", "fb");
         assertThat(result).isEqualTo("title");
+        assertThat(PixivWorkFileNameFormatter.normalizeBaseNameWithSuffix(null, "_en", "CON"))
+                .isEqualTo("_CON_en");
+        assertThat(PixivWorkFileNameFormatter.normalizeBaseNameWithSuffix("...", "_en", ""))
+                .isEqualTo("untitled_en");
     }
 
     @Test
@@ -75,5 +79,8 @@ class PixivWorkFileNameFormatterTest {
         );
 
         assertThat(names).containsExactly("Same", "Same_p1", "Same_p2");
+        assertThat(PixivWorkFileNameFormatter.normalizeProvidedBaseNames(
+                List.of("same_p2", "same", "SAME", "same_p2"), 4, 12345L))
+                .containsExactly("same_p2", "same", "SAME_p2_2", "same_p2_p3");
     }
 }

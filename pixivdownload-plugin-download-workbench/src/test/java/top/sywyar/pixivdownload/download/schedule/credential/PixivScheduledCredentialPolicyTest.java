@@ -18,7 +18,6 @@ import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardEvidence
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresentation;
-import top.sywyar.pixivdownload.download.schedule.credential.OveruseWarningService;
 import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 
 import java.util.Arrays;
@@ -132,10 +131,10 @@ class PixivScheduledCredentialPolicyTest {
         PixivScheduledCredentialPolicy policy = new PixivScheduledCredentialPolicy(
                 mock(OveruseWarningService.class), codec, new PixivScheduleSettings());
 
-        var expired = policy.taskPresentation(snapshot(
+        var expired = policy.taskPresentation(new ScheduledCredentialTaskSnapshot(
                 41L, 7L, true, false, false,
                 "CREDENTIAL_REJECTED", null, null));
-        var paused = policy.taskPresentation(snapshot(
+        var paused = policy.taskPresentation(new ScheduledCredentialTaskSnapshot(
                 42L, 8L, false, true, false,
                 PixivScheduledCredentialPolicy.OVERUSE_REASON_CODE,
                 "{\"modifiedAt\":\"900\"}", codec.encodePolicyState(900L)));
@@ -154,10 +153,10 @@ class PixivScheduledCredentialPolicyTest {
         PixivScheduledCredentialPolicy policy = new PixivScheduledCredentialPolicy(
                 mock(OveruseWarningService.class), codec, new PixivScheduleSettings());
         List<ScheduledCredentialTaskSnapshot> tasks = List.of(
-                snapshot(41L, 7L, false, true, false,
+                new ScheduledCredentialTaskSnapshot(41L, 7L, false, true, false,
                         PixivScheduledCredentialPolicy.OVERUSE_REASON_CODE,
                         "{\"modifiedAt\":\"800\"}", codec.encodePolicyState(null)),
-                snapshot(42L, 11L, false, true, false,
+                new ScheduledCredentialTaskSnapshot(42L, 11L, false, true, false,
                         PixivScheduledCredentialPolicy.OVERUSE_REASON_CODE,
                         "{\"modifiedAt\":\"900\"}", codec.encodePolicyState(700L)));
 
@@ -185,7 +184,7 @@ class PixivScheduledCredentialPolicyTest {
                 new PixivSchedulePersistenceCodec(new ObjectMapper());
         PixivScheduledCredentialPolicy policy = new PixivScheduledCredentialPolicy(
                 mock(OveruseWarningService.class), codec, settings);
-        List<ScheduledCredentialTaskSnapshot> tasks = List.of(snapshot(
+        List<ScheduledCredentialTaskSnapshot> tasks = List.of(new ScheduledCredentialTaskSnapshot(
                 41L, 7L, false, true, false,
                 PixivScheduledCredentialPolicy.OVERUSE_REASON_CODE,
                 "{\"modifiedAt\":\"800\"}", codec.encodePolicyState(null)));
@@ -207,7 +206,7 @@ class PixivScheduledCredentialPolicyTest {
     @DisplayName("账号策略事件由 Pixiv 策略投影为安全通知场景和参数")
     void incidentPresentationOwnsPixivNotificationProjection() {
         PixivScheduledCredentialPolicy policy = policy(mock(OveruseWarningService.class));
-        ScheduledCredentialTaskSnapshot task = snapshot(
+        ScheduledCredentialTaskSnapshot task = new ScheduledCredentialTaskSnapshot(
                 41L, 7L, false, true, false,
                 PixivScheduledCredentialPolicy.OVERUSE_REASON_CODE,
                 "{\"modifiedAt\":\"800\"}", null);
@@ -241,20 +240,6 @@ class PixivScheduledCredentialPolicyTest {
                 warningService,
                 new PixivSchedulePersistenceCodec(new ObjectMapper()),
                 new PixivScheduleSettings());
-    }
-
-    private static ScheduledCredentialTaskSnapshot snapshot(
-            long taskId,
-            long stateVersion,
-            boolean credentialSuspended,
-            boolean policySuspended,
-            boolean busy,
-            String suspendCode,
-            String suspendDetailJson,
-            String policyStateJson) {
-        return new ScheduledCredentialTaskSnapshot(
-                taskId, stateVersion, credentialSuspended, policySuspended, busy,
-                suspendCode, suspendDetailJson, policyStateJson);
     }
 
     private static ScheduledCredentialContext context(

@@ -35,8 +35,7 @@ public final class LocaleCatalog {
     private final String languageParameterName;
     private final List<LocaleDescriptor> locales;
     private final List<LocaleDescriptor> visibleLocales;
-    private final Map<String, LocaleDescriptor> byTag;
-    private final Map<String, LocaleDescriptor> byAlias;
+    private final Map<String, LocaleDescriptor> byName;
 
     LocaleCatalog(int schemaVersion,
                   LocaleDescriptor source,
@@ -113,12 +112,12 @@ public final class LocaleCatalog {
             throw new IllegalArgumentException("fallbackLocale not present in the catalog: "
                     + (fallback == null ? null : fallback.tag()));
         }
-        if (fallback.status() != LocaleStatus.SOURCE && fallback.status() != LocaleStatus.SUPPORTED) {
+        if (!fallback.visible()) {
             throw new IllegalArgumentException("fallbackLocale must be source or supported: "
                     + fallback.tag());
         }
-        this.byTag = Map.copyOf(tags);
-        this.byAlias = Map.copyOf(aliases);
+        tags.putAll(aliases);
+        this.byName = Map.copyOf(tags);
     }
 
     /**
@@ -208,13 +207,9 @@ public final class LocaleCatalog {
             return Optional.empty();
         }
         String tag = candidate.toLanguageTag();
-        LocaleDescriptor byTagMatch = byTag.get(tag);
-        if (byTagMatch != null) {
-            return Optional.of(byTagMatch);
-        }
-        LocaleDescriptor aliasMatch = byAlias.get(tag);
-        if (aliasMatch != null) {
-            return Optional.of(aliasMatch);
+        LocaleDescriptor match = byName.get(tag);
+        if (match != null) {
+            return Optional.of(match);
         }
         String canonical = canonicalTag(tag);
         if (canonical == null) {
@@ -228,13 +223,9 @@ public final class LocaleCatalog {
      * 供 {@link #match(String)} 与 {@link #match(Locale)} 共用，保证两条路径行为一致。
      */
     private Optional<LocaleDescriptor> matchCanonicalTag(String canonical) {
-        LocaleDescriptor byTagMatch = byTag.get(canonical);
-        if (byTagMatch != null) {
-            return Optional.of(byTagMatch);
-        }
-        LocaleDescriptor aliasMatch = byAlias.get(canonical);
-        if (aliasMatch != null) {
-            return Optional.of(aliasMatch);
+        LocaleDescriptor match = byName.get(canonical);
+        if (match != null) {
+            return Optional.of(match);
         }
         return matchByLanguage(canonical);
     }
@@ -268,7 +259,7 @@ public final class LocaleCatalog {
 
     private Optional<LocaleDescriptor> matchByLanguage(String candidate) {
         String language = languageOf(candidate);
-        if (language == null || language.isEmpty()) {
+        if (language.isEmpty()) {
             return Optional.empty();
         }
         List<LocaleDescriptor> languageMatches = locales.stream()
@@ -290,7 +281,7 @@ public final class LocaleCatalog {
             throw new IllegalArgumentException("locale tag is empty");
         }
         String normalized = canonicalTag(tag.trim().replace('_', '-'));
-        if (normalized == null || normalized.isEmpty()) {
+        if (normalized == null) {
             throw new IllegalArgumentException("invalid locale tag: " + tag);
         }
         return normalized;

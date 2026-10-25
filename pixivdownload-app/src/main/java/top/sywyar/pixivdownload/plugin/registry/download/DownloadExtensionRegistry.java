@@ -330,11 +330,11 @@ public final class DownloadExtensionRegistry {
                                      List<StaticResourceRegistry.RegisteredStaticResource> staticResources) {
         String pluginId = registered.id();
         List<WebUiSlotContribution> downloadSlots = allSlots.stream()
-                .filter(slot -> slot != null && DOWNLOAD_SLOT_TARGETS.contains(slot.target()))
+                .filter(slot -> DOWNLOAD_SLOT_TARGETS.contains(slot.target()))
                 .toList();
 
         boolean needsAssets = !downloadTypes.isEmpty()
-                || downloadSlots.stream().anyMatch(item -> item != null && item.moduleUrl() != null);
+                || downloadSlots.stream().anyMatch(item -> item.moduleUrl() != null);
         List<StaticResourceRegistry.RegisteredStaticResource> resources = needsAssets
                 ? staticResources
                 : List.of();
@@ -416,9 +416,6 @@ public final class DownloadExtensionRegistry {
     }
 
     private static void validateUiSlot(WebUiSlotContribution slot, String pluginId) {
-        if (slot == null) {
-            throw new IllegalStateException("null download UI slot contribution (plugin: " + pluginId + ")");
-        }
         requireText(slot.slotId(), "download UI slot id", pluginId);
         requireText(slot.target(), "download UI slot target", pluginId);
     }

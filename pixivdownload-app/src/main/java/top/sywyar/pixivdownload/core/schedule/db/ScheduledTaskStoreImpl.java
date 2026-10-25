@@ -21,14 +21,12 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 
-/** {@link ScheduledTaskStore} 的核心 MyBatis 实现。 */
+/** {@link ScheduledTaskStore} 的核心存储实现。 */
 @Repository
 @RequiredArgsConstructor
 public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
 
     private final ScheduledTaskMapper mapper;
-    /** 仅表达表结构初始化必须先完成。 */
-    @SuppressWarnings("unused")
     private final DatabaseInitializer databaseInitializer;
 
     @PostConstruct
@@ -377,13 +375,9 @@ public class ScheduledTaskStoreImpl implements ScheduledTaskStore {
     }
 
     private static void requireText(String value, String label) {
-        if (!hasText(value)) {
+        if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(label + " must not be blank");
         }
-    }
-
-    private static boolean hasText(String value) {
-        return value != null && !value.isBlank();
     }
 
     private static String normalizePolicyState(String policyStateJson) {

@@ -1,67 +1,34 @@
 package top.sywyar.pixivdownload.schedule.execution;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.task.SyncTaskExecutor;
-import org.springframework.core.task.TaskExecutor;
-import top.sywyar.pixivdownload.config.OutboundProxySettings;
-import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
-import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
-import top.sywyar.pixivdownload.core.schedule.state.ScheduleLastOutcome;
-import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
-import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialBindResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
-import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
-import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledExecutionGuard;
-import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
-import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision;
-import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardEvidence;
 import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardPoint;
-import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledDiscoveryResult;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledPendingReplayPolicy;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
-import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
-import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRunContext;
 import top.sywyar.pixivdownload.schedule.FakeScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.schedule.ScheduleCapabilityTestFixture;
-import top.sywyar.pixivdownload.schedule.ScheduleConfig;
-import top.sywyar.pixivdownload.schedule.ScheduleDefinitionException;
-import top.sywyar.pixivdownload.schedule.ScheduleRunQueue;
 import top.sywyar.pixivdownload.schedule.ScheduleRunState;
-import top.sywyar.pixivdownload.schedule.ScheduleSourcePublicationChangedException;
-import top.sywyar.pixivdownload.schedule.ScheduleSourceUnavailableException;
-import top.sywyar.pixivdownload.schedule.persistence.ScheduleWorkPersistenceCodec;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -69,13 +36,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.when;
 
 @DisplayName("计划执行引擎 Guard 与凭证失败")
 class ScheduleExecutionEngineGuardTest extends ScheduleExecutionEngineTestSupport {
@@ -235,7 +196,10 @@ class ScheduleExecutionEngineGuardTest extends ScheduleExecutionEngineTestSuppor
 
         assertThatThrownBy(() -> engine.execute(task()))
                 .isInstanceOfSatisfying(ScheduledExecutionException.class,
-                        failure -> assertThat(failure.code()).isEqualTo("fixture.primary-failure"));
+                        failure -> {
+                            assertThat(failure.category()).isEqualTo(ScheduledFailure.Category.RETRYABLE_NETWORK);
+                            assertThat(failure.code()).isEqualTo("fixture.primary-failure");
+                        });
         assertThat(failureGuards).hasValue(1);
     }
 
@@ -508,17 +472,7 @@ class ScheduleExecutionEngineGuardTest extends ScheduleExecutionEngineTestSuppor
             return ScheduledGuardDecision.proceed();
         });
         FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
-        FakeScheduleCapabilityAccess.Publication publication = publishExecutionFixture(
-                registry,
-                sourceExecutor(1, context -> ScheduledDiscoveryResult.withoutCheckpoint()),
-                List.of(workExecutor(context -> ScheduledWorkResult.completed())),
-                List.of(guard),
-                Set.of(WORK),
-                Set.of(GUARD));
-
-        // 用包含 fatal policy 的 owner 替换普通 fixture。
-        ScheduleCapabilityTestFixture.withdraw(registry, publication).orElseThrow();
-        publication = ScheduleCapabilityTestFixture.publish(
+        FakeScheduleCapabilityAccess.Publication publication = ScheduleCapabilityTestFixture.publish(
                 registry,
                 bindingBundle(
                         new ScheduleCapabilityOwner("fixture", "fixture-package", 2L),

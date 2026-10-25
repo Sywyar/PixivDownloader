@@ -119,12 +119,9 @@ class DownloadTaskControllerTest {
         @DisplayName("非法输出参数在进入下载执行器前拒绝")
         void rejectsInvalidMediaOptionsBeforeAdmission() throws Exception {
             lenient().when(applicationModeProvider.getMode()).thenReturn("solo");
-            for (String option : List.of("\"mediaQuality\":0", "\"mediaMaximumEdge\":16384", "\"imageFormats\":\"invalid\"")) {
-                mockMvc.perform(post("/api/download/pixiv").contentType(MediaType.APPLICATION_JSON)
-                                .content("{\"artworkId\":42,\"title\":\"test\",\"imageUrls\":[\"https://i.pximg.net/a.jpg\"],\"other\":{" + option + "}}"))
-                        .andExpect(status().isBadRequest());
-            }
-            for (String option : List.of("\"mediaQuality\":1.5", "\"mediaMaximumEdge\":\"100\"", "\"mediaWebpLossless\":\"true\"")) {
+            for (String option : List.of(
+                    "\"mediaQuality\":0", "\"mediaMaximumEdge\":16384", "\"imageFormats\":\"invalid\"",
+                    "\"mediaQuality\":1.5", "\"mediaMaximumEdge\":\"100\"", "\"mediaWebpLossless\":\"true\"")) {
                 mockMvc.perform(post("/api/download/pixiv").contentType(MediaType.APPLICATION_JSON)
                                 .content("{\"artworkId\":42,\"title\":\"test\",\"imageUrls\":[\"https://i.pximg.net/a.jpg\"],\"other\":{" + option + "}}"))
                         .andExpect(status().isBadRequest());

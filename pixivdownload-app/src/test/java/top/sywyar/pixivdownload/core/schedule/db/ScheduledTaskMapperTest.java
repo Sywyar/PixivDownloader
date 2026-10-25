@@ -1,18 +1,11 @@
 package top.sywyar.pixivdownload.core.schedule.db;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.Configuration;
-import org.apache.ibatis.session.SqlSession;
-import org.apache.ibatis.session.SqlSessionFactory;
-import org.apache.ibatis.session.SqlSessionFactoryBuilder;
-import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
-import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.schedule.ScheduleTaskDefinitionUpdate;
 import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
@@ -32,7 +25,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ScheduledTaskMapperTest {
 
     private javax.sql.DataSource dataSource;
-    private SqlSession session;
     private ScheduledTaskMapper mapper;
     private JdbcTemplate jdbc;
 
@@ -40,14 +32,6 @@ class ScheduledTaskMapperTest {
     void setUp() throws Exception {
         dataSource = createDataSource();
 
-        Environment environment = new Environment("test", new JdbcTransactionFactory(), dataSource);
-        Configuration configuration = new Configuration(environment);
-        try (var connection = dataSource.getConnection()) {
-            configuration.setDatabaseId(top.sywyar.pixivdownload.core.db.DatabaseEngine.detect(connection).databaseId());
-        }
-        configuration.setMapUnderscoreToCamelCase(true);
-        SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(configuration);
-        session = factory.openSession(true);
         mapper = new ScheduledTaskMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
         jdbc = new JdbcTemplate(dataSource);
 
@@ -58,7 +42,6 @@ class ScheduledTaskMapperTest {
 
     @AfterEach
     void tearDown() throws Exception {
-        if (session != null) session.close();
         if (dataSource instanceof SingleConnectionDataSource single) single.destroy();
     }
 

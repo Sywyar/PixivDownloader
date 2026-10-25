@@ -205,14 +205,14 @@ public record PluginDescriptor(
         if (kind == null) {
             errors.add("kind must not be null");
         }
-        if (requires != null && requires.present() && !requires.valid()) {
+        if (requires.present() && !requires.valid()) {
             errors.add("unparseable requires: " + requires.raw());
         }
         if (pluginClass != null && !pluginClass.isBlank() && !CLASS_NAME_PATTERN.matcher(pluginClass).matches()) {
             errors.add("invalid plugin-class: " + pluginClass);
         }
         for (String configurationClassName : configurationClassNames) {
-            if (configurationClassName == null || !CLASS_NAME_PATTERN.matcher(configurationClassName).matches()) {
+            if (!CLASS_NAME_PATTERN.matcher(configurationClassName).matches()) {
                 errors.add("invalid configuration class: " + configurationClassName);
             }
         }
@@ -220,7 +220,7 @@ public record PluginDescriptor(
             errors.add("configuration classes must be unique");
         }
         for (PluginDependencyRef dependency : dependencies) {
-            if (dependency.pluginId() == null || !ID_PATTERN.matcher(dependency.pluginId()).matches()) {
+            if (!ID_PATTERN.matcher(dependency.pluginId()).matches()) {
                 errors.add("invalid dependency plugin id: " + dependency.pluginId());
             }
             VersionRequirement dependencyRequirement = dependency.requirement();
@@ -230,7 +230,7 @@ public record PluginDescriptor(
             }
         }
         for (String replacedId : replaces) {
-            if (replacedId == null || !ID_PATTERN.matcher(replacedId).matches()) {
+            if (!ID_PATTERN.matcher(replacedId).matches()) {
                 errors.add("invalid replaced plugin id: " + replacedId);
             } else if (Objects.equals(id, replacedId)) {
                 errors.add("plugin must not replace itself: " + replacedId);

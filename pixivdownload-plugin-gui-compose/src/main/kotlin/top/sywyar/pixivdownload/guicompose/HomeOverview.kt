@@ -93,8 +93,7 @@ internal fun HomeOverview(
     LaunchedEffect(Unit) { entered = true }
     fun label(suffix: String, vararg args: Any) =
         text(DesktopUiNode.TextToken("gui-compose", "gui.compose.home.$suffix", "", args.map(Any::toString)))
-    val shortcuts = node.shortcuts().filter { it.symbol() != "chart-bar" }
-    val statistics = node.shortcuts().filter { it.symbol() == "chart-bar" }
+    val (shortcuts, statistics) = node.shortcuts().partition { it.symbol() != "chart-bar" }
 
     Box(modifier.testTag("home.overview")) {
         BoxWithConstraints(Modifier.fillMaxSize().padding(end = 12.dp).verticalScroll(scroll)) {

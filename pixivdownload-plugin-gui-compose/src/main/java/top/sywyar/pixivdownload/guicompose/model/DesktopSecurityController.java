@@ -5,7 +5,6 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiIcon;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.*;
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -20,6 +19,7 @@ final class DesktopSecurityController {
     private final DesktopUiHost host;
     private final int serverPort;
     private final Map<String, String> formValues;
+    private final Map<String, String> connectionValues = new java.util.concurrent.ConcurrentHashMap<>();
     private volatile String panel = "";
     private volatile TextToken notice;
     private volatile String errorField = "";
@@ -60,7 +60,7 @@ final class DesktopSecurityController {
                             : DesktopUiNodes.token(contribution.labelNamespace(), contribution.descriptionI18nKey(), ""),
                     ButtonStyle.NORMAL, !owner.busy(), DesktopUiIcon.SECURITY));
         }
-        actions.add(action("close", nextActions, this::close));
+        actions.add(action("close", nextActions, () -> open("")));
         actions.add(action("submit", nextActions, this::changePassword));
         actions.add(action("logout", nextActions, this::logout));
         actions.add(action("save", nextActions, this::saveConnection));
@@ -106,14 +106,6 @@ final class DesktopSecurityController {
         clearSecrets();
         inputChanged();
         panel = next;
-        owner.rebuild();
-    }
-
-    private void close() {
-        if (owner.busy()) return;
-        clearSecrets();
-        inputChanged();
-        panel = "";
         owner.rebuild();
     }
 
@@ -183,7 +175,9 @@ final class DesktopSecurityController {
             try {
                 List<String> keys = new ArrayList<>(CONNECTION_KEYS.values());
                 keys.add("server.ssl.key-store");
-                var saved = host.applicationConfig().readAll(keys);
+                var saved = owner.readConfiguration(keys);
+                connectionValues.clear();
+                connectionValues.putAll(saved);
                 CONNECTION_KEYS.forEach((field, key) -> formValues.put("security." + field,
                         saved.getOrDefault(key, field.equals("domain") ? "localhost" : field.equals("port") ? Integer.toString(serverPort) : "")));
                 keyStoreConfigured = !saved.getOrDefault("server.ssl.key-store", "").isBlank();
@@ -220,7 +214,7 @@ final class DesktopSecurityController {
                     String key = host.requireSafeConfigKey(entry.getValue());
                     String value = host.requireSafeConfigValue(fields.get(entry.getKey()));
                     host.validateCoreConfigValue(key, value);
-                    saved.put(key, value);
+                    if (!java.util.Objects.equals(value, connectionValues.get(key))) saved.put(key, value);
                 }
                 var file = host.applicationConfig();
                 var before = file.snapshot();
@@ -230,10 +224,20 @@ final class DesktopSecurityController {
                     try { file.restore(before); } catch (Exception rollback) { failure.addSuppressed(rollback); }
                     throw failure;
                 }
-                owner.securityConfigSaved(saved);
+                owner.coreConfigValuesSaved(saved);
                 succeeded("connection");
             } catch (Exception failure) {
                 notice = label("save-failed");
+            }
+        });
+    }
+
+    void configurationSaved(Map<String, String> saved) {
+        CONNECTION_KEYS.forEach((field, key) -> {
+            if (saved.containsKey(key)) {
+                String previous = connectionValues.put(key, saved.get(key));
+                formValues.computeIfPresent("security." + field, (ignored, draft) ->
+                        java.util.Objects.equals(draft, previous) ? saved.get(key) : draft);
             }
         });
     }

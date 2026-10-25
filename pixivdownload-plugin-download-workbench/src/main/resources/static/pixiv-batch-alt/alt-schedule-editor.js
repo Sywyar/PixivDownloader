@@ -58,50 +58,79 @@ function openScheduleOverride(task) {
     const sourceType = task.sourceType || task.type;
     const capabilities = scheduleCredentialCapabilities(sourceType, {task});
     const presentation = capabilities.presentation;
+    let lease;
+    try {
+        lease = altScheduleSources().activationLease(sourceType);
+        if (task.sourceAvailable === false || task.sourceActivationToken !== lease.activationToken
+            || !capabilities.supportsCredential && !capabilities.supportsProxy) {
+            throw new Error(bt('schedule.error.concurrent-change'));
+        }
+    } catch (e) {
+        abToast('error', bt('schedule.error.source-editor-unavailable', '计划任务来源编辑器当前不可用'));
+        return;
+    }
+    let saving = false;
+    let useSavedCredential = false;
+    const bound = task.credentialPolicy?.bound === true;
     if (presentation.modalIntro) {
         body.appendChild(el('p', 'ab-field-note', presentation.modalIntro));
     }
 
     // —— 单独代理 ——
-    body.appendChild(el('h4', 'ab-settings-group', bt('schedule.override.proxy', '单独代理')));
+    const proxyFields = el('div');
+    proxyFields.hidden = !capabilities.supportsProxy;
+    body.appendChild(proxyFields);
+    proxyFields.appendChild(el('h4', 'ab-settings-group', bt('schedule.override.proxy', '单独代理')));
     const proxyInput = el('input', 'ab-input');
     proxyInput.type = 'text';
     proxyInput.placeholder = bt('schedule.override.proxy.placeholder', 'host:port');
     proxyInput.value = task.proxy || '';
-    body.appendChild(proxyInput);
-    body.appendChild(el('p', 'ab-field-note',
+    proxyFields.appendChild(proxyInput);
+    proxyFields.appendChild(el('p', 'ab-field-note',
         presentation.proxyHint || bt('schedule.override.proxy.help', '该任务运行时使用此代理；清除则用全局代理。')));
 
     // —— 单独凭证 ——
-    body.appendChild(el('h4', 'ab-settings-group', bt('schedule.override.credential', '单独凭证')));
+    const credentialFields = el('div');
+    credentialFields.hidden = !capabilities.supportsCredential;
+    body.appendChild(credentialFields);
+    credentialFields.appendChild(el('h4', 'ab-settings-group', bt('schedule.override.credential', '单独凭证')));
     const credentialState = el('p', 'ab-field-note',
-        task.cookieBound
+        bound
             ? bt('schedule.override.credential.bound', '已绑定凭证（不回显）')
             : bt('schedule.override.credential.none', '尚未绑定凭证，将以受限模式运行'));
-    body.appendChild(credentialState);
+    credentialFields.appendChild(credentialState);
     const cookieInput = scheduleCredentialInput();
-    cookieInput.placeholder = task.cookieBound
+    cookieInput.placeholder = bound
         ? presentation.boundPlaceholder || bt('schedule.override.credential.bound-placeholder', '凭证已绑定且不回显；留空保持不变')
         : presentation.placeholder || bt('schedule.override.credential.placeholder', '粘贴该来源所需的凭证');
-    body.appendChild(cookieInput);
-    body.appendChild(scheduleCredentialToggle(cookieInput));
+    const credentialPlaceholder = cookieInput.placeholder;
+    const clearSavedSelection = () => {
+        useSavedCredential = false;
+        cookieInput.placeholder = credentialPlaceholder;
+    };
+    cookieInput.addEventListener('input', clearSavedSelection);
+    cookieInput.addEventListener('paste', clearSavedSelection);
+    credentialFields.appendChild(cookieInput);
+    credentialFields.appendChild(scheduleCredentialToggle(cookieInput));
     if (presentation.credentialHint) {
-        body.appendChild(el('p', 'ab-field-note', presentation.credentialHint));
+        credentialFields.appendChild(el('p', 'ab-field-note', presentation.credentialHint));
     }
     const useSavedBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm',
         presentation.savedCredentialLabel || bt('schedule.override.use-saved', '使用当前保存的凭证'));
     useSavedBtn.type = 'button';
-    useSavedBtn.addEventListener('click', async () => {
+    useSavedBtn.addEventListener('click', () => {
+        if (saving) return;
         try {
-            const credential = await scheduleCredentialValue(sourceType);
-            if (!credential) throw new Error(bt('schedule.error.no-cookie', '当前来源没有可用的已保存凭证'));
-            cookieInput.setCredential(credential);
+            lease.assertCurrent();
+            useSavedCredential = true;
+            cookieInput.setCredential('');
+            cookieInput.placeholder = presentation.savedSelectionPlaceholder || `•••••••• · ${useSavedBtn.textContent}`;
             status.textContent = '';
         } catch (e) {
-            status.textContent = String(e && e.message || bt('schedule.error.no-cookie', '当前来源没有可用的已保存凭证'));
+            status.textContent = bt('schedule.error.source-editor-unavailable', '计划任务来源编辑器当前不可用');
         }
     });
-    body.appendChild(useSavedBtn);
+    credentialFields.appendChild(useSavedBtn);
 
     const status = el('p', 'ab-field-note');
     status.setAttribute('role', 'status');
@@ -109,65 +138,76 @@ function openScheduleOverride(task) {
     proxyInput.setAttribute('aria-label', bt('schedule.override.proxy', '单独代理'));
     cookieInput.setAttribute('aria-label', bt('schedule.override.credential', '单独凭证'));
 
+    async function applyOverride(action) {
+        if (saving) return;
+        saving = true;
+        body.setAttribute('aria-busy', 'true');
+        const controls = [...body.querySelectorAll('button, input')].map(node => [node, node.disabled]);
+        controls.forEach(([node]) => { node.disabled = true; });
+        try {
+            lease.assertCurrent();
+            if (await action() === false) return;
+            lease.assertCurrent();
+            abToast('success', bt('schedule.feedback.saved', '操作成功'));
+            if (body.isConnected) closeModal();
+            loadScheduleTasks();
+        } catch (e) {
+            status.textContent = lease.isCurrent()
+                ? String(e && e.message || bt('schedule.feedback.failed', '操作失败'))
+                : bt('schedule.error.source-editor-unavailable', '计划任务来源编辑器当前不可用');
+        } finally {
+            saving = false;
+            body.removeAttribute('aria-busy');
+            controls.forEach(([node, disabled]) => { node.disabled = disabled; });
+        }
+    }
+
     const actions = el('div', 'ab-cookie-actions');
     const saveBtn = el('button', 'ab-btn ab-btn--primary');
     saveBtn.type = 'button';
     saveBtn.appendChild(el('span', '', bt('common.save', '保存')));
-    saveBtn.addEventListener('click', async () => {
-        const proxy = proxyInput.value.trim();
-        const cookie = cookieInput.readCredential().trim();
+    saveBtn.addEventListener('click', () => applyOverride(async () => {
+        const proxy = capabilities.supportsProxy ? proxyInput.value.trim() : '';
+        const cookie = capabilities.supportsCredential ? cookieInput.readCredential().trim() : '';
         if (proxy && !isValidProxyHostPort(proxy)) {
             status.textContent = bt('schedule.override.proxy.invalid', '代理格式无效（应为 host:port）');
-            return;
+            return false;
         }
-        try {
-            if (cookie) await validateScheduleCredential(sourceType, cookie, task);
-            if (proxy) await schedulePost(task, 'proxy', {proxy});
-            if (cookie) await bindScheduleCredential(task.id, sourceType, cookie);
-            abToast('success', bt('schedule.feedback.saved', '操作成功'));
-        } catch (e) {
-            status.textContent = String(e && e.message || bt('schedule.feedback.failed', '操作失败'));
-            return;
+        if (cookie) await validateScheduleCredential(sourceType, cookie, task);
+        lease.assertCurrent();
+        if (proxy && proxy !== task.proxy) await schedulePost(task, 'proxy', {proxy}, lease.signal);
+        lease.assertCurrent();
+        if (capabilities.supportsCredential && (cookie || useSavedCredential)) {
+            await bindScheduleCredential(task.id, sourceType, cookie, task);
         }
-        closeModal();
-        loadScheduleTasks(true);
-    });
+    }));
     const clearProxyBtn = el('button', 'ab-btn ab-btn--danger-ghost');
     clearProxyBtn.type = 'button';
     clearProxyBtn.appendChild(el('span', '', bt('schedule.override.clear-proxy', '清除专用代理')));
-    clearProxyBtn.addEventListener('click', async () => {
+    clearProxyBtn.hidden = !capabilities.supportsProxy;
+    clearProxyBtn.addEventListener('click', () => applyOverride(async () => {
+        if (!capabilities.supportsProxy) return false;
         if (!await abConfirm('schedule.override.clear-proxy.confirm',
-            '确认清除该任务的专用代理（回退全局代理）？', null, {danger: true})) return;
-        try {
-            await schedulePost(task, 'proxy', {proxy: null});
-        } catch (e) {
-            status.textContent = String(e && e.message || bt('schedule.feedback.failed', '操作失败'));
-            return;
-        }
-        abToast('success', bt('schedule.feedback.saved', '操作成功'));
-        closeModal();
-        loadScheduleTasks(true);
-    });
+            '确认清除该任务的专用代理（回退全局代理）？', null, {danger: true})) return false;
+        lease.assertCurrent();
+        await schedulePost(task, 'proxy', {proxy: null}, lease.signal);
+    }));
     actions.appendChild(saveBtn);
     actions.appendChild(clearProxyBtn);
-    if (task.cookieBound) {
+    if (capabilities.supportsCredential && bound) {
         const clearCredentialBtn = el('button', 'ab-btn ab-btn--danger-ghost');
         clearCredentialBtn.type = 'button';
         clearCredentialBtn.appendChild(el('span', '',
             bt('schedule.override.clear-credential', '清除专用凭证')));
-        clearCredentialBtn.addEventListener('click', async () => {
+        clearCredentialBtn.addEventListener('click', () => applyOverride(async () => {
             if (!await abConfirm('schedule.override.clear-credential.confirm',
-                '确认清除该任务已绑定的专用凭证？', null, {danger: true})) return;
-            try {
-                await schedulePost(task, 'revoke-cookie');
-            } catch (e) {
-                status.textContent = String(e && e.message || bt('schedule.feedback.failed', '操作失败'));
-                return;
+                '确认清除该任务已绑定的专用凭证？', null, {danger: true})) return false;
+            lease.assertCurrent();
+            const result = await altScheduleSources().revokeCredential(sourceType, task.id, {task});
+            if (!result?.ok) {
+                throw new Error(result?.error || bt('schedule.error.revoke-credential', '解除来源凭证失败'));
             }
-            abToast('success', bt('schedule.feedback.saved', '操作成功'));
-            closeModal();
-            loadScheduleTasks(true);
-        });
+        }));
         actions.appendChild(clearCredentialBtn);
     }
     body.appendChild(actions);
@@ -178,6 +218,7 @@ function openScheduleOverride(task) {
         title: presentation.modalTitle
             || bt('schedule.override.title', '专用代理 / 凭证 · {name}', {name: task.name || task.id}),
         body,
+        beforeClose: () => !saving,
         widthClass: 'ab-modal--wide'
     });
 }
@@ -279,6 +320,7 @@ function schedulePendingReasonText(item, sourceType) {
    ============================================================ */
 function openScheduleEditor(task) {
     const editing = !!task;
+    let savedTask = task;
     let existingParams = {};
     let session = null;
     if (editing) {
@@ -372,26 +414,39 @@ function openScheduleEditor(task) {
     };
     refreshFetchLimit();
 
-    body.appendChild(el('label', 'ab-field-label', bt('schedule.override.proxy', '单独代理')));
+    const sourceType = session?.lease.sourceType
+        || altScheduleSources()?.previewForMode(state.mode, altScheduleSourceContext(limitInput.value))?.sourceType;
+    const capabilities = scheduleCredentialCapabilities(sourceType, {task: task || null});
+    const proxyLabel = el('label', 'ab-field-label', bt('schedule.override.proxy', '单独代理'));
+    proxyLabel.hidden = !capabilities.supportsProxy;
+    body.appendChild(proxyLabel);
     const proxyInput = el('input', 'ab-input');
+    proxyInput.hidden = !capabilities.supportsProxy;
     proxyInput.type = 'text';
     proxyInput.placeholder = bt('schedule.override.proxy.placeholder-optional', 'host:port（可留空）');
     proxyInput.value = editing ? (task.proxy || '') : '';
     body.appendChild(proxyInput);
 
-    body.appendChild(el('label', 'ab-field-label', bt('schedule.override.credential', '单独凭证')));
+    const credentialLabel = el('label', 'ab-field-label', bt('schedule.override.credential', '单独凭证'));
+    credentialLabel.hidden = !capabilities.supportsCredential;
+    body.appendChild(credentialLabel);
     const credInput = scheduleCredentialInput();
-    credInput.placeholder = bt('schedule.override.credential.placeholder', '粘贴该来源所需的凭证（可留空）');
+    credInput.hidden = !capabilities.supportsCredential;
+    credInput.placeholder = task?.credentialPolicy?.bound === true
+        ? capabilities.presentation.boundPlaceholder
+            || bt('schedule.override.credential.bound-placeholder', '凭证已绑定且不回显；留空保持不变')
+        : capabilities.presentation.placeholder
+            || bt('schedule.override.credential.placeholder', '粘贴该来源所需的凭证（可留空）');
     body.appendChild(credInput);
     const credentialToggle = scheduleCredentialToggle(credInput);
+    credentialToggle.hidden = !capabilities.supportsCredential;
     body.appendChild(credentialToggle);
 
     if (editing) {
         const overrides = el('details', 'ab-schedule-overrides');
         overrides.appendChild(el('summary', '', bt('schedule.override.title', '专用代理 / 凭证', {name: task.name})));
-        const proxyLabel = proxyInput.previousElementSibling;
-        const credentialLabel = credInput.previousElementSibling;
         overrides.append(proxyLabel, proxyInput, credentialLabel, credInput, credentialToggle);
+        overrides.hidden = !capabilities.supportsProxy && !capabilities.supportsCredential;
         body.appendChild(overrides);
     }
 
@@ -418,7 +473,7 @@ function openScheduleEditor(task) {
             nameInput.focus();
             return;
         }
-        const proxy = proxyInput.value.trim();
+        const proxy = capabilities.supportsProxy ? proxyInput.value.trim() : '';
         if (proxy && !isValidProxyHostPort(proxy)) {
             status.textContent = bt('schedule.override.proxy.invalid', '代理格式无效（应为 host:port）');
             showSettings?.();
@@ -430,8 +485,9 @@ function openScheduleEditor(task) {
         const isCron = triggerSeg.querySelectorAll('.ab-seg-item')[1].classList.contains('is-active');
         saving = true;
         if (session) session.saving = true;
-        saveBtn.disabled = true;
-        if (session) session.element.querySelectorAll('button').forEach(button => { button.disabled = true; });
+        const controls = new Map([...body.querySelectorAll('input, button, select, textarea'),
+            ...actions.querySelectorAll('button')].map(control => [control, control.disabled]));
+        controls.forEach((_disabled, control) => { control.disabled = true; });
         body.setAttribute('aria-busy', 'true');
         try {
             if (session) session.lease.assertCurrent();
@@ -440,8 +496,8 @@ function openScheduleEditor(task) {
                 || snapshot.activationToken !== session.lease.activationToken)) {
                 throw new Error(bt('schedule.editor.source-changed'));
             }
-            const credential = credInput.readCredential().trim();
-            if (credential) await validateScheduleCredential(snapshot.sourceType, credential, editing ? task : null);
+            const credential = capabilities.supportsCredential ? credInput.readCredential().trim() : '';
+            if (credential) await validateScheduleCredential(snapshot.sourceType, credential, savedTask);
             if (snapshot.fetchLimitMode && !(snapshot.params.fetchLimit > 0)
                     && snapshot.fetchLimitPresentation?.fullFetchConfirmRequired !== false) {
                 if (!await abConfirm(limitKey(snapshot, 'fullFetchConfirmKey',
@@ -453,15 +509,15 @@ function openScheduleEditor(task) {
                 sourceType: snapshot.sourceType,
                 activationToken: snapshot.activationToken,
                 definitionJson: JSON.stringify(snapshot.params),
-                expectedStateVersion: editing ? task.stateVersion : undefined,
+                expectedStateVersion: savedTask?.stateVersion,
                 triggerKind: isCron ? 'cron' : 'interval'
             };
             if (isCron) requestBody.cronExpr = cronInput.value.trim();
             else requestBody.intervalMinutes = Math.max(1, parseInt(intervalInput.value, 10) || 1440);
-            const res = await fetch(editing
-                ? `${BASE}/api/schedule/tasks/${task.id}`
+            const res = await fetch(savedTask
+                ? `${BASE}/api/schedule/tasks/${savedTask.id}`
                 : `${BASE}/api/schedule/tasks`, {
-                method: editing ? 'PUT' : 'POST',
+                method: savedTask ? 'PUT' : 'POST',
                 headers: {'Content-Type': 'application/json'},
                 credentials: 'same-origin',
                 signal: snapshot.lease.signal,
@@ -469,15 +525,16 @@ function openScheduleEditor(task) {
             });
             snapshot.lease.assertCurrent();
             if (!res.ok) throw await scheduleHttpError(res, 'schedule.error.save', '保存失败');
-            const saved = await res.json().catch(() => null);
+            savedTask = await res.json();
             snapshot.lease.assertCurrent();
-            const taskId = editing ? task.id : saved && saved.id;
-            if (taskId != null && (proxy || editing && task.proxy)) {
-                await schedulePost({id: taskId}, 'proxy', {proxy: proxy || null});
+            if (capabilities.supportsProxy && proxy !== (savedTask.proxy || '')) {
+                savedTask = await schedulePost(savedTask, 'proxy', {proxy: proxy || null}, snapshot.lease.signal);
             }
-            if (taskId != null && credential) {
-                await bindScheduleCredential(taskId, snapshot.sourceType, credential);
+            snapshot.lease.assertCurrent();
+            if (credential) {
+                await bindScheduleCredential(savedTask.id, snapshot.sourceType, credential, savedTask);
             }
+            snapshot.lease.assertCurrent();
             abToast('success', bt('schedule.editor.saved', '已保存'));
         } catch (e) {
             status.textContent = String(e && e.message || bt('schedule.error.save', '保存失败'));
@@ -485,13 +542,12 @@ function openScheduleEditor(task) {
         } finally {
             saving = false;
             if (session) session.saving = false;
-            saveBtn.disabled = false;
-            if (session) session.element.querySelectorAll('button').forEach(button => { button.disabled = false; });
+            controls.forEach((disabled, control) => { control.disabled = disabled; });
             body.removeAttribute('aria-busy');
         }
         if (editing) finishScheduleEdit();
         else closeDrawer();
-        loadScheduleTasks(true);
+        loadScheduleTasks();
     });
     actions.appendChild(saveBtn);
     const footer = el('div');
@@ -549,10 +605,8 @@ function openScheduleEditor(task) {
 
     openDrawer({
         id: 'schedule-editor',
-        icon: editing ? 'edit' : 'plus',
-        title: editing
-            ? bt('schedule.editor.title-edit', '编辑计划任务')
-            : bt('schedule.editor.title-new', '新建计划任务'),
+        icon: 'plus',
+        title: bt('schedule.editor.title-new', '新建计划任务'),
         body,
         beforeClose: () => !saving && (!dirty || abConfirm('dialog.discard-draft', '放弃未保存的修改？')),
         footer

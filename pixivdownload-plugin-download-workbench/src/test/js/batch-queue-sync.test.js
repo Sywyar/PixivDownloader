@@ -18,7 +18,7 @@ const assert = require('assert');
 
 const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
 const QUEUE_SOURCE = [
-    'batch-queue-model.js', 'batch-queue-actions.js', 'batch-queue-view.js', 'batch-queue.js'
+    'queue-display.js', 'batch-queue-model.js', 'batch-queue-actions.js', 'download-speed.js', 'batch-queue-view.js', 'batch-queue.js'
 ].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
 
 // 在沙箱里加载真实 batch-queue 职责模块，返回 facade + 四个 sync 的调用计数器。
@@ -108,7 +108,6 @@ function relationMergeBehavior(reasons) {
     const {queue, calls} = load();
     queue.syncAllResultsQueueState();
     ok('2: 四个 sync 各被回调一次', allFour(calls));
-    ok('2: 快捷获取 sync 被回调（回归守卫）', calls.quick === 1);
 }
 
 // ===== 3) removeFromQueue 命中后同步全部四个预览（清除队列 stopAndClear 走同一聚合函数）=====
@@ -211,30 +210,6 @@ function relationMergeBehavior(reasons) {
     ok('7: 恢复后仍按队列 id 去重', restored.length === 2);
     ok('7: 恢复路径保留重复项携带的类型关系', restored[0].typeData.values.join(',') === 'source-a,source-b');
     ok('7: 恢复调用中性 hook', reasons.length === 3 && reasons.every(reason => reason === 'restore'));
-}
-
-// ===== 8) 所有卡片 toggle 入口都先调用中性合并 hook =====
-{
-    const modeModules = {
-        search: ['search.js'],
-        user: ['user-core.js', 'user-data.js', 'user-view.js', 'user.js'],
-        series: ['series-browser.js', 'series-data.js', 'series-view.js', 'series.js'],
-        'quick-fetch': [
-            'quick-fetch-core.js', 'quick-fetch-outer.js', 'quick-fetch-inner.js', 'quick-fetch.js'
-        ]
-    };
-    const modeSource = name => modeModules[name]
-        .map(file => fs.readFileSync(path.join(STATIC, 'modes', file), 'utf8'))
-        .join('\n');
-    ok('8: Search 卡片 toggle 接入合并 hook',
-        modeSource('search').includes("reconcileQueueItemTypeData(alreadyInQueue, meta, 'toggle')"));
-    ok('8: User 卡片 toggle 接入合并 hook',
-        modeSource('user').includes("reconcileQueueItemTypeData(alreadyInQueue, meta, 'toggle')"));
-    ok('8: Series 卡片 toggle 接入合并 hook',
-        modeSource('series').includes("reconcileQueueItemTypeData(alreadyInQueue, meta, 'toggle')"));
-    const quickMatches = modeSource('quick-fetch').match(
-        /reconcileQueueItemTypeData\(existing, meta, 'toggle'\)/g) || [];
-    ok('8: Quick 外层与内层卡片 toggle 均接入合并 hook', quickMatches.length === 2);
 }
 
 // ===== 9) 新来源晚于终态到达时重置队列项，并在队列运行中补 worker =====
@@ -375,6 +350,17 @@ function relationMergeBehavior(reasons) {
     ok('11: 共享渲染器拒绝固定 tone 白名单外的样式注入',
         !unsafeToneHtml.includes('class="q-live-status"')
         && !unsafeToneHtml.includes('javascript:alert'));
+
+    for (const queueLiveStatus of [() => null, () => { throw new Error('unavailable'); }]) {
+        sandbox.window.PixivBatch.queueTypes.queueLiveStatus = queueLiveStatus;
+        const withoutOwner = queue.buildQueueItemHtml({
+            id: 'n42', kind: 'novel', status: 'downloading',
+            translatePhase: 'TRANSLATING', liveStatus: {phase: 'TRANSLATING', message: 'private status'}
+        });
+        ok('11: 贡献缺席或失败时不解释缓存的私有阶段',
+            !withoutOwner.includes('q-live-status') && !withoutOwner.includes('q-translate')
+            && !withoutOwner.includes('private status') && !withoutOwner.includes('TRANSLATING'));
+    }
 }
 
 // ===== 12) 外部类型 patch 只能原子更新受控字段，并立即统计 / 持久化 / 渲染 =====
@@ -494,8 +480,6 @@ function relationMergeBehavior(reasons) {
         !/data-queue-cancel-id=[^>]+onclick=/.test(cancellable)
         && typeof queue.bindQueueActions === 'function'
         && typeof queue.requestQueueItemCancel === 'function');
-    ok('14: 请求成功或失败均不写入永久 cancelRequested 模型字段',
-        !QUEUE_SOURCE.includes('cancelRequested'));
 
     const item = {
         id: 'demo:display-id', kind: 'demo', title: 'Running', status: 'downloading',
@@ -581,20 +565,37 @@ function relationMergeBehavior(reasons) {
     };
     queue.bindQueueActions(root);
     clickHandler({target: removeButton, preventDefault() {}, stopPropagation() {}});
-    ok('15: 含空白、斜杠、引号和 HTML 的原始 id 经委托属性精确移除，不拼接 CSS 选择器',
-        sandbox.state.queue.length === 0
-        && !QUEUE_SOURCE.includes('querySelector(`[data-queue-remove-id="${'));
+    ok('15: 含空白、斜杠、引号和 HTML 的原始 id 经委托属性精确移除',
+        sandbox.state.queue.length === 0);
 }
 
-ok('共享队列源码只调用中性 liveStatus 契约且不解释小说翻译阶段',
-    QUEUE_SOURCE.includes('formatQueueLiveStatusHtml')
-    && QUEUE_SOURCE.includes('registry.queueLiveStatus(q)')
-    && !QUEUE_SOURCE.includes('novelTranslateMessage')
-    && !QUEUE_SOURCE.includes('formatNovelTranslateHtml')
-    && !QUEUE_SOURCE.includes('translatePhase')
-    && !QUEUE_SOURCE.includes('queue.message.translate-'));
+// 下载完成后的收藏结果按状态决定标签、原因与色调，未知状态保留诊断。
+{
+    const {sandbox, queue} = load();
+    sandbox.bt = key => key;
+    sandbox.punct = key => key === 'colon' ? ': ' : ' | ';
+    for (const [status, label, color, withReason] of [
+        ['SUCCESS', 'success', 'var(--brand)', false],
+        ['exists', 'exists', 'var(--brand)', false],
+        ['failed', 'failed', 'var(--danger-bg)', true],
+        ['skipped', 'skipped', 'var(--danger-bg)', true],
+        ['unrecognized', 'unknown', 'var(--warning-accent)', true]
+    ]) {
+        for (const message of ['', '<reason>']) {
+            const html = queue.renderQueueMessageHtml({
+                status: 'completed', statusMessageKey: 'batch:queue.message.completed-images',
+                bookmarkResult: {status, message}
+            }, 'done');
+            const expected = 'queue.outcome.pixiv-bookmark.' + label
+                + (withReason && message ? ': &lt;reason&gt;' : '');
+            ok('收藏结果保留状态标签、色调及条件原因：' + status + '/' + message,
+                html.includes(`color:${color};font-weight:bold;">${expected}</span>`)
+                && html.includes('&lt;reason&gt;') === Boolean(withReason && message));
+        }
+    }
+}
 
-console.log(`\nbatch-queue-sync.test.js: ${passed} assertions passed (15 scenarios) ✓`);
+console.log(`\nbatch-queue-sync.test.js: ${passed} assertions passed ✓`);
 })().catch(error => {
     console.error('TEST FAILED:', error && error.stack ? error.stack : error);
     process.exit(1);

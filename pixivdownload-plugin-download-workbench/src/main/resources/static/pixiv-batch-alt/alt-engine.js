@@ -2,15 +2,11 @@
 /* ============================================================
    alt-engine — 下载执行引擎
    插画下载请求 / 配额与归档，
-   逐字移植 pixiv-batch/batch-download.js + batch-sse.js（UI 门面换成
-   新坞的 renderQueue/renderCurrent/updateStats/setDockStatus）。
-   worker 池与聚合 SSE 由同目录职责模块提供。
+   worker 池与聚合 SSE 由各自职责模块提供。
    ============================================================ */
 const STATUS_TIMEOUT_MS = 300000;
 
 let quotaExceededHandled = false;
-let archiveCountdownTimer = null;
-let archivePollTimer = null;
 let quotaResetTimer = null;
 // 本页面会话是否已派发「首次下载完成」事件（布局偏好调查在该时刻弹出一次）。
 let firstDownloadCompletedNotified = false;
@@ -23,54 +19,6 @@ function notifyFirstDownloadCompleted() {
     } catch (_) {
         // 调查事件派发失败不中断下载
     }
-}
-
-/* ============================================================
-   Pixiv 作品请求
-   ============================================================ */
-async function getArtworkMeta(artworkId) {
-    const data = await apiGet(`/api/pixiv/artwork/${artworkId}/meta`);
-    if (data.error) throw new Error(data.error);
-    return data;
-}
-
-async function getArtworkPages(artworkId) {
-    const data = await apiGet(`/api/pixiv/artwork/${artworkId}/pages`);
-    if (data.error) throw new Error(data.error);
-    return data.urls || [];
-}
-
-async function getUgoiraMeta(artworkId) {
-    const data = await apiGet(`/api/pixiv/artwork/${artworkId}/ugoira`);
-    if (data.error) throw new Error(data.error);
-    return data;
-}
-
-async function checkDownloaded(artworkId) {
-    const query = state.settings.verifyHistoryFiles ? '?verifyFiles=true' : '';
-    const res = await fetch(`${BASE}/api/downloaded/${artworkId}${query}`);
-    if (res.status === 400) return null;
-    if (res.status !== 200) throw new Error(bt('queue.message.failed-status-error', '失败 — 状态查询异常'));
-    const data = await res.json();
-    if (!data.artworkId) throw new Error(bt('queue.message.failed-status-error', '失败 — 状态查询异常'));
-    return data;
-}
-
-// 补齐旧记录缺失的元数据，后端仅填空字段。
-async function recoverArtworkMetadata(artworkId, meta) {
-    try {
-        const res = await fetch(`${BASE}/api/downloaded/${artworkId}/recover-metadata`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(meta)
-        });
-        if (res.status === 200) {
-            return await res.json();
-        }
-    } catch (e) {
-        console.warn(bt('download.log.recover-metadata-failed', '恢复作品元数据失败: artworkId={id}', {id: artworkId}), e);
-    }
-    return null;
 }
 
 /* ============================================================
@@ -147,11 +95,6 @@ async function sendDownload(artworkId, imageUrls, title, isUserDownload, usernam
     return data;
 }
 
-async function getDownloadStatus(artworkId) {
-    const res = await fetch(`${BASE}/api/download/status/${artworkId}`);
-    return res.json();
-}
-
 /* ============================================================
    配额 & 压缩包
    ============================================================ */
@@ -199,7 +142,9 @@ function handleQuotaExceeded(data) {
     state.queue.forEach(q => {
         if (['pending', 'idle', 'paused'].includes(q.status)) {
             q.status = 'failed';
-            q.lastMessage = bt('queue.message.failed-quota', '失败 - 达到限额');
+            q.statusMessageKey = 'batch:queue.message.failed-quota';
+            q.lastMessage = '';
+            q.lastMessageParts = null;
             q.endTime = q.endTime || new Date().toISOString();
         }
     });
@@ -212,71 +157,17 @@ function handleQuotaExceeded(data) {
     setDockStatus({key: 'status.archive-limit', fallback: '已达到下载限额'}, 'error');
 
     const token = data.archiveToken;
-    const expireSeconds = data.archiveExpireSeconds || 3600;
+    const expireSeconds = data.archiveExpireSeconds ?? 3600;
     showArchiveCard(token, expireSeconds, false);
 }
 
+const archiveMonitor = new PixivArchiveMonitor(archive => {
+    dockState.archive = archive;
+    renderArchiveCard();
+}, () => updateArchiveCountdown());
+
 function showArchiveCard(token, expireSeconds, ready, title) {
-    clearInterval(archiveCountdownTimer);
-    clearInterval(archivePollTimer);
-    dockState.archive = {
-        visible: true, token, expireSeconds, ready: !!ready, expired: false,
-        title: title || bt('status.archive-limit', '已达到下载限额')
-    };
-    renderArchiveCard();
-    if (ready) {
-        activateArchiveDownload(token, expireSeconds);
-    } else {
-        pollArchiveReady(token, expireSeconds);
-    }
-}
-
-function pollArchiveReady(token, expireSeconds) {
-    archivePollTimer = setInterval(async () => {
-        try {
-            const res = await fetch(BASE + '/api/archive/status/' + token);
-            const data = await res.json();
-            if (data.status === 'ready') {
-                clearInterval(archivePollTimer);
-                activateArchiveDownload(token, data.expireSeconds || expireSeconds);
-            } else if (data.status === 'expired') {
-                clearInterval(archivePollTimer);
-                showArchiveExpired();
-            } else if (data.status === 'empty') {
-                clearInterval(archivePollTimer);
-                dockState.archive.ready = false;
-                const box = document.getElementById('abArchiveBox');
-                if (box) {
-                    box.innerHTML = '';
-                    box.appendChild(el('p', 'ab-field-note',
-                        bt('status.archive-empty', '暂无可打包文件（当前下载仍在进行中，完成后自动包含）')));
-                }
-            }
-        } catch {
-        }
-    }, 2000);
-}
-
-function activateArchiveDownload(token, expireSeconds) {
-    dockState.archive.token = token;
-    dockState.archive.ready = true;
-    dockState.archive.expireSeconds = Math.max(0, parseInt(expireSeconds));
-    renderArchiveCard();
-    archiveCountdownTimer = setInterval(() => {
-        dockState.archive.expireSeconds--;
-        if (dockState.archive.expireSeconds <= 0) {
-            clearInterval(archiveCountdownTimer);
-            showArchiveExpired();
-        } else {
-            updateArchiveCountdown();
-        }
-    }, 1000);
-}
-
-function showArchiveExpired() {
-    dockState.archive.ready = false;
-    dockState.archive.expired = true;
-    renderArchiveCard();
+    archiveMonitor.watch(token, expireSeconds, ready, title || {key: 'status.archive-limit', fallback: '已达到下载限额'});
 }
 
 async function autoPackAfterQueue() {
@@ -292,9 +183,9 @@ async function autoPackAfterQueue() {
             setDockStatus({key: 'status.batch-finished-packing', fallback: '批量下载结束，正在打包文件...'}, 'info');
             showArchiveCard(
                 data.archiveToken,
-                data.archiveExpireSeconds || 3600,
+                data.archiveExpireSeconds ?? 3600,
                 false,
-                bt('status.download-complete-packing', '下载完成，正在打包')
+                {key: 'status.download-complete-packing', fallback: '下载完成，正在打包'}
             );
         }
     } catch {
@@ -353,9 +244,9 @@ async function triggerAdminPack() {
             'info');
         showArchiveCard(
             data.archiveToken,
-            data.archiveExpireSeconds || 3600,
+            data.archiveExpireSeconds ?? 3600,
             false,
-            bt('status.admin-packing', '管理员打包中（{count} 个作品）', {count: ids.length})
+            {key: 'status.admin-packing', fallback: '管理员打包中（{count} 个作品）', args: {count: ids.length}}
         );
     } catch (e) {
         setDockStatus({key: 'status.pack-request-failed', fallback: '打包请求失败：{message}', args: {message: e.message}}, 'error');

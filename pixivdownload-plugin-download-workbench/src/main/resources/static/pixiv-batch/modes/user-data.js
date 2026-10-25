@@ -99,6 +99,12 @@
         cleanupUserBlobUrls();
         userState.kind = window.PixivBatch.queueTypes.resolveTypeForMode(kind, 'user');
         userState.variant = variant;
+        resetUserResults();
+        updateUserQueueButtons();
+        renderUserPagination();
+    }
+
+    function resetUserResults() {
         userState.allIds = [];
         userState.total = 0;
         userState.pagedAcquisition = false;
@@ -113,8 +119,6 @@
         userState.renderToken += 1;
         userState.filterSeq += 1;
         userState.requestSeq += 1;
-        updateUserQueueButtons();
-        renderUserPagination();
     }
 
     function userPageSize() {
@@ -136,20 +140,7 @@
         cleanupUserBlobUrls();
         userState.userId = '';
         userState.username = '';
-        userState.allIds = [];
-        userState.total = 0;
-        userState.pagedAcquisition = false;
-        userState.pageCache = new Map();
-        userState.pageCursors = new Map();
-        userState.rawItems = [];
-        userState.items = [];
-        userState.cardCache = new Map();
-        userState.filterSummary = {rawCount: 0, filteredCount: 0, bookmarkMetaMissing: 0, bookmarkFilterActive: false};
-        userState.currentPage = 1;
-        userState.totalPages = 1;
-        userState.renderToken += 1;
-        userState.filterSeq += 1;
-        userState.requestSeq += 1;
+        resetUserResults();
         const area = document.getElementById('user-results-area');
         if (area) {
             area.innerHTML = `<div class="preview-message preview-message--compact">${esc(bt('status.user-empty', '输入画师 ID 后点击「解析并预览」'))}</div>`;
@@ -352,7 +343,7 @@
         }
 
         const result = await computeFilteredItems(userState.rawItems, filters, kind, isStale);
-        if (!result) return null;
+        if (!result || isStale()) return null;
         userState.items = result.filtered;
         userState.filterSummary = result.stats;
         renderUserResults();

@@ -126,11 +126,7 @@ public class PluginCredentialDefinitionResolver {
                 valid.put(entry.getKey(), Set.copyOf(owned.get(entry.getKey())));
             }
         }
-        return new Resolution(
-                immutableDefinitions(valid),
-                Set.copyOf(maskKeys),
-                hostKeys,
-                Map.copyOf(failures));
+        return new Resolution(valid, maskKeys, hostKeys, failures);
     }
 
     private static void collectSensitiveKeys(PluginRegistry.RegisteredPlugin registered,

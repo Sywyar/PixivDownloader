@@ -26,16 +26,59 @@ function client(lang) {
 }
 
 function harness(alt = true) {
-    const c = vm.createContext({console, setTimeout, clearTimeout, Map, Set,
+    const c = vm.createContext({console, setTimeout, clearTimeout, Map, Set, AbortController,
         document: {createElement: tag => new MiniElement(tag), getElementById: () => null, addEventListener() {}},
         openFiltersDrawer() {}, openSettingsDrawer() {},
         PixivBatchAlt: {}, PixivBatch: {}});
     c.window = c;
     c.load = name => vm.runInContext(readFileSync(resolve(resources, 'static/pixiv-batch-alt', name), 'utf8'), c);
     c.run = code => vm.runInContext(code, c);
+    c.load('../pixiv-batch/queue-display.js');
     vm.runInContext(readFileSync(resolve(resources, 'static', alt ? 'pixiv-batch-alt/alt-core.js'
         : 'pixiv-batch/batch-core.js'), 'utf8'), c);
     return c;
+}
+
+for (const alt of [false, true]) {
+    test(`${alt ? '新版' : '经典'}配额超限保存消息键，重载及语言切换显示当前译文`, () => {
+        const c = harness(alt), saved = [], archives = [];
+        Object.assign(c, {state: {queue: [], isRunning: true}, dockState: {quota: {enabled: false}},
+            addEventListener() {}, setInterval, clearInterval, queueItemCanonicalUrl: () => '', statusColor: () => 'color',
+            QUICK_FETCH_MODE: 'quick-fetch', SINGLE_IMPORT_MODE: 'single-import'});
+        c.load('../pixiv-batch/batch-archive.js');
+        c.load(alt ? 'alt-engine.js' : '../pixiv-batch/batch-download-quota.js');
+        c.load(alt ? 'alt-queue-model.js' : '../pixiv-batch/batch-queue-model.js');
+        if (!alt) c.load('../pixiv-batch/batch-queue-view.js');
+        for (const name of ['renderQuotaBar', 'updateStats', 'renderQueue', 'updateButtonsState', 'setStatus', 'setDockStatus']) {
+            c[name] = () => {};
+        }
+        c.saveQueue = () => saved.push(JSON.parse(JSON.stringify(c.state.queue)));
+        c.showArchiveCard = (...args) => archives.push(args);
+        c.client = client('zh-CN'); c.run('pageI18n=client');
+        c.state.queue = ['pending', 'idle', 'paused', 'downloading', 'completed', 'skipped'].map((status, id) => ({
+            id: String(id), kind: 'illust', status, lastMessage: 'previous',
+            statusMessageKey: 'batch:queue.message.type-unavailable', lastMessageParts: [{text: 'old', tone: 'info'}]
+        }));
+        const untouched = JSON.parse(JSON.stringify(c.state.queue.slice(3)));
+        c.handleQuotaExceeded({artworksUsed: 5, archiveToken: 'quota', archiveExpireSeconds: 60});
+        assert.equal(saved.length, 1);
+        assert.equal(c.state.stopRequested, true);
+        assert.equal(c.state.isRunning, false);
+        assert.deepEqual(JSON.parse(JSON.stringify(c.state.queue.slice(3))), untouched);
+        assert.deepEqual(archives[0], ['quota', 60, false]);
+        for (const locale of ['en-US', 'zh-CN']) {
+            c.client = client(locale); c.run('pageI18n=client');
+            for (const item of saved[0].slice(0, 3)) {
+                assert.equal(item.status, 'failed');
+                assert.ok(item.endTime);
+                const displayed = alt ? c.queueItemMessage(item) : c.queueItemModel(item).message.map(p => p.text).join('');
+                assert.equal(displayed, c.client.t('batch:queue.message.failed-quota'));
+                assert.equal(item.statusMessageKey, 'batch:queue.message.failed-quota');
+                assert.equal(item.lastMessage, '');
+                assert.equal(item.lastMessageParts, null);
+            }
+        }
+    });
 }
 
 test('经典筛选摘要保存本次计数，热切语言更新全部片段且不重新筛选', async () => {
@@ -103,6 +146,7 @@ test('Cookie 校验的嵌套原因与警告跟随语言，原始解析错误保�
     const c = harness(false);
     const status = new MiniElement('p'); status.style = {};
     c.document.getElementById = id => id === 'cookie-status' ? status : null;
+    vm.runInContext(readFileSync(resolve(resources, 'static/pixiv-batch/cookie-storage.js'), 'utf8'), c);
     vm.runInContext(readFileSync(resolve(resources, 'static/pixiv-batch/batch-cookie.js'), 'utf8'), c);
     c.client = client('zh-CN'); c.run('pageI18n=client');
     const invalid = c.validateAndParseCookie('[]', 'json');
@@ -134,8 +178,10 @@ for (const alt of [false, true]) {
         for (const name of ['sendDownload', 'ensureSharedSSE', 'closeAllSSE', 'openSSE', 'closeSSE',
             'initQuota', 'showArchiveCard', 'triggerAdminPack']) c[name] = () => {};
         if (alt) {
-            c.load('../pixiv-batch/batch-download-defaults.js'); c.load('alt-state.js');
+            c.load('../pixiv-batch/batch-download-defaults.js'); c.load('../pixiv-batch/state-storage.js'); c.load('alt-state.js');
+            c.load('alt-queue-model.js');
             c.load('alt-queue.js');
+            c.load('../pixiv-batch/download-workers.js');
             c.load('alt-engine-workers.js');
         } else {
             c.state = {queue: [], isRunning: true};
@@ -177,7 +223,7 @@ test('新版工作台共享键回退既有 batch 词典，显式 namespace 和�
 
 test('下载区的筛选和设置按钮原位更新语言并保留交互节点', () => {
     const c = harness();
-    c.load('../pixiv-batch/batch-download-defaults.js'); c.load('alt-state.js'); c.load('alt-modes.js');
+    c.load('../pixiv-batch/batch-download-defaults.js'); c.load('../pixiv-batch/state-storage.js'); c.load('alt-state.js'); c.load('alt-modes.js');
     c.client = client('zh-CN'); c.run('pageI18n=client');
     c.abIconEl = () => new MiniElement('span');
     const root = new MiniElement('div');
@@ -204,10 +250,14 @@ test('扩展词典加载与切换语言并发时保留最新语言和扩展 name
     c.client = client('zh-CN'); c.run('pageI18n=client');
     let release;
     const calls = [];
+    const clients = [];
     c.PixivI18n = {create: async options => {
         calls.push(options);
         if (calls.length === 1) await new Promise(resolve => {release = resolve;});
-        return {...client(options.lang), namespaces: options.namespaces};
+        const next = {...client(options.lang), namespaces: options.namespaces,
+            disposed: false, dispose() { next.disposed = true; }};
+        clients.push(next);
+        return next;
     }};
     c.load('alt-extensions.js');
     const pending = c.refreshAltI18n();
@@ -217,11 +267,14 @@ test('扩展词典加载与切换语言并发时保留最新语言和扩展 name
     assert.equal(c.uiLang(), 'en-US');
     assert.equal(calls.at(-1).lang, 'en-US');
     assert.ok(calls.at(-1).namespaces.includes('fixture'));
+    assert.equal(clients[0].disposed, true);
+    assert.equal(clients[1].disposed, false);
 });
 
 for (const alt of [false, true]) {
-    for (const confirmed of [false, true]) {
-        test(`${alt ? '新版' : '经典'}插画完成状态保存原始事实并在重载后按当前语言显示${confirmed ? '（补查确认）' : ''}`, async () => {
+    for (const outcome of ['completed', 'confirmed', 'quota']) {
+        const confirmed = outcome === 'confirmed', quota = outcome === 'quota';
+        test(`${alt ? '新版' : '经典'}插画处理结果保存消息键并在重载后按当前语言显示：${outcome}`, async () => {
             const c = harness();
             c.client = client('zh-CN'); c.run('pageI18n=client');
             const result = {completed: true, downloadedCount: 2,
@@ -230,7 +283,10 @@ for (const alt of [false, true]) {
                 dockState: {quota: {enabled: false}}, STATUS_TIMEOUT_MS: 1000,
                 getArtworkMeta: async () => ({illustTitle: 'fixture', illustType: 0}),
                 getArtworkPages: async () => ['image1', 'image2'], normalizeAuthorId: value => value,
-                evaluateDownloadFilterSkip: () => null, sendDownload: async () => ({}),
+                evaluateDownloadFilterSkip: () => null, sendDownload: async () => {
+                    if (quota) throw new Error('quota_exceeded');
+                    return {};
+                },
                 waitForFinalStatusBySSE: async () => confirmed ? null : result,
                 getDownloadStatus: async () => result, mergeUgoiraProgress: () => null,
                 handlePathActionError: () => false, assertProcessInvocation() {}});
@@ -238,26 +294,34 @@ for (const alt of [false, true]) {
                 'openSSE', 'closeSSE', 'ensureSharedSSE', 'closeAllSSE', 'initQuota', 'showArchiveCard',
                 'triggerAdminPack', 'updateStats', 'renderCurrent', 'notifyFirstDownloadCompleted',
                 'loadQueueForMode', 'clearSavedQueue', 'ensureDockVue', 'altQueueVueActive']) c[name] = () => {};
+            vm.runInContext(readFileSync(resolve(resources, 'static/pixiv-batch/download-workers.js'), 'utf8'), c);
             vm.runInContext(readFileSync(resolve(resources, 'static', alt ? 'pixiv-batch-alt/alt-engine-workers.js'
                 : 'pixiv-batch/batch-download-workers.js'), 'utf8'), c);
             const item = {id: '42', status: 'downloading', statusMessageKey: 'stale:key'};
             await c.processIllustItem(item);
             const restored = JSON.parse(JSON.stringify(item));
-            assert.equal(restored.status, 'completed');
-            assert.equal(restored.statusMessageKey, 'batch:queue.message.' + (confirmed ? 'completed-confirmed' : 'completed-images'));
+            assert.equal(restored.status, quota ? 'failed' : 'completed');
+            assert.equal(restored.statusMessageKey, 'batch:queue.message.' + (quota ? 'failed-quota'
+                : confirmed ? 'completed-confirmed' : 'completed-images'));
             assert.equal(restored.lastMessage, '');
             c.client = client('en-US'); c.run('pageI18n=client');
             const expected = c.client.t(restored.statusMessageKey, '', {count: 2});
             if (alt) {
+                c.load('alt-queue-model.js');
                 c.load('alt-queue.js');
                 assert.equal(c.queueItemMessage(restored), expected);
             } else {
                 vm.runInContext(readFileSync(resolve(resources, 'static/pixiv-batch/batch-queue-model.js'), 'utf8'), c);
                 c.statusColor = () => 'color'; c.punct = () => '; ';
                 const parts = c.queueMessageModel(restored, expected);
-                assert.equal(parts[0].text, expected + '; ');
-                assert.equal(parts[1].text, c.bt('queue.outcome.pixiv-bookmark.success') + '; ');
-                assert.equal(parts[2].text, c.bt('queue.outcome.collection.exists'));
+                if (quota) {
+                    assert.equal(parts[0].text, expected);
+                    assert.equal(parts.length, 1);
+                } else {
+                    assert.equal(parts[0].text, expected + '; ');
+                    assert.equal(parts[1].text, c.bt('queue.outcome.pixiv-bookmark.success') + '; ');
+                    assert.equal(parts[2].text, c.bt('queue.outcome.collection.exists'));
+                }
             }
             c.PixivBatch.queueTypes = {get: () => ({process: async value => {
                 value.statusMessageKey = 'batch:queue.message.completed';

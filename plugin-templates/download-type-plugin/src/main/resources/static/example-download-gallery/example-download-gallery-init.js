@@ -1,7 +1,7 @@
 'use strict';
 
 async function exampleDownloadGalleryMountChrome() {
-    let client = await PixivI18n.create({namespaces: ['example-download', 'common']});
+    const client = await PixivI18n.create({namespaces: ['example-download', 'common']});
     window.ExampleDownloadGallery.core.setI18n(client);
     client.apply(document);
     const mountPoint = document.getElementById('exampleDownloadGallerySwitchers');
@@ -10,7 +10,6 @@ async function exampleDownloadGalleryMountChrome() {
             mountPoint: mountPoint,
             i18n: client,
             onChange: function (next) {
-                client = next;
                 window.ExampleDownloadGallery.core.setI18n(next);
                 next.apply(document);
                 window.ExampleDownloadGallery.view.render();

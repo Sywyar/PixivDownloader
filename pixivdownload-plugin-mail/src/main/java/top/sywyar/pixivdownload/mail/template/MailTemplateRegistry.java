@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.mail.template;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateCatalog;
@@ -37,7 +36,6 @@ import java.util.regex.Pattern;
  */
 @Component
 @RequiredArgsConstructor
-@Slf4j
 public class MailTemplateRegistry {
 
     /** 发送测试 / "邮件配置成功" 通知。 */
@@ -134,10 +132,9 @@ public class MailTemplateRegistry {
             String key = matcher.group(1);
             String replacement = resolver.apply(key);
             if (replacement == null) {
-                matcher.appendReplacement(out, Matcher.quoteReplacement(matcher.group(0)));
-            } else {
-                matcher.appendReplacement(out, Matcher.quoteReplacement(replacement));
+                replacement = matcher.group(0);
             }
+            matcher.appendReplacement(out, Matcher.quoteReplacement(replacement));
         }
         matcher.appendTail(out);
         return out.toString();

@@ -1,10 +1,11 @@
 package top.sywyar.pixivdownload.core.db;
 
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 import top.sywyar.pixivdownload.author.AuthorMapper;
 import top.sywyar.pixivdownload.collection.CollectionInsert;
@@ -51,6 +52,43 @@ class PostgresHostStorageTest {
     @AfterEach
     void close() throws Exception {
         if (database != null) database.close();
+    }
+
+    @Test
+    @DisplayName("前缀缓存隔离未提交写入及独立事务，保存点回滚后只发布外层结果")
+    void prefixCacheFollowsTransactionBoundaries() {
+        var mapper = new PathPrefixMapper(DatabaseProviderTestFixtures.main(database.pool()));
+        var codec = new PathPrefixCodec(mapper, new DownloadConfig(), TestI18nBeans.appMessages());
+        codec.init();
+        codec.reload();
+        var manager = database.transactionManager();
+        var transaction = new TransactionTemplate(manager);
+        var nested = new TransactionTemplate(manager);
+        nested.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_NESTED);
+        var independent = new TransactionTemplate(manager);
+        independent.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        independent.setReadOnly(true);
+        String outer = directory.resolve("outer-İ").toString();
+        String inner = directory.resolve("inner").toString();
+        transaction.executeWithoutResult(status -> {
+            long id = codec.forceCreatePrefixId(outer);
+            assertThat(codec.encode(outer + "/image.png")).isEqualTo("{" + id + "}/image.png");
+            independent.executeWithoutResult(read -> assertThat(codec.snapshot()).isEmpty());
+            nested.executeWithoutResult(savepoint -> {
+                codec.forceCreatePrefixId(inner);
+                savepoint.setRollbackOnly();
+            });
+            assertThat(codec.encode(inner + "/file")).isEqualTo(inner + "/file");
+            assertThat(codec.encode(outer + "/image.png")).isEqualTo("{" + id + "}/image.png");
+        });
+        assertThat(codec.snapshot()).containsExactly(new PathPrefix(mapper.findIdByPath(outer), outer));
+        transaction.executeWithoutResult(status -> {
+            codec.forceCreatePrefixId(inner);
+            status.setRollbackOnly();
+        });
+        assertThat(codec.encode(inner + "/file")).isEqualTo(inner + "/file");
+        assertThat(codec.resolve("{" + mapper.findIdByPath(outer) + "}/image.png"))
+                .isEqualTo(outer + "/image.png");
     }
 
     @Test
@@ -142,6 +180,28 @@ class PostgresHostStorageTest {
     }
 
     @Test
+    @DisplayName("作品、作者与系列查询保留超过整数范围的分页偏移")
+    void queriesAcceptLongOffsets() {
+        var main = DatabaseProviderTestFixtures.main(database.pool());
+        var artworks = new PixivMapper(main);
+        var authors = new AuthorMapper(main);
+        var series = new MangaSeriesMapper(main);
+        authors.insertIfAbsent(42, "Author", 100);
+        series.insertIfAbsent(43, "Series", 42L, 100);
+        jdbc.update("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time,author_id,series_id) "
+                + "VALUES(44,'Fixture','/fixture',1,'jpg',100,42,43)");
+        assertThat(artworks.findIdsSortedByTimeDescPaged(20, 0)).containsExactly(44L);
+        assertThat(artworks.findIdsSortedByAuthorIdAscPaged(20, 0)).containsExactly(44L);
+        assertThat(authors.findAuthorsWithArtworks("%", "authorId", 20, 0)).hasSize(1);
+        assertThat(series.findSeriesWithArtworks("%", "seriesId", 20, 0)).hasSize(1);
+        long offset = 42_949_672_940L;
+        assertThat(artworks.findIdsSortedByTimeDescPaged(20, offset)).isEmpty();
+        assertThat(artworks.findIdsSortedByAuthorIdAscPaged(20, offset)).isEmpty();
+        assertThat(authors.findAuthorsWithArtworks("%", "authorId", 20, offset)).isEmpty();
+        assertThat(series.findSeriesWithArtworks("%", "seriesId", 20, offset)).isEmpty();
+    }
+
+    @Test
     @DisplayName("路径互换与反斜杠 token 改写在真实事务中一致完成")
     void pathSwapAndRollback() throws Exception {
         var mapper = new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));
@@ -184,7 +244,7 @@ class PostgresHostStorageTest {
         jdbc.update("INSERT INTO novel_tags(novel_id,tag_id) VALUES(2,?)", tag);
         var gallery = new top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));
         for (String search : List.of("apple", "C:\\花")) {
-            var query = top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery.builder()
+            var query = WorkQuery.builder(WorkType.ARTWORK)
                     .page(0).size(10).sort("date").order("desc").searchType("title")
                     .search(search).r18("no").formats(List.of("png")).build();
             assertThat(gallery.findArtworkIds(query).ids()).containsExactly(1L);
@@ -192,7 +252,7 @@ class PostgresHostStorageTest {
         assertThat(gallery.findTagsWithCounts("flower", 10)).hasSize(1);
         assertThat(gallery.findTagByExactName("FLOWER", null)).isNotNull();
         var novels = new top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(database.pool()));
-        var restriction = new top.sywyar.pixivdownload.core.metadata.GuestRestriction(
+        var restriction = new top.sywyar.pixivdownload.core.work.model.WorkRestriction(
                 java.util.Set.of(0), true, List.of(), true, List.of());
         assertThat(novels.findVisibleNovelIds(restriction)).containsExactly(2L);
         assertThat(novels.findVisibleNovelTagCounts(restriction, "flower", 10)).hasSize(1);
@@ -224,8 +284,8 @@ class PostgresHostStorageTest {
         new TransactionTemplate(transactions).executeWithoutResult(status -> {
             jdbc.update("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time)"
                     + " VALUES(91,'download','{0}/file',1,'png',1700000000123)");
-            capture.captureForwardedArtwork(91, "{\"illustTitle\":\"原快照\",\"isOriginal\":true}");
-            capture.captureForwardedArtwork(91, "{\"illustTitle\":\"被拒快照\",\"isOriginal\":false}");
+            capture.captureForwarded(WorkType.ARTWORK, 91, "{\"illustTitle\":\"原快照\",\"isOriginal\":true}");
+            capture.captureForwarded(WorkType.ARTWORK, 91, "{\"illustTitle\":\"被拒快照\",\"isOriginal\":false}");
             jdbc.update("INSERT INTO tags(name) VALUES ('after metadata failure')");
         });
         assertThat(jdbc.queryForObject("SELECT metadata_json FROM artworks", String.class))

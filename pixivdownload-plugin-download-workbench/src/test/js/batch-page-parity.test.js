@@ -14,6 +14,9 @@ function context() {
     c.PixivBatch = {};
     c.PixivBatchAlt = {state:{},filters:{},settings:{}};
     load(c, 'pixiv-batch/batch-download-defaults.js');
+    load(c, 'pixiv-batch/state-storage.js');
+    load(c, 'pixiv-batch/filename-template.js');
+    load(c, 'pixiv-batch/search-filters.js');
     return c;
 }
 
@@ -37,11 +40,12 @@ test('两版手动下载使用同一默认设置，加载个人偏好时保留�
 
 test('收藏数和类型筛选由作品 owner 提供，不误查同 ID 的插画', async () => {
     const c = context(), calls = [];
-    c.PixivBatch.queueTypes = {filtersFor:type => type === 'custom-text' ? {
+    const ownerFilters = {
         bookmarkCountFetch: async id => { calls.push(id); return {bookmarkCount:12}; },
         matchExtra: item => item.words >= 10 && item.id === '42',
         evaluateSkip: item => item.words >= 10 ? null : 'owner-filter-reason'
-    } : null};
+    };
+    c.PixivBatch.queueTypes = {filtersFor:type => type === 'custom-text' ? ownerFilters : null};
     load(c, 'pixiv-batch-alt/alt-state.js');
     load(c, 'pixiv-batch-alt/alt-filters.js');
     const filters = c.normalizeSearchFilters({bookmarkMin:10, pageMin:100, wordsMin:100});
@@ -55,6 +59,61 @@ test('收藏数和类型筛选由作品 owner 提供，不误查同 ID 的插画
     assert.equal(missing.filtered.length, 0);
     assert.equal(missing.stats.bookmarkMetaMissing, 1);
 });
+
+function pageFilters(page) {
+    const c = vm.createContext({window: {PixivBatch: {}, PixivBatchAlt: {filters: {}}}});
+    const html = readFileSync(resolve(root, page), 'utf8');
+    for (const [, src] of html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/g)) {
+        if (/\/(search-filters|batch-filters|alt-filters)\.js$/.test(src)) load(c, '.' + src);
+    }
+    return c;
+}
+
+for (const page of ['pixiv-batch.html', 'pixiv-batch-alt.html']) {
+    test(`${page} 筛选输入保留空值、取整、下限与区间交换语义`, () => {
+        const c = pageFilters(page);
+        assert.deepEqual(c.normalizeSearchFilters(null), c.defaultSearchFilters());
+        assert.deepEqual(c.normalizeSearchFilters({content: 'invalid', ai: '', type: 'unknown'}),
+            c.defaultSearchFilters());
+        const input = {content: 'r18plus', ai: 'only', type: 'manga',
+            pageMin: '8.9', pageMax: '-2', bookmarkMin: ' 0 ', bookmarkMax: Infinity,
+            wordsMin: '20', wordsMax: '3', tagsExact: [' Blue Hair ', 'blue hair', '猫'],
+            tagsFuzzy: ' cat，Blue, cat '};
+        const snapshot = structuredClone(input);
+        const actual = JSON.parse(JSON.stringify(c.normalizeSearchFilters(input)));
+        assert.deepEqual(actual, {content: 'r18plus', ai: 'only', type: 'manga',
+            pageMin: 1, pageMax: 8, bookmarkMin: 0, bookmarkMax: null,
+            wordsMin: 3, wordsMax: 20, tagsExact: ['Blue Hair', '猫'], tagsFuzzy: ['cat', 'Blue']});
+        assert.deepEqual(input, snapshot);
+        for (const value of [null, undefined, '', ' ', 'invalid', Infinity, NaN]) {
+            assert.equal(c.parseSearchFilterNumber(value, 1), null);
+        }
+    });
+
+    test(`${page} 标签按原名和译名匹配并保留分级及收藏数判定`, () => {
+        const c = pageFilters(page);
+        const item = {tags: ['Blue Hair', {name: '猫', translatedName: 'Cat'},
+            {tag: '背景', translation: 'Background'}, null]};
+        assert.equal(c.matchTagFilters(item, {tagsExact: ['blue hair', 'CAT'], tagsFuzzy: ['ground']}), true);
+        assert.equal(c.matchTagFilters(item, {tagsExact: ['blue'], tagsFuzzy: ['cat']}), false);
+        assert.equal(c.matchTagFilters(item, {tagsExact: ['猫'], tagsFuzzy: ['missing']}), false);
+        assert.equal(c.matchTagFilters({}, {}), true);
+        assert.equal(c.matchTagFilters({}, {tagsFuzzy: ['cat']}), false);
+        for (const [content, matching] of [['safe', [0]], ['r18', [1]], ['r18g', [2]],
+            ['r18plus', [1, 2, 3]], ['all', [0, 1, 2, 3]]]) {
+            for (const rating of [0, 1, 2, 3]) {
+                assert.equal(c.matchContentRating(String(rating), content), matching.includes(rating));
+            }
+        }
+        assert.equal(c.matchContentRating(undefined, 'safe'), true);
+        assert.equal(c.matchContentRating('invalid', 'r18plus'), false);
+        for (const bookmarkCount of [null, undefined, '', -1, 'invalid', Infinity, NaN]) {
+            assert.equal(c.getInlineSearchBookmarkCount({bookmarkCount}), null);
+        }
+        assert.equal(c.getInlineSearchBookmarkCount({bookmarkCount: '0'}), 0);
+        assert.equal(c.getInlineSearchBookmarkCount({bookmarkCount: 12}), 12);
+    });
+}
 
 test('旧版关注新作超过500页继续扫描，未知第1000页仍有后续时整批拒绝', async () => {
     for (const end of [501,1000,1001]) {

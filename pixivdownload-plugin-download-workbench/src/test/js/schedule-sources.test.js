@@ -2,13 +2,11 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const vm = require('node:vm');
 const {
     source,
     manifest,
     harness,
-    validInitializer,
-    pixivModuleSource
+    validInitializer
 } = require('./schedule-sources-test-support');
 
 test('来源 manifest 声明的模式与模块共同决定可调用行为', async () => {

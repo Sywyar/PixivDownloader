@@ -76,20 +76,21 @@ public final class DirectoryGeneration {
         buckets.forEach((prefix, values) -> {
             values.sort(Comparator.comparing(DirectoryEntry::repositoryId));
             var document = CommunityJson.parse(CommunityJson.Kind.DIRECTORY_SHARD, CommunityJson.encode(new Shard(1, prefix, values)));
-            documents.put(document.sha256(), document);
-            references.add(new ShardReference(prefix, "shards/" + document.sha256() + ".json", document.bytes().length, document.sha256()));
+            String sha256 = document.sha256();
+            documents.put(sha256, document);
+            references.add(new ShardReference(prefix, "shards/" + sha256 + ".json", document.bytes().length, sha256));
         });
         var document = CommunityJson.parse(CommunityJson.Kind.DIRECTORY_ROOT,
                 CommunityJson.encode(new Root(1, repositoryId, sequence, generatedAt, PARTITIONING, references)));
         var candidate = new Candidate(document, documents);
-        validateData(candidate, URI.create("https://generation.invalid/root.json"));
+        validateData(candidate, validateRoot(document, URI.create("https://generation.invalid/root.json")));
         return candidate;
     }
 
     public static DirectoryGeneration verify(Candidate candidate, URI rootUrl, String expectedRepositoryId,
                                              SignatureMetadata signature, PluginSupplyChainVerifier verifier) {
         Root root = verifyRoot(candidate.root, rootUrl, expectedRepositoryId, signature, verifier);
-        validateData(candidate, rootUrl);
+        validateData(candidate, root);
         return new DirectoryGeneration(candidate, root, signature);
     }
 
@@ -104,11 +105,9 @@ public final class DirectoryGeneration {
         return root;
     }
 
-    private static Root validateData(Candidate candidate, URI rootUrl) {
-        Root root = validateRoot(candidate.root, rootUrl);
+    private static void validateData(Candidate candidate, Root root) {
         if (candidate.shards.size() != root.shards.size()) throw new ContractException("REVIEW_MISMATCH", "/shards");
         for (var reference : root.shards) validateShard(root, reference, candidate.shards.get(reference.sha256));
-        return root;
     }
 
     private static Root validateRoot(CommunityJson.Document document, URI rootUrl) {

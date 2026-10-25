@@ -268,17 +268,6 @@ class PluginProvenanceStoreTest {
                 + "diagnosticCode=VERIFIED\n";
     }
 
-    private static String validTrustRecord() {
-        return validLocalRecord().replace("formatVersion=2", "formatVersion=3")
-                + "trust.pluginId=demo\n"
-                + "trust.repositoryOfficial=false\n"
-                + "trust.artifactSha256=" + SHA256 + "\n"
-                + "trust.executionMode=HOST_PROCESS_FULL_TRUST\n"
-                + "trust.approvedAt=2026-07-01T00:00:00Z\n"
-                + "trust.approvedAppSdkMajor=" + SdkVersion.MAJOR + "\n"
-                + "trust.approvalType=EXACT_ARTIFACT\n";
-    }
-
     private static String legacyUnsignedRecord() {
         return validLocalRecord()
                 .replace("formatVersion=2\n", "formatVersion=1\n")

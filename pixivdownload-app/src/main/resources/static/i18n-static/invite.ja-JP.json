@@ -118,7 +118,7 @@
     "modal.summary.all": "すべて",
     "modal.summary.authors": "作者：{value}",
     "modal.summary.count": "{count}件",
-    "modal.summary.hint": "（OR の意味：タグまたは作者に一致すれば表示）",
+    "modal.summary.hint": "（許可されていないタグや作者を含む作品は先に除外されます。残りの作品はタグまたは作者の条件を満たす必要があります）",
     "modal.summary.tags": "タグ：{value}",
     "nav.description": "招待で作品を共有し、ゲストのアクセス権を管理します。",
     "nav.invite-guest": "ゲストを招待",

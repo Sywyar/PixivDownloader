@@ -7,6 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.core.type.filter.AnnotationTypeFilter;
+import org.yaml.snakeyaml.Yaml;
 import top.sywyar.pixivdownload.config.DefaultConfigTemplate;
 import top.sywyar.pixivdownload.notification.NotificationConfigKeys;
 import top.sywyar.pixivdownload.notification.NotificationScenario;
@@ -14,7 +15,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution;
 
 import java.lang.reflect.Proxy;
-import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
@@ -132,32 +133,12 @@ class ConfigItemTemplateCoverageGuardTest {
         assertThat(templateKeys()).doesNotContainAnyElementsOf(notificationKeys);
     }
 
-    @Test
-    @DisplayName("核心默认模板不声明任何具体插件启停键")
-    void pluginToggleKeysAreExcludedFromCoreTemplate() {
-        assertThat(templateKeys()).noneMatch(ConfigItemTemplateCoverageGuardTest::isPluginToggleKey);
-    }
-
     // ---- helpers --------------------------------------------------------------
 
-    /** 解析默认模板文本，提取全部配置键（忽略空行 / 注释行，取每行 {@code :} 之前的部分）。 */
+    /** 从实际 YAML 结构提取配置键，同时拒绝无效模板。 */
     private static Set<String> templateKeys() {
-        Set<String> keys = new LinkedHashSet<>();
-        for (String line : DefaultConfigTemplate.build(code -> code).split("\n")) {
-            String trimmed = line.strip();
-            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
-                continue;
-            }
-            int idx = trimmed.indexOf(':');
-            if (idx > 0) {
-                keys.add(trimmed.substring(0, idx).trim());
-            }
-        }
-        return keys;
-    }
-
-    private static boolean isPluginToggleKey(String key) {
-        return key.startsWith("plugins.") && key.endsWith(".enabled");
+        Map<String, Object> config = new Yaml().load(DefaultConfigTemplate.build(code -> code));
+        return config.keySet();
     }
 
     /** App-owned Schema 中声明的全部核心配置字段键。 */

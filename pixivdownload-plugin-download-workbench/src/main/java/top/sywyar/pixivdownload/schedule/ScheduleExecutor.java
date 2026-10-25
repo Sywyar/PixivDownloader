@@ -129,16 +129,7 @@ public class ScheduleExecutor {
             }
             runTaskAsyncLeased(taskId, claim, queuedToken, hostLease.cancellation());
         } catch (Throwable e) {
-            try {
-                releaseQueued(taskId, queuedToken);
-            } catch (Throwable cleanupFailure) {
-                addCleanupFailure(e, cleanupFailure);
-            }
-            try {
-                runState.clear(claim);
-            } catch (Throwable cleanupFailure) {
-                addCleanupFailure(e, cleanupFailure);
-            }
+            cleanupQueuedAfterFailure(taskId, claim, queuedToken, e);
             throw propagate(e);
         }
     }
@@ -214,16 +205,7 @@ public class ScheduleExecutor {
         try {
             hostLease = prepareHostLease();
         } catch (Throwable e) {
-            try {
-                releaseQueued(task.id(), queuedToken);
-            } catch (Throwable cleanupFailure) {
-                addCleanupFailure(e, cleanupFailure);
-            }
-            try {
-                runState.clear(claim);
-            } catch (Throwable cleanupFailure) {
-                addCleanupFailure(e, cleanupFailure);
-            }
+            cleanupQueuedAfterFailure(task.id(), claim, queuedToken, e);
             throw propagate(e);
         }
         if (hostLease == null) {
@@ -240,16 +222,7 @@ public class ScheduleExecutor {
             try {
                 activated = scheduleCapabilityRegistry.activate(hostLease);
             } catch (Throwable e) {
-                try {
-                    releaseQueued(task.id(), queuedToken);
-                } catch (Throwable cleanupFailure) {
-                    addCleanupFailure(e, cleanupFailure);
-                }
-                try {
-                    runState.clear(claim);
-                } catch (Throwable cleanupFailure) {
-                    addCleanupFailure(e, cleanupFailure);
-                }
+                cleanupQueuedAfterFailure(task.id(), claim, queuedToken, e);
                 throw propagate(e);
             }
             if (!activated) {
@@ -262,6 +235,23 @@ public class ScheduleExecutor {
                 return;
             }
             runTaskAndRecordLeased(task, claim, queuedToken, hostLease.cancellation());
+        }
+    }
+
+    private void cleanupQueuedAfterFailure(
+            long taskId,
+            ScheduleRunState.Claim claim,
+            ScheduleRunToken queuedToken,
+            Throwable failure) {
+        try {
+            releaseQueued(taskId, queuedToken);
+        } catch (Throwable cleanupFailure) {
+            addCleanupFailure(failure, cleanupFailure);
+        }
+        try {
+            runState.clear(claim);
+        } catch (Throwable cleanupFailure) {
+            addCleanupFailure(failure, cleanupFailure);
         }
     }
 
@@ -456,13 +446,13 @@ public class ScheduleExecutor {
                 ScheduledCredentialIncidentPresentation.empty();
         long suspendTriggerTime = 0L;
         // 本轮是否因凭证失效但策略允许匿名继续；运行成功后据此发一次降级通知。
-        boolean[] degraded = {false};
+        boolean degraded = false;
         int completedCount = 0;
         // 仅当 lastOutcome 由「非 ERROR」转入 ERROR 时才发失败通知（连续失败不重复打扰）；进入 catch 前先读旧状态。
         boolean notifyRunFailed = false;
         List<ScheduleNotificationService.PendingExhaustedNotification> pendingNotifications =
                 Collections.synchronizedList(new ArrayList<>());
-        AtomicReference<ScheduledCheckpoint> candidateCheckpoint = new AtomicReference<>();
+        ScheduledCheckpoint candidateCheckpoint = null;
         ScheduleSuspendReason requestedSuspend = null;
         boolean suspendPolicyAccount = false;
         String suspendCode = null;
@@ -497,8 +487,8 @@ public class ScheduleExecutor {
                             }
                         });
                 completedCount = result.completedWorkCount();
-                candidateCheckpoint.set(result.candidateCheckpoint());
-                degraded[0] = result.credentialRevoked();
+                candidateCheckpoint = result.candidateCheckpoint();
+                degraded = result.credentialRevoked();
             } finally {
                 OutboundProxyOverride.clear();
             }
@@ -637,7 +627,7 @@ public class ScheduleExecutor {
                         outcomeCode, message, nextRun);
             } else {
                 ScheduledCheckpoint checkpoint = outcome == ScheduleLastOutcome.OK
-                        ? candidateCheckpoint.get()
+                        ? candidateCheckpoint
                         : null;
                 ScheduleRunCompletion completion = new ScheduleRunCompletion(
                         completedAt, outcome, outcomeCode, message, nextRun,
@@ -670,7 +660,7 @@ public class ScheduleExecutor {
             log.error("Scheduled task {} ({}) durable completion was rejected", task.id(), task.name());
             return;
         }
-        if (degraded[0]
+        if (degraded
                 && requestedSuspend == null
                 && outcome == ScheduleLastOutcome.OK) {
             String policyOwnerPluginId = task.credentialPolicyOwnerPluginId();
@@ -694,7 +684,7 @@ public class ScheduleExecutor {
         notifications.sendPendingExhaustedNotifications(task, pendingNotifications, notificationNextRun);
         // ── 运行结束通知（best-effort，不影响调度）：成功时按「是否自动降级 / 是否有新下载」二选一，失败时按「转入 ERROR」发一次。──
         if (outcome == ScheduleLastOutcome.OK && requestedSuspend == null) {
-            if (degraded[0]) {
+            if (degraded) {
                 notifications.notifyDegradedAnonymous(task, completedCount, completedAt, notificationNextRun);
             } else if (completedCount > 0) {
                 notifications.notifyRunSummary(task, completedCount, completedAt, notificationNextRun);

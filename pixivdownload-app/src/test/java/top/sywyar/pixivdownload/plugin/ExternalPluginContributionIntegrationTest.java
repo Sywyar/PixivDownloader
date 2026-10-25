@@ -26,11 +26,8 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 
 /**
- * 外置插件贡献接入与可逆性集成测试：验证外置插件经发现桥接进入 {@link PluginRegistry} 后，其
- * schema / 静态资源 / 导航等 contribution 经各下游注册中心（与内置插件同一条聚合路径）启动期注册到位，
- * 且按 pluginId 注销后不残留——证明「外置插件贡献进入 schema / route / static / i18n / navigation /
- * script registry 的路径打通」与可逆注册对外置来源同样成立（下游各注册中心共用同一不可变快照 + 按 pluginId
- * 注销的形态，此处取 schema / static / navigation 三个代表性注册中心覆盖）。
+ * 验证发现桥接中的外置来源可注册、注销 schema、静态资源、导航与 GUI 主题贡献。
+ * 夹具与宿主共用 classloader；独立 JAR 加载及其它注册中心由各自测试覆盖。
  */
 @DisplayName("外置插件 contribution 接入下游注册中心与可逆注销")
 class ExternalPluginContributionIntegrationTest {

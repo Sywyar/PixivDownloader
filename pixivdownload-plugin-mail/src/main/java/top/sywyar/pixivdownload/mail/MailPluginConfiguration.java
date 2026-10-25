@@ -17,8 +17,6 @@ import top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateCata
 import top.sywyar.pixivdownload.plugin.ConditionalOnPluginEnabled;
 import top.sywyar.pixivdownload.setup.UserDisplayNameProvider;
 
-import java.util.function.Supplier;
-
 @Configuration
 public class MailPluginConfiguration {
 
@@ -30,7 +28,7 @@ public class MailPluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled(MailPlugin.ID)
     public MailConfig mailConfig(Environment environment) {
-        return bind(environment, "mail", MailConfig::new, MailConfig.class);
+        return Binder.get(environment).bind("mail", Bindable.of(MailConfig.class)).orElseGet(MailConfig::new);
     }
 
     @Bean
@@ -75,9 +73,5 @@ public class MailPluginConfiguration {
                                                  @Qualifier("mailPluginMessages") MessageResolver messages,
                                                  UserDisplayNameProvider displayNameProvider) {
         return new MailTestController(mailService, templateRegistry, messages, displayNameProvider);
-    }
-
-    private static <T> T bind(Environment environment, String prefix, Supplier<T> fallback, Class<T> type) {
-        return Binder.get(environment).bind(prefix, Bindable.of(type)).orElseGet(fallback);
     }
 }

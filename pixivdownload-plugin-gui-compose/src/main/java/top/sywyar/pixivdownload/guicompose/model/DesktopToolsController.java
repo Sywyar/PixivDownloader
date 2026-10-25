@@ -36,6 +36,7 @@ final class DesktopToolsController {
     final Map<String, String> formValues;
     final DesktopImageClassifierSupport classifierSupport;
     private final DesktopToolsView view;
+    private final Map<String, String> inheritedValues = new LinkedHashMap<>();
 
     volatile DesktopUiNode.ToolActivity activity;
     volatile String classifierNotice = "";
@@ -63,6 +64,8 @@ final class DesktopToolsController {
     private volatile long classifierToolStartedAt;
     volatile String exclusiveToolName = "";
     private volatile long exclusiveToolStartedAt;
+    private Path exclusiveToolLogPath;
+    private Integer exclusiveToolProcessedCount;
 
     DesktopToolsController(
             ComposeDesktopUiModel owner,
@@ -206,8 +209,10 @@ final class DesktopToolsController {
 
     void openToolLog(String name) {
         owner.runBusy(() -> {
-            try (DesktopUiHost.ToolLogSession log = host.openToolLog(name)) {
-                log.openLatestInBrowser();
+            try {
+                Path log = host.findToolLog(name + "-latest.html").orElseThrow(
+                        () -> new java.io.IOException("Tool log is no longer available"));
+                host.openExternalUri(log.toUri());
             } catch (Exception failure) {
                 LOG.warn("Unable to open desktop tool log {}", name, failure);
                 owner.showDialog(
@@ -232,6 +237,14 @@ final class DesktopToolsController {
     }
 
     void runBackfill() {
+        try {
+            inheritBackfillProxy(host.defaultBackfillOptions());
+        } catch (RuntimeException failure) {
+            LOG.warn(host.message("gui.tools.log.proxy-defaults.failed", failure.getMessage()), failure);
+            backfillNotice = host.message("desktop.ui.tools.operation-failed");
+            owner.rebuild();
+            return;
+        }
         if (!validateTool("backfill")) return;
         String db = form("tools.backfill.db", "").trim();
         DesktopUiHost.BackfillOptions options = new DesktopUiHost.BackfillOptions(
@@ -259,8 +272,14 @@ final class DesktopToolsController {
                                 );
                         owner.rebuild();
                         try (DesktopUiHost.ToolLogSession log = host.openToolLog("artworks-backfill")) {
-                            log.openLatestInBrowser();
+                            exclusiveToolLogPath = log.sessionPath();
+                            try {
+                                log.openLatestInBrowser();
+                            } catch (Exception failure) {
+                                LOG.warn(host.message("desktop.ui.tools.log-open-failed"), failure);
+                            }
                             DesktopUiHost.BackfillSummary summary = host.runBackfill(options, (processed, total) -> {
+                                exclusiveToolProcessedCount = processed;
                                 if (backfillCancelRequested) throw new java.util.concurrent.CancellationException();
                                 var progress = new DesktopUiNode.Progress("tools.backfill.progress",
                                         total == 0 ? 1d : (double) processed / total, false,
@@ -277,7 +296,6 @@ final class DesktopToolsController {
                                     result, summary.processed(), summary.totalCandidates());
                             return new ToolCompletion(
                                     summary.processed(),
-                                    null,
                                     null,
                                     log.sessionPath()
                             );
@@ -330,7 +348,12 @@ final class DesktopToolsController {
                     owner.rebuild();
                     try (DesktopUiHost.ToolLogSession log = host.openToolLog(
                             "json-to-sqlite-migration")) {
-                        log.openLatestInBrowser();
+                        exclusiveToolLogPath = log.sessionPath();
+                        try {
+                            log.openLatestInBrowser();
+                        } catch (Exception failure) {
+                            LOG.warn(host.message("desktop.ui.tools.log-open-failed"), failure);
+                        }
                         DesktopUiHost.MigrationSummary summary = host.runMigration(
                                 options,
                                 ignored -> {
@@ -347,7 +370,6 @@ final class DesktopToolsController {
                         return new ToolCompletion(
                                 summary.totalCandidates(),
                                 summary.migrated(),
-                                null,
                                 log.sessionPath()
                         );
                     }
@@ -371,16 +393,7 @@ final class DesktopToolsController {
             for (DesktopUiHost.FolderArtwork artwork : result.inaccessible()) {
                 String id = "artwork." + artwork.artworkId();
                 artworks.put(id, artwork);
-                rows.add(new DesktopUiNode.TableRow(
-                        id,
-                        List.of(
-                                Long.toString(artwork.artworkId()),
-                                nullToEmpty(artwork.title()),
-                                host.message(artwork.moved() ? "gui.folder-checker.path-type.moved" : "gui.folder-checker.path-type.original"),
-                                artwork.path() == null ? host.message("gui.folder-checker.value.null-path") : artwork.path(),
-                                host.message("gui.folder-checker.status.not-found")
-                        )
-                ));
+                rows.add(folderRow(artwork));
             }
             folderRows = List.copyOf(rows);
             folderArtworks = Map.copyOf(artworks);
@@ -455,7 +468,7 @@ final class DesktopToolsController {
                     "folder.path-not-found",
                     "gui.folder-checker.dialog.path-not-found.title",
                     DesktopUiDocument.DialogStyle.QUESTION,
-                    (nextActions, dismissAction, dismiss) -> column(
+                    (nextActions, dismissAction, dismiss) -> dialogContent(
                             "folder.path-not-found.content",
                             new DesktopUiNode.Text(
                                     "folder.path-not-found.message",
@@ -570,7 +583,16 @@ final class DesktopToolsController {
                 "tools.folder.db",
                 ""
         )));
-        folderRows = result.inaccessible().stream().map(artwork -> new DesktopUiNode.TableRow(
+        folderRows = result.inaccessible().stream().map(this::folderRow).toList();
+        folderArtworks = result.inaccessible().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
+                artwork -> "artwork." + artwork.artworkId(),
+                Function.identity()
+        ));
+        selectedFolderRow = null;
+    }
+
+    private DesktopUiNode.TableRow folderRow(DesktopUiHost.FolderArtwork artwork) {
+        return new DesktopUiNode.TableRow(
                 "artwork." + artwork.artworkId(),
                 List.of(
                         Long.toString(artwork.artworkId()),
@@ -579,12 +601,7 @@ final class DesktopToolsController {
                         artwork.path() == null ? host.message("gui.folder-checker.value.null-path") : artwork.path(),
                         host.message("gui.folder-checker.status.not-found")
                 )
-        )).toList();
-        folderArtworks = result.inaccessible().stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
-                artwork -> "artwork." + artwork.artworkId(),
-                Function.identity()
-        ));
-        selectedFolderRow = null;
+        );
     }
 
     void showClassifierSettings() {
@@ -592,41 +609,44 @@ final class DesktopToolsController {
                 "classifier.settings.dialog",
                 "gui.image-classifier.button.settings",
                 DesktopUiDocument.DialogStyle.INFO,
-                (nextActions, dismissAction, dismiss) -> column(
+                (nextActions, dismissAction, dismiss) -> dialogContent(
                         "classifier.settings.content",
-                        input(
-                                "classifier.settings.folder",
-                                "classifier.default-folder",
-                                "gui.image-classifier.label.default-folder",
-                                null,
-                                InputKind.DIRECTORY,
-                                form("classifier.default-folder", ""),
-                                !owner.busy()
-                        ),
-                        input(
-                                "classifier.settings.server",
-                                "classifier.server-url",
-                                "gui.image-classifier.label.server-url",
-                                null,
-                                InputKind.TEXT,
-                                form("classifier.server-url", ""),
-                                !owner.busy()
-                        ),
-                        toggle(
-                                "classifier.settings.skip",
-                                "classifier.show-skip",
-                                "gui.image-classifier.label.show-skip-button",
-                                boolForm("classifier.show-skip", true),
-                                !owner.busy()
-                        ),
-                        input(
-                                "classifier.settings.targets",
-                                "classifier.targets",
-                                "desktop.ui.classifier.targets",
-                                null,
-                                InputKind.MULTILINE,
-                                form("classifier.targets", ""),
-                                !owner.busy()
+                        column(
+                                "classifier.settings.fields",
+                                input(
+                                        "classifier.settings.folder",
+                                        "classifier.default-folder",
+                                        "gui.image-classifier.label.default-folder",
+                                        null,
+                                        InputKind.DIRECTORY,
+                                        form("classifier.default-folder", ""),
+                                        !owner.busy()
+                                ),
+                                input(
+                                        "classifier.settings.server",
+                                        "classifier.server-url",
+                                        "gui.image-classifier.label.server-url",
+                                        null,
+                                        InputKind.TEXT,
+                                        form("classifier.server-url", ""),
+                                        !owner.busy()
+                                ),
+                                toggle(
+                                        "classifier.settings.skip",
+                                        "classifier.show-skip",
+                                        "gui.image-classifier.label.show-skip-button",
+                                        boolForm("classifier.show-skip", true),
+                                        !owner.busy()
+                                ),
+                                input(
+                                        "classifier.settings.targets",
+                                        "classifier.targets",
+                                        "desktop.ui.classifier.targets",
+                                        null,
+                                        InputKind.MULTILINE,
+                                        form("classifier.targets", ""),
+                                        !owner.busy()
+                                )
                         ),
                         row(
                                 "classifier.settings.actions",
@@ -697,42 +717,45 @@ final class DesktopToolsController {
                             image.getFileName().toString(),
                             TextStyle.CODE
                     ));
-                    content.add(row(
-                            "classifier.viewer.actions",
-                            button(
-                                    "classifier.viewer.previous",
-                                    "classifier.viewer.previous",
-                                    "gui.image-classifier.button.prev-image",
-                                    index > 0,
-                                    nextActions,
-                                    () -> showClassifierImage(index - 1)
-                            ),
-                            button(
-                                    "classifier.viewer.next",
-                                    "classifier.viewer.next",
-                                    "gui.image-classifier.button.next-image",
-                                    index + 1 < classifierImages.size(),
-                                    nextActions,
-                                    () -> showClassifierImage(index + 1)
-                            ),
-                            button(
-                                    "classifier.viewer.external",
-                                    "classifier.viewer.external",
-                                    "desktop.ui.action.open",
-                                    true,
-                                    nextActions,
-                                    () -> openClassifierImage(image)
-                            ),
-                            button(
-                                    "classifier.viewer.close",
-                                    dismissAction,
-                                    "desktop.ui.action.close",
-                                    true,
-                                    nextActions,
-                                    dismiss
+                    return dialogContent(
+                            "classifier.viewer.content",
+                            column("classifier.viewer.body", content),
+                            row(
+                                    "classifier.viewer.actions",
+                                    button(
+                                            "classifier.viewer.previous",
+                                            "classifier.viewer.previous",
+                                            "gui.image-classifier.button.prev-image",
+                                            index > 0,
+                                            nextActions,
+                                            () -> showClassifierImage(index - 1)
+                                    ),
+                                    button(
+                                            "classifier.viewer.next",
+                                            "classifier.viewer.next",
+                                            "gui.image-classifier.button.next-image",
+                                            index + 1 < classifierImages.size(),
+                                            nextActions,
+                                            () -> showClassifierImage(index + 1)
+                                    ),
+                                    button(
+                                            "classifier.viewer.external",
+                                            "classifier.viewer.external",
+                                            "desktop.ui.action.open",
+                                            true,
+                                            nextActions,
+                                            () -> openClassifierImage(image)
+                                    ),
+                                    button(
+                                            "classifier.viewer.close",
+                                            dismissAction,
+                                            "desktop.ui.action.close",
+                                            true,
+                                            nextActions,
+                                            dismiss
+                                    )
                             )
-                    ));
-                    return column("classifier.viewer.content", content);
+                    );
                 },
                 1100,
                 860
@@ -981,6 +1004,8 @@ final class DesktopToolsController {
         exclusiveToolName = toolName;
         long startedAt = System.currentTimeMillis();
         exclusiveToolStartedAt = startedAt;
+        exclusiveToolLogPath = null;
+        exclusiveToolProcessedCount = null;
         owner.setBusy(true);
         owner.rebuild();
         owner.executeAsync(() -> {
@@ -999,7 +1024,6 @@ final class DesktopToolsController {
                     }
                 }
                 ToolCompletion completion = operation.run();
-                if (completion == null) completion = ToolCompletion.EMPTY;
                 activity = new DesktopUiNode.ToolActivity(activityId, false, false,
                         TextToken.raw(activityId.equals("backfill") ? backfillNotice : migrationNotice));
                 host.recordToolHistory(
@@ -1008,7 +1032,7 @@ final class DesktopToolsController {
                         startedAt,
                         completion.processedCount(),
                         completion.changedCount(),
-                        completion.failedCount(),
+                        null,
                         completion.logPath()
                 );
             } catch (InterruptedException | java.util.concurrent.CancellationException interrupted) {
@@ -1020,10 +1044,10 @@ final class DesktopToolsController {
                         toolId,
                         DesktopUiToolHost.ToolOutcome.CANCELLED,
                         startedAt,
+                        exclusiveToolProcessedCount,
                         null,
                         null,
-                        null,
-                        null
+                        exclusiveToolLogPath
                 );
                 LOG.warn("Desktop tool was interrupted", interrupted);
                 activity = new DesktopUiNode.ToolActivity(activityId, false, false,
@@ -1033,10 +1057,10 @@ final class DesktopToolsController {
                         toolId,
                         DesktopUiToolHost.ToolOutcome.FAILED,
                         startedAt,
+                        exclusiveToolProcessedCount,
                         null,
                         null,
-                        null,
-                        null
+                        exclusiveToolLogPath
                 );
                 LOG.error("Desktop tool failed", failure);
                 activity = new DesktopUiNode.ToolActivity(activityId, false, true,
@@ -1057,22 +1081,13 @@ final class DesktopToolsController {
     }
 
     private void loadDefaults() {
-        String databasePath = host.defaultBackfillOptions().dbPath();
-        formValues.putIfAbsent("tools.folder.db", databasePath);
-        formValues.putIfAbsent("tools.migration.db", databasePath);
-        formValues.putIfAbsent("tools.migration.root", rootFolder);
+        inherit("tools.migration.root", rootFolder);
         try {
             DesktopUiHost.BackfillOptions defaults = host.defaultBackfillOptions();
+            formValues.putIfAbsent("tools.folder.db", defaults.dbPath());
+            formValues.putIfAbsent("tools.migration.db", defaults.dbPath());
             formValues.putIfAbsent("tools.backfill.db", defaults.dbPath());
-            formValues.putIfAbsent("tools.backfill.proxy-host", defaults.proxyHost());
-            formValues.putIfAbsent(
-                    "tools.backfill.proxy-port",
-                    Integer.toString(defaults.proxyPort())
-            );
-            formValues.putIfAbsent(
-                    "tools.backfill.proxy",
-                    Boolean.toString(defaults.useProxy())
-            );
+            inheritBackfillProxy(defaults);
             formValues.putIfAbsent(
                     "tools.backfill.delay",
                     Long.toString(defaults.delayMs())
@@ -1085,8 +1100,8 @@ final class DesktopToolsController {
                     "tools.backfill.dry",
                     Boolean.toString(defaults.dryRun())
             );
-        } catch (RuntimeException ignored) {
-            // 保持页面默认值可用。
+        } catch (RuntimeException failure) {
+            LOG.warn(host.message("gui.tools.log.proxy-defaults.failed", failure.getMessage()), failure);
         }
         DesktopUiHost.ImageClassifierSettings settings = classifierSupport.loadSettings();
         formValues.putIfAbsent("classifier.default-folder", settings.defaultFolder());
@@ -1101,8 +1116,23 @@ final class DesktopToolsController {
         );
     }
 
-    List<Path> classifierFolders() {
-        return classifierFolders;
+    void configurationSaved(Map<String, String> saved) {
+        if (saved.containsKey("download.root-folder")) inherit("tools.migration.root", saved.get("download.root-folder"));
+        if (saved.containsKey("proxy.enabled")) inherit("tools.backfill.proxy", saved.get("proxy.enabled"));
+        if (saved.containsKey("proxy.host")) inherit("tools.backfill.proxy-host", saved.get("proxy.host"));
+        if (saved.containsKey("proxy.port")) inherit("tools.backfill.proxy-port", saved.get("proxy.port"));
+    }
+
+    private void inheritBackfillProxy(DesktopUiHost.BackfillOptions defaults) {
+        inherit("tools.backfill.proxy-host", defaults.proxyHost());
+        inherit("tools.backfill.proxy-port", Integer.toString(defaults.proxyPort()));
+        inherit("tools.backfill.proxy", Boolean.toString(defaults.useProxy()));
+    }
+
+    private void inherit(String key, String value) {
+        String previous = inheritedValues.put(key, value);
+        formValues.compute(key, (ignored, draft) ->
+                draft == null || java.util.Objects.equals(draft, previous) ? value : draft);
     }
 
     String form(String key, String fallback) {
@@ -1134,11 +1164,9 @@ final class DesktopToolsController {
     private record ToolCompletion(
             Integer processedCount,
             Integer changedCount,
-            Integer failedCount,
             Path logPath
     ) {
         private static final ToolCompletion EMPTY = new ToolCompletion(
-                null,
                 null,
                 null,
                 null

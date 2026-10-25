@@ -5,8 +5,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.mybatis.spring.SqlSessionFactoryBean;
-import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -14,13 +12,13 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
 import top.sywyar.pixivdownload.config.http.ServerAddressProvider;
-import top.sywyar.pixivdownload.core.db.DatabaseConfig;
 import top.sywyar.pixivdownload.core.db.PostgresTestDatabase;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
-import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
+import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
+import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelWorkSearch;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.query.WorkQuery;
@@ -105,13 +103,13 @@ class GuestCollectionVisibilityTest {
     @DisplayName("收藏夹计数只含可见且未删除作品，列表与单作品作用域使用同一配置")
     void countsAndQueriesRespectCollectionScope(String engine) throws Exception {
         setUp(engine);
-        GuestRestriction filters = restriction(false, List.of(1L, 2L));
+        WorkRestriction filters = restriction(false, List.of(1L, 2L));
         assertThat(artworks.countVisibleWorksByCollection(filters)).isEqualTo(Map.of(1L, 1L, 2L, 1L, 3L, 1L));
         assertThat(novels.countVisibleWorksByCollection(filters)).isEqualTo(Map.of(1L, 1L, 2L, 1L, 3L, 1L));
         assertThat(artworks.findArtworkIds(query(filters, null)).ids()).containsExactly(4L, 3L, 1L);
         assertThat(novels.findVisibleNovelIds(filters)).containsExactly(4L, 3L, 1L);
 
-        GuestRestriction works = restriction(true, List.of(1L, 2L));
+        WorkRestriction works = restriction(true, List.of(1L, 2L));
         assertThat(artworks.findArtworkIds(query(works, null)).ids()).containsExactly(4L, 1L);
         assertThat(novels.findVisibleNovelIds(works)).containsExactly(4L, 1L);
         assertThat(artworks.countVisibleWorksByCollection(works)).isEqualTo(Map.of(1L, 1L));
@@ -125,11 +123,22 @@ class GuestCollectionVisibilityTest {
     @DisplayName("仅隐藏入口时也不能通过手工收藏夹筛选查询隐藏归属")
     void hiddenCollectionCannotBeUsedAsFilter(String engine) throws Exception {
         setUp(engine);
-        GuestRestriction filters = restriction(false, List.of(1L, 2L));
+        WorkRestriction filters = restriction(false, List.of(1L, 2L));
         assertThat(artworks.findArtworkIds(query(filters, List.of(3L))).totalElements()).isZero();
         assertThat(artworks.findArtworkIds(query(filters, List.of(1L))).ids()).containsExactly(1L);
-        var search = new NovelWorkSearch(null, novels, null);
-        assertThat(search.filteredIds(WorkQuery.builder(WorkType.NOVEL).collectionIds(List.of(3L)).build(), filters)).isEmpty();
+        var paths = mock(PathPrefixCodec.class);
+        when(paths.resolve(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
+        var metadata = new NovelMetadataRepository(
+                top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(source), paths);
+        var search = new NovelWorkSearch(metadata, null);
+        assertThat(search.filteredIds(WorkQuery.builder(WorkType.NOVEL).collectionIds(List.of(3L)).restriction(filters).build())).isEmpty();
+        assertThat(search.filteredIds(WorkQuery.builder(WorkType.NOVEL)
+                .collectionIds(List.of(1L, 2L)).restriction(filters).build())).containsExactly(3L, 1L);
+        assertThat(search.filteredIds(WorkQuery.builder(WorkType.NOVEL)
+                .collectionIds(List.of(1L, 2L)).restriction(restriction(true, List.of(1L, 2L))).build()))
+                .containsExactly(1L);
+        assertThat(search.filteredIds(WorkQuery.builder(WorkType.NOVEL)
+                .restriction(restriction(true, List.of(1L, 2L))).build())).containsExactly(4L, 1L);
     }
 
     @ParameterizedTest
@@ -212,20 +221,44 @@ class GuestCollectionVisibilityTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"sqlite", "postgresql"})
-    @DisplayName("邀请过期与维护清理同时移除收藏夹规则")
+    @DisplayName("删除、过期与撤销清理全部关联且保留其它暂停邀请")
     void expiredInvitesCleanCollectionRules(String engine) throws Exception {
         setUp(engine);
-        for (int mode = 0; mode < 3; mode++) {
-            var request = request();
-            request.setCollectionUnrestricted(false);
-            request.setCollectionIds(List.of(1L));
+        var request = request();
+        request.setCollectionUnrestricted(false);
+        request.setCollectionIds(List.of(1L));
+        request.setTagUnrestricted(false);
+        request.setTagIds(List.of(1L));
+        request.setAuthorUnrestricted(false);
+        request.setAuthorIds(List.of(1L));
+        request.setNovelTagUnrestricted(false);
+        request.setNovelTagIds(List.of(1L));
+        request.setNovelAuthorUnrestricted(false);
+        request.setNovelAuthorIds(List.of(1L));
+        long retainedId = invites.createInvite(request);
+        mapper.upsertAccessStat(retainedId, 0);
+        invites.pause(retainedId);
+        assertThat(invites.resolveByCode(invites.detail(retainedId).code())).isEmpty();
+        for (int mode = 0; mode < 5; mode++) {
             long id = invites.createInvite(request);
             String code = invites.detail(id).code();
-            jdbc.update("UPDATE guest_invites SET expire_time = 1 WHERE id = ?", id);
-            if (mode == 0) assertThat(invites.resolveByCode(code)).isEmpty();
+            mapper.upsertAccessStat(id, 0);
+            if (mode == 4) mapper.markRevoked(id);
+            else jdbc.update("UPDATE guest_invites SET expire_time = 1 WHERE id = ?", id);
+            if (mode == 0 || mode == 4) assertThat(invites.resolveByCode(code)).isEmpty();
             else if (mode == 1) invites.deleteExpired(System.currentTimeMillis());
-            else invites.purgeExpiredAndRevoked(System.currentTimeMillis());
-            assertThat(mapper.findInviteCollectionIds(id)).isEmpty();
+            else if (mode == 2) invites.purgeExpiredAndRevoked(System.currentTimeMillis());
+            else invites.delete(id);
+            assertThat(mapper.findById(id)).isNull();
+            assertThat(mapper.findById(retainedId)).isNotNull();
+            for (String table : List.of("guest_invite_collections", "guest_invite_tags",
+                    "guest_invite_authors", "guest_invite_novel_tags", "guest_invite_novel_authors",
+                    "guest_invite_access_stats")) {
+                assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE invite_id = ?",
+                        Long.class, id)).as(table).isZero();
+                assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE invite_id = ?",
+                        Long.class, retainedId)).as(table).isEqualTo(1);
+            }
         }
     }
 
@@ -235,12 +268,12 @@ class GuestCollectionVisibilityTest {
         return request;
     }
 
-    private GuestRestriction restriction(boolean works, List<Long> ids) {
-        return new GuestRestriction(Set.of(0), true, List.of(), true, List.of(), false, ids, works);
+    private WorkRestriction restriction(boolean works, List<Long> ids) {
+        return new WorkRestriction(Set.of(0), true, List.of(), true, List.of(), false, ids, works);
     }
 
-    private GalleryQuery query(GuestRestriction restriction, List<Long> collections) {
-        return GalleryQuery.builder().page(0).size(20).sort("date").order("desc")
-                .guestRestriction(restriction).collectionIds(collections).build();
+    private WorkQuery query(WorkRestriction restriction, List<Long> collections) {
+        return WorkQuery.builder(WorkType.ARTWORK).page(0).size(20).sort("date").order("desc")
+                .restriction(restriction).collectionIds(collections).build();
     }
 }

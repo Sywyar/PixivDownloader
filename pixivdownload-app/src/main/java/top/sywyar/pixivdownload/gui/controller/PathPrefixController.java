@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.gui.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,15 +19,15 @@ import java.util.List;
 
 /**
  * GUI 专用「迁移下载目录」REST 接口。
- * 与 {@link GuiStatusController} / {@link UpdateController} 同级，路径位于 {@code /api/gui/**}
- * （已在 AuthFilter 放行）；控制器内部通过 {@link NetworkUtils#isTrustedLocalRequest} 限制只接受本机请求。
+ * 与 {@link GuiStatusController} / {@link UpdateController} 同级，路径位于 {@code /api/gui/**}，
+ * 由 AuthFilter 校验本机可信请求与 GUI token；控制器内部再次通过
+ * {@link NetworkUtils#isTrustedLocalRequest} 校验请求来源。
  *
  * <p>只改写 {@code path_prefixes} 记录，不移动磁盘文件。
  */
 @RestController
 @RequestMapping("/api/gui/path-prefixes")
 @RequiredArgsConstructor
-@Slf4j
 public class PathPrefixController {
 
     private final PathPrefixMigrationService migrationService;

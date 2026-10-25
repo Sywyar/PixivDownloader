@@ -13,7 +13,7 @@
     "page.title": "Pixiv Batch Downloader - Initial Setup",
     "password-warning.message": "PixivDownloader stores sensitive credentials such as cookies from other applications. A password of at least 12 characters is recommended. Click Complete Setup again to continue.",
     "proxy.enabled": "Enable proxy",
-    "proxy.hint": "All of the backend's outbound traffic goes through this HTTP proxy: accessing Pixiv (browsing, searching, downloading images/ugoira/novels/covers, bookmarking), online updates (checking and downloading new versions), downloading the bundled FFmpeg (needed for ugoira conversion), and online TTS (the Edge neural voices used by \"Listen\"). When running in a Docker container, 127.0.0.1 usually cannot reach a proxy on the host, so disable it or enter a proxy address reachable from the container.",
+    "proxy.hint": "When enabled, requests that use the global proxy settings go through this HTTP proxy. Requests configured for a direct connection or a separate proxy are unaffected by this switch. In Docker, 127.0.0.1 usually cannot reach the host proxy; enter an address reachable from the container, or disable the proxy if appropriate.",
     "proxy.host": "Proxy host",
     "proxy.host.placeholder": "e.g. 127.0.0.1",
     "proxy.port": "Proxy port",

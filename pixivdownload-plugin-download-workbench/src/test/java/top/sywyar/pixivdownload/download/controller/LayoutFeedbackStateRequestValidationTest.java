@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.download.controller;
 import jakarta.servlet.ServletInputStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -80,13 +82,19 @@ class LayoutFeedbackStateRequestValidationTest extends LayoutFeedbackStateContro
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsNoStorePrivate()));
     }
 
-    @Test
-    @DisplayName("非 JSON → 400")
-    void nonJsonRejected() throws Exception {
-        mockMvc(SOLO).perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
+    @ParameterizedTest
+    @ValueSource(strings = {"this is not json", "null", "{}", "[]", "42"})
+    @DisplayName("非 JSON 或无有效命令的请求返回 400，禁止缓存且不访问状态和身份")
+    void invalidCommandBodyRejected(String body) throws Exception {
+        LayoutFeedbackStateStore store = mock(LayoutFeedbackStateStore.class);
+        InstallIdentityProvider identity = mock(InstallIdentityProvider.class);
+        mockMvc(SOLO, store, identity).perform(post(ENDPOINT).param("surveyId", SURVEY_ID)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("this is not json"))
-                .andExpect(status().isBadRequest());
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("layout-feedback.request.invalid"))
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, containsNoStorePrivate()));
+        org.mockito.Mockito.verifyNoInteractions(store, identity);
     }
 
     @Test

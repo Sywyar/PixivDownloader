@@ -131,10 +131,10 @@
             }
 
             .topbar {
-                padding: 12px var(--layout-inset-right) 12px var(--layout-inset-left);
+                padding: .5rem var(--layout-inset-right) .5rem var(--layout-inset-left);
                 align-items: stretch;
                 flex-wrap: wrap;
-                gap: 10px;
+                gap: .5rem;
             }
 
             .filter-panel {
@@ -145,35 +145,20 @@
                 display: flex !important;
             }
 
-            .search-type-select {
-                flex: 1 1 140px;
-                min-width: 0;
-            }
-
-            .search-box {
-                order: 2;
-                flex: 1 1 100%;
+            .gallery-search {
+                flex: 1 1 calc(100% - 3.25rem);
                 max-width: none;
-                min-width: 0;
             }
 
-            .filter-btn,
-            .gallery-type-switch,
-            .batch-manage-btn {
-                flex: 1 1 140px;
+            .gallery-type-switch {
+                flex: 1 1 auto;
                 justify-content: center;
                 margin-left: 0;
             }
 
-            .gallery-type-switch {
-                width: 100%;
-            }
-
             .topbar-actions {
-                order: 3;
-                width: 100%;
-                margin-left: 0;
-                justify-content: flex-end;
+                margin-left: auto;
+                flex-wrap: wrap;
             }
 
             .filter-row {

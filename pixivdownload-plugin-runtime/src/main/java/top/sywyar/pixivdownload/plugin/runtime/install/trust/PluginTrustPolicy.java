@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenan
 import top.sywyar.pixivdownload.sdk.SdkVersion;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Objects;
 
 /** 安装确认、更新继承与运行时复核共用的最小信任规则。 */
@@ -108,5 +109,29 @@ public final class PluginTrustPolicy {
             PluginExecutionMode previous, PluginExecutionMode candidate) {
         return previous == PluginExecutionMode.DECLARATIVE_PROCESS
                 && candidate == PluginExecutionMode.HOST_PROCESS_FULL_TRUST;
+    }
+
+    static String requiredText(String value, String field) {
+        String normalized = optionalText(value);
+        if (normalized == null) {
+            throw new IllegalArgumentException(field + " is required");
+        }
+        return normalized;
+    }
+
+    static String optionalSha256(String value, String field) {
+        String normalized = optionalText(value);
+        if (normalized != null && !normalized.matches("[0-9a-fA-F]{64}")) {
+            throw new IllegalArgumentException(field + " is not a SHA-256 digest");
+        }
+        return normalized != null ? normalized.toLowerCase(Locale.ROOT) : null;
+    }
+
+    static String optionalText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 }

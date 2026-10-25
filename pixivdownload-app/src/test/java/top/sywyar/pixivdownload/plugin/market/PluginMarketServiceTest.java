@@ -162,9 +162,8 @@ class PluginMarketServiceTest {
                 .filteredOn(c -> List.of("download", "download-type", "dependency").contains(c.category()))
                 .hasSize(3)
                 .allSatisfy(c -> assertThat(c.count()).isEqualTo(1));
-        assertThat(view.categories()).anySatisfy(c -> {
-            if (c.category().equals(PluginCatalogCategory.FALLBACK.id())) assertThat(c.count()).isGreaterThanOrEqualTo(1);
-        });
+        assertThat(view.categories()).filteredOn(c -> c.category().equals(PluginCatalogCategory.FALLBACK.id()))
+                .singleElement().satisfies(c -> assertThat(c.count()).isEqualTo(1));
         // 市场元数据净化：非法图标 / 颜色 token 回退默认、javascript: 主页外链 → null。
         PluginMarketMetaView market = view.entries().get(0).market();
         assertThat(market.iconToken()).isEqualTo(CatalogPresentationToken.DEFAULT_ICON);

@@ -39,6 +39,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DisplayName("敏感写操作 CSRF 同源校验")
 class CsrfProtectionFilterTest {
 
+    private static final String ERROR_TEXT = "localized-error-fixture";
+
     @Mock
     private AppLocaleResolver localeResolver;
     @Mock
@@ -52,9 +54,9 @@ class CsrfProtectionFilterTest {
     @BeforeEach
     void setUp() {
         filter = new CsrfProtectionFilter(localeResolver, messages, routes);
-        lenient().when(localeResolver.resolveLocale(any())).thenReturn(Locale.CHINA);
+        lenient().when(localeResolver.resolveLocale(any())).thenReturn(Locale.US);
         lenient().when(messages.getOrDefault(nullable(Locale.class), anyString(), anyString()))
-                .thenAnswer(inv -> inv.getArgument(2));
+                .thenReturn(ERROR_TEXT);
     }
 
     @ParameterizedTest
@@ -87,7 +89,7 @@ class CsrfProtectionFilterTest {
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(response.getContentAsString())
                 .contains("\"code\":\"auth.csrf.invalid\"")
-                .contains("\"error\":\"Request origin verification failed\"");
+                .contains("\"error\":\"" + ERROR_TEXT + "\"");
         verify(filterChain, never()).doFilter(request, response);
     }
 
@@ -138,7 +140,7 @@ class CsrfProtectionFilterTest {
         assertThat(response.getContentType()).startsWith("application/json");
         assertThat(response.getContentAsString())
                 .contains("\"code\":\"http.status.405\"")
-                .contains("\"error\":\"Method Not Allowed\"");
+                .contains("\"error\":\"" + ERROR_TEXT + "\"");
         assertThat(response.getHeader(HttpHeaders.ALLOW)).doesNotContain("TRACE");
         verify(filterChain, never()).doFilter(request, response);
     }
@@ -185,7 +187,9 @@ class CsrfProtectionFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(response.getContentType()).startsWith("application/json");
-        assertThat(response.getContentAsString()).contains("Request origin verification failed");
+        assertThat(response.getContentAsString())
+                .contains("\"code\":\"auth.csrf.invalid\"")
+                .contains("\"error\":\"" + ERROR_TEXT + "\"");
         verify(filterChain, never()).doFilter(request, response);
     }
 

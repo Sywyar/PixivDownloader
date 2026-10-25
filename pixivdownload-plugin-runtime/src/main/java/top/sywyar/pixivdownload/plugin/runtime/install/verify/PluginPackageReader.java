@@ -345,13 +345,13 @@ public final class PluginPackageReader {
         String pluginClass = trimToNull(properties.getProperty(KEY_CLASS));
         String pf4jDescription = trimToNull(properties.getProperty(KEY_DESCRIPTION));
         VersionRequirement requires = VersionRequirement.parseSdk(properties.getProperty(KEY_REQUIRES));
-        List<PluginDependencyRef> dependencies = parseDependencies(properties.getProperty(KEY_DEPENDENCIES));
+        List<PluginDependencyRef> dependencies = PluginDependencyRef.parseList(properties.getProperty(KEY_DEPENDENCIES));
         String displayNamespace = trimToNull(properties.getProperty(KEY_PIXIV_DISPLAY_NAMESPACE));
         String displayName = trimToNull(properties.getProperty(KEY_PIXIV_DISPLAY_NAME_KEY));
         String description = trimToNull(properties.getProperty(KEY_PIXIV_DESCRIPTION_KEY));
         String iconKey = trimToNull(properties.getProperty(KEY_PIXIV_ICON_KEY));
         String colorToken = trimToNull(properties.getProperty(KEY_PIXIV_COLOR_TOKEN));
-        List<String> replaces = parsePluginIds(properties.getProperty(KEY_PIXIV_REPLACES));
+        List<String> replaces = parseCommaSeparated(properties.getProperty(KEY_PIXIV_REPLACES));
         List<String> configurationClassNames = parseCommaSeparated(
                 properties.getProperty(KEY_PIXIV_CONFIGURATION_CLASSES));
         PluginLifecyclePolicy lifecyclePolicy;
@@ -373,14 +373,6 @@ public final class PluginPackageReader {
                 new PluginRiskDeclaration(
                         properties.containsKey(KEY_PIXIV_RISK_SIGNALS),
                         parseCommaSeparated(properties.getProperty(KEY_PIXIV_RISK_SIGNALS))));
-    }
-
-    private static List<PluginDependencyRef> parseDependencies(String raw) {
-        return PluginDependencyRef.parseList(raw);
-    }
-
-    private static List<String> parsePluginIds(String raw) {
-        return parseCommaSeparated(raw);
     }
 
     private static List<String> parseCommaSeparated(String raw) {

@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.core.download.controller;
 
+import top.sywyar.pixivdownload.core.work.model.WorkType;
+import top.sywyar.pixivdownload.core.work.query.WorkQuery;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,8 +19,7 @@ import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.db.pathprefix.PathPrefixCodec;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
-import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
+import top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityScopeFactory;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
 import top.sywyar.pixivdownload.core.download.ArtworkMetadataRecoveryService;
 import top.sywyar.pixivdownload.core.download.ArtworkMoveService;
@@ -76,9 +77,8 @@ public class DownloadedWorkController {
     }
 
     /**
-     * pixiv-batch 两阶段恢复：当 GET verifyFiles 命中裸记录恢复或确认磁盘有匹配文件时，
-     * 前端拉到 Pixiv 元数据后 POST 到这里把缺字段补齐 / 写完整记录。
-     * 幂等：DB 已有完整记录（title 非空）直接返回原记录，不覆盖。
+     * 显式补齐已有记录的缺失元数据；标题已存在时保留原记录。
+     * 无记录时须提供完整页数，且默认命名的文件全部齐备，才能登记；GET 查询不执行恢复。
      */
     @PostMapping("/downloaded/{artworkId}/recover-metadata")
     public ResponseEntity<DownloadedResponse> recoverMetadata(
@@ -199,19 +199,7 @@ public class DownloadedWorkController {
         List<Long> artWorkIds = "author_id".equals(sort)
                 ? downloadedArtworkService.getSortAuthorArtworkPaged(page, size)
                 : downloadedArtworkService.getSortTimeArtworkPaged(page, size);
-        List<ArtworkRecord> artworks = new LinkedList<>();
-
-        for (Long artworkId : artWorkIds) {
-            ArtworkRecord artwork = downloadedArtworkService.getDownloadedRecord(artworkId);
-            if (artwork != null) {
-                artworks.add(artwork);
-            }
-        }
-
-        Map<Long, String> authorNames = resolveAuthorNames(artworks);
-        List<DownloadedResponse> downloadedResponses = artworks.stream()
-                .map(artwork -> toDownloadedResponse(artwork, authorNames))
-                .toList();
+        List<DownloadedResponse> downloadedResponses = loadDownloadedResponses(artWorkIds);
         int totalPages = (int) Math.ceil((double) totalElements / size);
         return ResponseEntity.ok(new PagedHistoryResponse(downloadedResponses, totalElements, page, size, totalPages));
     }
@@ -230,7 +218,7 @@ public class DownloadedWorkController {
 
     private StatisticsResponse getGuestStatistics(GuestInviteSession session) {
         GalleryRepository.GuestStatistics stats = galleryRepository.findGuestStatistics(
-                GuestRestriction.from(session));
+                GuestWorkVisibilityScopeFactory.artworkRestriction(session));
         return new StatisticsResponse(true, stats.artworks(), stats.images(), stats.moved(),
                 messages.get("download.statistics.success"));
     }
@@ -239,41 +227,45 @@ public class DownloadedWorkController {
                                                       GuestInviteSession session) {
         int safePage = Math.max(0, page);
         int safeSize = Math.max(1, Math.min(size, 200));
-        GalleryQuery query = GalleryQuery.builder()
+        WorkQuery query = WorkQuery.builder(WorkType.ARTWORK)
                 .page(safePage)
                 .size(safeSize)
                 .sort("author_id".equals(sort) ? "authorId" : "date")
                 .order("desc")
                 .r18("any")
                 .ai("any")
-                .guestRestriction(GuestRestriction.from(session))
+                .restriction(GuestWorkVisibilityScopeFactory.artworkRestriction(session))
                 .build();
         GalleryRepository.QueryResult result = galleryRepository.findArtworkIds(query);
+        List<DownloadedResponse> responses = loadDownloadedResponses(result.ids());
+        long total = result.totalElements();
+        int totalPages = (int) Math.ceil((double) total / safeSize);
+        return new PagedHistoryResponse(responses, total, safePage, safeSize, totalPages);
+    }
+
+    private List<DownloadedResponse> loadDownloadedResponses(List<Long> artworkIds) {
         List<ArtworkRecord> artworks = new LinkedList<>();
-        for (Long artworkId : result.ids()) {
+        for (Long artworkId : artworkIds) {
             ArtworkRecord artwork = downloadedArtworkService.getDownloadedRecord(artworkId);
             if (artwork != null) {
                 artworks.add(artwork);
             }
         }
         Map<Long, String> authorNames = resolveAuthorNames(artworks);
-        List<DownloadedResponse> responses = artworks.stream()
+        return artworks.stream()
                 .map(artwork -> toDownloadedResponse(artwork, authorNames))
                 .toList();
-        long total = result.totalElements();
-        int totalPages = (int) Math.ceil((double) total / safeSize);
-        return new PagedHistoryResponse(responses, total, safePage, safeSize, totalPages);
     }
 
     private List<Long> getVisibleArtworkIds(GuestInviteSession session) {
-        GalleryQuery query = GalleryQuery.builder()
+        WorkQuery query = WorkQuery.builder(WorkType.ARTWORK)
                 .page(0)
                 .size(Integer.MAX_VALUE)
                 .sort("date")
                 .order("desc")
                 .r18("any")
                 .ai("any")
-                .guestRestriction(GuestRestriction.from(session))
+                .restriction(GuestWorkVisibilityScopeFactory.artworkRestriction(session))
                 .build();
         return galleryRepository.findArtworkIds(query).ids();
     }

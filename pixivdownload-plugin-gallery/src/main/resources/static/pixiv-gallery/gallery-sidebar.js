@@ -11,7 +11,7 @@
         } catch (_) {
         }
 
-        sidebar.classList.toggle('collapsed', savedState === 'closed');
+        sidebar.classList.toggle('collapsed', savedState !== 'open');
     }
 
     function saveSidebarState(collapsed) {
@@ -40,4 +40,6 @@
 
 
 // ---- PixivGallery facade ----
-window.PixivGallery.sidebar = Object.assign(window.PixivGallery.sidebar || {}, { restoreSidebarState, saveSidebarState, toggleSidebar, openMobileSidebar, closeMobileSidebar });
+if (window.PixivGallery) {
+    window.PixivGallery.sidebar = Object.assign(window.PixivGallery.sidebar || {}, { restoreSidebarState, saveSidebarState, toggleSidebar, openMobileSidebar, closeMobileSidebar });
+}

@@ -32,17 +32,15 @@ public final class ExampleDownloadSubmission implements DownloadSubmissionHandle
         if (options.keySet().stream().anyMatch(key -> !key.equals("title")))
             throw new IllegalArgumentException("unsupported example option");
         String title = options.getOrDefault("title", "Example " + submission.workId());
-        var task = tracker.beginRunning(null);
-        try {
+        var task = tracker.prepareQueued(null);
+        task.bind(() -> {
             lifecycle.track(attempt, task, null, workType(), title, false);
             lifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.STARTED));
             if (task.publishIfActive(() ->
                     queue.complete(submission.workId(), title, RequestOwnerIdentity.adminScope()))) {
                 lifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.COMPLETED));
             }
-        } finally {
-            // 若业务未发布终态，宿主在真实执行退出时补充失败或取消事实。
-            task.completeRunning();
-        }
+        });
+        task.run();
     }
 }

@@ -7,6 +7,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -30,11 +32,13 @@ import top.sywyar.pixivdownload.core.work.model.WorkTag;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
@@ -70,9 +74,13 @@ class NovelGalleryServiceTest {
     }
 
     private static WorkMetadata meta(long id, Long authorId, Long seriesId) {
+        return meta(id, authorId, seriesId, List.of(new WorkTag(21L, "魔法", "magic")));
+    }
+
+    private static WorkMetadata meta(long id, Long authorId, Long seriesId, List<WorkTag> tags) {
         return new WorkMetadata(id, "小说" + id, null, 0, false,
                 authorId, authorId == null ? null : "作者" + authorId,
-                seriesId, null, null, List.of(new WorkTag(21L, "魔法", "magic")),
+                seriesId, null, null, tags,
                 100L, 1, "txt", "/n/novel-" + id,
                 false, null, null, null, null, true);
     }
@@ -202,6 +210,37 @@ class NovelGalleryServiceTest {
         }
 
         @Test
+        @DisplayName("标签投影保留顺序、重复与空字段，修改响应集合不影响元数据")
+        void shouldKeepViewTagsIndependentFromMetadata() {
+            List<WorkTag> tags = List.of(new WorkTag(null, null, null),
+                    new WorkTag(21L, "魔法", "magic"), new WorkTag(21L, "魔法", "magic"));
+            WorkMetadata metadata = meta(1L, null, null, tags);
+            when(workMetadataRepository.find(WorkType.NOVEL, 1L)).thenReturn(Optional.of(metadata));
+            when(novelWorkDetailsRepository.find(1L)).thenReturn(Optional.of(details(1L)));
+
+            NovelGalleryService.NovelView found = novelGalleryService.find(1L);
+
+            assertThat(found.tags()).containsExactlyElementsOf(tags);
+            JsonNode json = new ObjectMapper().valueToTree(found);
+            assertThat(json.path("tags").size()).isEqualTo(3);
+            assertThat(json.path("tags").get(0).path("tagId").isNull()).isTrue();
+            assertThat(json.path("tags").get(1).path("translatedName").asText()).isEqualTo("magic");
+            found.tags().clear();
+            assertThat(metadata.tags()).containsExactlyElementsOf(tags);
+        }
+
+        @ParameterizedTest
+        @NullAndEmptySource
+        @DisplayName("缺少或为空的元数据标签仍投影为空集合")
+        void shouldProjectAbsentTagsAsEmpty(List<WorkTag> tags) {
+            when(workMetadataRepository.find(WorkType.NOVEL, 1L))
+                    .thenReturn(Optional.of(meta(1L, null, null, tags)));
+            when(novelWorkDetailsRepository.find(1L)).thenReturn(Optional.of(details(1L)));
+
+            assertThat(novelGalleryService.find(1L).tags()).isEmpty();
+        }
+
+        @Test
         @DisplayName("bySeries 走核心接口（excludeWorkId=0 不排除任何章节）；非法入参返回空且不查询")
         void shouldQueryBySeriesWithoutExclusion() {
             when(workQueryService.bySeries(WorkType.NOVEL, 700L, 0L, 30))
@@ -287,6 +326,23 @@ class NovelGalleryServiceTest {
         }
 
         @Test
+        @DisplayName("超大页码的小说作者与系列目录保留总数并返回空页")
+        void shouldReturnEmptyCatalogPagesBeyondIntegerOffset() {
+            when(workQueryService.authors(new AuthorQuery(WorkType.NOVEL, null)))
+                    .thenReturn(List.of(new AuthorSummary(801L, "Author", 2L)));
+            when(novelSeriesCatalogRepository.findAll())
+                    .thenReturn(List.of(new NovelSeriesCatalogRow(700L, "Series", 801L, 2L, null)));
+            for (int page : List.of(1_073_741_824, Integer.MAX_VALUE)) {
+                var authors = novelGalleryService.getPagedAuthorsWithNovels(page, 20, null, "name");
+                assertThat(authors.content()).isEmpty();
+                assertThat(authors.totalElements()).isEqualTo(1);
+                var series = novelGalleryService.getPagedSeriesWithNovels(page, 20, null, "title");
+                assertThat(series.content()).isEmpty();
+                assertThat(series.totalElements()).isEqualTo(1);
+            }
+        }
+
+        @Test
         @DisplayName("受限系列目录用核心聚合计数，不全量扫描作品或批量 hydrate")
         void shouldCountRestrictedSeriesInCoreAggregation() {
             WorkRestriction restriction = new WorkRestriction(
@@ -316,14 +372,34 @@ class NovelGalleryServiceTest {
         void shouldResolveVisibleSeriesIdsWithoutHydratingWorks() {
             WorkRestriction restriction = new WorkRestriction(
                     Set.of(0), true, List.of(), false, List.of(801L));
-            when(workQueryService.countBySeries(WorkType.NOVEL, restriction))
-                    .thenReturn(Map.of(700L, 3L, 701L, 1L));
+            Map<Long, Long> counts = new LinkedHashMap<>();
+            counts.put(701L, 1L);
+            counts.put(700L, 3L);
+            when(workQueryService.countBySeries(WorkType.NOVEL, restriction)).thenReturn(counts);
 
-            assertThat(novelGalleryService.visibleSeriesIds(restriction))
-                    .containsExactlyInAnyOrder(700L, 701L);
+            Set<Long> ids = novelGalleryService.visibleSeriesIds(restriction);
+            counts.clear();
+
+            assertThat(ids).containsExactly(701L, 700L);
+            assertThatThrownBy(() -> ids.add(702L)).isInstanceOf(UnsupportedOperationException.class);
 
             verify(workQueryService).countBySeries(WorkType.NOVEL, restriction);
             verifyNoInteractions(novelSeriesCatalogRepository, workMetadataRepository);
+        }
+
+        @Test
+        @DisplayName("无限制系列 ID 保留目录顺序与去重结果，并返回不可修改集合")
+        void shouldResolveCatalogSeriesIdsInOrder() {
+            when(novelSeriesCatalogRepository.findAll()).thenReturn(List.of(
+                    new NovelSeriesCatalogRow(701L, "First", null, 1L, null),
+                    new NovelSeriesCatalogRow(700L, "Second", null, 2L, null),
+                    new NovelSeriesCatalogRow(701L, "First", null, 3L, null)));
+
+            Set<Long> ids = novelGalleryService.visibleSeriesIds(null);
+
+            assertThat(ids).containsExactly(701L, 700L);
+            assertThatThrownBy(ids::clear).isInstanceOf(UnsupportedOperationException.class);
+            verifyNoInteractions(workQueryService, workMetadataRepository);
         }
     }
 

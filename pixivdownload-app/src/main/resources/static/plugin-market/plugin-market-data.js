@@ -191,7 +191,9 @@
     D.cardModel = function (entry) {
         var m = market(entry) || {};
         var author = D.entryAuthor(entry);
-        var verification = packageVerification(entry);
+        var version = D.defaultVersion(entry);
+        var pkg = D.packageOf(entry, version);
+        var verification = pkg && pkg.verification ? pkg.verification : null;
         var ratingVal = m.rating != null ? Number(m.rating) : null;
         var dl = PMK.formatDownloads(m.totalDownloadCount);
         var category = D.entryCategory(entry);
@@ -199,9 +201,9 @@
             pluginId: entry.pluginId,
             suspectedProblem: D.suspectedProblem(entry),
             focusReason: D.focusReason(entry),
-            artifactMismatch: D.artifactMismatch(entry, D.packageOf(entry, D.defaultVersion(entry))),
+            artifactMismatch: D.artifactMismatch(entry, pkg),
             developmentLoaded: D.developmentLoaded(entry),
-            installationState: D.installationState(entry, D.packageOf(entry, D.defaultVersion(entry))),
+            installationState: D.installationState(entry, pkg),
             name: D.entryName(entry),
             publisher: verification && verification.publisher ? verification.publisher : author,
             sub: [entry.pluginId, author].filter(Boolean).join(' · '),
@@ -221,11 +223,11 @@
             desc: D.entrySummary(entry),
             tags: D.entryTags(entry),
             latestVersion: entry.latestVersion,
-            targetVersion: D.defaultVersion(entry),
-            versionLabel: D.defaultVersion(entry) ? ('v' + D.defaultVersion(entry)) : null,
+            targetVersion: version,
+            versionLabel: version ? ('v' + version) : null,
             compatibilityNotice: D.compatibilityNotice(entry),
-            installationNotice: D.installationNotice(entry, D.packageOf(entry, D.defaultVersion(entry))),
-            sizeLabel: PMK.formatSize(latestSize(entry)),
+            installationNotice: D.installationNotice(entry, pkg),
+            sizeLabel: PMK.formatSize(pkg ? pkg.expectedSizeBytes : 0),
             dateLabel: m.updatedTime ? PMK.formatDate(m.updatedTime) : '',
             installStatus: installStatusWithVerification(entry),
             installedVersion: entry.installedVersion,
@@ -242,11 +244,6 @@
         return client ? client.t('common:plugin-trust.assurance.' + (level || 'UNVERIFIED'), level || 'UNVERIFIED')
             : level || 'UNVERIFIED';
     };
-
-    function latestSize(entry) {
-        var pkg = D.packageOf(entry, D.defaultVersion(entry));
-        return pkg ? pkg.expectedSizeBytes : 0;
-    }
 
     function packageVerification(entry) {
         var pkg = D.packageOf(entry, D.defaultVersion(entry));
@@ -374,8 +371,7 @@
 
     // —— 安装结果映射（消费 POST install 的 PluginInstallResponse；纯映射、无副作用，任何字符串都不在此拼 HTML）——
     function installTone(outcome, accepted, recoveryBlocked) {
-        if (recoveryBlocked) return 'bad';
-        if (!accepted) return 'bad';
+        if (recoveryBlocked || !accepted) return 'bad';
         return outcome === 'DUPLICATE' ? 'info' : 'ok';
     }
 
@@ -396,18 +392,11 @@
         return Array.isArray(response.unsatisfiedDependencies) ? response.unsatisfiedDependencies : [];
     }
 
-    function dependencyInstallResults(response) {
-        if (!Array.isArray(response.dependencyInstallResults)) {
-            return [];
-        }
-        return response.dependencyInstallResults.map(function (dependency) {
-            return D.installResult(dependency);
-        }).filter(function (result) {
-            return !!(result && result.pluginId);
-        });
-    }
-
-    D.dependencyInstallResults = dependencyInstallResults;
+    D.responseModel = function (response) {
+        if (!response) return null;
+        return response.kind === 'install' ? D.installResult(response.body)
+            : D.catalogError(response.body, response.httpStatus);
+    };
 
     D.installResult = function (response) {
         var r = response || {};
@@ -435,8 +424,7 @@
             runtimePhase: r.runtimePhase || null,
             updated: r.updated === true,
             errors: Array.isArray(r.diagnostics) ? r.diagnostics : [],
-            warnings: dependencyWarnings(r),
-            dependencyInstallResults: dependencyInstallResults(r)
+            warnings: dependencyWarnings(r)
         };
     };
 
@@ -481,18 +469,30 @@
         };
     };
 
-    // 后端 catalog 错误响应（{code, message, ...}）→ 结果区可渲染的本地化提示（按稳定 code 选 i18n 文案，回退后端 message）。
+    D.previewConflictMessages = function (conflicts) {
+        return (conflicts || []).map(function (conflict) {
+            return PMK.t('install.preview.conflict.' + conflict.code.toLowerCase(), '', {
+                plugin: conflict.pluginId, details: (conflict.arguments || []).join(', ')
+            });
+        }).concat(PMK.t('install.preview.boundary'));
+    };
+
+    // 本地提示按 key 重新翻译，未知错误保留后端诊断。
     D.catalogError = function (body, httpStatus) {
         var code = body && body.code ? body.code : null;
-        var message = code ? PMK.t('error.code.' + code, (body && (body.message || body.error)) || code)
+        var message = body && body.messageKey ? PMK.t(body.messageKey, null, body.messageArgs)
+            : code ? PMK.t('error.code.' + code, (body && (body.message || body.error)) || code)
             : ((body && (body.message || body.error)) || PMK.t('error.install.generic', '安装请求失败，请重试。'));
+        if (code === 'INSTALL_PREVIEW_BLOCKED' && body.conflicts) {
+            message = D.previewConflictMessages(body.conflicts).join('\n\n');
+        }
+        if (code === 'OPERATION_UNKNOWN' && body.operationId) message += ' (' + body.operationId + ')';
         return {
             outcome: code, accepted: false, recoveryBlocked: false, effectiveAfterRestart: false,
             activated: false, rolledBack: false, tone: code === 'CANCELLED' ? 'info' : 'bad',
             message: message, pluginId: body && body.pluginId, version: body && body.version,
             previousVersion: null, packageId: null, targetVersion: null, operation: null,
             runtimePhase: null, updated: false, errors: [], warnings: [],
-            dependencyInstallResults: dependencyInstallResults(body || {}),
             httpStatus: httpStatus || null
         };
     };

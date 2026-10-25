@@ -23,8 +23,8 @@ const QUEUE_TYPES_SOURCE = [
     'batch-queue-types-normalize.js', 'batch-queue-types-runtime.js', 'batch-queue-types.js'
 ].map(file => fs.readFileSync(path.join(WORKBENCH, file), 'utf8')).join('\n');
 const DOWNLOAD_SOURCE = [
-    'batch-download-quota.js', 'batch-download-artwork.js',
-    'batch-download-workers.js', 'batch-download.js'
+    'batch-archive.js', 'batch-download-quota.js', 'filename-template.js', 'batch-artwork-requests.js', 'batch-download-artwork.js',
+    'download-workers.js', 'batch-download-workers.js', 'batch-download.js'
 ].map(file => fs.readFileSync(path.join(WORKBENCH, file), 'utf8')).join('\n');
 
 function interpolate(template, vars) {
@@ -78,7 +78,7 @@ function novelType() {
         },
         order: 10,
         moduleUrl: ENTRY_PATH,
-        acquisitionModes: [],
+        acquisitionModes: ['quick'],
         filters: ['novel-words'],
         settings: ['novel-settings-card']
     };
@@ -248,24 +248,30 @@ async function waitUntil(predicate) {
         descriptor.queueTags(Object.assign({id: 'n42'}, novelQueueMeta)), tag => tag.id),
     ['media.novel', 'origin.collection', 'attribute.ai']);
     const liveStatusCases = [
-        ['QUEUED', {}, '排队等待翻译...', 'info'],
-        ['WAITING_SERIES', {seriesPending: '3'}, '等待前系列小说翻译完成，还有 3 个', 'warning'],
-        ['RESOLVING', {}, '识别目标语言中...', 'info'],
-        ['TRANSLATING', {elapsedSeconds: '9'}, 'AI 翻译中（9s）', 'info'],
-        ['MERGING', {}, '生成译文合订本中...', 'info'],
-        ['SAME_LANGUAGE', {}, '完成（源语言与目标一致，已跳过）', 'success'],
-        ['DONE', {}, '完成（已翻译）', 'success'],
-        ['FAILED', {}, '完成（翻译失败）', 'error']
+        ['QUEUED', {}, 'translate-waiting', {}, 'info'],
+        ['WAITING_SERIES', {seriesPending: '3'}, 'translate-wait-series', {n: 3}, 'warning'],
+        ['RESOLVING', {}, 'translate-resolving', {}, 'info'],
+        ['TRANSLATING', {elapsedSeconds: '9'}, 'translating', {sec: 9}, 'info'],
+        ['MERGING', {}, 'translate-merging', {}, 'info'],
+        ['SAME_LANGUAGE', {}, 'translate-same-lang', {}, 'success'],
+        ['DONE', {}, 'translate-done', {}, 'success'],
+        ['FAILED', {}, 'translate-failed', {}, 'error']
     ];
-    liveStatusCases.forEach(([phase, values, message, tone]) => {
-        const status = descriptor.queueLiveStatus({
-            kind: 'novel',
-            liveStatus: Object.assign({phase}, values)
+    const translate = sandbox.bt;
+    sandbox.bt = (key, _fallback, vars) => JSON.stringify([key, vars || {}]);
+    try {
+        liveStatusCases.forEach(([phase, values, messageKey, vars, tone]) => {
+            const status = descriptor.queueLiveStatus({
+                kind: 'novel',
+                liveStatus: Object.assign({phase}, values)
+            });
+            assert.strictEqual(status.label, JSON.stringify(['novel:queue.translate.label', {}]));
+            assert.strictEqual(status.message, JSON.stringify(['novel:queue.message.' + messageKey, vars]));
+            assert.strictEqual(status.tone, tone);
         });
-        assert.strictEqual(status.label, 'AI 翻译');
-        assert.strictEqual(status.message, message);
-        assert.strictEqual(status.tone, tone);
-    });
+    } finally {
+        sandbox.bt = translate;
+    }
     assert.strictEqual(descriptor.queueLiveStatus({
         kind: 'novel', liveStatus: {phase: 'OWNER_PRIVATE_UNKNOWN'}
     }), null);
@@ -336,6 +342,19 @@ async function waitUntil(predicate) {
     assert.ok(Object.isFrozen(runtimeLiveStatus));
     assert.strictEqual(h.qt.get('novel').canonicalUrl({id: 'n42', novelId: '42'}),
         'https://www.pixiv.net/novel/show.php?id=42');
+
+    const myWorksLoads = [];
+    h.sandbox.cookieHasPhpsessid = () => false;
+    h.sandbox.loadQuickMyWorks = (...args) => {
+        myWorksLoads.push(args);
+        return Promise.resolve('loaded');
+    };
+    const myNovels = h.qt.quickActionsFor('novel')['my-novels'];
+    assert.throws(() => myNovels.load(), /quick.error.no-cookie/);
+    assert.deepStrictEqual(myWorksLoads, [], '缺少会话时不得加载作品');
+    h.sandbox.cookieHasPhpsessid = () => true;
+    assert.strictEqual(await myNovels.load(), 'loaded');
+    assert.deepStrictEqual(myWorksLoads, [['novel', 1]], '我的小说应加载当前类型的第一页');
 
     let runtimeSignal = null;
     h.sandbox.fetch = function (url, init) {

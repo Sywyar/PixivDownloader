@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueTaskTracker;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
@@ -52,6 +53,7 @@ public class DuplicateScanService implements QueueOperations {
                 return status();
             }
             scanClaimed = true;
+            task.onTermination(() -> running.set(false));
             startedTime = System.currentTimeMillis();
             processed = 0;
             total = force
@@ -67,18 +69,17 @@ public class DuplicateScanService implements QueueOperations {
             try {
                 taskExecutor.execute(task);
             } catch (RuntimeException | Error failure) {
+                task.publishIfActive(() -> state = "FAILED");
                 task.rejectSubmission();
-                markFailed();
                 throw failure;
             }
             return status();
         } catch (RuntimeException | Error failure) {
             if (scanClaimed && !handedOff) {
-                database.requireAvailable();
-            if (task.isCancellationRequested()) {
+                if (task.isCancellationRequested()) {
                     resetCancelledState();
                 } else {
-                    markFailed();
+                    state = "FAILED";
                 }
             }
             throw failure;
@@ -123,34 +124,29 @@ public class DuplicateScanService implements QueueOperations {
     }
 
     private void runScan(boolean force, QueueTaskTracker.Task task) {
-        log.info(messages.getForLog("duplicate.log.scan.started", force, total));
         try {
+            log.info(messages.getForLog("duplicate.log.scan.started", force, total));
             database.requireAvailable();
             if (task.isCancellationRequested()) {
                 resetCancelledState();
                 return;
             }
+            List<Long> artworkIds;
             if (force) {
                 hashIndexMaintenance.clearAllHashes();
-                for (Long artworkId : hashIndexMaintenance.artworkIdsNewestFirst()) {
-                    database.requireAvailable();
-            if (task.isCancellationRequested()) {
-                        resetCancelledState();
-                        return;
-                    }
-                    recordArtwork(artworkId);
-                }
+                artworkIds = hashIndexMaintenance.artworkIdsNewestFirst();
             } else {
                 // 一次性快照缺哈希作品列表后遍历：若按批轮询，文件缺失/损坏/不可哈希的作品会
                 // 始终写入 0 行、永远留在"缺哈希"集合里，导致 artworkIdsMissingHashes 永不返回空、循环无法终止。
-                for (Long artworkId : hashIndexMaintenance.artworkIdsMissingHashes(Integer.MAX_VALUE)) {
-                    database.requireAvailable();
-            if (task.isCancellationRequested()) {
-                        resetCancelledState();
-                        return;
-                    }
-                    recordArtwork(artworkId);
+                artworkIds = hashIndexMaintenance.artworkIdsMissingHashes(Integer.MAX_VALUE);
+            }
+            for (Long artworkId : artworkIds) {
+                database.requireAvailable();
+                if (task.isCancellationRequested()) {
+                    resetCancelledState();
+                    return;
                 }
+                recordArtwork(artworkId);
             }
             database.requireAvailable();
             if (task.isCancellationRequested()) {
@@ -164,11 +160,9 @@ public class DuplicateScanService implements QueueOperations {
             if (task.isCancellationRequested()) {
                 resetCancelledState();
             } else {
-                markFailed();
+                state = "FAILED";
                 log.warn(messages.getForLog("duplicate.log.scan.failed", e.getMessage()), e);
             }
-        } finally {
-            running.set(false);
         }
     }
 
@@ -216,12 +210,6 @@ public class DuplicateScanService implements QueueOperations {
         processed = 0;
         total = 0;
         startedTime = null;
-        running.set(false);
-    }
-
-    private void markFailed() {
-        state = "FAILED";
-        running.set(false);
     }
 
     private static void rethrow(Throwable failure) {

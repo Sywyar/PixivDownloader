@@ -22,8 +22,7 @@
     .ab-dock-controls { align-items: stretch; }
     .ab-dock-btns { width: 100%; }
     .ab-queue-ops { gap: 8px; }
-    .ab-pagination { flex-wrap: wrap; }
-    .ab-import-row, .ab-artist, .ab-series-head, .ab-setting-head { flex-wrap: wrap; }
+    .ab-pagination, .ab-import-row, .ab-artist, .ab-series-head, .ab-setting-head { flex-wrap: wrap; }
     .ab-import-title { flex-basis: 60%; }
     .ab-selection-bar { flex-wrap: wrap; gap: 8px; bottom: 12px; }
     .ab-selection-count { flex-basis: 100%; }

@@ -170,7 +170,7 @@ class PluginRuntimeBootContextTest {
     }
 
     @Test
-    @DisplayName("内置插件注册不因 PF4J 发现桥接接线而改变：三个 core-only 内置插件仍在活动快照、来源均为内置")
+    @DisplayName("PF4J 发现桥接保留 core-only 内置插件的活动快照与来源")
     void builtInPluginRegistrationIntact() {
         assertThat(pluginRegistry.plugins())
                 .extracting(PixivFeaturePlugin::id)

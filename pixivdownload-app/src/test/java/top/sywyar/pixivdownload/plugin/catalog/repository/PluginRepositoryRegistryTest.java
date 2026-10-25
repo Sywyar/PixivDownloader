@@ -95,13 +95,13 @@ class PluginRepositoryRegistryTest {
         PluginCatalogProperties props = new PluginCatalogProperties();
         props.setConnectTimeoutMs(11_000);
         props.setReadTimeoutMs(22_000);
-        props.getRepositories().add(repo("Alpha", "https://a.example/m.json", true, null, 5_000, 0));
+        props.getRepositories().add(repo(" Alpha ", "https://a.example/m.json", true, null, 5_000, 0));
         props.getRepositories().add(repo("beta", "https://b.example/m.json", false, "proxy-trusted", 0, 0));
         PluginRepositoryRegistry registry = new PluginRepositoryRegistry(props);
 
         assertThat(registry.repositories()).extracting(PluginRepository::repositoryId)
                 .containsExactly(PluginRepository.OFFICIAL_ID, PluginRepository.COMMUNITY_ID, "alpha", "beta");
-        PluginRepository alpha = registry.find("ALPHA").orElseThrow();
+        PluginRepository alpha = registry.find(" ALPHA ").orElseThrow();
         assertThat(alpha.enabled()).isTrue();
         assertThat(alpha.official()).isFalse();
         assertThat(alpha.connectTimeoutMs()).isEqualTo(5_000);          // 覆盖
@@ -189,15 +189,16 @@ class PluginRepositoryRegistryTest {
     void failFastOnBadConfig() {
         assertThatThrownBy(() -> new PluginRepositoryRegistry(propsWith(repo("", "https://x/m.json", true, null, 0, 0))))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("id");
-        assertThatThrownBy(() -> new PluginRepositoryRegistry(propsWith(repo("official", "https://x/m.json", true, null, 0, 0))))
-                .isInstanceOf(IllegalStateException.class).hasMessageContaining("reserved");
-        assertThatThrownBy(() -> new PluginRepositoryRegistry(propsWith(repo("configured", "https://x/m.json", true, null, 0, 0))))
-                .isInstanceOf(IllegalStateException.class).hasMessageContaining("reserved");
-        assertThatThrownBy(() -> new PluginRepositoryRegistry(propsWith(repo("community", "https://x/m.json", true, null, 0, 0))))
-                .isInstanceOf(IllegalStateException.class).hasMessageContaining("reserved");
+        for (String id : new String[]{PluginRepository.OFFICIAL_ID, PluginRepository.LEGACY_CONFIGURED_ID,
+                PluginRepository.COMMUNITY_ID, "community"}) {
+            for (String value : new String[]{id, " " + id.toUpperCase(java.util.Locale.ROOT) + " "}) {
+                assertThatThrownBy(() -> new PluginRepositoryRegistry(propsWith(repo(value, "", true, null, 0, 0))))
+                        .isInstanceOf(IllegalStateException.class).hasMessageContaining("reserved");
+            }
+        }
         assertThatThrownBy(() -> new PluginRepositoryRegistry(propsWith(
                 repo("dup", "https://x/m.json", true, null, 0, 0),
-                repo("dup", "https://y/m.json", true, null, 0, 0))))
+                repo(" DUP ", "", true, null, 0, 0))))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("duplicate");
         assertThatThrownBy(() -> new PluginRepositoryRegistry(propsWith(repo("blankurl", "  ", true, null, 0, 0))))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("manifest-url");

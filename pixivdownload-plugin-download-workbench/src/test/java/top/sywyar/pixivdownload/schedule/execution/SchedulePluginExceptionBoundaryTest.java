@@ -3,7 +3,8 @@ package top.sywyar.pixivdownload.schedule.execution;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.task.SyncTaskExecutor;
 import top.sywyar.pixivdownload.config.OutboundProxySettings;
 import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
@@ -50,10 +51,11 @@ class SchedulePluginExceptionBoundaryTest {
             WeakReference<ClassLoader> classLoader) {
     }
 
-    @Test
+    @ParameterizedTest(name = "绑定凭证={0}")
+    @ValueSource(booleans = {false, true})
     @DisplayName("来源规划异常在租约释放前复制为无 cause 宿主基类且临时 classloader 可回收")
-    void sourcePlanFailureIsCopiedBeforeLeaseReleaseAndDoesNotPinClassLoader() throws Exception {
-        ExceptionBoundaryHandles handles = executeTemporaryPluginFailure();
+    void sourcePlanFailureIsCopiedBeforeLeaseReleaseAndDoesNotPinClassLoader(boolean bindCredential) throws Exception {
+        ExceptionBoundaryHandles handles = executeTemporaryPluginFailure(bindCredential);
 
         assertThat(handles.normalized().getClass()).isEqualTo(ScheduledExecutionException.class);
         assertThat(handles.normalized().category())
@@ -76,7 +78,7 @@ class SchedulePluginExceptionBoundaryTest {
     }
 
     /** 独立栈帧负责持有并释放临时 loader、插件异常类和来源 Bean 的全部强引用。 */
-    private static ExceptionBoundaryHandles executeTemporaryPluginFailure() throws Exception {
+    private static ExceptionBoundaryHandles executeTemporaryPluginFailure(boolean bindCredential) throws Exception {
         FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
         AtomicReference<FakeScheduleCapabilityAccess.Publication> publication = new AtomicReference<>();
         AtomicReference<FakeScheduleCapabilityAccess.Drain> drain = new AtomicReference<>();
@@ -128,7 +130,14 @@ class SchedulePluginExceptionBoundaryTest {
 
         ScheduledExecutionException normalized;
         try {
-            engine(mock(ScheduledTaskStore.class), registry).execute(task());
+            ScheduleExecutionEngine engine = engine(mock(ScheduledTaskStore.class), registry);
+            if (bindCredential) {
+                try (var ignored = engine.prepareCredentialBinding(task(), publication.get().activationToken())) {
+                    throw new AssertionError("source plan failure was expected");
+                }
+            } else {
+                engine.execute(task());
+            }
             throw new AssertionError("source plan failure was expected");
         } catch (ScheduledExecutionException failure) {
             normalized = failure;

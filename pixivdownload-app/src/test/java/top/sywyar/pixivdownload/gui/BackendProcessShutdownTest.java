@@ -4,6 +4,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
@@ -47,7 +49,7 @@ class BackendProcessShutdownTest {
 
     @BeforeEach
     void forceHeadless() {
-        // 让 runOnEdt 在测试线程内联执行（确定性），避免 EDT 未泵送致回调链路挂起。
+        // 隔离测试不创建桌面窗口。
         System.setProperty("java.awt.headless", "true");
     }
 
@@ -660,6 +662,84 @@ class BackendProcessShutdownTest {
         } finally {
             blockStart.countDown();
             exec.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("状态监听失败不阻断其他监听器与后端启动关闭")
+    void listenerFailureDoesNotStrandLifecycle() throws Exception {
+        List<BackendLifecycleManager.State> states = new CopyOnWriteArrayList<>();
+        BackendLifecycleManager.Listener broken = snapshot -> { throw new IllegalStateException("listener failure"); };
+        BackendLifecycleManager.Listener healthy = snapshot -> states.add(snapshot.state());
+        CountDownLatch started = new CountDownLatch(1);
+        try (AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext()) {
+            ctx.refresh();
+            BackendLifecycleManager.configure(new String[0], failure -> {}, args -> ctx);
+            try {
+                BackendLifecycleManager.addListener(broken);
+                BackendLifecycleManager.addListener(healthy);
+                assertThat(BackendLifecycleManager.startAsync(started::countDown)).isTrue();
+                assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+                assertThat(closeBackendResult(5_000L)).isEqualTo(BackendLifecycleManager.CloseResult.CLOSED);
+                assertThat(states).containsExactly(BackendLifecycleManager.State.STOPPED,
+                        BackendLifecycleManager.State.STARTING, BackendLifecycleManager.State.RUNNING,
+                        BackendLifecycleManager.State.STOPPING, BackendLifecycleManager.State.STOPPED);
+            } finally {
+                BackendLifecycleManager.removeListener(broken);
+                BackendLifecycleManager.removeListener(healthy);
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false,false", "false,true,false", "true,false,false", "true,true,false",
+            "false,false,true", "true,true,true"})
+    @DisplayName("正常或迟到上下文关闭先完成结果，再传播原始致命错误")
+    void fatalCloseCompletesOperationBeforePropagation(boolean late, boolean closeFirst, boolean threadDeath)
+            throws Exception {
+        Error fatal = threadDeath ? new ThreadDeath() : new OutOfMemoryError("close failure");
+        AtomicBoolean failClose = new AtomicBoolean(true);
+        CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1), failed = new CountDownLatch(1);
+        AtomicReference<Throwable> delivered = new AtomicReference<>();
+        Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, failure) -> {
+            if (thread.getName().equals(late ? "spring-main" : "spring-stop")) {
+                delivered.set(failure);
+                failed.countDown();
+            } else if (previous != null) previous.uncaughtException(thread, failure);
+        });
+        try (AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext() {
+            @Override public void close() {
+                if (failClose.getAndSet(false)) {
+                    if (closeFirst) super.close();
+                    throw fatal;
+                }
+                super.close();
+            }
+        }) {
+            ctx.refresh();
+            BackendLifecycleManager.configure(new String[0], failure -> {}, args -> {
+                entered.countDown();
+                if (late) awaitUninterruptibly(release);
+                return ctx;
+            });
+            assertThat(BackendLifecycleManager.startAsync()).isTrue();
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            if (!late) awaitState(BackendLifecycleManager.State.RUNNING);
+            BackendLifecycleManager.CloseAttempt attempt = BackendLifecycleManager.closeBackendContext(late ? 25L : 5_000L);
+            if (late) assertThat(attempt.result()).isEqualTo(BackendLifecycleManager.CloseResult.TIMED_OUT);
+            release.countDown();
+            assertThat(attempt.completion().toCompletableFuture().get(5, TimeUnit.SECONDS))
+                    .isEqualTo(closeFirst ? BackendLifecycleManager.CloseResult.CLOSED : BackendLifecycleManager.CloseResult.FAILED);
+            assertThat(failed.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(delivered.get()).isSameAs(fatal);
+            assertThat(BackendLifecycleManager.state())
+                    .isEqualTo(closeFirst ? BackendLifecycleManager.State.STOPPED : BackendLifecycleManager.State.FAILED);
+            if (!closeFirst) assertThat(closeBackendResult(5_000L)).isEqualTo(BackendLifecycleManager.CloseResult.CLOSED);
+        } finally {
+            release.countDown();
+            failClose.set(false);
+            Thread.setDefaultUncaughtExceptionHandler(previous);
         }
     }
 

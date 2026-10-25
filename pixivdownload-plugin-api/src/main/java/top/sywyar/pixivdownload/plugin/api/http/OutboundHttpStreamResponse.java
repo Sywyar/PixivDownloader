@@ -20,7 +20,6 @@ public final class OutboundHttpStreamResponse implements AutoCloseable {
     private final String statusText;
     private final Map<String, List<String>> headers;
     private final InputStream body;
-    private final AtomicBoolean closed = new AtomicBoolean();
 
     /**
      * 创建带实时响应体的出站响应。
@@ -84,9 +83,6 @@ public final class OutboundHttpStreamResponse implements AutoCloseable {
     /** 关闭响应体并释放底层传输资源；重复调用安全。 */
     @Override
     public void close() {
-        if (!closed.compareAndSet(false, true)) {
-            return;
-        }
         try {
             body.close();
         } catch (IOException e) {

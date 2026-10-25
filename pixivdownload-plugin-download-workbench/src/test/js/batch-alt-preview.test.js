@@ -22,8 +22,6 @@ function previewContext(localStorage) {
         querySelectorAll: selector => root.querySelectorAll(selector),
         createElement(tag) {
             const node = new MiniElement(tag);
-            const closest = node.closest.bind(node);
-            node.closest = selector => selector.split(',').map(part => closest(part.trim())).find(Boolean) || null;
             node.append = (...children) => children.forEach(child => node.appendChild(child));
             node.style.setProperty = () => {};
             return node;
@@ -39,9 +37,10 @@ function previewContext(localStorage) {
         queueHas: () => false
     });
     context.window = context;
-    for (const name of ['alt-core.js', 'alt-selection.js', 'alt-modes.js']) {
+    for (const name of ['../pixiv-batch/queue-display.js', 'alt-core.js', 'alt-selection.js', 'alt-modes.js']) {
         vm.runInContext(readFileSync(resolve(__dirname, '../../main/resources/static/pixiv-batch-alt', name), 'utf8'), context);
     }
+    context.bt = (key, _fallback, args) => [key, ...Object.values(args || {})].join(' ');
     return {context, root};
 }
 
@@ -104,7 +103,7 @@ test('已知总页数可跳页，非法页码不请求，游标分页只允许�
     page.value = '6';
     jump.dispatchEvent({type: 'submit', preventDefault() {}});
     assert.deepEqual(calls, [6]);
-    for (const label of ['第一页', '最后一页']) {
+    for (const label of ['common.page.first', 'common.page.last']) {
         bar.querySelectorAll('button').find(node => node.textContent === label).dispatchEvent({type: 'click'});
     }
     assert.deepEqual(calls, [6, 1, 8]);
@@ -162,11 +161,11 @@ test('操作模式切换不提交选择，直接模式的复选框与卡片均�
     assert.equal(added[1].seriesOrder, 3);
     assert.equal(cards[2].querySelector('.ab-work-select').checked, true);
     assert.equal(cards[2].querySelector('.ab-work-select').disabled, false);
-    assert.match(cards[2].querySelector('.ab-work-select').title, /从队列移除/);
+    assert.match(cards[2].querySelector('.ab-work-select').title, /queue\.remove/);
     click(cards[2]);
     assert.deepEqual([...queued], ['2'], '再次点击卡片移出队列');
     assert.equal(cards[2].querySelector('.ab-work-select').checked, false);
-    assert.match(cards[2].querySelector('.ab-work-select').title, /直接加入队列/);
+    assert.match(cards[2].querySelector('.ab-work-select').title, /card\.enqueue/);
     choose(cards[2]);
     assert.equal(queued.has('n3'), true);
     choose(cards[2]);

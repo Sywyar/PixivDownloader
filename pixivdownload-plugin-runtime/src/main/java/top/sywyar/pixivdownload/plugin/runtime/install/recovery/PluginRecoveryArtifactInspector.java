@@ -8,7 +8,6 @@ import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryMa
 import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator.RecoveryBackup;
 import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator.RecoveryManifest;
 import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator.RecoveryOperation;
-import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport.FailureKind;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionState;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageException;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
@@ -16,15 +15,18 @@ import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageInteg
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
+
+import static top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestStore.readAttributesIfPresent;
+import static top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator.describeFailure;
+import static top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator.invalidManifest;
+import static top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator.unsafePath;
 
 /** 恢复事务目录树与 artifact 状态绑定的安全复核器。 */
 public final class PluginRecoveryArtifactInspector {
@@ -287,28 +289,6 @@ public final class PluginRecoveryArtifactInspector {
         if (!observed.artifactAt(artifactOwner) || !observed.sidecarAt(sidecarOwner)) {
             throw unsafePath(role + " is not at its state-bound path");
         }
-    }
-
-    private static Optional<BasicFileAttributes> readAttributesIfPresent(Path path) throws IOException {
-        try {
-            return Optional.of(Files.readAttributes(
-                    path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS));
-        } catch (NoSuchFileException e) {
-            return Optional.empty();
-        }
-    }
-
-    private static PluginRecoveryValidationException invalidManifest(String message) {
-        return new PluginRecoveryValidationException(FailureKind.INVALID_MANIFEST, message);
-    }
-
-    private static PluginRecoveryValidationException unsafePath(String message) {
-        return new PluginRecoveryValidationException(FailureKind.UNSAFE_PATH, message);
-    }
-
-    private static String describeFailure(Throwable error) {
-        return error.getMessage() == null || error.getMessage().isBlank()
-                ? error.getClass().getName() : error.getMessage();
     }
 
     public record LogicalArtifactState(

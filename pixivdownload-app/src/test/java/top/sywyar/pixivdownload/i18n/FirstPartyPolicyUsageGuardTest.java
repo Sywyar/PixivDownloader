@@ -14,13 +14,11 @@ import java.util.regex.Pattern;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 第一方调用点不得使用 legacy 默认策略：
- * 所有官方插件装配点调用 {@code ResourceBundleMessageResolver.of(...)} 时必须显式
- * 传入 {@link LocaleBundlePolicy}；LegacyLocaleBundlePolicy 只作为旧第三方插件二进制
- * 兼容入口（core-api 内集中例外），第一方源码不得引用。
+ * 检查所列第一方装配点显式传入 {@link LocaleBundlePolicy}，并保留旧插件策略入口。
+ * 源码扫描只识别约定的调用写法与参数名，不证明全部依赖隔离。
  * 路径相对模块 basedir（surefire 工作目录 = pixivdownload-app）。
  */
-@DisplayName("第一方 i18n 调用点必须显式使用 host 策略")
+@DisplayName("已列第一方 i18n 调用点显式使用 host 策略")
 class FirstPartyPolicyUsageGuardTest {
 
     private static final List<String> FIRST_PARTY_CONFIGS = List.of(
@@ -61,8 +59,8 @@ class FirstPartyPolicyUsageGuardTest {
     }
 
     @Test
-    @DisplayName("legacy 例外只存在于 core-api 的 LegacyLocaleBundlePolicy")
-    void legacyPolicyIsIsolatedInCoreApi() {
+    @DisplayName("旧插件的 legacy 策略单例仍可访问")
+    void legacyPolicyRemainsAvailable() {
         assertThat(LegacyLocaleBundlePolicy.INSTANCE).isNotNull();
     }
 

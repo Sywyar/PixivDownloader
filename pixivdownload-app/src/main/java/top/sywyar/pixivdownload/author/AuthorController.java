@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
+import top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityScopeFactory;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
@@ -42,6 +42,6 @@ public class AuthorController {
     private Set<Long> resolveGuestFilter(HttpServletRequest httpRequest) {
         GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
         if (session == null) return null;
-        return galleryRepository.findVisibleAuthorIds(GuestRestriction.from(session));
+        return galleryRepository.findVisibleAuthorIds(GuestWorkVisibilityScopeFactory.artworkRestriction(session));
     }
 }

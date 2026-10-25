@@ -60,10 +60,7 @@ let aqvStore = null;
 let aqvApps = [];
 let aqvActive = false;
 let aqvMounting = false;
-const aqvDirtyRows = new Map();
-const aqvRowIndexes = new Map();
-let aqvQueue = null;
-let aqvFullRefresh = false;
+const aqvRows = createQueueRowSync(aqvRowKey, q => queueProgressSnapshot(q));
 
 function aqvHelper() {
     return window.PixivVue;
@@ -95,7 +92,6 @@ function aqvRowKey(item) {
         }
         return out;
     };
-    if (q.taskObserved) return 'task:' + enc(q.taskId);
     const type = q.workType != null ? q.workType : q.kind;
     const workId = q.workId != null ? q.workId : q.id;
     return 'q:' + enc(type == null ? '' : String(type).trim()) + '.' + enc(workId);
@@ -125,7 +121,7 @@ function aqvMiniProgress(label, value, progress, cls, key, active = true) {
             'aria-valuenow': percent == null ? undefined : String(percent),
             'aria-busy': String(percent == null && active)}, [h('div', {
             class: ['ab-mini-prog-fill', cls, {'is-indeterminate': percent == null && active}],
-            style: {width: (percent == null ? 35 : percent) + '%'}
+            style: {width: (percent == null ? (active ? 35 : 0) : percent) + '%'}
         })])
     ]);
 }
@@ -172,7 +168,7 @@ function aqvRowModel(q) {
             && !!(runtime && typeof runtime.canCancel === 'function' && runtime.canCancel(q)),
         removable: q.status !== 'downloading',
         tags,
-        idLine: 'ID: ' + (q.taskObserved ? q.workId : q.kind === 'novel'
+        idLine: 'ID: ' + (q.kind === 'novel'
             ? (q.novelId || String(q.id).replace(/^n/, '')) + ' (Novel)'
             : q.id) + ' | ',
         message: queueItemMessage(q),
@@ -190,9 +186,6 @@ function aqvRowModel(q) {
 /* —— 三个挂载点的组件：结构逐字镜像命令式 renderDock 统计卡 / renderCurrent / queueItemRow —— */
 function aqvStatsComponent() {
     return {
-        setup() {
-            return {store: aqvStore, t: aqvT, icon: aqvIcon};
-        },
         render() {
             const h = aqvVue.h;
             return [
@@ -340,9 +333,7 @@ function aqvMountOne(el, comp, kind) {
 }
 
 function aqvTeardown() {
-    aqvRowIndexes.clear();
-    aqvDirtyRows.clear();
-    aqvQueue = null;
+    aqvRows.clear();
     aqvApps.splice(0).forEach(entry => {
         try { entry.app.unmount(); } catch (e) { /* 卸载失败忽略 */ }
     });
@@ -440,35 +431,9 @@ function aqvSyncPaused(paused) {
 }
 
 function aqvSyncList(changedItem) {
-    if (changedItem) aqvDirtyRows.set(aqvRowKey(changedItem), changedItem);
-    else aqvFullRefresh = true;
+    aqvRows.mark(changedItem);
     aqvSchedule('list', () => {
-        if (aqvStore && typeof state !== 'undefined') {
-            const queue = state.queue || [];
-            let rebuild = aqvFullRefresh || aqvQueue !== queue || aqvStore.items.length !== queue.length;
-            aqvDirtyRows.forEach((q, key) => {
-                const index = aqvRowIndexes.get(key);
-                if (index === undefined || queue[index] !== q) rebuild = true;
-            });
-            if (rebuild) {
-                aqvRowIndexes.clear();
-                aqvQueue = queue;
-                const keys = [];
-                aqvStore.items = queue.map((q, index) => {
-                    const key = aqvRowKey(q);
-                    keys.push(key);
-                    aqvRowIndexes.set(key, index);
-                    return Object.assign({}, q);
-                });
-                aqvStore.rowKeys = keys;
-            } else {
-                // 原始队列在 Vue 外更新，替换脏行快照以保留嵌套字段的刷新语义。
-                aqvDirtyRows.forEach((q, key) => {
-                    aqvStore.items[aqvRowIndexes.get(key)] = Object.assign({}, q);
-                });
-            }
-        }
-        aqvDirtyRows.clear(); aqvFullRefresh = false;
+        aqvRows.sync(typeof state === 'undefined' ? null : state.queue || [], aqvStore);
     });
 }
 
@@ -511,9 +476,6 @@ function aqvSeedSchedStore(entry) {
 // empty 行 / round-list 行），行模型由 alt-schedule.js 派生，模板只读字段。
 function aqvSchedComponent(entry) {
     return {
-        setup() {
-            return {store: entry.store, t: aqvT};
-        },
         render() {
             const h = aqvVue.h;
             const store = entry.store;
@@ -629,8 +591,7 @@ window.PixivBatchAlt.queueVue = Object.assign(window.PixivBatchAlt.queueVue || {
         schedComponent: aqvSchedComponent,
         reset: function () {
             aqvJobs.clear();
-            aqvDirtyRows.clear(); aqvFullRefresh = false;
-            aqvRowIndexes.clear(); aqvQueue = null;
+            aqvRows.clear();
             aqvRafScheduled = false;
             aqvApps.splice(0).forEach(entry => {
                 try { entry.app.unmount(); } catch (e) { /* 忽略 */ }

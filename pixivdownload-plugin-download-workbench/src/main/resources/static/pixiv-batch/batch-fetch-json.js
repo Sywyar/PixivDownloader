@@ -21,9 +21,7 @@
             received += value.length;
             if (onProgress) onProgress(received, total);
         }
-        let len = 0;
-        chunks.forEach(c => len += c.length);
-        const buf = new Uint8Array(len);
+        const buf = new Uint8Array(received);
         let off = 0;
         chunks.forEach(c => {
             buf.set(c, off);

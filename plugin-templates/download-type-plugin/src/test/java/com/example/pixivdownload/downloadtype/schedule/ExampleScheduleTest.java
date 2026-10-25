@@ -5,8 +5,12 @@ import com.example.pixivdownload.downloadtype.queue.ExampleDownloadQueue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
@@ -20,7 +24,11 @@ import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ExampleScheduleTest {
 
@@ -50,6 +58,67 @@ class ExampleScheduleTest {
         assertEquals(1, queue.snapshot().size());
         assertEquals("123", queue.snapshot().get(0).id());
         assertEquals("schedule:7", queue.snapshot().get(0).ownerKey());
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "null|example.definition-id-invalid",
+            "{}|example.definition-id-invalid",
+            "{\"id\":null}|example.definition-id-invalid",
+            "{\"id\":\"bad\"}|example.definition-id-invalid",
+            "{\"id\":\"1234567890123456789\"}|example.definition-id-invalid",
+            "{|example.definition-json-invalid"
+    })
+    @DisplayName("非法定义在规划与发现时返回明确失败且不提交作品")
+    void invalidDefinitionFailsBeforeSubmittingWork(String json, String expectedCode) {
+        ExampleScheduledSourceExecutor source = new ExampleScheduledSourceExecutor(new ObjectMapper());
+        ScheduledTaskDefinition task = task(json);
+        AtomicReference<ScheduledWork> discovered = new AtomicReference<>();
+
+        assertAll(
+                () -> {
+                    ScheduledExecutionException failure = assertThrows(
+                            ScheduledExecutionException.class, () -> source.plan(task));
+                    assertEquals(ScheduledFailure.Category.INVALID_DEFINITION, failure.category());
+                    assertEquals(expectedCode, failure.code());
+                },
+                () -> {
+                    ScheduledExecutionException failure = assertThrows(ScheduledExecutionException.class,
+                            () -> source.discover(new SourceContext(task, recordingSink(discovered))));
+                    assertEquals(ScheduledFailure.Category.INVALID_DEFINITION, failure.category());
+                    assertEquals(expectedCode, failure.code());
+                });
+        assertNull(discovered.get());
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "null|example.payload-id-invalid",
+            "{}|example.payload-id-invalid",
+            "{\"id\":null}|example.payload-id-invalid",
+            "{\"id\":\"bad\"}|example.payload-id-invalid",
+            "{\"id\":\"1234567890123456789\"}|example.payload-id-invalid",
+            "{|example.payload-json-invalid",
+            "{\"id\":\"124\"}|example.payload-key-mismatch"
+    })
+    @DisplayName("非法作品载荷返回明确失败且不写入下载队列")
+    void invalidPayloadFailsBeforeWritingQueue(String json, String expectedCode) {
+        ExampleDownloadQueue queue = new ExampleDownloadQueue();
+        ExampleScheduledWorkExecutor executor = new ExampleScheduledWorkExecutor(new ObjectMapper(), queue);
+        ScheduledWork work = new ScheduledWork(new ScheduledWorkKey(ExampleDownloadPlugin.TYPE, "123"),
+                ExampleScheduledSourceExecutor.PAYLOAD_SCHEMA, 1, json, null, null);
+
+        ScheduledExecutionException failure = assertThrows(ScheduledExecutionException.class,
+                () -> executor.execute(work, new WorkContext(task("{\"id\":\"123\"}"))));
+
+        assertEquals(ScheduledFailure.Category.PAYLOAD_UNSUPPORTED, failure.category());
+        assertEquals(expectedCode, failure.code());
+        assertTrue(queue.snapshot().isEmpty());
+    }
+
+    private static ScheduledTaskDefinition task(String json) {
+        return new ScheduledTaskDefinition(7L, ExampleScheduledSourceExecutor.SOURCE_TYPE,
+                ExampleScheduledSourceExecutor.DEFINITION_SCHEMA, 1, json, ScheduledTaskPresentation.empty());
     }
 
     private abstract static class BaseContext {

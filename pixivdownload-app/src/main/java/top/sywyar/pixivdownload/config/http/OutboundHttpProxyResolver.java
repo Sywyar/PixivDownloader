@@ -24,18 +24,18 @@ final class OutboundHttpProxyResolver {
         Objects.requireNonNull(route, "route");
         return switch (route.policy()) {
             case DIRECT -> null;
-            case SCOPED_OR_DIRECT -> scopedOverrideIsActive()
-                    ? scopedProxy()
+            case SCOPED_OR_DIRECT -> OutboundProxyOverride.isActive()
+                    ? OutboundProxyOverride.current()
                     : null;
-            case SCOPED_OR_GLOBAL_IF_ENABLED -> scopedOverrideIsActive()
-                    ? scopedProxy()
+            case SCOPED_OR_GLOBAL_IF_ENABLED -> OutboundProxyOverride.isActive()
+                    ? OutboundProxyOverride.current()
                     : enabledGlobalProxy();
             case GLOBAL_IF_CONFIGURED -> configuredGlobalProxy(false);
-            case SCOPED_OR_GLOBAL_REQUIRED -> scopedOverrideIsActive()
-                    ? scopedProxy()
+            case SCOPED_OR_GLOBAL_REQUIRED -> OutboundProxyOverride.isActive()
+                    ? OutboundProxyOverride.current()
                     : configuredGlobalProxy(true);
-            case SCOPED_OR_EXPLICIT_REQUIRED -> scopedOverrideIsActive()
-                    ? scopedProxy()
+            case SCOPED_OR_EXPLICIT_REQUIRED -> OutboundProxyOverride.isActive()
+                    ? OutboundProxyOverride.current()
                     : explicitProxy(route.explicitProxyProvider());
         };
     }
@@ -84,14 +84,6 @@ final class OutboundHttpProxyResolver {
                     "A valid explicit outbound proxy is required");
         }
         return new OutboundProxyEndpoint(uri.getHost(), uri.getPort());
-    }
-
-    private static boolean scopedOverrideIsActive() {
-        return OutboundProxyOverride.isActive();
-    }
-
-    private static OutboundProxyEndpoint scopedProxy() {
-        return OutboundProxyOverride.current();
     }
 
     private static OutboundProxyEndpoint toEndpoint(String host, int port) {

@@ -136,10 +136,6 @@ public class GuestInviteMapper {
     public void deleteInviteNovelAuthors(long inviteId) { deleteLinks("guest_invite_novel_authors", inviteId); }
     public List<Long> findInviteNovelAuthorIds(long inviteId) { return linkIds("guest_invite_novel_authors", "author_id", inviteId); }
     public List<AuthorRow> findInviteNovelAuthors(long inviteId) { return authors("guest_invite_novel_authors", inviteId); }
-    public void purgeInviteTags(long inviteId) { deleteInviteTags(inviteId); }
-    public void purgeInviteAuthors(long inviteId) { deleteInviteAuthors(inviteId); }
-    public void purgeInviteNovelTags(long inviteId) { deleteInviteNovelTags(inviteId); }
-    public void purgeInviteNovelAuthors(long inviteId) { deleteInviteNovelAuthors(inviteId); }
     public void purgeInviteAccessStats(long inviteId) { deleteLinks(ACCESS, inviteId); }
 
     public void upsertAccessStat(long inviteId, long bucketHour) {

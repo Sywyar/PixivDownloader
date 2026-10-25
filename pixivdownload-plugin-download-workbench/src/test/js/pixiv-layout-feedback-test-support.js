@@ -201,12 +201,7 @@ function createHarness(options) {
     const serverStateHolder = {value: options.serverState};
     let getStateFetchCount = 0;
 
-    const publicConfig = {
-        projectToken: 'phc_nBnHrYwgVVN6CvzAsQ5r4NxuSJyVPmceeHwwcpcgbG3k',
-        surveyId: SURVEY_ID,
-        apiHost: 'https://layout-survey.sywyar.top',
-        uiHost: 'https://us.posthog.com'
-    };
+    const publicConfig = CONFIG_WINDOW.PixivLayoutSurveyPostHog;
 
     // 服务端模拟的「当前权威视图」：命令应用后携带到后续 POST / 视图响应
     //（record_seen 等命令的响应必须保留既有状态视图，与真实服务端一致）。
@@ -307,7 +302,6 @@ function createHarness(options) {
                 }
                 if (init && init.method === 'POST') {
                     serverPosts.push({url, body: JSON.parse(init.body || '{}')});
-                    if (process.env.DBG_POSTS && init.method === 'POST') { console.log('DBG-POST', JSON.parse(init.body||'{}').command, new Error().stack.split('\n').slice(1,6).join(' | ')); }
                     if (options.serverPostResponse === 'fail') {
                         return Promise.reject(new Error('server down'));
                     }
@@ -512,7 +506,10 @@ function initHarness(options) {
             ? options.surveys
             : [defaultSurvey()]}));
     const i18n = options.i18n === undefined
-        ? createFakeI18n(options.i18nMessages || {})
+        ? createFakeI18n(Object.assign({
+            'layout-feedback:layout-feedback.suggestion-counter': 'count={count};max={max}',
+            'layout-feedback:layout-feedback.error-state-verification': 'state-verification-unavailable'
+        }, options.i18nMessages))
         : options.i18n;
     harness.sandbox.posthog = adapter;
     harness.api.init({
@@ -576,11 +573,7 @@ function waitForFlush() {
 }
 
 function seenSeed() {
-    const seen = {};
-    LAYOUT_IDS.forEach((id, index) => {
-        seen[id] = {firstSeenAt: 1, lastSeenAt: 1 + index};
-    });
-    return {[SEEN_KEY]: JSON.stringify(seen)};
+    return {[SEEN_KEY]: JSON.stringify(seenObject())};
 }
 
 function seenObject() {
@@ -612,18 +605,6 @@ function selectChoice(h, layoutId) {
     radio.checked = true;
     radio.dispatchEvent({type: 'change', target: radio});
     return radio;
-}
-
-function submitWithCaptureOverride(override) {
-    const h = initHarness({
-        adapter: createFakeAdapter({surveys: [defaultSurvey()], capture: override}),
-        batchLayout: 'landscape'
-    });
-    return h.api.open().then(() => waitForFlush()).then(() => {
-        selectChoice(h, 'pixiv-batch-landscape');
-        h.submitButton().click();
-        return waitForFlush();
-    }).then(() => h);
 }
 
 function crossTabState(stateStatus, snoozedUntil) {
@@ -774,7 +755,7 @@ function assertFailClosedInvariants(h, label) {
     eq(label + '：控件恢复（textarea 可用）', h.textarea().disabled, false);
     eq(label + '：提交按钮恢复可用', h.submitButton().disabled, false);
     eq(label + '：显示状态验证错误', h.error().hidden, false);
-    eq(label + '：错误文案为 error-state-verification', h.error().textContent, '调查状态暂不可用，请稍后重试。');
+    eq(label + '：错误文案为 error-state-verification', h.error().textContent, 'state-verification-unavailable');
     eq(label + '：不发送 dismissed', captureEvents(h).indexOf('survey dismissed'), -1);
     eq(label + '：不写 submitted', h.storage.getItem(STATE_KEY) === null, true);
     eq(label + '：不发送 submitted 命令', h.serverPosts.filter(p => p.body.command === 'submitted').length, 0);
@@ -811,8 +792,6 @@ module.exports = {
     MiniElement,
     MiniEventTarget,
     MiniStorage,
-    POSTHOG_SOURCE,
-    POSTHOG_SOURCE_PATH,
     SEEN_KEY,
     SERVER_RAW_UUID,
     SERVER_SCOPED_ID,
@@ -862,7 +841,6 @@ module.exports = {
     serverStateResponse,
     snoozeStorageValue,
     snoozedView,
-    submitWithCaptureOverride,
     submittedView,
     surveyState,
     validFirst,

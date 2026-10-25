@@ -127,7 +127,7 @@ class RegisteredPluginsTest {
         @org.springframework.context.annotation.Bean
         org.springframework.transaction.PlatformTransactionManager transactions(javax.sql.DataSource source,
                 top.sywyar.pixivdownload.core.db.DatabaseTarget target) {
-            return new top.sywyar.pixivdownload.core.db.DatabaseConfig(null, null, null).transactionManager(source, target);
+            return new top.sywyar.pixivdownload.core.db.DatabaseConfig(null, null).transactionManager(source, target);
         }
     }
 
@@ -167,20 +167,10 @@ class RegisteredPluginsTest {
     @Test
     @DisplayName("各内置插件 contribution 边界：core 独占 schema，plugin-market 占自身功能贡献，功能插件已外置")
     void emptyPluginsContributeNothing() {
-        // 路由：四个 web 功能插件声明各自页面 / API；core 额外声明横切与跨页共享路由（监控 / 邀请 / 下载数据 /
-        // 图片字节 / 作者 / 系列 / 收藏 / 代理 / 公开与共享静态依赖 / 本地放行特例，AuthFilter 切 registry 后由其派生）；
-        // download-workbench、gallery、novel 与 schedule 安全壳已在外置插件包中，duplicate 也随外置插件包接入。
         Set<String> routeContributingPlugins = Set.of("core", "plugin-market");
         Set<String> i18nContributingPlugins = Set.of("core", "plugin-market");
         Set<String> navContributingPlugins = Set.of("core", "plugin-market");
         Set<String> staticResourceContributingPlugins = Set.of("core", "plugin-market");
-        // 落点 / 入口（landing）：gallery/novel 落点随外置插件接入，
-        // 锁死契约面——其它插件不得静默声明落点（避免借落点 / 导航 order 间接改变业务落点）。
-        Set<String> landingContributingPlugins = Set.of();
-        // gallery 外置后，页面区块 / 下钻 / GUI 引导步骤均由外置 gallery 插件声明。
-        Set<String> pageSectionContributingPlugins = Set.of();
-        Set<String> drilldownContributingPlugins = Set.of();
-        Set<String> onboardingStepContributingPlugins = Set.of();
         runner.run(context -> {
             PluginRegistry registry = context.getBean(PluginRegistry.class);
             assertThat(registry.plugins()).allSatisfy(plugin -> {
@@ -220,29 +210,10 @@ class RegisteredPluginsTest {
                 assertThat(plugin.userscripts()).isEmpty();
                 // 下载类型随外置来源插件声明，内置插件不贡献。
                 assertThat(plugin.downloadTypes()).isEmpty();
-                // 落点 / 入口：内置清单中仅小说声明受邀访客落点；其余插件不得贡献落点
-                if (landingContributingPlugins.contains(plugin.id())) {
-                    assertThat(plugin.landings()).isNotEmpty();
-                } else {
-                    assertThat(plugin.landings()).isEmpty();
-                }
-                // 页面区块：gallery 外置后内置插件不贡献
-                if (pageSectionContributingPlugins.contains(plugin.id())) {
-                    assertThat(plugin.pageSections()).isNotEmpty();
-                } else {
-                    assertThat(plugin.pageSections()).isEmpty();
-                }
-                // 语义下钻：gallery 外置后内置插件不贡献
-                if (drilldownContributingPlugins.contains(plugin.id())) {
-                    assertThat(plugin.drilldowns()).isNotEmpty();
-                } else {
-                    assertThat(plugin.drilldowns()).isEmpty();
-                }
-                if (onboardingStepContributingPlugins.contains(plugin.id())) {
-                    assertThat(plugin.guiOnboardingSteps()).isNotEmpty();
-                } else {
-                    assertThat(plugin.guiOnboardingSteps()).isEmpty();
-                }
+                assertThat(plugin.landings()).isEmpty();
+                assertThat(plugin.pageSections()).isEmpty();
+                assertThat(plugin.drilldowns()).isEmpty();
+                assertThat(plugin.guiOnboardingSteps()).isEmpty();
             });
         });
     }

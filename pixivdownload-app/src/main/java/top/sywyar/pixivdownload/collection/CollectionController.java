@@ -15,7 +15,7 @@ import top.sywyar.pixivdownload.collection.request.CollectionRenameRequest;
 import top.sywyar.pixivdownload.collection.response.CollectionListResponse;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
+import top.sywyar.pixivdownload.setup.guest.GuestWorkVisibilityScopeFactory;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.setup.guest.GuestAccessGuard;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
@@ -48,8 +48,8 @@ public class CollectionController {
         List<Collection> all = collectionService.listAll();
         GuestInviteSession session = GuestAccessGuard.extractSession(httpRequest);
         if (session == null) return new CollectionListResponse(all);
-        Map<Long, Long> artworks = galleryRepository.countVisibleWorksByCollection(GuestRestriction.from(session));
-        Map<Long, Long> novels = novelGalleryRepository.countVisibleWorksByCollection(GuestRestriction.forNovel(session));
+        Map<Long, Long> artworks = galleryRepository.countVisibleWorksByCollection(GuestWorkVisibilityScopeFactory.artworkRestriction(session));
+        Map<Long, Long> novels = novelGalleryRepository.countVisibleWorksByCollection(GuestWorkVisibilityScopeFactory.novelRestriction(session));
         return new CollectionListResponse(all.stream()
                 .filter(c -> session.isCollectionVisible(c.id()))
                 .map(c -> new Collection(c.id(), c.name(), c.iconExt(), null, c.sortOrder(), c.createdTime(),
@@ -85,7 +85,7 @@ public class CollectionController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable long id) {
+    public ResponseEntity<Void> delete(@PathVariable long id) throws IOException {
         collectionService.delete(id);
         return ResponseEntity.noContent().build();
     }
@@ -104,7 +104,7 @@ public class CollectionController {
     }
 
     @DeleteMapping("/{id}/icon")
-    public ResponseEntity<Collection> clearIcon(@PathVariable long id) {
+    public ResponseEntity<Collection> clearIcon(@PathVariable long id) throws IOException {
         return ResponseEntity.ok(collectionService.clearIcon(id));
     }
 
@@ -239,9 +239,9 @@ public class CollectionController {
         GuestInviteSession session = GuestAccessGuard.extractSession(request);
         if (session == null) return;
         if (!session.isCollectionVisible(collectionId)
-                || (galleryRepository.countVisibleWorksByCollection(GuestRestriction.from(session))
+                || (galleryRepository.countVisibleWorksByCollection(GuestWorkVisibilityScopeFactory.artworkRestriction(session))
                         .getOrDefault(collectionId, 0L) == 0
-                    && novelGalleryRepository.countVisibleWorksByCollection(GuestRestriction.forNovel(session))
+                    && novelGalleryRepository.countVisibleWorksByCollection(GuestWorkVisibilityScopeFactory.novelRestriction(session))
                         .getOrDefault(collectionId, 0L) == 0)) {
             throw new LocalizedException(HttpStatus.FORBIDDEN,
                     "guest.invite.forbidden",

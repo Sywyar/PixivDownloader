@@ -3,8 +3,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-    deferred,
-    taskCredentialPolicy,
     harness,
     source
 } = require('./schedule-submit-test-support');

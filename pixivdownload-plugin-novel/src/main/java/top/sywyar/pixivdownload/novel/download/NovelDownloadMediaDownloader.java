@@ -15,7 +15,7 @@ import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** 下载小说封面和正文内嵌图片，并维护图片持久化与传输预算。 */
+/** 下载小说封面和正文内嵌图片，受共享传输预算约束；图片映射随正文统一发布。 */
 @Slf4j
 final class NovelDownloadMediaDownloader {
 
@@ -51,7 +51,6 @@ final class NovelDownloadMediaDownloader {
             // 没有占位符或者前端没传 URL（可能为公开 API 限制等），直接跳过
             return Map.of();
         }
-        // 清掉历史记录，避免遗留旧 ext
         // 实际会尝试下载的张数（有 URL 的占位符，受预算上限约束），用于进度展示
         int plannedTotal = 0;
         for (String id : ids) {

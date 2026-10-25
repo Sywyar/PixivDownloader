@@ -32,9 +32,8 @@ function moduleSources(plugin, route, files) {
         read(plugin, 'src', 'main', 'resources', 'static', route, file)]));
 }
 
-function interpolate(template, vars) {
-    return String(template).replace(/\{([a-zA-Z0-9_.-]+)\}/g, (match, key) =>
-        vars && Object.prototype.hasOwnProperty.call(vars, key) ? String(vars[key]) : match);
+function translation(key, _fallback, vars) {
+    return JSON.stringify([key, vars]);
 }
 
 function hostFormatter(type, acquisition) {
@@ -46,7 +45,7 @@ function hostFormatter(type, acquisition) {
             }
         },
         defaultSearchFilters() { return {}; },
-        bt(_key, fallback, vars) { return interpolate(fallback, vars); },
+        bt: translation,
         URLSearchParams,
         console: {warn() {}, log() {}, error() {}}
     };
@@ -60,7 +59,6 @@ function hostFormatter(type, acquisition) {
 async function sourceSearchAcquisition(source, type, entryPath, submoduleSources = {}) {
     let initializer = null;
     let submoduleInitializer = null;
-    let descriptor = null;
     const controller = new AbortController();
     const context = {
         type,
@@ -111,7 +109,7 @@ async function sourceSearchAcquisition(source, type, entryPath, submoduleSources
         renderPixivSearchResults() {},
         renderQuickIllustGrid() {},
         pixivQuickInnerCard() { return ''; },
-        bt(_key, fallback, vars) { return interpolate(fallback, vars); },
+        bt: translation,
         esc(value) { return String(value == null ? '' : value); },
         state: {queue: [], settings: {}},
         URL,
@@ -128,7 +126,7 @@ async function sourceSearchAcquisition(source, type, entryPath, submoduleSources
     vm.createContext(sandbox);
     vm.runInContext(source, sandbox);
     const registration = await initializer(context);
-    descriptor = registration && registration.descriptor;
+    const descriptor = registration && registration.descriptor;
     assert.ok(descriptor && descriptor.acquisition && descriptor.acquisition.search,
         type + ' search acquisition should register');
     return descriptor.acquisition.search;
@@ -137,14 +135,15 @@ async function sourceSearchAcquisition(source, type, entryPath, submoduleSources
 test('宿主可端到端消费 Pixiv 小说与抖音的来源统计格式化契约', async () => {
     const cases = [
         ['illust', PIXIV_SOURCE, '/pixiv-batch/pixiv-queue-type.js', {},
-            'total', 'Pixiv 总数 12'],
+            'total', 'search.summary.pixiv-total'],
         ['novel', NOVEL_SOURCE, '/pixiv-novel-download/novel-queue-type.js', NOVEL_MODULES,
-            'current-page', '小说当前页 12 部'],
+            'current-page', 'novel:batch.search.summary.current-page'],
         ['douyin', DOUYIN_SOURCE, '/pixiv-douyin-download/douyin-queue-type.js', DOUYIN_MODULES,
-            'batch-fetched', '已抓取去重 12 个抖音作品']
+            'batch-fetched', 'douyin:search.summary.fetched']
     ];
     for (const [type, source, entryPath, modules, metric, expected] of cases) {
         const acquisition = await sourceSearchAcquisition(source, type, entryPath, modules);
-        assert.strictEqual(hostFormatter(type, acquisition)(metric, 12), expected);
+        assert.deepStrictEqual(JSON.parse(hostFormatter(type, acquisition)(metric, 12)),
+            [expected, {count: '12'}]);
     }
 });

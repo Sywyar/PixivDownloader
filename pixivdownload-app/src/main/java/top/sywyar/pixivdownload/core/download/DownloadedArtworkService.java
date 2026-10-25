@@ -37,19 +37,9 @@ public class DownloadedArtworkService {
     public ArtworkRecord getDownloadedRecord(Long artworkId, boolean verifyFiles) {
         try (var workFileLease = top.sywyar.pixivdownload.core.work.service.WorkFileLock.acquire(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, artworkId)) {
             ArtworkRecord artwork = pixivDatabase.getArtwork(artworkId);
-            if (artwork != null) {
-                // 软删除标记的记录磁盘文件本就已删：跳过实际目录检测，更不能当陈旧记录清掉
-                // （那会抹掉「已下载过，但被删除」的判重依据）。原样返回，由调用方按 deleted 决策。
-                if (artwork.deleted()) {
-                    return artwork;
-                }
-                if (!verifyFiles) {
-                    return artwork;
-                }
-                if (artworkFileService.hasArtworkFiles(artwork)) {
-                    return artwork;
-                }
-                return null;
+            // 软删除记录保留判重依据，不再检查已删除的文件；由调用方按 deleted 决定是否重下。
+            if (artwork != null && (artwork.deleted() || !verifyFiles || artworkFileService.hasArtworkFiles(artwork))) {
+                return artwork;
             }
             return null;
         }
@@ -64,11 +54,11 @@ public class DownloadedArtworkService {
     }
 
     public List<Long> getSortTimeArtworkPaged(int page, int size) {
-        return pixivDatabase.getArtworkIdsSortedByTimeDescPaged(page * size, size);
+        return pixivDatabase.getArtworkIdsSortedByTimeDescPaged((long) page * size, size);
     }
 
     public List<Long> getSortAuthorArtworkPaged(int page, int size) {
-        return pixivDatabase.getArtworkIdsSortedByAuthorIdAscPaged(page * size, size);
+        return pixivDatabase.getArtworkIdsSortedByAuthorIdAscPaged((long) page * size, size);
     }
 
     public long getArtworkCount() {

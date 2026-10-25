@@ -145,7 +145,7 @@ final class DesktopTrustedKeyEditorView {
         }
         String cancelAction = "config.market.trusted-key.cancel";
         nextActions.put(cancelAction, model::showRepositoryEditorDialog);
-        return column(
+        return dialogContent(
                 "config.market.trusted-key.dialog.content",
                 column("config.market.trusted-key.dialog.fields", content),
                 row(

@@ -58,12 +58,10 @@
     var vueRuntime = null;         // window.Vue（ensure() 解析后缓存）
     var vueState = null;           // Vue.reactive({ i18n })：各 slot app 共享，置换 i18n 即触发标题重译
     var slotApps = [];             // [{ el, app }] 已挂载的 slot Vue app（幂等复用）
-    var vueMode = false;           // 是否已进入 Vue 主渲染稳态
     var renderTail = global.Promise.resolve();
 
     var resolveReady;
     var readyPromise = new global.Promise(function (resolve) { resolveReady = resolve; });
-    var readyResolved = false;
 
     function qsa(selector) {
         return Array.prototype.slice.call(global.document.querySelectorAll(selector));
@@ -84,16 +82,16 @@
     // actionTitleI18nKey 条件必填、否则为 null：统一按「trim 后非空才收集」规范化，避免把 null / 纯空白当 namespace
     // 去请求空白 bundle。标题 / 操作标题的实际解析仍由渲染期 resolveText→tns 统一处理（tns 对空白 namespace 回退）。
     function collectNamespaces(sectionsBySlot) {
-        var seen = { 'common': true };
+        var seen = new Set(['common']);
         sectionsBySlot.forEach(function (slot) {
             (slot.sections || []).forEach(function (s) {
                 var titleNs = s.titleNamespace == null ? '' : String(s.titleNamespace).trim();
-                if (titleNs) seen[titleNs] = true;
+                if (titleNs) seen.add(titleNs);
                 var actionNs = s.actionTitleNamespace == null ? '' : String(s.actionTitleNamespace).trim();
-                if (actionNs) seen[actionNs] = true;
+                if (actionNs) seen.add(actionNs);
             });
         });
-        return Object.keys(seen);
+        return Array.from(seen);
     }
 
     function resolveText(i18n, namespace, key, fallback) {
@@ -110,7 +108,7 @@
     }
 
     function actionIconSvg(icon) {
-        var inner = ACTION_ICONS[icon] || ACTION_ICONS.plus;
+        var inner = Object.prototype.hasOwnProperty.call(ACTION_ICONS, icon) ? ACTION_ICONS[icon] : ACTION_ICONS.plus;
         return '<svg viewBox="0 0 24 24" aria-hidden="true">' + inner + '</svg>';
     }
 
@@ -240,8 +238,7 @@
                 }));
             });
             return global.Promise.all(pending).then(function () {
-                vueMode = slotApps.length > 0;
-                return vueMode;
+                return slotApps.length > 0;
             });
         }).catch(function (e) {
             console.warn('[PixivPageSections] Vue 运行时不可用，沿用命令式渲染：', e);
@@ -278,7 +275,7 @@
                 if (!s.moduleUrl || loadedModules[s.moduleUrl]) return;
                 loadedModules[s.moduleUrl] = true;
                 var script = global.document.createElement('script');
-                script.src = s.moduleUrl;
+                script.src = global.PixivAssets ? global.PixivAssets.url(s.moduleUrl) : s.moduleUrl;
                 script.async = true;
                 global.document.head.appendChild(script);
             });
@@ -292,7 +289,9 @@
     }
 
     async function renderAll() {
-        currentI18n = await buildI18n();
+        var nextI18n = await buildI18n();
+        if (currentI18n && currentI18n.dispose) currentI18n.dispose();
+        currentI18n = nextI18n;
         // Vue 主渲染：把有 sections 的 slot 升级为 Vue（骨架）。失败 / 无 Vue / sections 为 null 的 slot 走命令式。
         await renderSectionsVue();
         slotsState.forEach(function (slot) {
@@ -312,12 +311,6 @@
         // 加载贡献方前端模块（去重），并通知已加载模块（重新）填充各自容器。
         loadPendingModules();
         dispatchRendered();
-    }
-
-    function markReady() {
-        if (readyResolved) return;
-        readyResolved = true;
-        resolveReady();
     }
 
     function queueRender() {
@@ -355,7 +348,7 @@
         }
         await queueRender();
         subscribeLanguageOnce();
-        markReady();
+        resolveReady();
     }
 
     async function refresh() {

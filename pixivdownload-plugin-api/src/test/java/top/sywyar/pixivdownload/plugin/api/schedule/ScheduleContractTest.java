@@ -145,6 +145,13 @@ class ScheduleContractTest {
         assertThat(leadingZero).isNotEqualTo(plain).isNotEqualTo(sameIdOtherType);
         assertThat(longNumeric.id()).hasSize(25);
         assertThat(uuid.id()).contains("-");
+        String boundedType = "a".repeat(ScheduledWorkKey.MAX_WORK_TYPE_BYTES - 2);
+        assertThat(new ScheduledWorkKey(" " + boundedType + " ", "id").workType())
+                .isEqualTo(boundedType);
+        assertThatThrownBy(() -> new ScheduledWorkKey("  " + boundedType + " ", "id"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(new ScheduledWorkKey(" " + "作".repeat(42) + " ", "id").workType())
+                .isEqualTo("作".repeat(42));
     }
 
     @Test

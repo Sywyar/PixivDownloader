@@ -63,13 +63,14 @@ class ScriptRegistryTest {
                 """;
 
         UserscriptArtifact artifact =
-                ScriptRegistry.parseScript("all-in-one", "Pixiv All-in-One.user.js", content);
+                ScriptRegistry.parseScript("all-in-one", "Pixiv All-in-One.user.js", content, "script-messages");
 
         assertEquals("all-in-one", artifact.id());
         assertEquals("Pixiv All-in-One Downloader", artifact.displayName());
         assertEquals("1.2.3", artifact.version());
         assertEquals("中文描述", artifact.description());
         assertEquals(content, artifact.content());
+        assertEquals("script-messages", artifact.i18nNamespace());
     }
 
     @Test

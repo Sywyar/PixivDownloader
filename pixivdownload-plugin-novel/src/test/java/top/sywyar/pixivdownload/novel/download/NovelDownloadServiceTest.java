@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
@@ -43,6 +44,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
@@ -155,6 +157,55 @@ class NovelDownloadServiceTest {
         other.setRawMetaJson(rawMetaJson);
         request.setOther(other);
         return request;
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true,true", "true,false", "false,true", "false,false"})
+    @DisplayName("同步小说下载与提交拒绝在终结失败后保留致命主失败和原始诊断")
+    void preservesFailureAcrossTermination(boolean blocking, boolean primaryFatal) {
+        var tracker = new QueueTaskTracker("novel");
+        var downloads = newService(downloadTaskExecutor, tracker);
+        Throwable original = primaryFatal ? new ThreadDeath() : new IllegalStateException("original");
+        Throwable termination = primaryFatal ? new IllegalArgumentException("termination") : new ThreadDeath();
+        AtomicInteger terminated = new AtomicInteger();
+        org.mockito.Mockito.doAnswer(call -> {
+            QueueTaskTracker.Task task = call.getArgument(1);
+            task.onTermination(() -> {
+                terminated.incrementAndGet();
+                if (termination instanceof Error error) throw error;
+                throw (RuntimeException) termination;
+            });
+            throw original;
+        }).when(downloadLifecycle).track(any(), any(), any(), eq("novel"), any(), org.mockito.ArgumentMatchers.anyBoolean());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> {
+            if (blocking) downloads.downloadBlocking(txtRequest(92L, null), "owner");
+            else downloads.download(txtRequest(92L, null), "owner");
+        }).isSameAs(primaryFatal ? original : termination);
+        assertThat((primaryFatal ? original : termination).getSuppressed())
+                .containsExactly(primaryFatal ? termination : original);
+        assertThat(tracker.activeTaskCount()).isZero();
+        assertThat(terminated).hasValue(1);
+    }
+
+    @Test
+    @DisplayName("小说提交失败的事件发布再失败时仍终结任务并保留全部诊断")
+    void finishesRejectedTaskWhenFailurePublicationAlsoFails() {
+        var tracker = new QueueTaskTracker("novel");
+        var downloads = newService(downloadTaskExecutor, tracker);
+        var original = new IllegalStateException("original");
+        var publication = new ThreadDeath();
+        var termination = new IllegalArgumentException("termination");
+        org.mockito.Mockito.doAnswer(call -> {
+            call.<QueueTaskTracker.Task>getArgument(1).onTermination(() -> { throw termination; });
+            throw original;
+        }).when(downloadLifecycle).track(any(), any(), any(), eq("novel"), any(), org.mockito.ArgumentMatchers.anyBoolean());
+        doThrow(publication).when(downloadLifecycle).publish(any());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> downloads.download(txtRequest(93L, null), "owner"))
+                .isSameAs(publication);
+        assertThat(publication.getSuppressed()).containsExactly(original, termination);
+        assertThat(tracker.activeTaskCount()).isZero();
     }
 
     @Test
@@ -453,6 +504,91 @@ class NovelDownloadServiceTest {
     }
 
     @Test
+    @DisplayName("下载中取消保留取消终态并清理暂存文件")
+    void cancellationPreservesTerminalStatus() throws Exception {
+        LocaleContextHolder.setLocale(Locale.ENGLISH);
+        when(workFileNameCatalog.getOrCreateTemplateId(any()))
+                .thenThrow(new CancellationException("cancelled by task"));
+
+        assertThat(service.downloadBlocking(txtRequest(112L, null), "owner-a")).isFalse();
+
+        assertCancelled(service.getStatus(112L, "owner-a"));
+        var events = ArgumentCaptor.forClass(
+                top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent.class);
+        verify(downloadLifecycle, times(2)).publish(events.capture());
+        assertThat(events.getAllValues()).extracting(event -> event.phase().name())
+                .containsExactly("STARTED", "CANCELLED");
+        verify(workAssets, never()).publishFiles(any(), anyLong(), any(), any());
+        try (var files = Files.list(tempDir.resolve("runtime/download-staging"))) {
+            assertThat(files).isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("按 owner 清理已完成状态不影响其它 owner，全部清理返回剩余状态数")
+    void clearCompletedStatusesKeepsOwnerIsolation() {
+        LocaleContextHolder.setLocale(Locale.ENGLISH);
+        assertThat(service.downloadBlocking(txtRequest(113L, null), "owner-a")).isTrue();
+        assertThat(service.downloadBlocking(txtRequest(113L, null), "owner-b")).isTrue();
+        NovelDownloadStatus first = service.getStatus(113L, "owner-a");
+        NovelDownloadStatus second = service.getStatus(113L, "owner-b");
+
+        assertThat(service.forceClearDownloadsForOwner("owner-a")).isEqualTo(1);
+
+        assertCancelled(first);
+        assertThat(service.getStatus(113L, "owner-a")).isNull();
+        assertThat(service.getStatus(113L, "owner-b")).isSameAs(second);
+        assertThat(second.isCancelled()).isFalse();
+        assertThat(service.forceClearDownloads()).isEqualTo(1);
+        assertCancelled(second);
+        assertThat(service.getStatus(113L)).isNull();
+        assertThat(service.forceClearDownloads()).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("取消回调抛错后仍清理匹配状态并原样传播错误")
+    void cancellationFailureStillClearsMatchingStatuses(boolean allOwners) {
+        LocaleContextHolder.setLocale(Locale.ENGLISH);
+        QueueTaskTracker tracker = new QueueTaskTracker("novel");
+        NovelDownloadService downloads = newService(Runnable::run, tracker);
+        assertThat(downloads.downloadBlocking(txtRequest(114L, null), "owner-a")).isTrue();
+        assertThat(downloads.downloadBlocking(txtRequest(115L, null), "owner-b")).isTrue();
+        NovelDownloadStatus first = downloads.getStatus(114L, "owner-a");
+        NovelDownloadStatus second = downloads.getStatus(115L, "owner-b");
+        QueueTaskTracker.Task failing = tracker.prepareQueued(NovelQueueTaskOwners.download("owner-a"));
+        LinkageError failure = new LinkageError("cancellation failed");
+        failing.onCancellation(() -> { throw failure; });
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> {
+            if (allOwners) downloads.forceClearDownloads();
+            else downloads.forceClearDownloadsForOwner("owner-a");
+        }).isSameAs(failure);
+
+        assertCancelled(first);
+        assertThat(downloads.getStatus(114L, "owner-a")).isNull();
+        assertThat(tracker.isAccepting()).isTrue();
+        if (allOwners) {
+            assertCancelled(second);
+            assertThat(downloads.getStatus(115L, "owner-b")).isNull();
+            assertThat(tracker.activeTaskCount()).isZero();
+        } else {
+            assertThat(downloads.getStatus(115L, "owner-b")).isSameAs(second);
+            assertThat(second.isCancelled()).isFalse();
+            assertThat(tracker.activeTaskCount()).isEqualTo(1);
+            assertThat(downloads.forceClearDownloads()).isEqualTo(1);
+        }
+    }
+
+    private void assertCancelled(NovelDownloadStatus status) {
+        assertThat(status.isCancelled()).isTrue();
+        assertThat(status.isCompleted()).isTrue();
+        assertThat(status.isFailed()).isFalse();
+        assertThat(status.getStage()).isEqualTo("cancelled");
+        assertThat(status.getErrorMessage()).isEqualTo(NOVEL_MESSAGES.get("download.cancelled"));
+    }
+
+    @Test
     @DisplayName("普通下载清空只取消下载任务并继续接收，不影响自动翻译")
     void ordinaryClearKeepsAutoTranslationTask() {
         QueueTaskTracker taskTracker = new QueueTaskTracker("novel");
@@ -472,7 +608,7 @@ class NovelDownloadServiceTest {
         translation.run();
         assertThat(translationRuns.get()).isEqualTo(1);
         assertThat(taskTracker.activeTaskCount()).isZero();
-        assertThat(queued.getStatus(104L, "owner-a", false)).isNull();
+        assertThat(queued.getStatus(104L, "owner-a")).isNull();
     }
 
     @Test
@@ -511,11 +647,11 @@ class NovelDownloadServiceTest {
                 .schedule(any(Runnable.class), any(Instant.class));
 
         assertThat(service.downloadBlocking(txtRequest(105L, null), "owner-a")).isTrue();
-        assertThat(service.getStatus(105L, "owner-a", false)).isNotNull();
+        assertThat(service.getStatus(105L, "owner-a")).isNotNull();
 
         assertThat(service.forceClearDownloadsForOwner("owner-a")).isEqualTo(1);
         verify(retentionFuture).cancel(false);
-        assertThat(service.getStatus(105L, "owner-a", false)).isNull();
+        assertThat(service.getStatus(105L, "owner-a")).isNull();
         assertThat(service.prepareQuiesceRuntimeTasks().isDrained()).isTrue();
     }
 
@@ -539,7 +675,7 @@ class NovelDownloadServiceTest {
 
         assertThat(drain.isDrained()).isTrue();
         assertThat(translationRuns.get()).isZero();
-        assertThat(queued.getStatus(104L, "owner-a", false)).isNull();
+        assertThat(queued.getStatus(104L, "owner-a")).isNull();
         org.assertj.core.api.Assertions.assertThatThrownBy(
                         () -> queued.download(txtRequest(105L, null), "owner-a"))
                 .isInstanceOf(QueueNotAcceptingException.class)

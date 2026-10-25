@@ -104,6 +104,7 @@ async function setupOnboardingOrTour() {
 }
 
 function refreshGuideFab() {
+    if (typeof PixivTour !== 'undefined') PixivTour.refreshTranslations(pageI18n);
     const eligible = appMode === 'solo' || isAdmin;
     if (eligible && typeof PixivOnboarding !== 'undefined') {
         PixivOnboarding.refreshFab(pageI18n);

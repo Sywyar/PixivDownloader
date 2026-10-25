@@ -35,17 +35,15 @@ public class NarrationEngineRegistry {
     }
 
     private record Snapshot(
-            Map<String, NarrationVoiceEngine> byId,
             Map<String, PreparedEngine> preparedById,
             List<NarrationVoiceEngine> all) {
         private Snapshot {
-            byId = Map.copyOf(byId);
             preparedById = Map.copyOf(preparedById);
             all = List.copyOf(all);
         }
 
         private static Snapshot empty() {
-            return new Snapshot(Map.of(), Map.of(), List.of());
+            return new Snapshot(Map.of(), List.of());
         }
     }
 
@@ -138,10 +136,7 @@ public class NarrationEngineRegistry {
 
     /** Case-insensitive id lookup. */
     public Optional<NarrationVoiceEngine> byId(String id) {
-        if (id == null || id.isBlank()) {
-            return Optional.empty();
-        }
-        return Optional.ofNullable(state.snapshot().byId().get(id.trim().toLowerCase(Locale.ROOT)));
+        return selectedPrepared(id).map(PreparedEngine::engine);
     }
 
     public Optional<NarrationVoiceEngine> selected(String engineId) {
@@ -171,7 +166,6 @@ public class NarrationEngineRegistry {
 
     private static Snapshot rebuild(Map<OwnerKey, List<PreparedEngine>> owners) {
         Map<String, PreparedEngine> metadataById = new LinkedHashMap<>();
-        Map<String, NarrationVoiceEngine> enginesById = new LinkedHashMap<>();
         List<NarrationVoiceEngine> engines = new ArrayList<>();
         for (List<PreparedEngine> list : owners.values()) {
             for (PreparedEngine prepared : list) {
@@ -180,11 +174,10 @@ public class NarrationEngineRegistry {
                     throw new IllegalStateException("duplicate narration engine id '" + prepared.id() + "': "
                             + previous.implementationType() + " vs " + prepared.implementationType());
                 }
-                enginesById.put(prepared.id(), prepared.engine());
                 engines.add(prepared.engine());
             }
         }
-        return new Snapshot(enginesById, metadataById, engines);
+        return new Snapshot(metadataById, engines);
     }
 
     private static OwnerKey owner(String pluginId, long publicationId) {

@@ -55,14 +55,13 @@ function setup() {
     c.window = c;
     c.PixivBatchAlt = {queue: {}, schedule: {}};
     c.PixivBatch = {queueTypes: runtime};
-    for (const file of ['alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', 'alt-state.js', 'alt-queue.js', 'alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js']) {
+    for (const file of ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', '../pixiv-batch/state-storage.js', 'alt-state.js', 'alt-queue-model.js', 'alt-queue.js', 'alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js']) {
         vm.runInContext(readFileSync(resolve(rootPath, file), 'utf8'), c, {filename: file});
     }
     vm.runInContext(readFileSync(resolve(rootPath, '../pixiv-batch/batch-media-progress.js'), 'utf8'), c);
     Object.assign(c, {
         altQueueTypes: () => runtime,
-        bt: (key, fallback, vars) => Object.entries(vars || {}).reduce((str, [k, v]) =>
-            str.replaceAll('{' + k + '}', String(v)), fallback || key),
+        bt: (key, _fallback, vars) => [key, ...Object.entries(vars || {}).map(([k, v]) => `${k}=${v}`)].join(' '),
         storeGet: key => storage.get(key), storeSet: (key, value) => storage.set(key, value),
         storeRemove: key => storage.delete(key),
         fetch: async () => ({ok: true, json: async () => snapshot}),
@@ -101,7 +100,8 @@ test('计划详情复用只读队列行、类型展示、图片与动图进度�
     assert.doesNotMatch(model.rows[0].html, /<button/);
     assert.match(model.rows[0].html, /https:\/\/example.test\/same/);
     assert.equal(new Set(model.rows.map(row => row.key)).size, 2);
-    assert.match(model.statsText, /成功: 1/);
+    assert.deepEqual(model.statsText.split(' ').sort(),
+        ['status.stats', 'pending=1', 'success=1', 'failed=0', 'active=0', 'skipped=0'].sort());
     const persistent = JSON.parse(h.storage.get('pixiv_schedule_queue_1'));
     assert.equal(persistent.items[0].liveStatus, null);
 });
@@ -162,9 +162,9 @@ test('小说的正文、内嵌图片、封面进度和插件状态都经共享�
     const row = h.c.queueItemRow({id: 'n1', kind: 'novel', status: 'downloading', title: 'Novel',
         novelText: {done: 10, total: 20}, novelEmbedded: {done: 1, total: 4},
         novelCover: {done: 10, total: 40}, liveStatus: {phase: 'TRANSLATING'}}, {readOnly: true});
-    assert.match(row.outerHTML, /小说正文/);
-    assert.match(row.outerHTML, /内嵌图片/);
-    assert.match(row.outerHTML, /封面/);
+    assert.match(row.outerHTML, /queue\.novel-text\.label/);
+    assert.match(row.outerHTML, /queue\.novel-images\.label/);
+    assert.match(row.outerHTML, /queue\.novel-cover\.label/);
     assert.match(row.outerHTML, /TRANSLATING/);
 });
 
@@ -206,7 +206,7 @@ test('待重试原因按来源解析详细机器码，忙碌任务不能清除',
     const h = setup(), bodyCalls = [];
     h.c.localizeScheduleMachineCode = (code, source) => source === 'source' && code === 'fixture.failure' ? 'Localized failure' : null;
     assert.equal(h.c.schedulePendingReasonText({reasonDetailJson: '{"reason":"fixture.failure"}'}, 'source'), 'Localized failure');
-    assert.equal(h.c.schedulePendingReasonText({reasonDetailJson: '<secret>', reasonCode: 'fixture.failure'}, 'source'), '失败原因不可用');
+    assert.equal(h.c.schedulePendingReasonText({reasonDetailJson: '<secret>', reasonCode: 'fixture.failure'}, 'source'), 'schedule.pending.reason-unavailable');
     h.c.openModal = options => bodyCalls.push(options.body);
     h.c.summaryJoin = list => list.filter(Boolean).join(' · ');
     h.c.scheduleKindLabel = kind => kind;
@@ -228,20 +228,28 @@ test('待重试原因按来源解析详细机器码，忙碌任务不能清除',
 test('小说实际贡献的翻译阶段在计划行显示，不推断新的下载状态', async () => {
     const h = setup();
     const file = resolve(__dirname, '../../../../pixivdownload-plugin-novel/src/main/resources/static/pixiv-novel-download/novel-queue-acquisition.js');
-    const source = readFileSync(file, 'utf8');
-    const start = source.indexOf('function novelLiveStatusCount');
-    const end = source.indexOf('function novelCanonicalQueueItemUrl', start);
-    vm.runInContext(source.slice(start, end), h.c);
-    h.runtime.supportsScheduledSse = () => false;
-    h.runtime.queueLiveStatus = h.c.novelQueueLiveStatus;
-    h.setSnapshot({items: [{workType: 'text', workId: '1', status: 'downloaded', title: 'Novel',
+    const shared = {};
+    h.runtime.registerSubmodule = initialize => initialize(shared);
+    Object.assign(h.c, {SINGLE_IMPORT_NOVEL_SOURCE: 'single-import-novel', QUICK_PAGE_SIZE_NOVEL: 2});
+    vm.runInContext(readFileSync(file, 'utf8'), h.c, {filename: file});
+    const descriptor = shared.buildNovelDescriptor({type: 'novel'});
+    h.runtime.supportsScheduledSse = () => descriptor.scheduledSse;
+    h.runtime.queueLiveStatus = descriptor.queueLiveStatus;
+    h.runtime.scheduledQueueItem = (type, item, context) => {
+        assert.equal(type, 'novel');
+        return descriptor.scheduledQueueItem(item, context);
+    };
+    h.setSnapshot({items: [{workType: 'novel', workId: '1', status: 'downloaded', title: 'Novel',
         liveStatus: {phase: 'TRANSLATING', elapsedSeconds: 12}}]});
     await h.c.loadScheduleQueue(h.task);
     const data = h.c.run('altScheduleQueues.get(1).data');
     const model = h.c.scheduleQueueDetailModel(data);
     assert.equal(data.items[0].status, 'completed');
-    assert.match(model.rows[0].html, /AI 翻译/);
-    assert.match(model.rows[0].html, /12s/);
+    assert.equal(data.items[0].novelId, '1');
+    assert.equal(data.items[0].rawTitle, 'Novel');
+    assert.match(model.rows[0].html, /Novel/);
+    assert.match(model.rows[0].html, /novel:queue\.translate\.label/);
+    assert.match(model.rows[0].html, /novel:queue\.message\.translating sec=12/);
     assert.equal(h.listeners.size, 0);
 });
 
@@ -254,7 +262,7 @@ test('计划媒体状态显示等待格式并正确区分失败和取消', async
     send({downloadedCount: 0, imageProgress: {phase: 'ffmpeg-waiting', outputFormat: 'png', outputIndex: 1, outputCount: 2}});
     h.flush();
     const data = h.c.run('altScheduleQueues.get(1).data');
-    assert.match(h.c.scheduleQueueDetailModel(data).rows[0].html, /queue.media.waiting.*PNG.*1\/2/);
+    assert.match(h.c.scheduleQueueDetailModel(data).rows[0].html, /queue\.media\.waiting.*PNG.*1\/2/);
     send({downloadedCount: 0, imageProgress: null});
     assert.equal(data.items[0].imageProgress, null);
     send({completed: true, failed: true});

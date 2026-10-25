@@ -1,4 +1,5 @@
 'use strict';
+    let scheduleOverrideSession = null;
     function scheduleStatusLabel(task) {
         const credentialPresentation = scheduleTaskCredentialPresentation(task);
         if (credentialPresentation && credentialPresentation.statusLabel) {
@@ -360,6 +361,8 @@
         const capabilities = updateScheduleCredentialControls(
             'sch-ov', sourceType, {task});
         if (!capabilities.supportsCredential && !capabilities.supportsProxy) return;
+        scheduleOverrideSession = {saving: false};
+        setScheduleOverrideSaving(false);
         modal.dataset.taskId = String(Number(id));
         modal.dataset.sourceType = sourceType;
         modal.dataset.sourceActivationToken = sourceActivationToken;
@@ -378,6 +381,8 @@
     function closeScheduleOverrideModal() {
         const modal = document.getElementById('schedule-override-modal');
         if (!modal) return;
+        scheduleOverrideSession = null;
+        setScheduleOverrideSaving(false);
         modal.hidden = true;
         delete modal.dataset.taskId;
         delete modal.dataset.sourceType;
@@ -385,11 +390,19 @@
         document.body.classList.remove('schedule-modal-open');
     }
 
+    function setScheduleOverrideSaving(saving) {
+        const modal = document.getElementById('schedule-override-modal');
+        if (!modal) return;
+        modal.querySelectorAll('input, button:not([data-pixiv-click="closeScheduleOverrideModal()"])')
+            .forEach(control => { control.disabled = saving; });
+    }
+
     // 弹窗保存：校验 → 取消勾选的清除确认 → 逐项调用后端。失败把原因留在弹窗里（不关闭），
     // 成功关闭弹窗并在卡片 tips 区给出反馈。
     async function saveScheduleOverride() {
         const modal = document.getElementById('schedule-override-modal');
-        if (!modal || modal.hidden) return;
+        const session = scheduleOverrideSession;
+        if (!modal || modal.hidden || !session || session.saving) return;
         const id = Number(modal.dataset.taskId);
         const task = scheduleTaskById(id);
         if (!task) {
@@ -423,39 +436,46 @@
             return;
         }
         const ov = readScheduleOverrideInputs('sch-ov', sourceType, {task});
-        const error = await validateScheduleOverrideInputs(ov, task, sourceType);
-        if (!scheduleLeaseCurrent(sourceLease)) return;
-        if (error) {
-            setScheduleOverrideStatus(error, 'error');
-            return;
-        }
-        const confirmedClears = await confirmScheduleOverrideClears(ov, task, sourceLease);
-        if (!scheduleLeaseCurrent(sourceLease) || !confirmedClears) return;
-        const result = await applyScheduleOverrides(
-            id, ov, task, sourceType, sourceLease.signal);
-        if (!scheduleLeaseCurrent(sourceLease)) return;
-        if (!result.ok) {
-            setScheduleOverrideStatus(result.error, 'error');
+        const current = () => scheduleOverrideSession === session && scheduleLeaseCurrent(sourceLease);
+        session.saving = true;
+        setScheduleOverrideSaving(true);
+        try {
+            const error = await validateScheduleOverrideInputs(ov, task, sourceType);
+            if (!current()) return;
+            if (error) {
+                setScheduleOverrideStatus(error, 'error');
+                return;
+            }
+            if (!await confirmScheduleOverrideClears(ov, task, current) || !current()) return;
+            const result = await applyScheduleOverrides(
+                id, ov, task, sourceType, sourceLease.signal);
+            // 写入已经发起，关闭弹窗不撤销写入；刷新实际状态但不触碰后来打开的草稿。
             loadScheduleTasks();
-            return;
+            if (!current()) return;
+            if (!result.ok) {
+                setScheduleOverrideStatus(result.error, 'error');
+                return;
+            }
+            closeScheduleOverrideModal();
+            setScheduleCardTip(id, result.applied
+                ? bt('schedule.status.override-saved', '已更新该任务的专用代理 / 来源凭证设置')
+                : bt('schedule.status.override-unchanged', '专用代理 / 来源凭证设置没有变化'), 'success');
+        } finally {
+            if (scheduleOverrideSession === session) {
+                session.saving = false;
+                setScheduleOverrideSaving(false);
+            }
         }
-        closeScheduleOverrideModal();
-        setScheduleCardTip(id, result.applied
-            ? bt('schedule.status.override-saved', '已更新该任务的专用代理 / 来源凭证设置')
-            : bt('schedule.status.override-unchanged', '专用代理 / 来源凭证设置没有变化'), 'success');
-        loadScheduleTasks();
     }
 
-    // 整列渲染所依据的卡片级数据签名：仅当这些字段变化时才需要重建整列 DOM。
-    // 不含队列正文 / 展开态——它们由 SSE / 快照单独更新、由用户操作单独切换，不应触发整列重建。
-    // 单卡片的渲染签名：仅当该任务的卡片级数据（状态灯/动作按钮/徽章/触发与时间/参数快照）变化时才需要替换 DOM。
-    // 不含队列正文 / 待重试面板内容——那两个面板的 DOM 在 diff 替换时被「内 HTML + 滚动位置」整体迁移到新卡片上。
+    // 卡片展示与动作变化时替换外层，队列和待重试节点保留自身状态与监听。
     function scheduleCardRenderSignature(t) {
         const credentialUi = scheduleTaskCredentialUi(t);
         const credentialPolicy = scheduleTaskCredentialPolicy(t);
         const credentialPresentation = scheduleTaskCredentialPresentation(t) || {};
         return JSON.stringify([
-            t.name, t.enabled, t.sourceType, credentialPolicy, t.proxy, t.runState,
+            t.name, t.enabled, t.sourceType || t.type, credentialPolicy, t.proxy, t.runState,
+            t.triggerKind, t.intervalMinutes, t.cronExpr, t.lastOutcome,
             t.lastStatus, t.lastMessage, t.runStartedTime, t.nextRunTime, t.lastRunTime,
             t.presentationJson, t.presentation, t.sourceAvailable, t.sourceActivationToken,
             t.pendingRetryArmed, t.suspendReason, t.suspendCode,
@@ -463,7 +483,9 @@
             credentialPresentation.lightText, credentialPresentation.suspended,
             credentialPresentation.manualRecoveryRequired,
             credentialUi.badgeLabel, credentialUi.overrideLabel, credentialUi.showOverride,
-            credentialUi.bound
+            credentialUi.bound, credentialUi.proxyLabel,
+            scheduleSourceRuntime()?.isAvailable(t.sourceType || t.type),
+            scheduleTypeLabel(t.sourceType || t.type), scheduleKindLabel(scheduleTaskKind(t))
         ]);
     }
 
@@ -519,7 +541,12 @@
 
     async function loadScheduleTasks() {
         const list = document.getElementById('schedule-list');
-        if (!list) return;
+        if (!list || state.mode !== 'schedule' || document.visibilityState === 'hidden') return;
+        scheduleListRequest?.abort();
+        const request = new AbortController();
+        scheduleListRequest = request;
+        const current = () => scheduleListRequest === request && !request.signal.aborted
+            && state.mode === 'schedule' && document.visibilityState !== 'hidden';
         const runtime = scheduleSourceRuntime();
         if (runtime && isAdmin) {
             try {
@@ -528,10 +555,8 @@
                 // manifest 暂不可用时继续展示持久化 presentation，只禁用来源编辑。
             }
         }
-        // 语言切换路径：scheduleLastRenderedLang 与当前不一致时，先把签名清空，让本轮所有卡片
-        // 都通过 replaceScheduleCardPreservingInner 走 replace，确保头/徽章/状态灯/动作按钮换语言；
-        // 等列表渲染完，再为展开的「本轮队列详情」与「待重试」面板补一次重渲染（preserve-inner 会
-        // 把这两块的旧 innerHTML 搬到新卡片，不主动刷一次会停留在旧语言）。
+        if (!current()) return;
+        // 语言变化同时刷新卡片签名与保留的详情节点，业务模型仍只保存原始值。
         const currentLang = uiLang();
         const langChanged = scheduleLastRenderedLang != null && scheduleLastRenderedLang !== currentLang;
         if (langChanged) {
@@ -539,12 +564,16 @@
             scheduleBannerSignature = null;
         }
         try {
-            const res = await fetch(`${BASE}/api/schedule/tasks`, {credentials: 'same-origin'});
+            const res = await fetch(`${BASE}/api/schedule/tasks`, {
+                credentials: 'same-origin', signal: request.signal
+            });
+            if (!current()) return;
             if (!res.ok) {
                 renderScheduleListPlaceholder(list, bt('schedule.list.load-failed', '加载失败'));
                 return;
             }
             const tasks = await res.json();
+            if (!current()) return;
             scheduleTasksCache = Array.isArray(tasks) ? tasks : [];
             scheduleCredentialPolicyGroupsCache = scheduleCredentialPolicyGroups(scheduleTasksCache);
 
@@ -567,28 +596,28 @@
                 renderScheduleBannersDiff(list);
                 renderScheduleCardsDiff(list);
                 if (langChanged) {
-                    // 展开的「本轮队列详情」：先用 localizer 即时重渲染（已含 rawStatus 的新模型立即切语言），
-                    // 再异步触发一次 fetchScheduleQueue 让后端有新数据时重建模型；旧版本 bake 过翻译的
-                    // 缓存项需要靠这次重建才能跟随语言变化。
-                    scheduleExpandedQueues.forEach(id => {
-                        renderScheduleQueueBodyInto(id);
-                        fetchScheduleQueue(id);
-                    });
-                    scheduleTasksCache.forEach(t => {
-                        const panel = document.getElementById(`schedule-pending-${t.id}`);
-                        if (panel && !panel.hidden) loadPendingPanel(t.id);
-                    });
+                    scheduleExpandedQueues.forEach(renderScheduleQueueBodyInto);
                 }
             }
             scheduleLastRenderedLang = currentLang;
             // 无论是否重建整列：运行 / 排队中的展开卡片随本轮轮询拉取最新队列快照，非运行态保持缓存。
-            refreshExpandedScheduleQueues();
+            refreshExpandedScheduleQueues(scheduleDetailsNeedRefresh || langChanged);
+            if (scheduleDetailsNeedRefresh || langChanged) {
+                scheduleTasksCache.forEach(t => {
+                    const panel = document.getElementById(`schedule-pending-${t.id}`);
+                    if (panel && !panel.hidden) loadPendingPanel(t.id);
+                });
+            }
+            scheduleDetailsNeedRefresh = false;
         } catch (e) {
-            renderScheduleListPlaceholder(list, bt('schedule.list.load-failed', '加载失败'));
+            if (current()) renderScheduleListPlaceholder(list, bt('schedule.list.load-failed', '加载失败'));
+        } finally {
+            if (scheduleListRequest === request) scheduleListRequest = null;
         }
     }
 
     function renderScheduleListPlaceholder(list, text) {
+        releaseScheduleTaskDetails();
         list.innerHTML = `<div class="schedule-empty">${escHtml(text)}</div>`;
         scheduleEmptyStateRendered = true;
         scheduleBannerSignature = null;
@@ -616,9 +645,7 @@
         }
     }
 
-    // 按卡片 diff：仅对签名变化的卡片做替换，替换时把内部「队列正文/待重试面板」的 innerHTML、scrollTop、
-    // 展开折叠态原样迁移到新卡片，避免「点暂停/恢复 → 整列 innerHTML 重建 → 展开的队列 DOM 被销毁 →
-    // 队列滚动条回到顶部」这条问题路径。
+    // 未变化的卡片保留 DOM；替换卡片时迁移原有详情节点，避免中断其交互与订阅。
     function renderScheduleCardsDiff(list) {
         const existing = new Map();
         list.querySelectorAll(':scope > .schedule-card').forEach(card => {
@@ -655,52 +682,47 @@
         });
     }
 
-    function buildScheduleCardElement(t) {
+    function buildScheduleCardElement(t, includeQueueBody = true) {
         const temp = document.createElement('div');
-        temp.innerHTML = renderScheduleTaskCard(t).trim();
+        temp.innerHTML = renderScheduleTaskCard(t, includeQueueBody).trim();
         return temp.firstElementChild;
     }
 
-    // 替换一张卡片但保留两个有状态子区块（队列正文 / 待重试面板）的 DOM 状态：内 HTML / 隐藏态 / 滚动位置。
-    // 队列正文的折叠 caret / aria-expanded 同步矫正为保留下来的展开态。
+    // 迁移原节点以保留 Vue 实例与直接绑定的事件；HTML 副本不能承接这两者。
     function replaceScheduleCardPreservingInner(existingCard, t) {
         const oldQueueBody = existingCard.querySelector('.schedule-queue-body');
         const oldPending = existingCard.querySelector('.schedule-pending-panel');
+        const focused = document.activeElement;
+        const restoreFocus = focused && (oldQueueBody?.contains(focused) || oldPending?.contains(focused));
         // 卡片顶部 tips 区域：保留刚刚因操作写入的反馈，避免轮询重渲染把它清掉。
         const oldTip = existingCard.querySelector('.schedule-card-tip');
         const tipState = oldTip ? {text: oldTip.textContent, color: oldTip.style.color} : null;
         // 真正的滚动容器是 .schedule-queue-body 内部的 .schedule-queue-list（见 renderScheduleQueueBodyInto），
         // 因此 scrollTop 取内层 list 的值，替换后再写回新 list 上，避免队列滚动条跳回顶部。
         const oldQueueList = oldQueueBody ? oldQueueBody.querySelector('.schedule-queue-list') : null;
-        const queueState = oldQueueBody ? {
-            inner: oldQueueBody.innerHTML,
-            scrollTop: oldQueueList ? oldQueueList.scrollTop : 0,
-            expanded: !oldQueueBody.hasAttribute('hidden')
-        } : null;
-        const pendingState = oldPending ? {
-            inner: oldPending.innerHTML,
-            expanded: !oldPending.hasAttribute('hidden')
-        } : null;
+        const scrollTop = oldQueueList ? oldQueueList.scrollTop : 0;
 
-        const newCard = buildScheduleCardElement(t);
+        const newCard = buildScheduleCardElement(t, false);
 
         const newQueueBody = newCard.querySelector('.schedule-queue-body');
-        if (newQueueBody && queueState) {
-            newQueueBody.innerHTML = queueState.inner;
-            if (queueState.expanded) newQueueBody.removeAttribute('hidden');
-            else newQueueBody.setAttribute('hidden', '');
+        if (newQueueBody && oldQueueBody) {
+            newQueueBody.replaceWith(oldQueueBody);
             const toggle = newCard.querySelector('.schedule-queue-toggle');
             if (toggle) {
-                toggle.setAttribute('aria-expanded', String(queueState.expanded));
+                toggle.setAttribute('aria-expanded', String(!oldQueueBody.hidden));
                 const caret = toggle.querySelector('.schedule-queue-caret');
-                if (caret) caret.textContent = queueState.expanded ? '▾' : '▸';
+                if (caret) caret.textContent = oldQueueBody.hidden ? '▸' : '▾';
             }
         }
         const newPending = newCard.querySelector('.schedule-pending-panel');
-        if (newPending && pendingState) {
-            newPending.innerHTML = pendingState.inner;
-            if (pendingState.expanded) newPending.removeAttribute('hidden');
-            else newPending.setAttribute('hidden', '');
+        if (newPending && oldPending) {
+            newPending.replaceWith(oldPending);
+            const busy = ['RUNNING', 'QUEUED', 'CANCEL_REQUESTED'].includes(t.runState);
+            oldPending.querySelectorAll('[data-schedule-pending-clear]').forEach(button => {
+                button.disabled = busy;
+                if (busy) button.title = bt('schedule.disabled.busy', '任务运行 / 排队中，暂不可操作');
+                else button.removeAttribute('title');
+            });
         }
         const newTip = newCard.querySelector('.schedule-card-tip');
         if (newTip && tipState && tipState.text) {
@@ -709,16 +731,12 @@
         }
 
         existingCard.replaceWith(newCard);
-
-        // scrollTop 必须在 element 已经在 document 中之后设置，否则浏览器会丢弃。
-        if (newQueueBody && queueState && queueState.scrollTop) {
-            const newQueueList = newQueueBody.querySelector('.schedule-queue-list');
-            if (newQueueList) newQueueList.scrollTop = queueState.scrollTop;
-        }
+        if (oldQueueList) oldQueueList.scrollTop = scrollTop;
+        if (restoreFocus) focused.focus({preventScroll: true});
         return newCard;
     }
 
-    function renderScheduleTaskCard(t) {
+    function renderScheduleTaskCard(t, includeQueueBody = true) {
         const sourceType = t.sourceType || t.type;
         const kind = scheduleTaskKind(t);
         const typeLabel = t.sourceAvailable === false ? sourceType : scheduleTypeLabel(sourceType);
@@ -796,7 +814,7 @@
                 <button class="btn btn-red" ${busyAttr} data-pixiv-click="deleteScheduleTask(${t.id})">${escHtml(bt('schedule.action.delete', '🗑 删除'))}</button>
             </div>
             <div class="schedule-pending-panel" id="schedule-pending-${t.id}" hidden></div>
-            ${renderScheduleQueueSection(t)}
+            ${renderScheduleQueueSection(t, includeQueueBody)}
         </div>`;
     }
 

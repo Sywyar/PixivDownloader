@@ -8,7 +8,6 @@ import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigGroups;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -29,20 +28,13 @@ public final class GuiConfigSectionResolver {
     private GuiConfigSectionResolver() {
     }
 
-    public static List<ConfigSection> createSections(ConfigSectionContext ctx,
-                                                     List<?> visibleGroups,
-                                                     List<GuiConfigSectionSpec> pluginSections,
-                                                     Path configPath,
-                                                     Function<String, String> webUrlProvider) {
-        return createSections(ctx, visibleGroups, pluginSections, configPath, webUrlProvider, true);
-    }
-
-    public static List<ConfigSection> createSections(ConfigSectionContext ctx,
-                                                     List<?> visibleGroups,
-                                                     List<GuiConfigSectionSpec> pluginSections,
-                                                     Path configPath,
-                                                     Function<String, String> webUrlProvider,
-                                                     boolean includeTransitionAdapters) {
+    public static List<ConfigSection> createSections(
+            ConfigSectionContext ctx,
+            List<?> visibleGroups,
+            List<GuiConfigSectionSpec> pluginSections,
+            Function<String, String> webUrlProvider,
+            boolean includeTransitionAdapters
+    ) {
         VisibleGroups groups = VisibleGroups.from(visibleGroups);
         List<GuiConfigSectionSpec> safePluginSections = pluginSections == null ? List.of() : pluginSections;
         List<GuiConfigSectionSpec> transitionSpecs = includeTransitionAdapters
@@ -52,7 +44,7 @@ public final class GuiConfigSectionResolver {
         Set<String> exclusiveGroups = new LinkedHashSet<>();
 
         for (GuiConfigSectionSpec spec : transitionSpecs) {
-            ConfigSectionBlock block = transitionBlock(spec, configPath, webUrlProvider);
+            ConfigSectionBlock block = transitionBlock(spec, webUrlProvider);
             if (block != null) {
                 blocksByGroup.computeIfAbsent(spec.group(), ignored -> new ArrayList<>()).add(block);
                 if (PLUGIN_MARKET_SECTION.equals(spec.sectionId())) {
@@ -104,7 +96,6 @@ public final class GuiConfigSectionResolver {
     }
 
     private static ConfigSectionBlock transitionBlock(GuiConfigSectionSpec spec,
-                                                      Path configPath,
                                                       Function<String, String> webUrlProvider) {
         Function<ConfigSectionContext, ConfigSection> factory = switch (spec.sectionId()) {
             case PLUGIN_MARKET_SECTION -> sectionContext ->
@@ -120,11 +111,7 @@ public final class GuiConfigSectionResolver {
     private static ConfigSectionBlock declaredBlock(String group, List<GuiConfigSectionSpec> specs) {
         List<GuiConfigSectionSpec> sorted = sortSpecs(specs);
         GuiConfigSectionSpec first = sorted.get(0);
-        int order = sorted.stream()
-                .mapToInt(GuiConfigSectionSpec::order)
-                .min()
-                .orElse(first.order());
-        return new FactoryConfigSectionBlock(first.pluginId(), first.sectionId(), group, order,
+        return new FactoryConfigSectionBlock(first.pluginId(), first.sectionId(), group, first.order(),
                 sectionContext -> new DeclaredGuiConfigSection(sectionContext, group, sorted));
     }
 

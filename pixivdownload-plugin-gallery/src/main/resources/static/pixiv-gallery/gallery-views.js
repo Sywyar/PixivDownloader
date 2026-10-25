@@ -1,5 +1,6 @@
 'use strict';
 
+    let galleryMembershipRevision = 0;
     let galleryStatusModel = null;
     let galleryLoadRevision = 0;
 
@@ -181,6 +182,7 @@
     }
 
     async function loadMembershipsForCurrentPage(artworkIds) {
+        const revision = ++galleryMembershipRevision;
         if (!artworkIds.length) return;
         let memberships = {};
         try {
@@ -193,6 +195,7 @@
         } catch (e) {
             return;
         }
+        if (revision !== galleryMembershipRevision || collectionPending) return;
         const byId = new Map(state.collections.map(c => [c.id, c]));
         artworkIds.forEach(id => {
             const collectionIds = memberships[id] || [];
@@ -211,22 +214,26 @@
         });
     }
 
-    function renderPagination() {
-        const pag = document.getElementById('pagination');
-        if (state.totalPages <= 1) {
+    function renderPageControls(containerId, currentPage, totalPages, onPageChange) {
+        const pag = document.getElementById(containerId);
+        if (totalPages <= 1) {
             pag.innerHTML = '';
             return;
         }
-        const pages = buildPageWindow(state.page, state.totalPages);
+        const pages = buildPageWindow(currentPage, totalPages);
         const parts = [];
-        parts.push(`<button class="page-btn" data-page="${state.page - 1}" ${state.page === 0 ? 'disabled' : ''}>${escapeHtml(t('pagination.prev', 'Previous'))}</button>`);
+        parts.push(`<button class="page-btn" data-page="${currentPage - 1}" ${currentPage === 0 ? 'disabled' : ''}>${escapeHtml(t('pagination.prev', 'Previous'))}</button>`);
         for (const p of pages) {
-            if (p === '...') parts.push(buildPageJumpInput(state.totalPages));
-            else parts.push(`<button class="page-btn ${p === state.page ? 'active' : ''}" data-page="${p}">${p + 1}</button>`);
+            if (p === '...') parts.push(buildPageJumpInput(totalPages));
+            else parts.push(`<button class="page-btn ${p === currentPage ? 'active' : ''}" data-page="${p}">${p + 1}</button>`);
         }
-        parts.push(`<button class="page-btn" data-page="${state.page + 1}" ${state.page >= state.totalPages - 1 ? 'disabled' : ''}>${escapeHtml(t('pagination.next', 'Next'))}</button>`);
+        parts.push(`<button class="page-btn" data-page="${currentPage + 1}" ${currentPage >= totalPages - 1 ? 'disabled' : ''}>${escapeHtml(t('pagination.next', 'Next'))}</button>`);
         pag.innerHTML = parts.join('');
-        bindPaginationControls(pag, state.totalPages, p => {
+        bindPaginationControls(pag, totalPages, onPageChange);
+    }
+
+    function renderPagination() {
+        renderPageControls('pagination', state.page, state.totalPages, p => {
             state.page = p;
             loadGallery();
         });
@@ -295,61 +302,6 @@
             out.push(pages[i]);
         }
         return out;
-    }
-
-    // ---------- Add to collection ----------
-    async function openAddToCollectionModal(artworkId) {
-        state.activeArtworkId = artworkId;
-        try {
-            const resp = await api(`/api/collections/of/${artworkId}`);
-            state.collectionMembership = new Set(resp.collectionIds || []);
-        } catch (e) {
-            state.collectionMembership = new Set();
-        }
-        renderAddToCollectionList();
-        document.getElementById('modalAddToCollection').classList.add('open');
-    }
-
-    function closeAddToCollectionModal() {
-        document.getElementById('modalAddToCollection').classList.remove('open');
-        state.activeArtworkId = null;
-        loadCollections();
-        const ids = [...document.querySelectorAll('.work-card[data-id]')].map(el => Number(el.dataset.id));
-        if (ids.length) loadMembershipsForCurrentPage(ids);
-    }
-
-    function renderAddToCollectionList() {
-        const list = document.getElementById('addToCollectionList');
-        if (!state.collections.length) {
-            list.innerHTML = '<div class="empty-state" style="padding:24px">' + escapeHtml(t('status.no-collections-hint', 'No collections yet. Create one first.')) + '</div>';
-            return;
-        }
-        list.innerHTML = state.collections.map(c => `
-            <label class="collection-row" data-id="${c.id}">
-                <input type="checkbox" ${state.collectionMembership.has(c.id) ? 'checked' : ''}>
-                <div class="collection-row-icon">${iconHtml(c)}</div>
-                <div class="collection-row-name">${escapeHtml(c.name)}</div>
-                <span class="collection-count">${c.artworkCount}</span>
-            </label>
-        `).join('');
-        list.querySelectorAll('.collection-row').forEach(row => {
-            const id = Number(row.dataset.id);
-            const cb = row.querySelector('input[type="checkbox"]');
-            cb.addEventListener('change', async () => {
-                try {
-                    if (cb.checked) {
-                        await api(`/api/collections/${id}/artworks/${state.activeArtworkId}`, {method: 'POST'});
-                        state.collectionMembership.add(id);
-                    } else {
-                        await api(`/api/collections/${id}/artworks/${state.activeArtworkId}`, {method: 'DELETE'});
-                        state.collectionMembership.delete(id);
-                    }
-                } catch (e) {
-                    toast(e.message || t('toast.action-failed', 'Action failed'), 'error');
-                    cb.checked = !cb.checked;
-                }
-            });
-        });
     }
 
     function switchView(view) {
@@ -541,23 +493,7 @@
     }
 
     function renderAuthorsPagination() {
-        const pag = document.getElementById('authorPagination');
-        const totalPages = state.authors.totalPages;
-        if (totalPages <= 1) {
-            pag.innerHTML = '';
-            return;
-        }
-        const pages = buildPageWindow(state.authors.page, totalPages);
-        const parts = [];
-        const cur = state.authors.page;
-        parts.push(`<button class="page-btn" data-page="${cur - 1}" ${cur === 0 ? 'disabled' : ''}>${escapeHtml(t('pagination.prev', 'Previous'))}</button>`);
-        for (const p of pages) {
-            if (p === '...') parts.push(buildPageJumpInput(totalPages));
-            else parts.push(`<button class="page-btn ${p === cur ? 'active' : ''}" data-page="${p}">${p + 1}</button>`);
-        }
-        parts.push(`<button class="page-btn" data-page="${cur + 1}" ${cur >= totalPages - 1 ? 'disabled' : ''}>${escapeHtml(t('pagination.next', 'Next'))}</button>`);
-        pag.innerHTML = parts.join('');
-        bindPaginationControls(pag, totalPages, p => {
+        renderPageControls('authorPagination', state.authors.page, state.authors.totalPages, p => {
             state.authors.page = p;
             loadAuthorsView();
         });
@@ -702,23 +638,7 @@
     }
 
     function renderSeriesPagination() {
-        const pag = document.getElementById('authorPagination');
-        const totalPages = state.series.totalPages;
-        if (totalPages <= 1) {
-            pag.innerHTML = '';
-            return;
-        }
-        const pages = buildPageWindow(state.series.page, totalPages);
-        const parts = [];
-        const cur = state.series.page;
-        parts.push(`<button class="page-btn" data-page="${cur - 1}" ${cur === 0 ? 'disabled' : ''}>${escapeHtml(t('pagination.prev', 'Previous'))}</button>`);
-        for (const p of pages) {
-            if (p === '...') parts.push(buildPageJumpInput(totalPages));
-            else parts.push(`<button class="page-btn ${p === cur ? 'active' : ''}" data-page="${p}">${p + 1}</button>`);
-        }
-        parts.push(`<button class="page-btn" data-page="${cur + 1}" ${cur >= totalPages - 1 ? 'disabled' : ''}>${escapeHtml(t('pagination.next', 'Next'))}</button>`);
-        pag.innerHTML = parts.join('');
-        bindPaginationControls(pag, totalPages, p => {
+        renderPageControls('authorPagination', state.series.page, state.series.totalPages, p => {
             state.series.page = p;
             loadSeriesView();
         });

@@ -2,16 +2,32 @@ package top.sywyar.pixivdownload.push;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 @DisplayName("推送 HTTP 发送器业务响应处理")
 class PushHttpSenderTest {
@@ -19,6 +35,45 @@ class PushHttpSenderTest {
     private final StubRestTemplate direct = new StubRestTemplate();
     private final StubRestTemplate proxy = new StubRestTemplate();
     private final PushHttpSender sender = new PushHttpSender(direct, proxy, TestMessageResolver.INSTANCE);
+
+    @ParameterizedTest
+    @CsvSource({
+            "x, http, false", "a7q, http, true", "long-key, http, false",
+            "x, transport, true", "a7q, transport, false", "long-key, transport, true",
+            "x, business, false", "a7q, business, true", "long-key, business, false"
+    })
+    @ExtendWith(OutputCaptureExtension.class)
+    @DisplayName("各类发送失败均在返回详情和日志中隐藏完整凭据")
+    void redactsFailureDetailsAndLogs(String secret, String failure, boolean useProxy, CapturedOutput output) {
+        RestTemplate directClient = new RestTemplate();
+        RestTemplate proxyClient = new RestTemplate();
+        MockRestServiceServer directServer = MockRestServiceServer.bindTo(directClient).build();
+        MockRestServiceServer proxyServer = MockRestServiceServer.bindTo(proxyClient).build();
+        String detail = "denied credential=" + secret + "; 原因=拒绝";
+        var response = switch (failure) {
+            case "http" -> withStatus(HttpStatus.UNAUTHORIZED).body(detail);
+            case "transport" -> withException(new IOException(detail));
+            default -> withSuccess("{\"errcode\":7,\"errmsg\":\"" + detail + "\"}", MediaType.APPLICATION_JSON);
+        };
+        (useProxy ? proxyServer : directServer).expect(requestTo("https://example.test/send"))
+                .andExpect(method(HttpMethod.POST)).andRespond(response);
+
+        PushResult result = new PushHttpSender(directClient, proxyClient, TestMessageResolver.INSTANCE)
+                .send(PushChannelIds.DINGTALK, OutboundRequest.json("https://example.test/send",
+                        "{}".getBytes(StandardCharsets.UTF_8), Arrays.asList(null, "", " ", secret), useProxy));
+
+        assertThat(result.status()).isEqualTo(PushResult.Status.FAILED);
+        assertThat(result.channel()).isEqualTo(PushChannelIds.DINGTALK);
+        assertThat(result.detail()).contains("denied credential=***; 原因=拒绝").doesNotContain(secret);
+        if ("http".equals(failure)) {
+            assertThat(result.detail()).startsWith("HTTP 401: ");
+        } else if ("business".equals(failure)) {
+            assertThat(result.detail()).startsWith("errcode=7: ");
+        }
+        assertThat(output.getAll()).contains("denied credential=***").doesNotContain("credential=" + secret);
+        directServer.verify();
+        proxyServer.verify();
+    }
 
     @Test
     @DisplayName("钉钉 HTTP 200 但 errcode 非零时失败并脱敏")
@@ -145,6 +200,47 @@ class PushHttpSenderTest {
 
         assertThat(result.isOk()).isTrue();
         assertThat(result.channel()).isEqualTo(new PushChannelId("custom-channel"));
+    }
+
+    @Test
+    @DisplayName("钉钉与企业微信保留空响应和缺失业务码的成功语义")
+    void errcodeChannelsAcceptMissingOrZeroStatus() {
+        for (PushChannelId channel : List.of(PushChannelIds.DINGTALK, PushChannelIds.WECOM)) {
+            for (String body : List.of("", " ", "not-json", "[]", "null", "{}",
+                    "{\"errcode\":null}", "{\"ERRCODE\":\" 0 \"}",
+                    "{\"errcode\":0,\"ERRCODE\":7}", "{\"errcode\":null,\"ERRCODE\":7}")) {
+                direct.respond(body);
+
+                PushResult result = sender.send(channel, request(List.of()));
+
+                assertThat(result.status()).as("%s: %s", channel, body).isEqualTo(PushResult.Status.OK);
+                assertThat(result.channel()).isEqualTo(channel);
+                assertThat(result.detail()).isNull();
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("业务错误保留大小写字段查询和错误消息优先级")
+    void errcodeChannelsPreserveMessagePriority() {
+        Map<String, String> cases = Map.of(
+                "{\"ERRCODE\":7,\"ERRMSG\":\"primary\",\"message\":\"second\",\"msg\":\"last\"}",
+                "errcode=7: primary",
+                "{\"errcode\":8,\"errmsg\":\" \",\"message\":\"second\",\"msg\":\"last\"}",
+                "errcode=8: second",
+                "{\"errcode\":9,\"errmsg\":null,\"message\":\"\",\"msg\":\"last\"}",
+                "errcode=9: last",
+                "{\"errcode\":false}", "errcode=false");
+        for (PushChannelId channel : List.of(PushChannelIds.DINGTALK, PushChannelIds.WECOM)) {
+            cases.forEach((body, expected) -> {
+                direct.respond(body);
+
+                PushResult result = sender.send(channel, request(List.of()));
+
+                assertThat(result.status()).as("%s: %s", channel, body).isEqualTo(PushResult.Status.FAILED);
+                assertThat(result.detail()).isEqualTo(expected);
+            });
+        }
     }
 
     private static OutboundRequest request(List<String> secrets) {

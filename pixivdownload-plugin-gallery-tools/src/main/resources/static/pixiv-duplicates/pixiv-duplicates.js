@@ -6,6 +6,12 @@
 
     var pageI18n = null;
     var pollTimer = null;
+    var pageActive = true;
+    var pageReady = false;
+    var groupsRequest = null;
+    var scanRequest = null;
+    var scanPending = false;
+    var regroupPending = false;
     var state = {
         threshold: 0,
         ahashThreshold: 0,
@@ -23,8 +29,7 @@
         try {
             var raw = window.localStorage.getItem(key);
             if (raw === null) return fallback;
-            var n = Number(raw);
-            return Number.isFinite(n) ? Math.max(0, Math.min(32, Math.round(n))) : fallback;
+            return clampThreshold(raw, fallback);
         } catch (e) {
             return fallback;
         }
@@ -59,12 +64,14 @@
     }
 
     async function api(url, options) {
+        var signal = options && options.signal;
         var res = await fetch(url, Object.assign({
             credentials: 'same-origin',
             headers: { 'Accept': 'application/json' }
         }, options || {}));
+        if (signal) signal.throwIfAborted();
         if (res.status === 401) {
-            window.location.href = '/login.html?redirect=' + encodeURIComponent(location.pathname + location.search);
+            if (pageActive) window.location.href = '/login.html?redirect=' + encodeURIComponent(location.pathname + location.search);
             throw new Error('Unauthorized');
         }
         var payload = null;
@@ -73,6 +80,7 @@
         } catch (e) {
             payload = null;
         }
+        if (signal) signal.throwIfAborted();
         if (!res.ok) {
             throw new Error(payload && payload.error ? payload.error : ('HTTP ' + res.status));
         }
@@ -131,7 +139,10 @@
     function updateScan(scan) {
         var status = el('scanStatus');
         var progress = el('scanProgress');
-        if (status) status.textContent = fmtScan(scan);
+        if (status) {
+            status.removeAttribute('data-i18n');
+            status.textContent = fmtScan(scan);
+        }
         var percent = 0;
         if (scan && scan.total > 0) {
             percent = Math.max(0, Math.min(100, Math.round((scan.processed / scan.total) * 100)));
@@ -254,10 +265,21 @@
         flashSummary.timer = window.setTimeout(updateSummary, 1800);
     }
 
+    function cancelReads() {
+        if (groupsRequest) groupsRequest.abort();
+        if (scanRequest) scanRequest.abort();
+        groupsRequest = scanRequest = null;
+    }
+
     async function loadGroups() {
+        if (!pageActive) return false;
+        cancelReads();
+        var request = groupsRequest = new AbortController();
+        window.clearTimeout(flashSummary.timer);
         setBanner('status.loading', '加载中...', false);
         try {
-            var data = await api('/api/duplicates/groups?' + queryString());
+            var data = await api('/api/duplicates/groups?' + queryString(), { signal: request.signal });
+            if (request.signal.aborted) return false;
             state.page = data.page || 0;
             state.size = data.size || state.size;
             state.totalGroups = data.totalGroups || 0;
@@ -265,53 +287,65 @@
             renderGroups(data.groups || []);
             renderPager();
             updateSummary();
+            return true;
         } catch (e) {
-            if (e && e.message === 'Unauthorized') return;
+            if (request.signal.aborted || (e && e.message === 'Unauthorized')) return false;
             setBanner('status.error', '加载失败，请稍后重试', true);
+            return false;
+        } finally {
+            if (groupsRequest === request) groupsRequest = null;
         }
     }
 
     async function rescanGroups() {
+        if (!pageActive || regroupPending) return;
+        regroupPending = true;
+        cancelReads();
         var button = el('rescanButton');
         if (button) button.disabled = true;
         try {
-            var data = await api('/api/duplicates/rescan?' + queryString(), { method: 'POST' });
-            state.page = data.page || 0;
-            state.totalGroups = data.totalGroups || 0;
-            updateScan(data.scan);
-            renderGroups(data.groups || []);
-            renderPager();
-            flashSummary();
+            await api('/api/duplicates/rescan?' + queryString(), { method: 'POST' });
+            // 写入不随筛选或离页取消；回执后按当前筛选读取，避免发布旧分组。
+            if (pageActive && await loadGroups()) flashSummary();
         } catch (e) {
-            setBanner('status.error', '加载失败，请稍后重试', true);
+            if (pageActive && e.message !== 'Unauthorized') setBanner('status.error', '加载失败，请稍后重试', true);
         } finally {
+            regroupPending = false;
             if (button) button.disabled = false;
         }
     }
 
     async function startScan() {
+        if (!pageActive || scanPending) return;
+        scanPending = true;
+        cancelReads();
         var button = el('scanButton');
         if (button) button.disabled = true;
         try {
-            var scan = await api('/api/duplicates/scan?force=false', { method: 'POST' });
-            updateScan(scan);
-            startPolling();
+            await api('/api/duplicates/scan?force=false', { method: 'POST' });
+            if (pageActive) await loadGroups();
         } catch (e) {
-            setBanner('status.scan-error', '扫描启动失败', true);
+            if (pageActive && e.message !== 'Unauthorized') setBanner('status.scan-error', '扫描启动失败', true);
         } finally {
+            scanPending = false;
             if (button) button.disabled = false;
         }
     }
 
     async function pollScan() {
+        if (!pageActive || groupsRequest || scanRequest || scanPending || regroupPending) return;
+        var request = scanRequest = new AbortController();
         try {
-            var scan = await api('/api/duplicates/scan/status');
+            var scan = await api('/api/duplicates/scan/status', { signal: request.signal });
+            if (request.signal.aborted) return;
             updateScan(scan);
             if (scan && scan.state !== 'RUNNING') {
                 await loadGroups();
             }
         } catch (e) {
-            stopPolling();
+            if (!request.signal.aborted) stopPolling();
+        } finally {
+            if (scanRequest === request) scanRequest = null;
         }
     }
 
@@ -419,6 +453,19 @@
         restoreThresholds();
         bindControls();
         await initI18n();
+        pageReady = true;
         await loadGroups();
+    });
+
+    window.addEventListener('pagehide', function () {
+        pageActive = false;
+        cancelReads();
+        stopPolling();
+        window.clearTimeout(flashSummary.timer);
+    });
+    window.addEventListener('pageshow', function () {
+        if (pageActive) return;
+        pageActive = true;
+        if (pageReady) loadGroups();
     });
 })();

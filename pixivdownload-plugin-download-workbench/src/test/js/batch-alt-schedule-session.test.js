@@ -135,13 +135,75 @@ test('进入编辑后迟到的手动搜索结果不覆盖计划草稿',async()=>
     assert.equal(h.run('scheduleState.editing.original.search.loading'),false);
 });
 
+for (const mode of ['user', 'series', 'search']) {
+    test(`取消计划编辑后，进入编辑前的 ${mode} 请求不会恢复写入`, async () => {
+        const h = setup();
+        let finish;
+        const acquisition = {type: 'illust', parseInput: value => value,
+            fetchPage: () => new Promise(resolve => { finish = resolve; }),
+            parseUrl: value => ({seriesId: value}), apiPath: () => '/fixture',
+            buildRequest: () => ({endpoint: '/fixture'})};
+        h.context.PixivBatch.queueTypes.acquisition = () => acquisition;
+        h.context.PixivBatch.queueTypes.acquisitionList = () => [acquisition];
+        h.context.PixivBatch.queueTypes.acquisitionLease = () => ({assertCurrent() {}});
+        h.context.PixivBatch.queueTypes.filtersFor = () => null;
+        h.context.altAcquisitionJson = () => new Promise(resolve => { finish = resolve; });
+        h.run(`state.mode='${mode}';userState.input='manual';seriesState.url='manual';searchState.word='manual';
+            renderUserStage=renderSeriesStage=renderSearchStage=()=>{};renderStage();`);
+        const start = mode === 'user' ? h.context.loadUserWorks : mode === 'series' ? h.context.loadSeries : h.context.runSearch;
+        const pending = start(1);
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(typeof finish, 'function');
+        h.context.openScheduleEditor(h.task);
+        h.confirm(true);
+        await h.context.cancelScheduleEdit();
+        finish({items: [{id: 'late'}], total: 1});
+        await pending;
+        assert.equal(h.run(mode === 'search' ? 'searchState.rawResults.length' : mode + 'State.rawItems.length'), 0);
+        assert.equal(h.run(mode + 'State.loading'), false);
+        assert.equal(h.run('scheduleState.editing'), null);
+    });
+}
+
+for (const mode of ['quick', 'drill']) {
+    test(`计划编辑及取消后都拒绝此前 ${mode} 读取`, async () => {
+        for (const restore of [false, true]) {
+            const h = setup();
+            h.load('alt-mode-capture.js');
+            let finish;
+            const descriptor = {buildPageRequest: () => ({})};
+            const acquisition = {type: 'illust', initialCursor: 'start', actions: {works: descriptor},
+                buildUserPageRequest: () => ({})};
+            h.context.PixivBatch.queueTypes.acquisition = () => acquisition;
+            h.context.PixivBatch.queueTypes.acquisitionLease = () => ({assertCurrent() {}});
+            h.context.PixivBatch.queueTypes.filtersFor = () => null;
+            h.context.altAcquisitionJson = () => new Promise(resolve => { finish = resolve; });
+            h.context.loadingGrid = () => h.context.document.createElement('progress');
+            h.run(`renderQuickStage=()=>{};quickState.action='works';quickState.drill={type:'user',id:'author',
+                kind:'illust',loadSeq:0,rawItems:[],cursors:new Map()};`);
+            const stage = h.context.document.createElement('div');
+            stage.id = 'abQuickStage';
+            h.context.document.body.append(stage);
+            const pending = mode === 'quick' ? h.context.loadQuickWorks({id: 'works', descriptor}, 1)
+                : h.context.loadQuickDrillPage(1);
+            assert.equal(typeof finish, 'function');
+            h.context.openScheduleEditor(h.task);
+            if (restore) { h.confirm(true); await h.context.cancelScheduleEdit(); }
+            finish({items: [{id: 'late'}], hasMore: false});
+            await pending;
+            assert.equal(h.run(mode === 'quick' ? 'quickState.rawItems.length' : 'quickState.drill.rawItems.length'), 0);
+            assert.equal(h.run(mode === 'quick' ? 'quickState.loading' : 'quickState.drill.loading'), false);
+        }
+    });
+}
+
 test('计划编辑期间手动下载继续使用原筛选，取消编辑后仍保留原筛选', async () => {
     for (const manualContent of ['all', 'r18']) {
         const h = setup({paramsJson: JSON.stringify({source: {word: 'draft', maxPages: 1},
             filters: {content: manualContent === 'all' ? 'r18' : 'all'}})});
         for (const name of ['renderCurrent', 'setDockStatus', 'saveQueue', 'updateButtonsState',
             'ensureSharedSSE', 'closeAllSSE', 'openSSE', 'closeSSE']) h.context[name] = () => {};
-        h.load('alt-engine.js', 'alt-engine-workers.js');
+        h.load('../pixiv-batch/batch-artwork-requests.js', '../pixiv-batch/batch-archive.js', 'alt-engine.js', '../pixiv-batch/download-workers.js', 'alt-engine-workers.js');
         h.context.PixivBatch.queueTypes.filtersFor = () => null;
         h.context.handlePathActionError = () => false;
         h.context.mergeUgoiraProgress = () => null;

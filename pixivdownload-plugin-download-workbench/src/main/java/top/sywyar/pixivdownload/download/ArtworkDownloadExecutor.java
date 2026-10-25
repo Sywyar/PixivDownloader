@@ -180,14 +180,22 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             task.bind(() -> downloadImagesTracked(task, artworkId, title, imageUrls,
                     referer, effectiveOther, cookie, userUuid, plan, attempt));
             interactiveDownloadExecutionLane.execute(task);
-            return attempt;
         } catch (RuntimeException | Error failure) {
+            Throwable combined = failure;
             try {
                 if (!(failure instanceof VirtualMachineError) && !(failure instanceof ThreadDeath))
                     downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.FAILED));
-            } finally { task.rejectSubmission(); }
-            throw failure;
+            } catch (RuntimeException | Error publicationFailure) {
+                combined = mergeFailure(combined, publicationFailure);
+            }
+            try {
+                task.rejectSubmission();
+            } catch (RuntimeException | Error terminationFailure) {
+                combined = mergeFailure(combined, terminationFailure);
+            }
+            rethrow(combined);
         }
+        return attempt;
     }
 
     @Override
@@ -199,11 +207,19 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         FileNamePlan plan = buildFileNamePlan(artworkId, title, imageUrls.size(),
                 effectiveOther);
         QueueTaskTracker.Task task = taskTracker.beginRunning(userUuid);
+        Throwable failure = null;
         try {
             downloadLifecycle.track(attempt, task, userUuid, "illust", title, false);
             return downloadImagesTracked(task, artworkId, title, imageUrls, referer, effectiveOther, cookie, userUuid, plan, attempt);
+        } catch (RuntimeException | Error original) {
+            failure = original;
+            throw original;
         } finally {
-            task.completeRunning();
+            try {
+                task.completeRunning();
+            } catch (RuntimeException | Error terminationFailure) {
+                rethrow(mergeFailure(failure, terminationFailure));
+            }
         }
     }
 
@@ -220,7 +236,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         // 初始化下载状态
         DownloadStatus status = new DownloadStatus(artworkId, title, imageUrls.size(), userUuid);
         String statusKey = statusKey(artworkId, userUuid);
-        task.onCancellation(() -> cancelTrackedStatus(statusKey, status));
+        task.onCancellation(() -> cancelTrackedStatus(status));
         if (!task.publishIfActive(() -> downloadStatusMap.put(statusKey, status))) {
             downloadLifecycle.publish(new DownloadEvent(attempt, DownloadEvent.Phase.CANCELLED));
             return false;
@@ -330,7 +346,6 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 status.setFailed(true);
                 status.setErrorMessage(messages.get("download.incomplete",
                         text(successCount.get()), text(expectedCount)));
-                status.setEndTime(java.time.LocalDateTime.now());
                 log.warn(logMessage("download.log.incomplete",
                         id(artworkId), text(successCount.get()), text(expectedCount), downloadPath));
                 eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
@@ -404,7 +419,6 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             status.setCancelled(!unavailable);
             status.setCompleted(true);
             status.setFailed(unavailable);
-            status.setEndTime(java.time.LocalDateTime.now());
             status.setErrorMessage(messages.get(unavailable ? "plugin.recovery.database-unavailable" : "download.cancelled"));
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
         } catch (top.sywyar.pixivdownload.core.database.DatabaseUnavailableException unavailable) {
@@ -412,7 +426,6 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             status.setCompleted(true);
             status.setFailed(true);
             status.setErrorMessage(messages.get("plugin.recovery.database-unavailable"));
-            status.setEndTime(java.time.LocalDateTime.now());
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
             throw unavailable;
         } catch (Exception e) {
@@ -420,7 +433,6 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             status.setCompleted(true);
             status.setFailed(true);
             status.setErrorMessage(resolveStatusErrorMessage(e));
-            status.setEndTime(java.time.LocalDateTime.now());
             eventPublisher.publishEvent(new DownloadProgressEvent(this, artworkId, status, userUuid));
         } finally {
             if (!recorded) {
@@ -749,9 +761,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     }
 
     public List<Long> getDownloadStatus() {
-        Set<Long> downloadStatus = new LinkedHashSet<>();
-        downloadStatusMap.forEach(10, (key, status) -> downloadStatus.add(status.getArtworkId()));
-        return new LinkedList<>(downloadStatus);
+        return getDownloadStatus(null, true);
     }
 
     /** SSE 重连及心跳只补发当前身份可见的未终结任务，不重放历史结果。 */
@@ -762,16 +772,13 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     }
 
     public List<Long> getDownloadStatus(String ownerUuid, boolean admin) {
-        if (admin) {
-            return getDownloadStatus();
-        }
         Set<Long> downloadStatus = new LinkedHashSet<>();
-        downloadStatusMap.forEach(10, (key, status) -> {
-            if (canAccessStatus(status, ownerUuid, false)) {
+        for (DownloadStatus status : downloadStatusMap.values()) {
+            if (canAccessStatus(status, ownerUuid, admin)) {
                 downloadStatus.add(status.getArtworkId());
             }
-        });
-        return new LinkedList<>(downloadStatus);
+        }
+        return new ArrayList<>(downloadStatus);
     }
 
     /**
@@ -1039,7 +1046,7 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
     }
 
     private int forceClearDownloads(java.util.function.Predicate<DownloadStatus> matcher) {
-        AtomicInteger cleared = new AtomicInteger();
+        int cleared = 0;
         Throwable failure = null;
         for (var entry : List.copyOf(downloadStatusMap.entrySet())) {
             String key = entry.getKey();
@@ -1051,10 +1058,9 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
                 status.setCancelled(true);
                 status.setCompleted(true);
                 status.setFailed(false);
-                status.setEndTime(java.time.LocalDateTime.now());
                 status.setErrorMessage(messages.get("download.cancelled"));
                 if (downloadStatusMap.remove(key, status)) {
-                    cleared.incrementAndGet();
+                    cleared++;
                 }
                 eventPublisher.publishEvent(new DownloadProgressEvent(this, status.getArtworkId(), status, status.getOwnerUuid()));
             } catch (Throwable error) {
@@ -1062,14 +1068,13 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
             }
         }
         rethrow(failure);
-        return cleared.get();
+        return cleared;
     }
 
-    private void cancelTrackedStatus(String statusKey, DownloadStatus status) {
+    private void cancelTrackedStatus(DownloadStatus status) {
         status.setCancelled(true);
         status.setCompleted(true);
         status.setFailed(false);
-        status.setEndTime(java.time.LocalDateTime.now());
         status.setErrorMessage(messages.get("download.cancelled"));
     }
 

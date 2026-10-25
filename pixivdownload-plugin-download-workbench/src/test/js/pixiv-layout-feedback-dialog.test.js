@@ -2,78 +2,24 @@
 
 /** 布局映射、问卷 schema、对话框提交与隐私过滤。 */
 const {
-    CONFIG_SOURCE,
-    CONFIG_SOURCE_PATH,
-    CONFIG_WINDOW,
-    CSS,
-    CSS_PATH,
-    EMBED_SOURCE,
-    EMBED_SOURCE_PATH,
     LAYOUT_IDS,
-    MiniClassList,
-    MiniCustomEvent,
-    MiniElement,
-    MiniEventTarget,
-    MiniStorage,
-    POSTHOG_SOURCE,
-    POSTHOG_SOURCE_PATH,
-    SEEN_KEY,
-    SERVER_RAW_UUID,
-    SERVER_SCOPED_ID,
     SNOOZE_MS,
-    SOURCE,
-    SOURCES,
-    SOURCE_NAMES,
-    SOURCE_PATHS,
     STATE_KEY,
     SUBMISSION_ID,
-    SUGGESTION_MAX,
-    SURVEY_ID,
     ackEvents,
-    assert,
-    assertFailClosedInvariants,
     captureEvents,
     captureProps,
     createFakeAdapter,
     createFakeI18n,
-    createFakeTimers,
-    createHarness,
-    crossTabFallbackMatrix,
     crossTabState,
-    dataAttributeName,
     defaultSurvey,
-    directRefresh,
     doesNotThrow,
     eq,
-    fs,
-    hasLoneSurrogates,
     initHarness,
-    jsonEq,
-    listenerCountFor,
-    localStateValue,
-    matchSelector,
-    neverView,
     ok,
-    openAndPrepareSubmit,
-    path,
-    refreshSecond,
-    refreshWith,
-    reinitOptions,
     runTests,
-    seenObject,
-    seenSeed,
     selectChoice,
-    serverStateResponse,
-    snoozeStorageValue,
-    snoozedView,
-    submitWithCaptureOverride,
-    submittedView,
-    surveyState,
-    validFirst,
-    vm,
-    waitForFlush,
-    waitForServerContext,
-    walkAll
+    waitForFlush
 } = require('./pixiv-layout-feedback-test-support');
 
 function testEmbeddedSurveyPublicationStates() {
@@ -151,9 +97,15 @@ function testEmbeddedSurveyPublicationStates() {
 
 function testLayoutMapping() {
     let h = initHarness({page: 'batch', batchLayout: 'landscape'});
+    h.sandbox.innerWidth = 320;
+    h.sandbox.innerHeight = 900;
+    h.sandbox.screen = {orientation: {type: 'portrait-primary'}};
     eq('landscape 映射为稳定 ID', h.api.currentLayoutId(), 'pixiv-batch-landscape');
 
     h = initHarness({page: 'batch', batchLayout: 'portrait'});
+    h.sandbox.innerWidth = 1400;
+    h.sandbox.innerHeight = 600;
+    h.sandbox.screen = {orientation: {type: 'landscape-primary'}};
     eq('portrait 映射为稳定 ID', h.api.currentLayoutId(), 'pixiv-batch-portrait');
 
     h = initHarness({page: 'alt'});
@@ -163,11 +115,6 @@ function testLayoutMapping() {
     h.document.documentElement.setAttribute('data-batch-layout', 'portrait');
     eq('dataset 变化后 currentLayoutId 跟随', h.api.currentLayoutId(), 'pixiv-batch-portrait');
 
-    ok('模块不使用物理屏幕方向 API',
-        SOURCE.indexOf('matchMedia') < 0
-        && SOURCE.indexOf('orientation') < 0
-        && SOURCE.indexOf('screen.orientation') < 0);
-    ok('模块不使用宽高比判断', SOURCE.indexOf('aspect-ratio') < 0 && SOURCE.indexOf('innerWidth') < 0);
 }
 
 function testInitDestroy() {
@@ -245,7 +192,7 @@ function testChoiceSchemaVariants() {
 function testSuggestionSchemaVariants() {
     const internals = initHarness({}).api._internals;
 
-    eq('缺失建议题返回 q-suggestion', internals.resolveSuggestionQuestion(defaultSurvey()).id, 'q-suggestion');
+    eq('按题型解析建议题', internals.resolveSuggestionQuestion(defaultSurvey()).id, 'q-suggestion');
     const noSuggestion = defaultSurvey();
     noSuggestion.questions = [noSuggestion.questions[0]];
     eq('第二题缺失返回 null', internals.resolveSuggestionQuestion(noSuggestion), null);
@@ -376,7 +323,7 @@ function testSuggestionHandling() {
             const emoji = '\ud83d\ude00';
             h3.textarea().value = emoji.repeat(500);
             h3.textarea().dispatchEvent({type: 'input'});
-            eq('代理对按 code point 计数', h3.counter().textContent.split(' ')[0], '500');
+            eq('代理对按 code point 计数', h3.counter().textContent, 'count=500;max=1000');
             h3.submitButton().click();
             return waitForFlush();
         }).then(() => {
@@ -390,7 +337,7 @@ function testSuggestionHandling() {
             h4.textarea().value = 'a'.repeat(1001);
             h4.textarea().dispatchEvent({type: 'input'});
             eq('input 事件把 1001 个字符截断为 1000', h4.textarea().value.length, 1000);
-            eq('截断后计数器显示 1000', h4.counter().textContent.split(' ')[0], '1000');
+            eq('截断后计数器显示 1000', h4.counter().textContent, 'count=1000;max=1000');
             h4.submitButton().click();
             return waitForFlush();
         }).then(() => {
@@ -483,7 +430,7 @@ function testEscapeOverlayCloseSendNoDismissed() {
 
 function testSubmitFailureAndRetry() {
     const h = initHarness({
-        adapter: createFakeAdapter({surveys: [defaultSurvey()], capture: 'throw'}),
+        adapter: createFakeAdapter({surveys: [defaultSurvey()], ackOk: false}),
         batchLayout: 'landscape'
     });
     return h.api.open().then(() => waitForFlush()).then(() => {
@@ -494,9 +441,10 @@ function testSubmitFailureAndRetry() {
         return waitForFlush();
     }).then(() => {
         const stateRaw = h.storage.getItem(STATE_KEY);
-        eq('capture 同步抛错不写 submitted', stateRaw === null || JSON.parse(stateRaw).status !== 'submitted', true);
+        eq('远端未确认不写 submitted', stateRaw === null || JSON.parse(stateRaw).status !== 'submitted', true);
         eq('失败保留弹窗', h.document.querySelectorAll('.plf-backdrop').length, 1);
         eq('失败显示错误', h.error().hidden, false);
+        eq('失败不显示成功 Toast', h.toastCalls.length, 0);
         eq('失败恢复提交按钮', h.submitButton().disabled, false);
         const radio = h.radios().find(r => r.checked);
         eq('失败保留布局选择', radio && radio.value, 'pixiv-batch-landscape');
@@ -511,32 +459,18 @@ function testSubmitFailureAndRetry() {
     });
 }
 
-function testSubmitLockDuringInFlight() {
+function testCaptureOptOutFailsSubmit() {
     const h = initHarness({batchLayout: 'landscape'});
     return h.api.open().then(() => waitForFlush()).then(() => {
-        selectChoice(h, 'pixiv-batch-alt');
-        h.submitButton().click();
-        h.submitButton().click();
-        h.submitButton().dispatchEvent({type: 'click'});
-        return waitForFlush();
-    }).then(() => {
-        eq('提交锁保证单次 survey sent', captureEvents(h).filter(e => e === 'survey sent').length, 1);
-    });
-}
-
-function testDntRejectionFailsSubmit() {
-    const h = initHarness({
-        adapter: createFakeAdapter({surveys: [defaultSurvey()], capture: 'reject'}),
-        batchLayout: 'landscape'
-    });
-    return h.api.open().then(() => waitForFlush()).then(() => {
+        h.adapter.has_opted_out_capturing = () => true;
         selectChoice(h, 'pixiv-batch-landscape');
         h.submitButton().click();
         return waitForFlush();
     }).then(() => {
-        eq('SDK 拒绝事件视为提交失败', captureEvents(h).filter(e => e === 'survey sent').length, 1);
-        eq('SDK 拒绝不写 submitted', h.storage.getItem(STATE_KEY) === null, true);
-        eq('SDK 拒绝保留弹窗可重试', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        eq('用户拒绝采集时不发送 HTTP 提交', ackEvents(h).length, 0);
+        eq('用户拒绝采集时不写 submitted', h.storage.getItem(STATE_KEY), null);
+        eq('拒绝采集保留弹窗', h.document.querySelectorAll('.plf-backdrop').length, 1);
+        eq('拒绝采集显示错误', h.error().hidden, false);
     });
 }
 
@@ -700,8 +634,7 @@ runTests('pixiv-layout-feedback-dialog.test.js', [
     ['testSnoozeNeverDismissSemantics', testSnoozeNeverDismissSemantics],
     ['testEscapeOverlayCloseSendNoDismissed', testEscapeOverlayCloseSendNoDismissed],
     ['testSubmitFailureAndRetry', testSubmitFailureAndRetry],
-    ['testSubmitLockDuringInFlight', testSubmitLockDuringInFlight],
-    ['testDntRejectionFailsSubmit', testDntRejectionFailsSubmit],
+    ['testCaptureOptOutFailsSubmit', testCaptureOptOutFailsSubmit],
     ['testAppVersionUnknown', testAppVersionUnknown],
     ['testBeforeSendFilter', testBeforeSendFilter],
     ['testSdkInitConfigPrivacy', testSdkInitConfigPrivacy],

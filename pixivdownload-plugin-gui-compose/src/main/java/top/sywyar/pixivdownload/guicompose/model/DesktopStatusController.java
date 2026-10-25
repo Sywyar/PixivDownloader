@@ -6,7 +6,6 @@ import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextStyle;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.TextToken;
-import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,14 +30,9 @@ final class DesktopStatusController {
 
     private final ComposeDesktopUiModel owner;
     private final DesktopUiHost host;
-    private final int serverPort;
     private final String rootFolder;
     final DesktopUpdateController updates;
 
-    private volatile String statusPort = "--";
-    private volatile String statusMode = "--";
-    private volatile String statusStartTime = "--";
-    private volatile String statusProtocol = "--";
     private volatile DesktopUiHost.GuiValue controlCenterSnapshot = DesktopUiHost.GuiValue.of(Map.of());
     private volatile String connectivityDetails = "";
     private volatile boolean statusConnected;
@@ -52,23 +46,18 @@ final class DesktopStatusController {
     private volatile boolean ffmpegConfirm;
     private volatile TextToken ffmpegNotice;
     private volatile boolean ffmpegNoticeError;
-    private volatile String ffmpegConfiguredPath;
-    private final Map<String, String> formValues;
     private final AtomicBoolean ffmpegDirectoryOpening = new AtomicBoolean();
     private volatile double ffmpegProgress;
 
     DesktopStatusController(
             ComposeDesktopUiModel owner,
             DesktopUiHost host,
-            int serverPort,
             String rootFolder,
             Map<String, String> formValues
     ) {
         this.owner = owner;
         this.host = host;
-        this.serverPort = serverPort;
         this.rootFolder = rootFolder;
-        this.formValues = formValues;
         this.updates = new DesktopUpdateController(owner, host, formValues);
     }
 
@@ -93,170 +82,6 @@ final class DesktopStatusController {
 
     void resetConnection() {
         statusConnected = false;
-    }
-
-    DesktopUiNode page(Map<String, Runnable> nextActions) {
-        List<DesktopUiNode> webActions = owner.navigation.webEntryButtons(
-                NavigationPlacements.GUI_STATUS_ACTIONS,
-                "status.web",
-                nextActions
-        );
-        webActions.add(
-                0,
-                button(
-                        "status.web.batch",
-                        "status.web.batch",
-                        "gui.action.open-batch",
-                        true,
-                        nextActions,
-                        () -> owner.openWeb("/pixiv-batch.html")
-                )
-        );
-        List<DesktopUiNode> children = new ArrayList<>();
-        children.add(raw(
-                "status.backend.state",
-                owner.backendMessage(),
-                owner.backendTextStyle()
-        ));
-        if (!owner.statusNotice.isBlank()) children.add(new DesktopUiNode.Surface(
-                "status.notice",
-                DesktopUiNode.SurfaceStyle.WARNING,
-                new DesktopUiNode.Insets(
-                        8,
-                        12,
-                        8,
-                        12
-                ),
-                true,
-                status("status.notice.text", owner.statusNotice)
-        ));
-        children.addAll(updates.banners("status.update", nextActions));
-        children.add(new DesktopUiNode.Form(
-                "status.grid",
-                DesktopUiNode.FormStyle.KEY_VALUE,
-                null,
-                List.of(
-                        new DesktopUiNode.FormRow(
-                                "status.port.row",
-                                key("gui.status.label.port"),
-                                null,
-                                raw("status.port.value", statusPort, TextStyle.EMPHASIS),
-                                null
-                        ),
-                        new DesktopUiNode.FormRow(
-                                "status.mode.row",
-                                key("gui.status.label.mode"),
-                                null,
-                                raw("status.mode.value", statusMode, TextStyle.EMPHASIS),
-                                null
-                        ),
-                        new DesktopUiNode.FormRow(
-                                "status.start-time.row",
-                                key("gui.status.label.start-time"),
-                                null,
-                                raw("status.start-time.value", statusStartTime, TextStyle.EMPHASIS),
-                                null
-                        ),
-                        new DesktopUiNode.FormRow(
-                                "status.https.row",
-                                key("gui.status.label.https"),
-                                null,
-                                raw("status.https.value", statusProtocol, TextStyle.EMPHASIS),
-                                null
-                        ),
-                        new DesktopUiNode.FormRow(
-                                "status.connectivity.row",
-                                key("gui.status.label.pixiv-connectivity"),
-                                null,
-                                row(
-                                        "status.connectivity.value",
-                                        raw(
-                                                "status.connectivity.text",
-                                                connectivityDetails,
-                                                TextStyle.BODY
-                                        ),
-                                        button(
-                                                "status.connectivity.check",
-                                                "status.connectivity.check",
-                                                "gui.status.pixiv-connectivity.action.check",
-                                                canCheckConnectivity(),
-                                                nextActions,
-                                                this::checkConnectivity
-                                        )
-                                ),
-                                null
-                        )
-                )
-        ));
-        children.add(text(
-                "status.web.hint",
-                "gui.status.hint.web-console",
-                TextStyle.CAPTION
-        ));
-        DesktopUiNode actions = column(
-                "status.actions",
-                group(
-                        "status.web",
-                        "gui.action.group.navigation",
-                        row("status.web.actions", webActions)
-                ),
-                group(
-                        "status.functions",
-                        "gui.action.group.functions",
-                        row(
-                                "status.function.actions",
-                                button(
-                                        "status.open-folder",
-                                        "status.open-folder",
-                                        "gui.action.open-download-directory",
-                                        !owner.busy(),
-                                        nextActions,
-                                        this::openDownloadDirectory
-                                ),
-                                button(
-                                        "status.restart",
-                                        "status.restart",
-                                        "gui.action.restart-service",
-                                        !owner.busy(),
-                                        nextActions,
-                                        this::requestBackendRestart
-                                ),
-                                button(
-                                        "status.check-update",
-                                        "status.check-update",
-                                        "gui.update.action.check",
-                                        !owner.busy(),
-                                        nextActions,
-                                        updates::checkUpdates
-                                ),
-                                button(
-                                        "status.migrate-directory",
-                                        "status.migrate-directory",
-                                        "gui.action.migrate-directory",
-                                        !owner.busy(),
-                                        nextActions,
-                                        owner::openDirectoryMigration
-                                ),
-                                button(
-                                        "status.refresh",
-                                        "status.refresh",
-                                        "gui.plugins.action.refresh",
-                                        !owner.busy(),
-                                        nextActions,
-                                        this::refresh
-                                )
-                        )
-                )
-        );
-        return new DesktopUiNode.Dock(
-                "status.root",
-                12,
-                null,
-                scroll("status.scroll", column("status.content", children)),
-                actions,
-                null,
-                null
-        );
     }
 
     void refresh() {
@@ -290,16 +115,6 @@ final class DesktopStatusController {
     void refreshSnapshot() {
         DesktopUiHost.GuiResponse response = host.guiGet("status", 2_000);
         statusConnected = response.successful() && response.body() != null;
-        if (statusConnected) {
-            DesktopUiHost.GuiValue body = response.body();
-            statusPort = body.path("port").asText(Integer.toString(serverPort));
-            statusMode = owner.localizedCode("gui.mode.", body.path("mode").asText("--"));
-            statusStartTime = body.path("startTime").asText("--");
-            statusProtocol = host.message(body.path("httpsEnabled").asBoolean(false) ? "gui.status.https.enabled" : "gui.status.https.disabled");
-        } else {
-            statusPort = Integer.toString(serverPort);
-            statusMode = statusStartTime = statusProtocol = "--";
-        }
         refreshControlCenterSnapshot();
     }
 
@@ -414,17 +229,11 @@ final class DesktopStatusController {
                     button("ffmpeg.confirm.cancel", "ffmpeg.confirm.cancel", "desktop.ui.action.cancel",
                             !owner.busy(), nextActions, () -> { ffmpegConfirm = false; owner.rebuild(); })));
         } else {
-            ffmpegNodes.add(new DesktopUiNode.Form("tools.ffmpeg.form", DesktopUiNode.FormStyle.COMPACT, null, List.of(
-                    new DesktopUiNode.FormRow("tools.ffmpeg.path.row", TextToken.key("gui.config.field.ffmpeg.executable-path.label"),
-                            TextToken.key("gui.config.field.ffmpeg.executable-path.help"),
-                            input("tools.ffmpeg.path", "tools.ffmpeg.path", "gui.config.field.ffmpeg.executable-path.label", null,
-                                    DesktopUiNode.InputKind.FILE, formValues.getOrDefault("tools.ffmpeg.path", ""),
-                                    !owner.busy() && !ffmpegChecking.get()), null))));
             nextActions.put("status.ffmpeg.refresh", this::refreshFfmpeg);
             ffmpegNodes.add(new DesktopUiNode.Button("status.ffmpeg.refresh", "status.ffmpeg.refresh", toolToken("refresh"),
                     null, DesktopUiNode.ButtonStyle.NORMAL, !owner.busy() && !ffmpegChecking.get()));
-            nextActions.put("status.ffmpeg.path.save", this::saveFfmpegPath);
-            ffmpegNodes.add(new DesktopUiNode.Button("status.ffmpeg.path.save", "status.ffmpeg.path.save", toolToken("save-path"),
+            nextActions.put("status.ffmpeg.settings", () -> owner.locateCoreSetting("ffmpeg.executable-path"));
+            ffmpegNodes.add(new DesktopUiNode.Button("status.ffmpeg.settings", "status.ffmpeg.settings", TextToken.key("desktop.ui.page.settings"),
                     null, DesktopUiNode.ButtonStyle.NORMAL, !owner.busy() && !ffmpegChecking.get()));
             ffmpegNodes.add(row("status.ffmpeg.actions",
                     button("status.ffmpeg.install", "status.ffmpeg.install", "gui.ffmpeg.action.download-to-managed",
@@ -466,10 +275,6 @@ final class DesktopStatusController {
         try {
             ffmpegInstallation = host.locateFfmpeg();
             ffmpegCheckFailed = false;
-            String configured = host.applicationConfig().read("ffmpeg.executable-path");
-            String path = configured == null ? "" : configured;
-            formValues.compute("tools.ffmpeg.path", (key, draft) -> draft == null || draft.equals(ffmpegConfiguredPath) ? path : draft);
-            ffmpegConfiguredPath = path;
         } catch (Exception failure) {
             ffmpegInstallation = Optional.empty();
             ffmpegCheckFailed = true;
@@ -479,24 +284,9 @@ final class DesktopStatusController {
         }
     }
 
-    private void saveFfmpegPath() {
-        if (owner.busy() || ffmpegChecking.get()) return;
-        String value = formValues.getOrDefault("tools.ffmpeg.path", "").trim();
-        owner.runBusy(() -> {
-            try {
-                host.requireSafeConfigValue(value);
-                host.validateCoreConfigValue("ffmpeg.executable-path", value);
-                host.applicationConfig().writeAll(Map.of("ffmpeg.executable-path", value));
-                owner.coreConfigValueSaved("ffmpeg.executable-path", value);
-                ffmpegNotice = toolToken("path-saved");
-                ffmpegNoticeError = false;
-                refreshFfmpeg();
-            } catch (Exception failure) {
-                LOG.warn("Unable to save FFmpeg path", failure);
-                ffmpegNotice = toolToken("path-failed");
-                ffmpegNoticeError = true;
-            }
-        });
+    void configurationSaved(Map<String, String> saved) {
+        if (!saved.containsKey("ffmpeg.executable-path")) return;
+        refreshFfmpeg();
     }
 
     private void requestFfmpegInstall() {
@@ -572,49 +362,6 @@ final class DesktopStatusController {
                 );
             }
         });
-    }
-
-    private void requestBackendRestart() {
-        owner.showDialog(
-                "backend.restart",
-                "gui.action.restart-service",
-                DesktopUiDocument.DialogStyle.QUESTION,
-                (nextActions, dismissAction, dismiss) -> column(
-                        "backend.restart.content",
-                        text(
-                                "backend.restart.message",
-                                "gui.status.dialog.restart.confirm.message",
-                                TextStyle.BODY
-                        ),
-                        row(
-                                "backend.restart.actions",
-                                button(
-                                        "backend.restart.confirm",
-                                        "backend.restart.confirm",
-                                        "gui.action.restart-service",
-                                        true,
-                                        nextActions,
-                                        () -> {
-                                            owner.closeDialog();
-                                            owner.runBusy(() -> owner.statusNotice = host.restartBackend(
-                                                    this::refresh) ? host.message(
-                                                    "gui.status.state.restarting") : host.message(
-                                                    "gui.message.backend-busy"));
-                                        }
-                                ),
-                                button(
-                                        "backend.restart.cancel",
-                                        dismissAction,
-                                        "desktop.ui.action.cancel",
-                                        true,
-                                        nextActions,
-                                        dismiss
-                                )
-                        )
-                ),
-                500,
-                0
-        );
     }
 
     private void openFfmpegDirectory() {

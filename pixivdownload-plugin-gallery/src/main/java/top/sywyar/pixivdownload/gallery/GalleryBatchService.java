@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.gallery;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportEntry;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportRequest;
@@ -40,7 +39,6 @@ import java.util.Set;
  * 不再直接依赖底层数据库与下载侧文件定位；打包仍走核心 quota 打包能力。
  * 小说侧的对应逻辑在 {@code novel.NovelBatchService}，两者互不依赖。
  */
-@Slf4j
 @PluginManagedBean
 @RequiredArgsConstructor
 public class GalleryBatchService {
@@ -137,15 +135,15 @@ public class GalleryBatchService {
                 filter.r18(),
                 filter.ai(),
                 normalizeFormats(filter.formats()),
-                ArchiveExportRules.normalizeIds(filter.collectionIds()),
-                ArchiveExportRules.normalizeIds(filter.tagIds()),
-                ArchiveExportRules.normalizeIds(filter.notTagIds()),
-                ArchiveExportRules.normalizeIds(filter.orTagIds()),
+                filter.collectionIds(),
+                filter.tagIds(),
+                filter.notTagIds(),
+                filter.orTagIds(),
                 authorIds,
-                ArchiveExportRules.normalizeIds(filter.notAuthorIds()),
-                ArchiveExportRules.normalizeIds(filter.orAuthorIds()),
+                filter.notAuthorIds(),
+                filter.orAuthorIds(),
                 seriesIds,
-                ArchiveExportRules.normalizeIds(filter.notSeriesIds()),
+                filter.notSeriesIds(),
                 null);
     }
 

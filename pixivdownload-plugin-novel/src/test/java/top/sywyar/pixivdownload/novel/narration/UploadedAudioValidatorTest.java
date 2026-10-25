@@ -2,8 +2,12 @@ package top.sywyar.pixivdownload.novel.narration;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,6 +31,15 @@ public class UploadedAudioValidatorTest {
     void rejectsInvalidWavShape() {
         assertThat(UploadedAudioValidator.validate("not a wav".getBytes(StandardCharsets.UTF_8))).isNull();
         assertThat(UploadedAudioValidator.validate(pcmWav(192_000, 1, 16, 384_000))).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0x80000000L, 0xFFFFFFF8L, 0xFFFFFFFFL})
+    @DisplayName("上传 WAV 的无符号块长度超出文件边界时拒绝")
+    void rejectsOversizedUnsignedChunks(long chunkSize) {
+        byte[] wav = pcmWav(48000, 1, 16, 96000);
+        ByteBuffer.wrap(wav).order(ByteOrder.LITTLE_ENDIAN).putInt(40, (int) chunkSize);
+        assertThat(UploadedAudioValidator.validate(wav)).isNull();
     }
 
     @Test

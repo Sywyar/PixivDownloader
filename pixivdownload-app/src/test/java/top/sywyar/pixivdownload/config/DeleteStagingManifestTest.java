@@ -30,12 +30,12 @@ class DeleteStagingManifestTest {
     }
 
     @Test
-    @DisplayName("清单写入后可原样读回（含反斜杠 / 非 ASCII 字符的路径）")
-    void writesAndReadsBackEntries() throws IOException {
+    @DisplayName("读取旧版清单保留反斜杠与非 ASCII 路径")
+    void readsLegacyEntries() throws IOException {
         Path stagingDir = Files.createDirectories(tempDir.resolve("op"));
         Path original = tempDir.resolve("作品 目录").resolve("a b").resolve("300_p0.jpg");
 
-        DeleteStagingManifest.write(stagingDir, List.of(entry(original, "0_300_p0.jpg")));
+        DeleteStagingManifestFixture.write(stagingDir, List.of(entry(original, "0_300_p0.jpg")));
         Optional<List<DeleteStagingManifest.Entry>> read = DeleteStagingManifest.read(stagingDir);
 
         assertThat(read).isPresent();
@@ -52,7 +52,7 @@ class DeleteStagingManifestTest {
         // 原目录此刻不存在（删除时随空目录被移除），恢复需重建
         Path original = tempDir.resolve("300").resolve("300_p0.jpg");
         Files.writeString(subdir.resolve("0_300_p0.jpg"), "p0-bytes", StandardCharsets.UTF_8);
-        DeleteStagingManifest.write(subdir, List.of(entry(original, "0_300_p0.jpg")));
+        DeleteStagingManifestFixture.write(subdir, List.of(entry(original, "0_300_p0.jpg")));
 
         DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(tempDir));
 
@@ -70,7 +70,7 @@ class DeleteStagingManifestTest {
                 Files.createDirectories(tempDir.resolve("300")).resolve("300_p0.jpg"),
                 "current", StandardCharsets.UTF_8);
         Files.writeString(subdir.resolve("0_300_p0.jpg"), "stale-staged", StandardCharsets.UTF_8);
-        DeleteStagingManifest.write(subdir, List.of(entry(original, "0_300_p0.jpg")));
+        DeleteStagingManifestFixture.write(subdir, List.of(entry(original, "0_300_p0.jpg")));
 
         DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(tempDir));
 
@@ -89,7 +89,7 @@ class DeleteStagingManifestTest {
                 Files.createDirectories(tempDir.resolve("300")).resolve("300_p0.jpg"),
                 "same", StandardCharsets.UTF_8);
         Files.writeString(subdir.resolve("0_300_p0.jpg"), "same", StandardCharsets.UTF_8);
-        DeleteStagingManifest.write(subdir, List.of(entry(original, "0_300_p0.jpg")));
+        DeleteStagingManifestFixture.write(subdir, List.of(entry(original, "0_300_p0.jpg")));
 
         DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(tempDir));
 
@@ -104,7 +104,7 @@ class DeleteStagingManifestTest {
         Path subdir = Files.createDirectories(stagingRoot.resolve("op"));
         Path original = tempDir.resolve("300").resolve("300_p0.jpg"); // 缺失
         // 故意不写入暂存副本，模拟连备份也丢失
-        DeleteStagingManifest.write(subdir, List.of(entry(original, "0_300_p0.jpg")));
+        DeleteStagingManifestFixture.write(subdir, List.of(entry(original, "0_300_p0.jpg")));
 
         DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(tempDir));
 
@@ -220,7 +220,7 @@ class DeleteStagingManifestTest {
         Path original = tempDir.resolve("300/300_p0.jpg").toAbsolutePath();
         Path staged = Files.writeString(subdir.resolve("0_x.jpg"), "x", StandardCharsets.UTF_8);
         Path undeclared = Files.writeString(subdir.resolve("unlisted-backup.jpg"), "backup", StandardCharsets.UTF_8);
-        DeleteStagingManifest.write(subdir, List.of(entry(original, staged.getFileName().toString())));
+        DeleteStagingManifestFixture.write(subdir, List.of(entry(original, staged.getFileName().toString())));
 
         DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(tempDir));
 
@@ -237,24 +237,17 @@ class DeleteStagingManifestTest {
         Path stagingDir = Files.createDirectories(tempDir.resolve("bounded"));
         Path original = tempDir.resolve("300/300_p0.jpg").toAbsolutePath();
 
-        assertThatThrownBy(() -> DeleteStagingManifest.write(stagingDir, List.of()))
-                .isInstanceOf(IOException.class);
-        assertThatThrownBy(() -> DeleteStagingManifest.write(stagingDir,
-                java.util.Collections.nCopies(DeleteStagingManifest.MAX_ENTRIES + 1,
-                        entry(original, "0.jpg"))))
-                .isInstanceOf(IOException.class);
-        assertThatThrownBy(() -> DeleteStagingManifest.write(stagingDir, List.of(
-                entry(original, "0.jpg"), entry(original, "1.jpg"))))
-                .isInstanceOf(IOException.class);
-        assertThatThrownBy(() -> DeleteStagingManifest.write(stagingDir, List.of(
-                entry(original, "0.jpg"), entry(tempDir.resolve("other.jpg"), "0.jpg"))))
-                .isInstanceOf(IOException.class);
-        assertThatThrownBy(() -> DeleteStagingManifest.write(stagingDir, List.of(entry(
-                tempDir.resolve("a".repeat(DeleteStagingManifest.MAX_ORIGINAL_PATH_CHARS)), "0.jpg"))))
-                .isInstanceOf(IOException.class);
-        assertThatThrownBy(() -> DeleteStagingManifest.write(stagingDir, List.of(
-                entry(original, "a".repeat(DeleteStagingManifest.MAX_STAGED_FILE_NAME_CHARS + 1)))))
-                .isInstanceOf(IOException.class);
+        List<List<DeleteStagingManifest.Entry>> invalidEntries = List.of(
+                List.of(),
+                java.util.Collections.nCopies(DeleteStagingManifest.MAX_ENTRIES + 1, entry(original, "0.jpg")),
+                List.of(entry(original, "0.jpg"), entry(original, "1.jpg")),
+                List.of(entry(original, "0.jpg"), entry(tempDir.resolve("other.jpg"), "0.jpg")),
+                List.of(entry(tempDir.resolve("a".repeat(DeleteStagingManifest.MAX_ORIGINAL_PATH_CHARS)), "0.jpg")),
+                List.of(entry(original, "a".repeat(DeleteStagingManifest.MAX_STAGED_FILE_NAME_CHARS + 1))));
+        for (var entries : invalidEntries) {
+            DeleteStagingManifestFixture.write(stagingDir, entries);
+            assertThat(DeleteStagingManifest.read(stagingDir)).isEmpty();
+        }
 
         Files.writeString(stagingDir.resolve(DeleteStagingManifest.MANIFEST_FILE_NAME),
                 "version=1\ncount=" + (DeleteStagingManifest.MAX_ENTRIES + 1) + "\n",
@@ -285,7 +278,7 @@ class DeleteStagingManifestTest {
         Path allowedRoot = Files.createDirectories(tempDir.resolve("allowed"));
         Path outside = tempDir.resolveSibling(tempDir.getFileName() + "-outside").resolve("restored.jpg");
         Files.writeString(subdir.resolve("0_restored.jpg"), "backup", StandardCharsets.UTF_8);
-        DeleteStagingManifest.write(subdir, List.of(entry(outside, "0_restored.jpg")));
+        DeleteStagingManifestFixture.write(subdir, List.of(entry(outside, "0_restored.jpg")));
 
         DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(allowedRoot));
 
@@ -310,7 +303,7 @@ class DeleteStagingManifestTest {
         createSymbolicLinkOrSkip(linkedParent, outside);
         Path original = linkedParent.resolve("restored.jpg");
         Files.writeString(subdir.resolve("0_restored.jpg"), "backup", StandardCharsets.UTF_8);
-        DeleteStagingManifest.write(subdir, List.of(entry(original, "0_restored.jpg")));
+        DeleteStagingManifestFixture.write(subdir, List.of(entry(original, "0_restored.jpg")));
 
         DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(tempDir));
 
@@ -336,7 +329,7 @@ class DeleteStagingManifestTest {
 
         try {
             Path staged = Files.writeString(subdir.resolve("0_restored.jpg"), "backup", StandardCharsets.UTF_8);
-            DeleteStagingManifest.write(subdir,
+            DeleteStagingManifestFixture.write(subdir,
                     List.of(entry(junction.resolve("restored.jpg"), staged.getFileName().toString())));
 
             DeleteStagingManifest.recoverLeftovers(stagingRoot, List.of(allowedRoot));

@@ -11,7 +11,7 @@ import top.sywyar.pixivdownload.novel.schedule.PixivNovelMetadata;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
-/** 从服务端获取的 Pixiv 数据构造内部下载请求。 */
+/** 从已验证的 Pixiv 数据构造内部下载请求。 */
 public final class NovelDownloadRequestFactory {
 
     private static final int MAX_RAW_METADATA_BYTES = 256 * 1024;
@@ -30,7 +30,7 @@ public final class NovelDownloadRequestFactory {
         request.setCookie(cookie);
         request.setContent(metadata.content());
 
-        NovelDownloadRequest.Other other = new NovelDownloadRequest.Other();
+        NovelDownloadRequest.Other other = request.getOther();
         other.setAuthorId(metadata.authorId());
         other.setAuthorName(metadata.authorName());
         other.setXRestrict(metadata.xRestrict());
@@ -55,7 +55,6 @@ public final class NovelDownloadRequestFactory {
             other.setSeriesCoverUrl(series.coverUrl());
             other.setSeriesTags(series.tags());
         }
-        request.setOther(other);
         return request;
     }
 

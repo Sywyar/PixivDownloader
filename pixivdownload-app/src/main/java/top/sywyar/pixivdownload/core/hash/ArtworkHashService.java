@@ -53,7 +53,6 @@ public class ArtworkHashService {
         if (artwork == null) {
             return 0;
         }
-        int written = 0;
         try {
             // 解码 + 计算哈希在事务外完成（耗时部分），避免在 SQLite 单写者写锁内做图片解码、
             // 长时间阻塞并发下载落库。
@@ -68,12 +67,12 @@ public class ArtworkHashService {
             long now = System.currentTimeMillis();
             Integer count = transactionTemplate.execute(status ->
                     persistArtworkHashes(artwork.artworkId(), results, now));
-            written = count == null ? 0 : count;
+            return count == null ? 0 : count;
         } catch (Exception e) {
             log.warn(messages.getForLog("core.hash.log.artwork-failed",
                     artwork.artworkId(), e.getMessage()), e);
         }
-        return written;
+        return 0;
     }
 
     private int persistArtworkHashes(long artworkId, List<PageHashResult> results, long now) {
@@ -88,7 +87,7 @@ public class ArtworkHashService {
                 imageHashMapper.markPageNoHash(artworkId, result.page(), now);
             }
         }
-        if (results.isEmpty() || written == 0) {
+        if (written == 0) {
             // 没有任何可哈希的页（文件缺失 / 解码失败 / 不支持的格式）：写入「已尝试」哨兵行，
             // 避免该作品在每次维护回填/扫描时被反复重试。
             imageHashMapper.markNoHash(artworkId, now);

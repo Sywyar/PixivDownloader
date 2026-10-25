@@ -2,6 +2,9 @@ package top.sywyar.pixivdownload.plugin.api.download.queue;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
@@ -9,10 +12,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 @DisplayName("下载队列任务精确排空")
 class QueueTaskTrackerTest {
@@ -150,6 +155,61 @@ class QueueTaskTrackerTest {
         failed.bind(() -> { throw expected; });
         assertThatThrownBy(failed::run).isSameAs(expected);
         assertThat(tracker.activeTaskCount()).isZero();
+    }
+
+    @ParameterizedTest
+    @MethodSource("executionFailures")
+    @DisplayName("运行与终结失败保留原始对象和诊断，致命错误优先且仍完整排空")
+    void preservesExecutionAndTerminationFailures(Throwable taskFailure, Throwable terminationFailure,
+                                                  boolean terminationPrimary) {
+        var tracker = new QueueTaskTracker("probe");
+        var task = tracker.prepareQueued("owner");
+        var drain = tracker.prepareQuiesce();
+        var terminations = new AtomicInteger();
+        task.bind(() -> raise(taskFailure));
+        task.onTermination(() -> {
+            terminations.incrementAndGet();
+            assertThat(drain.isDrained()).isFalse();
+            assertThat(drain.activeCount()).isEqualTo(1);
+            raise(terminationFailure);
+        });
+
+        Throwable primary = terminationPrimary ? terminationFailure : taskFailure;
+        Throwable secondary = terminationPrimary ? taskFailure : terminationFailure;
+        assertThat(catchThrowable(task::run)).isSameAs(primary);
+        if (primary != null) {
+            if (secondary == null || secondary == primary) {
+                assertThat(primary.getSuppressed()).isEmpty();
+            } else {
+                assertThat(primary.getSuppressed()).containsExactly(secondary);
+            }
+        }
+        assertThat(drain.isDrained()).isTrue();
+        assertThat(drain.activeCount()).isZero();
+        task.run();
+        task.cancel();
+        task.completeRunning();
+        assertThat(terminations).hasValue(1);
+    }
+
+    private static Stream<Arguments> executionFailures() {
+        var same = new IllegalStateException("same failure");
+        return Stream.of(
+                Arguments.of(new IllegalStateException("task"), new IllegalArgumentException("termination"), false),
+                Arguments.of(new ProbeVmError(), new IllegalArgumentException("termination"), false),
+                Arguments.of(new IllegalStateException("task"), new ProbeVmError(), true),
+                Arguments.of(new ThreadDeath(), new IllegalArgumentException("termination"), false),
+                Arguments.of(new IllegalStateException("task"), new ThreadDeath(), true),
+                Arguments.of(new ProbeVmError(), new ThreadDeath(), false),
+                Arguments.of(same, same, false),
+                Arguments.of(null, new IllegalArgumentException("termination"), true),
+                Arguments.of(new IllegalStateException("task"), null, false),
+                Arguments.of(null, null, false));
+    }
+
+    private static void raise(Throwable failure) {
+        if (failure instanceof Error error) throw error;
+        if (failure != null) throw (RuntimeException) failure;
     }
 
     @Test

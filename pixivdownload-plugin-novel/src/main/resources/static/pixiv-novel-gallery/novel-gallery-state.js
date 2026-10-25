@@ -50,7 +50,7 @@ const state = {
     pendingIconClear: false
 };
 
-// 批量管理（多选删除）：仅作用于「全部小说」主网格，选择集随翻页 / 切换视图清空。
+// 批量管理仅作用于主网格；逐项选择随翻页清空，筛选全选保留到筛选或视图变化。
 const batch = {
     active: false,
     selected: new Set(),
@@ -63,7 +63,7 @@ const batch = {
 let isNovelAdmin = false;
 
 function selectionMapToEntries(map) {
-    return Array.from(map.entries()).map(([id, mode]) => [Number(id), mode]);
+    return Array.from(map, ([id, mode]) => [Number(id), mode]);
 }
 
 function partitionSelectionMap(map) {

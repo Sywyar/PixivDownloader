@@ -16,7 +16,6 @@ import top.sywyar.pixivdownload.tts.narration.engine.TtsPluginConfig;
 import top.sywyar.pixivdownload.tts.narration.engine.http.AbstractHttpNarrationEngine;
 
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
@@ -90,10 +89,7 @@ public class MiMoNarrationEngine extends AbstractHttpNarrationEngine implements 
         if (mimo == null || mimo.getBaseUrl() == null || mimo.getBaseUrl().isBlank()) {
             throw new NarrationVoiceException(localized("narration.tts.error.unavailable"), null);
         }
-        String text = req == null ? null : req.text();
-        if (NarrationSpeechText.blankToNull(text) == null) {
-            throw new NarrationVoiceException(localized("narration.tts.error.empty-text"), null);
-        }
+        String text = requireText(req);
 
         NarrationVoiceMode effective = resolveMode(mode, req, mimo);
         String format = normalizeFormat(mimo.getResponseFormat());
@@ -108,7 +104,7 @@ public class MiMoNarrationEngine extends AbstractHttpNarrationEngine implements 
         long startNs = System.nanoTime();
         MiMoTtsResponse response =
                 postForJson(restTemplate, url, apiKeyHeaders(apiKey), serialize(body, apiKey), apiKey, MiMoTtsResponse.class);
-        byte[] audio = decodeAudio(response, apiKey);
+        byte[] audio = decodeBase64Audio(response == null ? null : response.audioData(), apiKey);
         String contentType = audioMimeForFormat(format);
         log.info(forLog("narration.tts.log.synthesize.done", audio.length, contentType, elapsedMs(startNs)));
         return new NarrationAudio(audio, contentType);
@@ -154,24 +150,6 @@ public class MiMoNarrationEngine extends AbstractHttpNarrationEngine implements 
         }
         list.add(new MiMoTtsRequest.Message(ROLE_ASSISTANT, text));
         return list;
-    }
-
-    /** base64 解出音频字节；缺失 / 非法 base64 → 受控异常。 */
-    private byte[] decodeAudio(MiMoTtsResponse response, String apiKey) {
-        String data = response == null ? null : response.audioData();
-        if (NarrationSpeechText.blankToNull(data) == null) {
-            throw new NarrationVoiceException(localized("narration.tts.error.empty-audio"), null);
-        }
-        try {
-            byte[] bytes = Base64.getDecoder().decode(data.trim());
-            if (bytes.length == 0) {
-                throw new NarrationVoiceException(localized("narration.tts.error.empty-audio"), null);
-            }
-            return bytes;
-        } catch (IllegalArgumentException e) {
-            throw new NarrationVoiceException(
-                    localized("narration.tts.error.request-failed", redact(safeMessage(e), apiKey)), e);
-        }
     }
 
     /** JSON 请求头 + MiMo 的 {@code api-key} 鉴权头（非 Bearer）；key 空 / 空白则不带。 */

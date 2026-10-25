@@ -21,23 +21,35 @@ public class GuestWorkVisibilityScopeFactory {
         if (session == null) {
             return WorkVisibilityScope.unrestricted();
         }
-        return WorkVisibilityScope.restricted(
-                new WorkRestriction(
-                        allowedRatings(session),
-                        session.tagUnrestricted(),
-                        List.copyOf(session.tagIds()),
-                        session.authorUnrestricted(),
-                        List.copyOf(session.authorIds()),
-                        session.collectionUnrestricted(), List.copyOf(session.collectionIds()),
-                        session.collectionRestrictsWorks()),
-                new WorkRestriction(
-                        allowedRatings(session),
-                        session.novelTagUnrestricted(),
-                        List.copyOf(session.novelTagIds()),
-                        session.novelAuthorUnrestricted(),
-                        List.copyOf(session.novelAuthorIds()),
-                        session.collectionUnrestricted(), List.copyOf(session.collectionIds()),
-                        session.collectionRestrictsWorks()));
+        return WorkVisibilityScope.restricted(artworkRestriction(session), novelRestriction(session));
+    }
+
+    public static WorkRestriction artworkRestriction(GuestInviteSession session) {
+        if (session == null) {
+            return null;
+        }
+        return new WorkRestriction(
+                allowedRatings(session),
+                session.tagUnrestricted(),
+                List.copyOf(session.tagIds()),
+                session.authorUnrestricted(),
+                List.copyOf(session.authorIds()),
+                session.collectionUnrestricted(), List.copyOf(session.collectionIds()),
+                session.collectionRestrictsWorks());
+    }
+
+    public static WorkRestriction novelRestriction(GuestInviteSession session) {
+        if (session == null) {
+            return null;
+        }
+        return new WorkRestriction(
+                allowedRatings(session),
+                session.novelTagUnrestricted(),
+                List.copyOf(session.novelTagIds()),
+                session.novelAuthorUnrestricted(),
+                List.copyOf(session.novelAuthorIds()),
+                session.collectionUnrestricted(), List.copyOf(session.collectionIds()),
+                session.collectionRestrictsWorks());
     }
 
     static GuestInviteSession extractSession(HttpServletRequest request) {

@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.setup.guest.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -27,7 +26,6 @@ import java.util.Optional;
  * <p>下发的 {@code pixiv_invite_token} cookie 与 {@code AuthFilter} 的清除 / GET {@code /invite} 兑换路径
  * 保持一致的安全属性：HttpOnly + SameSite=Strict + 当 {@code server.ssl.enabled} 为 true 时附加 Secure。</p>
  */
-@Slf4j
 @RestController
 @RequiredArgsConstructor
 public class InviteRedeemController {
@@ -43,8 +41,7 @@ public class InviteRedeemController {
     public ResponseEntity<RedeemResponse> redeem(
             @RequestBody RedeemRequest body,
             HttpServletRequest request) {
-        String ip = clientIp(request);
-        if (!loginRateLimitService.isAllowed(ip)) {
+        if (!loginRateLimitService.isAllowed(request.getRemoteAddr())) {
             throw new LocalizedException(HttpStatus.TOO_MANY_REQUESTS,
                     "setup.login.rate-limit.exceeded",
                     "登录尝试过于频繁，请稍后再试");
@@ -68,10 +65,6 @@ public class InviteRedeemController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, cookie.toString())
                 .body(new RedeemResponse(true, redirect));
-    }
-
-    private String clientIp(HttpServletRequest request) {
-        return request.getRemoteAddr();
     }
 
     public record RedeemRequest(String code) {}

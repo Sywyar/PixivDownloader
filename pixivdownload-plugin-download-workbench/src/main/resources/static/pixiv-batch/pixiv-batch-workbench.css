@@ -786,10 +786,7 @@ html[data-theme="dark"] .pixiv-feedback-button--secondary {
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .app-nav-link {
-        flex-basis: 100%;
-    }
-
+    .app-nav-link,
     .cookie-row button,
     .userscript-card-actions .btn,
     .userscript-card-actions .userscript-card-btn,

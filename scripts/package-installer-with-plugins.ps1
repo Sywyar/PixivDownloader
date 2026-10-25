@@ -46,22 +46,6 @@ function Write-Step {
     Write-Host "==> $Message" -ForegroundColor Cyan
 }
 
-function Get-MavenCommand {
-    $wrapper = Join-Path $ProjectRoot "mvnw.cmd"
-    if (Test-Path -LiteralPath $wrapper) {
-        return $wrapper
-    }
-
-    foreach ($name in @("mvn.cmd", "mvn")) {
-        $command = Get-Command $name -ErrorAction SilentlyContinue
-        if ($command) {
-            return $command.Source
-        }
-    }
-
-    throw "Missing Maven command. Install Maven or use the Maven wrapper."
-}
-
 function Invoke-External {
     param(
         [Parameter(Mandatory = $true)][string]$FilePath,
@@ -76,7 +60,7 @@ function Invoke-External {
 
 function Get-BuiltBootJar {
     $targetDir = Join-Path $ProjectRoot "pixivdownload-app/target"
-    $jar = Get-ChildItem (Join-Path $targetDir "PixivDownload-*-boot.jar") -File -ErrorAction SilentlyContinue |
+    $jar = Get-ChildItem -LiteralPath $targetDir -Filter "PixivDownload-*-boot.jar" -File -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
     if (-not $jar) {
@@ -114,9 +98,9 @@ if (-not (Test-Path -LiteralPath $PackageLocalScript -PathType Leaf)) {
     throw "Missing script: $PackageLocalScript"
 }
 
-Push-Location $ProjectRoot
+Push-Location -LiteralPath $ProjectRoot
 try {
-    $maven = Get-MavenCommand
+    $maven = Get-MavenCommand $ProjectRoot
 
     $mavenProjects = @("pixivdownload-plugin-signature", "pixivdownload-app")
     if ($PluginSource -eq "Local") {

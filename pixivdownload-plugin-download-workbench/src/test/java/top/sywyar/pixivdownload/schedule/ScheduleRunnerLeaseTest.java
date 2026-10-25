@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -81,7 +82,8 @@ class ScheduleRunnerLeaseTest {
                 new ScheduleRunState(),
                 registry,
                 HOST_IDENTITY, () -> true);
-        Thread tick = new Thread(runner::tick, "schedule-runner-lease-test");
+        FutureTask<Void> outcome = new FutureTask<>(runner::tick, null);
+        Thread tick = new Thread(outcome, "schedule-runner-lease-test");
         tick.start();
         try {
             assertThat(lookupStarted.await(5, TimeUnit.SECONDS)).isTrue();
@@ -91,6 +93,7 @@ class ScheduleRunnerLeaseTest {
                     System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(50))).isFalse();
 
             allowLookup.countDown();
+            outcome.get(5, TimeUnit.SECONDS);
             tick.join(5_000L);
 
             assertThat(tick.isAlive()).isFalse();

@@ -21,9 +21,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import static top.sywyar.pixivdownload.guicompose.model.GuiActionResponseSafety.responseDetail;
-import static top.sywyar.pixivdownload.guicompose.model.GuiActionResponseSafety.safeJsonPath;
-import static top.sywyar.pixivdownload.guicompose.model.GuiActionResponseSafety.sanitizeActionText;
 import static top.sywyar.pixivdownload.guicompose.model.DesktopUiNodes.*;
 
 /**
@@ -767,7 +764,7 @@ final class DesktopRepositorySettingsController {
                 "config.market.repository.delete",
                 "gui.config.market.repo.delete.title",
                 DesktopUiDocument.DialogStyle.QUESTION,
-                (nextActions, dismissAction, dismiss) -> column(
+                (nextActions, dismissAction, dismiss) -> dialogContent(
                         "config.market.repository.delete.content",
                         new DesktopUiNode.Text(
                                 "config.market.repository.delete.message",
@@ -858,7 +855,7 @@ final class DesktopRepositorySettingsController {
                 trustedKeyView::content,
                 false,
                 600,
-                0
+                560
         );
     }
 

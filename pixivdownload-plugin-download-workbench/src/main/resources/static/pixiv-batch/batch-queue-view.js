@@ -56,76 +56,6 @@
         if (el) el.textContent = value;
     }
 
-    /* ============================================================
-       下载总速度计量
-       SSE 聚合连接是所有作品下载进度的汇聚点：每条 download-status 事件按其字节进度算「全局单调累计字节」，
-       定时器每秒采样累计值的增量得到速度。基线 / 定时器随下载生命周期（共享 SSE 的建立 / 关闭）启停。
-    ============================================================ */
-    function speedNowMs() {
-        return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-    }
-
-    // 累计单条传输流的正增量：每个传输流（某作品的第 N 张图 / 动图包 / 小说封面）的字节单调递增，
-    // 用 key 记住上次见到的值，只把正增量计入全局累计，从而跨多作品 / 多图正确汇总。
-    function addSpeedSample(key, cur) {
-        if (!Number.isFinite(cur) || cur < 0) return;
-        const prev = state.speedSamples[key] || 0;
-        if (cur > prev) {
-            state.speedAccumBytes += (cur - prev);
-            state.speedSamples[key] = cur;
-        } else if (cur < prev) {
-            // 同 key 字节回退（极少见，视作新一段传输）：把当前值整体计入增量
-            state.speedAccumBytes += cur;
-            state.speedSamples[key] = cur;
-        }
-    }
-
-    function accumulateDownloadSpeed(aid, data) {
-        if (!aid || !data) return;
-        const ip = data.imageProgress;
-        if (ip) addSpeedSample(aid + ':img:' + (ip.imageNumber != null ? ip.imageNumber : 0), Number(ip.downloadedBytes));
-        const up = data.ugoiraProgress;
-        if (up) addSpeedSample(aid + ':zip', Number(up.zipDownloadedBytes));
-        if (data.coverDownloadedBytes != null) addSpeedSample(aid + ':cover', Number(data.coverDownloadedBytes));
-        // 该作品终态：清掉其传输流基线，避免 speedSamples 无限增长。
-        if (data.completed || data.failed || data.cancelled) clearSpeedSamplesForItem(aid);
-    }
-
-    function clearSpeedSamplesForItem(aid) {
-        const prefix = aid + ':';
-        Object.keys(state.speedSamples).forEach(k => {
-            if (k.indexOf(prefix) === 0) delete state.speedSamples[k];
-        });
-    }
-
-    function startSpeedMeter() {
-        if (state.speedTimer) return;   // 幂等：已在计量则不重置基线
-        state.speedSamples = {};
-        state.speedAccumBytes = 0;
-        state.speedLastAccum = 0;
-        state.speedLastTime = speedNowMs();
-        renderDownloadSpeed(0);
-        state.speedTimer = setInterval(sampleDownloadSpeed, 1000);
-    }
-
-    function stopSpeedMeter() {
-        if (state.speedTimer) {
-            clearInterval(state.speedTimer);
-            state.speedTimer = null;
-        }
-        state.speedSamples = {};
-        renderDownloadSpeed(0);
-    }
-
-    function sampleDownloadSpeed() {
-        const now = speedNowMs();
-        const dt = (now - state.speedLastTime) / 1000;
-        const delta = state.speedAccumBytes - state.speedLastAccum;
-        state.speedLastAccum = state.speedAccumBytes;
-        state.speedLastTime = now;
-        renderDownloadSpeed(dt > 0 ? Math.max(0, delta / dt) : 0);
-    }
-
     // 按速度大小自适应单位：B/s · KB/s · MB/s · GB/s。
     function formatSpeed(bytesPerSec) {
         const b = Number(bytesPerSec);
@@ -168,55 +98,6 @@
     // 当前卡按队列顺序展示最前面的未完成项，避免并发进度事件改变卡片归属。
     // Vue 从队列镜像和暂停状态派生单卡；挂载失败时由 refreshCurrentCard 命令式刷新。
     // formatCurrentCardHtml 也供计划任务详情使用，因此剩余计数行在这里单独附加。
-
-    // 队首未完成项 = 队列镜像中第一个 status 属于 downloading/pending/paused 的项（completed/failed/skipped/idle
-    // 视为已结束）。含 pending/paused 是为了避免并发=1 时「上一项完成 → 下一项被认领」的间隙短暂闪「无」：该间隙
-    // 里没有 downloading 项，但有 pending 项，直接显示它（直接替换，不回归「无」）。暂停（停止接受新任务）期间
-    // 仍展示正在收尾下载的作品（drain）：有 downloading 项时照常展示队首；仅当没有任何 downloading 项时才
-    // 回退 idle「无」。queue 参数传 reactive 队列镜像（Vue 路径）或 state.queue（命令式路径），两路共用同一口径。
-    function currentFrontItem(queue, isPaused) {
-        for (let i = 0; i < queue.length; i++) {
-            const s = queue[i].status;
-            if (s === 'downloading') return queue[i];
-        }
-        if (isPaused) return null;
-        for (let i = 0; i < queue.length; i++) {
-            const s = queue[i].status;
-            if (s === 'pending' || s === 'paused') return queue[i];
-        }
-        return null;
-    }
-
-    // 剩余计数原始数据：{downloading, queued}。展示的队首不计入「还有」；文案渲染期经 bt 派生（模型不 bake 翻译）。
-    function currentRemainingCounts(queue, front) {
-        let downloading = 0, queued = 0;
-        for (let i = 0; i < queue.length; i++) {
-            const s = queue[i].status;
-            if (s === 'downloading') downloading++;
-            else if (s === 'pending' || s === 'paused') queued++;
-        }
-        if (front) {
-            if (front.status === 'downloading') downloading--;
-            else queued--;
-        }
-        return {downloading, queued};
-    }
-
-    // 剩余计数文案按渲染时的语言派生；两项都为 0 时不输出。
-    function currentRemainingLineText(downloading, queued) {
-        let text;
-        if (downloading > 0 && queued > 0) {
-            text = bt('status.current-remaining.both', '还有 {downloading} 个正在下载、{queued} 个排队中…',
-                {downloading: downloading, queued: queued});
-        } else if (downloading > 0) {
-            text = bt('status.current-remaining.downloading', '还有 {count} 个正在下载…', {count: downloading});
-        } else if (queued > 0) {
-            text = bt('status.current-remaining.queued', '还有 {count} 个排队中…', {count: queued});
-        } else {
-            return '';
-        }
-        return text;
-    }
 
     function buildCurrentRemainingLineHtml(downloading, queued) {
         const text = currentRemainingLineText(downloading, queued);
@@ -429,8 +310,8 @@
         const canCancel = removable && canCancelQueueItem(q);
         const isNovel = q.kind === 'novel';
         const novelDisplayId = q.novelId != null ? String(q.novelId) : String(q.id).replace(/^n/, '');
-        const displayId = q.taskObserved ? String(q.workId) : isNovel ? `${novelDisplayId} (Novel)` : String(q.id == null ? '' : q.id);
-        const linkHref = queueItemCanonicalUrl(q) || (!q.taskObserved && isNovel
+        const displayId = isNovel ? `${novelDisplayId} (Novel)` : String(q.id == null ? '' : q.id);
+        const linkHref = queueItemCanonicalUrl(q) || (isNovel
             ? `https://www.pixiv.net/novel/show.php?id=${encodeURIComponent(novelDisplayId)}`
             : '');
         return {
@@ -440,11 +321,6 @@
             removeLabel: canRemove ? bt('queue.remove', '移除') : '',
             linkLabel: linkHref ? bt('queue.open-artwork', '打开作品页面') : ''
         };
-    }
-
-    function pct(q) {
-        if (!q.totalImages) return 0;
-        return Math.min(100, Math.round((q.downloadedCount || 0) / q.totalImages * 100));
     }
 
     function statusColor(s) {

@@ -8,7 +8,7 @@ import java.util.Arrays;
 import java.util.concurrent.Callable;
 
 /** 插件实现媒体业务，GUI 只消费稳定的桌面命令与纯值结果。 */
-public final class DesktopMediaMaintenance implements DesktopMediaTool.Source {
+public final class DesktopMediaMaintenance implements DesktopMediaTool.CompletionSource {
     private final MediaMaintenanceService maintenance;
     private final MediaCapabilityService capabilities;
 
@@ -33,6 +33,7 @@ public final class DesktopMediaMaintenance implements DesktopMediaTool.Source {
                 Thread.currentThread().interrupt();
                 throw new java.util.concurrent.CancellationException();
             } catch (java.util.concurrent.ExecutionException failure) {
+                if (failure.getCause() instanceof Error cause) throw cause;
                 if (failure.getCause() instanceof Exception cause) throw cause;
                 throw failure;
             }
@@ -42,7 +43,10 @@ public final class DesktopMediaMaintenance implements DesktopMediaTool.Source {
         });
     }
 
-    @Override public DesktopMediaTool.Result<DesktopMediaTool.Status> start(String token) { return invoke(() -> status(maintenance.start(token))); }
+    @Override public DesktopMediaTool.Result<DesktopMediaTool.Status> start(
+            String token, java.util.function.Consumer<DesktopMediaTool.Status> completion) {
+        return invoke(() -> status(maintenance.start(token, value -> completion.accept(status(value)))));
+    }
     @Override public DesktopMediaTool.Status status() { return status(maintenance.status()); }
     @Override public void cancel() { maintenance.cancel(); }
     @Override public DesktopMediaTool.Result<DesktopMediaTool.Report> capabilities() {
@@ -58,7 +62,7 @@ public final class DesktopMediaMaintenance implements DesktopMediaTool.Source {
                 status.failures().stream().map(value -> new DesktopMediaTool.Failure(value.artworkId(), value.page())).toList());
     }
 
-    private static <T> DesktopMediaTool.Result<T> invoke(Callable<T> action) {
+    private <T> DesktopMediaTool.Result<T> invoke(Callable<T> action) {
         try { return new DesktopMediaTool.Result<>(action.call(), null); }
         catch (java.util.concurrent.CancellationException cancelled) {
             return new DesktopMediaTool.Result<>(null, DesktopUiText.plugin("batch", "media.tools.state.cancelled", "media.tools.state.cancelled"));
@@ -70,6 +74,7 @@ public final class DesktopMediaMaintenance implements DesktopMediaTool.Source {
             return new DesktopMediaTool.Result<>(null, new DesktopUiText("batch", failure.messageCode().replace("download.media.", "media.error."),
                     failure.messageCode(), Arrays.stream(failure.messageArgs()).map(String::valueOf).toList()));
         } catch (Exception failure) {
+            maintenance.logFailure(failure);
             return new DesktopMediaTool.Result<>(null, DesktopUiText.key("desktop.ui.action.failed"));
         }
     }

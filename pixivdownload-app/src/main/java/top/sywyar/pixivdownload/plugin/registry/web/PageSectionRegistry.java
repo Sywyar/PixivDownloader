@@ -11,7 +11,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 
 /**
  * 页面区块注册中心。收集各<b>活动</b>插件（{@link PluginRegistry#plugins()}，禁用插件不贡献区块）的
@@ -40,11 +39,6 @@ public class PageSectionRegistry {
                 register(registered.id(), sections);
             }
         });
-    }
-
-    /** 以内置插件清单构建注册中心，供 Spring 上下文之外的入口（测试 / 启动期检查等）使用。 */
-    public static PageSectionRegistry forBuiltInPlugins() {
-        return new PageSectionRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
     }
 
     /**
@@ -86,7 +80,7 @@ public class PageSectionRegistry {
         synchronized (lock) {
             snapshot = snapshot.stream()
                     .filter(registered -> !registered.pluginId().equals(pluginId))
-                    .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+                    .collect(Collectors.toUnmodifiableList());
         }
     }
 
@@ -148,26 +142,10 @@ public class PageSectionRegistry {
         if (value == null) {
             return;
         }
-        if (!isSameOriginAbsolutePath(value)) {
+        if (!WebContributionPaths.isSameOriginAbsolutePath(value)) {
             throw new IllegalStateException("page section " + field
                     + " must be a same-origin absolute path starting with '/' (no scheme / protocol-relative): "
                     + value + " (section: " + section.id() + ", plugin: " + pluginId + ")");
         }
-    }
-
-    /**
-     * 同源绝对路径判定：以单个 {@code /} 开头。拒绝空串、{@code javascript:} / {@code http(s)://} 等带协议
-     * 的 URL（不以 {@code /} 开头）、{@code //host} 协议相对 URL 与 {@code /\host} 反斜杠变体（第二个字符为
-     * {@code /} 或 {@code \}，浏览器可能归一化为协议相对）。路径其余部分（含 query）不限制。
-     */
-    private static boolean isSameOriginAbsolutePath(String value) {
-        if (value.isEmpty() || value.charAt(0) != '/') {
-            return false;
-        }
-        if (value.length() >= 2) {
-            char second = value.charAt(1);
-            return second != '/' && second != '\\';
-        }
-        return true;
     }
 }

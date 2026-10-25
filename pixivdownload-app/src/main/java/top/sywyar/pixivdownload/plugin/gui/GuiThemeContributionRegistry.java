@@ -5,13 +5,11 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiThemeContribution;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Collects GUI theme contributions from active plugins and indexes them by global theme id.
@@ -25,7 +23,6 @@ public class GuiThemeContributionRegistry {
 
     private final Object lock = new Object();
 
-    private volatile List<RegisteredTheme> snapshot = List.of();
     private volatile Map<String, RegisteredTheme> byThemeId = Map.of();
 
     public GuiThemeContributionRegistry(PluginRegistry pluginRegistry) {
@@ -54,11 +51,10 @@ public class GuiThemeContributionRegistry {
             throw new IllegalStateException("empty GUI theme contribution (plugin: " + pluginId + ")");
         }
         synchronized (lock) {
-            if (snapshot.stream().anyMatch(registered -> registered.pluginId().equals(pluginId))) {
+            if (byThemeId.values().stream().anyMatch(registered -> registered.pluginId().equals(pluginId))) {
                 throw new IllegalStateException("GUI themes already registered for plugin: " + pluginId);
             }
             Map<String, RegisteredTheme> nextById = new LinkedHashMap<>(byThemeId);
-            List<RegisteredTheme> next = new ArrayList<>(snapshot);
             for (GuiThemeContribution theme : themes) {
                 validate(theme, pluginId);
                 RegisteredTheme existing = nextById.get(theme.themeId());
@@ -66,11 +62,9 @@ public class GuiThemeContributionRegistry {
                     throw duplicateThemeId(theme.themeId(), existing.pluginId(), pluginId);
                 }
                 RegisteredTheme registered = new RegisteredTheme(pluginId, theme);
-                next.add(registered);
                 nextById.put(theme.themeId(), registered);
             }
-            snapshot = List.copyOf(next);
-            byThemeId = immutableCopy(nextById);
+            byThemeId = Collections.unmodifiableMap(nextById);
         }
     }
 
@@ -79,21 +73,15 @@ public class GuiThemeContributionRegistry {
      */
     public void unregister(String pluginId) {
         synchronized (lock) {
-            List<RegisteredTheme> next = snapshot.stream()
-                    .filter(registered -> !registered.pluginId().equals(pluginId))
-                    .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
-            snapshot = next;
-            LinkedHashMap<String, RegisteredTheme> nextById = new LinkedHashMap<>();
-            for (RegisteredTheme registered : next) {
-                nextById.put(registered.contribution().themeId(), registered);
-            }
-            byThemeId = immutableCopy(nextById);
+            Map<String, RegisteredTheme> nextById = new LinkedHashMap<>(byThemeId);
+            nextById.values().removeIf(registered -> registered.pluginId().equals(pluginId));
+            byThemeId = Collections.unmodifiableMap(nextById);
         }
     }
 
     /** Returns all registered GUI themes in plugin registration order. */
     public List<RegisteredTheme> themes() {
-        return snapshot;
+        return List.copyOf(byThemeId.values());
     }
 
     /** Returns an immutable index keyed by global theme id. */
@@ -121,7 +109,4 @@ public class GuiThemeContributionRegistry {
                 + " (plugins: " + existingPluginId + ", " + conflictingPluginId + ")");
     }
 
-    private static Map<String, RegisteredTheme> immutableCopy(Map<String, RegisteredTheme> source) {
-        return Collections.unmodifiableMap(new LinkedHashMap<>(source));
-    }
 }

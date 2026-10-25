@@ -196,10 +196,7 @@ final class JdkOutboundWebSocketClientFactory implements OutboundWebSocketClient
             attempt.completeExceptionally(actualFailure);
         }
 
-        private void listenerTerminated(
-                ConnectionAttempt attempt,
-                WebSocket webSocket
-        ) {
+        private void listenerTerminated(ConnectionAttempt attempt) {
             synchronized (monitor) {
                 attempt.listenerTerminated(true);
                 active.remove(attempt);
@@ -277,7 +274,7 @@ final class JdkOutboundWebSocketClientFactory implements OutboundWebSocketClient
             this.owner = owner;
             this.listener = new ManagedListener(
                     listener,
-                    webSocket -> owner.listenerTerminated(this, webSocket));
+                    () -> owner.listenerTerminated(this));
         }
 
         private PropagatingConnectFuture result() {
@@ -382,13 +379,11 @@ final class JdkOutboundWebSocketClientFactory implements OutboundWebSocketClient
     private static final class ManagedListener implements WebSocket.Listener {
 
         private final AtomicReference<WebSocket.Listener> delegate;
-        private final AtomicReference<java.util.function.Consumer<WebSocket>>
-                terminalCallback;
-        private final AtomicBoolean terminal = new AtomicBoolean();
+        private final AtomicReference<Runnable> terminalCallback;
 
         private ManagedListener(
                 WebSocket.Listener delegate,
-                java.util.function.Consumer<WebSocket> terminalCallback
+                Runnable terminalCallback
         ) {
             this.delegate = new AtomicReference<>(
                     Objects.requireNonNull(delegate, "delegate"));
@@ -465,7 +460,7 @@ final class JdkOutboundWebSocketClientFactory implements OutboundWebSocketClient
                         ? null
                         : current.onClose(webSocket, statusCode, reason);
             } finally {
-                terminate(webSocket);
+                terminate();
             }
         }
 
@@ -477,18 +472,15 @@ final class JdkOutboundWebSocketClientFactory implements OutboundWebSocketClient
                     current.onError(webSocket, error);
                 }
             } finally {
-                terminate(webSocket);
+                terminate();
             }
         }
 
-        private void terminate(WebSocket webSocket) {
-            if (terminal.compareAndSet(false, true)) {
-                delegate.set(null);
-                java.util.function.Consumer<WebSocket> callback =
-                        terminalCallback.getAndSet(null);
-                if (callback != null) {
-                    callback.accept(webSocket);
-                }
+        private void terminate() {
+            delegate.set(null);
+            Runnable callback = terminalCallback.getAndSet(null);
+            if (callback != null) {
+                callback.run();
             }
         }
 

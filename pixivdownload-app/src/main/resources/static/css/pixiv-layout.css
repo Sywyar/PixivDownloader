@@ -56,3 +56,38 @@
 
 /* Empty plugin navigation groups do not leave orphaned headings. */
 .sidebar-navigation-group:not(:has(.nav-item)) { display: none; }
+
+@media (max-width: 56.25em) {
+    /* 文档滚动时，吸顶范围必须随正文增长，不能被一屏高的 body 截断。 */
+    body.layout-flow:has(> [data-layout-height="--layout-header-height"]:not([data-layout-scroll-root])) {
+        height: auto;
+        min-height: 100svh;
+    }
+
+    .layout-flow :where([data-layout-height="--layout-header-height"]) {
+        z-index: 10;
+    }
+
+    .layout-flow [data-layout-height="--layout-header-height"] {
+        position: sticky;
+        top: 0;
+        translate: none;
+        transition: translate .18s ease-out;
+    }
+
+    /* 独立滚动页面保留原有固定导航定位与横向变换。 */
+    .layout-flow [data-layout-scroll-root] {
+        position: fixed;
+    }
+
+    .layout-flow [data-layout-height="--layout-header-height"].layout-header-hidden {
+        translate: 0 calc(-100% - 2rem);
+        pointer-events: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .layout-flow [data-layout-height="--layout-header-height"] {
+        transition: none;
+    }
+}

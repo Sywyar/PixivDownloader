@@ -8,8 +8,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.i18n.LocaleContextHolder;
-import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.asset.StagedFileDeletion;
 import top.sywyar.pixivdownload.core.asset.artwork.ArtworkFileLocator;
@@ -22,10 +20,8 @@ import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -43,22 +39,17 @@ class DownloadedArtworkServiceTest {
     private DownloadConfig downloadConfig;
     @Mock
     private PixivDatabase pixivDatabase;
-    @Mock
-    private AuthorService authorService;
 
     private DownloadedArtworkService downloadedArtworkService;
 
     @BeforeEach
     void setUp() {
-        LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
         ArtworkFileLocator artworkFileLocator = new ArtworkFileLocator(pixivDatabase, downloadConfig, APP_MESSAGES,
                 new StagedFileDeletion(APP_MESSAGES, top.sywyar.pixivdownload.core.asset.FileOperationTestSupport.journal()), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ArtworkMediaStore.class), org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.asset.ExternalWorkFiles.class));
         ArtworkFileService artworkFileService = new ArtworkFileService(pixivDatabase, artworkFileLocator,
                 new top.sywyar.pixivdownload.core.asset.artwork.ArtworkMediaDecoder(
                         org.mockito.Mockito.mock(top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner.class),
                         new com.fasterxml.jackson.databind.ObjectMapper()));
-        ArtworkMetadataRecoveryService artworkMetadataRecoveryService =
-                new ArtworkMetadataRecoveryService(pixivDatabase, authorService, downloadConfig, APP_MESSAGES);
         downloadedArtworkService = new DownloadedArtworkService(pixivDatabase, artworkFileService);
     }
 
@@ -102,7 +93,7 @@ class DownloadedArtworkServiceTest {
 
         @Test
         @DisplayName("verifyFiles=true 且目录为空时允许重下但保留登记")
-        void shouldDeleteStaleRecordWhenDirectoryIsEmpty() throws Exception {
+        void shouldKeepRecordWhenDirectoryIsEmpty() throws Exception {
             Path folder = Files.createDirectories(tempDir.resolve("12345"));
             ArtworkRecord record = new ArtworkRecord(12345L, "测试作品", folder.toString(),
                     3, "jpg", 1700000000L, false, null, null, 0, null, null, null);
@@ -116,7 +107,7 @@ class DownloadedArtworkServiceTest {
 
         @Test
         @DisplayName("verifyFiles=true 且目录里没有作品图片时保留登记")
-        void shouldDeleteStaleRecordWhenDirectoryHasNoArtworkImages() throws Exception {
+        void shouldKeepRecordWhenDirectoryHasNoArtworkImages() throws Exception {
             Path folder = Files.createDirectories(tempDir.resolve("22345"));
             Files.writeString(folder.resolve("note.txt"), "orphan");
             Files.writeString(folder.resolve("22345_p0.json"), "{}");
@@ -236,18 +227,5 @@ class DownloadedArtworkServiceTest {
         List<String> result = downloadedArtworkService.getDownloadedRecord();
 
         assertThat(result).containsExactly("1", "2", "3");
-    }
-
-    private static InsertArtworkArgument recoveredArtwork(long artworkId, String folder,
-                                                            int count, String extensions) {
-        return InsertArtworkArgument.builder()
-                .artworkId(artworkId)
-                .title("")
-                .folder(folder)
-                .count(count)
-                .extensions(extensions)
-                .time(1700000200L)
-                .description("")
-                .build();
     }
 }

@@ -63,6 +63,23 @@ class RepositoryDescriptorParserTest {
                         failure -> assertThat(failure.code()).isEqualTo(code));
     }
 
+    @Test
+    @DisplayName("拒绝非法主页与展示字段中的控制字符")
+    void rejectsUnsafeHomepageAndControlCharacters() throws Exception {
+        String spki = Base64.getEncoder().encodeToString(
+                KeyPairGenerator.getInstance("Ed25519").generateKeyPair().getPublic().getEncoded());
+        String valid = descriptor(spki, "\"extensions\":{}");
+        for (String homepage : new String[]{"http://sample.example", "javascript:alert(1)",
+                "https://user:secret@sample.example"}) {
+            assertInvalid(valid.replace("https://sample.example", homepage),
+                    PluginCatalogErrorCode.REPOSITORY_DESCRIPTOR_INVALID);
+        }
+        for (String escaped : new String[]{"\\n", "\\r", "\\t", "\\u0000", "\\u007f", "\\u0085"}) {
+            assertInvalid(valid.replace("Sample Repository", "Sample" + escaped + "Repository"),
+                    PluginCatalogErrorCode.REPOSITORY_DESCRIPTOR_INVALID);
+        }
+    }
+
     private static String descriptor(String spki, String extra) {
         return """
                 {

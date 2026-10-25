@@ -51,6 +51,14 @@
 
 ## 运行时边界
 
+桌面 GUI 使用 `DesktopUiToolHost.findToolLog(fileName)` 只读查找已有 HTML 日志，再将返回路径的 URI 交给 `DesktopUiHost.openExternalUri`。文件名来自日志会话或工具历史；内置工具的最新日志使用 `stem-latest.html`。查询不创建目录、轮换文件或打开浏览器，文件尚未生成或已被轮换删除时返回空值。系统打开应在 GUI 工作线程执行。该能力要求 SDK 1.3。
+
+`openToolLog(stem)` 连接宿主内置回填和旧 JSON 迁移的日志源，文件主干名不能指定插件日志源。插件自身的日志继续使用宿主提供的日志实现；不要为了查看日志创建写入会话，也不要从 `RuntimePathProvider` 的配置、状态或数据目录推导宿主日志路径。
+
+媒体提供者通过可选 `DesktopMediaTool.CompletionSource` 交付已接纳执行的终态，拒绝提交时不通知。后台工作使用当前 owner 的 `PluginRuntimeTaskRegistrar` 登记并绑定取消句柄；关闭时先取消、排空，再释放观察者。宿主记录 `ToolHistoryEntry.executionId` 和 `sourceIdentity`，分别标识一次执行与提供者的精确 publication。`ToolId` 是历史业务类别，新增媒体提供者不需要增加枚举值。旧历史的身份字段为空，不按时间或作品编号补猜。
+
+历史记录的日志文件名指向执行时关联的会话；文件被轮换删除时显示缺失，不改为打开 latest。下载恢复使用既有 `DownloadTasks.find(taskId, owner)` 查询精确执行的持久终态，`snapshot(owner)` 只列进程内快照；没有查到结果时保留待确认状态。
+
 模板 POM 不继承本仓库根 parent，也不依赖 <code>pixivdownload-app</code> 或 <code>pixivdownload-plugin-runtime</code>。薄入口 <code>pixivdownload-sdk</code> 传递 SDK Info、Plugin API、Core API、PF4J、Spring context/web/webmvc、Servlet 和 Jackson 编译依赖。消费者将整个入口声明为宿主提供；这些共享依赖不能复制进插件 JAR，否则跨 classloader 的契约类型将不再相同。JUnit 由模板单独声明，测试库不属于 SDK 编译入口。原有三个 SDK 模块和 BOM 坐标仍保留。
 
 其它构建工具可以直接消费同一 Maven 坐标，不需要导入 BOM：

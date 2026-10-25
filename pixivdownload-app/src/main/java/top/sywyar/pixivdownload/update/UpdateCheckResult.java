@@ -30,7 +30,7 @@ public class UpdateCheckResult {
     private String assetSha256;
     /** 平台 key，例如 win-x64-installer。 */
     private String assetPlatform;
-    /** 检查发生时间（epoch 毫秒）。 */
+    /** 检查发生时间。 */
     private Instant checkedAt;
     /** 是否为每夜版更新（而非正式发布）。 */
     private boolean nightly;

@@ -76,6 +76,7 @@ public final class IsolatedPluginSession {
     private final Consumer<WorkerExit> exitListener;
     private final Settings settings;
     private final SdkWorkerDebug debug;
+    private final Set<ProcessHandle> terminatingProcesses = new LinkedHashSet<>();
 
     private Process process;
     private DataInputStream input;
@@ -151,8 +152,7 @@ public final class IsolatedPluginSession {
 
     public synchronized boolean stopAndTerminate() {
         if (!isWorkerAlive()) {
-            terminateWorker(true);
-            return true;
+            return terminateWorker(true);
         }
         try {
             command(IsolatedPluginProtocol.STOP_FEATURE, settings.commandTimeout());
@@ -231,6 +231,10 @@ public final class IsolatedPluginSession {
     }
 
     private void ensureWorker() {
+        if (!terminatingProcesses.isEmpty() && !terminateWorker(true)) {
+            throw new PluginRuntimeOperationException(
+                    "previous isolated plugin worker release is unconfirmed: " + descriptor.id());
+        }
         if (isWorkerAlive()) {
             return;
         }
@@ -339,32 +343,40 @@ public final class IsolatedPluginSession {
         if (expected) {
             process = null;
         }
+        closeIpc();
+        return terminateProcessTree(previous);
+    }
+
+    private void closeIpc() {
         closeQuietly(output);
         closeQuietly(input);
         output = null;
         input = null;
-        boolean terminated = terminateProcessTree(previous, settings.shutdownTimeout());
         ThreadPoolExecutor previousExecutor = ioExecutor;
         ioExecutor = null;
         if (previousExecutor != null) {
             previousExecutor.shutdownNow();
         }
-        return terminated;
     }
 
-    static boolean terminateProcessTree(Process process, Duration timeout) {
-        if (process == null) {
-            return true;
+    private boolean terminateProcessTree(Process process) {
+        if (process != null) {
+            terminatingProcesses.add(process.toHandle());
         }
-        LinkedHashSet<ProcessHandle> handles = new LinkedHashSet<>();
-        process.descendants().forEach(handles::add);
-        handles.add(process.toHandle());
-        destroy(handles, false);
-        waitForExit(handles, timeout);
-        process.descendants().forEach(handles::add);
-        destroy(handles, true);
-        waitForExit(handles, timeout);
-        return handles.stream().noneMatch(ProcessHandle::isAlive);
+        collectTerminatingDescendants();
+        destroy(terminatingProcesses, false);
+        waitForExit(terminatingProcesses, settings.shutdownTimeout());
+        collectTerminatingDescendants();
+        destroy(terminatingProcesses, true);
+        waitForExit(terminatingProcesses, settings.shutdownTimeout());
+        terminatingProcesses.removeIf(handle -> !handle.isAlive());
+        return terminatingProcesses.isEmpty();
+    }
+
+    private void collectTerminatingDescendants() {
+        for (ProcessHandle handle : List.copyOf(terminatingProcesses)) {
+            handle.descendants().forEach(terminatingProcesses::add);
+        }
     }
 
     private static void destroy(Set<ProcessHandle> handles, boolean forcibly) {
@@ -423,15 +435,7 @@ public final class IsolatedPluginSession {
                 return;
             }
             process = null;
-            closeQuietly(output);
-            closeQuietly(input);
-            output = null;
-            input = null;
-            ThreadPoolExecutor previousExecutor = ioExecutor;
-            ioExecutor = null;
-            if (previousExecutor != null) {
-                previousExecutor.shutdownNow();
-            }
+            closeIpc();
             String tail = stderrCapture.tail();
             String reason = "isolated plugin worker exited with code " + exited.exitValue();
             if (!tail.isBlank()) {

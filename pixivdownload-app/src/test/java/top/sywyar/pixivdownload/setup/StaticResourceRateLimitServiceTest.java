@@ -1,9 +1,13 @@
 package top.sywyar.pixivdownload.setup;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.setup.guest.config.GuestInviteConfig;
 
@@ -118,6 +122,20 @@ class StaticResourceRateLimitServiceTest {
 
             assertThat(service.isAllowed("203.0.113.99")).isFalse();
             assertThat(service.isAllowed("10.0.0.0")).isTrue();
+
+            Logger logger = (Logger) LoggerFactory.getLogger(StaticResourceRateLimitService.class);
+            ListAppender<ILoggingEvent> captured = new ListAppender<>();
+            captured.start();
+            logger.addAppender(captured);
+            try {
+                String inviteCode = "fixture-invite-credential";
+                assertThat(service.isAllowedForInvite("invite:" + inviteCode)).isFalse();
+                assertThat(captured.list).allSatisfy(event ->
+                        assertThat(event.getFormattedMessage()).doesNotContain(inviteCode));
+            } finally {
+                logger.detachAppender(captured);
+                captured.stop();
+            }
         }
     }
 }

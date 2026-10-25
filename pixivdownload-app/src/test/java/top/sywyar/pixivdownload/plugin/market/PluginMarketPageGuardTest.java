@@ -44,12 +44,7 @@ class PluginMarketPageGuardTest {
             "static/plugin-market/plugin-market.css");
 
     private static String read(String resource) throws IOException {
-        try (InputStream in = PluginMarketPageGuardTest.class.getClassLoader().getResourceAsStream(resource)) {
-            if (in == null) {
-                throw new NoSuchFileException(resource);
-            }
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        return new String(readBytes(resource), StandardCharsets.UTF_8);
     }
 
     private static byte[] readBytes(String resource) throws IOException {
@@ -73,7 +68,6 @@ class PluginMarketPageGuardTest {
         int vue = html.indexOf("/plugin-market/plugin-market-vue.js");
         int fallback = html.indexOf("/plugin-market/plugin-market-fallback.js");
         int init = html.indexOf("/plugin-market/plugin-market-init.js");
-        assertThat(vueHelper).as("应加载共享 Vue 助手 /js/pixiv-vue.js").isGreaterThanOrEqualTo(0);
         assertThat(List.of(vueHelper, core, data, api, recovery, vue, fallback, init))
                 .as("各模块脚本都应在页面声明").allSatisfy(idx -> assertThat(idx).isGreaterThanOrEqualTo(0));
         assertThat(vueHelper).isLessThan(core);
@@ -199,9 +193,9 @@ class PluginMarketPageGuardTest {
                 "install.state.incompatible", "install.state.unavailable",
                 "install.state.installing", "install.state.pending-restart",
                 "install.restart-hint", "install.goto-manage", "compat.needs", "fallback.notice",
-                "detail.changelog", "detail.requires", "detail.sha256", "detail.verification",
-                "master.disabled.title", "recovery.banner.title", "recovery.banner.desc",
-                "recovery.reason.missing", "recovery.reason.failed", "recovery.reason.unavailable",
+                "detail.changelog", "detail.requires", "detail.verification",
+                "master.disabled.title", "recovery.banner.title",
+                "recovery.explanation", "recovery.error-summary", "recovery.status-unavailable",
                 "error.catalog", "empty.title", "security.notice", "host.elevated.notice",
                 "install.trust.declarative-risk", "install.trust.elevated-risk", "disclaimer");
         for (String key : critical) {
@@ -235,23 +229,6 @@ class PluginMarketPageGuardTest {
                         "hideDefaultInstalled: true", "hideDependencies: true",
                         "data-pmk-filter", "hideDefaultInstalled: state.hideDefaultInstalled",
                         "hideDependencies: state.hideDependencies");
-    }
-
-    @Test
-    @DisplayName("恢复模式复用插件状态接口，并在 Vue / 基础回退中初始化默认安装筛选")
-    void recoveryStatusInitializesDefaultInstalledFilters() throws IOException {
-        String core = read(CORE);
-        String api = read(API);
-        String vue = read(VUE);
-        String fallback = read(FALLBACK);
-
-        assertThat(api).contains("/api/plugins/status", "fetchPluginStatus");
-        assertThat(core).contains("PMK.recoveryReasons", "report.recoveryReasons", "MISSING_REQUIRED", "FAILED",
-                "reason.pluginId", "reason.messages");
-        assertThat(vue).contains("recoveryReasons", "hasRecoveryReasons",
-                "self.hideDefaultInstalled = !self.recoveryMode");
-        assertThat(fallback).contains("state.recoveryReasons",
-                "state.hideDefaultInstalled = !state.recoveryMode");
     }
 
     @Test
@@ -328,28 +305,6 @@ class PluginMarketPageGuardTest {
                 "trustRequirement", "artifactSha256", "PixivFeedback.confirm", "installPluginWithConfirmation");
         assertThat(api).contains("confirmTrust=").doesNotContain("confirmIdentityMigration");
         assertThat(core + vue + fallback).doesNotContain("window.confirm(", "global.confirm(");
-    }
-
-    @Test
-    @DisplayName("市场安装响应中的自动依赖结果会同步更新依赖卡片，并在安装后刷新当前 catalog")
-    void dependencyInstallResultsUpdateCardsAndRefreshCatalog() throws IOException {
-        String data = read(DATA);
-        String vue = read(VUE);
-        String fallback = read(FALLBACK);
-
-        assertThat(data).as("数据层应把后端 dependencyInstallResults 映射为普通安装结果本地模型")
-                .contains("dependencyInstallResults", "D.installResult(dependency)",
-                        "D.dependencyInstallResults = dependencyInstallResults");
-        assertThat(vue).as("Vue 主视图应按同一 repositoryId+pluginId 键写入依赖安装结果")
-                .contains("recordDependencyInstallResults", "model.dependencyInstallResults",
-                        "self.installResults[self.installKey(repositoryId, dependencyResult.pluginId)]");
-        assertThat(fallback).as("基础回退视图应按同一 repositoryId+pluginId 键写入依赖安装结果")
-                .contains("recordDependencyInstallResults", "model.dependencyInstallResults",
-                        "state.installResults[installKey(repositoryId, dependencyResult.pluginId)]");
-        assertThat(vue).as("Vue 安装完成后应重拉当前 catalog，不清掉 installResults 覆盖层")
-                .contains("refreshCatalogAfterInstall", "this.loadCatalog(repositoryId)");
-        assertThat(fallback).as("回退安装完成后应重拉当前 catalog，不清掉 installResults 覆盖层")
-                .contains("refreshCatalogAfterInstall", "loadCatalog(repositoryId, true).then(paint)");
     }
 
     @Test

@@ -56,7 +56,8 @@ public class PixivBookmarkService implements PixivBookmarkActions {
         }
         try {
             String csrfToken = fetchCsrfToken(cookie);
-            postBookmark(artworkId, cookie, csrfToken);
+            postBookmark(BOOKMARK_URL, new BookmarkRequest(String.valueOf(artworkId), 0, "", List.of()),
+                    cookie, csrfToken);
             log.info(message("bookmark.log.success", id(artworkId)));
             return WorkActionResult.success(messages.get("bookmark.result.success"));
         } catch (Exception e) {
@@ -125,7 +126,8 @@ public class PixivBookmarkService implements PixivBookmarkActions {
         }
         try {
             String csrfToken = fetchCsrfToken(cookie);
-            postNovelBookmark(novelId, cookie, csrfToken);
+            postBookmark(NOVEL_BOOKMARK_URL, new NovelBookmarkRequest(String.valueOf(novelId), 0, "", List.of()),
+                    cookie, csrfToken);
             log.info(message("bookmark.log.success", id(novelId)));
             return WorkActionResult.success(messages.get("bookmark.result.success"));
         } catch (Exception e) {
@@ -134,42 +136,16 @@ public class PixivBookmarkService implements PixivBookmarkActions {
         }
     }
 
-    private void postNovelBookmark(Long novelId, String cookie, String csrfToken) throws Exception {
+    private void postBookmark(String url, Object body, String cookie, String csrfToken) throws Exception {
         HttpHeaders headers = PixivRequestHeaders.ajax(cookie);
         PixivRequestHeaders.applyOrigin(headers);
         headers.set("x-csrf-token", csrfToken);
         headers.setContentType(MediaType.APPLICATION_JSON);
 
-        NovelBookmarkRequest body = new NovelBookmarkRequest(String.valueOf(novelId), 0, "", List.of());
         String bodyJson = objectMapper.writeValueAsString(body);
 
         ResponseEntity<byte[]> response = restTemplate.exchange(
-                NOVEL_BOOKMARK_URL, HttpMethod.POST, new HttpEntity<>(bodyJson, headers), byte[].class);
-
-        if (!response.getStatusCode().is2xxSuccessful()) {
-            throw new IllegalStateException(message("bookmark.log.reason.api.non-2xx", response.getStatusCode()));
-        }
-        byte[] respBody = response.getBody();
-        if (respBody == null) {
-            throw new IllegalStateException(message("bookmark.log.reason.api.error", "empty response"));
-        }
-        JsonNode root = objectMapper.readValue(respBody, JsonNode.class);
-        if (root.path("error").asBoolean(false)) {
-            throw new IllegalStateException(message("bookmark.log.reason.api.error", root.path("message").asText()));
-        }
-    }
-
-    private void postBookmark(Long artworkId, String cookie, String csrfToken) throws Exception {
-        HttpHeaders headers = PixivRequestHeaders.ajax(cookie);
-        PixivRequestHeaders.applyOrigin(headers);
-        headers.set("x-csrf-token", csrfToken);
-        headers.setContentType(MediaType.APPLICATION_JSON);
-
-        BookmarkRequest body = new BookmarkRequest(String.valueOf(artworkId), 0, "", List.of());
-        String bodyJson = objectMapper.writeValueAsString(body);
-
-        ResponseEntity<byte[]> response = restTemplate.exchange(
-                BOOKMARK_URL, HttpMethod.POST, new HttpEntity<>(bodyJson, headers), byte[].class);
+                url, HttpMethod.POST, new HttpEntity<>(bodyJson, headers), byte[].class);
 
         if (!response.getStatusCode().is2xxSuccessful()) {
             throw new IllegalStateException(message("bookmark.log.reason.api.non-2xx", response.getStatusCode()));
@@ -189,6 +165,6 @@ public class PixivBookmarkService implements PixivBookmarkActions {
     }
 
     private String id(Long value) {
-        return value == null ? "null" : String.valueOf(value);
+        return String.valueOf(value);
     }
 }

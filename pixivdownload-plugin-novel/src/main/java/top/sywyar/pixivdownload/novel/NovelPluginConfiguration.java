@@ -274,8 +274,9 @@ public class NovelPluginConfiguration {
     @Bean
     @ConditionalOnPluginEnabled("novel")
     public NarrationReferenceVoiceStore narrationReferenceVoiceStore(NarrationReferenceVoicePaths paths,
-            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
-        return new NarrationReferenceVoiceStore(paths, database);
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database,
+            top.sywyar.pixivdownload.core.asset.FileTransactionService files) {
+        return new NarrationReferenceVoiceStore(paths, database, files);
     }
 
     @Bean
@@ -303,10 +304,9 @@ public class NovelPluginConfiguration {
             NovelMapper novelMapper,
             NovelDatabase novelDatabase,
             NarrationScriptService narrationScriptService,
-            NarrationReferenceVoiceStore referenceVoiceStore,
             PlatformTransactionManager transactionManager) {
         return new NovelNarrationCastService(novelMapper, novelDatabase,
-                narrationScriptService, referenceVoiceStore, transactionManager);
+                narrationScriptService, transactionManager);
     }
 
     @Bean
@@ -349,10 +349,9 @@ public class NovelPluginConfiguration {
     public NarrationReferenceVoiceController narrationReferenceVoiceController(
             NovelNarrationCastService castService,
             NarrationReferenceVoiceService referenceVoiceService,
-            @Qualifier("novelPluginMessages") MessageResolver messages,
-            NarrationReferenceVoicePaths paths) {
+            @Qualifier("novelPluginMessages") MessageResolver messages) {
         return new NarrationReferenceVoiceController(
-                castService, referenceVoiceService, messages, paths);
+                castService, referenceVoiceService, messages);
     }
 
     @Bean
@@ -377,7 +376,6 @@ public class NovelPluginConfiguration {
                                                           NovelAutoTranslateService novelAutoTranslateService,
                                                           NovelDatabase novelDatabase,
                                                           NovelGalleryService novelGalleryService,
-                                                          WorkVisibilityService workVisibilityService,
                                                           NovelMergeService novelMergeService,
                                                           NovelTranslationService novelTranslationService,
                                                           ApplicationModeProvider applicationModeProvider,
@@ -391,7 +389,7 @@ public class NovelPluginConfiguration {
                                                           NovelBrowserFetchTicketStore browserFetchTicketStore) {
         return new NovelDownloadController(novelDownloadService, novelAutoTranslateService, novelDatabase,
                 novelGalleryService, novelMergeService, novelTranslationService, applicationModeProvider,
-                requestOwnerIdentityResolver, workVisibilityService, visitorDownloadQuotaService,
+                requestOwnerIdentityResolver, visitorDownloadQuotaService,
                 multiModeSettings, objectMapper, pixivAjaxClient, pixivProxyAccessPolicy, messages,
                 browserFetchTicketStore);
     }

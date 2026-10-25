@@ -19,6 +19,7 @@ import top.sywyar.pixivdownload.novel.request.NovelDownloadRequestFactory;
 import top.sywyar.pixivdownload.novel.translation.NovelAutoTranslateService;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialHandle;
+import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionException;
 import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledFailure;
 import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
@@ -42,7 +43,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /** 基于插件 API 的 Pixiv 小说计划作品执行器。 */
 @PluginManagedBean
@@ -65,9 +65,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
     private final NovelMergeService novelMergeService;
     private final NovelAutoTranslateService novelAutoTranslateService;
     private final NovelDownloadExecutionLane downloadExecutionLane;
-    private final ConcurrentHashMap<SeriesCacheKey, Optional<PixivNovelMetadata.SeriesMetadata>>
-            seriesMetadataCache = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<Long, ScheduledTaskDefinition> seriesCacheRuns = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, SeriesRunCache> seriesCacheRuns = new ConcurrentHashMap<>();
 
     public PixivScheduledNovelWorkExecutor(
             ObjectMapper objectMapper,
@@ -121,12 +119,10 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
             throws ScheduledExecutionException {
         try {
             return downloadExecutionLane.executeAndWait(() -> executeInLane(work, context));
-        } catch (ScheduledExecutionException e) {
+        } catch (ScheduledExecutionException | RuntimeException | Error e) {
             throw e;
         } catch (InterruptedException e) {
             throw ScheduledExecutionException.cancelled();
-        } catch (RuntimeException | Error e) {
-            throw e;
         } catch (Exception e) {
             throw failure(ScheduledFailure.Category.INTERNAL, "pixiv.novel.execution-lane-failed");
         }
@@ -140,14 +136,9 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
             long novelId = decodeWorkId(work);
             Objects.requireNonNull(task, "task");
             return executePrepared(novelId, context);
-        } catch (ScheduledExecutionException e) {
+        } catch (ScheduledExecutionException | RuntimeException | Error e) {
             if (task != null) {
-                clearFailedRunCache(task);
-            }
-            throw e;
-        } catch (RuntimeException | Error e) {
-            if (task != null) {
-                clearFailedRunCache(task);
+                clearRunCache(task);
             }
             throw e;
         }
@@ -283,10 +274,11 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         if (seriesId == null || seriesId <= 0L) {
             return null;
         }
-        prepareRunCache(task);
-        SeriesCacheKey key = new SeriesCacheKey(task.taskId(), seriesId);
-        return seriesMetadataCache.computeIfAbsent(
-                key,
+        SeriesRunCache run = seriesCacheRuns.compute(task.taskId(), (taskId, current) ->
+                current != null && current.task() == task
+                        ? current : new SeriesRunCache(task, new ConcurrentHashMap<>()));
+        return run.series().computeIfAbsent(
+                seriesId,
                 ignored -> Optional.ofNullable(fetchSeriesUncached(seriesId, cookie)))
                 .orElse(null);
     }
@@ -365,12 +357,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         if (!SERIES_SOURCE_TYPE.equals(task.sourceType())) {
             return;
         }
-        PixivScheduledNovelDefinition definition;
-        try {
-            definition = PixivScheduledNovelDefinition.parse(objectMapper, context.task());
-        } catch (IllegalArgumentException e) {
-            throw failure(ScheduledFailure.Category.INVALID_DEFINITION, "pixiv.schedule.definition-invalid");
-        }
+        PixivScheduledNovelDefinition definition = parseDefinition(context);
         long seriesId = definition.seriesId();
         if (!definition.download().novelMerge() || seriesId <= 0L) {
             return;
@@ -419,7 +406,7 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
                 "seriesPending", Integer.toString(status.seriesPending()));
     }
 
-    private PixivScheduledNovelDefinition parseDefinition(ScheduledWorkContext context)
+    private PixivScheduledNovelDefinition parseDefinition(ScheduledExecutionContext context)
             throws ScheduledExecutionException {
         try {
             return PixivScheduledNovelDefinition.parse(objectMapper, context.task());
@@ -532,40 +519,9 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         return new ScheduledExecutionException(category, code);
     }
 
-    private void prepareRunCache(ScheduledTaskDefinition task) {
-        seriesCacheRuns.compute(task.taskId(), (taskId, current) -> {
-            if (current != task) {
-                clearSeriesEntries(taskId);
-            }
-            return task;
-        });
-    }
-
-    private void clearFailedRunCache(ScheduledTaskDefinition task) {
-        if (detachRun(task)) {
-            clearSeriesEntries(task.taskId());
-        }
-    }
-
     private void clearRunCache(ScheduledTaskDefinition task) {
-        detachRun(task);
-        clearSeriesEntries(task.taskId());
-    }
-
-    private boolean detachRun(ScheduledTaskDefinition task) {
-        AtomicBoolean detached = new AtomicBoolean(false);
-        seriesCacheRuns.computeIfPresent(task.taskId(), (taskId, current) -> {
-            if (current == task) {
-                detached.set(true);
-                return null;
-            }
-            return current;
-        });
-        return detached.get();
-    }
-
-    private void clearSeriesEntries(long taskId) {
-        seriesMetadataCache.keySet().removeIf(key -> key.taskId() == taskId);
+        seriesCacheRuns.computeIfPresent(task.taskId(), (taskId, current) ->
+                current.task() == task ? null : current);
     }
 
     private static Map<String, String> resultAttributes(PixivNovelMetadata metadata) {
@@ -608,6 +564,8 @@ public final class PixivScheduledNovelWorkExecutor implements ScheduledWorkExecu
         }
     }
 
-    private record SeriesCacheKey(long taskId, long seriesId) {
+    private record SeriesRunCache(
+            ScheduledTaskDefinition task,
+            ConcurrentHashMap<Long, Optional<PixivNovelMetadata.SeriesMetadata>> series) {
     }
 }

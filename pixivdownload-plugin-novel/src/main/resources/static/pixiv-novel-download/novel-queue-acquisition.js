@@ -222,7 +222,7 @@ function novelQueueLiveStatus(item) {
                 label,
                 message: bt(
                     'novel:queue.message.translate-wait-series',
-                    '等待前系列小说翻译完成，还有 {n} 个',
+                    '等待同系列前序章节翻译完成，还有 {n} 章',
                     {n: novelLiveStatusCount(status.seriesPending)}
                 ),
                 tone: 'warning'
@@ -545,7 +545,7 @@ const NOVEL_DESCRIPTOR = {
                     label: '我自己的作品（小说）', iconKey: 'image',
                     viewType: 'works-list', kind: 'novel', pageSize: QUICK_PAGE_SIZE_NOVEL,
                     sourceType: 'user-new', allIdsFastPath: true,
-                    load: requireNovelQuickSession(() => loadQuickMyWorks(_activationContext.type, 1)),
+                    load: requireNovelQuickSession(() => loadQuickMyWorks(context.type, 1)),
                     scheduleSource(ctx) {
                         if (!ctx.uid) return null;
                         return {

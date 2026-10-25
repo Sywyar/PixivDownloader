@@ -104,8 +104,7 @@
         if (descriptor.contractVersion != null && Number(descriptor.contractVersion) !== CONTRACT_VERSION) {
             throw new Error('unsupported queue type module contractVersion');
         }
-        const declared = new Set(backend.acquisitionModes);
-        const allowedModes = declared;
+        const allowedModes = new Set(backend.acquisitionModes);
         const behavior = {};
         Object.keys(descriptor).forEach(key => {
             if (key === 'uiSlots') return;
@@ -114,8 +113,28 @@
                 behavior[key] = descriptor[key];
             }
         });
-        behavior.process = function (item) {
-            const processContext = processInvocationContext(backend, activation, moduleScope, item);
+        const processSignals = new WeakMap();
+        behavior.process = function (item, queueSignal) {
+            let signal = moduleScope.controller.signal;
+            if (queueSignal) {
+                if (!processSignals.has(queueSignal)) {
+                    const controller = new AbortController();
+                    const moduleSignal = signal;
+                    const abort = () => {
+                        controller.abort();
+                        moduleSignal.removeEventListener('abort', abort);
+                        queueSignal.removeEventListener('abort', abort);
+                    };
+                    if (moduleSignal.aborted || queueSignal.aborted) abort();
+                    else {
+                        moduleSignal.addEventListener('abort', abort, {once: true});
+                        queueSignal.addEventListener('abort', abort, {once: true});
+                    }
+                    processSignals.set(queueSignal, controller.signal);
+                }
+                signal = processSignals.get(queueSignal);
+            }
+            const processContext = processInvocationContext(backend, activation, moduleScope, item, signal);
             processContext.assertActive();
             return descriptor.process.call(this, item, processContext);
         };
@@ -168,12 +187,12 @@
         return guardValue(behavior, activation, new Map());
     }
 
-    function processInvocationContext(backend, activation, moduleScope, item) {
-        const active = () => moduleScope.valid && isContextActive(activation);
+    function processInvocationContext(backend, activation, moduleScope, item, signal) {
+        const active = () => !signal.aborted && moduleScope.valid && isContextActive(activation);
         const i18nNamespace = text(backend.i18nNamespace || backend.displayNamespace);
         return Object.freeze({
             type: backend.type,
-            signal: moduleScope.controller.signal,
+            signal,
             isActive() { return active(); },
             assertActive() {
                 if (!active()) throw staleQueueTypeError();
@@ -455,7 +474,6 @@
         return {
             scope,
             disposers: moduleDisposers,
-            dispose,
             fail() {
                 const index = publicationDisposers.indexOf(dispose);
                 if (index >= 0) publicationDisposers.splice(index, 1);

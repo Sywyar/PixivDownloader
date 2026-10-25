@@ -25,7 +25,7 @@ const assert = require('assert');
 const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
 const VUE_SRC = fs.readFileSync(path.join(STATIC, 'batch-queue-vue.js'), 'utf8');
 const QUEUE_SRC = [
-    'batch-queue-model.js', 'batch-queue-actions.js', 'batch-queue-view.js',
+    'queue-display.js', 'batch-queue-model.js', 'batch-queue-actions.js', 'download-speed.js', 'batch-queue-view.js',
     'batch-queue-recovery.js', 'batch-queue.js'
 ].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
 
@@ -155,6 +155,7 @@ function loadVue(opts) {
     sandbox.window.PixivBatch = { state: { state: stateObj } };
     if (opts.pixivVue !== false) sandbox.PixivVue = makePixivVue(opts.vueOpts, record);
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../../main/resources/static/pixiv-batch/queue-row-sync.js'), 'utf8'), sandbox);
     vm.runInContext(VUE_SRC, sandbox);
     return { sandbox, document, record, state: stateObj, api: sandbox.window.PixivBatch.queueVue };
 }
@@ -197,6 +198,7 @@ function loadIntegration(opts) {
     if (opts.pixivVue !== false) sandbox.PixivVue = makePixivVue(opts.vueOpts, record);
     vm.createContext(sandbox);
     vm.runInContext(QUEUE_SRC, sandbox);
+    vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../../main/resources/static/pixiv-batch/queue-row-sync.js'), 'utf8'), sandbox);
     vm.runInContext(VUE_SRC, sandbox);
     // 用 spy 中和 buildQueueItemHtml / formatCurrentCardHtml（避免拉入全部内部格式化依赖），保留真实 formatSpeed / 门面分支。
     sandbox.buildQueueItemHtml = (q) => '<div class="queue-item">' + (q && q.id) + '</div>';

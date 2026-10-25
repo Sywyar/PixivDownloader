@@ -6,7 +6,9 @@
     var root = null;
     var busy = false;
     var pending = false;
-    var generation = 0;
+    var request = null;
+    var actionRequest = null;
+    var activePage = true;
     var error = '';
     function allowed() {
         return !!snapshot && snapshot.active === true && snapshot.actionsAllowed === true;
@@ -18,7 +20,7 @@
         return node;
     }
     function render() {
-        if (!root) return;
+        if (!root || !activePage) return;
         root.replaceChildren();
         var active = snapshot && snapshot.active;
         root.classList.toggle('pmk-recovery--active', !!active);
@@ -51,25 +53,30 @@
         if (error) element('p', error, root).setAttribute('role', 'alert');
     }
     async function refresh() {
-        var token = ++generation;
+        if (!activePage) return null;
+        if (request) request.abort();
+        var current = request = new AbortController();
         snapshot = null;
         render();
         try {
-            var value = await PMK.api.fetchRecovery();
-            if (token === generation) { snapshot = value; error = ''; render(); refreshCards(); }
-            return token === generation ? snapshot : null;
+            var value = await PMK.api.fetchRecovery(current.signal);
+            if (!current.signal.aborted) { snapshot = value; error = ''; render(); refreshCards(); }
+            return current.signal.aborted ? null : snapshot;
         } catch (failure) {
-            if (token === generation) { snapshot = null; error = PMK.t('recovery.status-unavailable'); render(); refreshCards(); }
+            if (!current.signal.aborted) { snapshot = null; error = ''; render(); refreshCards(); }
             return null;
+        } finally {
+            if (request === current) request = null;
         }
     }
     function refreshCards() {
         if (PMK.state.activeView) PMK.state.activeView.rerender();
     }
     async function perform(action) {
-        if (['restart', 'exit'].indexOf(action) === -1 || !allowed() || busy || pending) return false;
+        if (!activePage || ['restart', 'exit'].indexOf(action) === -1 || !allowed() || busy || pending) return false;
         if (!global.PixivFeedback || typeof global.PixivFeedback.confirm !== 'function') return false;
         busy = true;
+        var current = actionRequest = new AbortController();
         render();
         try {
             var confirmed = await global.PixivFeedback.confirm({
@@ -78,19 +85,18 @@
                 confirmLabel: PMK.t('recovery.' + action),
                 cancelLabel: PMK.t('install.trust.cancel')
             });
-            if (!confirmed) return false;
+            if (!confirmed || current.signal.aborted) return false;
             await refresh();
-            if (!allowed()) return false;
+            if (current.signal.aborted || !allowed()) return false;
             var result = await PMK.api.recoveryAction(action);
             if (!result || result.accepted !== true) throw new Error(PMK.t('recovery.action-failed'));
             pending = true;
             return true;
         } catch (failure) {
-            error = failure.message || PMK.t('recovery.action-failed');
+            if (!current.signal.aborted) error = failure.message || PMK.t('recovery.action-failed');
             return false;
         } finally {
-            busy = false;
-            render();
+            if (actionRequest === current) { actionRequest = null; busy = false; render(); }
         }
     }
     PMK.recovery = {
@@ -101,7 +107,13 @@
         mount: function () {
             root = document.getElementById('pmk-recovery');
             render();
-            global.addEventListener('pageshow', function (event) { if (event.persisted) refresh(); });
+            global.addEventListener('pagehide', function () {
+                activePage = false;
+                if (request) request.abort();
+                if (actionRequest) actionRequest.abort();
+                request = null; actionRequest = null; snapshot = null; busy = false;
+            });
+            global.addEventListener('pageshow', function (event) { activePage = true; if (event.persisted) refresh(); });
             document.addEventListener('visibilitychange', function () { if (!document.hidden && !pending) refresh(); });
         }
     };

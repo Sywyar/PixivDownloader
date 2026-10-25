@@ -16,73 +16,6 @@
         if (visible) applySearchKindUI();
     }
 
-    function defaultSearchFilters() {
-        return {
-            content: 'all',
-            ai: 'all',
-            type: 'all',
-            pageMin: null,
-            pageMax: null,
-            bookmarkMin: null,
-            bookmarkMax: null,
-            wordsMin: null,
-            wordsMax: null,
-            tagsExact: [],
-            tagsFuzzy: []
-        };
-    }
-
-    // 标签输入：逗号（半/全角）分隔，去空白去重；不按空格切分（标签本身可能含空格）
-    function parseTagTerms(value) {
-        if (Array.isArray(value)) {
-            value = value.join(',');
-        }
-        const seen = new Set();
-        const out = [];
-        String(value || '').split(/[,，]/).forEach(raw => {
-            const t = raw.trim();
-            if (t && !seen.has(t.toLowerCase())) {
-                seen.add(t.toLowerCase());
-                out.push(t);
-            }
-        });
-        return out;
-    }
-
-    function parseSearchFilterNumber(value, min) {
-        if (value === null || value === undefined) return null;
-        const raw = String(value).trim();
-        if (!raw) return null;
-        const n = Math.floor(Number(raw));
-        if (!Number.isFinite(n)) return null;
-        return Math.max(min, n);
-    }
-
-    function normalizeSearchFilters(filters) {
-        const out = defaultSearchFilters();
-        out.content = ['all', 'safe', 'r18plus', 'r18', 'r18g'].includes(filters?.content) ? filters.content : 'all';
-        out.ai = ['all', 'exclude', 'only'].includes(filters?.ai) ? filters.ai : 'all';
-        out.type = ['all', 'illust', 'manga', 'ugoira'].includes(filters?.type) ? filters.type : 'all';
-        out.pageMin = parseSearchFilterNumber(filters?.pageMin, 1);
-        out.pageMax = parseSearchFilterNumber(filters?.pageMax, 1);
-        out.bookmarkMin = parseSearchFilterNumber(filters?.bookmarkMin, 0);
-        out.bookmarkMax = parseSearchFilterNumber(filters?.bookmarkMax, 0);
-        out.wordsMin = parseSearchFilterNumber(filters?.wordsMin, 0);
-        out.wordsMax = parseSearchFilterNumber(filters?.wordsMax, 0);
-        out.tagsExact = parseTagTerms(filters?.tagsExact);
-        out.tagsFuzzy = parseTagTerms(filters?.tagsFuzzy);
-        if (out.pageMin !== null && out.pageMax !== null && out.pageMin > out.pageMax) {
-            [out.pageMin, out.pageMax] = [out.pageMax, out.pageMin];
-        }
-        if (out.bookmarkMin !== null && out.bookmarkMax !== null && out.bookmarkMin > out.bookmarkMax) {
-            [out.bookmarkMin, out.bookmarkMax] = [out.bookmarkMax, out.bookmarkMin];
-        }
-        if (out.wordsMin !== null && out.wordsMax !== null && out.wordsMin > out.wordsMax) {
-            [out.wordsMin, out.wordsMax] = [out.wordsMax, out.wordsMin];
-        }
-        return out;
-    }
-
     function setSearchFiltersUI(filters) {
         const contentEl = document.getElementById('search-content-filter');
         if (contentEl) contentEl.value = filters.content;
@@ -166,56 +99,6 @@
             || hasBookmarkFilter(filters);
     }
 
-    // 作品标签词元：兼容字符串数组（搜索 / 画师卡片）与 TagDto 对象数组（小说系列）。
-    // 对象同时取原名与英文翻译作为可匹配词元（与计划任务后台逐作品筛选语义一致）。
-    function itemTagTokens(item) {
-        const out = [];
-        for (const t of (Array.isArray(item.tags) ? item.tags : [])) {
-            if (typeof t === 'string') {
-                if (t) out.push(t.toLowerCase());
-            } else if (t) {
-                const name = t.name || t.tag;
-                if (name) out.push(String(name).toLowerCase());
-                const tr = t.translatedName || t.translation;
-                if (tr) out.push(String(tr).toLowerCase());
-            }
-        }
-        return out;
-    }
-
-    // 标签筛选：逗号分隔多标签全部命中(AND)；精确=与某个作品标签完全相等，
-    // 模糊=被某个作品标签包含；两框都填则两者都需满足(AND)。大小写不敏感。
-    function matchTagFilters(item, filters) {
-        const exact = filters.tagsExact || [];
-        const fuzzy = filters.tagsFuzzy || [];
-        if (!exact.length && !fuzzy.length) return true;
-        const tags = itemTagTokens(item);
-        for (const term of exact) {
-            const t = term.toLowerCase();
-            if (!tags.some(x => x === t)) return false;
-        }
-        for (const term of fuzzy) {
-            const t = term.toLowerCase();
-            if (!tags.some(x => x.includes(t))) return false;
-        }
-        return true;
-    }
-
-    // 缓存键带 kind 前缀：不同作品类型 ID 命名空间不同，相同数字可能指向不同作品（内存态缓存、键格式仅内部用）。
-    function searchMetaCacheKey(id, kind = searchState.kind) {
-        return String(kind || 'illust') + ':' + String(id);
-    }
-
-    function getCachedSearchMeta(id, kind = searchState.kind) {
-        return searchState.metaCache[searchMetaCacheKey(id, kind)] || null;
-    }
-
-    function getInlineSearchBookmarkCount(item) {
-        if (item?.bookmarkCount == null || item.bookmarkCount === '') return null;
-        const count = Number(item?.bookmarkCount);
-        return Number.isFinite(count) && count >= 0 ? count : null;
-    }
-
     function getSearchBookmarkCount(item, kind = searchState.kind) {
         const cached = getCachedSearchMeta(item.id, kind);
         if (cached && cached.bookmarkResolved) {
@@ -225,66 +108,13 @@
         return getInlineSearchBookmarkCount(item);
     }
 
-    // 按需补齐逐作品收藏数 meta（收藏数筛选用）。收藏数缓存按 kind+id 全局共享（searchState.metaCache），
-    // 故 Search / User / 系列三种预览可复用。isStale() 用于在新一轮筛选发起后提前放弃过期请求。
-    async function ensureBookmarkMeta(items, kind, isStale) {
-        const missingIds = [];
-        const seen = new Set();
-        for (const item of items) {
-            const id = String(item.id);
-            if (seen.has(id)) continue;
-            seen.add(id);
-            if (getInlineSearchBookmarkCount(item) !== null) continue;
-            const cached = getCachedSearchMeta(id, kind);
-            if (!cached || !cached.bookmarkResolved) missingIds.push(id);
-        }
-        if (!missingIds.length) return;
-
-        // 收藏数 meta 抓取器由当前类型 owner 贡献；未贡献的类型按「元数据不可用」处理。
-        const typeFilters = window.PixivBatch.queueTypes.filtersFor(kind);
-        const fetchMeta = (typeFilters && typeof typeFilters.bookmarkCountFetch === 'function')
-            ? typeFilters.bookmarkCountFetch
-            : async function () { throw new Error('bookmark metadata is unavailable'); };
-        let cursor = 0;
-        const workers = [];
-        const workerCount = Math.min(6, missingIds.length);
-        for (let i = 0; i < workerCount; i++) {
-            workers.push((async () => {
-                while (cursor < missingIds.length) {
-                    if (isStale()) return;
-                    const id = missingIds[cursor++];
-                    const cacheKey = searchMetaCacheKey(id, kind);
-                    try {
-                        const meta = await fetchMeta(id);
-                        if (isStale()) return;
-                        searchState.metaCache[cacheKey] = {
-                            ...(searchState.metaCache[cacheKey] || {}),
-                            bookmarkCount: Number(meta?.bookmarkCount ?? -1),
-                            bookmarkResolved: true
-                        };
-                    } catch {
-                        if (isStale()) return;
-                        searchState.metaCache[cacheKey] = {
-                            ...(searchState.metaCache[cacheKey] || {}),
-                            bookmarkCount: -1,
-                            bookmarkResolved: true,
-                            bookmarkError: true
-                        };
-                    }
-                }
-            })());
-        }
-        await Promise.all(workers);
-    }
-
     // 通用「逐作品附加筛选」：对任意作品数组应用同一套 matchSearchFilters。
     // 返回 {filtered, stats}；当 isStale() 在 await 收藏数 meta 期间变 true 时返回 null（调用方应丢弃）。
     async function computeFilteredItems(items, filters, kind, isStale) {
         const source = Array.isArray(items) ? items : [];
         const bookmarkFilterActive = hasBookmarkFilter(filters);
         if (bookmarkFilterActive) {
-            await ensureBookmarkMeta(source, kind, isStale);
-            if (isStale()) return null;
+            if (!await ensureBookmarkMeta(source, kind, isStale) || isStale()) return null;
         }
         const stats = {
             rawCount: source.length,
@@ -295,18 +125,6 @@
         const filtered = source.filter(item => matchSearchFilters(item, filters, stats, kind));
         stats.filteredCount = filtered.length;
         return {filtered, stats};
-    }
-
-    // 内容分级匹配：all=不限 / safe=仅全年龄 / r18plus=R-18+R-18G / r18=仅 R-18 / r18g=仅 R-18G。
-    function matchContentRating(xRestrict, content) {
-        const xr = Number(xRestrict ?? 0);
-        switch (content) {
-            case 'safe': return xr === 0;
-            case 'r18plus': return xr >= 1;
-            case 'r18': return xr === 1;
-            case 'r18g': return xr === 2;
-            default: return true; // all
-        }
     }
 
     function matchSearchFilters(item, filters, stats, kind = searchState.kind) {
@@ -424,19 +242,10 @@
             document.getElementById('btn-add-all').disabled = true;
         }
 
-        if (bookmarkFilterActive) {
-            await ensureBookmarkMeta(sourceItems, kind, () => requestSeq !== searchState.filterSeq);
-            if (requestSeq !== searchState.filterSeq) return null;
-        }
-
-        const stats = {
-            rawCount: sourceItems.length,
-            filteredCount: 0,
-            bookmarkMetaMissing: 0,
-            bookmarkFilterActive
-        };
-        const filtered = sourceItems.filter(item => matchSearchFilters(item, filters, stats, kind));
-        stats.filteredCount = filtered.length;
+        const result = await computeFilteredItems(sourceItems, filters, kind,
+            () => requestSeq !== searchState.filterSeq);
+        if (!result || requestSeq !== searchState.filterSeq) return null;
+        const {filtered, stats} = result;
 
         searchState.results = filtered;
         searchState.filterSummary = stats;
@@ -496,24 +305,8 @@
 
     async function resetSearchFilters() {
         const filters = defaultSearchFilters();
-        searchState.currentFilters = filters;
         setSearchFiltersUI(filters);
-        saveSearchFilterPrefs(filters);
-        if (state.mode === QUICK_FETCH_MODE) {
-            await quickReapplyFilters();
-            return;
-        }
-        if (state.mode === 'user') {
-            await applyUserFilters({setStatus: true});
-            return;
-        }
-        if (state.mode === 'series') {
-            await applySeriesFilters({setStatus: true});
-            return;
-        }
-        if (!searchState.currentWord) return;
-        if (searchState.submode === 'batch') searchState.localPage = 1;
-        await applyCurrentSearchFilters({setStatus: true});
+        await handleSearchFilterChange();
     }
 
 

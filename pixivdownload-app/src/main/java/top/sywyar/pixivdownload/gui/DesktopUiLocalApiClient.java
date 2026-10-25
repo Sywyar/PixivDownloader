@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.gui;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import top.sywyar.pixivdownload.common.GuiTokenProvider;
 import top.sywyar.pixivdownload.config.http.LocalGuiWebServerCustomizer.Connection;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiActionInvocationHeaders;
@@ -48,7 +49,7 @@ final class DesktopUiLocalApiClient {
         connection.setRequestMethod(request.method());
         connection.setRequestProperty("Accept-Language", request.languageTag());
         String token = endpoint.token();
-        if (token != null) connection.setRequestProperty(GuiTokenHolder.HEADER_NAME, token);
+        if (token != null) connection.setRequestProperty(GuiTokenProvider.HEADER_NAME, token);
         if (request.ownerPluginId() != null) {
             connection.setRequestProperty(GuiActionInvocationHeaders.PLUGIN_OWNER, request.ownerPluginId());
         }

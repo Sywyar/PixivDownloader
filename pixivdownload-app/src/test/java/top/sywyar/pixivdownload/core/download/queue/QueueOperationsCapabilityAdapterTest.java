@@ -28,23 +28,28 @@ class QueueOperationsCapabilityAdapterTest {
     void registersChildContextOperationsAndUnregistersOnlyTheirOwner() {
         QueueOperations parent = operations("parent");
         QueueOperationRegistry registry = new QueueOperationRegistry(List.of(parent));
-        QueueOperationsCapabilityAdapter adapter = new QueueOperationsCapabilityAdapter(registry);
-        PluginCapabilityContributionRegistrar registrar = new PluginCapabilityContributionRegistrar(
-                List.<PluginCapabilityContributionAdapter<?>>of(adapter));
+        ExternalCapabilityInvocationRegistry invocations = new ExternalCapabilityInvocationRegistry();
+        QueueOperationsCapabilityAdapter adapter = new QueueOperationsCapabilityAdapter(registry, invocations);
+        PluginCapabilityContributionRegistrar registrar = runtimeRegistrar(adapter, invocations);
 
         try (AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext()) {
             child.registerBean("externalQueueOperations", QueueOperations.class, () -> operations("external"));
             child.refresh();
-            registrar.register("external-plugin", child);
+            var prepared = registrar.allocateOwner("external-plugin", "external-package", 1L);
+            registrar.prepareInto(prepared, child);
+            ExternalCapabilityPublication publication = registrar.publish(prepared);
+
+            assertThat(registry.resolve("external")).isPresent();
+            assertThat(registry.resolveHost("parent")).isPresent();
+
+            ExternalCapabilityDrain drain = registrar.withdraw(publication).orElseThrow();
+            registrar.retireDrained(drain);
+            registrar.acknowledgeRetired(drain);
+            assertThat(registrar.releaseRetirementProof(drain)).isTrue();
+
+            assertThat(registry.resolve("external")).isEmpty();
+            assertThat(registry.resolveHost("parent")).isPresent();
         }
-
-        assertThat(registry.resolve("external")).isPresent();
-        assertThat(registry.resolveHost("parent")).isPresent();
-
-        registrar.unregister("external-plugin");
-
-        assertThat(registry.resolve("external")).isEmpty();
-        assertThat(registry.resolveHost("parent")).isPresent();
     }
 
     @Test

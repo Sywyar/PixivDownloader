@@ -62,16 +62,16 @@ public final class MediaCapabilityService {
                     arguments.addAll(UgoiraEncoding.arguments(format, new MediaOutputSettings()));
                 }
                 arguments.add(output.getFileName().toString());
-                capabilities.add(new Capability(format, tryRun(FfmpegRunner.Tool.FFMPEG, arguments, directory, output)));
+                capabilities.add(new Capability(format, tryFfmpeg(arguments, directory, output)));
             }
             Path decoded = directory.resolve("decoded.png");
-            capabilities.add(new Capability("animated-webp-decode", tryRun(FfmpegRunner.Tool.FFMPEG,
+            capabilities.add(new Capability("animated-webp-decode", tryFfmpeg(
                     List.of("-y", "-nostdin", "-v", "error", "-i", "output.webp", "-frames:v", "1", "decoded.png"), directory, decoded)
                     && ImageIO.read(decoded.toFile()) != null));
             Path still = directory.resolve("still.webp");
-            capabilities.add(new Capability("static-webp", tryRun(FfmpegRunner.Tool.FFMPEG,
+            capabilities.add(new Capability("static-webp", tryFfmpeg(
                     List.of("-y", "-nostdin", "-v", "error", "-i", "0.png", "-frames:v", "1", "-c:v", "libwebp", "still.webp"), directory, still)));
-            capabilities.add(new Capability("static-webp-decode", tryRun(FfmpegRunner.Tool.FFMPEG,
+            capabilities.add(new Capability("static-webp-decode", tryFfmpeg(
                     List.of("-y", "-nostdin", "-v", "error", "-i", "still.webp", "-frames:v", "1", "decoded.png"), directory, decoded)
                     && ImageIO.read(decoded.toFile()) != null));
             return new Report(resolved.command(), resolved.source().name().toLowerCase(java.util.Locale.ROOT), List.copyOf(capabilities));
@@ -87,9 +87,9 @@ public final class MediaCapabilityService {
         }
     }
 
-    private boolean tryRun(FfmpegRunner.Tool tool, List<String> arguments, Path directory, Path output) {
+    private boolean tryFfmpeg(List<String> arguments, Path directory, Path output) {
         try {
-            runner.run(tool, arguments, directory, output, 1024 * 1024, Duration.ofSeconds(10), () -> false);
+            runner.run(FfmpegRunner.Tool.FFMPEG, arguments, directory, output, 1024 * 1024, Duration.ofSeconds(10), () -> false);
             return true;
         } catch (IOException failure) { return false; }
     }

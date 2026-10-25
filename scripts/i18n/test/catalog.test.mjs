@@ -2,7 +2,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -54,6 +53,23 @@ test('合法 catalog 成功读取，source/default/fallback 正确', () => {
 test('schemaVersion 不可识别立即失败', () => {
     assert.throws(() => catalogLib.validate(VALID.replace('"schemaVersion": 1', '"schemaVersion": 2')),
         /schemaVersion/);
+});
+
+test('目录查询和列表使用相同的规范化描述，顶层语言指针不保留输入空白', () => {
+    const input = JSON.parse(VALID);
+    const english = input.locales.find(locale => locale.tag === 'en-US');
+    for (const field of ['tag', 'nativeName', 'resourceSuffix']) english[field] = ' ' + english[field] + ' ';
+    english.aliases = [' en '];
+    input.defaultLocale = ' en-US ';
+    const catalog = catalogLib.validate(JSON.stringify(input));
+    const descriptor = catalogLib.descriptorByTag(catalog, 'EN_us');
+    assert.equal(catalog.defaultLocale, 'en-US');
+    assert.equal(catalog.fallbackLocale, 'en-US');
+    assert.deepEqual(descriptor, {
+        tag: 'en-US', nativeName: 'English', resourceSuffix: 'en',
+        status: 'supported', direction: 'ltr', aliases: ['en'],
+    });
+    assert.deepEqual(catalog.locales.find(locale => locale.tag === 'en-US'), descriptor);
 });
 
 test('非法 JSON / 非对象 / 空 locales 立即失败', () => {
@@ -131,13 +147,15 @@ test('fallbackChain：目标 → fallback → source（去重）', () => {
 
 test('真实仓库 locales.json 可加载', () => {
     const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+    const source = JSON.parse(fs.readFileSync(path.join(repoRoot, catalogLib.CATALOG_PATH), 'utf8'));
     const catalog = catalogLib.load(repoRoot);
-    assert.equal(catalog.sourceLocale, 'zh-CN');
-    assert.equal(catalog.fallbackLocale, 'en-US');
-    assert.equal(catalog.locales.length, 5);
-    assert.equal(catalogLib.descriptorByTag(catalog, 'zh-Hant').resourceSuffix, 'zh-Hant');
-    assert.equal(catalogLib.descriptorByTag(catalog, 'ja-JP').resourceSuffix, 'ja');
-    assert.equal(catalogLib.descriptorByTag(catalog, 'ko-KR').resourceSuffix, 'ko');
+    assert.equal(catalog.sourceLocale, source.sourceLocale);
+    assert.equal(catalog.defaultLocale, source.defaultLocale);
+    assert.equal(catalog.fallbackLocale, source.fallbackLocale);
+    assert.deepEqual(catalog.locales.map(locale => locale.tag), source.locales.map(locale => locale.tag));
+    for (const locale of source.locales) {
+        assert.equal(catalogLib.descriptorByTag(catalog, locale.tag).resourceSuffix, locale.resourceSuffix);
+    }
 });
 
 test('共享 fixture：Java 与 Node 必须同时拒绝同一批非法 catalog（15 例）', () => {

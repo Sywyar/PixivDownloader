@@ -1,7 +1,7 @@
 /* eslint-disable */
 /**
  * 听书「浏览器」引擎子模块：用浏览器内置 Web Speech API（speechSynthesis）逐段朗读。
- * 完全离线、即时、免费；音质与可用语言取决于操作系统已安装的语音包，纯前端运行，不经过后端。
+ * 音质、语言和联网需求由浏览器提供的语音决定，朗读文本不经过本程序后端。
  * 通过 ctx 读写共享 state / els，并按引擎分发回调主控制器状态机（ctx.speak）。install(ctx) 注入。
  */
 (function (global) {
@@ -29,11 +29,7 @@
                     ctx.updateBar(e.charIndex / seg.text.length);
                 }
             };
-            u.onend = () => {
-                if (myToken !== state.token) return;
-                ctx.speak(i + 1);
-            };
-            u.onerror = () => {
+            u.onend = u.onerror = () => {
                 if (myToken !== state.token) return;
                 ctx.speak(i + 1);
             };

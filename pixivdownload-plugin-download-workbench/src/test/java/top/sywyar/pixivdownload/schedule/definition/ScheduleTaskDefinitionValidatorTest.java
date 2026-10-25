@@ -165,7 +165,7 @@ class ScheduleTaskDefinitionValidatorTest {
     void rejectsExecutionPlanCapabilityEscapes() {
         ScheduledSourceDescriptor descriptor = descriptor();
 
-        validator.validatePlan(descriptor, new ScheduledExecutionPlan(
+        ScheduleExecutionPlanGate.validate(descriptor, new ScheduledExecutionPlan(
                 Set.of("fixture:work"),
                 "fixture:credential",
                 ScheduledCredentialRequirement.REQUIRED,
@@ -174,17 +174,17 @@ class ScheduleTaskDefinitionValidatorTest {
                         "fixture:guard", Set.of(ScheduledGuardPoint.RUN_START), 0)),
                 null, 0, 1, 0L, ScheduledNetworkRoute.inherit()));
 
-        assertThatThrownBy(() -> validator.validatePlan(
+        assertThatThrownBy(() -> ScheduleExecutionPlanGate.validate(
                 descriptor, ScheduledExecutionPlan.credentialFree(Set.of("other:work"))))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> validator.validatePlan(descriptor, new ScheduledExecutionPlan(
+        assertThatThrownBy(() -> ScheduleExecutionPlanGate.validate(descriptor, new ScheduledExecutionPlan(
                 Set.of("fixture:work"),
                 "other:credential",
                 ScheduledCredentialRequirement.REQUIRED,
                 false,
                 List.of(), null, 0, 1, 0L, ScheduledNetworkRoute.inherit())))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> validator.validatePlan(descriptor, new ScheduledExecutionPlan(
+        assertThatThrownBy(() -> ScheduleExecutionPlanGate.validate(descriptor, new ScheduledExecutionPlan(
                 Set.of("fixture:work"),
                 null,
                 ScheduledCredentialRequirement.NONE,
@@ -202,16 +202,16 @@ class ScheduleTaskDefinitionValidatorTest {
         ScheduledGuardBinding normal = new ScheduledGuardBinding(
                 "fixture:guard", Set.of(ScheduledGuardPoint.RUN_START), 0);
 
-        assertThatThrownBy(() -> validator.validatePlan(descriptor, null))
+        assertThatThrownBy(() -> ScheduleExecutionPlanGate.validate(descriptor, null))
                 .isInstanceOf(ScheduleExecutionPlanGate.Violation.class);
-        assertThatThrownBy(() -> validator.validatePlan(descriptor, new ScheduledExecutionPlan(
+        assertThatThrownBy(() -> ScheduleExecutionPlanGate.validate(descriptor, new ScheduledExecutionPlan(
                 Set.of("fixture:work"),
                 null,
                 ScheduledCredentialRequirement.NONE,
                 false,
                 List.of(), null, 0, 257, 0L, ScheduledNetworkRoute.inherit())))
                 .isInstanceOf(ScheduleExecutionPlanGate.Violation.class);
-        assertThatThrownBy(() -> validator.validatePlan(descriptor, new ScheduledExecutionPlan(
+        assertThatThrownBy(() -> ScheduleExecutionPlanGate.validate(descriptor, new ScheduledExecutionPlan(
                 Set.of("fixture:work"),
                 null,
                 ScheduledCredentialRequirement.NONE,
@@ -220,7 +220,7 @@ class ScheduleTaskDefinitionValidatorTest {
                         "fixture:guard", Set.of(ScheduledGuardPoint.WORK_BATCH), 100_001)),
                 null, 0, 1, 0L, ScheduledNetworkRoute.inherit())))
                 .isInstanceOf(ScheduleExecutionPlanGate.Violation.class);
-        assertThatThrownBy(() -> validator.validatePlan(descriptor, new ScheduledExecutionPlan(
+        assertThatThrownBy(() -> ScheduleExecutionPlanGate.validate(descriptor, new ScheduledExecutionPlan(
                 Set.of("fixture:work"),
                 null,
                 ScheduledCredentialRequirement.NONE,

@@ -3,7 +3,7 @@
 (function (global) {
     var PMK = global.PixivPluginMarket;
     var records = [], rows = new Map();
-    var timer, watchedId, busy = false, disposed = false, mounted = false, generation = 0;
+    var timer, watchedId, request = null, disposed = false, mounted = false;
     var progressListener;
     var loaded = false, queryFailed = false, expanded = false, refreshQueued = false;
     var button, buttonLabel, badge, panel, panelHost, list, notice, refreshButton, closeButton;
@@ -104,8 +104,8 @@
         panel.hidden = !expanded;
         text(title, PMK.t('operations.title'));
         text(hint, PMK.t('operations.hint'));
-        text(refreshButton, PMK.t(busy ? 'operations.refreshing' : 'operations.refresh'));
-        refreshButton.disabled = busy;
+        text(refreshButton, PMK.t(request ? 'operations.refreshing' : 'operations.refresh'));
+        refreshButton.disabled = !!request;
         text(closeButton, PMK.t('operations.close'));
         text(manageLink, PMK.t('seg.installed'));
         text(retentionTitle, PMK.t('operations.about'));
@@ -137,30 +137,37 @@
     async function refresh() {
         clearTimeout(timer);
         if (!mounted || disposed || document.hidden) return;
-        if (busy) { refreshQueued = true; return; }
-        var token = generation;
-        busy = true;
+        if (request) { refreshQueued = true; return; }
+        var current = request = new AbortController();
         render();
         try {
-            var next = await PMK.api.fetchOperations();
-            if (token === generation && !disposed) {
+            var next = await PMK.api.fetchOperations(current.signal);
+            if (!current.signal.aborted) {
                 records = next; loaded = true; queryFailed = false;
                 var active = records.find(function (record) { return record.id === watchedId; });
                 if (active && !active.finished && progressListener) progressListener(active.operation);
             }
         } catch (error) {
-            if (token === generation && !disposed) queryFailed = true;
+            if (!current.signal.aborted) queryFailed = true;
         } finally {
-            busy = false;
+            if (request !== current) return;
+            request = null;
             if (!disposed) render();
             var queued = refreshQueued;
             refreshQueued = false;
             if (!disposed && !document.hidden) {
-                if (queued || token !== generation) refresh();
+                if (queued) refresh();
                 else if (watchedId || records.some(function (item) { return item.started && !item.finished; }))
                     timer = setTimeout(refresh, 2000);
             }
         }
+    }
+
+    function suspend() {
+        clearTimeout(timer);
+        if (request) request.abort();
+        request = null;
+        refreshQueued = false;
     }
 
     PMK.operations = {
@@ -216,11 +223,11 @@
             retentionTitle = element('summary', 'accordion-button collapsed', about);
             retention = element('p', 'pmk-operation-meta accordion-body', about);
             document.addEventListener('visibilitychange', function () {
-                clearTimeout(timer);
-                if (!document.hidden) refresh();
+                if (document.hidden) suspend();
+                else refresh();
             });
             global.addEventListener('pagehide', function () {
-                disposed = true; generation++; progressListener = null; clearTimeout(timer);
+                disposed = true; progressListener = null; suspend();
             });
             global.addEventListener('pageshow', function () { disposed = false; refresh(); });
             refresh();

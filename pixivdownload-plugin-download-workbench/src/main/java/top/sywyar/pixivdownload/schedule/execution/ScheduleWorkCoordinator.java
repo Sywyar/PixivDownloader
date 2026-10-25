@@ -83,7 +83,6 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
     private final Map<String, String> runUserActions = new HashMap<>();
     private final Set<ScheduledWorkKey> seen = new HashSet<>();
     private final Map<String, MutableStatistics> statistics = new LinkedHashMap<>();
-    private final List<ScheduleExecutionResult.PendingExhausted> pendingExhausted = new ArrayList<>();
 
     private int inFlight;
     private int completedWorkCount;
@@ -299,41 +298,62 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             awaitOne();
             throwTerminalFailure();
         }
-        ScheduleWorkConcurrencyLimiter.Permit concurrencyPermit =
-                concurrencyLimiter.acquire(
-                        workType, maxInFlightByType.get(workType), cancellation);
         Map<String, String> actions = new HashMap<>(runUserActions);
         actions.putAll(userActions.getOrDefault(work.key(), Map.of()));
         Map<String, String> actionSnapshot = Map.copyOf(actions);
-        TrackedWorkFuture future = new TrackedWorkFuture(
-                () -> executeOne(work, executor, retry, actionSnapshot), completions,
-                concurrencyPermit::close);
+        Integer previousTypeCount = inFlightByType.get(workType);
+        Integer nextTypeCount = previousTypeCount + 1;
         MutableStatistics typeStatistics = statistics.get(workType);
+        ScheduleWorkConcurrencyLimiter.Permit concurrencyPermit =
+                concurrencyLimiter.acquire(
+                        workType, maxInFlightByType.get(workType), cancellation);
+        TrackedWorkFuture future = null;
+        boolean registered = false;
         typeStatistics.attempted++;
         attemptedWorkCount++;
         try {
-            taskExecutor.execute(future);
+            future = new TrackedWorkFuture(
+                    () -> executeOne(work, executor, retry, actionSnapshot), completions,
+                    concurrencyPermit::close);
+            inFlightWork.put(future, new InFlightWork(work, retry));
+            inFlightByType.put(workType, nextTypeCount);
             inFlight++;
-            inFlightByType.merge(workType, 1, Integer::sum);
-            inFlightWork.put(future, new InFlightWork(work, retry, workType));
+            registered = true;
+            taskExecutor.execute(future);
         } catch (Throwable failure) {
             Error fatalFailure = fatalError(failure);
+            boolean discarded = true;
             try {
-                future.cancel(false);
+                if (future != null) {
+                    discarded = future.cancelBeforeStart();
+                }
             } catch (Throwable cleanupFailure) {
                 fatalFailure = appendFatal(fatalFailure, cleanupFailure);
             }
-            try {
-                completions.remove(future);
-            } catch (Throwable cleanupFailure) {
-                fatalFailure = appendFatal(fatalFailure, cleanupFailure);
-            }
-            try {
-                recordCompletion(Completion.failure(work, retry, new ScheduledFailure(
-                        ScheduledFailure.Category.INTERNAL,
-                        "schedule.work.dispatch-failed", 0L)));
-            } catch (Throwable cleanupFailure) {
-                fatalFailure = appendFatal(fatalFailure, cleanupFailure);
+            // 已开始的回调仍由 drain 结算，执行器抛错不代表作品已退出。
+            if (discarded) {
+                if (registered) {
+                    inFlight--;
+                }
+                try {
+                    inFlightByType.put(workType, previousTypeCount);
+                    inFlightWork.remove(future);
+                    completions.remove(future);
+                } catch (Throwable cleanupFailure) {
+                    fatalFailure = appendFatal(fatalFailure, cleanupFailure);
+                }
+                try {
+                    concurrencyPermit.close();
+                } catch (Throwable cleanupFailure) {
+                    fatalFailure = appendFatal(fatalFailure, cleanupFailure);
+                }
+                try {
+                    recordCompletion(Completion.failure(work, retry, new ScheduledFailure(
+                            ScheduledFailure.Category.INTERNAL,
+                            "schedule.work.dispatch-failed", 0L)));
+                } catch (Throwable cleanupFailure) {
+                    fatalFailure = appendFatal(fatalFailure, cleanupFailure);
+                }
             }
             rethrowFatal(fatalFailure);
             if (failure instanceof Error error) {
@@ -453,10 +473,6 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
         return Map.copyOf(result);
     }
 
-    List<ScheduleExecutionResult.PendingExhausted> pendingExhausted() {
-        return List.copyOf(pendingExhausted);
-    }
-
     private void awaitOne() {
         Future<Completion> future = null;
         InFlightWork dispatched = null;
@@ -478,7 +494,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             try {
                 inFlight--;
                 inFlightByType.computeIfPresent(
-                        dispatched.workType(), (ignored, count) -> count - 1);
+                        dispatched.work().key().workType(), (ignored, count) -> count - 1);
             } catch (Throwable cleanupFailure) {
                 Error accumulated = appendFatal(fatalFailure, cleanupFailure);
                 if (accumulated != null) {
@@ -635,7 +651,6 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
                     new ScheduleExecutionResult.PendingExhausted(
                             work.key().workType(), work.key().id(), attempts, now,
                             failure.code(), presentation);
-            pendingExhausted.add(event);
             try {
                 pendingExhaustedListener.accept(event);
             } catch (RuntimeException ignored) {
@@ -653,10 +668,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
                             failureCount, failure.code());
                 }
             }
-            case INVALID_DEFINITION, PAYLOAD_UNSUPPORTED -> setTerminalFailure(
-                    new ScheduledExecutionException(
-                            failure.category(), failure.code(), failure.retryAfterMillis()));
-            case RATE_LIMITED, CHALLENGE -> setTerminalFailure(
+            case INVALID_DEFINITION, PAYLOAD_UNSUPPORTED, RATE_LIMITED, CHALLENGE -> setTerminalFailure(
                     new ScheduledExecutionException(
                             failure.category(), failure.code(), failure.retryAfterMillis()));
             case CANCELLED -> setTerminalFailure(ScheduledExecutionException.cancelled());
@@ -890,7 +902,7 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
         }
     }
 
-    record InFlightWork(ScheduledWork work, boolean retry, String workType) {
+    record InFlightWork(ScheduledWork work, boolean retry) {
     }
 
     /**
@@ -912,6 +924,16 @@ final class ScheduleWorkCoordinator implements ScheduledWorkSink {
             super(callable);
             this.completionQueue = completionQueue;
             this.completionAction = completionAction;
+        }
+
+        private boolean cancelBeforeStart() {
+            synchronized (lifecycleMonitor) {
+                if (runStarted) {
+                    return false;
+                }
+                cancel(false);
+                return true;
+            }
         }
 
         @Override

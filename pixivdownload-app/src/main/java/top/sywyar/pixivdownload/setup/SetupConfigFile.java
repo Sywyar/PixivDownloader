@@ -20,7 +20,7 @@ public final class SetupConfigFile {
     }
 
     public static SetupConfig read(Path path, ObjectMapper mapper) throws IOException {
-        return mapper.readValue(readBytes(path), SetupConfig.class);
+        return parse(readBytes(path), mapper);
     }
 
     public static void write(Path path, SetupConfig config, ObjectMapper mapper) throws IOException {
@@ -34,6 +34,9 @@ public final class SetupConfigFile {
                       SetupConfig config,
                       ObjectMapper mapper,
                       boolean backupCurrent) throws IOException {
+        if (config == null) {
+            throw new IOException("setup config must be an object");
+        }
         Path parent = path.toAbsolutePath().normalize().getParent();
         if (parent == null) {
             throw new IOException("setup config requires a parent directory: " + path);
@@ -44,7 +47,7 @@ public final class SetupConfigFile {
 
         if (backupCurrent && Files.isRegularFile(path)) {
             byte[] current = readBytes(path);
-            mapper.readValue(current, SetupConfig.class);
+            parse(current, mapper);
             writeAtomically(backupPath(path), current);
         } else if (!backupCurrent) {
             Files.deleteIfExists(backupPath(path));
@@ -60,9 +63,20 @@ public final class SetupConfigFile {
 
     private static byte[] readBytes(Path path) throws IOException {
         requireBounded(Files.size(path), path);
-        byte[] bytes = Files.readAllBytes(path);
+        byte[] bytes;
+        try (var input = Files.newInputStream(path)) {
+            bytes = input.readNBytes(MAX_BYTES + 1);
+        }
         requireBounded(bytes.length, path);
         return bytes;
+    }
+
+    private static SetupConfig parse(byte[] bytes, ObjectMapper mapper) throws IOException {
+        SetupConfig config = mapper.readValue(bytes, SetupConfig.class);
+        if (config == null) {
+            throw new IOException("setup config must be an object");
+        }
+        return config;
     }
 
     private static void requireBounded(long size, Path path) throws IOException {

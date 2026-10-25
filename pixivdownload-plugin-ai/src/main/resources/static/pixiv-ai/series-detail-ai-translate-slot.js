@@ -19,7 +19,7 @@
         if (loaded[url]) return loaded[url];
         loaded[url] = new Promise(function (resolve) {
             var script = document.createElement('script');
-            script.src = url;
+            script.src = global.PixivAssets ? global.PixivAssets.url(url) : url;
             script.async = false;
             script.onload = function () { resolve(true); };
             script.onerror = function () {
@@ -33,6 +33,7 @@
     }
 
     function loadStyle(url) {
+        if (global.PixivAssets) url = global.PixivAssets.url(url);
         if (document.querySelector('link[href="' + url + '"]')) return;
         var link = document.createElement('link');
         link.rel = 'stylesheet';

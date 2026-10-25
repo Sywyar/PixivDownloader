@@ -66,7 +66,7 @@ function batchModeControlNormalize(mode, sources, preserveSelection) {
     const state = batchModeControlState(mode);
     const previous = batchModeControlSnapshot(mode);
     if (!sources.length && preserveSelection && state.sourceId != null) {
-        return {previous, preserved: true, source: null};
+        return {previous, preserved: true};
     }
     if (!sources.some(source => source.id === state.sourceId)) {
         state.sourceId = sources.length ? sources[0].id : null;
@@ -76,7 +76,7 @@ function batchModeControlNormalize(mode, sources, preserveSelection) {
     if (!types.some(candidate => candidate.type === state.type)) {
         state.type = types.length ? types[0].type : null;
     }
-    return {previous, preserved: false, source};
+    return {previous, preserved: false};
 }
 
 function renderBatchModeControl(mode, preserveSelection = false) {

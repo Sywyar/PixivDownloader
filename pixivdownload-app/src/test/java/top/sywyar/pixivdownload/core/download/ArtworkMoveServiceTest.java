@@ -6,13 +6,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.i18n.LocaleContextHolder;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
-
-import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -29,7 +26,6 @@ class ArtworkMoveServiceTest {
 
     @BeforeEach
     void setUp() {
-        LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
         artworkMoveService = new ArtworkMoveService(pixivDatabase, APP_MESSAGES);
     }
 

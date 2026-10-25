@@ -15,9 +15,7 @@ import java.io.InputStream;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -77,7 +75,6 @@ public class ScriptRegistry implements UserscriptCatalog {
 
     private List<UserscriptArtifact> loadScripts(List<RegisteredUserscript> sources) {
         List<UserscriptArtifact> result = new ArrayList<>();
-        Map<String, String> fileNameById = new LinkedHashMap<>();
         for (RegisteredUserscript registered : sources) {
             Resource resource = new DefaultResourceLoader(registered.classLoader())
                     .getResource(registered.contribution().classpathResource());
@@ -88,14 +85,8 @@ public class ScriptRegistry implements UserscriptCatalog {
             try {
                 String content = readUtf8(resource);
                 UserscriptArtifact artifact =
-                        parseScript(registered.contribution().id(), fileName, content);
-                artifact = new UserscriptArtifact(artifact.id(), artifact.displayName(), artifact.description(),
-                        artifact.version(), artifact.content(), registered.contribution().i18nNamespace());
-                String existingFileName = fileNameById.putIfAbsent(artifact.id(), fileName);
-                if (existingFileName != null) {
-                    throw new IllegalStateException("duplicate userscript id: " + artifact.id()
-                            + " (" + existingFileName + ", " + fileName + ")");
-                }
+                        parseScript(registered.contribution().id(), fileName, content,
+                                registered.contribution().i18nNamespace());
                 result.add(artifact);
                 log.debug(message("script.log.registered", artifact.id(), fileName));
             } catch (IOException e) {
@@ -116,9 +107,10 @@ public class ScriptRegistry implements UserscriptCatalog {
         }
     }
 
-    static UserscriptArtifact parseScript(String id, String fileName, String content) throws IOException {
+    static UserscriptArtifact parseScript(String id, String fileName, String content, String i18nNamespace)
+            throws IOException {
         try (BufferedReader reader = new BufferedReader(new StringReader(content))) {
-            return parseScriptMetadata(id, fileName, content, reader);
+            return parseScriptMetadata(id, fileName, content, i18nNamespace, reader);
         }
     }
 
@@ -126,6 +118,7 @@ public class ScriptRegistry implements UserscriptCatalog {
             String id,
             String fileName,
             String content,
+            String i18nNamespace,
             BufferedReader reader
     ) throws IOException {
         String name = fileName;
@@ -166,7 +159,7 @@ public class ScriptRegistry implements UserscriptCatalog {
                 description = value;
             }
         }
-        return new UserscriptArtifact(id, name, description, version, content);
+        return new UserscriptArtifact(id, name, description, version, content, i18nNamespace);
     }
 
     private static String stripUtf8Bom(String line) {

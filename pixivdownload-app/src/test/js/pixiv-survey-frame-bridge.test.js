@@ -75,6 +75,7 @@ async function testHostCapabilities() {
     let slowBodyReads = 0;
     let slowBodyCancels = 0;
     let resolveSlowRead;
+    const delayedRequests = [];
     const sandbox = baseSandbox();
     sandbox.localStorage = {
         getItem(key) { return stored.has(key) ? stored.get(key) : null; },
@@ -83,6 +84,9 @@ async function testHostCapabilities() {
     };
     sandbox.fetch = async (url, init) => {
         fetchCalls.push({url, init});
+        if (url === '/api/delayed') {
+            return new Promise((resolve, reject) => delayedRequests.push({init, resolve, reject}));
+        }
         if (url === '/api/declared-large') {
             return {
                 status: 200,
@@ -174,6 +178,7 @@ async function testHostCapabilities() {
         + '&pixivBridgeGet=/api/declared-large'
         + '&pixivBridgeGet=/api/chunked-large'
         + '&pixivBridgeGet=/api/slow'
+        + '&pixivBridgeGet=/api/delayed'
         + '&pixivBridgePost=/api/write'
         + '&pixivBridgeRead=allowed-key'
         + '&pixivBridgeWrite=allowed-key'), true);
@@ -257,6 +262,49 @@ async function testHostCapabilities() {
     host.detach(frame);
     await tick();
     assert.strictEqual(slowBodyCancels, 1);
+
+    for (const failOldRequest of [false, true]) {
+        assert.strictEqual(host.attach(frame,
+            '/survey.html?pixivBridgeGet=/api/delayed&pixivBridgeWrite=allowed-key'), true);
+        listeners.load();
+        const oldMessage = childPort.peer.onmessage;
+        const request = {
+            type: 'pixiv-survey-bridge-fetch', id: '1', url: '/api/delayed',
+            method: 'GET', headers: {}, body: null
+        };
+        childPort.postMessage(request);
+        const oldRequest = delayedRequests.shift();
+        listeners.load();
+        assert.strictEqual(oldRequest.init.signal.aborted, true);
+        const currentResponses = [];
+        childPort.onmessage = event => currentResponses.push(event.data);
+        childPort.postMessage(request);
+        const currentRequest = delayedRequests.shift();
+        if (failOldRequest) oldRequest.reject(new Error('old connection failed'));
+        else oldRequest.resolve(new Response('old connection'));
+        await tick();
+        assert.strictEqual(currentResponses.length, 0, '旧连接的响应不进入新页面');
+        childPort.postMessage({type: 'pixiv-survey-bridge-fetch-cancel', id: '1'});
+        assert.strictEqual(currentRequest.init.signal.aborted, true, '旧请求完成不移除新请求的取消入口');
+        let cancelledBodies = 0;
+        currentRequest.resolve({
+            headers: new Headers(),
+            body: {
+                cancel() { cancelledBodies++; return Promise.resolve(); },
+                getReader() { throw new Error('已取消请求不得开始读取响应'); }
+            }
+        });
+        await tick();
+        assert.strictEqual(cancelledBodies, 1, '取消后迟到的响应体仍释放');
+        oldMessage({data: {type: 'pixiv-survey-bridge-storage-set', key: 'allowed-key', value: 'stale'}});
+        assert.strictEqual(stored.get('allowed-key'), 'changed', '旧端口已排队消息不能写入存储');
+        childPort.postMessage({...request, id: '2'});
+        delayedRequests.shift().resolve(new Response('current connection'));
+        await tick();
+        const success = currentResponses.find(item => item.id === '2');
+        assert.strictEqual(new TextDecoder().decode(success.body), 'current connection');
+        host.destroy();
+    }
 }
 
 async function testChildHandshakeAndFetch() {

@@ -16,7 +16,6 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescri
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -119,7 +118,6 @@ public final class FakeScheduleCapabilityAccess implements ScheduleCapabilityAcc
         private final long publicationId;
         private final String activationToken;
         private final List<ScheduledSourceDescriptor> descriptors;
-        private final Map<String, ScheduledSourceExecutor> sourceExecutors;
         private final Map<String, ScheduledWorkExecutor> workExecutors;
         private final Map<String, ScheduledCredentialPolicy> credentialPolicies;
         private final Map<String, ScheduledExecutionGuard> guards;
@@ -133,7 +131,6 @@ public final class FakeScheduleCapabilityAccess implements ScheduleCapabilityAcc
                 long publicationId,
                 String activationToken,
                 List<ScheduledSourceDescriptor> descriptors,
-                Map<String, ScheduledSourceExecutor> sourceExecutors,
                 Map<String, ScheduledWorkExecutor> workExecutors,
                 Map<String, ScheduledCredentialPolicy> credentialPolicies,
                 Map<String, ScheduledExecutionGuard> guards) {
@@ -141,7 +138,6 @@ public final class FakeScheduleCapabilityAccess implements ScheduleCapabilityAcc
             this.publicationId = publicationId;
             this.activationToken = activationToken;
             this.descriptors = descriptors;
-            this.sourceExecutors = sourceExecutors;
             this.workExecutors = workExecutors;
             this.credentialPolicies = credentialPolicies;
             this.guards = guards;
@@ -189,7 +185,6 @@ public final class FakeScheduleCapabilityAccess implements ScheduleCapabilityAcc
                     publicationId,
                     UUID.randomUUID().toString(),
                     descriptorValues,
-                    sourceExecutorsByType,
                     workExecutorsByType,
                     policiesById,
                     guardsById);

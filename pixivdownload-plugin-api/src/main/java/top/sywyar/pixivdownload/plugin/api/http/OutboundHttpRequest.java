@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.plugin.api.http;
 
 import java.net.URI;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
@@ -60,10 +59,7 @@ public record OutboundHttpRequest(
     private static URI validatedUri(URI value) {
         Objects.requireNonNull(value, "uri");
         String scheme = value.getScheme();
-        if (!value.isAbsolute()
-                || scheme == null
-                || (!"http".equals(scheme.toLowerCase(Locale.ROOT))
-                && !"https".equals(scheme.toLowerCase(Locale.ROOT)))
+        if ((!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme))
                 || value.getRawAuthority() == null
                 || value.getRawAuthority().isBlank()
                 || value.getRawUserInfo() != null) {

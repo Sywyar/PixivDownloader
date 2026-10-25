@@ -103,7 +103,7 @@ final class DesktopRepositoryImportView {
                 scroll(ID + ".scroll", column(ID + ".fields", fields)),
                 row(ID + ".actions",
                         value == null ? previewButton : button(ID + ".accept", ID + ".accept", KEY + "accept",
-                                value != null && confirmed && !conflict && !owner.busy(), actions, this::confirm),
+                                confirmed && !conflict && !owner.busy(), actions, this::confirm),
                         button(ID + ".cancel", dismissAction, "gui.config.market.repo.dialog.cancel",
                                 true, actions, dismiss)), null, null);
     }

@@ -74,6 +74,7 @@ for (const variant of ['classic', 'alternate']) {
             fetch: (url, options) => new Promise(resolve => requests.push({url, options, resolve}))
         });
         context.window = context;
+        load(context, 'pixiv-batch/state-storage.js');
         if (variant === 'classic') load(context, 'pixiv-batch/batch-storage.js');
         else {
             load(context, 'pixiv-batch/batch-download-defaults.js'); load(context, 'pixiv-batch-alt/alt-state.js');

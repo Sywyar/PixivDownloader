@@ -841,6 +841,7 @@ async function apiTests() {
 
 async function removalInteractionTest() {
     const elements = new Map();
+    const listeners = new Map();
     const alerts = [];
     const requests = [];
     const document = {
@@ -858,10 +859,13 @@ async function removalInteractionTest() {
             return elements.get(id);
         }
     };
-    const context = { document, console, FormData: FormDataStub,
-        PixivNav: { ready: async () => {}, refresh() {}, pluginUpdates: async () =>
-            ({ enabled: true, compatibleUpdates: 2, sdkBlockedUpdates: 1, checkFailed: true }) },
-        addEventListener() {}, PixivActions: { bind() {} },
+    const context = { document, console, AbortController, FormData: FormDataStub,
+        PixivNav: { ready: async () => {}, refresh() {}, mount() {}, pluginUpdates: async () => {
+            const summary = { enabled: true, compatibleUpdates: 2, sdkBlockedUpdates: 1, checkFailed: true };
+            listeners.get('pixivnav:rendered')({detail: {items: [], updateSummary: summary}});
+            return summary;
+        } },
+        addEventListener(name, listener) { listeners.set(name, listener); }, PixivActions: { bind() {} },
         PixivFeedback: { async alert(options) { alerts.push(options); }, async confirm() { return true; } },
         fetch: async (url, options) => {
             requests.push({ url, options });
@@ -888,6 +892,8 @@ async function removalInteractionTest() {
         && updateBox.children.some(line => line.textContent === 'plugins:updates.compatible')
         && updateBox.children.some(line => line.textContent === 'plugins:updates.sdkBlocked')
         && updateBox.children.some(line => line.textContent === 'plugins:updates.failed'));
+    listeners.get('pixivnav:rendered')({detail: {items: [], updateSummary: {enabled: false}}});
+    ok('导航重新发布缺席状态时同步隐藏管理页更新横幅', updateBox.hidden);
     const action = { disabled: false, getAttribute(name) { return name === 'data-pm-id' ? 'sample' : 'remove'; } };
     elements.get('pm-grid').click({ target: { closest(selector) { return selector === '[data-pm-action]' ? action : null; } } });
     await new Promise(resolve => setImmediate(resolve));

@@ -3,20 +3,19 @@ package top.sywyar.pixivdownload.plugin.web.resource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockServletContext;
 import org.springframework.web.accept.ContentNegotiationManager;
 import org.springframework.web.context.support.StaticWebApplicationContext;
-import org.springframework.web.servlet.handler.SimpleUrlHandlerMapping;
+import org.springframework.web.servlet.resource.ResourceHttpRequestHandler;
+import org.springframework.web.util.ServletRequestPathUtils;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 
-import java.lang.reflect.Method;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @DisplayName("动态静态资源映射快照刷新")
@@ -36,21 +35,20 @@ class DynamicStaticResourceHandlerMappingTest {
         List<StaticResourceRegistry.RegisteredStaticResource> current = List.of(latest);
         when(registry.resources()).thenReturn(stale, current);
 
-        StaticWebApplicationContext context = new StaticWebApplicationContext();
-        context.setServletContext(new MockServletContext());
-        context.refresh();
-        DynamicStaticResourceHandlerMapping mapping = new DynamicStaticResourceHandlerMapping(
-                registry, new ContentNegotiationManager());
-        mapping.setApplicationContext(context);
+        try (StaticWebApplicationContext context = new StaticWebApplicationContext()) {
+            context.setServletContext(new MockServletContext());
+            context.refresh();
+            DynamicStaticResourceHandlerMapping mapping = new DynamicStaticResourceHandlerMapping(
+                    registry, new ContentNegotiationManager(), new StaticResourceVersioning(registry));
+            mapping.setApplicationContext(context);
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/latest/example.js");
+            ServletRequestPathUtils.parseAndCache(request);
 
-        Method currentMapping = DynamicStaticResourceHandlerMapping.class
-                .getDeclaredMethod("currentMapping");
-        currentMapping.setAccessible(true);
-        SimpleUrlHandlerMapping resolved =
-                (SimpleUrlHandlerMapping) currentMapping.invoke(mapping);
+            var resolved = mapping.getHandler(request);
 
-        assertThat(resolved.getUrlMap()).containsKey("/latest/**");
-        verify(registry, times(2)).resources();
-        context.close();
+            assertThat(resolved).isNotNull();
+            assertThat(resolved.getHandler()).isInstanceOfSatisfying(ResourceHttpRequestHandler.class,
+                    handler -> assertThat(handler.getLocations()).containsExactly(new ClassPathResource("static/")));
+        }
     }
 }

@@ -78,10 +78,10 @@
     let downloadStatsChart = null;
     let activeDownloads = [];
     let sharedSse = null;        // 共享 EventSource 单例
-    let sseSubscribed = new Set(); // 当前关注的 artworkId 集合（数字）
-
-    let updateInterval;
+    let updateInterval = null;
     let activeUpdateTimer = null;
+    let activeSyncController = null;
+    let pageSuspended = false;
     let lastCompletionTime = 0; // 最后一个下载完成的时间戳
     let foregroundBurstUntil = 0; // 后台切回前台后的 1s 密集轮询截止时间戳
     let artworkModal = null;
@@ -96,7 +96,6 @@
     let fullImgArtworkId = null;
     let fullImgPage = 0;
     let fullImgTotal = 0;
-    let fullImgLoading = false;
 
     // ===================== 工具 =====================
     function escapeHtml(str) {

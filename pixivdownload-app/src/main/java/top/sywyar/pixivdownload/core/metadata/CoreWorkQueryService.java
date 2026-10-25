@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.core.metadata;
 
 import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
 
-import top.sywyar.pixivdownload.core.metadata.artwork.GalleryQuery;
 import top.sywyar.pixivdownload.core.metadata.artwork.GalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelGalleryRepository;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
@@ -67,7 +66,7 @@ public class CoreWorkQueryService implements WorkQueryService {
         this.pixivDatabase = pixivDatabase;
         this.novelMetadataRepository = novelMetadataRepository;
         this.authorService = authorService;
-        this.novelWorkSearch = new NovelWorkSearch(novelMetadataRepository, novelGalleryRepository, authorService);
+        this.novelWorkSearch = new NovelWorkSearch(novelMetadataRepository, authorService);
     }
 
     @Override
@@ -84,9 +83,9 @@ public class CoreWorkQueryService implements WorkQueryService {
         if (!database.available()) return List.of();
         return switch (query.workType()) {
             case ARTWORK -> toSummaries(query.workType(),
-                    galleryRepository.findAllArtworkIds(toGalleryQuery(query)));
+                    galleryRepository.findAllArtworkIds(query));
             case NOVEL -> toSummaries(query.workType(),
-                    novelWorkSearch.filteredIds(query, toGuestRestriction(query.restriction())));
+                    novelWorkSearch.filteredIds(query));
         };
     }
 
@@ -198,16 +197,16 @@ public class CoreWorkQueryService implements WorkQueryService {
         if (!database.available()) return Map.of();
         Map<Long, Long> counts = new LinkedHashMap<>();
         switch (workType) {
-            case ARTWORK -> galleryRepository.findSeriesCounts(toGuestRestriction(restriction))
+            case ARTWORK -> galleryRepository.findSeriesCounts(restriction)
                     .forEach(row -> counts.put(row.seriesId(), row.artworkCount()));
             case NOVEL -> counts.putAll(novelGalleryRepository
-                    .countVisibleNovelsBySeries(toGuestRestriction(restriction)));
+                    .countVisibleNovelsBySeries(restriction));
         }
         return Collections.unmodifiableMap(counts);
     }
 
     private PagedResult<WorkSummary> artworkSearch(WorkQuery query) {
-        GalleryRepository.QueryResult result = galleryRepository.findArtworkIds(toGalleryQuery(query));
+        GalleryRepository.QueryResult result = galleryRepository.findArtworkIds(query);
         int totalPages = (int) Math.ceil((double) result.totalElements() / query.size());
         return new PagedResult<>(
                 toSummaries(query.workType(), result.ids()),
@@ -219,11 +218,11 @@ public class CoreWorkQueryService implements WorkQueryService {
 
     /** 小说列表：内存过滤取全量命中 id 后在本侧完成分页数学（与原小说画廊实现一致）。 */
     private PagedResult<WorkSummary> novelSearch(WorkQuery query) {
-        List<Long> ids = novelWorkSearch.filteredIds(query, toGuestRestriction(query.restriction()));
+        List<Long> ids = novelWorkSearch.filteredIds(query);
         int total = ids.size();
-        int from = Math.max(0, query.page() * query.size());
-        int to = Math.min(from + query.size(), total);
-        List<Long> pageIds = from >= total ? List.of() : ids.subList(from, to);
+        int from = (int) Math.min((long) Math.max(0, query.page()) * query.size(), total);
+        int to = (int) Math.min((long) from + query.size(), total);
+        List<Long> pageIds = ids.subList(from, to);
         int totalPages = (int) Math.ceil((double) total / Math.max(1, query.size()));
         return new PagedResult<>(
                 toSummaries(query.workType(), pageIds),
@@ -282,7 +281,7 @@ public class CoreWorkQueryService implements WorkQueryService {
     /** 插画作者目录：可见作品计数 + 作者池补名，缺名以 id 字符串兜底。 */
     private List<AuthorSummary> artworkAuthors(AuthorQuery query) {
         List<GalleryRepository.AuthorCount> counts =
-                galleryRepository.findAuthorCounts(toGuestRestriction(query.restriction()));
+                galleryRepository.findAuthorCounts(query.restriction());
         Set<Long> authorIds = new LinkedHashSet<>();
         for (GalleryRepository.AuthorCount item : counts) {
             authorIds.add(item.authorId());
@@ -301,7 +300,7 @@ public class CoreWorkQueryService implements WorkQueryService {
     /** 小说作者目录：可见作品计数（restriction 为 null 时统计全部未删行）+ 作者池补名。 */
     private List<AuthorSummary> novelAuthors(AuthorQuery query) {
         List<AuthorSummary> counts = novelGalleryRepository
-                .findVisibleNovelAuthorCounts(toGuestRestriction(query.restriction()));
+                .findVisibleNovelAuthorCounts(query.restriction());
         Set<Long> authorIds = new LinkedHashSet<>();
         for (AuthorSummary item : counts) {
             authorIds.add(item.authorId());
@@ -321,7 +320,7 @@ public class CoreWorkQueryService implements WorkQueryService {
     private List<TagOption> artworkTags(TagQuery query) {
         int clamped = query.limit() <= 0 ? 500 : Math.min(query.limit(), 2000);
         List<GalleryRepository.TagOption> all = galleryRepository.findTagsWithCounts(query.search(), clamped);
-        GuestRestriction restriction = toGuestRestriction(query.restriction());
+        WorkRestriction restriction = query.restriction();
         List<TagOption> out = new ArrayList<>(all.size());
         Set<Long> visible = restriction == null ? null : galleryRepository.findVisibleTagIds(restriction);
         for (GalleryRepository.TagOption tag : all) {
@@ -336,7 +335,7 @@ public class CoreWorkQueryService implements WorkQueryService {
     /** 小说标签目录：可见作品计数（restriction 为 null 时统计全部未删行），钳制收在仓库侧。 */
     private List<TagOption> novelTags(TagQuery query) {
         return novelGalleryRepository.findVisibleNovelTagCounts(
-                toGuestRestriction(query.restriction()), query.search(), query.limit());
+                query.restriction(), query.search(), query.limit());
     }
 
     private static List<WorkSummary> toSummaries(WorkType workType, List<Long> ids) {
@@ -360,43 +359,5 @@ public class CoreWorkQueryService implements WorkQueryService {
         }
         return new SeriesNeighbors.Neighbor(record.novelId(), record.title(),
                 record.seriesOrder() == null ? 0 : record.seriesOrder());
-    }
-
-    private GalleryQuery toGalleryQuery(WorkQuery query) {
-        return GalleryQuery.builder()
-                .page(query.page())
-                .size(query.size())
-                .sort(query.sort())
-                .order(query.order())
-                .search(query.search())
-                .searchType(query.searchType())
-                .r18(query.r18())
-                .ai(query.ai())
-                .formats(query.formats())
-                .collectionIds(query.collectionIds())
-                .tagIds(query.tagIds())
-                .excludedTagIds(query.excludedTagIds())
-                .optionalTagIds(query.optionalTagIds())
-                .authorIds(query.authorIds())
-                .excludedAuthorIds(query.excludedAuthorIds())
-                .optionalAuthorIds(query.optionalAuthorIds())
-                .seriesIds(query.seriesIds())
-                .excludedSeriesIds(query.excludedSeriesIds())
-                .guestRestriction(toGuestRestriction(query.restriction()))
-                .build();
-    }
-
-    private static GuestRestriction toGuestRestriction(WorkRestriction restriction) {
-        if (restriction == null) {
-            return null;
-        }
-        return new GuestRestriction(
-                restriction.allowedXRestricts(),
-                restriction.tagUnrestricted(),
-                restriction.tagIds(),
-                restriction.authorUnrestricted(),
-                restriction.authorIds(),
-                restriction.collectionUnrestricted(), restriction.collectionIds(),
-                restriction.collectionRestrictsWorks());
     }
 }

@@ -14,7 +14,9 @@ import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationReferenceVoice;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationSpeechText;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceException;
+import top.sywyar.pixivdownload.tts.narration.engine.NarrationVoiceRequest;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -45,9 +47,9 @@ public abstract class AbstractHttpNarrationEngine {
 
     private static final Pattern BEARER_PATTERN = Pattern.compile("(?i)Bearer\\s+[A-Za-z0-9._\\-]+");
 
-    /** JSON 字段 {@code ref_audio} / {@code ref_text} 的值（用户上传的参考音 base64 与转录）：连值一并遮蔽。 */
+    /** 克隆请求的参考音与转录字段：兼容 ref_ / reference_ 前缀，连值一并遮蔽。 */
     private static final Pattern REF_FIELD_PATTERN =
-            Pattern.compile("(?i)\"(ref_audio|ref_text)\"\\s*:\\s*\"(?:\\\\.|[^\"\\\\])*\"");
+            Pattern.compile("(?i)\"(ref_audio|ref_text|reference_audio|reference_text)\"\\s*:\\s*\"(?:\\\\.|[^\"\\\\])*\"");
 
     /** {@code data:audio/...;base64,...} 数据 URI（参考音字节）：兜底遮蔽，避免参考音 base64 进日志 / 错误回显。 */
     private static final Pattern AUDIO_DATA_URI_PATTERN =
@@ -57,6 +59,14 @@ public abstract class AbstractHttpNarrationEngine {
 
     protected AbstractHttpNarrationEngine(MessageResolver messages) {
         this.messages = messages;
+    }
+
+    protected String requireText(NarrationVoiceRequest request) {
+        String text = request == null ? null : request.text();
+        if (NarrationSpeechText.blankToNull(text) == null) {
+            throw new NarrationVoiceException(localized("narration.tts.error.empty-text"), null);
+        }
+        return text;
     }
 
     /**
@@ -139,6 +149,23 @@ public abstract class AbstractHttpNarrationEngine {
         }
     }
 
+    /** 解码 JSON 响应中的音频字段；空音频与非法编码保留各自的受控错误。 */
+    protected byte[] decodeBase64Audio(String data, String secret) {
+        if (NarrationSpeechText.blankToNull(data) == null) {
+            throw new NarrationVoiceException(localized("narration.tts.error.empty-audio"), null);
+        }
+        try {
+            byte[] bytes = Base64.getDecoder().decode(data.trim());
+            if (bytes.length == 0) {
+                throw new NarrationVoiceException(localized("narration.tts.error.empty-audio"), null);
+            }
+            return bytes;
+        } catch (IllegalArgumentException e) {
+            throw new NarrationVoiceException(
+                    localized("narration.tts.error.request-failed", redact(safeMessage(e), secret)), e);
+        }
+    }
+
     /** 序列化请求体 DTO 为 JSON 字节；失败转脱敏的 {@link NarrationVoiceException}（{@code secret} 仅用于脱敏）。 */
     protected byte[] serialize(Object body, String secret) {
         try {
@@ -214,7 +241,7 @@ public abstract class AbstractHttpNarrationEngine {
     /**
      * 对面向异常消息 / 日志的文本脱敏 + 截断：先把本次请求使用的 {@code secret}（api-key）字面量替换为 {@code ***}
      * （防止部分服务在错误体中回显），再盖掉 Bearer token 碎片，接着遮蔽<b>克隆请求可能带出的参考音 / 转录</b>
-     * （{@code ref_audio} / {@code ref_text} 字段值与 {@code data:audio/...;base64,...} 数据 URI——上游回显请求体时
+     * （{@code ref_} / {@code reference_} 前缀的 audio/text 字段值与 {@code data:audio/...;base64,...} 数据 URI——上游回显请求体时
      * 会把用户上传的音频 base64 与转录文本带进错误正文），最后压一行并截断到 {@link #MAX_DETAIL_LENGTH}。
      */
     protected static String redact(String text, String secret) {

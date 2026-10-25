@@ -68,7 +68,7 @@ class PluginRequiredVerificationRecoveryTest {
     void requiredMissingSidecarEntersRecovery() throws Exception {
         Scenario scenario = scenario("missing-sidecar");
 
-        startAndAssertRecovery(scenario, new PluginSupplyChainVerifier(), REQUIRED_POLICY);
+        startAndAssertRecovery(scenario, new PluginSupplyChainVerifier());
     }
 
     @Test
@@ -77,8 +77,7 @@ class PluginRequiredVerificationRecoveryTest {
         Scenario scenario = scenario("verified-required");
         SigningFixture signing = SigningFixture.create("active-key", TrustedPluginKey.State.ACTIVE);
         SignatureMetadata metadata = signing.artifactSignature(scenario.jar());
-        writeOfficialProvenance(scenario, metadata, signing,
-                VerificationStatus.VERIFIED, "VERIFIED");
+        writeOfficialProvenance(scenario, metadata, signing);
 
         PluginRuntimeManager manager = start(scenario, signing.verifier());
         try {
@@ -106,10 +105,9 @@ class PluginRequiredVerificationRecoveryTest {
         Scenario scenario = scenario("unknown-key");
         SignatureMetadata metadata = new SignatureMetadata(SignatureMetadata.FORMAT_VERSION,
                 SignatureMetadata.ED25519, "unknown-key", "c2ln");
-        writeOfficialProvenance(scenario, metadata, null,
-                VerificationStatus.VERIFIED, "VERIFIED");
+        writeOfficialProvenance(scenario, metadata, null);
 
-        startAndAssertRecovery(scenario, new PluginSupplyChainVerifier(), REQUIRED_POLICY);
+        startAndAssertRecovery(scenario, new PluginSupplyChainVerifier());
     }
 
     @Test
@@ -118,10 +116,9 @@ class PluginRequiredVerificationRecoveryTest {
         Scenario scenario = scenario("revoked-key");
         SigningFixture signing = SigningFixture.create("revoked-key", TrustedPluginKey.State.REVOKED);
         SignatureMetadata metadata = signing.artifactSignature(scenario.jar());
-        writeOfficialProvenance(scenario, metadata, signing,
-                VerificationStatus.VERIFIED, "VERIFIED");
+        writeOfficialProvenance(scenario, metadata, signing);
 
-        startAndAssertRecovery(scenario, signing.verifier(), REQUIRED_POLICY);
+        startAndAssertRecovery(scenario, signing.verifier());
     }
 
     @Test
@@ -132,10 +129,9 @@ class PluginRequiredVerificationRecoveryTest {
         SignatureMetadata metadata = new SignatureMetadata(SignatureMetadata.FORMAT_VERSION,
                 SignatureMetadata.ED25519, signing.keyId(),
                 Base64.getEncoder().encodeToString("bad-signature".getBytes(StandardCharsets.UTF_8)));
-        writeOfficialProvenance(scenario, metadata, signing,
-                VerificationStatus.VERIFIED, "VERIFIED");
+        writeOfficialProvenance(scenario, metadata, signing);
 
-        startAndAssertRecovery(scenario, signing.verifier(), REQUIRED_POLICY);
+        startAndAssertRecovery(scenario, signing.verifier());
     }
 
     @Test
@@ -144,8 +140,7 @@ class PluginRequiredVerificationRecoveryTest {
         Scenario scenario = scenario("hash-mismatch");
         SigningFixture signing = SigningFixture.create("active-key", TrustedPluginKey.State.ACTIVE);
         SignatureMetadata metadata = signing.artifactSignature(scenario.jar());
-        writeOfficialProvenance(scenario, metadata, signing,
-                VerificationStatus.VERIFIED, "VERIFIED");
+        writeOfficialProvenance(scenario, metadata, signing);
         tamperArtifactWithoutChangingSize(scenario.jar());
 
         PluginRuntimeManager manager = start(scenario, signing.verifier());
@@ -183,8 +178,7 @@ class PluginRequiredVerificationRecoveryTest {
         SignatureMetadata metadata = new SignatureMetadata(SignatureMetadata.FORMAT_VERSION,
                 SignatureMetadata.ED25519, signing.keyId(),
                 Base64.getEncoder().encodeToString("bad-signature".getBytes(StandardCharsets.UTF_8)));
-        writeOfficialProvenance(scenario, metadata, signing,
-                VerificationStatus.VERIFIED, "VERIFIED");
+        writeOfficialProvenance(scenario, metadata, signing);
 
         PluginRuntimeManager manager = start(scenario, signing.verifier());
         try {
@@ -238,8 +232,7 @@ class PluginRequiredVerificationRecoveryTest {
         }
     }
 
-    private void startAndAssertRecovery(Scenario scenario, PluginSupplyChainVerifier verifier,
-                                        RequiredPluginPolicy policy) throws IOException {
+    private void startAndAssertRecovery(Scenario scenario, PluginSupplyChainVerifier verifier) throws IOException {
         PluginRuntimeManager manager = start(scenario, verifier);
         try {
             assertThat(manager.status().orElseThrow().startedPluginIds()).doesNotContain(PLUGIN_ID);
@@ -247,7 +240,7 @@ class PluginRequiredVerificationRecoveryTest {
             assertThat(Files.readString(scenario.marker(), StandardCharsets.UTF_8))
                     .as("验签失败必须发生在 PF4J 创建 classloader / 构造插件实例前")
                     .isEmpty();
-            RecoveryModeService recovery = recovery(manager, policy);
+            RecoveryModeService recovery = recovery(manager, REQUIRED_POLICY);
             assertThat(recovery.isActive()).isTrue();
             assertThat(recovery.decision().firstReason().orElseThrow().pluginId()).isEqualTo(PLUGIN_ID);
         } finally {
@@ -309,24 +302,16 @@ class PluginRequiredVerificationRecoveryTest {
     }
 
     private static void writeOfficialProvenance(Scenario scenario, SignatureMetadata metadata,
-                                                SigningFixture signing, VerificationStatus status,
-                                                String diagnostic) throws IOException {
-        writeOfficialProvenance(scenario, metadata, signing,
-                PluginPackageIntegrity.sha256Hex(scenario.jar()), status, diagnostic);
-    }
-
-    private static void writeOfficialProvenance(Scenario scenario, SignatureMetadata metadata,
-                                                SigningFixture signing, String expectedSha,
-                                                VerificationStatus status, String diagnostic) throws IOException {
+                                                SigningFixture signing) throws IOException {
         PluginPackageOrigin origin = PluginPackageOrigin.forTrustedCatalog("official", true,
-                Files.size(scenario.jar()), expectedSha, metadata);
-        VerificationResult result = new VerificationResult(status, PLUGIN_ID, VERSION,
-                metadata != null ? metadata.keyId() : null,
-                metadata != null ? metadata.algorithm() : null,
+                Files.size(scenario.jar()), PluginPackageIntegrity.sha256Hex(scenario.jar()), metadata);
+        VerificationResult result = new VerificationResult(VerificationStatus.VERIFIED, PLUGIN_ID, VERSION,
+                metadata.keyId(),
+                metadata.algorithm(),
                 signing != null ? "Test Publisher" : null,
                 signing != null ? "Test Trust" : null,
                 Instant.now(), Files.size(scenario.jar()), PluginPackageIntegrity.sha256Hex(scenario.jar()),
-                diagnostic);
+                "VERIFIED");
         new PluginProvenanceStore(scenario.pluginsDir()).write(scenario.jar(), origin, result);
     }
 

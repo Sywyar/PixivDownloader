@@ -4,17 +4,86 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.sql.DriverManager;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DesktopUiToolsTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("分类目录混合数字及文字名称时保留全部目录并按稳定顺序排列")
+    void sortsMixedClassifierFolderNames() throws Exception {
+        for (String name : List.of("2", "10", "1a", "01", "1", "2147483648", "中文")) {
+            Files.createDirectory(tempDir.resolve(name));
+        }
+        Files.writeString(tempDir.resolve("ignored.txt"), "not a directory", StandardCharsets.UTF_8);
+
+        assertThat(new DesktopUiTools(() -> "").listImageClassifierFolders(tempDir))
+                .extracting(path -> path.getFileName().toString())
+                .containsExactly("01", "1", "2", "10", "2147483648", "1a", "中文");
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"0", "-1", "unknown", "9223372036854775808"})
+    @org.junit.jupiter.api.DisplayName("无法取得正数作品编号的目录返回空结果")
+    void rejectsUnresolvedClassifierArtwork(String name) {
+        assertThat(new DesktopUiTools(() -> "").resolveImageClassifierArtwork(tempDir.resolve(name), null))
+                .isEmpty();
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("文件系统根目录没有作品编号时返回空结果")
+    void rejectsClassifierRootWithoutArtworkId() {
+        assertThat(new DesktopUiTools(() -> "").resolveImageClassifierArtwork(tempDir.getRoot(), null))
+                .isEmpty();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"0", "-1", "1.5", "18446744073709551625"})
+    @org.junit.jupiter.api.DisplayName("服务有效正数编号优先，非法编号回退目录，无法解析时不查询详情")
+    void resolvesOnlyPositiveServerArtworkIds(String invalidId) throws Exception {
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("localhost", 0), 0);
+        var requests = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        var serverArtworkId = new java.util.concurrent.atomic.AtomicReference<>(invalidId);
+        server.createContext("/api/downloaded/", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            requests.add(path);
+            byte[] body = (path.endsWith("by-move-folder")
+                    ? "{\"artworkId\":" + serverArtworkId.get() + "}" : "{\"title\":\"Example\"}")
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            try (var output = exchange.getResponseBody()) {
+                output.write(body);
+            }
+        });
+        server.start();
+        try {
+            var target = new DesktopUiToolHost.ImageClassifierServer(true, "http://localhost:" + server.getAddress().getPort());
+            var tools = new DesktopUiTools(() -> "");
+            assertThat(tools.resolveImageClassifierArtwork(tempDir.resolve("42"), target))
+                    .contains(new DesktopUiToolHost.ImageClassifierArtwork(42L, "Example", null));
+            serverArtworkId.set("-1");
+            assertThat(tools.resolveImageClassifierArtwork(tempDir.resolve("0"), target)).isEmpty();
+            serverArtworkId.set("99");
+            assertThat(tools.resolveImageClassifierArtwork(tempDir.resolve("42"), target))
+                    .contains(new DesktopUiToolHost.ImageClassifierArtwork(99L, "Example", null));
+            assertThat(requests).containsExactly("/api/downloaded/by-move-folder", "/api/downloaded/42",
+                    "/api/downloaded/by-move-folder", "/api/downloaded/by-move-folder", "/api/downloaded/99");
+        } finally {
+            server.stop(0);
+        }
+    }
 
     @Test
     @org.junit.jupiter.api.DisplayName("分类器自动地址跟随后端，显式指定的其它实例地址仍优先")
@@ -122,6 +191,55 @@ class DesktopUiToolsTest {
 
     private static String sql(Path path) {
         return path.toString().replace("'", "''");
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("分类复制遇到既有文件时撤回已复制图片并保留双方原文件")
+    void classificationRollsBackCopiesWithoutReplacingExistingFiles() throws Exception {
+        Path source = Files.createDirectory(tempDir.resolve("42"));
+        Path image = Files.writeString(source.resolve("image.jpg"), "image", StandardCharsets.UTF_8);
+        Path sidecar = Files.writeString(source.resolve("42.meta.json"), "source", StandardCharsets.UTF_8);
+        Path target = Files.createDirectory(tempDir.resolve("target"));
+        Path existing = Files.writeString(target.resolve(sidecar.getFileName()), "existing", StandardCharsets.UTF_8);
+        DesktopUiTools tools = new DesktopUiTools(() -> "http://localhost:8123");
+
+        assertThatThrownBy(() -> tools.classifyImageFolder(
+                source,
+                List.of(image),
+                42L,
+                target,
+                null,
+                (detail, folder) -> { throw new AssertionError("Copy failure must preserve source files"); }
+        )).isInstanceOf(FileAlreadyExistsException.class);
+
+        assertThat(Files.readString(image, StandardCharsets.UTF_8)).isEqualTo("image");
+        assertThat(Files.readString(sidecar, StandardCharsets.UTF_8)).isEqualTo("source");
+        assertThat(Files.readString(existing, StandardCharsets.UTF_8)).isEqualTo("existing");
+        assertThat(target.resolve(image.getFileName())).doesNotExist();
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("分类部分复制失败时移除本次新建编号目录并保留既有编号目录")
+    void classificationRollsBackItsNumberedFolderAfterPartialCopy() throws Exception {
+        Path source = Files.createDirectory(tempDir.resolve("42"));
+        Path image = Files.writeString(source.resolve("image.jpg"), "image", StandardCharsets.UTF_8);
+        Path target = Files.createDirectory(tempDir.resolve("target"));
+        Path existingFolder = Files.createDirectory(target.resolve("0"));
+        Path existing = Files.writeString(existingFolder.resolve("keep.jpg"), "existing", StandardCharsets.UTF_8);
+        DesktopUiTools tools = new DesktopUiTools(() -> "http://localhost:8123");
+
+        assertThatThrownBy(() -> tools.classifyImageFolder(
+                source,
+                List.of(image, source.resolve("missing.jpg")),
+                42L,
+                target,
+                null,
+                (detail, folder) -> { throw new AssertionError("Copy failure must preserve source files"); }
+        )).isInstanceOf(NoSuchFileException.class);
+
+        assertThat(Files.readString(image, StandardCharsets.UTF_8)).isEqualTo("image");
+        assertThat(Files.readString(existing, StandardCharsets.UTF_8)).isEqualTo("existing");
+        assertThat(target.resolve("1")).doesNotExist();
     }
 
     @Test

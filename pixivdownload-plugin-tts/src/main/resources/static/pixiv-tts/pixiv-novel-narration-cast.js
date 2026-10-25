@@ -7,7 +7,7 @@
     modules.cast = {
         install(ctx) {
             const { state, els, t, requireFeedbackPrompt, feedbackPrompt, feedbackConfirm } = ctx.core;
-            const { reloadCachedScript, finish, clearCache } = ctx.playback;
+            const { reloadCachedScript, clearCache } = ctx.playback;
     // ---------- 选角 / 冲突面板 ----------
     // 冲突触发时编辑「当前脚本所用花名册」；从设置弹窗触发时编辑「所选花名册」（借用别人的花名册即编辑那份共享册）。
     async function openCast() { return openCastFor(state.scriptCastId); }

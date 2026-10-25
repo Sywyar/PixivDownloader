@@ -16,13 +16,16 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.isFatal;
+import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.mergeFailure;
+
 /**
  * Manages the embedded Spring Boot backend for GUI actions that need
  * exclusive access to SQLite.
  *
- * <p>并发与生命周期模型：每个 start / stop 都是一次带单调代际令牌的 lifecycle operation。
- * 启动线程在 LOCK 内捕获<b>不可变</b>的 starter / 参数 / 失败处理器 / operation 代际，执行期间不再读取可能被
- * {@link #configure} 替换的静态字段。starter 返回 context 后，发布 RUNNING 前重新进入 LOCK 复核：operation 代际仍有效、
+ * <p>并发与生命周期模型：每个 start / stop 都由独立的 lifecycle operation 持有。
+ * 启动线程在 LOCK 内捕获<b>不可变</b>的 starter / 参数 / 失败处理器 / operation，执行期间不再读取可能被
+ * {@link #configure} 替换的静态字段。starter 返回 context 后，发布 RUNNING 前重新进入 LOCK 复核：operation 仍为当前操作、
  * 未发起进程退出（{@code shutdownInitiated}）、状态仍为 STARTING——任一不满足即丢弃「迟到的 context」（由启动线程自行关闭）
  * 并落 STOPPED，绝不把已失效的 context 发布成 RUNNING。
  *
@@ -121,25 +124,20 @@ public final class BackendLifecycleManager {
     }
 
     private static final class StartOperation {
-        private final long generation;
         private final CompletableFuture<CloseResult> completion = new CompletableFuture<>();
         private boolean closeRequested;
-
-        private StartOperation(long generation) {
-            this.generation = generation;
-        }
     }
 
     private static final class StopOperation {
-        private final long generation;
         private final ConfigurableApplicationContext ownedContext;
         private final CompletableFuture<CloseResult> completion = new CompletableFuture<>();
 
-        private StopOperation(long generation, ConfigurableApplicationContext ownedContext) {
-            this.generation = generation;
+        private StopOperation(ConfigurableApplicationContext ownedContext) {
             this.ownedContext = ownedContext;
         }
     }
+
+    private record ContextCloseResult(CloseResult result, Throwable failure) {}
 
     private static final Logger log = LoggerFactory.getLogger(BackendLifecycleManager.class);
     private static final Object LOCK = new Object();
@@ -164,8 +162,6 @@ public final class BackendLifecycleManager {
      */
     private static volatile boolean shutdownInitiated = false;
 
-    /** start / stop operation 共用的单调代际源。 */
-    private static volatile long lifecycleOperationCounter = 0L;
     /** 当前 worker operation；完成后清空，既是唯一 context owner，也是有限等待句柄。 */
     private static volatile StartOperation activeStartOperation;
     private static volatile StopOperation activeStopOperation;
@@ -273,7 +269,7 @@ public final class BackendLifecycleManager {
     }
 
     private static StopOperation beginStopLocked(ConfigurableApplicationContext ownedContext) {
-        StopOperation operation = new StopOperation(++lifecycleOperationCounter, ownedContext);
+        StopOperation operation = new StopOperation(ownedContext);
         context = null;
         activeStopOperation = operation;
         updateState(State.STOPPING, null);
@@ -303,7 +299,7 @@ public final class BackendLifecycleManager {
      * 关闭唯一拥有的 context，并依据 {@code isActive()} 区分「虽有异常但已确认关闭」和「未确认关闭」。
      * 只有前者允许继续清退 PF4J；后者保留 context 引用供后续重试。
      */
-    private static CloseResult closeOwnedContext(ConfigurableApplicationContext ctx) {
+    private static ContextCloseResult closeOwnedContext(ConfigurableApplicationContext ctx) {
         Throwable failure = null;
         try {
             int exitCode = SpringApplication.exit(ctx);
@@ -318,26 +314,22 @@ public final class BackendLifecycleManager {
         try {
             active = ctx.isActive();
         } catch (Throwable t) {
-            if (failure == null) {
-                failure = t;
-            } else {
-                failure.addSuppressed(t);
-            }
+            failure = mergeFailure(failure, t);
             active = true;
         }
 
         if (failure != null) {
             log.warn("Error closing backend context: {}", safeMessage(failure), failure);
         }
-        return active ? CloseResult.FAILED : CloseResult.CLOSED;
+        return new ContextCloseResult(active ? CloseResult.FAILED : CloseResult.CLOSED, failure);
     }
 
     private static void startStopWorker(StopOperation operation, Runnable afterStop) {
         Thread stopper = new Thread(() -> {
-            CloseResult result = closeOwnedContext(operation.ownedContext);
+            ContextCloseResult closed = closeOwnedContext(operation.ownedContext);
+            CloseResult result = closed.result();
             synchronized (LOCK) {
-                if (activeStopOperation == operation
-                        && activeStopOperation.generation == operation.generation) {
+                if (activeStopOperation == operation) {
                     if (result == CloseResult.CLOSED) {
                         updateState(State.STOPPED, null);
                     } else {
@@ -349,8 +341,9 @@ public final class BackendLifecycleManager {
                 }
             }
             operation.completion.complete(result);
+            if (isFatal(closed.failure())) throw (Error) closed.failure();
             if (result == CloseResult.CLOSED && afterStop != null) {
-                runOnEdt(afterStop);
+                afterStop.run();
             }
         }, "spring-stop");
         stopper.setDaemon(false);
@@ -418,7 +411,6 @@ public final class BackendLifecycleManager {
             startupFailureHandler = error -> {};
             shutdownInitiated = false;
             starterGeneration = 0L;
-            lifecycleOperationCounter = 0L;
             activeStartOperation = null;
             activeStopOperation = null;
             context = null;
@@ -465,7 +457,7 @@ public final class BackendLifecycleManager {
     }
 
     /**
-     * 启动后端。在 LOCK 内捕获 starter / 参数副本 / 失败处理器 / operation 代际，worker 不再读取可被 configure
+     * 启动后端。在 LOCK 内捕获 starter / 参数副本 / 失败处理器 / operation，worker 不再读取可被 configure
      * 替换的配置。进程退出闩锁置位时立即拒绝。
      */
     public static boolean startAsync(Runnable afterStart) {
@@ -481,7 +473,7 @@ public final class BackendLifecycleManager {
             starterFn = starter;
             args = Arrays.copyOf(applicationArgs, applicationArgs.length);
             failureHandler = startupFailureHandler;
-            operation = new StartOperation(++lifecycleOperationCounter);
+            operation = new StartOperation();
             activeStartOperation = operation;
             updateState(State.STARTING, null);
         }
@@ -514,8 +506,7 @@ public final class BackendLifecycleManager {
         CloseResult operationResult;
 
         synchronized (LOCK) {
-            boolean owner = activeStartOperation == operation
-                    && activeStartOperation.generation == operation.generation;
+            boolean owner = activeStartOperation == operation;
             boolean closeRequested = operation.closeRequested || shutdownInitiated;
             if (failure != null) {
                 if (owner) {
@@ -547,10 +538,10 @@ public final class BackendLifecycleManager {
         }
 
         if (lateClose != null) {
-            CloseResult closeResult = closeOwnedContext(lateClose);
+            ContextCloseResult closed = closeOwnedContext(lateClose);
+            CloseResult closeResult = closed.result();
             synchronized (LOCK) {
-                if (activeStartOperation == operation
-                        && activeStartOperation.generation == operation.generation) {
+                if (activeStartOperation == operation) {
                     if (closeResult == CloseResult.CLOSED) {
                         updateState(State.STOPPED, null);
                     } else {
@@ -562,6 +553,7 @@ public final class BackendLifecycleManager {
                 }
             }
             operationResult = closeResult;
+            if (isFatal(closed.failure())) failure = closed.failure();
         }
 
         operation.completion.complete(operationResult);
@@ -574,7 +566,7 @@ public final class BackendLifecycleManager {
             }
         }
         if (invokeAfterStart && afterStart != null) {
-            runOnEdt(afterStart);
+            afterStart.run();
         }
         if (failure instanceof Error fatal) {
             throw fatal;
@@ -590,7 +582,7 @@ public final class BackendLifecycleManager {
             if (state == State.STOPPED || (state == State.FAILED && context == null)) {
                 updateState(State.STOPPED, null);
                 if (afterStop != null) {
-                    runOnEdt(afterStop);
+                    afterStop.run();
                 }
                 return true;
             }
@@ -630,11 +622,11 @@ public final class BackendLifecycleManager {
     }
 
     private static void notifyListener(Listener listener, Snapshot snapshot) {
-        runOnEdt(() -> listener.onStateChanged(snapshot));
-    }
-
-    private static void runOnEdt(Runnable action) {
-        if (action != null) action.run();
+        try {
+            listener.onStateChanged(snapshot);
+        } catch (RuntimeException failure) {
+            log.warn("Backend state listener failed: {}", safeMessage(failure), failure);
+        }
     }
 
     /**

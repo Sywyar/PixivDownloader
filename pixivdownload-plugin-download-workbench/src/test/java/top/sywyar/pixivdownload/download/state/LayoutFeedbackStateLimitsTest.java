@@ -2,20 +2,13 @@ package top.sywyar.pixivdownload.download.state;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.download.request.LayoutFeedbackCommandRequest;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -76,11 +69,14 @@ class LayoutFeedbackStateLimitsTest extends LayoutFeedbackStateStoreTestSupport 
         }
         // 新 Survey 写入触发淘汰：本次写入的 Survey 必须保留。
         String newest = "aaaaaaaa-bbbb-cccc-dddd-ffffffffffff";
+        LayoutFeedbackStateSnapshot before = store.snapshot();
         store.apply(command(newest, "submitted", null), NOW + 1_000_000L);
 
         LayoutFeedbackStateSnapshot snapshot = store.snapshot();
         assertThat(snapshot.states()).hasSize(LayoutFeedbackStateStore.MAX_SURVEY_STATES);
         assertThat(snapshot.state(newest)).isNotNull();
+        assertThat(before.states()).hasSize(LayoutFeedbackStateStore.MAX_SURVEY_STATES)
+                .containsKeys(surveyIds).doesNotContainKey(newest);
     }
 
     /* ============================================================

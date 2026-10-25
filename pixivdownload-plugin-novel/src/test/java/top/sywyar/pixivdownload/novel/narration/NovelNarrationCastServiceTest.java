@@ -61,47 +61,9 @@ class NovelNarrationCastServiceTest {
         return new NarrationSegmentAnalysis(List.of(), newChars, updated, Map.of(), conflicts);
     }
 
-    private final NarrationReferenceVoiceStore fileStore = mock(NarrationReferenceVoiceStore.class);
-
     private NovelNarrationCastService service(NovelMapper mapper) {
         return new NovelNarrationCastService(mapper, mock(NovelDatabase.class), mock(NarrationScriptService.class),
-                fileStore, TX);
-    }
-
-    @Test
-    @DisplayName("整册替换：保留角色走 upsert（不抹参考音）、被移除角色删行 + 删参考音文件，绝不整册清空")
-    void replaceVoicesPreservesKeptAndCleansRemoved() {
-        NovelMapper mapper = mock(NovelMapper.class);
-        // 替换前在册：旁白 0、角色 1、角色 2
-        when(mapper.findNarrationVoices(5L)).thenReturn(List.of(
-                narrator("N"), aiChar(1, "甲", "V1"), aiChar(2, "乙", "V2")));
-
-        // 新名册只保留旁白 0 + 角色 1（角色 2 被移除）
-        service(mapper).replaceVoices(5L, List.of(narrator("N"), aiChar(1, "甲", "V1b")));
-
-        // 保留角色走 upsert（ON CONFLICT 只改画像、保留 ref_audio_*）
-        verify(mapper).upsertNarrationVoice(eq(5L), eq(NarrationCharacter.NARRATOR_ID),
-                any(), any(), any(), any(), anyBoolean(), anyLong());
-        verify(mapper).upsertNarrationVoice(eq(5L), eq(1), eq("甲"), any(), any(), eq("V1b"), eq(true), anyLong());
-        // 被移除角色：删行 + 删盘上参考音文件
-        verify(mapper).deleteNarrationVoice(5L, 2);
-        verify(fileStore).deleteCharacterFiles(5L, 2);
-        // 绝不整册清空（否则会连保留角色的参考音绑定一起抹掉）
-        verify(mapper, never()).deleteNarrationVoices(anyLong());
-        // 保留角色不被删
-        verify(mapper, never()).deleteNarrationVoice(5L, 1);
-        verify(mapper, never()).deleteNarrationVoice(5L, NarrationCharacter.NARRATOR_ID);
-        verify(mapper).touchNarrationCast(eq(5L), anyLong());
-    }
-
-    @Test
-    @DisplayName("删除花名册：删音色行 + 删册记录 + 删磁盘参考音目录")
-    void deleteCastRemovesVoicesAndCastDirectory() {
-        NovelMapper mapper = mock(NovelMapper.class);
-        service(mapper).delete(9L);
-        verify(mapper).deleteNarrationVoices(9L);
-        verify(mapper).deleteNarrationCast(9L);
-        verify(fileStore).deleteCastDirectory(9L);
+                TX);
     }
 
     @Test
@@ -110,7 +72,8 @@ class NovelNarrationCastServiceTest {
         NovelMapper mapper = mock(NovelMapper.class);
         List<NarrationCharacter> roster = List.of(narrator("N"), aiChar(1, "哀家", "V1"));
 
-        NovelNarrationCastService.SegmentRosterResult res = service(mapper).processSegmentRoster(7L, roster,
+        when(mapper.findNarrationVoices(7L)).thenReturn(roster);
+        NovelNarrationCastService.SegmentRosterResult res = service(mapper).processSegmentRoster(7L,
                 analysis(
                         List.of(aiChar(9, "太后", "An old woman."), aiChar(8, "哀家", "改写")),
                         Map.of(), List.of()));
@@ -133,7 +96,8 @@ class NovelNarrationCastServiceTest {
         NovelMapper mapper = mock(NovelMapper.class);
         List<NarrationCharacter> roster = List.of(narrator("N"), aiChar(1, "甲", "V1"), lockedChar(2, "乙", "LOCKED"));
 
-        NovelNarrationCastService.SegmentRosterResult res = service(mapper).processSegmentRoster(5L, roster,
+        when(mapper.findNarrationVoices(5L)).thenReturn(roster);
+        NovelNarrationCastService.SegmentRosterResult res = service(mapper).processSegmentRoster(5L,
                 analysis(List.of(), Map.of(1, "refined-1", 2, "refined-2"), List.of()));
 
         verify(mapper, never()).updateNarrationVoiceInstruction(anyLong(), anyInt(), any(), anyBoolean());
@@ -150,7 +114,8 @@ class NovelNarrationCastServiceTest {
         List<NarrationCharacter> roster = List.of(
                 narrator("N"), aiChar(1, "甲", "V1"), lockedChar(2, "乙", "LOCKED-VOICE"));
 
-        NovelNarrationCastService.SegmentRosterResult res = service(mapper).processSegmentRoster(3L, roster,
+        when(mapper.findNarrationVoices(3L)).thenReturn(roster);
+        NovelNarrationCastService.SegmentRosterResult res = service(mapper).processSegmentRoster(3L,
                 analysis(List.of(), Map.of(), List.of(
                         new NarrationConflict(1, NarrationConflict.TYPE_CONTRADICTION, "r1", "suggested-1"),
                         new NarrationConflict(2, NarrationConflict.TYPE_INCOMPLETE, "r2", "suggested-2"))));
@@ -181,7 +146,9 @@ class NovelNarrationCastServiceTest {
         renamed.put(3, "乙");        // 与另一个已有角色「乙」(id 2) 重名 → 跳过，避免塌成一个
         renamed.put(0, "旁白别名");  // 旁白 → 跳过
 
-        NovelNarrationCastService.SegmentRosterResult res = service(mapper).processSegmentRoster(7L, roster,
+        when(mapper.findNarrationVoices(7L)).thenReturn(roster);
+        when(mapper.updateNarrationVoiceName(7L, 1, "莱蒂西亚")).thenReturn(1);
+        NovelNarrationCastService.SegmentRosterResult res = service(mapper).processSegmentRoster(7L,
                 new NarrationSegmentAnalysis(List.of(), List.of(), Map.of(), renamed, List.of()));
 
         // 仅「我」(id 1) 被改名
@@ -270,7 +237,7 @@ class NovelNarrationCastServiceTest {
         NovelDatabase db = mock(NovelDatabase.class);
         NarrationScriptService scriptSvc = mock(NarrationScriptService.class);
         NovelNarrationCastService svc = new NovelNarrationCastService(mapper, db, scriptSvc,
-                mock(NarrationReferenceVoiceStore.class), TX);
+                TX);
 
         when(mapper.countNarrationCastById(9L)).thenReturn(1);
         when(mapper.findNarrationVoices(9L)).thenReturn(List.of(narrator("N")));

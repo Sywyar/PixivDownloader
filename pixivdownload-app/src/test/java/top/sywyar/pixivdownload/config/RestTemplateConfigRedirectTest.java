@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -56,10 +57,13 @@ class RestTemplateConfigRedirectTest {
 
         ProxyConfig proxyConfig = new ProxyConfig();
         proxyConfig.setEnabled(false);
-        RestTemplateConfig config = new RestTemplateConfig(proxyConfig);
-
-        assertRedirectAndCookieIsolation(config.pixivCredentialRestTemplate(), sentinelCookie);
-        assertRedirectAndCookieIsolation(config.pixivImageRestTemplate(), sentinelCookie);
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(ProxyConfig.class, () -> proxyConfig);
+            context.register(RestTemplateConfig.class);
+            context.refresh();
+            assertRedirectAndCookieIsolation(context.getBean("pixivCredentialRestTemplate", RestTemplate.class), sentinelCookie);
+            assertRedirectAndCookieIsolation(context.getBean("pixivImageRestTemplate", RestTemplate.class), sentinelCookie);
+        }
         assertThat(firstHopCookies).containsExactly(sentinelCookie, "null", sentinelCookie, "null");
         assertThat(redirectedTargetHits).hasValue(0);
     }

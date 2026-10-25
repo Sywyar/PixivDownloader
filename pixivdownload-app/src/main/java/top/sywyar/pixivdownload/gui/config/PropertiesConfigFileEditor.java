@@ -1,7 +1,7 @@
 package top.sywyar.pixivdownload.gui.config;
 
 import java.io.IOException;
-import java.io.Reader;
+import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,7 +15,7 @@ import java.util.Properties;
 import java.util.Set;
 
 /**
- * Lightweight line-preserving editor for plugin-owned {@code .properties} config files.
+ * 按逻辑配置项编辑插件 properties，保留未修改项的物理行。
  */
 public class PropertiesConfigFileEditor {
 
@@ -36,18 +36,12 @@ public class PropertiesConfigFileEditor {
         if (keySet.isEmpty() || !Files.exists(configPath)) {
             return result;
         }
-        List<String> lines = new ArrayList<>(readLines());
-        rejectDuplicateManagedKeys(lines, keySet);
-        Properties properties = new Properties();
-        try (Reader reader = Files.newBufferedReader(configPath, StandardCharsets.UTF_8)) {
-            properties.load(reader);
-        } catch (IllegalArgumentException e) {
-            throw new IOException("Invalid properties file: " + configPath, e);
+        Map<String, String> values = new LinkedHashMap<>();
+        for (PropertyEntry entry : managedEntries(readLines(), keySet)) {
+            values.put(entry.key(), ConfigFileEditor.requireSafeValue(entry.value()));
         }
         for (String key : keySet) {
-            if (properties.containsKey(key)) {
-                result.put(key, ConfigFileEditor.requireSafeValue(properties.getProperty(key, "")));
-            }
+            if (values.containsKey(key)) result.put(key, values.get(key));
         }
         return result;
     }
@@ -70,26 +64,9 @@ public class PropertiesConfigFileEditor {
         if (safeValues.isEmpty()) {
             return;
         }
-        if (configPath.getParent() != null) {
-            Files.createDirectories(configPath.getParent());
-        }
-
-        List<String> lines = new ArrayList<>(readLines());
-        rejectDuplicateManagedKeys(lines, safeValues.keySet());
-        Set<String> written = new HashSet<>();
-        for (int i = 0; i < lines.size(); i++) {
-            String key = activeKey(lines.get(i));
-            if (key != null && safeValues.containsKey(key)) {
-                lines.set(i, key + "=" + escapeValue(safeValues.get(key)));
-                written.add(key);
-            }
-        }
-        for (Map.Entry<String, String> entry : safeValues.entrySet()) {
-            if (!written.contains(entry.getKey())) {
-                lines.add(entry.getKey() + "=" + escapeValue(entry.getValue()));
-            }
-        }
-        writeLinesAtomically(lines);
+        List<String> lines = readLines();
+        List<PropertyEntry> entries = managedEntries(lines, safeValues.keySet());
+        writeLinesAtomically(replaceEntries(lines, entries, safeValues));
     }
 
     public void removeAll(Collection<String> keys) throws IOException {
@@ -101,18 +78,29 @@ public class PropertiesConfigFileEditor {
         if (safeKeys.isEmpty() || !Files.exists(configPath)) {
             return;
         }
-        List<String> lines = new ArrayList<>(readLines());
-        rejectDuplicateManagedKeys(lines, safeKeys);
-        lines.removeIf(line -> {
-            String key = activeKey(line);
-            return key != null && safeKeys.contains(key);
-        });
-        writeLinesAtomically(lines);
+        List<String> lines = readLines();
+        List<PropertyEntry> entries = managedEntries(lines, safeKeys);
+        writeLinesAtomically(replaceEntries(lines, entries, Map.of()));
+    }
+
+    private static List<String> replaceEntries(List<String> lines, List<PropertyEntry> entries, Map<String, String> values) {
+        List<String> result = new ArrayList<>();
+        Map<String, String> remaining = new LinkedHashMap<>(values);
+        int cursor = 0;
+        for (PropertyEntry entry : entries) {
+            result.addAll(lines.subList(cursor, entry.start()));
+            String value = remaining.remove(entry.key());
+            if (value != null) result.add(entry.key() + "=" + escapeValue(value));
+            cursor = entry.end();
+        }
+        result.addAll(lines.subList(cursor, lines.size()));
+        remaining.forEach((key, value) -> result.add(key + "=" + escapeValue(value)));
+        return result;
     }
 
     public FileSnapshot snapshot() throws IOException {
         synchronized (fileLock) {
-            return new FileSnapshot(Files.exists(configPath), new ArrayList<>(readLines()));
+            return new FileSnapshot(Files.exists(configPath), readLines());
         }
     }
 
@@ -156,50 +144,45 @@ public class PropertiesConfigFileEditor {
         }
     }
 
-    private static void rejectDuplicateManagedKeys(List<String> lines, Set<String> managedKeys) throws IOException {
+    private List<PropertyEntry> managedEntries(List<String> lines, Set<String> managedKeys) throws IOException {
+        List<PropertyEntry> entries = new ArrayList<>();
         Set<String> seen = new HashSet<>();
-        for (String line : lines) {
-            String key = activeKey(line);
-            if (key == null || !managedKeys.contains(key)) {
-                continue;
+        StringBuilder logical = new StringBuilder();
+        Properties property = new Properties();
+        int start = 0;
+        for (int i = 0; i < lines.size(); i++) {
+            String line = lines.get(i);
+            int offset = 0;
+            while (offset < line.length() && " \t\f".indexOf(line.charAt(offset)) >= 0) offset++;
+            if (logical.isEmpty()) {
+                start = i;
+                if (offset == line.length() || line.charAt(offset) == '#' || line.charAt(offset) == '!') continue;
             }
-            if (!seen.add(key)) {
-                throw new IOException("Duplicate active plugin config key: " + key);
+            logical.append(line, offset, line.length());
+            int backslashes = 0;
+            for (int end = line.length() - 1; end >= offset && line.charAt(end) == '\\'; end--) backslashes++;
+            if ((backslashes & 1) != 0) {
+                logical.setLength(logical.length() - 1);
+                if (i + 1 < lines.size()) continue;
             }
+            // 只定位物理行范围；键和值的转义仍由 JDK properties 解析器处理。
+            property.clear();
+            try {
+                property.load(new StringReader(logical.toString()));
+            } catch (IllegalArgumentException invalid) {
+                throw new IOException("Invalid properties file: " + configPath, invalid);
+            }
+            for (String key : property.stringPropertyNames()) {
+                if (!managedKeys.contains(key)) continue;
+                if (!seen.add(key)) throw new IOException("Duplicate active plugin config key: " + key);
+                entries.add(new PropertyEntry(start, i + 1, key, property.getProperty(key)));
+            }
+            logical.setLength(0);
         }
+        return entries;
     }
 
-    private static String activeKey(String line) {
-        if (line == null) {
-            return null;
-        }
-        String trimmed = line.trim();
-        if (trimmed.isEmpty() || trimmed.startsWith("#") || trimmed.startsWith("!")) {
-            return null;
-        }
-        int separator = separatorIndex(trimmed);
-        String key = separator < 0 ? trimmed : trimmed.substring(0, separator).trim();
-        return key.isEmpty() ? null : key;
-    }
-
-    private static int separatorIndex(String line) {
-        boolean escaped = false;
-        for (int i = 0; i < line.length(); i++) {
-            char ch = line.charAt(i);
-            if (escaped) {
-                escaped = false;
-                continue;
-            }
-            if (ch == '\\') {
-                escaped = true;
-                continue;
-            }
-            if (ch == '=' || ch == ':' || Character.isWhitespace(ch)) {
-                return i;
-            }
-        }
-        return -1;
-    }
+    private record PropertyEntry(int start, int end, String key, String value) {}
 
     private static String escapeValue(String value) {
         String v = value == null ? "" : value;

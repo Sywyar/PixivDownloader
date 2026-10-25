@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv 批量导入单作品下载器
 // @namespace    http://tampermonkey.net/
-// @version      2.2.0
+// @version      2.2.1
 // @updateURL    https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20URL%20%E6%89%B9%E9%87%8F%E5%AF%BC%E5%85%A5%E5%8D%95%E4%BD%9C%E5%93%81%E4%B8%8B%E8%BD%BD%E5%99%A8(URL%20Batch).user.js
 // @downloadURL  https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20URL%20%E6%89%B9%E9%87%8F%E5%AF%BC%E5%85%A5%E5%8D%95%E4%BD%9C%E5%93%81%E4%B8%8B%E8%BD%BD%E5%99%A8(URL%20Batch).user.js
 // @description  粘贴单作品链接列表批量下载，格式为 url | title，兼容 One-Tab，N-Tab 等标签页管理插件导出格式，支持严格的下载状态校验。
@@ -135,14 +135,6 @@
         return api;
     })();
 
-    function loadPanelCollapsed() {
-        return PixivPanelState.get();
-    }
-
-    function savePanelCollapsed(collapsed) {
-        PixivPanelState.set(collapsed);
-    }
-
     const CONFIG = {
         get BACKEND_URL() {
             return serverBase + '/api/download/pixiv';
@@ -162,12 +154,6 @@
         },
         get QUOTA_INIT_URL() {
             return serverBase + '/api/quota/init';
-        },
-        get ARCHIVE_STATUS_BASE() {
-            return serverBase + '/api/archive/status';
-        },
-        get ARCHIVE_DOWNLOAD_BASE() {
-            return serverBase + '/api/archive/download';
         },
         DEFAULT_INTERVAL: 2,
         DEFAULT_CONCURRENT: 1,
@@ -214,7 +200,7 @@
     // ====== 配额状态 ======
     let quotaInfo = {enabled: false, artworksUsed: 0, maxArtworks: 50, resetSeconds: 0};
     let userUUID = GM_getValue(CONFIG.KEY_USER_UUID, null);
-    const VERIFY_HISTORY_FILES_TOOLTIP = '通过检查记录的目录是否存在、文件夹是否为空、文件夹中的文件是否包含图片来判断是否有效，如果无效则会重新下载';
+    const VERIFY_HISTORY_FILES_TOOLTIP = '检查已登记的插画、漫画和动图是否完整，缺页或空文件会重新下载，检测出错则报错。历史记录会保留，已删除作品按重下设置处理。';
 
     /* ========== PromptGuard：跨脚本一次性弹窗协调 ========== */
     // localStorage + BroadcastChannel 在同源页面下被所有用户脚本共享，借此让多个脚本
@@ -511,6 +497,9 @@
 
     PixivUserscriptI18n.register({
         'en-US': {
+            "common.bookmark.csrf-missing": "Could not read the Pixiv CSRF token. Check that you are logged in to Pixiv.",
+            "common.bookmark.request-failed": "The Pixiv request failed.",
+            "common.bookmark.login-required": "Bookmark failed. Log in to Pixiv again.",
             'switcher.label': 'Language',
             'switcher.en-US': 'English',
             'switcher.zh-CN': '简体中文',
@@ -519,7 +508,7 @@
             'switcher.ko-KR': '한국어',
             'common.dialog.unauthorized': 'Backend requires login. Opening login page...',
             'common.dialog.connect-notice': 'Pixiv download script first-run hint\n\nIf you use an external server instead of localhost, replace this userscript header line:\n  // @connect      YOUR_SERVER_HOST\nwith your real server IP or domain, for example:\n  // @connect      192.168.1.100\n\nPath: Tampermonkey dashboard -> target script -> Edit -> Save\n\nOr use the web UI directly:\n{serverBase}/login.html\n\n(This hint is shown only once)',
-            'common.option.verify-history-files.tooltip': 'Checks whether the recorded directory exists, whether it is empty, and whether it contains image files. Invalid records will be downloaded again.',
+            'common.option.verify-history-files.tooltip': 'Checks all recorded illustration, manga and Ugoira pages. Missing or empty files are downloaded again; check failures are reported as errors. History is kept, and deleted works follow the re-download setting.',
             'common.option.redownload-deleted.tooltip': 'Works deleted from the gallery keep a deletion mark. When unchecked (default) they are treated as already downloaded and skipped with the reason "downloaded before, but deleted"; when checked they are re-downloaded and the mark is cleared on success.',
             'common.status.ready': 'Ready',
             'common.queue.empty': 'Queue is empty',
@@ -646,10 +635,13 @@
             'import.novel.stage.cancelled': 'Cancelled'
         },
         'zh-CN': {
+            "common.bookmark.csrf-missing": "无法获取 Pixiv CSRF token，请检查是否已登录 Pixiv。",
+            "common.bookmark.request-failed": "Pixiv 请求失败。",
+            "common.bookmark.login-required": "收藏失败，请重新登录 Pixiv。",
             'switcher.label': '语言',
             'common.dialog.unauthorized': '后端服务需要登录验证，即将为您打开登录页面...',
             'common.dialog.connect-notice': 'Pixiv 下载脚本初始化提示\n\n如果您使用外部服务器（非 localhost），需将脚本头部的：\n  // @connect      YOUR_SERVER_HOST\n替换为实际的服务器 IP 或域名，例如：\n  // @connect      192.168.1.100\n\n修改路径：Tampermonkey 管理面板 -> 对应脚本 -> 编辑 -> 保存\n\n或者直接通过网页端下载作品（无需脚本）：\n{serverBase}/login.html\n\n（此提示只显示一次）',
-            'common.option.verify-history-files.tooltip': '通过检查记录的目录是否存在、文件夹是否为空、文件夹中的文件是否包含图片来判断是否有效，如果无效则会重新下载',
+            'common.option.verify-history-files.tooltip': '检查已登记的插画、漫画和动图是否完整，缺页或空文件会重新下载，检测出错则报错。历史记录会保留，已删除作品按重下设置处理。',
             'common.option.redownload-deleted.tooltip': '通过画廊删除的作品会保留删除标记：不勾选（默认）时视为已下载而跳过，原因为「已经下载过，但被删除」；勾选后重新下载，成功后删除标记自动清除',
             'common.status.ready': '准备就绪',
             'common.queue.empty': '队列为空',
@@ -776,10 +768,13 @@
             'import.novel.stage.cancelled': '已取消'
         },
         'zh-Hant': {
+            "common.bookmark.csrf-missing": "無法取得 Pixiv CSRF token，請檢查是否已登入 Pixiv。",
+            "common.bookmark.request-failed": "Pixiv 請求失敗。",
+            "common.bookmark.login-required": "收藏失敗，請重新登入 Pixiv。",
             'switcher.label': '語言',
             'common.dialog.unauthorized': '後端服務需要登入驗證，即將為你開啟登入頁面…',
             'common.dialog.connect-notice': 'Pixiv 下載腳本首次執行提示\n\n如果你使用外部伺服器（非 localhost），需要將腳本標頭中的：\n  // @connect      YOUR_SERVER_HOST\n替換為實際的伺服器 IP 或網域，例如：\n  // @connect      192.168.1.100\n\n修改路徑：Tampermonkey 管理面板 → 對應腳本 → 編輯 → 儲存\n\n或直接透過網頁端下載作品（不需腳本）：\n{serverBase}/login.html\n\n（此提示只顯示一次）',
-            'common.option.verify-history-files.tooltip': '透過檢查記錄目錄是否存在、資料夾是否為空、資料夾中的檔案是否包含圖片來判斷是否有效；若無效則重新下載',
+            'common.option.verify-history-files.tooltip': '檢查已登記的插畫、漫畫和動圖是否完整，缺頁或空檔案會重新下載，檢查出錯則回報錯誤。歷史記錄會保留，已刪除作品依重新下載設定處理。',
             'common.option.redownload-deleted.tooltip': '透過畫廊刪除的作品會保留刪除標記：未勾選（預設）時視為已下載並略過，原因為「已下載過，但已被刪除」；勾選後重新下載，成功後自動清除刪除標記',
             'common.status.ready': '準備就緒',
             'common.queue.empty': '佇列為空',
@@ -906,6 +901,9 @@
             'import.novel.stage.cancelled': '已取消'
         },
         'ja-JP': {
+            "common.bookmark.csrf-missing": "Pixiv の CSRF トークンを取得できません。Pixiv にログインしているか確認してください。",
+            "common.bookmark.request-failed": "Pixiv へのリクエストに失敗しました。",
+            "common.bookmark.login-required": "ブックマークに失敗しました。Pixiv に再度ログインしてください。",
             'switcher.label': '言語',
             'switcher.en-US': 'English',
             'switcher.zh-CN': '簡体字中国語',
@@ -913,7 +911,7 @@
             'switcher.ja-JP': '日本語',
             'common.dialog.unauthorized': 'バックエンドサービスへのログインが必要です。ログインページを開きます…',
             'common.dialog.connect-notice': 'Pixiv ダウンロードスクリプトの初回実行案内\n\nlocalhost 以外の外部サーバーを使う場合は、Userscript ヘッダーの次の行を：\n  // @connect      YOUR_SERVER_HOST\n実際のサーバー IP またはドメインに置き換えてください。例：\n  // @connect      192.168.1.100\n\n変更場所：Tampermonkey 管理画面 → 対象スクリプト → 編集 → 保存\n\nまたは Web 版から直接ダウンロードできます（スクリプト不要）：\n{serverBase}/login.html\n\n（この案内は 1 回だけ表示されます）',
-            'common.option.verify-history-files.tooltip': '記録されたディレクトリの存在、フォルダーが空でないこと、画像ファイルを含むことを確認します。無効なレコードは再ダウンロードされます。',
+            'common.option.verify-history-files.tooltip': '記録済みのイラスト・漫画・うごイラの全ページを確認します。ファイルの欠落や空ファイルがあれば再ダウンロードし、確認に失敗した場合はエラーを表示します。履歴は保持され、削除済みの作品は再ダウンロード設定に従います。',
             'common.option.redownload-deleted.tooltip': 'ギャラリーから削除した作品には削除マークが残ります。オフ（デフォルト）では「以前ダウンロード済みだが削除済み」としてスキップし、オンにすると再ダウンロードして成功時にマークを消去します。',
             'common.status.ready': '準備完了',
             'common.queue.empty': 'キューは空です',
@@ -1040,6 +1038,9 @@
             'import.novel.stage.cancelled': 'キャンセル済み'
         },
         'ko-KR': {
+            "common.bookmark.csrf-missing": "Pixiv CSRF 토큰을 가져오지 못했습니다. Pixiv에 로그인되어 있는지 확인하세요.",
+            "common.bookmark.request-failed": "Pixiv 요청에 실패했습니다.",
+            "common.bookmark.login-required": "즐겨찾기에 추가하지 못했습니다. Pixiv에 다시 로그인하세요.",
             'switcher.label': '언어',
             'switcher.en-US': 'English',
             'switcher.zh-CN': '简体中文',
@@ -1047,8 +1048,8 @@
             'switcher.ja-JP': '日本語',
             'switcher.ko-KR': '한국어',
             'common.dialog.unauthorized': '백엔드 서비스에 로그인해야 합니다. 로그인 페이지를 엽니다...',
-            'common.dialog.connect-notice': 'Pixiv 다운로드 스크립트 최초 실행 안내\\n\\nlocalhost가 아닌 외부 서버를 사용하는 경우 사용자 스크립트 헤더의 다음 줄을 실제 서버 IP 또는 도메인으로 바꾸세요:\\n  // @connect      YOUR_SERVER_HOST\\n예: \\n  // @connect      192.168.1.100\\n\\n변경 경로: Tampermonkey 대시보드 → 대상 스크립트 → 편집 → 저장\\n\\n또는 웹 UI에서 직접 사용할 수 있습니다:\\n{serverBase}/login.html\\n\\n(이 안내는 한 번만 표시됩니다)',
-            'common.option.verify-history-files.tooltip': '기록된 디렉터리가 존재하는지, 비어 있지 않은지, 이미지 파일이 포함되어 있는지 확인합니다. 유효하지 않은 기록은 다시 다운로드합니다.',
+            'common.dialog.connect-notice': 'Pixiv 다운로드 스크립트 최초 실행 안내\n\nlocalhost가 아닌 외부 서버를 사용하는 경우 사용자 스크립트 헤더의 다음 줄을 실제 서버 IP 또는 도메인으로 바꾸세요:\n  // @connect      YOUR_SERVER_HOST\n예: \n  // @connect      192.168.1.100\n\n변경 경로: Tampermonkey 대시보드 → 대상 스크립트 → 편집 → 저장\n\n또는 웹 UI에서 직접 사용할 수 있습니다:\n{serverBase}/login.html\n\n(이 안내는 한 번만 표시됩니다)',
+            'common.option.verify-history-files.tooltip': '기록된 일러스트·만화·우고이라의 모든 페이지를 확인합니다. 파일이 없거나 비어 있으면 다시 다운로드하며, 확인에 실패하면 오류를 표시합니다. 기록은 유지되며 삭제된 작품은 다시 다운로드 설정에 따라 처리됩니다.',
             'common.option.redownload-deleted.tooltip': '갤러리에서 삭제한 작품은 삭제 표시가 유지됩니다. 선택하지 않으면(기본값) 이미 다운로드된 것으로 처리하여 「이미 다운로드했지만 삭제됨」이라는 이유로 건너뛰고, 선택하면 다시 다운로드한 후 성공 시 표시를 지웁니다.',
             'common.status.ready': '준비 완료',
             'common.queue.empty': '대기열이 비어 있습니다',
@@ -1200,7 +1201,7 @@
             'download.options.refresh': 'Refresh collections',
             'download.options.autoTranslate': 'Automatically translate new novels',
             'download.options.autoTranslateLanguage': 'Translation language',
-            'download.options.autoTranslateSegmentSize': 'Segment size (0 = automatic)',
+            'download.options.autoTranslateSegmentSize': 'Segment size (0 = whole chapter)',
             'download.options.autoTranslateMerge': 'Merge translated series',
             'download.options.autoTranslateMergeFormat': 'Merged translation format',
             'download.options.admin': 'Log in to the backend as an administrator; translation also requires configured AI.',
@@ -1238,7 +1239,7 @@
             'download.options.refresh': '刷新收藏夹',
             'download.options.autoTranslate': '新下载小说自动翻译',
             'download.options.autoTranslateLanguage': '翻译目标语言',
-            'download.options.autoTranslateSegmentSize': '分段大小（0 为自动）',
+            'download.options.autoTranslateSegmentSize': '分段大小（0 为整章）',
             'download.options.autoTranslateMerge': '合订系列译文',
             'download.options.autoTranslateMergeFormat': '译文合订格式',
             'download.options.admin': '需在后端以管理员身份登录；翻译还需配置 AI。',
@@ -1276,7 +1277,7 @@
             'download.options.refresh': '重新整理收藏夾',
             'download.options.autoTranslate': '自動翻譯新下載的小說',
             'download.options.autoTranslateLanguage': '翻譯目標語言',
-            'download.options.autoTranslateSegmentSize': '分段大小（0 為自動）',
+            'download.options.autoTranslateSegmentSize': '分段大小（0 為整章）',
             'download.options.autoTranslateMerge': '合訂系列譯文',
             'download.options.autoTranslateMergeFormat': '譯文合訂格式',
             'download.options.admin': '需在後端以管理員身分登入；翻譯還需設定 AI。',
@@ -1314,7 +1315,7 @@
             'download.options.refresh': 'コレクションを更新',
             'download.options.autoTranslate': '新しくダウンロードした小説を自動翻訳',
             'download.options.autoTranslateLanguage': '翻訳先の言語',
-            'download.options.autoTranslateSegmentSize': '分割サイズ（0 = 自動）',
+            'download.options.autoTranslateSegmentSize': '分割サイズ（0 = 章全体）',
             'download.options.autoTranslateMerge': 'シリーズの訳文を合本にする',
             'download.options.autoTranslateMergeFormat': '翻訳合本の形式',
             'download.options.admin': 'バックエンドへの管理者ログインが必要です。翻訳には AI の設定も必要です。',
@@ -1352,7 +1353,7 @@
             'download.options.refresh': '컬렉션 새로 고침',
             'download.options.autoTranslate': '새로 다운로드한 소설 자동 번역',
             'download.options.autoTranslateLanguage': '번역 대상 언어',
-            'download.options.autoTranslateSegmentSize': '분할 크기 (0 = 자동)',
+            'download.options.autoTranslateSegmentSize': '분할 크기 (0 = 장 전체)',
             'download.options.autoTranslateMerge': '시리즈 번역문 합본 생성',
             'download.options.autoTranslateMergeFormat': '번역 합본 형식',
             'download.options.admin': '백엔드에 관리자로 로그인해야 합니다. 번역하려면 AI 설정도 필요합니다.',
@@ -1458,12 +1459,9 @@
             const result = await request('/api/collections');
             if (captured !== scope()) throw new Error(text('unavailable'));
             if (result.status !== 200 || !Array.isArray(result.data?.collections)) {
-                collection = null;
                 throw new Error(text('unavailable'));
             }
-            const rows = result.data.collections.filter(row => number(row.id) > 0);
-            if (collection && (collection.scope !== captured || !rows.some(row => Number(row.id) === collection.id))) collection = null;
-            return rows;
+            return result.data.collections.filter(row => number(row.id) > 0);
         }
 
         function selectCollection(id) {
@@ -1478,8 +1476,12 @@
             if (collection?.scope !== captured) collection = null;
             const selected = collection;
             if (selected) {
-                await collections();
+                const rows = await collections();
                 if (collection !== selected) throw new Error(text('collection-changed'));
+                if (!rows.some(row => Number(row.id) === selected.id)) {
+                    collection = null;
+                    throw new Error(text('collection-changed'));
+                }
             }
             const result = {fileNameTemplate: settings.fileNameTemplate || null, collectionId: collection?.id || null};
             if (kind === 'novel') {
@@ -1636,6 +1638,7 @@
             try {
                 const rows = await options.collections();
                 if (!details.isConnected) return;
+                if (!rows.some(row => Number(row.id) === options.selectedCollectionId())) options.selectCollection(null);
                 collection.replaceChildren();
                 for (const row of [{id: '', name: text('none')}, ...rows]) {
                     const option = document.createElement('option');
@@ -1646,6 +1649,7 @@
                 collection.value = String(options.selectedCollectionId() || '');
                 collection.disabled = false;
             } catch (_) {
+                if (!details.isConnected) return;
                 collection.value = '';
                 options.selectCollection(null);
                 message.textContent = text('unavailable');
@@ -1767,27 +1771,23 @@
     // <<< SHARED:novel-translate-monitor.js
     // >>> SHARED:download-queue-runner.js
     // 领取前读取当前并发；降低并发不取消已开始的任务，冷却时间跟随当前设置。
-    async function runUserscriptDownloadQueue(manager, getConcurrent) {
+    async function runUserscriptDownloadQueue(manager, getConcurrent, signal) {
         const active = new Set();
         try {
-            while (manager.isRunning && !manager.stopRequested) {
+            while (!signal?.aborted && manager.isRunning && !manager.stopRequested) {
                 const configured = Number(getConcurrent());
                 const limit = Number.isFinite(configured) ? Math.max(1, Math.floor(configured)) : 1;
                 if (!manager.isPaused && active.size < limit) {
                     const next = manager._getNextPending();
                     if (next) {
-                        const work = Promise.resolve().then(() => manager._processSingle(next))
+                        const work = Promise.resolve().then(() => manager._processSingle(next, signal))
                             .catch(error => console.error(error))
                             .then(async () => {
                                 const completedAt = Date.now();
-                                while (manager.isRunning && !manager.stopRequested
+                                while (!signal?.aborted && manager.isRunning && !manager.stopRequested
                                     && Date.now() - completedAt < manager.getIntervalMs()) await manager._sleep(100);
-                            }).finally(() => {
-                                active.delete(work);
-                                manager.activeWorkers = active.size;
-                            });
+                            }).finally(() => active.delete(work));
                         active.add(work);
-                        manager.activeWorkers = active.size;
                         continue;
                     }
                 }
@@ -1796,8 +1796,108 @@
             }
         } finally {
             await Promise.allSettled(active);
-            manager.activeWorkers = 0;
         }
+    }
+
+    // 清空时结算并撤销本队列请求；已发送的后端写入仍由清空接口处理。
+    function requestUserscriptQueue(options, signal) {
+        signal?.throwIfAborted();
+        let handle, settled = false;
+        const finish = callback => value => {
+            if (settled) return;
+            settled = true;
+            signal?.removeEventListener('abort', cancel);
+            callback?.(value);
+        };
+        const cancel = () => {
+            finish(options.onerror)(signal.reason);
+            try { handle?.abort(); } catch { /* 本地等待已结算，旧回调不再交付。 */ }
+        };
+        signal?.addEventListener('abort', cancel, {once: true});
+        try {
+            handle = GM_xmlhttpRequest({...options,
+                onload: finish(options.onload), onerror: finish(options.onerror),
+                ontimeout: finish(options.ontimeout || options.onerror),
+                onabort: finish(options.onabort || options.onerror)
+            });
+            if (signal?.aborted) handle?.abort();
+            return handle;
+        } catch (error) {
+            signal?.removeEventListener('abort', cancel);
+            throw error;
+        }
+    }
+
+    // 终态等待与队列共同撤销；状态补查每项只保留一个在途请求。
+    function waitForUserscriptDownload(manager, artworkId, timeoutMs, signal) {
+        return new Promise((resolve, reject) => {
+            if (signal.aborted) { resolve(null); return; }
+            let resolved = false;
+            const requestedBase = serverBase;
+            let polling = false;
+            let timer = null;
+            let pollTimer = null;
+
+            const finish = (data, error) => {
+                if (resolved) return;
+                resolved = true;
+                clearTimeout(timer);
+                clearInterval(pollTimer);
+                signal.removeEventListener('abort', cancel);
+                manager.sse.close(String(artworkId));
+                if (error) reject(error);
+                else resolve(data);
+            };
+
+            const targetChanged = () => {
+                if (requestedBase === serverBase) return false;
+                finish(null, new Error(UserscriptDownloadOptions.text('unavailable')));
+                return true;
+            };
+            const cancel = () => finish(null);
+            signal.addEventListener('abort', cancel, {once: true});
+            timer = setTimeout(() => finish(null), timeoutMs);
+
+            // 每5秒轮询一次，防止 SSE 事件丢失导致任务卡死
+            pollTimer = setInterval(async () => {
+                if (resolved) {
+                    clearInterval(pollTimer);
+                    return;
+                }
+                if (targetChanged() || polling) return;
+                polling = true;
+                try {
+                    const status = await Api.getDownloadStatus(String(artworkId), signal);
+                    if (!targetChanged() && status && (status.completed || status.failed)) finish(status);
+                } catch (error) {
+                    if (error?.code === 'AUTH_REQUIRED') finish(null, error);
+                } finally {
+                    polling = false;
+                }
+            }, 5000);
+
+            const handler = (data) => {
+                if (resolved || !data || targetChanged()) return;
+                // 切换服务器后新领取的作品由补查观察，不消费旧批次连接的同名事件。
+                if (manager.sse.url && manager.sse.url !== CONFIG.SSE_BASE) return;
+                if (data.completed || data.failed || data.cancelled) {
+                    finish(data);
+                } else {
+                    const q = manager.queue.find(x => x.id === String(artworkId));
+                    if (q) {
+                        if (data.downloadedCount !== undefined) q.downloadedCount = data.downloadedCount;
+                        if (data.ugoiraProgress) q.ugoiraProgress = mergeUgoiraProgress(q.ugoiraProgress, data.ugoiraProgress);
+                        if (data.imageProgress) q.imageProgress = data.imageProgress;
+                        manager.saveToStorage();
+                        manager.ui.renderQueue(manager.queue);
+                        manager.ui.setCurrent(q);
+                    }
+                    clearTimeout(timer);
+                    timer = setTimeout(() => finish(null), timeoutMs);
+                }
+            };
+            manager.sse.addListener(String(artworkId), handler);
+        });
     }
     // <<< SHARED:download-queue-runner.js
     // >>> SHARED:illust-exact-cancel.js
@@ -1928,6 +2028,7 @@
                 }
 
                 const headers = {
+                    Origin: new URL(capturedServerBase).origin,
                     'Accept': 'application/json',
                     'Content-Type': 'application/json'
                 };
@@ -2093,22 +2194,6 @@
         });
     }
 
-    // 转发给后端的轻剪枝原始 meta：meta 本就已抓（零额外请求），仅去掉体积巨大 / 与本次下载无关的
-    // 噪声字段以减小转发体积；后端再独立做权威白名单 + 限长 + 超大拒绝。任何异常返回 null（不阻断下载）。
-    function buildForwardMetaJson(meta, extraStripKeys) {
-        if (!meta || typeof meta !== 'object') return null;
-        try {
-            const pruned = { ...meta };
-            const stripKeys = ['userIllusts', 'userNovels', 'zoneConfig', 'extraData', 'noLoginData',
-                'comicPromotion', 'fanboxPromotion', 'contestBanners', 'contestData',
-                'pollData', 'imageResponseData', 'imageResponseOutData'];
-            if (Array.isArray(extraStripKeys)) stripKeys.push(...extraStripKeys);
-            stripKeys.forEach(k => { delete pruned[k]; });
-            return JSON.stringify(pruned);
-        } catch (_) {
-            return null;
-        }
-    }
 
     /* ========== 简单 DOM 帮助函数 ========== */
     function $el(tag, props = {}, children = []) {
@@ -2125,12 +2210,8 @@
         return e;
     }
 
-    /* ========== Pixiv 小说 meta 解析 helper ==========
-     * 直连 https://www.pixiv.net/ajax/novel/{id} 时，把 Pixiv 原始 body 转成与后端
-     * NovelMetaResponse 等价的 JS 对象，保持 _processNovel 的字段访问不变。description
-     * 与 series caption 的 HTML 归一化由后端 NovelDownloadService / NovelSeriesService
-     * 在落库前完成，脚本传原始字符串即可。
-     * ------------------------------------------------------------------------ */
+    // >>> SHARED:pixiv-metadata.js
+    // 浏览器取得的 Pixiv 元数据保留原始正文与 HTML，由后端负责持久化校验和归一化。
     function _pn_parsePositiveLong(value) {
         if (value == null) return null;
         const n = Number(String(value).trim());
@@ -2250,107 +2331,6 @@
         return '';
     }
 
-    /* ========== Pixiv bookmark helper ==========
-     * 直连 Pixiv 发 bookmark 请求（GM_xmlhttpRequest 自带浏览器登录态含 HttpOnly
-     * PHPSESSID）；不再把 document.cookie 透传给后端让后端代发，那条路径取不到 PHPSESSID
-     * 必然失败。CSRF token 通过首页 HTML 正则提取（与后端 PixivBookmarkService.fetchCsrfToken
-     * 同款）+ 缓存复用。返回 {status, message} 与现有 bookmarkResult 渲染管线兼容。
-     * ------------------------------------------------------------------------ */
-    let _pixivCsrfToken = null;
-
-    function _resetPixivCsrfToken() {
-        _pixivCsrfToken = null;
-    }
-
-    function fetchPixivCsrfToken() {
-        if (_pixivCsrfToken) return Promise.resolve(_pixivCsrfToken);
-        return new Promise((resolve, reject) => {
-            GM_xmlhttpRequest({
-                method: 'GET',
-                url: 'https://www.pixiv.net/',
-                headers: {Referer: 'https://www.pixiv.net/'},
-                onload: (res) => {
-                    const body = res.responseText || '';
-                    const patterns = [
-                        /token\\":\\"([^\\"]+)\\"/,
-                        /"token":"([^"]+)"/,
-                        /&quot;token&quot;\s*:\s*&quot;([^&]+)&quot;/
-                    ];
-                    for (const p of patterns) {
-                        const m = body.match(p);
-                        if (m && m[1]) {
-                            _pixivCsrfToken = m[1];
-                            return resolve(_pixivCsrfToken);
-                        }
-                    }
-                    reject(new Error(t('import.err.csrf-token-not-found', '无法获取 CSRF token（可能未登录 Pixiv）')));
-                },
-                onerror: () => reject(new Error(t('import.err.csrf-token-request-failed', '获取 CSRF token 请求失败'))),
-                ontimeout: () => reject(new Error(t('import.err.csrf-token-request-failed', '获取 CSRF token 请求失败')))
-            });
-        });
-    }
-
-    async function _pixivBookmark(url, payload) {
-        let token;
-        try {
-            token = await fetchPixivCsrfToken();
-        } catch (e) {
-            return {status: 'failed', message: e && e.message ? e.message : 'csrf failed'};
-        }
-        return new Promise((resolve) => {
-            GM_xmlhttpRequest({
-                method: 'POST',
-                url,
-                headers: {
-                    'Content-Type': 'application/json; charset=utf-8',
-                    'x-csrf-token': token,
-                    Referer: 'https://www.pixiv.net/'
-                },
-                data: JSON.stringify(payload),
-                onload: (res) => {
-                    let body = null;
-                    try { body = JSON.parse(res.responseText || '{}'); } catch (_) {}
-                    if (res.status === 200) {
-                        if (body && body.error) {
-                            _resetPixivCsrfToken();
-                            resolve({status: 'failed', message: body.message || 'pixiv error'});
-                            return;
-                        }
-                        resolve({status: 'success'});
-                        return;
-                    }
-                    if (res.status === 401 || res.status === 403) {
-                        _resetPixivCsrfToken();
-                        resolve({status: 'failed', message: t('import.err.bookmark-not-logged-in', '收藏失败（未登录或登录已过期）')});
-                        return;
-                    }
-                    resolve({status: 'failed', message: 'HTTP ' + res.status});
-                },
-                onerror: () => resolve({status: 'failed', message: t('import.err.bookmark-network-failed', '收藏请求失败')}),
-                ontimeout: () => resolve({status: 'failed', message: t('import.err.bookmark-network-failed', '收藏请求失败')})
-            });
-        });
-    }
-
-    function pixivBookmarkArtwork(artworkId) {
-        return _pixivBookmark('https://www.pixiv.net/ajax/illusts/bookmarks/add', {
-            illust_id: String(artworkId),
-            restrict: 0,
-            comment: '',
-            tags: []
-        });
-    }
-
-    function pixivBookmarkNovel(novelId) {
-        return _pixivBookmark('https://www.pixiv.net/ajax/novels/bookmarks/add', {
-            novel_id: String(novelId),
-            restrict: 0,
-            comment: '',
-            tags: []
-        });
-    }
-
     function buildNovelMetaFromPixivBody(novelId, body) {
         const nav = body && body.seriesNavData;
         const hasSeries = nav && Number(nav.seriesId) > 0;
@@ -2380,9 +2360,128 @@
         };
     }
 
+    function buildForwardMetaJson(meta) {
+        if (!meta || typeof meta !== 'object') return null;
+        try {
+            const pruned = { ...meta };
+            const stripKeys = ['userIllusts', 'userNovels', 'zoneConfig', 'extraData', 'noLoginData',
+                'comicPromotion', 'fanboxPromotion', 'contestBanners', 'contestData',
+                'pollData', 'imageResponseData', 'imageResponseOutData'];
+            stripKeys.forEach(k => { delete pruned[k]; });
+            return JSON.stringify(pruned);
+        } catch (_) {
+            return null;
+        }
+    }
+    // <<< SHARED:pixiv-metadata.js
+    /* ========== Pixiv bookmark helper ==========
+     * 直连 Pixiv 发 bookmark 请求（GM_xmlhttpRequest 自带浏览器登录态含 HttpOnly
+     * PHPSESSID）；不再把 document.cookie 透传给后端让后端代发，那条路径取不到 PHPSESSID
+     * 必然失败。CSRF token 通过首页 HTML 正则提取（与后端 PixivBookmarkService.fetchCsrfToken
+     * 同款）+ 缓存复用。返回 {status, message} 与现有 bookmarkResult 渲染管线兼容。
+     * ------------------------------------------------------------------------ */
+    let _pixivCsrfToken = null;
+
+    function _resetPixivCsrfToken() {
+        _pixivCsrfToken = null;
+    }
+
+    function fetchPixivCsrfToken(signal) {
+        if (_pixivCsrfToken) return Promise.resolve(_pixivCsrfToken);
+        return new Promise((resolve, reject) => {
+            requestUserscriptQueue({
+                method: 'GET',
+                url: 'https://www.pixiv.net/',
+                headers: {Referer: 'https://www.pixiv.net/'},
+                onload: (res) => {
+                    const body = res.responseText || '';
+                    const patterns = [
+                        /token\\":\\"([^\\"]+)\\"/,
+                        /"token":"([^"]+)"/,
+                        /&quot;token&quot;\s*:\s*&quot;([^&]+)&quot;/
+                    ];
+                    for (const p of patterns) {
+                        const m = body.match(p);
+                        if (m && m[1]) {
+                            _pixivCsrfToken = m[1];
+                            return resolve(_pixivCsrfToken);
+                        }
+                    }
+                    reject(new Error(t('common.bookmark.csrf-missing')));
+                },
+                onerror: () => reject(new Error(t('common.bookmark.request-failed'))),
+                ontimeout: () => reject(new Error(t('common.bookmark.request-failed')))
+            }, signal);
+        });
+    }
+
+    async function _pixivBookmark(url, payload, signal) {
+        let token;
+        try {
+            token = await fetchPixivCsrfToken(signal);
+            signal?.throwIfAborted();
+        } catch (e) {
+            return {status: 'failed', message: e && e.message ? e.message : 'csrf failed'};
+        }
+        return new Promise((resolve) => {
+            requestUserscriptQueue({
+                method: 'POST',
+                url,
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8',
+                    'x-csrf-token': token,
+                    Referer: 'https://www.pixiv.net/'
+                },
+                data: JSON.stringify(payload),
+                onload: (res) => {
+                    let body = null;
+                    try { body = JSON.parse(res.responseText || '{}'); } catch (_) {}
+                    if (res.status === 200) {
+                        if (body && body.error) {
+                            _resetPixivCsrfToken();
+                            resolve({status: 'failed', message: body.message || 'pixiv error'});
+                            return;
+                        }
+                        resolve(body && body.error === false
+                            ? {status: 'success'}
+                            : {status: 'failed', message: UserscriptDownloadOptions.text('unavailable')});
+                        return;
+                    }
+                    if (res.status === 401 || res.status === 403) {
+                        _resetPixivCsrfToken();
+                        resolve({status: 'failed', message: t('common.bookmark.login-required')});
+                        return;
+                    }
+                    resolve({status: 'failed', message: 'HTTP ' + res.status});
+                },
+                onerror: () => resolve({status: 'failed', message: t('common.bookmark.request-failed')}),
+                ontimeout: () => resolve({status: 'failed', message: t('common.bookmark.request-failed')})
+            }, signal);
+        });
+    }
+
+    function pixivBookmarkArtwork(artworkId, signal) {
+        return _pixivBookmark('https://www.pixiv.net/ajax/illusts/bookmarks/add', {
+            illust_id: String(artworkId),
+            restrict: 0,
+            comment: '',
+            tags: []
+        }, signal);
+    }
+
+    function pixivBookmarkNovel(novelId, signal) {
+        return _pixivBookmark('https://www.pixiv.net/ajax/novels/bookmarks/add', {
+            novel_id: String(novelId),
+            restrict: 0,
+            comment: '',
+            tags: []
+        }, signal);
+    }
+
+
     /* ========== API 封装 ========== */
     // >>> SHARED:novel-browser-import.js
-    /* Exchange a browser-authenticated Pixiv novel response only with an exact loopback backend. */
+    // 仅向精确回环后端交换浏览器取得的小说响应。
     const NovelBrowserImport = (() => {
         function isLoopback(serverBase) {
             try {
@@ -2416,7 +2515,8 @@
             }
         }
 
-        async function importResponse(serverBase, novelId, responseText) {
+        async function importResponse(serverBase, novelId, responseText, signal) {
+            signal?.throwIfAborted();
             if (!isLoopback(serverBase)) return null;
             const id = Number(novelId);
             if (!Number.isSafeInteger(id) || id <= 0 || typeof responseText !== 'string') return null;
@@ -2425,6 +2525,7 @@
                 method: 'GET',
                 url: `${serverBase}/api/novel/browser-import/token`
             });
+            signal?.throwIfAborted();
             if (tokenResponse.status === 403 || tokenResponse.status === 404) return null;
             const tokenBody = parse(tokenResponse);
             if (tokenResponse.status !== 200 || typeof tokenBody.token !== 'string' || !tokenBody.token) {
@@ -2435,11 +2536,13 @@
                 method: 'POST',
                 url: `${serverBase}/api/novel/browser-import/${encodeURIComponent(id)}`,
                 headers: {
+                    Origin: new URL(serverBase).origin,
                     'Content-Type': 'application/json',
                     'X-Novel-Import-Token': tokenBody.token
                 },
                 data: responseText
             });
+            signal?.throwIfAborted();
             if (importResponse.status === 403 || importResponse.status === 404) return null;
             const importBody = parse(importResponse);
             if (importResponse.status !== 200
@@ -2453,21 +2556,21 @@
     })();
     // <<< SHARED:novel-browser-import.js
     const Api = {
-        checkBackend() {
+        checkBackend(signal) {
             return new Promise(resolve => {
-                GM_xmlhttpRequest({
+                requestUserscriptQueue({
                     method: 'GET',
                     url: CONFIG.STATUS_URL,
                     timeout: CONFIG.BACKEND_CHECK_TIMEOUT,
                     onload: (res) => resolve(res.status === 200),
                     onerror: () => resolve(false),
                     ontimeout: () => resolve(false)
-                });
+                }, signal);
             });
         },
-        getArtworkPages(artworkId) {
+        getArtworkPages(artworkId, signal) {
             return new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
+                requestUserscriptQueue({
                     method: 'GET',
                     url: `https://www.pixiv.net/ajax/illust/${artworkId}/pages`,
                     headers: {Referer: 'https://www.pixiv.net/'},
@@ -2481,12 +2584,12 @@
                         }
                     },
                     onerror: reject
-                });
+                }, signal);
             });
         },
-        getArtworkMeta(artworkId) {
+        getArtworkMeta(artworkId, signal) {
             return new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
+                requestUserscriptQueue({
                     method: 'GET',
                     url: `https://www.pixiv.net/ajax/illust/${artworkId}`,
                     headers: {Referer: 'https://www.pixiv.net/'},
@@ -2500,12 +2603,12 @@
                         }
                     },
                     onerror: reject
-                });
+                }, signal);
             });
         },
-        getUgoiraMeta(artworkId) {
+        getUgoiraMeta(artworkId, signal) {
             return new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
+                requestUserscriptQueue({
                     method: 'GET',
                     url: `https://www.pixiv.net/ajax/illust/${artworkId}/ugoira_meta`,
                     headers: {Referer: 'https://www.pixiv.net/'},
@@ -2519,66 +2622,43 @@
                         }
                     },
                     onerror: reject
-                });
+                }, signal);
             });
         },
-        /**
-         * 系列元数据缓存：同一 seriesId 在一次脚本生命周期里只查一次后端代理。
-         * kind: 'illust' | 'novel'；返回 { caption, coverUrl, tags } 或 null。
-         */
-        // 系列元数据缓存：同一 seriesId 在一次脚本生命周期里只查一次。kind: 'illust' | 'novel'，
-        // 返回 { caption, coverUrl, tags } 或 null。两类系列均直连 Pixiv（GM_xmlhttpRequest 自带
-        // 浏览器登录态含 HttpOnly PHPSESSID），不再走后端代理 + document.cookie —— 后者取不到
-        // HttpOnly 会话 Cookie，会让受限系列的 caption / coverUrl / tags 缺失。后端
-        // /api/pixiv/series/... 与 /api/pixiv/novel/series/... 保留给 GUI / 网页端等无浏览器
-        // cookie 直连能力的场景。
+        // 同一下载批次复用系列查询，批次结束或清空后释放。
         _seriesMetaPromises: new Map(),
-        getSeriesEnrichment(seriesId, kind) {
+        getSeriesEnrichment(seriesId, signal) {
             const sid = Number(seriesId);
             if (!Number.isFinite(sid) || sid <= 0) return Promise.resolve(null);
-            const isNovel = kind === 'novel';
-            const key = (isNovel ? 'novel:' : 'illust:') + sid;
-            if (this._seriesMetaPromises.has(key)) return this._seriesMetaPromises.get(key);
-            const url = isNovel
-                ? `https://www.pixiv.net/ajax/novel/series/${sid}?lang=zh`
-                : `https://www.pixiv.net/ajax/series/${sid}?p=1&lang=zh`;
-            const promise = new Promise((resolve) => {
-                GM_xmlhttpRequest({
+            if (this._seriesMetaPromises.has(sid)) return this._seriesMetaPromises.get(sid);
+            const p = new Promise((resolve) => {
+                requestUserscriptQueue({
                     method: 'GET',
-                    url,
+                    url: `https://www.pixiv.net/ajax/series/${sid}?p=1&lang=zh`,
                     headers: {Referer: 'https://www.pixiv.net/'},
                     onload: (res) => {
                         try {
                             const data = JSON.parse(res.responseText);
                             if (!data || data.error) return resolve(null);
-                            let meta;
-                            if (isNovel) {
-                                meta = data.body || null;
-                            } else {
-                                // 漫画系列元数据在 body.illustSeries[0]。漫画系列在 Pixiv 数据结构里
-                                // 通常没有独立封面字段（Pixiv UI 上展示的"封面"是作者指定的某话首图），
-                                // _pn_extractSeriesCoverUrl 大概率返回空串；
-                                // caption 字段则存在且能取到（直连后受限作品也能拿到）。
-                                const arr = data.body && data.body.illustSeries;
-                                meta = Array.isArray(arr) && arr.length > 0 ? arr[0] : null;
-                            }
+                            const arr = data.body && data.body.illustSeries;
+                            const meta = Array.isArray(arr) && arr.length > 0 ? arr[0] : null;
                             if (!meta) return resolve(null);
                             resolve({
                                 caption: String(meta.caption || ''),
-                                coverUrl: _pn_extractSeriesCoverUrl(meta),
-                                tags: _pn_extractTags(meta)
+                                coverUrl: _pn_extractSeriesCoverUrl(meta)
                             });
                         } catch (_) {
                             resolve(null);
                         }
                     },
                     onerror: () => resolve(null)
-                });
+                }, signal);
             });
-            this._seriesMetaPromises.set(key, promise);
-            return promise;
+            this._seriesMetaPromises.set(sid, p);
+            return p;
         },
-        async sendDownloadRequest(artworkId, imageUrls, title, authorId, authorName, xRestrict, isAi, ugoiraData, delayMs, bookmark, description, tags, seriesInfo, rawMetaJson) {
+        async sendDownloadRequest(artworkId, imageUrls, title, authorId, authorName, xRestrict, isAi, ugoiraData, delayMs, bookmark, description, tags, seriesInfo, rawMetaJson, signal) {
+            const requestedBase = serverBase;
             // bookmark 参数保留以维持调用方签名，但永远不传给后端：bookmark 由脚本侧
             // pixivBookmarkArtwork 直连 Pixiv 完成（document.cookie 取不到 HttpOnly PHPSESSID，
             // 后端代理 bookmark 必然失败）。
@@ -2599,7 +2679,8 @@
                 other.seriesOrder = Number(seriesInfo.seriesOrder ?? 0);
                 other.seriesTitle = seriesInfo.seriesTitle || null;
                 // 系列简介/封面缓存查一次；失败时不附加，后端会退回到仅 upsert 标题/作者的 observe()。
-                const enrich = await this.getSeriesEnrichment(seriesInfo.seriesId, 'illust');
+                const enrich = await this.getSeriesEnrichment(seriesInfo.seriesId, signal);
+                signal?.throwIfAborted();
                 if (enrich) {
                     if (enrich.caption) other.seriesDescription = enrich.caption;
                     if (enrich.coverUrl) other.seriesCoverUrl = enrich.coverUrl;
@@ -2607,6 +2688,8 @@
             }
             if (rawMetaJson) other.rawMetaJson = rawMetaJson;
             Object.assign(other, await UserscriptDownloadOptions.other('illust'));
+            signal?.throwIfAborted();
+            if (requestedBase !== serverBase) throw new Error(UserscriptDownloadOptions.text('unavailable'));
             return new Promise((resolve, reject) => {
                 if (ugoiraData) {
                     other.isUgoira = true;
@@ -2622,19 +2705,25 @@
                     cookie: null,
                     other
                 };
-                const headers = {'Content-Type': 'application/json'};
+                const headers = {Origin: new URL(serverBase).origin, 'Content-Type': 'application/json'};
                 if (userUUID) headers['X-User-UUID'] = userUUID;
-                GM_xmlhttpRequest({
+                requestUserscriptQueue({
                     method: 'POST',
                     url: CONFIG.BACKEND_URL,
                     headers,
                     data: JSON.stringify(payload),
                     onload: (res) => {
+                        if (requestedBase !== serverBase) { reject(new Error(UserscriptDownloadOptions.text('unavailable'))); return; }
+                        if (signal?.aborted) { reject(signal.reason); return; }
+                        if (res.status === 401) {
+                            handleUnauthorized();
+                            reject(Object.assign(new Error(t('import.err.need-login', '需要登录')), {code: 'AUTH_REQUIRED'}));
+                            return;
+                        }
                         try {
                             const data = JSON.parse(res.responseText);
-                            if (res.status === 401) {
-                                handleUnauthorized();
-                                reject(new Error(t('import.err.need-login', '需要登录')));
+                            if (!data || typeof data !== 'object' || Array.isArray(data)) {
+                                reject(new Error(t('import.err.backend-failed', '后端返回失败')));
                             } else if (res.status === 429 && data.quotaExceeded) {
                                 const err = new Error('quota_exceeded');
                                 err.quotaData = data;
@@ -2649,11 +2738,11 @@
                         }
                     },
                     onerror: reject
-                });
+                }, signal);
             });
         },
         initQuota() {
-            const headers = {'Content-Type': 'application/json'};
+            const headers = {Origin: new URL(serverBase).origin, 'Content-Type': 'application/json'};
             if (userUUID) headers['X-User-UUID'] = userUUID;
             return new Promise((resolve) => {
                 GM_xmlhttpRequest({
@@ -2677,32 +2766,18 @@
                 });
             });
         },
-        pollArchiveStatus(token) {
-            return new Promise((resolve) => {
-                GM_xmlhttpRequest({
-                    method: 'GET',
-                    url: `${CONFIG.ARCHIVE_STATUS_BASE}/${token}`,
-                    onload: (res) => {
-                        try {
-                            resolve(JSON.parse(res.responseText));
-                        } catch {
-                            resolve({});
-                        }
-                    },
-                    onerror: () => resolve({}),
-                    ontimeout: () => resolve({})
-                });
-            });
-        },
-        getDownloadStatus(artworkId) {
+        getDownloadStatus(artworkId, signal) {
+            const requestedBase = serverBase;
             return new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
+                requestUserscriptQueue({
                     method: 'GET',
                     url: `${CONFIG.STATUS_URL}/${artworkId}`,
                     onload: (res) => {
+                        if (requestedBase !== serverBase) { reject(new Error(UserscriptDownloadOptions.text('unavailable'))); return; }
+                        if (signal?.aborted) { reject(signal.reason); return; }
                         if (res.status === 401) {
                             handleUnauthorized();
-                            reject(new Error(t('import.err.need-login', '需要登录')));
+                            reject(Object.assign(new Error(t('import.err.need-login', '需要登录')), {code: 'AUTH_REQUIRED'}));
                             return;
                         }
                         try {
@@ -2712,20 +2787,20 @@
                         }
                     },
                     onerror: reject
-                });
+                }, signal);
             });
         },
         cancelDownload(artworkId) {
             return illustExactCancelClient.cancel(artworkId);
         },
-        clearQueue() {
+        clearQueue(url = CONFIG.CLEAR_QUEUE_URL, uuid = userUUID) {
             // 强制清除后端队列并终止所有正在进行的下载（多人模式下后端仅终止当前 owner 的任务）
-            const headers = {};
-            if (userUUID) headers['X-User-UUID'] = userUUID;
+            const headers = {Origin: new URL(url).origin};
+            if (uuid) headers['X-User-UUID'] = uuid;
             return new Promise((resolve) => {
                 GM_xmlhttpRequest({
                     method: 'POST',
-                    url: CONFIG.CLEAR_QUEUE_URL,
+                    url,
                     headers,
                     onload: () => resolve(true),
                     onerror: () => resolve(false)
@@ -2733,11 +2808,11 @@
             });
         },
         // 三态判重：null = 未下载；{deleted:false} = 已下载；{deleted:true} = 已下载但被画廊删除（软删除）
-        checkDownloaded(artworkId, verifyFiles = false) {
+        checkDownloaded(artworkId, verifyFiles = false, signal) {
             return new Promise((resolve, reject) => {
                 const query = verifyFiles ? '?verifyFiles=true' : '';
                 const fail = () => reject(new Error(t('import.err.backend-failed', '后端请求失败')));
-                GM_xmlhttpRequest({
+                requestUserscriptQueue({
                     method: 'GET', url: `${serverBase}/api/downloaded/${artworkId}${query}`,
                     onload: (res) => {
                         if (res.status === 400) { resolve(null); return; }
@@ -2749,17 +2824,18 @@
                         } catch { fail(); }
                     },
                     onerror: fail, ontimeout: fail
-                });
+                }, signal);
             });
         },
 
-        getNovelMeta(novelId) {
+        getNovelMeta(novelId, signal) {
+            const requestedBase = serverBase;
             // 直连 Pixiv：GM_xmlhttpRequest 会带上浏览器的登录 Cookie（含 HttpOnly 的
             // PHPSESSID），从而能取到受限 / R18 小说的完整 meta（含正文 content）。
             // 不要走后端代理 + document.cookie —— document.cookie 取不到 HttpOnly 会话
             // Cookie，导致后端以匿名身份请求 Pixiv，受限小说被隐藏或元信息缺失。
             return new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
+                requestUserscriptQueue({
                     method: 'GET',
                     url: `https://www.pixiv.net/ajax/novel/${encodeURIComponent(novelId)}?lang=zh`,
                     headers: {Referer: 'https://www.pixiv.net/'},
@@ -2775,21 +2851,24 @@
                                 return;
                             }
                             const meta = buildNovelMetaFromPixivBody(novelId, data.body || {});
-                            meta.fetchToken = await NovelBrowserImport.importResponse(serverBase, novelId, res.responseText);
+                            signal?.throwIfAborted();
+                            if (requestedBase !== serverBase) throw new Error(UserscriptDownloadOptions.text('unavailable'));
+                            meta.fetchToken = await NovelBrowserImport.importResponse(requestedBase, novelId, res.responseText, signal);
+                            if (requestedBase !== serverBase) throw new Error(UserscriptDownloadOptions.text('unavailable'));
                             resolve(meta);
                         } catch (e) {
                             reject(e);
                         }
                     },
                     onerror: reject
-                });
+                }, signal);
             });
         },
         // 三态判重：null = 未下载；{deleted:false} = 已下载；{deleted:true} = 已下载但被画廊删除（软删除）
-        checkNovelDownloaded(novelId) {
+        checkNovelDownloaded(novelId, signal) {
             return new Promise((resolve, reject) => {
                 const fail = () => reject(new Error(t('import.err.backend-failed', '后端请求失败')));
-                GM_xmlhttpRequest({
+                requestUserscriptQueue({
                     method: 'GET',
                     url: `${serverBase}/api/novel/${encodeURIComponent(novelId)}/downloaded`,
                     timeout: 5000,
@@ -2802,27 +2881,32 @@
                         } catch { fail(); }
                     },
                     onerror: fail, ontimeout: fail
-                });
+                }, signal);
             });
         },
-        sendNovelDownloadRequest(body) {
+        sendNovelDownloadRequest(body, signal) {
+            const requestedBase = serverBase;
             return new Promise((resolve, reject) => {
-                const headers = {'Content-Type': 'application/json'};
+                const headers = {Origin: new URL(serverBase).origin, 'Content-Type': 'application/json'};
                 if (userUUID) headers['X-User-UUID'] = userUUID;
-                GM_xmlhttpRequest({
+                requestUserscriptQueue({
                     method: 'POST',
                     url: `${serverBase}/api/novel/download`,
                     headers,
                     data: JSON.stringify(body),
                     onload: (res) => {
-                        let data = {};
+                        if (requestedBase !== serverBase) { reject(new Error(UserscriptDownloadOptions.text('unavailable'))); return; }
+                        if (signal?.aborted) { reject(signal.reason); return; }
+                        let data = null;
                         try {
                             data = JSON.parse(res.responseText);
                         } catch (_) {
                         }
                         if (res.status === 401) {
                             handleUnauthorized();
-                            reject(new Error(t('import.err.need-login', '需要登录')));
+                            reject(Object.assign(new Error(t('import.err.need-login', '需要登录')), {code: 'AUTH_REQUIRED'}));
+                        } else if (!data || typeof data !== 'object' || Array.isArray(data)) {
+                            reject(new Error(t('import.err.backend-failed', '后端返回失败')));
                         } else if (res.status === 429 && data.quotaExceeded) {
                             const err = new Error('quota_exceeded');
                             err.quotaData = data;
@@ -2834,15 +2918,17 @@
                         }
                     },
                     onerror: reject
-                });
+                }, signal);
             });
         },
-        getNovelStatus(novelId) {
+        getNovelStatus(novelId, signal) {
+            const requestedBase = serverBase;
             return new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
+                requestUserscriptQueue({
                     method: 'GET',
                     url: `${serverBase}/api/novel/status/${encodeURIComponent(novelId)}`,
                     onload: (res) => {
+                        if (requestedBase !== serverBase) { reject(new Error(UserscriptDownloadOptions.text('unavailable'))); return; }
                         try {
                             resolve(JSON.parse(res.responseText));
                         } catch (e) {
@@ -2850,7 +2936,7 @@
                         }
                     },
                     onerror: reject
-                });
+                }, signal);
             });
         }
     };
@@ -2870,38 +2956,32 @@
             this.connecting = false;
             this.batchActive = false;
             this.listeners = new Map();        // artworkId -> [fn]
-            this.activeArtworks = new Set();   // 当前需要监听的作品集合
             this.connectionId = null;
             this.closing = false;
             this._buffer = '';
-            this._closeTimer = null;
             this._reconnectTimer = null;
+            this._connection = null;
         }
 
-        // 兼容旧调用点的语义：
-        // open(id) / close(id) 只增删作品监听；共享连接由批量任务生命周期统一开关
+        // 共享连接由批量任务生命周期统一开关。
         openShared() {
-            this._cancelDeferredClose();
             if (this.closing) this._cleanup();
+            if (!this.batchActive) {
+                this.url = CONFIG.SSE_BASE;
+                this.closeUrl = CONFIG.SSE_CLOSE_BASE;
+                this.uuid = userUUID;
+            }
             this.batchActive = true;
             this.closing = false;
             this._ensureConnection();
         }
 
-        open(artworkId) {
-            const key = String(artworkId);
-            this.activeArtworks.add(key);
-        }
-
         close(artworkId) {
-            const key = String(artworkId);
-            this.activeArtworks.delete(key);
-            this.listeners.delete(key);
+            this.listeners.delete(String(artworkId));
         }
 
         closeAll() {
             this.batchActive = false;
-            this.activeArtworks.clear();
             this.listeners.clear();
             this._closeNow();
         }
@@ -2918,18 +2998,20 @@
         }
 
         _openConnection() {
+            const connection = this._connection = Symbol();
             this.connecting = true;
             this.closing = false;
             this._buffer = '';
             const headers = {};
-            if (userUUID) headers['X-User-UUID'] = userUUID;
+            if (this.uuid) headers['X-User-UUID'] = this.uuid;
             try {
-                this.handle = GM_xmlhttpRequest({
+                const handle = GM_xmlhttpRequest({
                     method: 'GET',
-                    url: CONFIG.SSE_BASE, // 聚合端点：不带 artworkId
+                    url: this.url, // 聚合端点：不带 artworkId
                     headers,
                     responseType: 'stream',
                     onloadstart: (res) => {
+                        if (this._connection !== connection) return;
                         this.connecting = false;
                         this.connected = true;
                         const stream = res.response;
@@ -2937,30 +3019,36 @@
                             console.warn(_sseLogT('log.sse.no-readable-stream', 'SSE: ReadableStream 不可用，将依赖轮询兜底'));
                             return;
                         }
-                        this._readStream(stream);
+                        this._readStream(stream, connection);
                     },
                     onerror: (err) => {
+                        if (this._connection !== connection) return;
                         console.error(_sseLogT('log.sse.connection-error', 'SSE connection error'), err);
                         this._cleanup();
                         this._scheduleReconnect();
                     },
                     ontimeout: () => {
+                        if (this._connection !== connection) return;
                         this._cleanup();
                         this._scheduleReconnect();
                     }
                 });
+                if (this._connection === connection) this.handle = handle;
+                else handle.abort();
             } catch (err) {
+                if (this._connection !== connection) return;
                 console.error(_sseLogT('log.sse.open-failed', 'SSE open failed'), err);
                 this._cleanup();
                 this._scheduleReconnect();
             }
         }
 
-        _readStream(stream) {
-            this.reader = stream.getReader();
+        _readStream(stream, connection) {
+            const reader = this.reader = stream.getReader();
             const decoder = new TextDecoder();
             const pump = () => {
-                this.reader.read().then(({done, value}) => {
+                reader.read().then(({done, value}) => {
+                    if (this._connection !== connection) return;
                     if (done) {
                         const shouldReconnect = !this.closing;
                         this._cleanup();
@@ -2974,10 +3062,11 @@
                     for (const part of parts) {
                         if (!part.trim()) continue;
                         this._processEvent(part);
+                        if (this._connection !== connection) return;
                     }
-                    if (!this.reader) return;
                     pump();
                 }).catch(() => {
+                    if (this._connection !== connection) return;
                     const shouldReconnect = !this.closing;
                     this._cleanup();
                     if (shouldReconnect) this._scheduleReconnect();
@@ -3026,23 +3115,7 @@
             }, 2000);
         }
 
-        _scheduleDeferredClose() {
-            this._cancelDeferredClose();
-            this._closeTimer = setTimeout(() => {
-                this._closeTimer = null;
-                if (this.activeArtworks.size === 0) this._closeNow();
-            }, 30000);
-        }
-
-        _cancelDeferredClose() {
-            if (this._closeTimer) {
-                clearTimeout(this._closeTimer);
-                this._closeTimer = null;
-            }
-        }
-
         _closeNow() {
-            this._cancelDeferredClose();
             if (this._reconnectTimer) {
                 clearTimeout(this._reconnectTimer);
                 this._reconnectTimer = null;
@@ -3056,18 +3129,20 @@
             const connectionId = this.connectionId;
             this.connectionId = null;
             if (connectionId) this._notifyAggregatedClose(connectionId);
+            const connection = this._connection;
             setTimeout(() => {
-                if (this.closing) this._cleanup();
+                if (this._connection === connection && this.closing) this._cleanup();
             }, 1000);
         }
 
         _notifyAggregatedClose(connectionId) {
             const headers = {};
-            if (userUUID) headers['X-User-UUID'] = userUUID;
+            if (this.uuid) headers['X-User-UUID'] = this.uuid;
             try {
+                headers.Origin = new URL(this.closeUrl).origin;
                 GM_xmlhttpRequest({
                     method: 'POST',
-                    url: `${CONFIG.SSE_CLOSE_BASE}/${encodeURIComponent(connectionId)}`,
+                    url: `${this.closeUrl}/${encodeURIComponent(connectionId)}`,
                     headers,
                     timeout: 2000,
                     onload: () => {
@@ -3082,22 +3157,25 @@
         }
 
         _cleanup() {
+            // 取消与中止也会触发回调，先撤销连接身份和资源引用。
+            this._connection = null;
+            const reader = this.reader, handle = this.handle;
+            this.reader = null;
+            this.handle = null;
             this.connected = false;
             this.connecting = false;
             this.connectionId = null;
-            if (this.reader) {
+            if (reader) {
                 try {
-                    this.reader.cancel();
+                    reader.cancel().catch(() => {});
                 } catch (e) {
                 }
-                this.reader = null;
             }
-            if (this.handle) {
+            if (handle) {
                 try {
-                    this.handle.abort();
+                    handle.abort();
                 } catch (e) {
                 }
-                this.handle = null;
             }
             this._buffer = '';
             this.closing = false;
@@ -3109,11 +3187,11 @@
         constructor(ui) {
             this.ui = ui;
             this.queue = [];
+            this._queueController = new AbortController();
             this.isRunning = false;
             this.isPaused = false;
             this.sse = new SSEManager();
             this.stopRequested = false;
-            this.activeWorkers = 0;
             this.stats = {completed: 0, success: 0, failed: 0, active: 0, skipped: 0};
             this.skipHistory = GM_getValue(CONFIG.SKIP_HISTORY_KEY, false);
             this.verifyHistoryFiles = GM_getValue(CONFIG.VERIFY_HISTORY_FILES_KEY, false);
@@ -3237,14 +3315,14 @@
         }
 
         setQueue(items) {
+            this._queueController.abort();
+            this._queueController = new AbortController();
             const uniqueItems = this.dedupeQueueItems(items);
             this.queue = uniqueItems.map(it => ({
                 id: String(it.id),
                 kind: it.kind === 'novel' ? 'novel' : 'illust',
                 novelId: it.kind === 'novel' ? String(it.novelId || String(it.id).replace(/^n/, '')) : null,
-                title: it.title || (it.kind === 'novel'
-                    ? `小说 ${it.novelId || String(it.id).replace(/^n/, '')}`
-                    : `作品 ${it.id}`),
+                title: it.title || `ID: ${it.novelId || it.id}`,
                 url: it.url || (it.kind === 'novel'
                     ? `https://www.pixiv.net/novel/show.php?id=${it.novelId || String(it.id).replace(/^n/, '')}`
                     : `https://www.pixiv.net/artworks/${it.id}`),
@@ -3266,7 +3344,7 @@
             return uniqueItems.length;
         }
 
-        parseAndSetFromText(rawText) {
+        async parseAndSetFromText(rawText) {
             const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
             let items = [];
             // 仅聚焦单作品：插画/漫画/动图单作品 + 小说单作品。系列链接不解析、不下载。
@@ -3283,7 +3361,7 @@
                         id: 'n' + novelId,
                         kind: 'novel',
                         novelId,
-                        title: title || `小说 ${novelId}`,
+                        title,
                         url: `https://www.pixiv.net/novel/show.php?id=${novelId}`
                     });
                     novelCount++;
@@ -3293,11 +3371,12 @@
                 if (m) {
                     const id = m[1];
                     let title = (ln.split('|')[1] || '').trim();
-                    items.push({id, kind: 'illust', title: title || `作品 ${id}`, url: `https://www.pixiv.net/artworks/${id}`});
+                    items.push({id, kind: 'illust', title, url: `https://www.pixiv.net/artworks/${id}`});
                     illustCount++;
                 }
             }
             items = this.dedupeQueueItems(items);
+            if ((this.isRunning || this._starting || this._queueRun) && !await this.stopAndClear()) return;
             this.setQueue(items);
             this.ui.setStatus(
                 novelCount > 0
@@ -3327,10 +3406,17 @@
             }
             this._starting = true;
             const startingQueue = this.queue;
+            const controller = this._queueController;
+            const signal = controller.signal;
             let backendOk;
-            try { backendOk = await Api.checkBackend(); }
-            finally { this._starting = false; }
-            if (startingQueue !== this.queue) return;
+            try {
+                await this._clearRequest;
+                if (signal.aborted) return;
+                backendOk = await Api.checkBackend(signal);
+            } finally {
+                if (this._queueController === controller) this._starting = false;
+            }
+            if (signal.aborted || startingQueue !== this.queue) return;
             if (!backendOk) {
                 alert(t('import.alert.backend-unavailable', '后端服务不可用，如果您使用是非localhost地址，请遵循README说明替换 脚本头部 @connect YOUR_SERVER_HOST 为您的服务器地址'));
                 return;
@@ -3351,14 +3437,19 @@
             this.ui.renderQueue(this.queue);
             this.ui.setStatus('开始批量下载', 'info');
 
+            Api._seriesMetaPromises.clear();
             this.sse.openShared();
             try {
-                this._queueRun = runUserscriptDownloadQueue(this, () => this.ui.elements.concurrent.value);
+                this._queueRun = runUserscriptDownloadQueue(this, () => this.ui.elements.concurrent.value, signal);
                 await this._queueRun;
             } finally {
-                this._queueRun = null;
-                this.sse.closeAll();
+                if (this._queueController === controller) {
+                    this._queueRun = null;
+                    this.sse.closeAll();
+                    Api._seriesMetaPromises.clear();
+                }
             }
+            if (signal.aborted) return;
             this.isRunning = false;
             this.saveToStorage();
             this.ui.setStatus('批量下载结束', 'info');
@@ -3372,9 +3463,11 @@
         }
 
         async _autoPackAfterQueue() {
+            const signal = this._queueController.signal;
+            const requestedBase = serverBase;
             try {
                 const data = await new Promise((resolve) => {
-                    const headers = {'Content-Type': 'application/json'};
+                    const headers = {Origin: new URL(serverBase).origin, 'Content-Type': 'application/json'};
                     if (userUUID) headers['X-User-UUID'] = userUUID;
                     GM_xmlhttpRequest({
                         method: 'POST',
@@ -3395,6 +3488,7 @@
                         ontimeout: () => resolve(null)
                     });
                 });
+                if (signal.aborted || requestedBase !== serverBase) return;
                 if (data && data.archiveToken) {
                     this.ui.setStatus('批量下载结束，正在打包文件...', 'info');
                     this.ui.showQuotaExceeded(data, '下载完成，正在打包');
@@ -3418,23 +3512,25 @@
 
         // 下载成功后由脚本端直连 Pixiv 发 bookmark；失败仅记录到 item.bookmarkResult，
         // 不阻断下载完成流程。
-        async _maybeBookmarkAfterDownload(item, kind) {
+        async _maybeBookmarkAfterDownload(item, kind, signal) {
             if (!this.bookmark) return;
             const id = kind === 'novel'
                 ? (item.novelId || String(item.id).replace(/^n/, ''))
                 : item.id;
             try {
                 const fn = kind === 'novel' ? pixivBookmarkNovel : pixivBookmarkArtwork;
-                item.bookmarkResult = await fn(id);
+                signal.throwIfAborted();
+                item.bookmarkResult = await fn(id, signal);
             } catch (e) {
                 item.bookmarkResult = {status: 'failed', message: e && e.message ? e.message : 'bookmark error'};
             }
         }
 
         /* ========== 核心修复点：processSingle ========== */
-        async _processSingle({idx, item}) {
+        async _processSingle({idx, item}, signal = this._queueController.signal) {
+            if (signal.aborted) return;
             if (item.kind === 'novel') {
-                return this._processNovel({idx, item});
+                return this._processNovel({idx, item}, signal);
             }
             item.filterSkipped = false;
             item.translatePhase = null;
@@ -3448,7 +3544,8 @@
 
             try {
                 if (this.skipHistory) {
-                    const downloaded = await Api.checkDownloaded(item.id, this.verifyHistoryFiles);
+                    const downloaded = await Api.checkDownloaded(item.id, this.verifyHistoryFiles, signal);
+                    if (signal.aborted) return;
                     // 软删除记录 + 允许重下：当作未下载继续走正常下载流程（落库后删除标记自动复位）
                     if (downloaded && !(downloaded.deleted && this.redownloadDeleted)) {
                         item.status = 'skipped';
@@ -3468,8 +3565,9 @@
                 this.ui.renderQueue(this.queue);
                 // 必须先获取 meta：illustType===2 表示动图，pages API 对动图只返回 1 张 JPG 缩略图
                 // 不能依赖 pages 返回空来判断动图，必须用 illustType 判断
-                const meta = await Api.getArtworkMeta(item.id);
-                item.title = (meta && meta.illustTitle) || item.title || `作品 ${item.id}`;
+                const meta = await Api.getArtworkMeta(item.id, signal);
+                if (signal.aborted) return;
+                item.title = (meta && meta.illustTitle) || item.title || `ID: ${item.id}`;
                 const authorId = meta?.userId ?? null;
                 const authorName = meta?.userName || null;
                 const xRestrict = Number(meta?.xRestrict ?? meta?.xrestrict ?? 0);
@@ -3511,7 +3609,8 @@
 
                 if (meta && meta.illustType === 2) {
                     // 动图：pages API 仅返回缩略图 JPG，必须走 ugoira_meta 获取 ZIP
-                    const ugoiraMeta = await Api.getUgoiraMeta(item.id);
+                    const ugoiraMeta = await Api.getUgoiraMeta(item.id, signal);
+                    if (signal.aborted) return;
                     const zipSrc = ugoiraMeta.originalSrc || ugoiraMeta.src;
                     ugoiraData = {
                         zipUrl: zipSrc,
@@ -3524,7 +3623,8 @@
                     urls = [meta.urls.original];
                     item.totalImages = 1;
                 } else {
-                    urls = await Api.getArtworkPages(item.id);
+                    urls = await Api.getArtworkPages(item.id, signal);
+                    if (signal.aborted) return;
                     if (!Array.isArray(urls) || urls.length === 0) throw new Error(t('import.err.no-image-url', '未获取到图片 URL'));
                     item.totalImages = urls.length;
                 }
@@ -3533,7 +3633,10 @@
                 this.saveToStorage();
                 this.ui.renderQueue(this.queue);
 
-                const dlData = await Api.sendDownloadRequest(item.id, urls, item.title, authorId, authorName, xRestrict, isAi, ugoiraData, this.getImageDelayMs(), this.bookmark, description, tags, seriesInfo, buildForwardMetaJson(meta));
+                const requestedBase = serverBase;
+                const dlData = await Api.sendDownloadRequest(item.id, urls, item.title, authorId, authorName, xRestrict, isAi, ugoiraData, this.getImageDelayMs(), this.bookmark, description, tags, seriesInfo, buildForwardMetaJson(meta), signal);
+                if (signal.aborted) return;
+                if (requestedBase !== serverBase) throw new Error(UserscriptDownloadOptions.text('unavailable'));
                 if (dlData && dlData.alreadyDownloaded) {
                     item.status = 'skipped';
                     item.lastMessage = '跳过 — 已下载（服务器确认）';
@@ -3544,11 +3647,12 @@
                     this.ui.setStatus(`跳过：${item.title}（已下载）`, 'info');
                     return;
                 }
-                this.sse.open(item.id);
-                const ssePromise = this._waitForFinalStatusBySSE(item.id, CONFIG.STATUS_TIMEOUT_MS);
+                const ssePromise = waitForUserscriptDownload(this, item.id, CONFIG.STATUS_TIMEOUT_MS, signal);
                 item.lastMessage = '下载中，等待完成...';
                 this.ui.renderQueue(this.queue);
                 const final = await ssePromise;
+                if (signal.aborted) return;
+                if (requestedBase !== serverBase) throw new Error(UserscriptDownloadOptions.text('unavailable'));
 
                 if (final && final.completed) {
                     const dCount = final.downloadedCount !== undefined ? final.downloadedCount : item.totalImages;
@@ -3566,7 +3670,8 @@
                     } else {
                         item.status = 'completed';
                         // 脚本端直连 Pixiv 完成 bookmark；item.bookmarkResult 在此填入。
-                        await this._maybeBookmarkAfterDownload(item, 'illust');
+                        await this._maybeBookmarkAfterDownload(item, 'illust', signal);
+                        if (signal.aborted) return;
                         const baseMessage = `已完成，共 ${dCount} 张`;
                         item.lastMessage = appendPostDownloadOutcome(baseMessage, item);
                         item.lastMessageParts = buildPostDownloadMessageParts(baseMessage, 'success', item);
@@ -3586,7 +3691,8 @@
                 } else {
                     // 兜底查询
                     try {
-                        const check = await Api.getDownloadStatus(item.id);
+                        const check = await Api.getDownloadStatus(item.id, signal);
+                        if (signal.aborted) return;
                         if (check && check.completed) {
                             const dCount = check.downloadedCount !== undefined ? check.downloadedCount : 0;
                             item.downloadedCount = dCount;
@@ -3601,7 +3707,8 @@
                             } else {
                                 item.status = 'completed';
                                 // 脚本端直连 Pixiv 完成 bookmark；item.bookmarkResult 在此填入。
-                                await this._maybeBookmarkAfterDownload(item, 'illust');
+                                await this._maybeBookmarkAfterDownload(item, 'illust', signal);
+                                if (signal.aborted) return;
                                 const baseMessage = `已完成（确认），共 ${dCount} 张`;
                                 item.lastMessage = appendPostDownloadOutcome(baseMessage, item);
                                 item.lastMessageParts = buildPostDownloadMessageParts(baseMessage, 'success', item);
@@ -3611,13 +3718,15 @@
                             item.lastMessage = '失败 — 超时未收到完成状态';
                         }
                     } catch (e) {
+                        if (signal.aborted) return;
                         item.status = 'failed';
                         item.lastMessage = '失败 — 状态查询异常';
                     }
                 }
 
             } catch (err) {
-                if (err.message === '需要登录') {
+                if (signal.aborted) return;
+                if (err.code === 'AUTH_REQUIRED') {
                     item.status = 'failed';
                     item.lastMessage = '失败 - 需要登录';
                     this.queue.forEach(q => {
@@ -3654,20 +3763,23 @@
                     this.ui.setStatus(`错误：${item.title} - ${item.lastMessage}`, 'error');
                 }
             } finally {
-                try {
-                    this.sse.close(item.id);
-                } catch (e) {
+                if (!signal.aborted) {
+                    try {
+                        this.sse.close(item.id);
+                    } catch (e) {
+                    }
+                    item.endTime = item.endTime || new Date().toISOString();
+                    this.updateStats();
+                    this.saveToStorage();
+                    this.ui.renderQueue(this.queue);
+                    this.ui.setCurrent(null);
                 }
-                item.endTime = item.endTime || new Date().toISOString();
-                this.updateStats();
-                this.saveToStorage();
-                this.ui.renderQueue(this.queue);
-                this.ui.setCurrent(null);
             }
         }
 
         /* ========== 小说下载（队列项 kind==='novel'，走后端管线，轮询状态） ========== */
-        async _processNovel({idx, item}) {
+        async _processNovel({idx, item}, signal = this._queueController.signal) {
+            if (signal.aborted) return;
             item.filterSkipped = false;
             item.translatePhase = null;
             item.lastMessageParts = null;
@@ -3680,7 +3792,8 @@
             this.ui.renderQueue(this.queue);
             try {
                 if (this.skipHistory) {
-                    const downloaded = await Api.checkNovelDownloaded(novelId);
+                    const downloaded = await Api.checkNovelDownloaded(novelId, signal);
+                    if (signal.aborted) return;
                     // 软删除记录 + 允许重下：当作未下载继续走正常下载流程（落库后删除标记自动复位）
                     if (downloaded && !(downloaded.deleted && this.redownloadDeleted)) {
                         item.status = 'skipped';
@@ -3699,7 +3812,9 @@
                 this.ui.setStatus(`获取作品信息：${item.title}`, 'info');
                 this.ui.renderQueue(this.queue);
 
-                const meta = await Api.getNovelMeta(novelId);
+                const requestedBase = serverBase;
+                const meta = await Api.getNovelMeta(novelId, signal);
+                if (signal.aborted) return;
 
                 if (!UserscriptDownloadOptions.matches(meta, 'novel', this.r18Only)) {
                     item.status = 'skipped';
@@ -3734,7 +3849,11 @@
                     }
                 };
 
-                const dlData = await Api.sendNovelDownloadRequest(body);
+                if (signal.aborted) return;
+                if (requestedBase !== serverBase) throw new Error(UserscriptDownloadOptions.text('unavailable'));
+                const dlData = await Api.sendNovelDownloadRequest(body, signal);
+                if (signal.aborted) return;
+                if (requestedBase !== serverBase) throw new Error(UserscriptDownloadOptions.text('unavailable'));
                 if (dlData && dlData.alreadyDownloaded) {
                     item.status = 'skipped';
                     item.lastMessage = '跳过 — 已下载（服务器确认）';
@@ -3752,12 +3871,17 @@
                 const start = Date.now();
                 while (Date.now() - start < CONFIG.STATUS_TIMEOUT_MS) {
                     await this._sleep(800);
+                    if (signal.aborted) return;
+                    if (requestedBase !== serverBase) throw new Error(UserscriptDownloadOptions.text('unavailable'));
                     let status;
                     try {
-                        status = await Api.getNovelStatus(novelId);
+                        status = await Api.getNovelStatus(novelId, signal);
+                        if (signal.aborted) return;
                     } catch (_) {
+                        if (signal.aborted) return;
                         continue;
                     }
+                    if (requestedBase !== serverBase) throw new Error(UserscriptDownloadOptions.text('unavailable'));
                     if (status && status.completed) {
                         if (status.failed) {
                             item.status = 'failed';
@@ -3773,7 +3897,8 @@
                             }
                             item.collectionResult = status.collectionResult || null;
                             // 脚本端直连 Pixiv 完成 bookmark；item.bookmarkResult 在此填入。
-                            await this._maybeBookmarkAfterDownload(item, 'novel');
+                            await this._maybeBookmarkAfterDownload(item, 'novel', signal);
+                            if (signal.aborted) return;
                             const baseMessage = t('import.msg.novel-completed', '完成');
                             item.lastMessage = appendPostDownloadOutcome(baseMessage, item);
                             item.lastMessageParts = buildPostDownloadMessageParts(baseMessage, 'success', item);
@@ -3806,7 +3931,8 @@
                 item.lastMessage = '失败 — 超时未收到完成状态';
                 this.ui.setStatus(`失败：${item.title} - ${item.lastMessage}`, 'error');
             } catch (err) {
-                if (err.message === '需要登录') {
+                if (signal.aborted) return;
+                if (err.code === 'AUTH_REQUIRED') {
                     item.status = 'failed';
                     item.lastMessage = '失败 - 需要登录';
                     this.queue.forEach(q => {
@@ -3842,62 +3968,14 @@
                     this.ui.setStatus(`错误：${item.title} - ${item.lastMessage}`, 'error');
                 }
             } finally {
-                item.endTime = item.endTime || new Date().toISOString();
-                this.updateStats();
-                this.saveToStorage();
-                this.ui.renderQueue(this.queue);
-                this.ui.setCurrent(null);
+                if (!signal.aborted) {
+                    item.endTime = item.endTime || new Date().toISOString();
+                    this.updateStats();
+                    this.saveToStorage();
+                    this.ui.renderQueue(this.queue);
+                    this.ui.setCurrent(null);
+                }
             }
-        }
-
-        _waitForFinalStatusBySSE(artworkId, timeoutMs) {
-            return new Promise((resolve) => {
-                let resolved = false;
-                let timer = null;
-                let pollTimer = null;
-
-                const finish = (data) => {
-                    if (resolved) return;
-                    resolved = true;
-                    clearTimeout(timer);
-                    clearInterval(pollTimer);
-                    resolve(data);
-                };
-
-                timer = setTimeout(() => finish(null), timeoutMs);
-
-                // 每5秒轮询一次，防止 SSE 事件丢失导致任务卡死
-                pollTimer = setInterval(async () => {
-                    if (resolved) {
-                        clearInterval(pollTimer);
-                        return;
-                    }
-                    try {
-                        const status = await Api.getDownloadStatus(String(artworkId));
-                        if (status && (status.completed || status.failed)) finish(status);
-                    } catch {
-                    }
-                }, 5000);
-
-                const handler = (data) => {
-                    if (data && (data.completed || data.failed || data.cancelled)) {
-                        finish(data);
-                    } else {
-                        const q = this.queue.find(x => x.id === String(artworkId));
-                        if (q) {
-                            if (data.downloadedCount !== undefined) q.downloadedCount = data.downloadedCount;
-                            if (data.ugoiraProgress) q.ugoiraProgress = mergeUgoiraProgress(q.ugoiraProgress, data.ugoiraProgress);
-                            if (data.imageProgress) q.imageProgress = data.imageProgress;
-                            this.saveToStorage();
-                            this.ui.renderQueue(this.queue);
-                            this.ui.setCurrent(q);
-                        }
-                        clearTimeout(timer);
-                        timer = setTimeout(() => finish(null), timeoutMs);
-                    }
-                };
-                this.sse.addListener(String(artworkId), handler);
-            });
         }
 
         pause() {
@@ -3927,7 +4005,7 @@
         async stopAndClear(force = false) {
             if (!force) {
                 if (this.queue.some(q => q.status === 'downloading')) {
-                    if (!confirm(t('import.confirm.clear-running', '当前有正在下载的作品，是否强制停止并清除？（取消将保留队列）'))) return;
+                    if (!confirm(t('import.confirm.clear-running', '当前有正在下载的作品，是否强制停止并清除？（取消将保留队列）'))) return false;
                 }
             }
             this.stopRequested = true;
@@ -3935,16 +4013,25 @@
             this.isPaused = false;
             this.ui.updateButtonsState(this.isRunning, this.isPaused);
             this.sse.closeAll();
-            Api.clearQueue().catch(() => {
-            });
+            this._queueController.abort();
+            Api._seriesMetaPromises.clear();
+            this._queueController = new AbortController();
+            this._starting = false;
+            this._queueRun = null;
+            const clearUrl = CONFIG.CLEAR_QUEUE_URL, clearUuid = userUUID;
+            this._clearRequest = Promise.resolve(this._clearRequest)
+                .then(() => Api.clearQueue(clearUrl, clearUuid)).catch(() => {});
             this.queue = [];
             this.stats = {completed: 0, success: 0, failed: 0, active: 0, skipped: 0};
+            this.ui.updateStats(this.stats);
+            this.ui.setCurrent(null);
             try {
                 this.deleteStorage();
             } catch (e) {
             }
             this.ui.renderQueue(this.queue);
             this.ui.setStatus('已强制清除队列并删除持久化数据', 'info');
+            return true;
         }
 
         updateStats() {
@@ -3973,12 +4060,112 @@
     }
 
     /* ========== UI 组件 ========== */
+    // >>> SHARED:archive-monitor.js
+    class UserscriptArchiveMonitor {
+        constructor() {
+            this.current = null;
+            this.timer = null;
+            this.request = null;
+            this.hidden = false;
+            window.addEventListener('pagehide', () => {
+                this.hidden = true;
+                this.stop();
+            });
+            window.addEventListener('pageshow', () => {
+                this.hidden = false;
+                this.resume();
+            });
+        }
+
+        stop() {
+            clearTimeout(this.timer);
+            this.timer = null;
+            const request = this.request;
+            this.request = null;
+            try { request?.handle?.abort(); } catch { /* 旧回调已失效。 */ }
+        }
+
+        watch(token, expireSeconds, ready, update, countdown) {
+            this.stop();
+            if (!this.current || this.current.token !== token || this.current.base !== serverBase) {
+                this.current = {token, base: serverBase, status: 'pending', seconds: expireSeconds};
+            }
+            if (ready && this.current.status === 'pending') this.markReady(this.current, expireSeconds);
+            Object.assign(this.current, {update, countdown});
+            this.resume();
+        }
+
+        markReady(state, expireSeconds) {
+            const seconds = Number.parseInt(expireSeconds, 10);
+            state.status = 'ready';
+            state.deadline = Date.now() + (Number.isFinite(seconds) ? Math.max(0, seconds) : 0) * 1000;
+        }
+
+        snapshot() {
+            const state = this.current;
+            return state && state.base === serverBase ? {
+                token: state.token, expireSec: state.seconds, ready: state.status === 'ready'
+            } : null;
+        }
+
+        resume() {
+            const state = this.current;
+            if (!state || this.hidden || state.base !== serverBase) return;
+            this.stop();
+            if (state.status === 'ready' && Date.now() >= state.deadline) state.status = 'expired';
+            state.update(state.status, state.token, state.base);
+            if (state.status === 'ready') this.countdown(state);
+            else if (state.status === 'pending') this.timer = setTimeout(() => this.poll(state), 2000);
+        }
+
+        countdown(state) {
+            const remaining = Math.max(0, Math.ceil((state.deadline - Date.now()) / 1000));
+            state.countdown(remaining);
+            this.timer = setTimeout(() => {
+                if (this.current !== state || this.hidden || state.base !== serverBase) return;
+                if (Date.now() >= state.deadline) {
+                    state.status = 'expired';
+                    state.update('expired', state.token, state.base);
+                    this.timer = null;
+                } else this.countdown(state);
+            }, 1000);
+        }
+
+        poll(state) {
+            if (this.current !== state || this.hidden || state.base !== serverBase) return;
+            this.timer = null;
+            const request = {};
+            this.request = request;
+            const finish = data => {
+                if (this.request !== request) return;
+                this.request = null;
+                if (this.current !== state || this.hidden || state.base !== serverBase) return;
+                if (['ready', 'expired', 'empty'].includes(data?.status)) {
+                    if (data.status === 'ready') this.markReady(state, data.expireSeconds ?? state.seconds);
+                    else state.status = data.status;
+                    this.resume();
+                } else this.timer = setTimeout(() => this.poll(state), 2000);
+            };
+            try {
+                request.handle = GM_xmlhttpRequest({
+                    method: 'GET', url: state.base + '/api/archive/status/' + encodeURIComponent(state.token),
+                    timeout: 10000,
+                    onload: response => {
+                        let data;
+                        try { if (response.status === 200) data = JSON.parse(response.responseText); } catch {}
+                        finish(data);
+                    },
+                    onerror: () => finish(), ontimeout: () => finish(), onabort: () => finish()
+                });
+            } catch { finish(); }
+        }
+    }
+    // <<< SHARED:archive-monitor.js
     class UI {
         constructor() {
             this.root = null;
             this.elements = {};
-            this._archivePollTimer = null;
-            this._archiveCountdownTimer = null;
+            this.archiveMonitor = new UserscriptArchiveMonitor();
             this._build();
         }
 
@@ -4597,7 +4784,7 @@
         // 用户手动收起/展开：在切换后持久化状态
         manualToggleCollapse() {
             this.toggleCollapse();
-            savePanelCollapsed(this._collapsed);
+            PixivPanelState.set(this._collapsed);
         }
 
         handleExportAll() {
@@ -4678,8 +4865,7 @@
         }
 
         showQuotaExceeded(data, title = '已达到下载限额') {
-            clearInterval(this._archivePollTimer);
-            clearInterval(this._archiveCountdownTimer);
+            this.archiveMonitor.stop();
             const card = document.getElementById('pixiv-single-import-archive-card');
             if (!card) return;
             card.style.display = 'block';
@@ -4688,13 +4874,12 @@
               <div id="pixiv-single-import-ac-dl" style="display:none;margin-top:6px;"></div>
               <div id="pixiv-single-import-ac-expired" style="display:none;color:var(--pixiv-panel-danger, #dc3545);font-weight:bold;">${t('common.archive.expired', '下载链接已过期')}</div>`;
             const token = data.archiveToken;
-            const expireSec = data.archiveExpireSeconds || 3600;
-            this._pollArchive(token, expireSec);
+            const expireSec = data.archiveExpireSeconds ?? 3600;
+            this._watchArchive(token, expireSec, false);
         }
 
         restoreArchiveCard(token, expireSec, ready) {
-            clearInterval(this._archivePollTimer);
-            clearInterval(this._archiveCountdownTimer);
+            this.archiveMonitor.stop();
             const card = document.getElementById('pixiv-single-import-archive-card');
             if (!card) return;
             card.style.display = 'block';
@@ -4703,62 +4888,47 @@
               <div id="pixiv-single-import-ac-dl" style="display:none;margin-top:6px;"></div>
               <div id="pixiv-single-import-ac-expired" style="display:none;color:var(--pixiv-panel-danger, #dc3545);font-weight:bold;">${t('common.archive.expired', '下载链接已过期')}</div>`;
             if (ready) {
-                this._activateArchiveDl(token, expireSec);
+                this._watchArchive(token, expireSec, true);
             } else {
                 document.getElementById('pixiv-single-import-ac-status').textContent = t('common.archive.preparing', '正在打包已下载文件，请稍候...');
-                this._pollArchive(token, expireSec);
+                this._watchArchive(token, expireSec, false);
             }
         }
 
-        _pollArchive(token, expireSec) {
-            clearInterval(this._archivePollTimer);
-            this._archivePollTimer = setInterval(async () => {
-                const data = await Api.pollArchiveStatus(token);
-                if (data.status === 'ready') {
-                    clearInterval(this._archivePollTimer);
-                    this._activateArchiveDl(token, data.expireSeconds || expireSec);
-                } else if (data.status === 'expired') {
-                    clearInterval(this._archivePollTimer);
-                    const expired = document.getElementById('pixiv-single-import-ac-expired');
-                    const status = document.getElementById('pixiv-single-import-ac-status');
+        _watchArchive(token, expireSec, ready) {
+            this.archiveMonitor.watch(token, expireSec, ready, (status, currentToken, base) => {
+                const statusEl = document.getElementById('pixiv-single-import-ac-status');
+                const expired = document.getElementById('pixiv-single-import-ac-expired');
+                const download = document.getElementById('pixiv-single-import-ac-dl');
+                if (status === 'ready') this._activateArchiveDl(currentToken, base);
+                else if (status === 'expired') {
                     if (expired) expired.style.display = 'block';
-                    if (status) status.textContent = '';
-                } else if (data.status === 'empty') {
-                    clearInterval(this._archivePollTimer);
-                    const status = document.getElementById('pixiv-single-import-ac-status');
-                    if (status) status.textContent = t('common.archive.empty', '暂无可打包文件');
+                    if (download) download.style.display = 'none';
+                    if (statusEl) statusEl.textContent = '';
+                } else if (status === 'empty' && statusEl) {
+                    statusEl.textContent = t('common.archive.empty', '暂无可打包文件');
                 }
-            }, 2000);
+            }, remaining => {
+                const countdown = document.getElementById('pixiv-single-import-ac-countdown');
+                if (countdown) countdown.textContent = t('common.archive.validity', '有效期：{time}', {
+                    time: this._fmtSeconds(remaining)
+                });
+            });
         }
 
-        _activateArchiveDl(token, expireSec) {
-            clearInterval(this._archiveCountdownTimer);
+        _activateArchiveDl(token, base) {
             const statusEl = document.getElementById('pixiv-single-import-ac-status');
             const dlEl = document.getElementById('pixiv-single-import-ac-dl');
             if (statusEl) statusEl.textContent = t('common.archive.ready', '压缩包已就绪：');
             if (dlEl) {
                 dlEl.style.display = 'block';
                 const filename = 'pixiv_download_' + token.substring(0, 8) + '.zip';
-                dlEl.innerHTML = `<a href="${CONFIG.ARCHIVE_DOWNLOAD_BASE}/${token}" download="${filename}"
+                dlEl.innerHTML = `<a href="${base}/api/archive/download/${token}" download="${filename}"
                   style="display:inline-block;padding:5px 12px;background:#28a745;color:white;
                          border-radius:4px;text-decoration:none;font-size:12px;font-weight:bold;">
                   ${t('common.archive.download-link', '下载压缩包')}
                 </a>
                 <span id="pixiv-single-import-ac-countdown" style="font-size:10px;color:var(--pixiv-panel-muted, #888);margin-left:8px;"></span>`;
-                let remaining = Math.max(0, parseInt(expireSec));
-                const el = () => document.getElementById('pixiv-single-import-ac-countdown');
-                if (el()) el().textContent = t('common.archive.validity', '有效期：{time}', {time: this._fmtSeconds(remaining)});
-                this._archiveCountdownTimer = setInterval(() => {
-                    remaining--;
-                    if (remaining <= 0) {
-                        clearInterval(this._archiveCountdownTimer);
-                        const expired = document.getElementById('pixiv-single-import-ac-expired');
-                        if (dlEl) dlEl.style.display = 'none';
-                        if (expired) expired.style.display = 'block';
-                    } else {
-                        if (el()) el().textContent = t('common.archive.validity', '有效期：{time}', {time: this._fmtSeconds(remaining)});
-                    }
-                }, 1000);
             }
         }
 
@@ -5052,7 +5222,7 @@
                 // 恢复已有压缩包
                 if (data.archive && data.archive.token) {
                     const ready = data.archive.status === 'ready';
-                    ui.restoreArchiveCard(data.archive.token, data.archive.expireSeconds || 3600, ready);
+                    ui.restoreArchiveCard(data.archive.token, data.archive.expireSeconds ?? 3600, ready);
                 }
             }
         });
@@ -5069,7 +5239,6 @@
     });
 
     // 页面类型判断
-    const isUserPage = (href) => /\/users\/\d+/.test(href);
     const isHomePage = (href) => /^https:\/\/www\.pixiv\.net\/(en\/)?$/.test(href);
 
     // 根据页面类型决定初始折叠状态：主页默认展开批量导入单作品面板，其他页面默认收起
@@ -5079,7 +5248,7 @@
         function updateSingleImportVisibility() {
             // 存储值优先级最高：用户已手动收起时，跳转到任何页面（含默认展开的主页）都不自动展开。
             // 否则——首次加载沿用记忆状态，之后的站内导航按页面类型决定。
-            const stored = loadPanelCollapsed();
+            const stored = PixivPanelState.get();
             const targetCollapsed = stored ? true : (firstRun ? stored : !isHomePage(location.href));
             firstRun = false;
             if (targetCollapsed !== !!ui._collapsed) {

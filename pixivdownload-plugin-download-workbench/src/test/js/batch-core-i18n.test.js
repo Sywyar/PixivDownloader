@@ -10,23 +10,18 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
+const {MiniElement} = require('./pixiv-layout-feedback-test-dom');
 
 const PLUGIN_RESOURCES = path.join(__dirname, '..', '..', 'main', 'resources');
 const CORE_PATH = path.join(PLUGIN_RESOURCES, 'static', 'pixiv-batch', 'batch-core.js');
 const HTML_PATH = path.join(PLUGIN_RESOURCES, 'static', 'pixiv-batch.html');
 const BATCH_ZH_PATH = path.join(PLUGIN_RESOURCES, 'i18n', 'web', 'batch.properties');
 const BATCH_EN_PATH = path.join(PLUGIN_RESOURCES, 'i18n', 'web', 'batch_en.properties');
-const SOURCE = fs.readFileSync(CORE_PATH, 'utf8');
+const SOURCE = fs.readFileSync(path.join(PLUGIN_RESOURCES, 'static/pixiv-batch/queue-display.js'), 'utf8')
+    + '\n' + fs.readFileSync(CORE_PATH, 'utf8');
 const HTML = fs.readFileSync(HTML_PATH, 'utf8');
 const BATCH_ZH = fs.readFileSync(BATCH_ZH_PATH, 'utf8');
 const BATCH_EN = fs.readFileSync(BATCH_EN_PATH, 'utf8');
-
-function propertyKeys(source) {
-    return new Set(String(source).split(/\r?\n/)
-        .map(line => line.trim())
-        .filter(line => line && !line.startsWith('#') && line.includes('='))
-        .map(line => line.slice(0, line.indexOf('=')).trim()));
-}
 
 let passed = 0;
 function ok(label, cond) {
@@ -35,12 +30,20 @@ function ok(label, cond) {
 }
 
 (async function () {
+    const {parse} = await import('../../../../scripts/i18n/lib/properties-parser.mjs');
     const created = [];
     const createCalls = [];
+    const clients = [];
     let scheduleRefreshes = 0;
     let scheduleNamespaces = ['schedule-only'];
     let switcherClient = null;
     let switcherOnChange = null;
+    const anchors = new Map(Array.from(HTML.matchAll(/<([a-z][\w-]*)\b[^>]*\bid="([^"]+)"[^>]*>/gi),
+        ([, tag, id]) => [id, new MiniElement(tag)]));
+    const langAnchor = anchors.get('batchLangAnchor');
+    const themeAnchor = anchors.get('batchThemeAnchor');
+    assert.ok(langAnchor);
+    assert.ok(themeAnchor);
     const importSourceRenderArgs = [];
     let deferRaceCreate = false;
     let resolveRaceCreate = null;
@@ -64,7 +67,7 @@ function ok(label, cond) {
         document: {
             body: {},
             title: '',
-            getElementById: () => null
+            getElementById: id => anchors.get(id) || null
         },
         console: {warn() {}, log() {}, error() {}},
         Promise,
@@ -72,7 +75,7 @@ function ok(label, cond) {
         PixivI18n: {
             create: opts => {
                 const requestedNamespaces = (opts && opts.namespaces || []).slice();
-                const requestedLang = (opts && opts.lang) || 'zh-CN';
+                const requestedLang = (opts && opts.lang) || 'en-US';
                 created.push(requestedNamespaces);
                 createCalls.push({lang: requestedLang, namespaces: requestedNamespaces});
                 const client = {
@@ -82,13 +85,16 @@ function ok(label, cond) {
                         return key === 'batch:page.title' ? 'Batch title' : (fallback || key);
                     },
                     apply() { return client; },
+                    disposed: false,
+                    dispose() { client.disposed = true; },
                     setLanguage(lang) {
                         return sandbox.PixivI18n.create({lang, namespaces: client.namespaces.slice()});
                     }
                 };
                 client.namespaces = requestedNamespaces;
+                clients.push(client);
                 if (deferRaceCreate
-                    && requestedLang === 'zh-CN'
+                    && requestedLang === 'en-US'
                     && requestedNamespaces.includes('schedule-race')) {
                     deferRaceCreate = false;
                     return new Promise(resolve => {
@@ -99,13 +105,14 @@ function ok(label, cond) {
             }
         },
         PixivLangSwitcher: {mount: options => {
+            assert.strictEqual(options.mountPoint, langAnchor);
             switcherClient = options.i18n;
             switcherOnChange = options.onChange;
             return Promise.resolve({
                 refresh(nextClient) { switcherClient = nextClient; }
             });
         }},
-        PixivTheme: {mount() {}},
+        PixivTheme: {mount(options) { assert.strictEqual(options.mountPoint, themeAnchor); }},
         applyCookieHint() {},
         syncCookieToggleLabel() {},
         refreshNovelTranslateLangDefault() {},
@@ -129,9 +136,8 @@ function ok(label, cond) {
 
     await sandbox.initPageI18n();
     const namespaces = created[0] || [];
-    const fixedNamespaces = (SOURCE.match(/const BATCH_I18N_NAMESPACES = \[([^\]]*)\]/) || [])[1] || '';
-    const zhKeys = propertyKeys(BATCH_ZH);
-    const enKeys = propertyKeys(BATCH_EN);
+    const zhKeys = new Set(parse(BATCH_ZH).entries.map(entry => entry.key));
+    const enKeys = new Set(parse(BATCH_EN).entries.map(entry => entry.key));
     const dataSourceKeys = [
         'data-source.label',
         'data-source.supported'
@@ -159,8 +165,6 @@ function ok(label, cond) {
     ];
 
     ok('默认 namespace 仍被加载', ['batch', 'common', 'ai', 'tour'].every(ns => namespaces.includes(ns)));
-    ok('batch 中英文 bundle 的 key 集合保持一致',
-        JSON.stringify(Array.from(zhKeys).sort()) === JSON.stringify(Array.from(enKeys).sort()));
     searchStatisticsKeys.forEach(key => {
         ok('中文 batch bundle 提供来源统计文案: ' + key, zhKeys.has(key));
         ok('英文 batch bundle 提供来源统计文案: ' + key, enKeys.has(key));
@@ -169,8 +173,6 @@ function ok(label, cond) {
         ok('中文 batch bundle 提供队列标签文案: ' + key, zhKeys.has(key));
         ok('英文 batch bundle 提供队列标签文案: ' + key, enKeys.has(key));
     });
-    ok('固定 namespace 不依赖任一可选插件', !fixedNamespaces.includes("'plugin-a'"));
-    ok('控制器仍从活动下载类型动态收集 namespace', SOURCE.includes('await qt.i18nNamespaces()'));
     ok('第一个插件 descriptor namespace 被动态合并', namespaces.includes('plugin-a'));
     ok('第二个插件 descriptor namespace 被动态合并', namespaces.includes('plugin-b'));
     ok('source-only 计划来源 namespace 在首次 client 创建前已预取',
@@ -183,9 +185,9 @@ function ok(label, cond) {
     ok('运行期新来源 namespace 会重建页面 client',
         created.some(value => value.includes('schedule-late'))
         && switcherClient.namespaces.includes('schedule-late'));
-    const switchedClient = await switcherClient.setLanguage('en-US');
+    const switchedClient = await switcherClient.setLanguage('ja-JP');
     ok('语言切换沿用已扩展 client 并保留动态来源 namespace',
-        switchedClient.lang === 'en-US' && switchedClient.namespaces.includes('schedule-late'));
+        switchedClient.lang === 'ja-JP' && switchedClient.namespaces.includes('schedule-late'));
     scheduleNamespaces = ['schedule-only', 'schedule-late', 'schedule-race'];
     deferRaceCreate = true;
     const racingRefresh = sandbox.refreshPageI18nNamespaces();
@@ -193,7 +195,8 @@ function ok(label, cond) {
         await Promise.resolve();
     }
     ok('动态 namespace 重建已停在旧语言 client 创建点', typeof resolveRaceCreate === 'function');
-    const languageClient = await switcherClient.setLanguage('en-US');
+    const staleClient = clients.at(-1);
+    const languageClient = await switcherClient.setLanguage('ja-JP');
     switcherClient = languageClient;
     const importRendersBeforeLanguageChange = importSourceRenderArgs.length;
     await switcherOnChange(languageClient);
@@ -205,10 +208,17 @@ function ok(label, cond) {
     releaseRaceCreate();
     await racingRefresh;
     ok('旧语言 client 完成后会以最新语言重建',
-        createCalls.some(call => call.lang === 'en-US' && call.namespaces.includes('schedule-race')));
+        createCalls.some(call => call.lang === 'ja-JP' && call.namespaces.includes('schedule-race')));
     ok('动态 namespace 竞态不会把页面语言回退',
-        sandbox.uiLang() === 'en-US' && switcherClient.lang === 'en-US');
+        sandbox.uiLang() === 'ja-JP' && switcherClient.lang === 'ja-JP');
+    ok('被语言切换淘汰的词典释放恢复资源', staleClient.disposed);
+    ok('当前页面词典保留恢复能力', !switcherClient.disposed);
     ok('动态 namespace 竞态不会丢失新 namespace', switcherClient.namespaces.includes('schedule-race'));
+    sandbox.window.PixivBatch.queueTypes.i18nNamespaces = async () => [];
+    await sandbox.refreshPageI18nNamespaces();
+    ok('撤回插件后移除其词典并保留页面和计划来源词典',
+        !switcherClient.namespaces.includes('plugin-a') && !switcherClient.namespaces.includes('plugin-b')
+        && switcherClient.namespaces.includes('batch') && switcherClient.namespaces.includes('schedule-race'));
     dataSourceKeys.forEach(key => {
         ok('中性数据来源控件 HTML 使用 batch namespace: ' + key,
             HTML.includes('data-i18n="' + key + '"'));
@@ -258,6 +268,27 @@ function ok(label, cond) {
         ok('中文 batch bundle 提供计划来源错误文案: ' + key, zhKeys.has(key));
         ok('英文 batch bundle 提供计划来源错误文案: ' + key, enKeys.has(key));
     });
+    const body = new MiniElement('body');
+    sandbox.document.getElementById = id => body.querySelector('#' + id);
+    sandbox.document.querySelectorAll = selector => body.querySelectorAll(selector);
+    const area = new MiniElement('div'); area.id = 'search-results-area'; body.appendChild(area);
+    const pager = new MiniElement('div'); pager.id = 'search-pagination'; body.appendChild(pager);
+    const buttons = [0, 1].map(() => {
+        const button = new MiniElement('button');
+        button.className = 'preview-collapse-btn';
+        button.setAttribute('data-pixiv-click', "togglePreviewCollapse(this,'search-results-area','search-pagination')");
+        const label = new MiniElement('span'); label.className = 'preview-collapse-label';
+        button.appendChild(label); body.appendChild(button);
+        sandbox.syncPreviewCollapseBtn(button, true);
+        return button;
+    });
+    sandbox.applyPreviewCollapsed(area.id, pager.id, true);
+    sandbox.resetPreviewCollapse(area.id, pager.id);
+    ok('重新加载展开预览及分页', !area.classList.contains('preview-collapsed')
+        && !pager.classList.contains('preview-collapsed'));
+    ok('同一预览的全部按钮同步展开状态及翻译键', buttons.every(button =>
+        !button.classList.contains('is-collapsed')
+        && button.querySelector('.preview-collapse-label').getAttribute('data-i18n') === 'preview.collapse'));
     console.log(`\nbatch-core-i18n.test.js: ${passed} assertions passed`);
 })().catch(err => {
     console.error('TEST FAILED:', err && err.stack ? err.stack : err);

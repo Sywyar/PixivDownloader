@@ -149,6 +149,8 @@
         if (!panel) return;
         if (!panel.hidden) {
             panel.hidden = true;
+            schedulePendingRequests.get(Number(id))?.abort();
+            schedulePendingRequests.delete(Number(id));
             return;
         }
         panel.hidden = false;
@@ -156,15 +158,27 @@
     }
 
     async function loadPendingPanel(id) {
+        id = Number(id);
         const panel = document.getElementById(`schedule-pending-${id}`);
-        if (!panel) return;
+        if (!panel || panel.hidden || state.mode !== 'schedule'
+                || document.visibilityState === 'hidden') return;
+        schedulePendingRequests.get(id)?.abort();
+        const request = new AbortController();
+        schedulePendingRequests.set(id, request);
+        const current = () => schedulePendingRequests.get(id) === request && !request.signal.aborted
+            && state.mode === 'schedule' && document.visibilityState !== 'hidden' && !panel.hidden
+            && document.getElementById(`schedule-pending-${id}`) === panel;
         try {
-            const res = await fetch(`${BASE}/api/schedule/tasks/${id}/pending`, {credentials: 'same-origin'});
+            const res = await fetch(`${BASE}/api/schedule/tasks/${id}/pending`, {
+                credentials: 'same-origin', signal: request.signal
+            });
+            if (!current()) return;
             if (!res.ok) {
                 panel.innerHTML = `<div class="schedule-pending-empty">${escHtml(bt('schedule.pending.load-failed', '加载待重试列表失败'))}</div>`;
                 return;
             }
             const items = await res.json();
+            if (!current()) return;
             if (!Array.isArray(items) || items.length === 0) {
                 panel.innerHTML = `<div class="schedule-pending-empty">${escHtml(bt('schedule.pending.empty', '暂无待重试作品'))}</div>`;
                 return;
@@ -196,7 +210,9 @@
                     id, button.dataset.workType, button.dataset.workId));
             });
         } catch (e) {
-            panel.innerHTML = `<div class="schedule-pending-empty">${escHtml(bt('schedule.pending.load-failed', '加载待重试列表失败'))}</div>`;
+            if (current()) panel.innerHTML = `<div class="schedule-pending-empty">${escHtml(bt('schedule.pending.load-failed', '加载待重试列表失败'))}</div>`;
+        } finally {
+            if (schedulePendingRequests.get(id) === request) schedulePendingRequests.delete(id);
         }
     }
 

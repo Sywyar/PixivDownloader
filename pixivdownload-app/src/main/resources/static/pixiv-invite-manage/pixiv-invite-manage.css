@@ -213,7 +213,6 @@ html[data-theme="dark"] .badge-unused { color: #f87171; }
     table {
         display: block;
         overflow-x: auto;
-        min-width: 640px;
         border-radius: 8px;
     }
 

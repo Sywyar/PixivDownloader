@@ -115,7 +115,6 @@ function makeScheduleBox(id) {
 const vueContext = vm.createContext({console}, {codeGeneration: {strings: false, wasm: false}});
 vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../../../../pixivdownload-app/src/main/resources/static/vendor/vue/vue.global.prod.js'), 'utf8'), vueContext);
 const realVue = vueContext.Vue;
-function makeVueRuntime() { return realVue; }
 function renderNodes(component) {
     const root = component.render.call(realVue.proxyRefs(component.setup ? component.setup() : {}));
     const nodes = [];
@@ -137,9 +136,8 @@ function currentText(api) {
 
 function makePixivVue(opts, record) {
     opts = opts || {};
-    const vue = makeVueRuntime();
     return {
-        ensure: () => opts.ensureFail ? Promise.reject(new Error('runtime load failed')) : Promise.resolve(vue),
+        ensure: () => opts.ensureFail ? Promise.reject(new Error('runtime load failed')) : Promise.resolve(realVue),
         mountOn: (el, comp) => {
             record.mounts.push({ el, comp });
             if (opts.mountFail) return Promise.resolve(null);
@@ -182,6 +180,7 @@ function loadVue(opts) {
         queueItemCanonicalUrl: item => item && item.canonicalUrl ? item.canonicalUrl : 'https://www.pixiv.net/artworks/' + (item && item.id),
         queueItemMessage: q => q && q.lastMessage ? q.lastMessage : '排队中',
         progressExtrasModel: q => (q && q.extras) ? [{key: 'fixture', text: q.extras}] : [],
+        queueProgressSnapshot: q => Object.assign({}, q),
         // 当前卡派生口径桩（alt-queue.js 顶层函数；此处隔离注入，与真实实现同语义：暂停期间仍展示收尾下载项）。
         currentFrontItem: (queue, isPaused) => {
             const downloading = queue.find(q => q.status === 'downloading');
@@ -226,6 +225,7 @@ function loadVue(opts) {
     sandbox.window.PixivBatchAlt = {};
     if (opts.pixivVue !== false) sandbox.PixivVue = makePixivVue(opts.vueOpts, record);
     vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../../main/resources/static/pixiv-batch/queue-row-sync.js'), 'utf8'), sandbox);
     vm.runInContext(VUE_SRC, sandbox);
     return { sandbox, document, record, state: stateObj, dockState: dockStateObj,
         api: sandbox.window.PixivBatchAlt.queueVue };

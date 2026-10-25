@@ -56,7 +56,7 @@ public class EdgeTtsVersionService {
     }
 
     void loadFromDisk() {
-        Path versionFile = versionFile();
+        Path versionFile = runtimeFiles.chromiumVersionFile();
         try {
             if (Files.isRegularFile(versionFile)) {
                 String cached = Files.readString(versionFile, StandardCharsets.UTF_8).trim();
@@ -123,7 +123,7 @@ public class EdgeTtsVersionService {
     }
 
     private void persist(String version) {
-        Path versionFile = versionFile();
+        Path versionFile = runtimeFiles.chromiumVersionFile();
         try {
             Path parent = versionFile.getParent();
             if (parent != null) {
@@ -133,10 +133,6 @@ public class EdgeTtsVersionService {
         } catch (Exception e) {
             log.warn(logMessage("tts.log.version-cache-write-failed", e.getMessage()));
         }
-    }
-
-    private Path versionFile() {
-        return runtimeFiles.chromiumVersionFile();
     }
 
     private static boolean isValidVersion(String v) {

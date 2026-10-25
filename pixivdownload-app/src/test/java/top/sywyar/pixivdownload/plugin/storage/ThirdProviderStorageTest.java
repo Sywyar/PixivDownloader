@@ -52,7 +52,7 @@ class ThirdProviderStorageTest {
                     .compare(target, registry.mergedSchema()).matches()).isTrue();
             new top.sywyar.pixivdownload.maintenance.tasks.DatabaseOptimizeTask(pool, target)
                     .execute(new top.sywyar.pixivdownload.plugin.api.maintenance.MaintenanceContext("fixture", 1L));
-            var transactions = new top.sywyar.pixivdownload.core.db.DatabaseConfig(null, null, null).transactionManager(pool, target);
+            var transactions = new top.sywyar.pixivdownload.core.db.DatabaseConfig(null, null).transactionManager(pool, target);
             var database = new top.sywyar.pixivdownload.core.db.MainDatabase(pool, target, registry, transactions);
             var authors = new top.sywyar.pixivdownload.author.AuthorMapper(database);
             assertThat(authors.insertIfAbsent(9007199254740993L, "作\0者 🌸\0", 1700000000123L)).isOne();
@@ -106,7 +106,7 @@ class ThirdProviderStorageTest {
         var provider = new H2ContractProvider();
         var selected = new DatabaseProviderSelection.Result(provider.id(), provider.databaseId(), Optional.of(provider),
                 DatabaseProviderSelection.Failure.NONE);
-        var file = new top.sywyar.pixivdownload.gui.config.TestDesktopConfigFile(directory.resolve("config.yaml"));
+        var file = new top.sywyar.pixivdownload.gui.config.ConfigFileEditor(directory.resolve("config.yaml")).asConfigFile();
         var draft = Map.of("database.provider", provider.id(), "database.jdbc-url",
                 "contract:settings_" + UUID.randomUUID().toString().replace("-", ""));
         file.writeAll(draft);

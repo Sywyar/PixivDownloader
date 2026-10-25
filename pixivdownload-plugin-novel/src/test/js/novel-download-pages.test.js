@@ -14,7 +14,7 @@ const download = readFileSync(resolve(__dirname,
 function pageContext(page, fetch) {
     const context = vm.createContext({
         fetch, TextDecoder, Uint8Array,
-        window: {PixivBatch: {}, PixivBatchAlt: {settings: {}}},
+        window: {addEventListener() {}, PixivBatch: {}, PixivBatchAlt: {settings: {}}},
         document: {
             getElementById: () => ({style: {}, appendChild() {}}),
             createElement: () => ({})
@@ -23,7 +23,7 @@ function pageContext(page, fetch) {
     const html = readFileSync(resolve(workbench, page), 'utf8');
     // 由实际页面依赖加载网络与设置模块，防止测试自行补入页面遗漏的函数。
     for (const [, src] of html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/g)) {
-        if (!/\/(batch-(fetch-json|download-quota|settings)|alt-settings)\.js$/.test(src)) continue;
+        if (!/\/(batch-(fetch-json|archive|download-quota|settings)|alt-settings|filename-template)\.js$/.test(src)) continue;
         vm.runInContext(readFileSync(resolve(workbench, '.' + src), 'utf8'), context,
             {filename: src});
     }

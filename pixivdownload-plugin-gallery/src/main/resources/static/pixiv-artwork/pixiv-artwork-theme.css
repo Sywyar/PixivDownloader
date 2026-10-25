@@ -15,8 +15,11 @@
             color: var(--text-secondary);
         }
 
-        /* 删除按钮在暗色模式下保持实心红，覆盖上面 .expand-btn / .btn 的暗色背景 */
-        html[data-theme="dark"] .delete-btn,
+        html[data-theme="dark"] .delete-btn {
+            color: var(--danger);
+            border-color: var(--danger);
+        }
+
         html[data-theme="dark"] .btn-danger {
             background: var(--danger);
             border-color: var(--danger);
@@ -53,55 +56,70 @@
 
         @media (max-width: 37.5em) {
             .topbar {
-                align-items: stretch;
-                flex-wrap: wrap;
-                gap: 10px;
-                padding: .75rem var(--layout-inset-right) .75rem var(--layout-inset-left);
+                gap: .375rem .5rem;
+                padding: .5rem var(--layout-inset-right) .5rem var(--layout-inset-left);
             }
 
             .back-btn {
-                flex: 1 1 130px;
-                justify-content: center;
+                min-width: 0;
+                padding: .375rem .5rem;
             }
 
             .topbar-title {
                 flex: 1 1 100%;
-                order: -1;
+                order: 1;
                 min-width: 0;
             }
 
             .topbar-actions {
-                width: 100%;
-                margin-left: 0;
+                max-width: 100%;
+                flex-wrap: wrap;
                 justify-content: flex-end;
+                gap: .375rem;
             }
 
             .wrapper {
-                padding: 1rem 0;
+                padding: .75rem 0;
                 gap: var(--layout-gap);
             }
 
             .panel {
-                padding: var(--layout-panel-padding);
+                padding: .75rem;
                 border-radius: 8px;
             }
 
-            .viewer-actions,
+            .viewer { gap: .5rem; }
+
+            .viewer-actions {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(min(100%, 7.5rem), 1fr));
+                gap: .5rem;
+            }
+
             .viewer-series-nav {
                 align-items: stretch;
             }
 
             .viewer-actions .expand-btn,
             .viewer-actions .heart-btn,
-            .viewer-actions .delete-btn,
+            .viewer-actions .delete-btn {
+                min-width: 0;
+                padding: .5rem;
+                justify-content: center;
+                overflow-wrap: anywhere;
+            }
+
+            .viewer-actions .delete-btn {
+                grid-column: -2 / -1;
+            }
+
             .viewer-series-nav .expand-btn {
-                flex: 1 1 150px;
+                flex: 1 1 8.5rem;
                 justify-content: center;
             }
 
             .meta-info {
-                flex: 1 1 100%;
-                margin-left: 0;
+                overflow-wrap: anywhere;
             }
 
             .related-grid {

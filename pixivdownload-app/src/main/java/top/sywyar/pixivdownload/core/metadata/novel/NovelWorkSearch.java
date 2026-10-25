@@ -1,6 +1,6 @@
 package top.sywyar.pixivdownload.core.metadata.novel;
 
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
+import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.metadata.CoreWorkQueryService;
 
 import lombok.RequiredArgsConstructor;
@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.core.db.TagDto;
 import top.sywyar.pixivdownload.core.work.query.WorkQuery;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -31,43 +32,17 @@ public class NovelWorkSearch {
     private static final int AUTHOR_NAME_BATCH_SIZE = 500;
 
     private final NovelMetadataRepository novelMetadataRepository;
-    private final NovelGalleryRepository novelGalleryRepository;
     private final AuthorService authorService;
 
     /**
      * 按查询条件返回命中的全部 novelId（已按 {@code sort} / {@code order} 排好序，未分页，
      * 软删除行已过滤）；分页数学由调用方完成。
      */
-    public List<Long> filteredIds(WorkQuery q, GuestRestriction restriction) {
+    public List<Long> filteredIds(WorkQuery q) {
+        WorkRestriction restriction = q.restriction();
         if (restriction != null && q.collectionIds() != null
                 && q.collectionIds().stream().anyMatch(id -> id == null || !restriction.isCollectionVisible(id))) {
             return List.of();
-        }
-        Set<Long> idCandidates;
-        if (q.collectionIds() != null && !q.collectionIds().isEmpty()) {
-            // 多收藏夹取并集（与 pixiv-gallery 收藏夹筛选语义一致：勾选任一即可见）
-            idCandidates = new HashSet<>();
-            for (Long cid : q.collectionIds()) {
-                if (cid == null) continue;
-                idCandidates.addAll(novelMetadataRepository.getNovelIdsInCollection(cid));
-            }
-            if (idCandidates.isEmpty()) {
-                return List.of();
-            }
-        } else {
-            idCandidates = null;
-        }
-        // 访客可见性下沉到 SQL：把可见 id 集合与 collection 过滤求交集
-        if (restriction != null) {
-            Set<Long> visible = novelGalleryRepository.findVisibleNovelIdSet(restriction);
-            if (idCandidates == null) {
-                idCandidates = visible;
-            } else {
-                idCandidates.retainAll(visible);
-            }
-            if (idCandidates.isEmpty()) {
-                return List.of();
-            }
         }
         String searchType = q.searchType() == null ? "all" : q.searchType();
         String searchRaw = q.search() == null ? "" : q.search().trim();
@@ -75,13 +50,8 @@ public class NovelWorkSearch {
         Long searchId = parseLongOrNull(searchRaw);
         boolean searchUsesAuthorNames = !searchRaw.isEmpty() && usesAuthorNameSearch(searchType);
         Set<Long> searchAuthorIds = searchUsesAuthorNames ? new LinkedHashSet<>() : Set.of();
-        List<Long> allIds = novelMetadataRepository.getAllNovelIdsSortedByTimeDesc();
-        List<NovelMetadataRow> candidateRecords = new ArrayList<>();
-        for (Long id : allIds) {
-            if (idCandidates != null && !idCandidates.contains(id)) continue;
-            NovelMetadataRow r = novelMetadataRepository.getNovel(id);
-            if (r == null) continue;
-            candidateRecords.add(r);
+        List<NovelMetadataRow> candidateRecords = novelMetadataRepository.findSearchCandidates(q);
+        for (NovelMetadataRow r : candidateRecords) {
             if (searchUsesAuthorNames && r.authorId() != null && r.authorId() > 0) {
                 searchAuthorIds.add(r.authorId());
             }
@@ -233,7 +203,7 @@ public class NovelWorkSearch {
     private static boolean matchAuthorFilter(Long authorId, Set<Long> must, Set<Long> not, Set<Long> or) {
         long a = authorId == null ? 0L : authorId;
         if (!must.isEmpty() && !must.contains(a)) return false;
-        if (!not.isEmpty() && not.contains(a)) return false;
+        if (not.contains(a)) return false;
         if (!or.isEmpty() && !or.contains(a)) return false;
         return true;
     }
@@ -241,7 +211,7 @@ public class NovelWorkSearch {
     private static boolean matchSeriesFilter(Long seriesId, Set<Long> must, Set<Long> not) {
         long s = seriesId == null ? 0L : seriesId;
         if (!must.isEmpty() && !must.contains(s)) return false;
-        if (!not.isEmpty() && not.contains(s)) return false;
+        if (not.contains(s)) return false;
         return true;
     }
 
@@ -251,13 +221,8 @@ public class NovelWorkSearch {
         for (var t : novelMetadataRepository.getNovelTags(novelId)) {
             if (t.getTagId() != null) ownedTagIds.add(t.getTagId());
         }
-        for (Long m : must) if (!ownedTagIds.contains(m)) return false;
-        for (Long n : not) if (ownedTagIds.contains(n)) return false;
-        if (!or.isEmpty()) {
-            boolean any = false;
-            for (Long o : or) if (ownedTagIds.contains(o)) { any = true; break; }
-            if (!any) return false;
-        }
-        return true;
+        return ownedTagIds.containsAll(must)
+                && Collections.disjoint(ownedTagIds, not)
+                && (or.isEmpty() || !Collections.disjoint(ownedTagIds, or));
     }
 }

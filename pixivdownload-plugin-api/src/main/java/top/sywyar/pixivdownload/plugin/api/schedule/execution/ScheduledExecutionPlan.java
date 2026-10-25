@@ -54,7 +54,7 @@ public record ScheduledExecutionPlan(
         }
         requiredWorkTypes = Set.copyOf(requiredWorkTypes);
         for (String workType : requiredWorkTypes) {
-            if (workType == null || workType.isBlank()) {
+            if (workType.isBlank()) {
                 throw new IllegalArgumentException("required work type must not be blank");
             }
         }

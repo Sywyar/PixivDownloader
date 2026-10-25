@@ -14,7 +14,7 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** 计划任务通知模板的实际所有者；构造时一次性物化中英文 mail/push/inbox 纯值。 */
+/** 计划任务通知模板的实际所有者；构造时按支持语言一次性物化 mail/push/inbox 纯值。 */
 public final class ScheduleNotificationTemplateContributor implements NotificationTemplateContributor {
 
     private static final Pattern I18N_PLACEHOLDER =
@@ -47,18 +47,20 @@ public final class ScheduleNotificationTemplateContributor implements Notificati
                         locale,
                         message(messages, locale, "mail.template." + id + ".subject"),
                         resolveI18n(html, locale, messages)));
+                String pushTitle = message(messages, locale, "push.message." + id + ".title");
+                String pushBody = message(messages, locale, "push.message." + id + ".body");
                 result.add(new NotificationTemplateContribution(
                         id,
                         "push",
                         locale,
-                        message(messages, locale, "push.message." + id + ".title"),
-                        message(messages, locale, "push.message." + id + ".body")));
+                        pushTitle,
+                        pushBody));
                 result.add(new NotificationTemplateContribution(
                         id,
                         "inbox",
                         locale,
-                        message(messages, locale, "push.message." + id + ".title"),
-                        message(messages, locale, "push.message." + id + ".body")));
+                        pushTitle,
+                        pushBody));
             }
         }
         return List.copyOf(result);

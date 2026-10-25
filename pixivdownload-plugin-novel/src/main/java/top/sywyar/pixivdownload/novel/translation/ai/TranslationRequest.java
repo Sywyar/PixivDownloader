@@ -123,7 +123,7 @@ public record TranslationRequest(String targetLanguage, String sourceText,
         String lang = targetLanguage == null ? "" : targetLanguage.trim();
         String text = sourceText == null ? "" : sourceText;
         StringBuilder userPrompt = new StringBuilder("Target language: ").append(lang);
-        String glossaryJson = glossaryJson();
+        String glossaryJson = jsonOf(glossary);
         if (glossaryJson != null) {
             userPrompt.append("\n\nGlossary (preferred term translations):\n").append(glossaryJson);
         }
@@ -139,13 +139,13 @@ public record TranslationRequest(String targetLanguage, String sourceText,
                 AiChatMessage.user(userPrompt.toString()));
     }
 
-    /** 把映射表序列化为 JSON 数组字符串；为空（或序列化失败）时返回 {@code null}（不附带映射段）。 */
-    private String glossaryJson() {
-        if (glossary == null || glossary.isEmpty()) {
+    /** 可选列表为空或序列化失败时返回 {@code null}，省略对应的提示词段落。 */
+    static String jsonOf(List<?> list) {
+        if (list == null || list.isEmpty()) {
             return null;
         }
         try {
-            return MAPPER.writeValueAsString(glossary);
+            return MAPPER.writeValueAsString(list);
         } catch (JsonProcessingException e) {
             return null;
         }

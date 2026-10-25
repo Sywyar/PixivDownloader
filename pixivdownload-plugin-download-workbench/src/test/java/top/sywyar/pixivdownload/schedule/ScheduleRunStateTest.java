@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.schedule;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -28,17 +30,21 @@ class ScheduleRunStateTest {
 
         state.clear(claim);
         assertThat(state.get(1L)).isNull();
+        assertThat(state.markRunning(claim)).isFalse();
+        assertThat(state.markRunning(null)).isFalse();
 
         ScheduleRunState.Claim next = state.tryMarkQueued(1L);
         assertThat(next).isNotNull();
         assertThat(next.claimId()).isNotEqualTo(claim.claimId());
+        assertThat(state.markRunning(claim)).isFalse();
         state.clear(claim);
         assertThat(state.get(1L)).isEqualTo(ScheduleRunState.QUEUED);
     }
 
-    @Test
-    @DisplayName("取消请求绑定当前 claim，并以 CANCEL_REQUESTED 覆盖界面镜像")
-    void shouldRequestCancelOnlyWhileClaimed() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("排队或运行时的取消请求绑定当前 claim，重复启动不能清除取消态")
+    void shouldRequestCancelOnlyWhileClaimed(boolean alreadyRunning) {
         ScheduleRunState state = new ScheduleRunState();
 
         // 任务空闲：requestCancel 是 no-op（DB 的 PAUSED + findDue 状态门已足够挡住调度）。
@@ -47,8 +53,12 @@ class ScheduleRunStateTest {
 
         ScheduleRunState.Claim claim = state.tryMarkQueued(7L);
         assertThat(state.isCancelRequested(7L)).isFalse();
+        if (alreadyRunning) {
+            assertThat(state.markRunning(claim)).isTrue();
+        }
 
         // 任务运行中：requestCancel 把当前 Claim 标为待取消，executor 在下个派发前抛 Pause 异常。
+        assertThat(state.requestCancel(7L)).isTrue();
         assertThat(state.requestCancel(7L)).isTrue();
         assertThat(state.isCancelRequested(7L)).isTrue();
         assertThat(state.get(7L)).isEqualTo(ScheduleRunState.CANCEL_REQUESTED);

@@ -8,7 +8,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.context.i18n.LocaleContextHolder;
 import top.sywyar.pixivdownload.author.AuthorService;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.db.ArtworkRecord;
@@ -20,7 +19,6 @@ import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.lenient;
@@ -45,7 +43,6 @@ class ArtworkMetadataRecoveryServiceTest {
 
     @BeforeEach
     void setUp() {
-        LocaleContextHolder.setLocale(Locale.SIMPLIFIED_CHINESE);
         recoveryService = new ArtworkMetadataRecoveryService(pixivDatabase, authorService, downloadConfig, APP_MESSAGES);
     }
 
@@ -173,10 +170,7 @@ class ArtworkMetadataRecoveryServiceTest {
             long artworkId = 55555L;
             Path dir = Files.createDirectories(tempDir.resolve(String.valueOf(artworkId)));
             Files.write(dir.resolve("55555_p0.jpg"), new byte[]{1});
-            String absolute = dir.toAbsolutePath().toString();
-            ArtworkRecord inserted = new ArtworkRecord(artworkId, "", absolute,
-                    1, "jpg", 1700000300L, false, null, null, null, null, null, "", 1L, null, null, null);
-            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null, inserted);
+            when(pixivDatabase.getArtwork(artworkId)).thenReturn(null);
 
             ArtworkRecord result = recoveryService.recoverMetadata(artworkId, null);
 

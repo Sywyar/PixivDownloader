@@ -43,8 +43,8 @@ public final class PluginCatalogRevocationAdmissionPolicy implements PluginArtif
                     "no last-good revocation snapshot is available");
         }
         for (PluginCatalogTrustStateStore.RevocationEntry entry : snapshot.entries()) {
-            if ("REVOKED".equals(entry.action()) && effective(entry.effectiveTime())
-                    && matches(entry, publisherId, request)) {
+            if ("REVOKED".equals(entry.action()) && PluginCatalogRevocationService.matches(entry,
+                    request.pluginId(), request.version(), request.sha256(), request.keyId(), publisherId)) {
                 return PluginArtifactAdmissionResult.reject("PLUGIN_REVOKED",
                         entry.scope() + ": " + entry.reasonCode());
             }
@@ -61,28 +61,4 @@ public final class PluginCatalogRevocationAdmissionPolicy implements PluginArtif
         return PluginArtifactAdmissionResult.allow();
     }
 
-    private static boolean matches(PluginCatalogTrustStateStore.RevocationEntry entry,
-                                   String publisherId, PluginArtifactAdmissionRequest request) {
-        return switch (entry.scope()) {
-            case "PACKAGE_SHA256" -> equalIgnoreCase(entry.packageSha256(), request.sha256());
-            case "PLUGIN_VERSION" -> equal(entry.pluginId(), request.pluginId())
-                    && equal(entry.version(), request.version());
-            case "SIGNING_KEY" -> equal(entry.keyId(), request.keyId());
-            case "PUBLISHER" -> equal(entry.publisherId(), publisherId);
-            default -> false;
-        };
-    }
-
-    private static boolean equal(String left, String right) { return left != null && left.equals(right); }
-    private static boolean equalIgnoreCase(String left, String right) {
-        return left != null && right != null && left.equalsIgnoreCase(right);
-    }
-
-    private static boolean effective(String value) {
-        try {
-            return !Instant.parse(value).isAfter(Instant.now());
-        } catch (RuntimeException failure) {
-            return false;
-        }
-    }
 }

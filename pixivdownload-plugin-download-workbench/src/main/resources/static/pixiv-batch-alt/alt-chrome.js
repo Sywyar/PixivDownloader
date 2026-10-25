@@ -141,6 +141,7 @@ function refreshCookieViews() {
 async function persistCookieEditor(container, type, raw, format, status) {
     const editor = container.closest('.ab-cookie') || container;
     if (editor.getAttribute('aria-busy') === 'true') return false;
+    if (cookieStorageKey(type) === 'pixiv_cookie') cancelCookieSync();
     editor.setAttribute('aria-busy', 'true');
     const controls = [...editor.querySelectorAll('button, input, textarea')].map(node => [node, node.disabled]);
     controls.forEach(([node]) => { node.disabled = true; });

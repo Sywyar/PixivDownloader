@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.gui.panel;
 
 import top.sywyar.pixivdownload.guiswing.SwingHost;
+import top.sywyar.pixivdownload.gui.SwingShellAction;
 
 import lombok.extern.slf4j.Slf4j;
 import top.sywyar.pixivdownload.gui.GuiErrorDialog;
@@ -17,6 +18,7 @@ import java.net.URI;
  */
 @Slf4j
 public class AboutPanel extends JPanel {
+    private final SwingShellAction shellAction = new SwingShellAction();
 
     private static final String LICENSE_TEXT = """
                                 GNU AFFERO GENERAL PUBLIC LICENSE
@@ -729,15 +731,17 @@ public class AboutPanel extends JPanel {
         link.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                try {
-                    Desktop.getDesktop().browse(new URI(SwingHost.host().projectUrl()));
-                } catch (Exception ex) {
-                    log.warn(SwingHost.host().message("gui.about.log.open-github-failed",
-                            SwingHost.host().projectUrl(), ex.getMessage()), ex);
-                    GuiErrorDialog.show(AboutPanel.this,
-                            GuiMessages.get("gui.dialog.error.title"),
-                            GuiMessages.get("gui.error.open-browser", ex.getMessage()));
-                }
+                shellAction.run(
+                        "gui-open-project-page",
+                        () -> SwingHost.host().openExternalUri(new URI(SwingHost.host().projectUrl())),
+                        ex -> {
+                            log.warn(SwingHost.host().message("gui.about.log.open-github-failed",
+                                    SwingHost.host().projectUrl(), ex.getMessage()), ex);
+                            GuiErrorDialog.show(AboutPanel.this,
+                                    GuiMessages.get("gui.dialog.error.title"),
+                                    GuiMessages.get("gui.error.open-browser", ex.getMessage()));
+                        }
+                );
             }
         });
         topPanel.add(link);
@@ -791,8 +795,7 @@ public class AboutPanel extends JPanel {
     }
 
     private static ImageIcon loadIcon(int size) {
-        try {
-            var stream = AboutPanel.class.getResourceAsStream("/static/favicon.ico");
+        try (var stream = AboutPanel.class.getResourceAsStream("/static/favicon.ico")) {
             if (stream != null) {
                 byte[] bytes = stream.readAllBytes();
                 Image img = Toolkit.getDefaultToolkit().createImage(bytes);

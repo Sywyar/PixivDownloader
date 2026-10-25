@@ -5,7 +5,6 @@ import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.mail.MailException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.JavaMailSenderImpl;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -51,27 +50,25 @@ public class MailService {
      */
     public void send(String subject, String htmlBody) {
         if (!mailConfig.isEnabled()) {
-            log.debug(logMessage("mail.log.send.skipped.disabled"));
+            log.debug(messages.getForLog("mail.log.send.skipped.disabled"));
             return;
         }
         MailSenderSettings settings = mailConfig.toSenderSettings();
         if (settings.host() == null || settings.host().isBlank()) {
-            log.warn(logMessage("mail.log.send.skipped.no-host"));
+            log.warn(messages.getForLog("mail.log.send.skipped.no-host"));
             return;
         }
         List<String> recipients = parseRecipients(settings.to());
         if (recipients.isEmpty()) {
-            log.warn(logMessage("mail.log.send.skipped.no-recipients"));
+            log.warn(messages.getForLog("mail.log.send.skipped.no-recipients"));
             return;
         }
 
         try {
             deliver(settings, recipients, subject, htmlBody);
-            log.info(logMessage("mail.log.send.success", joinRecipients(recipients), settings.host()));
-        } catch (MailException | MessagingException e) {
-            log.error(logMessage("mail.log.send.failed", safeMessage(e, settings.password())));
-        } catch (RuntimeException e) {
-            log.error(logMessage("mail.log.send.failed", safeMessage(e, settings.password())), e);
+            log.info(messages.getForLog("mail.log.send.success", String.join(", ", recipients), settings.host()));
+        } catch (MessagingException | RuntimeException e) {
+            log.error(messages.getForLog("mail.log.send.failed", safeMessage(e, settings.password())));
         }
     }
 
@@ -86,21 +83,21 @@ public class MailService {
      */
     public void sendTest(MailSenderSettings settings, String subject, String htmlBody) throws MailSendException {
         if (settings == null) {
-            throw new MailSendException(localized("mail.error.settings-missing"));
+            throw new MailSendException(messages.get("mail.error.settings-missing"));
         }
         if (settings.host() == null || settings.host().isBlank()) {
-            throw new MailSendException(localized("mail.error.host-missing"));
+            throw new MailSendException(messages.get("mail.error.host-missing"));
         }
         List<String> recipients = parseRecipients(settings.to());
         if (recipients.isEmpty()) {
-            throw new MailSendException(localized("mail.error.recipients-missing"));
+            throw new MailSendException(messages.get("mail.error.recipients-missing"));
         }
         try {
             deliver(settings, recipients, subject, htmlBody);
-            log.info(logMessage("mail.log.test.success", joinRecipients(recipients), settings.host()));
-        } catch (MessagingException | MailException e) {
+            log.info(messages.getForLog("mail.log.test.success", String.join(", ", recipients), settings.host()));
+        } catch (MessagingException | RuntimeException e) {
             String msg = safeMessage(e, settings.password());
-            log.warn(logMessage("mail.log.test.failed", msg));
+            log.warn(messages.getForLog("mail.log.test.failed", msg));
             throw new MailSendException(msg, e);
         }
     }
@@ -145,10 +142,6 @@ public class MailService {
      * 按设置即时构造 {@link JavaMailSender}。包级可见以便单测重写为返回 mock。
      */
     JavaMailSender createSender(MailSenderSettings settings) {
-        return buildSender(settings);
-    }
-
-    private static JavaMailSenderImpl buildSender(MailSenderSettings settings) {
         JavaMailSenderImpl sender = new JavaMailSenderImpl();
         sender.setHost(settings.host());
         sender.setPort(settings.port());
@@ -208,21 +201,17 @@ public class MailService {
         return out;
     }
 
-    private static String joinRecipients(List<String> recipients) {
-        return String.join(", ", recipients);
-    }
-
     /**
-     * 截取异常的可读摘要供日志 / GUI 显示。**绝不**回显密码：先遍历整个 cause 链合并 message，
-     * 把传入的 SMTP 密码 / 用户名 / 授权码逐字替换为 {@code [redacted]}（JavaMail 与一些 SMTP 错误
-     * 文案会原样回显客户端提交的认证字段），再截断到 500 字符。
+     * 合并至多八层异常摘要，替换其中的非空 SMTP 密码 / 授权码，再截断到 500 字符。
      */
     static String safeMessage(Throwable t, String password) {
         if (t == null) {
             return "unknown";
         }
         String msg = collectMessages(t);
-        msg = redactSecret(msg, password);
+        if (password != null && !password.isEmpty()) {
+            msg = msg.replace(password, "[redacted]");
+        }
         if (msg.length() > 500) {
             msg = msg.substring(0, 500) + "…";
         }
@@ -245,21 +234,6 @@ public class MailService {
             depth++;
         }
         return sb.length() == 0 ? t.getClass().getSimpleName() : sb.toString();
-    }
-
-    /** 把秘密原文逐字替换为 {@code [redacted]}；空 / 过短的秘密不替换以免误伤普通文本。 */
-    private static String redactSecret(String text, String secret) {
-        if (text == null || text.isEmpty()) return text;
-        if (secret == null || secret.length() < 4) return text;
-        return text.replace(secret, "[redacted]");
-    }
-
-    private String logMessage(String code, Object... args) {
-        return messages.getForLog(code, args);
-    }
-
-    private String localized(String code, Object... args) {
-        return messages.get(code, args);
     }
 
     /** 发送测试时透传给 GUI 的异常；message 已脱敏，可安全展示。 */

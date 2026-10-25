@@ -1,27 +1,48 @@
 'use strict';
+    let statisticsController = null;
+    let historyController = null;
+
+    function cancelDashboardRequests() {
+        statisticsController?.abort();
+        historyController?.abort();
+        statisticsController = historyController = null;
+    }
 
     // ===================== 统计 =====================
     async function loadStatistics() {
+        if (pageSuspended) return;
+        statisticsController?.abort();
+        const controller = statisticsController = new AbortController();
         try {
-            const res = await fetch('/api/downloaded/statistics');
-            if (!res.ok) return;
+            const res = await fetch('/api/downloaded/statistics', {signal: controller.signal});
+            if (!res.ok || controller.signal.aborted) return;
             const s = await res.json();
+            if (controller.signal.aborted) return;
             document.getElementById('totalArtworks').textContent = s.totalArtworks ?? 0;
             document.getElementById('totalImages').textContent   = s.totalImages   ?? 0;
             document.getElementById('totalMoved').textContent    = s.totalMoved    ?? 0;
-        } catch (e) { console.error(t('log.stats-failed', '统计加载失败'), e); }
+        } catch (e) {
+            if (!controller.signal.aborted) console.error(t('log.stats-failed', '统计加载失败'), e);
+        } finally {
+            if (statisticsController === controller) statisticsController = null;
+        }
     }
 
     // ===================== 全量数据 =====================
     async function loadAllDataForChart() {
+        if (pageSuspended) return;
+        historyController?.abort();
+        const controller = historyController = new AbortController();
         try {
             const [historyRes, authorRes] = await Promise.all([
-                fetch('/api/downloaded/history/paged?page=0&size=9999'),
-                fetch('/api/authors')
+                fetch('/api/downloaded/history/paged?page=0&size=9999', {signal: controller.signal}),
+                fetch('/api/authors', {signal: controller.signal})
             ]);
-            if (!historyRes.ok) return;
+            if (!historyRes.ok || controller.signal.aborted) return;
             const data = await historyRes.json();
+            if (controller.signal.aborted) return;
             const authors = authorRes.ok ? await authorRes.json() : [];
+            if (controller.signal.aborted) return;
             allArtworksCache = data.content ?? [];
             authorMap = new Map((authors || [])
                 .map(author => [normalizeAuthorId(author.authorId), author.name])
@@ -30,11 +51,15 @@
             updateAuthorFilterIcon();
             renderFromCache();
         } catch (e) {
+            if (controller.signal.aborted) return;
             console.error(t('log.data-failed', '数据加载失败'), e);
             document.getElementById('historyTableBody').innerHTML =
                 '<tr><td colspan="10" class="text-center" style="color:var(--red);padding:2rem;">'
                 + escapeHtml(t('status.load-failed-retry', 'LOAD FAILED — CLICK REFRESH TO RETRY'))
                 + '</td></tr>';
+        } finally {
+            controller.abort();
+            if (historyController === controller) historyController = null;
         }
     }
 
@@ -86,9 +111,8 @@
     }
 
     function renderSortHeaders() {
-        const cols = ['artworkId', 'title', 'count', 'authorId', 'time', 'moved', 'isR18', 'isAi'];
+        const cols = ['artworkId', 'title', 'count', 'authorId', 'time', 'moved', 'isR18'];
         cols.forEach(col => {
-            if (col === 'isAi') return;
             const th   = document.getElementById(`th-${col}`);
             const icon = document.getElementById(`sort-${col}`);
             if (!th || !icon) return;

@@ -1110,8 +1110,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             selectionMode = selectionMode == null ? SelectionMode.SINGLE : selectionMode;
             options = copyBounded(options, "options");
             selectedIds = copyBoundedStrings(selectedIds, "selectedIds");
-            Set<String> optionIds = new HashSet<>(options.stream().map(Option::id).toList());
-            requireUnique(options.stream().map(Option::id).toList(), "option id");
+            Set<String> optionIds = requireUnique(options.stream().map(Option::id).toList(), "option id");
             if (!optionIds.containsAll(selectedIds)) throw new IllegalArgumentException("selectedIds must reference options");
             if (selectionMode == SelectionMode.SINGLE && selectedIds.size() > 1) {
                 throw new IllegalArgumentException("single selection accepts at most one selected id");
@@ -1182,13 +1181,12 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             selectedRowIds = copyBoundedStrings(selectedRowIds, "selectedRowIds");
             if (columns.isEmpty()) throw new IllegalArgumentException("columns must not be empty");
             requireUnique(columns.stream().map(TableColumn::id).toList(), "column id");
-            requireUnique(rows.stream().map(TableRow::id).toList(), "row id");
+            Set<String> rowIds = requireUnique(rows.stream().map(TableRow::id).toList(), "row id");
             for (TableRow row : rows) {
                 if (row.cells().size() != columns.size()) {
                     throw new IllegalArgumentException("row cell count must match columns");
                 }
             }
-            Set<String> rowIds = new HashSet<>(rows.stream().map(TableRow::id).toList());
             if (!rowIds.containsAll(selectedRowIds)) {
                 throw new IllegalArgumentException("selectedRowIds must reference rows");
             }
@@ -1220,8 +1218,8 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
             selectedIds = copyBoundedStrings(selectedIds, "selectedIds");
             List<String> ids = new ArrayList<>();
             collectTreeIds(items, ids, 0);
-            requireUnique(ids, "tree item id");
-            if (!new HashSet<>(ids).containsAll(selectedIds)) {
+            Set<String> itemIds = requireUnique(ids, "tree item id");
+            if (!itemIds.containsAll(selectedIds)) {
                 throw new IllegalArgumentException("selectedIds must reference tree items");
             }
             if (selectionMode == SelectionMode.SINGLE && selectedIds.size() > 1) {
@@ -1803,8 +1801,10 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         return copy;
     }
 
-    private static void requireUnique(List<String> values, String name) {
-        if (new HashSet<>(values).size() != values.size()) throw new IllegalArgumentException("duplicate " + name);
+    private static Set<String> requireUnique(List<String> values, String name) {
+        Set<String> unique = new HashSet<>(values);
+        if (unique.size() != values.size()) throw new IllegalArgumentException("duplicate " + name);
+        return unique;
     }
 
     private static void collectTreeIds(List<TreeItem> items, List<String> ids, int depth) {

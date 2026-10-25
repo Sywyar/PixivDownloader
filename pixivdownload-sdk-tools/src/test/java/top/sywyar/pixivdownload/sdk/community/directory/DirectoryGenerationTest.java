@@ -26,7 +26,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.*;
 
-@DisplayName("目录完整代的分桶、签名、预算与原子采用")
+@DisplayName("目录完整代的分桶、签名与预算")
 class DirectoryGenerationTest {
     private static final String HASH = "ab".repeat(32);
     private static final String TIME = "2025-01-02T03:04:05Z";
@@ -42,7 +42,7 @@ class DirectoryGenerationTest {
         var reversed = new ArrayList<>(entries); java.util.Collections.reverse(reversed);
         var second = generate(1, reversed);
         assertThat(first.root().bytes()).isEqualTo(second.root().bytes());
-        var generation = f.store.adopt(first, f.sign(first));
+        var generation = f.verify(first, f.sign(first));
         assertThat(generation.root().shards()).hasSize(2);
         assertThat(generation.root().shards()).extracting(DirectoryGeneration.ShardReference::prefix).isSorted();
         assertThat(first.shards().values().stream().flatMap(d -> d.as(DirectoryGeneration.Shard.class).entries().stream()))
@@ -52,33 +52,18 @@ class DirectoryGenerationTest {
         }
         var higher = generate(2, entries);
         assertThat(higher.shards().keySet()).isEqualTo(first.shards().keySet());
-        assertThat(f.store.adopt(higher, f.sign(higher)).root().sequence()).isEqualTo(2);
+        assertThat(f.verify(higher, f.sign(higher)).root().sequence()).isEqualTo(2);
     }
 
     @Test
-    @DisplayName("同代同摘要返回原记录，回滚或同代不同字节拒绝并保留上一代")
-    void monotonicAndIdempotent() throws Exception {
-        var f = new Fixture();
-        var first = generate(2, List.of(entry("alpha", DirectoryEntry.Status.LISTED, null)));
-        var original = f.store.adopt(first, f.sign(first));
-        assertThat(f.store.adopt(first, f.sign(first))).isSameAs(original);
-        var older = generate(1, List.of());
-        assertThatThrownBy(() -> f.store.adopt(older, f.sign(older))).isInstanceOf(ContractException.class);
-        var conflict = generate(2, List.of(entry("beta", DirectoryEntry.Status.LISTED, null)));
-        assertThatThrownBy(() -> f.store.adopt(conflict, f.sign(conflict))).isInstanceOf(ContractException.class);
-        assertThat(f.store.current()).isSameAs(original);
-    }
-
-    @Test
-    @DisplayName("缺失分片、错摘要、错桶及签名失败均不能部分切换入口")
-    void failedCandidateKeepsPrevious() throws Exception {
+    @DisplayName("整代校验拒绝缺失分片、错摘要、错桶及无效签名")
+    void rejectsInvalidCandidate() throws Exception {
         var f = new Fixture();
         var first = generate(1, List.of(entry("alpha", DirectoryEntry.Status.LISTED, null)));
-        var original = f.store.adopt(first, f.sign(first));
         var next = generate(2, List.of(entry("beta", DirectoryEntry.Status.LISTED, null)));
-        assertThatThrownBy(() -> f.store.adopt(new DirectoryGeneration.Candidate(next.root(), Map.of()), f.sign(next)))
+        assertThatThrownBy(() -> f.verify(new DirectoryGeneration.Candidate(next.root(), Map.of()), f.sign(next)))
                 .isInstanceOf(ContractException.class);
-        assertThatThrownBy(() -> f.store.adopt(next, f.sign(first))).isInstanceOf(ContractException.class);
+        assertThatThrownBy(() -> f.verify(next, f.sign(first))).isInstanceOf(ContractException.class);
         var shard = next.shards().values().iterator().next();
         var data = (ObjectNode) shard.value();
         ((ObjectNode) data.get("entries").get(0)).put("repositoryId", "alpha");
@@ -87,10 +72,9 @@ class DirectoryGenerationTest {
         ((ObjectNode) root.get("shards").get(0)).put("size", changed.bytes().length).put("sha256", changed.sha256());
         var wrongBucket = new DirectoryGeneration.Candidate(CommunityJson.parse(CommunityJson.Kind.DIRECTORY_ROOT, CommunityJson.encode(root)),
                 Map.of(changed.sha256(), changed));
-        assertThatThrownBy(() -> f.store.adopt(wrongBucket, f.sign(wrongBucket))).isInstanceOf(ContractException.class);
+        assertThatThrownBy(() -> f.verify(wrongBucket, f.sign(wrongBucket))).isInstanceOf(ContractException.class);
         var mismatch = new DirectoryGeneration.Candidate(next.root(), Map.of(shard.sha256(), changed));
-        assertThatThrownBy(() -> f.store.adopt(mismatch, f.sign(next))).isInstanceOf(ContractException.class);
-        assertThat(f.store.current()).isSameAs(original);
+        assertThatThrownBy(() -> f.verify(mismatch, f.sign(next))).isInstanceOf(ContractException.class);
     }
 
     @Test
@@ -125,13 +109,12 @@ class DirectoryGenerationTest {
             if (DirectoryGeneration.prefix(id).equals("ab")) entries.add(entry(id, DirectoryEntry.Status.LISTED, null));
         }
         var candidate = generate(1, entries);
-        var original = f.store.adopt(candidate, f.sign(candidate));
+        assertThat(f.verify(candidate, f.sign(candidate)).root().sequence()).isEqualTo(1);
         assertThat(candidate.shards()).hasSize(1);
         assertThat(candidate.shards().values().iterator().next().as(DirectoryGeneration.Shard.class).entries()).hasSize(513);
         var oversized = entries.stream().map(e -> entry(e.repositoryId(), DirectoryEntry.Status.LISTED, "x".repeat(2048))).toList();
         assertThatThrownBy(() -> generate(2, oversized)).isInstanceOfSatisfying(ContractException.class,
                 error -> assertThat(error.code()).isEqualTo("LIMIT_EXCEEDED"));
-        assertThat(f.store.current()).isSameAs(original);
     }
 
     @Test
@@ -178,13 +161,14 @@ class DirectoryGenerationTest {
     }
     private static final class Fixture {
         final KeyPair pair = KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
-        final DirectoryGenerations store;
         final PluginSupplyChainVerifier verifier;
         Fixture() throws Exception {
             var key = new TrustedPluginKey("Test:Directory", "Ed25519", Base64.getEncoder().encodeToString(pair.getPublic().getEncoded()),
                     TrustedPluginKey.State.ACTIVE, "example", "community", false);
             verifier = new PluginSupplyChainVerifier(PluginTrustStores.of(List.of(key)));
-            store = new DirectoryGenerations("test-catalog", ROOT_URL, verifier);
+        }
+        DirectoryGeneration verify(DirectoryGeneration.Candidate candidate, SignatureMetadata signature) {
+            return DirectoryGeneration.verify(candidate, ROOT_URL, "test-catalog", signature, verifier);
         }
         SignatureMetadata sign(DirectoryGeneration.Candidate candidate) throws Exception {
             var root = candidate.root().as(DirectoryGeneration.Root.class);

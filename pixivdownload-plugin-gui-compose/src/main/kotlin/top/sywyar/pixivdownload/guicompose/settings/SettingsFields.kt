@@ -325,8 +325,9 @@ internal fun SettingsFieldLabel(label: String, help: String, tag: String) {
 @Composable
 private fun ThemeChoices(node: Choice, text: (TextToken) -> String, emit: (Event) -> Unit) {
     val palette = LocalExperiencePalette.current
+    val previewIds = setOf("system", "light", "dark")
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        node.options().filter { it.id() in setOf("system", "light", "dark") }.forEach { option ->
+        node.options().filter { it.id() in previewIds }.forEach { option ->
             val active = option.id() in node.selectedIds()
             Column(Modifier.weight(1f).clip(RoundedCornerShape(9.dp))
                 .clickable(enabled = node.enabled() && option.enabled(), role = Role.RadioButton) {
@@ -355,7 +356,7 @@ private fun ThemeChoices(node: Choice, text: (TextToken) -> String, emit: (Event
             }
         }
     }
-    if (node.options().any { it.id() !in setOf("system", "light", "dark") }) {
+    if (node.options().any { it.id() !in previewIds }) {
         ComposeDesktopUiNodeRenderer.FormContent(node, text, emit, Modifier.fillMaxWidth().padding(top = 12.dp))
     }
 }

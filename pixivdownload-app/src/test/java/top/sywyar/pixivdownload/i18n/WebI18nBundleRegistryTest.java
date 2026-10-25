@@ -445,6 +445,28 @@ class WebI18nBundleRegistryTest {
     }
 
     @Test
+    @DisplayName("语言资源解析失败时关闭流且不发布不完整快照")
+    void malformedPropertiesCloseStreamWithoutPublishing() {
+        AtomicInteger closes = new AtomicInteger();
+        ClassLoader loader = new ClassLoader(null) {
+            @Override
+            public InputStream getResourceAsStream(String name) {
+                return new ByteArrayInputStream("value=\\uZZZZ\n".getBytes(StandardCharsets.UTF_8)) {
+                    @Override
+                    public void close() {
+                        closes.incrementAndGet();
+                    }
+                };
+            }
+        };
+        WebI18nBundleRegistry registry = emptyRegistry();
+        assertThatThrownBy(() -> registry.register("broken", loader, List.of(ns("broken"))))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(closes.get()).isPositive();
+        assertThat(registry.bundles()).isEmpty();
+    }
+
+    @Test
     @DisplayName("loadExact 只加载目标语言自己的物理文件，不隐式合并 root / 其它语言")
     void loadExactDoesNotMergeRootBundle() {
         ClassLoader loader = resourceClassLoader(Map.of(

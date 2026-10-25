@@ -2,78 +2,17 @@
 
 /** 自动触发流程与安全整数边界。 */
 const {
-    CONFIG_SOURCE,
-    CONFIG_SOURCE_PATH,
-    CONFIG_WINDOW,
-    CSS,
-    CSS_PATH,
-    EMBED_SOURCE,
-    EMBED_SOURCE_PATH,
     LAYOUT_IDS,
-    MiniClassList,
-    MiniCustomEvent,
-    MiniElement,
-    MiniEventTarget,
-    MiniStorage,
-    POSTHOG_SOURCE,
-    POSTHOG_SOURCE_PATH,
-    SEEN_KEY,
-    SERVER_RAW_UUID,
-    SERVER_SCOPED_ID,
-    SNOOZE_MS,
-    SOURCE,
-    SOURCES,
-    SOURCE_NAMES,
-    SOURCE_PATHS,
     STATE_KEY,
-    SUBMISSION_ID,
-    SUGGESTION_MAX,
-    SURVEY_ID,
-    ackEvents,
-    assert,
-    assertFailClosedInvariants,
-    captureEvents,
-    captureProps,
-    createFakeAdapter,
-    createFakeI18n,
-    createFakeTimers,
-    createHarness,
-    crossTabFallbackMatrix,
-    crossTabState,
-    dataAttributeName,
-    defaultSurvey,
-    directRefresh,
-    doesNotThrow,
     eq,
-    fs,
-    hasLoneSurrogates,
     initHarness,
-    jsonEq,
-    listenerCountFor,
-    localStateValue,
-    matchSelector,
-    neverView,
     ok,
-    openAndPrepareSubmit,
-    path,
-    refreshSecond,
-    refreshWith,
     reinitOptions,
     runTests,
-    seenObject,
-    seenSeed,
-    selectChoice,
     serverStateResponse,
-    snoozeStorageValue,
-    snoozedView,
-    submitWithCaptureOverride,
-    submittedView,
     surveyState,
-    validFirst,
-    vm,
     waitForFlush,
-    waitForServerContext,
-    walkAll
+    waitForServerContext
 } = require('./pixiv-layout-feedback-test-support');
 
 function testTriggerAfterServerSnoozeDeadline() {
@@ -415,7 +354,6 @@ function testTriggerOldGenerationIsolation() {
     }).then(() => {
         eq('generation 2 完成后只启动一次 SDK / Survey 流程', h.adapter.calls.getSurveys.length, 1);
         eq('弹窗最多一个', h.document.querySelectorAll('.plf-backdrop').length, 1);
-        eq('generation 2 没有启动第二条流程', h.adapter.calls.getSurveys.length, 1);
         eq('只有 generation 1 的请求被取消（abort 恰好一次）', h.serverAbortCalls.length, 1);
     });
 }

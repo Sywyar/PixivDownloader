@@ -91,7 +91,7 @@ class UpdateServiceTest {
             assertThat(result.getNightlyAlternative().isUpdateAvailable()).isTrue();
             assertThat(result.getNightlyAlternative().isNightly()).isTrue();
             assertThat(result.getNightlyAlternative().getLatestVersion()).isEqualTo("998.0.0-nightly.20260909.129.1");
-            assertThatThrownBy(() -> service.downloadInstaller(false)).isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> service.startDownloadAsync(false)).isInstanceOf(IllegalStateException.class);
             when(client.fetchBytes(nightlyUrl + ".sig", 16L * 1024L)).thenReturn(new byte[0]);
             assertThat(service.checkForUpdate(true).isCheckSucceeded()).isFalse();
             assertThat(service.checkForUpdate(false).getNightlyAlternative()).isNull();
@@ -193,6 +193,29 @@ class UpdateServiceTest {
     }
 
     @Test
+    @DisplayName("已签名的空清单、错误渠道和缺失版本在写入信任状态前被拒绝")
+    void rejectsSignedInvalidManifestBeforePublishingUpdate() throws Exception {
+        record InvalidManifest(String json, String reason) {}
+        SigningSupport signing = new SigningSupport();
+        var invalidManifests = java.util.List.of(
+                new InvalidManifest("null", "INVALID_MANIFEST"),
+                new InvalidManifest("{\"channel\":\"nightly\"}", "CHANNEL_MISMATCH"),
+                new InvalidManifest("{\"channel\":\"stable\",\"sequence\":10}", "INVALID_MANIFEST"),
+                new InvalidManifest("{\"channel\":\"stable\",\"sequence\":10,\"latestVersion\":\" \"}", "INVALID_MANIFEST"));
+        Path state = tempDir.resolve("trust.json");
+        for (InvalidManifest invalid : invalidManifests) {
+            byte[] body = invalid.json().getBytes(StandardCharsets.UTF_8);
+            UpdateCheckResult result = service(signing, body, signing.signature(body), state).checkForUpdate(true);
+
+            assertThat(result.isCheckSucceeded()).isFalse();
+            assertThat(result.isUpdateAvailable()).isFalse();
+            assertThat(result.getError()).isEqualTo(invalid.reason());
+            assertThat(result.getNightlyAlternative()).isNull();
+            assertThat(state).doesNotExist();
+        }
+    }
+
+    @Test
     @DisplayName("损坏的持久化高水位使更新检查 fail closed")
     void shouldRejectCorruptTrustState() throws Exception {
         SigningSupport signing = new SigningSupport();
@@ -259,6 +282,46 @@ class UpdateServiceTest {
     }
 
     @Test
+    @DisplayName("信任状态按实际读取字节限制大小，不依赖先前的文件大小")
+    void trustStateRejectsContentBeyondItsReadBudget() throws Exception {
+        Path state = tempDir.resolve("growing-trust.json");
+        String json = "{\"stableSequence\":0,\"nightlySequence\":0}";
+        Files.writeString(state, json + " ".repeat(4096 - json.length()), StandardCharsets.UTF_8);
+        assertThat(UpdateTrustState.read(state, MAPPER).stableSequence()).isZero();
+
+        Files.writeString(state, " ", StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.APPEND);
+        try (var files = mockStatic(Files.class, org.mockito.Mockito.CALLS_REAL_METHODS)) {
+            files.when(() -> Files.size(state)).thenReturn((long) json.length());
+            assertThatThrownBy(() -> UpdateTrustState.read(state, MAPPER)).isInstanceOf(IOException.class);
+        }
+    }
+
+    @Test
+    @DisplayName("循环异常链仍返回受控更新错误并保留原始异常")
+    void cyclicFailureReturnsControlledReason() {
+        class GuardedFailure extends IOException {
+            private int reads;
+
+            @Override
+            public synchronized Throwable getCause() {
+                assertThat(++reads).as("每个异常最多遍历一次").isEqualTo(1);
+                return super.getCause();
+            }
+        }
+        GuardedFailure first = new GuardedFailure();
+        GuardedFailure second = new GuardedFailure();
+        first.initCause(second);
+        second.initCause(first);
+
+        UpdateCheckException result = UpdateCheckException.classify(first, false);
+
+        assertThat(result.reason).isEqualTo(UpdateCheckException.Reason.UNKNOWN);
+        assertThat(result.getCause()).isSameAs(first);
+        assertThat(first.reads).isEqualTo(1);
+        assertThat(second.reads).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("HTTP 更新清单 URL 在联网前被拒绝")
     void shouldRejectHttpManifestBeforeNetwork() {
         UpdateConfig config = config();
@@ -297,8 +360,9 @@ class UpdateServiceTest {
             UpdateService service = new UpdateService(
                     config(), APP_MESSAGES, signing.verifier(), tempDir.resolve("trust.json"), provider);
 
-            assertThat(service.checkForUpdate(true).isUpdateAvailable()).isTrue();
-            assertThatThrownBy(() -> service.downloadInstaller(false))
+            UpdateCheckResult selected = service.checkForUpdate(true);
+            assertThat(selected.isUpdateAvailable()).isTrue();
+            assertThatThrownBy(() -> service.downloadInstaller(selected))
                     .isInstanceOf(IOException.class)
                     .hasMessageContaining("size mismatch");
             assertThat(part).doesNotExist();
@@ -332,7 +396,7 @@ class UpdateServiceTest {
                 new java.util.concurrent.atomic.AtomicReference<>();
         UpdateService service = new UpdateService(config(), APP_MESSAGES, mock(PluginCatalogClientProvider.class)) {
             @Override
-            UpdateDownloadResult downloadInstaller(UpdateCheckResult check) throws IOException {
+            void downloadInstaller(UpdateCheckResult check) throws IOException {
                 captured.set(check);
                 received.countDown();
                 try {
@@ -343,7 +407,6 @@ class UpdateServiceTest {
                     Thread.currentThread().interrupt();
                     throw new IOException(e);
                 }
-                return UpdateDownloadResult.builder().version(check.getLatestVersion()).build();
             }
         };
         var lastResult = UpdateService.class.getDeclaredField("lastResult");

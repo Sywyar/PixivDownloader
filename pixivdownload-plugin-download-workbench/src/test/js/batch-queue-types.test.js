@@ -3,14 +3,8 @@
 const vm = require('vm');
 const assert = require('assert');
 const {
-    SOURCE,
-    INIT_SOURCE,
     SETTINGS_SOURCE,
-    DOWNLOAD_SOURCE,
-    SSE_SOURCE,
-    El,
     typeDescriptor,
-    uiSlotDescriptor,
     manifest,
     harness,
     waitUntil,
@@ -23,14 +17,7 @@ const {
     queueLiveStatusInitializer,
     seriesBrowserInitializer,
     REQUEST_OWNER_INITIALIZER,
-    FAILING_INITIALIZER,
-    PENDING_INITIALIZER,
-    IN_FLIGHT_PROCESS_INITIALIZER,
-    PATCH_PROCESS_INITIALIZER,
-    LATE_QUEUE_INITIALIZER,
-    UI_INITIALIZER,
-    quickActionInitializer,
-    LATE_UI_INITIALIZER
+    FAILING_INITIALIZER
 } = require('./batch-queue-types-fixture');
 
 let passed = 0;

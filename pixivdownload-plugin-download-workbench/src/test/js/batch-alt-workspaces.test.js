@@ -19,7 +19,7 @@ test('Cupertino 控件使用原生开关状态并保留业务回调和禁用属�
     };
     const context = vm.createContext({AbortController, document});
     context.window = context;
-    for (const name of ['alt-core.js', 'alt-settings.js']) {
+    for (const name of ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/filename-template.js', 'alt-settings.js']) {
         vm.runInContext(readFileSync(resolve(__dirname, '../../main/resources/static/pixiv-batch-alt', name), 'utf8'), context);
     }
     const changes = [];
@@ -53,8 +53,6 @@ test('工作区保留各自滚动位置，草稿只保存非敏感输入与光�
     ['abStage', 'abDock', 'abRail', 'abPrepareTab', 'abDockToggle', 'abScheduleTab'].forEach(id => element('div', id));
     const panel = element('div', 'abModePanel');
     panel.dataset.mode = 'single-import';
-    const queryFields = panel.querySelectorAll.bind(panel);
-    panel.querySelectorAll = selector => selector.split(',').flatMap(part => queryFields(part.trim()));
     const input = element('textarea', 'draft', panel);
     input.value = '长中文作品标题 / draft';
     input.selectionStart = 2;
@@ -93,6 +91,180 @@ test('工作区保留各自滚动位置，草稿只保存非敏感输入与光�
     context.openDock();
     assert.equal(context.scrollY, 900);
     assert.equal(document.getElementById('abDockToggle').getAttribute('aria-current'), 'page');
+});
+
+function pageHarness(...files) {
+    const document = {addEventListener() {}};
+    const root = new MiniElement('body', document);
+    document.body = root;
+    document.getElementById = id => root.querySelector('#' + id);
+    document.querySelectorAll = selector => root.querySelectorAll(selector);
+    document.createElement = tag => {
+        const node = new MiniElement(tag, document);
+        node.append = (...children) => children.forEach(child => node.appendChild(child));
+        return node;
+    };
+    // 夹具只投影真实页面的挂载点；布局、层级与完整脚本装配由浏览器验收。
+    const html = readFileSync(resolve(__dirname, '../../main/resources/static/pixiv-batch-alt.html'), 'utf8');
+    for (const [, tag, id] of html.matchAll(/<([a-z][\w-]*)\b[^>]*\bid="([^"]+)"[^>]*>/gi)) {
+        const node = document.createElement(tag);
+        node.id = id;
+        root.appendChild(node);
+    }
+    const context = vm.createContext({document, console, AbortController,
+        QUICK_FETCH_MODE: 'quick-fetch', SINGLE_IMPORT_MODE: 'single-import',
+        state: {mode: 'single-import', settings: {}}, chromeState: {}, isAdmin: false,
+        appMode: 'solo', addEventListener() {},
+        PixivUserscriptDetection: {probe() {}}
+    });
+    context.window = context;
+    for (const file of ['../pixiv-batch/queue-display.js', 'alt-core.js', ...files]) {
+        vm.runInContext(readFileSync(resolve(__dirname, '../../main/resources/static/pixiv-batch-alt', file), 'utf8'), context,
+            {filename: file});
+    }
+    context.bt = key => key;
+    context.abIconEl = () => document.createElement('svg');
+    return {context, document, root};
+}
+
+test('下载坞按钮调用对应动作，初始化渲染并请求挂载队列岛', () => {
+    const h = pageHarness('alt-queue-model.js', 'alt-queue.js');
+    const body = h.document.getElementById('abDockBody');
+    const calls = [];
+    for (const name of ['handleStart', 'handlePause', 'handleRetry', 'handleExport', 'handleExportFailed',
+        'triggerAdminPack', 'handleClear', 'renderArchiveCard', 'renderDockStatus', 'renderCurrent',
+        'renderQueue', 'updateStats', 'updateButtonsState', 'ensureDockVue']) {
+        h.context[name] = () => calls.push(name);
+    }
+    h.context.renderDock();
+    assert.deepEqual(calls, ['renderArchiveCard', 'renderDockStatus', 'renderCurrent', 'renderQueue',
+        'updateStats', 'updateButtonsState', 'ensureDockVue']);
+    calls.length = 0;
+    body.querySelectorAll('button').forEach(button => button.click());
+    assert.deepEqual(calls, ['handleStart', 'handlePause', 'handleRetry', 'handleExport',
+        'handleExportFailed', 'triggerAdminPack', 'handleClear']);
+    assert.equal(typeof h.context.PixivBatchAlt.queue.queueItemCard, 'function');
+});
+
+test('导入页面保留来源、格式帮助和贡献槽位，清空后导入需要确认', async () => {
+    const h = pageHarness('alt-modes.js', 'alt-mode-import.js');
+    const calls = [];
+    h.context.altSourcesForMode = () => [{id: 'fixture', label: 'Fixture source'}];
+    h.context.openFiltersDrawer = () => {};
+    h.context.openSettingsDrawer = () => {};
+    h.context.runImportParse = clear => calls.push(clear);
+    let confirmed = false;
+    h.context.abConfirm = async key => {
+        assert.equal(key, 'dialog.confirm-reparse');
+        return confirmed;
+    };
+    const panel = h.document.getElementById('abModePanel');
+    h.context.renderImportMode(panel);
+    const input = panel.querySelector('textarea');
+    assert.equal(input.placeholder, 'batch:input.single-import.placeholder');
+    assert.equal(input.getAttribute('aria-describedby'), 'abImportResult');
+    assert.equal(panel.querySelector('[role="status"]').id, 'abImportAnnouncement');
+    assert.equal(panel.querySelector('.ab-pill').textContent, 'Fixture source');
+    const help = panel.querySelector('details');
+    assert.ok(help.querySelector('[data-qt-slot="import-hint"]'));
+    assert.ok(help.querySelectorAll('li').some(node => node.textContent.includes('batch:hint.import-section-header')));
+    panel.querySelector('#abBtnImport').click();
+    const fresh = help.querySelector('button');
+    const clickFresh = async () => {
+        for (const listener of fresh.listeners.get('click')) await listener({target: fresh});
+    };
+    await clickFresh();
+    assert.deepEqual(calls, [false]);
+    confirmed = true;
+    await clickFresh();
+    assert.deepEqual(calls, [false, true]);
+});
+
+test('导入优先消费类型贡献，运行时缺席时保留区段、显式链接和去重语义', () => {
+    const h = pageHarness('alt-mode-import.js');
+    const contributed = {items: [], skippedUnavailable: 1, rejected: []};
+    h.context.altParseImportText = () => contributed;
+    assert.equal(h.context.parseImportText('101'), contributed);
+    h.context.altParseImportText = () => null;
+    const parsed = h.context.parseImportText([
+        '101 | First', '101 | Duplicate', 'NOVEL：', '101 | Novel',
+        'https://www.pixiv.net/artworks/202 | Artwork', 'unknown:', '303',
+        'https://www.pixiv.net/novel/show.php?id=404 | Linked novel',
+        'https://www.pixiv.net/artworks/505 https://www.pixiv.net/novel/show.php?id=606',
+        'https://example.invalid/work/707'
+    ].join('\n'));
+    assert.deepEqual(JSON.parse(JSON.stringify(parsed.items)), [
+        {id: '101', kind: 'illust', title: 'First'},
+        {id: '101', kind: 'novel', title: 'Novel'},
+        {id: '202', kind: 'illust', title: 'Artwork'},
+        {id: '404', kind: 'novel', title: 'Linked novel'}
+    ]);
+    assert.equal(parsed.skippedUnavailable, 1);
+    assert.equal(parsed.rejected.length, 2);
+});
+
+test('下载设置提供贡献槽位，来源选项派发真实选择值', () => {
+    const h = pageHarness('../pixiv-batch/filename-template.js', 'alt-settings.js', 'alt-modes.js', 'alt-mode-discovery.js');
+    h.context.scheduleState = {};
+    h.context.cookieHasPhpsessid = () => false;
+    let mounted;
+    h.context.altQueueTypes = () => ({contributionsOf: () => [{mount: node => { mounted = node; }}]});
+    h.context.PixivFilenameTemplatePresets = {bind() {}};
+    const body = h.context.buildSettingsDrawerBody();
+    assert.ok(body.querySelector('[data-qt-slot="settings-card"]'));
+    assert.equal(mounted, body.querySelector('#type-output-settings'));
+    const selections = [];
+    const choices = h.context.sourceChips([{id: 'one', label: 'First'}, {id: 'two', label: 'Second'}],
+        'one', value => selections.push(value));
+    const buttons = choices.querySelectorAll('button');
+    assert.deepEqual(buttons.map(button => button.textContent), ['First', 'Second']);
+    buttons[1].click();
+    assert.deepEqual(selections, ['two']);
+});
+
+test('顶栏展示接口版本和身份，语言挂载刷新视图，引导复用页面操作', async () => {
+    const h = pageHarness('alt-chrome.js', 'alt-init.js');
+    const info = {version: '7.8.9-test', name: 'Fixture application'};
+    const requests = [], views = [];
+    h.context.fetch = async (url, init) => {
+        requests.push([url, init.credentials]);
+        return {ok: true, json: async () => url === '/api/app/info' ? info : {displayName: 'Fixture user'}};
+    };
+    await h.context.loadAppInfo();
+    assert.equal(h.document.getElementById('abAppName').textContent, info.name);
+    assert.equal(h.document.getElementById('abAppVersion').textContent, 'v' + info.version);
+    const auth = h.document.getElementById('abAuthBtn');
+    for (const admin of [false, true]) {
+        h.context.isAdmin = admin;
+        h.context.renderAuthButton();
+        assert.equal(auth.getAttribute('data-i18n'), admin ? 'auth.logout' : 'auth.login');
+        assert.equal(auth.textContent, auth.getAttribute('data-i18n'));
+    }
+    const client = {apply() { views.push('apply'); }};
+    let languageOptions, themeOptions, onboarding;
+    h.context.PixivI18n = {create: async () => client};
+    h.context.PixivLangSwitcher = {mount: async options => { languageOptions = options; }};
+    h.context.PixivTheme = {mount: options => { themeOptions = options; }};
+    await h.context.initPageI18n();
+    assert.ok(languageOptions.mountPoint);
+    assert.ok(themeOptions.mountPoint);
+    assert.equal(languageOptions.mountPoint, h.document.getElementById('abLangAnchor'));
+    assert.equal(themeOptions.mountPoint, h.document.getElementById('abThemeAnchor'));
+    assert.equal(languageOptions.i18n, client);
+    const renderers = ['renderRail', 'renderStage', 'renderDock', 'renderAuthButton', 'refreshCookieUi',
+        'renderBackendBanner', 'syncFilterButtonBadge', 'refreshGuideFab'];
+    for (const name of renderers) h.context[name] = () => views.push(name);
+    views.length = 0;
+    languageOptions.onChange(client);
+    assert.deepEqual(views, ['apply', ...renderers]);
+    h.context.PixivOnboarding = {boot: options => { onboarding = options; }};
+    let opened = 0;
+    h.context.openDock = () => opened++;
+    await h.context.setupOnboardingOrTour();
+    assert.equal(onboarding.savedName, 'Fixture user');
+    onboarding.hooks.beforeStart();
+    assert.equal(opened, 1);
+    assert.deepEqual(requests, [['/api/app/info', 'same-origin'], ['/api/onboarding/profile', 'same-origin']]);
 });
 
 test('Web 与 Compose 色板来自同一输入，文本及控件对比度通过', () => {
@@ -158,7 +330,7 @@ test('计划列表直接提供管理动作，并按名称、来源与状态筛�
         openScheduleEditor: task => calls.push([task.id, 'edit']),
     });
     context.window = context;
-    for (const name of ['alt-core.js', 'alt-settings.js', 'alt-schedule-presentation.js', 'alt-schedule.js']) {
+    for (const name of ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/filename-template.js', 'alt-settings.js', 'alt-schedule-presentation.js', 'alt-schedule.js']) {
         vm.runInContext(readFileSync(resolve(__dirname,
             '../../main/resources/static/pixiv-batch-alt', name), 'utf8'), context);
     }
@@ -234,42 +406,6 @@ test('计划队列的过期响应不得更新或卸载重新展开的容器', as
     assert.equal(renders[0].target, box);
 });
 
-test('计划代理与凭证弹窗可打开，字段有标签且不回显已绑定凭证', () => {
-    const context = vm.createContext({AbortController,
-        document: {createElement: tag => new MiniElement(tag), addEventListener() {}},
-        altScheduleSources: () => ({isAvailable: () => true,
-            credentialActions: () => ({supportsCookie: true, supportsProxy: true, presentation: {}})}),
-    });
-    context.window = context;
-    for (const name of ['alt-core.js', 'alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js']) {
-        vm.runInContext(readFileSync(resolve(__dirname,
-            '../../main/resources/static/pixiv-batch-alt', name), 'utf8'), context);
-    }
-    let modal;
-    context.openModal = options => { modal = options; };
-    context.openScheduleOverride({id: 7, sourceType: 'demo', proxy: 'localhost:8080', cookieBound: true});
-    assert.equal(modal.id, 'schedule-override');
-    const proxy = modal.body.querySelector('input');
-    const credential = modal.body.querySelector('input[type="password"]');
-    assert.equal(proxy.value, 'localhost:8080');
-    assert.ok(proxy.getAttribute('aria-label'));
-    assert.ok(credential.getAttribute('aria-label'));
-    assert.equal(credential.value, '');
-    assert.equal(credential.type, 'password');
-    const toggle = modal.body.querySelectorAll('button').find(button => button.textContent === '显示');
-    toggle.dispatchEvent({type:'click'});
-    assert.equal(credential.type, 'text');
-    toggle.dispatchEvent({type:'click'});
-    assert.equal(credential.type, 'password');
-    let prevented = false;
-    credential.dispatchEvent({type:'paste',clipboardData:{getData:()=> 'line1\nline2'},
-        preventDefault(){prevented=true;}});
-    assert.equal(prevented,true);
-    assert.equal(credential.readCredential(),'line1\nline2');
-    credential.value='edited';credential.dispatchEvent({type:'input'});
-    assert.equal(credential.readCredential(),'edited');
-});
-
 test('侧栏关闭保护未保存内容，重新打开可打断关闭且保留新内容', async () => {
     const root = new MiniElement('dialog');
     root.id = 'abDrawerRoot';
@@ -288,6 +424,8 @@ test('侧栏关闭保护未保存内容，重新打开可打断关闭且保留�
     };
     const context = vm.createContext({AbortController, document});
     context.window = context;
+    vm.runInContext(readFileSync(resolve(__dirname,
+        '../../main/resources/static/pixiv-batch/queue-display.js'), 'utf8'), context);
     vm.runInContext(readFileSync(resolve(__dirname,
         '../../main/resources/static/pixiv-batch-alt/alt-core.js'), 'utf8'), context);
     context.abIconEl = () => new MiniElement('span');

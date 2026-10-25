@@ -61,7 +61,7 @@
         'modal.summary.authors': '作者：{value}',
         'modal.summary.all': '全部',
         'modal.summary.count': '{count} 个',
-        'modal.summary.hint': '（OR 语义：标签命中或作者命中即可见）',
+        'modal.summary.hint': '（未允许的标签或作者会优先排除作品；其余满足标签或作者条件即可）',
         'modal.error.name-required': '请填写访客名称',
         'modal.error.expire-required': '请填写有效期或选择"永久"',
         'modal.error.expire-invalid': '有效期必须为正整数',
@@ -487,7 +487,7 @@
     // ---------- create / edit form ----------
     function openInviteFormModal(opts) {
         const prefill = opts.prefill || {};
-        // 默认全部年龄分级勾选（O6）
+        // 默认全部年龄分级勾选
         const isEdit = !!prefill.id || !!opts.editing;
         let allowSfw = isEdit ? prefill.allowSfw !== false : true;
         let allowR18 = isEdit ? !!prefill.allowR18 : true;
@@ -563,9 +563,8 @@
         const novelSummary = el('div', { class: 'invite-help' });
         const collectionSummary = el('div', { class: 'invite-help' });
         function summaryLine(kind, unrestrictedFlag, selectedSet) {
-            const valueKey = unrestrictedFlag ? 'modal.summary.all'
-                : null;
-            const value = valueKey ? t(valueKey) : t('modal.summary.count', { count: selectedSet.size });
+            const value = unrestrictedFlag ? t('modal.summary.all')
+                : t('modal.summary.count', { count: selectedSet.size });
             return t(kind === 'tag' ? 'modal.summary.tags' : 'modal.summary.authors', { value });
         }
         function renderSummary() {
@@ -585,9 +584,11 @@
                     : kind === 'tag' || kind === 'novel-tag' ? 'modal.btn.config-tags' : 'modal.btn.config-authors'),
                 onclick: async () => {
                     errorBox.textContent = '';
+                    if (document.activeElement === btn) backdrop.querySelector('.invite-modal-close').focus();
                     btn.disabled = true;
                     try {
                         const items = await getItemsFn();
+                        if (!backdrop.isConnected) return;
                         const state = getState();
                         openVisibilityPicker({
                             kind, items,

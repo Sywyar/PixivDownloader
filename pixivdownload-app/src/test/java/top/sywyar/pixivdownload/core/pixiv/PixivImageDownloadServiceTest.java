@@ -12,12 +12,17 @@ import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.client.ClientHttpRequest;
 import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.beans.factory.DisposableBean;
+import org.springframework.mock.http.client.MockClientHttpResponse;
+import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RequestCallback;
 import org.springframework.web.client.ResponseExtractor;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
+import top.sywyar.pixivdownload.config.ProxyConfig;
+import top.sywyar.pixivdownload.config.RestTemplateConfig;
 
 import java.io.ByteArrayInputStream;
 import java.net.URI;
@@ -34,6 +39,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("PixivImageDownloadService 稳定端口")
@@ -271,6 +277,34 @@ class PixivImageDownloadServiceTest {
                 return maximumBytes;
             }
         };
+    }
+
+    @Test
+    @DisplayName("实际图片客户端拒绝 HTTP 错误且不读取正文或改写已有文件")
+    void configuredClientDoesNotBufferErrorBody() throws Exception {
+        RestTemplate client = new RestTemplateConfig(new ProxyConfig()).pixivImageRestTemplate();
+        try {
+            var server = MockRestServiceServer.bindTo(client).build();
+            var body = new ByteArrayInputStream(new byte[]{1, 2, 3});
+            var response = new MockClientHttpResponse(body, HttpStatus.INTERNAL_SERVER_ERROR);
+            server.expect(requestTo("https://i.pximg.net/example.jpg"))
+                    .andRespond(request -> response);
+            Path target = tempDir.resolve("existing.jpg");
+            Files.writeString(target, "original", StandardCharsets.UTF_8);
+
+            boolean downloaded = new PixivImageDownloadService(client).download(
+                    URI.create("https://i.pximg.net/example.jpg"),
+                    URI.create("https://www.pixiv.net/artworks/42"),
+                    target, "PHPSESSID=secret", observerWithMaximumBytes(1));
+
+            assertThat(downloaded).isFalse();
+            assertThat(body.available()).isEqualTo(3);
+            assertThat(Files.readString(target, StandardCharsets.UTF_8)).isEqualTo("original");
+            assertThat(target.resolveSibling("existing.jpg.part")).doesNotExist();
+            server.verify();
+        } finally {
+            ((DisposableBean) client).destroy();
+        }
     }
 
     @Test

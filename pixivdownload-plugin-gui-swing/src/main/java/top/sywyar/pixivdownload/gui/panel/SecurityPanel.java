@@ -288,10 +288,6 @@ public class SecurityPanel extends JPanel {
             return new ChangePasswordOutcome(Kind.BACKEND_UNREACHABLE, detail);
         }
 
-        static ChangePasswordOutcome unexpected(String detail) {
-            return new ChangePasswordOutcome(Kind.UNEXPECTED, detail);
-        }
-
         static ChangePasswordOutcome serverError(int status, String errorKind) {
             if (errorKind == null) {
                 return new ChangePasswordOutcome(Kind.UNEXPECTED, "http-" + status);

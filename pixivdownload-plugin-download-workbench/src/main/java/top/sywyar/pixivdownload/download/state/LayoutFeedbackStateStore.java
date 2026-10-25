@@ -176,18 +176,14 @@ public final class LayoutFeedbackStateStore {
             LayoutFeedbackStateDocument document = STRICT_MAPPER.readValue(bytes,
                     LayoutFeedbackStateDocument.class);
             current = document.toSnapshot();
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-            // JSON 损坏 / schema 非法 / 字段错误：隔离损坏文件，store 继续可用。
+        } catch (com.fasterxml.jackson.core.JsonProcessingException | RuntimeException e) {
+            // JSON、schema 或记录构造校验失败均按损坏隔离，store 继续可用。
             quarantine("corrupt");
             current = emptySnapshot();
         } catch (IOException e) {
             degraded = true;
             log.warn("Layout feedback state store degraded ({}): {}",
                     stateFile.getFileName(), e.getMessage());
-            current = emptySnapshot();
-        } catch (RuntimeException e) {
-            // 记录构造校验等运行时失败同样按损坏隔离。
-            quarantine("corrupt");
             current = emptySnapshot();
         }
     }
@@ -319,23 +315,19 @@ public final class LayoutFeedbackStateStore {
                 : 0L;
         Map<String, LayoutFeedbackStateEntry> nextStates = new LinkedHashMap<>(states);
         nextStates.put(surveyId, new LayoutFeedbackStateEntry(surveyId, incoming, safeNow, snoozedUntil));
-        nextStates = evictIfNeeded(nextStates, surveyId);
+        evictIfNeeded(nextStates, surveyId);
         return new LayoutFeedbackStateSnapshot(nextRevision(snapshot.revision()), nextStates, snapshot.seen());
     }
 
     /**
-     * 淘汰最旧状态：超过 {@link #MAX_SURVEY_STATES} 时移除 updatedAt 最小者
+     * 从本次命令的可变副本中淘汰最旧状态：超过 {@link #MAX_SURVEY_STATES} 时移除 updatedAt 最小者
      * （updatedAt 相同时按 Survey ID 字典序），绝不淘汰本次正在写入的 Survey。
      */
-    private static Map<String, LayoutFeedbackStateEntry> evictIfNeeded(
+    private static void evictIfNeeded(
             Map<String, LayoutFeedbackStateEntry> states, String keepingSurveyId) {
-        if (states.size() <= MAX_SURVEY_STATES) {
-            return states;
-        }
-        Map<String, LayoutFeedbackStateEntry> evicted = new LinkedHashMap<>(states);
-        while (evicted.size() > MAX_SURVEY_STATES) {
+        while (states.size() > MAX_SURVEY_STATES) {
             String victim = null;
-            for (String surveyId : evicted.keySet()) {
+            for (String surveyId : states.keySet()) {
                 if (surveyId.equals(keepingSurveyId)) {
                     continue;
                 }
@@ -343,8 +335,8 @@ public final class LayoutFeedbackStateStore {
                     victim = surveyId;
                     continue;
                 }
-                LayoutFeedbackStateEntry victimEntry = evicted.get(victim);
-                LayoutFeedbackStateEntry candidate = evicted.get(surveyId);
+                LayoutFeedbackStateEntry victimEntry = states.get(victim);
+                LayoutFeedbackStateEntry candidate = states.get(surveyId);
                 int compared = Long.compare(victimEntry.updatedAt(), candidate.updatedAt());
                 if (compared > 0 || (compared == 0 && surveyId.compareTo(victim) < 0)) {
                     victim = surveyId;
@@ -354,9 +346,8 @@ public final class LayoutFeedbackStateStore {
                 // 理论上不可能：MAX_SURVEY_STATES >= 1 且正在写入的 Survey 已在 map 中。
                 break;
             }
-            evicted.remove(victim);
+            states.remove(victim);
         }
-        return evicted;
     }
 
     /**

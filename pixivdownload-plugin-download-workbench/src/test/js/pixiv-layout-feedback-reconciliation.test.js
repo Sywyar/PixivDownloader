@@ -2,84 +2,22 @@
 
 /** 服务端恢复对账与协议视图校验。 */
 const {
-    CONFIG_SOURCE,
-    CONFIG_SOURCE_PATH,
-    CONFIG_WINDOW,
-    CSS,
-    CSS_PATH,
-    EMBED_SOURCE,
-    EMBED_SOURCE_PATH,
     LAYOUT_IDS,
-    MiniClassList,
-    MiniCustomEvent,
-    MiniElement,
-    MiniEventTarget,
-    MiniStorage,
-    POSTHOG_SOURCE,
-    POSTHOG_SOURCE_PATH,
     SEEN_KEY,
-    SERVER_RAW_UUID,
-    SERVER_SCOPED_ID,
-    SNOOZE_MS,
-    SOURCE,
-    SOURCES,
-    SOURCE_NAMES,
-    SOURCE_PATHS,
     STATE_KEY,
-    SUBMISSION_ID,
-    SUGGESTION_MAX,
-    SURVEY_ID,
-    ackEvents,
-    assert,
-    assertFailClosedInvariants,
-    captureEvents,
-    captureProps,
-    createFakeAdapter,
-    createFakeI18n,
-    createFakeTimers,
-    createHarness,
-    crossTabFallbackMatrix,
-    crossTabState,
-    dataAttributeName,
-    defaultSurvey,
-    directRefresh,
-    doesNotThrow,
     eq,
-    fs,
-    hasLoneSurrogates,
     initHarness,
-    jsonEq,
-    listenerCountFor,
     localStateValue,
-    matchSelector,
-    neverView,
     ok,
-    openAndPrepareSubmit,
-    path,
-    refreshSecond,
-    refreshWith,
-    reinitOptions,
     runTests,
     seenObject,
-    seenSeed,
-    selectChoice,
     serverStateResponse,
-    snoozeStorageValue,
-    snoozedView,
-    submitWithCaptureOverride,
-    submittedView,
-    surveyState,
-    validFirst,
-    vm,
     waitForFlush,
-    waitForServerContext,
-    walkAll
+    waitForServerContext
 } = require('./pixiv-layout-feedback-test-support');
 
-function testReconcileSubmittedReplaysAndWaits() {
-    // A. local submitted + server null + replay 成功：
-    // loadServerContext 必须等待 replay；确认后 server 视图为 submitted、
-    // localStorage 为权威视图转换；SDK 不加载、Survey 不请求、弹窗不显示。
+function testSubmittedReplayTimeoutRejectsLateResponse() {
+    // 回放超时保留本地 submitted；迟到确认不能推进视图或触发展示。
     let release = null;
     const h = initHarness({
         // 不设置 batchLayout：避免 init 的 recordSeen 触发 400ms record_seen flush，
@@ -121,9 +59,9 @@ function testReconcileSubmittedReplaysAndWaits() {
         release();
         return waitForFlush();
     }).then(() => {
-        eq('replay 成功只发送一次', h.serverPosts.filter(p => p.body.command === 'submitted').length, 1);
+        eq('回放超时不自动重发', h.serverPosts.filter(p => p.body.command === 'submitted').length, 1);
         const localState = JSON.parse(h.storage.getItem(STATE_KEY));
-        eq('确认后 localStorage 保留 local fallback', localState.status, 'submitted');
+        eq('迟到确认后 localStorage 保留 local fallback', localState.status, 'submitted');
         eq('超时后的迟到响应不修改时间戳（保留本地 updatedAt）', localState.updatedAt, 100);
         eq('迟到响应不推进 revision', h.api._internals.currentServerRevision(), 0);
         eq('SDK 不加载', h.adapter.sdkConfig() === null, true);
@@ -443,7 +381,7 @@ function testApplyServerViewRejectsInvalidShapes() {
 }
 
 runTests('pixiv-layout-feedback-reconciliation.test.js', [
-    ['testReconcileSubmittedReplaysAndWaits', testReconcileSubmittedReplaysAndWaits],
+    ['testSubmittedReplayTimeoutRejectsLateResponse', testSubmittedReplayTimeoutRejectsLateResponse],
     ['testReconcileSubmittedReplayNetworkFailure', testReconcileSubmittedReplayNetworkFailure],
     ['testReconcileNeverReplayTimeout', testReconcileNeverReplayTimeout],
     ['testReconcileSnoozedReplayFailure', testReconcileSnoozedReplayFailure],

@@ -334,7 +334,7 @@ html[data-theme="dark"] .notification-page { color-scheme: dark; }
 .notification-inbox-popover {
     position: fixed;
     inset: 58px 16px auto auto;
-    width: min(380px, calc(100vw - 24px));
+    width: min(380px, calc(100% - 24px));
     max-height: min(560px, calc(100vh - 76px));
     margin: 0;
     padding: 0;
@@ -353,12 +353,29 @@ html[data-theme="dark"] .notification-page { color-scheme: dark; }
     z-index: 1;
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
     padding: 14px 16px;
     border-bottom: 1px solid var(--notification-line);
     background: var(--notification-panel);
 }
 .notification-popover-header strong { flex: 1; }
 .notification-popover-all { color: var(--notification-brand); font-size: 0.75rem; text-decoration: none; }
+.notification-popover-mark-read {
+    width: auto;
+    flex: 0 0 auto;
+    padding: 6px 0;
+    border: 0;
+    background: transparent;
+    color: var(--notification-brand);
+    font: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+.notification-popover-mark-read:disabled { color: var(--notification-muted); cursor: default; }
+.notification-popover-mark-read:focus-visible { outline: 2px solid var(--notification-brand); outline-offset: 3px; }
+.notification-popover-status { padding: 12px 16px; color: var(--notification-danger); font-size: 0.75rem; }
+.notification-popover-status[hidden] { display: none; }
 .notification-popover-list { display: grid; }
 .notification-popover-item {
     width: 100%;

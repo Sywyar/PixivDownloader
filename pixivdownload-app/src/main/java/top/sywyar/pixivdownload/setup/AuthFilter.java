@@ -58,9 +58,6 @@ public class AuthFilter extends OncePerRequestFilter {
     /** 访客邀请 cookie 名（浏览器会话 cookie，不带 Max-Age）。 */
     public static final String INVITE_COOKIE = GuestInviteSession.COOKIE_NAME;
 
-    /** request attribute 标记：邀请会话是否已在本次请求内解析过（用于缓存，避免重复查库）。 */
-    private static final String GUEST_SESSION_RESOLVED_ATTR = "pixiv.guestInviteSessionResolved";
-
     private final SetupService setupService;
     private final StaticResourceRateLimitService staticResourceRateLimitService;
     private final RateLimitService rateLimitService;
@@ -173,7 +170,6 @@ public class AuthFilter extends OncePerRequestFilter {
             List<String> publicPageStaticPrefixPaths,
             Set<String> publicStaticExactPaths,
             Set<String> guestAllowedStaticExact,
-            Set<String> guestAllowedExact,
             List<String> guestAllowedPrefix) {
     }
 
@@ -200,8 +196,6 @@ public class AuthFilter extends OncePerRequestFilter {
                 exactPaths(routes, policy -> policy == AccessPolicy.PUBLIC, method -> true),
                 exactPaths(routes, AuthFilter::isGuestPolicy,
                         methods -> !methods.contains(HttpMethod.POST), AuthFilter::isStaticResource),
-                exactPaths(routes, AuthFilter::isGuestPolicy,
-                        methods -> !methods.contains(HttpMethod.POST), path -> !isStaticResource(path)),
                 prefixPaths(routes, AuthFilter::isGuestPolicy));
     }
 
@@ -307,7 +301,10 @@ public class AuthFilter extends OncePerRequestFilter {
         }
 
         // 公开身份检查与所有业务路由共享访客身份；失效邀请也不能回退到管理员或本机权限。
-        GuestInviteSession guestSession = resolveGuestInviteSessionCached(req, res);
+        GuestInviteSession guestSession = resolveGuestInviteSession(req);
+        if (guestSession != null) {
+            req.setAttribute(GuestInviteSession.REQUEST_ATTR, guestSession);
+        }
         if (GuestInviteSession.isGuestRequest(req) && !isPublic(path, policy)
                 && !path.equals("/invite") && !path.equals("/redirect")
                 && (guestSession == null || !isAllowedForGuestInvite(resolvedRoute, method))) {
@@ -353,9 +350,8 @@ public class AuthFilter extends OncePerRequestFilter {
 
         if (shouldApplyStaticResourceRateLimit(req, path)) {
             // 邀请访客按邀请码限流（两种模式均生效）；其余未登录流量按客户端 IP 限流。
-            GuestInviteSession inviteSession = resolveGuestInviteSessionCached(req, res);
-            boolean allowed = inviteSession != null
-                    ? staticResourceRateLimitService.isAllowedForInvite("invite:" + inviteSession.code())
+            boolean allowed = guestSession != null
+                    ? staticResourceRateLimitService.isAllowedForInvite("invite:" + guestSession.code())
                     : staticResourceRateLimitService.isAllowed(req.getRemoteAddr());
             if (!allowed) {
                 log.warn(messages.getForLog("static-resource.log.rate-limit.exceeded", req.getRemoteAddr(), path));
@@ -637,9 +633,6 @@ public class AuthFilter extends OncePerRequestFilter {
         if (!isStaticResource(path)) {
             return false;
         }
-        if (access.guestAllowedExact().contains(path)) {
-            return true;
-        }
         return startsWithAny(path, access.guestAllowedPrefix());
     }
 
@@ -685,24 +678,7 @@ public class AuthFilter extends OncePerRequestFilter {
         return accept != null && accept.contains(MediaType.TEXT_HTML_VALUE);
     }
 
-    /**
-     * 解析邀请会话并在 request 内缓存：静态资源限流与后续过滤分别需要该会话，
-     * 缓存避免对携带邀请 cookie 的请求重复查库（无 cookie 时 {@link #resolveGuestInviteSession} 立即返回）。
-     */
-    private GuestInviteSession resolveGuestInviteSessionCached(HttpServletRequest req, HttpServletResponse res) {
-        if (Boolean.TRUE.equals(req.getAttribute(GUEST_SESSION_RESOLVED_ATTR))) {
-            Object cached = req.getAttribute(GuestInviteSession.REQUEST_ATTR);
-            return cached instanceof GuestInviteSession session ? session : null;
-        }
-        GuestInviteSession session = resolveGuestInviteSession(req, res);
-        req.setAttribute(GUEST_SESSION_RESOLVED_ATTR, Boolean.TRUE);
-        if (session != null) {
-            req.setAttribute(GuestInviteSession.REQUEST_ATTR, session);
-        }
-        return session;
-    }
-
-    private GuestInviteSession resolveGuestInviteSession(HttpServletRequest req, HttpServletResponse res) {
+    private GuestInviteSession resolveGuestInviteSession(HttpServletRequest req) {
         Cookie[] cookies = req.getCookies();
         if (cookies == null) return null;
         String code = null;

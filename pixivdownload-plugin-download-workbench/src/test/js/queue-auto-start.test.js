@@ -16,7 +16,7 @@ function harness(layout, {enabled = true, admin = true, backend} = {}) {
     };
     const calls = {checks: 0, workers: 0, alerts: 0, statuses: []};
     const context = vm.createContext({
-        state, isAdmin: admin, console,
+        state, isAdmin: admin, console, AbortController,
         window: {PixivBatch: {}, PixivBatchAlt: {queue: {}, engine: {}}},
         SINGLE_IMPORT_MODE: 'single-import', SINGLE_IMPORT_NOVEL_SOURCE: 'single-import-novel',
         QUICK_FETCH_MODE: 'quick-fetch', quotaExceededHandled: false,
@@ -46,8 +46,8 @@ function harness(layout, {enabled = true, admin = true, backend} = {}) {
     ]) context[name] = () => {};
     const files = layout === 'classic'
         ? ['pixiv-batch/batch-queue-actions.js', 'pixiv-batch/batch-download-workers.js']
-        : ['pixiv-batch-alt/alt-queue.js', 'pixiv-batch-alt/alt-engine-workers.js'];
-    for (const file of files) vm.runInContext(readFileSync(resolve(staticRoot, file), 'utf8'), context, {filename: file});
+        : ['pixiv-batch-alt/alt-queue-model.js', 'pixiv-batch-alt/alt-queue.js', 'pixiv-batch-alt/alt-engine-workers.js'];
+    for (const file of ['pixiv-batch/queue-display.js', 'pixiv-batch/download-workers.js', ...files]) vm.runInContext(readFileSync(resolve(staticRoot, file), 'utf8'), context, {filename: file});
     for (const name of ['updateStats', 'saveQueue', 'renderQueue', 'updateButtonsState']) context[name] = () => {};
     context.queueItemCanonicalUrl = () => null;
     context.setStatus = context.setDockStatus = status => calls.statuses.push(status);
@@ -70,7 +70,7 @@ for (const layout of ['classic', 'alt']) {
         const h = harness(layout);
         h.state.queue.push(
             {id: 'failed', status: 'failed'}, {id: 'paused', status: 'paused'},
-            {id: 'completed', status: 'completed'}, {id: 'external', status: 'idle', taskObserved: true}
+            {id: 'completed', status: 'completed'}
         );
         h.add([]);
         h.add(['failed']);
@@ -84,7 +84,7 @@ for (const layout of ['classic', 'alt']) {
         assert.equal(h.state.isRunning, true);
         assert.equal(h.state.queue.find(q => q.id === '1').status, 'pending');
         assert.equal(h.state.queue.find(q => q.id === '2').status, 'pending');
-        for (const [id, status] of [['failed', 'failed'], ['paused', 'paused'], ['completed', 'completed'], ['external', 'idle']]) {
+        for (const [id, status] of [['failed', 'failed'], ['paused', 'paused'], ['completed', 'completed']]) {
             assert.equal(h.state.queue.find(q => q.id === id).status, status);
         }
         h.add(['1']);
@@ -116,6 +116,7 @@ for (const layout of ['classic', 'alt']) {
             let ready;
             const h = harness(layout, {backend: () => new Promise(resolve => { ready = resolve; })});
             h.add(['1']);
+            await flush();
             cancel(h.state);
             ready(true);
             await flush();

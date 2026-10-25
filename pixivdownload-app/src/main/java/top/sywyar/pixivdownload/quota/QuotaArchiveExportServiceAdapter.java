@@ -1,21 +1,20 @@
 package top.sywyar.pixivdownload.quota;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.http.HttpStatus;
+import top.sywyar.pixivdownload.core.archive.ArchiveExportRules;
+import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.config.MultiModeSettings;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportEntry;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportRequest;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportResult;
-import top.sywyar.pixivdownload.core.archive.ArchiveExportRules;
 import top.sywyar.pixivdownload.core.archive.ArchiveExportService;
-import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.service.WorkDeletionService;
 
 import top.sywyar.pixivdownload.core.db.PixivDatabase;
 import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 import java.util.LinkedHashMap;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -74,13 +73,8 @@ public class QuotaArchiveExportServiceAdapter implements ArchiveExportService {
         List<Long> deleteWorkIds = request.deleteAfterReady() == null
                 ? List.of() : request.deleteAfterReady().workIds();
 
-        List<UserQuotaService.ArchiveItem> items = new ArrayList<>(request.entries().size());
-        for (ArchiveExportEntry entry : request.entries()) {
-            items.add(entry == null ? null : new UserQuotaService.ArchiveItem(
-                    entry.sourcePath(), entry.entryName(), entry.bytes(), entry.workId()));
-        }
         String token = userQuotaService.triggerAdminFileArchive(
-                items, request.exportType(), request.workCount(), deleteWorkType == null
+                request.entries(), request.exportType(), request.workCount(), deleteWorkType == null
                         ? null
                         : prepareDeletion(deleteWorkType, deleteWorkIds, request.entries()),
                 () -> deleteWorkType == null ? () -> {}

@@ -82,21 +82,6 @@ final class DesktopUpdateController {
     }
 
     private DesktopUiNode updateBanner(
-            String id,
-            PendingInstall update,
-            boolean nightly,
-            Map<String, Runnable> nextActions
-    ) {
-        return updateBanner(
-                "status.update",
-                id,
-                update,
-                nightly,
-                nextActions
-        );
-    }
-
-    private DesktopUiNode updateBanner(
             String prefix,
             String id,
             PendingInstall update,
@@ -173,15 +158,7 @@ final class DesktopUpdateController {
         );
     }
 
-    void checkUpdates() {
-        checkUpdates(false);
-    }
-
     void checkUpdatesInline() {
-        checkUpdates(true);
-    }
-
-    private void checkUpdates(boolean inline) {
         if (owner.busy()) return;
         synchronized (this) {
             checkedManually = true;
@@ -205,55 +182,12 @@ final class DesktopUpdateController {
                             response.reachable(),
                             response.status()
                     );
-                    if (!inline) owner.showDialog(
-                            "update.check-failed",
-                            "gui.dialog.error.title",
-                            checkFailure,
-                            DesktopUiDocument.DialogStyle.WARNING
-                    );
                     return;
                 }
-                DesktopUiHost.GuiValue result = response.body();
-                applyUpdateResult(result);
-                if (inline) return;
-                if (!result.path("enabled").asBoolean(false)) {
-                    owner.showDialog(
-                            "update.disabled",
-                            "gui.dialog.info.title",
-                            "gui.update.dialog.disabled.message",
-                            DesktopUiDocument.DialogStyle.INFO
-                    );
-                } else if (!result.path("checkSucceeded").asBoolean(false)) {
-                    LOG.warn(
-                            "Desktop update check rejected: {}",
-                            result.path("error").asText("unknown")
-                    );
-                    owner.showDialog(
-                            "update.check-failed",
-                            "gui.dialog.error.title",
-                            checkFailure,
-                            DesktopUiDocument.DialogStyle.WARNING
-                    );
-                } else if (pendingOfficialUpdate == null && pendingNightlyUpdate == null) {
-                    owner.showDialog(
-                            "update.up-to-date",
-                            "gui.dialog.info.title",
-                            appToken(
-                                    "gui.update.dialog.up-to-date.message",
-                                    result.path("currentVersion").asText("--")
-                            ),
-                            DesktopUiDocument.DialogStyle.INFO
-                    );
-                }
+                applyUpdateResult(response.body());
             } catch (RuntimeException failure) {
                 aboutState = DesktopUiNode.AboutUpdateState.ERROR;
                 setCheckFailure("UNKNOWN", 0);
-                if (!inline) owner.showDialog(
-                        "update.check-failed",
-                        "gui.dialog.error.title",
-                        checkFailure,
-                        DesktopUiDocument.DialogStyle.WARNING
-                );
                 LOG.warn("Desktop update check failed", failure);
             }
         });
@@ -318,7 +252,6 @@ final class DesktopUpdateController {
 
     private static PendingInstall pendingInstall(DesktopUiHost.GuiValue value) {
         return new PendingInstall(
-                value.path("assetUrl").asText(""),
                 value.path("assetSizeBytes").asLong(0L),
                 value.path("releaseNotes").asText(""),
                 value.path("releaseNotesUrl").asText(""),
@@ -378,7 +311,7 @@ final class DesktopUpdateController {
                     "update.jar",
                     "gui.update.dialog.install.title",
                     DesktopUiDocument.DialogStyle.QUESTION,
-                    (nextActions, dismissAction, dismiss) -> column(
+                    (nextActions, dismissAction, dismiss) -> dialogContent(
                             "update.jar.content",
                             new DesktopUiNode.Text(
                                     "update.jar.message",
@@ -450,35 +383,38 @@ final class DesktopUpdateController {
                                 true
                         ));
                     }
-                    nodes.add(row(
-                            "update.confirm.actions",
-                            button(
-                                    "update.confirm.install",
-                                    "update.confirm.install",
-                                    "gui.update.banner.install",
-                                    true,
-                                    nextActions,
-                                    () -> {
-                                        if (host.currentVersionNightly()) {
-                                            persistCheckNightly(boolForm(
-                                                    "update.keep-nightly",
-                                                    true
-                                            ));
-                                        }
-                                        owner.closeDialog();
-                                        startUpdateDownload(update, false);
-                                    }
-                            ),
-                            button(
-                                    "update.confirm.cancel",
-                                    dismissAction,
-                                    "desktop.ui.action.cancel",
-                                    true,
-                                    nextActions,
-                                    dismiss
+                    return dialogContent(
+                            "update.confirm.content",
+                            column("update.confirm.fields", nodes),
+                            row(
+                                    "update.confirm.actions",
+                                    button(
+                                            "update.confirm.install",
+                                            "update.confirm.install",
+                                            "gui.update.banner.install",
+                                            true,
+                                            nextActions,
+                                            () -> {
+                                                if (host.currentVersionNightly()) {
+                                                    persistCheckNightly(boolForm(
+                                                            "update.keep-nightly",
+                                                            true
+                                                    ));
+                                                }
+                                                owner.closeDialog();
+                                                startUpdateDownload(update, false);
+                                            }
+                                    ),
+                                    button(
+                                            "update.confirm.cancel",
+                                            dismissAction,
+                                            "desktop.ui.action.cancel",
+                                            true,
+                                            nextActions,
+                                            dismiss
+                                    )
                             )
-                    ));
-                    return column("update.confirm.content", nodes);
+                    );
                 },
                 520,
                 0
@@ -562,21 +498,17 @@ final class DesktopUpdateController {
                     "update.check-nightly",
                     Boolean.toString(enabled)
             );
+            owner.coreConfigValueSaved("update.check-nightly", Boolean.toString(enabled));
         } catch (Exception failure) {
             LOG.warn("Unable to persist update.check-nightly", failure);
         }
     }
 
-    private String form(String key, String fallback) {
-        return formValues.getOrDefault(key, fallback);
-    }
-
     private boolean boolForm(String key, boolean fallback) {
-        return Boolean.parseBoolean(form(key, Boolean.toString(fallback)));
+        return Boolean.parseBoolean(formValues.getOrDefault(key, Boolean.toString(fallback)));
     }
 
     private record PendingInstall(
-            String assetUrl,
             long size,
             String releaseNotes,
             String releaseNotesUrl,

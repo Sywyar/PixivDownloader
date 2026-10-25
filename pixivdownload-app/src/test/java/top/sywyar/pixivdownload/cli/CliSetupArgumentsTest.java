@@ -20,7 +20,7 @@ class CliSetupArgumentsTest {
 
         assertThat(inspection.helpRequested()).isTrue();
         assertThat(inspection.missingValue()).containsExactly("--username");
-        assertThat(inspection.unknown()).containsExactly("unexpected");
+        assertThat(inspection.unknownPositions()).containsExactly(3);
     }
 
     @Test

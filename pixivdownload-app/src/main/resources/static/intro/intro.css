@@ -72,7 +72,8 @@ a{color:inherit;text-decoration:none}
    ====================================================== */
 nav.top{
   position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:50;
-  display:flex;align-items:center;gap:6px;padding:6px 8px 6px 14px;
+  width:max-content;max-width:calc(100% - var(--layout-inset-left) - var(--layout-inset-right));
+  display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:6px;padding:6px 8px 6px 14px;
   border:1px solid var(--line-2);border-radius:999px;
   background:rgba(11,11,26,.58);backdrop-filter:blur(24px) saturate(180%);
   -webkit-backdrop-filter:blur(24px) saturate(180%);
@@ -81,6 +82,7 @@ nav.top{
 }
 nav.top .logo{
   display:flex;align-items:center;gap:7px;font-weight:600;font-size: 0.8125rem;
+  flex-shrink:0;white-space:nowrap;
   padding-right:12px;border-right:1px solid var(--line-2);
 }
 nav.top .logo .mark{
@@ -94,6 +96,7 @@ nav.top a{font-size: 0.78125rem;color:var(--ink-dim);padding:7px 11px;border-rad
 nav.top a:hover{color:var(--ink);background:rgba(255,255,255,.06)}
 nav.top .cta{
   font-size: 0.75rem;font-weight:600;padding:7px 14px;border-radius:999px;
+  flex-shrink:0;white-space:nowrap;
   background:var(--ink);color:#08081a;transition:.25s var(--ease);
 }
 nav.top .cta:hover{background:#fff;transform:translateY(-1px);box-shadow:0 6px 20px rgba(255,255,255,.12)}
@@ -152,7 +155,7 @@ nav.top .nav-lang{display:inline-flex;align-items:center;margin:0 4px 0 2px}
 .deck{position:fixed;inset:0;overflow-y:auto;scroll-snap-type:y proximity;scroll-behavior:smooth}
 .slide{
   position:relative;width:100%;min-height:100svh;scroll-snap-align:start;
-  padding: 88px var(--layout-inset-right) 56px var(--layout-inset-left);
+  padding: calc(var(--layout-header-height) + 2.25rem) var(--layout-inset-right) 56px var(--layout-inset-left);
   display:flex;flex-direction:column;justify-content:center;align-items:center;
   overflow:hidden;
 }
@@ -886,7 +889,7 @@ p{color:var(--ink-dim);line-height:1.72;font-size: 0.96875rem}
 @media(max-width:56.25em){
   body{overflow:auto}
   .deck{scroll-snap-type:none}
-  .slide{padding:78px var(--layout-inset-right) 40px var(--layout-inset-left)}
+  .slide{padding-bottom:40px}
   .fx{opacity:1;transform:none}
   h1{font-size: 2.5rem}h2{font-size: 1.75rem}
   .mm-stats{grid-template-columns:repeat(2,1fr)}

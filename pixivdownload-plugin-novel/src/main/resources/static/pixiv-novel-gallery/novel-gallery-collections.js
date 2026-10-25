@@ -1,5 +1,30 @@
 'use strict';
 
+let collectionPending = false;
+let collectionReadRevision = 0;
+let collectionModalRevision = 0;
+
+function syncCollectionControls() {
+    document.getElementById('quickCreateBtn').disabled = collectionPending;
+    document.getElementById('addToCollectionList').querySelectorAll('.collection-row').forEach(row => {
+        const checkbox = row.querySelector('input[type="checkbox"]');
+        checkbox.disabled = collectionPending;
+        if (!collectionPending) checkbox.checked = collectionState.membership.has(Number(row.dataset.id));
+    });
+}
+
+function setCollectionPending(pending) {
+    collectionPending = pending;
+    ++collectionReadRevision;
+    ++collectionLoadRevision;
+    ++galleryMembershipRevision;
+    syncCollectionControls();
+}
+
+
+let collectionFormRevision = 0;
+let collectionIconPreviewUrl = null;
+
 // ---------- Collection CRUD ----------
 async function collectionApi(url, options = {}) {
     const r = await fetch(url, {
@@ -28,6 +53,7 @@ async function collectionApi(url, options = {}) {
 }
 
 function openCollectionFormModal(collection) {
+    ++collectionFormRevision;
     state.editingCollection = collection;
     state.pendingIconFile = null;
     state.pendingIconClear = false;
@@ -43,10 +69,12 @@ function openCollectionFormModal(collection) {
 }
 
 function closeCollectionFormModal() {
+    ++collectionFormRevision;
     document.getElementById('modalCollectionForm').classList.remove('open');
     state.editingCollection = null;
     state.pendingIconFile = null;
     state.pendingIconClear = false;
+    updateFormIconPreview(null);
     document.getElementById('collectionFormIconFile').value = '';
     document.getElementById('collectionDownloadRootEnabled').checked = false;
     document.getElementById('collectionDownloadRoot').value = '';
@@ -122,11 +150,12 @@ function hasControlCharacter(value) {
 }
 
 function updateFormIconPreview(collection) {
+    releaseCollectionIconPreview();
     const preview = document.getElementById('collectionFormIconPreview');
     const clearBtn = document.getElementById('collectionFormIconClear');
     if (state.pendingIconFile) {
-        const url = URL.createObjectURL(state.pendingIconFile);
-        preview.innerHTML = `<img src="${url}" alt="">`;
+        collectionIconPreviewUrl = URL.createObjectURL(state.pendingIconFile);
+        preview.innerHTML = `<img src="${collectionIconPreviewUrl}" alt="">`;
         clearBtn.style.display = '';
     } else if (collection && collection.iconExt && !state.pendingIconClear) {
         preview.innerHTML = `<img src="/api/collections/${collection.id}/icon?v=${Date.now()}" alt="">`;
@@ -135,6 +164,12 @@ function updateFormIconPreview(collection) {
         preview.innerHTML = HEART_SVG;
         clearBtn.style.display = 'none';
     }
+}
+
+function releaseCollectionIconPreview() {
+    document.getElementById('collectionFormIconPreview').replaceChildren();
+    if (collectionIconPreviewUrl) URL.revokeObjectURL(collectionIconPreviewUrl);
+    collectionIconPreviewUrl = null;
 }
 
 async function submitCollectionForm() {
@@ -154,21 +189,26 @@ async function submitCollectionForm() {
     }
 
     const btn = document.getElementById('collectionFormSubmit');
+    if (btn.disabled) return;
+    const revision = collectionFormRevision;
+    const editingCollection = state.editingCollection;
+    const iconFile = state.pendingIconFile;
+    const clearIcon = state.pendingIconClear;
     btn.disabled = true;
     try {
         let collection;
-        if (state.editingCollection) {
-            await collectionApi(`/api/collections/${state.editingCollection.id}`, {
+        if (editingCollection) {
+            await collectionApi(`/api/collections/${editingCollection.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name })
             });
-            await collectionApi(`/api/collections/${state.editingCollection.id}/download-root`, {
+            await collectionApi(`/api/collections/${editingCollection.id}/download-root`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ downloadRoot })
             });
-            collection = { ...state.editingCollection, name, downloadRoot };
+            collection = { ...editingCollection, name, downloadRoot };
         } else {
             collection = await collectionApi('/api/collections', {
                 method: 'POST',
@@ -177,21 +217,21 @@ async function submitCollectionForm() {
             });
         }
 
-        if (state.pendingIconFile) {
+        if (iconFile) {
             const form = new FormData();
-            form.append('file', state.pendingIconFile);
+            form.append('file', iconFile);
             await collectionApi(`/api/collections/${collection.id}/icon`, { method: 'POST', body: form });
-        } else if (state.pendingIconClear && state.editingCollection) {
+        } else if (clearIcon && editingCollection) {
             await collectionApi(`/api/collections/${collection.id}/icon`, { method: 'DELETE' });
         }
 
         toast(
-            state.editingCollection
+            editingCollection
                 ? pageI18n.t('novel-gallery:toast.saved', '已保存')
                 : pageI18n.t('novel-gallery:toast.created', '创建成功'),
             'success'
         );
-        closeCollectionFormModal();
+        if (revision === collectionFormRevision) closeCollectionFormModal();
         await loadCollections();
     } catch (e) {
         toast(e.message || pageI18n.t('novel-gallery:toast.save-failed', '保存失败'), 'error');
@@ -201,11 +241,14 @@ async function submitCollectionForm() {
 }
 
 // ---------- Collections (sidebar + filter chips) ----------
+let collectionLoadRevision = 0;
 async function loadCollections() {
+    const revision = ++collectionLoadRevision;
     try {
         const r = await fetch('/api/collections', { credentials: 'same-origin' });
         if (!r.ok) return;
         const data = await r.json();
+        if (revision !== collectionLoadRevision || collectionPending) return;
         state.collections = data.collections || [];
         renderCollections();
         renderCollectionFilterChips();
@@ -303,4 +346,90 @@ function resetFiltersForSidebarCollection(id) {
     updateAuthorFilterBar();
     updateFilterBadge();
     reloadCurrentView();
+}
+
+// ---------- Add to collection (novel) ----------
+const collectionState = { activeNovelId: null, membership: new Set() };
+
+async function refreshCollectionMembership() {
+    const novelId = collectionState.activeNovelId;
+    if (novelId == null) return;
+    const revision = ++collectionReadRevision;
+    try {
+        const r = await fetch(`/api/collections/novels/of/${novelId}`, { credentials: 'same-origin' });
+        if (!r.ok) return;
+        const data = await r.json();
+        if (revision !== collectionReadRevision || collectionPending || novelId !== collectionState.activeNovelId) return;
+        collectionState.membership = new Set(data.collectionIds || []);
+        syncCollectionControls();
+    } catch (_) { /* 保留已确认的收藏状态 */ }
+}
+
+async function openAddToCollectionModal(novelId) {
+    const revision = ++collectionModalRevision;
+    collectionState.activeNovelId = novelId;
+    collectionState.membership = new Set();
+    await refreshCollectionMembership();
+    if (revision !== collectionModalRevision) return;
+    renderAddToCollectionList();
+    document.getElementById('modalAddToCollection').classList.add('open');
+}
+
+function closeAddToCollectionModal() {
+    ++collectionModalRevision;
+    ++collectionReadRevision;
+    document.getElementById('modalAddToCollection').classList.remove('open');
+    collectionState.activeNovelId = null;
+    loadCollections();
+    const ids = [...document.querySelectorAll('.card[data-novel-id]')].map(el => Number(el.dataset.novelId));
+    if (ids.length) loadMembershipsForNovels(ids);
+}
+
+function renderAddToCollectionList() {
+    const list = document.getElementById('addToCollectionList');
+    if (!state.collections.length) {
+        list.innerHTML = `<div class="empty" style="padding:24px">${esc(pageI18n.t('status.no-collections-hint', '暂无收藏夹，请先新建'))}</div>`;
+        return;
+    }
+    list.innerHTML = state.collections.map(c => {
+        const icon = c.iconExt
+            ? `<img src="/api/collections/${c.id}/icon?v=${c.createdTime}" alt="">`
+            : HEART_SVG;
+        const checked = collectionState.membership.has(c.id) ? 'checked' : '';
+        return `<label class="collection-row" data-id="${c.id}">
+            <input type="checkbox" ${checked}>
+            <div class="collection-row-icon">${icon}</div>
+            <div class="collection-row-name">${esc(c.name)}</div>
+            <span class="collection-count">${c.novelCount ?? 0}</span>
+        </label>`;
+    }).join('');
+    list.querySelectorAll('.collection-row').forEach(row => {
+        const id = Number(row.dataset.id);
+        const cb = row.querySelector('input[type="checkbox"]');
+        cb.addEventListener('change', async () => {
+            if (collectionPending) return;
+            const targetNovelId = collectionState.activeNovelId;
+            if (targetNovelId == null) return;
+            const membership = collectionState.membership;
+            const selected = cb.checked;
+            setCollectionPending(true);
+            try {
+                const r = await fetch(`/api/collections/${id}/novels/${encodeURIComponent(targetNovelId)}`, {
+                    method: selected ? 'POST' : 'DELETE', credentials: 'same-origin'
+                });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                if (selected) membership.add(id);
+                else membership.delete(id);
+            } catch (e) {
+                toast(pageI18n.t('toast.action-failed', '操作失败'), 'error');
+            } finally {
+                setCollectionPending(false);
+                await refreshCollectionMembership();
+                loadCollections();
+                const ids = [...document.querySelectorAll('.card[data-novel-id]')].map(el => Number(el.dataset.novelId));
+                if (ids.length) loadMembershipsForNovels(ids);
+            }
+        });
+    });
+    syncCollectionControls();
 }

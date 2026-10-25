@@ -133,6 +133,38 @@
         bucket.queue.or.length = 0;
     }
 
+    function resetGalleryFilters(collectionIds) {
+        state.r18 = 'any';
+        state.ai = 'any';
+        state.formats.clear();
+        state.collectionIds.clear();
+        for (const id of collectionIds) state.collectionIds.add(id);
+        clearFilterSelections('tag');
+        clearFilterSelections('author');
+        state.seriesFilter = {id: null, title: ''};
+        clearFilterSearch('tag');
+        clearFilterSearch('series');
+        clearFilterSearch('author');
+        state.tagFilters.mode = 'must';
+        state.authorFilters.mode = 'must';
+        state.authorNames.clear();
+        document.querySelectorAll('.chip[data-r18]').forEach(c => c.classList.toggle('active', c.dataset.r18 === 'any'));
+        document.querySelectorAll('.chip[data-ai]').forEach(c => c.classList.toggle('active', c.dataset.ai === 'any'));
+        document.querySelectorAll('.chip[data-format]').forEach(c => c.classList.remove('active'));
+        state.page = 0;
+        renderFilterModeButtons('tag');
+        renderFilterModeButtons('author');
+        syncTagFilterBar();
+        syncAuthorFilterBar();
+        syncSeriesFilterBar();
+        renderCollections();
+        renderTagChips();
+        renderSeriesFilterChips();
+        renderAuthorChips();
+        updateFilterBadge();
+        refreshGalleryForCurrentState();
+    }
+
     function resetFilterKind(kind) {
         clearFilterSelections(kind);
         clearFilterSearch(kind);
@@ -215,6 +247,7 @@
     function setFilterPanelOpen(open) {
         const panel = document.getElementById('filterPanel');
         document.getElementById('filterToggle').classList.toggle('active', open);
+        document.getElementById('filterToggle').setAttribute('aria-expanded', String(open));
         panel.classList.toggle('open', open);
         if (open) {
             ensureFilterOptionsLoaded();
@@ -385,7 +418,6 @@
             syncAuthorFilterBar();
             syncSeriesFilterBar();
             renderCollections();
-            renderCollectionFilterChips();
             renderTagChips();
             renderSeriesFilterChips();
             renderAuthorChips();

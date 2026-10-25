@@ -16,7 +16,7 @@ final class SqliteReplacement implements DatabaseImportSession {
     private final DatabaseImportSession staged;
     private DatabaseImportSession replacement;
     private MigrationSnapshot snapshot;
-    private boolean commitAttempted, committed, closed, aborted;
+    private boolean commitAttempted, closed, aborted;
 
     private SqliteReplacement(Connection locked, MigrationSchema schema, MigrationControl control,
                               Path directory, DatabaseImportSession staged) {
@@ -91,10 +91,9 @@ final class SqliteReplacement implements DatabaseImportSession {
         replacement.verify(snapshot);
         commitAttempted = true;
         replacement.commit();
-        committed = true;
     }
     @Override public void abort() throws Exception {
-        if (committed || commitAttempted) throw failure("MIGRATION_COMMIT_OUTCOME_UNKNOWN");
+        if (commitAttempted) throw failure("MIGRATION_COMMIT_OUTCOME_UNKNOWN");
         if (!closed && !aborted) {
             try { locked.rollback(); }
             finally { staged.close(); }

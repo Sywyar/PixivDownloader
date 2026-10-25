@@ -180,9 +180,6 @@ public final class PixivDescriptionHtml {
     }
 
     private static String escapeDoubleQuotedAttribute(String value) {
-        return value.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;");
+        return escapeText(value).replace("\"", "&quot;");
     }
 }

@@ -85,12 +85,12 @@ class ProcessRestartRemovalIntegrationTest {
         String oldEnabled = System.getProperty(enabled), oldRoot = System.getProperty(root);
         System.setProperty(enabled, "true");
         System.setProperty(root, home.toString());
-        String id = new BackendRestartProbeFeaturePlugin().id();
-        Path plugins = home.resolve("plugins");
-        Path source = packageFile(id, "7.2.0", "hot-reload");
-        Path module = home.resolve("source-module");
-        Path classes = module.resolve("target/classes");
         try {
+            String id = new BackendRestartProbeFeaturePlugin().id();
+            Path plugins = home.resolve("plugins");
+            Path source = packageFile(id, "7.2.0", "hot-reload");
+            Path module = home.resolve("source-module");
+            Path classes = module.resolve("target/classes");
             try (var zip = new java.util.zip.ZipFile(source.toFile())) {
                 for (var entry : java.util.Collections.list(zip.entries())) {
                     Path target = classes.resolve(entry.getName());

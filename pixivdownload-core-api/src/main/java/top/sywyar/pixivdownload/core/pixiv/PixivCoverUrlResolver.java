@@ -69,8 +69,8 @@ public final class PixivCoverUrlResolver {
         if (highResolution.isBlank()) {
             return List.of();
         }
-        String original = url == null ? "" : url.trim();
-        if (!original.isBlank() && !highResolution.equals(original)) {
+        String original = url.trim();
+        if (!highResolution.equals(original)) {
             return List.of(highResolution, original);
         }
         return List.of(highResolution);

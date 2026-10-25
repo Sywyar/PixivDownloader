@@ -2,13 +2,11 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const vm = require('node:vm');
 const {
     source,
     manifest,
     harness,
-    validInitializer,
-    pixivModuleSource
+    validInitializer
 } = require('./schedule-sources-test-support');
 
 test('publication 切换会撤销旧 handler 并丢弃旧凭证写入结果', async () => {

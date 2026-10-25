@@ -174,10 +174,6 @@ class DesktopDatabaseSettingsTest {
         }
     }
 
-    private static ComposeDesktopUiModel model(Map<String, String> saved, Probe probe) {
-        return model(saved, probe, null);
-    }
-
     @Test
     @DisplayName("安排迁移失败保留原连接与草稿，不把确认当作保存成功")
     void schedulingFailureKeepsDraft() throws Exception {
@@ -262,7 +258,7 @@ class DesktopDatabaseSettingsTest {
         }
     }
 
-    private static ComposeDesktopUiModel model(Map<String, String> saved, Probe probe, DesktopUiHost.ConfigFile file) {
+    private static ComposeDesktopUiModel model(Map<String, String> saved, Probe probe) {
         List<GuiConfigFieldContribution> fields = new ArrayList<>();
         for (String name : List.of("engine", "jdbc-url", "username", "password")) {
             boolean secret = name.equals("password");
@@ -284,7 +280,6 @@ class DesktopDatabaseSettingsTest {
             probe.backendListener.set(listener);
             return (AutoCloseable) () -> probe.backendListener.compareAndSet(listener, null);
         });
-        if (file != null) overrides.put("applicationConfig", args -> file);
         return DesktopConfigurationControllerTest.model(saved, overrides);
     }
 

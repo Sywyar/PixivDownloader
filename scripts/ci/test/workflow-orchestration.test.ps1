@@ -40,6 +40,226 @@ $tempBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/')
 $fixture = Join-Path $tempBase ('pixiv-workflow-test-' + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($fixture) | Out-Null
 try {
+    & (Join-Path $PSScriptRoot 'distribution-archives.test.ps1')
+    & {
+        $secretName = 'PIXIVDOWNLOAD_PLUGIN_CREDENTIAL_MASTER_KEY_BASE64'
+        $previousKey = [Environment]::GetEnvironmentVariable($secretName)
+        $scriptPath = Join-Path $repo 'scripts/write-plugin-credential-key-filter.ps1'
+        $filterPath = Join-Path $fixture 'credential [output]/production.properties'
+        $fallbackPath = Join-Path $repo 'pixivdownload-app/src/main/filters/plugin-credential-key-open-source.properties'
+        $fallback = (ConvertFrom-StringData ([IO.File]::ReadAllText($fallbackPath, [Text.Encoding]::UTF8)))['plugin.credential.key.open-source-fallback-base64']
+        $validKey = [Convert]::ToBase64String([byte[]](0..31))
+        try {
+            [Environment]::SetEnvironmentVariable($secretName, $validKey)
+            Assert-Equal @(& $scriptPath -OutputPath $filterPath *>&1).Count 0
+            $expected = "plugin.credential.key.profile=production`n" +
+                "plugin.credential.key.current-base64=$validKey`n" +
+                "plugin.credential.key.open-source-fallback-base64=$fallback`n"
+            Assert-Equal ([IO.File]::ReadAllBytes($filterPath)) ([Text.Encoding]::UTF8.GetBytes($expected))
+            $invalidKeys = @(
+                @{Value=$null; Reason='must be set'},
+                @{Value=' '; Reason='must be set'},
+                @{Value='not-base64'; Reason='canonical standard Base64'},
+                @{Value=[Convert]::ToBase64String([byte[]](0..30)); Reason='exactly 32 bytes'},
+                @{Value=[Convert]::ToBase64String([byte[]](0..32)); Reason='exactly 32 bytes'},
+                @{Value=" $validKey"; Reason='canonical standard Base64'},
+                @{Value=$validKey.Substring(0, 42) + '9='; Reason='canonical standard Base64'},
+                @{Value=$fallback; Reason='committed open-source fallback'}
+            )
+            foreach ($case in $invalidKeys) {
+                [Environment]::SetEnvironmentVariable($secretName, $case.Value)
+                $output = [Collections.Generic.List[object]]::new()
+                Assert-Rejected {
+                    & $scriptPath -OutputPath $filterPath *>&1 | ForEach-Object { $output.Add($_) }
+                } $case.Reason
+                Assert-Equal $output.Count 0
+                Assert-Equal ([IO.File]::ReadAllBytes($filterPath)) ([Text.Encoding]::UTF8.GetBytes($expected))
+            }
+        } finally {
+            [Environment]::SetEnvironmentVariable($secretName, $previousKey)
+        }
+    }
+    & {
+        . (Join-Path $repo 'scripts/plugin-distribution-common.ps1')
+        $lookupRoot = Join-Path $fixture 'maven-lookup'
+        [IO.Directory]::CreateDirectory($lookupRoot) | Out-Null
+        $lookups = [Collections.Generic.List[string]]::new()
+        $available = @{}
+        function Get-Command {
+            param($Name, $ErrorAction)
+            if ($Name -in @('mvn.cmd', 'mvn')) {
+                $lookups.Add($Name)
+                if ($available.ContainsKey($Name)) { return @{Source=$available[$Name]} }
+                return $null
+            }
+            return Microsoft.PowerShell.Core\Get-Command @PSBoundParameters
+        }
+        foreach ($case in @('both', 'mvn', 'none')) {
+            $lookups.Clear()
+            $available = @{}
+            if ($case -ne 'none') { $available['mvn'] = 'fallback-maven' }
+            if ($case -eq 'both') { $available['mvn.cmd'] = 'windows-maven' }
+            if ($case -eq 'none') {
+                Assert-Rejected { Get-MavenCommand $lookupRoot } 'Missing Maven command'
+            } else {
+                Assert-Equal (Get-MavenCommand $lookupRoot) $(if ($case -eq 'both') { 'windows-maven' } else { 'fallback-maven' })
+            }
+            Assert-Equal $lookups $(if ($case -eq 'both') { @('mvn.cmd') } else { @('mvn.cmd', 'mvn') })
+        }
+        foreach ($entry in @('assemble-plugin-distribution', 'package-local', 'package-installer-with-plugins', 'publish-plugin-releases')) {
+            foreach ($suffix in @(' plain', ' [source]')) {
+                $root = Join-Path $fixture ($entry + $suffix)
+                $scripts = Join-Path $root 'scripts'
+                [IO.Directory]::CreateDirectory($scripts) | Out-Null
+                Get-ChildItem -LiteralPath (Join-Path $repo 'scripts') -Filter '*.ps1' -File | Copy-Item -Destination $scripts
+                $metadata = 'pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties'
+                [IO.Directory]::CreateDirectory((Split-Path -Parent (Join-Path $root $metadata))) | Out-Null
+                Copy-Item -LiteralPath (Join-Path $repo $metadata) -Destination (Join-Path $root $metadata)
+                $wrapper = Join-Path $root 'mvnw.cmd'
+                $wrapperText = @'
+@echo off
+echo %CD%> "%~dp0maven-cwd.txt"
+echo %*> "%~dp0maven-args.txt"
+exit /b 17
+'@
+                [IO.File]::WriteAllText($wrapper, $wrapperText.Replace("`r`n", "`n").Replace("`n", "`r`n"), [Text.Encoding]::ASCII)
+                $parameters = @{Version='1.2.3'}
+                $expectedError = 'Command failed:'
+                switch ($entry) {
+                    'assemble-plugin-distribution' {
+                        $parameters.Build = $true; $parameters.CoreShellOnly = $true
+                        $expectedError = 'Maven build failed'
+                    }
+                    'package-local' {
+                        $parameters.SkipPlugins = $true; $parameters.SkipInstaller = $true
+                        $parameters.SkipPortable = $true; $parameters.SkipOfflinePortable = $true
+                    }
+                    'publish-plugin-releases' {
+                        $key = Join-Path $root 'fixture-key.pem'
+                        $tool = Join-Path $root 'fixture-tool.jar'
+                        [IO.File]::WriteAllText($key, 'fixture')
+                        [IO.File]::WriteAllText($tool, 'fixture')
+                        $parameters = @{ProjectRoot=$root; OfficialKeyId='fixture'; PrivateKeyFile=$key; SignatureToolJar=$tool}
+                        $expectedError = 'Maven plugin build failed'
+                    }
+                }
+                $lookups.Clear()
+                $originalLocation = (Get-Location).Path
+                Assert-Rejected { & (Join-Path $scripts "$entry.ps1") @parameters } $expectedError
+                Assert-Equal $lookups.Count 0
+                Assert-Equal (Get-Location).Path $originalLocation
+                Assert-Equal ([IO.File]::ReadAllText((Join-Path $root 'maven-cwd.txt')).Trim()) $root
+                $arguments = [IO.File]::ReadAllText((Join-Path $root 'maven-args.txt')).Trim() -split ' '
+                Assert-Equal (@($arguments | Where-Object { $_ -eq 'verify' }).Count) 1
+                Assert-Equal (@($arguments | Where-Object { $_ -eq '-DskipTests' }).Count) 1
+                if ($entry -eq 'publish-plugin-releases') {
+                    Assert-Equal (@($arguments | Where-Object { $_ -eq '-Pofficial-surveys' }).Count) 1
+                } else {
+                    Assert-Equal (@($arguments | Where-Object { $_ -eq '-Dapp.release.version=1.2.3' }).Count) 1
+                }
+            }
+        }
+    }
+    & {
+        $root = Join-Path $fixture 'assembler-selected-input'
+        $scripts = Join-Path $root 'scripts'
+        $output = Join-Path $root 'build/output'
+        [IO.Directory]::CreateDirectory($scripts) | Out-Null
+        foreach ($name in @('assemble-plugin-distribution.ps1', 'plugin-distribution-common.ps1')) {
+            Copy-Item -LiteralPath (Join-Path $repo "scripts/$name") -Destination $scripts
+        }
+        [IO.Directory]::CreateDirectory($output) | Out-Null
+        $selectedJar = Join-Path $output 'PixivDownload-fixture-boot.jar'
+        $archive = [IO.Compression.ZipFile]::Open($selectedJar, [IO.Compression.ZipArchiveMode]::Create)
+        try {
+            [void]$archive.CreateEntry('BOOT-INF/lib/pf4j-fixture.jar')
+            $writer = [IO.StreamWriter]::new($archive.CreateEntry('META-INF/pixivdownload-proguard.properties').Open(), [Text.UTF8Encoding]::new($false))
+            try { $writer.Write("formatVersion=1`nshrink=true`noptimize=true`nobfuscate=false`nproguard.version=fixture`n") }
+            finally { $writer.Dispose() }
+        } finally { $archive.Dispose() }
+        function Get-ChildItem {
+            param($Path, $LiteralPath, $Filter, [switch]$File)
+            return Get-Item -LiteralPath $selectedJar
+        }
+        $originalHash = (Get-FileHash -LiteralPath $selectedJar -Algorithm SHA256).Hash
+        $marker = Join-Path $output 'keep.txt'
+        [IO.File]::WriteAllText($marker, 'existing output')
+        $originalLocation = (Get-Location).Path
+        Assert-Rejected { & (Join-Path $scripts 'assemble-plugin-distribution.ps1') -CoreShellOnly -OutputDir $output } 'contains protected input'
+        Assert-Equal (Get-Location).Path $originalLocation
+        Assert-Equal (Get-FileHash -LiteralPath $selectedJar -Algorithm SHA256).Hash $originalHash
+        Assert-Equal ([IO.File]::ReadAllText($marker)) 'existing output'
+    }
+    & {
+        . (Join-Path $repo 'scripts/plugin-distribution-common.ps1')
+        foreach ($suffix in @('plain', '[source]')) {
+            $root = Join-Path $fixture "artifact-$suffix"
+            $scripts = Join-Path $root 'scripts'
+            [IO.Directory]::CreateDirectory($scripts) | Out-Null
+            foreach ($name in @('assemble-plugin-distribution.ps1', 'plugin-distribution-common.ps1')) {
+                Copy-Item -LiteralPath (Join-Path $repo "scripts/$name") -Destination $scripts
+            }
+            $target = Join-Path $root 'pixivdownload-app/target'
+            [IO.Directory]::CreateDirectory($target) | Out-Null
+            $source = Join-Path $target 'PixivDownload-1.2.3-boot.jar'
+            $archive = [IO.Compression.ZipFile]::Open($source, [IO.Compression.ZipArchiveMode]::Create)
+            try {
+                [void]$archive.CreateEntry('BOOT-INF/lib/pf4j-fixture.jar')
+                $writer = [IO.StreamWriter]::new($archive.CreateEntry('META-INF/pixivdownload-proguard.properties').Open(), [Text.UTF8Encoding]::new($false))
+                try { $writer.Write("formatVersion=1`nshrink=true`noptimize=true`nobfuscate=false`nproguard.version=fixture`n") }
+                finally { $writer.Dispose() }
+            } finally { $archive.Dispose() }
+            $sourceHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+            [IO.File]::SetLastWriteTimeUtc($source, [DateTime]::new(2020, 1, 1))
+            foreach ($name in @('PixivDownload-2.0.0.jar', 'PixivDownload-2.0.0-sources.jar', 'PixivDownload-2.0.0-javadoc.jar')) {
+                Copy-Item -LiteralPath $source -Destination (Join-Path $target $name)
+                [IO.File]::SetLastWriteTimeUtc((Join-Path $target $name), [DateTime]::new(2020, 1, 2))
+            }
+            $ProjectRoot = $root
+            foreach ($entry in @('package-local', 'package-installer-with-plugins')) {
+                $program = Read-Program (Join-Path $repo "scripts/$entry.ps1")
+                foreach ($definition in @($program.Functions | Where-Object { $_.Name -in @('Get-BuiltJar', 'Get-BuiltBootJar') })) {
+                    . ([scriptblock]::Create($definition.Extent.Text))
+                }
+            }
+            Assert-Equal (Get-BuiltJar).FullName $source
+            Assert-Equal (Get-BuiltBootJar) $source
+            foreach ($mode in @('prebuilt', 'target')) {
+                $output = Join-Path $root "build/$mode"
+                $parameters = @{CoreShellOnly=$true; Version='1.2.3'; OutputDir=$output}
+                if ($mode -eq 'prebuilt') { $parameters.PrebuiltJar = $source }
+                $originalLocation = (Get-Location).Path
+                & (Join-Path $scripts 'assemble-plugin-distribution.ps1') @parameters
+                Assert-Equal (Get-Location).Path $originalLocation
+                Assert-Equal (Get-FileHash -LiteralPath (Join-Path $output 'PixivDownload-1.2.3.jar') -Algorithm SHA256).Hash $sourceHash
+                Assert-Equal (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash $sourceHash
+            }
+            foreach ($module in @('fixture-module', 'pixivdownload-plugin-signature')) {
+                $directory = Join-Path $root "$module/target"
+                [IO.Directory]::CreateDirectory($directory) | Out-Null
+                foreach ($extension in @('jar', 'zip')) {
+                    foreach ($version in @('1.0.0', '2.0.0')) {
+                        $path = Join-Path $directory "$module-$version.$extension"
+                        [IO.File]::WriteAllText($path, $version, [Text.UTF8Encoding]::new($false))
+                        [IO.File]::SetLastWriteTimeUtc($path, [DateTime]::new(2020, 1, [int]$version[0].ToString()))
+                    }
+                    foreach ($classifier in @('sources', 'javadoc')) {
+                        [IO.File]::WriteAllText((Join-Path $directory "$module-2.0.0-$classifier.jar"), $classifier, [Text.UTF8Encoding]::new($false))
+                    }
+                    [IO.File]::WriteAllText((Join-Path $directory "$module-2.0.0.${extension}x"), 'not an artifact', [Text.UTF8Encoding]::new($false))
+                    $expected = Join-Path $directory "$module-2.0.0.$extension"
+                    Assert-Equal (Find-ModulePluginArtifact @{Module=$module; Id='fixture'; Format=$extension} $root) $expected
+                    if ($extension -eq 'jar') {
+                        Assert-Equal (Find-ModuleJar $module $root) $expected
+                        if ($module -eq 'pixivdownload-plugin-signature') {
+                            Assert-Equal (Resolve-SignatureToolJar $root) $expected
+                            Assert-Equal (Resolve-SignatureToolJar $root $expected) $expected
+                        }
+                    }
+                }
+            }
+        }
+    }
     & {
         if (-not (Test-Path -LiteralPath (Join-Path $repo 'node_modules/yaml/package.json') -PathType Leaf)) {
             Push-Location $repo
@@ -102,6 +322,7 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         foreach ($definition in $program.Functions) { . ([scriptblock]::Create($definition.Extent.Text)) }
         $script:observed = [Collections.Generic.List[string]]::new()
         $script:probes = [Collections.Generic.List[string]]::new()
+        $script:processes = [Collections.Generic.List[object]]::new()
         function Expand-Archive {
             param($LiteralPath, $DestinationPath)
             [IO.Directory]::CreateDirectory($DestinationPath) | Out-Null
@@ -114,35 +335,63 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             $script:probes.Add($ApplicationJar)
             return @{ Agent = 'fixture'; Fixture = 'fixture' }
         }
-        function Test-ApplicationScenario { param($Label) $script:observed.Add($Label) }
+        function Test-ApplicationScenario {
+            param($Label, $Root, $Launcher)
+            if ($Label -like 'windows-installer-*') {
+                Assert-Equal $Launcher (Join-Path $Root 'PixivDownload.exe')
+            }
+            $script:observed.Add($Label)
+        }
         function Test-ReleaseAdverseLayouts {
             param($Label, $ScenarioGroup)
             $script:observed.Add("$Label-adverse-$ScenarioGroup")
         }
         function Assert-NoInstalledCopy { }
+        $probeScripts = Join-Path $fixture 'probe-scripts'
+        $probeDirectory = Join-Path $probeScripts 'runtime-security'
+        [IO.Directory]::CreateDirectory($probeDirectory) | Out-Null
+        $runtimeAssertion = Join-Path $probeScripts 'assert-runtime.ps1'
+        [IO.File]::WriteAllText($runtimeAssertion,
+            ($program.Functions | Where-Object Name -eq 'Assert-PackagedRuntime').Extent.Text,
+            [Text.UTF8Encoding]::new($false))
+        . $runtimeAssertion
+        $rejectRuntimeTrust = $false
+        [IO.File]::WriteAllText((Join-Path $probeDirectory 'test-runtime-trust.ps1'), @'
+param($RuntimeHome)
+if (-not (Test-Path -LiteralPath (Join-Path $RuntimeHome 'bin/server/jvm.dll'))) { throw 'Missing runtime input.' }
+if ($rejectRuntimeTrust) { throw 'Rejected fixture runtime trust.' }
+$observed.Add('bundled-runtime-trust')
+Write-Output 'Certificate probe diagnostic output'
+'@, [Text.UTF8Encoding]::new($false))
         function Wait-ArtifactProcessExit { }
         function Start-Process {
             param($FilePath, $ArgumentList, $WindowStyle, [switch]$PassThru)
-            if ($FilePath -like '*unins000.exe') { return @{ExitCode=0} }
+            $process = [pscustomobject]@{ExitCode=0; Disposed=$false}
+            $process | Add-Member -MemberType ScriptMethod -Name Dispose -Value { $this.Disposed = $true }
+            $script:processes.Add($process)
+            if ($FilePath -like '*unins000.exe') { return $process }
             $installDir = ($ArgumentList | Where-Object { $_ -like '/DIR=*' }).Substring(5).Trim('"')
             foreach ($name in @('PixivDownload.exe', 'runtime/bin/server/jvm.dll', 'unins000.exe', "app/PixivDownload-$Version.jar")) {
                 $target = Join-Path $installDir $name
                 [IO.Directory]::CreateDirectory((Split-Path -Parent $target)) | Out-Null
                 [IO.File]::WriteAllText($target, 'fixture')
             }
-            return @{ExitCode=0}
+            return $process
         }
         $inputFile = Join-Path $fixture 'input'
         [IO.File]::WriteAllText($inputFile, 'fixture')
         foreach ($distribution in @('java-standard', 'full-offline', 'windows-installer', 'all')) {
-            $script:observed.Clear(); $script:probes.Clear()
+            $script:observed.Clear(); $script:probes.Clear(); $script:processes.Clear()
             $parameters = @{ Version='1.2.3'; Distribution=$distribution; WorkRoot=$fixture }
             if ($distribution -in @('all', 'java-standard')) { $parameters.JavaZipPath = $inputFile }
             if ($distribution -in @('all', 'full-offline')) { $parameters.FullOfflineZipPath = $inputFile }
             if ($distribution -in @('all', 'windows-installer')) { $parameters.InstallerPath = $inputFile }
             & $program.Main @parameters
+            Assert-Equal $script:processes.Count $(if ($distribution -in @('all', 'windows-installer')) { 2 } else { 0 })
+            Assert-Equal @($script:processes | Where-Object { -not $_.Disposed }).Count 0
             $expected = @(foreach ($kind in @('java-standard', 'full-offline', 'windows-installer')) {
                 if ($distribution -in @('all', $kind)) {
+                    if ($kind -eq 'windows-installer') { 'bundled-runtime-trust' }
                     foreach ($mode in @('headless', 'gui-compose', 'gui-swing')) { "$kind-$mode" }
                     if ($kind -eq 'windows-installer') { "$kind-adverse-all" }
                 }
@@ -154,14 +403,24 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             }
         }
         foreach ($group in @('startup', 'failures', 'recovery')) {
-            $script:observed.Clear(); $script:probes.Clear()
+            $script:observed.Clear(); $script:probes.Clear(); $script:processes.Clear()
             & $program.Main -Version 1.2.3 -Distribution windows-installer -ScenarioGroup $group -InstallerPath $inputFile -WorkRoot $fixture
+            Assert-Equal $script:processes.Count 2
+            Assert-Equal @($script:processes | Where-Object { -not $_.Disposed }).Count 0
             $expected = if ($group -eq 'startup') {
-                @('windows-installer-headless', 'windows-installer-gui-compose', 'windows-installer-gui-swing')
-            } else { @("windows-installer-adverse-$group") }
+                @('bundled-runtime-trust', 'windows-installer-headless', 'windows-installer-gui-compose', 'windows-installer-gui-swing')
+            } else { @('bundled-runtime-trust', "windows-installer-adverse-$group") }
             Assert-Equal $script:observed $expected
             Assert-Equal $script:probes.Count 1
         }
+        $rejectRuntimeTrust = $true
+        $script:observed.Clear(); $script:processes.Clear()
+        Assert-Rejected {
+            & $program.Main -Version 1.2.3 -Distribution windows-installer -InstallerPath $inputFile -WorkRoot $fixture
+        } 'Rejected fixture runtime trust'
+        Assert-Equal $script:observed.Count 0
+        Assert-Equal $script:processes.Count 2
+        Assert-Equal @($script:processes | Where-Object { -not $_.Disposed }).Count 0
         Assert-Rejected { & $program.Main -Version 1.2.3 -Distribution java-standard -ScenarioGroup startup } 'requires the windows-installer'
         foreach ($distribution in @('java-standard', 'full-offline', 'windows-installer')) {
             Assert-Rejected { & $program.Main -Version 1.2.3 -Distribution $distribution -WorkRoot $fixture } 'not found'
@@ -174,6 +433,7 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         $program = Read-Program (Join-Path $repo 'scripts/publish-plugin-releases.ps1')
         foreach ($definition in $program.Functions) { . ([scriptblock]::Create($definition.Extent.Text)) }
         . (Join-Path $repo 'scripts/market-content-publication.ps1')
+        $publishedSource = Join-Path $fixture 'published [source]'
         $toolDirectory = Join-Path $fixture 'pixivdownload-sdk-tools/target'
         [IO.Directory]::CreateDirectory($toolDirectory) | Out-Null
         $toolJar = Join-Path $toolDirectory 'pixivdownload-sdk-tools-fixture.jar'
@@ -181,11 +441,15 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         $script:writes = [Collections.Generic.List[string]]::new()
         $script:buildExit = 0
         $script:existing = $false
+        $script:missingAssetSuffixes = @()
         $plugins = @(@{Id='first'; Module='first'}, @{Id='second'; Module='second'})
         foreach ($plugin in $plugins) {
             $descriptor = Join-Path $fixture "$($plugin.Module)/src/main/resources/plugin.properties"
             [IO.Directory]::CreateDirectory((Split-Path -Parent $descriptor)) | Out-Null
             [IO.File]::WriteAllText($descriptor, 'plugin.version=1.0.0')
+            $built = Join-Path $publishedSource "$($plugin.Module)/src/main/resources/plugin.properties"
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $built)) | Out-Null
+            Copy-Item -LiteralPath $descriptor -Destination $built
         }
         function Resolve-SignatureToolJar { return 'fixture' }
         function Get-PixivDownloadSdkVersion { return '1.0.0' }
@@ -199,7 +463,7 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             }
             $global:LASTEXITCODE = $script:buildExit
         }
-        function Find-ModulePluginArtifact { param($Plugin) return (Join-Path $fixture "$($Plugin.Module)/src/main/resources/plugin.properties") }
+        function Find-ModulePluginArtifact { param($Plugin) return (Join-Path $publishedSource "$($Plugin.Module)/src/main/resources/plugin.properties") }
         function Assert-OfficialPluginArtifact { return @{'plugin.version'='1.0.0'} }
         function Assert-ProguardProcessedArtifact { }
         function Get-OfficialPluginArtifactName { param($Plugin, $Version) return "$($Plugin.Id)-$Version.jar" }
@@ -211,6 +475,9 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         }
         function Write-StagedCompanionFiles {
             param($StagedArtifact)
+            if (-not $script:existing) {
+                Assert-Equal ([IO.File]::ReadAllText($StagedArtifact, [Text.Encoding]::UTF8)) 'plugin.version=1.0.0'
+            }
             return @{Sha='fixture'; ShaFile="$StagedArtifact.sha256"; SigFile="$StagedArtifact.sig"}
         }
         function New-OfficialMarketContent {
@@ -234,7 +501,9 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             if ($args[1] -eq 'view') {
                 if (-not $script:existing) { $global:LASTEXITCODE = 1; return 'release not found' }
                 $id = $args[2] -replace '-v.*$', ''
-                $assets = @(@{name="$id-1.0.0.jar"}, @{name="$id-1.0.0.jar.sha256"}, @{name="$id-1.0.0.jar.sig"})
+                $assets = @(foreach ($suffix in @('', '.sha256', '.sig')) {
+                    if ($script:missingAssetSuffixes -notcontains $suffix) { @{name="$id-1.0.0.jar$suffix"} }
+                })
                 if ($script:contentMode -eq 'complete') { $assets += @(@{name='market-content.json'}, @{name='content-doc.md'}) }
                 return (@{body=$(if ($script:contentMode) { 'market-content-sha256=' + ('a' * 64) + ' market-source-commit=' + ('d' * 40) } else { '' });
                     assets=$assets} | ConvertTo-Json -Compress)
@@ -295,6 +564,26 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
                 Assert-Equal $script:builds[0] @('-Pofficial-surveys', '-pl', 'pixivdownload-sdk-tools', '-am', 'verify', '-DskipTests')
             }
         }
+        foreach ($missing in @(@(''), @('.sha256'), @('.sig'), @('.sha256', '.sig'))) {
+            $script:missingAssetSuffixes = $missing
+            $script:contentMode = ''; $script:existing = $true; $script:readbacks = 0
+            $script:builds.Clear(); $script:writes.Clear()
+            $parameters.UsePrebuiltArtifacts = $true
+            if ($missing -contains '') {
+                Assert-Rejected { & $program.Main @parameters } 'Bump plugin.version instead of publishing new bytes under an existing tag'
+                Assert-Equal $script:writes.Count 0
+                Assert-Equal $script:readbacks 0
+            } else {
+                & $program.Main @parameters
+                $expectedPaths = @($missing | ForEach-Object { (Join-Path $fixture 'input') + $_ }) -join ' '
+                Assert-Equal $script:writes @($plugins | ForEach-Object {
+                    "release upload $($_.Id)-v1.0.0 $expectedPaths --repo Sywyar/PixivDownloader-plugins"
+                })
+                Assert-Equal $script:readbacks 2
+            }
+            Assert-Equal $script:builds.Count 0
+        }
+        $script:missingAssetSuffixes = @()
         Remove-Item -LiteralPath $toolJar
         $script:builds.Clear(); $script:writes.Clear()
         $parameters.UsePrebuiltArtifacts = $true
@@ -312,16 +601,21 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         $fixtureUtf8 = New-Object System.Text.UTF8Encoding($false)
         $marketPlugin = @(Get-OfficialRequiredPlugins)[0]
         $ProjectRoot = $repo
-        $sourceDescriptor = Read-SourceDescriptor $marketPlugin.Module
+        $sourceDescriptor = Read-PropertiesFile (Join-Path $repo "$($marketPlugin.Module)/src/main/resources/plugin.properties")
         $currentSdk = Get-PixivDownloadSdkVersion -ProjectRoot $repo
         $marketRoot = Join-Path $fixture 'market'
         $resources = Join-Path $marketRoot "$($marketPlugin.Module)/src/main/resources"
         [IO.Directory]::CreateDirectory((Join-Path $resources 'i18n/web')) | Out-Null
         $descriptorPath = Join-Path $resources 'plugin.properties'
         $descriptorText = [IO.File]::ReadAllText((Join-Path $repo "$($marketPlugin.Module)/src/main/resources/plugin.properties"), $fixtureUtf8)
+        $descriptorText = [char]0xFEFF + $descriptorText + "`n# ignored`ninvalid`n=ignored`npixiv.display-name-key=discarded`n" +
+            [char]0xFEFF + "pixiv.display-name-key = fixture.label `npixiv.description-key=fixture.summary`n"
+        $label = "Name $([char]0x4E2D) = label"
         foreach ($suffix in @('', '_en')) {
             $bundle = "i18n/web/$($sourceDescriptor['pixiv.display-namespace'])$suffix.properties"
             Copy-Item -LiteralPath (Join-Path $repo "$($marketPlugin.Module)/src/main/resources/$bundle") -Destination (Join-Path $resources $bundle)
+            [IO.File]::AppendAllText((Join-Path $resources $bundle), "`n# ignored`ninvalid`n=ignored`nfixture.label=discarded`n" +
+                [char]0xFEFF + "fixture.label = $label$suffix `nfixture.summary = summary$suffix `n", $fixtureUtf8)
         }
         $metadata = 'pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties'
         [IO.Directory]::CreateDirectory((Split-Path -Parent (Join-Path $marketRoot $metadata))) | Out-Null
@@ -334,6 +628,16 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         function Invoke-PluginSignatureTool {
             param($Tool, $Arguments)
             if ($Arguments[0] -eq 'verify-manifest') { return }
+            if ($Arguments[0] -eq 'artifact') {
+                Assert-Equal $Arguments[[Array]::IndexOf($Arguments, '--plugin-id') + 1] $marketPlugin.Id
+                Assert-Equal $Arguments[[Array]::IndexOf($Arguments, '--version') + 1] $fixtureVersion
+                Assert-Equal (Test-Path -LiteralPath $Arguments[[Array]::IndexOf($Arguments, '--artifact') + 1]) $true
+            } elseif ($Arguments[0] -eq 'manifest') {
+                $manifestPath = $Arguments[[Array]::IndexOf($Arguments, '--manifest') + 1]
+                $signingManifest = [IO.File]::ReadAllText($manifestPath, $fixtureUtf8) | ConvertFrom-Json
+                Assert-Equal @($signingManifest.entries).Count 1
+                Assert-Equal $Arguments[[Array]::IndexOf($Arguments, '--repository-id') + 1] 'official'
+            } else { throw 'Unexpected signing command in market fixture.' }
             $destination = $Arguments[[Array]::IndexOf($Arguments, '--out') + 1]
             [IO.File]::WriteAllText($destination, '{"formatVersion":1,"algorithm":"Ed25519","keyId":"fixture","value":"fixture"}', $fixtureUtf8)
         }
@@ -382,9 +686,25 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
             }
             $fixtureAssetName = Get-OfficialPluginArtifactName $marketPlugin $fixtureVersion
             & $program.Main @parameters
-            $manifest = [IO.File]::ReadAllText($output, $fixtureUtf8) | ConvertFrom-Json
+            $manifestBytes = [IO.File]::ReadAllBytes($output)
+            Assert-Equal (($manifestBytes[0..2] -join ',') -eq '239,187,191') $false
+            $manifestText = $fixtureUtf8.GetString($manifestBytes)
+            Assert-Equal $manifestText.Contains("`r") $false
+            $manifest = $manifestText | ConvertFrom-Json
             Assert-Equal @($manifest.entries).Count 1
+            Assert-Equal $manifest.schemaVersion '1'
+            Assert-Equal $manifest.entries[0].market.displayName.zh $label
+            Assert-Equal $manifest.entries[0].market.displayName.en "${label}_en"
+            Assert-Equal $manifest.entries[0].market.summary.zh 'summary'
+            Assert-Equal $manifest.entries[0].market.summary.en 'summary_en'
             $package = $manifest.entries[0].packages[0]
+            foreach ($signature in @($package.signature, ([IO.File]::ReadAllText("$output.sig", $fixtureUtf8) | ConvertFrom-Json))) {
+                Assert-Equal $signature.formatVersion 1
+                Assert-Equal $signature.algorithm 'Ed25519'
+                Assert-Equal $signature.keyId 'fixture'
+                Assert-Equal $signature.value 'fixture'
+            }
+            Assert-Equal $package.signatureUrl "$($package.packageUrl).sig"
             Assert-Equal $package.requiredSdk $case.Expected
             Assert-Equal $package.requiredCoreApi $case.Expected
             Assert-Equal $package.channel $(if ($case.ContainsKey('Nightly')) { 'nightly' } else { 'stable' })
@@ -394,6 +714,26 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
                 if ($LASTEXITCODE -ne 0) { throw 'Generated Nightly manifest was rejected by publication guard.' }
             }
         }
+        foreach ($missing in @(
+            @{Path=$descriptorPath; Message='Missing source descriptor'},
+            @{Path=(Join-Path $resources $bundle); Message='Missing i18n bundle'}
+        )) {
+            $originalBytes = [IO.File]::ReadAllBytes($missing.Path)
+            $originalOutput = [IO.File]::ReadAllText($output, $fixtureUtf8)
+            try {
+                Remove-Item -LiteralPath $missing.Path
+                Assert-Rejected { & $program.Main @parameters } $missing.Message
+                Assert-Equal ([IO.File]::ReadAllText($output, $fixtureUtf8)) $originalOutput
+            } finally { [IO.File]::WriteAllBytes($missing.Path, $originalBytes) }
+        }
+        $metadataPath = Join-Path $marketRoot $metadata
+        $metadataBytes = [IO.File]::ReadAllBytes($metadataPath)
+        try {
+            Remove-Item -LiteralPath $metadataPath
+            Assert-Rejected { & $program.Main @parameters } 'SDK metadata not found'
+            [IO.File]::WriteAllText($metadataPath, 'version=invalid', $fixtureUtf8)
+            Assert-Rejected { & $program.Main @parameters } 'SDK metadata contains an invalid semantic version'
+        } finally { [IO.File]::WriteAllBytes($metadataPath, $metadataBytes) }
         $case = @{ Expected=$currentSdk }
         $parameters.Remove('NightlyBuildVersion')
         foreach ($fixtureVersion in @('5.0.0', '6.0.0', '7.0.0', '7.0.0')) {
@@ -482,6 +822,73 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         Assert-Rejected { Read-CatalogHistory $entry 'https://example.test/frozen/manifest.json' $fixture } 'Invalid signed history'
     }
     & {
+        . (Join-Path $repo 'scripts/plugin-distribution-common.ps1')
+        $fixtureEncoding = [Text.UTF8Encoding]::new($false)
+        $sdk = Get-PixivDownloadSdkVersion -ProjectRoot $repo
+        $manifestJson = @{entries=@(Get-OfficialDistributionPlugins | ForEach-Object {
+            @{pluginId=$_.Id; packages=@(@{version='1.2.3'; requiredSdk=$sdk;
+                packageUrl='https://example.test/asset.jar'; sha256=('a' * 64); expectedSizeBytes=1;
+                signature=@{formatVersion=1; algorithm='Ed25519'; keyId='fixture'; value='fixture'}})}
+        })} | ConvertTo-Json -Depth 8
+        function java {
+            Assert-Equal $args[0] '-cp'
+            Assert-Equal (Test-Path -LiteralPath $args[1] -PathType Leaf) $true
+            Assert-Equal $args[3] 'verify-manifest'
+            $global:LASTEXITCODE = 0
+        }
+        function Invoke-WebRequest {
+            param($Uri, $OutFile, [switch]$UseBasicParsing, $TimeoutSec)
+            $requests.Add($Uri)
+            switch ($Uri) {
+                'https://example.test/manifest.json' { [IO.File]::WriteAllText($OutFile, $manifestJson, $fixtureEncoding) }
+                'https://example.test/manifest.json.sig' { [IO.File]::WriteAllText($OutFile, 'fixture', $fixtureEncoding) }
+                'https://example.test/asset.jar' { throw 'Fixture asset download failed.' }
+                default { throw "Unexpected request: $Uri" }
+            }
+        }
+        foreach ($case in @('source', 'tool-inside', 'tool-equal', 'build-root', 'repo-root', 'ancestor', 'separate-input')) {
+            $root = Join-Path $fixture "catalog-input-$case"
+            $project = Join-Path $root 'project'
+            $scripts = Join-Path $project 'scripts'
+            [IO.Directory]::CreateDirectory($scripts) | Out-Null
+            foreach ($name in @('stage-official-plugin-inputs-from-catalog.ps1', 'plugin-distribution-common.ps1')) {
+                Copy-Item -LiteralPath (Join-Path $repo "scripts/$name") -Destination $scripts
+            }
+            $metadata = 'pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties'
+            [IO.Directory]::CreateDirectory((Split-Path -Parent (Join-Path $project $metadata))) | Out-Null
+            Copy-Item -LiteralPath (Join-Path $repo $metadata) -Destination (Join-Path $project $metadata)
+            $output = Join-Path $project 'build/plugin-inputs'
+            $tool = Join-Path $project 'build/plugin-inputs-extra/signature.jar'
+            $expectedError = 'protected'
+            switch ($case) {
+                'source' { $output = Join-Path $project 'src'; $expectedError = 'source directory' }
+                'tool-inside' { $tool = Join-Path $output 'signature.jar' }
+                'tool-equal' { $output = $tool }
+                'build-root' { $output = Join-Path $project 'build'; $expectedError = 'build root' }
+                'repo-root' { $output = $project; $expectedError = 'repository root' }
+                'ancestor' { $output = $root; $expectedError = 'ancestor' }
+                'separate-input' { $expectedError = 'Fixture asset download failed' }
+            }
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $tool)) | Out-Null
+            [IO.File]::WriteAllText($tool, 'signature fixture', $fixtureEncoding)
+            $marker = $tool
+            if ($case -ne 'tool-equal') {
+                [IO.Directory]::CreateDirectory($output) | Out-Null
+                $marker = Join-Path $output 'keep.txt'
+                [IO.File]::WriteAllText($marker, 'existing output', $fixtureEncoding)
+            }
+            $requests = [Collections.Generic.List[string]]::new()
+            $failure = $null
+            try {
+                & (Join-Path $scripts 'stage-official-plugin-inputs-from-catalog.ps1') -OutputDir $output -SignatureToolJar $tool -ManifestUrl 'https://example.test/manifest.json'
+            } catch { $failure = $_ }
+            Assert-Equal ([IO.File]::ReadAllText($tool, $fixtureEncoding)) 'signature fixture'
+            Assert-Equal (Test-Path -LiteralPath $marker) ($case -ne 'separate-input')
+            Assert-Equal $requests.Count $(if ($case -eq 'separate-input') { 3 } else { 0 })
+            if ($null -eq $failure -or $failure.Exception.Message -notlike "*$expectedError*") { throw "Unexpected catalog result: $failure" }
+        }
+    }
+    & {
         $program = Read-Program (Join-Path $repo 'scripts/publish-plugin-releases.ps1')
         $rewrite = @($program.Functions | Where-Object { $_.Name -eq 'Set-StagedPluginVersion' })
         Assert-Equal $rewrite.Count 1
@@ -551,15 +958,159 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         Assert-Rejected { & $program.Main @parameters -Mode Import -ProjectRoot $destination } 'must be absent'
     }
     & {
-        $program = Read-Program (Join-Path $repo 'scripts/package-local.ps1')
-        $definition = $program.Functions | Where-Object { $_.Name -eq 'Resolve-PrebuiltJar' }
-        . ([scriptblock]::Create($definition.Extent.Text))
-        Assert-Equal (Resolve-PrebuiltJar '') $null
-        Assert-Rejected { Resolve-PrebuiltJar (Join-Path $fixture 'missing.jar') } 'not found'
-        $empty = Join-Path $fixture 'empty.jar'
-        [IO.File]::WriteAllBytes($empty, [byte[]]@())
-        Assert-Rejected { Resolve-PrebuiltJar $empty } 'empty'
-        Assert-Rejected { Resolve-PrebuiltJar (Join-Path $fixture 'input') } 'not a .jar'
+        $fixtureEncoding = [Text.UTF8Encoding]::new($false)
+        foreach ($case in @('same', 'ancestor', 'child', 'source-root', 'outside', 'build-root', 'separate', 'brackets', 'patch-failure')) {
+            $root = Join-Path $fixture "inno-input-$case"
+            if ($case -eq 'brackets') { $root += ' [source]' }
+            $scripts = Join-Path $root 'scripts'
+            [IO.Directory]::CreateDirectory($scripts) | Out-Null
+            foreach ($name in @('prepare-inno-admin-loader.ps1', 'plugin-distribution-common.ps1')) {
+                Copy-Item -LiteralPath (Join-Path $repo "scripts/$name") -Destination $scripts
+            }
+            [IO.File]::WriteAllText((Join-Path $scripts 'set-windows-exe-requested-execution-level.ps1'), @'
+param($Path, $Level)
+if ($Level -ne 'requireAdministrator') { throw 'Unexpected execution level.' }
+if ($case -eq 'patch-failure') { throw 'Fixture manifest patch failed.' }
+[IO.File]::AppendAllText($Path, ':requireAdministrator')
+'@, $fixtureEncoding)
+            $source = Join-Path $root 'build/toolchain'
+            $output = Join-Path $root 'build/toolchain-prepared'
+            $expectedError = 'protected'
+            switch ($case) {
+                'same' { $output = $source }
+                'ancestor' { $source = Join-Path $output 'original' }
+                'child' { $output = Join-Path $source 'prepared' }
+                'source-root' { $source = $root; $expectedError = 'into its source directory' }
+                'outside' { $output = Join-Path $fixture "outside-$case"; $expectedError = 'outside the build directory' }
+                'build-root' { $output = Join-Path $root 'build'; $expectedError = 'build root' }
+                { $_ -in @('separate', 'brackets') } { $expectedError = $null }
+                'patch-failure' { $expectedError = 'Fixture manifest patch failed' }
+            }
+            [IO.Directory]::CreateDirectory($source) | Out-Null
+            foreach ($name in @('ISCC.exe', 'SetupLdr.e32', 'SetupLdr.e64')) {
+                [IO.File]::WriteAllText((Join-Path $source $name), $name, $fixtureEncoding)
+            }
+            [IO.Directory]::CreateDirectory($output) | Out-Null
+            $marker = Join-Path $output 'keep.txt'
+            [IO.File]::WriteAllText($marker, 'existing output', $fixtureEncoding)
+            $compiler = Join-Path $source 'ISCC.exe'
+            $result = $null
+            $failure = $null
+            try { $result = & (Join-Path $scripts 'prepare-inno-admin-loader.ps1') -CompilerPath $compiler -OutputDirectory $output }
+            catch { $failure = $_ }
+            foreach ($name in @('ISCC.exe', 'SetupLdr.e32', 'SetupLdr.e64')) {
+                Assert-Equal ([IO.File]::ReadAllText((Join-Path $source $name), $fixtureEncoding)) $name
+            }
+            Assert-Equal (Test-Path -LiteralPath $marker) ($case -notin @('separate', 'brackets', 'patch-failure'))
+            if ($expectedError) {
+                if ($null -eq $failure -or $failure.Exception.Message -notlike "*$expectedError*") { throw "Unexpected Inno result: $failure" }
+            } else {
+                if ($failure) { throw $failure }
+                Assert-Equal $result (Join-Path $output 'ISCC.exe')
+                foreach ($name in @('SetupLdr.e32', 'SetupLdr.e64')) {
+                    Assert-Equal ([IO.File]::ReadAllText((Join-Path $output $name), $fixtureEncoding)) "$($name):requireAdministrator"
+                }
+            }
+        }
+    }
+    & {
+        function jlink { $runtimeBuilds.Add('jlink'); $global:LASTEXITCODE = 17 }
+        function jpackage { throw 'Unexpected package build.' }
+        function Get-Command {
+            param($Name, $ErrorAction)
+            if ($Name -eq 'mvn.cmd') { return @{Source='Invoke-PackagingMaven'} }
+            if ($Name -eq 'iscc.exe') { return @{Source=$compilerFixture} }
+            return Microsoft.PowerShell.Core\Get-Command @PSBoundParameters
+        }
+        function Invoke-PackagingMaven {
+            Assert-Equal $args @('verify', '-DskipTests', '-Dapp.release.version=1.2.3')
+            $runtimeBuilds.Add('maven')
+            $global:LASTEXITCODE = 17
+        }
+        $fixtureEncoding = [Text.UTF8Encoding]::new($false)
+        foreach ($case in @('missing', 'empty', 'extension', 'jar-overlap', 'plugins-overlap', 'key-overlap', 'tool-overlap', 'inno-overlap', 'inno-adjacent', 'separate-input', 'bracket-input', 'source-build', 'whitespace-build')) {
+            $root = Join-Path $fixture "package-input-$case"
+            $scripts = Join-Path $root 'scripts'
+            [IO.Directory]::CreateDirectory($scripts) | Out-Null
+            foreach ($name in @('package-local.ps1', 'plugin-distribution-common.ps1', 'ffmpeg-release-integrity.ps1',
+                    'package-local-plugin-staging.ps1', 'package-local-installer-catalog.ps1')) {
+                Copy-Item -LiteralPath (Join-Path $repo "scripts/$name") -Destination $scripts
+            }
+            $metadata = 'pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties'
+            [IO.Directory]::CreateDirectory((Split-Path -Parent (Join-Path $root $metadata))) | Out-Null
+            Copy-Item -LiteralPath (Join-Path $repo $metadata) -Destination (Join-Path $root $metadata)
+            $marker = Join-Path $root 'build/input/keep.txt'
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $marker)) | Out-Null
+            [IO.File]::WriteAllText($marker, 'existing output', $fixtureEncoding)
+            $inputJar = Join-Path $root 'build/input-extra/supplied.jar'
+            if ($case -eq 'bracket-input') { $inputJar = Join-Path $root 'build/input [extra]/supplied.jar' }
+            if ($case -eq 'jar-overlap') { $inputJar = Join-Path $root 'build/out/supplied.jar' }
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $inputJar)) | Out-Null
+            $archive = [IO.Compression.ZipFile]::Open($inputJar, [IO.Compression.ZipArchiveMode]::Create)
+            try {
+                $writer = [IO.StreamWriter]::new($archive.CreateEntry('META-INF/pixivdownload-proguard.properties').Open(), $fixtureEncoding)
+                try { $writer.Write("formatVersion=1`nshrink=true`noptimize=true`nobfuscate=false`nproguard.version=fixture`n") }
+                finally { $writer.Dispose() }
+            } finally { $archive.Dispose() }
+            $inputHash = (Get-FileHash -LiteralPath $inputJar -Algorithm SHA256).Hash
+            $parameters = @{Version='1.2.3'; PrebuiltJar=$inputJar; SkipPlugins=$true; SkipPortable=$true; SkipOfflinePortable=$true; SkipInstaller=$true}
+            $compilerFixture = Join-Path $root 'build/inno-admin-loader-extra/ISCC.exe'
+            $protectedInput = $inputJar
+            $expectedError = 'protected input'
+            switch ($case) {
+                'missing' { $parameters.PrebuiltJar = Join-Path $root 'missing.jar'; $expectedError = 'not found' }
+                'empty' { $parameters.PrebuiltJar = Join-Path $root 'empty.jar'; [IO.File]::WriteAllBytes($parameters.PrebuiltJar, [byte[]]@()); $expectedError = 'empty' }
+                'extension' { $parameters.PrebuiltJar = Join-Path $root 'input.txt'; [IO.File]::WriteAllText($parameters.PrebuiltJar, 'input', $fixtureEncoding); $expectedError = 'not a .jar' }
+                'plugins-overlap' {
+                    $protectedInput = Join-Path $root 'build/runtime/plugins'
+                    [IO.Directory]::CreateDirectory($protectedInput) | Out-Null
+                    $parameters.SkipPlugins = $false
+                    $parameters.PrebuiltPluginsDir = $protectedInput
+                }
+                'key-overlap' {
+                    $protectedInput = Join-Path $root 'build/out/key.pem'
+                    [IO.Directory]::CreateDirectory((Split-Path -Parent $protectedInput)) | Out-Null
+                    [IO.File]::WriteAllText($protectedInput, 'fixture only', $fixtureEncoding)
+                    $parameters.PrivateKeyFile = $protectedInput
+                }
+                'tool-overlap' {
+                    $protectedInput = Join-Path $root 'build/app-image-online/signature.jar'
+                    [IO.Directory]::CreateDirectory((Split-Path -Parent $protectedInput)) | Out-Null
+                    [IO.File]::WriteAllText($protectedInput, 'fixture only', $fixtureEncoding)
+                    $parameters.SignatureToolJar = $protectedInput
+                }
+                { $_ -in @('inno-overlap', 'inno-adjacent') } {
+                    if ($case -eq 'inno-overlap') {
+                        $compilerFixture = Join-Path $root 'build/inno-admin-loader/ISCC.exe'
+                        $expectedError = 'protected'
+                    }
+                    else { $expectedError = 'Command failed: jlink' }
+                    [IO.Directory]::CreateDirectory((Split-Path -Parent $compilerFixture)) | Out-Null
+                    [IO.File]::WriteAllText($compilerFixture, 'compiler fixture', $fixtureEncoding)
+                    $protectedInput = $compilerFixture
+                    $parameters.SkipInstaller = $false
+                }
+                { $_ -in @('separate-input', 'bracket-input') } { $expectedError = 'Command failed: jlink' }
+                'source-build' { $parameters.PrebuiltJar = ''; $expectedError = 'Command failed: Invoke-PackagingMaven' }
+                'whitespace-build' { $parameters.PrebuiltJar = ' '; $expectedError = 'Command failed: Invoke-PackagingMaven' }
+            }
+            $runtimeBuilds = [Collections.Generic.List[string]]::new()
+            $originalLocation = (Get-Location).Path
+            Assert-Rejected { & (Join-Path $scripts 'package-local.ps1') @parameters } $expectedError
+            Assert-Equal (Get-Location).Path $originalLocation
+            Assert-Equal (Test-Path -LiteralPath $protectedInput) $true
+            Assert-Equal (Get-FileHash -LiteralPath $inputJar -Algorithm SHA256).Hash $inputHash
+            Assert-Equal $runtimeBuilds.Count $(if ($case -in @('separate-input', 'bracket-input', 'inno-adjacent', 'source-build', 'whitespace-build')) { 1 } else { 0 })
+            if ($case -in @('separate-input', 'bracket-input', 'inno-adjacent')) {
+                Assert-Equal (Test-Path -LiteralPath $marker) $false
+                $staged = Join-Path $root 'build/input/PixivDownload-1.2.3.jar'
+                Assert-Equal (Get-FileHash -LiteralPath $staged -Algorithm SHA256).Hash $inputHash
+            } elseif ($case -in @('source-build', 'whitespace-build')) {
+                Assert-Equal $runtimeBuilds @('maven')
+            } else {
+                Assert-Equal ([IO.File]::ReadAllText($marker, $fixtureEncoding)) 'existing output'
+            }
+        }
     }
     & {
         . (Join-Path $repo 'scripts/release-e2e/scenarios.ps1')
@@ -597,6 +1148,119 @@ if (-not $IncludeOptional -or -not $RequireProguard) { throw 'Missing signature/
         Assert-Equal $script:observed $complete
         Assert-Equal $complete.Count 9
         foreach ($entry in $entries) { Assert-Equal ([IO.File]::ReadAllText((Join-Path $root "plugins/$($entry.file)"))) 'original' }
+    }
+    & {
+        $installer = Join-Path $repo 'packaging/windows/inno/installer-plugin-install.ps1'
+        $program = Read-Program $installer
+        foreach ($function in $program.Functions) { . ([scriptblock]::Create($function.Extent.Text)) }
+        $SdkVersion = '7.4.0'
+        function New-PlanEntry($Id, $Version, $Dependencies) {
+            [pscustomobject]@{ pluginId=$Id; market=@{latestVersion=$Version}; packages=@([pscustomobject]@{
+                version=$Version; packageUrl='https://example.invalid/fixture.invalid'; expectedSizeBytes=1;
+                sha256=('0'*64); signature=@{value='fixture'}; requiredSdk='*'; dependencies=$Dependencies
+            }) }
+        }
+        $shared = New-PlanEntry 'shared' '1.3.0' @()
+        $first = New-PlanEntry 'first' '1.0.0' @('shared@1.0')
+        $second = New-PlanEntry 'second' '1.0.0' @('shared@1.2', 'absent?@9.0')
+        $manifest = [pscustomobject]@{ entries=@($shared, $first, $second) }
+        $plan = [ordered]@{}
+        foreach ($id in @('first', 'second', 'first', 'SHARED')) { Add-Plan $manifest $id '*' $plan @{} }
+        Assert-Equal @($plan.Values.PluginId) @('shared', 'first', 'second')
+        Assert-Equal @($plan.Values.Version) @('1.3.0', '1.0.0', '1.0.0')
+        $fallback = New-PlanEntry 'fallback' '2.0.0' @()
+        $fallback.packages += $shared.packages[0]
+        $selection = [ordered]@{}
+        Add-Plan ([pscustomobject]@{entries=@($fallback)}) 'fallback' '1.1' $selection @{}
+        Assert-Equal $selection['fallback'].Version '1.3.0'
+        Assert-Rejected { Add-Plan $manifest 'missing' '*' ([ordered]@{}) @{} } 'Dependency not found'
+        Assert-Rejected { Add-Plan $manifest 'shared' '2.0' ([ordered]@{}) @{} } 'No installable package'
+        $cycle = [pscustomobject]@{ entries=@((New-PlanEntry 'left' '1.0.0' @('right')), (New-PlanEntry 'right' '1.0.0' @('left'))) }
+        Assert-Rejected { Add-Plan $cycle 'left' '*' ([ordered]@{}) @{} } 'Dependency cycle'
+        $incompatible = New-PlanEntry 'incompatible' '1.0.0' @()
+        $incompatible.packages[0].requiredSdk = '8.0'
+        Assert-Rejected { Add-Plan ([pscustomobject]@{entries=@($incompatible)}) 'incompatible' '*' ([ordered]@{}) @{} } 'requires SDK'
+        $second.packages[0].dependencies = @('shared@2.0')
+        $conflict = [ordered]@{}
+        Add-Plan $manifest 'first' '*' $conflict @{}
+        Assert-Rejected { Add-Plan $manifest 'second' '*' $conflict @{} } 'does not satisfy dependency'
+        foreach ($ids in @('first,second', 'shared,second')) {
+            $root = Join-Path $fixture ('installer-plan-' + $ids.Replace(',', '-'))
+            [IO.Directory]::CreateDirectory($root) | Out-Null
+            $manifestPath = Join-Path $root 'manifest.json'
+            $progressPath = Join-Path $root 'progress.txt'
+            $installPath = Join-Path $root 'app'
+            [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+            & (Get-Process -Id $PID).Path -NoProfile -File $installer -ManifestFile $manifestPath -PluginIds $ids -InstallDir $installPath -ProgressFile $progressPath -SignatureToolJar unused -JavaPath unused -SdkVersion $SdkVersion
+            Assert-Equal $LASTEXITCODE 1
+            $progress = [IO.File]::ReadAllText($progressPath, [Text.Encoding]::UTF8)
+            if ($progress -notmatch '^ERROR\|.*does not satisfy dependency') { throw "Unexpected planning error: $progress" }
+            Assert-Equal (Test-Path -LiteralPath $installPath) $false
+        }
+        $second.packages[0].dependencies = @('shared@1.2')
+        $bytes = [Text.Encoding]::UTF8.GetBytes('fixture')
+        $hasher = [Security.Cryptography.SHA256]::Create()
+        try { $hash = ([BitConverter]::ToString($hasher.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant() }
+        finally { $hasher.Dispose() }
+        foreach ($entry in $manifest.entries) {
+            $entry.packages[0].packageUrl = 'https://example.invalid/fixture.jar'
+            $entry.packages[0].sha256 = $hash
+            $entry.packages[0].expectedSizeBytes = $bytes.Length
+            $entry.packages[0].signature = @{formatVersion=1; algorithm='Ed25519'; keyId='fixture'; value='fixture'}
+        }
+        $boundaries = @'
+
+function Download-Package($Item, [string]$Target) {
+    [IO.File]::WriteAllText($Target, 'fixture', [Text.UTF8Encoding]::new($false))
+}
+function Verify-Package($Item, [string]$ArtifactPath, [string]$SignaturePath) {
+    [IO.File]::AppendAllText($ProgressFile + '.order', $Item.PluginId + "`n", [Text.UTF8Encoding]::new($false))
+    if ($ProgressFile.Contains('verify-failure') -and $Item.PluginId -eq 'first') { throw 'Fixture signature failure.' }
+}
+
+'@
+        $driver = Join-Path $fixture 'installer-with-local-download.ps1'
+        Copy-Item -LiteralPath (Join-Path $repo 'packaging/windows/inno/installer-progress.ps1') -Destination $fixture
+        [IO.File]::WriteAllText($driver, ([IO.File]::ReadAllText($installer).Insert($program.Functions[-1].Extent.EndOffset, $boundaries)), [Text.UTF8Encoding]::new($false))
+        foreach ($case in @('success', 'verify-failure')) {
+            $root = Join-Path $fixture "installer-execute-$case"
+            [IO.Directory]::CreateDirectory($root) | Out-Null
+            $manifestPath = Join-Path $root 'manifest.json'
+            $progressPath = Join-Path $root 'progress.txt'
+            $installPath = Join-Path $root 'app'
+            [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+            & (Get-Process -Id $PID).Path -NoProfile -File $driver -ManifestFile $manifestPath -PluginIds 'first,second,first' -InstallDir $installPath -ProgressFile $progressPath -SignatureToolJar unused -JavaPath unused -SdkVersion $SdkVersion
+            $expectedExit = if ($case -eq 'success') { 0 } else { 1 }
+            Assert-Equal $LASTEXITCODE $expectedExit
+            $progress = [IO.File]::ReadAllText($progressPath, [Text.Encoding]::UTF8).Trim()
+            $order = [IO.File]::ReadAllLines($progressPath + '.order', [Text.Encoding]::UTF8)
+            if ($case -eq 'success') {
+                Assert-Equal $order @('shared', 'first', 'second')
+                Assert-Equal $progress 'DONE|3'
+            } else {
+                Assert-Equal $order @('shared', 'first')
+                if ($progress -notmatch '^ERROR\|.*Fixture signature failure') { throw "Unexpected installation error: $progress" }
+            }
+            $installed = @(if ($case -eq 'success') { 'shared', 'first', 'second' } else { 'shared' })
+            $artifacts = @(Get-ChildItem -LiteralPath (Join-Path $installPath 'plugins') -File -Filter '*.jar')
+            Assert-Equal $artifacts.Count $installed.Count
+            foreach ($id in $installed) {
+                $version = if ($id -eq 'shared') { '1.3.0' } else { '1.0.0' }
+                $artifact = Join-Path $installPath "plugins/$id-$version.jar"
+                Assert-Equal ([IO.File]::ReadAllText($artifact, [Text.Encoding]::UTF8)) 'fixture'
+                Assert-Equal (Test-Path -LiteralPath "$artifact.sig") $true
+                Assert-Equal (Test-Path -LiteralPath (Join-Path $installPath "plugins/provenance/$id-$version.jar.pixiv-plugin-provenance")) $true
+            }
+            Assert-Equal ([IO.File]::ReadAllLines((Join-Path $installPath 'config/config.yaml'), [Text.Encoding]::UTF8)) @($installed | ForEach-Object { "plugins.$_.enabled: true" })
+        }
+    }
+    if ($env:OS -eq 'Windows_NT') {
+        & {
+            $program = Read-Program (Join-Path $repo 'scripts/package-local.ps1')
+            $compilerFunction = $program.Functions | Where-Object { $_.Name -eq 'Get-InnoSetupCompiler' }
+            . ([scriptblock]::Create($compilerFunction.Extent.Text))
+            & (Join-Path $PSScriptRoot 'installer-helper.test.ps1') -CompilerPath (Get-InnoSetupCompiler)
+        }
     }
     Write-Host 'PASS: complete acceptance across independent groups, verified candidate reuse, prebuilt rejection and publication failure propagation.'
 } finally {

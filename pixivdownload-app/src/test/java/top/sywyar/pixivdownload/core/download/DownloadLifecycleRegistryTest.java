@@ -7,7 +7,11 @@ import top.sywyar.pixivdownload.plugin.api.download.lifecycle.*;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.DownloadLifecycleCapabilityAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationRegistry;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityOwner;
+import top.sywyar.pixivdownload.plugin.api.download.submission.DownloadSubmissionHandler;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -15,6 +19,33 @@ import static org.assertj.core.api.Assertions.*;
 
 @DisplayName("下载事件和前置规则生命周期")
 class DownloadLifecycleRegistryTest {
+    @Test @DisplayName("冲突替换保留原贡献，成功替换保持观察顺序")
+    void replacementPreservesContributionOrder() {
+        var registry = new DownloadLifecycleRegistry();
+        var first = new ExternalCapabilityOwner("first", "first", 1, 1);
+        var second = new ExternalCapabilityOwner("second", "second", 1, 2);
+        var handler = org.mockito.Mockito.mock(DownloadSubmissionHandler.class);
+        var calls = new ArrayList<String>();
+        registry.register(first, new DownloadLifecycleRegistry.Contribution(
+                List.of(event -> calls.add("first")), List.of(), List.of(), Map.of("example", handler)));
+        registry.register(second, new DownloadLifecycleRegistry.Contribution(
+                List.of(event -> calls.add("second")), List.of(), List.of(), Map.of("other", handler)));
+
+        assertThatThrownBy(() -> registry.register(first, new DownloadLifecycleRegistry.Contribution(
+                List.of(event -> calls.add("conflicting")), List.of(), List.of(), Map.of("other", handler))))
+                .isInstanceOf(IllegalArgumentException.class);
+        var event = new DownloadEvent(new DownloadAttempt(UUID.randomUUID(), "example", "42"),
+                DownloadEvent.Phase.STARTED);
+        registry.publish(event);
+        assertThat(calls).containsExactly("first", "second");
+
+        calls.clear();
+        registry.register(first, new DownloadLifecycleRegistry.Contribution(
+                List.of(value -> calls.add("replacement")), List.of(), List.of(), Map.of("example", handler)));
+        registry.publish(event);
+        assertThat(calls).containsExactly("replacement", "second");
+    }
+
     @Test @DisplayName("撤回中的选项链拒绝旧处理器，不回落到新发布或跳过规则")
     void withdrawnHookChainFailsClosed() throws Exception {
         var registry = new DownloadLifecycleRegistry();

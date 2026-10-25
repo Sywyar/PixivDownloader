@@ -150,10 +150,7 @@ public class VoxCpmNarrationEngine extends AbstractHttpNarrationEngine implement
         if (vox == null || vox.getBaseUrl() == null || vox.getBaseUrl().isBlank()) {
             throw new NarrationVoiceException(localized("narration.tts.error.unavailable"), null);
         }
-        String text = req == null ? null : req.text();
-        if (NarrationSpeechText.blankToNull(text) == null) {
-            throw new NarrationVoiceException(localized("narration.tts.error.empty-text"), null);
-        }
+        String text = requireText(req);
 
         NarrationVoiceMode effective = resolveMode(mode, req, vox);
         // 三种模式的 input 互不污染：voice-design 拼基底画像、可控克隆只拼 delivery、Hi-Fi 续写<b>不拼任何控制前缀</b>

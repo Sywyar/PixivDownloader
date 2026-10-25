@@ -1,11 +1,9 @@
 package top.sywyar.pixivdownload.core.pixiv.filename;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -156,15 +154,7 @@ public final class PixivWorkFileNameFormatter {
         if (suffix == null || suffix.isEmpty()) {
             return normalizeBaseName(value, fallback);
         }
-        String cleaned = sanitize(value);
-        if (cleaned.isBlank()) {
-            cleaned = sanitize(fallback);
-        }
-        if (cleaned.isBlank()) {
-            cleaned = "untitled";
-        }
-        int maxBase = Math.max(1, MAX_BASENAME_LENGTH - suffix.length());
-        return limitLength(cleaned, maxBase) + suffix;
+        return appendSuffix(normalizeBaseName(value, fallback), suffix);
     }
 
     private static String format(String template,
@@ -223,14 +213,12 @@ public final class PixivWorkFileNameFormatter {
 
     private static List<String> ensureUnique(List<String> names, int maxLength) {
         List<String> result = new ArrayList<>(names.size());
-        Map<String, Integer> baseCounts = new HashMap<>();
         Set<String> used = new HashSet<>();
         for (int page = 0; page < names.size(); page++) {
             String base = names.get(page);
             String candidate = base;
             String baseKey = key(base);
-            int duplicate = baseCounts.getOrDefault(baseKey, 0);
-            if (duplicate > 0 || used.contains(baseKey)) {
+            if (used.contains(baseKey)) {
                 int suffixIndex = 1;
                 String candidateKey;
                 do {
@@ -242,7 +230,6 @@ public final class PixivWorkFileNameFormatter {
                     suffixIndex++;
                 } while (used.contains(candidateKey));
             }
-            baseCounts.put(baseKey, duplicate + 1);
             used.add(key(candidate));
             result.add(candidate);
         }

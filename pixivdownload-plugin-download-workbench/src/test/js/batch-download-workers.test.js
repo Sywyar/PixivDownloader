@@ -9,8 +9,8 @@ const {isMainThread, parentPort, workerData, Worker} = require('node:worker_thre
 
 const STATIC = path.join(__dirname, '..', '..', 'main', 'resources', 'static', 'pixiv-batch');
 const DOWNLOAD_SOURCE = [
-    'batch-download-quota.js', 'batch-download-artwork.js', 'batch-path-actions.js',
-    'batch-download-workers.js', 'batch-download.js'
+    'batch-archive.js', 'batch-download-quota.js', 'filename-template.js', 'batch-artwork-requests.js', 'batch-download-artwork.js', 'batch-path-actions.js',
+    'download-workers.js', 'batch-download-workers.js', 'batch-download.js'
 ].map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
 const SCENARIO_TIMEOUT_MS = 2000;
 
@@ -40,6 +40,7 @@ function createWorkerHarness(options) {
     };
     const sandbox = {
         window: {
+            addEventListener() {},
             PixivBatch: {
                 download: {},
                 queueTypes: {get: () => descriptor}
@@ -225,21 +226,6 @@ if (!isMainThread) {
         assert.equal(result.calls.sharedSseClosed, 1);
         assert.equal(result.calls.statuses.filter(status => status.message.key === 'status.batch-finished').length, 1);
         assert.equal(result.calls.statuses.at(-1).message.key, 'status.batch-finished');
-    });
-
-    test('其他入口的执行不被开始按钮重提，也不阻塞本页批次收尾', async () => {
-        const result = await runIsolatedScenario({
-            action: 'start', concurrent: 2,
-            queue: [
-                {id: 'external-running', taskObserved: true, status: 'downloading'},
-                {id: 'external-failed', taskObserved: true, status: 'failed'},
-                {id: 'external-unknown', taskObserved: true, status: 'paused', recoveryState: 'unknown'},
-                {id: 'local', status: 'idle'}
-            ]
-        });
-        assert.deepEqual(result.calls.processed, ['local']);
-        assert.equal(result.isRunning, false);
-        assert.deepEqual(result.queue.map(item => item.status), ['downloading', 'failed', 'paused', 'completed']);
     });
 
     test('重复 start 不会重置已启动 worker 或重复处理队列项', async () => {

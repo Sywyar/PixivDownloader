@@ -70,6 +70,48 @@ class StagedFileDeletionTest {
     }
 
     @Test
+    @DisplayName("替换与旧格式删除共用主库提交，记录失败时恢复全部文件")
+    void rollsBackReplacementAndDeletionTogether() throws Exception {
+        Path target = Files.writeString(tempDir.resolve("reference.wav"), "old wav");
+        Path obsolete = Files.writeString(tempDir.resolve("reference.mp3"), "old mp3");
+        Path staged = Files.writeString(tempDir.resolve("upload.part"), "new wav");
+        var failure = new IllegalStateException("record update failed");
+        top.sywyar.pixivdownload.core.asset.FileTransactionService files = deletion;
+
+        assertEquals(failure, assertThrows(IllegalStateException.class,
+                () -> files.changeFiles(java.util.Map.of(target, staged), List.of(obsolete), () -> {
+                    assertFalse(Files.exists(obsolete));
+                    throw failure;
+                })));
+
+        assertEquals("old wav", Files.readString(target));
+        assertEquals("old mp3", Files.readString(obsolete));
+        assertEquals("new wav", Files.readString(staged));
+        assertTrue(journal.operations().isEmpty());
+        assertEquals(0, stagingResidueCount());
+
+        files.changeFiles(java.util.Map.of(target, staged), List.of(obsolete), () -> {});
+        assertEquals("new wav", Files.readString(target));
+        assertFalse(Files.exists(obsolete));
+        assertTrue(journal.operations().isEmpty());
+    }
+
+    @Test
+    @DisplayName("同一目标不能同时发布和删除，拒绝时不执行记录更新")
+    void rejectsConflictingFileChanges() throws Exception {
+        Path target = Files.writeString(tempDir.resolve("reference.wav"), "old");
+        Path staged = Files.writeString(tempDir.resolve("upload.part"), "new");
+        AtomicBoolean called = new AtomicBoolean();
+
+        assertThrows(IOException.class, () -> deletion.changeFiles(java.util.Map.of(target, staged),
+                List.of(target), () -> called.set(true)));
+
+        assertFalse(called.get());
+        assertEquals("old", Files.readString(target));
+        assertEquals("new", Files.readString(staged));
+    }
+
+    @Test
     @DisplayName("全部删除成功：文件删净、暂存已清、返回 true")
     void deletesAllFilesAndCleansStaging() throws Exception {
         Path dir = Files.createDirectories(tempDir.resolve("work"));

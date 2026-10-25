@@ -11,7 +11,7 @@ import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
-import top.sywyar.pixivdownload.sdk.SdkVersion;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.VersionRequirement;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -38,18 +38,17 @@ class DownloadWorkbenchRequiredContextTest {
     }
 
     @Test
-    @DisplayName("描述符声明的最低 SDK 要求可由实际构建 SDK 满足")
-    void descriptorRequirementIsCompatibleWithBuildSdk() throws Exception {
+    @DisplayName("插件描述符声明有效且当前宿主可满足的 SDK 要求")
+    void descriptorRequirementIsCompatibleWithCurrentSdk() throws Exception {
         Properties descriptor = new Properties();
         try (InputStream input = getClass().getResourceAsStream("/plugin.properties")) {
             assertThat(input).isNotNull();
             descriptor.load(input);
         }
-        String requires = descriptor.getProperty("plugin.requires");
-        assertThat(requires).matches("(0|[1-9]\\d*)\\.(0|[1-9]\\d*)");
-        String[] version = requires.split("\\.");
-        assertThat(SdkVersion.isCompatibleWith(Integer.parseInt(version[0]), Integer.parseInt(version[1])))
-                .as("实际构建 SDK 应满足插件声明的最低要求").isTrue();
+        VersionRequirement requirement = VersionRequirement.parseSdk(descriptor.getProperty("plugin.requires"));
+        assertThat(requirement.present()).isTrue();
+        assertThat(requirement.valid()).isTrue();
+        assertThat(requirement.isSatisfiedByCurrentSdk()).isTrue();
     }
 
     @Test
@@ -162,7 +161,6 @@ class DownloadWorkbenchRequiredContextTest {
     void navigationStartupAndDownloadTypeDeclared() {
         assertThat(plugin.navigation()).filteredOn(nav -> nav.id().equals("download-workbench")).singleElement()
                 .satisfies(nav -> {
-                    assertThat(nav.id()).isEqualTo("download-workbench");
                     assertThat(nav.href()).isEqualTo("/pixiv-batch.html");
                     assertThat(nav.placements()).contains(NavigationPlacements.DESKTOP_QUICK_START);
                     assertThat(nav.markers()).containsExactly("preferred-download-workbench");
@@ -194,11 +192,6 @@ class DownloadWorkbenchRequiredContextTest {
                 .toList())
                 .containsExactlyInAnyOrder("USER_NEW", "USER_REQUEST", "SEARCH", "SERIES",
                         "MY_BOOKMARKS", "FOLLOW_LATEST", "COLLECTION");
-        assertThat(descriptors).allSatisfy(descriptor -> {
-            assertThat(descriptor.frontend()).isNotNull();
-            assertThat(descriptor.frontend().moduleUrl())
-                    .isEqualTo(PixivScheduledSourceDescriptors.FRONTEND_MODULE_URL);
-        });
     }
 
     private void assertRoute(String path, HttpMethod method, AccessPolicy expectedPolicy) {

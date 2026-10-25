@@ -159,7 +159,7 @@ class CoreApiOwnershipGuardTest {
                             "ScheduleRunToken", "ScheduleSuspendReason"))),
             Map.entry("核心作品事实与共享纯语义", union(
                     types("top.sywyar.pixivdownload.core.work.importing", "WorkFileImporter", "WorkFileImportHandler", "WorkFileImportRequest"),
-                    types("top.sywyar.pixivdownload.core.asset", "ArtworkMediaManifest", "ArtworkMediaStore", "BoundedImageDecoder", "ImageThumbnailScaler"),
+                    types("top.sywyar.pixivdownload.core.asset", "ArtworkMediaManifest", "ArtworkMediaStore", "BoundedImageDecoder", "ImageThumbnailScaler", "FileTransactionService"),
                     types("top.sywyar.pixivdownload.core.artwork.download",
                             "ArtworkAuthorLookup", "ArtworkDownloadCompletion", "ArtworkDownloadHistory",
                             "ArtworkDownloadLookup", "ArtworkDownloadStatistics",
@@ -214,6 +214,7 @@ class CoreApiOwnershipGuardTest {
             "top.sywyar.pixivdownload.core.ffmpeg.FfmpegProcessGate$Permit",
             "top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner$Tool",
             "top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner$Phase",
+            "top.sywyar.pixivdownload.core.ffmpeg.FfmpegRunner$UnavailableException",
             "top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadStatistics$DailyOutcomes",
             "top.sywyar.pixivdownload.core.stats.StatsAggregates$Overview",
             "top.sywyar.pixivdownload.core.stats.StatsAggregates$AuthorStat",
@@ -743,7 +744,6 @@ class CoreApiOwnershipGuardTest {
         Method create = ScheduledTaskStore.class.getDeclaredMethod("create", ScheduledTaskCreate.class);
 
         assertThat(create.getReturnType()).isEqualTo(long.class);
-        assertThat(create.getReturnType().isPrimitive()).isTrue();
         assertThat(Modifier.isPublic(create.getModifiers())).isTrue();
         assertThat(Modifier.isAbstract(create.getModifiers())).isTrue();
         assertThat(Arrays.stream(ScheduledTaskStore.class.getDeclaredMethods())

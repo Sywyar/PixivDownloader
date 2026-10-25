@@ -5,7 +5,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import top.sywyar.pixivdownload.core.schedule.ScheduledPendingWork;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledCheckpoint;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
@@ -13,7 +12,6 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresenta
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
-import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkRelation;
 import top.sywyar.pixivdownload.schedule.security.ScheduleCredentialRedactor;
 
 import java.io.IOException;
@@ -135,74 +133,6 @@ public final class PixivSchedulePersistenceCodec {
             throw new IllegalArgumentException("Pixiv work key and payload id differ");
         }
         return decoded;
-    }
-
-    /** 把 API work envelope 完整投影为核心 pending 行，保留 presentation 与 relations。 */
-    public ScheduledPendingWork toPendingWork(long taskId,
-                                              ScheduledWork work,
-                                              String reasonCode,
-                                              String reasonDetailJson,
-                                              int attempts,
-                                              Long firstSeenTime,
-                                              Long lastAttemptTime) {
-        if (taskId <= 0) {
-            throw new IllegalArgumentException("task id must be positive");
-        }
-        Objects.requireNonNull(work, "work");
-        decodeWorkId(work);
-        rejectCredentialText(reasonCode, "pending reason code");
-        String relationsJson = writeSafeValue(work.relations(), "schedule work relations");
-        String presentationJson = writeSafeValue(work.presentation(), "schedule work presentation");
-        if (reasonDetailJson != null && !reasonDetailJson.isBlank()) {
-            rejectCredentialMaterial(parseJson(reasonDetailJson, "pending reason detail"),
-                    "pending reason detail");
-        }
-        return new ScheduledPendingWork(
-                taskId,
-                work.key().workType(),
-                work.key().id(),
-                work.payloadSchema(),
-                work.payloadVersion(),
-                work.payloadJson(),
-                relationsJson,
-                presentationJson,
-                reasonCode,
-                reasonDetailJson,
-                attempts,
-                firstSeenTime,
-                lastAttemptTime);
-    }
-
-    /** 从核心 pending 行恢复完整 API work envelope，并重新执行 Pixiv schema 与身份一致性校验。 */
-    public ScheduledWork fromPendingWork(ScheduledPendingWork pending) {
-        Objects.requireNonNull(pending, "pending");
-        if (pending.taskId() <= 0) {
-            throw new IllegalArgumentException("pending task id must be positive");
-        }
-        if (pending.reasonDetailJson() != null && !pending.reasonDetailJson().isBlank()) {
-            rejectCredentialMaterial(parseJson(pending.reasonDetailJson(), "pending reason detail"),
-                    "pending reason detail");
-        }
-        rejectCredentialText(pending.reasonCode(), "pending reason code");
-        String pendingPresentation = pending.presentationJson();
-        if (pendingPresentation != null && !pendingPresentation.isBlank()) {
-            rejectCredentialMaterial(parseJson(pendingPresentation, "pending presentation"),
-                    "pending presentation");
-        }
-        ScheduledWorkPresentation presentation = pendingPresentation == null
-                || pendingPresentation.isBlank()
-                ? ScheduledWorkPresentation.empty()
-                : readValue(pendingPresentation, ScheduledWorkPresentation.class, "pending presentation");
-        List<ScheduledWorkRelation> relations = readRelations(pending.relationsJson());
-        ScheduledWork work = new ScheduledWork(
-                new ScheduledWorkKey(pending.workType(), pending.workId()),
-                pending.payloadSchema(),
-                pending.payloadVersion(),
-                pending.payloadJson(),
-                presentation,
-                relations);
-        decodeWorkId(work);
-        return work;
     }
 
     /** 编码 Pixiv credential policy 的耐久状态；警告时间同样按字符串保存。 */
@@ -329,20 +259,6 @@ public final class PixivSchedulePersistenceCodec {
         }
     }
 
-    private String writeValue(Object value) {
-        try {
-            return objectMapper.writeValueAsString(value);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("failed to encode Pixiv pending metadata", e);
-        }
-    }
-
-    private String writeSafeValue(Object value, String label) {
-        String json = writeValue(value);
-        rejectCredentialMaterial(parseJson(json, label), label);
-        return json;
-    }
-
     private void rejectCredentialMaterial(JsonNode node, String label) {
         if (node.isObject()) {
             node.fields().forEachRemaining(entry -> {
@@ -395,25 +311,6 @@ public final class PixivSchedulePersistenceCodec {
     private static void rejectCredentialText(String value, String label) {
         if (ScheduleCredentialRedactor.containsCredentialMaterial(value)) {
             throw new IllegalArgumentException(label + " contains forbidden credential material");
-        }
-    }
-
-    private <T> T readValue(String json, Class<T> type, String label) {
-        try {
-            return objectMapper.readValue(requireText(json, label), type);
-        } catch (JsonProcessingException e) {
-            throw new IllegalArgumentException(label + " is invalid JSON", e);
-        }
-    }
-
-    private List<ScheduledWorkRelation> readRelations(String json) {
-        String value = json == null || json.isBlank() ? "[]" : json;
-        rejectCredentialMaterial(parseJson(value, "pending relations"), "pending relations");
-        try {
-            return objectMapper.readValue(value, objectMapper.getTypeFactory()
-                    .constructCollectionType(List.class, ScheduledWorkRelation.class));
-        } catch (JsonProcessingException e) {
-            throw new IllegalArgumentException("pending relations are invalid JSON", e);
         }
     }
 

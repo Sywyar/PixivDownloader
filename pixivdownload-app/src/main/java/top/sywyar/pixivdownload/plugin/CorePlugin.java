@@ -25,14 +25,6 @@ import top.sywyar.pixivdownload.setup.guest.persistence.GuestInviteSchemaContrib
 
 import java.util.List;
 import java.util.Set;
-import top.sywyar.pixivdownload.plugin.management.PluginManagementController;
-import top.sywyar.pixivdownload.plugin.registry.web.DrilldownRegistry;
-import top.sywyar.pixivdownload.plugin.registry.web.NavigationRegistry;
-import top.sywyar.pixivdownload.plugin.registry.web.PageSectionRegistry;
-import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
-import top.sywyar.pixivdownload.plugin.web.controller.DrilldownController;
-import top.sywyar.pixivdownload.plugin.web.controller.NavigationController;
-import top.sywyar.pixivdownload.plugin.web.controller.PageSectionController;
 
 /**
  * 核心插件：承载核心层（schema、公共静态资源、基础路由等）的 contribution 声明。
@@ -101,25 +93,8 @@ public class CorePlugin implements PixivFeaturePlugin {
 
     @Override
     public List<WebRouteContribution> routes() {
-        // 跨页 / 横切的核心路由访问声明：功能页面与各自 API 由对应功能插件
-        // 声明，本清单承载未被功能插件接管的核心 / 共享路由，并把历史「未声明 API / 顶层 HTML / 静态资源」
-        // 一并显式声明——AuthFilter 对未命中任何声明的请求统一 404，故每个真实 URL 都必须落在某条声明里。
-        //
-        // 访问策略 → AuthFilter 请求侧消费 registry 快照：monitor 受保护与「未声明即 404」按
-        // RouteAccessRegistry.resolve(path, method) 解析「最具体声明 + 方法」的有效策略（窄声明覆盖宽前缀，
-        // 宽前缀不吞窄端点）；访客白名单 / 公开 / 本地清单仍按访问策略派生。
-        //   ADMIN                     → monitor 受保护（管理员 / solo 会话）
-        //   INVITED_GUEST             → monitor 受保护 + 访客邀请白名单（既受保护、受邀访客又可只读）
-        //   VISITOR_AND_INVITED_GUEST → 仅访客白名单 / 共享只读依赖（不入 monitor；multi 普通访客 GET 亦可达）
-        //   VISITOR                   → 不派生进任何清单（multi 访客可读 / solo 需会话 / 邀请访客 403 /
-        //                               不入 monitor，与历史未声明 API 逐字等价；纯归属声明、不改访问行为）
-        //   PUBLIC                    → 公开静态资源 / 页面 / API（solo 与 multi 两种模式均公开）
-        //   LOCAL                     → 本地放行特例（本地直通，远端回退常规鉴权）
-        //   GUI                       → /api/gui/** 双重校验（本地 + token，由内联分支执行；声明为纳入守卫）
-        //   ACTUATOR_PUBLIC           → actuator 公开探针（由内联 fast-path 放行；声明为纳入守卫与镜像）
-        // 同一端点的不对称按现状保留（如 /api/download/status/active 是 INVITED_GUEST、而 /api/download/status/
-        // 前缀是 VISITOR_AND_INVITED_GUEST；/api/downloaded/batch 仅 ADMIN）。声明顺序仅为可读性，AuthFilter 按
-        // 访问策略 / resolve 特异性判定而非声明顺序。VISITOR / GUI / ACTUATOR_PUBLIC 多为「声明但由内联分支判定」。
+        // AuthFilter 复用本次请求按路径和方法解析的最具体声明；公开、邀请与本地授权不另走派生清单。
+        // GUI、setup、PAC、actuator 等入口仍执行各自流程校验，声明本身不替代这些校验。
         return List.of(
                 // ── monitor：仅管理员（不在访客白名单）的页面与 API ───────────────────────────────
                 WebRouteContribution.admin("/monitor.html"),
@@ -136,7 +111,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.admin("/pixiv-invite-detail/**"),
                 // 插件管理页（plugin-manage.html）的页面专属静态资源（JS / CSS），仅管理员。
                 WebRouteContribution.admin("/plugin-manage/**"),
-                // ── monitor + 访客只读（受邀访客可读、multi 匿名访客被挡）─────────────────────────
+                // ── monitor + 访客只读（受邀访客可读、multi 匿名游客被挡）─────────────────────────
                 WebRouteContribution.invitedGuest("/api/downloaded/statistics"),
                 WebRouteContribution.invitedGuest("/api/downloaded/history"),
                 WebRouteContribution.invitedGuest("/api/downloaded/history/paged"),
@@ -154,7 +129,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                         Set.of(HttpMethod.POST), false),
                 new WebRouteContribution("/api/collections/novels/memberships", AccessPolicy.INVITED_GUEST,
                         Set.of(HttpMethod.POST), false),
-                // ── 访客可达、不入 monitor：共享只读静态依赖（multi 普通访客 GET 亦可达）──────────
+                // ── 访客可达、不入 monitor：共享只读静态依赖（multi 游客 GET 亦可达）──────────────
                 // 跨页共享只读静态依赖（访客可读、不入 monitor）。公开资源只在下方 PUBLIC 清单登记，
                 // 避免同一路径出现互相冲突的访问策略。
                 WebRouteContribution.visitorAndInvitedGuest("/css/admin-visibility.css"),
@@ -177,15 +152,9 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-onboarding.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/css/pixiv-onboarding.css"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-ui-slots.js"),
-                // 核心导航装配端点（NavigationController 读 NavigationRegistry 跨插件聚合、按身份可见性过滤）：
-                // 改为 VISITOR_AND_INVITED_GUEST，使受邀访客也能为其画廊 / 小说页拉取动态导航（历史 VISITOR 会被
-                // AuthFilter 挡成 403）；仍不入 monitor，multi 匿名访客与受邀访客各自只读得到对应身份可见导航。
+                // 装配端点按当前身份裁剪贡献；共享资源须允许邀请访客读取，不能依赖 VISITOR 目录兜底。
                 WebRouteContribution.visitorAndInvitedGuest("/api/navigation"),
-                // 核心页面区块装配端点（PageSectionController 读 PageSectionRegistry 跨插件聚合、按身份可见性过滤）：
-                // 同 /api/navigation 口径 VISITOR_AND_INVITED_GUEST，供宿主页面把活动插件贡献的区块渲染进 section slot。
                 WebRouteContribution.visitorAndInvitedGuest("/api/page-sections"),
-                // 核心下钻装配端点（DrilldownController 读 DrilldownRegistry 跨插件聚合、按身份可见性过滤）：
-                // 同 /api/navigation 口径 VISITOR_AND_INVITED_GUEST，供宿主页面按语义 placement 解析活动插件贡献的下钻链接。
                 WebRouteContribution.visitorAndInvitedGuest("/api/drilldowns"),
                 // 通用 UI 槽位清单：宿主页面按 target 前缀加载活动插件声明的同源渲染模块。
                 WebRouteContribution.visitorAndInvitedGuest("/api/web/ui-slots"),
@@ -204,6 +173,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.publicRoute("/css/pixiv-scrollbar.css"),
                 WebRouteContribution.publicRoute("/js/pixiv-feedback.js"),
                 WebRouteContribution.publicRoute("/js/pixiv-actions.js"),
+                WebRouteContribution.publicRoute("/js/pixiv-assets.js"),
                 WebRouteContribution.publicRoute("/js/pixiv-i18n.js"),
                 WebRouteContribution.publicRoute("/js/pixiv-lang-switcher.js"),
                 WebRouteContribution.publicRoute("/js/pixiv-survey-frame-bridge.js"),
@@ -221,20 +191,16 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.publicRoute("/login/**"),
                 WebRouteContribution.publicRoute("/maintenance/**"),
                 WebRouteContribution.publicRoute("/vendor/fonts/**"),
-                // 始终公开的核心横切 API（与 AuthFilter.isAlwaysPublicApi 内联口径一致）。
                 WebRouteContribution.publicRoute("/api/auth/**"),
                 WebRouteContribution.publicRoute("/api/i18n/**"),
                 WebRouteContribution.publicRoute("/api/onboarding/**"),
-                // ── VISITOR：multi 访客可达 / solo 需会话 / 邀请访客 403 / 不入 monitor ────────────
-                // 共享只读静态目录的兜底（具体公开 / 访客文件以上面更宽松的策略优先命中）。
+                // ── VISITOR：multi 游客可达 / solo 需会话 / 邀请访客 403 / 不入 monitor ────────────
+                // 目录兜底不覆盖更具体的文件声明。
                 WebRouteContribution.visitor("/js/**"),
                 WebRouteContribution.visitor("/css/**"),
                 WebRouteContribution.visitor("/vendor/**"),
-                // setup：multi 公开、solo 需会话的不对称由 AuthFilter 内联 isDefaultPublicPath 承载；
-                // 此处 VISITOR 声明不派生进任何清单、不改其内联访问行为，只为纳入「全 URL 声明」守卫。
+                // setup API 在尚未初始化或 multi 模式时走引导例外，已完成初始化的 solo 仍需会话。
                 WebRouteContribution.visitor("/api/setup/**"),
-                // （/api/navigation 改归上面的 VISITOR_AND_INVITED_GUEST 块，使受邀访客可读动态导航。）
-                // 应用信息 / 配额 / 归档 / 迁移：随页面消费的访客可用 API（历史未声明 API 的涌现行为）。
                 WebRouteContribution.visitor("/api/app/info"),
                 WebRouteContribution.visitor("/api/quota/**"),
                 WebRouteContribution.visitor("/api/archive/**"),
@@ -296,7 +262,7 @@ public class CorePlugin implements PixivFeaturePlugin {
     @Override
     public List<NavigationContribution> navigation() {
         // 核心拥有的跨页基础入口：邀请码管理（管理员邀请治理）与插件管理（管理员插件治理）。
-        // 二者均 ADMIN，仅管理员身份在 /api/navigation 可见（受邀访客 / multi 匿名访客看不到、点开本会 403）。标签走核心
+        // 二者均 ADMIN，仅管理员身份在 /api/navigation 可见。标签走核心
         // 自有 i18n namespace（invite / plugins），与各功能插件的 nav.label 同一套「插件自有 i18n」机制。
         //
         // 邀请管理属于核心安全能力；可选内容插件撤回后仍可管理和撤销已有邀请。

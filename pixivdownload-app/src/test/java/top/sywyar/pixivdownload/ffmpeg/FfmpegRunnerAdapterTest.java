@@ -21,6 +21,19 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class FfmpegRunnerAdapterTest {
+    @Test
+    @DisplayName("媒体进程启动失败保留工具路径和可判定的依赖故障")
+    void missingExecutableIsSharedFailure() {
+        var runner = new FfmpegRunnerAdapter(() -> new ResolvedFfmpegCommand(
+                "missing-ffmpeg-" + java.util.UUID.randomUUID(), ResolvedFfmpegCommand.Source.FALLBACK),
+                new FfmpegProcessGateAdapter(new FfmpegProperties()));
+        var failure = assertThrows(FfmpegRunner.UnavailableException.class,
+                () -> runner.run(FfmpegRunner.Tool.FFMPEG, List.of("-version"), null, null, 0,
+                        Duration.ofSeconds(10), () -> false));
+        assertTrue(failure.getMessage().contains("missing-ffmpeg-"));
+        assertInstanceOf(java.io.IOException.class, failure.getCause());
+    }
+
     @TempDir Path directory;
 
     @Test

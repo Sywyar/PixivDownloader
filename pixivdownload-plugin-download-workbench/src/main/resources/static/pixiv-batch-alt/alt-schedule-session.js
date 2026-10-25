@@ -10,7 +10,18 @@ function beginScheduleEdit(task) {
     const original = {settings: state.settings, filters: extraFilters,
         user: userState, search: searchState, series: seriesState, quick: quickState,
         drafts: new Map(modeDrafts)};
-    for (const model of [userState, searchState, seriesState, quickState]) model.loading = false;
+    for (const model of [userState, searchState, seriesState]) {
+        model.loading = false;
+        model.requestSeq = (model.requestSeq || 0) + 1;
+    }
+    searchState.filterSeq++;
+    quickState.loading = false;
+    quickState.loadSeq++;
+    if (quickState.drill) {
+        quickState.drill.loading = false;
+        quickState.drill.loadSeq++;
+        quickState.drill.filterSeq = (quickState.drill.filterSeq || 0) + 1;
+    }
     const session = {task, lease, original, settings: {...state.settings},
         mode: null, element: null, saving: false};
     scheduleState.editing = session;
@@ -18,7 +29,7 @@ function beginScheduleEdit(task) {
     userState = {...userState};
     searchState = {...searchState};
     seriesState = {...seriesState};
-    quickState = {...quickState, loadSeq: quickState.loadSeq + 1,
+    quickState = {...quickState,
         accountRevision: quickState.accountRevision + 1};
     modeDrafts.clear();
     try {

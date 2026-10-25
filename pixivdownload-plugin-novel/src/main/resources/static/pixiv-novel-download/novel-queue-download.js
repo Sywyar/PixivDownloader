@@ -95,6 +95,13 @@ const {
         return data.downloaded ? data : null;
     }
 
+    function finishNovelItem(item) {
+        item.endTime = new Date().toISOString();
+        updateStats();
+        saveQueue();
+        renderQueue();
+    }
+
     async function processNovelItem(item, invocation) {
         assertNovelProcess(invocation);
         item.statusMessageKey = null;
@@ -115,10 +122,7 @@ const {
                     item.lastMessage = downloaded.deleted
                         ? bt('queue.message.skipped-deleted', '跳过 — 已经下载过，但被删除')
                         : bt('queue.message.skipped-history', '跳过 — 历史记录中已存在');
-                    item.endTime = new Date().toISOString();
-                    updateStats();
-                    saveQueue();
-                    renderQueue();
+                    finishNovelItem(item);
                     return;
                 }
             }
@@ -151,10 +155,7 @@ const {
             if (filterSkipReason) {
                 item.status = 'skipped';
                 item.lastMessage = filterSkipReason;
-                item.endTime = new Date().toISOString();
-                updateStats();
-                saveQueue();
-                renderQueue();
+                finishNovelItem(item);
                 return;
             }
 
@@ -204,10 +205,7 @@ const {
             if (dlRes.status === 200 && dlData.alreadyDownloaded) {
                 item.status = 'skipped';
                 item.lastMessage = bt('queue.message.skipped-server-downloaded', '跳过 — 已下载（服务器确认）');
-                item.endTime = new Date().toISOString();
-                updateStats();
-                saveQueue();
-                renderQueue();
+                finishNovelItem(item);
                 return;
             }
             if (!dlRes.ok) throw new Error(dlData.message || ('HTTP ' + dlRes.status));
@@ -240,10 +238,7 @@ const {
                         item.statusMessageKey = 'batch:queue.message.completed';
                         item.lastMessage = '';
                     }
-                    item.endTime = new Date().toISOString();
-                    updateStats();
-                    saveQueue();
-                    renderQueue();
+                    finishNovelItem(item);
                     // 「生成合订本」实时生效：系列下载完成时按当前设置决定是否合订（而非入队时的设置）
                     if (item.status === 'completed' && item.mergeAfterSeriesId && state.settings.mergeNovelSeries) {
                         await maybeTriggerSeriesMerge(item.mergeAfterSeriesId, invocation);
@@ -263,10 +258,7 @@ const {
             }
             item.status = 'failed';
             item.lastMessage = bt('queue.message.timeout', '超时');
-            item.endTime = new Date().toISOString();
-            updateStats();
-            saveQueue();
-            renderQueue();
+            finishNovelItem(item);
         } catch (e) {
             assertNovelProcess(invocation);
             item.statusMessageKey = null;
@@ -278,10 +270,7 @@ const {
             }
             item.status = 'failed';
             item.lastMessage = bt('queue.message.failed', '失败 — {message}', {message: e.message || String(e)});
-            item.endTime = new Date().toISOString();
-            updateStats();
-            saveQueue();
-            renderQueue();
+            finishNovelItem(item);
             throw e;
         }
     }
@@ -302,10 +291,10 @@ const {
     async function maybeTriggerSeriesMerge(seriesId, invocation) {
         assertNovelProcess(invocation);
         if (!seriesId) return;
-        const remaining = state.queue.filter(q => q.kind === 'novel'
+        const hasRemaining = state.queue.some(q => q.kind === 'novel'
             && q.mergeAfterSeriesId === seriesId
             && !['completed', 'failed', 'skipped'].includes(q.status));
-        if (remaining.length > 0) return;
+        if (hasRemaining) return;
         if (_novelMergeFiredSeries.has(seriesId)) return;
         _novelMergeFiredSeries.add(seriesId);
         try {

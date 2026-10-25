@@ -2,14 +2,17 @@ package top.sywyar.pixivdownload.core.schedule.db.migration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
-import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.db.PostgresTestDatabase;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityReservation;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistryTestAccess;
 import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
@@ -65,9 +68,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.sql.DataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 @DisplayName("旧计划任务中性持久化迁移")
 class LegacyScheduledTaskMigrationCoordinatorTest {
@@ -401,6 +406,115 @@ class LegacyScheduledTaskMigrationCoordinatorTest {
             assertThat(database.jdbc.queryForObject(
                     "SELECT COUNT(*) FROM scheduled_task_pending_work WHERE task_id = 1", Integer.class))
                     .isZero();
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "sqlite, none", "sqlite, payload", "sqlite, missing", "sqlite, extra",
+            "postgresql, none", "postgresql, payload", "postgresql, missing", "postgresql, extra"
+    })
+    @DisplayName("Unicode作品类型迁移不依赖数据库排序，回读差异仍回滚并保留旧凭证和作品")
+    void pendingReadbackPreservesUnicodeAndRejectsChanges(String engine, String corruption) throws Exception {
+        try (Database database = openReadbackFixture(engine)) {
+            String bmpType = "\uE000";
+            String supplementaryType = "\uD800\uDC00";
+            database.jdbc.update("INSERT INTO scheduled_task_pending(task_id,work_id,reason,attempts,"
+                    + "first_seen_time,last_attempt_time) VALUES(1,2,'download',3,10,NULL)");
+            var legacyRows = database.jdbc.queryForList(
+                    "SELECT * FROM scheduled_task_pending WHERE task_id=1 ORDER BY work_id");
+            var route = LegacyScheduledTaskMigrationRoute.descriptorBound(
+                    "user-new", "fixture.definition", 1, Set.of(bmpType, supplementaryType),
+                    Set.of(new LegacyScheduledCredentialPolicyTarget("fixture-cookie", OWNER)));
+            AtomicBoolean reachedReadback = new AtomicBoolean();
+            var migration = database.authorized(Map.of("USER_NEW", route), taskId -> {
+                switch (corruption) {
+                    case "payload" -> database.jdbc.update("UPDATE scheduled_task_pending_work"
+                            + " SET payload_json='{}' WHERE task_id=1 AND work_id='2'");
+                    case "missing" -> database.jdbc.update("DELETE FROM scheduled_task_pending_work"
+                            + " WHERE task_id=1 AND work_id='2'");
+                    case "extra" -> database.jdbc.update("INSERT INTO scheduled_task_pending_work"
+                            + "(task_id,work_type,work_id,payload_schema,payload_version,payload_json,"
+                            + "presentation_json,relations_json,attempts)"
+                            + " VALUES(1,?,'extra','fixture.work',1,'{}','{}','[]',0)", bmpType);
+                    case "none" -> { }
+                    default -> throw new AssertionError(corruption);
+                }
+                reachedReadback.set(true);
+            });
+            var report = migration.migrate(snapshot -> new Migrated(
+                    definition(snapshot, "user-new"), null, credential(snapshot),
+                    snapshot.pending().stream().map(row -> pending(snapshot, row,
+                            row.workId().equals("2") ? bmpType : supplementaryType)).toList(), null));
+
+            assertThat(reachedReadback).isTrue();
+            assertThat(report.examined()).isEqualTo(1);
+            if (corruption.equals("none")) {
+                assertThat(report.failed()).isZero();
+                assertThat(report.migrated()).isEqualTo(1);
+                assertThat(database.jdbc.queryForList("SELECT work_type,work_id,attempts,first_seen_time,"
+                        + "last_attempt_time,payload_json FROM scheduled_task_pending_work WHERE task_id=1"))
+                        .extracting(row -> row.get("work_type"), row -> row.get("work_id"),
+                                row -> ((Number) row.get("attempts")).intValue(),
+                                row -> ((Number) row.get("first_seen_time")).longValue(),
+                                row -> row.get("last_attempt_time") == null ? null
+                                        : ((Number) row.get("last_attempt_time")).longValue(),
+                                row -> row.get("payload_json"))
+                        .containsExactlyInAnyOrder(
+                                tuple(bmpType, "2", 3, 10L, null, "{\"workId\":\"2\"}"),
+                                tuple(supplementaryType, "9007199254740991", 2,
+                                        1700000000100L, 1700000000200L,
+                                        "{\"workId\":\"9007199254740991\"}"));
+                assertThat(database.jdbc.queryForObject(
+                        "SELECT storage_version FROM scheduled_tasks WHERE id=1", Integer.class)).isEqualTo(1);
+                assertThat(database.jdbc.queryForList(
+                        "SELECT * FROM scheduled_task_pending WHERE task_id=1")).isEmpty();
+                assertThat(database.jdbc.queryForObject(
+                        "SELECT cookie_snapshot FROM scheduled_tasks WHERE id=1", String.class)).isNull();
+                assertThat(secretEquals(LEGACY_SECRET, database.jdbc.queryForObject(
+                        "SELECT secret FROM scheduled_task_credentials WHERE task_id=1", String.class))).isTrue();
+            } else {
+                assertThat(report.failed()).isEqualTo(1);
+                assertThat(report.migrated()).isZero();
+                assertThat(database.jdbc.queryForList(
+                        "SELECT * FROM scheduled_task_pending WHERE task_id=1 ORDER BY work_id"))
+                        .isEqualTo(legacyRows);
+                assertThat(database.jdbc.queryForObject(
+                        "SELECT storage_version FROM scheduled_tasks WHERE id=1", Integer.class)).isZero();
+                assertThat(secretEquals(LEGACY_SECRET, database.jdbc.queryForObject(
+                        "SELECT cookie_snapshot FROM scheduled_tasks WHERE id=1", String.class))).isTrue();
+                assertThat(database.jdbc.queryForList(
+                        "SELECT * FROM scheduled_task_pending_work WHERE task_id=1")).isEmpty();
+                assertThat(database.jdbc.queryForList(
+                        "SELECT * FROM scheduled_task_credentials WHERE task_id=1")).isEmpty();
+            }
+        }
+    }
+
+    private Database openReadbackFixture(String engine) throws Exception {
+        if (engine.equals("sqlite")) {
+            return openFixture("readback.db");
+        }
+        Assumptions.assumeTrue(System.getenv("PIXIV_TEST_POSTGRES_URL") != null);
+        PostgresTestDatabase postgres = new PostgresTestDatabase();
+        try {
+            JdbcTemplate jdbc = new JdbcTemplate(postgres.pool());
+            top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.initializer(jdbc,
+                    REGISTRY.contributions(), REGISTRY.mergedSchema(), TestI18nBeans.appMessages(), event -> {})
+                    .initialize();
+            for (String statement : splitSqlStatements(readFixture())) {
+                if (statement.startsWith("INSERT INTO ")) {
+                    jdbc.update(statement);
+                }
+            }
+            return new Database(postgres.pool(), jdbc, postgres);
+        } catch (Exception | Error failure) {
+            try {
+                postgres.close();
+            } catch (Exception cleanup) {
+                failure.addSuppressed(cleanup);
+            }
+            throw failure;
         }
     }
 
@@ -750,8 +864,12 @@ class LegacyScheduledTaskMigrationCoordinatorTest {
         }
     }
 
-    private record Database(SingleConnectionDataSource dataSource, JdbcTemplate jdbc)
+    private record Database(DataSource dataSource, JdbcTemplate jdbc, AutoCloseable cleanup)
             implements AutoCloseable {
+
+        Database(SingleConnectionDataSource dataSource, JdbcTemplate jdbc) {
+            this(dataSource, jdbc, dataSource::destroy);
+        }
 
         AuthorizedMigration authorized(
                 Map<String, LegacyScheduledTaskMigrationRoute> routes,
@@ -798,8 +916,8 @@ class LegacyScheduledTaskMigrationCoordinatorTest {
         }
 
         @Override
-        public void close() {
-            dataSource.destroy();
+        public void close() throws Exception {
+            cleanup.close();
         }
     }
 

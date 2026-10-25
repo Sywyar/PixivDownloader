@@ -13,13 +13,15 @@
     function install(ctx) {
         const state = ctx.state;
         const els = ctx.els;
+        let cacheGeneration = 0;
 
         ctx.speakEdge = function (i, myToken) {
+            const generation = cacheGeneration;
             ctx.updateProgress(true);
             state.edgeFetching = { index: i, token: myToken };
             ctx.fetchEdgeAudio(i)
                 .then((url) => {
-                    if (myToken !== state.token) return;
+                    if (myToken !== state.token || generation !== cacheGeneration || !url) return;
                     state.edgeFetching = null;
                     ctx.updateProgress(false);
                     if (state.paused) {
@@ -30,7 +32,7 @@
                     ctx.prefetchEdge(i + 1);
                 })
                 .catch((err) => {
-                    if (myToken !== state.token) return;
+                    if (myToken !== state.token || generation !== cacheGeneration) return;
                     state.edgeFetching = null;
                     state.toast && state.toast(String(err && err.message ? err.message : err), 'error');
                     ctx.stop();
@@ -38,49 +40,44 @@
         };
 
         ctx.playEdgeUrl = function (url, i, myToken) {
+            const generation = cacheGeneration;
             state.edgePending = null;
             if (!state.edgeAudio) state.edgeAudio = new Audio();
             const audio = state.edgeAudio;
             state.edgeAudioIndex = i;
             audio.src = url;
             audio.ontimeupdate = () => {
-                if (myToken !== state.token) return;
+                if (myToken !== state.token || generation !== cacheGeneration) return;
                 if (audio.duration > 0) ctx.updateBar(audio.currentTime / audio.duration);
             };
-            audio.onended = () => {
-                if (myToken !== state.token) return;
-                ctx.speak(i + 1);
-            };
-            audio.onerror = () => {
-                if (myToken !== state.token) return;
+            audio.onended = audio.onerror = () => {
+                if (myToken !== state.token || generation !== cacheGeneration) return;
                 ctx.speak(i + 1);
             };
             audio.play().catch(() => {});
         };
 
-        // 缓存键含语音与语速：换语音/语速会生成不同条目，互不污染
-        ctx.cacheKey = function (i) {
-            return i + '|' + els.voice.value + '|' + ctx.ratePercent();
-        };
-        // IndexedDB 持久化键再带上小说 ID，跨小说隔离
-        ctx.storeKey = function (i) {
-            return state.novelId + '|' + ctx.cacheKey(i);
-        };
-
         ctx.fetchEdgeAudio = async function (i) {
-            const key = ctx.cacheKey(i);
+            const generation = cacheGeneration;
+            const novelId = state.novelId;
+            const voice = els.voice.value;
+            const rate = ctx.ratePercent();
+            const key = i + '|' + voice + '|' + rate;
+            const storeKey = novelId + '|' + key;
             const mem = state.edgeCache.get(key);
             if (mem) return mem;
             const seg = state.segments[i];
             if (!seg) throw new Error('no segment');
+            const text = seg.text;
 
             // 先查本地持久化缓存（IndexedDB）
-            const persisted = await ctx.store.getAudio(ctx.storeKey(i));
+            const persisted = await ctx.store.getAudio(storeKey);
+            if (generation !== cacheGeneration) return null;
             if (persisted) {
-                const url = URL.createObjectURL(persisted);
+                const url = state.edgeCache.get(key) || URL.createObjectURL(persisted);
                 state.edgeCache.set(key, url);
                 // 命中即视为最近使用，避免被淘汰
-                ctx.store.touch(state.novelId);
+                ctx.store.touch(novelId);
                 return url;
             }
 
@@ -89,28 +86,41 @@
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: seg.text, voice: els.voice.value, rate: ctx.ratePercent(), pitch: 0 })
+                body: JSON.stringify({ text, voice, rate, pitch: 0 })
             });
+            if (generation !== cacheGeneration) {
+                if (r.body) await r.body.cancel().catch(() => {});
+                return null;
+            }
             if (!r.ok) {
                 let msg = 'HTTP ' + r.status;
                 try { const j = await r.json(); if (j && j.message) msg = j.message; } catch {}
                 throw new Error(msg);
             }
             const blob = await r.blob();
-            const url = URL.createObjectURL(blob);
+            if (generation !== cacheGeneration) return null;
+            const url = state.edgeCache.get(key) || URL.createObjectURL(blob);
             state.edgeCache.set(key, url);
-            ctx.store.putAudio(ctx.storeKey(i), state.novelId, blob); // 持久化（fire-and-forget）
+            ctx.store.putAudio(storeKey, novelId, blob); // 持久化（fire-and-forget）
             return url;
         };
 
         ctx.prefetchEdge = function (i) {
             if (i < 0 || i >= state.segments.length) return;
-            if (state.edgeCache.has(ctx.cacheKey(i))) return;
             ctx.fetchEdgeAudio(i).catch(() => {});
         };
 
         // 仅在语音/语速/引擎变化或离开页面时清空（释放 blob）；暂停/停止/跳段都保留缓存以复用
         ctx.clearEdgeCache = function () {
+            cacheGeneration++;
+            state.edgeFetching = null;
+            state.edgePending = null;
+            state.edgeAudioIndex = -1;
+            if (state.edgeAudio) {
+                state.edgeAudio.pause();
+                state.edgeAudio.removeAttribute('src');
+                state.edgeAudio.load();
+            }
             state.edgeCache.forEach((url) => { try { URL.revokeObjectURL(url); } catch {} });
             state.edgeCache.clear();
         };

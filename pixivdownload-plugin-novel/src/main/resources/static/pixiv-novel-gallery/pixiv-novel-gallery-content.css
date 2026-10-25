@@ -10,54 +10,75 @@
         }
         .topbar-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
-        .search-box {
-            flex: 1; max-width: 480px;
-            display: flex; align-items: center; gap: 10px;
-            height: 40px; padding: 0 16px;
-            border-radius: 999px;
+        .gallery-search {
+            display: flex;
+            align-items: stretch;
+            flex: 1 1 20rem;
+            min-width: min(100%, 16rem);
+            max-width: 36rem;
             border: 1px solid var(--line);
-            background: var(--gallery-light-panel-bg);
-            transition: border-color 0.15s, background 0.15s;
+            border-radius: .75rem;
+            background: var(--control-muted-bg);
         }
-        .search-box:focus-within { border-color: var(--brand); background: var(--gallery-fixed-white); }
-        .search-box svg { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
-        .search-box input {
-            flex: 1; border: none; outline: none; background: transparent;
-            font-size: 0.8125rem; font-family: inherit; color: var(--text);
+
+        .gallery-search:focus-within {
+            border-color: var(--brand);
+            background: var(--surface);
         }
-        .search-box input::placeholder { color: var(--muted); }
 
         .search-type-select {
+            flex: 0 1 auto;
+            min-width: 0;
+            max-width: 42%;
             min-height: max(2.5rem, var(--layout-control-height));
-            padding: 0 30px 0 14px;
-            border-radius: 999px;
-            border: 1px solid var(--line);
+            padding: .375rem .5rem;
+            border: 0;
+            border-right: 1px solid var(--line);
+            border-radius: .75rem 0 0 .75rem;
             background: var(--control-bg);
             color: var(--text-secondary);
-            font-size: 0.8125rem;
-            font-family: inherit;
+            font: inherit;
+            font-size: .875rem;
             cursor: pointer;
-            outline: none;
-            flex-shrink: 0;
-            appearance: none;
-            -webkit-appearance: none;
-            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e");
-            background-repeat: no-repeat;
-            background-position: right 10px center;
-            background-size: 14px;
-            transition: border-color 0.15s, color 0.15s;
-        }
-        .search-type-select:hover,
-        .search-type-select:focus {
-            border-color: var(--brand);
-            color: var(--brand);
         }
 
         .search-type-select:disabled {
-            opacity: 0.55;
+            opacity: .55;
             cursor: default;
-            color: var(--muted);
         }
+
+        .search-box {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            gap: .5rem;
+            min-height: max(2.5rem, var(--layout-control-height));
+            padding: .375rem .625rem;
+            border: 1px solid transparent;
+            border-radius: 0 .75rem .75rem 0;
+        }
+
+        .search-box svg {
+            width: 1rem;
+            height: 1rem;
+            color: var(--muted);
+            flex-shrink: 0;
+        }
+
+        .search-box input {
+            flex: 1;
+            width: 100%;
+            min-width: 0;
+            border: none;
+            outline: none;
+            background: transparent;
+            font: inherit;
+            font-size: 1rem;
+            color: var(--text);
+        }
+
+        .search-box input::placeholder { color: var(--muted); }
 
         .search-box.search-no-result {
             border-color: var(--danger);
@@ -109,13 +130,13 @@
             background: var(--control-muted-bg);
             gap: 2px;
             flex-shrink: 0;
-            margin-left: 30px;
+            margin-left: 0;
         }
         .gallery-type-option {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            height: 32px;
+            min-height: var(--layout-control-height);
             min-width: 64px;
             padding: 0 16px;
             border: none;
@@ -152,7 +173,8 @@
             flex-direction: column;
             gap: 14px;
             box-shadow: 0 12px 32px var(--gallery-shadow-12);
-            max-height: 80vh;
+            max-height: max(0px, calc(100dvh - var(--layout-header-height) - .5rem - env(safe-area-inset-bottom)));
+            overscroll-behavior: contain;
             overflow-y: auto;
         }
         .filter-panel.open { display: flex; }
@@ -564,14 +586,8 @@
             display: block;
         }
 
-        /* 系列章节横向分页布局：
-           - 卡片样式不变（沿用 .author-work-card 默认：140 缩略图 + 下方两行标题）。
-           - strip = 固定视口（overflow:hidden），不允许鼠标横滑 / 触屏拖动，仅靠左右箭头切页。
-           - 内部 .series-works-pager 用 CSS Grid 列优先排卡：
-               * 排数 = JS 按 strip 高度选 1 或 2（够 1 排就 1 排、够 2 排就 2 排）
-               * 列数 = JS 按 strip 宽度算（一页 N 列 = floor(可用宽 / 列步幅)），不写死
-               * grid-auto-flow: column → 第 1 列从上到下 = #1, #2；第 2 列 = #3, #4 …… 整体列优先连续
-           - translateX 按整页（N 列）切换，保证可见列里章节连续。 */
+        /* 系列章节按页内行优先排列；JS 根据视口确定行列数。
+           单行使用原生横向滚动，两行通过 translateX 整页切换。 */
         .series-row .author-works-strip {
             display: block;
             overflow: hidden;

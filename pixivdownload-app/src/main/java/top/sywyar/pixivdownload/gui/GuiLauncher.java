@@ -16,7 +16,6 @@ import top.sywyar.pixivdownload.config.RuntimeFiles;
 import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
 import top.sywyar.pixivdownload.gui.bootstrap.StartupSplash;
 import top.sywyar.pixivdownload.gui.bootstrap.ApplicationRestartService;
-import top.sywyar.pixivdownload.core.db.schema.DatabaseSchemaInspector;
 import top.sywyar.pixivdownload.core.db.schema.ManagedDatabaseSchema;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 import top.sywyar.pixivdownload.i18n.LocaleCatalog;
@@ -47,7 +46,6 @@ import top.sywyar.pixivdownload.plugin.runtime.bootstrap.PluginEnabledSnapshot;
 import top.sywyar.pixivdownload.plugin.runtime.discovery.PluginDiscoveryResult;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.signature.PluginSupplyChainVerifier;
-import top.sywyar.pixivdownload.tools.ArtworksBackFill;
 import org.yaml.snakeyaml.Yaml;
 
 import java.awt.GraphicsEnvironment;
@@ -63,7 +61,10 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.text.MessageFormat;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -109,30 +110,6 @@ public class GuiLauncher {
     private static final AtomicBoolean EXIT_REQUESTED = new AtomicBoolean();
     /** 进程退出时同步关闭 Spring backend context 的超时上限：足够正常拆卸，又不让卡死的拆卸挂死进程退出。 */
     private static final long BACKEND_CONTEXT_CLOSE_TIMEOUT_MS = 15_000L;
-
-    /**
-     * 由后端在启动时通过 {@code ALTER TABLE ... ADD COLUMN} 自动补齐的列
-     * （带安全默认值、无需联网抓取即可迁移，见 {@code DatabaseInitializer} 的安全补列阶段）。
-     * <p>这些列在旧库里缺失只是后端首启前的暂时状态，会被自动迁移补齐，不应阻断
-     * {@link #supportsStartupAutoBackfill} 的整段元数据自动回填判定。与
-     * {@link ArtworksBackFill#SUPPORTED_DATABASE_COLUMNS} 区分：后者是必须联网抓取才能填充的列。
-     */
-    private static final class StartupColumns {
-        private static final Set<ArtworksBackFill.DatabaseColumn> AUTO_MIGRATED = Set.of(
-                new ArtworksBackFill.DatabaseColumn("artworks", "file_name"),
-                new ArtworksBackFill.DatabaseColumn("artworks", "file_author_name_id"),
-                new ArtworksBackFill.DatabaseColumn("artworks", "deleted"),
-                new ArtworksBackFill.DatabaseColumn("novels", "deleted"),
-                new ArtworksBackFill.DatabaseColumn("artworks", "upload_time"),
-                new ArtworksBackFill.DatabaseColumn("artworks", "is_original"),
-                new ArtworksBackFill.DatabaseColumn("novels", "upload_time"),
-                new ArtworksBackFill.DatabaseColumn("artworks", "metadata_json"),
-                new ArtworksBackFill.DatabaseColumn("novels", "metadata_json"),
-                new ArtworksBackFill.DatabaseColumn("statistics", "daily_date"),
-                new ArtworksBackFill.DatabaseColumn("statistics", "daily_completed"),
-                new ArtworksBackFill.DatabaseColumn("statistics", "daily_failed")
-        );
-    }
 
     /**
      * 标记本次运行是否为无 GUI（headless / {@code --no-gui}）模式。
@@ -190,7 +167,7 @@ public class GuiLauncher {
         }
         log.info(logMessage("gui.launcher.log.version",
                 AppVersion.getDisplayVersionOrDefault(logMessage("app.version.unknown"))));
-        log.info(logMessage("gui.launcher.log.starting", Arrays.toString(args)));
+        log.info(logMessage("gui.launcher.log.starting"));
 
         // ── 安装全局未捕获异常处理器 ────────────────────────────────────────────
         //    jpackage 窗口化 exe 没有控制台，stderr 不可见。若不在此兜底，
@@ -385,7 +362,7 @@ public class GuiLauncher {
                         openPluginMarketWithoutDesktopProvider(
                                 desktopUiHost,
                                 pluginSession,
-                                startupPluginRegistry,
+                                failure,
                                 singleInstanceManager
                         );
                     },
@@ -400,7 +377,7 @@ public class GuiLauncher {
             ui.start(readConfigScalar(configPath, "app.gui-provider"));
             pluginSession.releaseStartupSnapshot();
             if (ACTIVE_UI.get() != null) {
-                maybeScheduleStartupBackfillFlow(ui, configPath, root, startupManagedSchema, databaseTarget);
+                maybeScheduleStartupBackfillFlow(ui, desktopUiHost, startupManagedSchema, databaseTarget);
             }
         } catch (Throwable failure) {
             splash.close();
@@ -478,7 +455,7 @@ public class GuiLauncher {
     private static void openPluginMarketWithoutDesktopProvider(
             AppDesktopUiHost desktopUiHost,
             PluginBootstrapSession pluginSession,
-            PluginRegistry startupPluginRegistry,
+            DesktopUiFailure desktopFailure,
             SingleInstanceManager singleInstanceManager
     ) {
         Runnable openMarket = () -> {
@@ -490,28 +467,7 @@ public class GuiLauncher {
                         marketUri, safeMessage(failure)), failure);
             }
         };
-        var gate = pluginSession.installer().recoveryGateSnapshot();
-        var errors = new java.util.ArrayList<>(pluginSession.diagnostics());
-        var status = pluginSession.manager().status().orElseGet(pluginSession::status);
-        status.failures().forEach(failure -> errors.add(failure.source() + ": " + failure.reason()));
-        var report = top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport.empty();
-        if (gate.safeToScan()) {
-            try {
-                report = new top.sywyar.pixivdownload.plugin.management.PluginStatusService(
-                        startupPluginRegistry, pluginSession.manager(), pluginSession.installer(),
-                        top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.empty()).report();
-            } catch (RuntimeException failure) {
-                errors.add(failure.toString());
-            }
-        }
-        var guidance = top.sywyar.pixivdownload.plugin.recovery.RecoveryGuidance.from(
-                gate,
-                desktopRecoveryFailure,
-                report,
-                errors,
-                false,
-                status.failures()
-        );
+        var guidance = desktopRecoveryGuidance(pluginSession, desktopFailure);
         var summaries = guidance.localizedErrors(GuiLauncher::message);
         String body = message("recovery.explanation") + "\n\n"
                 + guidance.adviceKeys().stream().map(GuiLauncher::message)
@@ -549,240 +505,52 @@ public class GuiLauncher {
         );
     }
 
+    static top.sywyar.pixivdownload.plugin.recovery.RecoveryGuidance desktopRecoveryGuidance(
+            PluginBootstrapSession pluginSession,
+            DesktopUiFailure desktopFailure
+    ) {
+        var gate = pluginSession.installer().recoveryGateSnapshot();
+        var errors = new java.util.ArrayList<>(pluginSession.diagnostics());
+        var status = pluginSession.manager().status().orElseGet(pluginSession::status);
+        status.failures().forEach(failure -> errors.add(failure.source() + ": " + failure.reason()));
+        var report = top.sywyar.pixivdownload.plugin.runtime.status.PluginStatusReport.empty();
+        if (gate.safeToScan()) {
+            try {
+                var registry = pluginRegistry(pluginSession, pluginSession.manager().discoverFeaturePlugins());
+                report = new top.sywyar.pixivdownload.plugin.management.PluginStatusService(
+                        registry, pluginSession.manager(), pluginSession.installer(),
+                        top.sywyar.pixivdownload.plugin.runtime.status.RequiredPluginPolicy.empty()).report();
+            } catch (RuntimeException failure) {
+                errors.add(failure.toString());
+            }
+        }
+        return top.sywyar.pixivdownload.plugin.recovery.RecoveryGuidance.from(
+                gate,
+                desktopFailure,
+                report,
+                errors,
+                false,
+                status.failures()
+        );
+    }
+
     static void installJulBridge() {
         SLF4JBridgeHandler.removeHandlersForRootLogger();
         SLF4JBridgeHandler.install();
     }
 
-    private static void maybeScheduleStartupBackfillFlow(DesktopUiSession frame, Path configPath, String rootFolder,
-                                                         ManagedDatabaseSchema.DatabaseSchema expectedSchema,
-                                                         top.sywyar.pixivdownload.core.db.DatabaseTarget target) {
-
-        Thread worker = new Thread(() -> {
-            try {
-                if (!target.available()) {
-                    BackendLifecycleManager.startAsync();
-                    return;
-                }
-                ArtworksBackFill.Options options = buildStartupBackfillOptions(configPath, rootFolder).withTarget(target);
-                runStartupSchemaBackfill(frame, options, expectedSchema);
-            } catch (Throwable fatal) {
-                log.error(logMessage("gui.launcher.log.startup.schema-backfill-flow.unexpected"), fatal);
-                BackendLifecycleManager.startAsync();
-            }
-        }, "startup-schema-backfill");
+    private static void maybeScheduleStartupBackfillFlow(
+            DesktopUiSession frame,
+            DesktopUiHost host,
+            ManagedDatabaseSchema.DatabaseSchema expectedSchema,
+            top.sywyar.pixivdownload.core.db.DatabaseTarget target
+    ) {
+        Thread worker = new Thread(
+                () -> StartupSchemaBackfill.run(frame, host, expectedSchema, target),
+                "startup-schema-backfill"
+        );
         worker.setDaemon(true);
         worker.start();
-    }
-
-    private static void runStartupSchemaBackfill(DesktopUiSession frame, ArtworksBackFill.Options options,
-                                                 ManagedDatabaseSchema.DatabaseSchema expectedSchema) {
-        var target = options.target();
-        if (target.localFile().filter(file -> !hasInspectableDatabase(file)).isPresent()) {
-            log.info(logMessage("gui.launcher.log.startup.schema-check.skipped", target.displayName()));
-            BackendLifecycleManager.startAsync();
-            return;
-        }
-
-        DatabaseSchemaInspector.SchemaComparison comparison;
-        try (var connection = target.openConnection()) {
-            comparison = DatabaseSchemaInspector.compare(connection, target, expectedSchema);
-        } catch (Throwable error) {
-            log.warn(logMessage("gui.launcher.log.startup.schema-check.compare-failed"), error);
-            DesktopUiDialogs.invokeLater(() -> DesktopUiDialogs.showMessageDialog(
-                    frame,
-                    message("gui.launcher.dialog.schema-check-failed.message", safeMessage(error)),
-                    message("gui.launcher.dialog.schema-check-failed.title"),
-                    DesktopUiDialogs.WARNING_MESSAGE));
-            BackendLifecycleManager.startAsync();
-            return;
-        }
-
-        if (comparison.matches()) {
-            log.info(logMessage("gui.launcher.log.startup.schema-check.passed", target.displayName()));
-            BackendLifecycleManager.startAsync();
-            return;
-        }
-
-        log.info(logMessage("gui.launcher.log.startup.schema-check.mismatch", comparison.summary(8)));
-        if (!supportsStartupAutoBackfill(comparison)) {
-            log.info(logMessage("gui.launcher.log.startup.schema-check.auto-backfill.unsupported", comparison.summary(8)));
-            DesktopUiDialogs.invokeLater(() -> DesktopUiDialogs.showMessageDialog(
-                    frame,
-                    message("gui.launcher.dialog.schema-mismatch.no-auto-backfill.message", comparison.summary(6)),
-                    message("gui.launcher.dialog.schema-mismatch.title"),
-                    DesktopUiDialogs.INFORMATION_MESSAGE));
-            BackendLifecycleManager.startAsync();
-            return;
-        }
-
-        DesktopUiDialogs.invokeLater(() -> DesktopUiDialogs.showMessageDialog(
-                frame,
-                message("gui.launcher.dialog.schema-mismatch.message", comparison.summary(6)),
-                message("gui.launcher.dialog.schema-mismatch.title"),
-                DesktopUiDialogs.INFORMATION_MESSAGE));
-
-        int pendingCount;
-        try {
-            pendingCount = ArtworksBackFill.countCandidates(options);
-            log.info(logMessage("gui.launcher.log.startup.backfill.pending", pendingCount));
-        } catch (Throwable error) {
-            log.warn(logMessage("gui.launcher.log.startup.backfill.check-failed"), error);
-            DesktopUiDialogs.invokeLater(() -> DesktopUiDialogs.showMessageDialog(
-                    frame,
-                    message("gui.launcher.dialog.backfill-check-failed.message", safeMessage(error)),
-                    message("gui.launcher.dialog.backfill-check-failed.title"),
-                    DesktopUiDialogs.WARNING_MESSAGE));
-            BackendLifecycleManager.startAsync();
-            return;
-        }
-
-        if (pendingCount <= 0) {
-            BackendLifecycleManager.startAsync();
-            return;
-        }
-
-        final int confirmedPending = pendingCount;
-        DesktopUiDialogs.invokeLater(() -> DesktopUiDialogs.showMessageDialog(
-                frame,
-                message("gui.launcher.dialog.backfill-pending.message", confirmedPending),
-                message("gui.launcher.dialog.auto-backfill.title"),
-                DesktopUiDialogs.INFORMATION_MESSAGE));
-
-        ToolHtmlLogSession logSession = null;
-        ArtworksBackFill.Summary summary = null;
-        Throwable failure = null;
-        try {
-            try {
-                logSession = ToolHtmlLogSession.open("artworks-backfill", ArtworksBackFill.class);
-                try {
-                    logSession.openLatestInBrowser();
-                } catch (Exception browserError) {
-                    log.warn(logMessage("gui.launcher.log.startup.backfill.open-log-page-failed"), browserError);
-                }
-            } catch (Exception logError) {
-                log.warn(logMessage("gui.launcher.log.startup.backfill.create-log-session-failed"), logError);
-            }
-            summary = ArtworksBackFill.run(options);
-        } catch (Throwable error) {
-            failure = error;
-            log.error(logMessage("gui.launcher.log.startup.backfill.failed"), error);
-        } finally {
-            if (logSession != null) {
-                try {
-                    logSession.close();
-                } catch (Exception ignored) {
-                }
-            }
-        }
-
-        ArtworksBackFill.Summary finalSummary = summary;
-        Throwable finalFailure = failure;
-        BackendLifecycleManager.startAsync(() -> showStartupBackfillResult(frame, finalSummary, finalFailure, confirmedPending));
-    }
-
-    private static boolean supportsStartupAutoBackfill(DatabaseSchemaInspector.SchemaComparison comparison) {
-        return !comparison.details().isEmpty()
-                // 所有差异都不阻断（要么可回填，要么是后端自建表/自动迁移列这类首启自愈差异）。
-                && comparison.details().stream().allMatch(GuiLauncher::isNonBlockingStartupDifference)
-                // 且至少有一个差异是回填工具真正支持的列；否则差异全是自愈项，没有任何需要联网回填的内容，不启动回填工具。
-                && comparison.details().stream().anyMatch(GuiLauncher::isBackfillableDifference);
-    }
-
-    /** 该差异是否由回填工具实际填充——即差异的列在 {@link ArtworksBackFill#SUPPORTED_DATABASE_COLUMNS} 支持范围内。 */
-    private static boolean isBackfillableDifference(DatabaseSchemaInspector.SchemaDifference difference) {
-        return difference.hasColumn()
-                && ArtworksBackFill.supportsDatabaseColumn(difference.tableName(), difference.columnName());
-    }
-
-    /**
-     * 该差异是否不阻断启动期自动回填：要么可回填（见 {@link #isBackfillableDifference}），
-     * 要么是后端启动时会自愈的差异（缺表 / 自动迁移列）。仅"不阻断"不代表会触发回填——
-     * 是否启动回填还要求 {@link #supportsStartupAutoBackfill} 中至少存在一个可回填差异。
-     */
-    private static boolean isNonBlockingStartupDifference(
-            DatabaseSchemaInspector.SchemaDifference difference) {
-        if (difference.hasColumn()) {
-            if (ArtworksBackFill.supportsDatabaseColumn(difference.tableName(), difference.columnName())) {
-                return true;
-            }
-            return difference.kind() == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_COLUMN
-                    && StartupColumns.AUTO_MIGRATED.contains(
-                            new ArtworksBackFill.DatabaseColumn(difference.tableName(), difference.columnName()));
-        }
-        // 缺表（MISSING_TABLE）一律放行：受管 schema（DatabaseSchemaRegistry 合并结果）登记的每张表
-        // 都由后端在启动时 CREATE TABLE IF NOT EXISTS 自建（FTS 虚拟表不入受管 schema），
-        // 旧库缺表只是后端首启前的暂时状态，
-        // 会自动补齐，不应阻断元数据自动回填。其余差异（列类型/默认值/主键不一致、索引差异、
-        // 未受管的表/列等）属于无法自动消解的真实漂移，保持阻断并提示用户。
-        return difference.kind() == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE;
-    }
-
-    private static void showStartupBackfillResult(DesktopUiSession owner,
-                                                  ArtworksBackFill.Summary summary,
-                                                  Throwable failure,
-                                                  int checkedCount) {
-        if (failure != null) {
-            DesktopUiDialogs.show(
-                    owner,
-                    message("gui.launcher.dialog.auto-backfill.title"),
-                    message("gui.launcher.dialog.auto-backfill.failed.message", safeMessage(failure)),
-                    failure);
-            return;
-        }
-
-        if (summary == null) {
-            return;
-        }
-
-        String resultText = summary.rateLimited()
-                ? message("gui.launcher.dialog.auto-backfill.rate-limited")
-                : message("gui.launcher.dialog.auto-backfill.completed");
-        DesktopUiDialogs.showMessageDialog(
-                owner,
-                message("gui.launcher.dialog.auto-backfill.summary.message",
-                        resultText, checkedCount, summary.processed(), summary.totalCandidates()),
-                message("gui.launcher.dialog.auto-backfill.title"),
-                summary.rateLimited() ? DesktopUiDialogs.WARNING_MESSAGE : DesktopUiDialogs.INFORMATION_MESSAGE
-        );
-    }
-
-    private static ArtworksBackFill.Options buildStartupBackfillOptions(Path configPath, String rootFolder) {
-        ArtworksBackFill.Options defaults = ArtworksBackFill.Options.defaults();
-        boolean proxyEnabled = defaults.useProxy();
-        String proxyHost = defaults.proxyHost();
-        int proxyPort = defaults.proxyPort();
-
-        if (Files.isRegularFile(configPath)) {
-            try {
-                ConfigFileEditor editor = new ConfigFileEditor(configPath);
-                proxyEnabled = Boolean.parseBoolean(defaultIfBlank(editor.read("proxy.enabled"), String.valueOf(defaults.useProxy())));
-                proxyHost = defaultIfBlank(editor.read("proxy.host"), defaults.proxyHost());
-                proxyPort = Integer.parseInt(defaultIfBlank(editor.read("proxy.port"), String.valueOf(defaults.proxyPort())));
-            } catch (Exception e) {
-                log.warn(logMessage("gui.launcher.log.startup.backfill.proxy-defaults.failed", e.getMessage()));
-            }
-        }//"
-
-        return new ArtworksBackFill.Options(
-                defaults.dbPath(),
-                proxyHost,
-                proxyPort,
-                proxyEnabled,
-                defaults.delayMs(),
-                defaults.limit(),
-                false
-        );
-    }
-
-    private static boolean hasInspectableDatabase(Path databasePath) {
-        try {
-            return Files.isRegularFile(databasePath) && Files.size(databasePath) > 0;
-        } catch (Exception e) {
-            log.warn(logMessage("gui.launcher.log.database.inspect-failed",
-                    databasePath.toAbsolutePath(), e.getMessage()));
-            return false;
-        }
     }
 
     private static String defaultIfBlank(String value, String fallback) {
@@ -790,24 +558,25 @@ public class GuiLauncher {
     }
 
     private static void showBackendStartupFailure(Throwable error) {
-        String diag = diagnoseStartupError(error);
+        String diag = logStartupFailure(error);
         String userMessage = diag != null ? diag : message("gui.launcher.dialog.startup-error.message", safeMessage(error));
-        logStartupFailure(error);
-        DesktopUiDialogs.invokeLater(() -> DesktopUiDialogs.show(
+        DesktopUiDialogs.show(
                 null,
                 message("gui.launcher.dialog.startup-error.title"),
                 message("gui.launcher.dialog.startup-error.with-log.message",
                         userMessage, Path.of(LOG_LATEST).toAbsolutePath()),
-                error));
+                error
+        );
     }
 
-    private static void logStartupFailure(Throwable t) {
+    private static String logStartupFailure(Throwable t) {
         String diag = diagnoseStartupError(t);
         if (diag != null) {
             log.error(logMessage("gui.launcher.log.startup.failed.diagnostic", diag), t);
         } else {
             log.error(logMessage("gui.launcher.log.startup.failed.generic", safeMessage(t)), t);
         }
+        return diag;
     }
 
     /**
@@ -815,10 +584,11 @@ public class GuiLauncher {
      * 未识别的异常返回 null，由调用方按通用错误处理。
      */
     private static String diagnoseStartupError(Throwable error) {
-        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+        Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Throwable cause = error; cause != null && visited.add(cause); cause = cause.getCause()) {
             String name = cause.getClass().getName();
             String msg = cause.getMessage() == null ? "" : cause.getMessage();
-            String low = msg.toLowerCase();
+            String low = msg.toLowerCase(Locale.ROOT);
 
             if (cause instanceof BindException
                     || name.endsWith("PortInUseException")
@@ -1009,42 +779,52 @@ public class GuiLauncher {
             Supplier<PluginDiscoveryResult> discoveries,
             Function<PluginDiscoveryResult, List<DesktopUiPluginSource>> sourceFactory,
             PluginDiscoveryResult initialDiscovery,
-            List<DesktopUiPluginSource> initialSources) {
-        return new Supplier<>() {
-            private PluginDiscoveryResult discovery = initialDiscovery;
-            private List<DesktopUiPluginSource> sources = List.copyOf(initialSources);
-
-            @Override
-            public synchronized List<DesktopUiPluginSource> get() {
-                PluginDiscoveryResult current = discoveries.get();
-                if (!current.equals(discovery)) {
-                    discovery = current;
-                    sources = List.copyOf(sourceFactory.apply(current));
-                }
-                return sources;
-            }
-        };
+            List<DesktopUiPluginSource> initialSources
+    ) {
+        return memoizedDesktopUiValue(
+                discoveries,
+                discovery -> List.copyOf(sourceFactory.apply(discovery)),
+                initialDiscovery,
+                List.copyOf(initialSources)
+        );
     }
 
     static Supplier<WebI18nBundleRegistry> memoizedDesktopUiBundles(
             Supplier<PluginDiscoveryResult> discoveries,
             Function<PluginDiscoveryResult, WebI18nBundleRegistry> bundleFactory,
             PluginDiscoveryResult initialDiscovery,
-            WebI18nBundleRegistry initialBundles) {
-        return new Supplier<>() {
-            private PluginDiscoveryResult discovery = initialDiscovery;
-            private WebI18nBundleRegistry bundles = initialBundles;
+            WebI18nBundleRegistry initialBundles
+    ) {
+        return memoizedDesktopUiValue(discoveries, bundleFactory, initialDiscovery, initialBundles);
+    }
+
+    private static <T> Supplier<T> memoizedDesktopUiValue(
+            Supplier<PluginDiscoveryResult> discoveries,
+            Function<PluginDiscoveryResult, T> factory,
+            PluginDiscoveryResult initialDiscovery,
+            T initialValue
+    ) {
+        class Cache implements Supplier<T> {
+            private PluginDiscoveryResult discovery;
+            private T value;
+
+            // 构造参数只写入可替换字段，避免匿名类额外捕获初始插件快照。
+            Cache(PluginDiscoveryResult discovery, T value) {
+                this.discovery = discovery;
+                this.value = value;
+            }
 
             @Override
-            public synchronized WebI18nBundleRegistry get() {
+            public synchronized T get() {
                 PluginDiscoveryResult current = discoveries.get();
                 if (!current.equals(discovery)) {
+                    value = factory.apply(current);
                     discovery = current;
-                    bundles = bundleFactory.apply(current);
                 }
-                return bundles;
+                return value;
             }
-        };
+        }
+        return new Cache(initialDiscovery, initialValue);
     }
 
     static String resolveDesktopText(DesktopUiText token,
@@ -1303,16 +1083,10 @@ public class GuiLauncher {
     }
 
     private static void closeActiveDesktopUiResources() {
-        RuntimeException failure = null;
         DesktopUiSession ui = ACTIVE_UI.getAndSet(null);
         if (ui != null) {
-            try {
-                ui.close();
-            } catch (RuntimeException closeFailure) {
-                failure = closeFailure;
-            }
+            ui.close();
         }
-        if (failure != null) throw failure;
     }
 
     private static String message(String code, Object... args) {
@@ -1323,26 +1097,14 @@ public class GuiLauncher {
         return MessageBundles.getForLog(code, args);
     }
 
-    /**
-     * 从参数列表中过滤掉 GUI 专用参数，避免传入 Spring。
-     */
+    /** 启动前使用与设置页相同的标量读取规则。 */
     private static String readConfigScalar(Path path, String key) {
         if (path == null || key == null || !Files.isRegularFile(path)) return "";
         try {
-            for (String line : Files.readAllLines(path, StandardCharsets.UTF_8)) {
-                int colon = line.indexOf(':');
-                if (colon < 0 || !line.substring(0, colon).trim().equals(key)) continue;
-                String value = line.substring(colon + 1).trim();
-                int comment = value.indexOf('#');
-                if (comment >= 0) value = value.substring(0, comment).trim();
-                if (value.length() >= 2 && ((value.startsWith("\"") && value.endsWith("\""))
-                        || (value.startsWith("'") && value.endsWith("'")))) {
-                    value = value.substring(1, value.length() - 1);
-                }
-                return value.trim();
-            }
+            String value = new ConfigFileEditor(path).read(key);
+            return value == null ? "" : value.trim();
         } catch (IOException failure) {
-            log.warn("Failed to read desktop UI provider preference from {}: {}", path, failure.toString());
+            log.warn(logMessage("gui.launcher.log.config.read-failed", path + ": " + failure));
         }
         return "";
     }

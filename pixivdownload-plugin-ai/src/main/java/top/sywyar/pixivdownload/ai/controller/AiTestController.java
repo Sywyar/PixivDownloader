@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.ai.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,7 +29,6 @@ import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 @RestController
 @RequestMapping("/api/gui")
 @RequiredArgsConstructor
-@Slf4j
 public class AiTestController {
 
     /** 连通性探测请求实体：固定提示词，要求模型只回一个词，尽量少消耗 token。 */

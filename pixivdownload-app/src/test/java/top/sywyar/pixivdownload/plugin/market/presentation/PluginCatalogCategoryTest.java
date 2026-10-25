@@ -29,6 +29,8 @@ class PluginCatalogCategoryTest {
         assertThat(PluginCatalogCategory.fromId("  Backup ")).contains(PluginCatalogCategory.BACKUP);
         assertThat(PluginCatalogCategory.fromId(" Download-Type "))
                 .contains(PluginCatalogCategory.DOWNLOAD_TYPE);
+        assertThat(PluginCatalogCategory.fromId("notify")).contains(PluginCatalogCategory.NOTIFY);
+        assertThat(PluginCatalogCategory.fromId("dependency")).contains(PluginCatalogCategory.DEPENDENCY);
         assertThat(PluginCatalogCategory.fromId("nope")).isEmpty();
         assertThat(PluginCatalogCategory.fromId("all")).as("聚合项不是条目分类").isEmpty();
         assertThat(PluginCatalogCategory.fromId(null)).isEmpty();
@@ -42,14 +44,5 @@ class PluginCatalogCategoryTest {
         assertThat(PluginCatalogCategory.resolve("weird-category")).isEqualTo(PluginCatalogCategory.UTILITY);
         assertThat(PluginCatalogCategory.resolve(null)).isEqualTo(PluginCatalogCategory.UTILITY);
         assertThat(PluginCatalogCategory.FALLBACK).isEqualTo(PluginCatalogCategory.UTILITY);
-    }
-
-    @Test
-    @DisplayName("isKnown：区分已知分类与回退值")
-    void isKnown() {
-        assertThat(PluginCatalogCategory.isKnown("notify")).isTrue();
-        assertThat(PluginCatalogCategory.isKnown("dependency")).isTrue();
-        assertThat(PluginCatalogCategory.isKnown("all")).isFalse();
-        assertThat(PluginCatalogCategory.isKnown("nope")).isFalse();
     }
 }

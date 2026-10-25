@@ -67,8 +67,8 @@ function toIdArray(value) {
     return value.map(Number).filter(n => Number.isFinite(n) && n > 0);
 }
 
-let lastTimer;
 function debounce(fn, ms) {
+    let lastTimer;
     return (...args) => { clearTimeout(lastTimer); lastTimer = setTimeout(() => fn(...args), ms); };
 }
 

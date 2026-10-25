@@ -3,7 +3,6 @@ package top.sywyar.pixivdownload.plugin.schema;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
-import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
 import top.sywyar.pixivdownload.core.database.DatabaseUnavailableException;
 import top.sywyar.pixivdownload.core.db.DatabaseConfig;
 import top.sywyar.pixivdownload.core.db.DatabasePoolProperties;
@@ -39,7 +38,7 @@ class PluginSchemaLifecycleUnavailableTest {
                 throw new AssertionError("无数据库时不得发布 schema 就绪事件");
             }));
     private final org.springframework.jdbc.support.JdbcTransactionManager transactionManager = spy(
-            new DatabaseConfig(mock(DownloadConfig.class), new DatabasePoolProperties(),
+            new DatabaseConfig(new DatabasePoolProperties(),
                     TestI18nBeans.appMessages()).transactionManager(dataSource, mock(DatabaseTarget.class)));
     private final PluginSchemaLifecycleCoordinator coordinator =
             new PluginSchemaLifecycleCoordinator(registry, initializer, transactionManager);

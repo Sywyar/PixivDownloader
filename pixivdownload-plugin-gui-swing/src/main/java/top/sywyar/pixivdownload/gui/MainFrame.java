@@ -200,6 +200,10 @@ public class MainFrame extends JFrame {
         tabs.addTab(GuiMessages.get("gui.tab.tools"), toolsPanel);
         tabs.addTab(GuiMessages.get("gui.tab.security"), new SecurityPanel(serverPort));
         tabs.addTab(GuiMessages.get("gui.tab.about"), new AboutPanel());
+        tabs.addChangeListener(event -> {
+            if (tabs.getSelectedComponent() == configPanel) configPanel.reloadFromDisk();
+            if (tabs.getSelectedComponent() == toolsPanel) toolsPanel.refreshConfiguration();
+        });
         return tabs;
     }
 
@@ -468,8 +472,7 @@ public class MainFrame extends JFrame {
     }
 
     private static Image loadAppIcon() {
-        try {
-            var stream = MainFrame.class.getResourceAsStream("/static/favicon.ico");
+        try (var stream = MainFrame.class.getResourceAsStream("/static/favicon.ico")) {
             if (stream != null) {
                 byte[] bytes = stream.readAllBytes();
                 Image img = Toolkit.getDefaultToolkit().createImage(bytes);

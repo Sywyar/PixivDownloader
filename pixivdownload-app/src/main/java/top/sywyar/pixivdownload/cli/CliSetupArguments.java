@@ -45,13 +45,14 @@ record CliSetupArguments(
 
     static Inspection inspect(String[] args) {
         boolean helpRequested = false;
-        List<String> unknown = new ArrayList<>();
+        List<Integer> unknownPositions = new ArrayList<>();
         List<String> missingValue = new ArrayList<>();
         if (args == null) {
-            return new Inspection(false, unknown, missingValue);
+            return new Inspection(false, unknownPositions, missingValue);
         }
 
-        for (String arg : args) {
+        for (int index = 0; index < args.length; index++) {
+            String arg = args[index];
             if (arg == null || arg.isEmpty()) {
                 continue;
             }
@@ -67,11 +68,11 @@ record CliSetupArguments(
                 if (equalsIndex < 0 && KNOWN_VALUE_FLAGS.contains(arg)) {
                     missingValue.add(arg);
                 } else {
-                    unknown.add(arg);
+                    unknownPositions.add(index + 1);
                 }
             }
         }
-        return new Inspection(helpRequested, unknown, missingValue);
+        return new Inspection(helpRequested, unknownPositions, missingValue);
     }
 
     static boolean containsCommand(String[] args) {
@@ -131,9 +132,9 @@ record CliSetupArguments(
         return arg.startsWith(prefix) ? arg.substring(prefix.length()) : current;
     }
 
-    record Inspection(boolean helpRequested, List<String> unknown, List<String> missingValue) {
+    record Inspection(boolean helpRequested, List<Integer> unknownPositions, List<String> missingValue) {
         Inspection {
-            unknown = List.copyOf(unknown);
+            unknownPositions = List.copyOf(unknownPositions);
             missingValue = List.copyOf(missingValue);
         }
     }

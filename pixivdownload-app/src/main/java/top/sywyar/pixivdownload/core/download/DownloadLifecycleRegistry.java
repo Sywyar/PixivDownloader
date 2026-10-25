@@ -37,7 +37,6 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
         }
     }
 
-    private final Map<ExternalCapabilityOwner, Contribution> owners = new LinkedHashMap<>();
     private volatile Map<ExternalCapabilityOwner, Contribution> snapshot = Map.of();
     private final AtomicLong observerFailures = new AtomicLong();
     private volatile ExternalCapabilityOwner lastObserverFailure;
@@ -53,19 +52,21 @@ public final class DownloadLifecycleRegistry implements DownloadLifecycle, Downl
     }
 
     public synchronized void register(ExternalCapabilityOwner owner, Contribution contribution) {
-        for (var existing : owners.entrySet()) {
+        for (var existing : snapshot.entrySet()) {
             if (!existing.getKey().equals(owner) && contribution.handlers().keySet().stream()
                     .anyMatch(existing.getValue().handlers()::containsKey)) {
                 throw new IllegalArgumentException("duplicate download submission type");
             }
         }
-        owners.put(owner, contribution);
-        snapshot = Collections.unmodifiableMap(new LinkedHashMap<>(owners));
+        var next = new LinkedHashMap<>(snapshot);
+        next.put(owner, contribution);
+        snapshot = Collections.unmodifiableMap(next);
     }
 
     public synchronized void withdraw(ExternalCapabilityOwner owner) {
-        owners.remove(owner);
-        snapshot = Collections.unmodifiableMap(new LinkedHashMap<>(owners));
+        var next = new LinkedHashMap<>(snapshot);
+        next.remove(owner);
+        snapshot = Collections.unmodifiableMap(next);
     }
 
     /** 累计失败诊断不保存异常或插件引用。 */

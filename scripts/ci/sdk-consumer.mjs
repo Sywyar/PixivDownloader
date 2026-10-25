@@ -84,10 +84,12 @@ export function prepareDouyinSource(repoRoot, work, suppliedSource) {
                 path.join(repoRoot, 'scripts/ci/douyin-source.json'), 'utf8'));
         if (!/^[a-f0-9]{40}$/u.test(revision ?? '')) fail('Douyin source must pin an exact commit');
         run('git', ['init', destination]);
+        run('git', ['-C', destination, 'config', 'core.longpaths', 'true']);
         const options = { timeout: 300_000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } };
         run('git', ['-C', destination, '-c', 'credential.helper=', 'fetch', '--depth=1',
             'https://github.com/Sywyar/PixivDownloader-Plugin-Douyin.git', revision], options);
         run('git', ['-C', destination, 'checkout', '--detach', revision], options);
+        run('git', ['-C', destination, 'diff', '--exit-code', revision, '--'], options);
     }
     douyinPluginIdentity(destination);
     return destination;

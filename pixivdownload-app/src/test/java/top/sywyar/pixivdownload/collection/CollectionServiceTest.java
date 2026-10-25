@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import top.sywyar.pixivdownload.core.appconfig.DownloadConfig;
@@ -16,6 +18,7 @@ import top.sywyar.pixivdownload.core.metadata.novel.NovelMetadataRepository;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -46,6 +49,50 @@ class CollectionServiceTest {
     private PathPrefixCodec pathPrefixCodec;
 
     private CollectionService collectionService;
+
+    @ParameterizedTest
+    @ValueSource(strings = {"replace", "clear", "delete"})
+    @DisplayName("图标发布尚未结束时，后续替换、清空和删除均等待提交")
+    void shouldSerializeIconMutations(String operation) throws Exception {
+        when(collectionMapper.countById(1L)).thenReturn(1);
+        when(collectionMapper.findById(1L)).thenReturn(new Collection(1L, "first", null, null, 0, 1, 0, 0));
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var started = new java.util.concurrent.CountDownLatch(1);
+        var first = new java.util.concurrent.atomic.AtomicBoolean(true);
+        when(iconService.saveIcon(eq(1L), any(), any())).thenAnswer(invocation -> {
+            if (first.getAndSet(false)) {
+                entered.countDown();
+                assertThat(release.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            }
+            return "png";
+        });
+        var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var upload = executor.submit(() -> collectionService.setIcon(1, new byte[]{1}));
+            assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            var following = executor.submit(() -> {
+                started.countDown();
+                switch (operation) {
+                    case "replace" -> collectionService.setIcon(1, new byte[]{2});
+                    case "clear" -> collectionService.clearIcon(1);
+                    case "delete" -> collectionService.delete(1);
+                    default -> throw new AssertionError(operation);
+                }
+                return null;
+            });
+            assertThat(started.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> following.get(200, java.util.concurrent.TimeUnit.MILLISECONDS))
+                    .isInstanceOf(java.util.concurrent.TimeoutException.class);
+            release.countDown();
+            upload.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            following.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        }
+    }
 
     @BeforeEach
     void setUp() {
@@ -217,29 +264,15 @@ class CollectionServiceTest {
     class DeleteCleanupTests {
 
         @Test
-        @DisplayName("删除收藏夹应先清理 artwork_collections 关系，再删主表，再删图标文件")
-        void shouldCleanupRelationsAndIconOnDelete() {
-            when(collectionMapper.countById(5L)).thenReturn(1);
-
-            collectionService.delete(5L);
-
-            org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(collectionMapper, iconService);
-            inOrder.verify(collectionMapper).deleteArtworkLinksByCollection(5L);
-            inOrder.verify(collectionMapper).deleteById(5L);
-            inOrder.verify(iconService).deleteAll(5L);
-        }
-
-        @Test
         @DisplayName("收藏夹不存在时不应触达任何清理动作")
-        void shouldNotTouchAnythingWhenCollectionMissing() {
+        void shouldNotTouchAnythingWhenCollectionMissing() throws Exception {
             when(collectionMapper.countById(5L)).thenReturn(0);
 
             assertThatThrownBy(() -> collectionService.delete(5L))
                     .isInstanceOf(LocalizedException.class);
 
-            verify(collectionMapper, never()).deleteArtworkLinksByCollection(anyLong());
             verify(collectionMapper, never()).deleteById(anyLong());
-            verify(iconService, never()).deleteAll(anyLong());
+            verify(iconService, never()).deleteAll(anyLong(), any());
         }
     }
 
@@ -247,23 +280,24 @@ class CollectionServiceTest {
     @DisplayName("memberships 合并")
     class MembershipsTests {
 
-        @Test
-        @DisplayName("应把扁平 row 合并为 artworkId → collectionIds 映射")
-        void shouldMergeFlatRowsIntoMap() {
-            java.util.Map<String, Object> row1 = new java.util.HashMap<>();
-            row1.put("artworkId", 100L);
-            row1.put("collectionId", 1L);
-            java.util.Map<String, Object> row2 = new java.util.HashMap<>();
-            row2.put("artworkId", 100L);
-            row2.put("collectionId", 2L);
-            java.util.Map<String, Object> row3 = new java.util.HashMap<>();
-            row3.put("artworkId", 200L);
-            row3.put("collectionId", 1L);
-            when(collectionMapper.findLinksByArtworks(List.of(100L, 200L)))
-                    .thenReturn(List.of(row1, row2, row3));
+        @ParameterizedTest
+        @ValueSource(booleans = {false, true})
+        @DisplayName("插画与小说归属均按作品分组并保留收藏夹顺序")
+        void shouldMergeFlatRowsIntoMap(boolean novel) {
+            String workIdField = novel ? "novelId" : "artworkId";
+            List<Map<String, Object>> rows = List.of(
+                    Map.of(workIdField, 100L, "collectionId", 1L),
+                    Map.of(workIdField, 100L, "collectionId", 2L),
+                    Map.of(workIdField, 200L, "collectionId", 1L));
+            if (novel) {
+                when(novelMetadataRepository.findCollectionLinksByNovels(List.of(100L, 200L))).thenReturn(rows);
+            } else {
+                when(collectionMapper.findLinksByArtworks(List.of(100L, 200L))).thenReturn(rows);
+            }
 
-            java.util.Map<Long, java.util.List<Long>> result =
-                    collectionService.membershipsOf(List.of(100L, 200L));
+            Map<Long, List<Long>> result = novel
+                    ? collectionService.novelMembershipsOf(List.of(100L, 200L))
+                    : collectionService.membershipsOf(List.of(100L, 200L));
 
             assertThat(result).hasSize(2);
             assertThat(result.get(100L)).containsExactly(1L, 2L);
@@ -273,11 +307,12 @@ class CollectionServiceTest {
         @Test
         @DisplayName("入参为空时应返回空 map 且不查询数据库")
         void shouldReturnEmptyMapForEmptyInput() {
-            java.util.Map<Long, java.util.List<Long>> result =
-                    collectionService.membershipsOf(java.util.List.of());
-
-            assertThat(result).isEmpty();
+            assertThat(collectionService.membershipsOf(List.of())).isEmpty();
+            assertThat(collectionService.membershipsOf(null)).isEmpty();
+            assertThat(collectionService.novelMembershipsOf(List.of())).isEmpty();
+            assertThat(collectionService.novelMembershipsOf(null)).isEmpty();
             verify(collectionMapper, never()).findLinksByArtworks(any());
+            verify(novelMetadataRepository, never()).findCollectionLinksByNovels(any());
         }
     }
 }

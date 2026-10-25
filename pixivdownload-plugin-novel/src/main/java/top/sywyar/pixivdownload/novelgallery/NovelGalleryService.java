@@ -166,12 +166,10 @@ public class NovelGalleryService {
 
     /** 返回当前可见的小说系列 id；无访客限制时返回全部未删除小说所属系列。 */
     public Set<Long> visibleSeriesIds(WorkRestriction restriction) {
-        if (restriction == null) {
-            return java.util.Collections.unmodifiableSet(new LinkedHashSet<>(
-                    catalogSeriesCounts(novelSeriesCatalogRepository.findAll()).keySet()));
-        }
-        return java.util.Collections.unmodifiableSet(new LinkedHashSet<>(
-                workQueryService.countBySeries(WorkType.NOVEL, restriction).keySet()));
+        Map<Long, Long> counts = restriction == null
+                ? catalogSeriesCounts(novelSeriesCatalogRepository.findAll())
+                : workQueryService.countBySeries(WorkType.NOVEL, restriction);
+        return java.util.Collections.unmodifiableSet(new LinkedHashSet<>(counts.keySet()));
     }
 
     public List<NovelTagOption> listTags(String search, int limit) {
@@ -244,11 +242,7 @@ public class NovelGalleryService {
         if (tags == null || tags.isEmpty()) {
             return List.of();
         }
-        List<WorkTag> out = new ArrayList<>(tags.size());
-        for (WorkTag tag : tags) {
-            out.add(new WorkTag(tag.tagId(), tag.name(), tag.translatedName()));
-        }
-        return out;
+        return new ArrayList<>(tags);
     }
 
     private static WorkQuery toWorkQuery(NovelGalleryQuery q) {
@@ -308,8 +302,8 @@ public class NovelGalleryService {
 
     private PagedAuthors pageAuthors(List<NovelAuthorSummary> rows, int page, int size) {
         int total = rows.size();
-        int from = Math.min(page * size, total);
-        int to = Math.min(from + size, total);
+        int from = (int) Math.min((long) page * size, total);
+        int to = (int) Math.min((long) from + size, total);
         int totalPages = (int) Math.ceil((double) total / size);
         return new PagedAuthors(rows.subList(from, to), total, page, size, totalPages);
     }
@@ -326,8 +320,8 @@ public class NovelGalleryService {
 
     private PagedSeries pageSeries(List<NovelSeriesSummary> rows, int page, int size) {
         int total = rows.size();
-        int from = Math.min(page * size, total);
-        int to = Math.min(from + size, total);
+        int from = (int) Math.min((long) page * size, total);
+        int to = (int) Math.min((long) from + size, total);
         int totalPages = (int) Math.ceil((double) total / size);
         return new PagedSeries(rows.subList(from, to), total, page, size, totalPages);
     }

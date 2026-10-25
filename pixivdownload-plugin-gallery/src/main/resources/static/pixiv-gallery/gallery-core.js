@@ -15,56 +15,6 @@ window.PixivGallery = window.PixivGallery || {};
         try { localStorage.removeItem(key); } catch (_) { /* ignore */ }
     }
 
-    // ---------- Image cache (in-memory + sessionStorage for thumbs) ----------
-    const ImageCache = (() => {
-        const PREFIX = 'pxImg:';
-        const mem = new Map();
-        const isThumb = url => url.includes('/thumbnail/');
-
-        function get(url) {
-            if (mem.has(url)) return mem.get(url);
-            if (isThumb(url)) {
-                try {
-                    const v = sessionStorage.getItem(PREFIX + url);
-                    if (v) {
-                        mem.set(url, v);
-                        return v;
-                    }
-                } catch (_) {
-                }
-            }
-            return null;
-        }
-
-        function put(url, dataUri) {
-            mem.set(url, dataUri);
-            if (!isThumb(url)) return;
-            try {
-                sessionStorage.setItem(PREFIX + url, dataUri);
-            } catch (_) {
-                // Quota exceeded — evict half of stored thumbs and retry once
-                const keys = [];
-                for (let i = 0; i < sessionStorage.length; i++) {
-                    const k = sessionStorage.key(i);
-                    if (k && k.startsWith(PREFIX)) keys.push(k);
-                }
-                keys.slice(0, Math.max(1, Math.floor(keys.length / 2)))
-                    .forEach(k => {
-                        try {
-                            sessionStorage.removeItem(k);
-                        } catch (_) {
-                        }
-                    });
-                try {
-                    sessionStorage.setItem(PREFIX + url, dataUri);
-                } catch (_) {
-                }
-            }
-        }
-
-        return {get, put};
-    })();
-
     let thumbnailObserver = null;
     const thumbnailQueue = [];
     let activeThumbnailLoads = 0;
@@ -277,6 +227,7 @@ window.PixivGallery = window.PixivGallery || {};
                 pageI18n = nextClient;
                 window.PixivInvitesI18n = nextClient;
                 applyStaticPageTranslations();
+                if (window.PixivOnboarding) PixivOnboarding.refreshFab(nextClient);
                 if (window.PixivNav) PixivNav.refresh();
                 renderCollections();
                 renderTagChips();
@@ -343,29 +294,6 @@ window.PixivGallery = window.PixivGallery || {};
         frame.classList.toggle('thumb-failed', stateName === 'failed');
     }
 
-    function setThumbnailSource(img, src) {
-        const cleanup = () => {
-            img.removeEventListener('load', onLoad);
-            img.removeEventListener('error', onError);
-        };
-        const onLoad = () => {
-            cleanup();
-            setThumbnailState(img, 'loaded');
-        };
-        const onError = () => {
-            cleanup();
-            img.removeAttribute('src');
-            setThumbnailState(img, 'failed');
-        };
-        img.addEventListener('load', onLoad, {once: true});
-        img.addEventListener('error', onError, {once: true});
-        img.src = src;
-        if (img.complete) {
-            if (img.naturalWidth > 0) onLoad();
-            else onError();
-        }
-    }
-
     function loadThumbnail(img) {
         scheduleThumbnail(img);
     }
@@ -384,4 +312,4 @@ window.PixivGallery = window.PixivGallery || {};
 
 
 // ---- PixivGallery facade ----
-window.PixivGallery.core = Object.assign(window.PixivGallery.core || {}, { storageGet, storageSet, storageRemove, getThumbnailObserver, scheduleThumbnail, enqueueThumbnail, pumpThumbnailQueue, interpolate, t, uiLang, listSeparator, searchPlaceholderFor, searchPlaceholderForCurrentView, syncSearchTypeSelect, updateSearchPlaceholder, setSearchEmptyState, applyStaticPageTranslations, initPageI18n, api, toast, setThumbnailState, setThumbnailSource, loadThumbnail, escapeHtml });
+window.PixivGallery.core = Object.assign(window.PixivGallery.core || {}, { storageGet, storageSet, storageRemove, getThumbnailObserver, scheduleThumbnail, enqueueThumbnail, pumpThumbnailQueue, interpolate, t, uiLang, listSeparator, searchPlaceholderFor, searchPlaceholderForCurrentView, syncSearchTypeSelect, updateSearchPlaceholder, setSearchEmptyState, applyStaticPageTranslations, initPageI18n, api, toast, setThumbnailState, loadThumbnail, escapeHtml });

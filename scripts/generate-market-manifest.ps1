@@ -67,7 +67,7 @@ if (-not [string]::IsNullOrWhiteSpace($NightlyBuildVersion) -and
 }
 $isNightly = -not [string]::IsNullOrWhiteSpace($NightlyBuildVersion)
 $nightlySuffix = if ($isNightly) { ($NightlyBuildVersion -split '-', 2)[1] } else { $null }
-$nightlySdkVersion = if ($isNightly) { (Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot) + "-$nightlySuffix" } else { $null }
+if ($isNightly) { $null = Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot }
 $manifestName = if ($isNightly) { "nightly-manifest.json" } else { "manifest.json" }
 $SignatureToolJar = Resolve-SignatureToolJar $ProjectRoot $SignatureToolJar
 
@@ -93,22 +93,6 @@ function Get-PluginDependencies([string]$value) {
     return @($dependencies)
 }
 
-# Parse a module's source plugin.properties (root descriptor) into a hashtable.
-function Read-SourceDescriptor([string]$module) {
-    $path = Join-Path $ProjectRoot "$module/src/main/resources/plugin.properties"
-    if (-not (Test-Path -LiteralPath $path)) { throw "Missing source descriptor: $path" }
-    $props = @{}
-    foreach ($line in (Get-Content -LiteralPath $path -Encoding UTF8)) {
-        $trimmed = $line.Trim()
-        $trimmed = $trimmed.TrimStart([char]0xFEFF)
-        if (-not $trimmed -or $trimmed.StartsWith("#")) { continue }
-        $idx = $trimmed.IndexOf("=")
-        if ($idx -lt 1) { continue }
-        $props[$trimmed.Substring(0, $idx).Trim()] = $trimmed.Substring($idx + 1).Trim()
-    }
-    return $props
-}
-
 function Require-DescriptorValue($descriptor, [string]$key, [string]$module) {
     if (-not $descriptor.ContainsKey($key) -or [string]::IsNullOrWhiteSpace([string]$descriptor[$key])) {
         throw "Missing required descriptor key '$key' in module $module."
@@ -117,7 +101,6 @@ function Require-DescriptorValue($descriptor, [string]$key, [string]$module) {
 }
 
 function Read-PropertiesFile([string]$path) {
-    if (-not (Test-Path -LiteralPath $path)) { throw "Missing i18n bundle: $path" }
     $props = @{}
     foreach ($line in (Get-Content -LiteralPath $path -Encoding UTF8)) {
         $trimmed = $line.Trim()
@@ -134,6 +117,7 @@ function Resolve-I18nText([string]$module, [string]$namespace, [string]$key, [st
     $suffix = ""
     if ($locale -ne "zh") { $suffix = "_$locale" }
     $path = Join-Path $ProjectRoot "$module/src/main/resources/i18n/web/$namespace$suffix.properties"
+    if (-not (Test-Path -LiteralPath $path)) { throw "Missing i18n bundle: $path" }
     $props = Read-PropertiesFile $path
     if (-not $props.ContainsKey($key) -or [string]::IsNullOrWhiteSpace([string]$props[$key])) {
         throw "Missing i18n key '$key' in $path."
@@ -197,7 +181,9 @@ try {
         Write-Host "  No existing manifest found (first run), all previousDownloadCount start at 0."
     }
     foreach ($plugin in $plugins) {
-        $d = Read-SourceDescriptor $plugin.Module
+        $descriptorPath = Join-Path $ProjectRoot "$($plugin.Module)/src/main/resources/plugin.properties"
+        if (-not (Test-Path -LiteralPath $descriptorPath)) { throw "Missing source descriptor: $descriptorPath" }
+        $d = Read-PropertiesFile $descriptorPath
         $id = $d["plugin.id"]
         $sourceVersion = $d["plugin.version"]
         $version = if ($isNightly) {
@@ -205,9 +191,6 @@ try {
         } else {
             $sourceVersion
         }
-        $requires = if ($isNightly) { $nightlySdkVersion } else { $d["plugin.requires"] }
-        $manifestRequiredSdk = $requires
-        $dependencies = @(Get-PluginDependencies $d["plugin.dependencies"])
         if ($id -ne $plugin.Id) {
             throw "plugin.id '$id' in module $($plugin.Module) does not match expected '$($plugin.Id)'."
         }

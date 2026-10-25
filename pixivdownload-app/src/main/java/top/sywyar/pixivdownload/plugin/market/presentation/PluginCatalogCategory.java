@@ -11,7 +11,7 @@ import java.util.Optional;
  * dependency}。
  *
  * <p><b>稳定回退</b>：清单里出现未知 / 缺省分类 id 时，{@link #resolve(String)} 一律回落到 {@link #FALLBACK}
- * （{@code utility} 实用工具），使页面不因脏数据破版；{@link #isKnown(String)} 可供调用方区分「原值已知 / 已回退」。
+ * （{@code utility} 实用工具），使页面不因脏数据破版。
  *
  * <p>纯 JDK 枚举，<b>不入 {@code plugin-api}</b>。
  */
@@ -63,10 +63,5 @@ public enum PluginCatalogCategory {
     /** 解析分类 id，未知 / 空一律回退到 {@link #FALLBACK}（稳定、永不为 {@code null}）。 */
     public static PluginCatalogCategory resolve(String raw) {
         return fromId(raw).orElse(FALLBACK);
-    }
-
-    /** 该原始 id 是否为已知分类（非聚合项、非未知值）。 */
-    public static boolean isKnown(String raw) {
-        return fromId(raw).isPresent();
     }
 }

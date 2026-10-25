@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.novel.translation.ai;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -69,5 +71,13 @@ class TranslationResponseTest {
     void parseEmptyThrows() {
         assertThrows(IllegalArgumentException.class, () -> TranslationResponse.parse(""));
         assertThrows(IllegalArgumentException.class, () -> TranslationResponse.parse("not json at all"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"null", " \t null\r\n", "\u0000null\u0000"})
+    @DisplayName("正文和标题响应拒绝 JSON 字面空值")
+    void rejectsJsonNull(String content) {
+        assertThrows(IllegalArgumentException.class, () -> TranslationResponse.parse(content));
+        assertThrows(IllegalArgumentException.class, () -> TitleTranslationResponse.parse(content));
     }
 }

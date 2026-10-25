@@ -10,7 +10,6 @@ import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import top.sywyar.pixivdownload.plugin.api.web.PageSectionContribution;
 import top.sywyar.pixivdownload.setup.SetupService;
-import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 
 import java.util.Comparator;
 import java.util.List;
@@ -23,7 +22,7 @@ import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
  * <p>
  * 可见性与排序口径同 {@link NavigationController}：复用 {@link AccessPolicy#isVisibleTo(Audience)} 的页面身份投影，
  * 按「来源层级（内置先于第三方）→ placement 内 {@link PageSectionContribution#priority()} → id」三级稳定排序。
- * 请求身份按三档解析（访客优先于管理员，因 solo 模式下 {@code hasAdminScope} 对任意请求为真）。
+ * 请求身份由 {@link SetupService#resolveAudience(HttpServletRequest)} 投影，已解析的邀请会话优先。
  * <p>
  * 响应只暴露渲染所需字段（不含 {@code visibleTo}），不泄露内部访问策略模型；标签 / 操作标题只返回 i18n key，
  * 文案由前端按当前语言解析。前端隐藏不是安全边界——区块内任何 href / API 仍由 {@code AuthFilter} 鉴权。
@@ -41,7 +40,7 @@ public class PageSectionController {
     @GetMapping
     public List<PageSectionView> sections(HttpServletRequest request,
                                           @RequestParam(value = "placement", required = false) String placement) {
-        Audience audience = resolveAudience(request);
+        Audience audience = setupService.resolveAudience(request);
         return pageSectionRegistry.sections().stream()
                 .filter(registered -> placement == null || placement.equals(registered.section().placement()))
                 .filter(registered -> registered.section().visibleTo().isVisibleTo(audience))
@@ -62,16 +61,6 @@ public class PageSectionController {
     /** 来源层级：内置插件 = 0，第三方插件 = 1（第三方区块恒排在全部内置区块之后，与 priority 大小无关）。 */
     private static int sourceRank(PageSectionRegistry.RegisteredSection registered) {
         return BuiltInPlugins.isBuiltIn(registered.pluginId()) ? 0 : 1;
-    }
-
-    private Audience resolveAudience(HttpServletRequest request) {
-        if (request.getAttribute(GuestInviteSession.REQUEST_ATTR) instanceof GuestInviteSession) {
-            return Audience.INVITED_GUEST;
-        }
-        if (setupService.hasAdminScope(request)) {
-            return Audience.ADMIN;
-        }
-        return Audience.VISITOR;
     }
 
     /**

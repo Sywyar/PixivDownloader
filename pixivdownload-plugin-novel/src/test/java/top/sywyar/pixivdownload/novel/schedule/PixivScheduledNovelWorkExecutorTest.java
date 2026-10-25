@@ -7,6 +7,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -48,16 +51,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.reset;
@@ -513,29 +519,111 @@ class PixivScheduledNovelWorkExecutorTest {
         assertThat(seriesFetches).hasValue(2);
     }
 
-    @Test
-    @DisplayName("异常终止清理后同一任务定义也会重新抓取系列信息")
-    void abortRunClearsSuccessfulWorkSeriesCache() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("结束一轮后重新抓取系列信息且保留其它任务的缓存")
+    void runCleanupKeepsOtherTaskSeriesCache(boolean abort) throws Exception {
         AtomicInteger seriesFetches = new AtomicInteger();
         when(pixivAjaxProxyClient.get(any(URI.class), isNull())).thenAnswer(invocation -> {
             URI uri = invocation.getArgument(0);
             if (uri.getPath().contains("/series/")) {
-                seriesFetches.incrementAndGet();
-                return completeSeriesResponse();
+                return completeSeriesResponse().replace(
+                        "系列简介", "metadata-" + seriesFetches.incrementAndGet());
             }
             return completeNovelResponse();
         });
         when(novelDownloader.downloadBlocking(any(), isNull())).thenReturn(true);
         ScheduledTaskDefinition task = task(definition(false, false));
+        ScheduledTaskDefinition otherTask = new ScheduledTaskDefinition(
+                8L, task.sourceType(), task.definitionSchema(), task.definitionVersion(),
+                task.definitionJson(), task.presentation());
         PixivScheduledNovelWorkExecutor executor = executor();
 
         executor.execute(
                 work("123"), context(task, ScheduledNetworkRoute.direct(), null).context());
-        executor.abortRun(task);
         executor.execute(
-                work("124"), context(task, ScheduledNetworkRoute.direct(), null).context());
+                work("124"), context(otherTask, ScheduledNetworkRoute.direct(), null).context());
+        executor.execute(
+                work("125"), context(task, ScheduledNetworkRoute.direct(), null).context());
 
-        assertThat(seriesFetches).hasValue(2);
+        if (abort) {
+            executor.abortRun(task);
+        } else {
+            executor.finishRun(runContext(2L, task));
+        }
+        executor.execute(
+                work("126"), context(otherTask, ScheduledNetworkRoute.direct(), null).context());
+        executor.execute(
+                work("127"), context(task, ScheduledNetworkRoute.direct(), null).context());
+
+        assertThat(seriesFetches).hasValue(3);
+        ArgumentCaptor<NovelDownloadRequest> requests = ArgumentCaptor.forClass(NovelDownloadRequest.class);
+        verify(novelDownloader, times(5)).downloadBlocking(requests.capture(), isNull());
+        assertThat(requests.getAllValues())
+                .extracting(request -> request.getOther().getSeriesDescription())
+                .containsExactly("metadata-1", "metadata-2", "metadata-1", "metadata-2", "metadata-3");
+    }
+
+    @ParameterizedTest
+    @MethodSource("executionFailures")
+    @DisplayName("执行失败原样抛出并释放本轮缓存、凭据副本和代理作用域")
+    void failedWorkReleasesRunResources(Throwable failure) throws Exception {
+        AtomicBoolean receivedAuthenticatedResponse = new AtomicBoolean();
+        when(pixivAjaxProxyClient.get(any(URI.class), any())).thenAnswer(invocation -> {
+            if (invocation.getArgument(1) != null) {
+                receivedAuthenticatedResponse.set(true);
+            }
+            return invocation.<URI>getArgument(0).getPath().contains("/series/")
+                    ? completeSeriesResponse() : completeNovelResponse();
+        });
+        when(novelDownloader.downloadBlocking(any(), isNull())).thenReturn(true);
+        ScheduledTaskDefinition task = task(definition(false, false));
+        ContextFixture normal = context(task, ScheduledNetworkRoute.direct(), null);
+        PixivScheduledNovelWorkExecutor executor = executor();
+        executor.execute(work("123"), normal.context());
+        char[] secret = "temporary-cookie".toCharArray();
+        ContextFixture failing = context(task, ScheduledNetworkRoute.proxy("proxy.local", 7890, null), secret);
+        ScheduledCancellation cancellation = mock(ScheduledCancellation.class);
+        doAnswer(invocation -> {
+            if (receivedAuthenticatedResponse.get()) {
+                throw failure;
+            }
+            return null;
+        }).when(cancellation).throwIfCancellationRequested();
+        when(failing.context().cancellation()).thenReturn(cancellation);
+
+        assertThatThrownBy(() -> executor.execute(work("124"), failing.context())).isSameAs(failure);
+
+        assertThat(secret).containsOnly('\0');
+        assertThat(workerRouteOverrideActive()).isFalse();
+        executor.execute(work("125"), normal.context());
+        verify(pixivAjaxProxyClient, times(2))
+                .get(URI.create("https://www.pixiv.net/ajax/novel/series/42?lang=zh"), null);
+        verify(novelDownloader, times(2)).downloadBlocking(any(), isNull());
+    }
+
+    private static List<Throwable> executionFailures() {
+        return List.of(ScheduledExecutionException.cancelled(),
+                new IllegalStateException("execution failed"), new AssertionError("execution failed"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{", "[]", "{\"kind\":\"illust\"}"})
+    @DisplayName("执行与轮末合订以同一失败码拒绝无效定义且不产生副作用")
+    void invalidDefinitionIsRejectedBeforeWorkAndMerge(String definition) {
+        ScheduledTaskDefinition task = task(definition);
+        PixivScheduledNovelWorkExecutor executor = executor();
+        ScheduledExecutionException executionFailure = catchThrowableOfType(
+                () -> executor.execute(work("123"), context(task, ScheduledNetworkRoute.direct(), null).context()),
+                ScheduledExecutionException.class);
+        ScheduledExecutionException finishFailure = catchThrowableOfType(
+                () -> executor.finishRun(runContext(1L, task)), ScheduledExecutionException.class);
+
+        for (ScheduledExecutionException failure : List.of(executionFailure, finishFailure)) {
+            assertThat(failure.category()).isEqualTo(ScheduledFailure.Category.INVALID_DEFINITION);
+            assertThat(failure.code()).isEqualTo("pixiv.schedule.definition-invalid");
+        }
+        verifyNoInteractions(pixivAjaxProxyClient, novelDownloader, novelMergeService, workMetaCaptureService);
     }
 
     @Test

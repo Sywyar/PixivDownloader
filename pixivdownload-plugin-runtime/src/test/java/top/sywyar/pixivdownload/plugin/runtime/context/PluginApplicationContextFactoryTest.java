@@ -535,14 +535,9 @@ class PluginApplicationContextFactoryTest {
 
     /** 父 context 暴露的「SDK / 服务接口」。 */
     interface CoreApiService {
-        String describe();
     }
 
     static final class CoreApiServiceImpl implements CoreApiService {
-        @Override
-        public String describe() {
-            return "core";
-        }
     }
 
     /** 核心应用 context 的占位：只暴露一个核心服务 Bean。 */
@@ -684,11 +679,8 @@ class PluginApplicationContextFactoryTest {
     }
 
     public static class TransactionalPluginBean {
-        private boolean written;
-
         @Transactional
         public void writeInTransaction() {
-            written = true;
         }
     }
 

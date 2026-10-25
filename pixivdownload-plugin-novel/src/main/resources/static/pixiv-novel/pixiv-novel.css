@@ -11,7 +11,6 @@
             --control-muted-bg: #f5f5f5;
             --hover-bg: #f5f5f5;
             --pink-soft-bg: #fff0f6;
-            --page-max: 880px;
         }
 
         html[data-theme="dark"] {

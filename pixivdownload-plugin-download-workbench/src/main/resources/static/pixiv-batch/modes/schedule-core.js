@@ -11,14 +11,15 @@
     let scheduleTasksCache = [];
     // 计划任务列表轮询：进入第 5 Tab 时定时刷新，让「正在运行 / 排队中」等瞬时状态灯能实时更新。
     let schedulePollTimer = null;
+    let scheduleListRequest = null;
+    const scheduleQueueRequests = new Map();
+    const schedulePendingRequests = new Map();
+    let scheduleDetailsNeedRefresh = true;
     const SCHEDULE_POLL_MS = 4000;
     // 当前展开了「本轮队列详情」的任务 id 集合：列表重渲染会重建 DOM，据此恢复展开态。
     // 未展开的任务不请求 / 不渲染队列；展开后从本地缓存即时渲染，再按需向后端拉取最新队列。
     const scheduleExpandedQueues = new Set();
-    // 上一次「整列空/非空 + 横幅」与「按卡片」的渲染签名。整列 innerHTML 重建会销毁展开的队列 DOM、
-    // 中断 SSE 平滑刷新、把队列正文滚回顶部；改成按卡片 diff —— 仅在「该卡片的卡片级数据」真正变化时替换
-    // 该卡片，并在替换前后保留其内部「队列正文/待重试面板」的 innerHTML / 滚动位置 / 展开折叠态。
-    // 队列正文照常由 SSE / 快照单独更新。
+    // 卡片按展示签名更新，详情保留原节点；队列正文仍由 SSE / 快照更新。
     let scheduleBannerSignature = null;
     let scheduleCredentialPolicyGroupsCache = [];
     // 初始为 true：静态 HTML 的 #schedule-list 自带 .schedule-empty 占位符，首次加载到任务时需要先清空它再 diff。
@@ -32,22 +33,38 @@
     function startSchedulePolling() {
         stopSchedulePolling();
         schedulePollTimer = setInterval(() => {
-            if (state.mode === 'schedule' && document.visibilityState !== 'hidden') {
+            if (!scheduleListRequest && state.mode === 'schedule' && document.visibilityState !== 'hidden') {
                 loadScheduleTasks();
             }
         }, SCHEDULE_POLL_MS);
     }
 
     function stopSchedulePolling() {
+        scheduleListRequest?.abort();
+        scheduleListRequest = null;
         if (schedulePollTimer) {
             clearInterval(schedulePollTimer);
             schedulePollTimer = null;
         }
         // 离开计划任务 Tab：解绑全部队列 SSE 监听；若工作区也未在下载且无其它监听，顺手关掉聚合连接。
-        unsubscribeAllScheduleQueueSse();
+        releaseScheduleTaskDetails();
         if (!state.isRunning && state.sharedSse && Object.keys(state.sseListeners).length === 0) {
             closeSharedSSE();
         }
+    }
+
+    function releaseScheduleTaskDetails() {
+        scheduleQueueRequests.forEach(request => request.abort());
+        scheduleQueueRequests.clear();
+        schedulePendingRequests.forEach(request => request.abort());
+        schedulePendingRequests.clear();
+        unsubscribeAllScheduleQueueSse();
+        const queueVue = scheduleQueueVue();
+        scheduleExpandedQueues.forEach(id => {
+            cancelScheduleQueueFlush(id);
+            if (queueVue) queueVue.unmountScheduleQueue(id);
+        });
+        scheduleDetailsNeedRefresh = true;
     }
 
     function scheduleSourceRuntime() {

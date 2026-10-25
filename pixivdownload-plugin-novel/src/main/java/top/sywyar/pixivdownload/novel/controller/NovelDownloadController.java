@@ -42,7 +42,6 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
 import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
-import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 import top.sywyar.pixivdownload.core.work.service.DownloadPathPlan;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
@@ -83,7 +82,6 @@ public class NovelDownloadController {
     private final NovelTranslationService novelTranslationService;
     private final ApplicationModeProvider applicationModeProvider;
     private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
-    private final WorkVisibilityService workVisibilityService;
     private final VisitorDownloadQuotaService visitorDownloadQuotaService;
     private final MultiModeSettings multiModeSettings;
     private final ObjectMapper objectMapper;
@@ -313,22 +311,23 @@ public class NovelDownloadController {
         RequestOwnerIdentity ownerIdentity = requestOwnerIdentityResolver.resolve(httpRequest);
         NovelDownloadStatus status = ownerIdentity.admin()
                 ? novelDownloadService.getStatus(novelId)
-                : novelDownloadService.getStatus(novelId, ownerIdentity.ownerUuid(), false);
+                : novelDownloadService.getStatus(novelId, ownerIdentity.ownerUuid());
         if (status == null) {
             return ResponseEntity.ok(new NovelDownloadStatusResponse(
                     false, messages.get("download.status.not-found"),
                     novelId, null, null, null, false, false, null, 0, 0, 0L, 0L, null, null));
         }
+        NovelDownloadStatus.State state = status.getState();
         return ResponseEntity.ok(new NovelDownloadStatusResponse(
                 true,
-                messages.get(statusMessageCode(status), status.isFailed() && status.getErrorMessage() != null
-                        ? new Object[]{status.getErrorMessage()} : new Object[0]),
+                messages.get(statusMessageCode(state), state.failed() && state.errorMessage() != null
+                        ? new Object[]{state.errorMessage()} : new Object[0]),
                 novelId,
                 status.getTitle(),
                 status.getFormat(),
-                status.getStage(),
-                status.isCompleted(),
-                status.isFailed(),
+                state.stage(),
+                state.completed(),
+                state.failed(),
                 status.getDownloadPath(),
                 status.getEmbeddedTotal(),
                 status.getEmbeddedDone(),
@@ -341,7 +340,7 @@ public class NovelDownloadController {
 
     /**
      * 「下载即自动翻译」状态轮询（admin-only：solo，或 multi 管理员）。翻译跑在服务端独立队列、生命周期独立于下载，
-     * 前端下载完成后据此渲染「AI 翻译中 (Ns)」「等待前系列小说翻译完成，还有 n 个」。无该小说翻译记录时返回 204。
+     * 前端下载完成后据此展示翻译进度与同系列前序章节等待状态。无该小说翻译记录时返回 204。
      */
     @GetMapping("/novel/translate-status/{novelId}")
     public ResponseEntity<NovelAutoTranslateService.StatusView> getTranslateStatus(
@@ -374,12 +373,8 @@ public class NovelDownloadController {
             @PathVariable long seriesId,
             @RequestParam(required = false) String format,
             @RequestParam(required = false) String lang) throws IOException {
-        NovelDownloadService.NovelFormat fmt = (format == null || format.isBlank())
-                ? NovelDownloadService.NovelFormat.EPUB
-                : NovelDownloadService.NovelFormat.parse(format);
-        NovelMergeService.MergeResult result = (lang == null || lang.isBlank())
-                ? novelMergeService.merge(seriesId, fmt)
-                : novelMergeService.mergeVariant(seriesId, fmt, lang.trim());
+        NovelDownloadService.NovelFormat fmt = mergeFormat(format);
+        NovelMergeService.MergeResult result = merge(seriesId, fmt, lang);
         return ResponseEntity.ok(new MergeResponse(
                 result.success(), result.message(),
                 result.mergedPath(), result.chapterCount(), fmt.ext()));
@@ -399,12 +394,8 @@ public class NovelDownloadController {
         if (filter != null && !filter.contains(seriesId)) {
             return ResponseEntity.notFound().build();
         }
-        NovelDownloadService.NovelFormat fmt = (format == null || format.isBlank())
-                ? NovelDownloadService.NovelFormat.EPUB
-                : NovelDownloadService.NovelFormat.parse(format);
-        NovelMergeService.MergeResult result = (lang == null || lang.isBlank())
-                ? novelMergeService.merge(seriesId, fmt)
-                : novelMergeService.mergeVariant(seriesId, fmt, lang.trim());
+        NovelDownloadService.NovelFormat fmt = mergeFormat(format);
+        NovelMergeService.MergeResult result = merge(seriesId, fmt, lang);
         if (!result.success() || result.mergedPath() == null) {
             return ResponseEntity.notFound().build();
         }
@@ -492,11 +483,24 @@ public class NovelDownloadController {
         return ResponseEntity.ok(new NovelSeriesChapterIdsResponse(ids));
     }
 
+    private static NovelDownloadService.NovelFormat mergeFormat(String format) {
+        return format == null || format.isBlank()
+                ? NovelDownloadService.NovelFormat.EPUB
+                : NovelDownloadService.NovelFormat.parse(format);
+    }
+
+    private NovelMergeService.MergeResult merge(long seriesId, NovelDownloadService.NovelFormat format,
+                                                String lang) throws IOException {
+        return lang == null || lang.isBlank()
+                ? novelMergeService.merge(seriesId, format)
+                : novelMergeService.mergeVariant(seriesId, format, lang.trim());
+    }
+
     private static String buildAsciiContentDispositionFallback(String filename, long seriesId,
                                                                String lang, String ext) {
         String sanitized = filename.replaceAll("[^\\x20-\\x7E]|[\"\\\\]", "_");
         long printable = sanitized.chars()
-                .filter(c -> c != '_' && c >= 0x20 && c <= 0x7E)
+                .filter(c -> c != '_')
                 .count();
         if (printable < 2) {
             return (lang == null || lang.isBlank())
@@ -521,11 +525,11 @@ public class NovelDownloadController {
         };
     }
 
-    private static String statusMessageCode(NovelDownloadStatus s) {
-        if (s.isCancelled()) return "download.status.cancelled";
-        if (s.isFailed()) return "download.status.failed";
-        if (s.isCompleted()) return "download.status.completed";
-        return "download.status.in-progress";
+    private static String statusMessageCode(NovelDownloadStatus.State s) {
+        if (s.cancelled()) return "download.status.cancelled";
+        if (s.failed()) return "download.status.failed";
+        if (s.completed()) return "novel.download.status.completed";
+        return "novel.download.status.in-progress";
     }
 
     private void stripUnauthorizedCollectionSelection(NovelDownloadCommand request, String mode, boolean isAdmin) {

@@ -593,9 +593,9 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                 try {
                     DesktopUiHost.GuiResponse response = get();
                     if (!button.isDisplayable()) return;
-                    ctx.showNotice(actionNotice(action, response));
-                    List<String> candidates = ActionResult.from(response, action.resultSummary())
-                            .selectionValues(action.resultSummary());
+                    ActionResult result = ActionResult.from(response, action.resultSummary());
+                    ctx.showNotice(actionNotice(action, result));
+                    List<String> candidates = result.selectionValues(action.resultSummary());
                     if (!candidates.isEmpty() && Objects.equals(original, ctx.currentFieldValue(selectionKey))
                             && java.util.Arrays.equals(requested, payloadDigest(buildPayload(section, action)))) {
                         String key = action.resultSummary().selectionFieldKey();
@@ -658,8 +658,7 @@ final class DeclaredGuiConfigSection implements ConfigSection {
         }
     }
 
-    private String actionNotice(GuiConfigActionSpec action, DesktopUiHost.GuiResponse response) {
-        ActionResult result = ActionResult.from(response, action.resultSummary());
+    private String actionNotice(GuiConfigActionSpec action, ActionResult result) {
         for (GuiConfigActionResultRuleSpec rule : action.resultRules()) {
             if (rule.conditions().stream().allMatch(condition -> matches(result, condition))) {
                 Object[] args = rule.arguments().stream()
@@ -668,13 +667,13 @@ final class DeclaredGuiConfigSection implements ConfigSection {
                 return args.length == 0 ? rule.notice() : MessageFormat.format(rule.notice(), args);
             }
         }
-        if (!response.reachable()) {
+        if (!result.reachable()) {
             return message("gui.config.action.notice.unreachable", action.label());
         }
-        if (response.is2xx()) {
+        if (result.http2xx()) {
             return message("gui.config.action.notice.success", action.label());
         }
-        return message("gui.config.action.notice.failed", action.label(), "HTTP " + response.status());
+        return message("gui.config.action.notice.failed", action.label(), "HTTP " + result.status());
     }
 
     private boolean matches(ActionResult result, GuiConfigActionResultCondition condition) {

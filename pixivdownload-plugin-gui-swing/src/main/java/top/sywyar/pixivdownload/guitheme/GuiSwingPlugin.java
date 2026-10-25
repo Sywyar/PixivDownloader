@@ -80,7 +80,7 @@ public class GuiSwingPlugin implements PixivFeaturePlugin, DesktopUiProvider {
                 locale -> displayName(preference, locale),
                 appearance,
                 () -> FlatLafSetup.apply(preference),
-                listener -> FlatLafSetup.openListener(preference, listener));
+                FlatLafSetup::openListener);
     }
 
     private static String displayName(ThemePreference preference, Locale locale) {

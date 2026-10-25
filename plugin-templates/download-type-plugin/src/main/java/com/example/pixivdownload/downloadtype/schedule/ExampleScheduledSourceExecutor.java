@@ -100,7 +100,7 @@ public final class ExampleScheduledSourceExecutor implements ScheduledSourceExec
     private Definition readDefinition(String json) throws ScheduledExecutionException {
         try {
             Definition definition = objectMapper.readValue(json, Definition.class);
-            if (definition.id() == null || !definition.id().matches("[0-9]{1,18}")) {
+            if (definition == null || definition.id() == null || !definition.id().matches("[0-9]{1,18}")) {
                 throw invalidDefinition("example.definition-id-invalid");
             }
             return definition;

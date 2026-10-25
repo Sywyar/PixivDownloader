@@ -47,7 +47,7 @@ import static top.sywyar.pixivdownload.update.UpdateCheckException.Reason.*;
  * 在线更新核心服务。
  * <ul>
  *   <li>{@link #checkForUpdate(boolean)} 拉取并解析 manifest，按当前平台挑选 asset。</li>
- *   <li>{@link #downloadInstaller} 走系统代理把 installer 下载到运行目录的临时位置，并校验 SHA-256。</li>
+ *   <li>{@link #downloadInstaller} 按应用代理配置下载 installer，并校验大小和 SHA-256。</li>
  *   <li>{@link #launchInstallerAndExit} 拉起安装包后退出当前 JVM，把覆盖安装交给 Inno Setup。</li>
  * </ul>
  *
@@ -105,7 +105,7 @@ public class UpdateService {
     private final PluginCatalogClientProvider httpClientProvider;
 
     /**
-     * 下载安装包时的实时进度；null 表示当前没有进行中的下载。
+     * 最近一次安装包下载的进度；null 表示尚未发起下载。
      * done=true 时 installerPath 仅用于状态展示；安装步骤只使用服务端保存的 VerifiedInstaller。
      */
     public record DownloadProgress(long received, long total, boolean done, boolean failed, String error, String installerPath) {}
@@ -116,8 +116,7 @@ public class UpdateService {
     private volatile boolean downloadInProgress;
     private volatile VerifiedInstaller verifiedInstaller;
 
-    private record VerifiedInstaller(Path path, long sizeBytes, String sha256,
-                                     String version, boolean nightly, Instant verifiedAt) {
+    private record VerifiedInstaller(Path path, long sizeBytes, String sha256) {
     }
 
     @Autowired
@@ -192,9 +191,6 @@ public class UpdateService {
         UpdateCheckResult officialResult;
         try {
             UpdateManifest manifest = fetchManifest(manifestUrl, CHANNEL_STABLE);
-            if (manifest == null || manifest.getLatestVersion() == null) {
-                throw new IllegalStateException(forLog("update.error.manifest.invalid", "empty"));
-            }
             officialResult = handleManifest(currentVersion, manifest, false);
         } catch (IOException | IllegalStateException e) {
             log.warn(forLog("update.log.check.failed", e.getMessage()));
@@ -211,23 +207,21 @@ public class UpdateService {
             if (nightlyUrl != null && !nightlyUrl.isBlank()) {
                 try {
                     UpdateManifest nightlyManifest = fetchManifest(nightlyUrl, CHANNEL_NIGHTLY);
-                    if (nightlyManifest != null && nightlyManifest.getLatestVersion() != null) {
-                        UpdateCheckResult nightlyResult = handleManifest(currentVersion, nightlyManifest, true);
-                        boolean hasUpdate = nightlyResult.isUpdateAvailable();
-                        boolean hasNotes = nightlyResult.getReleaseNotes() != null
-                                && !nightlyResult.getReleaseNotes().isBlank();
-                        // 正式版不可用时保留独立可信的每夜版；否则比较已验证的版本。
-                        boolean newerThanOfficial = !officialResult.isCheckSucceeded() || compareVersions(
-                                nightlyResult.getLatestVersion(),
-                                officialResult.getLatestVersion()) > 0;
-                        if (hasUpdate && hasNotes && newerThanOfficial) {
-                            nightlyAlternative = nightlyResult;
-                            log.info(forLog("update.log.check.nightly-available",
-                                    currentVersion, nightlyResult.getLatestVersion()));
-                        } else if (hasUpdate && !hasNotes) {
-                            log.info(forLog("update.log.check.nightly-empty-notes",
-                                    nightlyResult.getLatestVersion()));
-                        }
+                    UpdateCheckResult nightlyResult = handleManifest(currentVersion, nightlyManifest, true);
+                    boolean hasUpdate = nightlyResult.isUpdateAvailable();
+                    boolean hasNotes = nightlyResult.getReleaseNotes() != null
+                            && !nightlyResult.getReleaseNotes().isBlank();
+                    // 正式版不可用时保留独立可信的每夜版；否则比较已验证的版本。
+                    boolean newerThanOfficial = !officialResult.isCheckSucceeded() || compareVersions(
+                            nightlyResult.getLatestVersion(),
+                            officialResult.getLatestVersion()) > 0;
+                    if (hasUpdate && hasNotes && newerThanOfficial) {
+                        nightlyAlternative = nightlyResult;
+                        log.info(forLog("update.log.check.nightly-available",
+                                currentVersion, nightlyResult.getLatestVersion()));
+                    } else if (hasUpdate && !hasNotes) {
+                        log.info(forLog("update.log.check.nightly-empty-notes",
+                                nightlyResult.getLatestVersion()));
                     }
                 } catch (IOException | IllegalStateException e) {
                     log.warn(forLog("update.log.check.nightly-failed", e.getMessage()));
@@ -313,7 +307,6 @@ public class UpdateService {
             throw new UpdateCheckException(CHANNEL_MISMATCH, "unexpected update channel");
         }
         if (manifest == null
-                || !expectedChannel.equals(manifest.getChannel())
                 || manifest.getSequence() <= 0
                 || manifest.getLatestVersion() == null
                 || manifest.getLatestVersion().isBlank()) {
@@ -491,7 +484,7 @@ public class UpdateService {
         String platformKey = currentPlatformAssetKey();
         UpdateManifest.Asset asset = platformKey == null
                 ? null
-                : pickAsset(manifest.getAssets(), platformKey);
+                : manifest.getAssets().get(platformKey);
 
         boolean newer = compareVersions(latest, currentVersion) > 0;
         boolean updateAvailable = newer && asset != null && asset.getUrl() != null && !asset.getUrl().isBlank();
@@ -523,13 +516,6 @@ public class UpdateService {
                 .build();
     }
 
-    private static UpdateManifest.Asset pickAsset(Map<String, UpdateManifest.Asset> assets, String key) {
-        if (assets == null || key == null) {
-            return null;
-        }
-        return assets.get(key);
-    }
-
     /**
      * 当前操作系统对应的 asset key。null = 暂不支持。
      */
@@ -542,18 +528,7 @@ public class UpdateService {
         return null;
     }
 
-    /**
-     * 下载已检查到的 installer。调用前应先调用 {@link #checkForUpdate(boolean)} 并确认
-     * {@code updateAvailable} 为 true。
-     * <p>下载过程中实时更新 {@link #currentDownloadProgress}，供 GUI 轮询展示进度。
-     *
-     * @param nightlyChannel {@code true} 表示下载每夜版替代选项；{@code false} 表示下载正式版
-     */
-    public UpdateDownloadResult downloadInstaller(boolean nightlyChannel) throws IOException {
-        return downloadInstaller(selectChannel(nightlyChannel));
-    }
-
-    UpdateDownloadResult downloadInstaller(UpdateCheckResult check) throws IOException {
+    void downloadInstaller(UpdateCheckResult check) throws IOException {
         verifiedInstaller = null;
 
         String url = check.getAssetUrl();
@@ -608,17 +583,9 @@ public class UpdateService {
         Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
         Path verifiedPath = target.toAbsolutePath().normalize();
         PlainFilePathGuard.requirePlainRegularFile(verifiedPath);
-        verifiedInstaller = new VerifiedInstaller(verifiedPath, finalSize, actual,
-                check.getLatestVersion(), check.isNightly(), Instant.now());
+        verifiedInstaller = new VerifiedInstaller(verifiedPath, finalSize, actual);
         currentDownloadProgress = new DownloadProgress(finalSize, finalSize, true, false, null, target.toAbsolutePath().toString());
         log.info(forLog("update.log.download.completed", target.toAbsolutePath(), finalSize));
-
-        return UpdateDownloadResult.builder()
-                .installerPath(target.toAbsolutePath().toString())
-                .sizeBytes(finalSize)
-                .sha256(actual)
-                .version(check.getLatestVersion())
-                .build();
     }
 
     /**

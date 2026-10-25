@@ -1,36 +1,14 @@
 'use strict';
 /* 下载类型 UiSlot 渲染、失败隔离与刷新收敛契约。 */
-const vm = require('vm');
 const assert = require('assert');
 const {
-    SOURCE,
-    INIT_SOURCE,
-    SETTINGS_SOURCE,
-    DOWNLOAD_SOURCE,
-    SSE_SOURCE,
     El,
     typeDescriptor,
     uiSlotDescriptor,
     manifest,
     harness,
     waitUntil,
-    BASIC_INITIALIZER,
-    acquisitionDataSourceInitializer,
-    quickDataSourceInitializer,
-    importDataSourceInitializer,
-    quickAndImportDataSourceInitializer,
-    queueTagsInitializer,
-    queueLiveStatusInitializer,
-    seriesBrowserInitializer,
-    REQUEST_OWNER_INITIALIZER,
-    FAILING_INITIALIZER,
-    PENDING_INITIALIZER,
-    IN_FLIGHT_PROCESS_INITIALIZER,
-    PATCH_PROCESS_INITIALIZER,
-    LATE_QUEUE_INITIALIZER,
-    UI_INITIALIZER,
-    quickActionInitializer,
-    LATE_UI_INITIALIZER
+    BASIC_INITIALIZER
 } = require('./batch-queue-types-fixture');
 
 let passed = 0;
@@ -250,17 +228,6 @@ function ok(label, condition) {
             writes.length === 0 && results.every(result => result.status === 'rejected'));
     }
 
-    ok('页面 focus 会主动刷新 queue type manifest',
-        /addEventListener\('focus',[\s\S]*?refreshQueueTypeManifest\(\)/.test(INIT_SOURCE));
-    ok('页面恢复可见会主动刷新 queue type manifest',
-        /visibilityState === 'visible'[\s\S]*?refreshQueueTypeManifest\(\)/.test(INIT_SOURCE));
-    const reconcileStart = INIT_SOURCE.indexOf('function reconcileQueueTypeUi');
-    const reconcileEnd = INIT_SOURCE.indexOf("window.addEventListener('focus'", reconcileStart);
-    const reconcileSource = INIT_SOURCE.slice(reconcileStart, reconcileEnd);
-    ok('queue type ready 事件只触发 UI 重算而不反向 refresh',
-        /addEventListener\('pixivbatch:queuetypeschanged', reconcileQueueTypeUi\)/.test(INIT_SOURCE)
-        && reconcileStart >= 0 && reconcileEnd > reconcileStart
-        && !reconcileSource.includes('refreshQueueTypeManifest('));
     {
         // settings-card 槽位：类型 typed settings 声明的 cardId 已被宿主原生渲染时不再注入片段。
         const settingsCardInitializer = `(function () {

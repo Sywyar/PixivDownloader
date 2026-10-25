@@ -2,130 +2,105 @@ package top.sywyar.pixivdownload.novel.narration;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.core.asset.FileTransactionService;
 import top.sywyar.pixivdownload.core.database.DatabaseAvailability;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.util.Comparator;
+import java.nio.file.StandardOpenOption;
 import java.util.List;
-import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.stream.Stream;
+import java.util.function.Supplier;
 
-/**
- * 多角色朗读「参考音 / 标准音」的<b>磁盘存储</b>（{@code data/novel/narration-voice/{castId}/{characterId}.{ext}}）。
- * 把所有落盘 / 清理 / 并发保护收敛于此，供 {@link NarrationReferenceVoiceService}（写入 / 删除单个角色）与
- * {@link NovelNarrationCastService}（整册替换删除被移除角色、删除整册目录）共用，避免文件操作散落、产生孤儿文件。
- *
- * <p>一致性保护：
- * <ul>
- *   <li><b>按 {@code (castId, characterId)} 串行</b>——{@link #lockFor} 返回稳定的每键监视器，调用方在其上
- *       {@code synchronized} 把「校验角色行 → 写文件 → 写库 → 推进缓存键」整段串起来，规避同角色并发上传 /
- *       生成 / 删除互相破坏引用。</li>
- *   <li><b>原子写入</b>——先写临时文件再 {@code move}（优先 {@code ATOMIC_MOVE}，平台不支持时回退 {@code REPLACE_EXISTING}），
- *       避免读者读到半截文件；并清掉同角色其它扩展名的旧文件（如 wav→mp3 切换），避免一角色多份残留。</li>
- * </ul>
- */
+/** 参考音的角色级互斥与暂存；文件和主库记录的提交、回滚及恢复由宿主统一负责。 */
 @Slf4j
 @Component
 public class NarrationReferenceVoiceStore {
 
-    /** 受支持的参考音扩展名（清理时逐一尝试删除）。 */
     private static final List<String> REF_EXTENSIONS = List.of("wav", "mp3", "pcm");
 
     private final NarrationReferenceVoicePaths paths;
     private final DatabaseAvailability database;
-    private final ConcurrentMap<String, Object> locks = new ConcurrentHashMap<>();
+    private final FileTransactionService files;
+    private final ConcurrentMap<String, VoiceLock> locks = new ConcurrentHashMap<>();
 
-    public NarrationReferenceVoiceStore(NarrationReferenceVoicePaths paths, DatabaseAvailability database) {
+    private static final class VoiceLock {
+        int references;
+    }
+
+    public NarrationReferenceVoiceStore(NarrationReferenceVoicePaths paths, DatabaseAvailability database,
+                                       FileTransactionService files) {
         this.paths = paths;
         this.database = database;
+        this.files = files;
     }
 
-    /** 取某角色文件操作的串行锁（稳定的每键监视器）；调用方在其上 {@code synchronized} 串起文件 + DB 变更。 */
-    public Object lockFor(long castId, int characterId) {
-        return locks.computeIfAbsent(castId + ":" + characterId, k -> new Object());
+    <T> T withLock(long castId, int characterId, Supplier<T> action) {
+        String key = castId + ":" + characterId;
+        VoiceLock lock = locks.compute(key, (ignored, current) -> {
+            VoiceLock value = current == null ? new VoiceLock() : current;
+            value.references++;
+            return value;
+        });
+        try {
+            synchronized (lock) {
+                return action.get();
+            }
+        } finally {
+            locks.computeIfPresent(key, (ignored, current) -> --current.references == 0 ? null : current);
+        }
     }
 
-    /**
-     * 原子写入某角色参考音字节：写临时文件 → move 覆盖目标 → 清理同角色其它扩展名旧文件。失败抛
-     * {@link UncheckedIOException}（不会留下半截目标文件）。
-     */
-    public void write(long castId, int characterId, byte[] data, String ext) {
+    /** 暂存新音频；发布、旧扩展名删除及记录回调在同一文件事务中完成。 */
+    void write(long castId, int characterId, byte[] data, String ext, Runnable commitRecord) {
         database.requireAvailable();
         Path target = paths.file(castId, characterId, ext);
-        Path tmp = target.resolveSibling(target.getFileName() + ".tmp");
+        Path temporary = target.resolveSibling(characterId + ".reference.part");
+        boolean staged = false;
         try {
+            if (Files.exists(temporary, LinkOption.NOFOLLOW_LINKS)
+                    && !Files.isRegularFile(temporary, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IOException("Unsafe narration reference temporary file");
+            }
+            // 角色锁内复用固定暂存名，重启后的下一次写入回收中断残留。
+            Files.deleteIfExists(temporary);
+            try (var output = Files.newOutputStream(temporary, StandardOpenOption.CREATE_NEW,
+                    StandardOpenOption.WRITE)) {
+                staged = true;
+                output.write(data);
+            }
             database.requireAvailable();
-            Files.write(tmp, data);
-            database.requireAvailable();
-            moveReplace(tmp, target);
-        } catch (IOException e) {
-            throw new UncheckedIOException("write narration reference voice failed: " + target, e);
+            files.changeFiles(Map.of(target, temporary), characterFiles(castId, characterId).stream()
+                    .filter(file -> !file.equals(target)).toList(), commitRecord);
+        } catch (IOException failure) {
+            throw new UncheckedIOException("Write narration reference voice failed", failure);
         } finally {
-            // 本次临时文件不承载旧参考音，失效后仍可释放。
-            try {
-                Files.deleteIfExists(tmp);
-            } catch (IOException e) {
-                log.warn("delete narration reference voice temporary file failed: {} ({})", tmp, e.getMessage());
+            if (staged) {
+                try {
+                    Files.deleteIfExists(temporary);
+                } catch (IOException failure) {
+                    log.warn("Delete narration reference temporary file failed: {}", temporary, failure);
+                }
             }
         }
-        deleteOtherExtensions(castId, characterId, ext);
     }
 
-    /** 删除某角色的全部参考音文件；普通 IO 失败记日志，数据库不可用时停止。 */
-    public void deleteCharacterFiles(long castId, int characterId) {
-        database.requireAvailable();
-        for (String e : REF_EXTENSIONS) {
-            deleteQuietly(paths.file(castId, characterId, e));
-        }
-    }
-
-    /** 删除整册参考音目录；普通 IO 失败记日志，数据库不可用时停止。 */
-    public void deleteCastDirectory(long castId) {
-        database.requireAvailable();
-        Path dir = paths.castDirectory(castId);
-        if (!Files.isDirectory(dir)) {
-            return;
-        }
-        try (Stream<Path> walk = Files.walk(dir)) {
-            walk.sorted(Comparator.reverseOrder()).forEach(this::deleteQuietly);
-        } catch (IOException e) {
-            log.warn("delete narration reference voice cast directory failed: {} ({})", dir, e.getMessage());
-        }
-    }
-
-    private void deleteOtherExtensions(long castId, int characterId, String keepExt) {
-        String keep = keepExt == null ? "" : keepExt.trim().toLowerCase(Locale.ROOT);
-        for (String e : REF_EXTENSIONS) {
-            if (e.equals(keep)) {
-                continue;
-            }
-            deleteQuietly(paths.file(castId, characterId, e));
-        }
-    }
-
-    private void moveReplace(Path tmp, Path target) throws IOException {
-        try {
-            database.requireAvailable();
-            Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } catch (IOException atomicUnsupported) {
-            // 部分平台（含 Windows 覆盖已存在文件）不支持原子移动，回退为非原子覆盖。
-            database.requireAvailable();
-            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
-        }
-    }
-
-    private void deleteQuietly(Path file) {
+    /** 删除失败时保留文件与记录；不存在的角色文件不影响幂等删除。 */
+    void deleteCharacterFiles(long castId, int characterId, Runnable commitRecord) {
         database.requireAvailable();
         try {
-            Files.deleteIfExists(file);
-        } catch (IOException e) {
-            log.warn("delete narration reference voice file failed: {} ({})", file, e.getMessage());
+            files.changeFiles(Map.of(), characterFiles(castId, characterId), commitRecord);
+        } catch (IOException failure) {
+            throw new UncheckedIOException("Delete narration reference voice failed", failure);
         }
+    }
+
+    private List<Path> characterFiles(long castId, int characterId) {
+        return REF_EXTENSIONS.stream().map(ext -> paths.file(castId, characterId, ext)).toList();
     }
 }

@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
@@ -154,6 +155,14 @@ class ArtworkDownloadExecutorTest {
         return completion.getValue();
     }
 
+    private void stubSuccessfulUgoiraDownload(boolean flatFolder) {
+        lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
+        lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(flatFolder);
+        lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
+                .thenReturn(1);
+        lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
+    }
+
     private void stubSuccessfulImageDownload(String sourceUrl, byte[] payload) throws Exception {
         when(pixivImageDownloader.downloadImage(
                 eq(URI.create(sourceUrl)), any(URI.class), any(Path.class), nullable(String.class), any()))
@@ -203,6 +212,58 @@ class ArtworkDownloadExecutorTest {
     @Nested
     @DisplayName("队列生命周期")
     class QueueLifecycleTests {
+
+        @ParameterizedTest
+        @CsvSource({"true,true", "true,false", "false,true", "false,false"})
+        @DisplayName("同步下载与提交拒绝在终结失败后保留致命主失败和原始诊断")
+        void preservesFailureAcrossTermination(boolean blocking, boolean primaryFatal) {
+            when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
+            Throwable original = primaryFatal ? new ProbeVmError() : new IllegalStateException("original");
+            Throwable termination = primaryFatal ? new IllegalArgumentException("termination") : new ProbeVmError();
+            AtomicInteger terminated = new AtomicInteger();
+            doAnswer(call -> {
+                QueueTaskTracker.Task task = call.getArgument(1);
+                task.onTermination(() -> {
+                    terminated.incrementAndGet();
+                    if (termination instanceof Error error) throw error;
+                    throw (RuntimeException) termination;
+                });
+                throw original;
+            }).when(downloadLifecycle).track(any(), any(), anyString(), eq("illust"), anyString(), anyBoolean());
+
+            assertThatThrownBy(() -> {
+                if (blocking) {
+                    artworkDownloadExecutor.downloadImagesBlocking(1007L, "title", List.of(), null,
+                            new DownloadRequest.Other(), null, "owner");
+                } else {
+                    artworkDownloadExecutor.downloadImages(1007L, "title", List.of(), null,
+                            new DownloadRequest.Other(), null, "owner");
+                }
+            }).isSameAs(primaryFatal ? original : termination);
+            assertThat((primaryFatal ? original : termination).getSuppressed())
+                    .containsExactly(primaryFatal ? termination : original);
+            assertThat(artworkDownloadExecutor.prepareQuiesceDownloads().isDrained()).isTrue();
+            assertThat(terminated).hasValue(1);
+        }
+
+        @Test
+        @DisplayName("提交失败的事件发布再失败时仍终结任务并保留全部诊断")
+        void finishesRejectedTaskWhenFailurePublicationAlsoFails() {
+            when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
+            var original = new IllegalStateException("original");
+            var publication = new ProbeVmError();
+            var termination = new IllegalArgumentException("termination");
+            doAnswer(call -> {
+                call.<QueueTaskTracker.Task>getArgument(1).onTermination(() -> { throw termination; });
+                throw original;
+            }).when(downloadLifecycle).track(any(), any(), anyString(), eq("illust"), anyString(), anyBoolean());
+            doThrow(publication).when(downloadLifecycle).publish(any());
+
+            assertThatThrownBy(() -> artworkDownloadExecutor.downloadImages(1008L, "title", List.of(), null,
+                    new DownloadRequest.Other(), null, "owner")).isSameAs(publication);
+            assertThat(publication.getSuppressed()).containsExactly(original, termination);
+            assertThat(artworkDownloadExecutor.prepareQuiesceDownloads().isDrained()).isTrue();
+        }
 
         @Test
         @DisplayName("桌面快照只投影真实排队计数与尚未终结的下载状态")
@@ -627,6 +688,43 @@ class ArtworkDownloadExecutorTest {
             List<Long> active = artworkDownloadExecutor.getDownloadStatus();
             assertThat(active).isEmpty();
         }
+
+        @ParameterizedTest
+        @ValueSource(booleans = {true, false})
+        @SuppressWarnings("unchecked")
+        @DisplayName("状态较多时仍完整去重并按当前身份返回作品")
+        void shouldReturnEveryVisibleArtwork(boolean admin) throws Exception {
+            var statuses = (ConcurrentHashMap<String, DownloadStatus>) ReflectionTestUtils
+                    .getField(artworkDownloadExecutor, "downloadStatusMap");
+            int count = 8192;
+            for (long id = 1; id <= count; id++) {
+                statuses.put("owner-b:" + id, new DownloadStatus(id, "other", 1, "owner-b"));
+                if (id % 2 == 1) {
+                    var own = new DownloadStatus(id, "own", 1, "owner-a");
+                    own.setCompleted(true);
+                    statuses.put("owner-a:" + id, own);
+                }
+            }
+            var expected = java.util.stream.LongStream.rangeClosed(1, count)
+                    .filter(id -> admin || id % 2 == 1).boxed().toList();
+            var pool = new java.util.concurrent.ForkJoinPool(4);
+            try {
+                var actual = pool.submit(() -> admin
+                                ? artworkDownloadExecutor.getDownloadStatus()
+                                : artworkDownloadExecutor.getDownloadStatus("owner-a", false))
+                        .get(10, TimeUnit.SECONDS);
+                assertThat(actual.size()).isEqualTo(expected.size());
+                assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
+                assertThat(artworkDownloadExecutor.getDownloadStatus("owner-a", true))
+                        .containsExactlyInAnyOrderElementsOf(java.util.stream.LongStream.rangeClosed(1, count)
+                                .boxed().toList());
+                assertThat(artworkDownloadExecutor.getDownloadStatus(null, false)).isEmpty();
+                assertThat(artworkDownloadExecutor.getDownloadStatus("missing-owner", false)).isEmpty();
+            } finally {
+                pool.shutdownNow();
+                assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+            }
+        }
     }
 
     // ========== cancelDownload ==========
@@ -649,11 +747,7 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(true);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
-                    .thenReturn(1);
-            lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
+            stubSuccessfulUgoiraDownload(true);
         }
 
         @Test
@@ -714,11 +808,7 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(true);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
-                    .thenReturn(1);
-            lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
+            stubSuccessfulUgoiraDownload(true);
         }
 
         @Test
@@ -793,12 +883,7 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
-            // 走用户独立目录分支：isUserDownload=true 且 isUserFlatFolder=false
-            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(false);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
-                    .thenReturn(1);
-            lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
+            stubSuccessfulUgoiraDownload(false);
         }
 
         private DownloadRequest.Other userOther(int xRestrict) {
@@ -880,11 +965,7 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(true);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
-                    .thenReturn(1);
-            lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
+            stubSuccessfulUgoiraDownload(true);
         }
 
         @Test
@@ -924,11 +1005,7 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(true);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
-                    .thenReturn(1);
-            lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
+            stubSuccessfulUgoiraDownload(true);
         }
 
         private DownloadRequest.Other ugoiraOther() {
@@ -1414,11 +1491,7 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(true);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
-                    .thenReturn(1);
-            lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
+            stubSuccessfulUgoiraDownload(true);
         }
 
         @Test
@@ -1470,11 +1543,7 @@ class ArtworkDownloadExecutorTest {
 
         @BeforeEach
         void setupDownloadPath() {
-            lenient().when(downloadSettings.getRootFolder()).thenReturn(tempDir.toString());
-            lenient().when(downloadSettings.isUserFlatFolder()).thenReturn(true);
-            lenient().when(ugoiraService.processUgoira(anyLong(), any(), any(), anyString(), any(), any(), any()))
-                    .thenReturn(1);
-            lenient().when(artworkDownloadHistory.allocateRecordTime(0L)).thenReturn(1700000100L);
+            stubSuccessfulUgoiraDownload(true);
         }
 
         @Test

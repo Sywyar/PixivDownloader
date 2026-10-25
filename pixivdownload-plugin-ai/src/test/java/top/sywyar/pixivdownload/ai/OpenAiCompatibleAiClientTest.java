@@ -2,8 +2,11 @@ package top.sywyar.pixivdownload.ai;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -14,9 +17,15 @@ import top.sywyar.pixivdownload.ai.model.AiChatOptions;
 import top.sywyar.pixivdownload.ai.preset.AiPresetRegistry;
 import top.sywyar.pixivdownload.ai.probe.ConnectivityProbeRequest;
 
+import java.io.IOException;
+import java.util.Arrays;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
@@ -167,6 +176,43 @@ class OpenAiCompatibleAiClientTest {
                 .isInstanceOf(AiClientException.class)
                 .hasMessageContaining("HTTP 401")
                 .hasMessageNotContaining(apiKey);
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"x,false", "x,true", "a7q,false", "a7q,true",
+            "' padded-secret ',false", "' padded-secret ',true"})
+    @ExtendWith(OutputCaptureExtension.class)
+    @DisplayName("聊天失败的日志和摘要隐藏短密钥及实际发送的裁剪密钥")
+    void redactsChatFailures(String apiKey, boolean httpError, CapturedOutput output) {
+        RestTemplate direct = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(direct).build();
+        String diagnostic = "credential rejected: " + apiKey.trim();
+        var expectation = server.expect(requestTo("https://example.test/v1/chat/completions"))
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey.trim()));
+        if (httpError) {
+            expectation.andRespond(withStatus(HttpStatus.UNAUTHORIZED)
+                    .contentType(MediaType.TEXT_PLAIN).body(diagnostic));
+        } else {
+            expectation.andRespond(request -> { throw new IOException(diagnostic); });
+        }
+        MessageResolver resolver = mock(MessageResolver.class);
+        when(resolver.getForLog(anyString(), any(Object[].class)))
+                .thenAnswer(invocation -> Arrays.deepToString(invocation.getArguments()));
+        var client = new OpenAiCompatibleAiClient(new AiConfig(), resolver, direct, new RestTemplate());
+
+        assertThatThrownBy(() -> client.chatTest("test", new AiClientSettings(
+                "https://example.test/v1", apiKey, "test-model", false),
+                new ConnectivityProbeRequest().toMessages(), AiChatOptions.defaults()))
+                .isInstanceOf(AiClientException.class)
+                .hasMessageContaining("credential rejected: ***")
+                .hasMessageNotContaining(apiKey.trim())
+                .satisfies(failure -> {
+                    assertThat(failure.getCause()).isNotNull();
+                    if (httpError) assertThat(failure.getMessage()).startsWith("HTTP 401:");
+                });
+        assertThat(output.getAll()).contains("credential rejected: ***")
+                .doesNotContain(diagnostic);
         server.verify();
     }
 

@@ -26,9 +26,9 @@
         }
 
         .cookie-type-card {
-            border: 1px solid var(--line, var(--line));
+            border: 1px solid var(--line);
             border-radius: 7px;
-            background: var(--surface-muted, var(--surface-muted));
+            background: var(--surface-muted);
             padding: 11px;
             min-width: 0;
         }
@@ -73,16 +73,16 @@
 
         .plugin-cookie-block,
         .plugin-cookie-card {
-            border: 1px solid var(--line, var(--line));
+            border: 1px solid var(--line);
             border-radius: 7px;
-            background: var(--surface-muted, var(--surface-muted));
+            background: var(--surface-muted);
             padding: 11px;
             min-width: 0;
         }
 
         .plugin-cookie-title {
             margin-bottom: 8px;
-            color: var(--heading, var(--heading));
+            color: var(--heading);
             font-size: 0.75rem;
             font-weight: 700;
         }
@@ -92,11 +92,11 @@
         }
 
         .plugin-cookie-status.is-ok {
-            color: var(--status-green, var(--status-green));
+            color: var(--status-green);
         }
 
         .plugin-cookie-status.is-warning {
-            color: var(--status-yellow, var(--status-yellow));
+            color: var(--status-yellow);
         }
 
         .plugin-cookie-status.is-error {
@@ -104,7 +104,7 @@
         }
 
         .plugin-cookie-hint {
-            color: var(--muted-2, var(--muted-2));
+            color: var(--muted-2);
         }
 
         .cookie-fmt {
@@ -213,11 +213,11 @@
         /* ---- Kind switcher (插画/小说) ---- */
         .kind-switcher {
             display: inline-flex;
-            border: 1px solid var(--line-strong, var(--line-strong));
+            border: 1px solid var(--line-strong);
             border-radius: 6px;
             overflow: hidden;
             margin-bottom: 10px;
-            background: var(--control-bg, var(--control-bg));
+            background: var(--control-bg);
         }
 
         .kind-switcher label {
@@ -225,23 +225,15 @@
             padding: 6px 14px;
             font-size: 0.75rem;
             font-weight: 600;
-            color: var(--muted, var(--muted));
+            color: var(--muted);
             transition: background .15s, color .15s;
             user-select: none;
         }
 
-        /* 分隔线用 :not(:first-child)（与 .quick-kind-switcher 同款），不依赖 label + label 的严格相邻——
-           这样 Vue 槽位宿主 [data-vue-slot] 即便插在两个 label 之间（如 kind-option-user 落在插画/约稿之间），
-           后一个 label 仍保留左分隔线（不再靠把宿主挪到末尾规避相邻耦合）。 */
-        .kind-switcher label:not(:first-child) {
-            border-left: 1px solid var(--line-strong, var(--line-strong));
-        }
-
-        /* Vue 主路径下槽位贡献的 kind 选项 <label> 渲染在 display:contents 的 [data-vue-slot] 宿主内，相对
-           .kind-switcher 不再是直接子节点 → 上面的 :not(:first-child) 选不中它（它是宿主的首子节点）；本页所有
-           kind 槽位锚点前都有内置「插画」label，故宿主内 label 必为非首项，补一条左分隔线与命令式路径视觉一致。 */
+        /* 槽位前有内置选项；宿主内首个 label 也需分隔线，且不能依赖 label 严格相邻。 */
+        .kind-switcher label:not(:first-child),
         .kind-switcher [data-vue-slot] > label {
-            border-left: 1px solid var(--line-strong, var(--line-strong));
+            border-left: 1px solid var(--line-strong);
         }
 
         .kind-switcher input[type=radio] {

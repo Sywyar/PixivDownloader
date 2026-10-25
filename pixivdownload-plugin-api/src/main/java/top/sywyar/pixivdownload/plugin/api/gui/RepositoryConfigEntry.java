@@ -104,7 +104,7 @@ public record RepositoryConfigEntry(
                                                long maxManifestBytes, long maxPackageBytes) {
         return new RepositoryConfigEntry(id, displayNameKey, manifestUrl, enabled, proxyPolicy,
                 false, true, false, false, connectTimeoutMs, readTimeoutMs, maxManifestBytes, maxPackageBytes,
-                List.of(), new LinkedHashMap<>());
+                List.of(), Map.of());
     }
 
     /**
@@ -131,6 +131,6 @@ public record RepositoryConfigEntry(
                                                      long maxManifestBytes, long maxPackageBytes) {
         return new RepositoryConfigEntry(id, displayNameKey, manifestUrl, enabled, "custom", allowRedirects,
                 strictHttps, allowNonPublicAddresses, useProxy, connectTimeoutMs, readTimeoutMs,
-                maxManifestBytes, maxPackageBytes, List.of(), new LinkedHashMap<>());
+                maxManifestBytes, maxPackageBytes, List.of(), Map.of());
     }
 }

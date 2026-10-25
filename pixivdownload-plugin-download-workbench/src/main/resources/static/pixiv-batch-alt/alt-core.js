@@ -1,11 +1,5 @@
 'use strict';
-/* ============================================================
-   alt-core — PixivBatchAlt 命名空间引导 + 基础工具
-   与 pixiv-batch/batch-core.js 同源的格式化 / 请求 / 文本工具（逐字移植，
-   去掉旧 DOM 耦合），另加：SVG 图标注册表、CSS 变量缩略图、计数动画、
-   PixivFeedback 封装、抽屉 / 弹窗原语。
-   本文件不触碰页面 DOM（除抽屉 / 弹窗根节点），顶层无立即执行的 DOM 查询。
-   ============================================================ */
+// 新版工作台的命名空间、文本与请求工具、图标及对话框。
 window.PixivBatchAlt = window.PixivBatchAlt || {};
 ['core', 'state', 'data', 'cookie', 'filters', 'settings', 'chrome', 'modes',
     'schedule', 'queue', 'engine'].forEach(function (k) {
@@ -47,38 +41,6 @@ function punct(key) {
 }
 
 const BASE = '';  // 使用相对路径，自动适配访问地址
-
-function formatSeconds(s) {
-    s = Math.max(0, Math.round(s));
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    if (h > 0) return h + 'h ' + String(m).padStart(2, '0') + 'm ' + String(sec).padStart(2, '0') + 's';
-    return String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
-}
-
-function formatBytes(bytes) {
-    const n = Number(bytes);
-    if (!Number.isFinite(n) || n < 0) return '';
-    const units = ['B', 'KB', 'MB', 'GB'];
-    let value = n;
-    let idx = 0;
-    while (value >= 1024 && idx < units.length - 1) {
-        value /= 1024;
-        idx++;
-    }
-    const digits = idx === 0 || value >= 10 ? 0 : 1;
-    return `${value.toFixed(digits)} ${units[idx]}`;
-}
-
-function formatDurationMs(ms) {
-    const n = Number(ms);
-    if (!Number.isFinite(n) || n < 0) return '';
-    const totalSeconds = Math.round(n / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return minutes > 0 ? `${minutes}:${String(seconds).padStart(2, '0')}` : `${seconds}s`;
-}
 
 // 按速度大小自适应单位：B/s · KB/s · MB/s · GB/s（与 batch-queue.js 同口径）。
 function formatSpeed(bytesPerSec) {
@@ -237,9 +199,8 @@ function applyThumbHue(el, seed) {
 /* ============================================================
    统计计数直接显示已确认的当前值
    ============================================================ */
-function animateCount(el, next, options) {
+function animateCount(el, next) {
     const value = String(Number(next) || 0);
-    el.dataset.countValue = value;
     if (el.textContent !== value) el.textContent = value;
 }
 
@@ -301,12 +262,10 @@ function abPrompt(key, fallback, vars, options) {
 /* ============================================================
    抽屉 / 弹窗原语（共享 #abDrawerRoot / #abModalRoot）
    ============================================================ */
-let abDrawerOpen = null;
 let abModalOpen = null;
 
 function closeDrawer() {
     closeAltDialog('abDrawerRoot');
-    abDrawerOpen = null;
 }
 
 function closeModal() {
@@ -401,7 +360,6 @@ function openAltDialog(spec, drawer) {
 }
 
 function openDrawer(spec) {
-    abDrawerOpen = spec.id || true;
     return openAltDialog(spec, true);
 }
 

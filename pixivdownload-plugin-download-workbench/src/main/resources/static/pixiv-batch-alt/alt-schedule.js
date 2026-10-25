@@ -29,7 +29,7 @@ function startSchedulePolling() {
     }
     if (!schedulePageVisible()) return;
     schedulePollTimer = setInterval(() => {
-        if (!scheduleListRequest && schedulePageVisible()) loadScheduleTasks(true);
+        if (!scheduleListRequest && schedulePageVisible()) loadScheduleTasks();
     }, 4000);
 }
 
@@ -47,7 +47,7 @@ function stopSchedulePolling() {
     releaseAllScheduleQueues();
 }
 
-async function loadScheduleTasks(quiet) {
+async function loadScheduleTasks() {
     if (!schedulePageVisible()) return;
     scheduleListRequest?.abort();
     const request = new AbortController();
@@ -245,7 +245,8 @@ function scheduleTypeLabel(t) {
 function scheduleKindLabel(kind) {
     if (kind === 'mixed') return bt('schedule.kind.mixed', '插画+小说');
     if (kind === 'novel') return bt('schedule.kind.novel', '小说');
-    return bt('schedule.kind.illust', '插画');
+    if (kind === 'illust') return bt('schedule.kind.illust', '插画');
+    return altTypeLabel(kind);
 }
 
 function scheduleTaskKind(task) {
@@ -269,20 +270,10 @@ function scheduleTaskPresentation(task) {
 
 function scheduleCredentialCapabilities(sourceType, context) {
     const runtime = altScheduleSources();
-    const unavailable = {supportsCookie: false, supportsProxy: false, presentation: {}};
+    const unavailable = {supportsCredential: false, supportsProxy: false, presentation: {}};
     if (!runtime || !sourceType || !runtime.isAvailable(sourceType)) return unavailable;
     try {
-        const actions = runtime.credentialActions(sourceType, context || {});
-        if (!actions || typeof actions.then === 'function') {
-            if (actions) Promise.resolve(actions).catch(() => {});
-            return unavailable;
-        }
-        return {
-            supportsCookie: actions.supportsCookie === true,
-            supportsProxy: actions.supportsProxy === true,
-            presentation: actions.presentation && typeof actions.presentation === 'object'
-                ? actions.presentation : {}
-        };
+        return runtime.credentialContribution(sourceType, context || {}) || unavailable;
     } catch (e) {
         return unavailable;
     }
@@ -291,19 +282,19 @@ function scheduleCredentialCapabilities(sourceType, context) {
 function scheduleTaskCredentialUi(task) {
     const sourceType = task.sourceType || task.type;
     const runtime = altScheduleSources();
-    const sourceActive = !!(runtime && runtime.isAvailable(sourceType));
+    const sourceActive = task.sourceAvailable !== false && !!(runtime && runtime.isAvailable(sourceType));
     const capabilities = sourceActive
         ? scheduleCredentialCapabilities(sourceType, {task})
-        : {supportsCookie: false, supportsProxy: false, presentation: {}};
+        : {supportsCredential: false, supportsProxy: false, presentation: {}};
     const presentation = capabilities.presentation;
     return {
-        badgeLabel: capabilities.supportsCookie
-            ? (task.cookieBound
+        badgeLabel: capabilities.supportsCredential
+            ? (task.credentialPolicy?.bound === true
                 ? presentation.boundLabel || bt('schedule.credential.bound', '已绑定凭证')
                 : presentation.unboundLabel || bt('schedule.credential.unbound', '未绑定凭证'))
-            : (!sourceActive && task.cookieBound
+            : (!sourceActive && task.credentialPolicy?.bound === true
                 ? bt('schedule.credential.bound', '已绑定凭证') : null),
-        showOverride: sourceActive && (capabilities.supportsCookie || capabilities.supportsProxy)
+        showOverride: sourceActive && (capabilities.supportsCredential || capabilities.supportsProxy)
     };
 }
 
@@ -417,7 +408,7 @@ function renderScheduleTaskList() {
     }
     if (scheduleState.error) {
         releaseAllScheduleQueues();
-        list.appendChild(errorBox(scheduleState.error, () => loadScheduleTasks(false)));
+        list.appendChild(errorBox(scheduleState.error, () => loadScheduleTasks()));
         return;
     }
     if (!tasks.length) {
@@ -524,7 +515,7 @@ async function applyScheduleCredentialPolicyAction(group, action, button) {
         abToast('error', bt('schedule.error.credential-policy-action', '凭证策略操作失败'));
     } finally {
         if (button.isConnected) button.disabled = false;
-        await loadScheduleTasks(true);
+        await loadScheduleTasks();
     }
 }
 

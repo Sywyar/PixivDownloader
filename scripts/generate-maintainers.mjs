@@ -3,12 +3,12 @@ import { readFile, mkdir, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { MAINTAINER_REQUEST_TIMEOUT_MS, maintainerRequest } from './maintainer-request.mjs';
 
 const API_BASE = 'https://api.github.com';
 const DEFAULT_REPOSITORY = 'Sywyar/PixivDownloader';
 const MAX_AVATAR_BYTES = 1024 * 1024;
 const MAX_API_ATTEMPTS = 3;
-const API_TIMEOUT_MS = 30_000;
 const MAX_RETRY_WAIT_MS = 180_000;
 const MAX_ERROR_BYTES = 64 * 1024;
 const LOGIN_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
@@ -60,12 +60,12 @@ export async function selectMaintainers({ owner, contributors, identities, allow
   const selected = [];
   for (const allowed of allowlist) {
     const login = allowed.login.toLowerCase();
-    let user = candidatesById.get(allowed.id) ?? candidatesByLogin.get(allowed.login.toLowerCase());
+    let user = candidatesById.get(allowed.id) ?? candidatesByLogin.get(login);
     if (!user && (identities.authors.has(login) || identities.collaborators.has(login))) {
       user = await loadUser(allowed.login);
     }
     if (!user || isBot(user) || user.id !== allowed.id
-        || user.login.toLowerCase() !== allowed.login.toLowerCase()) continue;
+        || user.login.toLowerCase() !== login) continue;
     const role = maintainerRole(user, owner, contributorIds, identities);
     if (role) selected.push({ ...user, role });
   }
@@ -83,7 +83,7 @@ function headers() {
   return result;
 }
 
-export async function fetchGitHub(path, { fetchImpl = fetch, wait = sleep, now = Date.now, warn = console.warn } = {}) {
+export async function fetchGitHub(path, { fetchImpl = maintainerRequest, wait = sleep, now = Date.now, warn = console.warn } = {}) {
   const url = new URL(path, API_BASE);
   if (url.origin !== API_BASE || url.username || url.password) throw new Error('GitHub request left api.github.com');
   const requestHeaders = headers();
@@ -101,10 +101,10 @@ export async function fetchGitHub(path, { fetchImpl = fetch, wait = sleep, now =
     let delay = 1000 * 2 ** (attempt - 1);
     try {
       response = await fetchImpl(url, {
-        headers: requestHeaders, redirect: 'error', signal: AbortSignal.timeout(API_TIMEOUT_MS),
+        headers: requestHeaders, redirect: 'error', signal: AbortSignal.timeout(MAINTAINER_REQUEST_TIMEOUT_MS),
       });
     } catch (error) {
-      failure = new Error(`GitHub API transport failure: ${url.pathname}; authenticated=${Boolean(requestHeaders.Authorization)}; ${safe(error.cause?.code ?? error.name)}`);
+      failure = new Error(`GitHub API transport failure: ${url.pathname}; authenticated=${Boolean(requestHeaders.Authorization)}; ${safe(error.cause?.code ?? error.code ?? error.name)}`);
       if (!(error instanceof TypeError) && error.name !== 'TimeoutError') throw failure;
     }
     if (response?.ok) return response;
@@ -114,7 +114,6 @@ export async function fetchGitHub(path, { fetchImpl = fetch, wait = sleep, now =
         message = JSON.parse((await readBounded(response, MAX_ERROR_BYTES)).toString('utf8')).message;
       } catch {
         // 诊断正文缺失或过大时，仍保留状态码与限流头；不输出原始响应。
-        await response.body?.cancel().catch(() => {});
       }
       const remaining = response.headers.get('x-ratelimit-remaining');
       const reset = response.headers.get('x-ratelimit-reset');
@@ -182,13 +181,15 @@ async function materializeAvatar(maintainer) {
     throw new Error(`Avatar URL is not approved: ${maintainer.login}`);
   }
   url.searchParams.set('s', '128');
-  const response = await fetch(url, {
+  const response = await maintainerRequest(url, {
     headers: { Accept: 'image/*', 'User-Agent': 'PixivDownloader-maintainer-catalog' },
-    redirect: 'error',
   });
-  if (!response.ok) throw new Error(`Avatar download ${response.status}: ${maintainer.login}`);
   const mediaType = response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() ?? '';
-  if (!mediaType.startsWith('image/')) throw new Error(`Avatar is not an image: ${maintainer.login}`);
+  if (!response.ok || !mediaType.startsWith('image/')) {
+    await response.body?.cancel().catch(() => {});
+    throw new Error(!response.ok ? `Avatar download ${response.status}: ${maintainer.login}`
+      : `Avatar is not an image: ${maintainer.login}`);
+  }
   const bytes = await readBounded(response, MAX_AVATAR_BYTES);
   if (bytes.length === 0) throw new Error(`Avatar is empty: ${maintainer.login}`);
   return {
@@ -203,24 +204,26 @@ async function materializeAvatar(maintainer) {
 }
 
 export async function readBounded(response, maximumBytes) {
-  if (!Number.isSafeInteger(maximumBytes) || maximumBytes <= 0) throw new Error('Maximum response size is invalid');
-  const declared = Number(response.headers.get('content-length'));
-  if (Number.isFinite(declared) && declared > maximumBytes) throw new Error('Response is too large');
-  if (!response.body) throw new Error('Response body is missing');
-  const reader = response.body.getReader();
-  const chunks = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maximumBytes) {
-      await reader.cancel();
-      throw new Error('Response is too large');
+  const reader = response.body?.getReader();
+  try {
+    if (!Number.isSafeInteger(maximumBytes) || maximumBytes <= 0) throw new Error('Maximum response size is invalid');
+    const declared = Number(response.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > maximumBytes) throw new Error('Response is too large');
+    if (!reader) throw new Error('Response body is missing');
+    const chunks = [];
+    let total = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maximumBytes) throw new Error('Response is too large');
+      chunks.push(Buffer.from(value));
     }
-    chunks.push(Buffer.from(value));
+    return Buffer.concat(chunks, total);
+  } finally {
+    await reader?.cancel().catch(() => {});
+    reader?.releaseLock();
   }
-  return Buffer.concat(chunks, total);
 }
 
 function validateAllowlist(allowlist) {

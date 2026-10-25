@@ -36,7 +36,7 @@ class TranslationResponseTitleTest {
     }
 
     @Test
-    @DisplayName("invalid_language 状态：translatedTitle 永远为 null（与 ok=false 一致，不会被误写入 DB）")
+    @DisplayName("无效语言响应中的空标题规范化为 null")
     void invalidLanguageHasNoTitle() {
         TranslationResponse resp = TranslationResponse.parse(
                 "{\"status\":\"invalid_language\",\"lang\":\"\",\"text\":\"\",\"title\":\"\"}");

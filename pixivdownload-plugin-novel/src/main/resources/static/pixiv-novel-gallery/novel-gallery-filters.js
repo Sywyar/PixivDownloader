@@ -68,6 +68,7 @@ function rememberAuthorOption(author) {
 function setFilterPanelOpen(open) {
     document.getElementById('filterPanel').classList.toggle('open', open);
     document.getElementById('filterToggle').classList.toggle('active', open);
+    document.getElementById('filterToggle').setAttribute('aria-expanded', String(open));
 }
 
 function updateOrderToggleLabel() {
@@ -141,7 +142,6 @@ async function loadTags() {
 function renderTagChips() {
     const box = document.getElementById('filterTagChips');
     let filtered = state.tags.slice();
-    filtered.sort((a, b) => compareFilterSelectionOrder(state.selectedTags, a.tagId, b.tagId));
 
     const loadedIds = new Set(filtered.map(t => Number(t.tagId)));
     const missing = [...state.selectedTags.keys()].filter(id => !loadedIds.has(Number(id)));
@@ -153,8 +153,8 @@ function renderTagChips() {
             novelCount: 0
         }));
         filtered = stubs.concat(filtered);
-        filtered.sort((a, b) => compareFilterSelectionOrder(state.selectedTags, a.tagId, b.tagId));
     }
+    filtered.sort((a, b) => compareFilterSelectionOrder(state.selectedTags, a.tagId, b.tagId));
 
     if (!filtered.length) {
         box.innerHTML = `<span class="chip-empty">${esc(pageI18n.t('filter.tags.empty', '暂无可用标签'))}</span>`;
@@ -270,7 +270,6 @@ async function loadAuthors() {
 function renderAuthorChips() {
     const box = document.getElementById('filterAuthorChips');
     let filtered = state.authors.slice();
-    filtered.sort((a, b) => compareFilterSelectionOrder(state.selectedAuthors, a.authorId, b.authorId));
 
     const loadedIds = new Set(filtered.map(a => Number(a.authorId)));
     const missing = [...state.selectedAuthors.keys()].filter(id => !loadedIds.has(Number(id)));
@@ -281,8 +280,8 @@ function renderAuthorChips() {
             novelCount: 0
         }));
         filtered = stubs.concat(filtered);
-        filtered.sort((a, b) => compareFilterSelectionOrder(state.selectedAuthors, a.authorId, b.authorId));
     }
+    filtered.sort((a, b) => compareFilterSelectionOrder(state.selectedAuthors, a.authorId, b.authorId));
 
     if (!filtered.length) {
         box.innerHTML = `<span class="chip-empty">${esc(pageI18n.t('filter.authors.empty', '暂无作者'))}</span>`;

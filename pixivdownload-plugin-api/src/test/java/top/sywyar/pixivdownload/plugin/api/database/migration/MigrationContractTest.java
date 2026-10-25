@@ -43,7 +43,6 @@ class MigrationContractTest {
     }
     @Test @DisplayName("格式和结构输入失败关闭，不能把任意 SQL 放入交换模型")
     void rejectsUnknownVersionsAndExecutableStructure() {
-        var column = new ColumnSpec("id", "INTEGER", true, null, 1);
         assertThatThrownBy(() -> new MigrationSchema(99, List.of(), List.of(), List.of())).hasMessage("MIGRATION_FORMAT_UNSUPPORTED");
         assertThatThrownBy(() -> top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.column("facts", "id); DROP TABLE facts"))
                 .hasMessage("MIGRATION_SCHEMA_INVALID");

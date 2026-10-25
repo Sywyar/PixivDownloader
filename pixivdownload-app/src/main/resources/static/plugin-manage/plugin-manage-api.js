@@ -7,10 +7,11 @@
     var PM = global.PixivPluginManage;
 
     // GET /api/plugins/status → PluginManagementReport。
-    async function fetchStatus() {
+    async function fetchStatus(signal) {
         var res = await fetch(PM.STATUS_URL, {
             headers: { 'Accept': 'application/json' },
-            credentials: 'same-origin'
+            credentials: 'same-origin',
+            signal: signal
         });
         if (!res.ok) {
             var error = new Error('HTTP ' + res.status);
@@ -169,7 +170,7 @@
             body = null;
         }
         if (!res.ok) {
-            var err = new Error((body && body.message) || ('HTTP ' + res.status));
+            var err = new Error((body && body.error) || ('HTTP ' + res.status));
             err.code = body && body.code;
             err.httpStatus = res.status;
             throw err;

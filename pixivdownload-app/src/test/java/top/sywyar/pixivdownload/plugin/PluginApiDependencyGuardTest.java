@@ -30,9 +30,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * 包依赖守卫。后续每个解耦步骤完成后，把对应的「禁止依赖」追加固化到这里，防止回潮。
- */
+/** 共享契约、宿主与外置工作台的源码及字节码依赖边界。 */
 class PluginApiDependencyGuardTest {
 
     private static final JavaClasses CLASSES = new ClassFileImporter()
@@ -41,7 +39,6 @@ class PluginApiDependencyGuardTest {
                     .contains("pixivdownload-plugin-gui-swing"))
             .importPackages("top.sywyar.pixivdownload");
     private static final String DOWNLOAD_WORKBENCH_CLASSES_PROPERTY = "download-workbench.plugin.classes";
-    private static final String GUI_SWING_CLASSES_PROPERTY = "gui-swing.plugin.classes";
     private static final Set<String> BUILT_IN_CORE_PLUGIN_IDS = BuiltInPlugins.createAll().stream()
             .filter(plugin -> plugin.kind() == PluginKind.CORE)
             .map(PixivFeaturePlugin::id)
@@ -175,26 +172,24 @@ class PluginApiDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("download 包不得依赖 novel 包：下载工作台外置前不得再有 download→novel 编译依赖")
+    @DisplayName("下载工作台不得依赖小说插件实现")
     void downloadPackageDoesNotDependOnNovelPackage() {
         noClasses()
                 .that().resideInAPackage("top.sywyar.pixivdownload.download..")
                 .should().dependOnClassesThat()
                 .resideInAPackage("top.sywyar.pixivdownload.novel..")
-                .because("小说 Pixiv 代理端点与响应投影归 novel 自有 controller/DTO，download-workbench "
-                        + "外置后仍不得 import novel 包")
+                .because("小说端点与响应投影归小说插件，下载工作台只消费共享契约")
                 .check(importDownloadWorkbenchClasses());
     }
 
     @Test
-    @DisplayName("novel 包不得依赖 download 包：小说插件不得注入未来 download-workbench 实现")
+    @DisplayName("导入的 novel 类不得依赖下载工作台实现")
     void novelPackageDoesNotDependOnDownloadPackage() {
         noClasses()
                 .that().resideInAPackage("top.sywyar.pixivdownload.novel..")
                 .should().dependOnClassesThat()
                 .resideInAPackage("top.sywyar.pixivdownload.download..")
-                .because("小说下载的 HTTP 投影、书签动作结果、sidecar 捕获与 Pixiv 共享动作已中性化；"
-                        + "novel 包不得依赖未来 download-workbench 的实现包")
+                .because("小说与下载工作台通过共享契约协作，不相互依赖实现包")
                 .allowEmptyShould(true)
                 .check(CLASSES);
     }
@@ -207,7 +202,7 @@ class PluginApiDependencyGuardTest {
                 .should().dependOnClassesThat()
                 .resideInAPackage("top.sywyar.pixivdownload.download..")
                 .because("ArtworkFileLocator / StagedFileDeletion / sidecar 捕获已迁入核心资产与 metadata；"
-                        + "core 层不得依赖将外置的 download-workbench 实现包")
+                        + "core 层不得依赖外置下载工作台的实现包")
                 .check(CLASSES);
     }
 
@@ -231,10 +226,7 @@ class PluginApiDependencyGuardTest {
                 .that().resideOutsideOfPackage("top.sywyar.pixivdownload.duplicate..")
                 .should().dependOnClassesThat()
                 .resideInAPackage("top.sywyar.pixivdownload.duplicate..")
-                .because("duplicate 是功能插件，核心只能经 PluginRegistry 间接使用其 contribution；"
-                        + "它已作为外置 PF4J 插件从内置组合根移出。『下载后即时算 Hash』已抽成核心服务 "
-                        + "core.hash.ArtworkHashService（ArtworkDownloadExecutor 注入核心服务、不依赖 duplicate 包），"
-                        + "故不再有 ArtworkDownloadExecutor→duplicate 的核心链路例外")
+                .because("重复检测由外置插件贡献，下载后的 Hash 索引由核心 ArtworkHashService 承担")
                 .check(CLASSES);
     }
 
@@ -337,7 +329,7 @@ class PluginApiDependencyGuardTest {
                 .should().dependOnClassesThat()
                 .resideInAPackage("top.sywyar.pixivdownload.gallery..")
                 .because("gallery 是功能插件，核心只能经 PluginRegistry 间接使用其 contribution；"
-                        + "插画 SQL 仓库（GalleryRepository / GalleryQuery / GuestRestriction）已收编进核心"
+                        + "插画 SQL 仓库（GalleryRepository）已收编进核心"
                         + "数据层 core.metadata，BuiltInPlugins 是既定的组合根例外")
                 .check(CLASSES);
     }
@@ -351,10 +343,7 @@ class PluginApiDependencyGuardTest {
                 .and().doNotHaveFullyQualifiedName("top.sywyar.pixivdownload.plugin.CorePlugin")
                 .should().dependOnClassesThat()
                 .resideInAPackage("top.sywyar.pixivdownload.novel.db..")
-                .because("小说画廊查询面（NovelGalleryRepository / NovelMetadataRepository / 行 / 系列 / 标签 DTO）"
-                        + "已收编进核心数据层 core.metadata，核心查询 / 资产 / 收藏 / 计划 / 访客可见性链路不得再反向 "
-                        + "import novel.db；novel-core 自身、AI 听书子系统 tts.narration（随 novel 插件整体拆分）与 "
-                        + "schema 组合根 CorePlugin（声明 NovelSchemaContribution）是既定例外")
+                .because("小说查询数据归核心 metadata；本规则保留 novel、tts.narration 与 CorePlugin 的既有豁免")
                 .check(CLASSES);
     }
 
@@ -399,21 +388,13 @@ class PluginApiDependencyGuardTest {
                 .that().resideInAPackage("top.sywyar.pixivdownload.core.asset..")
                 .should().dependOnClassesThat()
                 .resideInAPackage("top.sywyar.pixivdownload.download..")
-                .because("『读已下载作品的本地图片字节』是核心本地资产能力，core.asset 的 serving 端点只能经 "
-                        + "plugin.api 的 WorkAssetService 取文件，不得依赖将来要拆成下载工作台插件的 download 包；"
-                        + "否则禁用下载工作台会让画廊 / 橱窗 / 系列 / 详情页裂图")
+                .because("本地作品文件由 core-api 的 WorkAssetService 提供，不随下载工作台禁用而缺席")
                 .check(CLASSES);
     }
 
     @Test
     @DisplayName("计划任务宿主 schedule 引擎 Bean 不得依赖核心计划任务数据实现层：只能经 core.schedule 语义 Store/API 读写")
     void scheduleEngineBeansMustNotAccessCoreScheduleImplDirectly() {
-        // scheduled_tasks / scheduled_task_pending 是核心 owned schema；其语义数据访问门面 ScheduledTaskStore
-        // 已是核心 owned 接口（core.schedule），底层 MyBatis ScheduledTaskMapper / schema 初始化 / 数据库方言适配
-        // 收口在核心实现层 core.schedule.db。计划任务宿主插件的引擎 Bean（ScheduleExecutor / ScheduleService /
-        // ScheduleRunner / ScheduleController 等，均为 @PluginManagedBean）只能依赖 core.schedule 语义 Store/API 与
-        // 行模型，不得直接依赖 core.schedule.db 实现层、池化 DataSource、JdbcTemplate、裸 Connection 或 MyBatis
-        // 自由 SQL 访问核心表。
         noClasses()
                 .that().resideInAPackage("top.sywyar.pixivdownload.schedule..")
                 .should().dependOnClassesThat()
@@ -422,23 +403,13 @@ class PluginApiDependencyGuardTest {
                         "javax.sql..", "java.sql..",
                         "org.springframework.jdbc..",
                         "org.apache.ibatis..")
-                .because("scheduled_tasks / scheduled_task_pending 是核心 owned schema；其语义数据访问门面 "
-                        + "ScheduledTaskStore 是核心 owned 接口（core.schedule），底层 mapper / schema 初始化 / 方言适配 "
-                        + "收口在核心实现层 core.schedule.db。计划任务宿主插件的 schedule 引擎 Bean 只能依赖 "
-                        + "core.schedule 语义 Store/API 与行模型，不得直接依赖 core.schedule.db 实现层、ScheduledTaskMapper / "
-                        + "DataSource / JdbcTemplate / Connection / MyBatis 自由 SQL 访问核心表")
+                .because("计划事实归核心 schema；工作台 schedule 引擎通过 ScheduledTaskStore 访问，不能绕过语义接口写表")
                 .check(importDownloadWorkbenchClasses());
     }
 
     @Test
     @DisplayName("schedule 宿主不得依赖 novel 插件包：小说执行只经 plugin-api ScheduledWorkExecutor")
     void scheduleDoesNotDependOnNovelPlugin() {
-        // 计划任务的小说一侧（构造 NovelDownloadRequest + downloadBlocking + 系列合订 + 队列视图翻译状态叠加）已收口
-        // 到 plugin-api ScheduledWorkExecutor（按作品类型解析、由小说插件贡献小说执行器实现）。计划任务
-        // 宿主（schedule 包：执行器 / 服务 / tick runner / 控制器 / 运行状态 / 运行队列 / 过度访问告警）只依赖该插件契约
-        // 与中性载体，不得 import 任何 novel 包类型——限流 / 熔断 / 代理 / 运行队列 / 水位线等共享调度机器留调度壳，来源
-        // 实现住下载工作台域，小说插件经正常 plugin→plugin-api 方向实现契约，故无
-        // schedule↔novel 互相 import。
         noClasses()
                 .that().resideInAPackage("top.sywyar.pixivdownload.schedule..")
                 .should().dependOnClassesThat()
@@ -480,11 +451,6 @@ class PluginApiDependencyGuardTest {
     @Test
     @DisplayName("下载工作台计划任务来源 / 执行器不得依赖 novel 包：发现与下载只经核心契约 + 中性载体")
     void downloadScheduleSourcesAndRunnerDoNotDependOnNovel() {
-        // 计划任务来源（download.schedule.source，怎么找作品）与插画作品类型执行器（download.schedule.work）由下载
-        // 工作台贡献给计划任务宿主。它们住在 download.schedule.. 包，但「计划任务逻辑对 novel
-        // 保持解耦」的不变量仍须守住：来源经 PixivFetchService + 中性载体发现插画 / 小说作品（不 import 任何 novel
-        // 类型），插画执行器只薄包核心窄接缝 ArtworkDownloader；小说下载由小说插件贡献的
-        // plugin-api ScheduledWorkExecutor 按 work type 解析完成。
         noClasses()
                 .that().resideInAPackage("top.sywyar.pixivdownload.download.schedule..")
                 .should().dependOnClassesThat()
@@ -497,21 +463,7 @@ class PluginApiDependencyGuardTest {
     @Test
     @DisplayName("插件托管业务 Bean 不得直连数据库底层：JDBC / MyBatis 与核心 DB 实现层只能经核心语义 Store/API")
     void pluginManagedBeansMustNotAccessRawDatabaseDirectly() {
-        // 「@PluginManagedBean」精确等于「插件 Configuration 经 @Bean 显式装配、排除出根包扫描的那一组业务 Bean」——
-        // 该标记正是把类排除出根包扫描、改由 XxxPluginConfiguration 装配的机制；唯一不带该标记的被装配类是各插件的
-        // XxxPlugin 描述类（纯 contribution 声明、不碰数据）。这组 Bean 对核心数据的访问必须经核心语义 Store/API
-        // （如 core.schedule.ScheduledTaskStore / core.stats.StatsQueryStore），不得绕过去直碰数据库底层：
-        //   · 禁 java.sql / javax.sql / Spring JDBC / MyBatis 运行期类型（自建 JdbcTemplate、注入池化 DataSource、
-        //     裸 Connection、自由 SQL）——这一组正是 stats 历史直连（StatsRepository 自建 NamedParameterJdbcTemplate）
-        //     与 schedule 历史直访 mapper 的回潮形态；
-        //   · 禁核心 DB 实现层 core.schedule.db.. / core.stats.db..（语义 Store 的 @Repository 实现 + 其内部 mapper）；
-        //   · 禁核心表 MyBatis mapper（PixivMapper / PathPrefixMapper，住混合包 core.db 故按类点名而非按包）。
-        // 不在禁用面内（合法 plugin→core 正向依赖，不得误伤）：core.db 行模型（ArtworkRecord 等）、核心服务
-        // PixivDatabase、novel 插件自有数据域 mapper（NovelMapper，各自数据域、非核心主库）、核心图片哈希数据域
-        // mapper（core.hash.ImageHashMapper，下载写入服务 ArtworkHashService 与重复检测 UI/扫描/回填共享、
-        // 非核心主库 mapper，故不点名进禁用面）、core.schedule / core.stats 语义接口本身。
-        // 核心实现层（ScheduledTaskStoreImpl / StatsQueryStoreImpl / PixivDatabase / 核心 @Service ArtworkHashService 等，
-        // 均非 @PluginManagedBean）允许自由使用 JDBC / MyBatis / 事务模板——本守卫只约束 @PluginManagedBean，故不误伤核心实现。
+        // 这里只约束已导入的 @PluginManagedBean；无此注解的核心存储实现不在本规则检查面。
         noClasses()
                 .that().areAnnotatedWith(top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean.class)
                 .should().dependOnClassesThat(
@@ -533,13 +485,7 @@ class PluginApiDependencyGuardTest {
     @Test
     @DisplayName("内置 CORE 的业务 Bean 不得标 @ConditionalOnPluginEnabled（method 级与 class 级都覆盖）")
     void builtInCorePluginBeansMustNotBeConditionalOnPluginEnabled() {
-        // plugin-runtime 的 OnPluginEnabledCondition 已断掉对组合根 BuiltInPlugins 的反向引用（删除 isRequired
-        // 短路分支、只读 plugins.<id>.enabled 开关）。内置 CORE 的不可禁用性来自「BUILT_IN + CORE」结构事实，
-        // 其 Bean 若被 @ConditionalOnPluginEnabled 门控就会被原始开关误伤。@ConditionalOnPluginEnabled 的 @Target
-        // 同时含 METHOD 与 TYPE（既可标 @Bean 工厂方法，也可标整个 @Configuration 类一并门控其全部 @Bean），故本守卫
-        // 两端都扫：method 级与 class 级被注解的元素都读 value()、断言被门控 id 不是内置 CORE。外置 required
-        // download-workbench 的同一不变量由其模块自己的 DownloadWorkbenchDependencyGuardTest 守住；必选性仍只由宿主
-        // RequiredPluginPolicy 声明，不回填到插件契约。
+        // 条件注解只读开关；内置 CORE 的不可禁用性须同时约束工厂方法和整个配置类。
         ArchCondition<JavaMethod> methodNotGateBuiltInCore =
                 new ArchCondition<>("@Bean 方法不得用 @ConditionalOnPluginEnabled 门控内置 CORE") {
                     @Override
@@ -583,12 +529,7 @@ class PluginApiDependencyGuardTest {
     @Test
     @DisplayName("下载队列控制器不得直接依赖具体作品类型下载服务：取消 / 清空只经稳定下载控制面")
     void downloadQueueControllerDoesNotDependOnConcreteDownloadServices() {
-        // 跨类型 cancel / clear 已收口为 plugin-api DownloadControlPlane；app adapter 内部按 queueType 协调
-        // descriptor 与命令 publication。DownloadQueueController 只依赖稳定控制面，不得直接 import 任一具体作品类型
-        // 下载实现——插画 ArtworkDownloadExecutor（同插件、但仍属具体实现）与小说 NovelDownloadService（跨插件反向耦合）
-        // 都在禁用面内；插画 / 小说各经其 XxxPluginConfiguration 显式装配一个 QueueOperations 适配器贡献给注册中心。
-        // 仅针对该控制器：同包其它下载控制器（DownloadStatusController / DownloadTaskController 依赖插画执行器、
-        // PixivProxyController 依赖小说代理类型）是各自的合法路径、不在本守卫范围。
+        // 此规则只约束跨类型取消/清空的队列控制器，不扩大到同包其它控制器。
         noClasses()
                 .that().haveFullyQualifiedName(
                         "top.sywyar.pixivdownload.download.controller.DownloadQueueController")
@@ -713,20 +654,6 @@ class PluginApiDependencyGuardTest {
                 () -> "download-workbench 外置插件 classes 目录不存在，跳过 app 侧外置类守卫；"
                         + "外置模块自身 DownloadWorkbenchDependencyGuardTest 会在该模块测试阶段覆盖同等约束。"
                         + "（系统属性 " + DOWNLOAD_WORKBENCH_CLASSES_PROPERTY + "="
-                        + classesDir.toAbsolutePath().normalize() + "）");
-        return new ClassFileImporter()
-                .withImportOption(new ImportOption.DoNotIncludeTests())
-                .importPath(classesDir);
-    }
-
-    private static JavaClasses importGuiSwingClasses() {
-        String configured = System.getProperty(GUI_SWING_CLASSES_PROPERTY);
-        Path classesDir = configured == null || configured.isBlank()
-                ? Path.of("..", "pixivdownload-plugin-gui-swing", "target", "classes")
-                : Path.of(configured);
-        Assumptions.assumeTrue(Files.isDirectory(classesDir),
-                () -> "gui-swing 外置插件 classes 目录不存在，无法验证 imageclassifier 边界"
-                        + "（系统属性 " + GUI_SWING_CLASSES_PROPERTY + "="
                         + classesDir.toAbsolutePath().normalize() + "）");
         return new ClassFileImporter()
                 .withImportOption(new ImportOption.DoNotIncludeTests())

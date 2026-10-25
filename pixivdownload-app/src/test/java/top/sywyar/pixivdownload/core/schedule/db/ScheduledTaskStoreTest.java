@@ -1,15 +1,9 @@
 package top.sywyar.pixivdownload.core.schedule.db;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.Configuration;
-import org.apache.ibatis.session.SqlSessionFactory;
-import org.apache.ibatis.session.SqlSessionFactoryBuilder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mybatis.spring.SqlSessionTemplate;
-import org.mybatis.spring.transaction.SpringManagedTransactionFactory;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -27,8 +21,6 @@ import top.sywyar.pixivdownload.core.schedule.state.ScheduleSuspendReason;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Proxy;
 import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,11 +44,6 @@ class ScheduledTaskStoreTest {
         dataSource.setUrl("jdbc:sqlite::memory:");
         dataSource.setSuppressClose(true);
 
-        Environment environment = new Environment(
-                "test", new SpringManagedTransactionFactory(), dataSource);
-        Configuration configuration = new Configuration(environment);
-        configuration.setMapUnderscoreToCamelCase(true);
-        SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(configuration);
         mapper = new ScheduledTaskMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
         jdbc = new JdbcTemplate(dataSource);
         transactionManager = new DataSourceTransactionManager(dataSource);

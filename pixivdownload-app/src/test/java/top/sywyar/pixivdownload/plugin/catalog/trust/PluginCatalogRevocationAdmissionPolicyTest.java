@@ -38,14 +38,16 @@ class PluginCatalogRevocationAdmissionPolicyTest {
                 assertThat(value.action()).isIn("YANKED", "REVOKED");
                 var entry = new PluginCatalogTrustStateStore.RevocationEntry(value.scope(), value.pluginId(), value.version(),
                         value.packageSha256(), value.keyId(), value.publisherId(), value.action(), value.reasonCode(), value.effectiveTime());
-                assertThat(PluginCatalogRevocationService.matches(entry, null, "sample-plugin", "1.0.0", "ab".repeat(32), null)).isTrue();
-                assertThat(PluginCatalogRevocationService.matches(entry, null, "other-plugin", "2.0.0", "cd".repeat(32), null)).isFalse();
+                assertThat(PluginCatalogRevocationService.matches(entry, "sample-plugin", "1.0.0", "ab".repeat(32), null, null)).isTrue();
+                assertThat(PluginCatalogRevocationService.matches(entry, "other-plugin", "2.0.0", "cd".repeat(32), null, null)).isFalse();
             }
         }
     }
 
-    @Test
-    void rejectsRevokedArtifactAndPersistsHighestSequence() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"PACKAGE_SHA256", "PLUGIN_VERSION", "SIGNING_KEY", "PUBLISHER"})
+    @DisplayName("按制品、版本、密钥与发布者拒绝已生效撤销，保留最高序号")
+    void rejectsRevokedArtifactAndPersistsHighestSequence(String scope) throws Exception {
         PluginCatalogProperties properties = new PluginCatalogProperties();
         PluginCatalogProperties.RepositoryConfig config = new PluginCatalogProperties.RepositoryConfig();
         config.setId("sample.repo");
@@ -55,13 +57,13 @@ class PluginCatalogRevocationAdmissionPolicyTest {
         properties.setRepositories(List.of(config));
         PluginRepositoryRegistry repositories = new PluginRepositoryRegistry(properties);
         PluginCatalogTrustStateStore store = new PluginCatalogTrustStateStore(tempDir.resolve("trust.json"));
-        store.acceptUpdateSequence("sample.repo", 3L);
-        store.acceptUpdateSequence("sample.repo", 2L);
+        store.acceptUpdateSequences(java.util.Map.of("sample.repo", 3L));
+        store.acceptUpdateSequences(java.util.Map.of("sample.repo", 2L));
         store.acceptRevocations("sample.repo", new PluginCatalogTrustStateStore.RevocationSnapshot(
                 5L, "a".repeat(64), Instant.now().minusSeconds(60).toString(),
                 Instant.now().plusSeconds(3600).toString(), Instant.now().toString(), List.of(
-                new PluginCatalogTrustStateStore.RevocationEntry("PACKAGE_SHA256", null, null,
-                        "b".repeat(64), null, null, "REVOKED", "MALWARE", Instant.now().toString()))));
+                new PluginCatalogTrustStateStore.RevocationEntry(scope, "demo", "1.0.0",
+                        "B".repeat(64), "key-1", "sample", "REVOKED", "MALWARE", Instant.now().toString()))));
 
         var result = new PluginCatalogRevocationAdmissionPolicy(repositories, store).evaluate(
                 new PluginArtifactAdmissionRequest("sample.repo", "demo", "1.0.0",
@@ -86,8 +88,8 @@ class PluginCatalogRevocationAdmissionPolicyTest {
         var entry = new PluginCatalogTrustStateStore.RevocationEntry("PACKAGE_SHA256", null, null,
                 document.entries().get(0).packageSha256(), null, null, "REVOKED", "MALWARE",
                 document.entries().get(0).effectiveTime());
-        assertThat(PluginCatalogRevocationService.matches(entry, null, "demo", "1.0.0",
-                "b".repeat(64), null)).isFalse();
+        assertThat(PluginCatalogRevocationService.matches(entry, "demo", "1.0.0",
+                "b".repeat(64), null, null)).isFalse();
     }
 
     @Test

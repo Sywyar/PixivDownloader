@@ -4,15 +4,21 @@ import io.github.robinpcrd.cupertino.theme.CupertinoTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.v2.runComposeUiTest
@@ -30,6 +36,65 @@ import kotlin.test.assertEquals
 @OptIn(ExperimentalTestApi::class)
 @DisplayName("Compose 桌面真实渲染闭环")
 class ComposeDesktopUiConformanceTest {
+    @Test
+    @DisplayName("单选文字、控件和键盘每次只提交一次且遵守禁用状态")
+    fun radioLabelsAndControlsShareSelection() = choiceLabelsAndControlsShareSelection(DesktopUiNode.ChoiceStyle.RADIO_BUTTONS)
+
+    @Test
+    @DisplayName("多选文字、控件和键盘每次只提交一次且遵守禁用状态")
+    fun checkboxLabelsAndControlsShareSelection() = choiceLabelsAndControlsShareSelection(DesktopUiNode.ChoiceStyle.CHECK_BOXES)
+
+    private fun choiceLabelsAndControlsShareSelection(style: DesktopUiNode.ChoiceStyle) = runComposeUiTest {
+        val multiple = style == DesktopUiNode.ChoiceStyle.CHECK_BOXES
+        var enabled by mutableStateOf(true)
+        val accepted = mutableListOf<List<String>>()
+        setContent {
+            PixivDownloaderTheme("light") {
+                ComposeDesktopUiNodeRenderer.Render(
+                    DesktopUiNode.Choice(
+                        "choice",
+                        "choice.value",
+                        raw("Choice"),
+                        null,
+                        style,
+                        if (multiple) DesktopUiNode.SelectionMode.MULTIPLE else DesktopUiNode.SelectionMode.SINGLE,
+                        listOf(
+                            DesktopUiNode.Option("one", raw("One"), true),
+                            DesktopUiNode.Option("disabled", raw("Disabled"), false),
+                        ),
+                        emptyList(),
+                        enabled,
+                    ),
+                    { it.fallback() },
+                    { accepted.add(it.value().values()) },
+                )
+            }
+        }
+
+        onNodeWithText("One", useUnmergedTree = true).performMouseInput { click() }
+        waitForIdle()
+        assertEquals(listOf(listOf("one")), accepted)
+
+        val option = onNodeWithText("One")
+        option.performMouseInput { click(Offset(18f, center.y)) }
+        waitForIdle()
+        assertEquals(listOf(listOf("one"), if (multiple) emptyList() else listOf("one")), accepted)
+
+        option.performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        option.performKeyInput { pressKey(Key.Spacebar) }
+        waitForIdle()
+        assertEquals(3, accepted.size)
+        assertEquals(listOf("one"), accepted.last())
+
+        onNodeWithText("Disabled", useUnmergedTree = true).performMouseInput { click() }
+        runOnIdle { enabled = false }
+        onNodeWithText("One", useUnmergedTree = true).performMouseInput { click() }
+        option.performMouseInput { click(Offset(18f, center.y)) }
+        option.performKeyInput { pressKey(Key.Spacebar) }
+        waitForIdle()
+        assertEquals(3, accepted.size)
+    }
+
     @Test
     @DisplayName("多选下拉框持续显示勾选结果且不能取消最后一个选项")
     fun multiSelectionDropdownKeepsAtLeastOneChoice() = runComposeUiTest {

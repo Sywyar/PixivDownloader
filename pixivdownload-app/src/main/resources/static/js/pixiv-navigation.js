@@ -44,26 +44,28 @@
 
     var NAV_ENDPOINT = '/api/navigation';
     var updateSummary = null;
-    var updatePromise = null;
-    var updateController = null;
+    var updateRequest = null;
+    var pageHidden = false;
     var updateStylesLoaded = false;
 
     function pluginUpdates() {
-        if (!(state.items || []).some(function (item) {
+        if (pageHidden || navRequest || !(state.items || []).some(function (item) {
             return itemMarkers(item).indexOf('plugin-update-summary') !== -1;
         })) return global.Promise.resolve(null);
-        if (updatePromise) return updatePromise;
+        if (updateRequest) return updateRequest.promise;
         if (!updateStylesLoaded) {
             var style = global.document.createElement('link');
             style.rel = 'stylesheet';
-            style.href = '/css/pixiv-navigation.css';
+            style.href = global.PixivAssets
+                ? global.PixivAssets.url('/css/pixiv-navigation.css') : '/css/pixiv-navigation.css';
             global.document.head.appendChild(style);
             updateStylesLoaded = true;
         }
-        updateController = new global.AbortController();
-        var timer = global.setTimeout(function () { updateController.abort(); }, 20000);
-        updatePromise = global.fetch('/api/plugins/updates', {
-            credentials: 'same-origin', signal: updateController.signal, cache: 'no-store'
+        var request = { controller: new global.AbortController() };
+        updateRequest = request;
+        request.timer = global.setTimeout(function () { request.controller.abort(); }, 20000);
+        request.promise = global.fetch('/api/plugins/updates', {
+            credentials: 'same-origin', signal: request.controller.signal, cache: 'no-store'
         }).then(function (res) {
             if (res.status === 404) return { enabled: false, checkFailed: false, compatibleUpdates: 0, sdkBlockedUpdates: 0 };
             if (!res.ok) throw new Error('plugin updates http ' + res.status);
@@ -71,15 +73,15 @@
         }).catch(function () {
             return { enabled: true, checkFailed: true, compatibleUpdates: 0, sdkBlockedUpdates: 0 };
         }).then(async function (summary) {
+            if (updateRequest !== request) return null;
             updateSummary = summary;
             await renderFromState();
             return summary;
         }).finally(function () {
-            global.clearTimeout(timer);
-            updateController = null;
-            updatePromise = null;
+            global.clearTimeout(request.timer);
+            if (updateRequest === request) updateRequest = null;
         });
-        return updatePromise;
+        return request.promise;
     }
 
     function updateBadges(item, summary) {
@@ -114,8 +116,9 @@
 
     var state = { items: null };   // 最近一次成功的 /api/navigation 响应（按身份过滤、已排序）
     var loaded = false;            // 是否至少成功拉取过一次
-    var inFlight = false;          // 初次拉取是否在途（避免与 refresh 重复拉取）
+    var navRequest = null;
     var languageSubscribed = false;
+    var renderRevision = 0;
     var currentI18n = null;        // 最近一次按当前语言构造的 i18n 解析器（命令式 + Vue 共用）
 
     // —— Vue 主渲染状态 ——
@@ -127,7 +130,6 @@
     var resolveReady;
     // 首次拉取完成（成功或失败）后 resolve；宿主页经 PixivNav.ready() 等导航数据到位再做条件渲染。
     var readyPromise = new global.Promise(function (resolve) { resolveReady = resolve; });
-    var readyResolved = false;
 
     function qsa(selector) {
         return Array.prototype.slice.call(global.document.querySelectorAll(selector));
@@ -148,16 +150,16 @@
     // 不请求空白 namespace bundle；非空的先 trim 再收集。label 的实际解析仍由渲染期 resolveLabel→tns 统一处理
     // （tns 对空白 namespace 自动退化为裸 key 回退），此处只决定「加载哪些 namespace」。
     function collectNamespaces(items) {
-        var seen = { 'common': true };
+        var seen = new Set(['common']);
         items.forEach(function (it) {
             var ns = it.labelNamespace == null ? '' : String(it.labelNamespace).trim();
-            if (ns) seen[ns] = true;
+            if (ns) seen.add(ns);
         });
-        return Object.keys(seen);
+        return Array.from(seen);
     }
 
     function iconSvg(icon, extraClass) {
-        var inner = ICON_PATHS[icon] || FALLBACK_ICON;
+        var inner = Object.prototype.hasOwnProperty.call(ICON_PATHS, icon) ? ICON_PATHS[icon] : FALLBACK_ICON;
         var cls = extraClass ? ' class="' + extraClass + '"' : '';
         return '<svg' + cls + ' viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"'
             + ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + inner + '</svg>';
@@ -381,9 +383,17 @@
     }
 
     async function renderFromState() {
+        if (pageHidden) return;
+        var revision = ++renderRevision;
         var slots = qsa('[data-nav-slot]');
+        slotApps = slotApps.filter(function (record) {
+            if (slots.indexOf(record.el) !== -1) return true;
+            record.app.unmount();
+            return false;
+        });
         if (state.items == null) {
             // 失败降级：清空全部 slot，不残留硬编码坏入口。已 Vue 化时经 reactive 置空集渲染为空。
+            if (currentI18n && currentI18n.dispose) currentI18n.dispose();
             currentI18n = null;
             if (vueMode && vueState) {
                 vueState.items = [];
@@ -396,7 +406,14 @@
             return;
         }
         applyPreferredHrefAnchors(state.items);
-        currentI18n = await buildI18n(state.items);
+        var nextI18n = await buildI18n(state.items);
+        if (revision !== renderRevision) {
+            if (nextI18n && nextI18n.dispose) nextI18n.dispose();
+            return;
+        }
+        if (currentI18n && currentI18n.dispose) currentI18n.dispose();
+        currentI18n = nextI18n;
+        if (currentI18n && currentI18n.onUpdate) currentI18n.onUpdate(function () { refresh(); });
         if (vueMode) {
             // Vue 主渲染稳态：更新共享 reactive（各 app 自动重渲染）+ 为新出现的 slot（如 page-section 注入者）补挂。
             await upgradeSlotsToVue(slots);
@@ -412,15 +429,12 @@
     }
 
     function dispatchRendered() {
+        if (pageHidden) return;
         try {
-            global.dispatchEvent(new global.CustomEvent('pixivnav:rendered', { detail: { items: state.items } }));
+            global.dispatchEvent(new global.CustomEvent('pixivnav:rendered', {
+                detail: { items: state.items, updateSummary: updateSummary }
+            }));
         } catch (e) { /* 古老环境不支持 CustomEvent 构造器：忽略（不影响渲染本身） */ }
-    }
-
-    function markReady() {
-        if (readyResolved) return;
-        readyResolved = true;
-        resolveReady();
     }
 
     async function buildI18n(items) {
@@ -434,8 +448,8 @@
         }
     }
 
-    async function fetchNav() {
-        var res = await global.fetch(NAV_ENDPOINT, { credentials: 'same-origin' });
+    async function fetchNav(signal) {
+        var res = await global.fetch(NAV_ENDPOINT, { credentials: 'same-origin', signal: signal });
         if (!res.ok) {
             throw new Error('navigation http ' + res.status);
         }
@@ -451,28 +465,43 @@
         }
     }
 
-    // 初次装配：拉取 /api/navigation 并渲染全部 slot。幂等（重复调用在途时直接返回）。
+    // 重新读取活动贡献；写后刷新与离页使先前的读取失效。
+    function cancelReads() {
+        if (navRequest) navRequest.abort();
+        navRequest = null;
+        if (updateRequest) {
+            global.clearTimeout(updateRequest.timer);
+            updateRequest.controller.abort();
+            updateRequest = null;
+        }
+    }
+
     async function mount() {
-        if (inFlight) return;
-        inFlight = true;
+        if (pageHidden) return;
+        cancelReads();
+        var request = new global.AbortController();
+        navRequest = request;
         try {
-            state.items = await fetchNav();
+            var items = await fetchNav(request.signal);
+            if (request.signal.aborted) return;
+            state.items = items;
             loaded = true;
         } catch (e) {
+            if (request.signal.aborted) return;
             state.items = null;
             console.warn('[PixivNav] 拉取导航失败，隐藏跨插件入口：', e);
         } finally {
-            inFlight = false;
+            if (navRequest === request) navRequest = null;
         }
         await renderFromState();
         subscribeLanguageOnce();
-        markReady();
+        resolveReady();
         pluginUpdates();
     }
 
     // 重渲染（语言切换后由宿主调用，或跨标签页语言广播触发）：复用已缓存导航数据、按当前语言重解析标签。
     async function refresh() {
-        if (inFlight) return;          // 初次装配在途：其完成时会用当前语言渲染
+        if (navRequest) return;        // 读取完成后会用当前语言渲染
         if (!loaded) return mount();   // 尚未成功拉取过：走初次装配
         await renderFromState();
     }
@@ -493,8 +522,18 @@
         ready: function () { return readyPromise; }
     };
 
-    if (global.addEventListener) global.addEventListener('pagehide', function () {
-        if (updateController) updateController.abort();
-    });
+    if (global.addEventListener) {
+        global.addEventListener('pagehide', function () {
+            pageHidden = true;
+            renderRevision++;
+            cancelReads();
+        });
+        global.addEventListener('pageshow', function (event) {
+            pageHidden = false;
+            if (event.persisted) {
+                mount();
+            }
+        });
+    }
     autoMount();
 })(window);

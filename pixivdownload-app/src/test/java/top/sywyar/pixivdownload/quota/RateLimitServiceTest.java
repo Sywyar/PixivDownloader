@@ -4,11 +4,22 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.test.util.ReflectionTestUtils;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.setup.guest.config.GuestInviteConfig;
 
+import java.util.Iterator;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
+
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.spy;
 
 @DisplayName("RateLimitService 单元测试")
 class RateLimitServiceTest {
@@ -22,6 +33,47 @@ class RateLimitServiceTest {
         multiModeConfig = new MultiModeConfig();
         guestInviteConfig = new GuestInviteConfig();
         rateLimitService = new RateLimitService(multiModeConfig, guestInviteConfig, TestI18nBeans.appMessages());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("清理旧窗口时不能删除并发请求刚建立的新窗口计数")
+    @SuppressWarnings("unchecked")
+    void cleanupKeepsReplacementWindow(boolean invited) {
+        multiModeConfig.setRequestLimitMinute(1);
+        guestInviteConfig.setRequestLimitMinute(1);
+        String key = invited ? "invite:cleanup" : "visitor-cleanup";
+        BooleanSupplier request = invited
+                ? () -> rateLimitService.isAllowedForInvite(key)
+                : () -> rateLimitService.isAllowed(key);
+        assertThat(request.getAsBoolean()).isTrue();
+        var counters = spy((ConcurrentHashMap<String, Object>) ReflectionTestUtils.getField(rateLimitService, "counters"));
+        ReflectionTestUtils.setField(rateLimitService, "counters", counters);
+        ReflectionTestUtils.setField(counters.get(key), "window", -1L);
+        var entries = spy(counters.entrySet());
+        var iterator = entries.iterator();
+        var replacementObserved = new AtomicBoolean();
+        var interleaved = new Iterator<Map.Entry<String, Object>>() {
+            @Override public boolean hasNext() { return iterator.hasNext(); }
+
+            @Override public Map.Entry<String, Object> next() {
+                var expired = iterator.next();
+                // 固定在观察旧条目与删除之间到达的新请求，避免依赖线程调度和等待跨分钟。
+                if (replacementObserved.compareAndSet(false, true)) {
+                    assertThat(request.getAsBoolean()).isTrue();
+                }
+                return expired;
+            }
+
+            @Override public void remove() { iterator.remove(); }
+        };
+        doReturn(interleaved).when(entries).iterator();
+        doReturn(entries).when(counters).entrySet();
+
+        rateLimitService.cleanupExpiredCounters();
+
+        assertThat(replacementObserved).isTrue();
+        assertThat(request.getAsBoolean()).isFalse();
     }
 
     @Nested

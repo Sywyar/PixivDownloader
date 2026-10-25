@@ -40,17 +40,15 @@ public class PushChannelRegistry {
     private record Snapshot(
             List<PreparedChannel> preparedChannels,
             List<PushChannel> channels,
-            Map<PushChannelId, PushChannel> byId,
             Map<PushChannelId, PreparedChannel> preparedById) {
         private Snapshot {
             preparedChannels = List.copyOf(preparedChannels);
             channels = List.copyOf(channels);
-            byId = Map.copyOf(byId);
             preparedById = Map.copyOf(preparedById);
         }
 
         private static Snapshot empty() {
-            return new Snapshot(List.of(), List.of(), Map.of(), Map.of());
+            return new Snapshot(List.of(), List.of(), Map.of());
         }
     }
 
@@ -144,7 +142,7 @@ public class PushChannelRegistry {
     }
 
     public Optional<PushChannel> byId(PushChannelId channelId) {
-        return Optional.ofNullable(state.snapshot().byId().get(channelId));
+        return preparedById(channelId).map(PreparedChannel::channel);
     }
 
     List<PreparedChannel> preparedChannels() {
@@ -163,7 +161,6 @@ public class PushChannelRegistry {
     private static Snapshot rebuild(Map<OwnerKey, List<PreparedChannel>> owners) {
         List<PreparedChannel> preparedChannels = new ArrayList<>();
         List<PushChannel> channels = new ArrayList<>();
-        Map<PushChannelId, PushChannel> byId = new LinkedHashMap<>();
         Map<PushChannelId, PreparedChannel> metadataById = new LinkedHashMap<>();
         for (List<PreparedChannel> list : owners.values()) {
             for (PreparedChannel prepared : list) {
@@ -174,10 +171,9 @@ public class PushChannelRegistry {
                 }
                 preparedChannels.add(prepared);
                 channels.add(prepared.channel());
-                byId.put(prepared.channelId(), prepared.channel());
             }
         }
-        return new Snapshot(preparedChannels, channels, byId, metadataById);
+        return new Snapshot(preparedChannels, channels, metadataById);
     }
 
     private static OwnerKey owner(String pluginId, long publicationId) {

@@ -119,8 +119,9 @@ public class DownloadWorkbenchPluginConfiguration {
             top.sywyar.pixivdownload.core.work.service.WorkQueryService query,
             top.sywyar.pixivdownload.download.media.ImageOutputService images,
             UgoiraService animations, top.sywyar.pixivdownload.core.asset.ArtworkMediaStore mediaStore,
-            top.sywyar.pixivdownload.core.database.DatabaseAvailability database) {
-        return new top.sywyar.pixivdownload.download.media.MediaMaintenanceService(assets, metadata, query, images, animations, mediaStore, database);
+            top.sywyar.pixivdownload.core.database.DatabaseAvailability database,
+            @Qualifier("downloadWorkbenchMessages") MessageResolver messages, PluginRuntimeTaskRegistrar tasks) {
+        return new top.sywyar.pixivdownload.download.media.MediaMaintenanceService(assets, metadata, query, images, animations, mediaStore, database, messages, tasks);
     }
 
     @Bean
@@ -378,8 +379,9 @@ public class DownloadWorkbenchPluginConfiguration {
 
     @Bean
     public BatchStateController batchStateController(BatchStateFiles batchStateFiles,
-                                                     ApplicationModeProvider applicationModeProvider) {
-        return new BatchStateController(batchStateFiles, applicationModeProvider);
+                                                     ApplicationModeProvider applicationModeProvider,
+                                                     @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
+        return new BatchStateController(batchStateFiles, applicationModeProvider, messages);
     }
 
     @Bean

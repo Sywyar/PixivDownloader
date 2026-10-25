@@ -11,7 +11,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -66,38 +65,7 @@ public final class PluginRepositoryConfigEditor {
 
     /** 后端仓库导入流程使用的同一外科手术式 YAML 编辑器入口。 */
     public PluginRepositoryConfigEditor(Path configPath) {
-        this(pathConfig(configPath));
-    }
-
-    private static DesktopUiHost.ConfigFile pathConfig(Path configPath) {
-        ConfigFileEditor editor = new ConfigFileEditor(configPath);
-        return new DesktopUiHost.ConfigFile() {
-            @Override
-            public Map<String, String> readAll(Collection<String> keys) throws IOException {
-                return editor.readAll(keys);
-            }
-
-            @Override
-            public void writeAll(Map<String, String> values) throws IOException {
-                editor.writeAll(values);
-            }
-
-            @Override
-            public void removeAll(Collection<String> keys) throws IOException {
-                editor.removeAll(keys);
-            }
-
-            @Override
-            public DesktopUiHost.ConfigSnapshot snapshot() throws IOException {
-                ConfigFileEditor.FileSnapshot snapshot = editor.snapshot();
-                return new DesktopUiHost.ConfigSnapshot(snapshot.existed(), snapshot.lines());
-            }
-
-            @Override
-            public void restore(DesktopUiHost.ConfigSnapshot snapshot) throws IOException {
-                editor.restore(new ConfigFileEditor.FileSnapshot(snapshot.existed(), snapshot.lines()));
-            }
-        };
+        this(new ConfigFileEditor(configPath).asConfigFile());
     }
 
     // ── 读 ──────────────────────────────────────────────────────────────────────
@@ -188,7 +156,11 @@ public final class PluginRepositoryConfigEditor {
      * 把仓库列表写回 {@code config.yaml} 的 {@code plugin-catalog.repositories} 块，文件其余内容逐字保留。
      * 键已存在 → 整块替换；不存在 → 插入到最后一个 {@code plugin-catalog.*} 行之后（否则追加到文件末尾）。
      */
-    public synchronized void write(List<RepositoryConfigEntry> entries) throws IOException {
+    public void write(List<RepositoryConfigEntry> entries) throws IOException {
+        configFile.withWriteLock(() -> writeLocked(entries));
+    }
+
+    private void writeLocked(List<RepositoryConfigEntry> entries) throws IOException {
         DesktopUiHost.ConfigSnapshot snapshot = configFile.snapshot();
         List<String> lines = snapshot.existed()
                 ? new ArrayList<>(snapshot.lines())
@@ -346,21 +318,13 @@ public final class PluginRepositoryConfigEditor {
     // ── 行级定位 ────────────────────────────────────────────────────────────────
 
     /** 找到活跃（未注释）的 {@code plugin-catalog.repositories:} 键行下标；找不到返回 -1。 */
-    private static int findKeyLineIndex(List<String> lines) {
+    private static int findKeyLineIndex(List<String> lines) throws IOException {
         for (int i = 0; i < lines.size(); i++) {
-            if (isKeyLine(lines.get(i).trim())) {
+            if (LIST_KEY.equals(ConfigFileEditor.keyFromLine(lines.get(i).trim(), false))) {
                 return i;
             }
         }
         return -1;
-    }
-
-    private static boolean isKeyLine(String trimmed) {
-        if (trimmed.startsWith("#") || !trimmed.startsWith(LIST_KEY)) {
-            return false;
-        }
-        String rest = trimmed.substring(LIST_KEY.length()).stripLeading();
-        return rest.startsWith(":");
     }
 
     /**
@@ -403,11 +367,11 @@ public final class PluginRepositoryConfigEditor {
     }
 
     /** 键不存在时的插入位置：最后一个 {@code plugin-catalog.*} 活跃行之后，否则文件末尾。 */
-    private static int insertionPoint(List<String> lines) {
+    private static int insertionPoint(List<String> lines) throws IOException {
         int lastCatalog = -1;
         for (int i = 0; i < lines.size(); i++) {
-            String trimmed = lines.get(i).trim();
-            if (!trimmed.startsWith("#") && trimmed.startsWith("plugin-catalog.")) {
+            String key = ConfigFileEditor.keyFromLine(lines.get(i).trim(), false);
+            if (key != null && key.startsWith("plugin-catalog.")) {
                 lastCatalog = i;
             }
         }

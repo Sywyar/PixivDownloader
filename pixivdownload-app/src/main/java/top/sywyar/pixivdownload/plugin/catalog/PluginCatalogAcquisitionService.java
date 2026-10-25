@@ -333,12 +333,7 @@ public class PluginCatalogAcquisitionService {
 
     private PluginInstallReport downloadAndInstall(PluginRepository repository, String pluginId, String version,
                                                    String confirmedTrustSha256) {
-        return downloadAndInstall(repository, pluginId, version, confirmedTrustSha256, null);
-    }
-
-    private PluginInstallReport downloadAndInstall(PluginRepository repository, String pluginId, String version,
-            String confirmedTrustSha256, PluginCatalogService.ResolvedPackage expected) {
-        return downloadAndInstall(repository, pluginId, version, confirmedTrustSha256, expected, ignored -> { }, null);
+        return downloadAndInstall(repository, pluginId, version, confirmedTrustSha256, null, ignored -> { }, null);
     }
 
     private PluginInstallReport downloadAndInstall(PluginRepository repository, String pluginId, String version,
@@ -408,13 +403,8 @@ public class PluginCatalogAcquisitionService {
         return entry.packages().stream()
                 .filter(pkg -> revocations == null || revocations.allowsInstall(repository, entry.pluginId(), pkg, snapshot))
                 .filter(pkg -> VersionRequirement.parseSdk(pkg.requiredSdk()).isSatisfiedByCurrentSdk())
-                .filter(pkg -> dependencyVersionSatisfied(dependency, pkg.version()))
+                .filter(pkg -> PluginCatalogInstallPreview.satisfies(dependency, pkg.version()))
                 .max(Comparator.comparing(pkg -> PluginPackageVersion.parse(pkg.version())));
-    }
-
-    private static boolean dependencyVersionSatisfied(PluginDependencyRef dependency, String version) {
-        VersionRequirement actual = VersionRequirement.parse(version);
-        return dependency.requirement().isSatisfiedBy(actual.major(), actual.minor());
     }
 
     private static List<PluginDependencyRef> catalogDependencies(PluginCatalogPackage pkg) {

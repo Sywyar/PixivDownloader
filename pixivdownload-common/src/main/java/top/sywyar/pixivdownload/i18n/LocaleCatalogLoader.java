@@ -108,7 +108,7 @@ public final class LocaleCatalogLoader {
         String nativeName = requiredString(item, "nativeName");
         LocaleStatus status = LocaleStatus.fromJson(optionalString(item, "status"));
         String direction = optionalString(item, "direction");
-        if (direction == null || !(direction.equals("ltr") || direction.equals("rtl"))) {
+        if (!"ltr".equals(direction) && !"rtl".equals(direction)) {
             throw new IllegalArgumentException("locale " + canonical + " has invalid direction: " + direction);
         }
         String suffix = optionalString(item, "resourceSuffix");

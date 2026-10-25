@@ -1,38 +1,24 @@
 package top.sywyar.pixivdownload.plugin.runtime.install;
 
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Properties;
-import java.util.Random;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallOutcome;
-import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginInstallResult;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageOrigin;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.CommittedPluginTransaction;
-import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRemovalAttempt;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginRecoveryGateState;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
-import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageFixtures;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 
 @DisplayName("外置插件事务：替换、回滚与启动恢复")

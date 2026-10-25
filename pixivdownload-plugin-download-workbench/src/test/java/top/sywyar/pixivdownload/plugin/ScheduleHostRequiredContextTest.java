@@ -26,7 +26,7 @@ class ScheduleHostRequiredContextTest {
                         && route.acceptsMethod(HttpMethod.GET))
                 .toList();
 
-        assertThat(plugin.id()).isEqualTo("download-workbench").isNotEqualTo("schedule");
+        assertThat(plugin.id()).isEqualTo("download-workbench");
         assertThat(scheduleRoutes).singleElement().satisfies(route -> {
             assertThat(route.pathPattern()).isEqualTo("/api/schedule/**");
             assertThat(route.accessPolicy()).isEqualTo(AccessPolicy.ADMIN);

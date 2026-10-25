@@ -3,6 +3,8 @@ package top.sywyar.pixivdownload.tts.narration.engine.qwen;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -10,6 +12,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.tts.narration.engine.NarrationAudio;
@@ -68,12 +71,13 @@ class QwenNarrationEngineTest {
         when(direct.exchange(eq(URI.create(AUDIO_URL)), eq(HttpMethod.GET), any(), eq(byte[].class)))
                 .thenReturn(wav());
 
-        NarrationAudio audio = engine(config("https://dashscope.aliyuncs.com/api/v1/", "sk-qwen"))
+        TtsPluginConfig cfg = config("https://dashscope.aliyuncs.com/api/v1/", "sk-qwen");
+        NarrationAudio audio = engine(cfg)
                 .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("你好世界", "ci"));
 
         Map<String, Object> body = capturedBody(direct);
-        assertThat(body.get("model")).isEqualTo("qwen3-tts-flash");
-        assertThat(input(body)).containsEntry("text", "你好世界").containsEntry("voice", "Cherry");
+        assertThat(body.get("model")).isEqualTo(cfg.getQwen().getModel());
+        assertThat(input(body)).containsEntry("text", "你好世界").containsEntry("voice", cfg.getQwen().getVoice());
         assertThat(capturedHeaders(direct).getFirst(HttpHeaders.AUTHORIZATION)).isEqualTo("Bearer sk-qwen");
         assertThat(audio.data()).containsExactly(0x52, 0x49, 0x46, 0x46);
         assertThat(audio.contentType()).isEqualTo("audio/wav");
@@ -136,17 +140,25 @@ class QwenNarrationEngineTest {
                 .contains("OSSAccessKeyId=tmp%2Fkey");
     }
 
-    @Test
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     @DisplayName("临时音频下载失败时不回显签名 URL 或 api-key")
-    void audioFetchFailureDoesNotLeakSignedUrl() {
+    void audioFetchFailureDoesNotLeakSignedUrl(boolean httpFailure) {
+        String detail = "GET " + SIGNED_AUDIO_URL + " failed with sk-secret";
+        RestClientException failure = httpFailure
+                ? new RestClientResponseException(detail, 403, "Forbidden", new HttpHeaders(),
+                        detail.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8)
+                : new RestClientException(detail);
         when(direct.exchange(eq(GEN_URL), eq(HttpMethod.POST), any(), eq(byte[].class)))
                 .thenReturn(json(SIGNED_AUDIO_URL));
         when(direct.exchange(eq(URI.create(SIGNED_AUDIO_URL)), eq(HttpMethod.GET), any(), eq(byte[].class)))
-                .thenThrow(new RestClientException("GET " + SIGNED_AUDIO_URL + " failed with sk-secret"));
+                .thenThrow(failure);
 
         assertThatThrownBy(() -> engine(config("https://dashscope.aliyuncs.com/api/v1", "sk-secret"))
                 .synthesize(NarrationVoiceMode.VOICE_DESIGN, NarrationVoiceRequest.of("t", "ci")))
                 .isInstanceOf(NarrationVoiceException.class)
+                .hasCause(failure)
+                .hasMessageContaining(httpFailure ? "HTTP 403" : "RestClientException")
                 .hasMessageContaining("audio download failed")
                 .hasMessageNotContaining("Signature")
                 .hasMessageNotContaining("OSSAccessKeyId")

@@ -242,7 +242,7 @@ public class DatabaseSchemaRegistry {
         try {
             snapshot = snapshot.stream()
                     .filter(registered -> !registered.ownerPluginId().equals(pluginId))
-                    .collect(Collectors.collectingAndThen(Collectors.toList(), List::copyOf));
+                    .collect(Collectors.toUnmodifiableList());
         } finally {
             mutationLock.unlock();
         }

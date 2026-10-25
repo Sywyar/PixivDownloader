@@ -74,7 +74,7 @@ public final class GuiConfigContributionAggregator {
                         "GUI config contribution list is null"));
                 continue;
             }
-            PluginTextResolver textResolver = PluginTextResolver.create(registered, diagnostics);
+            PluginTextResolver textResolver = new PluginTextResolver(registered);
             List<WebRouteContribution> routes = captureRoutes(registered, diagnostics);
             List<GuiConfigContribution> valid = new ArrayList<>();
             for (GuiConfigContribution contribution : pluginContributions) {
@@ -235,7 +235,6 @@ public final class GuiConfigContributionAggregator {
         for (String key : ConfigFieldRegistry.coreFieldKeys()) {
             ownerByKey.put(key, CORE_OWNER);
         }
-        Set<String> suppressedDuplicateKeys = new HashSet<>();
         List<AcceptedField> accepted = new ArrayList<>();
 
         for (PluginContributions pluginContributions : contributions) {
@@ -249,13 +248,12 @@ public final class GuiConfigContributionAggregator {
                     }
                     String key = acceptedField.key();
                     String existingOwner = ownerByKey.get(key);
-                    if (existingOwner != null || suppressedDuplicateKeys.contains(key)) {
+                    if (existingOwner != null) {
                         diagnostics.add(new GuiConfigContributionDiagnostic(registered.id(), key,
                                 duplicateMessage(key, registered.id(), existingOwner)));
                         if (!CORE_OWNER.equals(existingOwner)) {
                             accepted.removeIf(item -> item.key().equals(key));
                         }
-                        suppressedDuplicateKeys.add(key);
                         continue;
                     }
                     ownerByKey.put(key, registered.id());
@@ -629,32 +627,32 @@ public final class GuiConfigContributionAggregator {
             return null;
         }
 
-        String title = optionalText(registered, textResolver, sectionId, "section", "title",
+        String title = optionalText(textResolver, sectionId, "section", "title",
                 section.i18nNamespace(), section.titleKey(), diagnostics);
         if (title == null) {
             return null;
         }
-        String help = optionalText(registered, textResolver, sectionId, "section", "help",
+        String help = optionalText(textResolver, sectionId, "section", "help",
                 section.i18nNamespace(), section.helpKey(), diagnostics);
         if (help == null) {
             return null;
         }
-        String layoutLabel = optionalText(registered, textResolver, sectionId, "section", "layout label",
+        String layoutLabel = optionalText(textResolver, sectionId, "section", "layout label",
                 section.i18nNamespace(), section.layoutLabelKey(), diagnostics);
         if (layoutLabel == null) {
             return null;
         }
-        String layoutHelp = optionalText(registered, textResolver, sectionId, "section", "layout help",
+        String layoutHelp = optionalText(textResolver, sectionId, "section", "layout help",
                 section.i18nNamespace(), section.layoutHelpKey(), diagnostics);
         if (layoutHelp == null) {
             return null;
         }
-        String presetLabel = optionalText(registered, textResolver, sectionId, "section", "preset label",
+        String presetLabel = optionalText(textResolver, sectionId, "section", "preset label",
                 section.i18nNamespace(), section.presetLabelKey(), diagnostics);
         if (presetLabel == null) {
             return null;
         }
-        String presetHelp = optionalText(registered, textResolver, sectionId, "section", "preset help",
+        String presetHelp = optionalText(textResolver, sectionId, "section", "preset help",
                 section.i18nNamespace(), section.presetHelpKey(), diagnostics);
         if (presetHelp == null) {
             return null;
@@ -747,7 +745,7 @@ public final class GuiConfigContributionAggregator {
                         fieldReferenceMessage("field layout", fieldKey, registered.id(), trustedFields)));
                 continue;
             }
-            String cardLabel = optionalText(registered, textResolver, sectionId, "field layout",
+            String cardLabel = optionalText(textResolver, sectionId, "field layout",
                     "card label", layout.i18nNamespace(), layout.cardLabelKey(), diagnostics);
             if (cardLabel == null) {
                 continue;
@@ -755,11 +753,7 @@ public final class GuiConfigContributionAggregator {
             accepted.add(new GuiConfigFieldLayoutSpec(
                     fieldKey, normalize(layout.cardId()), cardLabel, layout.order(), registered.id()));
         }
-        return accepted.stream()
-                .sorted(Comparator
-                        .comparingInt(GuiConfigFieldLayoutSpec::order)
-                        .thenComparing(GuiConfigFieldLayoutSpec::fieldKey))
-                .toList();
+        return sortFieldLayouts(accepted);
     }
 
     private static List<GuiConfigActionSpec> actionSpecs(DesktopUiPluginSnapshot registered,
@@ -812,12 +806,12 @@ public final class GuiConfigContributionAggregator {
             if (label == null) {
                 continue;
             }
-            String help = optionalText(registered, textResolver, sectionId, "action", "help",
+            String help = optionalText(textResolver, sectionId, "action", "help",
                     action.i18nNamespace(), action.helpKey(), diagnostics);
             if (help == null) {
                 continue;
             }
-            String sendingNotice = optionalText(registered, textResolver, sectionId, "action", "sending notice",
+            String sendingNotice = optionalText(textResolver, sectionId, "action", "sending notice",
                     action.i18nNamespace(), action.sendingNoticeKey(), diagnostics);
             if (sendingNotice == null) {
                 continue;
@@ -858,11 +852,7 @@ public final class GuiConfigContributionAggregator {
                     action.order(), payloadFields, sendingNotice, resultRules, action.resultSummary(),
                     registered.id()));
         }
-        return accepted.stream()
-                .sorted(Comparator
-                        .comparingInt(GuiConfigActionSpec::order)
-                        .thenComparing(GuiConfigActionSpec::actionId))
-                .toList();
+        return sortActions(accepted);
     }
 
     private static List<GuiConfigActionResultRuleSpec> actionResultRules(
@@ -1021,7 +1011,7 @@ public final class GuiConfigContributionAggregator {
             if (label == null) {
                 continue;
             }
-            String help = optionalText(registered, textResolver, sectionId, "preset", "help",
+            String help = optionalText(textResolver, sectionId, "preset", "help",
                     preset.i18nNamespace(), preset.helpKey(), diagnostics);
             if (help == null) {
                 continue;
@@ -1039,11 +1029,7 @@ public final class GuiConfigContributionAggregator {
                     normalize(preset.matchFieldKey()), preset.matchValue(), preset.values(), preset.lockedFieldKeys(),
                     preset.matchMode(), registered.id()));
         }
-        return accepted.stream()
-                .sorted(Comparator
-                        .comparingInt(GuiConfigPresetSpec::order)
-                        .thenComparing(GuiConfigPresetSpec::presetId))
-                .toList();
+        return sortPresets(accepted);
     }
 
     private static boolean validPresetReferences(
@@ -1114,8 +1100,7 @@ public final class GuiConfigContributionAggregator {
                 + actual.ownerPluginId() + "'; expected owner '" + expectedOwner + "'";
     }
 
-    private static String optionalText(DesktopUiPluginSnapshot registered,
-                                       PluginTextResolver textResolver,
+    private static String optionalText(PluginTextResolver textResolver,
                                        String diagnosticKey,
                                        String ownerType,
                                        String role,
@@ -1130,10 +1115,6 @@ public final class GuiConfigContributionAggregator {
     }
 
     private static String duplicateMessage(String key, String pluginId, String existingOwner) {
-        if (existingOwner == null) {
-            return "duplicate GUI config key '" + key + "' from plugin '" + pluginId
-                    + "' was already suppressed by another duplicate";
-        }
         if (CORE_OWNER.equals(existingOwner)) {
             return "duplicate GUI config key '" + key + "' from plugin '" + pluginId + "' conflicts with core";
         }
@@ -1269,13 +1250,6 @@ public final class GuiConfigContributionAggregator {
 
         private PluginTextResolver(DesktopUiPluginSnapshot registered) {
             this.registered = registered;
-        }
-
-        static PluginTextResolver create(
-                DesktopUiPluginSnapshot registered,
-                List<GuiConfigContributionDiagnostic> diagnostics
-        ) {
-            return new PluginTextResolver(registered);
         }
 
         String groupText(String groupId, String explicitNamespace, String key,

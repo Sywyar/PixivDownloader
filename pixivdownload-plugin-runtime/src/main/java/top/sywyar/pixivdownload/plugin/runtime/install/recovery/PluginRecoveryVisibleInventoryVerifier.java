@@ -7,7 +7,6 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginArtifactVerificationService;
 import top.sywyar.pixivdownload.plugin.runtime.install.provenance.PluginProvenanceStore;
 import top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator.RecoveryManifest;
-import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport.FailureKind;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageException;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 import top.sywyar.pixivdownload.plugin.signature.VerificationResult;
@@ -19,6 +18,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+
+import static top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator.describeFailure;
+import static top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestValidator.unsafePath;
 
 /** 复核恢复终态可见 artifact 的身份唯一性、物理绑定和 provenance。 */
 public final class PluginRecoveryVisibleInventoryVerifier {
@@ -158,15 +160,6 @@ public final class PluginRecoveryVisibleInventoryVerifier {
         if (!targetSeen) {
             throw unsafePath("activated target is not the unique visible package artifact");
         }
-    }
-
-    private static PluginRecoveryValidationException unsafePath(String message) {
-        return new PluginRecoveryValidationException(FailureKind.UNSAFE_PATH, message);
-    }
-
-    private static String describeFailure(Throwable error) {
-        return error.getMessage() == null || error.getMessage().isBlank()
-                ? error.getClass().getName() : error.getMessage();
     }
 
     private record VisibleArtifact(Path path, PluginDescriptor descriptor) {

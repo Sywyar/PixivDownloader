@@ -157,78 +157,16 @@ public final class ScheduleExecutionEngine {
             throw new ScheduleSourceUnavailableException(task.sourceType());
         }
         try (planning) {
-        try {
-            if (!registry.activate(planning)) {
-                planning.close();
-                throw new ScheduleSourceUnavailableException(task.sourceType());
-            }
-        } catch (ScheduleSourceUnavailableException failure) {
-            throw failure;
-        } catch (Throwable failure) {
-            closeBeforeFatalPropagation(planning, failure);
-            throw pluginFailure("schedule.source.activation-failed");
-        }
-        if (!matchesTask(task, planning) || planning.sourceExecutor().isEmpty()) {
-            planning.close();
-            throw new ScheduleSourceUnavailableException(task.sourceType());
-        }
-        ScheduledTaskDefinition definition;
-        ScheduledSourceDescriptor descriptor;
-        ScheduledSourceExecutor sourceExecutor;
-        try {
-            definition = toDefinition(task);
-            descriptor = planning.descriptor().orElseThrow();
-            validateDefinition(task, descriptor);
-            sourceExecutor = planning.sourceExecutor().orElseThrow();
-        } catch (ScheduleDefinitionException failure) {
-            planning.close();
-            throw failure;
-        } catch (Throwable failure) {
-            closeBeforeFatalPropagation(planning, failure);
-            throw pluginFailure("schedule.source.definition-failed");
-        }
-        ScheduledExecutionPlan plan;
-        try {
-            plan = invokeSourcePlan(sourceExecutor, definition);
-        } catch (ScheduledExecutionException failure) {
-            planning.close();
-            throw failure;
-        } catch (Throwable failure) {
-            closeBeforeFatalPropagation(planning, failure);
-            throw pluginFailure("schedule.source.plan-failed");
-        }
-        try {
-            plan = requirePlan(descriptor, plan);
-        } catch (ScheduledExecutionException failure) {
-            planning.close();
-            throw failure;
-        } catch (Throwable failure) {
-            closeBeforeFatalPropagation(planning, failure);
-            throw pluginFailure("schedule.plan.capability-mismatch");
-        }
+        SourcePlan source = prepareSourcePlan(task, planning);
+        ScheduledTaskDefinition definition = source.definition();
+        ScheduledExecutionPlan plan = source.plan();
         if (plan.credentialRequirement() == ScheduledCredentialRequirement.NONE) {
             planning.close();
             throw new ScheduledExecutionException(
                     ScheduledFailure.Category.INVALID_DEFINITION,
                     "schedule.credential.binding-not-supported");
         }
-        ScheduleExecutionLease execution;
-        try {
-            execution = registry.prepareExpansion(planning, plan).orElse(null);
-        } catch (IllegalArgumentException failure) {
-            planning.close();
-            throw new ScheduledExecutionException(
-                    ScheduledFailure.Category.INVALID_DEFINITION,
-                    "schedule.plan.capability-mismatch");
-        } catch (Throwable failure) {
-            closeBeforeFatalPropagation(planning, failure);
-            throw pluginFailure("schedule.plan.expansion-failed");
-        }
-        if (execution == null) {
-            planning.close();
-            throw new ScheduleExecutorUnavailableException(
-                    task.sourceType(), plan.requiredWorkTypes());
-        }
+        ScheduleExecutionLease execution = prepareExecution(task, planning, plan);
         try {
             if (!registry.activate(execution)) {
                 throw new ScheduleExecutorUnavailableException(
@@ -309,55 +247,10 @@ public final class ScheduleExecutionEngine {
             throw new ScheduleSourceUnavailableException(task.sourceType());
         }
         try (planning) {
-        try {
-            if (!registry.activate(planning)) {
-                planning.close();
-                throw new ScheduleSourceUnavailableException(task.sourceType());
-            }
-        } catch (ScheduleSourceUnavailableException failure) {
-            throw failure;
-        } catch (Throwable failure) {
-            closeBeforeFatalPropagation(planning, failure);
-            throw pluginFailure("schedule.source.activation-failed");
-        }
-        if (!matchesTask(task, planning) || planning.sourceExecutor().isEmpty()) {
-            planning.close();
-            throw new ScheduleSourceUnavailableException(task.sourceType());
-        }
-        ScheduledTaskDefinition definition;
-        ScheduledSourceDescriptor descriptor;
-        ScheduledSourceExecutor sourceExecutor;
-        try {
-            definition = toDefinition(task);
-            descriptor = planning.descriptor().orElseThrow();
-            validateDefinition(task, descriptor);
-            sourceExecutor = planning.sourceExecutor().orElseThrow();
-        } catch (ScheduleDefinitionException failure) {
-            planning.close();
-            throw failure;
-        } catch (Throwable failure) {
-            closeBeforeFatalPropagation(planning, failure);
-            throw pluginFailure("schedule.source.definition-failed");
-        }
-        ScheduledExecutionPlan plan;
-        try {
-            plan = invokeSourcePlan(sourceExecutor, definition);
-        } catch (ScheduledExecutionException failure) {
-            planning.close();
-            throw failure;
-        } catch (Throwable failure) {
-            closeBeforeFatalPropagation(planning, failure);
-            throw pluginFailure("schedule.source.plan-failed");
-        }
-        try {
-            plan = requirePlan(descriptor, plan);
-        } catch (ScheduledExecutionException failure) {
-            planning.close();
-            throw failure;
-        } catch (Throwable failure) {
-            closeBeforeFatalPropagation(planning, failure);
-            throw pluginFailure("schedule.plan.capability-mismatch");
-        }
+        SourcePlan source = prepareSourcePlan(task, planning);
+        ScheduledTaskDefinition definition = source.definition();
+        ScheduledSourceExecutor sourceExecutor = source.executor();
+        ScheduledExecutionPlan plan = source.plan();
         ScheduledCheckpoint storedCheckpoint;
         try {
             storedCheckpoint = validateStoredCheckpoint(plan, task);
@@ -369,22 +262,7 @@ public final class ScheduleExecutionEngine {
             throw pluginFailure("schedule.checkpoint.payload-invalid");
         }
 
-        ScheduleExecutionLease execution;
-        try {
-            execution = registry.prepareExpansion(planning, plan).orElse(null);
-        } catch (IllegalArgumentException failure) {
-            planning.close();
-            throw new ScheduledExecutionException(
-                    ScheduledFailure.Category.INVALID_DEFINITION,
-                    "schedule.plan.capability-mismatch");
-        } catch (Throwable failure) {
-            closeBeforeFatalPropagation(planning, failure);
-            throw pluginFailure("schedule.plan.expansion-failed");
-        }
-        if (execution == null) {
-            planning.close();
-            throw new ScheduleExecutorUnavailableException(task.sourceType(), plan.requiredWorkTypes());
-        }
+        ScheduleExecutionLease execution = prepareExecution(task, planning, plan);
         try {
             if (!registry.activate(execution)) {
                 throw new ScheduleExecutorUnavailableException(
@@ -519,8 +397,7 @@ public final class ScheduleExecutionEngine {
                         result = new ScheduleExecutionResult(
                                 coordinator.completedWorkCount(),
                                 discovery.candidateCheckpoint(),
-                                credentialRevoked,
-                                coordinator.pendingExhausted());
+                                credentialRevoked);
                     } catch (Throwable caught) {
                         Throwable primary = caught instanceof ScheduleWorkCoordinator.CoordinatorSignal signal
                                 ? signal.failure()
@@ -565,6 +442,93 @@ public final class ScheduleExecutionEngine {
             planning.close();
         }
         }
+    }
+
+    private record SourcePlan(
+            ScheduledTaskDefinition definition,
+            ScheduledSourceExecutor executor,
+            ScheduledExecutionPlan plan) {
+    }
+
+    private SourcePlan prepareSourcePlan(ScheduledTask task, SchedulePlanningLease planning)
+            throws ScheduleSourceUnavailableException,
+            ScheduleDefinitionException,
+            ScheduledExecutionException {
+        try {
+            if (!registry.activate(planning)) {
+                planning.close();
+                throw new ScheduleSourceUnavailableException(task.sourceType());
+            }
+        } catch (ScheduleSourceUnavailableException failure) {
+            throw failure;
+        } catch (Throwable failure) {
+            closeBeforeFatalPropagation(planning, failure);
+            throw pluginFailure("schedule.source.activation-failed");
+        }
+        if (!matchesTask(task, planning) || planning.sourceExecutor().isEmpty()) {
+            planning.close();
+            throw new ScheduleSourceUnavailableException(task.sourceType());
+        }
+        ScheduledTaskDefinition definition;
+        ScheduledSourceDescriptor descriptor;
+        ScheduledSourceExecutor sourceExecutor;
+        try {
+            definition = toDefinition(task);
+            descriptor = planning.descriptor().orElseThrow();
+            validateDefinition(task, descriptor);
+            sourceExecutor = planning.sourceExecutor().orElseThrow();
+        } catch (ScheduleDefinitionException failure) {
+            planning.close();
+            throw failure;
+        } catch (Throwable failure) {
+            closeBeforeFatalPropagation(planning, failure);
+            throw pluginFailure("schedule.source.definition-failed");
+        }
+        ScheduledExecutionPlan plan;
+        try {
+            plan = invokeSourcePlan(sourceExecutor, definition);
+        } catch (ScheduledExecutionException failure) {
+            planning.close();
+            throw failure;
+        } catch (Throwable failure) {
+            closeBeforeFatalPropagation(planning, failure);
+            throw pluginFailure("schedule.source.plan-failed");
+        }
+        try {
+            plan = requirePlan(descriptor, plan);
+        } catch (ScheduledExecutionException failure) {
+            planning.close();
+            throw failure;
+        } catch (Throwable failure) {
+            closeBeforeFatalPropagation(planning, failure);
+            throw pluginFailure("schedule.plan.capability-mismatch");
+        }
+        return new SourcePlan(definition, sourceExecutor, plan);
+    }
+
+    private ScheduleExecutionLease prepareExecution(
+            ScheduledTask task,
+            SchedulePlanningLease planning,
+            ScheduledExecutionPlan plan)
+            throws ScheduleExecutorUnavailableException, ScheduledExecutionException {
+        ScheduleExecutionLease execution;
+        try {
+            execution = registry.prepareExpansion(planning, plan).orElse(null);
+        } catch (IllegalArgumentException failure) {
+            planning.close();
+            throw new ScheduledExecutionException(
+                    ScheduledFailure.Category.INVALID_DEFINITION,
+                    "schedule.plan.capability-mismatch");
+        } catch (Throwable failure) {
+            closeBeforeFatalPropagation(planning, failure);
+            throw pluginFailure("schedule.plan.expansion-failed");
+        }
+        if (execution == null) {
+            planning.close();
+            throw new ScheduleExecutorUnavailableException(
+                    task.sourceType(), plan.requiredWorkTypes());
+        }
+        return execution;
     }
 
     private void publishPolicyAccountSuspension(

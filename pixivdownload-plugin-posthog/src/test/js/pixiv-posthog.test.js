@@ -8,6 +8,51 @@ const {webcrypto} = require('crypto');
 
 const source = fs.readFileSync(path.join(__dirname, '..', '..', 'main', 'resources', 'static',
     'pixiv-posthog', 'pixiv-posthog.js'), 'utf8');
+const i18nSource = fs.readFileSync(path.resolve(__dirname, '../../../../pixivdownload-app',
+    'src/main/resources/static/js/pixiv-i18n.js'), 'utf8');
+
+async function testLoadingTranslationReleasesRecovery(root, document) {
+    const timers = new Set();
+    const listeners = new Map();
+    let requests = 0;
+    let reportsUntilFailure;
+    const sandbox = {
+        window: null, document, console: {warn() {}}, navigator: {language: 'en-US'},
+        Promise, Object, URL, AbortController,
+        localStorage: {getItem() { return null; }, setItem() {}},
+        setTimeout(callback) { timers.add(callback); return callback; },
+        clearTimeout(callback) { timers.delete(callback); },
+        addEventListener(type, callback) {
+            if (!listeners.has(type)) listeners.set(type, new Set());
+            listeners.get(type).add(callback);
+        },
+        removeEventListener(type, callback) { listeners.get(type)?.delete(callback); },
+        fetch: async () => { requests++; return {ok: false, status: 503}; },
+        PixivSurveyFrameBridge: {
+            ready: async () => ({}),
+            post() { if (--reportsUntilFailure === 0) throw new Error('frame closed'); }
+        }
+    };
+    sandbox.window = sandbox;
+    vm.createContext(sandbox);
+    vm.runInContext(i18nSource, sandbox, {filename: 'pixiv-i18n.js'});
+    vm.runInContext(source, sandbox, {filename: 'pixiv-posthog.js'});
+    for (let attempt = 0; attempt < 3; attempt++) {
+        reportsUntilFailure = attempt === 2 ? 2 : Infinity;
+        const loadingRoot = {
+            ...root,
+            classList: {add() {}, contains() { return attempt !== 1; }}
+        };
+        assert.equal(await sandbox.PixivPostHog.showSurveyLoading(loadingRoot, {lang: 'en-US'}), true);
+        assert.equal(timers.size, 0, '一次性翻译完成后不保留恢复计时器');
+        assert.equal([...listeners.values()].reduce((sum, values) => sum + values.size, 0), 0,
+            '一次性翻译完成后不保留窗口监听');
+    }
+    const completedRequests = requests;
+    for (const callback of listeners.get('focus') || []) callback();
+    await Promise.resolve();
+    assert.equal(requests, completedRequests, '后续聚焦不再重试已完成的加载提示');
+}
 
 async function testSynchronousLoadFailureCanRetry() {
     let attempts = 0;
@@ -143,6 +188,7 @@ async function main() {
     assert.equal(String(loadingI18nOptions.namespaces), 'posthog');
     assert.deepEqual(posted, [{type: 'pixiv-content-height', height: 72},
         {type: 'pixiv-content-height', height: 72}]);
+    await testLoadingTranslationReleasesRecovery(root, loadingDocument);
 
     const filter = event => event;
     const posthog = {

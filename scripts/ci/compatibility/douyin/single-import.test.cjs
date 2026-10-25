@@ -19,7 +19,8 @@ const assert = require('assert');
 
 const ROOT = path.resolve(__dirname, '../../../..');
 const STATIC = path.join(ROOT, 'pixivdownload-plugin-download-workbench', 'src', 'main', 'resources', 'static', 'pixiv-batch');
-const CORE_SOURCE = fs.readFileSync(path.join(STATIC, 'batch-core.js'), 'utf8');
+const CORE_SOURCE = ['queue-display.js', 'batch-core.js']
+    .map(file => fs.readFileSync(path.join(STATIC, file), 'utf8')).join('\n');
 const QT_SOURCE = [
     'batch-queue-types-normalize.js',
     'batch-queue-types-runtime.js',
@@ -53,50 +54,6 @@ function makeDocument(textareaValue) {
         head,
         body: noopEl(),
         documentElement: noopEl()
-    };
-}
-
-// novel 的「批量导入」钩子（镜像 novel-queue-type.js 的 import descriptor 形态：sectionType/matchUrl/buildItem/source）。
-function novelImportDescriptor() {
-    return {
-        pluginId: 'novel', type: 'novel', display: 'd',
-        process() {},
-        import: {
-            sectionType: 'novel',
-            matchUrl(line) {
-                const m = String(line).match(/https?:\/\/www\.pixiv\.net\/novel\/show\.php\?[^\s|]*?\bid=(\d+)/);
-                return m ? m[1] : null;
-            },
-            buildItem(id, title) {
-                return {id: 'n' + id, novelId: id, kind: 'novel', title: title || ('小说 ' + id)};
-            },
-            source: 'single-import-novel'
-        }
-    };
-}
-
-function structuredImportDescriptor() {
-    return {
-        pluginId: 'structured', type: 'structured', display: 'd',
-        process() {},
-        import: {
-            sectionType: 'structured',
-            matchUrl(line) {
-                const m = String(line).match(/https?:\/\/example\.test\/works\/([A-Za-z0-9_-]+)/);
-                return m ? {id: m[1], url: m[0]} : null;
-            },
-            buildItem(match, title, line) {
-                return {
-                    id: 's' + match.id,
-                    workId: match.id,
-                    url: match.url,
-                    line,
-                    kind: 'structured',
-                    title: title || ('结构化 ' + match.id)
-                };
-            },
-            source: 'single-import-structured'
-        }
     };
 }
 

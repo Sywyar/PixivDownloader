@@ -159,8 +159,6 @@ begin
   PluginInstallProgressBar.Max := 100;
   PluginInstallProgressBar.Position := 0;
   PluginInstallProgressBar.Visible := False;
-  PluginInstallProgressTitle := '';
-  PluginInstallProgressLastPercent := -1;
 
   PluginInstallDetailLabel := TNewStaticText.Create(WizardForm);
   PluginInstallDetailLabel.Parent := WizardForm.ProgressGauge.Parent;
@@ -187,8 +185,6 @@ begin
   FfmpegProgressBar.Max := 100;
   FfmpegProgressBar.Position := 0;
   FfmpegProgressBar.Visible := False;
-  FfmpegProgressTitle := '';
-  FfmpegProgressLastPercent := -1;
 
   FfmpegDetailLabel := TNewStaticText.Create(WizardForm);
   FfmpegDetailLabel.Parent := WizardForm.ProgressGauge.Parent;

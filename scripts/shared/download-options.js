@@ -81,12 +81,9 @@ const UserscriptDownloadOptions = (() => {
         const result = await request('/api/collections');
         if (captured !== scope()) throw new Error(text('unavailable'));
         if (result.status !== 200 || !Array.isArray(result.data?.collections)) {
-            collection = null;
             throw new Error(text('unavailable'));
         }
-        const rows = result.data.collections.filter(row => number(row.id) > 0);
-        if (collection && (collection.scope !== captured || !rows.some(row => Number(row.id) === collection.id))) collection = null;
-        return rows;
+        return result.data.collections.filter(row => number(row.id) > 0);
     }
 
     function selectCollection(id) {
@@ -101,8 +98,12 @@ const UserscriptDownloadOptions = (() => {
         if (collection?.scope !== captured) collection = null;
         const selected = collection;
         if (selected) {
-            await collections();
+            const rows = await collections();
             if (collection !== selected) throw new Error(text('collection-changed'));
+            if (!rows.some(row => Number(row.id) === selected.id)) {
+                collection = null;
+                throw new Error(text('collection-changed'));
+            }
         }
         const result = {fileNameTemplate: settings.fileNameTemplate || null, collectionId: collection?.id || null};
         if (kind === 'novel') {

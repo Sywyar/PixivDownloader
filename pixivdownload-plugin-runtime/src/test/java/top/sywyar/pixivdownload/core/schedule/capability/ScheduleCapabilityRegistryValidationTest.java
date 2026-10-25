@@ -2,52 +2,14 @@ package top.sywyar.pixivdownload.core.schedule.capability;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import top.sywyar.pixivdownload.core.schedule.migration.LegacySchedulePersistenceDescriptor;
-import top.sywyar.pixivdownload.core.schedule.migration.LegacySchedulePersistenceDescriptorProvider;
-import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess;
 import top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityOwner;
-import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialContext;
-import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialPolicy;
-import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialProbeResult;
-import top.sywyar.pixivdownload.plugin.api.schedule.credential.ScheduledCredentialRequirement;
-import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledCancellation;
-import top.sywyar.pixivdownload.plugin.api.schedule.execution.ScheduledExecutionPlan;
-import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledExecutionGuard;
-import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardBinding;
-import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardContext;
-import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardDecision;
-import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardPoint;
-import top.sywyar.pixivdownload.plugin.api.schedule.guard.ScheduledGuardResult;
-import top.sywyar.pixivdownload.plugin.api.schedule.network.ScheduledNetworkRoute;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledDiscoveryResult;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceContext;
 import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceDescriptor;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourceExecutor;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledSourcePresentation;
-import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefinition;
-import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkContext;
-import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
-import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkResult;
 
-import java.util.ArrayList;
-import java.lang.reflect.Modifier;
-import java.util.EnumMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.LockSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.catchThrowable;
 
 @DisplayName("计划能力注册中心 bundle 校验")
 class ScheduleCapabilityRegistryValidationTest extends ScheduleCapabilityRegistryTestSupport {

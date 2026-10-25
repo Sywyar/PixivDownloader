@@ -1,14 +1,14 @@
 'use strict';
     // ===================== SSE 管理（共享单连接版） =====================
     function ensureSharedSSE() {
-        if (sharedSse) return;
+        if (sharedSse || pageSuspended || activeDownloads.length === 0) return;
         const src = new EventSource(`/api/sse/download`);
         src.addEventListener('download-status', e => {
+            if (sharedSse !== src) return;
             try {
                 const data = JSON.parse(e.data);
                 if (!data || data.artworkId === undefined || data.artworkId === null) return;
                 const aid = Number(data.artworkId);
-                if (!sseSubscribed.has(aid)) return; // 仅处理我们关注的作品
                 handleSseEvent(aid, data);
             } catch {}
         });
@@ -23,20 +23,12 @@
         }
     }
 
-    function openSSE(artworkId) {
-        sseSubscribed.add(Number(artworkId));
-        ensureSharedSSE();
-    }
-
-    function closeSSE(artworkId) {
-        sseSubscribed.delete(Number(artworkId));
-        if (sseSubscribed.size === 0) closeSharedSSE();
-    }
-
     function handleSseEvent(artworkId, data) {
+        const entry = activeDownloads.find(d => d.artworkId === artworkId);
+        if (!entry) return;
         if (data.completed || data.failed || data.cancelled) {
-            closeSSE(artworkId);
             activeDownloads = activeDownloads.filter(d => d.artworkId !== artworkId);
+            if (activeDownloads.length === 0) closeSharedSSE();
             lastCompletionTime = Date.now();
             scheduleActiveSync(); // 切换到快速轮询
             document.getElementById('activeCount').textContent     = activeDownloads.length;
@@ -48,12 +40,9 @@
             loadAllDataForChart();
             return;
         }
-        const entry = activeDownloads.find(d => d.artworkId === artworkId);
-        if (entry) {
-            if (data.downloadedCount !== undefined) entry.downloadedCount = data.downloadedCount;
-            if (data.totalImages     !== undefined) entry.totalImages     = data.totalImages;
-            if (data.progress        !== undefined) entry.progressPercentage = data.progress;
-        }
+        if (data.downloadedCount !== undefined) entry.downloadedCount = data.downloadedCount;
+        if (data.totalImages     !== undefined) entry.totalImages     = data.totalImages;
+        if (data.progress        !== undefined) entry.progressPercentage = data.progress;
         document.getElementById('activeCount').textContent     = activeDownloads.length;
         document.getElementById('activeDownloads').textContent = activeDownloads.length;
         renderActiveDownloads();
@@ -71,6 +60,8 @@
 
     function scheduleActiveSync(immediate) {
         clearTimeout(activeUpdateTimer);
+        activeUpdateTimer = null;
+        if (pageSuspended || activeSyncController) return;
         if (immediate) {
             syncActiveIds();
         } else {
@@ -79,31 +70,34 @@
     }
 
     async function syncActiveIds() {
+        if (pageSuspended || activeSyncController) return;
+        clearTimeout(activeUpdateTimer);
+        activeUpdateTimer = null;
+        const controller = activeSyncController = new AbortController();
         try {
-            const res = await fetch('/api/download/status/active');
+            const res = await fetch('/api/download/status/active', {signal: controller.signal});
             if (!res.ok) return;
             const { artworkIds } = await res.json();
+            if (activeSyncController !== controller) return;
             const currentIds = new Set(artworkIds.map(Number));
 
             // 移除不再活跃的条目
             const prevCount = activeDownloads.length;
-            activeDownloads.filter(d => !currentIds.has(d.artworkId)).forEach(d => closeSSE(d.artworkId));
             activeDownloads = activeDownloads.filter(d => currentIds.has(d.artworkId));
-            // 清理掉已不在活跃列表里的订阅
-            for (const id of Array.from(sseSubscribed)) {
-                if (!currentIds.has(id)) closeSSE(id);
-            }
+            if (activeDownloads.length === 0) closeSharedSSE();
 
             // 添加新条目并建立 SSE
             const existingIds = new Set(activeDownloads.map(d => d.artworkId));
             const newIds = [...currentIds].filter(id => !existingIds.has(id));
             const newDetails = await Promise.all(
-                newIds.map(id => fetch(`/api/download/status/${id}`).then(r => r.ok ? r.json() : null))
+                newIds.map(id => fetch(`/api/download/status/${id}`, {signal: controller.signal})
+                    .then(r => r.ok ? r.json() : null))
             );
+            if (activeSyncController !== controller) return;
             newDetails.filter(d => d && !d.completed && !d.failed && !d.cancelled).forEach(d => {
                 activeDownloads.push(d);
-                openSSE(d.artworkId);
             });
+            ensureSharedSSE();
 
             document.getElementById('activeCount').textContent     = activeDownloads.length;
             document.getElementById('activeDownloads').textContent = activeDownloads.length;
@@ -116,8 +110,15 @@
                 currentPage = 1;
                 loadAllDataForChart();
             }
-        } catch (e) { console.error(t('log.active-download-sync-failed', '活跃下载同步失败'), e); }
-        scheduleActiveSync();
+        } catch (e) {
+            if (!controller.signal.aborted) console.error(t('log.active-download-sync-failed', '活跃下载同步失败'), e);
+        } finally {
+            controller.abort();
+            if (activeSyncController === controller) {
+                activeSyncController = null;
+                scheduleActiveSync();
+            }
+        }
     }
 
     function renderActiveDownloads() {

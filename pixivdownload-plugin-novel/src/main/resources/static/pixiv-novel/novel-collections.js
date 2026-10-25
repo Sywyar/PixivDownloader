@@ -1,24 +1,27 @@
 'use strict';
+let collectionPending = false;
+let collectionReadRevision = 0;
+let collectionModalRevision = 0;
+
+function syncCollectionControls() {
+    document.getElementById('quickCreateBtn').disabled = collectionPending;
+    document.getElementById('addToCollectionList').querySelectorAll('.collection-row').forEach(row => {
+        const checkbox = row.querySelector('input[type="checkbox"]');
+        checkbox.disabled = collectionPending;
+        if (!collectionPending) checkbox.checked = collectionState.membership.has(Number(row.dataset.id));
+    });
+}
+
+function setCollectionPending(pending) {
+    collectionPending = pending;
+    ++collectionReadRevision;
+    ++collectionLoadRevision;
+    syncCollectionControls();
+}
+
 // ---------- Collections ----------
 async function loadCollectionState() {
-    try {
-        const [listRes, ofRes] = await Promise.all([
-            fetch('/api/collections', { credentials: 'same-origin' }),
-            fetch(`/api/collections/novels/of/${encodeURIComponent(novelId)}`, { credentials: 'same-origin' })
-        ]);
-        if (listRes.ok) {
-            const data = await listRes.json();
-            collectionState.list = data.collections || [];
-        }
-        if (ofRes.ok) {
-            const data = await ofRes.json();
-            collectionState.membership = new Set(data.collectionIds || []);
-        }
-        document.getElementById('heartBtn').style.display = '';
-        updateHeart();
-    } catch (e) {
-        // silent — heart stays hidden
-    }
+    await Promise.all([refreshCollections(), refreshMembership()]);
 }
 
 function updateHeart() {
@@ -37,32 +40,44 @@ function iconHtml(c) {
 }
 
 async function refreshMembership() {
+    const revision = ++collectionReadRevision;
     try {
         const r = await fetch(`/api/collections/novels/of/${encodeURIComponent(novelId)}`, { credentials: 'same-origin' });
         if (!r.ok) return;
         const data = await r.json();
+        if (revision !== collectionReadRevision || collectionPending) return;
         collectionState.membership = new Set(data.collectionIds || []);
+        document.getElementById('heartBtn').style.display = '';
+        syncCollectionControls();
         updateHeart();
     } catch (e) {}
 }
 
+let collectionLoadRevision = 0;
 async function refreshCollections() {
+    const revision = ++collectionLoadRevision;
     try {
         const r = await fetch('/api/collections', { credentials: 'same-origin' });
         if (!r.ok) return;
         const data = await r.json();
+        if (revision !== collectionLoadRevision || collectionPending) return;
         collectionState.list = data.collections || [];
     } catch (e) {}
 }
 
 async function openAddToCollectionModal() {
+    const revision = ++collectionModalRevision;
     await refreshCollections();
+    if (revision !== collectionModalRevision) return;
     await refreshMembership();
+    if (revision !== collectionModalRevision) return;
     renderAddToCollectionList();
     document.getElementById('modalAddToCollection').classList.add('open');
 }
 
 function closeAddToCollectionModal() {
+    ++collectionModalRevision;
+    ++collectionReadRevision;
     document.getElementById('modalAddToCollection').classList.remove('open');
     updateHeart();
 }
@@ -86,23 +101,28 @@ function renderAddToCollectionList() {
         const id = Number(row.dataset.id);
         const cb = row.querySelector('input[type="checkbox"]');
         cb.addEventListener('change', async () => {
+            if (collectionPending) return;
+            const targetNovelId = novelId;
+            const membership = collectionState.membership;
+            const selected = cb.checked;
+            setCollectionPending(true);
             try {
-                if (cb.checked) {
-                    const r = await fetch(`/api/collections/${id}/novels/${encodeURIComponent(novelId)}`, { method: 'POST', credentials: 'same-origin' });
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    collectionState.membership.add(id);
-                } else {
-                    const r = await fetch(`/api/collections/${id}/novels/${encodeURIComponent(novelId)}`, { method: 'DELETE', credentials: 'same-origin' });
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    collectionState.membership.delete(id);
-                }
-                updateHeart();
+                const r = await fetch(`/api/collections/${id}/novels/${encodeURIComponent(targetNovelId)}`, {
+                    method: selected ? 'POST' : 'DELETE', credentials: 'same-origin'
+                });
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                if (selected) membership.add(id);
+                else membership.delete(id);
             } catch (e) {
-                cb.checked = !cb.checked;
                 toast(pageI18n.t('toast.action-failed', '操作失败'), 'error');
+            } finally {
+                setCollectionPending(false);
+                await refreshMembership();
+                updateHeart();
             }
         });
     });
+    syncCollectionControls();
 }
 
 

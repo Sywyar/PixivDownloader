@@ -212,6 +212,33 @@ class PluginControllerRegistrarTest {
         }
     }
 
+    @Test
+    @DisplayName("致命注销错误保留全部待清理映射，原样抛出后仍可重试")
+    void fatalUnregisterRetainsPendingMappingsUntilRetry() {
+        for (Error fatal : List.of(new ThreadDeath(), new OutOfMemoryError("injected"))) {
+            FailingUnregisterMapping mapping = initializeMapping(new FailingUnregisterMapping());
+            RouteAccessRegistry routes = new RouteAccessRegistry(new PluginRegistry(List.of()));
+            routes.register("test-plugin", List.of(WebRouteContribution.admin("/api/test/**")));
+            PluginControllerRegistrar registrar = new PluginControllerRegistrar(mapping, routes);
+
+            try (AnnotationConfigApplicationContext child =
+                         new AnnotationConfigApplicationContext(TwoDeclaredController.class)) {
+                assertThat(registrar.registerControllers("test-plugin", child)).isEqualTo(2);
+                mapping.fatalFailure = fatal;
+
+                assertThatThrownBy(() -> registrar.unregisterControllers("test-plugin"))
+                        .isSameAs(fatal);
+                assertThat(registrar.registeredPluginIds()).containsExactly("test-plugin");
+                assertThat(mappedPaths(mapping)).contains("/api/test/first", "/api/test/second");
+
+                mapping.fatalFailure = null;
+                registrar.unregisterControllers("test-plugin");
+                assertThat(registrar.registeredPluginIds()).isEmpty();
+                assertThat(mappedPaths(mapping)).doesNotContain("/api/test/first", "/api/test/second");
+            }
+        }
+    }
+
     // --- helpers ---
 
     /** 收集 mapping 当前全部 handler 映射的路径模式。 */
@@ -312,10 +339,14 @@ class PluginControllerRegistrarTest {
     static final class FailingUnregisterMapping extends PluginAwareRequestMappingHandlerMapping {
         private final Map<RequestMappingInfo, Integer> attempts = new LinkedHashMap<>();
         private String failPath;
+        private Error fatalFailure;
 
         @Override
         public void unregisterMapping(RequestMappingInfo mapping) {
             attempts.merge(mapping, 1, Integer::sum);
+            if (fatalFailure != null) {
+                throw fatalFailure;
+            }
             if (failPath != null && mapping.getPatternValues().contains(failPath)) {
                 throw new AssertionError("injected unregister failure");
             }

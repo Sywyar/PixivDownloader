@@ -135,7 +135,7 @@ function createDocument() {
     return document;
 }
 
-function loadFeedback() {
+function loadFeedback(extras) {
     const document = createDocument();
     const assigned = [];
     const opened = [];
@@ -159,6 +159,7 @@ function loadFeedback() {
             }
         }
     };
+    Object.assign(window, extras || {});
     const context = vm.createContext({
         window, document, console, Date, Promise, Array, Object, String, Number, Math, Set, URL
     });
@@ -193,6 +194,50 @@ function clickEvent(target, values) {
     function ok(condition, label) {
         assert.ok(condition, label);
         passed++;
+    }
+
+    {
+        const loads = [], disposed = [];
+        const {document, feedback} = loadFeedback({PixivI18n: {
+            create(options) {
+                return new Promise(resolve => loads.push({lang: options.lang, resolve}));
+            }
+        }});
+        const client = name => ({
+            t(key, fallback) { return name + ':' + key; },
+            dispose() { disposed.push(name); }
+        });
+        document.documentElement.lang = 'en-US';
+        const old = feedback.confirmExternalLink('https://example.invalid/old');
+        document.documentElement.lang = 'zh-CN';
+        const current = feedback.confirmExternalLink('https://example.invalid/current');
+        loads[1].resolve(client('current'));
+        await nextTurn();
+        ok(find(document.body, node => node.className === 'pixiv-feedback-message').textContent
+            === 'current:external-link.confirm.message', '新语言先完成时正常显示外链确认');
+        let cancel = actionButton(document, 'cancel');
+        actionContainer(cancel).emit('click', {target: cancel});
+        ok(await current === false, '取消确认不授权外部跳转');
+        loads[0].resolve(client('old'));
+        await nextTurn();
+        assert.deepStrictEqual(disposed, ['old'], '迟到的旧语言词典只释放一次');
+        cancel = actionButton(document, 'cancel');
+        actionContainer(cancel).emit('click', {target: cancel});
+        ok(await old === false, '释放旧词典仍保留已排队确认的取消行为');
+        const reused = feedback.confirmExternalLink('https://example.invalid/reused');
+        await nextTurn();
+        ok(loads.length === 2 && disposed.length === 1, '同语言复用当前词典，不重复请求或释放');
+        cancel = actionButton(document, 'cancel');
+        actionContainer(cancel).emit('click', {target: cancel});
+        await reused;
+        document.documentElement.lang = 'en-US';
+        const replaced = feedback.confirmExternalLink('https://example.invalid/replaced');
+        loads[2].resolve(client('replacement'));
+        await nextTurn();
+        assert.deepStrictEqual(disposed, ['old', 'current'], '已完成的旧语言词典在替换时释放');
+        cancel = actionButton(document, 'cancel');
+        actionContainer(cancel).emit('click', {target: cancel});
+        await replaced;
     }
 
     {

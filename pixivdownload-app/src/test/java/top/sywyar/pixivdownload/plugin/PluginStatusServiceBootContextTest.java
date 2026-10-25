@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.plugin;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -27,26 +30,35 @@ import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 @DisplayName("插件状态服务真实上下文：core-only 内置插件 STARTED、required download-workbench 缺失")
 class PluginStatusServiceBootContextTest {
 
+    private static final Map<String, String> originalProperties = new LinkedHashMap<>();
+
     static {
-        System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, "target/test-runtime/config");
-        System.setProperty(RuntimeFiles.STATE_DIR_PROPERTY, "target/test-runtime/state");
-        System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, "target/test-runtime/data");
-        System.setProperty(RuntimeFiles.PLUGINS_DIR_PROPERTY, "target/test-runtime/plugins-absent");
+        Map.of(
+                RuntimeFiles.CONFIG_DIR_PROPERTY, "target/test-runtime/config",
+                RuntimeFiles.STATE_DIR_PROPERTY, "target/test-runtime/state",
+                RuntimeFiles.DATA_DIR_PROPERTY, "target/test-runtime/data",
+                RuntimeFiles.PLUGINS_DIR_PROPERTY, "target/test-runtime/plugins-absent").forEach((key, value) -> {
+            originalProperties.put(key, System.getProperty(key));
+            System.setProperty(key, value);
+        });
     }
 
     @AfterAll
     static void tearDownRuntimeDirs() {
-        System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
-        System.clearProperty(RuntimeFiles.STATE_DIR_PROPERTY);
-        System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY);
-        System.clearProperty(RuntimeFiles.PLUGINS_DIR_PROPERTY);
+        originalProperties.forEach((key, value) -> {
+            if (value == null) {
+                System.clearProperty(key);
+            } else {
+                System.setProperty(key, value);
+            }
+        });
     }
 
     @Autowired
     private PluginStatusService pluginStatusService;
 
     @Test
-    @DisplayName("三个 core-only 内置插件 STARTED，download-workbench 缺失 required")
+    @DisplayName("core-only 内置插件 STARTED，download-workbench 缺失 required")
     void builtInPluginsAreAllStartedAndCompatible() {
         PluginStatusReport report = pluginStatusService.report();
 

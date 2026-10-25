@@ -7,9 +7,6 @@ import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransac
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionState;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
@@ -17,9 +14,10 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
+
+import static top.sywyar.pixivdownload.plugin.runtime.install.recovery.PluginRecoveryManifestStore.readAttributesIfPresent;
 
 /** 恢复清单的字段、身份、路径与备份绑定校验器。 */
 public final class PluginRecoveryManifestValidator {
@@ -436,24 +434,15 @@ public final class PluginRecoveryManifestValidator {
         }
     }
 
-    private static Optional<BasicFileAttributes> readAttributesIfPresent(Path path) throws IOException {
-        try {
-            return Optional.of(Files.readAttributes(
-                    path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS));
-        } catch (NoSuchFileException e) {
-            return Optional.empty();
-        }
-    }
-
-    private static PluginRecoveryValidationException invalidManifest(String message) {
+    static PluginRecoveryValidationException invalidManifest(String message) {
         return new PluginRecoveryValidationException(FailureKind.INVALID_MANIFEST, message);
     }
 
-    private static PluginRecoveryValidationException unsafePath(String message) {
+    static PluginRecoveryValidationException unsafePath(String message) {
         return new PluginRecoveryValidationException(FailureKind.UNSAFE_PATH, message);
     }
 
-    private static String describeFailure(Throwable error) {
+    static String describeFailure(Throwable error) {
         return error.getMessage() == null || error.getMessage().isBlank()
                 ? error.getClass().getName() : error.getMessage();
     }

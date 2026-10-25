@@ -1,9 +1,5 @@
 package top.sywyar.pixivdownload.core.db;
 
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.*;
-import org.mybatis.spring.transaction.SpringManagedTransactionFactory;
-import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
@@ -28,7 +24,6 @@ class PixivDatabaseTest {
 
     private PixivDatabase pixivDatabase;
     private SingleConnectionDataSource dataSource;
-    private SqlSession sqlSession;
 
     @BeforeEach
     void setUp() {
@@ -37,12 +32,6 @@ class PixivDatabaseTest {
         dataSource.setUrl("jdbc:sqlite::memory:");
         dataSource.setSuppressClose(true);
 
-        Environment env = new Environment("test", new SpringManagedTransactionFactory(), dataSource);
-        Configuration config = new Configuration(env);
-        config.setMapUnderscoreToCamelCase(true);
-
-        SqlSessionFactory factory = new SqlSessionFactoryBuilder().build(config);
-        sqlSession = new SqlSessionTemplate(factory);
         PixivMapper mapper = new PixivMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
         PathPrefixMapper pathPrefixMapper = new PathPrefixMapper(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.main(dataSource));
 
@@ -498,6 +487,19 @@ class PixivDatabaseTest {
         List<Long> page1 = pixivDatabase.getArtworkIdsSortedByTimeDescPaged(5, 5);
         assertThat(page1).hasSize(5);
         assertThat(page1.get(0)).isEqualTo(15L);
+    }
+
+    @Test
+    @DisplayName("下载历史的两种排序都接受超出整数偏移的页码")
+    void shouldReturnEmptyHistoryBeyondIntegerOffset() {
+        insertArtwork(1L, "fixture", "/fixture", 1, "jpg", 100L, 0);
+        var history = new top.sywyar.pixivdownload.core.download.DownloadedArtworkService(pixivDatabase, null);
+        for (int page : List.of(1_073_741_824, Integer.MAX_VALUE)) {
+            assertThat(history.getSortTimeArtworkPaged(page, 20)).isEmpty();
+            assertThat(history.getSortAuthorArtworkPaged(page, 20)).isEmpty();
+        }
+        assertThat(history.getSortTimeArtworkPaged(0, 20)).containsExactly(1L);
+        assertThat(history.getSortAuthorArtworkPaged(0, 20)).containsExactly(1L);
     }
 
     @Test

@@ -15,20 +15,24 @@
     function enc(v) { return encodeURIComponent(v); }
 
     async function getJson(url, signal) {
+        if (signal) signal.throwIfAborted();
         var res = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin', signal: signal });
         if (!res.ok) {
             var body = await res.json().catch(function () { return null; });
+            if (signal) signal.throwIfAborted();
             var error = new Error(body && (body.error || body.message) || ('HTTP ' + res.status));
             error.body = body;
             error.httpStatus = res.status;
             throw error;
         }
-        return res.json();
+        var value = await res.json();
+        if (signal) signal.throwIfAborted();
+        return value;
     }
 
     // GET /api/plugin-market/repositories → 主开关 + SDK 版本 + 默认仓库 + 仓库只读投影。
-    API.fetchRepositories = function () {
-        return getJson('/api/plugin-market/repositories');
+    API.fetchRepositories = function (signal) {
+        return getJson('/api/plugin-market/repositories', signal);
     };
 
     API.contentImageUrl = function (repository, plugin, image, role, index) {
@@ -44,12 +48,12 @@
     };
 
     // GET /api/plugins/status → 恢复模式 + 插件失败 / 必选缺失诊断（复用插件管理只读投影）。
-    API.fetchPluginStatus = function () {
-        return Promise.all([getJson('/api/plugins/status'), PMK.recovery ? PMK.recovery.refresh() : null])
+    API.fetchPluginStatus = function (signal) {
+        return Promise.all([getJson('/api/plugins/status', signal), PMK.recovery ? PMK.recovery.refresh() : null])
             .then(function (results) { return results[0]; });
     };
 
-    API.fetchRecovery = function () { return getJson('/api/plugins/recovery'); };
+    API.fetchRecovery = function (signal) { return getJson('/api/plugins/recovery', signal); };
     API.recoveryAction = function (action) {
         if (action !== 'restart' && action !== 'exit') return Promise.reject(new Error('Invalid recovery action'));
         return postJson('/api/plugins/recovery/' + action, {});
@@ -145,13 +149,13 @@
         return getJson(url, options.signal);
     };
 
-    API.fetchPackageFacts = function (repositoryId, pluginId, version) {
-        return getJson('/api/plugin-market/plugins/' + enc(repositoryId) + '/' + enc(pluginId) + '/' + enc(version) + '/facts');
+    API.fetchPackageFacts = function (repositoryId, pluginId, version, signal) {
+        return getJson('/api/plugin-market/plugins/' + enc(repositoryId) + '/' + enc(pluginId) + '/' + enc(version) + '/facts', signal);
     };
 
     // 已展开的历史页也重新读取安装投影，不从展示摘要重算包状态。
-    API.refreshPluginDetail = async function (repositoryId, pluginId, previous, current) {
-        var detail = await PMK.api.fetchPluginDetail(repositoryId, pluginId);
+    API.refreshPluginDetail = async function (repositoryId, pluginId, previous, current, signal) {
+        var detail = await PMK.api.fetchPluginDetail(repositoryId, pluginId, {signal: signal});
         if (!current()) return null;
         if (!previous || detail.versionsGeneration !== previous.versionsGeneration) return detail;
         var cursors = new Set();
@@ -159,10 +163,10 @@
             var cursor = detail.nextVersionCursor;
             if (cursors.has(cursor)) throw new Error('Repeated version cursor');
             cursors.add(cursor);
-            var page = await PMK.api.fetchPluginDetail(repositoryId, pluginId, {cursor: cursor});
+            var page = await PMK.api.fetchPluginDetail(repositoryId, pluginId, {cursor: cursor, signal: signal});
             if (!current()) return null;
             if (page.versionsGeneration !== detail.versionsGeneration)
-                return PMK.api.fetchPluginDetail(repositoryId, pluginId);
+                return PMK.api.fetchPluginDetail(repositoryId, pluginId, {signal: signal});
             var seen = new Set((detail.packages || []).map(function (pkg) { return pkg.version; }));
             detail.packages = (detail.packages || []).concat((page.packages || []).filter(function (pkg) {
                 if (seen.has(pkg.version)) return false;
@@ -194,7 +198,6 @@
     };
     API.fetchDatabaseSettings = function (signal) { return getJson('/api/plugins/database', signal); };
     API.checkDatabase = function (draft, signal) { return postJson('/api/plugins/database/check', draft, signal); };
-    API.saveDatabase = function (draft, signal) { return postJson('/api/plugins/database', draft, signal); };
     API.previewDatabaseMigration = function (draft, signal) { return postJson('/api/plugins/database/preview', draft, signal); };
     API.startDatabaseMigration = function (token, signal) { return postJson('/api/plugins/database/migrate', {token: token}, signal); };
     API.fetchDatabaseMigration = function (signal) { return getJson('/api/plugins/database/migration', signal); };
@@ -204,7 +207,7 @@
             + '/' + enc(version) + '/install-preview');
     };
 
-    API.fetchOperations = function () { return getJson('/api/plugins/acquisitions'); };
+    API.fetchOperations = function (signal) { return getJson('/api/plugins/acquisitions', signal); };
     API.fetchOperation = function (id) { return getJson('/api/plugins/acquisitions/' + enc(id)); };
     API.discardOperation = function (id) {
         return postJson('/api/plugin-market/operations/' + enc(id) + '/discard', {});
@@ -215,7 +218,7 @@
             operationId: value.id, httpStatus: value.result.status };
         if (value.finished && value.failure) return { kind: 'error', body: value.failure, httpStatus: value.failure.status };
         return { kind: 'error', body: {code: 'OPERATION_RUNNING', operationId: value.id,
-            message: PMK.t('operations.running', '', {id: value.id})} };
+            messageKey: 'operations.running', messageArgs: {id: value.id}} };
     }
 
     async function executeConfirmedPlan(repositoryId, pluginId, version, confirmations, onProgress) {
@@ -225,7 +228,7 @@
             fingerprint: confirmations.fingerprint, confirmTrust: confirmations.trustSha256,
             previousOperationId: confirmations.previousOperationId
         });
-        if (!prepared || !prepared.id) throw new Error(PMK.t('operations.unknown'));
+        if (!prepared || !prepared.id) return {kind: 'error', body: {code: 'OPERATION_UNKNOWN', messageKey: 'operations.unknown'}};
         if (PMK.operations) PMK.operations.watch(prepared.id, onProgress);
         try {
             return operationResult(await postJson('/api/plugin-market/operations/' + enc(prepared.id) + '/execute', {}));
@@ -235,7 +238,7 @@
                 return operationResult(await API.fetchOperation(prepared.id));
             } catch (queryFailure) {
                 return {kind: 'error', body: {code: 'OPERATION_UNKNOWN', operationId: prepared.id,
-                    message: PMK.t('operations.unknown') + ' (' + prepared.id + ')'}};
+                    messageKey: 'operations.unknown'}};
             }
         } finally {
             if (PMK.operations) PMK.operations.settled(prepared.id);

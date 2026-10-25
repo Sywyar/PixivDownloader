@@ -43,12 +43,7 @@
     }
 
     function bootBatch(s) {
-        if (s.status === 'new') {
-            ctx.download.phaseWelcome();
-            return;
-        }
-        // 续跑（同标签刷新 / 多标签）
-        if (s.phase === 'welcome') {
+        if (s.status === 'new' || s.phase === 'welcome') {
             ctx.download.phaseWelcome();
         } else if (s.phase === 'download') {
             ctx.download.phaseDownload();
@@ -77,17 +72,6 @@
             ctx.patchState({phase: 'detail'});
             ctx.gallery.phaseDetail();
         }
-    }
-
-    var languageRevision = 0;
-    if (global.PixivI18n && typeof global.PixivI18n.onLanguageChange === 'function') {
-        global.PixivI18n.onLanguageChange(async function (event) {
-            if (!ctx.config || !ctx.config.eligible) return;
-            var revision = ++languageRevision;
-            var client = await global.PixivI18n.create({lang: event.lang, namespaces: ['tour']});
-            if (revision !== languageRevision) return;
-            refreshTranslations(client);
-        });
     }
 
     function refreshTranslations(client) {

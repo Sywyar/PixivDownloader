@@ -20,7 +20,6 @@
 
     let pageI18n = null;
     let searchTimer = null;
-    let isAdmin = false;
     let activeContentLang = '';
     let seriesTranslatedLangs = [];
     let contentLangCtl = null;

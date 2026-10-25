@@ -20,11 +20,9 @@
     var bindFoot = ctx.bindFoot;
     var skip = ctx.skip;
     var finish = ctx.finish;
-    var hook = ctx.hook;
     var callHook = ctx.callHook;
     var waitFor = ctx.waitFor;
     var waitForElement = ctx.waitForElement;
-    var notifyCompletionStepDone = ctx.notifyCompletionStepDone;
 
     function phaseWelcome() {
         patchState({status: 'active', phase: 'welcome'});
@@ -114,7 +112,7 @@
 
     function renderNetwork(stateName, data) {
         var bodyTop = '<p>' + escapeHtml(t('onboarding.network.intro',
-            '你好，{name}！开始之前，先检查后端能否连上 Pixiv（全程经你配置的代理）。', {name: greetName()})) + '</p>';
+            '你好，{name}！开始之前，先按当前网络与代理设置检查后端能否连上 Pixiv。', {name: greetName()})) + '</p>';
         var netRow;
         var buttons;
         if (stateName === 'checking') {

@@ -25,8 +25,10 @@ final class SwingDesktopUi {
         AtomicReference<MainFrame> frameRef = new AtomicReference<>();
         Runnable create = () -> {
             var startup = context.startupPluginSnapshots();
-            GuiThemeManager.applyBeforeFirstWindow(context.host().applicationConfig(),
-                    GuiThemeManager.readPersistedThemeId(context.host().applicationConfig()), startup);
+            GuiThemeManager.applyBeforeFirstWindow(
+                    GuiThemeManager.readPersistedThemeId(context.host().applicationConfig()),
+                    startup
+            );
             MainFrame frame = new MainFrame(context.serverPort(), context.rootFolder(), context.configPath(),
                     () -> GuiConfigContributionAggregator.fromRegisteredPlugins(
                             context.currentPluginSnapshots()),
@@ -43,17 +45,29 @@ final class SwingDesktopUi {
             return new Session(Objects.requireNonNull(frameRef.get(), "frame"), context);
         } catch (Exception | Error failure) {
             try {
-                runAndWait(() -> {
-                    SystemTrayManager.uninstall();
-                    MainFrame frame = frameRef.get();
-                    if (frame != null) frame.dispose();
-                });
+                runAndWait(() -> dispose(frameRef.get()));
             } catch (Exception | Error cleanupFailure) {
                 if (cleanupFailure instanceof VirtualMachineError fatal) throw fatal;
                 if (cleanupFailure instanceof ThreadDeath fatal) throw fatal;
                 if (failure != cleanupFailure) failure.addSuppressed(cleanupFailure);
             }
             throw failure;
+        }
+    }
+
+    private static void dispose(MainFrame frame) {
+        try {
+            SystemTrayManager.uninstall();
+        } finally {
+            try {
+                if (frame != null) frame.dispose();
+            } finally {
+                try {
+                    GuiThemeManager.close();
+                } finally {
+                    FlatLafSetup.close();
+                }
+            }
         }
     }
 
@@ -85,8 +99,7 @@ final class SwingDesktopUi {
         @Override public void close() {
             try {
                 runAndWait(() -> {
-                    SystemTrayManager.uninstall();
-                    try { frame.persistWindowState(); } finally { frame.dispose(); }
+                    try { frame.persistWindowState(); } finally { dispose(frame); }
                 });
             } catch (Exception failure) {
                 throw new IllegalStateException("Unable to close the Swing desktop UI", failure);

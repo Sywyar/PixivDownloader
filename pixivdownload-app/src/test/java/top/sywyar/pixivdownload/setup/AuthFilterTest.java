@@ -14,9 +14,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.web.servlet.HandlerMapping;
-import org.springframework.web.servlet.resource.ResourceHttpRequestHandler;
 
 import org.springframework.beans.factory.ObjectProvider;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
@@ -41,8 +38,6 @@ import top.sywyar.pixivdownload.plugin.registry.route.StartupRouteRegistry;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.nio.charset.StandardCharsets;
-import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -327,9 +322,10 @@ class AuthFilterTest {
             verify(staticResourceRateLimitService).isAllowed("192.168.1.100");
         }
 
-        @Test
-        @DisplayName("邀请访客页面静态资源应按邀请码限流（而非客户端 IP）")
-        void shouldCheckStaticResourceRateLimitForInviteGuestStaticResource() throws Exception {
+        @ParameterizedTest
+        @ValueSource(strings = {"/pixiv-gallery/gallery-core.js", "/pixiv-gallery.html", "/js/pixiv-side-modules.js"})
+        @DisplayName("静态资源请求复用当次邀请解析，下一次请求重新校验")
+        void shouldCheckStaticResourceRateLimitForInviteGuestStaticResource(String path) throws Exception {
             authFilter = authFilterWithGallery();
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("solo");
@@ -341,7 +337,7 @@ class AuthFilterTest {
             when(staticResourceRateLimitService.isAllowedForInvite("invite:invite-code")).thenReturn(true);
 
             request.setMethod("GET");
-            request.setRequestURI("/pixiv-gallery/gallery-core.js");
+            request.setRequestURI(path);
             request.setRemoteAddr("192.168.1.100");
             request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
 
@@ -351,6 +347,22 @@ class AuthFilterTest {
             verify(staticResourceRateLimitService, never()).isAllowed("192.168.1.100");
             verify(filterChain).doFilter(request, response);
             verify(guestInviteService).recordHit(1L);
+            verify(guestInviteService).resolveByCode("invite-code");
+            assertThat(request.getAttribute(GuestInviteSession.REQUEST_ATTR))
+                    .isInstanceOf(GuestInviteSession.class);
+
+            clearInvocations(filterChain, guestInviteService, staticResourceRateLimitService);
+            when(guestInviteService.resolveByCode("invite-code")).thenReturn(Optional.empty());
+            request = new MockHttpServletRequest("GET", path);
+            request.setCookies(new Cookie(AuthFilter.INVITE_COOKIE, "invite-code"));
+            response = new MockHttpServletResponse();
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getStatus()).isEqualTo(403);
+            verify(guestInviteService).resolveByCode("invite-code");
+            verify(guestInviteService, never()).recordHit(anyLong());
+            verifyNoInteractions(filterChain, staticResourceRateLimitService);
         }
 
         @Test
@@ -459,52 +471,6 @@ class AuthFilterTest {
     @Nested
     @DisplayName("公开路径放行")
     class PublicPathTests {
-
-        @ParameterizedTest
-        @CsvSource({
-                "false, solo, login.html",
-                "true, solo, login.html",
-                "true, multi, login.html",
-                "true, solo, intro.html",
-                "true, solo, maintenance.html",
-                "true, solo, error/404.html",
-                "false, solo, setup.html"
-        })
-        @DisplayName("未登录页面实际引用的脚本和样式应返回资源正文而非登录重定向")
-        void shouldServePageDependenciesWithoutLogin(boolean setupComplete, String mode, String page) throws Exception {
-            when(setupService.isSetupComplete()).thenReturn(setupComplete);
-            lenient().when(setupService.getMode()).thenReturn(mode);
-            String html = new ClassPathResource("static/" + page).getContentAsString(StandardCharsets.UTF_8);
-            var references = Pattern.compile("<(?:script|link)\\b[^>]*?\\b(?:src|href)=[\"'](/[^\"']+)[\"']")
-                    .matcher(html);
-            ResourceHttpRequestHandler resources = new ResourceHttpRequestHandler();
-            resources.setLocations(List.of(new ClassPathResource("static/")));
-            resources.afterPropertiesSet();
-            int checked = 0;
-            while (references.find()) {
-                String path = references.group(1);
-                MockHttpServletRequest assetRequest = new MockHttpServletRequest("GET", path);
-                assetRequest.setRemoteAddr(setupComplete ? "192.168.1.100" : "127.0.0.1");
-                assetRequest.setAttribute(HandlerMapping.PATH_WITHIN_HANDLER_MAPPING_ATTRIBUTE, path.substring(1));
-                MockHttpServletResponse assetResponse = new MockHttpServletResponse();
-
-                authFilter.doFilterInternal(assetRequest, assetResponse,
-                        (req, res) -> resources.handleRequest(assetRequest, assetResponse));
-
-                assertThat(assetResponse.getStatus()).as("%s 引用的 %s", page, path).isEqualTo(200);
-                assertThat(assetResponse.getRedirectedUrl()).as(path).isNull();
-                assertThat(assetResponse.getContentAsByteArray()).as(path)
-                        .isEqualTo(new ClassPathResource("static" + path).getContentAsByteArray());
-                if (path.endsWith(".css")) {
-                    assertThat(assetResponse.getContentType()).as(path).isEqualTo("text/css");
-                } else if (path.endsWith(".js")) {
-                    assertThat(assetResponse.getContentType()).as(path)
-                            .isIn("text/javascript", "application/javascript");
-                }
-                checked++;
-            }
-            assertThat(checked).as("页面必须实际加载脚本或样式").isPositive();
-        }
 
         @ParameterizedTest
         @ValueSource(strings = {

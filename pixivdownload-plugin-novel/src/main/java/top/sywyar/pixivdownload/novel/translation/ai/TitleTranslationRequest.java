@@ -1,10 +1,10 @@
 package top.sywyar.pixivdownload.novel.translation.ai;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import top.sywyar.pixivdownload.ai.model.AiChatMessage;
 
 import java.util.List;
+
+import static top.sywyar.pixivdownload.novel.translation.ai.TranslationRequest.jsonOf;
 
 /**
  * 一次「Pixiv 小说 / 系列标题翻译」的 AI 请求体。仅用于<b>独立</b>翻译某一标题的场景（最典型的是「翻译整个系列」
@@ -42,8 +42,6 @@ public record TitleTranslationRequest(String targetLanguage, String sourceTitle,
 
     /** 调用类型标签，供 {@link top.sywyar.pixivdownload.ai.AiChatClient} 标识本次请求用途。 */
     public static final String CALL_TYPE = "translation.title";
-
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /** 一对「原标题 → 目标语言已译标题」参考样例，供 AI 学习同系列的命名 / 风格习惯。 */
     public record TitleReference(String source, String target) {}
@@ -122,14 +120,5 @@ public record TitleTranslationRequest(String targetLanguage, String sourceTitle,
         return List.of(
                 AiChatMessage.system(SYSTEM_PROMPT),
                 AiChatMessage.user(userPrompt.toString()));
-    }
-
-    private static String jsonOf(List<?> list) {
-        if (list == null || list.isEmpty()) return null;
-        try {
-            return MAPPER.writeValueAsString(list);
-        } catch (JsonProcessingException e) {
-            return null;
-        }
     }
 }

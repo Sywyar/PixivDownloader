@@ -15,7 +15,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.*
 import androidx.compose.ui.graphics.Color
@@ -36,7 +35,6 @@ import io.github.robinpcrd.cupertino.*
 import top.sywyar.pixivdownload.guicompose.*
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.*
-import top.sywyar.pixivdownload.guicompose.model.ToolInputValidation
 
 private val toolIds = listOf("classifier", "folder", "backfill", "migration")
 private val toolIcons = listOf(Icons.Default.Collections, Icons.Default.FolderOpen, Icons.Default.Storage, Icons.Default.SyncAlt)

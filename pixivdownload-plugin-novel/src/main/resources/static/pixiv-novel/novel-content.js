@@ -84,8 +84,7 @@ function rerenderDynamic() {
     renderDescription(d.description);
     renderTags(d.tags || []);
     if (cachedSeriesNav) {
-        renderSeriesNavSet(cachedSeriesNav, { wrap: 'series-nav', prev: 'series-prev', index: 'series-index', next: 'series-next' });
-        renderSeriesNavSet(cachedSeriesNav, { wrap: 'series-nav-bottom', prev: 'series-prev-bottom', index: 'series-index-bottom', next: 'series-next-bottom' });
+        renderSeriesNav(cachedSeriesNav);
     }
     updateHeart();
 }
@@ -204,7 +203,6 @@ function formatReadingDuration(seconds) {
     if (hour > 0) parts.push(pageI18n.t('duration.hour', '{count} 小时', { count: hour }));
     if (minute > 0) parts.push(pageI18n.t('duration.minute', '{count} 分钟', { count: minute }));
     if (second > 0 && hour === 0) parts.push(pageI18n.t('duration.second', '{count} 秒', { count: second }));
-    if (!parts.length) parts.push(pageI18n.t('duration.second', '{count} 秒', { count: total }));
     return parts.join(' ');
 }
 

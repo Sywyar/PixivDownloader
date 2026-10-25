@@ -63,7 +63,6 @@ if (-not $OutputDir) {
     $OutputDir = Join-Path $ProjectRoot "build/plugin-distributions"
 }
 $AssemblerScript = Join-Path $PSScriptRoot "assemble-plugin-distribution.ps1"
-$Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 function Write-Step {
     param([string]$Message)
@@ -340,8 +339,8 @@ Assert-DistributionLayout -Directory $FullOfflineDir -Version $Version -Label "f
     -ExpectedPluginIds $FullOfflineIds -InputJarSha256 $InputJarSha256
 
 Write-Step "Creating distribution zips"
-Compress-Archive -Path (Join-Path $JavaStandardDir "*") -DestinationPath $JavaZip -Force
-Compress-Archive -Path (Join-Path $FullOfflineDir "*") -DestinationPath $FullOfflineZip -Force
+[System.IO.Compression.ZipFile]::CreateFromDirectory($JavaStandardDir, $JavaZip)
+[System.IO.Compression.ZipFile]::CreateFromDirectory($FullOfflineDir, $FullOfflineZip)
 foreach ($zip in @($JavaZip, $FullOfflineZip)) {
     $zipItem = Get-Item -LiteralPath $zip
     if ($zipItem.Length -le 0) {

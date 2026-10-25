@@ -220,14 +220,14 @@ public class PluginStatusService {
 
     /** 当前确实发生在插件启动 / 子上下文启动阶段的失败；普通坏包与验签失败不在此列。 */
     public Map<String, String> startupFailuresById() {
-        Map<String, String> failures = new LinkedHashMap<>(currentFailuresById());
+        Map<String, String> failures = currentFailuresById();
         crashedPluginIds().forEach(failures::remove);
         return Map.copyOf(failures);
     }
 
     /** 只读取内存中的失败事实，供恢复模式缓存识别异步崩溃和恢复，不重新扫描安装目录。 */
     public Map<String, String> failureSnapshot() {
-        Map<String, String> failures = new LinkedHashMap<>(currentFailuresById());
+        Map<String, String> failures = currentFailuresById();
         crashedPluginIds().forEach(id -> failures.put(id, "CRASHED"));
         return Map.copyOf(failures);
     }

@@ -3,11 +3,11 @@ package top.sywyar.pixivdownload.setup.guest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
-import top.sywyar.pixivdownload.core.metadata.GuestRestriction;
 import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
 
+import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,7 +21,8 @@ class GuestWorkVisibilityScopeFactoryTest {
             false, Set.of(11L),
             true, Set.of(),
             true, Set.of(),
-            false, Set.of(33L));
+            false, Set.of(33L),
+            false, Set.of(44L), true);
 
     private final GuestWorkVisibilityScopeFactory factory = new GuestWorkVisibilityScopeFactory();
 
@@ -44,16 +45,11 @@ class GuestWorkVisibilityScopeFactoryTest {
         WorkVisibilityScope scope = factory.fromRequest(request);
 
         assertThat(scope.enforceVisibility()).isTrue();
-        assertMatches(GuestRestriction.from(SESSION), scope.restrictionFor(WorkType.ARTWORK));
-        assertMatches(GuestRestriction.forNovel(SESSION), scope.restrictionFor(WorkType.NOVEL));
-    }
-
-    private static void assertMatches(GuestRestriction expected, WorkRestriction actual) {
-        assertThat(actual.allowedXRestricts()).isEqualTo(expected.allowedXRestricts());
-        assertThat(actual.tagUnrestricted()).isEqualTo(expected.tagUnrestricted());
-        assertThat(actual.tagIds()).containsExactlyInAnyOrderElementsOf(expected.tagIds());
-        assertThat(actual.authorUnrestricted()).isEqualTo(expected.authorUnrestricted());
-        assertThat(actual.authorIds()).containsExactlyInAnyOrderElementsOf(expected.authorIds());
-        assertThat(actual.fullyOpen()).isEqualTo(expected.fullyOpen());
+        assertThat(scope.restrictionFor(WorkType.ARTWORK)).isEqualTo(new WorkRestriction(
+                Set.of(0, 2), false, List.of(11L), true, List.of(),
+                false, List.of(44L), true));
+        assertThat(scope.restrictionFor(WorkType.NOVEL)).isEqualTo(new WorkRestriction(
+                Set.of(0, 2), true, List.of(), false, List.of(33L),
+                false, List.of(44L), true));
     }
 }

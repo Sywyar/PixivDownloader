@@ -1,10 +1,29 @@
 'use strict';
+    let artworkRequestController = null;
+    let fullImageRequest = null;
+
+    function cancelArtworkRequest() {
+        artworkRequestController?.abort();
+        artworkRequestController = null;
+    }
+
+    function releaseFullImage() {
+        fullImageRequest?.cancel?.();
+        fullImageRequest = null;
+        document.getElementById('modalImage').removeAttribute('src');
+    }
+
     // ===================== 作品详情 =====================
     async function viewArtworkDetails(artworkId) {
+        if (pageSuspended) return;
+        cancelArtworkRequest();
+        const controller = artworkRequestController = new AbortController();
         try {
-            const res = await fetch(`/api/downloaded/${artworkId}`);
+            const res = await fetch(`/api/downloaded/${artworkId}`, {signal: controller.signal});
+            if (controller.signal.aborted) return;
             if (!res.ok) throw new Error();
             const artwork = await res.json();
+            if (controller.signal.aborted) return;
 
             const dt     = formatDateTime(artwork.time);
             const moveDt = artwork.moveTime ? formatDateTime(artwork.moveTime).full : null;
@@ -71,17 +90,25 @@
 
             artworkModal.show();
         } catch (e) {
+            if (controller.signal.aborted) return;
             console.error(t('log.artwork-detail-failed', '加载作品详情失败'), e);
             alert(t('alert.load-artwork-failed', 'Failed to load artwork details'));
+        } finally {
+            if (artworkRequestController === controller) artworkRequestController = null;
         }
     }
 
     // ===================== 缩略图 =====================
     async function viewThumbnails(artworkId) {
+        if (pageSuspended) return;
+        cancelArtworkRequest();
+        const controller = artworkRequestController = new AbortController();
         try {
-            const res = await fetch(`/api/downloaded/${artworkId}`);
+            const res = await fetch(`/api/downloaded/${artworkId}`, {signal: controller.signal});
+            if (controller.signal.aborted) return;
             if (!res.ok) throw new Error();
             const artwork = await res.json();
+            if (controller.signal.aborted) return;
 
             thumbArtworkId   = artworkId;
             thumbCount       = artwork.count;
@@ -104,8 +131,11 @@
             artworkModal.show();
             renderThumbnailPage();
         } catch (e) {
+            if (controller.signal.aborted) return;
             console.error(t('log.thumbnail-failed', '加载缩略图失败'), e);
             alert(t('alert.load-thumbnails-failed', 'Failed to load thumbnails'));
+        } finally {
+            if (artworkRequestController === controller) artworkRequestController = null;
         }
     }
 
@@ -181,42 +211,49 @@
 
     // ===================== 原图预览 =====================
     async function viewFullImage(artworkId, page) {
+        if (pageSuspended) return;
         fullImgArtworkId = artworkId;
         fullImgPage      = page;
         fullImgTotal     = (thumbArtworkId === artworkId) ? thumbCount : 0;
-        const ok = await loadFullImage();
-        if (ok) imageModal.show();
+        const pending = loadFullImage();
+        const request = fullImageRequest;
+        if (await pending && fullImageRequest === request) imageModal.show();
     }
 
     function loadFullImage() {
-        if (fullImgLoading) return Promise.resolve(false);
-        fullImgLoading = true;
+        releaseFullImage();
+        if (pageSuspended) return Promise.resolve(false);
+        const request = fullImageRequest = {};
         const img = document.getElementById('modalImage');
         const spinner = document.getElementById('imgSpinner');
-        img.src = '';
         img.style.opacity = '0';
         spinner.classList.add('active');
         return new Promise((resolve) => {
-            img.onload = () => {
+            const finish = ok => {
+                img.onload = img.onerror = null;
                 spinner.classList.remove('active');
                 img.style.opacity = '1';
+                request.cancel = null;
+                resolve(ok);
+            };
+            request.cancel = () => finish(false);
+            img.onload = () => {
+                if (fullImageRequest !== request) return;
                 updateImgNav();
-                fullImgLoading = false;
-                resolve(true);
+                finish(true);
             };
             img.onerror = () => {
-                spinner.classList.remove('active');
-                img.style.opacity = '1';
+                if (fullImageRequest !== request) return;
                 console.error(t('log.full-image-failed', '加载完整图片失败'));
                 alert(t('alert.load-image-failed', 'Failed to load image'));
-                fullImgLoading = false;
-                resolve(false);
+                finish(false);
             };
             img.src = `/api/downloaded/rawfile/${fullImgArtworkId}/${fullImgPage}`;
         });
     }
 
     async function navigateFullImg(delta) {
+        if (pageSuspended) return;
         const newPage = fullImgPage + delta;
         if (newPage < 0) return;
         if (fullImgTotal > 0 && newPage >= fullImgTotal) return;
