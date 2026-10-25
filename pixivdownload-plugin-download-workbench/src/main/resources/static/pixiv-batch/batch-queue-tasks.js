@@ -7,6 +7,7 @@
     let timer, request, pending, started = false, suspended = false;
     let epoch = '';
     let snapshotRevision = null;
+    let recoveryAfter = '';
     const cancellations = new Map();
     const missingResults = new Set();
 
@@ -83,10 +84,14 @@
             && item.recoveryState);
         const ids = new Set(items.map(item => item.taskId));
         for (const id of missingResults) if (!ids.has(id)) missingResults.delete(id);
-        for (const item of items) {
+        // 整轮超时后从上次请求的后续项继续，避免慢回执长期饿死其他执行。
+        const start = items.findIndex(item => item.taskId === recoveryAfter) + 1;
+        for (let offset = 0; offset < items.length; offset++) {
+            const item = items[(start + offset) % items.length];
             if (controller.signal.aborted || suspended || document.hidden || !isAdmin) return;
             const id = item.taskId;
             if (missingResults.has(id) || !state.queue.includes(item)) continue;
+            recoveryAfter = id;
             try {
                 const response = await fetch(BASE + '/api/download/tasks/' + id, {
                     credentials: 'same-origin', cache: 'no-store', signal: controller.signal

@@ -51,6 +51,31 @@ function fixture(admin = true, storage = new Map()) {
 }
 async function flush() { for (let i = 0; i < 12; i++) await Promise.resolve(); }
 
+test('首项回执连续超时后仍核对后续执行，保留未知项且不重新提交', async () => {
+    const h = fixture();
+    const stuck = manual(first), ready = manual(second);
+    h.state.queue.push(stuck, ready);
+    h.ctx.fetch = async (url, options) => {
+        h.calls.push({url, options});
+        if (url === '/api/download/tasks') return {ok: true, json: async () => snapshot([])};
+        if (url.endsWith(first)) return new Promise((resolve, reject) => {
+            options.signal.addEventListener('abort', () => reject(new Error('timed out')), {once: true});
+        });
+        return {ok: true, json: async () => task(second, 'COMPLETED')};
+    };
+    for (let round = 0; round < 3; round++) {
+        const query = h.api.refresh(false);
+        await flush();
+        [...h.timers.values()].find(timer => timer.ms === 10000).fn();
+        await query;
+    }
+    assert.equal(ready.status, 'completed');
+    assert.equal(stuck.recoveryState, 'unknown');
+    assert.equal(h.state.queue.length, 2);
+    assert.equal(h.calls.filter(call => call.url.endsWith(second)).length, 1);
+    assert.equal(h.calls.some(call => call.options.method === 'POST'), false);
+});
+
 test('已缓存终态但本页 worker 尚未完成的记录重开后仍按原执行查询持久结果', async () => {
     for (const phase of ['COMPLETED', 'FAILED', 'CANCELLED']) {
         const previous = fixture();
