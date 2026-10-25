@@ -31,8 +31,8 @@ class WorkbenchMessagesTest {
     @DisplayName("插件私有异常按请求语言投影且不依赖宿主消息实现")
     void localizedFailureUsesPluginOwnedEnglishMessage() throws IOException {
         LocalizedException failure = LocalizedException.badRequest(
-                "schedule.error.cookie-empty",
-                "Cookie 无效或为空");
+                "schedule.error.credential-empty",
+                "凭证无效或为空");
 
         var response = WorkbenchErrorResponses.localized(
                 failure,
@@ -42,9 +42,9 @@ class WorkbenchMessagesTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody()).isNotNull();
         String expected = load("i18n/workbench/messages_en.properties")
-                .getProperty("schedule.error.cookie-empty");
+                .getProperty("schedule.error.credential-empty");
         assertThat(expected).isNotBlank().isNotEqualTo(failure.defaultMessage());
-        assertThat(response.getBody().code()).isEqualTo("schedule.error.cookie-empty");
+        assertThat(response.getBody().code()).isEqualTo("schedule.error.credential-empty");
         assertThat(response.getBody().error()).isEqualTo(expected);
     }
 
