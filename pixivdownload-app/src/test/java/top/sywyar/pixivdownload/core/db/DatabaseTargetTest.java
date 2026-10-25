@@ -17,6 +17,31 @@ class DatabaseTargetTest {
     @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory;
 
     @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"true, rollback", "false, rollback", "true, restore", "false, release"})
+    @DisplayName("离线建表失败后的清理致命错误优先传播并保留原错误")
+    void fatalToolCleanupEscapesOrdinaryFailure(boolean autoCommit, String stage) throws Exception {
+        var connection = org.mockito.Mockito.mock(java.sql.Connection.class);
+        org.mockito.Mockito.when(connection.getAutoCommit()).thenReturn(autoCommit);
+        var savepoint = org.mockito.Mockito.mock(java.sql.Savepoint.class);
+        org.mockito.Mockito.when(connection.setSavepoint()).thenReturn(savepoint);
+        var target = org.mockito.Mockito.mock(DatabaseTarget.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+        org.mockito.Mockito.doNothing().when(target).prepareTransaction(connection, false);
+        var failure = new java.sql.SQLException("controlled schema failure");
+        Error cleanup = stage.equals("rollback") ? new ThreadDeath() : new OutOfMemoryError("controlled cleanup failure");
+        org.mockito.Mockito.doThrow(failure).when(target).applySchema(org.mockito.ArgumentMatchers.eq(connection),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(true));
+        if (stage.equals("restore")) org.mockito.Mockito.doThrow(cleanup).when(connection).setAutoCommit(true);
+        else if (stage.equals("release")) org.mockito.Mockito.doThrow(cleanup).when(connection).releaseSavepoint(savepoint);
+        else if (autoCommit) org.mockito.Mockito.doThrow(cleanup).when(connection).rollback();
+        else org.mockito.Mockito.doThrow(cleanup).when(connection).rollback(savepoint);
+
+        assertThatThrownBy(() -> top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target))
+                .isSameAs(cleanup).hasSuppressedException(failure);
+        if (!stage.equals("restore")) org.mockito.Mockito.verify(connection, org.mockito.Mockito.never()).setAutoCommit(true);
+        org.mockito.Mockito.verify(connection, org.mockito.Mockito.never()).close();
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"prepare", "work", "commit"})
     @DisplayName("工具事务回滚失败保留原错误且不能隐式提交")
     void failedRollbackNeverEnablesAutoCommit(String stage) throws Exception {
@@ -26,16 +51,16 @@ class DatabaseTargetTest {
         org.mockito.Mockito.doNothing().when(target).prepareTransaction(connection, false);
         var failure = new OutOfMemoryError("controlled " + stage + " failure");
         var rollback = new java.sql.SQLException("controlled rollback failure");
+        org.mockito.Mockito.doReturn(null).when(target).applySchema(org.mockito.ArgumentMatchers.eq(connection),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(true));
         org.mockito.Mockito.doThrow(rollback).when(connection).rollback();
         if (stage.equals("prepare")) org.mockito.Mockito.doThrow(failure).when(target).prepareTransaction(connection, false);
+        if (stage.equals("work")) org.mockito.Mockito.doThrow(failure).when(target).applySchema(
+                org.mockito.ArgumentMatchers.eq(connection), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(true));
         if (stage.equals("commit")) org.mockito.Mockito.doThrow(failure).when(connection).commit();
 
-        assertThatThrownBy(() -> {
-            try (var transaction = target.beginToolTransaction(connection)) {
-                if (stage.equals("work")) throw failure;
-                transaction.commit();
-            }
-        }).isSameAs(failure).hasSuppressedException(rollback);
+        assertThatThrownBy(() -> top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target))
+                .isSameAs(failure).hasSuppressedException(rollback);
         org.mockito.Mockito.verify(connection).rollback();
         org.mockito.Mockito.verify(connection, org.mockito.Mockito.never()).setAutoCommit(true);
         org.mockito.Mockito.verify(connection, org.mockito.Mockito.never()).close();
@@ -65,12 +90,11 @@ class DatabaseTargetTest {
         var target = org.mockito.Mockito.mock(DatabaseTarget.class, org.mockito.Mockito.CALLS_REAL_METHODS);
         org.mockito.Mockito.doNothing().when(target).prepareTransaction(connection, false);
         var failure = new java.sql.SQLException("controlled commit failure");
+        org.mockito.Mockito.doReturn(null).when(target).applySchema(org.mockito.ArgumentMatchers.eq(connection),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(true));
         org.mockito.Mockito.doThrow(failure).when(connection).commit();
-        assertThatThrownBy(() -> {
-            try (var transaction = target.beginToolTransaction(connection)) {
-                transaction.commit();
-            }
-        }).isSameAs(failure);
+        assertThatThrownBy(() -> top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target))
+                .isSameAs(failure);
         var order = org.mockito.Mockito.inOrder(connection);
         order.verify(connection).commit();
         order.verify(connection).rollback();

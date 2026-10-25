@@ -32,6 +32,36 @@ import static org.mockito.ArgumentMatchers.*;
 class ArtworksBackFillDatabaseTest {
 
     @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("回填普通失败后的回滚致命错误不被原错误掩盖")
+    void fatalRollbackEscapesOrdinaryFailure(boolean nested, @TempDir Path directory) throws Exception {
+        var target = spy(DatabaseProviderTestFixtures.sqlite(directory.resolve("rollback.db")));
+        try (var raw = target.openConnection()) {
+            top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(raw, target);
+            var connection = mock(Connection.class, org.mockito.AdditionalAnswers.delegatesTo(raw));
+            var source = mock(javax.sql.DataSource.class);
+            when(source.getConnection()).thenReturn(connection);
+            try (var database = ArtworksBackFillDatabase.open(source, target)) {
+                if (nested) connection.setAutoCommit(false);
+                var failure = new java.sql.SQLException("controlled storage failure");
+                var cleanup = new ThreadDeath();
+                doAnswer(ignored -> {
+                    if (nested) doThrow(cleanup).when(connection).rollback(any(java.sql.Savepoint.class));
+                    else doThrow(cleanup).when(connection).rollback();
+                    throw failure;
+                }).when(target).storageSession(eq(connection), any());
+                var candidate = new ArtworksBackFillDatabase.Candidate(1, true, true, true, true, true, true);
+                var result = ArtworksBackFillPixivClient.LookupResult.found(
+                        42, "author", 1, true, "description", List.of(), 0, 0, null);
+
+                assertThatThrownBy(() -> database.applyUpdates(candidate, result, true, false, false, false, false, false))
+                        .isSameAs(cleanup).hasSuppressedException(failure);
+                assertThat(connection.getAutoCommit()).isFalse();
+            }
+        }
+    }
+
+    @ParameterizedTest
     @org.junit.jupiter.params.provider.CsvSource({"target, false", "pooled-schema, false",
             "independent-schema, false", "target, true", "pooled-schema, true", "independent-schema, true"})
     @DisplayName("目标或结构校验失败关闭已取得的连接，清理致命错误仍传播")

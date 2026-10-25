@@ -14,6 +14,32 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("旧 JSON 离线迁移")
 class JsonToSqliteMigrationTest {
 
+    @Test
+    @DisplayName("JSON 导入普通失败后的回滚致命错误优先传播且关闭连接")
+    void fatalRollbackEscapesOrdinaryFailure(@TempDir Path directory) throws Exception {
+        var target = org.mockito.Mockito.spy(
+                top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("rollback.db")));
+        Files.writeString(directory.resolve(JsonToSqliteMigration.DOWNLOAD_HISTORY_FILE),
+                "{\"downloaded\":{}}", StandardCharsets.UTF_8);
+        try (var raw = target.openConnection()) {
+            var connection = org.mockito.Mockito.mock(java.sql.Connection.class,
+                    org.mockito.AdditionalAnswers.delegatesTo(raw));
+            var failure = new java.sql.SQLException("controlled storage failure");
+            var cleanup = new ThreadDeath();
+            org.mockito.Mockito.doAnswer(ignored -> {
+                org.mockito.Mockito.doThrow(cleanup).when(connection).rollback();
+                throw failure;
+            }).when(target).storageSession(org.mockito.ArgumentMatchers.eq(connection), org.mockito.ArgumentMatchers.any());
+            var options = new JsonToSqliteMigration.Options(target.displayName(), directory.toString(), target);
+            var source = org.mockito.Mockito.mock(javax.sql.DataSource.class);
+            org.mockito.Mockito.when(source.getConnection()).thenReturn(connection);
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> JsonToSqliteMigration.run(options, null, source))
+                    .isSameAs(cleanup).hasSuppressedException(failure);
+            assertThat(connection.isClosed()).isTrue();
+        }
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
     @DisplayName("导入报告或存储会话关闭致命失败时撤回作品和统计")

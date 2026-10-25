@@ -140,7 +140,9 @@ public class JsonToSqliteMigration {
         try (Connection conn = dataSource == null ? options.target().openConnection() : dataSource.getConnection()) {
             options.target().requireConnectionTarget(conn);
             DatabaseInitializer.prepareOffline(conn, options.target());
-            try (var transaction = options.target().beginToolTransaction(conn)) {
+            var transaction = options.target().beginToolTransaction(conn);
+            Throwable failure = null;
+            try {
                 try (var session = options.target().storageSession(conn, SCHEMA)) {
                     session.insert("file_name_templates", Map.of("id", 1L, "template", PixivWorkFileNameFormatter.DEFAULT_TEMPLATE),
                             DatabaseSession.Conflict.ignore());
@@ -214,6 +216,11 @@ public class JsonToSqliteMigration {
                     }
                 }
                 transaction.commit();
+            } catch (Exception | Error e) {
+                failure = e;
+                throw e;
+            } finally {
+                transaction.finish(failure);
             }
         }
 

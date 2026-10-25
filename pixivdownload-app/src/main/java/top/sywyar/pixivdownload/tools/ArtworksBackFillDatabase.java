@@ -124,10 +124,17 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
             boolean updateTags,
             boolean updateSeries
     ) throws SQLException {
-        try (var transaction = target.beginToolTransaction(connection)) {
+        var transaction = target.beginToolTransaction(connection);
+        Throwable failure = null;
+        try {
             applyUpdatesInTransaction(candidate, result, updateAuthor, updateR18, updateAi,
                     updateDescription, updateTags, updateSeries);
             transaction.commit();
+        } catch (SQLException | RuntimeException | Error e) {
+            failure = e;
+            throw e;
+        } finally {
+            transaction.finish(failure);
         }
     }
 

@@ -27,9 +27,16 @@ public class DatabaseInitializer {
 
     public static void prepareOffline(java.sql.Connection connection, DatabaseTarget target) throws java.sql.SQLException {
         var registry = top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry.forBuiltInPlugins();
-        try (var transaction = target.beginToolTransaction(connection)) {
+        var transaction = target.beginToolTransaction(connection);
+        Throwable failure = null;
+        try {
             target.applySchema(connection, CoreMigrationSchema.create(registry, true), true);
             transaction.commit();
+        } catch (java.sql.SQLException | RuntimeException | Error e) {
+            failure = e;
+            throw e;
+        } finally {
+            transaction.finish(failure);
         }
     }
 
