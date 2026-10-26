@@ -244,20 +244,14 @@ class MediaMaintenanceServiceTest {
         }
     }
 
-    @Test
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
     @DisplayName("关闭服务等待扫描实际退出，关闭后拒绝新预览")
-    void closeDrainsScan() throws Exception {
+    void closeDrainsScan(boolean cancelAgain) throws Exception {
         var query = mock(top.sywyar.pixivdownload.core.work.service.WorkQueryService.class);
-        var entered = new CountDownLatch(1);
-        var interrupted = new CountDownLatch(1);
-        var release = new CountDownLatch(1);
+        var scan = new ScanGate();
         when(query.search(any())).thenAnswer(call -> {
-            entered.countDown();
-            try { new CountDownLatch(1).await(); }
-            catch (InterruptedException stop) {
-                interrupted.countDown();
-                assertTrue(release.await(5, TimeUnit.SECONDS));
-            }
+            scan.awaitRelease();
             return new top.sywyar.pixivdownload.core.work.model.PagedResult<>(List.of(), 0, 0, 100, 0);
         });
         var service = new MediaMaintenanceService(mock(WorkAssetService.class), mock(WorkMetadataRepository.class), query,
@@ -265,15 +259,21 @@ class MediaMaintenanceServiceTest {
         var closer = java.util.concurrent.Executors.newSingleThreadExecutor();
         try {
             var result = service.preview(new MediaMaintenanceService.Request("png", null, false));
-            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            assertTrue(scan.entered.await(5, TimeUnit.SECONDS));
             var closing = closer.submit(service::close);
-            assertTrue(interrupted.await(5, TimeUnit.SECONDS));
+            assertNotNull(scan.interruptions.poll(5, TimeUnit.SECONDS));
+            if (cancelAgain) {
+                service.cancel();
+                assertNotNull(scan.interruptions.poll(5, TimeUnit.SECONDS));
+            }
+            assertFalse(scan.exited.isDone());
             assertFalse(closing.isDone());
-            release.countDown();
+            scan.close();
+            scan.exited.get(5, TimeUnit.SECONDS);
             closing.get(5, TimeUnit.SECONDS);
             assertThrows(java.util.concurrent.CancellationException.class, result::join);
             assertThrows(RuntimeException.class, () -> service.preview(new MediaMaintenanceService.Request("png", null, false)));
-        } finally { release.countDown(); service.close(); closer.shutdownNow(); }
+        } finally { scan.close(); service.close(); closer.shutdownNow(); }
     }
 
     @Test
@@ -405,34 +405,34 @@ class MediaMaintenanceServiceTest {
         }
     }
 
-    @Test
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
     @DisplayName("真实 owner 排空中断扫描但等待查询实际退出，拒绝提交后不会卡在扫描状态")
-    void runtimeQuiesceWaitsForScanExit() throws Exception {
+    void runtimeQuiesceWaitsForScanExit(boolean cancelAgain) throws Exception {
         var tasks = new top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry();
         var query = mock(WorkQueryService.class);
-        var entered = new CountDownLatch(1);
-        var interrupted = new CountDownLatch(1);
-        var release = new CountDownLatch(1);
+        var scan = new ScanGate();
         when(query.search(any())).thenAnswer(call -> {
-            entered.countDown();
-            try { release.await(); }
-            catch (InterruptedException cancelled) {
-                interrupted.countDown();
-                assertTrue(release.await(5, TimeUnit.SECONDS));
-            }
+            scan.awaitRelease();
             return new top.sywyar.pixivdownload.core.work.model.PagedResult<>(List.of(), 0, 0, 100, 0);
         });
         try (var service = new MediaMaintenanceService(mock(WorkAssetService.class), mock(WorkMetadataRepository.class), query,
                 mock(ImageOutputService.class), mock(top.sywyar.pixivdownload.download.UgoiraService.class), new MemoryMediaStore(),
-                () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), tasks.registrarForPlugin("independent"))) {
+                () -> true, mock(top.sywyar.pixivdownload.i18n.MessageResolver.class), tasks.registrarForPlugin("independent")); scan) {
             var preview = service.preview(new MediaMaintenanceService.Request("png", null, false));
-            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            assertTrue(scan.entered.await(5, TimeUnit.SECONDS));
             assertEquals(1, tasks.activeTaskCount("independent"));
             var drain = tasks.prepareQuiesce("independent");
             tasks.cancelQuiescedTasks("independent", drain);
-            assertTrue(interrupted.await(5, TimeUnit.SECONDS));
+            assertNotNull(scan.interruptions.poll(5, TimeUnit.SECONDS));
+            if (cancelAgain) {
+                service.cancel();
+                assertNotNull(scan.interruptions.poll(5, TimeUnit.SECONDS));
+            }
+            assertFalse(scan.exited.isDone());
             assertFalse(drain.isDrained());
-            release.countDown();
+            scan.close();
+            scan.exited.get(5, TimeUnit.SECONDS);
             assertTrue(drain.awaitDrained(System.nanoTime() + TimeUnit.SECONDS.toNanos(5)));
             assertThrows(java.util.concurrent.CancellationException.class, preview::join);
             assertThrows(top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRejectedException.class,
@@ -440,7 +440,7 @@ class MediaMaintenanceServiceTest {
             assertEquals("idle", service.status().state());
             assertEquals(0, tasks.activeTaskCount("independent"));
             verify(query, times(1)).search(any());
-        } finally { release.countDown(); }
+        }
     }
 
     private static void awaitFinished(MediaMaintenanceService service) throws InterruptedException {

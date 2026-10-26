@@ -40,9 +40,7 @@ class DesktopControlCenterViewTest {
                 var uri = opened.poll(5, java.util.concurrent.TimeUnit.SECONDS);
                 assertNotNull(uri);
                 assertEquals(active ? "/plugin-market.html" : "/sample.html", uri.getPath());
-                assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () -> {
-                    while (model.busy()) Thread.sleep(10);
-                });
+                DesktopSnapshotAwaiter.awaitEnabled(model, button.id());
             }
         }
     }

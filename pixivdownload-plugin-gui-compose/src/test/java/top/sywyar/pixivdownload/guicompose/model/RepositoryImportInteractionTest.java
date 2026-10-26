@@ -5,12 +5,10 @@ import org.junit.jupiter.api.DisplayName;
 import top.sywyar.pixivdownload.plugin.api.gui.*;
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode;
 
-import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
@@ -49,7 +47,7 @@ class RepositoryImportInteractionTest {
             assertEquals("descriptor", tabs.initialSelectedId());
             change(model, ID + ".url", DesktopUiNode.Value.text(URL));
             activate(model, ID + ".preview");
-            await(() -> !model.busy() && nodes(model).anyMatch(node -> node.id().equals(ID + ".confirm")));
+            DesktopSnapshotAwaiter.awaitEnabled(model, ID + ".confirm");
             assertFalse(button(model, ID + ".accept").enabled());
             change(model, ID + ".confirm", DesktopUiNode.Value.bool(true));
             assertTrue(button(model, ID + ".accept").enabled());
@@ -58,13 +56,14 @@ class RepositoryImportInteractionTest {
             assertTrue(button(model, ID + ".preview").enabled());
             change(model, ID + ".url", DesktopUiNode.Value.text(URL));
             activate(model, ID + ".preview");
-            await(() -> !model.busy() && nodes(model).anyMatch(node -> node.id().equals(ID + ".confirm")));
+            DesktopSnapshotAwaiter.awaitEnabled(model, ID + ".confirm");
             change(model, ID + ".confirm", DesktopUiNode.Value.bool(true));
             activate(model, ID + ".accept");
-            await(() -> !model.busy() && model.snapshot().document().dialogs().isEmpty());
+            DesktopConfigurationControllerTest.awaitReady(model);
+            assertTrue(model.snapshot().document().dialogs().isEmpty());
             assertEquals(List.of(manual), saved.get());
             activate(model, "config.save");
-            await(() -> !model.busy() && saved.get().size() == 2);
+            DesktopConfigurationControllerTest.awaitReady(model);
             assertEquals(List.of(manual, imported), saved.get());
         }
     }
@@ -88,7 +87,7 @@ class RepositoryImportInteractionTest {
             assertTrue(started.await(5, TimeUnit.SECONDS));
             activate(model, ID + ".cancel");
             release.countDown();
-            await(() -> !model.busy());
+            DesktopConfigurationControllerTest.awaitReady(model);
             assertTrue(model.snapshot().document().dialogs().isEmpty());
             activate(model, "config.market.repository.add");
             assertFalse(nodes(model).anyMatch(node -> node.id().equals(ID + ".accept")));
@@ -138,7 +137,4 @@ class RepositoryImportInteractionTest {
         return Stream.concat(Stream.of(node), node.childNodes().stream().flatMap(RepositoryImportInteractionTest::descendants));
     }
 
-    private static void await(BooleanSupplier condition) {
-        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> { while (!condition.getAsBoolean()) Thread.sleep(10); });
-    }
 }
