@@ -14,8 +14,7 @@
 
    约定（同「Vue 运行时与槽位挂载约定」）：
    - 组件直接使用 Vue.h 渲染，遵守 script-src self，不在浏览器编译字符串模板。
-   - 模型只存 raw 字段，文案渲染期经 bt() 派生；语言切换经 renderDock()
-     重建挂载点后由 ensure() 重挂，渲染期重新派生。
+   - 模型只存 raw 字段，文案渲染期经 bt() 派生；语言切换刷新原有实例。
    - 结构逐字镜像命令式 renderDock / renderCurrent / queueItemRow /
      renderScheduleQueue 的 id / class / data-* 契约，两条路径视觉与行为一致。
    ============================================================ */
@@ -130,7 +129,7 @@ function aqvExtras(q) {
     const entries = typeof progressExtrasModel === 'function' ? progressExtrasModel(q) : [];
     if (!entries.length) return null;
     const h = aqvVue.h;
-    return h('div', {class: 'ab-progress-extras'}, entries.map(entry => entry.kind === 'progress'
+    return h('div', {key: 'extras', class: 'ab-progress-extras'}, entries.map(entry => entry.kind === 'progress'
         ? aqvMiniProgress(entry.label, entry.value, entry.progress, entry.cls, entry.key, entry.active)
         : h('p', {key: entry.key, class: ['ab-progress-note', entry.tone ? 'ab-progress-note--' + entry.tone : '']}, [
             entry.badge ? h('span', {class: ['ab-mini-badge', {'ab-mini-badge--ai': entry.ai}]}, entry.badge) : null,
@@ -172,10 +171,11 @@ function aqvRowModel(q) {
             ? (q.novelId || String(q.id).replace(/^n/, '')) + ' (Novel)'
             : q.id) + ' | ',
         message: queueItemMessage(q),
-        progress: q.totalImages > 0 ? {
-            label: aqvT('status.image-progress', '{downloaded} / {total} 张',
-                {downloaded: q.downloadedCount || 0, total: q.totalImages}),
-            text: percent + '%',
+        progress: q.kind === 'illust' || q.totalImages > 0 ? {
+            label: q.totalImages > 0 ? aqvT('status.image-progress', '{downloaded} / {total} 张',
+                {downloaded: q.downloadedCount || 0, total: q.totalImages}) : aqvT('queue.progress.inactive', null),
+            text: q.totalImages > 0 ? percent + '%' : '',
+            value: q.totalImages > 0 ? percent : undefined,
             cls: 'is-' + q.status,
             width: percent + '%'
         } : null,
@@ -188,6 +188,8 @@ function aqvStatsComponent() {
     return {
         render() {
             const h = aqvVue.h;
+            // 完整列表同步也用于语言刷新，即使统计数字未变也要重译标签。
+            void aqvStore.rowKeys;
             return [
                 ['Pending', 'pending', 'clock', 'stats.queued', '队列'],
                 ['Success', 'success', 'check', 'stats.success', '成功'],
@@ -216,38 +218,42 @@ function aqvCurrentComponent() {
             return {front, remaining};
         },
         render() {
-            const h = aqvVue.h;
             // 完整同步也承接语言刷新，空队列仍需更新当前卡文案。
             const front = aqvStore.rowKeys.length ? this.front : null;
-            const model = currentCardModel(front);
-            const children = [h('div', {class: 'ab-current-head'}, [
-                h('span', {class: 'ab-icon', 'aria-hidden': 'true', innerHTML: aqvIcon('download')}),
-                h('strong', aqvT('current.title', '当前下载'))
-            ])];
-            if (!model) children.push(h('p', {class: 'ab-current-idle'}, aqvT('status.current-idle', '无')));
-            else {
-                const circumference = 2 * Math.PI * 26;
-                children.push(h('div', {class: 'ab-current-row'}, [
-                    h('span', {class: 'ab-ring'}, [
-                        h('svg', {viewBox: '0 0 64 64'}, [
-                            h('circle', {cx: '32', cy: '32', r: '26', class: 'ab-ring-track'}),
-                            h('circle', {cx: '32', cy: '32', r: '26', class: 'ab-ring-fill', style: {
-                                strokeDasharray: String(circumference),
-                                strokeDashoffset: String(circumference * (1 - Math.min(100, Math.max(0, model.percent)) / 100))
-                            }})
-                        ]), h('span', {class: 'ab-ring-text'}, Math.round(model.percent) + '%')
-                    ]),
-                    h('div', {class: 'ab-current-meta'}, [h('div', {class: 'ab-current-title'}, model.title),
-                        h('div', {class: 'ab-current-detail'}, model.detail)])
-                ]));
-                if (front.totalImages > 0) children.push(aqvMiniProgress(model.progressLabel, null, model.percent, 'is-image', 'images'));
-                children.push(aqvExtras(front));
-                const line = this.remaining;
-                if (line) children.push(h('p', {class: 'ab-current-remaining'}, line));
-            }
-            return h('span', {style: {display: 'contents'}}, children);
+            return aqvRenderCurrent(front, this.remaining);
         }
     };
+}
+
+function aqvRenderCurrent(front, remaining) {
+    const h = aqvVue.h;
+    const model = currentCardModel(front);
+    const children = [h('div', {class: 'ab-current-head'}, [
+        h('span', {class: 'ab-icon', 'aria-hidden': 'true', innerHTML: aqvIcon('download')}),
+        h('strong', aqvT('current.title', '当前下载'))
+    ])];
+    if (!model) children.push(h('p', {class: 'ab-current-idle'}, aqvT('status.current-idle', '无')));
+    else {
+        const circumference = 2 * Math.PI * 26;
+        children.push(h('div', {key: 'current', class: 'ab-current-row'}, [
+            h('span', {class: 'ab-ring'}, [
+                h('svg', {viewBox: '0 0 64 64'}, [
+                    h('circle', {cx: '32', cy: '32', r: '26', class: 'ab-ring-track'}),
+                    h('circle', {cx: '32', cy: '32', r: '26', class: 'ab-ring-fill', style: {
+                        strokeDasharray: String(circumference),
+                        strokeDashoffset: String(circumference * (1 - Math.min(100, Math.max(0, model.percent)) / 100))
+                    }})
+                ]), h('span', {class: 'ab-ring-text'}, Math.round(model.percent) + '%')
+            ]),
+            h('div', {class: 'ab-current-meta'}, [h('div', {class: 'ab-current-title'}, model.title),
+                h('div', {class: 'ab-current-detail'}, model.detail)])
+        ]));
+        if (front.kind === 'illust' || front.totalImages > 0) children.push(aqvMiniProgress(
+            model.progressLabel, null, front.totalImages > 0 ? model.percent : null, 'is-image', 'images', false));
+        children.push(aqvExtras(front));
+        if (remaining) children.push(h('p', {key: 'remaining', class: 'ab-current-remaining'}, remaining));
+    }
+    return h('span', {style: {display: 'contents'}}, children);
 }
 
 function aqvRenderRow(item, vm) {
@@ -264,15 +270,15 @@ function aqvRenderRow(item, vm) {
             h('a', {class: 'ab-iconbtn ab-iconbtn--xs button', href: r.url, target: '_blank', rel: 'noopener',
                 title: aqvT('queue.open-artwork', '打开作品页面'), 'aria-label': aqvT('queue.open-artwork', '打开作品页面'),
                 onClick: event => event.stopPropagation()}, [icon('external')]),
-            r.canCancel ? action(r, 'stop', aqvT('queue.cancel', '取消下载'), vm.cancelRow) : null,
-            r.removable ? action(r, 'x', aqvT('queue.remove', '移除'), vm.removeRow) : null
+            vm && r.canCancel ? action(r, 'stop', aqvT('queue.cancel', '取消下载'), vm.cancelRow) : null,
+            vm && r.removable ? action(r, 'x', aqvT('queue.remove', '移除'), vm.removeRow) : null
         ]),
         h('div', {class: 'ab-queue-tags'}, r.tags.map(tag => h('span', {key: tag.key, class: ['ab-queue-tag', tag.cls]}, tag.text))),
         h('div', {class: 'ab-queue-meta'}, [r.idLine, h('span', {class: 'ab-queue-status', 'data-status': r.status}, r.message)]),
         r.progress ? h('div', {class: 'ab-mini-prog'}, [
             h('div', {class: 'ab-mini-prog-label'}, [h('span', r.progress.label), h('span', r.progress.text)]),
             h('div', {class: 'ab-mini-prog-bar progressbar', role: 'progressbar', 'aria-label': r.title,
-                'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': Number.parseFloat(r.progress.width)}, [
+                'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': r.progress.value}, [
                 h('span', {class: ['ab-mini-prog-fill', r.progress.cls], style: {transform: 'translate3d(' + (Number.parseFloat(r.progress.width) - 100) + '%, 0, 0)'}})
             ])
         ]) : null,
@@ -454,7 +460,8 @@ function aqvBuildSchedStore() {
         truncatedText: '',
         empty: true,
         emptyText: '',
-        currentHtml: '',
+        current: null,
+        remaining: '',
         rows: []
     });
 }
@@ -468,7 +475,8 @@ function aqvSeedSchedStore(entry) {
     entry.store.truncatedText = m.truncatedText != null ? m.truncatedText : '';
     entry.store.empty = !!m.empty;
     entry.store.emptyText = m.emptyText != null ? m.emptyText : '';
-    entry.store.currentHtml = m.currentHtml || '';
+    entry.store.current = m.current || null;
+    entry.store.remaining = m.remaining || '';
     entry.store.rows = Array.isArray(m.rows) ? m.rows : [];
 }
 
@@ -482,10 +490,10 @@ function aqvSchedComponent(entry) {
             return [
                 h('div', {class: 'ab-round-head'}, [h('span', {class: 'ab-muted'}, store.startedText), h('span', {class: 'ab-muted'}, store.statsText)]),
                 store.truncated ? h('p', {class: 'ab-field-note'}, store.truncatedText) : null,
-                store.currentHtml ? h('div', {class: 'ab-round-current', innerHTML: store.currentHtml}) : null,
+                store.current ? h('div', {key: 'current', class: 'ab-round-current'}, [aqvRenderCurrent(store.current, store.remaining)]) : null,
                 store.empty ? h('p', {class: 'ab-empty-line'}, store.emptyText) : h('div', {class: 'ab-round-list'}, store.rows.map(row =>
-                    h('div', {key: row.key, class: 'ab-flatten', 'data-queue-key': row.key,
-                        'data-status': row.status, innerHTML: row.html})
+                    h('div', {key: aqvRowKey(row), class: 'ab-flatten', 'data-queue-key': aqvRowKey(row),
+                        'data-status': row.status}, [aqvRenderRow(row, null)])
                 ))
             ];
         }

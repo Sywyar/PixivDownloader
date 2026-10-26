@@ -16,6 +16,17 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("下载工作台静态声明")
 class DownloadWorkbenchPluginContributionTest {
     @Test
+    @DisplayName("下载引导脚本随插件打包，导航声明共享工作台标记")
+    void ownsBrowserOnboardingResourceAndEntry() throws Exception {
+        try (var resource = DownloadWorkbenchPlugin.class.getResourceAsStream("/static/pixiv-batch/onboarding.js")) {
+            assertNotNull(resource);
+            assertNotEquals(-1, resource.read());
+        }
+        assertTrue(new DownloadWorkbenchPlugin().navigation().stream().anyMatch(nav ->
+                nav.markers().contains(top.sywyar.pixivdownload.plugin.api.web.NavigationMarkers.PREFERRED_DOWNLOAD_WORKBENCH)));
+    }
+
+    @Test
     @DisplayName("路由与导航声明可复用且调用方不能修改")
     void reusesImmutableDeclarations() {
         var plugin = new DownloadWorkbenchPlugin();

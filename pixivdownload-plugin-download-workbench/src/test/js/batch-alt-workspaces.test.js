@@ -127,6 +127,101 @@ function pageHarness(...files) {
     return {context, document, root};
 }
 
+test('切换语言复用导入控件和下载坞，保留草稿、选区、焦点、展开与滚动', () => {
+    const h = pageHarness('alt-modes.js', 'alt-mode-import.js', 'alt-queue-model.js', 'alt-queue.js', 'alt-chrome.js', 'alt-init.js');
+    const c = h.context;
+    c.altSourcesForMode = () => [];
+    c.openFiltersDrawer = c.openSettingsDrawer = () => {};
+    c.runImportParse = () => {};
+    c.dockState = {archive: null};
+    for (const name of ['handleStart', 'handlePause', 'handleRetry', 'handleExport', 'handleExportFailed',
+        'triggerAdminPack', 'handleClear', 'renderArchiveCard', 'renderDockStatus', 'renderCurrent',
+        'renderQueue', 'updateStats', 'updateButtonsState', 'ensureDockVue', 'renderQuotaBar',
+        'syncAllResultsQueueState', 'renderAuthButton', 'refreshCookieUi', 'renderBackendBanner',
+        'syncFilterButtonBadge', 'refreshGuideFab']) c[name] = () => {};
+    let language = 'first';
+    c.bt = key => language + ':' + key;
+    c.renderRail();
+    const panel = h.document.getElementById('abModePanel');
+    c.renderImportMode(panel);
+    c.renderDock();
+    const input = panel.querySelector('textarea'), details = panel.querySelector('details');
+    const start = h.document.getElementById('abBtnStart'), dock = h.document.getElementById('abDockBody');
+    const rail = h.document.getElementById('abRailModes').children[0];
+    const startLabel = start.children.at(-1);
+    input.value = 'unsubmitted draft';
+    input.selectionStart = 3; input.selectionEnd = 8;
+    input.focus();
+    details.open = true;
+    panel.scrollTop = 240; dock.scrollTop = 310;
+    for (const next of ['second', 'third']) {
+        language = next;
+        c.applyPageLanguageViews({apply() {}});
+        assert.equal(panel.querySelector('textarea'), input);
+        assert.equal(input.value, 'unsubmitted draft');
+        assert.deepEqual([input.selectionStart, input.selectionEnd], [3, 8]);
+        assert.equal(h.document.activeElement, input);
+        assert.equal(details.open, true);
+        assert.equal(panel.scrollTop, 240);
+        assert.equal(dock.scrollTop, 310);
+        assert.equal(h.document.getElementById('abBtnStart'), start);
+        assert.equal(start.children.at(-1), startLabel);
+        assert.equal(startLabel.textContent, next + ':dock.start');
+        assert.equal(h.document.getElementById('abRailModes').children[0], rail);
+        assert.equal(input.getAttribute('placeholder'), next + ':batch:input.single-import.placeholder');
+    }
+    const removed = c.el('span', '', () => language);
+    panel.appendChild(removed);
+    panel.removeChild(removed);
+    language = 'fourth';
+    c.refreshAltText();
+    assert.equal(removed.textContent, 'third', '刷新不再消费已移除节点的绑定');
+});
+
+test('计划轮询在语言变化后复用卡片、菜单和结果容器', () => {
+    const h = pageHarness('../pixiv-batch/filename-template.js', 'alt-settings.js',
+        'alt-modes.js', 'alt-schedule-presentation.js', 'alt-schedule.js');
+    const c = h.context;
+    c.state.mode = 'schedule';
+    c.scheduleState = {tasks: [{id: 1, name: 'Plan', sourceType: 'demo', enabled: true,
+        intervalMinutes: 5, lastStatus: 'OK'}], loaded: true, expandedQueues: new Set(), error: null};
+    c.altScheduleSources = () => ({isAvailable: () => false, descriptor: () => null});
+    c.startScheduleQueuePolling = () => {};
+    c.renderScheduleCredentialPolicyBanners = () => {};
+    let language = 'first';
+    c.bt = key => language + ':' + key;
+    c.renderScheduleMode(h.document.getElementById('abModePanel'));
+    const row = h.root.querySelector('.ab-schedule-row');
+    const more = row.querySelector('.ab-schedule-more');
+    const results = row.querySelector('.ab-schedule-results');
+    const cadence = row.querySelector('.ab-schedule-cadence');
+    more.open = true;
+    language = 'second';
+    c.renderScheduleTaskList();
+    assert.equal(h.root.querySelector('.ab-schedule-row'), row);
+    assert.equal(row.querySelector('.ab-schedule-more'), more);
+    assert.equal(row.querySelector('.ab-schedule-results'), results);
+    assert.equal(more.open, true);
+    assert.equal(cadence.textContent, 'second:schedule.manage.every-minutes');
+});
+
+test('重复刷新和语言切换保留已有筛选标签与焦点', () => {
+    const h = pageHarness('../pixiv-batch/search-filters.js', 'alt-filters.js');
+    const c = h.context;
+    const host = h.document.createElement('div');
+    host.setAttribute('data-active-filters', '');
+    h.root.appendChild(host);
+    vm.runInContext("extraFilters.content = 'r18'; extraFilters.ai = 'hide'", c);
+    c.syncFilterButtonBadge();
+    const buttons = [...host.children];
+    buttons[0].focus();
+    c.bt = key => 'translated:' + key;
+    c.syncFilterButtonBadge();
+    assert.deepEqual(host.children, buttons);
+    assert.equal(h.document.activeElement, buttons[0]);
+    assert.equal(buttons[1].textContent, 'translated:filters.ai.hide');
+});
+
 test('下载坞按钮调用对应动作，初始化渲染并请求挂载队列岛', () => {
     const h = pageHarness('alt-queue-model.js', 'alt-queue.js');
     const body = h.document.getElementById('abDockBody');
@@ -214,6 +309,7 @@ test('下载设置提供贡献槽位，来源选项派发真实选择值', () =>
     assert.ok(body.querySelector('[data-qt-slot="settings-card"]'));
     assert.equal(mounted, body.querySelector('#type-output-settings'));
     const selections = [];
+    h.context.altSourcesForMode = () => [{id: 'one', label: 'First'}, {id: 'two', label: 'Second'}];
     const choices = h.context.sourceChips([{id: 'one', label: 'First'}, {id: 'two', label: 'Second'}],
         'one', value => selections.push(value));
     const buttons = choices.querySelectorAll('button');
@@ -251,13 +347,14 @@ test('顶栏展示接口版本和身份，语言挂载刷新视图，引导复�
     assert.equal(languageOptions.mountPoint, h.document.getElementById('abLangAnchor'));
     assert.equal(themeOptions.mountPoint, h.document.getElementById('abThemeAnchor'));
     assert.equal(languageOptions.i18n, client);
-    const renderers = ['renderRail', 'renderStage', 'renderDock', 'renderAuthButton', 'refreshCookieUi',
+    const renderers = ['refreshAltText', 'renderDockStatus', 'renderQuotaBar', 'renderArchiveCard',
+        'renderQueue', 'updateStats', 'syncAllResultsQueueState', 'renderAuthButton', 'refreshCookieUi',
         'renderBackendBanner', 'syncFilterButtonBadge', 'refreshGuideFab'];
     for (const name of renderers) h.context[name] = () => views.push(name);
     views.length = 0;
     languageOptions.onChange(client);
     assert.deepEqual(views, ['apply', ...renderers]);
-    h.context.PixivOnboarding = {boot: options => { onboarding = options; }};
+    h.context.PixivDownloadOnboarding = {boot: options => { onboarding = options; }};
     let opened = 0;
     h.context.openDock = () => opened++;
     await h.context.setupOnboardingOrTour();

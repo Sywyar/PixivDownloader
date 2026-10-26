@@ -7,9 +7,12 @@
         return;
     }
 
-    var EXAMPLE_ID = ctx.EXAMPLE_ID;
-    var EXAMPLE_URL = ctx.EXAMPLE_URL;
-    var t = ctx.message;
+    var EXAMPLE_ID = '145378118';
+    var EXAMPLE_URL = 'https://www.pixiv.net/artworks/' + EXAMPLE_ID;
+    function t(key, fallback, args) {
+        var shared = key.indexOf('onboarding.common.') === 0 || key === 'onboarding.done.close';
+        return ctx.message((shared ? 'tour:' : 'batch:') + key, fallback, args);
+    }
     var escapeHtml = ctx.messageHtml;
     var loadState = ctx.loadState;
     var patchState = ctx.patchState;
@@ -50,8 +53,8 @@
                 '<h3 class="po-pop-title">' + escapeHtml(t('onboarding.welcome.title', '👋 欢迎使用 PixivDownloader')) + '</h3>'
                 + '<div class="po-pop-body">'
                 + '<p>' + escapeHtml(t('onboarding.welcome.intro', '初次见面！我会带你下载第一份示例作品，熟悉整个流程。先告诉我，怎么称呼你？')) + '</p>'
-                + '<input type="text" class="po-input" id="po-name-input" maxlength="40" data-i18n-placeholder="tour:onboarding.welcome.name-placeholder" placeholder="'
-                + ctx.escapeHtml(ctx.t('onboarding.welcome.name-placeholder', '输入你的称呼（可留空）')) + '" value="' + escapeHtml(existing) + '">'
+                + '<input type="text" class="po-input" id="po-name-input" maxlength="40" data-i18n-placeholder="batch:onboarding.welcome.name-placeholder" placeholder="'
+                + ctx.escapeHtml(ctx.t('batch:onboarding.welcome.name-placeholder', '输入你的称呼（可留空）')) + '" value="' + escapeHtml(existing) + '">'
                 + '<div class="po-hint" id="po-name-hint"></div>'
                 + '</div>'
                 + footHtml([
@@ -127,7 +130,7 @@
             netRow = '<div class="po-net"><span class="po-net-fail">✕ '
                 + escapeHtml(t('onboarding.network.fail', '无法连接 Pixiv，请检查代理 / 网络设置')) + '</span></div>'
                 + '<div class="po-hint">' + escapeHtml(t('onboarding.network.fail-hint',
-                    '常见原因：代理未开启或端口不对。请在程序的「设置 / config.yaml」中配置 proxy.host / proxy.port 后重试。')) + '</div>';
+                    '请在程序设置中检查代理是否启用，以及地址和端口是否正确，然后重试。')) + '</div>';
             buttons = [SKIP_BTN(), {act: 'retry', label: t('onboarding.network.retry', '重试'), variant: 'primary'}];
         }
         overlay.render({
@@ -150,7 +153,9 @@
 
     function runNetworkCheck() {
         var revision = overlay.revision;
-        fetch('/api/onboarding/connectivity', {credentials: 'same-origin'})
+        var controller = new AbortController();
+        overlay.onCleanup(function () { controller.abort(); });
+        fetch('/api/onboarding/connectivity', {credentials: 'same-origin', signal: controller.signal})
             .then(function (r) {
                 if (!r.ok) {
                     throw new Error('HTTP ' + r.status);
@@ -233,7 +238,7 @@
         callHook('switchToSingleImport');
         var revision = overlay.revision;
         // 切换 Tab 后单作品面板稍后才可见，延迟渲染让聚光定位到位
-        global.setTimeout(function () {
+        ctx.delay(function () {
             if (!overlay.pop || overlay.revision !== revision) return;
             overlay.render({
                 targetSelector: ctx.config.sel.singleImportTab,
@@ -287,16 +292,19 @@
     }
 
     function copyExampleUrl(btn) {
+        var revision = overlay.revision;
         var done = function () {
+            if (overlay.revision !== revision) return;
             btn.classList.add('po-copied');
             ctx.setMessage(btn, t('onboarding.common.copied', '已复制'));
-            global.setTimeout(function () {
+            ctx.delay(function () {
                 btn.classList.remove('po-copied');
                 ctx.setMessage(btn, t('onboarding.common.copy', '复制'));
             }, 1500);
         };
         if (global.navigator && global.navigator.clipboard && global.navigator.clipboard.writeText) {
             global.navigator.clipboard.writeText(EXAMPLE_URL).then(done).catch(function () {
+                if (overlay.revision !== revision) return;
                 legacyCopy(EXAMPLE_URL);
                 done();
             });
@@ -357,6 +365,10 @@
             }
         };
         _pasteWatchTimer = global.setInterval(check, 300);
+        overlay.onCleanup(function () {
+            global.clearInterval(_pasteWatchTimer);
+            _pasteWatchTimer = null;
+        });
         check();
     }
 
@@ -471,7 +483,7 @@
     function renderMonitor() {
         var monitorBody = findFirstDownloadResultEntry()
             ? t('onboarding.monitor.body',
-                '正在下载，请稍候…下方的状态栏与下载队列会实时显示进度，完成后会自动带你去画廊查看。')
+                '正在下载，请稍候…下方的状态栏与下载队列会实时显示进度，完成后会提示你打开结果入口。')
             : t('onboarding.monitor.body.no-result',
                 '正在下载，请稍候…下方的状态栏与下载队列会实时显示进度，完成后会提示你查看下载结果。');
         // 高亮下载状态 + 队列区域，让用户实时看到下载进度（仅高亮、不可交互）
@@ -523,6 +535,7 @@
             }
         }
         _monitorTimer = global.setInterval(check, 2000);
+        overlay.onCleanup(stopMonitor);
         check();
     }
 
@@ -573,7 +586,7 @@
                 }, function () {
                     settle(findFirstDownloadResultEntry());
                 });
-                global.setTimeout(function () {
+                ctx.delay(function () {
                     settle(findFirstDownloadResultEntry());
                 }, 3000);
                 return;
@@ -600,22 +613,36 @@
 
     function renderFirstDownloadResultEntryPrompt() {
         var resultEntry = firstDownloadResultEntrySelector();
-        patchState({phase: 'await-gallery', downloaded: true});
+        patchState({phase: 'result', downloaded: true, exampleId: EXAMPLE_ID});
         overlay.render({
             targetSelector: resultEntry,
             interactiveSelector: resultEntry,
             html:
                 '<h3 class="po-pop-title">' + escapeHtml(t('onboarding.monitor.success.title', '🎉 下载成功！')) + '</h3>'
                 + '<div class="po-pop-body"><p>' + escapeHtml(t('onboarding.monitor.success.body',
-                    '第一份作品已下载到本地。点击高亮的「画廊」入口，去看看你的成果吧。')) + '</p></div>'
+                    '第一份作品已下载到本地。点击高亮的结果入口，去看看你的成果吧。')) + '</p></div>'
                 + footHtml([SKIP_BTN()])
         });
         bindFoot({skip: skip});
-        // 画廊在新标签打开，由那边的 boot 续跑；这里点击后保持提示即可
+        var opened = function (event) {
+            var entry = findFirstDownloadResultEntry();
+            if (entry && entry.contains(event.target)) {
+                // 结果页继续消费当前进度，这里只关闭下载页浮层。
+                overlay.destroy();
+                ctx.setRestartEnabled(true);
+            }
+        };
+        global.addEventListener('click', opened, true);
+        overlay.onCleanup(function () { global.removeEventListener('click', opened, true); });
+        var changed = function () {
+            if (!findFirstDownloadResultEntry()) renderDownloadCompletedWithoutResultEntry();
+        };
+        global.addEventListener('pixivnav:rendered', changed);
+        overlay.onCleanup(function () { global.removeEventListener('pixivnav:rendered', changed); });
     }
 
     function renderDownloadCompletedWithoutResultEntry() {
-        patchState({downloaded: true});
+        patchState({downloaded: true, exampleId: EXAMPLE_ID});
         markCompleted();
         overlay.render({
             centered: true,
@@ -659,14 +686,20 @@
         }});
     }
 
-    // ════════════════════════════════════════════════════════════════════════════
-    //  画廊阶段
-    // ════════════════════════════════════════════════════════════════════════════
-
-    ctx.download = {
-        phaseWelcome: phaseWelcome,
-        phaseDownload: phaseDownload,
-        monitorSucceeded: monitorSucceeded,
-        stopMonitor: stopMonitor
+    global.PixivDownloadOnboarding = {
+        EXAMPLE_ID: EXAMPLE_ID,
+        EXAMPLE_URL: EXAMPLE_URL,
+        boot: function (config) {
+            global.PixivOnboarding.boot(Object.assign({}, config, {
+                start: function (state) {
+                    if (state.status === 'new' || state.phase === 'welcome') phaseWelcome();
+                    else if (state.phase === 'download') phaseDownload();
+                    // 兼容旧跨页进度，不重复提交已经完成的下载。
+                    else if (state.phase === 'await-gallery' || state.phase === 'result') monitorSucceeded();
+                    else ctx.setRestartEnabled(true);
+                },
+                restart: phaseWelcome
+            }));
+        }
     };
 })(window);

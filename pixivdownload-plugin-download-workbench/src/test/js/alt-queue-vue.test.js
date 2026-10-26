@@ -422,16 +422,17 @@ async function main() {
         await tick();
         const entry = api.__test.schedEntry(8);
         const comp = api.__test.schedComponent(entry);
-        entry.store.rows = [{key: 'r1', status: 'pending', title: '作品', html: '<div class="ab-queue-item">作品 · 翻译</div>'}];
+        entry.store.rows = [{id: 'r1', kind: 'illust', status: 'pending', title: '作品', lastMessage: '翻译'}];
         entry.store.truncated = true;
         entry.store.truncatedText = '截断提示';
         let nodes = renderNodes(comp);
-        ok('8: 计划队列保留稳定身份与状态', nodes.some(n => n.key === 'r1' && n.props['data-status'] === 'pending'));
-        ok('8: 渲染共享队列行和截断提示', nodes.some(n => n.props.innerHTML === entry.store.rows[0].html) && nodes.some(n => n.children === '截断提示'));
+        ok('8: 计划队列保留稳定身份与状态', nodes.some(n => n.props['data-queue-id'] === 'r1' && n.props['data-status'] === 'pending'));
+        ok('8: 渲染共享队列行和截断提示', nodes.some(n => n.children === '翻译') && nodes.some(n => n.children === '截断提示'));
+        ok('8: 计划行不暴露手动队列操作', !nodes.some(n => n.type === 'button'));
         entry.store.empty = true;
         entry.store.emptyText = '空队列';
         nodes = renderNodes(comp);
-        ok('8: 空队列移除旧行并显示提示', !nodes.some(n => n.key === 'r1') && nodes.some(n => n.children === '空队列'));
+        ok('8: 空队列移除旧行并显示提示', !nodes.some(n => n.props['data-queue-id'] === 'r1') && nodes.some(n => n.children === '空队列'));
 
     }
 
@@ -484,6 +485,7 @@ async function main() {
                 return t;
             },
             fmtScheduleTime: ms => ms ? '12:00' : '—',
+            queueProgressSnapshot: item => ({...item}),
             altQueueTypes: () => ({queueKey: (type, id) => type + ':' + id}),
             queueItemRow: (item, options) => ({outerHTML: `${item.title}|${item.lastMessage || ''}|${options.readOnly}`})
         };
@@ -504,8 +506,9 @@ async function main() {
         ok('11: 模型派生 started/stats 文案', typeof model.startedText === 'string' && model.startedText.length > 0 && model.statsText.includes('成功: 2') && model.statsText.includes('失败: 1'));
         ok('11: truncated 提示派生', model.truncated === true && model.truncatedText.includes('3'));
         ok('11: 空标题回退占位文案', model.rows[1].title === '（暂无标题信息）');
-        ok('11: 失败机器码在共享队列渲染前本地化', model.rows[1].html.includes('机器码原因'));
-        ok('11: 计划队列共享行始终只读，行身份不随状态改变', model.rows.every(row => row.html.endsWith('|true')) && model.rows[2].key === 'text:c');
+        ok('11: 失败机器码在共享队列渲染前本地化', model.rows[1].lastMessage === '机器码原因');
+        ok('11: 计划队列保留作品身份，不生成 HTML', model.rows[2].kind === 'text' && model.rows[2].id === 'c'
+            && model.rows.every(row => !Object.hasOwn(row, 'html')));
         const emptyModel = sandbox.scheduleQueueDetailModel({});
         ok('11: 空数据 → empty 行', emptyModel.empty === true && emptyModel.rows.length === 0);
     }

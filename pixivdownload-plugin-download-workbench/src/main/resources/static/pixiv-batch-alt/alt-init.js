@@ -8,9 +8,20 @@ function applyPageLanguageViews(nextClient) {
     pageI18n = nextClient || pageI18n;
     if (pageI18n) pageI18n.apply();
     document.title = bt('page.title', '下载工作台 · Pixiv 下载助手');
-    renderRail();
-    renderStage();
-    renderDock();
+    refreshAltText();
+    renderDockStatus();
+    renderQuotaBar();
+    renderArchiveCard();
+    renderQueue();
+    updateStats();
+    syncAllResultsQueueState();
+    if (state.mode === 'schedule') {
+        scheduleState.expandedQueues.forEach(id => {
+            const task = scheduleState.tasks.find(task => task.id === id);
+            const entry = altScheduleQueues.get(id);
+            if (task && entry) refreshScheduleQueueView(task, entry);
+        });
+    }
     renderAuthButton();
     refreshCookieUi();
     renderBackendBanner();
@@ -86,7 +97,7 @@ function setupTour(auto) {
 
 async function setupOnboardingOrTour() {
     const eligible = appMode === 'solo' || isAdmin;
-    if (eligible && typeof PixivOnboarding !== 'undefined') {
+    if (eligible && typeof PixivDownloadOnboarding !== 'undefined') {
         let savedName = '';
         try {
             const res = await fetch('/api/onboarding/profile', {credentials: 'same-origin'});
@@ -95,7 +106,7 @@ async function setupOnboardingOrTour() {
                 savedName = (data && data.displayName) || '';
             }
         } catch {}
-        PixivOnboarding.boot(buildOnboardingConfig(savedName));
+        PixivDownloadOnboarding.boot(buildOnboardingConfig(savedName));
         return;
     }
     setupTour(false);

@@ -135,6 +135,89 @@ async function fixture(alt, size = 300, production = false) {
         setLanguage(value){language=value;},rowClass:alt?'ab-queue-item':'q-item-host'};
 }
 
+test('新版动图从元数据就预留下载和转换位置，后续总量、阶段与重试不重建节点', async () => {
+    const f = await fixture(true, 1, true), q = f.state.queue[0];
+    Object.assign(q, {illustType: 2, totalImages: 0, taskId: 'attempt-a'});
+    f.sync(q); await f.flush();
+    const bars = root => byClass(root, 'ab-progress-extras').flatMap(extras => byClass(extras, 'ab-mini-prog'));
+    const initial = [bars(f.list), bars(f.current)];
+    for (const group of initial) {
+        assert.equal(group.length, 2);
+        assert.ok(group.every(bar => all(bar, n => n.props.role === 'progressbar')
+            .every(n => n.props['aria-busy'] === 'false' && n.props['aria-valuenow'] === undefined)));
+    }
+    q.totalImages = 1;
+    for (const phase of ['zip', 'extract', 'ffmpeg-waiting', 'ffmpeg', 'finalizing', null]) {
+        q.ugoiraProgress = phase ? {phase, ...(phase === 'zip' ? {zipProgress: 20}
+            : phase === 'ffmpeg' ? {ffmpegProgress: 60} : {})} : null;
+        f.sync(q); await f.flush();
+        for (const [index, root] of [f.list, f.current].entries()) {
+            assert.equal(bars(root).length, 2);
+            bars(root).forEach((bar, i) => assert.equal(bar, initial[index][i]));
+        }
+    }
+    for (const status of ['failed', 'pending', 'downloading', 'completed']) {
+        Object.assign(q, {status, taskId: 'attempt-b'});
+        f.sync(q); await f.flush();
+        bars(f.list).forEach((bar, i) => assert.equal(bar, initial[0][i]));
+        assert.doesNotMatch(textOf(f.list), /20%|60%/);
+        assert.equal(byClass(f.list, 'is-indeterminate').length, 0);
+    }
+    f.state.queue = [];
+    f.sync(); await f.flush();
+    assert.equal(bars(f.list).length, 0);
+    assert.deepEqual(f.errors, []);
+});
+
+test('计划动图详情复用真实 Vue 行与当前卡，进度刷新不构造临时 DOM，行始终只读', async () => {
+    const f = await fixture(true, 1, true), box = node('section');
+    box.parent = f.body; f.body.children.push(box);
+    const q = {id: 'animation', kind: 'illust', illustType: 2, status: 'downloading',
+        title: '<work>', totalImages: 1, downloadedCount: 0};
+    const read = () => {
+        const snapshot = f.sandbox.queueProgressSnapshot(q);
+        return {startedText: 'start', statsText: 'one', empty: false, current: snapshot, rows: [snapshot]};
+    };
+    f.api.ensureScheduleQueue(12, {boxEl: box, read});
+    await new Promise(resolve => setImmediate(resolve)); await f.flush();
+    const row = byClass(box, 'ab-queue-item')[0], link = all(row, n => n.tag === 'a')[0];
+    const bars = byClass(box, 'ab-mini-prog');
+    const allocations = f.metrics.detachedElements;
+    for (const phase of ['zip', 'extract', 'ffmpeg-waiting', 'ffmpeg', 'finalizing', null]) {
+        q.ugoiraProgress = phase ? {phase, zipProgress: 30} : null;
+        f.api.syncScheduleQueue(12); await f.flush();
+        assert.equal(byClass(box, 'ab-queue-item')[0], row);
+        assert.equal(all(row, n => n.tag === 'a')[0], link);
+        byClass(box, 'ab-mini-prog').forEach((bar, i) => assert.equal(bar, bars[i]));
+        assert.equal(all(row, n => n.tag === 'button').length, 0);
+    }
+    assert.equal(f.metrics.detachedElements, allocations);
+    assert.match(textOf(row), /<work>/);
+    f.api.unmountScheduleQueue(12);
+    f.api.syncScheduleQueue(12); await f.flush();
+    assert.equal(f.api.isScheduleActive(12), false);
+    assert.deepEqual(f.errors, []);
+});
+
+test('新版小说先创建全部资源进度，正文、封面和插图依次更新原节点', async () => {
+    const f = await fixture(true, 1, true), q = f.state.queue[0];
+    Object.assign(q, {kind: 'novel', totalImages: 0});
+    f.sync(); await f.flush();
+    const bars = () => byClass(f.list, 'ab-mini-prog');
+    const initial = bars();
+    assert.equal(initial.length, 3);
+    for (const field of ['novelText', 'novelCover', 'novelEmbedded']) {
+        q[field] = {done: 1, total: 2};
+        f.sync(q); await f.flush();
+        bars().forEach((bar, i) => assert.equal(bar, initial[i]));
+        q[field] = null;
+    }
+    q.status = 'completed';
+    f.sync(q); await f.flush();
+    assert.equal(byClass(f.list, 'is-indeterminate').length, 0);
+    assert.deepEqual(f.errors, []);
+});
+
 test('新版实际 Vue 行和当前卡在换图、清空快照和切换格式时保留进度节点', async () => {
     const f = await fixture(true, 2, true), q = f.state.queue[0];
     q.imageProgress = {imageNumber: 1, totalImages: 3, progress: 25,
@@ -142,8 +225,8 @@ test('新版实际 Vue 行和当前卡在换图、清空快照和切换格式时
     f.sync(q); await f.flush();
     const bars = root => byClass(root, 'ab-progress-extras').flatMap(extras => byClass(extras, 'ab-mini-prog'));
     const initial = [bars(f.list), bars(f.current)];
-    assert.equal(initial[0].length, 2);
-    assert.equal(initial[1].length, 2);
+    assert.equal(initial[0].length, 3);
+    assert.equal(initial[1].length, 3);
     for (const imageProgress of [null,
         {imageNumber: 2, totalImages: 3, progress: 75, processing: [{phase: 'ffmpeg', outputFormat: 'webp'}]},
         {phase: 'processing', processing: [{phase: 'verifying', outputFormat: 'png'}]}, null]) {
@@ -209,9 +292,12 @@ for(const alt of [false,true]) {
         assert.equal(textOf(f.current),before);
         assert.match(textOf(byClass(f.list,f.rowClass)[1]),/100/);
         front.imageProgress={progress:25,downloadedBytes:1024,totalBytes:4096};f.sync(front);await f.flush();
-        const fill=byClass(f.current,alt?'ab-mini-prog-fill':'prog-fill').at(-1);
+        const progressFills = () => alt
+            ? byClass(byClass(f.current, 'ab-progress-extras')[0], 'ab-mini-prog-fill')
+            : byClass(f.current, 'prog-fill');
+        const fill=alt ? progressFills()[0] : progressFills().at(-1);
         front.imageProgress.progress=75;f.sync(front);await f.flush();
-        assert.equal(byClass(f.current,alt?'ab-mini-prog-fill':'prog-fill').at(-1),fill);
+        assert.equal(alt ? progressFills()[0] : progressFills().at(-1),fill);
         assert.equal(fill.props.style.width,'75%');
         other.status='completed';f.sync(other);await f.flush();
         assert.notEqual(textOf(f.current),before);
@@ -306,27 +392,29 @@ for(const alt of [false,true]) {
     test((alt?'侧栏':'经典')+'计划详情在禁止动态编译时响应状态与空列表',async()=>{
         const f=await fixture(alt),box=node('section');box.parent=f.body;f.body.children.push(box);
         box.querySelector=()=>null;
-        let model=alt?{startedText:'start',statsText:'one',empty:false,truncated:true,truncatedText:'more',currentHtml:'current',rows:[{key:'a',status:'pending',html:'<div>&lt;unsafe&gt; · AI · waiting</div>'}]}
+        let model=alt?{startedText:'start',statsText:'one',empty:false,truncated:true,truncatedText:'more',current:{id:'a',kind:'illust',title:'current',downloadedCount:0},rows:[{id:'a',kind:'illust',status:'pending',title:'<unsafe>',downloadedCount:0}]}
             :{statusText:'start',statsText:'one',current:{title:'current'},items:[{id:'a',kind:'illust',downloadedCount:1}]};
         f.api.ensureScheduleQueue(7,alt?{boxEl:box,read:()=>model}:{bodyEl:box,read:()=>model});
         await new Promise(resolve=>setImmediate(resolve));await f.flush();
         assert.equal(f.api.isScheduleActive(7),true);
         assert.match(textOf(box),/start/);
         if(alt){
-            const rows=all(box,n=>n.props['data-queue-key']==='a');
+            const rows=byClass(box,'ab-queue-item');
             assert.equal(rows.length,1);
-            assert.equal(rows[0].props.innerHTML,model.rows[0].html);
+            assert.match(textOf(rows[0]),/<unsafe>/);
             assert.equal(rows[0].props['data-status'],'pending');
-            assert.equal(byClass(box,'ab-round-current')[0].props.innerHTML,'current');
-            model.rows=[{key:'a',status:'completed',html:'<div>completed</div>'}];
+            assert.match(textOf(byClass(box,'ab-round-current')[0]),/current/);
+            model.rows=[{id:'a',kind:'illust',status:'completed',title:'completed',downloadedCount:1}];
             f.api.syncScheduleQueue(7);await f.flush();
             assert.equal(rows[0].props['data-status'],'completed');
-            assert.equal(rows[0].props.innerHTML,'<div>completed</div>');
+            assert.equal(byClass(box,'ab-queue-item')[0],rows[0]);
+            assert.match(textOf(rows[0]),/completed/);
+            assert.equal(all(rows[0], n => n.tag === 'button').length, 0);
         }
         else assert.equal(byClass(box,'q-item-host').length,1);
         model=alt?{empty:true,emptyText:'empty',rows:[]}:{items:[]};
         f.api.syncScheduleQueue(7);await f.flush();
-        assert.equal(alt?all(box,n=>n.props['data-queue-key']==='a').length:byClass(box,'q-item-host').length,0);
+        assert.equal(alt?byClass(box,'ab-queue-item').length:byClass(box,'q-item-host').length,0);
         f.api.unmountScheduleQueue(7);
         assert.equal(f.api.isScheduleActive(7),false);
         assert.deepEqual(f.errors,[]);

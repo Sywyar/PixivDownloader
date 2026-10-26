@@ -1,77 +1,34 @@
-/* 跨页新用户引导的稳定公共入口。 */
+/* 页面提供业务步骤，共享入口只管理当前页面的引导会话。 */
 (function (global) {
     'use strict';
 
     var ctx = global.PixivOnboardingRuntime;
-    if (!ctx || !ctx.overlay || !ctx.download || !ctx.gallery
-        || typeof ctx.download.phaseWelcome !== 'function'
-        || typeof ctx.gallery.phaseDetail !== 'function') {
-        return;
+    if (!ctx || !ctx.overlay) return;
+    var suspendedConfig = null;
+    var pageHidden = false;
+
+    function dispose() {
+        ctx.overlay.destroy();
+        ctx.unbindRestartButton();
+        ctx.config = null;
+        ctx.completionStepNotified = false;
     }
 
     function boot(cfg) {
-        if (!cfg || !cfg.page) {
+        suspendedConfig = null;
+        dispose();
+        if (!cfg || !cfg.eligible || typeof cfg.start !== 'function') return;
+        if (pageHidden) {
+            suspendedConfig = cfg;
             return;
         }
         ctx.config = cfg;
+        ctx.config.sel = cfg.sel || {};
         ctx.i18n = cfg.i18n || ctx.i18n;
-        ctx.config.sel = ctx.config.sel || {};
-
-        if (!cfg.eligible) {
-            return; // 仅 solo / 已登录管理员
-        }
-
-        // 下载页在自己的导航区域提供重看入口。
-        if (cfg.page === 'batch') {
-            ctx.bindRestartButton();
-        }
-
-        var s = ctx.loadState();
-        if (s.status === 'completed') {
-            ctx.setRestartEnabled(true);
-            return;
-        }
-
-        if (cfg.page === 'batch') {
-            ctx.setRestartEnabled(false);
-            bootBatch(s);
-        } else if (cfg.page === 'gallery') {
-            bootGallery(s);
-        } else if (cfg.page === 'artwork') {
-            bootArtwork(s);
-        }
-    }
-
-    function bootBatch(s) {
-        if (s.status === 'new' || s.phase === 'welcome') {
-            ctx.download.phaseWelcome();
-        } else if (s.phase === 'download') {
-            ctx.download.phaseDownload();
-        } else if (s.phase === 'await-gallery') {
-            // 已下载完成、等待去画廊：重新提示画廊入口
-            ctx.download.monitorSucceeded();
-        }
-    }
-
-    function bootGallery(s) {
-        if (s.status === 'new') {
-            ctx.gallery.phaseGalleryRedirect();
-            return;
-        }
-        if (s.phase === 'await-gallery' || s.phase === 'gallery') {
-            ctx.gallery.phaseGallery();
-        }
-        // 其它阶段（welcome/download 正在下载页进行）：画廊不打扰
-    }
-
-    function bootArtwork(s) {
-        if (s.status !== 'active') {
-            return;
-        }
-        if (s.phase === 'detail' || s.phase === 'gallery' || s.phase === 'await-gallery') {
-            ctx.patchState({phase: 'detail'});
-            ctx.gallery.phaseDetail();
-        }
+        ctx.bindRestartButton();
+        var state = ctx.loadState();
+        ctx.setRestartEnabled(state.status === 'completed');
+        if (state.status !== 'completed') cfg.start(state);
     }
 
     function refreshTranslations(client) {
@@ -80,14 +37,21 @@
         ctx.overlay.refreshTranslations();
     }
 
+    global.addEventListener('pagehide', function () {
+        pageHidden = true;
+        suspendedConfig = ctx.config;
+        dispose();
+    });
+    global.addEventListener('pageshow', function (event) {
+        pageHidden = false;
+        if (event.persisted && suspendedConfig) boot(suspendedConfig);
+    });
+
     global.PixivOnboarding = {
         boot: boot,
         restart: ctx.restart,
+        dispose: function () { suspendedConfig = null; dispose(); },
         refreshFab: refreshTranslations,
-        EXAMPLE_ID: ctx.EXAMPLE_ID,
-        EXAMPLE_URL: ctx.EXAMPLE_URL,
-        getName: function () {
-            return ctx.loadState().name || '';
-        }
+        getName: function () { return ctx.loadState().name || ''; }
     };
 })(window);

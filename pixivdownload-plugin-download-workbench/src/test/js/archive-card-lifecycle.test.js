@@ -15,6 +15,13 @@ function runtime(variant, loadCore = false) {
         return {tag, className, textContent: text, style: {}, dataset: {}, children: [], hidden: false,
             addEventListener() {},
             appendChild(child) { this.children.push(child); return child; },
+            append(...children) { children.forEach(child => this.appendChild(child)); },
+            get firstElementChild() { return this.children[0] || null; },
+            querySelector(selector) {
+                return descendants(this.children).find(child => selector.startsWith('.')
+                    ? child.className.split(' ').includes(selector.slice(1)) : child.tag === selector) || null;
+            },
+            setAttribute(name, value) { this[name] = String(value); },
             set innerHTML(value) { this.children = []; this.textContent = value; },
             removeAttribute(name) { delete this[name]; }};
     }
@@ -24,7 +31,9 @@ function runtime(variant, loadCore = false) {
         'ac-dl-btn', 'ac-countdown', 'abDockBody', 'admin-pack-btn']) {
         roots.push(Object.assign(node(), {id}));
     }
-    get('abDockBody').appendChild(Object.assign(node(), {id:'abArchiveBox'}));
+    for (const id of ['abArchiveBox', 'abQuotaBox']) {
+        get('abDockBody').appendChild(Object.assign(node(), {id}));
+    }
     function timer(callback, delay, repeat) {
         timers.set(++sequence, {callback, delay, repeat, at: now + delay});
         return sequence;
@@ -66,7 +75,7 @@ function runtime(variant, loadCore = false) {
     for (const name of ['renderDockStatus', 'renderCurrent', 'renderQueue', 'updateStats', 'updateButtonsState', 'ensureDockVue']) {
         context[name] = () => {};
     }
-    return {context, requests, timers, run,
+    return {context, requests, timers, run, get,
         show: (...args) => context.showArchiveCard(...args),
         link: () => variant === 'alt'
             ? descendants([get('abArchiveBox')]).find(item => item.tag === 'a')?.href
@@ -100,6 +109,34 @@ function runtime(variant, loadCore = false) {
         }
     };
 }
+
+test('alt：配额刷新和归档状态切换复用控件，失效时撤销下载链接', () => {
+    const r = runtime('alt');
+    r.run('Object.assign(dockState.quota, {enabled:true, artworksUsed:1, maxArtworks:10, resetSeconds:0})');
+    r.context.renderQuotaBar();
+    const quota = r.get('abQuotaBox'), bar = quota.querySelector('.ab-mini-prog-bar');
+    const fill = quota.querySelector('.ab-mini-prog-fill');
+    for (const used of [7, 9, 2]) {
+        r.run(`Object.assign(dockState.quota, {artworksUsed:${used}, resetSeconds:10})`);
+        r.context.renderQuotaBar();
+        assert.equal(quota.querySelector('.ab-mini-prog-bar'), bar);
+        assert.equal(quota.querySelector('.ab-mini-prog-fill'), fill);
+        assert.equal(bar['aria-valuenow'], String(used * 10));
+    }
+    assert.equal(fill.className, 'ab-mini-prog-fill');
+    r.show('token', 60, false);
+    const archive = r.get('abArchiveBox'), link = archive.querySelector('a');
+    const note = archive.querySelector('.ab-archive-note');
+    for (const status of ['ready', 'expired', 'empty', 'packing', 'ready']) {
+        r.run(`dockState.archive.status = '${status}'`);
+        r.context.renderArchiveCard();
+        assert.equal(archive.querySelector('a'), link);
+        assert.equal(archive.querySelector('.ab-archive-note'), note);
+        assert.equal(link.href, status === 'ready' ? '/api/archive/download/token' : undefined);
+        assert.equal(archive.querySelector('.ab-archive-row').hidden, status !== 'ready');
+    }
+    r.event('pagehide');
+});
 
 for (const variant of ['classic', 'alt']) {
     test(variant + '：管理员打包只提交已完成插画，忽略同 ID 的其他类型', async () => {

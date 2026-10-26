@@ -356,7 +356,7 @@
 .ab-mini-prog-bar {
     height: 5px;
     border-radius: 4px;
-    background: var(--surface-3);
+    background: var(--line);
     overflow: hidden;
 }
 
@@ -365,6 +365,10 @@
     border-radius: 4px;
     background: var(--brand);
     transition: width var(--motion-med) var(--motion-ease-standard);
+}
+
+.ab-mini-prog-bar[aria-busy="false"]:not([aria-valuenow]) .ab-mini-prog-fill {
+    transition: none;
 }
 
 .ab-mini-prog-fill.is-image {

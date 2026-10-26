@@ -26,14 +26,14 @@ function renderUserMode(panel) {
     const input = el('input', 'ab-input');
     input.id = 'abUserInput';
     input.type = 'text';
-    input.placeholder = bt('user.input.placeholder', '输入用户 ID 或画师主页链接（https://www.pixiv.net/users/…）');
+    bindAltText(input, () => bt('user.input.placeholder', '输入用户 ID 或画师主页链接（https://www.pixiv.net/users/…）'), 'placeholder');
     input.value = userState.input || storeGet('pixiv_user_input') || '';
     input.addEventListener('keydown', e => {
         if (e.key === 'Enter') loadUserWorks(1);
     });
     const kindSeg = el('div', 'ab-seg ab-seg--sm');
     const selections = altTypesForSource('user', userState.source)
-        .map(item => [item.type, altTypeLabel(item.type)]);
+        .map(item => [item.type, () => altTypeLabel(item.type)]);
     const userAcquisitions = altQueueTypes().acquisitionList('user')
         .filter(item => altTypesForSource('user', userState.source).some(type => type.type === item.type));
     userAcquisitions.forEach(acquisition => {
@@ -44,7 +44,7 @@ function renderUserMode(panel) {
             const namespace = variant.labelNamespace
                 || (acquisition.dataSource && acquisition.dataSource.displayNamespace) || '';
             const key = variant.labelI18nKey || ('user.kind.' + id);
-            selections.push([id, bt((namespace ? namespace + ':' : '') + key, variant.label || id)]);
+            selections.push([id, () => bt((namespace ? namespace + ':' : '') + key, variant.label || id)]);
         });
     });
     if (!selections.some(option => option[0] === userState.kind)) {
@@ -66,7 +66,7 @@ function renderUserMode(panel) {
     const loadBtn = el('button', 'ab-btn ab-btn--primary');
     loadBtn.type = 'button';
     loadBtn.appendChild(abIconEl('search'));
-    loadBtn.appendChild(el('span', '', bt('user.load', '读取作品')));
+    loadBtn.appendChild(el('span', '', () => bt('user.load', '读取作品')));
     loadBtn.addEventListener('click', () => loadUserWorks(1));
     row.appendChild(input);
     row.appendChild(kindSeg);
@@ -206,13 +206,13 @@ function renderUserStage() {
         return;
     }
     if (userState.loading) {
-        stage.appendChild(loadingGrid(bt('user.status.loading', '正在获取画师作品…')));
+        stage.appendChild(loadingGrid(() => bt('user.status.loading', '正在获取画师作品…')));
         return;
     }
     if (!userState.userId || !userState.rawItems.length) {
         const hint = el('div', 'ab-empty ab-empty--tall');
         hint.appendChild(abIconEl('user'));
-        hint.appendChild(el('p', '', bt('user.hint', '输入画师 ID 或主页链接，读取其全部作品')));
+        hint.appendChild(el('p', '', () => bt('user.hint', '输入画师 ID 或主页链接，读取其全部作品')));
         stage.appendChild(hint);
         return;
     }
@@ -224,7 +224,7 @@ function renderUserStage() {
     const artistMeta = el('div', 'ab-artist-meta');
     artistMeta.appendChild(el('strong', '', userState.username || userState.userId));
     artistMeta.appendChild(el('span', 'ab-muted',
-        bt('user.summary.total', '共 {count} 个作品', {count: userState.total})));
+        () => bt('user.summary.total', '共 {count} 个作品', {count: userState.total})));
     artistCard.appendChild(artistMeta);
     const acquisition = altAcquisition('user', userState.source, userState.kind);
     const profileHref = acquisition && typeof acquisition.profileUrl === 'function'
@@ -241,9 +241,9 @@ function renderUserStage() {
 
     const totalPages = Math.max(1, Math.ceil(userState.total / userState.pageSize));
     stage.appendChild(enqueueBar({
-        summary: bt('user.summary.page', '第 {page} 页 · 当前页 {count} 个',
+        summary: () => bt('user.summary.page', '第 {page} 页 · 当前页 {count} 个',
             {page: userState.page, count: userState.items.length}),
-        filterSummary: userFilterSummaryText(),
+        filterSummary: userFilterSummaryText() ? userFilterSummaryText : '',
         pageEnabled: userState.items.length > 0,
         allEnabled: userState.total > 0,
         onEnqueuePage: () => enqueueItems(userState.items, null,
@@ -388,7 +388,7 @@ function renderSearchMode(panel) {
         }));
     }
     const typeOptions = altTypesForSource('search', searchState.source)
-        .map(item => [item.type, altTypeLabel(item.type)]);
+        .map(item => [item.type, () => altTypeLabel(item.type)]);
     if (!typeOptions.some(option => option[0] === searchState.kind)) {
         searchState.kind = typeOptions[0] ? typeOptions[0][0] : 'illust';
     }
@@ -402,7 +402,7 @@ function renderSearchMode(panel) {
     if (searchState.source === 'pixiv' && !hasPixivCookie()) {
         const warn = el('div', 'ab-inline-warn');
         warn.appendChild(abIconEl('alert'));
-        warn.appendChild(el('span', '', bt('search.no-cookie-warning', '未保存 Cookie：搜索结果可能减少')));
+        warn.appendChild(el('span', '', () => bt('search.no-cookie-warning', '未保存 Cookie：搜索结果可能减少')));
         panel.appendChild(warn);
     }
 
@@ -411,7 +411,7 @@ function renderSearchMode(panel) {
     const input = el('input', 'ab-input');
     input.id = 'abSearchInput';
     input.type = 'search';
-    input.placeholder = bt('search.input.placeholder', '输入搜索词（标签 / 标题）');
+    bindAltText(input, () => bt('search.input.placeholder', '输入搜索词（标签 / 标题）'), 'placeholder');
     input.value = searchState.word || '';
     input.addEventListener('keydown', e => {
         if (e.key === 'Enter') runSearch(1);
@@ -419,7 +419,7 @@ function renderSearchMode(panel) {
     const searchBtn = el('button', 'ab-btn ab-btn--primary');
     searchBtn.type = 'button';
     searchBtn.appendChild(abIconEl('search'));
-    searchBtn.appendChild(el('span', '', bt('search.run', '搜索')));
+    searchBtn.appendChild(el('span', '', () => bt('search.run', '搜索')));
     searchBtn.addEventListener('click', () => runSearch(1));
     row.appendChild(input);
     row.appendChild(searchBtn);
@@ -428,7 +428,7 @@ function renderSearchMode(panel) {
     const options = el('details', 'ab-search-options');
     options.open = !!searchState.optionsOpen || searchState.submode === 'batch';
     options.addEventListener('toggle', () => { searchState.optionsOpen = options.open; });
-    options.appendChild(el('summary', '', bt('search.options', '搜索选项')));
+    options.appendChild(el('summary', '', () => bt('search.options', '搜索选项')));
     const controls = el('div', 'ab-search-controls');
     const searchAcquisition = altAcquisition('search', searchState.source, searchState.kind);
     const contributionControls = searchAcquisition && searchAcquisition.controls || {};
@@ -436,18 +436,18 @@ function renderSearchMode(panel) {
         && searchAcquisition && typeof searchAcquisition.buildRangeRequest === 'function';
     if (!supportsBatchRange && searchState.submode === 'batch') searchState.submode = 'search';
     if (contributionControls.searchMode !== false) {
-        controls.appendChild(el('span', 'ab-control-label', bt('search.mode.label', '搜索方式')));
+        controls.appendChild(el('span', 'ab-control-label', () => bt('search.mode.label', '搜索方式')));
         controls.appendChild(smallSeg([
-            ['s_tag', bt('search.mode.tag', '标签')],
-            ['s_tc', bt('search.mode.tc', '标题/描述')]
+            ['s_tag', () => bt('search.mode.tag', '标签')],
+            ['s_tc', () => bt('search.mode.tc', '标题/描述')]
         ], searchState.sMode, v => { searchState.sMode = v; if (searchState.word && !scheduleState.editing) runSearch(1); }));
     }
     if (contributionControls.order !== false) {
-        controls.appendChild(el('span', 'ab-control-label', bt('search.order.label', '排序')));
+        controls.appendChild(el('span', 'ab-control-label', () => bt('search.order.label', '排序')));
         controls.appendChild(smallSeg([
-            ['date_d', bt('search.order.new', '最新')],
-            ['date', bt('search.order.old', '最旧')],
-            ['popular_d', bt('search.order.popular', '热门')]
+            ['date_d', () => bt('search.order.new', '最新')],
+            ['date', () => bt('search.order.old', '最旧')],
+            ['popular_d', () => bt('search.order.popular', '热门')]
         ], searchState.order, v => {
             searchState.order = v;
             if (v === 'popular_d') {
@@ -456,9 +456,9 @@ function renderSearchMode(panel) {
             if (searchState.word && !scheduleState.editing) runSearch(1);
         }));
     }
-    controls.appendChild(el('span', 'ab-control-label', bt('search.sub.label', '子模式')));
-    const submodes = [['search', bt('search.sub.search', '搜索模式')]];
-    if (supportsBatchRange) submodes.push(['batch', bt('search.sub.batch', '批量获取')]);
+    controls.appendChild(el('span', 'ab-control-label', () => bt('search.sub.label', '子模式')));
+    const submodes = [['search', () => bt('search.sub.search', '搜索模式')]];
+    if (supportsBatchRange) submodes.push(['batch', () => bt('search.sub.batch', '批量获取')]);
     controls.appendChild(smallSeg(submodes, searchState.submode, v => {
         searchState.requestSeq = (searchState.requestSeq || 0) + 1;
         searchState.filterSeq++;
@@ -477,14 +477,14 @@ function renderSearchMode(panel) {
         renderSearchStage();
     });
     blurLabel.appendChild(blurBox);
-    blurLabel.appendChild(el('span', '', bt('search.blur-r18', '模糊 R18 缩略图')));
+    blurLabel.appendChild(el('span', '', () => bt('search.blur-r18', '模糊 R18 缩略图')));
     if (contributionControls.r18Blur !== false) controls.appendChild(blurLabel);
     options.appendChild(controls);
     composer.appendChild(options);
 
     if (searchState.submode === 'batch') {
         const batchRow = el('div', 'ab-composer-row ab-batch-range');
-        batchRow.appendChild(el('span', 'ab-control-label', bt('search.batch.range', '抓取页码范围')));
+        batchRow.appendChild(el('span', 'ab-control-label', () => bt('search.batch.range', '抓取页码范围')));
         const startInput = el('input', 'ab-input ab-input--num');
         startInput.type = 'number';
         startInput.min = '1';
@@ -509,12 +509,12 @@ function renderSearchMode(panel) {
         batchRow.appendChild(el('span', 'ab-range-dash', '—'));
         batchRow.appendChild(endInput);
         const note = el('span', 'ab-field-note ab-field-note--inline');
-        note.textContent = (isAdmin
+        bindAltText(note, () => (isAdmin
             ? bt('search.batch.end-minus-one', '结束页填 -1 = 一直翻页直到遇到已下载作品（仅管理员）')
             : '')
             + (appMode === 'multi' && multiModeLimitPage > 0
                 ? ' ' + bt('search.batch.multi-limit', 'multi 模式：每次最多 {limit} 页', {limit: multiModeLimitPage})
-                : '');
+                : ''));
         batchRow.appendChild(note);
         options.appendChild(batchRow);
     }
@@ -674,13 +674,13 @@ function renderSearchStage() {
     if (!stage) return;
     stage.innerHTML = '';
     if (searchState.loading) {
-        stage.appendChild(loadingGrid(bt('common.loading', '加载中…')));
+        stage.appendChild(loadingGrid(() => bt('common.loading', '加载中…')));
         return;
     }
     if (!searchState.word) {
         const hint = el('div', 'ab-empty ab-empty--tall');
         hint.appendChild(abIconEl('search'));
-        hint.appendChild(el('p', '', bt('search.hint', '输入关键词开始搜索 Pixiv 作品')));
+        hint.appendChild(el('p', '', () => bt('search.hint', '输入关键词开始搜索 Pixiv 作品')));
         stage.appendChild(hint);
         return;
     }
@@ -694,7 +694,7 @@ function renderSearchStage() {
             searchState.localPage * localPageSize)
         : searchState.results;
     stage.appendChild(enqueueBar({
-        summary: searchSummaryText(),
+        summary: searchSummaryText,
         pageEnabled: visibleResults.length > 0,
         allEnabled: searchState.results.length > 0,
         onEnqueuePage: () => enqueueItems(visibleResults, null, {source: 'search'}),
@@ -703,7 +703,7 @@ function renderSearchStage() {
     if (!searchState.results.length) {
         const empty = el('div', 'ab-empty');
         empty.appendChild(abIconEl('search'));
-        empty.appendChild(el('p', '', bt('status.search-no-results', '无搜索结果')));
+        empty.appendChild(el('p', '', () => bt('status.search-no-results', '无搜索结果')));
         stage.appendChild(empty);
         return;
     }

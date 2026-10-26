@@ -1,18 +1,16 @@
-/* 新用户引导（跨页持续指引）。自包含 CSS 变量 + 深色模式覆盖，不依赖各页面的变量集，
-   可被任意页面安全引入。视觉语言与 pixiv-tour.css 保持一致，但支持富 HTML 气泡内容
-   （称呼输入、网络检测、代码块复制、输入校验等）。 */
+/* 中性引导浮层复用承载页面的语义色；无页面令牌时使用自有回退。 */
 :root {
-    --po-pop-bg: #ffffff;
-    --po-pop-text: #1f2328;
-    --po-pop-muted: #6a737d;
-    --po-pop-line: #e1e4e8;
-    --po-brand: #28a745;
-    --po-brand-text: #ffffff;
-    --po-btn-bg: #f3f4f6;
-    --po-btn-text: #1f2328;
-    --po-code-bg: #f6f8fa;
-    --po-code-text: #1f2328;
-    --po-input-bg: #ffffff;
+    --po-pop-bg: var(--surface, #ffffff);
+    --po-pop-text: var(--text, #1f2328);
+    --po-pop-muted: var(--muted, #6a737d);
+    --po-pop-line: var(--line, #e1e4e8);
+    --po-brand: var(--brand-strong, var(--po-ok));
+    --po-brand-text: var(--on-brand, #ffffff);
+    --po-btn-bg: var(--control-bg, #f3f4f6);
+    --po-btn-text: var(--text, #1f2328);
+    --po-code-bg: var(--control-muted-bg, #f6f8fa);
+    --po-code-text: var(--text, #1f2328);
+    --po-input-bg: var(--surface, #ffffff);
     --po-shadow: rgba(0, 0, 0, 0.22);
     --po-mask: rgba(17, 22, 28, 0.62);
     --po-ok: #1a7f37;
@@ -20,17 +18,17 @@
 }
 
 html[data-theme="dark"] {
-    --po-pop-bg: #1f242b;
-    --po-pop-text: #e6e6e6;
-    --po-pop-muted: #9aa4af;
-    --po-pop-line: #353b44;
-    --po-brand: #2ea043;
-    --po-brand-text: #ffffff;
-    --po-btn-bg: #2b313a;
-    --po-btn-text: #e6e6e6;
-    --po-code-bg: #161b22;
-    --po-code-text: #e6e6e6;
-    --po-input-bg: #11161d;
+    --po-pop-bg: var(--surface, #1f242b);
+    --po-pop-text: var(--text, #e6e6e6);
+    --po-pop-muted: var(--muted, #9aa4af);
+    --po-pop-line: var(--line, #353b44);
+    --po-brand: var(--brand-strong, var(--brand, #2e7a3f));
+    --po-brand-text: var(--on-brand, #ffffff);
+    --po-btn-bg: var(--control-bg, #2b313a);
+    --po-btn-text: var(--text, #e6e6e6);
+    --po-code-bg: var(--control-muted-bg, #161b22);
+    --po-code-text: var(--text, #e6e6e6);
+    --po-input-bg: var(--surface, #11161d);
     --po-shadow: rgba(0, 0, 0, 0.55);
     --po-mask: rgba(0, 0, 0, 0.7);
     --po-ok: #3fb950;
@@ -41,6 +39,8 @@ html[data-theme="dark"] {
     pointer-events: none;
     font-family: inherit;
 }
+
+.po-root *, .po-root *::before, .po-root *::after { box-sizing: border-box; }
 
 .po-backdrop {
     z-index: 2147482900;
@@ -56,12 +56,39 @@ html[data-theme="dark"] {
     position: fixed;
     border-radius: 10px;
     box-shadow: 0 0 0 9999px var(--po-mask);
-    transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px dashed var(--po-pop-muted);
     pointer-events: none;
 }
 
+.po-action .po-spot {
+    border: 2px solid var(--po-brand);
+    outline: 3px solid var(--po-pop-bg);
+    cursor: pointer;
+}
+
+.po-target-cue {
+    position: absolute;
+    inset-inline-start: 0;
+    bottom: calc(100% + 6px);
+    max-width: calc(100vw - 2rem);
+    padding: .25rem .625rem;
+    border-radius: .375rem;
+    background: var(--po-brand);
+    color: var(--po-brand-text);
+    font-size: .75rem;
+    font-weight: 600;
+    line-height: 1.5;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.po-cue-below .po-target-cue { bottom: auto; top: calc(100% + 6px); }
+.po-target-cue[hidden] { display: none; }
+
 /* 无目标时（居中模态）整屏压暗，无洞口 */
 .po-root.po-centered .po-spot {
+    border: 0;
+    outline: 0;
     box-shadow: 0 0 0 9999px var(--po-mask);
     width: 0 !important;
     height: 0 !important;
@@ -72,17 +99,19 @@ html[data-theme="dark"] {
 .po-pop {
     z-index: 2147483500;
     max-height: calc(100dvh - 2rem);
-    overflow-y: auto;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
     overflow-wrap: anywhere;
     position: fixed;
-    width: min(380px, calc(100vw - 28px));
+    width: min(25rem, calc(100vw - 28px));
     min-width: 0;
     background: var(--po-pop-bg);
     color: var(--po-pop-text);
     border: 1px solid var(--po-pop-line);
-    border-radius: 12px;
+    border-radius: .875rem;
     box-shadow: 0 12px 32px var(--po-shadow);
-    padding: 18px 20px;
+    padding: 1.25rem;
     pointer-events: auto;
     opacity: 0;
     transform: translateY(6px);
@@ -94,6 +123,8 @@ html[data-theme="dark"] {
     opacity: 1;
     transform: translateY(0);
 }
+
+.po-content { min-height: 0; overflow-y: auto; }
 
 /* 居中模态：固定屏幕中央，稍宽 */
 .po-pop.po-modal {
@@ -108,21 +139,31 @@ html[data-theme="dark"] {
     transform: translate(-50%, -50%);
 }
 
-.po-pop-title {
+.po-root .po-pop-title {
     font-size: 1rem;
     font-weight: 700;
     margin: 0 0 8px;
     line-height: 1.35;
 }
 
+.po-step-kind {
+    margin: 0 0 .625rem;
+    color: var(--po-pop-muted);
+    font-size: .75rem;
+    font-weight: 600;
+    line-height: 1.5;
+}
+
+.po-action .po-step-kind { color: var(--po-brand); }
+
 .po-pop-body {
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     line-height: 1.65;
     color: var(--po-pop-text);
     margin: 0 0 14px;
 }
 
-.po-pop-body p {
+.po-root .po-pop-body p {
     margin: 0 0 10px;
 }
 
@@ -131,10 +172,22 @@ html[data-theme="dark"] {
 }
 
 .po-foot {
+    flex: none;
+    padding-top: .375rem;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: .375rem .75rem;
     flex-wrap: wrap;
+}
+
+.po-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: stretch;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin-inline-start: auto;
+    max-width: 100%;
 }
 
 .po-progress {
@@ -143,43 +196,55 @@ html[data-theme="dark"] {
     margin-right: auto;
 }
 
-.po-btn {
-    min-height: var(--layout-control-height, 2.75rem);
+.po-root .po-btn {
+    min-height: max(2.75rem, var(--layout-control-height, 2.75rem));
     appearance: none;
+    width: auto;
+    height: auto;
+    margin: 0;
+    flex: 0 1 auto;
     border: 1px solid var(--po-pop-line);
     background: var(--po-btn-bg);
     color: var(--po-btn-text);
     font-size: 0.8125rem;
+    font-family: inherit;
+    font-weight: 500;
     padding: 7px 16px;
     border-radius: 7px;
     cursor: pointer;
     line-height: 1.2;
 }
 
-.po-btn:hover {
+.po-root .po-btn:hover {
     filter: brightness(0.97);
 }
 
-.po-btn-primary {
+.po-root .po-btn-primary {
     background: var(--po-brand);
     border-color: var(--po-brand);
     color: var(--po-brand-text);
     font-weight: 600;
 }
 
-.po-btn-ghost {
+.po-root .po-btn-ghost {
     background: transparent;
     border-color: transparent;
     color: var(--po-pop-muted);
     padding: 7px 8px;
 }
 
-.po-btn:disabled,
-.po-btn[disabled] {
+.po-root .po-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
     filter: none;
 }
+
+.po-root .po-btn:active:not(:disabled) { transform: translateY(1px); }
+.po-root .po-btn:focus-visible, .po-root .po-input:focus-visible, .po-interactive:focus-visible {
+    outline: 2px solid var(--po-brand);
+    outline-offset: 3px;
+}
+.po-pop:focus { outline: none; }
 
 /* 称呼输入框 */
 .po-input {
@@ -217,22 +282,29 @@ html[data-theme="dark"] {
     padding: 9px 12px;
     font-family: Consolas, Monaco, "Courier New", monospace;
     font-size: 0.78125rem;
-    word-break: break-all;
+    word-break: normal;
+    overflow-wrap: anywhere;
     line-height: 1.5;
+    display: flex;
+    align-items: center;
+    margin: 0;
 }
 
 .po-root .po-copy-btn {
     flex: none;
     width: auto;
-    align-self: flex-start;
-    white-space: nowrap;
+    align-self: stretch;
+    max-width: 40%;
+    white-space: normal;
 }
 
-.po-copy-btn.po-copied {
+.po-root .po-copy-btn.po-copied {
     background: var(--po-brand);
     border-color: var(--po-brand);
     color: var(--po-brand-text);
 }
+
+.po-hint:empty { display: none; }
 
 /* 网络检测状态行 */
 .po-net {
@@ -299,5 +371,33 @@ html[data-theme="dark"] {
 @media (max-width: 37.5em) {
     .po-pop {
         max-width: calc(100vw - 28px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .po-pop, .po-spinner { transition: none; animation: none; }
+    .po-root .po-btn:active:not(:disabled) { transform: none; }
+}
+
+@media (prefers-contrast: more) {
+    .po-pop, .po-root .po-btn, .po-code, .po-input { border-color: var(--po-pop-text); }
+    .po-progress, .po-step-kind, .po-root .po-btn-ghost { color: var(--po-pop-text); }
+}
+
+@media (forced-colors: active) {
+    .po-spot { outline: 2px dashed CanvasText; }
+    .po-action .po-spot { outline: 3px solid Highlight; }
+    .po-target-cue, .po-root .po-btn-primary {
+        forced-color-adjust: none;
+        background: Highlight;
+        color: HighlightText;
+        border: 1px solid HighlightText;
+    }
+    .po-root .po-btn:disabled {
+        forced-color-adjust: none;
+        background: ButtonFace;
+        color: GrayText;
+        border-color: GrayText;
+        opacity: 1;
     }
 }

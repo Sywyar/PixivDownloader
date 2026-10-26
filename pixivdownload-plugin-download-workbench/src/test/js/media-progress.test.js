@@ -53,20 +53,20 @@ function fixture(alt) {
         emit: data => [...(context.state.sseListeners['123'] || [])].forEach(fn => fn(data))};
 }
 
-test('alt：进度位置跨图片、格式与暂停保留，重新执行和新队列项互不继承', () => {
+test('alt：预留图片流水线全部位置，暂停和重试复用但新条目不继承', () => {
     const {context: c, q, bars} = fixture(true);
     q.taskId = 'attempt-a';
     q.imageProgress = {imageNumber: 1, totalImages: 3, progress: 25,
         processing: [{phase: 'ffmpeg', outputFormat: 'png'}]};
     const first = c.queueProgressSnapshot(q);
     const keys = item => Array.from(c.progressExtrasModel(item), entry => entry.key);
-    assert.deepEqual(keys(first), ['image-download', 'image-processing-0']);
+    assert.deepEqual(keys(first), ['image-download', 'image-processing-0', 'image-processing-1']);
     for (const imageNumber of [2, 3]) {
         q.imageProgress = {phase: 'processing', processing: [{imageNumber, phase: 'verifying', outputFormat: 'webp'},
             {imageNumber, phase: 'ffmpeg-waiting', outputFormat: 'png'}]};
         assert.deepEqual(keys(c.queueProgressSnapshot(q)), ['image-download', 'image-processing-0', 'image-processing-1']);
     }
-    assert.equal(first.progressSlots.length, 2);
+    assert.equal(first.progressSlots.length, 3);
     assert.equal(Object.hasOwn(q, 'progressSlots'), false);
     q.imageProgress = null;
     for (const status of ['downloading', 'paused', 'downloading', 'failed', 'completed']) {
@@ -77,17 +77,19 @@ test('alt：进度位置跨图片、格式与暂停保留，重新执行和新�
     assert.equal(c.progressExtrasModel({...q}).length, 0);
     q.taskId = 'attempt-b';
     q.status = 'downloading';
-    assert.equal(bars().length, 0);
+    assert.equal(bars().length, 3);
     q.imageProgress = {progress: 10};
-    assert.equal(bars().length, 1);
+    assert.equal(bars().length, 3);
     q.status = 'pending';
-    assert.equal(bars().length, 0);
+    assert.equal(bars().length, 3);
 });
 
 test('alt：动图解压和转码复用进度位置，小说各阶段结束后停止动画且不残留数值', () => {
     const {context: c, q, bars} = fixture(true);
     q.ugoiraProgress = {phase: 'zip', zipProgress: 80};
-    assert.equal(bars().length, 1);
+    assert.equal(bars().length, 2);
+    assert.equal(bars()[1]['aria-busy'], 'false');
+    assert.equal(bars()[1]['aria-valuenow'], undefined);
     for (const phase of ['extract', 'ffmpeg-waiting', 'ffmpeg', 'finalizing']) {
         q.ugoiraProgress = {phase, outputFormat: 'webp'};
         assert.equal(bars().length, 2);
@@ -99,9 +101,9 @@ test('alt：动图解压和转码复用进度位置，小说各阶段结束后�
     q.status = 'pending';
     bars();
     Object.assign(q, {status: 'downloading', kind: 'novel', novelText: {done: 5, total: 10}});
-    assert.equal(bars().length, 1);
+    assert.equal(bars().length, 3);
     Object.assign(q, {novelText: null, novelCover: {done: 1, total: 3}});
-    assert.equal(bars().length, 2);
+    assert.equal(bars().length, 3);
     Object.assign(q, {novelCover: null, novelEmbedded: {done: 1, total: 2}});
     assert.equal(bars().length, 3);
     q.status = 'completed';
@@ -115,7 +117,7 @@ for (const alt of [false, true]) {
         const waiting = f.context.waitForFinalStatusBySSE('123', 1000);
         f.emit({downloadedCount: 0, imageProgress: {imageNumber: 2, totalImages: 3, downloadedBytes: 25, totalBytes: 100, progress: 25,
             processing: [{imageNumber: 1, totalImages: 3, phase: 'ffmpeg', outputFormat: 'png'}]}});
-        assert.equal(f.bars().length, 2);
+        assert.equal(f.bars().length, alt ? 3 : 2);
         assert.equal(f.bars()[0]['aria-valuenow'], '25');
         assert.match(f.bars()[1]['aria-label'], /queue.media.converting.*1\/3/);
         assert.equal(f.bars()[1]['aria-valuenow'], undefined);
@@ -143,10 +145,11 @@ for (const alt of [false, true]) {
             assert.match(f.render(), /queue.media\./);
             assert.match(f.render(), /PNG · 1\/2/);
             assert.doesNotMatch(f.render(), /100%/);
-            assert.equal(f.bars().length, 1);
-            assert.equal(f.bars()[0]['aria-busy'], 'true');
-            assert.equal(f.bars()[0]['aria-valuenow'], undefined);
-            assert.match(f.bars()[0]['aria-label'], /queue.media\./);
+            assert.equal(f.bars().length, alt ? 2 : 1);
+            const processing = f.bars()[alt ? 1 : 0];
+            assert.equal(processing['aria-busy'], 'true');
+            assert.equal(processing['aria-valuenow'], undefined);
+            assert.match(processing['aria-label'], /queue.media\./);
         }
         f.q.imageProgress.status = 'failed';
         assert.equal(f.bars()[0]['aria-busy'], 'false');
@@ -162,7 +165,7 @@ for (const alt of [false, true]) {
             assert.equal(f.bars()[0]['aria-valuenow'], undefined);
             assert.doesNotMatch(f.render(), /PNG|100%|<IMG/i);
         } else assert.equal(f.render(), '');
-        assert.equal(f.bars().length, alt ? 1 : 0);
+        assert.equal(f.bars().length, alt ? 2 : 0);
     });
 
     test(`${layout}：多格式 Ugoira 进入下一轮等待时不继承上一格式 100%`, () => {

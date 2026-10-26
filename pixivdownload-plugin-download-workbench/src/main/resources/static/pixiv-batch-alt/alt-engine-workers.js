@@ -214,6 +214,7 @@ async function processIllustItem(item, invocation) {
         const meta = await getArtworkMeta(item.id, invocation);
         assertProcessInvocation(invocation);
         item.title = meta.illustTitle || item.title || bt('queue.artwork-fallback', '作品 {id}', {id: item.id});
+        item.illustType = meta.illustType;
         const metaAuthorId = normalizeAuthorId(meta.authorId ?? meta.userId);
         if (metaAuthorId) item.authorId = metaAuthorId;
         if (meta.authorName || meta.userName) item.authorName = meta.authorName || meta.userName;

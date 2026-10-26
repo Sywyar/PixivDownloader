@@ -7,8 +7,14 @@
         return;
     }
 
-    var EXAMPLE_ID = ctx.EXAMPLE_ID;
-    var t = ctx.message;
+    function exampleId() {
+        // 旧进度没有保存示例身份；只为既有格式保留其历史值。
+        return ctx.loadState().exampleId || '145378118';
+    }
+    function t(key, fallback, args) {
+        var shared = key.indexOf('onboarding.common.') === 0 || key === 'onboarding.done.close';
+        return ctx.message((shared ? 'tour:' : 'gallery:') + key, fallback, args);
+    }
     var escapeHtml = ctx.messageHtml;
     var patchState = ctx.patchState;
     var SKIP_BTN = ctx.SKIP_BTN;
@@ -72,7 +78,7 @@
         // 卡片可能随网格异步渲染，等它出现再聚光
         waitForElement(function () {
             var fn = hook('getExampleCard');
-            return fn ? fn(EXAMPLE_ID) : null;
+            return fn ? fn(exampleId()) : null;
         }, function (el) {
             renderGalleryCard(!!el);
         }, function () {
@@ -81,7 +87,7 @@
     }
 
     function renderGalleryCard(found) {
-        var sel = found ? callHook('getExampleCardSelector', EXAMPLE_ID) : (ctx.config.sel.grid || null);
+        var sel = found ? callHook('getExampleCardSelector', exampleId()) : (ctx.config.sel.grid || null);
         overlay.render({
             targetSelector: sel,
             interactiveSelector: found ? sel : null,
@@ -95,33 +101,51 @@
         bindFoot({skip: skip});
         if (found) {
             // 点击卡片会跳转到详情页；先把阶段推进到 detail，详情页 boot 续跑
-            var card = callHook('getExampleCard', EXAMPLE_ID);
+            var card = callHook('getExampleCard', exampleId());
             if (card) {
-                card.addEventListener('click', function () {
+                var revision = overlay.revision;
+                var clicked = function () {
+                    if (overlay.revision !== revision) return;
                     patchState({phase: 'detail'});
-                }, {capture: true, once: true});
+                };
+                card.addEventListener('click', clicked, {capture: true, once: true});
+                overlay.onCleanup(function () { card.removeEventListener('click', clicked, true); });
             }
         }
     }
 
     // 用户先打开画廊（未走下载页）：引导回下载页
+    function downloadEntry() {
+        return document.querySelector('a.app-nav-link[data-nav-markers~="preferred-download-workbench"]');
+    }
+
     function phaseGalleryRedirect() {
-        patchState({status: 'active', phase: 'welcome'});
+        var entry = downloadEntry();
         overlay.render({
             centered: true,
             html:
                 '<h3 class="po-pop-title">' + escapeHtml(t('onboarding.redirect.title', '👋 欢迎使用 PixivDownloader')) + '</h3>'
-                + '<div class="po-pop-body"><p>' + escapeHtml(t('onboarding.redirect.body',
-                    '新手指引从「下载页」开始，会带你下载第一份示例作品。要现在前往吗？')) + '</p></div>'
+                + '<div class="po-pop-body"><p>' + escapeHtml(entry
+                    ? t('onboarding.redirect.body', '新手指引从「下载页」开始，会带你下载第一份示例作品。要现在前往吗？')
+                    : t('onboarding.redirect.unavailable', '当前没有可用的下载入口。你仍可了解画廊的浏览方式。')) + '</p></div>'
                 + footHtml([
                     {act: 'later', label: t('onboarding.redirect.later', '以后再说'), variant: 'ghost'},
-                    {act: 'go', label: t('onboarding.redirect.go', '前往下载页'), variant: 'primary'}
+                    {act: 'go', label: entry
+                        ? t('onboarding.redirect.go', '前往下载页')
+                        : t('onboarding.redirect.browse', '了解画廊'), variant: 'primary'}
                 ])
         });
         bindFoot({
             later: skip,
             go: function () {
-                global.location.href = '/pixiv-batch.html';
+                if (!entry) {
+                    patchState({status: 'active', phase: 'gallery'});
+                    phaseGallery();
+                } else if (downloadEntry() === entry && entry.isConnected !== false) {
+                    global.location.href = entry.href;
+                } else {
+                    phaseGalleryRedirect();
+                }
             }
         });
     }
@@ -205,7 +229,7 @@
             var el = ctx.config.sel.detail ? document.querySelector(ctx.config.sel.detail) : null;
             return isVisible(el) ? el : null;
         }, function () {
-            global.setTimeout(runResolved, 500);
+            ctx.delay(runResolved, 500);
         }, function () {
             // 超时（异常情况）：按当前可见区域尽力讲解，没有可讲再直接完成
             runResolved();
@@ -262,9 +286,28 @@
         bindFoot({done: finish});
     }
 
-    ctx.gallery = {
-        phaseGallery: phaseGallery,
-        phaseGalleryRedirect: phaseGalleryRedirect,
-        phaseDetail: phaseDetail
+    global.PixivGalleryOnboarding = {
+        boot: function (config) {
+            global.PixivOnboarding.boot(Object.assign({}, config, {
+                start: function (state) {
+                    if (config.page === 'gallery') {
+                        if (state.status === 'new') {
+                            var revision = overlay.revision;
+                            var ready = global.PixivNav && global.PixivNav.ready ? global.PixivNav.ready() : Promise.resolve();
+                            var show = function () {
+                                if (overlay.revision === revision) phaseGalleryRedirect();
+                            };
+                            ready.then(show, show);
+                        } else if (state.phase === 'result' || state.phase === 'await-gallery' || state.phase === 'gallery') {
+                            phaseGallery();
+                        }
+                    } else if (config.page === 'artwork' && state.status === 'active'
+                        && ['detail', 'gallery', 'await-gallery', 'result'].indexOf(state.phase) !== -1) {
+                        patchState({phase: 'detail'});
+                        phaseDetail();
+                    }
+                }
+            }));
+        }
     };
 })(window);

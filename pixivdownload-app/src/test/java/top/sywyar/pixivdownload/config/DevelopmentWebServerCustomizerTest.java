@@ -75,28 +75,30 @@ class DevelopmentWebServerCustomizerTest {
     }
 
     @Test
-    @DisplayName("两个服务器同时争用同一端口，均能启动并占用不同端口")
+    @DisplayName("两个服务器同时重试被占用端口，均能启动并占用不同端口")
     void concurrentStartsKeepDistinctListeners() throws Exception {
-        int requested;
-        try (ServerSocket available = new ServerSocket(0)) { requested = available.getLocalPort(); }
-        WebServer first = server(requested);
-        WebServer second = server(requested);
-        var executor = Executors.newFixedThreadPool(2);
-        CountDownLatch start = new CountDownLatch(1);
-        try {
-            var one = executor.submit(() -> { start.await(); first.start(); return first.getPort(); });
-            var two = executor.submit(() -> { start.await(); second.start(); return second.getPort(); });
-            start.countDown();
-            int firstPort = one.get(30, TimeUnit.SECONDS);
-            int secondPort = two.get(30, TimeUnit.SECONDS);
-            assertThat(firstPort).isNotEqualTo(secondPort);
-            assertThat(Math.min(firstPort, secondPort)).isEqualTo(requested);
-            assertResponds(first);
-            assertResponds(second);
-        } finally {
-            start.countDown();
-            executor.shutdownNow();
-            assertThat(executor.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+        // 持有冲突端口，避免释放后被其它进程抢占使起始端口断言依赖运行环境。
+        try (ServerSocket occupied = new ServerSocket(0)) {
+            int requested = occupied.getLocalPort();
+            WebServer first = server(requested);
+            WebServer second = server(requested);
+            var executor = Executors.newFixedThreadPool(2);
+            CountDownLatch start = new CountDownLatch(1);
+            try {
+                var one = executor.submit(() -> { start.await(); first.start(); return first.getPort(); });
+                var two = executor.submit(() -> { start.await(); second.start(); return second.getPort(); });
+                start.countDown();
+                int firstPort = one.get(30, TimeUnit.SECONDS);
+                int secondPort = two.get(30, TimeUnit.SECONDS);
+                assertThat(firstPort).isGreaterThan(requested).isNotEqualTo(secondPort);
+                assertThat(secondPort).isGreaterThan(requested);
+                assertResponds(first);
+                assertResponds(second);
+            } finally {
+                start.countDown();
+                executor.shutdownNow();
+                assertThat(executor.awaitTermination(30, TimeUnit.SECONDS)).isTrue();
+            }
         }
     }
 

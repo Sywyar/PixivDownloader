@@ -6,8 +6,6 @@
     'use strict';
 
     var STORAGE_KEY = 'pixiv_onboarding_v1';
-    var EXAMPLE_ID = '145378118';
-    var EXAMPLE_URL = 'https://www.pixiv.net/artworks/' + EXAMPLE_ID;
     var SPOT_PADDING = 8;
     var POP_GAP = 14;
     var VIEWPORT_MARGIN = 12;
@@ -15,9 +13,7 @@
     var ctx = {
         config: null,
         i18n: null,
-        completionStepNotified: false,
-        download: {},
-        gallery: {}
+        completionStepNotified: false
     };
 
     function t(key, fallback, vars) {
@@ -74,15 +70,15 @@
         try {
             var raw = global.localStorage.getItem(STORAGE_KEY);
             if (!raw) {
-                return {status: 'new', phase: 'welcome', name: ''};
+                return {status: 'new', name: ''};
             }
             var s = JSON.parse(raw);
             if (!s || typeof s !== 'object') {
-                return {status: 'new', phase: 'welcome', name: ''};
+                return {status: 'new', name: ''};
             }
             return s;
         } catch (e) {
-            return {status: 'new', phase: 'welcome', name: ''};
+            return {status: 'new', name: ''};
         }
     }
 
@@ -126,7 +122,7 @@
     var restartEl = null;
 
     function bindRestartButton() {
-        if (restartEl || !ctx.config || ctx.config.page !== 'batch') {
+        if (restartEl || !ctx.config || typeof ctx.config.restart !== 'function') {
             return;
         }
         var selector = ctx.config.sel.restartButton;
@@ -160,18 +156,22 @@
         if (target) target.focus({preventScroll: true});
     }
 
-    // 重看时保留称呼，重新进入欢迎与下载流程。
+    function unbindRestartButton() {
+        if (!restartEl) return;
+        restartEl.removeEventListener('click', restart);
+        restartEl.hidden = true;
+        restartEl = null;
+    }
+
+    // 页面拥有重看时的业务状态，公共入口只管理旧浮层和完成通知。
     function restart() {
-        if (!ctx.config || ctx.config.page !== 'batch') {
+        if (!ctx.config || typeof ctx.config.restart !== 'function') {
             return;
         }
         ctx.overlay.destroy();
         setRestartEnabled(false);
         ctx.completionStepNotified = false;
-        patchState({status: 'active', phase: 'welcome'});
-        if (ctx.download && typeof ctx.download.phaseWelcome === 'function') {
-            ctx.download.phaseWelcome();
-        }
+        ctx.config.restart();
     }
 
     // 通知后端当前网页操作指引已完成（GUI 引导据此推进），best-effort、每次向导仅发一次。
@@ -223,6 +223,7 @@
                 done();
             }
         }, 400);
+        ctx.overlay.onCleanup(function () { global.clearInterval(timer); });
     }
 
     // 轮询取元素，命中→found(el)；超时→timeout()。getter 可能在 overlay 建立前就被调用
@@ -251,12 +252,18 @@
                 }
             }
         }, 300);
+        ctx.overlay.onCleanup(function () { global.clearInterval(timer); });
     }
 
+    function delay(callback, milliseconds) {
+        var revision = ctx.overlay.revision;
+        var timer = global.setTimeout(function () {
+            if (ctx.overlay.revision === revision) callback();
+        }, milliseconds);
+        ctx.overlay.onCleanup(function () { global.clearTimeout(timer); });
+    }
 
     ctx.STORAGE_KEY = STORAGE_KEY;
-    ctx.EXAMPLE_ID = EXAMPLE_ID;
-    ctx.EXAMPLE_URL = EXAMPLE_URL;
     ctx.SPOT_PADDING = SPOT_PADDING;
     ctx.POP_GAP = POP_GAP;
     ctx.VIEWPORT_MARGIN = VIEWPORT_MARGIN;
@@ -275,6 +282,7 @@
     ctx.skip = skip;
     ctx.restart = restart;
     ctx.bindRestartButton = bindRestartButton;
+    ctx.unbindRestartButton = unbindRestartButton;
     ctx.refreshRestartLabel = refreshRestartLabel;
     ctx.setRestartEnabled = setRestartEnabled;
     ctx.notifyCompletionStepDone = notifyCompletionStepDone;
@@ -282,5 +290,6 @@
     ctx.callHook = callHook;
     ctx.waitFor = waitFor;
     ctx.waitForElement = waitForElement;
+    ctx.delay = delay;
     global.PixivOnboardingRuntime = ctx;
 })(window);

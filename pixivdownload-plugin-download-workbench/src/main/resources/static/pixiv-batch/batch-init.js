@@ -390,7 +390,7 @@
     // solo / 管理员使用跨页向导，其余身份沿用页面说明；重看入口都由页头提供。
     async function setupOnboardingOrTour() {
         const eligible = (appMode === 'solo') || isAdmin;
-        if (eligible && typeof PixivOnboarding !== 'undefined') {
+        if (eligible && typeof PixivDownloadOnboarding !== 'undefined') {
             // 读取已保存的称呼（服务端权威值），供向导决定是否跳过称呼步
             let savedName = '';
             try {
@@ -400,7 +400,7 @@
                     savedName = (data && data.displayName) || '';
                 }
             } catch (_) { /* best-effort */ }
-            PixivOnboarding.boot(buildOnboardingConfig(savedName));
+            PixivDownloadOnboarding.boot(buildOnboardingConfig(savedName));
         } else {
             setupTour(false);
             if (typeof PixivTour !== 'undefined') {

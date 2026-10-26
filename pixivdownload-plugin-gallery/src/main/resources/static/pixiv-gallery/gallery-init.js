@@ -70,8 +70,8 @@
     async function setupGalleryOnboarding() {
         const profile = await loadOnboardingProfile();
         applyDisplayName(profile.displayName);
-        if (typeof PixivOnboarding === 'undefined') return;
-        PixivOnboarding.boot({
+        if (typeof PixivGalleryOnboarding === 'undefined') return;
+        PixivGalleryOnboarding.boot({
             page: 'gallery',
             completionStepId: 'local-gallery-guide',
             i18n: pageI18n,

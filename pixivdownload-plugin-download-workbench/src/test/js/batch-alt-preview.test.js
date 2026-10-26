@@ -89,6 +89,29 @@ test('入队提示跟随真实队列状态，小说卡片保留元数据和可�
     assert.equal(enqueue.title, enqueueLabel);
 });
 
+test('重复队列刷新及语言切换不重建未变入队图标', () => {
+    const {context, root} = previewContext();
+    const card = context.workCard({id: '1', title: 'Work'});
+    root.appendChild(card);
+    const button = card.querySelector('.ab-work-enqueue');
+    const initial = button.children[0];
+    const icon = context.abIcon;
+    let builds = 0;
+    context.abIcon = name => { builds++; return icon(name); };
+    for (let i = 0; i < 4; i++) context.syncAllResultsQueueState();
+    assert.equal(builds, 0);
+    assert.equal(button.children[0], initial);
+    context.queueHas = () => true;
+    context.syncAllResultsQueueState();
+    assert.equal(builds, 1);
+    const previous = button.getAttribute('aria-label');
+    context.bt = key => 'next:' + key;
+    for (let i = 0; i < 4; i++) context.syncAllResultsQueueState();
+    assert.equal(builds, 1);
+    assert.notEqual(button.getAttribute('aria-label'), previous);
+    assert.equal(button.getAttribute('aria-pressed'), 'true');
+});
+
 test('已知总页数可跳页，非法页码不请求，游标分页只允许逐页浏览', () => {
     const {context} = previewContext();
     const calls = [];

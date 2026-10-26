@@ -397,10 +397,39 @@ function altComponentClasses(tag, classes) {
     return classes.trim();
 }
 
+// 绑定归节点所有，移除页面后不保留控件或业务快照；只刷新文字与属性，不改输入值。
+const altTextBindings = new WeakMap();
+function bindAltText(node, read, attribute) {
+    let bindings = altTextBindings.get(node);
+    if (!bindings) {
+        bindings = new Map();
+        altTextBindings.set(node, bindings);
+        node.setAttribute('data-alt-text', '');
+    }
+    const update = () => {
+        const value = String(read() ?? '');
+        if (attribute) {
+            if (node.getAttribute(attribute) !== value) node.setAttribute(attribute, value);
+        } else if (node.textContent !== value) node.textContent = value;
+    };
+    bindings.set(attribute || 'textContent', update);
+    update();
+}
+
+function refreshAltText(root = document) {
+    root.querySelectorAll('[data-alt-text]').forEach(node => {
+        altTextBindings.get(node)?.forEach(update => update());
+    });
+}
+
 function el(tag, className, text) {
     const node = document.createElement(tag);
     node.className = altComponentClasses(tag, className || '');
-    if (text !== undefined && text !== null) node.textContent = text;
+    if (typeof text === 'function') {
+        const label = (className || '').split(/\s+/).includes('ab-loading-line')
+            ? node.appendChild(document.createElement('span')) : node;
+        bindAltText(label, text);
+    } else if (text !== undefined && text !== null) node.textContent = text;
     if ((className || '').split(/\s+/).includes('ab-loading-line')) {
         const spinner = document.createElement('span');
         spinner.className = 'preloader';

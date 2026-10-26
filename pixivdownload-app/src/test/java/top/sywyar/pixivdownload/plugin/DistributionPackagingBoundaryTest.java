@@ -1349,7 +1349,29 @@ class DistributionPackagingBoundaryTest {
                             "top.sywyar.pixivdownload.guicompose.model.DesktopApplicationResources", true, loader);
                     var maintainers = resources.getDeclaredMethod("loadMaintainers");
                     maintainers.setAccessible(true);
-                    assertThat((List<?>) maintainers.invoke(null)).isNotEmpty();
+                    try (var catalogStream = loader.getResourceAsStream("pixivdownload/maintainers.json")) {
+                        assertThat(catalogStream).as("构建必须提供目录或明确不可用状态").isNotNull();
+                        var catalog = new com.fasterxml.jackson.databind.ObjectMapper().readTree(catalogStream);
+                        assertThat(catalog.path("maintainers").isArray()).isTrue();
+                        if (catalog.path("unavailable").asBoolean()) {
+                            assertThat(catalog.path("unavailable").isBoolean()).isTrue();
+                            assertThat(catalog.path("maintainers").size()).isZero();
+                        } else {
+                            assertThat(catalog.path("maintainers").size()).isPositive();
+                        }
+                        assertThat((List<?>) maintainers.invoke(null)).hasSize(catalog.path("maintainers").size());
+                    }
+                    var parseMaintainers = resources.getDeclaredMethod("loadMaintainers", InputStream.class);
+                    parseMaintainers.setAccessible(true);
+                    String fixture = """
+                            {"maintainers":[{"id":1,"login":"fixture","role":"author-core",
+                            "avatarUrl":"https://avatars.githubusercontent.com/u/1","profileUrl":"https://github.com/fixture",
+                            "avatarMediaType":"image/png","avatarBase64":"AAEC"}]}
+                            """;
+                    assertThat((List<?>) parseMaintainers.invoke(null, new java.io.ByteArrayInputStream(
+                            fixture.getBytes(StandardCharsets.UTF_8)))).hasSize(1);
+                    assertThat((List<?>) parseMaintainers.invoke(null, new java.io.ByteArrayInputStream(
+                            "{\"maintainers\":[],\"unavailable\":true}".getBytes(StandardCharsets.UTF_8)))).isEmpty();
                     Class<?> imageType = Class.forName("org.jetbrains.skia.Image", true, loader);
                     Object companion = imageType.getField("Companion").get(null);
                     byte[] pixel = Base64.getDecoder().decode(

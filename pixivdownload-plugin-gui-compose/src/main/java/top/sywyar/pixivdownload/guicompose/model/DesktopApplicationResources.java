@@ -70,6 +70,12 @@ final class DesktopApplicationResources {
                     stream,
                     MaintainerCatalog.class
             );
+            if (catalog != null && catalog.unavailable()) {
+                if (catalog.maintainers() == null || !catalog.maintainers().isEmpty()) {
+                    throw new IllegalStateException("Unavailable maintainer catalog must have an empty list");
+                }
+                return List.of();
+            }
             if (catalog == null || catalog.maintainers() == null || catalog.maintainers().isEmpty()) {
                 throw new IllegalStateException("Bundled maintainer catalog is empty");
             }
@@ -115,7 +121,7 @@ final class DesktopApplicationResources {
     ) {
     }
 
-    private record MaintainerCatalog(List<Maintainer> maintainers) {
+    private record MaintainerCatalog(List<Maintainer> maintainers, boolean unavailable) {
     }
 
     record Maintainer(

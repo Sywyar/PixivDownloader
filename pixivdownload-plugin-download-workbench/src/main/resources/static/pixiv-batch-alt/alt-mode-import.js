@@ -8,41 +8,41 @@ function renderImportMode(panel) {
     panel.appendChild(modeHeader(def, [filterButton(), settingsButton()]));
 
     const sources = el('div', 'ab-import-sources');
-    sources.appendChild(el('span', 'ab-muted', bt('import.sources', '支持的数据来源：')));
+    sources.appendChild(el('span', 'ab-muted', () => bt('import.sources', '支持的数据来源：')));
     altSourcesForMode('single-import').forEach(src => {
-        sources.appendChild(el('span', 'ab-pill ab-pill--brand', src.label));
+        sources.appendChild(el('span', 'ab-pill ab-pill--brand', () => altSourcesForMode('single-import').find(source => source.id === src.id)?.label || src.label));
     });
     panel.appendChild(sources);
 
     const composer = el('div', 'ab-composer card');
     const textarea = el('textarea', 'ab-input ab-import-input');
     textarea.id = 'abImportInput';
-    textarea.setAttribute('aria-label', bt('modes.import', '批量导入'));
+    bindAltText(textarea, () => bt('modes.import', '批量导入'), 'aria-label');
     textarea.setAttribute('aria-describedby', 'abImportResult');
     textarea.rows = 5;
     textarea.spellcheck = false;
-    textarea.placeholder = bt('batch:input.single-import.placeholder',
-        '粘贴插画/漫画/动图/小说单作品链接列表，兼容 One-Tab，N-Tab 等标签页管理插件导出格式...');
+    bindAltText(textarea, () => bt('batch:input.single-import.placeholder',
+        '粘贴插画/漫画/动图/小说单作品链接列表，兼容 One-Tab，N-Tab 等标签页管理插件导出格式...'), 'placeholder');
     composer.appendChild(textarea);
-    composer.appendChild(el('p', 'ab-field-note', bt('import.id-hint', '数字 ID 默认为插画；小说请粘贴完整链接，或在 ID 前另起一行写 novel:。')));
+    composer.appendChild(el('p', 'ab-field-note', () => bt('import.id-hint', '数字 ID 默认为插画；小说请粘贴完整链接，或在 ID 前另起一行写 novel:。')));
 
     const help = el('details', 'ab-import-help');
-    help.appendChild(el('summary', '', bt('import.format.title', '导入格式说明')));
+    help.appendChild(el('summary', '', () => bt('import.format.title', '导入格式说明')));
     const list = el('ul', 'ab-note-list');
     [
-        bt('batch:label.import-format', '导入格式：') + ' url | title '
+        () => bt('batch:label.import-format', '导入格式：') + ' url | title '
             + bt('batch:label.import-format-or', '或') + ' id | title',
-        bt('batch:label.import-example', '每行一条，例如：')
+        () => bt('batch:label.import-example', '每行一条，例如：')
             + bt('batch:label.import-example-value', 'https://www.pixiv.net/artworks/12345678 | 示例标题'),
-        bt('batch:label.import-bare-id-example', '仅 ID 示例：')
+        () => bt('batch:label.import-bare-id-example', '仅 ID 示例：')
             + bt('batch:label.import-bare-id-example-value', '12345678 | 示例标题'),
-        bt('batch:hint.import-bare-id', '仅写数字 ID 时默认按插画解析（等同于 https://www.pixiv.net/artworks/{id}）；若需要按小说解析，请在该行之前加一行 <code>novel:</code> 作为区段头。'),
-        bt('batch:hint.import-section-header', '区段头 <code>artwork:</code> / <code>novel:</code> 单独成行（大小写不敏感，全/半角冒号均可）；其下方的所有「仅 ID / id | title」按该类型解析，直到遇到下一个区段头或文本结束。明确的链接始终按链接自身类型解析，与所在区段无关。'),
-        bt('batch:hint.import-title-optional', '标题可留空；下载前会自动获取真实标题。兼容 One-Tab，N-Tab 等标签页管理插件导出格式。'),
-        bt('batch:hint.import-reimport', '也兼容下方“导出全部”“导出未下载”按钮生成的作品列表，可直接重新导入。')
+        () => bt('batch:hint.import-bare-id', '仅写数字 ID 时默认按插画解析（等同于 https://www.pixiv.net/artworks/{id}）；若需要按小说解析，请在该行之前加一行 <code>novel:</code> 作为区段头。'),
+        () => bt('batch:hint.import-section-header', '区段头 <code>artwork:</code> / <code>novel:</code> 单独成行（大小写不敏感，全/半角冒号均可）；其下方的所有「仅 ID / id | title」按该类型解析，直到遇到下一个区段头或文本结束。明确的链接始终按链接自身类型解析，与所在区段无关。'),
+        () => bt('batch:hint.import-title-optional', '标题可留空；下载前会自动获取真实标题。兼容 One-Tab，N-Tab 等标签页管理插件导出格式。'),
+        () => bt('batch:hint.import-reimport', '也兼容下方“导出全部”“导出未下载”按钮生成的作品列表，可直接重新导入。')
     ].forEach(text => {
         const li = el('li');
-        li.textContent = text.replace(/<\/?code>/g, '');
+        bindAltText(li, () => text().replace(/<\/?code>/g, ''));
         list.appendChild(li);
     });
     help.appendChild(list);
@@ -58,12 +58,12 @@ function renderImportMode(panel) {
     importBtn.id = 'abBtnImport';
     importBtn.type = 'button';
     importBtn.appendChild(abIconEl('plus'));
-    importBtn.appendChild(el('span', '', bt('import.enqueue', '导入并加入队列')));
+    importBtn.appendChild(el('span', '', () => bt('import.enqueue', '导入并加入队列')));
     importBtn.addEventListener('click', () => runImportParse(false));
     const freshBtn = el('button', 'ab-btn ab-btn--danger-ghost');
     freshBtn.type = 'button';
     freshBtn.appendChild(abIconEl('refresh'));
-    freshBtn.appendChild(el('span', '', bt('import.reimport', '清空队列后重新导入')));
+    freshBtn.appendChild(el('span', '', () => bt('import.reimport', '清空队列后重新导入')));
     freshBtn.addEventListener('click', async () => {
         if (!await abConfirm('dialog.confirm-reparse', '确认清除当前队列并重新解析？')) return;
         runImportParse(true);
@@ -172,8 +172,8 @@ function runImportParse(clearFirst) {
         return;
     }
     const summary = el('p', 'ab-import-summary');
-    summary.textContent = bt('status.parsed-summary', '解析完成：共 {total} 个，新增 {added} 个',
-        {total: parsed.items.length, added: parsed.items.filter(i => !queueHas(i.id)).length});
+    bindAltText(summary, () => bt('status.parsed-summary', '解析完成：共 {total} 个，新增 {added} 个',
+        {total: parsed.items.length, added: parsed.items.filter(i => !queueHas(i.id)).length}));
     result.appendChild(summary);
     announce(summary.textContent);
     textarea.removeAttribute('aria-invalid');
@@ -185,12 +185,12 @@ function runImportParse(clearFirst) {
         row.appendChild(el('span', 'ab-import-title',
             item.title || bt('import.auto-title', '（下载前自动获取标题）')));
         const inQueue = queueHas(item.id);
-        if (inQueue) row.appendChild(el('span', 'ab-pill ab-pill--ok', bt('queue.toast.in-queue', '已在队列中')));
+        if (inQueue) row.appendChild(el('span', 'ab-pill ab-pill--ok', () => bt('queue.toast.in-queue', '已在队列中')));
         preview.appendChild(row);
     });
     if (parsed.items.length > 60) {
         preview.appendChild(el('p', 'ab-muted',
-            bt('import.preview-more', '…以及另外 {count} 个', {count: parsed.items.length - 60})));
+            () => bt('import.preview-more', '…以及另外 {count} 个', {count: parsed.items.length - 60})));
     }
     result.appendChild(preview);
     commitImport(!!clearFirst);

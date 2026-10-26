@@ -360,7 +360,6 @@ function syncFilterButtonBadge() {
         badge.hidden = count === 0;
     });
     document.querySelectorAll('[data-active-filters]').forEach(host => {
-        host.replaceChildren();
         const f = extraFilters;
         const labels = [];
         for (const field of ['content', 'ai', 'type']) {
@@ -375,12 +374,17 @@ function syncFilterButtonBadge() {
         for (const [field, key] of [['tagsExact', 'tags-exact'], ['tagsFuzzy', 'tags-fuzzy']]) {
             if (f[field].length) labels.push(bt('filters.' + key, key) + ': ' + f[field].join(', '));
         }
-        labels.forEach(label => {
-            const button = el('button', 'ab-pill ab-pill--brand', label);
-            button.type = 'button';
-            button.addEventListener('click', openFiltersDrawer);
-            host.appendChild(button);
+        labels.forEach((label, index) => {
+            let button = host.children[index];
+            if (!button) {
+                button = el('button', 'ab-pill ab-pill--brand');
+                button.type = 'button';
+                button.addEventListener('click', openFiltersDrawer);
+                host.appendChild(button);
+            }
+            if (button.textContent !== label) button.textContent = label;
         });
+        while (host.children.length > labels.length) host.lastElementChild.remove();
     });
 }
 

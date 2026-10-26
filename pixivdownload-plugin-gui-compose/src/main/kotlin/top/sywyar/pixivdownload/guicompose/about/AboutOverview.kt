@@ -191,7 +191,7 @@ internal fun AboutOverview(
                         if (node.maintainers().isEmpty()) CupertinoText(
                             text(TextToken.key("desktop.ui.about.maintainers.load-failed")),
                             fontSize = 12.sp,
-                            color = palette.secondaryText
+                            color = palette.error
                         )
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
                             val twoColumns = maxWidth >= 480.dp
