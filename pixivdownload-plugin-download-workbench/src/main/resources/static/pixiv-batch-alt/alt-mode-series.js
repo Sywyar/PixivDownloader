@@ -21,7 +21,7 @@ function renderSeriesMode(panel) {
         }));
     }
     const typeOptions = altTypesForSource('series', seriesState.source)
-        .map(item => [item.type, altTypeLabel(item.type)]);
+        .map(item => [item.type, () => altTypeLabel(item.type)]);
     if (!typeOptions.some(option => option[0] === seriesState.kind)) {
         seriesState.kind = typeOptions[0] ? typeOptions[0][0] : 'illust';
     }
@@ -41,7 +41,7 @@ function renderSeriesMode(panel) {
     const input = el('input', 'ab-input');
     input.id = 'abSeriesInput';
     input.type = 'text';
-    input.placeholder = bt('series.input.placeholder', '粘贴系列 / 合集 / 关联作品链接');
+    bindAltText(input, () => bt('series.input.placeholder', '粘贴系列 / 合集 / 关联作品链接'), 'placeholder');
     input.value = seriesState.url || '';
     input.addEventListener('keydown', e => {
         if (e.key === 'Enter') loadSeries(1);
@@ -49,7 +49,7 @@ function renderSeriesMode(panel) {
     const loadBtn = el('button', 'ab-btn ab-btn--primary');
     loadBtn.type = 'button';
     loadBtn.appendChild(abIconEl('layers'));
-    loadBtn.appendChild(el('span', '', bt('series.load', '读取系列')));
+    loadBtn.appendChild(el('span', '', () => bt('series.load', '读取系列')));
     loadBtn.addEventListener('click', () => loadSeries(1));
     row.appendChild(input);
     row.appendChild(loadBtn);
@@ -61,7 +61,7 @@ function renderSeriesMode(panel) {
         const browseBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm');
         browseBtn.type = 'button';
         browseBtn.appendChild(abIconEl('folder'));
-        browseBtn.appendChild(el('span', '', bt('series.browser.open', '浏览可用合集')));
+        browseBtn.appendChild(el('span', '', () => bt('series.browser.open', '浏览可用合集')));
         browseBtn.addEventListener('click', () => openSeriesBrowser(browserAcquisition));
         const actions = el('div', 'ab-composer-actions');
         actions.appendChild(browseBtn);
@@ -148,7 +148,7 @@ async function openSeriesBrowser(acquisition) {
             if (page.hasMore) cursors.set(pageNumber + 1, altNextCursor(page, context.cursor, true));
             const controls = el('div', 'ab-composer-actions');
             for (const [step, key, fallback] of [[-1, 'common.prev', '上一页'], [1, 'common.next', '下一页']]) {
-                const button = el('button', 'ab-btn ab-btn--ghost', bt(key, fallback));
+                const button = el('button', 'ab-btn ab-btn--ghost', () => bt(key, fallback));
                 button.type = 'button';
                 button.disabled = step < 0 ? pageNumber === 1 : !page.hasMore;
                 button.addEventListener('click', () => showPage(pageNumber + step));
@@ -273,7 +273,7 @@ function renderSeriesStage() {
     if (!stage) return;
     stage.innerHTML = '';
     if (seriesState.loading) {
-        stage.appendChild(loadingGrid(bt('series.status.loading-page', '正在加载该页…')));
+        stage.appendChild(loadingGrid(() => bt('series.status.loading-page', '正在加载该页…')));
         return;
     }
     if (seriesState.error && !seriesState.rawItems.length) {
@@ -283,7 +283,7 @@ function renderSeriesStage() {
     if (!seriesState.info) {
         const hint = el('div', 'ab-empty ab-empty--tall');
         hint.appendChild(abIconEl('layers'));
-        hint.appendChild(el('p', '', bt('series.status.no-url', '请先粘贴系列链接')));
+        hint.appendChild(el('p', '', () => bt('series.status.no-url', '请先粘贴系列链接')));
         stage.appendChild(hint);
         return;
     }
@@ -296,11 +296,11 @@ function renderSeriesStage() {
     const meta = el('div', 'ab-series-meta');
     meta.appendChild(el('strong', 'ab-series-title', info.title || String(info.seriesId)));
     const sub = el('span', 'ab-muted');
-    sub.textContent = summaryJoin([
+    bindAltText(sub, () => summaryJoin([
         altTypeLabel(seriesState.kind),
         bt('series.info.author', '作者：{name}', {name: info.authorName || info.authorId || '-'}),
         bt('series.info.total', '共 {count} 个作品', {count: info.total ?? seriesState.rawItems.length})
-    ]);
+    ]));
     meta.appendChild(sub);
     head.appendChild(meta);
     stage.appendChild(head);
@@ -308,16 +308,16 @@ function renderSeriesStage() {
     if (!seriesState.rawItems.length) {
         const empty = el('div', 'ab-empty');
         empty.appendChild(abIconEl('layers'));
-        empty.appendChild(el('p', '', bt('series.status.empty', '该系列没有可用条目')));
+        empty.appendChild(el('p', '', () => bt('series.status.empty', '该系列没有可用条目')));
         stage.appendChild(empty);
         return;
     }
 
     const filterSummary = (seriesState.filterSummary && hasExtraSearchFilter())
-        ? bt('user.summary.filtered', '附加筛选后 {count} 个', {count: seriesState.filterSummary.filteredCount})
+        ? () => bt('user.summary.filtered', '附加筛选后 {count} 个', {count: seriesState.filterSummary.filteredCount})
         : '';
     stage.appendChild(enqueueBar({
-        summary: bt('series.info.page', '第 {current} 页{last}', {
+        summary: () => bt('series.info.page', '第 {current} 页{last}', {
             current: seriesState.page,
             last: ''
         }),
@@ -331,7 +331,7 @@ function renderSeriesStage() {
         source: 'series',
         seriesId: info.seriesId,
         seriesTitle: info.title,
-        emptyText: bt('series.status.empty', '该系列没有可用条目')
+        emptyText: () => bt('series.status.empty', '该系列没有可用条目')
     }));
     stage.appendChild(paginationBar({
         page: seriesState.page,

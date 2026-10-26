@@ -163,6 +163,7 @@ test('alt: initial page load initializes recovery once and language refresh only
         debounce: fn => fn, moveRailIndicator() {},
         loadQueueForMode: () => calls.push('load'),
         renderDock: () => calls.push('render'),
+        renderQueue: () => calls.push('refresh'),
         initQueueRecovery: () => calls.push('recovery')
     });
     vm.runInContext(source('pixiv-batch/page-layout.js'), context);
@@ -171,13 +172,14 @@ test('alt: initial page load initializes recovery once and language refresh only
         'loadServerState', 'loadSettings', 'loadSearchFilterPrefs', 'bindChrome', 'bindScheduleMenus', 'loadAppInfo',
         'renderAuthButton', 'refreshCookieUi', 'refreshBatchCollections', 'bootstrapAltExtensions',
         'renderRail', 'renderStage', 'renderBackendBanner', 'syncFilterButtonBadge',
-        'setupOnboardingOrTour', 'refreshGuideFab']) context[name] = () => {};
+        'setupOnboardingOrTour', 'refreshGuideFab', 'refreshAltText', 'renderDockStatus',
+        'renderQuotaBar', 'renderArchiveCard', 'updateStats', 'syncAllResultsQueueState']) context[name] = () => {};
     context.bt = key => key;
     assert.deepEqual(calls, ['probe']);
     await context.init();
     assert.deepEqual(calls, ['probe', 'load', 'render', 'recovery']);
     context.applyPageLanguageViews(null);
-    assert.deepEqual(calls, ['probe', 'load', 'render', 'recovery', 'render']);
+    assert.deepEqual(calls, ['probe', 'load', 'render', 'recovery', 'refresh']);
 });
 
 for (const layout of ['classic', 'alt']) {

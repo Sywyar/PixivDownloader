@@ -313,7 +313,7 @@ function renderScheduleMode(panel) {
     const createBtn = el('button', 'ab-btn ab-btn--primary ab-btn--sm');
     createBtn.type = 'button';
     createBtn.appendChild(abIconEl('plus'));
-    createBtn.appendChild(el('span', '', bt('schedule.create', '新建计划任务')));
+    createBtn.appendChild(el('span', '', () => bt('schedule.create', '新建计划任务')));
     createBtn.addEventListener('click', () => {
         switchMode(QUICK_FETCH_MODE);
         abToast('info', bt('schedule.editor.configure-source',
@@ -330,17 +330,17 @@ function renderScheduleMode(panel) {
     search.id = 'abScheduleSearch';
     search.type = 'search';
     search.value = scheduleView.query;
-    search.placeholder = bt('schedule.manage.search', '搜索计划名称或来源');
-    search.setAttribute('aria-label', search.placeholder);
+    bindAltText(search, () => bt('schedule.manage.search', '搜索计划名称或来源'), 'placeholder');
+    bindAltText(search, () => bt('schedule.manage.search', '搜索计划名称或来源'), 'aria-label');
     search.addEventListener('input', () => {
         scheduleView.query = search.value;
         renderScheduleTaskList();
     });
     const filters = el('div', 'ab-seg ab-schedule-filters');
     filters.setAttribute('role', 'group');
-    filters.setAttribute('aria-label', bt('schedule.manage.filter', '计划状态'));
+    bindAltText(filters, () => bt('schedule.manage.filter', '计划状态'), 'aria-label');
     for (const [value, label] of [['all', '全部'], ['running', '运行中'], ['paused', '已暂停'], ['attention', '需要关注']]) {
-        const button = el('button', 'ab-seg-item', bt('schedule.manage.' + value, label));
+        const button = el('button', 'ab-seg-item', () => bt('schedule.manage.' + value, label));
         button.type = 'button';
         button.id = 'abScheduleFilter-' + value;
         button.dataset.filter = value;
@@ -361,7 +361,7 @@ function renderScheduleMode(panel) {
     list.id = 'abScheduleList';
     panel.appendChild(list);
     if (!scheduleState.loaded) {
-        list.appendChild(loadingGrid(bt('common.loading', '加载中…')));
+        list.appendChild(loadingGrid(() => bt('common.loading', '加载中…')));
     } else {
         renderScheduleTaskList();
     }
@@ -393,8 +393,8 @@ function renderScheduleTaskList() {
         button.setAttribute('aria-pressed', String(selected));
     });
     const count = document.getElementById('abScheduleCount');
-    if (count) count.textContent = scheduleState.error ? ''
-        : bt('schedule.manage.count', '{visible} / {total} 个计划', {visible: tasks.length, total: scheduleState.tasks.length});
+    if (count) bindAltText(count, () => scheduleState.error ? ''
+        : bt('schedule.manage.count', '{visible} / {total} 个计划', {visible: tasks.length, total: scheduleState.tasks.length}));
 
     // 未变化的行和队列岛保留原节点，轮询不会关闭菜单或打断键盘操作。
     const existing = new Map(Array.from(list.children, row => [row.dataset.taskId, row]));
@@ -414,7 +414,7 @@ function renderScheduleTaskList() {
     if (!tasks.length) {
         const empty = el('div', 'ab-empty');
         empty.appendChild(abIconEl('clock'));
-        empty.appendChild(el('p', '', scheduleState.tasks.length
+        empty.appendChild(el('p', '', () => scheduleState.tasks.length
             ? bt('schedule.manage.empty', '没有匹配的计划，试试其他关键词或状态。')
             : bt('schedule.empty', '暂无计划任务，点击右上角「新建计划任务」开始')));
         list.appendChild(empty);
@@ -422,9 +422,10 @@ function renderScheduleTaskList() {
     tasks.forEach((task, index) => {
         const old = existing.get(String(task.id));
         const runtime = altScheduleSources();
-        const signature = JSON.stringify([task, scheduleSourceSummary(task), scheduleNextLabel(task),
-            !!runtime?.isAvailable(task.sourceType || task.type), scheduleTaskCredentialUi(task)]);
+        const signature = JSON.stringify([task,
+            !!runtime?.isAvailable(task.sourceType || task.type), scheduleTaskCredentialUi(task).showOverride]);
         if (old && old._scheduleSignature === signature) {
+            refreshAltText(old);
             if (list.children[index] !== old) list.insertBefore(old, list.children[index] || null);
             return;
         }
@@ -538,13 +539,13 @@ function scheduleTaskCard(task) {
     const name = el('strong', '', task.name || ('#' + task.id));
     name.id = 'abScheduleName-' + task.id;
     titleWrap.appendChild(name);
-    const subtitle = el('span', 'ab-schedule-source ab-muted', scheduleSourceSummary(task));
+    const subtitle = el('span', 'ab-schedule-source ab-muted', () => scheduleSourceSummary(task));
     titleWrap.appendChild(subtitle);
     head.appendChild(titleWrap);
     const timing = el('div', 'ab-schedule-timing');
-    const cadence = el('span', 'ab-schedule-cadence', scheduleCadenceLabel(task));
-    cadence.title = scheduleTriggerLabel(task);
-    timing.append(cadence, el('span', 'ab-schedule-next ab-muted', scheduleNextLabel(task)));
+    const cadence = el('span', 'ab-schedule-cadence', () => scheduleCadenceLabel(task));
+    bindAltText(cadence, () => scheduleTriggerLabel(task), 'title');
+    timing.append(cadence, el('span', 'ab-schedule-next ab-muted', () => scheduleNextLabel(task)));
     titleWrap.appendChild(timing);
 
     const enabled = switchControl(task.enabled, async value => {
@@ -561,18 +562,18 @@ function scheduleTaskCard(task) {
     const enableControl = el('div', 'ab-schedule-enabled');
     const input = enabled.querySelector('input');
     input.id = 'abScheduleEnabled-' + task.id;
-    const enableLabel = el('label', '', bt('schedule.manage.enabled', '启用计划'));
+    const enableLabel = el('label', '', () => bt('schedule.manage.enabled', '启用计划'));
     enableLabel.id = 'abScheduleEnabledLabel-' + task.id;
     enableLabel.setAttribute('for', input.id);
     enableControl.append(enableLabel, enabled);
     input.setAttribute('aria-labelledby', enableLabel.id + ' ' + name.id);
-    if (busy) enabled.title = bt('schedule.action-disabled.busy', '运行 / 排队中不可操作');
+    if (busy) bindAltText(enabled, () => bt('schedule.action-disabled.busy', '运行 / 排队中不可操作'), 'title');
     card.append(head, enableControl);
 
     const actions = el('div', 'ab-schedule-actions');
     actions.appendChild(scheduleActionBtn('play', 'schedule.actions.run', '立即运行',
         busy || !task.enabled || suspended,
-        busy
+        () => busy
             ? bt('schedule.action-disabled.busy', '运行 / 排队中不可操作')
             : !task.enabled
                 ? bt('schedule.action-disabled.disabled', '已停用')
@@ -584,18 +585,18 @@ function scheduleTaskCard(task) {
     } else {
         actions.appendChild(scheduleActionBtn('pause', 'schedule.actions.pause', '暂停',
             !task.enabled || suspended || task.runState === 'CANCEL_REQUESTED',
-            bt('schedule.action-disabled.not-running', '未在运行或已暂停'),
+            () => bt('schedule.action-disabled.not-running', '未在运行或已暂停'),
             () => scheduleVerb(task, 'pause')));
     }
     actions.appendChild(scheduleActionBtn('edit', 'schedule.actions.edit', '编辑', !sourceEditable,
-        sourceEditable ? '' : bt('schedule.error.source-editor-unavailable', '计划任务来源编辑器当前不可用'),
+        () => sourceEditable ? '' : bt('schedule.error.source-editor-unavailable', '计划任务来源编辑器当前不可用'),
         () => openScheduleEditor(task)));
     const more = el('details', 'ab-schedule-more');
     more.name = 'schedule-actions';
     const summary = el('summary', 'ab-btn ab-btn--ghost ab-btn--sm');
-    summary.textContent = bt('workspace.more', '更多');
+    bindAltText(summary, () => bt('workspace.more', '更多'));
     summary.id = 'abScheduleMore-' + task.id;
-    summary.setAttribute('aria-label', summary.textContent + ' · ' + (task.name || task.id));
+    bindAltText(summary, () => bt('workspace.more', '更多') + ' · ' + (task.name || task.id), 'aria-label');
     const menu = el('div', 'ab-schedule-menu');
     menu.appendChild(scheduleActionBtn('eye', 'schedule.actions.snapshot', '任务快照', false, '',
         () => openScheduleSnapshot(task)));
@@ -606,7 +607,7 @@ function scheduleTaskCard(task) {
     menu.appendChild(scheduleActionBtn('alert', 'schedule.actions.pending', '待重试', false, '',
         () => openSchedulePending(task)));
     menu.appendChild(scheduleActionBtn('trash', 'schedule.actions.delete', '删除', busy,
-        busy ? bt('schedule.action-disabled.busy', '运行 / 排队中不可操作') : '',
+        () => busy ? bt('schedule.action-disabled.busy', '运行 / 排队中不可操作') : '',
         () => deleteScheduleTask(task), true));
 
     more.append(summary, menu);
@@ -623,10 +624,11 @@ function scheduleActionBtn(icon, labelKey, labelFallback, disabled, disabledReas
     const btn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm' + (danger ? ' ab-btn--danger-text' : ''));
     btn.type = 'button';
     btn.appendChild(abIconEl(icon));
-    btn.appendChild(el('span', '', bt(labelKey, labelFallback)));
+    btn.appendChild(el('span', '', () => bt(labelKey, labelFallback)));
     btn.dataset.action = labelKey;
     btn.disabled = !!disabled;
-    if (disabled && disabledReason) btn.title = disabledReason;
+    if (disabled && disabledReason) bindAltText(btn,
+        typeof disabledReason === 'function' ? disabledReason : () => disabledReason, 'title');
     btn.addEventListener('click', async () => {
         if (btn.disabled) return;
         const menu = btn.closest('.ab-schedule-more');

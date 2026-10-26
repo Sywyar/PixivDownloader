@@ -294,6 +294,7 @@ async function loadScheduleQueue(task, quiet) {
                     item.totalImages = old.totalImages || 0;
                     item.downloadedCount = old.downloadedCount || 0;
                 }
+                retainQueueProgressSlots(item, old);
                 return item;
             });
             entry.data = Object.assign({}, data, {items});
@@ -314,8 +315,10 @@ async function loadScheduleQueue(task, quiet) {
 }
 
 function scheduleQueueDetailModel(data) {
-    const items = (data?.items || []).map(localizedScheduleQueueItem);
+    const items = (data?.items || []).map(item => localizedScheduleQueueItem(queueProgressSnapshot(item)));
     const count = status => items.filter(item => item.status === status).length;
+    const current = items.some(item => item.status === 'downloading') ? currentFrontItem(items, false) : null;
+    const remaining = current ? currentRemainingCounts(items, current) : null;
     return {
         startedText: bt('schedule.round.started', '本轮开始：{time}', {time: fmtScheduleTime(data?.startedTime)}),
         statsText: bt('status.stats', '队列: {pending} | 成功: {success} | 失败: {failed} | 进行中: {active} | 跳过: {skipped}', {
@@ -326,9 +329,9 @@ function scheduleQueueDetailModel(data) {
         truncatedText: bt('schedule.round.truncated', '作品过多，仅记录并展示前 {count} 项', {count: items.length}),
         empty: !items.length,
         emptyText: bt('schedule.round.empty', '本轮暂无记录'),
-        currentHtml: items.some(item => item.status === 'downloading') ? computeCurrentCardHtml(items, false) : '',
-        rows: items.map(item => ({key: scheduleQueueIdentity(item), status: item.status,
-            title: item.title, html: queueItemRow(item, {readOnly: true}).outerHTML}))
+        current,
+        remaining: remaining ? currentRemainingLineText(remaining.downloading, remaining.queued) : '',
+        rows: items
     };
 }
 
@@ -342,16 +345,16 @@ function renderScheduleQueue(box, data) {
     box.appendChild(head);
     if (model.truncated) box.appendChild(el('p', 'ab-field-note', model.truncatedText));
     if (model.empty) { box.appendChild(el('p', 'ab-empty-line', model.emptyText)); return; }
-    if (model.currentHtml) {
+    if (model.current) {
         const current = el('div', 'ab-round-current');
-        current.innerHTML = model.currentHtml;
+        current.innerHTML = computeCurrentCardHtml(model.rows, false);
         box.appendChild(current);
     }
     const list = el('div', 'ab-round-list');
     model.rows.forEach(row => {
         const item = el('div', 'ab-flatten');
-        item.dataset.queueKey = row.key;
-        item.innerHTML = row.html;
+        item.dataset.queueKey = scheduleQueueIdentity(row);
+        item.appendChild(queueItemRow(row, {readOnly: true}));
         list.appendChild(item);
     });
     box.appendChild(list);

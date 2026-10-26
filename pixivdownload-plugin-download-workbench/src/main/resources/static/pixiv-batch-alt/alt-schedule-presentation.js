@@ -46,12 +46,12 @@ function scheduleResults(task, light) {
     section._scheduleTask = task;
     const footer = el('div', 'ab-schedule-result-line');
     const lamp = el('span', 'ab-lamp ab-lamp--' + light.tone + (light.live ? ' is-live' : ''));
-    lamp.append(el('span', 'ab-lamp-dot'), el('span', '', light.text));
+    lamp.append(el('span', 'ab-lamp-dot'), el('span', '', () => scheduleStatusLight(task).text));
     const toggle = el('button', 'ab-schedule-queue-toggle');
     toggle.type = 'button';
     toggle.id = 'abScheduleQueueToggle-' + task.id;
     toggle.setAttribute('aria-controls', 'abScheduleQueueRegion-' + task.id);
-    toggle.append(el('span', '', bt('schedule.manage.results', '本轮结果')), abIconEl('chevron-down'));
+    toggle.append(el('span', '', () => bt('schedule.manage.results', '本轮结果')), abIconEl('chevron-down'));
     footer.append(lamp, toggle);
     const region = el('div', 'ab-schedule-queue-region');
     region.id = 'abScheduleQueueRegion-' + task.id;
@@ -84,7 +84,7 @@ function scheduleResults(task, light) {
         else scheduleState.expandedQueues.delete(task.id);
         sync();
         if (open) {
-            if (!box.children.length) box.appendChild(el('p', 'ab-loading-line', bt('common.loading', '加载中…')));
+            if (!box.children.length) box.appendChild(el('p', 'ab-loading-line', () => bt('common.loading', '加载中…')));
             loadScheduleQueue(section._scheduleTask);
         } else if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) clear();
         startScheduleQueuePolling();

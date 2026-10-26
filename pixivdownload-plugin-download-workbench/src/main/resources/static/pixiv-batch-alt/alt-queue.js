@@ -25,7 +25,7 @@ function statCard(id, icon, labelKey, labelFallback) {
     const value = el('strong', 'ab-stat-value', '0');
     value.id = id;
     card.appendChild(value);
-    card.appendChild(el('span', 'ab-stat-label', bt(labelKey, labelFallback)));
+    card.appendChild(el('span', 'ab-stat-label', () => bt(labelKey, labelFallback)));
     return card;
 }
 
@@ -168,7 +168,7 @@ function renderDock() {
     startBtn.id = 'abBtnStart';
     startBtn.type = 'button';
     startBtn.appendChild(abIconEl('play'));
-    startBtn.appendChild(el('span', '', bt('dock.start', '开始下载')));
+    startBtn.appendChild(el('span', '', () => bt('dock.start', '开始下载')));
     startBtn.addEventListener('click', handleStart);
     const pauseBtn = el('button', 'ab-btn ab-btn--ghost');
     pauseBtn.id = 'abBtnPause';
@@ -203,21 +203,21 @@ function renderDock() {
 
     // 队列操作
     const ops = el('div', 'ab-queue-ops');
-    const retryBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', bt('queue.retry-failed', '重试失败'));
+    const retryBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', () => bt('queue.retry-failed', '重试失败'));
     retryBtn.id = 'abBtnRetry';
     retryBtn.type = 'button';
     retryBtn.addEventListener('click', handleRetry);
-    const exportAllBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', bt('queue.export-all', '导出全部'));
+    const exportAllBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', () => bt('queue.export-all', '导出全部'));
     exportAllBtn.type = 'button';
     exportAllBtn.addEventListener('click', handleExport);
-    const exportUndlBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', bt('queue.export-undownloaded', '导出未下载'));
+    const exportUndlBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', () => bt('queue.export-undownloaded', '导出未下载'));
     exportUndlBtn.type = 'button';
     exportUndlBtn.addEventListener('click', handleExportFailed);
-    const packBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', bt('queue.pack-done', '打包已完成'));
+    const packBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', () => bt('queue.pack-done', '打包已完成'));
     packBtn.id = 'abBtnPack';
     packBtn.type = 'button';
     packBtn.addEventListener('click', triggerAdminPack);
-    const clearBtn = el('button', 'ab-btn ab-btn--danger-ghost ab-btn--sm', bt('queue.clear', '清除队列'));
+    const clearBtn = el('button', 'ab-btn ab-btn--danger-ghost ab-btn--sm', () => bt('queue.clear', '清除队列'));
     clearBtn.type = 'button';
     clearBtn.addEventListener('click', handleClear);
     ops.appendChild(retryBtn);
@@ -434,6 +434,12 @@ function progressSlotsFor(q) {
 function queueProgressSnapshot(q) {
     // Vue 的行快照携带纯值显示位置，不把派生状态写入持久队列。
     return Object.assign({}, q, {progressSlots: progressSlotsFor(q).slice()});
+}
+
+function retainQueueProgressSlots(item, previous) {
+    if (previous && previous.kind === item.kind) {
+        altProgressSlots.set(item, {kind: item.kind, slots: progressSlotsFor(previous).slice()});
+    }
 }
 
 function progressExtrasModel(q) {

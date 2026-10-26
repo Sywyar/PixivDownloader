@@ -58,7 +58,7 @@ function renderQuickMode(panel) {
         }));
     }
     const typeOptions = altTypesForSource('quick', quickState.source)
-        .map(item => [item.type, altTypeLabel(item.type)]);
+        .map(item => [item.type, () => altTypeLabel(item.type)]);
     if (!typeOptions.some(option => option[0] === quickState.kind)) {
         quickState.kind = typeOptions[0] ? typeOptions[0][0] : 'illust';
     }
@@ -79,9 +79,9 @@ function renderQuickMode(panel) {
     if (!credentialOk && !scheduleState.editing) {
         const gate = el('div', 'ab-credential-gate');
         gate.appendChild(abIconEl('user', 'ab-gate-icon'));
-        gate.appendChild(el('h2', '', bt('quick.connect.title', '连接你的 Pixiv')));
-        gate.appendChild(el('p', '', bt('quick.connect.hint', '保存 Cookie 后，即可获取收藏、关注和珍藏集中的作品。')));
-        const fix = el('button', 'ab-btn ab-btn--primary', bt('quick.connect.action', '配置 Cookie'));
+        gate.appendChild(el('h2', '', () => bt('quick.connect.title', '连接你的 Pixiv')));
+        gate.appendChild(el('p', '', () => bt('quick.connect.hint', '保存 Cookie 后，即可获取收藏、关注和珍藏集中的作品。')));
+        const fix = el('button', 'ab-btn ab-btn--primary', () => bt('quick.connect.action', '配置 Cookie'));
         fix.type = 'button';
         fix.addEventListener('click', openCookieModal);
         gate.appendChild(fix);
@@ -90,22 +90,22 @@ function renderQuickMode(panel) {
     }
     const account = el('div', 'ab-account');
     account.appendChild(abIconEl('user'));
-    account.appendChild(el('span', 'ab-muted', bt('quick.uid', '当前账号 UID')));
+    account.appendChild(el('span', 'ab-muted', () => bt('quick.uid', '当前账号 UID')));
     const uid = el('span', '', quickState.uid || '—');
     uid.id = 'abQuickUid';
     account.appendChild(uid);
     panel.appendChild(account);
     const actions = el('div', 'ab-quick-actions');
-    const label = el('label', 'ab-control-label', bt('quick.source', '作品来源'));
+    const label = el('label', 'ab-control-label', () => bt('quick.source', '作品来源'));
     label.htmlFor = 'abQuickAction';
     const select = el('select', 'ab-input');
     select.id = 'abQuickAction';
-    const placeholder = el('option', '', bt('quick.choose', '选择收藏、关注或其他来源'));
+    const placeholder = el('option', '', () => bt('quick.choose', '选择收藏、关注或其他来源'));
     placeholder.value = '';
     placeholder.disabled = true;
     select.appendChild(placeholder);
     quickActionDefs().forEach(action => {
-        const option = el('option', '', bt(action.labelKey, action.label));
+        const option = el('option', '', () => bt(action.labelKey, action.label));
         option.value = action.id;
         select.appendChild(option);
     });
@@ -184,7 +184,7 @@ async function loadQuickWorks(action, page) {
     quickState.loading = true;
     quickState.error = '';
     stage.innerHTML = '';
-    stage.appendChild(loadingGrid(bt('common.loading', '加载中…')));
+    stage.appendChild(loadingGrid(() => bt('common.loading', '加载中…')));
     try {
         let items, total, hasNext = false, totalPages = 1;
         if (action.descriptor) {
@@ -294,25 +294,22 @@ function renderQuickStage() {
     if (!quickState.action) {
         const hint = el('div', 'ab-empty ab-empty--tall');
         hint.appendChild(abIconEl('zap'));
-        hint.appendChild(el('p', '', bt('quick.hint', '选择上方任一快捷动作开始取作品')));
+        hint.appendChild(el('p', '', () => bt('quick.hint', '选择上方任一快捷动作开始取作品')));
         stage.appendChild(hint);
         return;
     }
     if (quickState.loading) {
-        stage.appendChild(loadingGrid(bt('common.loading', '加载中…')));
+        stage.appendChild(loadingGrid(() => bt('common.loading', '加载中…')));
         return;
     }
 
     // 标题行：来源名称 + 数量 + 页码（钻取时带「› 名称」）
     const titleRow = el('div', 'ab-stage-title');
-    let titleText = bt(action.labelKey, action.label);
-    if (quickState.drill && quickState.drill.name) {
-        titleText += ' › ' + quickState.drill.name;
-    }
-    titleRow.appendChild(el('h2', 'ab-stage-heading', titleText));
+    titleRow.appendChild(el('h2', 'ab-stage-heading', () => bt(action.labelKey, action.label)
+        + (quickState.drill?.name ? ' › ' + quickState.drill.name : '')));
     if (quickState.total > 0) {
         titleRow.appendChild(el('span', 'ab-stage-count',
-            bt('quick.stage.count', '{count} 件', {count: quickState.total})));
+            () => bt('quick.stage.count', '{count} 件', {count: quickState.total})));
     }
     stage.appendChild(titleRow);
 
@@ -338,10 +335,10 @@ function renderQuickStage() {
 
 function renderQuickWorks(stage, action) {
     stage.appendChild(enqueueBar({
-        summary: quickState.total
+        summary: () => quickState.total
             ? bt('quick.stage.summary', '第 {page} 页 · 共 {count} 个', {page: quickState.page, count: quickState.total || quickState.items.length})
             : bt('common.page.simple', '第 {page} 页', {page: quickState.page}),
-        filterSummary: quickFilterSummaryText(),
+        filterSummary: quickFilterSummaryText() ? quickFilterSummaryText : '',
         pageEnabled: quickState.items.length > 0,
         allEnabled: quickState.rawItems.length > 0 || quickState.total > 0,
         onEnqueuePage: () => enqueueItems(quickState.items, null, {source: QUICK_FETCH_MODE}),
@@ -349,7 +346,7 @@ function renderQuickWorks(stage, action) {
     }));
     stage.appendChild(worksGrid(quickState.items, {
         source: QUICK_FETCH_MODE,
-        emptyText: bt('quick.empty.works', '该范围内没有作品')
+        emptyText: () => bt('quick.empty.works', '该范围内没有作品')
     }));
     stage.appendChild(paginationBar({
         page: quickState.page,
@@ -481,7 +478,7 @@ function renderQuickFollowing(stage, action) {
     const filterRow = el('div', 'ab-follow-filter');
     const input = el('input', 'ab-input');
     input.type = 'search';
-    input.placeholder = bt('quick.follow.filter', '按用户名 / 用户 ID 过滤');
+    bindAltText(input, () => bt('quick.follow.filter', '按用户名 / 用户 ID 过滤'), 'placeholder');
     input.value = quickState.usersFilter || '';
     input.addEventListener('input', debounce(() => {
         quickState.usersFilter = input.value.trim();
@@ -499,7 +496,7 @@ function renderQuickFollowing(stage, action) {
     if (!users.length) {
         const empty = el('div', 'ab-empty');
         empty.appendChild(abIconEl('users'));
-        empty.appendChild(el('p', '', bt('quick.follow.empty', '没有匹配的关注用户')));
+        empty.appendChild(el('p', '', () => bt('quick.follow.empty', '没有匹配的关注用户')));
         stage.appendChild(empty);
         return;
     }
@@ -719,7 +716,7 @@ function renderQuickCollections(stage) {
     if (!quickState.collections.length) {
         const empty = el('div', 'ab-empty');
         empty.appendChild(abIconEl('folder'));
-        empty.appendChild(el('p', '', bt('quick.empty.collections', '没有珍藏集')));
+        empty.appendChild(el('p', '', () => bt('quick.empty.collections', '没有珍藏集')));
         stage.appendChild(empty);
         return;
     }
@@ -735,7 +732,7 @@ function renderQuickCollections(stage) {
         const meta = el('span', 'ab-collection-meta');
         meta.appendChild(el('strong', '', c.title || String(c.id)));
         const sub = el('span', 'ab-muted');
-        sub.textContent = bt('quick.collection.count', '{count} 个收藏', {count: c.bookmarkCount ?? 0});
+        bindAltText(sub, () => bt('quick.collection.count', '{count} 个收藏', {count: c.bookmarkCount ?? 0}));
         meta.appendChild(sub);
         if (Number(c.xRestrict ?? 0) >= 1) {
             meta.appendChild(el('span', 'ab-mini-badge ab-mini-badge--r18', 'R-18'));
@@ -763,7 +760,7 @@ function renderQuickDrill(stage) {
     head.appendChild(el('h3', '', current.name));
     const close = el('button', 'ab-iconbtn');
     close.type = 'button';
-    close.setAttribute('aria-label', bt('common.close', '关闭'));
+    bindAltText(close, () => bt('common.close', '关闭'), 'aria-label');
     close.appendChild(abIconEl('x'));
     close.addEventListener('click', () => {
         quickState.drill = null;
@@ -773,7 +770,7 @@ function renderQuickDrill(stage) {
     head.appendChild(close);
     drill.appendChild(head);
     if (current.type === 'user') {
-        const choices = quickUserAcquisitions().map(acq => [acq.type, altTypeLabel(acq.type)]);
+        const choices = quickUserAcquisitions().map(acq => [acq.type, () => altTypeLabel(acq.type)]);
         if (choices.length > 1) drill.appendChild(smallSeg(choices, current.kind, kind => {
             quickState.drill = Object.assign({}, current, {
                 kind, ids: null, cursors: new Map(), page: 1, rawItems: [], loadSeq: 0
@@ -782,17 +779,17 @@ function renderQuickDrill(stage) {
         }));
     }
     if (current.loading) {
-        drill.appendChild(loadingGrid(bt('common.loading', '加载中…')));
+        drill.appendChild(loadingGrid(() => bt('common.loading', '加载中…')));
     } else if (current.error) {
         drill.appendChild(errorBox(current.error, () => loadQuickDrillPage(current.page)));
     } else {
         const previewKey = 'quick-drill:' + current.type + ':' + current.id + ':' + current.kind;
         drill.appendChild(enqueueBar({
             previewKey,
-            summary: bt('quick.stage.summary', '第 {page} 页 · 共 {count} 个',
+            summary: () => bt('quick.stage.summary', '第 {page} 页 · 共 {count} 个',
                 {page: current.page, count: current.total}),
             filterSummary: current.filterSummary && hasExtraSearchFilter()
-                ? bt('user.summary.filtered', '附加筛选后 {count} 个', {count: current.filterSummary.filteredCount}) : '',
+                ? () => bt('user.summary.filtered', '附加筛选后 {count} 个', {count: current.filterSummary.filteredCount}) : '',
             pageEnabled: quickState.drillItems.length > 0,
             allEnabled: current.total > 0,
             onEnqueuePage: () => enqueueItems(quickState.drillItems, null, {source: QUICK_FETCH_MODE}),

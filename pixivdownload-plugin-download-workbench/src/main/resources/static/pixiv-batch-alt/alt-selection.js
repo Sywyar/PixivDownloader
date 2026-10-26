@@ -17,12 +17,12 @@ function loadWorkInteractionMode() {
 function workInteractionModeControl() {
     const group = el('div', 'ab-seg ab-seg--sm ab-work-mode');
     group.setAttribute('role', 'group');
-    group.setAttribute('aria-label', bt('selection.mode', '作品操作模式'));
+    bindAltText(group, () => bt('selection.mode', '作品操作模式'), 'aria-label');
     for (const [mode, key, fallback] of [
         ['select', 'selection.mode.select', '批量选择'],
         ['direct', 'card.enqueue', '直接加入队列']
     ]) {
-        const button = el('button', 'ab-seg-item', bt(key, fallback));
+        const button = el('button', 'ab-seg-item', () => bt(key, fallback));
         button.type = 'button';
         button.dataset.workMode = mode;
         button.classList.toggle('is-active', mode === workInteractionMode);
@@ -67,7 +67,7 @@ function bindWorkSelection(card, item, kind, options) {
     workSelectionItems.set(card, data);
     const select = el('input', 'ab-work-select');
     select.type = 'checkbox';
-    select.setAttribute('aria-label', bt('selection.work', '选择 {title}', {title: item.title || id}));
+    bindAltText(select, () => bt('selection.work', '选择 {title}', {title: item.title || id}), 'aria-label');
     const update = () => {
         if (workInteractionMode === 'direct') {
             toggleWorkInQueue(item, kind, options);

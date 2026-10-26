@@ -8,9 +8,20 @@ function applyPageLanguageViews(nextClient) {
     pageI18n = nextClient || pageI18n;
     if (pageI18n) pageI18n.apply();
     document.title = bt('page.title', '下载工作台 · Pixiv 下载助手');
-    renderRail();
-    renderStage();
-    renderDock();
+    refreshAltText();
+    renderDockStatus();
+    renderQuotaBar();
+    renderArchiveCard();
+    renderQueue();
+    updateStats();
+    syncAllResultsQueueState();
+    if (state.mode === 'schedule') {
+        scheduleState.expandedQueues.forEach(id => {
+            const task = scheduleState.tasks.find(task => task.id === id);
+            const entry = altScheduleQueues.get(id);
+            if (task && entry) refreshScheduleQueueView(task, entry);
+        });
+    }
     renderAuthButton();
     refreshCookieUi();
     renderBackendBanner();

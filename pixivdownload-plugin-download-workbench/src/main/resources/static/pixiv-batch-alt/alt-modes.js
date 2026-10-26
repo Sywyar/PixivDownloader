@@ -76,7 +76,7 @@ function renderRail() {
         btn.setAttribute('aria-selected', state.mode === mode.id ? 'true' : 'false');
         btn.dataset.mode = mode.id;
         btn.appendChild(abIconEl(mode.icon));
-        btn.appendChild(el('span', 'ab-rail-label', bt(mode.titleKey, mode.titleFallback)));
+        btn.appendChild(el('span', 'ab-rail-label', () => bt(mode.titleKey, mode.titleFallback)));
         btn.addEventListener('click', () => switchMode(mode.id));
         btn.addEventListener('keydown', event => {
             const tabs = Array.from(rail.querySelectorAll('[role="tab"]'));
@@ -194,9 +194,9 @@ function modeHeader(modeDef, actions) {
     const text = el('div', 'ab-mode-head-text');
     const title = el('h1', 'ab-mode-title');
     title.appendChild(abIconEl(modeDef.icon));
-    title.appendChild(el('span', '', bt(modeDef.titleKey, modeDef.titleFallback)));
+    title.appendChild(el('span', '', () => bt(modeDef.titleKey, modeDef.titleFallback)));
     text.appendChild(title);
-    text.appendChild(el('p', 'ab-mode-desc', bt(modeDef.descKey, modeDef.descFallback)));
+    text.appendChild(el('p', 'ab-mode-desc', () => bt(modeDef.descKey, modeDef.descFallback)));
     head.appendChild(text);
     const actionWrap = el('div', 'ab-mode-actions');
     (actions || []).forEach(a => actionWrap.appendChild(a));
@@ -216,7 +216,7 @@ function filterButton(id = 'abFilterBtn') {
     btn.id = id;
     btn.type = 'button';
     btn.appendChild(abIconEl('filter'));
-    const label = el('span', '', bt('filters.title', '附加筛选'));
+    const label = el('span', '', () => bt('filters.title', '附加筛选'));
     label.setAttribute('data-i18n', 'batch-alt:filters.title');
     btn.appendChild(label);
     const badge = el('span', 'ab-badge');
@@ -232,7 +232,7 @@ function settingsButton(id = 'abSettingsBtn') {
     btn.id = id;
     btn.type = 'button';
     btn.appendChild(abIconEl('sliders'));
-    const label = el('span', '', bt('settings.title', '下载设置'));
+    const label = el('span', '', () => bt('settings.title', '下载设置'));
     label.setAttribute('data-i18n', 'batch-alt:settings.title');
     btn.appendChild(label);
     btn.addEventListener('click', openSettingsDrawer);
@@ -247,12 +247,12 @@ function saveScheduleButton() {
     const btn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm');
     btn.type = 'button';
     btn.appendChild(abIconEl('clock'));
-    btn.appendChild(el('span', '', bt('schedule.editor.save', '存为计划任务')));
+    btn.appendChild(el('span', '', () => bt('schedule.editor.save', '存为计划任务')));
     btn.disabled = !preview;
     if (!preview) {
-        const hint = bt('schedule.save.quick-hint',
+        const hint = () => bt('schedule.save.quick-hint',
             '请先展开具体的作品列表（点开收藏 / 我的作品 / 关注新作，或点进某个画师 / 珍藏集）后再创建计划任务');
-        btn.title = hint;
+        bindAltText(btn, hint, 'title');
         const group = el('div', 'ab-field');
         group.append(btn, el('p', 'ab-field-note', hint));
         return group;
@@ -262,7 +262,9 @@ function saveScheduleButton() {
 }
 
 function sourceChips(sources, current, onSelect) {
-    return smallSeg(sources.map(src => [src.id, src.label]), current, onSelect);
+    return smallSeg(sources.map(src => [src.id, () => altSourcesForMode(
+        state.mode === QUICK_FETCH_MODE ? 'quick' : state.mode
+    ).find(source => source.id === src.id)?.label || src.label]), current, onSelect);
 }
 
 function workTypeMeta(item, kind) {
@@ -302,7 +304,7 @@ function workCard(item, opts) {
 
     const badges = el('div', 'ab-work-badges');
     const typeMeta = workTypeMeta(item, kind);
-    badges.appendChild(el('span', 'ab-mini-badge ab-mini-badge--' + typeMeta.cls, typeMeta.label));
+    badges.appendChild(el('span', 'ab-mini-badge ab-mini-badge--' + typeMeta.cls, () => workTypeMeta(item, kind).label));
     const xr = Number(item.xRestrict ?? 0);
     if (xr === 2) badges.appendChild(el('span', 'ab-mini-badge ab-mini-badge--r18g', 'R-18G'));
     else if (xr === 1) badges.appendChild(el('span', 'ab-mini-badge ab-mini-badge--r18', 'R-18'));
@@ -315,16 +317,17 @@ function workCard(item, opts) {
     if (options.seriesOrder != null) {
         badges.appendChild(el('span', 'ab-mini-badge ab-mini-badge--order', '#' + options.seriesOrder));
     }
-    if (item.isOriginal) badges.appendChild(el('span', 'ab-mini-badge', bt('card.original', '原创')));
+    if (item.isOriginal) badges.appendChild(el('span', 'ab-mini-badge', () => bt('card.original', '原创')));
     thumbWrap.appendChild(badges);
 
     const enqueueBtn = el('button', 'ab-work-enqueue');
     enqueueBtn.type = 'button';
     enqueueBtn.setAttribute('aria-pressed', 'false');
     enqueueBtn.setAttribute('aria-label', bt('card.enqueue', '直接加入队列'));
-    enqueueBtn.title = bt('card.enqueue', '直接加入队列');
+    enqueueBtn.title = enqueueBtn.getAttribute('aria-label');
     enqueueBtn.hidden = workInteractionMode === 'direct';
     enqueueBtn.appendChild(abIconEl('plus'));
+    enqueueBtn.dataset.icon = 'plus';
     enqueueBtn.addEventListener('click', event => {
         event.stopPropagation();
         toggleWorkInQueue(item, kind, options);
@@ -333,33 +336,33 @@ function workCard(item, opts) {
 
     const info = el('div', 'ab-work-info');
     const title = el('div', 'ab-work-title',
-        item.title || bt('card.untitled', '作品 {id}', {id: item.id}));
+        () => item.title || bt('card.untitled', '作品 {id}', {id: item.id}));
     const authorName = item.userName || item.authorName || '';
-    title.title = authorName
+    bindAltText(title, () => authorName
         ? bt('card.title-tip', '{title}（{author}）', {title: title.textContent, author: authorName})
-        : title.textContent;
+        : title.textContent, 'title');
     const caption = el('div', 'ab-work-caption');
     caption.appendChild(title);
     if (authorName) caption.appendChild(el('div', 'ab-work-author', authorName));
     const metadata = [];
     const words = Number(item.wordCount ?? item.textLength ?? 0);
-    if (words > 0) metadata.push(bt('card.words', '{count} 字', {count: words.toLocaleString(uiLang() || undefined)}));
+    if (words > 0) metadata.push(() => bt('card.words', '{count} 字', {count: words.toLocaleString(uiLang() || undefined)}));
     const bookmarks = getSearchBookmarkCount(item, kind);
-    if (bookmarks !== null) metadata.push(bt('batch:search.summary.bookmark-badge', '收藏 {count}',
+    if (bookmarks !== null) metadata.push(() => bt('batch:search.summary.bookmark-badge', '收藏 {count}',
         {count: bookmarks.toLocaleString(uiLang() || undefined)}));
-    if (metadata.length) caption.appendChild(el('div', 'ab-work-meta', summaryJoin(metadata)));
+    if (metadata.length) caption.appendChild(el('div', 'ab-work-meta', () => summaryJoin(metadata.map(read => read()))));
     const details = [];
     if (item.uploadTimestamp) {
         const uploaded = new Date(Number(item.uploadTimestamp));
-        if (!Number.isNaN(uploaded.getTime())) details.push(uploaded.toLocaleDateString(uiLang() || undefined));
+        if (!Number.isNaN(uploaded.getTime())) details.push(() => uploaded.toLocaleDateString(uiLang() || undefined));
     }
-    if (Number(item.readingTimeSeconds) > 0) details.push(bt('card.reading-minutes', '约 {count} 分钟',
+    if (Number(item.readingTimeSeconds) > 0) details.push(() => bt('card.reading-minutes', '约 {count} 分钟',
         {count: Math.ceil(Number(item.readingTimeSeconds) / 60)}));
     if (Array.isArray(item.tags)) details.push(...item.tags.map(tag => typeof tag === 'string' ? tag : tag?.name).filter(Boolean));
     if (details.length) {
         const disclosure = el('details', 'ab-work-details');
-        const summary = el('summary', '', bt('card.details', '作品信息'));
-        disclosure.append(summary, el('p', '', summaryJoin(details)));
+        const summary = el('summary', '', () => bt('card.details', '作品信息'));
+        disclosure.append(summary, el('p', '', () => summaryJoin(details.map(value => typeof value === 'function' ? value() : value))));
         caption.appendChild(disclosure);
     }
     info.appendChild(caption);
@@ -457,7 +460,7 @@ function worksGrid(items, opts) {
     if (!items.length) {
         const empty = el('div', 'ab-empty');
         empty.appendChild(abIconEl('image'));
-        empty.appendChild(el('p', '', options.emptyText || bt('common.empty.works', '该范围内没有作品')));
+        empty.appendChild(el('p', '', options.emptyText || (() => bt('common.empty.works', '该范围内没有作品'))));
         const holder = el('div', 'ab-grid-empty');
         holder.appendChild(empty);
         return bindPreview(holder, options, true);
@@ -491,7 +494,7 @@ function errorBox(message, onRetry) {
     box.appendChild(abIconEl('alert'));
     box.appendChild(el('p', '', message));
     if (onRetry) {
-        const retry = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', bt('common.retry', '重试'));
+        const retry = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', () => bt('common.retry', '重试'));
         retry.type = 'button';
         retry.addEventListener('click', onRetry);
         box.appendChild(retry);
@@ -505,30 +508,30 @@ function paginationBar(opts) {
     prev.type = 'button';
     prev.disabled = opts.page <= 1;
     prev.appendChild(abIconEl('chevron-right', 'ab-flip'));
-    prev.setAttribute('aria-label', bt('common.page.prev', '上一页'));
+    bindAltText(prev, () => bt('common.page.prev', '上一页'), 'aria-label');
     prev.addEventListener('click', () => opts.onPage(opts.page - 1));
     const next = el('button', 'ab-page-btn');
     next.type = 'button';
     next.disabled = opts.totalPages ? opts.page >= opts.totalPages : !opts.hasNext;
     next.appendChild(abIconEl('chevron-right'));
-    next.setAttribute('aria-label', bt('common.page.next', '下一页'));
+    bindAltText(next, () => bt('common.page.next', '下一页'), 'aria-label');
     next.addEventListener('click', () => opts.onPage(opts.page + 1));
     const info = el('span', 'ab-page-info');
     if (opts.totalPages) {
-        info.textContent = bt('common.page.info', '第 {current} / {total} 页 · 共 {count} 个',
-            {current: opts.page, total: opts.totalPages, count: opts.total});
+        bindAltText(info, () => bt('common.page.info', '第 {current} / {total} 页 · 共 {count} 个',
+            {current: opts.page, total: opts.totalPages, count: opts.total}));
     } else {
-        info.textContent = bt('common.page.simple', '第 {page} 页', {page: opts.page});
+        bindAltText(info, () => bt('common.page.simple', '第 {page} 页', {page: opts.page}));
     }
     bar.appendChild(prev);
     bar.appendChild(info);
     bar.appendChild(next);
     if (opts.totalPages > 1) {
-        const first = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', bt('common.page.first', '第一页'));
+        const first = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', () => bt('common.page.first', '第一页'));
         first.type = 'button';
         first.disabled = opts.page <= 1;
         first.addEventListener('click', () => opts.onPage(1));
-        const last = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', bt('common.page.last', '最后一页'));
+        const last = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', () => bt('common.page.last', '最后一页'));
         last.type = 'button';
         last.disabled = opts.page >= opts.totalPages;
         last.addEventListener('click', () => opts.onPage(opts.totalPages));
@@ -540,8 +543,8 @@ function paginationBar(opts) {
         page.step = '1';
         page.required = true;
         page.value = String(opts.page);
-        page.setAttribute('aria-label', bt('common.page.number', '页码'));
-        const go = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', bt('common.page.go', '跳转'));
+        bindAltText(page, () => bt('common.page.number', '页码'), 'aria-label');
+        const go = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', () => bt('common.page.go', '跳转'));
         go.type = 'submit';
         jump.addEventListener('submit', event => {
             event.preventDefault();
@@ -575,8 +578,8 @@ function enqueueBar(opts) {
     const syncCollapse = () => {
         const collapsed = collapsedPreviews.has(key);
         collapse.setAttribute('aria-expanded', String(!collapsed));
-        collapse.textContent = bt(collapsed ? 'preview.expand' : 'preview.collapse',
-            collapsed ? '展开作品预览' : '收起作品预览');
+        bindAltText(collapse, () => bt(collapsed ? 'preview.expand' : 'preview.collapse',
+            collapsed ? '展开作品预览' : '收起作品预览'));
     };
     syncCollapse();
     collapse.addEventListener('click', () => {
@@ -589,12 +592,12 @@ function enqueueBar(opts) {
     });
     bar.appendChild(workInteractionModeControl());
     bar.appendChild(collapse);
-    const pageBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm ab-select-page', bt('selection.page', '选择本页'));
+    const pageBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm ab-select-page', () => bt('selection.page', '选择本页'));
     pageBtn.type = 'button';
     pageBtn.hidden = workInteractionMode === 'direct';
     pageBtn.disabled = !opts.pageEnabled;
     pageBtn.addEventListener('click', () => selectVisibleWorks());
-    const allBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', bt('common.enqueue-all', '全部入队'));
+    const allBtn = el('button', 'ab-btn ab-btn--ghost ab-btn--sm', () => bt('common.enqueue-all', '全部入队'));
     allBtn.type = 'button';
     allBtn.disabled = !opts.allEnabled;
     allBtn.addEventListener('click', opts.onEnqueueAll);
@@ -616,7 +619,11 @@ function syncAllResultsQueueState() {
             btn.setAttribute('aria-pressed', String(inQueue));
             btn.setAttribute('aria-label', bt(inQueue ? 'queue.remove' : 'card.enqueue', inQueue ? '从队列移除' : '直接加入队列'));
             btn.title = btn.getAttribute('aria-label');
-            btn.innerHTML = abIcon(inQueue ? 'check' : 'plus');
+            const icon = inQueue ? 'check' : 'plus';
+            if (btn.dataset.icon !== icon) {
+                btn.innerHTML = abIcon(icon);
+                btn.dataset.icon = icon;
+            }
         }
     });
 }

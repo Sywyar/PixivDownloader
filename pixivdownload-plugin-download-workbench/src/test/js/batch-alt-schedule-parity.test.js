@@ -95,11 +95,11 @@ test('计划详情复用只读队列行、类型展示、图片与动图进度�
     const data = h.c.run('altScheduleQueues.get(1).data');
     assert.equal(data.items[0].typeData.owner, 'image');
     const model = h.c.scheduleQueueDetailModel(data);
-    assert.match(model.rows[0].html, /&lt;img onerror=bad&gt;/);
-    assert.match(model.rows[0].html, /Owner phase/);
-    assert.doesNotMatch(model.rows[0].html, /<button/);
-    assert.match(model.rows[0].html, /https:\/\/example.test\/same/);
-    assert.equal(new Set(model.rows.map(row => row.key)).size, 2);
+    assert.match(h.nodes.get('abScheduleQueue-1').querySelector('.ab-queue-item').outerHTML, /&lt;img onerror=bad&gt;/);
+    assert.match(h.nodes.get('abScheduleQueue-1').querySelector('.ab-queue-item').outerHTML, /Owner phase/);
+    assert.doesNotMatch(h.nodes.get('abScheduleQueue-1').querySelector('.ab-queue-item').outerHTML, /<button/);
+    assert.match(h.nodes.get('abScheduleQueue-1').querySelector('.ab-queue-item').outerHTML, /https:\/\/example.test\/same/);
+    assert.equal(new Set(model.rows.map(row => row.queueKey)).size, 2);
     assert.deepEqual(model.statsText.split(' ').sort(),
         ['status.stats', 'pending=1', 'success=1', 'failed=0', 'active=0', 'skipped=0'].sort());
     const persistent = JSON.parse(h.storage.get('pixiv_schedule_queue_1'));
@@ -125,9 +125,9 @@ test('SSE 使用复合身份，合批刷新，并保留后续快照前的逐图�
     assert.equal(h.c.run('altScheduleQueues.get(1).data.items[1].status'), 'pending');
     await h.c.loadScheduleQueue(h.task, true);
     const model = h.c.scheduleQueueDetailModel(h.c.run('altScheduleQueues.get(1).data'));
-    assert.match(model.rows[0].html, /40%/);
-    assert.match(model.rows[0].html, /ffmpeg/);
-    assert.match(model.currentHtml, /Current work/);
+    assert.match(h.nodes.get('abScheduleQueue-1').querySelector('.ab-queue-item').outerHTML, /40%/);
+    assert.match(h.nodes.get('abScheduleQueue-1').querySelector('.ab-queue-item').outerHTML, /ffmpeg/);
+    assert.match(h.nodes.get('abScheduleQueue-1').querySelector('.ab-round-current').innerHTML, /Current work/);
     h.c.run('scheduleState.expandedQueues.clear()');
     h.c.startScheduleQueuePolling();
     assert.equal(h.listeners.get('same').size, 0);
@@ -145,6 +145,27 @@ test('同轮缓存保留、换轮失效且不会复活 liveStatus', async () => 
     h.task.lastRunTime = 43;
     await h.c.loadScheduleQueue(h.task);
     assert.equal(h.c.run('altScheduleQueues.get(1).data.items.length'), 0);
+});
+
+test('同轮刷新保留已识别的进度位置，持久缓存不保存展示位置，换轮重新识别', async () => {
+    const h = setup();
+    h.setSnapshot({startedTime: 1, items: [{workType: 'image', workId: '1', status: 'pending'}]});
+    await h.c.loadScheduleQueue(h.task);
+    for (const fn of h.listeners.get('1')) fn({totalImages: 1, downloadedCount: 0,
+        ugoiraProgress: {phase: 'zip', zipProgress: 20}});
+    h.flush();
+    let item = h.c.run('altScheduleQueues.get(1).data.items[0]');
+    assert.equal(h.c.queueProgressSnapshot(item).progressSlots.length, 2);
+    h.setSnapshot({startedTime: 1, items: [{workType: 'image', workId: '1', status: 'downloaded'}]});
+    await h.c.loadScheduleQueue(h.task, true);
+    item = h.c.run('altScheduleQueues.get(1).data.items[0]');
+    assert.equal(h.c.queueProgressSnapshot(item).progressSlots.length, 2);
+    assert.equal(item.ugoiraProgress, null);
+    assert.doesNotMatch(h.storage.get('pixiv_schedule_queue_1'), /progressSlots/);
+    h.task.lastRunTime++;
+    await h.c.loadScheduleQueue(h.task);
+    item = h.c.run('altScheduleQueues.get(1).data.items[0]');
+    assert.equal(h.c.queueProgressSnapshot(item).progressSlots.length, 0);
 });
 
 test('普通队列保留操作，计划行禁止触发普通队列的取消和移除', () => {
@@ -247,9 +268,9 @@ test('小说实际贡献的翻译阶段在计划行显示，不推断新的下�
     assert.equal(data.items[0].status, 'completed');
     assert.equal(data.items[0].novelId, '1');
     assert.equal(data.items[0].rawTitle, 'Novel');
-    assert.match(model.rows[0].html, /Novel/);
-    assert.match(model.rows[0].html, /novel:queue\.translate\.label/);
-    assert.match(model.rows[0].html, /novel:queue\.message\.translating sec=12/);
+    assert.match(h.nodes.get('abScheduleQueue-1').querySelector('.ab-queue-item').outerHTML, /Novel/);
+    assert.match(h.nodes.get('abScheduleQueue-1').querySelector('.ab-queue-item').outerHTML, /novel:queue\.translate\.label/);
+    assert.match(h.nodes.get('abScheduleQueue-1').querySelector('.ab-queue-item').outerHTML, /novel:queue\.message\.translating sec=12/);
     assert.equal(h.listeners.size, 0);
 });
 
@@ -262,7 +283,7 @@ test('计划媒体状态显示等待格式并正确区分失败和取消', async
     send({downloadedCount: 0, imageProgress: {phase: 'ffmpeg-waiting', outputFormat: 'png', outputIndex: 1, outputCount: 2}});
     h.flush();
     const data = h.c.run('altScheduleQueues.get(1).data');
-    assert.match(h.c.scheduleQueueDetailModel(data).rows[0].html, /queue\.media\.waiting.*PNG.*1\/2/);
+    assert.match(h.nodes.get('abScheduleQueue-1').querySelector('.ab-queue-item').outerHTML, /queue\.media\.waiting.*PNG.*1\/2/);
     send({downloadedCount: 0, imageProgress: null});
     assert.equal(data.items[0].imageProgress, null);
     send({completed: true, failed: true});
