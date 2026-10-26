@@ -68,6 +68,8 @@ database.password: "replace-with-database-password"
 
 Use the CLI when you need to arrange downtime separately or inspect a migration report. It does not switch the application configuration automatically. Nonempty destinations are rejected; replacement with a backup is available through settings when the provider supports it. Install the source and destination database plugins, then stop every application, plugin and offline writer using the source database. Keep artwork files, private plugin databases, reference audio, configuration and credential files available. Save the source and destination connection settings as `source.yaml` and `target.yaml`, leaving the active configuration unchanged. From the fully extracted application directory, replace `<boot.jar>` with the actual application boot JAR filename and run:
 
+Both `source.yaml` and `target.yaml` must explicitly set `database.provider`. For a SQLite source, use `database.provider: database-sqlite` and `database.jdbc-url: "jdbc:sqlite:data/pixiv_download.db"`. Keep both files and do not overwrite `source.yaml` after migration: private database checks still use it to locate the source.
+
 ```powershell
 java '-Dloader.main=top.sywyar.pixivdownload.migration.DatabaseMigration' -cp '<boot.jar>' org.springframework.boot.loader.launch.PropertiesLauncher --source-config source.yaml --target-config target.yaml --backup migration/source.backup --report migration/report.json
 ```
@@ -81,6 +83,24 @@ Installed but disabled plugins still supply migration declarations. Before unins
 The tool also migrates owner data with compatible private schema declarations. Unknown owners or missing declarations stop migration before copying. The main database and each private database commit separately; partial failure does not roll back databases already committed. Saving a database selection and starting the application recheck private migration receipts and source changes. Plugins that bundle JDBC or use SQLite-specific SQL do not automatically support another database and require adaptation by their authors.
 
 Only `DATA_VERIFIED` means the database copy passed verification. Review the report, objects awaiting recreation and each database's result, then change the active configuration, start the application and check the gallery, novel search, notifications, schedules and file access. Neither `IN_PROGRESS` nor `FAILED_TARGET_NOT_VERIFIED` indicates success. Keep the backup and verify the destination transaction outcome. CLI retries require a new backup and a confirmed empty destination; the CLI has no resume mode. If the destination has accepted new writes since the switch, restoring the old connection directly would omit those changes. Use settings to check and migrate back, or have an administrator handle the data while the application is stopped.
+
+#### Migration backups and verification details
+
+Each database plugin declares its connection fields and types: SQLite shows none; PostgreSQL shows the address, username and password. Repairing an unparseable original connection preserves a configuration snapshot and still requires private database migration checks.
+
+When settings replace a SQLite destination, the provider locks the old database, saves a consistent backup including committed WAL data, then imports into a temporary database. After all databases pass verification, each destination is replaced in a separate transaction at its original location. Failure before replacement commits preserves the old contents; committed databases are not undone. A destination that changes after inspection or contains unknown tables is rejected. Each task's `target-*.backup` files retain the old main and private databases separately. Close other applications and offline writers connected to either endpoint. Keep the records, configuration snapshots and backups in `data/database-migrations/` for startup checks and retries; configuration and backups may contain credentials.
+
+A PostgreSQL source must match a currently supported schema. Its backup is format-1 logical XML containing data, sequences and supported object definitions, not a `pg_dump` file. The tool has no direct restore entry point for that archive. A missing or disabled source provider blocks migration; another driver cannot replace it. Providers that meet the SDK migration contract implement their own export and import without provider-specific host migration branches.
+
+Migration also preserves binary data, verifies typed SHA-256 digests and historical generated-key high-water marks, and reports reference warnings. It does not delete orphan records. Providers remove NUL (U+0000) from text parameters written through the neutral storage interface. Line breaks, tabs, other valid Unicode characters, empty strings and NULLs remain unchanged, as does binary data; malformed encoding is rejected. Migration applies this rule only to a temporary working copy before verifying actual destination contents. The source and original backup remain unchanged. A unique-key conflict or constraint violation caused by normalization fails migration without merging or deleting records.
+
+For PostgreSQL sources, `--rebuild-objects` must name the actual triggers and functions; first confirm that their owning plugins can recreate them on the destination. Providers own private database discovery, isolation, physical mapping, SQL dialects and migration. Business plugins declare structures and business conversions and use the neutral storage contract. The tool does not translate arbitrary SQL from third-party plugins.
+
+Individual commits begin only after every database has been copied and verified. Switch and startup checks use the trusted source provider to verify private source revisions and exact destination identities. Changes to source configuration, source data or the destination block switching. Reports and private receipts use `formatVersion: 1`; exchange models and receipts reject unknown formats.
+
+Each entry in the report's `stores` records `COMMITTED`, `ROLLED_BACK` or `UNKNOWN`. Cancellation or failure aborts sessions that have not attempted commit. Partial commits cannot be reported as a complete rollback. Disconnection during commit, forced termination or report persistence failure may leave `COMMITTING`, `UNKNOWN` or earlier progress on disk; inspect the destination manually. Empty database files, private schemas or roles may remain after failure and are not deleted automatically.
+
+`DATA_VERIFIED` also requires all commits, receipts and resource release to have completed. Review reference warnings before switching, and retain source data and configuration. Before any new destination writes, you can stop the application and restore the original configuration; after new writes, switching back directly would omit those changes.
 
 ### Image and Ugoira output
 
@@ -148,6 +168,19 @@ An entry may override `connect-timeout-ms`, `read-timeout-ms`, `max-manifest-byt
 | `proxy.port` | `7890` | Proxy port |
 
 Plugins that need proxy-aware networking should use the stable HTTP/WebSocket SDK or a `core-api` proxy semantic port, not the host's `ProxyConfig` implementation.
+
+#### Route web Pixiv through the backend-configured proxy (no system proxy needed)
+
+The backend reaches Pixiv through the proxy in your config (default `127.0.0.1:7890`) and does not rely on a system
+proxy. If you also want to open `pixiv.net` directly in the browser (e.g. with the userscripts) without turning on
+Clash's system proxy, use the built-in proxy auto-config (PAC):
+
+Set your OS/browser "Automatic proxy configuration script (PAC) URL" to `http://localhost:6999/proxy.pac` (match your
+configured port; with HTTPS enabled it becomes `https://<domain>:<port>/proxy.pac`). Only Pixiv-related domains then go
+through the same backend-configured proxy while everything else stays direct. The endpoint is local-only, and proxy
+changes (including hot reload) are reflected automatically — no more toggling the system proxy back and forth.
+
+Firefox proxy settings are under `about:preferences#general`; Windows proxy settings open at `ms-settings:network-proxy`.
 
 ### Multi-mode quotas and rate limits
 

@@ -79,6 +79,8 @@ java -Dfile.encoding=UTF-8 -jar pixivdownload-app/target/PixivDownload-*-boot.ja
 mvn -pl pixivdownload-official-plugins -am -Pdev-mode process-classes -Dexec.skip=true
 ```
 
+显式启用 `dev-mode` 时，程序同时加载当前开发构建的源码输出与 `plugins/` 中通过校验的安装包。两种来源共同检查依赖；同一插件 ID 来自多个位置时，冲突的副本均不会加载，恢复界面会列出来源及处理建议。调试源码时移出同名安装包；使用安装包时从开发构建中排除同名源码模块，处理后重启。
+
 IDE 调试请使用仓库提交的共享配置：IntelliJ IDEA 的 `.run/Developer Mode.run.xml`、VS Code 的 `.vscode/launch.json` 或 Eclipse 的 `eclipse/Developer Mode.launch`。这些入口会先编译所需 Reactor 模块，再启动 `GuiLauncher`。
 
 缺失必装插件的恢复模式可使用相应的 `Missing Required Plugin` 共享配置，或运行：

@@ -68,6 +68,8 @@ database.password: "替换为数据库密码"
 
 需要独立安排停机或检查报告时，可以使用 CLI。它不会自动切换应用配置，也不提供设置页的非空目标备份替换流程。安装源和目标数据库插件，停止所有使用源库的应用、插件和离线写入工具；保持作品文件、插件私有库、参考音、配置及凭据文件可用。分别把源和目标连接配置保存为 `source.yaml`、`target.yaml`，保持当前生效配置不变。在完整解压目录运行下列命令，将 `<boot.jar>` 替换为实际应用 boot JAR 文件名：
 
+`source.yaml` 和 `target.yaml` 都必须明确填写 `database.provider`。SQLite 源可配置 `database.provider: database-sqlite` 和 `database.jdbc-url: "jdbc:sqlite:data/pixiv_download.db"`。保留两份配置，迁移后不要覆盖 `source.yaml`，私库检查仍需用它定位原库。
+
 ```powershell
 java '-Dloader.main=top.sywyar.pixivdownload.migration.DatabaseMigration' -cp '<boot.jar>' org.springframework.boot.loader.launch.PropertiesLauncher --source-config source.yaml --target-config target.yaml --backup migration/source.backup --report migration/report.json
 ```
@@ -81,6 +83,24 @@ java '-Dloader.main=top.sywyar.pixivdownload.migration.DatabaseMigration' -cp '<
 工具同时迁移声明了兼容私有 schema 的 owner 数据；未知 owner 或缺少私有声明会在复制前拒绝。主库与各私库分别提交，部分失败不会自动回滚已提交库。保存数据库选择和启动前会复核私库迁移收据与源数据变化；第三方自带 JDBC 或 SQLite 专用 SQL 不会自动兼容另一种数据库，需先由作者适配。
 
 只有报告为 `DATA_VERIFIED` 才表示数据库复制核验完成。检查报告、待重建对象及每项数据的结果后，再修改生效配置并启动应用，核验画廊、小说搜索、通知、计划及文件访问。`IN_PROGRESS` 或 `FAILED_TARGET_NOT_VERIFIED` 都不能视为成功；保留备份并核对目标事务结果，CLI 重试使用新备份和经确认的空目标，不提供断点续传。切换后若目标已接受新写入，直接恢复旧连接会遗漏这些增量；应通过设置页重新检查并迁回，或由管理员在停机后处理。
+
+#### 迁移备份与核验细节
+
+连接字段及类型由数据库插件声明：SQLite 不显示连接字段，PostgreSQL 显示地址、用户名和密码。只修复无法解析的原连接时，应用保留原配置快照，私库迁移核验仍然有效。
+
+设置页替换 SQLite 目标时，提供者锁定旧库，保留包含已提交 WAL 的一致备份，再迁入暂存库。全部库核验后，各库在原位置分别通过事务替换内容；替换提交前失败保留旧内容，已提交库不会撤销。检查后目标发生变化或含有未知表时拒绝替换。每个任务的 `target-*.backup` 分别保存主库和各私库的旧内容。请关闭连接两端的其它应用和离线写入工具，并保留 `data/database-migrations/` 中的记录、配置快照和备份；启动检查和重试仍会使用它们，配置与备份可能含凭据。
+
+PostgreSQL 源须符合当前支持的结构。其备份是包含数据、序列及受支持对象定义的格式 1 逻辑 XML，不是 `pg_dump` 文件；当前工具没有直接恢复该归档的入口。源提供者缺席或禁用会阻止迁移，不能借用其它驱动。符合 SDK 迁移合同的提供者自行实现迁出和迁入，不需要宿主为其增加专用迁移分支。
+
+迁移也保留二进制内容，使用类型化 SHA-256 摘要和生成键历史高水位核对数据，并报告引用警告；不会删除孤儿记录。通过中性存储接口写入的文本参数由提供者移除 NUL（U+0000），保留换行、制表符、其它有效 Unicode、空串和 NULL；二进制不变，非法编码仍拒绝。迁移已有文本时只处理临时工作副本，再核对目标实际内容，源库与原始备份保持不变。清洗造成唯一键冲突或违反约束时失败，不会自动合并或删除记录。
+
+PostgreSQL 源的 `--rebuild-objects` 应列出实际存在的触发器和函数名，并先确认所属插件能在目标重建它们。提供者负责私库发现、隔离、物理映射、SQL 方言和迁移；业务插件声明结构和业务转换，通过中性存储契约读写。工具不会自动翻译第三方插件的任意 SQL。
+
+所有库复制并核验后才开始逐库提交。切换和启动检查通过可信源提供者复核私库源变化凭据及精确目标身份；源配置、源数据或目标改变时拒绝切换。报告和私库收据使用 `formatVersion: 1`，交换模型与收据拒绝未知格式。
+
+报告的 `stores` 逐库记录 `COMMITTED`、`ROLLED_BACK` 或 `UNKNOWN`。取消或失败中止尚未尝试提交的会话，不能把部分提交报告为整体回滚。提交时断连、进程被强制终止或报告落盘失败可能留下 `COMMITTING`、`UNKNOWN` 或旧进度，须人工核对目标。失败后可能留下空数据库文件、私库 schema 或角色，工具不会自动删除。
+
+`DATA_VERIFIED` 还要求全部提交、收据和资源释放均已完成。切换前检查引用警告；保留源数据与原配置。目标尚无新写入时，可停机恢复原配置；已有增量时不能直接回切。
 
 ### 图片与 Ugoira 保存
 
@@ -148,6 +168,14 @@ plugin-catalog.repositories:
 | `proxy.port` | `7890` | 代理端口 |
 
 插件需要代理时应使用稳定 HTTP/WebSocket SDK 或 `core-api` 的代理语义端口，不应读取宿主 `ProxyConfig` 实现类。
+
+#### 让网页版 Pixiv 走后端配置的代理（无需开启系统代理）
+
+后端访问 Pixiv 走配置里指定的代理（默认 `127.0.0.1:7890`），不依赖系统代理。如果你还希望在浏览器里直接打开 `pixiv.net`（例如配合油猴脚本），又不想为此开启 Clash 的「系统代理 / system proxy」，可以使用内置的代理自动配置（PAC）：
+
+在系统或浏览器的「自动代理配置脚本（PAC）URL」处填入 `http://localhost:6999/proxy.pac`（端口与你的配置一致；启用 HTTPS 时为 `https://<域名>:<端口>/proxy.pac`），即可让仅 Pixiv 相关域名走后端配置的同一个代理、其余流量直连。该地址仅本机可访问，代理变更（含热重载）会自动反映到 PAC 内容；不再需要来回切换系统代理。
+
+Firefox 的设置入口为 `about:preferences#general`，Windows 的代理设置入口为 `ms-settings:network-proxy`。
 
 ### 多人模式配额和限流
 

@@ -79,6 +79,8 @@ Run from the repository root:
 mvn -pl pixivdownload-official-plugins -am -Pdev-mode process-classes -Dexec.skip=true
 ```
 
+With `dev-mode` explicitly enabled, the application loads source outputs from the current development build alongside verified packages in `plugins/`. Dependencies are checked across both sources. If multiple locations provide the same plugin ID, none of the conflicting copies are loaded; the recovery interface lists the sources and suggested actions. Move the duplicate installed package out when debugging source, or exclude the matching source module from the development build when using the package, then restart.
+
 For debugging, use the committed shared configuration for IntelliJ IDEA (`.run/Developer Mode.run.xml`), VS Code (`.vscode/launch.json`), or Eclipse (`eclipse/Developer Mode.launch`). Each configuration compiles the required Reactor modules before starting `GuiLauncher`.
 
 For the missing-required-plugin recovery scenario, use the matching `Missing Required Plugin` shared configuration or run:

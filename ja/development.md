@@ -68,6 +68,8 @@ java -Dfile.encoding=UTF-8 -jar pixivdownload-app/target/PixivDownload-*-boot.ja
 mvn -pl pixivdownload-official-plugins -am -Pdev-mode process-classes -Dexec.skip=true
 ```
 
+`dev-mode` を明示的に有効にすると、現在の開発ビルドのソース出力と、`plugins/` 内の検証済みパッケージを同時に読み込みます。依存関係は両方を合わせて検査します。同じプラグイン ID が複数の場所にある場合、競合するコピーはすべて読み込まず、復旧画面に場所と対処方法を表示します。ソースをデバッグするときは同名のインストール済みパッケージを移動し、パッケージを使うときは対応するソースモジュールを開発ビルドから外して、再起動してください。
+
 IntelliJ IDEA の `.run/Developer Mode.run.xml`、VS Code の `.vscode/launch.json`、Eclipse の `eclipse/Developer Mode.launch` には共有設定があります。必要な Reactor モジュールをビルドして `GuiLauncher` を起動します。必須プラグイン欠落の復旧確認には `-Precovery-mode` または対応する共有設定を使います。
 
 ## ユーザースクリプト資源
