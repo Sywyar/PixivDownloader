@@ -63,6 +63,7 @@ function addItemsToQueue(idList, metaList, source, username, defaultAuthorId, de
             kind: m.kind || 'illust',
             novelId: m.novelId || null,
             typeData: m.typeData && typeof m.typeData === 'object' ? m.typeData : null,
+            illustType: m.illustType,
             canonicalUrl: m.canonicalUrl || null,
             title: m.title || '',
             status: state.isRunning ? 'pending' : 'idle',

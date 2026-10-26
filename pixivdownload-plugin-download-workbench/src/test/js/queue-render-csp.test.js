@@ -135,6 +135,59 @@ async function fixture(alt, size = 300, production = false) {
         setLanguage(value){language=value;},rowClass:alt?'ab-queue-item':'q-item-host'};
 }
 
+test('新版动图从元数据就预留下载和转换位置，后续总量、阶段与重试不重建节点', async () => {
+    const f = await fixture(true, 1, true), q = f.state.queue[0];
+    Object.assign(q, {illustType: 2, totalImages: 0, taskId: 'attempt-a'});
+    f.sync(q); await f.flush();
+    const bars = root => byClass(root, 'ab-progress-extras').flatMap(extras => byClass(extras, 'ab-mini-prog'));
+    const initial = [bars(f.list), bars(f.current)];
+    for (const group of initial) {
+        assert.equal(group.length, 2);
+        assert.ok(group.every(bar => all(bar, n => n.props.role === 'progressbar')
+            .every(n => n.props['aria-busy'] === 'false' && n.props['aria-valuenow'] === undefined)));
+    }
+    q.totalImages = 1;
+    for (const phase of ['zip', 'extract', 'ffmpeg-waiting', 'ffmpeg', 'finalizing', null]) {
+        q.ugoiraProgress = phase ? {phase, ...(phase === 'zip' ? {zipProgress: 20}
+            : phase === 'ffmpeg' ? {ffmpegProgress: 60} : {})} : null;
+        f.sync(q); await f.flush();
+        for (const [index, root] of [f.list, f.current].entries()) {
+            assert.equal(bars(root).length, 2);
+            bars(root).forEach((bar, i) => assert.equal(bar, initial[index][i]));
+        }
+    }
+    for (const status of ['failed', 'pending', 'downloading', 'completed']) {
+        Object.assign(q, {status, taskId: 'attempt-b'});
+        f.sync(q); await f.flush();
+        bars(f.list).forEach((bar, i) => assert.equal(bar, initial[0][i]));
+        assert.doesNotMatch(textOf(f.list), /20%|60%/);
+        assert.equal(byClass(f.list, 'is-indeterminate').length, 0);
+    }
+    f.state.queue = [];
+    f.sync(); await f.flush();
+    assert.equal(bars(f.list).length, 0);
+    assert.deepEqual(f.errors, []);
+});
+
+test('新版小说先创建全部资源进度，正文、封面和插图依次更新原节点', async () => {
+    const f = await fixture(true, 1, true), q = f.state.queue[0];
+    Object.assign(q, {kind: 'novel', totalImages: 0});
+    f.sync(); await f.flush();
+    const bars = () => byClass(f.list, 'ab-mini-prog');
+    const initial = bars();
+    assert.equal(initial.length, 3);
+    for (const field of ['novelText', 'novelCover', 'novelEmbedded']) {
+        q[field] = {done: 1, total: 2};
+        f.sync(q); await f.flush();
+        bars().forEach((bar, i) => assert.equal(bar, initial[i]));
+        q[field] = null;
+    }
+    q.status = 'completed';
+    f.sync(q); await f.flush();
+    assert.equal(byClass(f.list, 'is-indeterminate').length, 0);
+    assert.deepEqual(f.errors, []);
+});
+
 test('新版实际 Vue 行和当前卡在换图、清空快照和切换格式时保留进度节点', async () => {
     const f = await fixture(true, 2, true), q = f.state.queue[0];
     q.imageProgress = {imageNumber: 1, totalImages: 3, progress: 25,
@@ -142,8 +195,8 @@ test('新版实际 Vue 行和当前卡在换图、清空快照和切换格式时
     f.sync(q); await f.flush();
     const bars = root => byClass(root, 'ab-progress-extras').flatMap(extras => byClass(extras, 'ab-mini-prog'));
     const initial = [bars(f.list), bars(f.current)];
-    assert.equal(initial[0].length, 2);
-    assert.equal(initial[1].length, 2);
+    assert.equal(initial[0].length, 3);
+    assert.equal(initial[1].length, 3);
     for (const imageProgress of [null,
         {imageNumber: 2, totalImages: 3, progress: 75, processing: [{phase: 'ffmpeg', outputFormat: 'webp'}]},
         {phase: 'processing', processing: [{phase: 'verifying', outputFormat: 'png'}]}, null]) {
@@ -209,9 +262,12 @@ for(const alt of [false,true]) {
         assert.equal(textOf(f.current),before);
         assert.match(textOf(byClass(f.list,f.rowClass)[1]),/100/);
         front.imageProgress={progress:25,downloadedBytes:1024,totalBytes:4096};f.sync(front);await f.flush();
-        const fill=byClass(f.current,alt?'ab-mini-prog-fill':'prog-fill').at(-1);
+        const progressFills = () => alt
+            ? byClass(byClass(f.current, 'ab-progress-extras')[0], 'ab-mini-prog-fill')
+            : byClass(f.current, 'prog-fill');
+        const fill=alt ? progressFills()[0] : progressFills().at(-1);
         front.imageProgress.progress=75;f.sync(front);await f.flush();
-        assert.equal(byClass(f.current,alt?'ab-mini-prog-fill':'prog-fill').at(-1),fill);
+        assert.equal(alt ? progressFills()[0] : progressFills().at(-1),fill);
         assert.equal(fill.props.style.width,'75%');
         other.status='completed';f.sync(other);await f.flush();
         assert.notEqual(textOf(f.current),before);

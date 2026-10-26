@@ -288,8 +288,9 @@ function buildCurrentCardContent(item) {
     row.appendChild(meta);
     card.appendChild(row);
     // 流式图片进度条（与列表行 miniProgress 同口径，由 downloadedCount / totalImages 派生，始终实时可见）。
-    if (item.totalImages > 0) {
-        card.appendChild(miniProgress(model.progressLabel, null, percent, 'is-image'));
+    if (item.kind === 'illust' || item.totalImages > 0) {
+        card.appendChild(miniProgress(model.progressLabel, null,
+            item.totalImages > 0 ? percent : null, 'is-image', false));
     }
     const extras = progressExtras(item);
     if (extras) card.appendChild(extras);
@@ -301,7 +302,7 @@ function currentCardModel(item) {
     if (!item) return null;
     const percent = item.totalImages > 0 ? pct(item) : 0;
     const progressLabel = item.totalImages > 0 ? bt('status.image-progress', '{downloaded} / {total} 张',
-        {downloaded: item.downloadedCount || 0, total: item.totalImages}) : '';
+        {downloaded: item.downloadedCount || 0, total: item.totalImages}) : bt('queue.progress.inactive', null);
     return {title: queueItemDisplayTitle(item), percent, progressLabel,
         detail: item.totalImages > 0 ? progressLabel + ' · ' + percent + '%' : queueItemMessage(item)};
 }
@@ -399,36 +400,32 @@ function progressExtras(q) {
     return parts;
 }
 
-// 只记本次执行出现过的进度位置；快照缺席时不保留旧字节、百分比或格式。
+// 首次识别媒体后预留全部阶段；只保留位置，不保留旧字节、百分比或格式。
 const altProgressSlots = new WeakMap();
 function progressSlotsFor(q) {
     if (q.progressSlots) return q.progressSlots;
     let seen = altProgressSlots.get(q);
-    const taskId = q.taskId || null;
-    if (!seen || seen.taskId !== taskId || q.status === 'pending' || q.status === 'idle') {
-        seen = {taskId, slots: []};
+    if (!seen || seen.kind !== q.kind) {
+        seen = {kind: q.kind, slots: []};
         altProgressSlots.set(q, seen);
     }
     const remember = (key, labelKey, cls) => {
         if (!seen.slots.some(slot => slot.key === key)) seen.slots.push({key, labelKey, cls});
     };
-    if (q.status === 'downloading') {
-        const ip = q.imageProgress;
-        if (ip && !ip.phase) remember('image-download', 'queue.image-download.label', 'is-image');
-        const processing = ip ? (ip.phase && ip.phase !== 'processing' ? 1 : 0)
-            + (Array.isArray(ip.processing) ? ip.processing.length : 0) : 0;
-        for (let i = 0; i < processing; i++) remember('image-processing-' + i, 'queue.media.label', 'is-ffmpeg');
-        const up = q.ugoiraProgress;
-        if (up) {
-            if (['zip', 'extract', 'ffmpeg'].includes(up.phase) || up.zipProgress !== undefined
-                    || up.zipDownloadedBytes !== undefined) remember('zip', 'queue.ugoira.zip', 'is-zip');
-            if (up.phase && up.phase !== 'zip') remember('ugoira-processing', 'queue.media.label', 'is-ffmpeg');
-        }
-        if (q.kind === 'novel') {
-            for (const [value, key] of [[q.novelText, 'queue.novel-text.label'], [q.novelCover, 'queue.novel-cover.label']]) {
-                if (value && (value.done > 0 || value.total > 0)) remember(key, key, 'is-image');
-            }
-            if (q.novelEmbedded?.total > 0) remember('embedded', 'queue.novel-images.label', 'is-image');
+    const up = q.ugoiraProgress;
+    if (q.kind === 'novel') {
+        remember('queue.novel-text.label', 'queue.novel-text.label', 'is-image');
+        remember('queue.novel-cover.label', 'queue.novel-cover.label', 'is-image');
+        remember('embedded', 'queue.novel-images.label', 'is-image');
+    } else if (q.illustType === 2 || up && (up.phase || up.zipProgress != null || up.zipDownloadedBytes != null)) {
+        remember('zip', 'queue.ugoira.zip', 'is-zip');
+        remember('ugoira-processing', 'queue.media.label', 'is-ffmpeg');
+    } else if (q.imageProgress || q.illustType === 0 || q.illustType === 1) {
+        remember('image-download', 'queue.image-download.label', 'is-image');
+        // 图片流水线最多同时处理两张；总量未知时也预留两处，避免稍后插入。
+        const count = q.imageProgress?.totalImages || q.totalImages;
+        for (let i = 0; i < (count === 1 ? 1 : 2); i++) {
+            remember('image-processing-' + i, 'queue.media.label', 'is-ffmpeg');
         }
     }
     return seen.slots;
@@ -677,11 +674,11 @@ function queueItemRow(q, options = {}) {
     metaLine.appendChild(statusLine);
     row.appendChild(metaLine);
 
-    if (q.totalImages > 0) {
+    if (q.kind === 'illust' || q.totalImages > 0) {
         row.appendChild(miniProgress(
-            bt('status.image-progress', '{downloaded} / {total} 张',
-                {downloaded: q.downloadedCount || 0, total: q.totalImages}),
-            null, pct(q), 'is-' + q.status));
+            q.totalImages > 0 ? bt('status.image-progress', '{downloaded} / {total} 张',
+                {downloaded: q.downloadedCount || 0, total: q.totalImages}) : bt('queue.progress.inactive', null),
+            null, q.totalImages > 0 ? pct(q) : null, 'is-' + q.status, false));
     }
     const extras = progressExtras(q);
     if (extras) row.appendChild(extras);
@@ -700,25 +697,32 @@ function renderQuotaBar() {
         return;
     }
     box.hidden = false;
-    box.innerHTML = '';
-    const head = el('div', 'ab-quota-head');
-    head.appendChild(abIconEl('gauge'));
-    head.appendChild(el('strong', '', bt('quota.title', '下载配额')));
-    box.appendChild(head);
-    const line = el('div', 'ab-quota-line');
+    if (!box.firstElementChild) {
+        const head = el('div', 'ab-quota-head');
+        head.appendChild(abIconEl('gauge'));
+        head.appendChild(el('strong'));
+        const bar = el('div', 'ab-mini-prog-bar');
+        bar.appendChild(el('div', 'ab-mini-prog-fill'));
+        box.append(head, el('div', 'ab-quota-line'), bar, el('p', 'ab-field-note'));
+    }
+    box.querySelector('strong').textContent = bt('quota.title', '下载配额');
+    const line = box.querySelector('.ab-quota-line');
     line.textContent = bt('quota.used', '已用 {used} / {max} 个作品',
         {used: quota.artworksUsed, max: quota.maxArtworks});
-    box.appendChild(line);
     const pctValue = Math.min(100, Math.round(quota.artworksUsed / Math.max(1, quota.maxArtworks) * 100));
-    const bar = el('div', 'ab-mini-prog-bar');
-    const fill = el('div', 'ab-mini-prog-fill' + (pctValue >= 90 ? ' is-danger' : pctValue >= 70 ? ' is-warn' : ''));
+    const bar = box.querySelector('.ab-mini-prog-bar');
+    bar.setAttribute('role', 'progressbar');
+    bar.setAttribute('aria-label', bt('quota.title', '下载配额'));
+    bar.setAttribute('aria-valuemin', '0');
+    bar.setAttribute('aria-valuemax', '100');
+    bar.setAttribute('aria-valuenow', String(pctValue));
+    const fill = box.querySelector('.ab-mini-prog-fill');
+    fill.className = 'ab-mini-prog-fill' + (pctValue >= 90 ? ' is-danger' : pctValue >= 70 ? ' is-warn' : '');
     fill.style.width = pctValue + '%';
-    bar.appendChild(fill);
-    box.appendChild(bar);
-    if (quota.resetSeconds > 0) {
-        box.appendChild(el('p', 'ab-field-note',
-            bt('status.quota-reset', '配额重置剩余：{time}', {time: formatSeconds(quota.resetSeconds)})));
-    }
+    const reset = box.querySelector('.ab-field-note');
+    reset.hidden = !(quota.resetSeconds > 0);
+    reset.textContent = reset.hidden ? '' : bt('status.quota-reset', '配额重置剩余：{time}',
+        {time: formatSeconds(quota.resetSeconds)});
 }
 
 function renderArchiveCard() {
@@ -730,37 +734,34 @@ function renderArchiveCard() {
         return;
     }
     box.hidden = false;
-    box.innerHTML = '';
-    const head = el('div', 'ab-quota-head');
-    head.appendChild(abIconEl('box'));
-    head.appendChild(el('strong', '', bt(archive.title.key, archive.title.fallback, archive.title.args)));
-    box.appendChild(head);
-    if (archive.status === 'expired') {
-        box.appendChild(el('p', 'ab-field-note ab-progress-note--error',
-            bt('status.archive-expired', '链接已过期，请重新打包')));
-        return;
+    if (!box.firstElementChild) {
+        const head = el('div', 'ab-quota-head');
+        head.appendChild(abIconEl('box'));
+        head.appendChild(el('strong'));
+        const row = el('div', 'ab-archive-row');
+        const dl = el('a', 'ab-btn ab-btn--primary ab-btn--sm');
+        dl.append(abIconEl('download'), el('span', 'ab-archive-label'));
+        const countdown = el('span', 'ab-archive-countdown');
+        countdown.id = 'abArchiveCountdown';
+        row.append(dl, countdown);
+        box.append(head, el('p', 'ab-archive-note'), row);
     }
-    if (archive.status === 'empty') {
-        box.appendChild(el('p', 'ab-field-note',
-            bt('status.archive-empty', '暂无可打包文件（当前下载仍在进行中，完成后自动包含）')));
-        return;
-    }
-    if (archive.status !== 'ready') {
-        const line = el('p', 'ab-loading-line', bt('status.archive-packing', '正在打包已下载文件，请稍候...'));
-        box.appendChild(line);
-        return;
-    }
-    box.appendChild(el('p', 'ab-field-note', bt('status.archive-ready', '压缩包已就绪，请在有效期内下载：')));
-    const row = el('div', 'ab-archive-row');
-    const dl = el('a', 'ab-btn ab-btn--primary ab-btn--sm');
-    dl.href = BASE + '/api/archive/download/' + archive.token;
-    dl.appendChild(abIconEl('download'));
-    dl.appendChild(el('span', '', bt('archive.download', '下载压缩包')));
-    row.appendChild(dl);
-    const countdown = el('span', 'ab-archive-countdown');
-    countdown.id = 'abArchiveCountdown';
-    row.appendChild(countdown);
-    box.appendChild(row);
+    box.querySelector('strong').textContent = bt(archive.title.key, archive.title.fallback, archive.title.args);
+    const note = box.querySelector('.ab-archive-note');
+    const messages = {
+        expired: ['status.archive-expired', '链接已过期，请重新打包'],
+        empty: ['status.archive-empty', '暂无可打包文件（当前下载仍在进行中，完成后自动包含）'],
+        ready: ['status.archive-ready', '压缩包已就绪，请在有效期内下载：']
+    };
+    note.textContent = bt(...(messages[archive.status] || ['status.archive-packing', '正在打包已下载文件，请稍候...']));
+    note.className = 'ab-archive-note ' + (messages[archive.status] ? 'ab-field-note' : 'ab-loading-line')
+        + (archive.status === 'expired' ? ' ab-progress-note--error' : '');
+    const row = box.querySelector('.ab-archive-row');
+    const dl = row.querySelector('a');
+    row.hidden = archive.status !== 'ready';
+    if (row.hidden) dl.removeAttribute('href');
+    else dl.href = BASE + '/api/archive/download/' + archive.token;
+    dl.querySelector('.ab-archive-label').textContent = bt('archive.download', '下载压缩包');
     updateArchiveCountdown();
 }
 

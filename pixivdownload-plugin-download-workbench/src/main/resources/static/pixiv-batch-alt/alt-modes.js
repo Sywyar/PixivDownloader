@@ -400,6 +400,7 @@ function buildQueueMeta(item, kind, opts) {
         kind: k,
         cancelWorkKey: owned.cancelWorkKey || item.cancelWorkKey || (k === 'illust' ? pixivCancelWorkKey(item.id) : null),
         typeData: owned.typeData || (item.typeData && typeof item.typeData === 'object' ? item.typeData : null),
+        illustType: owned.illustType ?? item.illustType,
         canonicalUrl: owned.canonicalUrl || item.canonicalUrl || item.url || null,
         title: owned.title || item.title || '',
         authorId: normalizeAuthorId(owned.authorId ?? item.userId ?? item.authorId),

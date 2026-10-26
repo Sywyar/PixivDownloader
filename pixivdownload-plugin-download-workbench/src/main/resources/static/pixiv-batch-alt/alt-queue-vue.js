@@ -130,7 +130,7 @@ function aqvExtras(q) {
     const entries = typeof progressExtrasModel === 'function' ? progressExtrasModel(q) : [];
     if (!entries.length) return null;
     const h = aqvVue.h;
-    return h('div', {class: 'ab-progress-extras'}, entries.map(entry => entry.kind === 'progress'
+    return h('div', {key: 'extras', class: 'ab-progress-extras'}, entries.map(entry => entry.kind === 'progress'
         ? aqvMiniProgress(entry.label, entry.value, entry.progress, entry.cls, entry.key, entry.active)
         : h('p', {key: entry.key, class: ['ab-progress-note', entry.tone ? 'ab-progress-note--' + entry.tone : '']}, [
             entry.badge ? h('span', {class: ['ab-mini-badge', {'ab-mini-badge--ai': entry.ai}]}, entry.badge) : null,
@@ -172,10 +172,11 @@ function aqvRowModel(q) {
             ? (q.novelId || String(q.id).replace(/^n/, '')) + ' (Novel)'
             : q.id) + ' | ',
         message: queueItemMessage(q),
-        progress: q.totalImages > 0 ? {
-            label: aqvT('status.image-progress', '{downloaded} / {total} 张',
-                {downloaded: q.downloadedCount || 0, total: q.totalImages}),
-            text: percent + '%',
+        progress: q.kind === 'illust' || q.totalImages > 0 ? {
+            label: q.totalImages > 0 ? aqvT('status.image-progress', '{downloaded} / {total} 张',
+                {downloaded: q.downloadedCount || 0, total: q.totalImages}) : aqvT('queue.progress.inactive', null),
+            text: q.totalImages > 0 ? percent + '%' : '',
+            value: q.totalImages > 0 ? percent : undefined,
             cls: 'is-' + q.status,
             width: percent + '%'
         } : null,
@@ -227,7 +228,7 @@ function aqvCurrentComponent() {
             if (!model) children.push(h('p', {class: 'ab-current-idle'}, aqvT('status.current-idle', '无')));
             else {
                 const circumference = 2 * Math.PI * 26;
-                children.push(h('div', {class: 'ab-current-row'}, [
+                children.push(h('div', {key: 'current', class: 'ab-current-row'}, [
                     h('span', {class: 'ab-ring'}, [
                         h('svg', {viewBox: '0 0 64 64'}, [
                             h('circle', {cx: '32', cy: '32', r: '26', class: 'ab-ring-track'}),
@@ -240,10 +241,11 @@ function aqvCurrentComponent() {
                     h('div', {class: 'ab-current-meta'}, [h('div', {class: 'ab-current-title'}, model.title),
                         h('div', {class: 'ab-current-detail'}, model.detail)])
                 ]));
-                if (front.totalImages > 0) children.push(aqvMiniProgress(model.progressLabel, null, model.percent, 'is-image', 'images'));
+                if (front.kind === 'illust' || front.totalImages > 0) children.push(aqvMiniProgress(
+                    model.progressLabel, null, front.totalImages > 0 ? model.percent : null, 'is-image', 'images', false));
                 children.push(aqvExtras(front));
                 const line = this.remaining;
-                if (line) children.push(h('p', {class: 'ab-current-remaining'}, line));
+                if (line) children.push(h('p', {key: 'remaining', class: 'ab-current-remaining'}, line));
             }
             return h('span', {style: {display: 'contents'}}, children);
         }
@@ -272,7 +274,7 @@ function aqvRenderRow(item, vm) {
         r.progress ? h('div', {class: 'ab-mini-prog'}, [
             h('div', {class: 'ab-mini-prog-label'}, [h('span', r.progress.label), h('span', r.progress.text)]),
             h('div', {class: 'ab-mini-prog-bar progressbar', role: 'progressbar', 'aria-label': r.title,
-                'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': Number.parseFloat(r.progress.width)}, [
+                'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': r.progress.value}, [
                 h('span', {class: ['ab-mini-prog-fill', r.progress.cls], style: {transform: 'translate3d(' + (Number.parseFloat(r.progress.width) - 100) + '%, 0, 0)'}})
             ])
         ]) : null,
