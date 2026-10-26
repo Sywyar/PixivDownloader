@@ -130,7 +130,7 @@
             netRow = '<div class="po-net"><span class="po-net-fail">✕ '
                 + escapeHtml(t('onboarding.network.fail', '无法连接 Pixiv，请检查代理 / 网络设置')) + '</span></div>'
                 + '<div class="po-hint">' + escapeHtml(t('onboarding.network.fail-hint',
-                    '常见原因：代理未开启或端口不对。请在程序的「设置 / config.yaml」中配置 proxy.host / proxy.port 后重试。')) + '</div>';
+                    '请在程序设置中检查代理是否启用，以及地址和端口是否正确，然后重试。')) + '</div>';
             buttons = [SKIP_BTN(), {act: 'retry', label: t('onboarding.network.retry', '重试'), variant: 'primary'}];
         }
         overlay.render({

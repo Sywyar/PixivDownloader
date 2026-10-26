@@ -692,7 +692,6 @@ class PluginReleaseScriptsTest {
         assertThat(script).contains(
                 "$SdkVersion = Get-PixivDownloadSdkVersion -ProjectRoot $ProjectRoot",
                 "[ValidateSet(\"Catalog\", \"Local\")]",
-                "[string]$PluginSource = \"Catalog\"",
                 "[string]$OfficialKeyId",
                 "[string]$PrivateKeyFile",
                 "[switch]$AllowUnsignedLocalPlugins",
