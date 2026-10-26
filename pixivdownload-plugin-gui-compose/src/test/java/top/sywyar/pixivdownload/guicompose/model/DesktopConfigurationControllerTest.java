@@ -631,11 +631,7 @@ class DesktopConfigurationControllerTest {
     }
 
     static void awaitReady(ComposeDesktopUiModel model) {
-        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
-            while (model.busy()) {
-                Thread.sleep(10);
-            }
-        });
+        DesktopSnapshotAwaiter.awaitEnabled(model, "config.reload");
     }
 
     private static int pendingCount(ComposeDesktopUiModel model) {

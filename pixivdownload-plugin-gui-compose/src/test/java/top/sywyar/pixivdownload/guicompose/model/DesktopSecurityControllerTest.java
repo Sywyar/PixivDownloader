@@ -6,7 +6,6 @@ import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.*;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot;
 import top.sywyar.pixivdownload.plugin.api.web.*;
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.List;
@@ -205,13 +204,13 @@ class DesktopSecurityControllerTest {
         }
     }
     private static SecurityOverview security(ComposeDesktopUiModel model) {
-        return (SecurityOverview) ((Surface) model.snapshot().document().pages().stream()
+        return security(model.snapshot());
+    }
+    private static SecurityOverview security(DesktopUiSnapshot snapshot) {
+        return (SecurityOverview) ((Surface) snapshot.document().pages().stream()
                 .filter(page -> page.id().equals("security")).findFirst().orElseThrow().content()).content();
     }
     private static void await(ComposeDesktopUiModel model) {
-        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
-            while (model.busy()) Thread.sleep(10);
-            model.rebuild();
-        });
+        DesktopSnapshotAwaiter.await(model, snapshot -> !security(snapshot).busy());
     }
 }

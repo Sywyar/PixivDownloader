@@ -763,11 +763,43 @@ class BackendProcessShutdownTest {
                 .isEqualTo(target);
     }
 
-    private static void awaitUninterruptibly(CountDownLatch latch) {
+    @Test
+    @DisplayName("关闭夹具在已中断线程上仍等待释放并恢复中断标记")
+    void interruptedGateWaitsForRelease() throws Exception {
+        var release = new CountDownLatch(1);
+        var entered = new CountDownLatch(1);
+        var exec = Executors.newSingleThreadExecutor();
         try {
-            latch.await();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            var waiting = exec.submit(() -> {
+                Thread.currentThread().interrupt();
+                entered.countDown();
+                awaitUninterruptibly(release);
+                return Thread.currentThread().isInterrupted();
+            });
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> waiting.get(100, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+            release.countDown();
+            assertThat(waiting.get(5, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            release.countDown();
+            exec.shutdownNow();
+            assertThat(exec.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private static void awaitUninterruptibly(CountDownLatch latch) {
+        boolean interrupted = false;
+        try {
+            while (true) {
+                try {
+                    latch.await();
+                    return;
+                } catch (InterruptedException ignored) {
+                    interrupted = true;
+                }
+            }
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt();
         }
     }
 
