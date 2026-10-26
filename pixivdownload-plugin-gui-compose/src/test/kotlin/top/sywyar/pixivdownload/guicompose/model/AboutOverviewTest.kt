@@ -6,9 +6,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -34,6 +36,32 @@ import kotlin.test.*
 
 @OptIn(ExperimentalTestApi::class)
 class AboutOverviewTest {
+    @Test
+    @DisplayName("维护者列表不可用时完整关于页在浅深主题中显示错误色提示")
+    fun unavailableMaintainers() = runComposeUiTest {
+        val theme = mutableStateOf("light")
+        val node = sample(false)
+        setContent {
+            PixivDownloaderTheme(theme.value) {
+                Box(Modifier.size(600.dp, 650.dp).background(LocalExperiencePalette.current.surface)) {
+                    ComposeDesktopUiNodeRenderer.Render(node, ::resolve, {})
+                }
+            }
+        }
+        for (mode in listOf("light", "dark")) {
+            runOnIdle { theme.value = mode }
+            val message = onNodeWithText(messages.getProperty("desktop.ui.about.maintainers.load-failed"))
+            message.performScrollTo().assertIsDisplayed()
+            val rendered = message.captureToImage().toAwtImage()
+            val errorColor = experiencePalette(mode == "dark", false).error.toArgb()
+            assertTrue((0 until rendered.height).any { y ->
+                (0 until rendered.width).any { x -> rendered.getRGB(x, y) == errorColor }
+            }, "Unavailable message must use the theme error color")
+            onNodeWithTag("fixture.profile").assertDoesNotExist()
+            screenshot("maintainers-unavailable-$mode", "about.overview")
+        }
+    }
+
     @Test
     @DisplayName("关于页展开后复制完整可见平台数据，更新与项目链接保持可操作")
     fun copyPlatformInformation() = runComposeUiTest {
@@ -231,7 +259,7 @@ class AboutOverviewTest {
         private fun pluginLines(fact: AboutFact) =
             fact.plugins().map { "${it.version()} | ${resolve(it.status())}" }
 
-        private fun sample(): AboutOverview =
+        private fun sample(withMaintainers: Boolean = true): AboutOverview =
             DesktopConfigurationControllerTest.model(HashMap(), mapOf(
                 "applicationVersion" to java.util.function.Function { _: Array<Any>? -> "2.3.4-fixture" },
             )).use {
@@ -248,7 +276,7 @@ class AboutOverviewTest {
                     model.updateState(),
                     model.updates(),
                     model.links(),
-                    listOf(AboutMaintainer(
+                    if (!withMaintainers) emptyList() else listOf(AboutMaintainer(
                         Image("fixture.avatar", image, TextToken.raw("Avatar"), 38, 38, ScaleMode.FILL),
                         Link("fixture.profile", "fixture.open", TextToken.raw("Example maintainer"), null, true),
                         TextToken.key("desktop.ui.about.maintainer.role.author-core"),

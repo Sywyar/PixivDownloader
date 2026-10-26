@@ -106,7 +106,7 @@ test('拒绝超大声明后关闭仍在发送正文的真实连接', { timeout: 
   await closed;
 });
 
-test('真实生成入口在拒绝头像时释放正文并保留已有目录', async (t) => {
+test('真实生成入口在获取失败或离线时写入不可用状态并释放正文', async (t) => {
   const root = fileURLToPath(new URL('../../../', import.meta.url));
   const fixture = await mkdtemp(join(tmpdir(), 'maintainer-response-'));
   t.after(() => rm(fixture, { recursive: true, force: true }));
@@ -126,9 +126,14 @@ https.request = (input, options, callback) => {
   const outgoing = new EventEmitter();
   let incoming;
   if (url.hostname === 'api.github.com') {
+    if (process.env.FIXTURE_MODE === 'offline') throw new Error('Offline generation must not request the API');
     incoming = Readable.from([Buffer.from(JSON.stringify(url.pathname.endsWith('/contributors') ? users : { owner: users[0] }))]);
-    incoming.statusCode = 200;
+    incoming.statusCode = ['api', 'rate'].includes(process.env.FIXTURE_MODE) ? 403 : 200;
     incoming.headers = { 'content-type': 'application/json' };
+    if (process.env.FIXTURE_MODE === 'rate') {
+      incoming.headers['x-ratelimit-remaining'] = '0';
+      incoming.headers['x-ratelimit-reset'] = String(Math.ceil(Date.now() / 1000) + 3600);
+    }
   } else {
     const mode = process.env.FIXTURE_MODE;
     incoming = new Readable({
@@ -147,21 +152,35 @@ https.request = (input, options, callback) => {
 syncBuiltinESMExports();
 `, 'utf8');
   const allowlist = JSON.parse(await readFile(join(root, 'scripts/maintainers-allowlist.json'), 'utf8'));
-  for (const mode of ['status', 'type', 'status-cancel-fails', 'type-cancel-fails']) {
+  for (const mode of ['api', 'rate', 'offline', 'status', 'type', 'status-cancel-fails', 'type-cancel-fails']) {
     await t.test(mode, async () => {
       await writeFile(output, 'existing catalog', 'utf8');
       const env = { ...process.env, FIXTURE_ROOT: root, FIXTURE_MODE: mode, NO_PROXY: '*' };
       delete env.GITHUB_TOKEN;
       delete env.GH_TOKEN;
       const child = spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, join(root, 'scripts/generate-maintainers.mjs'),
-        '--repo-root', root, '--output', output], { env, encoding: 'utf8', timeout: 30_000 });
+        '--repo-root', root, '--output', output, `--offline=${mode === 'offline'}`], { env, encoding: 'utf8', timeout: 30_000 });
       assert.ifError(child.error);
-      assert.equal(child.status, 1, mode);
-      assert.match(child.stderr, mode.startsWith('status') ? /Avatar download 502/ : /Avatar is not an image/);
-      assert.equal((child.stdout.match(/BODY_CANCELLED/g) ?? []).length, allowlist.maintainers.length, mode);
-      assert.equal(await readFile(output, 'utf8'), 'existing catalog');
+      assert.equal(child.status, 0, child.stderr);
+      const expected = ['api', 'rate'].includes(mode) ? /GitHub API 403/ : mode === 'offline' ? /offline mode/
+        : mode.startsWith('status') ? /Avatar download 502/ : /Avatar is not an image/;
+      assert.match(child.stderr, expected);
+      assert.doesNotMatch(child.stderr, /must not request/);
+      assert.equal((child.stdout.match(/BODY_CANCELLED/g) ?? []).length,
+        ['api', 'rate', 'offline'].includes(mode) ? 0 : allowlist.maintainers.length, mode);
+      assert.deepEqual(JSON.parse(await readFile(output, 'utf8')), { maintainers: [], unavailable: true });
     });
   }
+});
+
+test('不可用状态也必须成功写入，输出路径错误仍使生成失败', async (t) => {
+  const root = fileURLToPath(new URL('../../../', import.meta.url));
+  const fixture = await mkdtemp(join(tmpdir(), 'maintainer-output-'));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  const child = spawnSync(process.execPath, [join(root, 'scripts/generate-maintainers.mjs'),
+    '--repo-root', root, '--offline=true', '--output', fixture], { encoding: 'utf8', timeout: 30_000 });
+  assert.ifError(child.error);
+  assert.equal(child.status, 1);
 });
 
 function requests(...responses) {
@@ -241,7 +260,7 @@ test('明确限流遵守 Retry-After 与重置时刻，未提供时等待至少�
   }
 });
 
-test('短暂服务和网络故障有限重试，重试用尽仍拒绝构建', async () => {
+test('短暂服务和网络故障有限重试，重试用尽仍拒绝请求', async () => {
   const request = requests(
     new TypeError('fetch failed'),
     Response.json({ message: 'unavailable' }, { status: 503 }),

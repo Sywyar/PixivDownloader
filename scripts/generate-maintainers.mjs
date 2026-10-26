@@ -83,17 +83,18 @@ function headers() {
   return result;
 }
 
+function safe(value) {
+  let text = String(value ?? 'unavailable');
+  for (const token of [process.env.GITHUB_TOKEN, process.env.GH_TOKEN]) {
+    if (token) text = text.replaceAll(token, '[REDACTED]');
+  }
+  return text.replace(/[\r\n\t\x00-\x1f\x7f]/g, ' ').slice(0, 1024);
+}
+
 export async function fetchGitHub(path, { fetchImpl = maintainerRequest, wait = sleep, now = Date.now, warn = console.warn } = {}) {
   const url = new URL(path, API_BASE);
   if (url.origin !== API_BASE || url.username || url.password) throw new Error('GitHub request left api.github.com');
   const requestHeaders = headers();
-  const safe = (value) => {
-    let text = String(value ?? 'unavailable');
-    for (const token of [process.env.GITHUB_TOKEN, process.env.GH_TOKEN]) {
-      if (token) text = text.replaceAll(token, '[REDACTED]');
-    }
-    return text.replace(/[\r\n\t\x00-\x1f\x7f]/g, ' ').slice(0, 1024);
-  };
   let waited = 0;
   for (let attempt = 1; attempt <= MAX_API_ATTEMPTS; attempt++) {
     let response;
@@ -253,29 +254,38 @@ async function main() {
   const allowlistPath = resolve(repoRoot, 'scripts/maintainers-allowlist.json');
   const allowlist = JSON.parse(await readFile(allowlistPath, 'utf8')).maintainers;
   validateAllowlist(allowlist);
-  const repositoryData = await fetchJson(`/repos/${repository}`);
-  const contributors = (await fetchContributors(repository)).map(githubUser);
-  const log = execFileSync('git', [
-    '-C', repoRoot,
-    'log', '--format=%aN <%aE>%x00%(trailers:key=Co-authored-by,valueonly,separator=%x00)%x1e',
-  ], { encoding: 'utf8' });
-  const selected = await selectMaintainers({
-    owner: githubUser(repositoryData.owner),
-    contributors,
-    identities: gitContributorIdentities(log),
-    allowlist,
-    loadUser: async (login) => githubUser(await fetchJson(`/users/${login}`)),
-  });
-  if (selected.length !== allowlist.length) {
-    throw new Error(`Expected ${allowlist.length} approved maintainers, found ${selected.length}`);
+  let catalog = { maintainers: [], unavailable: true };
+  if (process.argv.includes('--offline=true')) {
+    console.warn('Maintainer catalog unavailable: Maven offline mode; continuing without the list.');
+  } else {
+    try {
+      const repositoryData = await fetchJson(`/repos/${repository}`);
+      const contributors = (await fetchContributors(repository)).map(githubUser);
+      const log = execFileSync('git', [
+        '-C', repoRoot,
+        'log', '--format=%aN <%aE>%x00%(trailers:key=Co-authored-by,valueonly,separator=%x00)%x1e',
+      ], { encoding: 'utf8' });
+      const selected = await selectMaintainers({
+        owner: githubUser(repositoryData.owner),
+        contributors,
+        identities: gitContributorIdentities(log),
+        allowlist,
+        loadUser: async (login) => githubUser(await fetchJson(`/users/${login}`)),
+      });
+      if (selected.length !== allowlist.length) {
+        throw new Error(`Expected ${allowlist.length} approved maintainers, found ${selected.length}`);
+      }
+      catalog = { maintainers: await Promise.all(selected.map(materializeAvatar)) };
+    } catch (error) {
+      console.warn(`Maintainer catalog unavailable; continuing without the list: ${safe(error.message)}`);
+    }
   }
 
-  const catalog = { maintainers: await Promise.all(selected.map(materializeAvatar)) };
   await mkdir(dirname(output), { recursive: true });
   const temporary = `${output}.${process.pid}.tmp`;
   await writeFile(temporary, `${JSON.stringify(catalog, null, 2)}\n`, 'utf8');
   await rename(temporary, output);
-  process.stdout.write(`Generated ${catalog.maintainers.length} maintainers in ${basename(output)}\n`);
+  process.stdout.write(`Generated ${catalog.unavailable ? 'unavailable catalog' : `${catalog.maintainers.length} maintainers`} in ${basename(output)}\n`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

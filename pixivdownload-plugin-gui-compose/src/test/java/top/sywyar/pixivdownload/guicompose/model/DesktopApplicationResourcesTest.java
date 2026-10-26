@@ -27,6 +27,14 @@ class DesktopApplicationResourcesTest {
     }
 
     @Test
+    @DisplayName("构建明确标记不可用时关于页显示失败状态")
+    void unavailableMaintainerCatalogProducesEmptyList() {
+        assertTrue(DesktopApplicationResources.loadMaintainers(new java.io.ByteArrayInputStream(
+                "{\"maintainers\":[],\"unavailable\":true}".getBytes(java.nio.charset.StandardCharsets.UTF_8))).isEmpty());
+    }
+
+    @Test
+    @DisplayName("缺失维护者目录时关于页显示失败状态")
     void missingMaintainerCatalogFallsBackToEmptyList() {
         assertTrue(DesktopApplicationResources.loadMaintainers(null).isEmpty());
     }

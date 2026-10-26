@@ -6,7 +6,7 @@
     One-command wrapper for local installer verification:
 
       1. Build the app boot jar and plugin signature CLI.
-      2. Use either the signed plugin repository catalog (default) or locally built official plugins.
+      2. Build official plugins locally (default), or fetch them with -PluginSource Catalog.
       3. Build only the Windows setup package through package-local.ps1.
 
     Catalog mode requires the signed catalog to contain the canonical default-installed plugin set.
@@ -18,7 +18,7 @@
 param(
     [string]$Version = "0.0.1-local",
     [ValidateSet("Catalog", "Local")]
-    [string]$PluginSource = "Catalog",
+    [string]$PluginSource = "Local",
     [string]$ManifestUrl = "https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json",
     [string]$PluginInputsDir,
     [string]$SignatureToolJar,

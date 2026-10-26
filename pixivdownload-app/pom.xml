@@ -337,25 +337,34 @@
                             </target>
                         </configuration>
                     </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
                     <execution>
                         <id>generate-maintainer-catalog</id>
                         <phase>generate-resources</phase>
                         <goals>
-                            <goal>run</goal>
+                            <goal>exec</goal>
                         </goals>
                         <configuration>
-                            <target>
-                                <exec executable="node" dir="${maven.multiModuleProjectDirectory}"
-                                      failonerror="true">
-                                    <arg value="${maven.multiModuleProjectDirectory}/scripts/generate-maintainers.mjs"/>
-                                    <arg value="--repo-root"/>
-                                    <arg value="${maven.multiModuleProjectDirectory}"/>
-                                    <arg value="--repository"/>
-                                    <arg value="Sywyar/PixivDownloader"/>
-                                    <arg value="--output"/>
-                                    <arg value="${project.build.directory}/generated-resources/maintainers/pixivdownload/maintainers.json"/>
-                                </exec>
-                            </target>
+                            <!-- 开发入口的 exec.skip 不能保留上一次构建的维护者状态。 -->
+                            <skip>false</skip>
+                            <executable>node</executable>
+                            <workingDirectory>${maven.multiModuleProjectDirectory}</workingDirectory>
+                            <arguments>
+                                <argument>${maven.multiModuleProjectDirectory}/scripts/generate-maintainers.mjs</argument>
+                                <argument>--repo-root</argument>
+                                <argument>${maven.multiModuleProjectDirectory}</argument>
+                                <argument>--repository</argument>
+                                <argument>Sywyar/PixivDownloader</argument>
+                                <argument>--offline=${settings.offline}</argument>
+                                <argument>--output</argument>
+                                <argument>${project.build.directory}/generated-resources/maintainers/pixivdownload/maintainers.json</argument>
+                            </arguments>
                         </configuration>
                     </execution>
                 </executions>

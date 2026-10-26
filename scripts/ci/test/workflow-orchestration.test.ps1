@@ -134,6 +134,9 @@ exit /b 17
                         $parameters.SkipPlugins = $true; $parameters.SkipInstaller = $true
                         $parameters.SkipPortable = $true; $parameters.SkipOfflinePortable = $true
                     }
+                    'package-installer-with-plugins' {
+                        $parameters.AllowUnsignedLocalPlugins = $true
+                    }
                     'publish-plugin-releases' {
                         $key = Join-Path $root 'fixture-key.pem'
                         $tool = Join-Path $root 'fixture-tool.jar'
@@ -156,6 +159,17 @@ exit /b 17
                     Assert-Equal (@($arguments | Where-Object { $_ -eq '-Pofficial-surveys' }).Count) 1
                 } else {
                     Assert-Equal (@($arguments | Where-Object { $_ -eq '-Dapp.release.version=1.2.3' }).Count) 1
+                }
+                if ($entry -eq 'package-installer-with-plugins') {
+                    $projects = $arguments[[Array]::IndexOf($arguments, '-pl') + 1] -split ','
+                    foreach ($plugin in @(Get-OfficialDefaultInstalledPlugins)) {
+                        Assert-Equal ($projects -contains $plugin.Module) $true
+                    }
+                    $parameters.Remove('AllowUnsignedLocalPlugins')
+                    $parameters.PluginSource = 'Catalog'
+                    Assert-Rejected { & (Join-Path $scripts "$entry.ps1") @parameters } $expectedError
+                    $catalogArguments = [IO.File]::ReadAllText((Join-Path $root 'maven-args.txt')).Trim() -split ' '
+                    Assert-Equal $catalogArguments[[Array]::IndexOf($catalogArguments, '-pl') + 1] 'pixivdownload-plugin-signature,pixivdownload-app'
                 }
             }
         }
