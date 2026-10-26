@@ -17,6 +17,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /** SQLite 物理结构的渲染与读取；不取得连接、不提交事务，也不发布 schema。 */
@@ -34,11 +35,12 @@ final class SqliteMigrationSchema {
         for (var table : schema.tables()) {
             String check = renderCheck(table);
             var expected = check.isEmpty() ? List.<String>of() : List.of(normalizeCheck(check));
-            if (!readChecks(connection, table).equals(expected)) throw new IllegalStateException("SCHEMA_MISMATCH");
+            var actual = readChecks(connection, table);
+            if (actual.isPresent() && !actual.get().equals(expected)) throw new IllegalStateException("SCHEMA_MISMATCH");
         }
     }
 
-    static List<String> readChecks(Connection connection, TableSpec table) throws SQLException {
+    static Optional<List<String>> readChecks(Connection connection, TableSpec table) throws SQLException {
         try (var statement = connection.createStatement(); var rows = statement.executeQuery("PRAGMA foreign_key_list(" + quote(table.name()) + ")")) {
             if (rows.next()) throw new IllegalStateException("SCHEMA_MISMATCH");
         }
@@ -48,7 +50,7 @@ final class SqliteMigrationSchema {
         try (var statement = connection.prepareStatement("SELECT sql FROM sqlite_schema WHERE type='table' AND lower(name)=?")) {
             statement.setString(1, table.name());
             try (var rows = statement.executeQuery()) {
-                if (!rows.next()) return List.of();
+                if (!rows.next()) return Optional.empty();
                 String ddl = withoutComments(rows.getString(1));
                 var checks = new ArrayList<String>();
                 var tokens = java.util.regex.Pattern.compile("(?is)'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|\\bCHECK\\s*\\(|\\bCOLLATE\\s+([^\\s,)]+)|\\bON\\s+CONFLICT\\s+(\\w+)").matcher(ddl);
@@ -77,7 +79,7 @@ final class SqliteMigrationSchema {
                     checks.add(normalizeCheck(ddl.substring(start, end)));
                     tokens.region(end + 1, ddl.length());
                 }
-                return checks;
+                return Optional.of(checks);
             }
         }
     }

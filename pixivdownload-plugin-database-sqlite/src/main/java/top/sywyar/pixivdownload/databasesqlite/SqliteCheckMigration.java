@@ -4,6 +4,7 @@ import top.sywyar.pixivdownload.plugin.api.schema.TableSpec;
 import java.sql.*;
 import java.util.*;
 import static top.sywyar.pixivdownload.plugin.api.database.migration.jdbc.JdbcMigrationSupport.*;
+import static top.sywyar.pixivdownload.plugin.api.database.migration.jdbc.PhysicalDatabaseSchema.normalizeIdentifier;
 
 /** 在调用方写事务内重建已知旧约束，复制期间不执行业务触发器。 */
 final class SqliteCheckMigration {
@@ -11,7 +12,7 @@ final class SqliteCheckMigration {
 
     static void apply(Connection connection, TableSpec table) throws SQLException {
         if (table.previousChecks().isEmpty()) return;
-        var actual = SqliteMigrationSchema.readChecks(connection, table);
+        var actual = SqliteMigrationSchema.readChecks(connection, table).orElseThrow(SqliteCheckMigration::unsupported);
         String current = SqliteMigrationSchema.normalizeCheck(SqliteMigrationSchema.renderCheck(table));
         if (actual.equals(List.of(current))) return;
         boolean known = table.previousChecks().stream().anyMatch(previous -> actual.equals(List.of(
@@ -22,7 +23,7 @@ final class SqliteCheckMigration {
         try (var sql = connection.createStatement(); var tables = sql.executeQuery("PRAGMA table_list")) {
             while (tables.next()) {
                 if (!"main".equals(tables.getString("schema"))) continue;
-                String name = tables.getString("name");
+                String name = normalizeIdentifier(tables.getString("name"));
                 if (name.equalsIgnoreCase(table.name()) && (tables.getInt("wr") != 0 || tables.getInt("strict") != 0)) throw unsupported();
                 try (var read = connection.createStatement(); var keys = read.executeQuery("PRAGMA foreign_key_list(" + quote(name) + ")")) {
                     while (keys.next()) if (table.name().equalsIgnoreCase(keys.getString("table"))) throw unsupported();
@@ -32,7 +33,7 @@ final class SqliteCheckMigration {
 
         var objects = new ArrayList<String>();
         boolean autoIncrement;
-        try (var read = connection.prepareStatement("SELECT type,sql FROM sqlite_schema WHERE tbl_name=? AND sql IS NOT NULL ORDER BY type,name")) {
+        try (var read = connection.prepareStatement("SELECT type,sql FROM sqlite_schema WHERE lower(tbl_name)=? AND sql IS NOT NULL ORDER BY type,name")) {
             read.setString(1, table.name());
             autoIncrement = false;
             try (var rows = read.executeQuery()) {
@@ -45,7 +46,7 @@ final class SqliteCheckMigration {
         }
         Long sequence = null;
         if (autoIncrement) {
-            try (var read = connection.prepareStatement("SELECT seq FROM sqlite_sequence WHERE name=?")) {
+            try (var read = connection.prepareStatement("SELECT seq FROM sqlite_sequence WHERE lower(name)=?")) {
                 read.setString(1, table.name());
                 try (var rows = read.executeQuery()) { if (rows.next()) sequence = rows.getLong(1); }
             }

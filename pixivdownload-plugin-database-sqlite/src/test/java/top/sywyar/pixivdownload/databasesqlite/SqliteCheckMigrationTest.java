@@ -40,11 +40,15 @@ class SqliteCheckMigrationTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    @org.junit.jupiter.params.provider.CsvSource({"true,false", "false,false", "true,true", "false,true"})
     @DisplayName("升级保留数据、索引、触发器、视图和已删除生成键高水位，重复执行无变化")
-    void migratesKnownCheckWithoutDataLoss(boolean strict) throws Exception {
+    void migratesKnownCheckWithoutDataLoss(boolean strict, boolean mixedCase) throws Exception {
         try (var connection = DriverManager.getConnection("jdbc:sqlite::memory:"); var sql = connection.createStatement()) {
             create(connection, "id>0", 1);
+            if (mixedCase) {
+                sql.execute("ALTER TABLE facts RENAME TO temporary_name");
+                sql.execute("ALTER TABLE temporary_name RENAME TO FaCtS");
+            }
             sql.execute("CREATE TABLE audit(id INTEGER)");
             sql.execute("CREATE TRIGGER facts_insert AFTER INSERT ON facts BEGIN INSERT INTO audit VALUES(new.id); END");
             sql.execute("CREATE VIEW facts_view AS SELECT * FROM facts");
@@ -56,6 +60,7 @@ class SqliteCheckMigrationTest {
             assertThat(scalar(connection, "PRAGMA schema_version")).isEqualTo(version);
             assertThat(scalar(connection, "SELECT count(*) FROM audit")).isZero();
             assertThat(scalar(connection, "SELECT count(*) FROM facts_view WHERE hex(body)='0001FF'")).isEqualTo(1);
+            assertThat(scalar(connection, "SELECT count(*) FROM sqlite_schema WHERE type='index' AND name='idx_facts_active'")).isEqualTo(1);
             sql.execute("INSERT INTO facts(active) VALUES(0)");
             assertThat(scalar(connection, "SELECT max(id) FROM facts")).isEqualTo(201);
             assertThat(scalar(connection, "SELECT count(*) FROM audit")).isEqualTo(1);
