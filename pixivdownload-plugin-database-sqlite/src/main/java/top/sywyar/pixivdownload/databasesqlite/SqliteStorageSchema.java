@@ -11,6 +11,21 @@ import static top.sywyar.pixivdownload.plugin.api.database.migration.jdbc.JdbcMi
 final class SqliteStorageSchema {
     private SqliteStorageSchema() {}
     static SchemaApplyResult apply(Connection connection, MigrationSchema schema, boolean strict) throws SQLException {
+        var savepoint = connection.getAutoCommit() ? null : connection.setSavepoint();
+        try {
+            var result = applyInTransaction(connection, schema, strict);
+            if (savepoint != null) connection.releaseSavepoint(savepoint);
+            return result;
+        } catch (SQLException | RuntimeException | Error failure) {
+            if (savepoint != null) {
+                try { connection.rollback(savepoint); connection.releaseSavepoint(savepoint); }
+                catch (SQLException rollback) { failure.addSuppressed(rollback); }
+            }
+            throw failure;
+        }
+    }
+
+    private static SchemaApplyResult applyInTransaction(Connection connection, MigrationSchema schema, boolean strict) throws SQLException {
         schema.tables().forEach(SqliteMigrationSchema::renderCheck);
         var expected = physical(schema);
 
@@ -38,11 +53,12 @@ final class SqliteStorageSchema {
             }
         }
 
-        if (strict) {
+        if (strict || skipped.isEmpty()) {
             var actual = new LinkedHashMap<>(SqliteMigrationSchema.readActualTables(connection));
             actual.keySet().retainAll(expected.tables().keySet());
             try { requireSchema(expected, actual); }
             catch (Exception failure) { throw new SQLException("STORAGE_SCHEMA_MISMATCH", "0A000"); }
+            for (var table : schema.tables()) SqliteCheckMigration.apply(connection, table);
             SqliteMigrationSchema.validateConstraints(connection, schema);
         }
         return new SchemaApplyResult(created, added, indexed, skipped);

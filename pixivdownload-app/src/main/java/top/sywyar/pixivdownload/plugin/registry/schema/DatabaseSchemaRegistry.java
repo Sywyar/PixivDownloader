@@ -88,7 +88,8 @@ public class DatabaseSchemaRegistry {
      * <p>
      * owner ledger 只累计、从不因旧 generation 或空声明缩小：新声明若是现有 ledger 的
      * 兼容子集，继续保留现有超集；若是安全的兼容超集，推进为新超集；混合删除与新增、
-     * 或任何重定义均拒绝。调用方须在 reservation 存活期间提交数据库事务，事务成功后调用
+     * 或未声明的约束重定义均拒绝；CHECK 可由新声明明确列出允许升级的旧约束。
+     * 调用方须在 reservation 存活期间提交数据库事务，事务成功后调用
      * {@link OwnerSchemaReservation#publish()}，最后关闭 reservation 释放写屏障。
      */
     public OwnerSchemaReservation reserveOwnerEvolution(
@@ -415,8 +416,7 @@ public class DatabaseSchemaRegistry {
         for (Map.Entry<String, TableSpec> entry : rawTables(subset).entrySet()) {
             TableSpec candidateSuperset = supersetRawTables.get(entry.getKey());
             if (candidateSuperset == null
-                    || (!Objects.equals(entry.getValue().checkExpression(), candidateSuperset.checkExpression())
-                    || !Objects.equals(entry.getValue().check(), candidateSuperset.check()))) {
+                    || !acceptsPreviousCheck(candidateSuperset, entry.getValue())) {
                 return false;
             }
             Map<String, ColumnSpec> supersetRawColumns = candidateSuperset.columns().stream()
@@ -503,8 +503,7 @@ public class DatabaseSchemaRegistry {
         Map<String, TableSpec> replacementRawTables = rawTables(replacement);
         for (Map.Entry<String, TableSpec> entry : rawTables(previous).entrySet()) {
             TableSpec next = replacementRawTables.get(entry.getKey());
-            if (next == null || (!Objects.equals(entry.getValue().checkExpression(), next.checkExpression())
-                    || !Objects.equals(entry.getValue().check(), next.check()))) {
+            if (next == null || !acceptsPreviousCheck(next, entry.getValue())) {
                 throw nonMonotonic(ownerPluginId, "table check", entry.getKey());
             }
             Map<String, ColumnSpec> nextRawColumns = next.columns().stream()
@@ -522,6 +521,11 @@ public class DatabaseSchemaRegistry {
                 }
             }
         }
+    }
+
+    private static boolean acceptsPreviousCheck(TableSpec next, TableSpec previous) {
+        return Objects.equals(previous.checkExpression(), next.checkExpression()) && Objects.equals(previous.check(), next.check())
+                || previous.check() != null && next.previousChecks().contains(previous.check());
     }
 
     private static boolean canAppendColumn(ManagedDatabaseSchema.ColumnSpec column) {

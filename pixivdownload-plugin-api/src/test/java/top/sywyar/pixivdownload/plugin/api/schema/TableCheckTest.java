@@ -16,6 +16,15 @@ class TableCheckTest {
                 call(LOWER_HEX, column("facts", "id")), call(EQUAL, column("facts", "id"), value("1"))))
             assertThatThrownBy(() -> table.withCheck(invalid)).hasMessage("STORAGE_CHECK_INVALID");
         var check = call(EQUAL, column("facts", "id"), value(1));
+        assertThatThrownBy(() -> table.withPreviousChecks(List.of(check))).hasMessage("STORAGE_CHECK_INVALID");
+        assertThatThrownBy(() -> table.withCheck(check).withPreviousChecks(List.of(value(1)))).hasMessage("STORAGE_CHECK_INVALID");
+        assertThatThrownBy(() -> table.withCheck(check).withPreviousChecks(List.of(call(IS_NULL, column("other", "id")))))
+                .hasMessage("STORAGE_CHECK_INVALID");
+        assertThat(table.previousChecks()).isEmpty();
+        var previous = new java.util.ArrayList<top.sywyar.pixivdownload.plugin.api.storage.relational.Expression>(List.of(check));
+        var declared = table.withCheck(check).withPreviousChecks(previous);
+        previous.clear();
+        assertThat(declared.previousChecks()).containsExactly(check);
         assertThatThrownBy(() -> new TableSpec(table.name(), table.columns(), table.indexes(), "id=1", check))
                 .hasMessage("STORAGE_CHECK_INVALID");
     }

@@ -33,7 +33,8 @@ class NeutralPrivateStorageTest {
                         new ColumnSpec("bytes", "BLOB", false, null, 0)), List.of()),
                 new TableSpec("identities", List.of(
                         new ColumnSpec("id", "INTEGER", true, null, 1, true),
-                        new ColumnSpec("label", "TEXT", true, null, 0)), List.of())), List.of(), List.of()));
+                        new ColumnSpec("label", "TEXT", true, null, 0)), List.of())
+                        .withCheck(call(GREATER, column("identities", "id"), value(0)))), List.of(), List.of()));
     }
     @Test @DisplayName("SQLite 声明建表、关联查询、冲突合并及事务隔离")
     void sqlite() throws Exception {
@@ -237,7 +238,13 @@ class NeutralPrivateStorageTest {
                     var columns = new ArrayList<>(original.columns());
                     columns.add(new ColumnSpec("revision", "INTEGER", true, "0", 0));
                     evolved.set(0, new TableSpec(original.name(), columns, original.indexes()));
+                    var identities = evolved.get(2);
+                    evolved.set(2, identities.withCheck(call(AND, identities.check(),
+                            call(GREATER, call(LENGTH, column("identities", "label")), value(0))))
+                            .withPreviousChecks(List.of(identities.check())));
                     db.initialize(List.of(new SchemaContribution(evolved, List.of(), List.of())));
+                    assertThatThrownBy(() -> db.transaction(s -> s.insertGenerated("identities", Map.of("label", ""), "id")))
+                            .isInstanceOf(SQLException.class);
                     var revisions = db.read(s -> s.query(new Query("works", Map.of("revision", column("works", "revision")),
                             null, List.of(), List.of(), 10, 0)));
                     assertThat(revisions).allSatisfy(row -> assertThat(row.get("revision")).isEqualTo(0L));

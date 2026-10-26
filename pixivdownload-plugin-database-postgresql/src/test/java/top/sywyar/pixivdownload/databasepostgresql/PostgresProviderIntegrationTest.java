@@ -89,6 +89,55 @@ class PostgresProviderIntegrationTest {
         }
     }
 
+    private TableSpec evolvingCheck() {
+        return new TableSpec("facts", List.of(new ColumnSpec("id", "INTEGER", true, null, 1),
+                new ColumnSpec("active", "INTEGER", true, "1", 0)), List.of())
+                .withCheck(call(AND, call(GREATER, column("facts", "id"), value(0)),
+                        call(IN, column("facts", "active"), value(0), value(1))))
+                .withPreviousChecks(List.of(call(GREATER, column("facts", "id"), value(0))));
+    }
+
+    @Test @DisplayName("已知旧约束升级幂等并参与调用方回滚")
+    void upgradesKnownCheckTransactionally() throws Exception {
+        var table = evolvingCheck();
+        var model = new top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema(1, List.of(table), List.of(), List.of());
+        try (var connection = target.openConnection(DatabaseConnectionTarget.OpenMode.READ_WRITE); var sql = connection.createStatement()) {
+            sql.execute(PostgresMigrationSchema.renderCreateTable(table.withCheck(table.previousChecks().get(0))));
+            sql.execute("INSERT INTO facts(active) VALUES(1)");
+            connection.setAutoCommit(false);
+            sql.execute("UPDATE facts SET active=0");
+            target.applySchema(connection, model, true);
+            target.applySchema(connection, model, true);
+            PostgresMigrationSchema.validateConstraints(connection, List.of(new SchemaContribution(List.of(table), List.of(), List.of())));
+            connection.rollback();
+            try (var rows = sql.executeQuery("SELECT active FROM facts")) { assertThat(rows.next()).isTrue(); assertThat(rows.getInt(1)).isEqualTo(1); }
+            target.applySchema(connection, model, true);
+            connection.commit();
+            assertThatThrownBy(() -> sql.execute("INSERT INTO facts(active) VALUES(2)")).isInstanceOf(SQLException.class);
+            connection.rollback();
+        }
+    }
+
+    @Test @DisplayName("不合规记录使 CHECK 升级回滚，未知约束不能自动替换")
+    void refusesInvalidCheckMigration() throws Exception {
+        var table = evolvingCheck();
+        var model = new top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema(1, List.of(table), List.of(), List.of());
+        try (var connection = target.openConnection(DatabaseConnectionTarget.OpenMode.READ_WRITE); var sql = connection.createStatement()) {
+            sql.execute(PostgresMigrationSchema.renderCreateTable(table.withCheck(table.previousChecks().get(0))));
+            sql.execute("INSERT INTO facts(active) VALUES(2)");
+            connection.setAutoCommit(false);
+            assertThatThrownBy(() -> target.applySchema(connection, model, true)).isInstanceOf(SQLException.class);
+            sql.execute("INSERT INTO facts(active) VALUES(2)");
+            connection.rollback();
+            sql.execute("ALTER TABLE facts DROP CONSTRAINT facts_id_check");
+            sql.execute("ALTER TABLE facts ADD CHECK(id>=0)");
+            connection.commit();
+            assertThatThrownBy(() -> target.applySchema(connection, model, true)).hasMessage("SCHEMA_MISMATCH");
+            sql.execute("INSERT INTO facts(id,active) VALUES(0,2)");
+            connection.rollback();
+        }
+    }
+
     @Test
     @DisplayName("目录中的自定义函数不能借同名列绕过 CHECK 表达式边界")
     void rejectsStoredCheckFunctions() throws Exception {

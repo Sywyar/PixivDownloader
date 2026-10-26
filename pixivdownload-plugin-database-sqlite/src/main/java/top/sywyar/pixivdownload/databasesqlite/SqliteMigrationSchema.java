@@ -32,51 +32,60 @@ final class SqliteMigrationSchema {
 
     static void validateConstraints(Connection connection, top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema schema) throws SQLException {
         for (var table : schema.tables()) {
-            try (var statement = connection.createStatement(); var rows = statement.executeQuery("PRAGMA foreign_key_list(" + quote(table.name()) + ")")) {
-                if (rows.next()) throw new IllegalStateException("SCHEMA_MISMATCH");
-            }
-            try (var statement = connection.createStatement(); var rows = statement.executeQuery("PRAGMA table_xinfo(" + quote(table.name()) + ")")) {
-                while (rows.next()) if (rows.getInt("hidden") != 0) throw new IllegalStateException("SCHEMA_MISMATCH");
-            }
-            try (var statement = connection.prepareStatement("SELECT sql FROM sqlite_schema WHERE type='table' AND lower(name)=?")) {
-                statement.setString(1, table.name());
-                try (var rows = statement.executeQuery()) {
-                    if (!rows.next()) continue;
-                    String ddl = withoutComments(rows.getString(1));
-                    var checks = new ArrayList<String>();
-                    var tokens = java.util.regex.Pattern.compile("(?is)'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|\\bCHECK\\s*\\(|\\bCOLLATE\\s+([^\\s,)]+)|\\bON\\s+CONFLICT\\s+(\\w+)").matcher(ddl);
-                    while (tokens.find()) {
-                        if (tokens.group().startsWith("'") || tokens.group().startsWith("\"")) continue;
-                        if (tokens.group(2) != null) {
-                            if (!tokens.group(2).equalsIgnoreCase("ABORT")) throw new IllegalStateException("SCHEMA_MISMATCH");
-                            continue;
-                        }
-                        if (tokens.group(1) != null) {
-                            if (!tokens.group(1).replace("\"", "").equalsIgnoreCase("BINARY")) throw new IllegalStateException("SCHEMA_MISMATCH");
-                            continue;
-                        }
-                        int start = tokens.end(), end = start, depth = 1;
-                        boolean literal = false;
-                        for (; end < ddl.length(); end++) {
-                            char c = ddl.charAt(end);
-                            if (c == '\'') {
-                                if (literal && end + 1 < ddl.length() && ddl.charAt(end + 1) == '\'') { end++; continue; }
-                                literal = !literal;
-                            }
-                            if (!literal && c == '(') depth++;
-                            if (!literal && c == ')' && --depth == 0) break;
-                        }
-                        if (depth != 0) throw new IllegalStateException("SCHEMA_MISMATCH");
-                        checks.add(normalizeCheck(ddl.substring(start, end)));
-                        tokens.region(end + 1, ddl.length());
+            String check = renderCheck(table);
+            var expected = check.isEmpty() ? List.<String>of() : List.of(normalizeCheck(check));
+            if (!readChecks(connection, table).equals(expected)) throw new IllegalStateException("SCHEMA_MISMATCH");
+        }
+    }
+
+    static List<String> readChecks(Connection connection, TableSpec table) throws SQLException {
+        try (var statement = connection.createStatement(); var rows = statement.executeQuery("PRAGMA foreign_key_list(" + quote(table.name()) + ")")) {
+            if (rows.next()) throw new IllegalStateException("SCHEMA_MISMATCH");
+        }
+        try (var statement = connection.createStatement(); var rows = statement.executeQuery("PRAGMA table_xinfo(" + quote(table.name()) + ")")) {
+            while (rows.next()) if (rows.getInt("hidden") != 0) throw new IllegalStateException("SCHEMA_MISMATCH");
+        }
+        try (var statement = connection.prepareStatement("SELECT sql FROM sqlite_schema WHERE type='table' AND lower(name)=?")) {
+            statement.setString(1, table.name());
+            try (var rows = statement.executeQuery()) {
+                if (!rows.next()) return List.of();
+                String ddl = withoutComments(rows.getString(1));
+                var checks = new ArrayList<String>();
+                var tokens = java.util.regex.Pattern.compile("(?is)'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|\\bCHECK\\s*\\(|\\bCOLLATE\\s+([^\\s,)]+)|\\bON\\s+CONFLICT\\s+(\\w+)").matcher(ddl);
+                while (tokens.find()) {
+                    if (tokens.group().startsWith("'") || tokens.group().startsWith("\"")) continue;
+                    if (tokens.group(2) != null) {
+                        if (!tokens.group(2).equalsIgnoreCase("ABORT")) throw new IllegalStateException("SCHEMA_MISMATCH");
+                        continue;
                     }
-                    String check = renderCheck(table);
-                    var expected = check.isEmpty() ? List.<String>of() : List.of(normalizeCheck(check));
-                    if (!checks.equals(expected)) throw new IllegalStateException("SCHEMA_MISMATCH");
+                    if (tokens.group(1) != null) {
+                        if (!tokens.group(1).replace("\"", "").equalsIgnoreCase("BINARY")) throw new IllegalStateException("SCHEMA_MISMATCH");
+                        continue;
+                    }
+                    int start = tokens.end(), end = start, depth = 1;
+                    boolean literal = false;
+                    for (; end < ddl.length(); end++) {
+                        char c = ddl.charAt(end);
+                        if (c == '\'') {
+                            if (literal && end + 1 < ddl.length() && ddl.charAt(end + 1) == '\'') { end++; continue; }
+                            literal = !literal;
+                        }
+                        if (!literal && c == '(') depth++;
+                        if (!literal && c == ')' && --depth == 0) break;
+                    }
+                    if (depth != 0) throw new IllegalStateException("SCHEMA_MISMATCH");
+                    checks.add(normalizeCheck(ddl.substring(start, end)));
+                    tokens.region(end + 1, ddl.length());
                 }
+                return checks;
             }
         }
     }
+    static boolean usesAutoIncrement(String ddl) {
+        return withoutComments(ddl).replaceAll("'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|`(?:[^`]|``)*`|\\[[^]]*\\]", " ")
+                .matches("(?is).*\\bAUTOINCREMENT\\b.*");
+    }
+
     private static String withoutComments(String ddl) {
         var tokens = java.util.regex.Pattern.compile(
                 "(?s)'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|`(?:[^`]|``)*`|\\[[^]]*\\]|/\\*.*?\\*/|--[^\\r\\n]*").matcher(ddl);
@@ -84,7 +93,7 @@ final class SqliteMigrationSchema {
                 ? " " : java.util.regex.Matcher.quoteReplacement(match.group()));
     }
 
-    private static String normalizeCheck(String value) {
+    static String normalizeCheck(String value) {
         var tokens = java.util.regex.Pattern.compile(
                 "'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|[a-zA-Z_][a-zA-Z0-9_]*|[0-9]+(?:\\.[0-9]+)?|<>|<=|>=|\\S").matcher(value);
         var keywords = Set.of("and", "or", "not", "in", "is", "null", "length", "trim", "glob");
@@ -139,6 +148,10 @@ final class SqliteMigrationSchema {
     }
 
     static String renderCreateTable(TableSpec table) {
+        return renderCreateTable(table, table.name());
+    }
+
+    static String renderCreateTable(TableSpec table, String name) {
         List<ColumnSpec> primaryKeyColumns = table.columns().stream()
                 .filter(column -> column.primaryKeyPosition() > 0)
                 .sorted(Comparator.comparingInt(ColumnSpec::primaryKeyPosition))
@@ -181,7 +194,7 @@ final class SqliteMigrationSchema {
         if (!check.isEmpty()) {
             parts.add("CHECK (" + check + ')');
         }
-        return "CREATE TABLE IF NOT EXISTS " + quote(table.name())
+        return "CREATE TABLE IF NOT EXISTS " + quote(name)
                 + " (" + String.join(", ", parts) + ')';
     }
 
