@@ -82,9 +82,17 @@ final class PostgresMigrationSchema {
     }
 
     static void validateConstraints(Connection connection, List<SchemaContribution> contributions) throws SQLException {
+        checkConstraints(connection, contributions, false);
+    }
+
+    static void applyConstraints(Connection connection, List<SchemaContribution> contributions) throws SQLException {
+        checkConstraints(connection, contributions, true);
+    }
+
+    private static void checkConstraints(Connection connection, List<SchemaContribution> contributions, boolean migrate) throws SQLException {
         try (var statement = connection.prepareStatement("""
                 SELECT c.contype, pg_get_expr(c.conbin, c.conrelid) AS expression,
-                       c.convalidated AND NOT c.connoinherit AS valid
+                       c.convalidated AND NOT c.connoinherit AND c.coninhcount=0 AS valid, c.conname
                 FROM pg_catalog.pg_constraint c
                 JOIN pg_catalog.pg_class t ON t.oid = c.conrelid
                 JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
@@ -92,10 +100,15 @@ final class PostgresMigrationSchema {
                 """)) {
             for (var contribution : contributions) {
                 for (var table : contribution.tables()) {
+                    if (migrate && !table.previousChecks().isEmpty() && !connection.getAutoCommit()) {
+                        try (var lock = connection.createStatement()) { lock.execute("LOCK TABLE " + quote(table.name()) + " IN ACCESS EXCLUSIVE MODE"); }
+                    }
                     statement.setString(1, PhysicalDatabaseSchema.normalizeIdentifier(table.name()));
                     List<String> actual = new ArrayList<>();
+                    String constraintName = null;
                     try (var rows = statement.executeQuery()) {
                         while (rows.next()) {
+                            constraintName = rows.getString(4);
                             actual.add("c".equals(rows.getString(1)) && rows.getBoolean(3)
                                     ? rows.getString(2) : "<unsupported>");
                         }
@@ -105,7 +118,24 @@ final class PostgresMigrationSchema {
                     if (actual.size() != (hasCheck ? 1 : 0) || hasCheck && (actual.contains("<unsupported>")
                             || !canonicalCheck(connection, table, check).equals(
                                     canonicalCheck(connection, table, validateCheck(table, actual.get(0), true))))) {
-                        throw new IllegalStateException("SCHEMA_MISMATCH");
+                        boolean known = false;
+                        if (migrate && actual.size() == 1 && !actual.contains("<unsupported>")) {
+                            String previous = canonicalCheck(connection, table, validateCheck(table, actual.get(0), true));
+                            for (var candidate : table.previousChecks())
+                                if (previous.equals(canonicalCheck(connection, table, renderCheck(table.withCheck(candidate))))) known = true;
+                        }
+                        if (!known) throw new IllegalStateException("SCHEMA_MISMATCH");
+                        if (connection.getAutoCommit()) throw new SQLException("STORAGE_TRANSACTION_REQUIRED", "0A000");
+                        try (var inherited = connection.prepareStatement("SELECT 1 FROM pg_catalog.pg_inherits WHERE inhrelid=?::regclass OR inhparent=?::regclass")) {
+                            inherited.setString(1, quote(table.name())); inherited.setString(2, quote(table.name()));
+                            try (var rows = inherited.executeQuery()) { if (rows.next()) throw new IllegalStateException("SCHEMA_MISMATCH"); }
+                        }
+                        try (var ddl = connection.createStatement()) {
+                            ddl.execute("ALTER TABLE " + quote(table.name()) + " DROP CONSTRAINT " + quote(constraintName));
+                            ddl.execute("ALTER TABLE " + quote(table.name()) + " ADD CONSTRAINT " + quote(constraintName) + " CHECK (" + check + ")");
+                        } catch (SQLException failure) {
+                            throw new SQLException("STORAGE_CHECK_MIGRATION_FAILED", failure.getSQLState());
+                        }
                     }
                 }
             }

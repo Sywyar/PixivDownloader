@@ -17,7 +17,8 @@ public interface DatabaseConnectionTarget {
      */
     void optimize(Connection connection) throws SQLException;
     /**
-     * 在调用方事务中建表、安全补列与建索引；只操作声明中的表，不提交或删除数据。
+     * 在调用方事务中建表、安全补列、建索引与升级明确声明的旧 CHECK；保留数据且不提交。
+     * CHECK 升级仅匹配 previousChecks，全部旧记录须满足新约束；失败须回滚结构与数据变更。
      * strict 为真时须核验声明表的完整结构与约束，任何不安全变更均拒绝。
      * 非严格模式只允许跳过无法安全补齐的旧列，并在结果中逐列报告，供启动修复检查使用。
      * @param connection 调用方持有并管理事务的连接

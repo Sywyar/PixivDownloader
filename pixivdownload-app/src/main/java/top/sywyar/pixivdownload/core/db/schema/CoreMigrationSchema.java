@@ -27,7 +27,7 @@ public final class CoreMigrationSchema {
                     column.name(), column.type(), column.notNull(), column.defaultValue(), column.primaryKeyPosition(),
                     declared.columns().stream().anyMatch(c -> c.name().equalsIgnoreCase(column.name()) && c.autoIncrement())))
                     .toList(), table.indexes().stream().map(index -> new IndexSpec(index.name(),
-                    IndexOrigin.valueOf(index.origin().name()), index.unique(), index.columns())).toList(), declared.checkExpression(), declared.check()));
+                    IndexOrigin.valueOf(index.origin().name()), index.unique(), index.columns())).toList(), declared.checkExpression(), declared.check(), declared.previousChecks()));
         }
         List<MigrationSchema.Seed> seeds = new ArrayList<>();
         List<MigrationSchema.Reference> references = new ArrayList<>();

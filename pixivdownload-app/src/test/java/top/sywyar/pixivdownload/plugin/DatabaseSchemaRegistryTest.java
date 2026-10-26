@@ -32,6 +32,33 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 @DisplayName("DatabaseSchemaRegistry 单元测试")
 class DatabaseSchemaRegistryTest {
 
+    @Test @DisplayName("仅允许显式旧 CHECK 演进，未发布 reservation 保留原声明")
+    void evolvesOnlyDeclaredPreviousChecks() {
+        var previous = top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.call(
+                top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.GREATER,
+                top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.column("facts", "id"),
+                top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.value(0));
+        var current = top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.call(
+                top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.Operator.GREATER,
+                top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.column("facts", "id"),
+                top.sywyar.pixivdownload.plugin.api.storage.relational.Expression.value(1));
+        var old = table("facts", col("id", "INTEGER", true, null, 1)).withCheck(previous);
+        var next = old.withCheck(current);
+        var registry = emptyRegistry();
+        registry.register("demo", contribution(old));
+        assertThatThrownBy(() -> registry.reserveOwnerEvolution("demo", List.of(contribution(next))))
+                .isInstanceOf(IllegalStateException.class);
+        var upgrade = contribution(next.withPreviousChecks(List.of(previous)));
+        try (var reservation = registry.reserveOwnerEvolution("demo", List.of(upgrade))) {
+            var projected = top.sywyar.pixivdownload.core.db.schema.CoreMigrationSchema.create(
+                    reservation.ownerContributions(), reservation.ownerSchema(), false);
+            assertThat(projected.tables().get(0).previousChecks()).containsExactly(previous);
+        }
+        assertThat(registry.contributions()).containsExactly(contribution(old));
+        try (var reservation = registry.reserveOwnerEvolution("demo", List.of(upgrade))) { reservation.publish(); }
+        assertThat(registry.contributions()).containsExactly(upgrade);
+    }
+
     private static DatabaseSchemaRegistry emptyRegistry() {
         return new DatabaseSchemaRegistry(new PluginRegistry(List.of()));
     }

@@ -50,6 +50,35 @@ class NotificationInboxMapperTest {
         return new org.springframework.jdbc.datasource.SingleConnectionDataSource(postgres, true);
     }
 
+    @ParameterizedTest @ValueSource(strings = {"sqlite", "postgresql"})
+    @DisplayName("旧站内信 active 约束在 provider 初始化时补齐并保留原消息")
+    void upgradesHistoricalActiveConstraint(String engine) throws Exception {
+        var source = dataSource(engine);
+        var tables = DECLARATION.tables().stream().map(t -> t.name().equals("notification_messages")
+                ? new top.sywyar.pixivdownload.plugin.api.schema.TableSpec(t.name(), t.columns(), t.indexes(),
+                        "category IN ('download','announcement','survey','system') AND severity IN ('INFO','WARNING','ERROR') "
+                        + "AND length(trim(title))>0 AND length(trim(body))>0 AND (content_html IS NULL OR length(content_html)>0) "
+                        + "AND created_time>=0 AND (read_time IS NULL OR read_time>=created_time) AND (deleted_time IS NULL OR deleted_time>=created_time)")
+                : t).toList();
+        var legacy = new top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema(1, tables, List.of(), List.of());
+        try (var connection = source.getConnection(); var sql = connection.createStatement()) {
+            connection.setAutoCommit(false);
+            target.applySchema(connection, legacy, true);
+            sql.execute("INSERT INTO notification_messages(id,category,severity,title,body,created_time,active) VALUES('old','system','INFO','Title','Body',1,0)");
+            connection.commit();
+            target.applySchema(connection, DECLARATION, true);
+            target.applySchema(connection, DECLARATION, true);
+            connection.commit();
+            try (var rows = sql.executeQuery("SELECT id,active,body FROM notification_messages")) {
+                assertThat(rows.next()).isTrue(); assertThat(rows.getString(1)).isEqualTo("old");
+                assertThat(rows.getInt(2)).isZero(); assertThat(rows.getString(3)).isEqualTo("Body");
+            }
+            assertThatThrownBy(() -> sql.execute("UPDATE notification_messages SET active=2")).isInstanceOf(java.sql.SQLException.class);
+            connection.rollback();
+            connection.setAutoCommit(true);
+        }
+    }
+
     @AfterEach
     void close() throws Exception {
         if (postgres == null) return;

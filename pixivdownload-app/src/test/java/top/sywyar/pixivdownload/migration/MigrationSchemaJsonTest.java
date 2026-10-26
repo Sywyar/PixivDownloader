@@ -15,11 +15,15 @@ class MigrationSchemaJsonTest {
     void roundTripsCheck() throws Exception {
         var table = new TableSpec("facts", List.of(new ColumnSpec("id", "INTEGER", true, null, 1),
                 new ColumnSpec("body", "TEXT", false, null, 0)), List.of()).withCheck(call(AND,
-                call(EQUAL, column("facts", "id"), value(1)), call(LOWER_HEX, column("facts", "body"))));
+                call(EQUAL, column("facts", "id"), value(1)), call(LOWER_HEX, column("facts", "body"))))
+                .withPreviousChecks(List.of(call(EQUAL, column("facts", "id"), value(1))));
         var schema = new MigrationSchema(1, List.of(table), List.of(), List.of());
         var json = MigrationSchemaJson.mapper();
         String encoded = json.writeValueAsString(schema);
         assertThat(json.readValue(encoded, MigrationSchema.class)).isEqualTo(schema);
+        var legacy = json.valueToTree(schema);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) legacy.get("tables").get(0)).remove("previousChecks");
+        assertThat(json.treeToValue(legacy, MigrationSchema.class).tables().get(0).previousChecks()).isEmpty();
         assertThatThrownBy(() -> json.readValue(encoded.replace("\"kind\":\"call\"", "\"kind\":\"java.lang.Runtime\""),
                 MigrationSchema.class)).isInstanceOf(com.fasterxml.jackson.core.JsonProcessingException.class);
         assertThatThrownBy(() -> json.readValue(encoded.replace("\"table\":\"facts\"", "\"table\":\"foreign_table\""),

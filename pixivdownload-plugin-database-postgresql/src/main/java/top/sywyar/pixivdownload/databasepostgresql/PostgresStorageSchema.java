@@ -22,6 +22,21 @@ final class PostgresStorageSchema {
         }
     }
     static SchemaApplyResult apply(Connection connection, MigrationSchema schema, boolean strict) throws SQLException {
+        var savepoint = connection.getAutoCommit() ? null : connection.setSavepoint();
+        try {
+            var result = applyInTransaction(connection, schema, strict);
+            if (savepoint != null) connection.releaseSavepoint(savepoint);
+            return result;
+        } catch (SQLException | RuntimeException | Error failure) {
+            if (savepoint != null) {
+                try { connection.rollback(savepoint); connection.releaseSavepoint(savepoint); }
+                catch (SQLException rollback) { failure.addSuppressed(rollback); }
+            }
+            throw failure;
+        }
+    }
+
+    private static SchemaApplyResult applyInTransaction(Connection connection, MigrationSchema schema, boolean strict) throws SQLException {
         var expected = physical(schema);
         PostgresMigrationSchema.validate(contributions(schema), expected);
         var before = PostgresMigrationSchema.readActualTables(connection);
@@ -47,7 +62,7 @@ final class PostgresStorageSchema {
                 if (old == null || old.indexes().stream().noneMatch(i -> index.name().equals(i.name()))) indexed++;
             }
         }
-        PostgresMigrationSchema.validateConstraints(connection, contributions(schema));
+        PostgresMigrationSchema.applyConstraints(connection, contributions(schema));
         if (strict) {
             var actual = new LinkedHashMap<>(PostgresMigrationSchema.readActualTables(connection));
             actual.keySet().retainAll(expected.tables().keySet());

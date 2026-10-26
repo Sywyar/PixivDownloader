@@ -34,7 +34,7 @@ public final class NotificationInboxSchema {
                     List.of(
                             index("idx_notification_messages_created_time", "created_time"),
                             index("idx_notification_messages_unread_created", "read_time", "created_time")),
-                    null).withCheck(messagesCheck()),
+                    null).withCheck(messagesCheck(true)).withPreviousChecks(List.of(messagesCheck(false))),
                     new TableSpec(
                             "notification_announcement_translations",
                             List.of(
@@ -65,17 +65,18 @@ public final class NotificationInboxSchema {
     private NotificationInboxSchema() {
     }
 
-    private static Expression messagesCheck() {
+    private static Expression messagesCheck(boolean includeActive) {
         String t = "notification_messages";
-        return call(AND,
+        var predicates = new java.util.ArrayList<Expression>(List.of(
                 call(IN, Expression.column(t, "category"), value("download"), value("announcement"), value("survey"), value("system")),
                 call(IN, Expression.column(t, "severity"), value("INFO"), value("WARNING"), value("ERROR")),
                 nonblank(t, "title"), nonblank(t, "body"),
                 call(OR, call(IS_NULL, Expression.column(t, "content_html")), positiveLength(t, "content_html")),
                 call(GREATER_EQUAL, Expression.column(t, "created_time"), value(0)),
-                call(IN, Expression.column(t, "active"), value(0), value(1)),
                 call(OR, call(IS_NULL, Expression.column(t, "read_time")), call(GREATER_EQUAL, Expression.column(t, "read_time"), Expression.column(t, "created_time"))),
-                call(OR, call(IS_NULL, Expression.column(t, "deleted_time")), call(GREATER_EQUAL, Expression.column(t, "deleted_time"), Expression.column(t, "created_time"))));
+                call(OR, call(IS_NULL, Expression.column(t, "deleted_time")), call(GREATER_EQUAL, Expression.column(t, "deleted_time"), Expression.column(t, "created_time")))));
+        if (includeActive) predicates.add(6, call(IN, Expression.column(t, "active"), value(0), value(1)));
+        return new Expression.Call(AND, predicates);
     }
 
     private static Expression translationsCheck() {
