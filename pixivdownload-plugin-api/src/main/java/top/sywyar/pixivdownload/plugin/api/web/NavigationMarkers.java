@@ -12,4 +12,7 @@ public final class NavigationMarkers {
 
     /** 首次引导下载成功后高亮的入口。 */
     public static final String FIRST_DOWNLOAD_RESULT = "first-download-result";
+
+    /** 优先使用的下载工作台入口；缺席时调用方保留本页操作。 */
+    public static final String PREFERRED_DOWNLOAD_WORKBENCH = "preferred-download-workbench";
 }

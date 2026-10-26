@@ -15,6 +15,15 @@ class GalleryPluginContributionTest {
     private final GalleryPlugin plugin = new GalleryPlugin();
 
     @Test
+    @DisplayName("画廊引导脚本随插件资源打包")
+    void ownsBrowserOnboardingResource() throws Exception {
+        try (var resource = GalleryPlugin.class.getResourceAsStream("/static/pixiv-gallery/onboarding.js")) {
+            assertThat(resource).isNotNull();
+            assertThat(resource.read()).isNotEqualTo(-1);
+        }
+    }
+
+    @Test
     @DisplayName("静态导航与引导声明可复用且调用方不能修改")
     void reusesImmutableDeclarations() {
         assertThat(plugin.routes()).isSameAs(plugin.routes());

@@ -16,6 +16,7 @@ import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationContribution;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationMarkers;
 import top.sywyar.pixivdownload.plugin.api.web.NavigationPlacements;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContribution;
 import top.sywyar.pixivdownload.plugin.api.web.StartupRouteContext;
@@ -46,7 +47,6 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
 
     /** 下载工作台插件 id：下载进度 SSE 推流随该插件运行期归属（停用 / 卸载时其推流被统一关闭）。 */
     public static final String ID = "download-workbench";
-    private static final String PREFERRED_DOWNLOAD_WORKBENCH_MARKER = "preferred-download-workbench";
     private static final String SURVEY_PUBLICATION_RESOURCE =
             "static/pixiv-layout-feedback/release-publication.properties";
     private static final String SURVEY_EMBED_URL = "/pixiv-layout-feedback/embed.html"
@@ -214,7 +214,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
                 NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR,
                 NavigationPlacements.DESKTOP_QUICK_START),
         "batch", "nav.label", "/pixiv-batch.html", "download", AccessPolicy.VISITOR, 10,
-        Set.of(PREFERRED_DOWNLOAD_WORKBENCH_MARKER), "nav.description"));
+        Set.of(NavigationMarkers.PREFERRED_DOWNLOAD_WORKBENCH), "nav.description"));
 
     @Override
     public List<NavigationContribution> navigation() {

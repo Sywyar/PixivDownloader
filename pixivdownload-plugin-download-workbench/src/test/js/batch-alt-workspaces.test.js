@@ -257,7 +257,7 @@ test('顶栏展示接口版本和身份，语言挂载刷新视图，引导复�
     views.length = 0;
     languageOptions.onChange(client);
     assert.deepEqual(views, ['apply', ...renderers]);
-    h.context.PixivOnboarding = {boot: options => { onboarding = options; }};
+    h.context.PixivDownloadOnboarding = {boot: options => { onboarding = options; }};
     let opened = 0;
     h.context.openDock = () => opened++;
     await h.context.setupOnboardingOrTour();

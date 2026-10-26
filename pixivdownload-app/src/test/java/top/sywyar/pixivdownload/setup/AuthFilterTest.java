@@ -793,8 +793,6 @@ class AuthFilterTest {
                 "/vendor/vue/vue.global.prod.js",
                 "/js/pixiv-onboarding-core.js",
                 "/js/pixiv-onboarding-overlay.js",
-                "/js/pixiv-onboarding-download.js",
-                "/js/pixiv-onboarding-gallery.js",
                 "/js/pixiv-onboarding.js",
                 "/css/pixiv-onboarding.css"
         })

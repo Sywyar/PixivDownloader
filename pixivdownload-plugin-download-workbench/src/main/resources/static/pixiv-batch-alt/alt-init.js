@@ -86,7 +86,7 @@ function setupTour(auto) {
 
 async function setupOnboardingOrTour() {
     const eligible = appMode === 'solo' || isAdmin;
-    if (eligible && typeof PixivOnboarding !== 'undefined') {
+    if (eligible && typeof PixivDownloadOnboarding !== 'undefined') {
         let savedName = '';
         try {
             const res = await fetch('/api/onboarding/profile', {credentials: 'same-origin'});
@@ -95,7 +95,7 @@ async function setupOnboardingOrTour() {
                 savedName = (data && data.displayName) || '';
             }
         } catch {}
-        PixivOnboarding.boot(buildOnboardingConfig(savedName));
+        PixivDownloadOnboarding.boot(buildOnboardingConfig(savedName));
         return;
     }
     setupTour(false);

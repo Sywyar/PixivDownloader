@@ -72,7 +72,7 @@ window.PixivArtwork = window.PixivArtwork || {};
     }
 
     async function initPageI18n() {
-        pageI18n = await PixivI18n.create({namespaces: ['artwork', 'common', 'tour']});
+        pageI18n = await PixivI18n.create({namespaces: ['artwork', 'gallery', 'common', 'tour']});
         await PixivLangSwitcher.mount({
             mountPoint: document.getElementById('langSwitcherAnchor'),
             i18n: pageI18n,

@@ -147,8 +147,6 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitorAndInvitedGuest("/vendor/vue/vue.global.prod.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-onboarding-core.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-onboarding-overlay.js"),
-                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-onboarding-download.js"),
-                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-onboarding-gallery.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-onboarding.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/css/pixiv-onboarding.css"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-ui-slots.js"),

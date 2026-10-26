@@ -90,6 +90,20 @@ class StaticResourceConfigTest {
     }
 
     @Test
+    @DisplayName("核心只提供共享引导，业务步骤资源随所属插件缺席")
+    void coreOnlyServesSharedOnboarding() throws Exception {
+        MockMvc mvc = mockMvc();
+        for (String path : List.of("/js/pixiv-onboarding-core.js", "/js/pixiv-onboarding-overlay.js",
+                "/js/pixiv-onboarding.js")) {
+            mvc.perform(get(path)).andExpect(status().isOk());
+        }
+        for (String path : List.of("/js/pixiv-onboarding-download.js", "/js/pixiv-onboarding-gallery.js",
+                "/pixiv-batch/onboarding.js", "/pixiv-gallery/onboarding.js")) {
+            mvc.perform(get(path)).andExpect(status().isNotFound());
+        }
+    }
+
+    @Test
     @DisplayName("核心 Vue 运行时 /vendor/vue/vue.global.prod.js 经既有 /vendor/ contribution 返回 200，MIME 为 JS 类型")
     void servesVendoredVueRuntime() throws Exception {
         // 单一来源的 Vue 全局构建版落在既有 classpath:/static/vendor/ → /vendor/ 处理器下，
