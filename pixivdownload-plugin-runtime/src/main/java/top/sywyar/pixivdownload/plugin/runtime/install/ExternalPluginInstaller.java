@@ -81,6 +81,7 @@ import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransac
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport.FailureKind;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionState;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PreparedPluginTransaction;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginClassSpaceVerifier;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageException;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageIntegrity;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
@@ -1750,7 +1751,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
         // 1. 检视：读布局 + 包级描述符（描述符读取字节受 limits 约束）
         PluginPackageInspection inspection;
         try {
-            inspection = PluginPackageReader.inspect(packagePath, limits).withClassSpace(packageUsage.classSpace());
+            inspection = PluginClassSpaceVerifier.withClassSpace(
+                    PluginPackageReader.inspect(packagePath, limits), packageUsage.classSpace());
         } catch (PluginPackageException e) {
             return rejected(mapReason(e.reason()), e.getMessage());
         }
@@ -2007,7 +2009,8 @@ public class ExternalPluginInstaller implements AutoCloseable {
             }
             PluginPackageInspection other = budget.inspectArchive(
                     existing.path(), PluginPackageIntegrity.sha256Hex(existing.path()), limits);
-            incoming.classSpace().requireCompatible(incoming.descriptor(), other.descriptor(), other.classSpace());
+            PluginClassSpaceVerifier.requireCompatible(incoming.classSpace(), incoming.descriptor(),
+                    other.descriptor(), other.classSpace());
         }
     }
 

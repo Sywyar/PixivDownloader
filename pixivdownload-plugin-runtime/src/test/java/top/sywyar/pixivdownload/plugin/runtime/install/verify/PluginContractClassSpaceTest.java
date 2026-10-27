@@ -23,7 +23,8 @@ class PluginContractClassSpaceTest {
     @DisplayName("原始库摘要绑定成功，根目录和嵌套库的重复包均拒绝")
     void rejectsCopiesAndSplitPackages() throws Exception {
         var contract = inspect(contract(Map.of("sample/contract/Api.class", new byte[]{1}), Map.of(), null));
-        assertThat(contract.classSpace().contractPackages(contract.descriptor())).containsExactly("sample.contract");
+        assertThat(PluginClassSpaceVerifier.contractPackages(contract.classSpace(), contract.descriptor()))
+                .containsExactly("sample.contract");
         for (Map<String, byte[]> entries : java.util.List.of(
                 Map.of("sample/contract/Duplicate.class", new byte[]{1}),
                 Map.of("classes/sample/contract/Duplicate.class", new byte[]{1}),
@@ -37,8 +38,8 @@ class PluginContractClassSpaceTest {
                     PluginPackageFixtures.pluginProperties("other", "3.2.1", null, "sample.Other")));
             PluginPackageFixtures.writeZip(other, contents);
             var duplicate = inspect(other);
-            assertThatThrownBy(() -> contract.classSpace().requireCompatible(
-                    contract.descriptor(), duplicate.descriptor(), duplicate.classSpace()))
+            assertThatThrownBy(() -> PluginClassSpaceVerifier.requireCompatible(
+                    contract.classSpace(), contract.descriptor(), duplicate.descriptor(), duplicate.classSpace()))
                     .isInstanceOf(PluginPackageException.class).hasMessageContaining("split contract package");
         }
     }
@@ -75,8 +76,8 @@ class PluginContractClassSpaceTest {
         Path otherPath = directory.resolve("implicit.jar");
         PluginPackageFixtures.writeZip(otherPath, contents);
         var other = inspect(otherPath);
-        assertThatThrownBy(() -> contract.classSpace().requireCompatible(
-                contract.descriptor(), other.descriptor(), other.classSpace()))
+        assertThatThrownBy(() -> PluginClassSpaceVerifier.requireCompatible(
+                contract.classSpace(), contract.descriptor(), other.descriptor(), other.classSpace()))
                 .isInstanceOf(PluginPackageException.class).hasMessageContaining("implicit");
     }
 
@@ -124,6 +125,6 @@ class PluginContractClassSpaceTest {
 
     private PluginPackageInspection inspect(Path artifact) {
         var usage = PluginPackageVerifier.verifyAndMeasure(artifact, PluginPackageLimits.defaults());
-        return PluginPackageReader.inspect(artifact).withClassSpace(usage.classSpace());
+        return PluginClassSpaceVerifier.withClassSpace(PluginPackageReader.inspect(artifact), usage.classSpace());
     }
 }

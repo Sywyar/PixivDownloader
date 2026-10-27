@@ -1,7 +1,8 @@
 package top.sywyar.pixivdownload.plugin.runtime;
 
 import top.sywyar.pixivdownload.plugin.api.service.ServiceKey;
-import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginClassSpace;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginClassSpace;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginClassSpaceVerifier;
 
 import org.pf4j.DefaultPluginManager;
 import org.pf4j.CompoundPluginLoader;
@@ -1222,8 +1223,8 @@ public class PluginRuntimeManager {
             if (startupBudget != null) {
                 startupBudget.consumeVerification(verificationUsage);
             }
-            PluginPackageInspection inspection = PluginPackageReader.inspect(
-                    frozenArtifact, PRODUCTION_PACKAGE_LIMITS).withClassSpace(verificationUsage.classSpace());
+            PluginPackageInspection inspection = PluginClassSpaceVerifier.withClassSpace(
+                    PluginPackageReader.inspect(frozenArtifact, PRODUCTION_PACKAGE_LIMITS), verificationUsage.classSpace());
             if (inspection.innerJarEntry() != null) {
                 throw new PluginRuntimeOperationException(
                         "installed plugin package must be canonical and cannot contain an inner plugin jar: "
@@ -1394,7 +1395,8 @@ public class PluginRuntimeManager {
                 if (existingSpace == null) {
                     throw new PluginRuntimeOperationException("contract class space requires verified packaged dependencies");
                 }
-                prepared.inspection().classSpace().requireCompatible(incoming, existing.descriptor(), existingSpace);
+                PluginClassSpaceVerifier.requireCompatible(prepared.inspection().classSpace(), incoming,
+                        existing.descriptor(), existingSpace);
             }
         }
         PluginArtifactMaterializer.MaterializedPluginArtifact materialized = materializer.materialize(
@@ -1430,7 +1432,7 @@ public class PluginRuntimeManager {
         PluginWrapper wrapper = pluginManager == null ? null : pluginManager.getPlugin(key.contractId());
         if (!required || contract == null || contract.descriptor().contract() == null || space == null
                 || wrapper == null || key.type().getClassLoader() != wrapper.getPluginClassLoader()
-                || !space.contractPackages(contract.descriptor()).contains(key.type().getPackageName())
+                || !PluginClassSpaceVerifier.contractPackages(space, contract.descriptor()).contains(key.type().getPackageName())
                 || !exactContractSource(key.type(), contract)) {
             throw new PluginRuntimeOperationException("service requires the exact required contract class source: " + key.contractId());
         }

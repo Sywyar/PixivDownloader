@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.install.verify;
 
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginClassSpace;
+
 import java.io.BufferedInputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
