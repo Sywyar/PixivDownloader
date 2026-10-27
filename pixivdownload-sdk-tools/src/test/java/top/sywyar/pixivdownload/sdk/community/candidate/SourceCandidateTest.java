@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityJson;
 import top.sywyar.pixivdownload.sdk.community.project.PluginProjectMarker;
-import top.sywyar.pixivdownload.sdk.community.submission.VersionSubmission.BuildProfile;
+import top.sywyar.pixivdownload.sdk.community.project.BuildProfile;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -44,6 +44,11 @@ class SourceCandidateTest {
             var candidate = SourceCandidate.create(root, profile, List.of("actual-output.jar"), "7.8.9-rc.12",
                     "1234", "owner/source", "a".repeat(40), "5678", 1, output);
             assertThat(SourceCandidate.read(Files.readAllBytes(output.resolve("source-candidate.json")))).isEqualTo(candidate);
+            assertThat(CommunityJson.strictTree(Files.readAllBytes(output.resolve("source-candidate.json")),
+                    SourceCandidate.MAX_BYTES).get("buildProfile"))
+                    .isEqualTo(CommunityJson.strictTree(("{\"id\":\"" + tool
+                            + "-java17-v1\",\"projectDir\":\"" + tool
+                            + "\",\"artifactPath\":\"actual-output.jar\"}").getBytes(StandardCharsets.UTF_8), 1024));
             assertThat(Files.readAllBytes(output.resolve(candidate.artifact().file()))).isEqualTo(Files.readAllBytes(artifact));
             assertThat(candidate.artifact().sha256()).isEqualTo(CommunityJson.sha256(Files.readAllBytes(artifact)));
             assertThatThrownBy(() -> SourceCandidate.create(root, profile, List.of("actual-output.jar"), "7.8.10",

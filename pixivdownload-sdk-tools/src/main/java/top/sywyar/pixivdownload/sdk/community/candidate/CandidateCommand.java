@@ -5,7 +5,7 @@ import top.sywyar.pixivdownload.sdk.community.format.CommunityJson;
 import top.sywyar.pixivdownload.sdk.community.format.ContractException;
 import top.sywyar.pixivdownload.sdk.community.project.PluginProjectLocator;
 import top.sywyar.pixivdownload.sdk.community.project.BuildModels;
-import top.sywyar.pixivdownload.sdk.community.submission.VersionSubmission.BuildProfile;
+import top.sywyar.pixivdownload.sdk.community.project.BuildProfile;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
