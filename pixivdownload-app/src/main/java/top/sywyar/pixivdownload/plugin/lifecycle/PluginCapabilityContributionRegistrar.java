@@ -185,6 +185,15 @@ public class PluginCapabilityContributionRegistrar {
         }
     }
 
+    /** 生命周期完成 publication 的 STARTED 准入后通知依赖作用域。 */
+    public void serviceBindingsChanged() { invocationRegistry.serviceBindingsChanged(); }
+
+    /** 尚有依赖资源时保留 context，禁止在生命周期锁内等待插件关闭回调。 */
+    public boolean serviceBindingsPending(String pluginId) {
+        return invocationRegistry.serviceBindingsPending(pluginId);
+    }
+
+
     public void prepareInto(PreparedOwner preparedOwner, ConfigurableApplicationContext context) {
         if (preparedOwner == null) {
             throw new IllegalArgumentException("prepared external capability owner must not be null");

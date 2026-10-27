@@ -66,7 +66,8 @@ export function verifyTypedServiceArtifacts(project, toolsJar) {
                 }
             }
             const classes = entries.filter(entry => entry.endsWith('.class'));
-            if (!classes.length || classes.some(entry => !entry.startsWith(`com/example/textmetrics/${module}/`))) {
+            if (!classes.length || classes.some(entry => !entry.startsWith(`com/example/textmetrics/${module}/`)
+                    && !(module === 'consumer' && entry === 'pixivdownload/generated/remote/TextMetricsRemoteAdapter.class'))) {
                 fail(`typed service ${module} contains unexpected or duplicated contract/host classes`);
             }
             const allowedLibrary = module === 'contract' ? 'lib/text-metrics-api.jar' : '';
@@ -144,6 +145,74 @@ export function verifyTypedServiceSchemaRebuild(project, workDirectory, toolsJar
     requireSuccess(build(true, ['-Dexec.skip=true', '-Dmaven.antrun.skip=true']));
     const after = inspect('after');
     if (before.equals(after)) fail('enabled schema rebuild did not update the API JAR');
+    verifyTypedRemoteRebuild(workDirectory, toolsJar, runMaven);
+}
+
+export function verifyTypedRemoteRebuild(project, toolsJar, runMaven) {
+    const source = path.join(project, 'api/src/main/java/com/example/textmetrics/api/TextMetrics.java');
+    const original = fs.readFileSync(source, 'utf8');
+    const output = path.join(project, 'consumer/target');
+    const marker = path.join(output, 'remote-generation.complete');
+    const service = 'com.example.textmetrics.api.TextMetrics';
+    const build = (extra = [], tool = toolsJar) => runMaven(['-f', path.join(project, 'pom.xml'), 'package',
+        `-Dpixivdownload.sdk.tools=${tool}`, ...extra]);
+    let ordinal = 0;
+    const inspect = () => {
+        const extracted = path.join(project, 'target', `remote-inspect-${++ordinal}`);
+        fs.mkdirSync(extracted, { recursive: true });
+        run('jar', ['--extract', '--file', currentPluginJar(path.join(project, 'api')), 'META-INF/pixivdownload/schema'], { cwd: extracted });
+        run('jar', ['--extract', '--file', currentPluginJar(path.join(project, 'consumer')), 'web/generated',
+            'pixivdownload/generated/remote/TextMetricsRemoteAdapter.class'], { cwd: extracted });
+        const schema = JSON.parse(fs.readFileSync(path.join(extracted, `META-INF/pixivdownload/schema/${service}.remote.json`), 'utf8'));
+        for (const prefix of ['META-INF/pixivdownload/schema/', 'web/generated/']) {
+            for (const suffix of ['.mjs', '.d.mts']) {
+                if (!fs.readFileSync(path.join(extracted, prefix + service + suffix), 'utf8').includes(schema.identity))
+                    fail('packaged remote artifacts have different identities');
+            }
+        }
+        if (!fs.readFileSync(path.join(extracted, 'pixivdownload/generated/remote/TextMetricsRemoteAdapter.class')).includes(Buffer.from(schema.identity)))
+            fail('packaged adapter uses a stale contract identity');
+        if (fs.readFileSync(marker, 'utf8') !== schema.identity) fail('remote completion does not identify packaged contract');
+        return schema.identity;
+    };
+    const success = (extra = [], tool = toolsJar) => {
+        if (build(extra, tool).status !== 0) fail('incremental remote build failed');
+        return inspect();
+    };
+    const rejected = (code, extra = []) => {
+        const previous = fs.readFileSync(currentPluginJar(path.join(project, 'consumer')));
+        const result = build(extra);
+        if (result.status === 0 || !`${result.stdout}\n${result.stderr}`.includes(code)) fail(`expected ${code}`);
+        if (!previous.equals(fs.readFileSync(currentPluginJar(path.join(project, 'consumer'))))) fail('rejected build rewrote consumer JAR');
+    };
+    const first = success();
+    try {
+        fs.writeFileSync(source, original.replace('/api/text-metrics/remote', '/api/text-metrics/changed'), 'utf8');
+        rejected('SDK_REMOTE_GENERATION_REQUIRED', ['-P!remote', '-Dmaven.antrun.skip=true']);
+        if (fs.existsSync(marker)) fail('disabled remote generator retained completion');
+        const changed = success(['-Dexec.skip=true', '-Dmaven.antrun.skip=true']);
+        if (first === changed) fail('remote contract change retained identity');
+        fs.writeFileSync(source, original.replace('AccessPolicy.ADMIN', 'AccessPolicy.PUBLIC'), 'utf8');
+        rejected('SDK_SCHEMA_COMPILE');
+        fs.writeFileSync(source, original.replace(/@RemoteService\([^\n]*\)\s*/u, '')
+            .replace(/@RemoteOperation\([\s\S]*?\)\s*/u, ''), 'utf8');
+        rejected('SDK_REMOTE_CONTRACT_MISSING');
+        for (const file of ['remote-generation.complete', `classes/web/generated/${service}.mjs`,
+            `classes/web/generated/${service}.d.mts`, 'classes/pixivdownload/generated/remote/TextMetricsRemoteAdapter.class']) {
+            if (fs.existsSync(path.join(output, file))) fail(`removed remote declaration retained ${file}`);
+        }
+    } finally { fs.writeFileSync(source, original, 'utf8'); }
+    if (success() !== first) fail('restored source did not reproduce remote identity');
+    const toolsDirectory = path.join(project, 'target', 'changed-tools');
+    fs.mkdirSync(toolsDirectory, { recursive: true });
+    const changedTools = path.join(toolsDirectory, 'sdk-tools.jar');
+    fs.copyFileSync(toolsJar, changedTools);
+    const runtimeEntry = 'BOOT-INF/classes/remote/client-runtime.mjs';
+    run('jar', ['--extract', '--file', changedTools, runtimeEntry], { cwd: toolsDirectory });
+    fs.appendFileSync(path.join(toolsDirectory, runtimeEntry), '\n', 'utf8');
+    run('jar', ['--update', '--file', changedTools, '-C', toolsDirectory, runtimeEntry]);
+    if (success([], changedTools) === first) fail('changed generator did not invalidate remote identity');
+    if (success() !== first) fail('original generator did not restore complete output');
 }
 
 function currentPluginJar(project) {
@@ -471,6 +540,8 @@ export function verifyConsumer(options) {
     thinJarEntries(currentPluginJar(project));
     const typedServices = verifyTypedServiceArtifacts(path.join(project, 'examples', 'typed-service-plugin'),
             path.join(project, 'tools', 'sdk-tools.jar'));
+    run(process.execPath, [fileURLToPath(new URL('./sdk-remote.mjs', import.meta.url)),
+        path.join(project, 'examples', 'typed-service-plugin')]);
     const douyinCandidates = fs.readdirSync(douyinBuildDirectory)
             .filter(name => /^pixivdownload-plugin-douyin-.+\.jar$/u.test(name))
             .filter(name => !name.endsWith('-sources.jar') && !name.endsWith('-javadoc.jar'));

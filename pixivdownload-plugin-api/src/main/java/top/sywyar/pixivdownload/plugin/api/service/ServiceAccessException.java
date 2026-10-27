@@ -19,7 +19,9 @@ public final class ServiceAccessException extends RuntimeException {
         /** 同步在途调用已达到累计容量。 */
         CAPACITY,
         /** 提供者执行失败；原始异常对象不跨边界。 */
-        INVOCATION_FAILED
+        INVOCATION_FAILED,
+        /** 当前访问器实现没有提供请求的能力。 */
+        UNSUPPORTED
     }
 
     /** 唯一跨边界保存的失败事实。 */

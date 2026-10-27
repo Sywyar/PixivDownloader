@@ -9,6 +9,10 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Install SDK validation dependencies
+      shell: bash
+      run: npm ci --ignore-scripts --no-audit --no-fund
+
     - name: Stage SDK Maven artifacts
       shell: bash
       env:
@@ -22,6 +26,7 @@ runs:
           -DskipTests -Dexec.skip=true "-Dpixivdownload.source.sha=$SOURCE_SHA" \
           "-DaltDeploymentRepository=sdk-staging::$staging_url"
         mvn -B -ntp -pl pixivdownload-plugin-signature package -DskipTests -Dexec.skip=true
+        mvn -B -ntp -pl pixivdownload-sdk-tools -am package -DskipTests -Dexec.skip=true
 
     - name: Verify standalone plugin templates
       shell: bash
@@ -29,8 +34,12 @@ runs:
         SOURCE_SHA: ${{ inputs.source_sha }}
       run: |
         set -euo pipefail
-        mvn -B -ntp -f plugin-templates/pom.xml verify "-Dpixivdownload.source.sha=$SOURCE_SHA"
-        node --input-type=module -e 'import { verifyTypedServiceArtifacts } from "./scripts/ci/sdk-consumer.mjs"; verifyTypedServiceArtifacts("plugin-templates/typed-service-plugin");'
+        tools=(pixivdownload-sdk-tools/target/pixivdownload-sdk-tools-*.jar)
+        [ "${#tools[@]}" -eq 1 ]
+        mvn -B -ntp -f plugin-templates/pom.xml verify "-Dpixivdownload.source.sha=$SOURCE_SHA" \
+          "-Dpixivdownload.sdk.tools=$GITHUB_WORKSPACE/${tools[0]}"
+        node --input-type=module -e 'import { verifyTypedServiceArtifacts } from "./scripts/ci/sdk-consumer.mjs"; verifyTypedServiceArtifacts("plugin-templates/typed-service-plugin", process.argv[1]);' "${tools[0]}"
+        node scripts/ci/sdk-remote.mjs plugin-templates/typed-service-plugin
 
     - name: Verify single SDK dependency across build tools
       shell: bash
@@ -103,3 +112,15 @@ runs:
           -WorkDirectory target/sdk-host-consumer `
           -RuntimeArchive (Join-Path target/sdk-release $release.developmentRuntime.archive.file) `
           -TestRepositoryConfig build/sdk-development-runtime/ci-repository.yaml
+
+    - name: Verify independent service bindings and generated HTTP with a frozen host
+      shell: bash
+      run: |
+        set -euo pipefail
+        hosts=(pixivdownload-app/target/PixivDownload-*-boot.jar)
+        sqlite=(pixivdownload-plugin-database-sqlite/target/pixivdownload-plugin-database-sqlite-*.jar)
+        workbench=(pixivdownload-plugin-download-workbench/target/pixivdownload-plugin-download-workbench-*.jar)
+        [ "${#hosts[@]}" -eq 1 ] && [ "${#sqlite[@]}" -eq 1 ] && [ "${#workbench[@]}" -eq 1 ]
+        node scripts/ci/sdk-typed-services.mjs "${hosts[0]}" target/sdk-tools.jar target/sdk-staging \
+          target/sdk-staged-consumer/project/examples/typed-service-plugin "${sqlite[0]}" "${workbench[0]}" \
+          target/sdk-typed-services

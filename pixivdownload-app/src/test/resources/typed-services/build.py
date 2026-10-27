@@ -1,4 +1,4 @@
-import pathlib,zipfile,hashlib,subprocess,sys,os,re
+import pathlib,zipfile,hashlib,subprocess,sys,os,re,shutil
 root=pathlib.Path(sys.argv[1]).resolve()
 src=root/"fault-fixtures"
 sources=pathlib.Path(__file__).resolve().parent
@@ -27,3 +27,46 @@ for id in ["probe-provider","probe-provider-two","probe-provider-broken","probe-
     config="Consumer" if id=="probe-consumer" else "Provider"
     jar(src/(id+".jar"),src/"participant-classes",props(id,"acceptance.participant.Participant","pixiv.lifecycle-policy=hot-reload\nplugin.dependencies=probe-contract@0.1.0\npixiv.configuration-classes=acceptance.participant.Participant$"+config+"\n"))
 print("Independent fixtures built against fixed SDK")
+
+# 只在宿主及 SDK 已冻结后编译全新远程业务契约及两端插件。
+tools=pathlib.Path(sys.argv[3]).resolve()
+remote=root/"remote-contract"
+java=remote/"src/main/java/acceptance/remotecontract/RemoteLedger.java"
+java.parent.mkdir(parents=True,exist_ok=True)
+shutil.copyfile(sources/"RemoteLedger.java",java)
+subprocess.run(["java","-jar",str(tools),"schema",str(remote),cp],check=True)
+compile_one("RemoteLedger.java",src/"remote-api-classes")
+schemas=remote/"target/classes"
+extra={f.relative_to(schemas).as_posix():f.read_bytes() for f in schemas.rglob("*") if f.is_file()}
+jar(src/"remote-ledger-api.jar",src/"remote-api-classes",extra=extra)
+api=(src/"remote-ledger-api.jar").read_bytes()
+jar(src/"remote-ledger-contract.jar",src/"wrapper-classes",props("remote-ledger-contract","acceptance.wrapper.Contract",
+    "pixiv.lifecycle-policy=process-restart\npixiv.contract-api=lib/remote-ledger-api.jar\npixiv.contract-sha256="+hashlib.sha256(api).hexdigest()+"\n"),{"lib/remote-ledger-api.jar":api})
+remote_consumer=root/"remote-consumer"
+remote_consumer.mkdir(parents=True,exist_ok=True)
+# JavaCompiler 需要展开的 JAR 列表，而不是 java 启动器的通配符。
+remote_cp=cp.replace(str(host/"BOOT-INF/lib/*"),os.pathsep.join(str(p) for p in sorted((host/"BOOT-INF/lib").glob("*.jar"))))
+remote_cp+=os.pathsep+str(src/"remote-ledger-api.jar")
+subprocess.run(["java","-jar",str(tools),"remote",str(remote_consumer),remote_cp,"acceptance.remotecontract.RemoteLedger"],check=True)
+compile_one("RemoteParticipant.java",src/"remote-participant-classes",os.pathsep+str(src/"remote-ledger-api.jar")+os.pathsep+str(remote_consumer/"target/classes"))
+generated=remote_consumer/"target/classes"
+extra={f.relative_to(generated).as_posix():f.read_bytes() for f in generated.rglob("*") if f.is_file()}
+for id in ["remote-ledger-provider","remote-ledger-consumer"]:
+    config="Provider" if id.endswith("provider") else "Consumer"
+    jar(src/(id+".jar"),src/"remote-participant-classes",props(id,"acceptance.remote.RemoteParticipant",
+        "pixiv.lifecycle-policy=hot-reload\nplugin.dependencies=remote-ledger-contract@0.1.0\npixiv.configuration-classes=acceptance.remote.RemoteParticipant$"+config+"\n"),extra)
+print("Independent remote contract and generated adapter compiled against fixed SDK and host")
+bad=remote/"Bad.java"
+bad.write_text('import acceptance.remotecontract.RemoteLedger; class Bad { void wrong(RemoteLedger service) { service.record(true); } }',encoding="utf-8")
+rejected=subprocess.run(["javac","-proc:none","-encoding","UTF-8","-cp",remote_cp,str(bad)],capture_output=True)
+if rejected.returncode==0: raise RuntimeError("wrong Java consumer type compiled")
+tsc=pathlib.Path(sys.argv[4]).resolve()
+probe=generated/"web/type-probe.mts"
+probe.write_text('import {createClient, type __proto___Request, type routes_Request} from "./generated/acceptance.remotecontract.RemoteLedger.mjs";\ncreateClient().record({sequence:1,text:"ok",numbers:[],labels:{},mode:"NORMAL"});\nconst named: __proto___Request & routes_Request = {["__proto__"]:"safe"};\ncreateClient().__proto__(named);\ncreateClient().routes(named);\n',encoding="utf-8")
+arguments=["node",str(tsc),"--noEmit","--strict","--target","es2022","--module","nodenext",str(probe)]
+subprocess.run(arguments,check=True)
+probe.write_text(probe.read_text(encoding="utf-8").replace("sequence:1","sequence:\"wrong\""),encoding="utf-8")
+rejected=subprocess.run(arguments,capture_output=True)
+if rejected.returncode==0 or b"TS2322" not in rejected.stdout: raise RuntimeError("wrong frontend consumer type was not rejected")
+probe.unlink()
+print("Independent Java and frontend wrong-type consumers rejected by real compilers")

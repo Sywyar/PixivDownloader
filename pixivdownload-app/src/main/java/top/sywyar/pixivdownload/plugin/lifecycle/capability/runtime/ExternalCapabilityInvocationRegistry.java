@@ -60,6 +60,12 @@ public final class ExternalCapabilityInvocationRegistry {
         public <T> Optional<T> find(ServiceKey<T> key) {
             return registry.findService(owner, key);
         }
+
+        @Override
+        public top.sywyar.pixivdownload.plugin.api.service.ServiceBinding bind(List<ServiceKey<?>> dependencies,
+                java.util.function.Consumer<top.sywyar.pixivdownload.plugin.api.service.ServiceBindingScope> activate) {
+            return registry.bindings.bind(owner, dependencies, activate);
+        }
     }
 
     private record ServiceInvocationHandler(ExternalCapabilityOwner consumer, ExternalCapabilityHandle handle,
@@ -201,6 +207,7 @@ public final class ExternalCapabilityInvocationRegistry {
     }
 
     private final Object lock = new Object();
+    private final ExternalServiceBindings bindings = new ExternalServiceBindings(this, lock);
     private final Map<Long, OwnerState> states = new HashMap<>();
     private final Map<Long, RetiredOwner> retirementProofs = new HashMap<>();
     private final ThreadLocal<ActiveOwnerScope> activeOwners = new ThreadLocal<>();
@@ -561,7 +568,90 @@ public final class ExternalCapabilityInvocationRegistry {
 
     /** 同步调用栈不能等待自身排空；生命周期入口在取得操作锁前拒绝这种重入。 */
     public boolean serviceInvocationOnCurrentThread() {
-        return serviceDepth.get() != null;
+        return serviceDepth.get() != null || bindings.onCallbackThread();
+    }
+
+    /** 合并通知复用宿主执行器；每个绑定至多排队一个协调任务。 */
+    @org.springframework.beans.factory.annotation.Autowired
+    public void configureBindings(top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry tasks,
+            @org.springframework.beans.factory.annotation.Qualifier("applicationTaskExecutor") Executor executor) {
+        bindings.configure(tasks, executor);
+    }
+
+    public void serviceBindingsChanged() { bindings.changed(); }
+
+    public boolean serviceBindingsPending(String pluginId) { return bindings.pending(pluginId); }
+
+
+    boolean bindingOwnerGone(ExternalCapabilityOwner owner) {
+        synchronized (lock) {
+            OwnerState state = states.get(owner.publicationId());
+            return state == null || !state.owner.equals(owner) || state.phase == Phase.WITHDRAWN;
+        }
+    }
+
+    void validateBindingImports(ExternalCapabilityOwner owner, List<ServiceKey<?>> keys) {
+        synchronized (lock) {
+            if (bindingOwnerGone(owner)) throw serviceFailure(ServiceAccessException.Reason.NOT_ACTIVE);
+            if (!states.get(owner.publicationId()).serviceImports.containsAll(keys)) {
+                throw serviceFailure(ServiceAccessException.Reason.UNDECLARED);
+            }
+        }
+    }
+
+    Map<ServiceKey<?>, ExternalCapabilityHandle> selectBinding(ExternalCapabilityOwner owner, List<ServiceKey<?>> keys) {
+        synchronized (lock) {
+            validateBindingImports(owner, keys);
+            if (states.get(owner.publicationId()).phase != Phase.PUBLISHED
+                    || !serviceAdmission.acceptsNewRequests(owner.pluginId())) {
+                throw serviceFailure(ServiceAccessException.Reason.NOT_ACTIVE);
+            }
+            Map<ServiceKey<?>, ExternalCapabilityHandle> selected = new java.util.LinkedHashMap<>();
+            for (ServiceKey<?> key : keys) {
+                for (OwnerState provider : states.values()) {
+                    if (provider.phase != Phase.PUBLISHED
+                            || !serviceAdmission.acceptsNewRequests(provider.owner.pluginId())) continue;
+                    for (var target : provider.targets.entrySet()) {
+                        if (!key.equals(target.getValue().serviceKey)) continue;
+                        if (selected.putIfAbsent(key, new ExternalCapabilityHandle(provider.owner,
+                                target.getKey(), key.type().getName())) != null) {
+                            throw serviceFailure(ServiceAccessException.Reason.AMBIGUOUS);
+                        }
+                    }
+                }
+                if (!selected.containsKey(key)) throw serviceFailure(ServiceAccessException.Reason.UNAVAILABLE);
+            }
+            return java.util.Collections.unmodifiableMap(selected);
+        }
+    }
+
+    <T> T bindingProxy(ExternalCapabilityOwner owner, ServiceKey<T> key, ExternalCapabilityHandle handle) {
+        return key.type().cast(Proxy.newProxyInstance(key.type().getClassLoader(), new Class<?>[]{key.type()},
+                new ServiceInvocationHandler(owner, handle, this)));
+    }
+
+    /** 本轮资源清理完成前保留双方 context；撤回不等于实际退出。 */
+    Runnable holdBinding(ExternalCapabilityOwner consumer, Collection<ExternalCapabilityHandle> selected) {
+        synchronized (lock) {
+            java.util.Set<ExternalCapabilityOwner> owners = new java.util.LinkedHashSet<>();
+            owners.add(consumer);
+            selected.forEach(handle -> owners.add(handle.owner()));
+            Map<ExternalCapabilityLeaseState, ExternalCapabilityLeaseState.LeaseToken> leases = new java.util.LinkedHashMap<>();
+            try {
+                for (ExternalCapabilityOwner owner : owners) {
+                    OwnerState state = states.get(owner.publicationId());
+                    var token = new ExternalCapabilityLeaseState.LeaseToken();
+                    if (state == null || state.phase != Phase.PUBLISHED || !state.leaseState.tryAcquire(token)) {
+                        throw serviceFailure(ServiceAccessException.Reason.UNAVAILABLE);
+                    }
+                    leases.put(state.leaseState, token);
+                }
+            } catch (Throwable failure) {
+                leases.forEach(ExternalCapabilityLeaseState::release);
+                throw failure;
+            }
+            return () -> leases.forEach(ExternalCapabilityLeaseState::release);
+        }
     }
 
     private static ServiceAccessException serviceFailure(
@@ -624,6 +714,7 @@ public final class ExternalCapabilityInvocationRegistry {
             state.leaseState.publish();
             state.publication = publication;
             state.phase = Phase.PUBLISHED;
+            bindings.changed();
             postPublishProbe.run();
             return publication;
         }
@@ -661,6 +752,7 @@ public final class ExternalCapabilityInvocationRegistry {
             preparation.markDiscarded();
             state.clearTargets();
             states.remove(state.owner.publicationId());
+            bindings.changed();
             postDiscardProbe.run();
             return true;
         }
@@ -685,6 +777,7 @@ public final class ExternalCapabilityInvocationRegistry {
             Optional<ExternalCapabilityDrain> result = Optional.of(state.drain);
             state.leaseState.withdraw();
             state.phase = Phase.WITHDRAWN;
+            bindings.changed();
             return result;
         }
     }
@@ -709,6 +802,7 @@ public final class ExternalCapabilityInvocationRegistry {
             if (state.phase == Phase.PUBLISHED || state.phase == Phase.WITHDRAWN) {
                 state.leaseState.withdraw();
                 state.phase = Phase.WITHDRAWN;
+                bindings.changed();
                 return state.drain;
             }
             return null;

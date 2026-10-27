@@ -61,9 +61,10 @@ public final class SchemaGenerator {
                 throw new IOException("SDK_SCHEMA_COMPILE: " + first.map(item -> item.getCode() + ":" + item.getLineNumber()).orElse("unknown"));
             }
         }
-        if (processor.schemas().isEmpty()) throw new IOException("SDK_SCHEMA_NO_ROOTS");
+        if (processor.schemas().isEmpty() && processor.remotes().isEmpty()) throw new IOException("SDK_SCHEMA_NO_ROOTS");
         Map<String, byte[]> files = new LinkedHashMap<>();
         for (var entry : processor.schemas().entrySet()) files.put(entry.getKey() + ".schema.json", SchemaFiles.encode(entry.getValue()));
+        files.putAll(RemoteArtifacts.generate(processor.remotes()));
         Path output = module.resolve(OUTPUT);
         requireLocalPath(module, output);
         requireLocalPath(module, completion);
@@ -71,7 +72,9 @@ public final class SchemaGenerator {
         // 全部契约通过后才更新生成目录；只删除本工具拥有的旧 schema 文件。
         try (var old = Files.list(output)) {
             for (Path file : old.toList()) {
-                if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS) || !file.getFileName().toString().endsWith(".schema.json")) {
+                if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)
+                        || List.of(".schema.json", ".remote.json", ".mjs", ".d.mts", ".java.src").stream()
+                            .noneMatch(file.getFileName().toString()::endsWith)) {
                     throw new IOException("SDK_SCHEMA_OUTPUT_CONTENT");
                 }
             }
@@ -90,7 +93,7 @@ public final class SchemaGenerator {
         Files.writeString(completion, "", StandardCharsets.UTF_8);
     }
 
-    private static void requireLocalPath(Path module, Path path) throws IOException {
+    static void requireLocalPath(Path module, Path path) throws IOException {
         if (!path.normalize().startsWith(module)) throw new IOException("SDK_SCHEMA_PATH");
         for (Path current = path; !current.equals(module); current = current.getParent()) {
             if (Files.exists(current, LinkOption.NOFOLLOW_LINKS)

@@ -52,6 +52,10 @@ public final class SdkTools {
     }
 
     static int execute(String[] args) throws Exception {
+        if (args.length == 4 && args[0].equals("remote")) {
+            top.sywyar.pixivdownload.sdk.schema.RemoteAdapterGenerator.generate(Path.of(args[1]), args[2], args[3]);
+            return 0;
+        }
         if (args.length == 3 && args[0].equals("schema")) {
             top.sywyar.pixivdownload.sdk.schema.SchemaGenerator.generate(Path.of(args[1]), args[2]);
             return 0;

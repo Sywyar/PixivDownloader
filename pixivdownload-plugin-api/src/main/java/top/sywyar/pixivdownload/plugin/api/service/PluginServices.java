@@ -19,6 +19,22 @@ import java.util.Optional;
  */
 public interface PluginServices {
     /**
+     * 登记一组服务依赖；可在初始化时登记，但激活只在消费者及全部唯一提供者发布后执行。
+     * 回调负责通过本轮 scope 登记订阅、辅助回调与临时注册；不得提交需要自动重放的业务命令。
+     * 失效先关闭本轮准入，实际在途调用退出且资源清理成功后才建立下一轮。
+     * 每个消费者最多登记 128 个意图，每个意图最多包含已声明的 128 项导入。
+     *
+     * @param dependencies 非空且无重复的已声明导入
+     * @param activate 同步激活回调；异常导致本轮资源回滚，不自动重试相同选择
+     * @return 可查询、重试和永久撤销的意图
+     * @throws ServiceAccessException 未声明依赖、消费者已撤回、容量不足或实现不支持
+     */
+    default ServiceBinding bind(java.util.List<ServiceKey<?>> dependencies,
+            java.util.function.Consumer<ServiceBindingScope> activate) {
+        throw new ServiceAccessException(ServiceAccessException.Reason.UNSUPPORTED);
+    }
+
+    /**
      * 解析当前唯一提供者。返回代理只用于同步纯值调用，参数和结果均被校验并复制。
      *
      * @param key 已声明导入的契约

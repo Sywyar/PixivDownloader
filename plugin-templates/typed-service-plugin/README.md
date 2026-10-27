@@ -2,56 +2,52 @@
 
 [English](README_en.md)
 
-此工程需要 JDK 17、Maven 和 PixivDownloader SDK 1.4。三个插件通过独立的文本统计契约协作，宿主无需引用该业务接口。
+需要 JDK 17、Maven、PixivDownloader SDK 1.4，以及实现其服务、资源和远程操作接口的宿主。三个插件共享文本统计契约，宿主不引用该业务接口。
 
-| 模块 | 产物与用途 |
+| 模块 | 用途 |
 | --- | --- |
-| api | 运行时仅依赖 JDK 的接口和 record；可单独作为 Maven API 发布 |
-| contract | 安装包，携带原始 API JAR 及其 SHA-256 |
-| provider | 显式导出 `textMetrics` Bean |
-| consumer | 声明导入服务，通过管理员 HTTP 入口调用 |
+| api | 运行时仅依赖 JDK 的接口与 record，携带生成的契约产物 |
+| contract | 携带原始 API JAR 及其 SHA-256 的安装包 |
+| provider | 显式导出本地 `textMetrics` Bean |
+| consumer | 导入服务，注册生成的管理员 HTTP 适配器与客户端静态资源 |
 
-在本目录运行：
-
-```sh
-mvn package
-```
-
-需要 JSON Schema 时，把 SDK 开发包中的 `tools/sdk-tools.jar` 绝对路径传给构建：
+在本目录构建，工具路径取自 SDK 开发包：
 
 ```sh
-mvn package "-Dpixivdownload.sdk.tools=/absolute/path/to/tools/sdk-tools.jar"
+mvn verify "-Dpixivdownload.sdk.tools=/absolute/path/to/tools/sdk-tools.jar"
 ```
 
-工具读取 `@ValueSchema` record 和显式的 `@ValueProperty` 约束，将 JSON Schema 2020-12 写入 `api/target/classes/META-INF/pixivdownload/schema/`，随 API JAR 一起打包。注解只用于源码编译，运行时契约仍只依赖 JDK。修改 Java 定义后重新构建即可；不要手改生成文件。可用 `java -jar /absolute/path/to/tools/sdk-tools.jar schema-check <schema.json> <data.json>` 检查本地样本，退出码 0 表示通过。该工具不为 HTTP 入口自动增加校验或导出服务；支持类型和约束见 `ValueSchema`、`ValueProperty` 的 Javadoc。
+构建从 `@ValueSchema`、`@ValueProperty` 与显式的 `@RemoteService` / `@RemoteOperation` 生成 JSON Schema、操作描述、JS 客户端、类型声明和 Java HTTP 适配器。生成文件位于各模块的 `target/`；修改契约后重新构建，不手改产物。完成标记覆盖整组输出，关闭生成、生成失败或缺少契约时拒绝打包，避免非 clean 构建混入旧文件。纯 Schema 样本可用 `java -jar sdk-tools.jar schema-check <schema.json> <data.json>` 校验。
 
-生成过 Schema 后，后续 `package` 仍需传入工具路径；省略参数或关闭 `schemas` profile 会报 `SDK_SCHEMA_GENERATION_REQUIRED`。如需改为不携带 Schema 的 API JAR，执行不带该参数的 `mvn clean package`。
+给 contract、provider、consumer 的 JAR 签名，通过正常安装入口确认信任。先安装 contract 并完整重启宿主，再安装另外两个插件。消费者允许业务 provider 缺席，契约包则是 required 依赖。API JAR 不单独安装，不复制进参与者的包；双方使用 provided 编译依赖。契约安装、更新、删除需完整进程重启，同一契约 id 不并存多个活动版本。
 
-使用 SDK 的签名工具给 `contract`、`provider`、`consumer` 各自的 `target/*.jar` 签名。通过正常插件安装入口安装并确认信任；不要把 `api` JAR 当作插件安装，也不要把 API 类打入提供者或消费者。
-
-先安装 `text-metrics-contract`，完整重启宿主，再安装提供者和消费者。消费者不要求提供者已经存在；缺席时业务入口返回 HTTP 503 和 `UNAVAILABLE`。契约包是两者的 required 运行依赖。契约安装、更新和删除在完整进程重启后生效；提供者和消费者可按正常生命周期停启。
-
-登录管理员账号后，在同源页面的开发者控制台调用：
+登录管理员账号后，在同源页面的控制台运行：
 
 ```js
-fetch('/api/text-metrics', {
-  method: 'POST',
-  headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({texts: ['abc', '你好']})
-}).then(response => response.json()).then(console.log);
+const {analyzeTexts} = await import('/text-metrics-client/text-metrics.mjs');
+await analyzeTexts({texts: ['abc', '你好']});
 // {lengths: [3, 2], total: 5}
 ```
 
-长度按 Java 字符串的 UTF-16 单元计算。该入口受管理员身份和同源写入检查保护。
+该模块实际导入生成客户端，并通过 JSDoc 引用生成类型。服务端读取同一契约，在调用前校验请求，在返回前校验响应。生成适配器提供路由声明，宿主检查 controller 与声明是否一致。内部服务导入、导出本身不会公开 HTTP。远程操作目前支持精确 POST 路径和 ADMIN 策略，保留登录、同源写入和当前用户身份检查。publication owner 不是用户身份。
 
-服务键的 `contractId` 是契约插件 id；接口类型区分同一契约内的不同服务。只会导出声明的本地 Bean。构造器和 `PostConstruct` 可以保存 `PluginServices`，首次业务调用时再解析服务。多提供者返回 `AMBIGUOUS`；旧代理不会转接新提供者，任一方停止后都应重新解析。调用取消不代表在途方法已退出，插件仍须等待排空。
+统计结果按 Java UTF-16 单元计算，Schema 长度约束按 Unicode 码点计算。远程整数须同时符合 Java 类型范围与 ±9,007,199,254,740,991；long 必须显式限定安全范围。未知字段、非法枚举、超范围值及孤立代理字符会被拒绝。可缺失字段必须可空，缺失解码为 null。自定义构造器、访问器或序列化注解不属于生成子集。请求与响应最多 1 MiB，值遍历最多 16,384 节点、32 层。
 
-消费者重启后使用新注入的 `PluginServices`；旧访问器也已失效。
+生成客户端不自动重试。服务缺席或失效返回 `REMOTE_UNAVAILABLE`，契约身份不符返回 `REMOTE_CONTRACT_MISMATCH`，非法输入返回 `REMOTE_VALUE_INVALID`，提供方失败返回 `REMOTE_FAILED`。服务端响应含稳定 `code` 与本地化 `error`；客户端按 `RemoteError.code` 判断。`AbortSignal` 取消返回 `REMOTE_CANCELLED`，传输失败返回 `REMOTE_TRANSPORT`，包括读取响应体期间发生的失败。取消 fetch 不证明服务端已退出，宿主仍等待真实 drain。手写 `/api/text-metrics` 保留为直接调用服务的对照示例。
 
-需要管理本插件的订阅、监听器或临时注册时，可注入 `PluginResources`，以 `openScope()` 创建局部作用域，并用 `acquire(factory)` 创建和接管关闭句柄。辅助事件回调通过该作用域的 `guard(callback)` 包装；撤回后的迟到回调跳过。宿主在请求、服务和任务真实排空后释放这些资源。局部 `close()` 若报告 `BUSY` 或 `CLOSE_FAILED`，应保留作用域稍后重试；完整使用约束见 `PluginResourceScope` Javadoc。
+需要随依赖恢复重建订阅时，在初始化中登记绑定：
 
-新通道仅支持同步纯值。服务接口必须非 sealed，接口、DTO 必须来自同一原始 API JAR；record 使用默认 canonical 构造器。完整类型和资源边界见 SDK 的 `PluginServices` Javadoc。异步任务、流和资源句柄继续使用专用契约。
+```java
+ServiceKey<TextMetrics> key = new ServiceKey<>("text-metrics-contract", TextMetrics.class);
+ServiceBinding binding = services.bind(List.of(key), scope -> {
+    TextMetrics current = scope.require(key);
+    scope.acquire(() -> eventSource.subscribe(
+            scope.guard(() -> refresh(current))));
+});
+```
 
-失败响应包含稳定的 `code` 和按请求语言解析的 `error`。调用方按 `code` 判断原因，例如 `UNAVAILABLE`；不要把说明文案作为判断条件。
+这里 `eventSource.subscribe` 返回可关闭句柄，`refresh` 只处理辅助事件。业务命令与持久任务不放入激活回调。自身 publication 与所有依赖均活动且唯一时才激活；撤回后禁止旧回调及代理进入，再排空、释放资源，最后建立新一轮。旧代理不会改连 replacement。
 
-同一契约 id 不并存多个活动版本。安装检查拒绝重复契约类、split package、多版本 API JAR，以及共享契约类空间中的隐式 JAR `Class-Path` 和索引。提供者与消费者以 `provided` 依赖编译；这只是构建声明，运行时仍会检查真实类来源。
+用 `binding.state()` 查询状态：等待依赖为 WAITING，多 provider 为 AMBIGUOUS；正常经过 ACTIVATING、ACTIVE，撤回后为 DRAINING。激活失败且回滚完成为 FAILED，关闭失败为 CLOSE_FAILED；可用 `retry()` 重试资源建立或清理。永久 `close()` 返回不代表排空，只有 CLOSED 表示清理完成。消费者停止后不会因 provider 恢复而复活。激活、受管回调及 disposer 中同步修改生命周期会被拒绝，避免自等待。
+
+无需依赖驱动的本地资源继续使用 `PluginResources.openScope()`。服务仍只传递同步纯值；异步任务、流和资源句柄使用专用契约。安装检查保留重复类、split package、隐式类路径和原始 API 字节校验。完整约束见 SDK Javadoc。

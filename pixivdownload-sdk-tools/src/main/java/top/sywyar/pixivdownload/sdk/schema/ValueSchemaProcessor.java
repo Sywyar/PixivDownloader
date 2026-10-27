@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.sdk.schema;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import top.sywyar.pixivdownload.plugin.api.contract.schema.ValueProperty;
+import top.sywyar.pixivdownload.plugin.api.contract.remote.RemoteService;
+import top.sywyar.pixivdownload.plugin.api.contract.remote.RemoteOperation;
 import top.sywyar.pixivdownload.plugin.api.contract.schema.ValueSchema;
 
 import javax.annotation.processing.AbstractProcessor;
@@ -25,10 +27,12 @@ final class ValueSchemaProcessor extends AbstractProcessor {
     private static final String ANNOTATION = ValueSchema.class.getName();
     private final Map<String, ObjectNode> schemas = new TreeMap<>();
     private final Map<String, ObjectNode> definitions = new LinkedHashMap<>();
+    private final Map<String, ObjectNode> remotes = new TreeMap<>();
 
     Map<String, ObjectNode> schemas() { return schemas; }
+    Map<String, ObjectNode> remotes() { return remotes; }
 
-    @Override public Set<String> getSupportedAnnotationTypes() { return Set.of(ANNOTATION); }
+    @Override public Set<String> getSupportedAnnotationTypes() { return Set.of(ANNOTATION, RemoteService.class.getName(), RemoteOperation.class.getName()); }
     @Override public SourceVersion getSupportedSourceVersion() { return SourceVersion.RELEASE_17; }
 
     @Override
@@ -37,17 +41,33 @@ final class ValueSchemaProcessor extends AbstractProcessor {
                 .sorted(java.util.Comparator.comparing(Object::toString)).toList()) {
             try {
                 if (!(element instanceof TypeElement type) || type.getKind() != ElementKind.RECORD) throw invalid();
-                definitions.clear();
-                ObjectNode root = SchemaFiles.JSON.createObjectNode().put("$schema", SchemaFiles.DIALECT);
-                root.setAll(value(type.asType(), false, true, 0));
-                ObjectNode defs = root.putObject("$defs");
-                definitions.forEach(defs::set);
-                schemas.put(type.getQualifiedName().toString(), root);
+                schemas.put(type.getQualifiedName().toString(), schema(type.asType()));
             } catch (IllegalArgumentException failure) {
                 processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, failure.getMessage(), element);
             }
         }
+        for (Element element : round.getElementsAnnotatedWith(RemoteService.class)) {
+            try {
+                TypeElement type = (TypeElement) element;
+                remotes.put(type.getQualifiedName().toString(), RemoteSource.describe(type, processingEnv, this::schema));
+            } catch (IllegalArgumentException failure) {
+                processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, failure.getMessage(), element);
+            }
+        }
+        for (Element element : round.getElementsAnnotatedWith(RemoteOperation.class)) {
+            if (element.getEnclosingElement().getAnnotation(RemoteService.class) == null)
+                processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, "SDK_REMOTE_SERVICE_REQUIRED", element);
+        }
         return true;
+    }
+
+    private ObjectNode schema(TypeMirror type) {
+        definitions.clear();
+        ObjectNode root = SchemaFiles.JSON.createObjectNode().put("$schema", SchemaFiles.DIALECT);
+        root.setAll(value(type, false, true, 0));
+        ObjectNode defs = root.putObject("$defs");
+        definitions.forEach(defs::set);
+        return root;
     }
 
     private ObjectNode value(TypeMirror mirror, boolean nullable, boolean elementsNullable, int depth) {

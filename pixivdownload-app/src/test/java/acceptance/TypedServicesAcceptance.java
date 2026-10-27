@@ -29,7 +29,7 @@ import java.util.*;
 /**
  * 对已解压的固定 boot JAR 执行签名安装和真实 HTTP 验证；业务契约不在宿主 classpath。
  * 编译和运行仅使用该产物根目录、BOOT-INF/classes 及 BOOT-INF/lib/*。
- * 参数依次为独立样例目录、SQLite 插件 JAR、下载工作台 JAR、故障夹具目录。
+ * 参数依次为独立样例目录、SQLite 插件 JAR、下载工作台 JAR、故障夹具目录和 JS HTTP 探针。
  * 夹具由 test/resources/typed-services/build.py 以独立 SDK 仓库和已解压宿主目录构建。
  */
 public final class TypedServicesAcceptance {
@@ -37,6 +37,7 @@ public final class TypedServicesAcceptance {
     private static Path root;
     private static PluginSupplyChainVerifier verifier;
     private static final Map<Path, SignatureMetadata> signatures = new HashMap<>();
+    private static Path remoteProbeScript;
 
     public static void main(String[] args) throws Exception {
         Utf8ConsoleStreams.install();
@@ -63,6 +64,7 @@ public final class TypedServicesAcceptance {
         Path provider = examples.resolve("provider/target/text-metrics-provider-0.1.0.jar");
         Path consumer = examples.resolve("consumer/target/text-metrics-consumer-0.1.0.jar");
         Path fixtures = Path.of(args[3]);
+        remoteProbeScript = Path.of(args[4]);
         Path missing = root.resolve("missing-contract");
         try (var installer = new ExternalPluginInstaller(missing, PluginPackageLimits.defaults(), verifier)) {
             check(installer.recoverPendingTransactions().safeToScan(), "missing-contract recovery");
@@ -81,6 +83,8 @@ public final class TypedServicesAcceptance {
             install(installer, fixtures.resolve("probe-contract.jar"), false);
             install(installer, fixtures.resolve("probe-provider.jar"), false);
             install(installer, fixtures.resolve("probe-consumer.jar"), false);
+            install(installer, fixtures.resolve("remote-ledger-contract.jar"), false);
+            install(installer, fixtures.resolve("remote-ledger-consumer.jar"), false);
         }
         var app = new SpringApplication(PixivDownloadApplication.class);
         app.addInitializers(context -> {
@@ -111,6 +115,14 @@ public final class TypedServicesAcceptance {
             check(login.statusCode() == 200, "login: " + login.statusCode());
             String cookie = login.headers().allValues("set-cookie").stream()
                     .filter(value -> value.startsWith("pixiv_session=")).findFirst().orElseThrow().split(";")[0];
+            check(contexts.contextFor("download-workbench").orElseThrow().isActive(), "required workbench context active");
+            var workbenchPage = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build()
+                    .send(HttpRequest.newBuilder(URI.create(origin + "/pixiv-batch.html"))
+                    .header("Cookie", cookie).GET().build(), HttpResponse.BodyHandlers.ofString());
+            check(workbenchPage.statusCode() == 200 && workbenchPage.body().contains("<html"),
+                    "workbench page from installed binary: status=" + workbenchPage.statusCode()
+                            + ", type=" + workbenchPage.headers().firstValue("Content-Type")
+                            + ", location=" + workbenchPage.headers().firstValue("Location"));
             checkLocalizedUnavailable(client, origin, cookie);
             rejectPackagedCopies(coordinator, provider, examples.resolve("api/target/text-metrics-api-0.1.0.jar"));
             var pending = coordinator.installOrUpdate(provider, false, origin(provider, false, null));
@@ -149,6 +161,7 @@ public final class TypedServicesAcceptance {
             check(response.statusCode() == 200, "consumer restart");
             check(context.getBean(PluginRuntimeManager.class).loadedDescriptor("text-metrics-contract").isPresent(), "contract retained");
             exerciseFaults(context, fixtures);
+            exerciseRemote(context, fixtures, origin, cookie);
             var contractEntry = context.getBean(top.sywyar.pixivdownload.plugin.registry.PluginRegistry.class)
                     .registeredPlugins().stream().filter(item -> item.id().equals("text-metrics-contract")).findFirst().orElseThrow();
             ClassLoader resident = contractEntry.classLoader();
@@ -371,6 +384,105 @@ public final class TypedServicesAcceptance {
 
     private static HttpResponse<String> post(HttpClient client, String origin, String path, String body, String cookie) throws Exception {
         return post(client, origin, path, body, cookie, "en-US");
+    }
+
+
+    private static void exerciseRemote(ConfigurableApplicationContext context, Path fixtures, String origin, String cookie) throws Exception {
+        var coordinator = context.getBean(ExternalPluginLifecycleCoordinator.class);
+        var contexts = context.getBean(ExternalPluginContextManager.class);
+        var consumer = contexts.contextFor("remote-ledger-consumer").orElseThrow();
+        ServiceBinding binding = consumer.getBean(ServiceBinding.class);
+        var invites = context.getBean(top.sywyar.pixivdownload.setup.guest.GuestInviteService.class);
+        var invitation = new top.sywyar.pixivdownload.setup.guest.dto.InviteCreateRequest();
+        invitation.setName("Isolated remote permission probe");
+        long invitationId = invites.createInvite(invitation);
+        String guest = top.sywyar.pixivdownload.setup.AuthFilter.INVITE_COOKIE + "=" + invites.detail(invitationId).code();
+        remoteProbe(context, fixtures, origin, cookie, guest, false);
+        activate(coordinator, fixtures.resolve("remote-ledger-provider.jar"));
+        await(() -> binding.state() == ServiceBinding.State.ACTIVE, "remote binding active");
+        remoteProbe(context, fixtures, origin, cookie, guest, true);
+
+        var provider = contexts.contextFor("remote-ledger-provider").orElseThrow();
+        Class<?> control = provider.getClassLoader().loadClass("acceptance.remote.RemoteParticipant");
+        Class<?> api = consumer.getClassLoader().loadClass("acceptance.remotecontract.RemoteLedger");
+        String identity;
+        try (var input = api.getResourceAsStream("/META-INF/pixivdownload/schema/acceptance.remotecontract.RemoteLedger.remote.json")) {
+            identity = JSON.readTree(input).path("identity").asText();
+        }
+        var request = HttpRequest.newBuilder(URI.create(origin + "/api/remote-ledger/record"))
+                .header("Origin", origin).header("Cookie", cookie).header("Content-Type", "application/json")
+                .header("X-Pixiv-Contract", identity).POST(HttpRequest.BodyPublishers.ofString(
+                        "{\"sequence\":1,\"text\":\"wait\",\"numbers\":[],\"labels\":{},\"mode\":\"BLOCK\"}")).build();
+        var calling = HttpClient.newHttpClient().sendAsync(request, HttpResponse.BodyHandlers.ofString());
+        var entered = (java.util.concurrent.CountDownLatch) control.getField("entered").get(null);
+        try {
+            check(entered.await(5, java.util.concurrent.TimeUnit.SECONDS), "remote entered");
+            try { coordinator.stop("remote-ledger-provider"); }
+            catch (top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleException pending) { }
+            check(provider.isActive(), "remote provider retained during actual invocation");
+            calling.cancel(true);
+            check(provider.isActive(), "client cancellation is not server drain");
+        } finally { control.getMethod("release").invoke(null); }
+        stopEventually(coordinator, "remote-ledger-provider");
+        check(!provider.isActive(), "remote provider closes after real exit");
+        await(() -> binding.state() == ServiceBinding.State.WAITING, "remote binding absent");
+        remoteProbe(context, fixtures, origin, cookie, guest, false);
+        coordinator.start("remote-ledger-provider");
+        await(() -> binding.state() == ServiceBinding.State.ACTIVE, "remote binding restored");
+        remoteProbe(context, fixtures, origin, cookie, guest, true);
+
+        stopEventually(coordinator, "remote-ledger-consumer");
+        check(binding.state() == ServiceBinding.State.CLOSED && !consumer.isActive(), "remote consumer resources released");
+        stopEventually(coordinator, "remote-ledger-provider");
+        coordinator.start("remote-ledger-provider");
+        check(binding.state() == ServiceBinding.State.CLOSED, "stopped consumer cannot revive");
+        coordinator.start("remote-ledger-consumer");
+        remoteProbe(context, fixtures, origin, cookie, guest, true);
+        ClassLoader beforeReplacement = contexts.contextFor("remote-ledger-provider").orElseThrow().getClassLoader();
+        stopEventually(coordinator, "remote-ledger-provider");
+        coordinator.reload("remote-ledger-provider");
+        check(beforeReplacement != contexts.contextFor("remote-ledger-provider").orElseThrow().getClassLoader(),
+                "remote physical replacement uses a new classloader");
+        var replacementBinding = contexts.contextFor("remote-ledger-consumer").orElseThrow().getBean(ServiceBinding.class);
+        await(() -> replacementBinding.state() == ServiceBinding.State.ACTIVE, "remote binding after physical replacement");
+        remoteProbe(context, fixtures, origin, cookie, guest, true);
+        System.out.println("REMOTE_FROZEN_HOST_ACCEPTANCE_PASSED");
+    }
+
+    private static void remoteProbe(ConfigurableApplicationContext context, Path fixtures, String origin, String cookie, String guest, boolean active) throws Exception {
+        java.util.concurrent.atomic.AtomicInteger calls = null;
+        int before = 0;
+        if (active) {
+            var provider = context.getBean(ExternalPluginContextManager.class).contextFor("remote-ledger-provider").orElseThrow();
+            calls = (java.util.concurrent.atomic.AtomicInteger) provider.getClassLoader()
+                    .loadClass("acceptance.remote.RemoteParticipant").getField("calls").get(null);
+            before = calls.get();
+        }
+        Path module = fixtures.getParent().resolve("remote-consumer/target/classes/web/generated/acceptance.remotecontract.RemoteLedger.mjs");
+        var builder = new ProcessBuilder("node", remoteProbeScript.toString(), module.toString(), active ? "active" : "absent");
+        builder.environment().put("REMOTE_ORIGIN", origin);
+        builder.environment().put("REMOTE_COOKIE", cookie);
+        builder.environment().put("REMOTE_GUEST", guest);
+        Process process = builder.inheritIO().start();
+        check(process.waitFor() == 0, "generated frontend actual HTTP probe");
+        if (active) check(calls.get() - before == 5, "only three valid requests and two explicit failure probes reach provider");
+    }
+
+    private static void stopEventually(ExternalPluginLifecycleCoordinator coordinator, String id) throws Exception {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+        while (true) {
+            try { coordinator.stop(id); return; }
+            catch (top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleException pending) {
+                if (System.nanoTime() >= deadline) throw pending;
+                Thread.sleep(10);
+            }
+        }
+    }
+
+    private static void await(java.util.function.BooleanSupplier condition, String label) throws Exception {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+        while (!condition.getAsBoolean() && System.nanoTime() < deadline) Thread.sleep(10);
+        check(condition.getAsBoolean(), label);
     }
 
     private static void checkLocalizedUnavailable(HttpClient client, String origin, String cookie) throws Exception {

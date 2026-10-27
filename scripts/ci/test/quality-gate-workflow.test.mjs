@@ -221,11 +221,12 @@ test('模板构建收到与 SDK 暂存相同的精确源码参数', () => {
     const sourceSha = 'a'.repeat(40);
     const received = execFileSync('bash', ['-e', '-o', 'pipefail', '-c',
         `mvn() { printf 'MAVEN_ARGUMENT:%s\\n' "$@"; }\nnode() { :; }\n${templates.run}`], {
-        cwd: ROOT, encoding: 'utf8', env: { ...process.env, SOURCE_SHA: sourceSha },
+        cwd: ROOT, encoding: 'utf8', env: { ...process.env, SOURCE_SHA: sourceSha, GITHUB_WORKSPACE: ROOT },
     }).trim().split('\n').map(line => line.slice('MAVEN_ARGUMENT:'.length));
     assert.ok(received.includes(`-Dpixivdownload.source.sha=${sourceSha}`));
     assert.equal(received[received.indexOf('-f') + 1], 'plugin-templates/pom.xml');
     assert.ok(received.includes('verify'));
+    assert.ok(received.some(argument => argument.startsWith('-Dpixivdownload.sdk.tools=')));
     assert.ok(!received.includes('-pl'), '所有模板及 SDK 模块都参与构建');
 });
 
@@ -283,7 +284,9 @@ test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构
     const contract = sources.findIndex(step => /sdk-contract\.mjs/u.test(step.run || ''));
     assert.ok(stage >= 0 && templates > stage && consumer > stage && contract > stage);
     assert.doesNotMatch(sources[templates].run, /-D(?:skipTests|maven\.test\.skip)(?:=true)?(?:\s|$)/u);
-    assert.match(sources[templates].run, /verifyTypedServiceArtifacts\("plugin-templates\/typed-service-plugin"\)/u);
+    assert.match(sources[templates].run, /verifyTypedServiceArtifacts\("plugin-templates\/typed-service-plugin", process.argv\[1\]\)/u);
+    assert.match(sources[templates].run, /node scripts\/ci\/sdk-remote.mjs/u);
+    assert.ok(sources.some(step => /node scripts\/ci\/sdk-typed-services.mjs/u.test(step.run || '')));
     assert.doesNotMatch(sources[templates].run, /-pl\s/u);
     assert.match(sources[consumer].run, /sdk-release\.mjs/u);
     const scripts = Object.values(jobs).flatMap(executionSteps)

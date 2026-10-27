@@ -30,7 +30,14 @@ public final class ConsumerPlugin extends Plugin implements PixivPluginProvider 
                 return List.of(new ServiceKey<>("text-metrics-contract", TextMetrics.class));
             }
             public List<WebRouteContribution> routes() {
-                return List.of(WebRouteContribution.admin("/api/text-metrics"));
+                var routes = new java.util.ArrayList<>(pixivdownload.generated.remote.TextMetricsRemoteAdapter.routes());
+                routes.add(WebRouteContribution.admin("/api/text-metrics"));
+                routes.add(WebRouteContribution.admin("/text-metrics-client/**"));
+                return List.copyOf(routes);
+            }
+            public List<top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution> staticResources() {
+                return List.of(new top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution(
+                        "classpath:/web/", "/text-metrics-client/"));
             }
         };
     }

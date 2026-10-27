@@ -160,6 +160,8 @@ public final class PluginApplicationContextFactory {
         child.setParent(parent);
         if (services != null) {
             child.getBeanFactory().registerSingleton("pluginServices", services);
+            PluginRemoteOperationsFactory remoteFactory = parent.getBeanProvider(PluginRemoteOperationsFactory.class).getIfAvailable();
+            if (remoteFactory != null) child.getBeanFactory().registerSingleton("pluginRemoteOperations", remoteFactory.create(module.sourcePluginId(), services));
         }
         // 父环境的 Boot 绑定适配器仍引用父属性源，必须在子环境重新附加，才能读取 owner 值与敏感遮罩。
         ConfigurationPropertySources.attach(child.getEnvironment());
