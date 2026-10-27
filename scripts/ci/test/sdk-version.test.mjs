@@ -52,13 +52,15 @@ function createFixture() {
                     : '')
                 + '</project>');
     }
-    for (const template of ['minimal-feature-plugin', 'download-type-plugin']) {
+    for (const template of ['minimal-feature-plugin', 'download-type-plugin', 'typed-service-plugin']) {
         write(root, `plugin-templates/${template}/pom.xml`,
                 '<groupId>io.github.sywyar.pixivdownloader</groupId>'
                 + '<artifactId>pixivdownload-sdk</artifactId>'
                 + `<properties><pixivdownload.sdk.version>${CURRENT.version}</pixivdownload.sdk.version></properties>`);
-        write(root, `plugin-templates/${template}/src/main/resources/plugin.properties`,
-                `plugin.requires=${CURRENT.prerelease ? '=' + CURRENT.version : CURRENT.compatibilityVersion}\n`);
+        for (const module of template === 'typed-service-plugin' ? ['contract/', 'provider/', 'consumer/'] : ['']) {
+            write(root, `plugin-templates/${template}/${module}src/main/resources/plugin.properties`,
+                    `plugin.requires=${CURRENT.prerelease ? '=' + CURRENT.version : CURRENT.compatibilityVersion}\n`);
+        }
     }
     return root;
 }
@@ -105,6 +107,22 @@ test('SDK 身份事实源与 Maven、BOM 及模板投影必须一致', () => {
         assert.throws(() => inspectSdkVersion(root), error => error.message.includes('minimal-feature-plugin') && error.message.includes(`must be ${CURRENT.version}`));
     } finally {
         fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('独立服务父 POM 和三个插件描述符必须与候选 SDK 保持一致', () => {
+    for (const relative of ['pom.xml', ...['contract', 'provider', 'consumer'].map(module =>
+        `${module}/src/main/resources/plugin.properties`)]) {
+        const root = createFixture();
+        try {
+            const file = path.join(root, 'plugin-templates/typed-service-plugin', relative);
+            fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(
+                relative === 'pom.xml' ? CURRENT.version : (CURRENT.prerelease ? '=' + CURRENT.version : CURRENT.compatibilityVersion),
+                NEXT), 'utf8');
+            assert.throws(() => inspectSdkVersion(root), /typed-service-plugin/u);
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
     }
 });
 

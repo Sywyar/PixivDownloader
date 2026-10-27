@@ -58,7 +58,8 @@ public record PluginDescriptor(
         PluginLifecyclePolicy lifecyclePolicy,
         PluginExecutionMode executionMode,
         List<String> configurationClassNames,
-        PluginRiskDeclaration riskDeclaration) {
+        PluginRiskDeclaration riskDeclaration,
+        PluginContractDeclaration contract) {
 
     /** 插件 id 规范：小写短横线，如 {@code download-workbench}（与核心注册中心一致）。 */
     public static final Pattern ID_PATTERN = Pattern.compile("[a-z][a-z0-9]*(-[a-z0-9]+)*");
@@ -87,6 +88,17 @@ public record PluginDescriptor(
         configurationClassNames = configurationClassNames != null
                 ? List.copyOf(configurationClassNames) : List.of();
         Objects.requireNonNull(riskDeclaration, "riskDeclaration");
+    }
+
+    public PluginDescriptor(String id, String sourcePluginId, String version, VersionRequirement requires,
+                            List<PluginDependencyRef> dependencies, String pluginClass, String displayNamespace,
+                            String displayName, String description, String iconKey, String colorToken,
+                            PluginKind kind, List<String> replaces, PluginLifecyclePolicy lifecyclePolicy,
+                            PluginExecutionMode executionMode, List<String> configurationClassNames,
+                            PluginRiskDeclaration riskDeclaration) {
+        this(id, sourcePluginId, version, requires, dependencies, pluginClass, displayNamespace, displayName,
+                description, iconKey, colorToken, kind, replaces, lifecyclePolicy, executionMode,
+                configurationClassNames, riskDeclaration, null);
     }
 
     public PluginDescriptor(String id, String sourcePluginId, String version, VersionRequirement requires,
@@ -170,13 +182,14 @@ public record PluginDescriptor(
         return new PluginDescriptor(id, sourcePluginId, version, requires, dependencies, pluginClass,
                 displayNamespace, displayName, description, iconKey, colorToken, kind,
                 packageDescriptor.replaces(), packageDescriptor.lifecyclePolicy(), packageDescriptor.executionMode(),
-                packageDescriptor.configurationClassNames(), packageDescriptor.riskDeclaration());
+                packageDescriptor.configurationClassNames(), packageDescriptor.riskDeclaration(),
+                packageDescriptor.contract());
     }
 
     public PluginDescriptor withExecutionMode(PluginExecutionMode mode) {
         return new PluginDescriptor(id, sourcePluginId, version, requires, dependencies, pluginClass,
                 displayNamespace, displayName, description, iconKey, colorToken, kind, replaces,
-                lifecyclePolicy, Objects.requireNonNull(mode, "mode"), configurationClassNames, riskDeclaration);
+                lifecyclePolicy, Objects.requireNonNull(mode, "mode"), configurationClassNames, riskDeclaration, contract);
     }
 
     /** 该描述符声明的 SDK 版本要求是否被当前宿主 SDK 满足（{@code requires} 兼容性）。 */
@@ -196,6 +209,11 @@ public record PluginDescriptor(
      */
     public List<String> validationErrors() {
         List<String> errors = new ArrayList<>();
+        if (contract != null && (lifecyclePolicy != PluginLifecyclePolicy.PROCESS_RESTART
+                || executionMode != PluginExecutionMode.HOST_PROCESS_FULL_TRUST
+                || !dependencies.isEmpty() || !configurationClassNames.isEmpty() || !replaces.isEmpty())) {
+            errors.add("contract packages require process-restart and host-process-full-trust, without dependencies, configuration or replaces");
+        }
         if (id == null || !ID_PATTERN.matcher(id).matches()) {
             errors.add("invalid plugin id: " + id);
         }

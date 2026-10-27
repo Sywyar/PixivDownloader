@@ -2,9 +2,10 @@
 
 此目录中的项目是可复制的第三方插件起点，也是仓库内的模板验证工程；它们不会加入正式产品 reactor，也不会进入应用发行包。
 
-目录包含两个独立子项目：
+目录包含以下独立项目：
 
 - <a href="minimal-feature-plugin/README.md"><code>minimal-feature-plugin</code></a>：可在独立 worker 中运行的 route/static/i18n 声明式插件；
+- [typed-service-plugin](typed-service-plugin/README.md)：独立 API、契约包装包、服务提供者与管理员 HTTP 消费入口；
 - <code>download-type-plugin</code>：经包验证与管理员信任确认后可用的宿主进程完全信任示例，覆盖下载工作台 contract version 1、队列操作、计划来源、Vue 槽位与独立画廊。
 
 模板目标是提供一套稳定、高可用、易上手的 SDK 起点：稳定来自版本化公共契约和 owner/publication 边界，高可用来自失败隔离、fail-closed 与真实生命周期清退，易上手来自可复制工程、命名工厂和确定性守卫。目录名中的 `minimal` 只表示示例不携带站点业务逻辑，不表示删减安全、生命周期或降级路径来追求文件更少。

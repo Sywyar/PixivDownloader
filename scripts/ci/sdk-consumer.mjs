@@ -29,14 +29,56 @@ function run(command, args, options = {}) {
 }
 
 function thinJarEntries(pluginJar) {
+    const entries = jarEntries(pluginJar);
+    assertThinJarEntries(entries);
+    return entries;
+}
+
+function jarEntries(pluginJar) {
     if (!fs.statSync(pluginJar, { throwIfNoEntry: false })?.isFile()) {
         fail(`isolated consumer plugin JAR is missing: ${pluginJar}`);
     }
     const listing = spawnSync('jar', ['--list', '--file', pluginJar], { encoding: 'utf8' });
     if (listing.status !== 0) fail(`cannot inspect isolated consumer plugin JAR: ${pluginJar}`);
     const entries = listing.stdout.split(/\r?\n/u).filter(Boolean);
-    assertThinJarEntries(entries);
     return entries;
+}
+
+export function verifyTypedServiceArtifacts(project) {
+    project = path.resolve(project);
+    const api = currentPluginJar(path.join(project, 'api'));
+    const apiBytes = fs.readFileSync(api);
+    const apiDigest = createHash('sha256').update(apiBytes).digest('hex');
+    fs.mkdirSync(path.join(project, 'target'), { recursive: true });
+    const extracted = fs.mkdtempSync(path.join(project, 'target', 'contract-check-'));
+    try {
+        for (const module of ['api', 'contract', 'provider', 'consumer']) {
+            const jar = currentPluginJar(path.join(project, module));
+            const entries = jarEntries(jar);
+            const classes = entries.filter(entry => entry.endsWith('.class'));
+            if (!classes.length || classes.some(entry => !entry.startsWith(`com/example/textmetrics/${module}/`))) {
+                fail(`typed service ${module} contains unexpected or duplicated contract/host classes`);
+            }
+            const allowedLibrary = module === 'contract' ? 'lib/text-metrics-api.jar' : '';
+            if (entries.some(entry => entry.endsWith('.jar') && entry !== allowedLibrary)) {
+                fail(`typed service ${module} contains an unexpected library`);
+            }
+            if (module !== 'api') assertThinJarEntries(entries.filter(entry =>
+                module !== 'contract' || (entry !== 'lib/' && entry !== allowedLibrary)));
+            if (module === 'contract') {
+                run('jar', ['--extract', '--file', jar, 'plugin.properties', allowedLibrary], { cwd: extracted });
+                const descriptor = fs.readFileSync(path.join(extracted, 'plugin.properties'), 'utf8');
+                if (!fs.readFileSync(path.join(extracted, allowedLibrary)).equals(apiBytes)
+                        || !descriptor.split(/\r?\n/u).includes(`pixiv.contract-sha256=${apiDigest}`)
+                        || !descriptor.split(/\r?\n/u).includes(`pixiv.contract-api=${allowedLibrary}`)) {
+                    fail('typed service contract must bind and carry the original API JAR bytes');
+                }
+            }
+        }
+    } finally {
+        fs.rmSync(extracted, { recursive: true, force: true });
+    }
+    return { apiDigest };
 }
 
 function currentPluginJar(project) {
@@ -328,7 +370,7 @@ export function verifyConsumer(options) {
     ], douyinSource);
 
     const buildTemplates = offline => {
-        for (const pom of ['pom.xml', 'examples/download-type-plugin/pom.xml']) {
+        for (const pom of ['pom.xml', 'examples/download-type-plugin/pom.xml', 'examples/typed-service-plugin/pom.xml']) {
             runMaven([...(offline ? ['-o'] : []), '-s', settings,
                 `-Dmaven.repo.local=${localRepository}`, '-f', path.join(project, pom), 'clean', 'verify']);
         }
@@ -353,6 +395,7 @@ export function verifyConsumer(options) {
     const pluginJar = currentPluginJar(path.join(project, 'examples', 'download-type-plugin'));
     thinJarEntries(pluginJar);
     thinJarEntries(currentPluginJar(project));
+    const typedServices = verifyTypedServiceArtifacts(path.join(project, 'examples', 'typed-service-plugin'));
     const douyinCandidates = fs.readdirSync(douyinBuildDirectory)
             .filter(name => /^pixivdownload-plugin-douyin-.+\.jar$/u.test(name))
             .filter(name => !name.endsWith('-sources.jar') && !name.endsWith('-javadoc.jar'));
@@ -384,6 +427,7 @@ export function verifyConsumer(options) {
         douyinSource,
         ...packagePaths,
         localRepository,
+        typedServices,
     };
 }
 

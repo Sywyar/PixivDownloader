@@ -58,6 +58,15 @@ test('SDK 的四个可选工程在归档及初始 Git 树中保留相同的标�
             assert.match(git(['ls-tree', 'HEAD', '--', marker]).toString('utf8'), /^100644 /u);
         }
         assert.equal(git(['status', '--porcelain']).toString('utf8'), '');
+        const services = path.join(extracted, 'examples', 'typed-service-plugin');
+        for (const module of ['contract', 'provider', 'consumer']) {
+            const descriptor = fs.readFileSync(path.join(services, module, 'src/main/resources/plugin.properties'), 'utf8');
+            assert.equal(descriptor.match(/^plugin\.requires=(.+)$/mu)?.[1].trim(),
+                    IDENTITY.prerelease ? '=' + IDENTITY.version : IDENTITY.compatibilityVersion);
+        }
+        assert.ok(fs.existsSync(path.join(services, 'api/src/main/java/com/example/textmetrics/api/TextMetrics.java')));
+        assert.ok(fs.existsSync(path.join(services, 'README_en.md')));
+        assert.equal(tracked.some(file => file.startsWith('examples/typed-service-plugin/') && file.includes('/target/')), false);
         const invalidRoot = path.join(root, 'invalid');
         const invalid = path.join(invalidRoot, 'plugin-templates', 'minimal-feature-plugin');
         fs.mkdirSync(invalid, { recursive: true });

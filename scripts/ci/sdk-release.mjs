@@ -263,6 +263,17 @@ export function stagePluginTemplates(root, workspace, identity, sourceSha) {
     copyTree(path.join(root, 'plugin-templates', 'minimal-feature-plugin'), workspace);
     const downloadExample = path.join(workspace, 'examples', 'download-type-plugin');
     copyTree(path.join(root, 'plugin-templates', 'download-type-plugin'), downloadExample);
+    const serviceExample = path.join(workspace, 'examples', 'typed-service-plugin');
+    copyTree(path.join(root, 'plugin-templates', 'typed-service-plugin'), serviceExample);
+    const servicePom = path.join(serviceExample, 'pom.xml');
+    fs.writeFileSync(servicePom, fs.readFileSync(servicePom, 'utf8').replace(
+            /<pixivdownload\.sdk\.version>[^<]+<\/pixivdownload\.sdk\.version>/u,
+            `<pixivdownload.sdk.version>${identity.version}</pixivdownload.sdk.version>`), 'utf8');
+    for (const module of ['contract', 'provider', 'consumer']) {
+        const descriptor = path.join(serviceExample, module, 'src/main/resources/plugin.properties');
+        fs.writeFileSync(descriptor, fs.readFileSync(descriptor, 'utf8').replace(/^plugin\.requires=.+$/mu,
+                `plugin.requires=${identity.prerelease ? '=' + identity.version : identity.compatibilityVersion}`), 'utf8');
+    }
     if (!fs.existsSync(path.join(downloadExample, 'README_en.md'))) {
         fs.copyFileSync(path.join(downloadExample, 'README.md'), path.join(downloadExample, 'README_en.md'));
     }

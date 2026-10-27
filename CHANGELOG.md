@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Features
 
+- 插件可通过独立契约包声明和调用同步纯值服务，新增业务接口无需加入宿主基础 SDK。
+
 - 插件可通过公共接口协调本地文件变更与主库记录的提交和恢复。
 - Compose 关于页显示当前数据库及插件运行状态，复制软件信息时一并包含。
 - 默认安装 SQLite 数据库插件，可从市场安装并选择 PostgreSQL 17 / 18；主库与已适配的插件私有存储使用所选引擎，切换须完整重启。

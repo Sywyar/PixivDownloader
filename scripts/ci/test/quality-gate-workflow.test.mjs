@@ -212,6 +212,23 @@ test('Quality Gate preserves required roles and the active event contract', () =
     }
 });
 
+test('模板构建收到与 SDK 暂存相同的精确源码参数', () => {
+    const steps = load('.github/actions/verify-sdk/action.yml').runs.steps;
+    const stage = steps.find(step => /altDeploymentRepository=sdk-staging/u.test(step.run || ''));
+    const templates = steps.find(step => /plugin-templates\/pom.xml/u.test(step.run || ''));
+    assert.equal(stage.env.SOURCE_SHA, '${{ inputs.source_sha }}');
+    assert.equal(templates.env.SOURCE_SHA, stage.env.SOURCE_SHA);
+    const sourceSha = 'a'.repeat(40);
+    const received = execFileSync('bash', ['-e', '-o', 'pipefail', '-c',
+        `mvn() { printf 'MAVEN_ARGUMENT:%s\\n' "$@"; }\nnode() { :; }\n${templates.run}`], {
+        cwd: ROOT, encoding: 'utf8', env: { ...process.env, SOURCE_SHA: sourceSha },
+    }).trim().split('\n').map(line => line.slice('MAVEN_ARGUMENT:'.length));
+    assert.ok(received.includes(`-Dpixivdownload.source.sha=${sourceSha}`));
+    assert.equal(received[received.indexOf('-f') + 1], 'plugin-templates/pom.xml');
+    assert.ok(received.includes('verify'));
+    assert.ok(!received.includes('-pl'), '所有模板及 SDK 模块都参与构建');
+});
+
 test('Java tests and ProGuard run independently and both gate the required Java result', () => {
     const { jobs } = load('.github/workflows/quality-gate.yml');
     const owner = (pattern) => {
@@ -262,10 +279,12 @@ test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构
     const sources = executionSteps(jobs['sdk-tests']);
     const stage = sources.findIndex(step => /altDeploymentRepository=sdk-staging/u.test(step.run || ''));
     const templates = sources.findIndex(step => /plugin-templates\/pom.xml/u.test(step.run || ''));
-    const consumer = sources.findIndex(step => /sdk-consumer\.mjs/u.test(step.run || ''));
+    const consumer = sources.findIndex(step => /node scripts\/ci\/sdk-consumer\.mjs/u.test(step.run || ''));
     const contract = sources.findIndex(step => /sdk-contract\.mjs/u.test(step.run || ''));
     assert.ok(stage >= 0 && templates > stage && consumer > stage && contract > stage);
     assert.doesNotMatch(sources[templates].run, /-D(?:skipTests|maven\.test\.skip)(?:=true)?(?:\s|$)/u);
+    assert.match(sources[templates].run, /verifyTypedServiceArtifacts\("plugin-templates\/typed-service-plugin"\)/u);
+    assert.doesNotMatch(sources[templates].run, /-pl\s/u);
     assert.match(sources[consumer].run, /sdk-release\.mjs/u);
     const scripts = Object.values(jobs).flatMap(executionSteps)
         .filter(step => /check-powershell\.ps1/u.test(step.run || ''));
@@ -320,8 +339,9 @@ test('应用资源构建与 SDK 宿主消费者显式取得内置 GitHub 读取�
             const command = step.run || '';
             const appBuild = command.split('\n').some(line => /\bmvn\b.*\b(?:compile|test|verify|install)\b/u.test(line)
                 && !line.includes('surefire:test')
+                && !/-f\s+plugin-templates\/pom\.xml\b/u.test(line)
                 && (!line.includes('-pl') || /-pl\s+pixivdownload-(?:app|official-plugins)\b/u.test(line)));
-            if (!appBuild && !command.includes('scripts/ci/sdk-consumer.mjs')) continue;
+            if (!appBuild && !/node scripts\/ci\/sdk-consumer\.mjs/u.test(command)) continue;
             assert.equal(step.env?.GITHUB_TOKEN, '${{ github.token }}', `${workflow}: ${step.name}`);
             builds++;
         }

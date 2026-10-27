@@ -141,6 +141,8 @@ class PluginApiOwnershipGuardTest {
             .importPackages("top.sywyar.pixivdownload.plugin.api");
 
     private static final Map<String, Set<String>> APPROVED_TYPES_BY_OWNER = Map.ofEntries(
+            Map.entry("独立契约同步服务", types(API_PREFIX + "service",
+                    "PluginServices", "ServiceKey", "ServiceExport", "ServiceAccessException")),
             Map.entry("中性私库操作", types(API_PREFIX + "storage.relational",
                     "Expression", "Query", "DatabaseSession", "PrivateStorageSchema", "StorageMigration", "StorageFeatures", "StorageValues")),
             Map.entry("私库 JDBC 实现支持", types(API_PREFIX + "storage.relational.jdbc", "JdbcDatabaseSession")),
@@ -266,6 +268,7 @@ class PluginApiOwnershipGuardTest {
     );
 
     private static final Map<String, Integer> APPROVED_TYPE_COUNTS = Map.ofEntries(
+            Map.entry("独立契约同步服务", 4),
             Map.entry("中性私库操作", 7),
             Map.entry("私库 JDBC 实现支持", 1),
             Map.entry("数据库 provider 契约", 5),
@@ -293,6 +296,7 @@ class PluginApiOwnershipGuardTest {
     );
 
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
+            API_PREFIX + "service.ServiceAccessException$Reason",
             API_PREFIX + "database.migration.jdbc.JdbcMigrationSupport$RowSource",
             API_PREFIX + "database.DatabaseConnectionTarget$OpenMode",
             API_PREFIX + "database.DatabaseConnectionTarget$SchemaApplyResult",

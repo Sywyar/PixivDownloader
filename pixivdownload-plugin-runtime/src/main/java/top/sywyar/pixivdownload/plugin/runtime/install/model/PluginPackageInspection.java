@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.install.model;
 
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginClassSpace;
+
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 
 import java.util.Objects;
@@ -24,7 +26,20 @@ public record PluginPackageInspection(
         PluginPackageFormat format,
         PluginDescriptor descriptor,
         String innerJarEntry,
-        boolean containsPrivateLibraries) {
+        boolean containsPrivateLibraries,
+        PluginClassSpace classSpace) {
+
+    public PluginPackageInspection(PluginPackageFormat format, PluginDescriptor descriptor,
+                                   String innerJarEntry, boolean containsPrivateLibraries) {
+        this(format, descriptor, innerJarEntry, containsPrivateLibraries,
+                PluginClassSpace.empty());
+    }
+
+    public PluginPackageInspection withClassSpace(
+            PluginClassSpace space) {
+        space.contractPackages(descriptor);
+        return new PluginPackageInspection(format, descriptor, innerJarEntry, containsPrivateLibraries, space);
+    }
 
     public PluginPackageInspection {
         Objects.requireNonNull(format, "format");

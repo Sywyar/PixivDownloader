@@ -1,5 +1,11 @@
 package top.sywyar.pixivdownload.plugin.lifecycle;
 
+import top.sywyar.pixivdownload.plugin.api.service.ServiceKey;
+import top.sywyar.pixivdownload.plugin.api.service.ServiceExport;
+import top.sywyar.pixivdownload.plugin.api.service.ServiceAccessException;
+import top.sywyar.pixivdownload.plugin.api.service.PluginServices;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ServiceDeclarations;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.stereotype.Component;
@@ -36,6 +42,7 @@ public class PluginCapabilityContributionRegistrar {
         private boolean cleanupPending;
         private boolean cleanupComplete;
         private PublishedOwner cleanupBatch;
+        private List<ServiceExport<?>> serviceExports = List.of();
 
         private PreparedOwner(
                 ExternalCapabilityPreparation preparation,
@@ -158,6 +165,26 @@ public class PluginCapabilityContributionRegistrar {
     }
 
     /** Install and populate a preheld slot; every side effect is recoverable through that exact slot. */
+    public PluginServices servicesFor(PreparedOwner owner,
+            List<ServiceKey<?>> imports,
+            List<ServiceExport<?>> exports) {
+        exports = ServiceDeclarations.copy(exports);
+        if (exports.stream().map(export -> export.key()).distinct().count() != exports.size()) {
+            throw new IllegalArgumentException("invalid service exports");
+        }
+        owner.serviceExports = List.copyOf(exports);
+        invocationRegistry.installPreparation(owner.preparation);
+        return invocationRegistry.servicesFor(owner.preparation, imports);
+    }
+
+    /** 同步服务栈不能取得生命周期操作锁并等待自身排空。 */
+    public void requireLifecycleMutationAllowed() {
+        if (invocationRegistry.serviceInvocationOnCurrentThread()) {
+            throw new ServiceAccessException(
+                    ServiceAccessException.Reason.NOT_ACTIVE);
+        }
+    }
+
     public void prepareInto(PreparedOwner preparedOwner, ConfigurableApplicationContext context) {
         if (preparedOwner == null) {
             throw new IllegalArgumentException("prepared external capability owner must not be null");
@@ -175,6 +202,13 @@ public class PluginCapabilityContributionRegistrar {
                 preparedOwner.preparationStarted = true;
             }
             invocationRegistry.installPreparation(preparedOwner.preparation);
+            for (var export : preparedOwner.serviceExports) {
+                if (!context.getBeanFactory().containsLocalBean(export.beanName())) {
+                    throw new IllegalArgumentException("exported service must be a local child bean");
+                }
+                prepareService(preparedOwner, context, export);
+            }
+            preparedOwner.serviceExports = List.of();
             for (ExternalRuntimeCapabilityAdapter adapter : runtimeAdapters) {
                 ExternalRuntimeCapabilityAdapter.PreparedContribution contribution =
                         adapter.prepare(preparedOwner.preparation, context);
@@ -205,6 +239,12 @@ public class PluginCapabilityContributionRegistrar {
                 }
             }
         }
+    }
+
+    private <T> void prepareService(PreparedOwner owner, ConfigurableApplicationContext context,
+            ServiceExport<T> export) {
+        invocationRegistry.prepareService(owner.preparation, export.key(),
+                context.getBean(export.beanName(), export.key().type()));
     }
 
     /** Publish all downstream proxy snapshots first, then atomically open central admission. */

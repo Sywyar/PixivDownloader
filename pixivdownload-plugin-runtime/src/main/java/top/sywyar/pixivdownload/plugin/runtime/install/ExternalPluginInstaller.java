@@ -494,6 +494,13 @@ public class ExternalPluginInstaller implements AutoCloseable {
             PluginProvenanceRecord validatedProvenance = validator.provenanceStore
                     .readRequiredForRecovery(validated.installedPath());
             List<InstalledPlugin> installed = listInstalledExclusive();
+            try {
+                requireCompatibleContractSpaces(validated.installedPath(), installed);
+            } catch (PluginPackageException unsafe) {
+                deleteRecursivelyQuietly(unpublishedTransaction);
+                return new PreparedPluginTransaction(transactionId,
+                        rejected(mapReason(unsafe.reason()), unsafe.getMessage()), null, null, null, List.of());
+            }
             List<InstalledPlugin> sameId = installed.stream()
                     .filter(plugin -> descriptor.id().equals(plugin.id())).toList();
             List<InstalledPlugin> replaced = installed.stream()
@@ -1733,8 +1740,9 @@ public class ExternalPluginInstaller implements AutoCloseable {
         }
 
         // 0. 资源与 entry 名安全扫描（.zip / .jar 同等），在任何解压 / 落盘前完成。
+        PluginPackageVerifier.VerificationUsage packageUsage;
         try {
-            PluginPackageVerifier.verify(packagePath, limits);
+            packageUsage = PluginPackageVerifier.verifyAndMeasure(packagePath, limits);
         } catch (PluginPackageException e) {
             return rejected(mapReason(e.reason()), e.getMessage());
         }
@@ -1742,7 +1750,7 @@ public class ExternalPluginInstaller implements AutoCloseable {
         // 1. 检视：读布局 + 包级描述符（描述符读取字节受 limits 约束）
         PluginPackageInspection inspection;
         try {
-            inspection = PluginPackageReader.inspect(packagePath, limits);
+            inspection = PluginPackageReader.inspect(packagePath, limits).withClassSpace(packageUsage.classSpace());
         } catch (PluginPackageException e) {
             return rejected(mapReason(e.reason()), e.getMessage());
         }
@@ -1792,6 +1800,11 @@ public class ExternalPluginInstaller implements AutoCloseable {
 
         // 5. 重复 / 升级 / 降级判定
         List<InstalledPlugin> installedPlugins = listInstalledExclusive();
+        try {
+            requireCompatibleContractSpaces(packagePath, installedPlugins);
+        } catch (IOException | PluginRecoveryValidationException | PluginPackageException failure) {
+            return rejected(PluginInstallOutcome.REJECTED_UNSAFE, failure.getMessage());
+        }
         List<InstalledPlugin> sameId = new ArrayList<>();
         for (InstalledPlugin installed : installedPlugins) {
             if (installed.id().equals(descriptor.id())) {
@@ -1977,6 +1990,25 @@ public class ExternalPluginInstaller implements AutoCloseable {
     private List<InstalledPlugin> listInstalledExclusive() {
         return inspectInstalledArtifactsExclusive().stream()
                 .map(Artifact::plugin).toList();
+    }
+
+    private void requireCompatibleContractSpaces(Path candidate, List<InstalledPlugin> installed)
+            throws IOException, PluginRecoveryValidationException {
+        if (installed.isEmpty()) return;
+        PluginRecoveryResourceBudget budget = new PluginRecoveryResourceBudget(previousInventoryBudget);
+        PluginPackageInspection incoming = budget.inspectArchive(
+                candidate, PluginPackageIntegrity.sha256Hex(candidate), limits);
+        for (InstalledPlugin existing : installed) {
+            if (incoming.descriptor().id().equals(existing.id())) {
+                continue; // 同 id 的磁盘替换仍由事务和 process-restart 策略约束。
+            }
+            if (incoming.descriptor().contract() == null && existing.descriptor().contract() == null) {
+                continue;
+            }
+            PluginPackageInspection other = budget.inspectArchive(
+                    existing.path(), PluginPackageIntegrity.sha256Hex(existing.path()), limits);
+            incoming.classSpace().requireCompatible(incoming.descriptor(), other.descriptor(), other.classSpace());
+        }
     }
 
     private List<Artifact> inspectInstalledArtifactsExclusive() {

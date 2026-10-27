@@ -25,7 +25,12 @@ runs:
 
     - name: Verify standalone plugin templates
       shell: bash
-      run: mvn -B -ntp -f plugin-templates/pom.xml -pl minimal-feature-plugin,download-type-plugin verify
+      env:
+        SOURCE_SHA: ${{ inputs.source_sha }}
+      run: |
+        set -euo pipefail
+        mvn -B -ntp -f plugin-templates/pom.xml verify "-Dpixivdownload.source.sha=$SOURCE_SHA"
+        node --input-type=module -e 'import { verifyTypedServiceArtifacts } from "./scripts/ci/sdk-consumer.mjs"; verifyTypedServiceArtifacts("plugin-templates/typed-service-plugin");'
 
     - name: Verify single SDK dependency across build tools
       shell: bash

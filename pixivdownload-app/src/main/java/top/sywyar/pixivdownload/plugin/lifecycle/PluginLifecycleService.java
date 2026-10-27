@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.plugin.lifecycle;
 
+import top.sywyar.pixivdownload.plugin.api.service.PluginServices;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ServiceDeclarations;
+
 import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.mergeFailure;
 
 import lombok.extern.slf4j.Slf4j;
@@ -277,6 +280,7 @@ public class PluginLifecycleService {
      * feature 元数据 contribution。单个插件接入失败被隔离，不致核心壳启动失败。
      */
     public void startAll() {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
         synchronized (lock) {
             if (started) {
                 return;
@@ -318,6 +322,7 @@ public class PluginLifecycleService {
      * 与启动期接入对称的关闭收尾即可。对未在服务（已停 / 已卸 / 纯加载）的插件跳过。
      */
     public void stopAll() {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
         synchronized (lock) {
             if (!started) {
                 return;
@@ -433,8 +438,13 @@ public class PluginLifecycleService {
 
     // ---- 运行期热启停 / quiesce API（按 pluginId）----
 
+    public void requireServiceMutationAllowed() {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
+    }
+
     /** 启动（重新建立服务足迹）一个当前已停止 / 已加载的外置插件。已在服务则幂等返回。 */
     public void start(String pluginId) {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
         synchronized (lock) {
             doStart(require(pluginId));
         }
@@ -446,6 +456,7 @@ public class PluginLifecycleService {
      * 下载任务。已静默则幂等返回。
      */
     public void quiesce(String pluginId) {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
         synchronized (lock) {
             doQuiesce(require(pluginId));
         }
@@ -453,6 +464,7 @@ public class PluginLifecycleService {
 
     /** 停止一个外置插件：quiesce 标记后按序拆除服务足迹。已停 / 已卸 / 纯加载则幂等返回。 */
     public void stop(String pluginId) {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
         synchronized (lock) {
             doStop(require(pluginId));
         }
@@ -460,6 +472,7 @@ public class PluginLifecycleService {
 
     /** 卸下一个外置插件：先确保停止，再从核心注册中心移除（与接入对称、可逆）。已卸则幂等返回。 */
     public void unload(String pluginId) {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
         synchronized (lock) {
             doUnload(require(pluginId));
         }
@@ -467,6 +480,7 @@ public class PluginLifecycleService {
 
     /** 重新接入一个已卸下的外置插件到核心注册中心（可逆于 {@link #unload}）。已加载则幂等返回。 */
     public void load(String pluginId) {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
         synchronized (lock) {
             doLoad(require(pluginId));
         }
@@ -474,6 +488,7 @@ public class PluginLifecycleService {
 
     /** 重载一个外置插件 = stop 后再 start（回收并重建服务足迹）。已卸下的插件不能重载（需先 load）。 */
     public void reload(String pluginId) {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
         synchronized (lock) {
             ManagedPlugin record = require(pluginId);
             PluginRuntimePhase phase = lifecycleState.phase(pluginId).orElse(null);
@@ -979,10 +994,35 @@ public class PluginLifecycleService {
             return;
         }
         // b) 子 context（仅声明了配置类的插件包）。
+        PluginServices services = null;
+        try {
+            if (record.registered != null) {
+                var imports = ServiceDeclarations.copy(
+                        record.registered.plugin().serviceImports());
+                var exports = ServiceDeclarations.copy(
+                        record.registered.plugin().serviceExports());
+                if (!imports.isEmpty() || !exports.isEmpty()) {
+                    if (record.module == null) {
+                        throw new IllegalArgumentException("service declarations require a child context");
+                    }
+                    for (var key : imports) pluginRuntimeManager.requireServiceContract(record.registered.packageId(), key);
+                    for (var export : exports) pluginRuntimeManager.requireServiceContract(record.registered.packageId(), export.key());
+                    record.capabilityPreparation = capabilityContributionRegistrar.allocateOwner(
+                            pluginId, record.registered.packageId(), record.generation);
+                    record.capabilityRetirementComplete = false;
+                    record.capabilityRetirementAcknowledged = false;
+                    services = capabilityContributionRegistrar.servicesFor(record.capabilityPreparation, imports, exports);
+                }
+            }
+        } catch (Throwable failure) {
+            handleBringUpFailure(record, failure, featureStartedForRollback);
+            return;
+        }
         if (record.module != null) {
             ConfigurableApplicationContext child;
             try {
-                child = contextFactory.create(parent, record.module);
+                child = services == null ? contextFactory.create(parent, record.module)
+                        : contextFactory.create(parent, record.module, services);
             } catch (Throwable failure) {
                 log.error("Failed to start child context for plugin '{}' (failureType={}) - isolating.",
                         pluginId, failure.getClass().getName());
@@ -996,8 +1036,10 @@ public class PluginLifecycleService {
             try {
                 String packageId = record.registered == null
                         ? pluginId : record.registered.packageId();
-                record.capabilityPreparation = capabilityContributionRegistrar.allocateOwner(
-                        pluginId, packageId, record.generation);
+                if (record.capabilityPreparation == null) {
+                    record.capabilityPreparation = capabilityContributionRegistrar.allocateOwner(
+                            pluginId, packageId, record.generation);
+                }
                 if (record.capabilityPreparation != null) {
                     record.capabilityRetirementComplete = false;
                     record.capabilityRetirementAcknowledged = false;

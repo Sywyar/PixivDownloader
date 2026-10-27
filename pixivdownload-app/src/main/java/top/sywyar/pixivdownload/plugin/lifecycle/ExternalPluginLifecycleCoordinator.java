@@ -37,6 +37,7 @@ import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
  */
 @Service
 public class ExternalPluginLifecycleCoordinator {
+    private final PluginLifecycleService lifecycleService;
 
     private static final Logger log = LoggerFactory.getLogger(ExternalPluginLifecycleCoordinator.class);
 
@@ -60,6 +61,7 @@ public class ExternalPluginLifecycleCoordinator {
                                               RecoveryModeService recoveryModeService,
                                               PluginDependencyResolver dependencyResolver) {
         this.installer = installer;
+        this.lifecycleService = lifecycleService;
         this.recoveryModeService = recoveryModeService;
         this.dependencyResolver = dependencyResolver;
         this.runtimeController = new ExternalPluginRuntimeController(
@@ -211,6 +213,7 @@ public class ExternalPluginLifecycleCoordinator {
 
     /** 预约一组目录安装；下载不改变读模型 epoch，各包仍独立提交，不提供跨包回滚。 */
     public <T> T withMutationReservation(java.util.function.Supplier<T> action) {
+        lifecycleService.requireServiceMutationAllowed();
         // ponytail: 复用全局写预约串行获取；若下载占用影响维护，再拆分预下载与短提交预约。
         if (!lifecycleMutationLock.tryLock()) {
             throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
@@ -226,6 +229,7 @@ public class ExternalPluginLifecycleCoordinator {
     /** 统一的本地/市场安装更新事务；全局写预约从安全校验前持续到提交或回滚终态。 */
     public PluginActivationResult installOrUpdate(Path packageFile, boolean allowDowngrade,
                                                   PluginPackageOrigin origin) {
+        lifecycleService.requireServiceMutationAllowed();
         if (!lifecycleMutationLock.tryLock()) {
             throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
                     "another plugin lifecycle mutation is already in progress");
@@ -734,6 +738,7 @@ public class ExternalPluginLifecycleCoordinator {
 
     private <T> T withLock(String packageId, ExternalPluginOperation operation,
                            String transactionId, Operation<T> action) {
+        lifecycleService.requireServiceMutationAllowed();
         if (!lifecycleMutationLock.tryLock()) {
             throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
                     "another plugin lifecycle mutation is already in progress");

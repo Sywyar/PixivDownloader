@@ -17,7 +17,8 @@ export const SDK_ARTIFACTS = Object.freeze([
 export const SDK_MODULES = Object.freeze(SDK_ARTIFACTS.map(([artifact]) => artifact));
 const TEMPLATE_POMS = [
     'plugin-templates/minimal-feature-plugin/pom.xml',
-    'plugin-templates/download-type-plugin/pom.xml'
+    'plugin-templates/download-type-plugin/pom.xml',
+    'plugin-templates/typed-service-plugin/pom.xml'
 ];
 export const SDK_GROUP_ID = 'io.github.sywyar.pixivdownloader';
 const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(alpha|beta|rc)\.?([1-9]\d*))?$/;
@@ -167,6 +168,9 @@ export function inspectSdkVersion(repoRoot, ref = '') {
     }
 
     for (const templatePom of TEMPLATE_POMS) {
+        const serviceTemplate = templatePom === 'plugin-templates/typed-service-plugin/pom.xml';
+        if (ref && serviceTemplate && !execFileSync('git', ['-C', repoRoot, 'ls-tree', '--name-only', ref, '--', templatePom],
+                { encoding: 'utf8' }).trim()) continue;
         const pom = readText(repoRoot, templatePom, ref);
         const sdkGroup = oneMatch(
                 pom,
@@ -180,11 +184,16 @@ export function inspectSdkVersion(repoRoot, ref = '') {
                 `${templatePom} SDK version`
         );
         assertEqual(templateVersion, version, `${templatePom} SDK version`);
-        const descriptorPath = templatePom.replace(/pom\.xml$/u, 'src/main/resources/plugin.properties');
-        const descriptor = parseProperties(readText(repoRoot, descriptorPath, ref));
-        assertEqual(descriptor.get('plugin.requires'),
-                identity.prerelease ? `=${version}` : identity.compatibilityVersion,
-                `${descriptorPath} SDK requirement`);
+        const descriptors = serviceTemplate
+            ? ['contract', 'provider', 'consumer'].map(module => templatePom.replace(/pom\.xml$/u,
+                `${module}/src/main/resources/plugin.properties`))
+            : [templatePom.replace(/pom\.xml$/u, 'src/main/resources/plugin.properties')];
+        for (const descriptorPath of descriptors) {
+            const descriptor = parseProperties(readText(repoRoot, descriptorPath, ref));
+            assertEqual(descriptor.get('plugin.requires'),
+                    identity.prerelease ? `=${version}` : identity.compatibilityVersion,
+                    `${descriptorPath} SDK requirement`);
+        }
     }
     return identity;
 }

@@ -139,7 +139,10 @@ test('无仓库快照时，发布合同仍允许 Wrapper 纯权限维护并完�
             'plugin-templates/minimal-feature-plugin/pom.xml',
             'plugin-templates/download-type-plugin/pom.xml',
             'plugin-templates/minimal-feature-plugin/src/main/resources/plugin.properties',
-            'plugin-templates/download-type-plugin/src/main/resources/plugin.properties'
+            'plugin-templates/download-type-plugin/src/main/resources/plugin.properties',
+            'plugin-templates/typed-service-plugin/pom.xml',
+            ...['contract', 'provider', 'consumer'].map(module =>
+                `plugin-templates/typed-service-plugin/${module}/src/main/resources/plugin.properties`)
         ];
         for (const relativePath of identityFiles) copy(root, relativePath);
         fs.writeFileSync(path.join(root, 'mvnw'), '#!/bin/sh\n', 'utf8');

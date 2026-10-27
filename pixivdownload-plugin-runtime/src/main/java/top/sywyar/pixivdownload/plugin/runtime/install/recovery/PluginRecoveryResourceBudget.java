@@ -151,7 +151,8 @@ public final class PluginRecoveryResourceBudget {
         if (verified.inspection() != null) {
             return verified.inspection();
         }
-        PluginPackageInspection inspection = PluginPackageReader.inspect(artifact, identity.limits());
+        PluginPackageInspection inspection = PluginPackageReader.inspect(artifact, identity.limits())
+                .withClassSpace(verified.usage().classSpace());
         archiveInspections.put(identity, new VerifiedArchive(inspection, verified.usage()));
         return inspection;
     }

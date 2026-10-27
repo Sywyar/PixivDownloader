@@ -176,6 +176,8 @@ java -jar tools/sdk-tools.jar stop <工程绝对路径>
 
 ## 独立示例
 
+另附 `examples/typed-service-plugin/README.md`，包含独立契约 API、包装包、提供者和消费者。在 SDK 根运行 `mvnw -f examples/typed-service-plugin/pom.xml package`，再签名并通过正常安装入口安装三个插件；契约安装后须完整重启。该多模块示例使用自己的 Maven 构建，不使用下表单插件工程的运行任务。
+
 | 目录 | 用途 | 运行 / 调试 / 停止 |
 | --- | --- | --- |
 | `examples/download-type-plugin/` | 下载类型、队列、计划来源和插件自有画廊 | 在 SDK 根运行 `mvnw -f examples/download-type-plugin/pom.xml verify exec:exec@sdk-run`；调试改为 `sdk-debug`，停止只执行 `exec:exec@sdk-stop` |

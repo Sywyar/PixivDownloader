@@ -8,6 +8,7 @@ import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginRiskDeclaration;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginExecutionMode;
 import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginLifecyclePolicy;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginContractDeclaration;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
@@ -372,7 +373,20 @@ public final class PluginPackageReader {
                 executionMode, configurationClassNames,
                 new PluginRiskDeclaration(
                         properties.containsKey(KEY_PIXIV_RISK_SIGNALS),
-                        parseCommaSeparated(properties.getProperty(KEY_PIXIV_RISK_SIGNALS))));
+                        parseCommaSeparated(properties.getProperty(KEY_PIXIV_RISK_SIGNALS))),
+                readContract(properties));
+    }
+
+    private static PluginContractDeclaration readContract(Properties properties) {
+        if (!properties.containsKey("pixiv.contract-api") && !properties.containsKey("pixiv.contract-sha256")) {
+            return null;
+        }
+        try {
+            return new PluginContractDeclaration(properties.getProperty("pixiv.contract-api"),
+                    properties.getProperty("pixiv.contract-sha256"));
+        } catch (IllegalArgumentException failure) {
+            throw new PluginPackageException(PluginPackageException.Reason.MALFORMED, failure.getMessage(), failure);
+        }
     }
 
     private static List<String> parseCommaSeparated(String raw) {
