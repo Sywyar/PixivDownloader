@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.context;
 
+import top.sywyar.pixivdownload.plugin.api.service.PluginServices;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
@@ -20,6 +22,7 @@ import java.util.Objects;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Consumer;
 
 /**
  * 每外置插件子 {@code ApplicationContext} 工厂：为一个外置插件包（{@link PluginContextModule}）建立一个子
@@ -116,17 +119,37 @@ public final class PluginApplicationContextFactory {
 
     /**
      * 为一个外置插件包建立并刷新子 {@code ApplicationContext}。返回的 context 已 {@code refresh()}、可用；
-     * 调用方负责在插件停止 / 卸载时 {@code close()} 它。
+     * 调用方负责先通过同一任务 registry 撤回、排空并关闭资源，再 {@code close()} context。
+     * 初始化可能启动在途工作时，须使用带接管回调的重载，以便刷新失败后仍能延迟销毁。
      *
      * @param parent 父 context（核心应用 context），子 context 据此解析SDK / 服务 Bean 并继承环境属性
      * @param module 外置插件包的子 context 装配定义（插件 classloader + 配置类 + 来源 id）
      * @return 已刷新的子 context（{@link ConfigurableApplicationContext}）
      */
     public ConfigurableApplicationContext create(ApplicationContext parent, PluginContextModule module) {
+        return create(parent, module, null);
+    }
+
+    /**
+     * 在刷新前注入本 owner 的服务访问器；实际调用须等生命周期完成发布。
+     * 排空与关闭责任同双参重载；需要初始化失败回滚时使用带接管回调的重载。
+     */
+    public ConfigurableApplicationContext create(ApplicationContext parent, PluginContextModule module,
+            PluginServices services) {
+        return create(parent, module, services, null);
+    }
+
+    /**
+     * 生命周期在任何插件代码执行前接管 context；刷新失败时也由同一 drain 流程决定销毁时机。
+     */
+    public ConfigurableApplicationContext create(ApplicationContext parent, PluginContextModule module,
+            PluginServices services, Consumer<ConfigurableApplicationContext> retainBeforeRefresh) {
         Objects.requireNonNull(parent, "parent");
         Objects.requireNonNull(module, "module");
 
-        AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext();
+        AnnotationConfigApplicationContext child = retainBeforeRefresh == null
+                ? new AnnotationConfigApplicationContext() : new DrainAwarePluginApplicationContext();
+        if (retainBeforeRefresh != null) retainBeforeRefresh.accept(child);
         child.setId("plugin-context:" + module.sourcePluginId());
         child.setDisplayName("Plugin ApplicationContext for '" + module.sourcePluginId() + "'");
         // 子 context 的类加载用插件 classloader：插件配置类 / Bean 类与其类路径资源都经插件 loader 解析。
@@ -135,6 +158,11 @@ public final class PluginApplicationContextFactory {
         // 先挂父 context：合并父环境属性源（供条件 / 属性解析）+ 让子 context 找不到的依赖向父解析SDK/服务 Bean。
         // 须早于 register（@Configuration 条件评估在注册与刷新期进行）。
         child.setParent(parent);
+        if (services != null) {
+            child.getBeanFactory().registerSingleton("pluginServices", services);
+            PluginRemoteOperationsFactory remoteFactory = parent.getBeanProvider(PluginRemoteOperationsFactory.class).getIfAvailable();
+            if (remoteFactory != null) child.getBeanFactory().registerSingleton("pluginRemoteOperations", remoteFactory.create(module.sourcePluginId(), services));
+        }
         // 父环境的 Boot 绑定适配器仍引用父属性源，必须在子环境重新附加，才能读取 owner 值与敏感遮罩。
         ConfigurationPropertySources.attach(child.getEnvironment());
         replaceScopedPropertySources(child.getEnvironment(), module.sourcePluginId(),
@@ -146,6 +174,8 @@ public final class PluginApplicationContextFactory {
         child.getBeanFactory().registerSingleton(
                 PLUGIN_RUNTIME_TASK_REGISTRAR_BEAN_NAME,
                 pluginRuntimeTaskRegistry.registrarForPlugin(module.sourcePluginId()));
+        child.getBeanFactory().registerSingleton("pluginResources",
+                pluginRuntimeTaskRegistry.resourcesForPlugin(module.sourcePluginId()));
         if (runtimePathProviderFactory != null) {
             child.registerBean(
                     RUNTIME_PATH_PROVIDER_BEAN_NAME,

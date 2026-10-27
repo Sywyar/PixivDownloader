@@ -52,6 +52,18 @@ public final class SdkTools {
     }
 
     static int execute(String[] args) throws Exception {
+        if (args.length == 4 && args[0].equals("remote")) {
+            top.sywyar.pixivdownload.sdk.schema.RemoteAdapterGenerator.generate(Path.of(args[1]), args[2], args[3]);
+            return 0;
+        }
+        if (args.length == 3 && args[0].equals("schema")) {
+            top.sywyar.pixivdownload.sdk.schema.SchemaGenerator.generate(Path.of(args[1]), args[2]);
+            return 0;
+        }
+        if (args.length == 3 && args[0].equals("schema-check")) {
+            top.sywyar.pixivdownload.sdk.schema.SchemaFiles.check(Path.of(args[1]), Path.of(args[2]));
+            return 0;
+        }
         if (args.length == 4 && args[0].equals("verify-sdk-usage")) {
             PluginSdkUsage.verify(Path.of(args[1]),
                     Arrays.stream(args[2].split(java.io.File.pathSeparator)).map(Path::of).toList(),

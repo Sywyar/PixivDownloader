@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent><groupId>com.example.pixivdownload</groupId><artifactId>typed-service-example</artifactId><version>0.1.0</version></parent>
+    <artifactId>text-metrics-consumer</artifactId>
+    <dependencies>
+        <dependency><groupId>io.github.sywyar.pixivdownloader</groupId><artifactId>pixivdownload-sdk</artifactId></dependency>
+        <dependency><groupId>com.example.pixivdownload</groupId><artifactId>text-metrics-api</artifactId></dependency>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.12.2</version><scope>test</scope></dependency>
+    </dependencies>
+    <build><plugins>
+        <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.4</version></plugin>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId><artifactId>maven-antrun-plugin</artifactId><version>3.1.0</version>
+            <configuration><skip>false</skip></configuration>
+            <executions>
+                <execution><id>begin-remote-build</id><phase>validate</phase><goals><goal>run</goal></goals>
+                    <configuration><target><delete file="${project.basedir}/target/remote-generation.complete"/></target></configuration>
+                </execution>
+                <execution><id>require-current-remote</id><phase>prepare-package</phase><goals><goal>run</goal></goals>
+                    <configuration><target><fail message="SDK_REMOTE_GENERATION_REQUIRED"><condition><not>
+                        <available file="${project.basedir}/target/remote-generation.complete" type="file"/>
+                    </not></condition></fail></target></configuration>
+                </execution>
+            </executions>
+        </plugin>
+    </plugins></build>
+    <profiles><profile>
+        <id>remote</id><activation><property><name>pixivdownload.sdk.tools</name></property></activation>
+        <build><plugins><plugin>
+            <groupId>org.codehaus.mojo</groupId><artifactId>exec-maven-plugin</artifactId><version>3.5.0</version>
+            <executions><execution><id>generate-remote-adapter</id><phase>generate-sources</phase><goals><goal>exec</goal></goals>
+                <configuration><executable>${java.home}/bin/java</executable><classpathScope>compile</classpathScope><skip>false</skip>
+                    <arguments><argument>-jar</argument><argument>${pixivdownload.sdk.tools}</argument><argument>remote</argument>
+                        <argument>${project.basedir}</argument><classpath/><argument>com.example.textmetrics.api.TextMetrics</argument>
+                    </arguments>
+                </configuration>
+            </execution></executions>
+        </plugin></plugins></build>
+    </profile></profiles>
+
+</project>

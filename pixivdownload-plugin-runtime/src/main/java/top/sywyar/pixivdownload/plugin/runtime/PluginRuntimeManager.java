@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.plugin.runtime;
 
+import top.sywyar.pixivdownload.plugin.api.service.ServiceKey;
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginClassSpace;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginClassSpaceVerifier;
+
 import org.pf4j.DefaultPluginManager;
 import org.pf4j.CompoundPluginLoader;
 import org.pf4j.CompoundPluginDescriptorFinder;
@@ -116,6 +120,8 @@ public class PluginRuntimeManager {
     private final long maximumStartupVerificationUncompressedBytes;
     private final long maximumStartupProvenanceBytes;
     private final PluginRuntimePackageIndex packageIndex = new PluginRuntimePackageIndex();
+    private final Map<String, PluginClassSpace> classSpaces =
+            new java.util.HashMap<>();
     private final Map<String, IsolatedPluginSession> isolatedSessions = new LinkedHashMap<>();
     private final Map<String, Integer> isolatedCrashCounts = new LinkedHashMap<>();
     private final Map<String, Long> isolatedRecoveryTokens = new LinkedHashMap<>();
@@ -444,6 +450,9 @@ public class PluginRuntimeManager {
         }
         PreparedPluginArtifact prepared = prepareProductionArtifact(artifactPath);
         try {
+            if (prepared.inspection().descriptor().contract() != null) {
+                throw new PluginRuntimeOperationException("contract installation takes effect after process restart");
+            }
             return loadPreparedProductionArtifact(prepared);
         } finally {
             prepared.close();
@@ -777,6 +786,9 @@ public class PluginRuntimeManager {
      */
     public synchronized UnloadedPluginPackage unloadPlugin(String packageId) {
         Entry entry = requireEntry(packageId);
+        if (entry.descriptor().contract() != null) {
+            throw new PluginRuntimeOperationException("contract types remain active until process shutdown: " + packageId);
+        }
         List<String> dependents = activeDependents(packageId);
         if (!dependents.isEmpty()) {
             throw new PluginRuntimeOperationException("plugin package " + packageId
@@ -1038,6 +1050,7 @@ public class PluginRuntimeManager {
      * 直接操作 PF4J。不抛异常、不吞掉 JVM 致命 Error。
      */
     public synchronized void shutdown() {
+        classSpaces.clear();
         PluginManager previous = pluginManager;
         PluginDevelopmentArtifacts.DevelopmentCacheSession previousDevelopmentSession = developmentCacheSession;
         if (previous == null && packageIndex.isEmpty() && previousDevelopmentSession == null
@@ -1210,8 +1223,8 @@ public class PluginRuntimeManager {
             if (startupBudget != null) {
                 startupBudget.consumeVerification(verificationUsage);
             }
-            PluginPackageInspection inspection = PluginPackageReader.inspect(
-                    frozenArtifact, PRODUCTION_PACKAGE_LIMITS);
+            PluginPackageInspection inspection = PluginClassSpaceVerifier.withClassSpace(
+                    PluginPackageReader.inspect(frozenArtifact, PRODUCTION_PACKAGE_LIMITS), verificationUsage.classSpace());
             if (inspection.innerJarEntry() != null) {
                 throw new PluginRuntimeOperationException(
                         "installed plugin package must be canonical and cannot contain an inner plugin jar: "
@@ -1375,9 +1388,21 @@ public class PluginRuntimeManager {
             throw new PluginRuntimeOperationException(
                     "plugin package already loaded: " + prepared.inspection().descriptor().id());
         }
+        PluginDescriptor incoming = prepared.inspection().descriptor();
+        for (Entry existing : packageIndex.entries()) {
+            if (incoming.contract() != null || existing.descriptor().contract() != null) {
+                var existingSpace = classSpaces.get(existing.packageId());
+                if (existingSpace == null) {
+                    throw new PluginRuntimeOperationException("contract class space requires verified packaged dependencies");
+                }
+                PluginClassSpaceVerifier.requireCompatible(prepared.inspection().classSpace(), incoming,
+                        existing.descriptor(), existingSpace);
+            }
+        }
         PluginArtifactMaterializer.MaterializedPluginArtifact materialized = materializer.materialize(
                 prepared.snapshot(), prepared.inspection(), prepared.verifiedSha256());
         PluginArtifactSnapshot ownedSnapshot = prepared.detachSnapshot();
+        LoadedPluginPackage loaded;
         if (prepared.inspection().descriptor().executionMode() == PluginExecutionMode.DECLARATIVE_PROCESS) {
             if (materialized.materialized()) {
                 workspaceOwner.discard(ownedSnapshot);
@@ -1385,12 +1410,44 @@ public class PluginRuntimeManager {
                         "declarative-process plugins must use a canonical thin JAR: "
                                 + prepared.inspection().descriptor().id());
             }
-            return loadPreparedIsolatedPlugin(materialized.originalArtifactPath(),
+            loaded = loadPreparedIsolatedPlugin(materialized.originalArtifactPath(),
                     materialized.pf4jLoadPath(), prepared.inspection().descriptor(),
                     prepared.verifiedSha256(), ownedSnapshot);
+        } else {
+            loaded = loadPreparedPlugin(materialized.originalArtifactPath(), materialized.pf4jLoadPath(), pluginsRoot,
+                    prepared.inspection().descriptor(), ownedSnapshot);
         }
-        return loadPreparedPlugin(materialized.originalArtifactPath(), materialized.pf4jLoadPath(), pluginsRoot,
-                prepared.inspection().descriptor(), ownedSnapshot);
+        classSpaces.put(incoming.id(), prepared.inspection().classSpace());
+        return loaded;
+    }
+
+    /** 只允许 required 契约依赖提供接口类型，校验实际 Class 来源而非仅相信编译期 provided。 */
+    public synchronized void requireServiceContract(String packageId,
+            ServiceKey<?> key) {
+        Entry consumer = requireEntry(packageId);
+        boolean required = consumer.descriptor().dependencies().stream()
+                .anyMatch(dependency -> dependency.pluginId().equals(key.contractId()) && !dependency.optional());
+        Entry contract = packageIndex.get(key.contractId());
+        var space = classSpaces.get(key.contractId());
+        PluginWrapper wrapper = pluginManager == null ? null : pluginManager.getPlugin(key.contractId());
+        if (!required || contract == null || contract.descriptor().contract() == null || space == null
+                || wrapper == null || key.type().getClassLoader() != wrapper.getPluginClassLoader()
+                || !PluginClassSpaceVerifier.contractPackages(space, contract.descriptor()).contains(key.type().getPackageName())
+                || !exactContractSource(key.type(), contract)) {
+            throw new PluginRuntimeOperationException("service requires the exact required contract class source: " + key.contractId());
+        }
+    }
+
+    private static boolean exactContractSource(Class<?> type, Entry contract) {
+        var source = type.getProtectionDomain().getCodeSource();
+        if (source == null || source.getLocation() == null) return false;
+        try {
+            Path expected = contract.pf4jLoadPath().resolve(contract.descriptor().contract().apiJar())
+                    .toAbsolutePath().normalize();
+            return expected.equals(Path.of(source.getLocation().toURI()).toAbsolutePath().normalize());
+        } catch (java.net.URISyntaxException | IllegalArgumentException invalidSource) {
+            return false;
+        }
     }
 
     private LoadedPluginPackage loadPreparedIsolatedPlugin(
@@ -1757,6 +1814,7 @@ public class PluginRuntimeManager {
         if (removedEntry == null) {
             return;
         }
+        classSpaces.remove(removedEntry.packageId());
         // 一个失败 load 可能留下多个 wrapper；它们共享同一 snapshot，只有最后一个 entry 移除后才关闭。
         workspaceOwner.release(
                 removedEntry.productionSnapshot(), packageIndex.productionSnapshots());
@@ -1764,6 +1822,7 @@ public class PluginRuntimeManager {
 
     private void retainUnconfirmedProductionSnapshot(Entry removedEntry) {
         if (removedEntry != null) {
+            classSpaces.remove(removedEntry.packageId());
             workspaceOwner.retainUnconfirmed(removedEntry.productionSnapshot());
         }
     }

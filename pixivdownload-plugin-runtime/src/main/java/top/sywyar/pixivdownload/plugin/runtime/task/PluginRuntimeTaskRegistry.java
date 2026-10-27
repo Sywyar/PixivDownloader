@@ -6,6 +6,7 @@ import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTask;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskDrain;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRejectedException;
+import top.sywyar.pixivdownload.plugin.api.resource.PluginResources;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -22,7 +23,8 @@ import java.util.concurrent.Future;
  * <p>插件子 context 只获得由 {@link #registrarForPlugin(String)} 创建的 owner-scoped
  * {@link PluginRuntimeTaskRegistrar}。登记后，父加载器创建的包装器而非插件 lambda 被提交到共享执行器；
  * quiesce 在线性化点关闭 admission 并清除尚未运行的插件 delegate，运行中的 delegate 则由包装器
- * {@code finally} 精确归还。注册中心不保存插件 Bean、classloader 或子 context。
+ * {@code finally} 精确归还。资源作用域复用同一代际，清理成功后释放插件回调和资源引用；
+ * 注册中心不接管子 context，也不把失败清理或取消完成当作业务 drain。
  *
  * <p>{@link #prepareQuiesce(String)} 只在宿主内存中关闭 admission、清 delegate 并返回精确 drain，
  * 不调用 {@link Future#cancel(boolean)} 或其它外部 callback。调用方保存 drain 后再调用
@@ -41,6 +43,35 @@ public class PluginRuntimeTaskRegistry {
         return new ScopedRegistrar(this, requirePluginId(pluginId));
     }
 
+    /** 子 context 只取得当前精确任务代际的资源入口，旧入口不会跟随 owner 重启。 */
+    public PluginResources resourcesForPlugin(String pluginId) {
+        OwnerSlot slot = ownerSlot(pluginId);
+        synchronized (slot) {
+            GenerationState generation = slot.current;
+            synchronized (generation) {
+                if (!generation.accepting) throw new PluginRuntimeTaskRejectedException();
+                if (generation.resources == null) {
+                    generation.resources = new PluginRuntimeResources(slot.ownerPluginId, generation.generation,
+                            delegate -> register(generation, delegate, TaskKind.ONE_SHOT));
+                }
+                return generation.resources;
+            }
+        }
+    }
+
+    /** 宿主确认全部请求、服务、队列及任务 drain 归零后，释放同一代际的资源。 */
+    public void closeResources(String pluginId, PluginRuntimeTaskDrain drain) {
+        GenerationState generation = requireCurrentDrain(ownerSlot(pluginId), drain);
+        PluginRuntimeResources resources;
+        synchronized (generation) {
+            if (!generation.isDrained()) {
+                throw new IllegalStateException("plugin runtime tasks have not drained: " + pluginId);
+            }
+            resources = generation.resources;
+        }
+        if (resources != null) resources.close();
+    }
+
     /**
      * 原子关闭指定 owner 当前代际的新任务 admission，清除未运行 delegate，并返回可先保存的精确 drain。
      * 同一代际重复调用返回同一个 drain；本方法不调用任何 {@link Future}。
@@ -51,6 +82,7 @@ public class PluginRuntimeTaskRegistry {
             GenerationState generation = slot.current;
             synchronized (generation) {
                 generation.accepting = false;
+                if (generation.resources != null) generation.resources.quiesce();
                 if (generation.drain == null) {
                     generation.drain = new Drain(generation);
                 }
@@ -96,6 +128,9 @@ public class PluginRuntimeTaskRegistry {
                 if (!current.active.isEmpty()) {
                     throw new IllegalStateException("cannot resume plugin runtime tasks with pending work: "
                             + slot.ownerPluginId + " (active=" + current.active.size() + ")");
+                }
+                if (current.resources != null && !current.resources.isReleased()) {
+                    throw new IllegalStateException("plugin resources remain pending: " + slot.ownerPluginId);
                 }
                 if (current.accepting) {
                     return;
@@ -146,14 +181,18 @@ public class PluginRuntimeTaskRegistry {
         OwnerSlot slot = ownerSlot(pluginId);
         synchronized (slot) {
             GenerationState generation = slot.current;
-            synchronized (generation) {
-                if (!generation.accepting) {
-                    throw new PluginRuntimeTaskRejectedException();
-                }
-                RuntimeTask task = new RuntimeTask(generation, kind, delegate);
-                generation.active.add(task);
-                return task;
+            return register(generation, delegate, kind);
+        }
+    }
+
+    private static PluginRuntimeTask register(GenerationState generation, Runnable delegate, TaskKind kind) {
+        synchronized (generation) {
+            if (!generation.accepting) {
+                throw new PluginRuntimeTaskRejectedException();
             }
+            RuntimeTask task = new RuntimeTask(generation, kind, delegate);
+            generation.active.add(task);
+            return task;
         }
     }
 
@@ -230,6 +269,7 @@ public class PluginRuntimeTaskRegistry {
         private final Set<RuntimeTask> active = new LinkedHashSet<>();
         private boolean accepting = true;
         private Drain drain;
+        private PluginRuntimeResources resources;
 
         private GenerationState(String ownerPluginId, long generation) {
             this.ownerPluginId = ownerPluginId;

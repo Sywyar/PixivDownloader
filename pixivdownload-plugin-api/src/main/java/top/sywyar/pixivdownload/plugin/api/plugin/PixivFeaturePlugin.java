@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.plugin.api.plugin;
 
+import top.sywyar.pixivdownload.plugin.api.service.ServiceKey;
+import top.sywyar.pixivdownload.plugin.api.service.ServiceExport;
+
 import top.sywyar.pixivdownload.plugin.api.download.type.DownloadTypeDescriptor;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution;
 import top.sywyar.pixivdownload.plugin.api.gui.GuiOnboardingStepContribution;
@@ -28,6 +31,22 @@ import java.util.List;
  * 由每插件一个的 {@code XxxPluginConfiguration} 以 {@code @Bean} 形式提供。
  */
 public interface PixivFeaturePlugin {
+
+    /**
+     * 声明要消费的独立契约服务；提供者可缺席，契约包必须是 required 依赖。
+     * @return 至多 128 项且不重复的导入；默认无导入
+     */
+    default List<ServiceKey<?>> serviceImports() {
+        return List.of();
+    }
+
+    /**
+     * 显式导出本插件具名 Bean；宿主分配 owner、generation 和 publication。
+     * @return 至多 128 项且服务键不重复的导出；默认无导出
+     */
+    default List<ServiceExport<?>> serviceExports() {
+        return List.of();
+    }
 
     /**
      * 插件唯一 id，小写短横线风格，例如 {@code example-feature}。

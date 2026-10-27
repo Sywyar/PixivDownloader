@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.plugin.runtime.install.recovery;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageInspection;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits;
 import top.sywyar.pixivdownload.plugin.runtime.install.transaction.PluginTransactionRecoveryReport.FailureKind;
+import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginClassSpaceVerifier;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageException;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageReader;
 import top.sywyar.pixivdownload.plugin.runtime.install.verify.PluginPackageVerifier;
@@ -151,7 +152,8 @@ public final class PluginRecoveryResourceBudget {
         if (verified.inspection() != null) {
             return verified.inspection();
         }
-        PluginPackageInspection inspection = PluginPackageReader.inspect(artifact, identity.limits());
+        PluginPackageInspection inspection = PluginClassSpaceVerifier.withClassSpace(
+                PluginPackageReader.inspect(artifact, identity.limits()), verified.usage().classSpace());
         archiveInspections.put(identity, new VerifiedArchive(inspection, verified.usage()));
         return inspection;
     }

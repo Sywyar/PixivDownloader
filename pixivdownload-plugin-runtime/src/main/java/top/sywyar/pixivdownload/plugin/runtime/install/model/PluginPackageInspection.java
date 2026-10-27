@@ -24,7 +24,14 @@ public record PluginPackageInspection(
         PluginPackageFormat format,
         PluginDescriptor descriptor,
         String innerJarEntry,
-        boolean containsPrivateLibraries) {
+        boolean containsPrivateLibraries,
+        PluginClassSpace classSpace) {
+
+    public PluginPackageInspection(PluginPackageFormat format, PluginDescriptor descriptor,
+                                   String innerJarEntry, boolean containsPrivateLibraries) {
+        this(format, descriptor, innerJarEntry, containsPrivateLibraries,
+                PluginClassSpace.empty());
+    }
 
     public PluginPackageInspection {
         Objects.requireNonNull(format, "format");

@@ -141,6 +141,12 @@ class PluginApiOwnershipGuardTest {
             .importPackages("top.sywyar.pixivdownload.plugin.api");
 
     private static final Map<String, Set<String>> APPROVED_TYPES_BY_OWNER = Map.ofEntries(
+            Map.entry("插件资源作用域", types(API_PREFIX + "resource",
+                    "PluginResources", "PluginResourceScope", "PluginResourceException")),
+            Map.entry("契约值 Schema", types(API_PREFIX + "contract.schema", "ValueSchema", "ValueProperty")),
+            Map.entry("显式远程操作生成协议", types(API_PREFIX + "contract.remote", "RemoteService", "RemoteOperation")),
+            Map.entry("独立契约同步服务", types(API_PREFIX + "service",
+                    "PluginServices", "ServiceKey", "ServiceExport", "ServiceAccessException", "ServiceBinding", "ServiceBindingScope")),
             Map.entry("中性私库操作", types(API_PREFIX + "storage.relational",
                     "Expression", "Query", "DatabaseSession", "PrivateStorageSchema", "StorageMigration", "StorageFeatures", "StorageValues")),
             Map.entry("私库 JDBC 实现支持", types(API_PREFIX + "storage.relational.jdbc", "JdbcDatabaseSession")),
@@ -180,7 +186,7 @@ class PluginApiOwnershipGuardTest {
                     "AccessPolicy", "ApiErrorResponse", "Audience", "DrilldownContribution", "DrilldownPlacements",
                     "HttpMethod", "I18nContribution",
                     "LandingContribution", "NavigationContribution", "NavigationMarkers", "NavigationPlacements",
-                    "PageSectionContribution", "RequestOwnerIdentity",
+                    "PageSectionContribution", "RequestOwnerIdentity", "RemoteOperations",
                     "RequestOwnerIdentityResolver", "StartupRouteContext", "StartupRouteContribution",
                     "StaticResourceContribution", "UserscriptContribution",
                     "WebRouteContribution", "WebUiSlotCatalog", "WebUiSlotContribution")),
@@ -266,6 +272,10 @@ class PluginApiOwnershipGuardTest {
     );
 
     private static final Map<String, Integer> APPROVED_TYPE_COUNTS = Map.ofEntries(
+            Map.entry("独立契约同步服务", 6),
+            Map.entry("插件资源作用域", 3),
+            Map.entry("契约值 Schema", 2),
+            Map.entry("显式远程操作生成协议", 2),
             Map.entry("中性私库操作", 7),
             Map.entry("私库 JDBC 实现支持", 1),
             Map.entry("数据库 provider 契约", 5),
@@ -273,7 +283,7 @@ class PluginApiOwnershipGuardTest {
             Map.entry("数据库迁移 JDBC 支持", 4),
             Map.entry("插件入口与生命周期", 4),
             Map.entry("GUI contribution 与桌面宿主契约", 57),
-            Map.entry("Web 与请求身份协议", 21),
+            Map.entry("Web 与请求身份协议", 22),
             Map.entry("油猴脚本宿主目录协议", 2),
             Map.entry("下载类型描述协议", 2),
             Map.entry("下载宿主控制协议", 7),
@@ -293,6 +303,10 @@ class PluginApiOwnershipGuardTest {
     );
 
     private static final Set<String> APPROVED_PUBLIC_NESTED_TYPES = Set.of(
+            API_PREFIX + "resource.PluginResourceException$Reason",
+            API_PREFIX + "service.ServiceAccessException$Reason",
+            API_PREFIX + "service.ServiceBinding$State",
+            API_PREFIX + "web.RemoteOperations$Response",
             API_PREFIX + "database.migration.jdbc.JdbcMigrationSupport$RowSource",
             API_PREFIX + "database.DatabaseConnectionTarget$OpenMode",
             API_PREFIX + "database.DatabaseConnectionTarget$SchemaApplyResult",

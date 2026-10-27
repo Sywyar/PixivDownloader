@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.plugin.runtime.install.verify;
 
+import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginClassSpace;
+
 import java.io.BufferedInputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
@@ -8,6 +10,12 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.HexFormat;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.DigestInputStream;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -90,7 +98,7 @@ public final class PluginPackageVerifier {
         try {
             ZipSafety.assertNoSpecialFileEntries(archive);
             try (InputStream input = Files.newInputStream(archive)) {
-                scanArchive(input, limits, budget, NestedArchiveKind.TOP_LEVEL, archive.getFileName().toString());
+                scanArchive(input, limits, budget, NestedArchiveKind.TOP_LEVEL, "");
             }
         } catch (PluginPackageException e) {
             throw e.withVerificationUsage(budget.entryCount, budget.totalUncompressed);
@@ -103,7 +111,8 @@ public final class PluginPackageVerifier {
                     "failed to read package for safety scan: " + e.getMessage(), e)
                     .withVerificationUsage(budget.entryCount, budget.totalUncompressed);
         }
-        return new VerificationUsage(budget.entryCount, budget.totalUncompressed);
+        return new VerificationUsage(budget.entryCount, budget.totalUncompressed,
+                new PluginClassSpace(budget.packages, budget.digests, budget.multiRelease, budget.implicitClassPaths));
     }
 
     private static void scanArchive(InputStream input,
@@ -114,7 +123,7 @@ public final class PluginPackageVerifier {
         byte[] buffer = new byte[8192];
         Set<String> entryNames = new HashSet<>();
         BufferedInputStream buffered = new BufferedInputStream(input);
-        try (ZipInputStream zis = new ZipInputStream(buffered)) {
+        try (ZipInputStream zis = new VerifiedZipInputStream(buffered, limits.maxEntryNameLength())) {
             if (archiveKind != NestedArchiveKind.TOP_LEVEL) {
                 requireZipSignature(buffered, archiveLabel);
             }
@@ -137,15 +146,36 @@ public final class PluginPackageVerifier {
                     entryName = ZipSafety.requireUniqueEntryName(entry.getName(), entryNames, limits);
                 }
                 requireNoHostControlledClass(entryName);
+                recordClass(budget, archiveLabel, entryName);
                 NestedArchiveKind nestedKind = nestedArchiveKind(
                         entryName, archiveKind == NestedArchiveKind.TOP_LEVEL,
                         archiveKind != NestedArchiveKind.PRIVATE_LIBRARY);
                 EntryInputStream entryInput = new EntryInputStream(zis, limits, budget, entryName, nestedKind != null);
+                MessageDigest digest = nestedKind == null ? null : sha256();
+                InputStream measuredInput = digest == null ? entryInput : new DigestInputStream(entryInput, digest);
+                String nestedLabel = archiveLabel.isEmpty() ? entryName : archiveLabel + "!/" + entryName;
                 if (nestedKind != null) {
-                    scanArchive(entryInput, limits, budget, nestedKind, archiveLabel + "!/" + entryName);
+                    scanArchive(measuredInput, limits, budget, nestedKind, nestedLabel);
+                } else if (entryName.equalsIgnoreCase("META-INF/INDEX.LIST")) {
+                    budget.implicitClassPaths.add(archiveLabel);
+                } else if (entryName.equalsIgnoreCase("META-INF/MANIFEST.MF")) {
+                    // 无法完整证明的清单只禁止加入共享契约类空间，不改变旧独立插件的准入。
+                    byte[] manifest = measuredInput.readNBytes(64 * 1024 + 1);
+                    try {
+                        if (manifest.length > 64 * 1024 || new java.util.jar.Manifest(
+                                new java.io.ByteArrayInputStream(manifest)).getMainAttributes()
+                                .getValue(java.util.jar.Attributes.Name.CLASS_PATH) != null) {
+                            budget.implicitClassPaths.add(archiveLabel);
+                        }
+                    } catch (IOException invalidManifest) {
+                        budget.implicitClassPaths.add(archiveLabel);
+                    }
                 }
                 // 子 ZIP 可能在中央目录前停止；读完外层条目才能计量尾随字节并验证 CRC。
-                while (entryInput.read(buffer) != -1) {
+                while (measuredInput.read(buffer) != -1) {
+                }
+                if (digest != null) {
+                    budget.digests.put(nestedLabel, HexFormat.of().formatHex(digest.digest()));
                 }
                 assertCompressionRatio(entry, entryInput.bytesRead, limits);
                 zis.closeEntry();
@@ -158,6 +188,9 @@ public final class PluginPackageVerifier {
             return;
         }
         String normalized = entryName.replace('\\', '/');
+        if (normalized.startsWith("classes/")) {
+            normalized = normalized.substring("classes/".length());
+        }
         String multiReleasePrefix = "META-INF/versions/";
         if (normalized.startsWith(multiReleasePrefix)) {
             int classNameStart = normalized.indexOf('/', multiReleasePrefix.length());
@@ -171,6 +204,36 @@ public final class PluginPackageVerifier {
                         PluginPackageException.Reason.UNSAFE,
                         "plugin package must not bundle host-controlled class namespace: " + prefix);
             }
+        }
+    }
+
+    private static void recordClass(ScanBudget budget, String archive, String entry) {
+        if (!entry.endsWith(".class")) {
+            return;
+        }
+        String name = entry.replace('\\', '/');
+        if (name.startsWith("classes/")) {
+            name = name.substring("classes/".length());
+        }
+        if (name.startsWith("META-INF/versions/")) {
+            budget.multiRelease.add(archive);
+            int start = name.indexOf('/', "META-INF/versions/".length());
+            if (start >= 0) {
+                name = name.substring(start + 1);
+            }
+        }
+        if (!name.equals("module-info.class")) {
+            int slash = name.lastIndexOf('/');
+            budget.packages.computeIfAbsent(archive, ignored -> new HashSet<>())
+                    .add(slash < 0 ? "" : name.substring(0, slash).replace('/', '.'));
+        }
+    }
+
+    private static MessageDigest sha256() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
         }
     }
 
@@ -284,6 +347,10 @@ public final class PluginPackageVerifier {
     private static final class ScanBudget {
         private int entryCount;
         private long totalUncompressed;
+        private final Map<String, Set<String>> packages = new HashMap<>();
+        private final Map<String, String> digests = new HashMap<>();
+        private final Set<String> multiRelease = new HashSet<>();
+        private final Set<String> implicitClassPaths = new HashSet<>();
     }
 
     private enum NestedArchiveKind {
@@ -292,7 +359,11 @@ public final class PluginPackageVerifier {
         PRIVATE_LIBRARY
     }
 
-    public record VerificationUsage(int entryCount, long totalUncompressedBytes) {
+    public record VerificationUsage(int entryCount, long totalUncompressedBytes, PluginClassSpace classSpace) {
+
+        public VerificationUsage(int entryCount, long totalUncompressedBytes) {
+            this(entryCount, totalUncompressedBytes, PluginClassSpace.empty());
+        }
 
         public VerificationUsage {
             if (entryCount < 0 || totalUncompressedBytes < 0L) {

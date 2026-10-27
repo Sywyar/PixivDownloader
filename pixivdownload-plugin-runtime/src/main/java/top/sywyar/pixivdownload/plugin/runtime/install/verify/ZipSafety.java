@@ -100,13 +100,7 @@ public final class ZipSafety {
                 }
                 int host = Short.toUnsignedInt(header.getShort(4)) >>> 8;
                 long externalAttributes = Integer.toUnsignedLong(header.getInt(38));
-                if (host == UNIX_HOST || host == MAC_OS_X_HOST) {
-                    int fileType = (int) (externalAttributes >>> 16) & UNIX_FILE_TYPE_MASK;
-                    if (fileType != 0 && fileType != UNIX_REGULAR_FILE && fileType != UNIX_DIRECTORY) {
-                        throw new PluginPackageException(PluginPackageException.Reason.UNSAFE,
-                                "zip entry declares a symbolic link or special file at index " + index);
-                    }
-                }
+                requireRegularEntryType(host, externalAttributes, index);
                 int nameBytes = Short.toUnsignedInt(header.getShort(28));
                 int extraBytes = Short.toUnsignedInt(header.getShort(30));
                 int commentBytes = Short.toUnsignedInt(header.getShort(32));
@@ -120,6 +114,16 @@ public final class ZipSafety {
         } catch (IOException failure) {
             throw new PluginPackageException(PluginPackageException.Reason.MALFORMED,
                     "failed to inspect zip entry types: " + failure.getMessage(), failure);
+        }
+    }
+
+    static void requireRegularEntryType(int host, long externalAttributes, int index) {
+        if (host == UNIX_HOST || host == MAC_OS_X_HOST) {
+            int fileType = (int) (externalAttributes >>> 16) & UNIX_FILE_TYPE_MASK;
+            if (fileType != 0 && fileType != UNIX_REGULAR_FILE && fileType != UNIX_DIRECTORY) {
+                throw new PluginPackageException(PluginPackageException.Reason.UNSAFE,
+                        "zip entry declares a symbolic link or special file at index " + index);
+            }
         }
     }
 

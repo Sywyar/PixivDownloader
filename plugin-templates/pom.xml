@@ -19,5 +19,6 @@
         <module>../pixivdownload-sdk</module>
         <module>minimal-feature-plugin</module>
         <module>download-type-plugin</module>
+        <module>typed-service-plugin</module>
     </modules>
 </project>

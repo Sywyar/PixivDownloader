@@ -168,17 +168,18 @@ class PluginRuntimeDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("plugin-runtime 后台任务注册中心只依赖稳定 task 契约与纯 JDK 失败聚合")
+    @DisplayName("plugin-runtime 后台任务与资源作用域只依赖稳定契约、纯 JDK 失败聚合与 slf4j")
     void pluginRuntimeTaskRegistryStaysAtStableContractBoundary() {
         classes()
                 .that().resideInAPackage("top.sywyar.pixivdownload.plugin.runtime.task..")
                 .should().onlyDependOnClassesThat(JavaClass.Predicates.resideInAnyPackage(
                         "top.sywyar.pixivdownload.plugin.runtime.task..",
                         "top.sywyar.pixivdownload.plugin.api.task..",
-                        "java..")
+                        "top.sywyar.pixivdownload.plugin.api.resource..",
+                        "java..", "org.slf4j..")
                         .or(JavaClass.Predicates.belongToAnyOf(PluginLifecycleFailures.class)))
-                .because("全局后台任务注册中心属于 plugin-runtime 父加载器设施；插件只经 plugin-api 的 "
-                        + "owner-scoped registrar 登记包装器，注册中心不得反向依赖 app、具体插件或 Spring")
+                .because("后台任务与资源作用域共用 owner generation 和真实 drain；插件只经 plugin-api 的 "
+                        + "owner-scoped 入口登记，运行时不得反向依赖 app、具体插件或 Spring")
                 .check(CLASSES);
 
         assertThat(CLASSES.contain(PluginRuntimeTaskRegistry.class.getName())).isTrue();

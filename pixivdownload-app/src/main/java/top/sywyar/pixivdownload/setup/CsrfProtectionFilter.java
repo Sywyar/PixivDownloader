@@ -61,26 +61,7 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
             }
             return;
         }
-        if (!requiresSameOriginCheck(request)) {
-            filterChain.doFilter(request, response);
-            return;
-        }
-
-        if (hasSameOriginSignal(request)) {
-            filterChain.doFilter(request, response);
-            return;
-        }
-
-        if ((isTrustedUserscriptSource(request) && isUserscriptWriteEndpoint(request)
-                || isDeclaredScriptWrite(request))
-                && !hasAmbientCredential(request)) {
-            filterChain.doFilter(request, response);
-            return;
-        }
-
-        if (!requiresExplicitOriginSignal(request)
-                && !hasBrowserOriginSignal(request)
-                && !hasAmbientCredential(request)) {
+        if (allowsWrite(request)) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -89,6 +70,14 @@ public class CsrfProtectionFilter extends OncePerRequestFilter {
                 request.getMethod(), request.getRequestURI(),
                 request.getHeader(HttpHeaders.ORIGIN), request.getHeader(HttpHeaders.REFERER));
         sendJsonError(request, response);
+    }
+
+    /** 生成操作入口复用过滤链的同源判定，不另建来源白名单。 */
+    public boolean allowsWrite(HttpServletRequest request) {
+        return !requiresSameOriginCheck(request) || hasSameOriginSignal(request)
+                || ((isTrustedUserscriptSource(request) && isUserscriptWriteEndpoint(request)
+                    || isDeclaredScriptWrite(request)) && !hasAmbientCredential(request))
+                || (!requiresExplicitOriginSignal(request) && !hasBrowserOriginSignal(request) && !hasAmbientCredential(request));
     }
 
     private boolean isDeclaredScriptWrite(HttpServletRequest request) {

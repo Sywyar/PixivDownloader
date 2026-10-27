@@ -347,9 +347,11 @@ class PluginPackageVerifierTest {
         PluginPackageFixtures.writeZip(archive, entries);
         long total = root.length + library.length + payload.length + 2L + 3L;
 
-        assertThat(PluginPackageVerifier.verifyAndMeasure(archive,
-                limits(1 << 20, 5, total, 1 << 20, 1024, Long.MAX_VALUE)))
-                .isEqualTo(new PluginPackageVerifier.VerificationUsage(5, total));
+        var usage = PluginPackageVerifier.verifyAndMeasure(archive,
+                limits(1 << 20, 5, total, 1 << 20, 1024, Long.MAX_VALUE));
+        assertThat(usage.entryCount()).isEqualTo(5);
+        assertThat(usage.totalUncompressedBytes()).isEqualTo(total);
+        assertThat(usage.classSpace().archiveDigests()).containsKeys("plugin.jar", "plugin.jar!/lib/private.jar");
         assertTooLarge(archive, limits(1 << 20, 5, total - 1, 1 << 20, 1024, Long.MAX_VALUE));
         assertTooLarge(archive, limits(1 << 20, 4, total, 1 << 20, 1024, Long.MAX_VALUE));
     }

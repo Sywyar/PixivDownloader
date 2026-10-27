@@ -1,5 +1,8 @@
 package top.sywyar.pixivdownload.plugin.lifecycle;
 
+import top.sywyar.pixivdownload.plugin.api.service.PluginServices;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ServiceDeclarations;
+
 import static top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleFailures.mergeFailure;
 
 import lombok.extern.slf4j.Slf4j;
@@ -138,6 +141,7 @@ public class PluginLifecycleService {
     /** 按接入顺序保存的受管外置插件（键 = pluginId）。仅在 {@link #lock} 内变更，读路径取只读视图。 */
     private final Map<String, ManagedPlugin> managed = new LinkedHashMap<>();
     private volatile boolean started;
+    private boolean shuttingDown;
 
     public PluginLifecycleService(ApplicationContext parent,
                                   PluginRuntimeManager pluginRuntimeManager,
@@ -277,6 +281,7 @@ public class PluginLifecycleService {
      * feature 元数据 contribution。单个插件接入失败被隔离，不致核心壳启动失败。
      */
     public void startAll() {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
         synchronized (lock) {
             if (started) {
                 return;
@@ -318,15 +323,19 @@ public class PluginLifecycleService {
      * 与启动期接入对称的关闭收尾即可。对未在服务（已停 / 已卸 / 纯加载）的插件跳过。
      */
     public void stopAll() {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
         synchronized (lock) {
+            boolean interrupted = false;
+            while (shuttingDown) interrupted |= awaitBindingProgress();
             if (!started) {
+                if (interrupted) Thread.currentThread().interrupt();
                 return;
             }
+            shuttingDown = true;
             pluginRuntimeManager.removeWorkerListener(workerEventListener);
             List<String> ids = new ArrayList<>(managed.keySet());
             Collections.reverse(ids);
             Throwable fatal = null;
-            boolean interrupted = false;
             // 先对全部插件撤回 publication 并发出取消，避免逐插件等待时其它 owner 仍继续接收新执行。
             List<String> pendingQuiesce = new ArrayList<>();
             for (String id : ids) {
@@ -363,6 +372,10 @@ public class PluginLifecycleService {
                 ManagedPlugin record = managed.get(id);
                 PluginRuntimePhase phase = lifecycleState.phase(id).orElse(null);
                 if (phase == PluginRuntimePhase.QUIESCED && record.drains.quiesceComplete()) {
+                    while (capabilityContributionRegistrar.serviceBindingsPending(id)) {
+                        capabilityContributionRegistrar.serviceBindingsChanged();
+                        interrupted |= awaitBindingProgress();
+                    }
                     interrupted |= record.drains.awaitDrainedUninterruptibly();
                     while (lifecycleState.phase(id).orElse(null) == PluginRuntimePhase.QUIESCED) {
                         try {
@@ -377,6 +390,8 @@ public class PluginLifecycleService {
                 }
             }
             started = false;
+            shuttingDown = false;
+            lock.notifyAll();
             if (interrupted) {
                 Thread.currentThread().interrupt();
             }
@@ -384,6 +399,12 @@ public class PluginLifecycleService {
                 rethrowFatal(fatal);
             }
         }
+    }
+
+    /** wait 释放生命周期监视器，允许在途依赖回调查询宿主后真实退出。 */
+    private boolean awaitBindingProgress() {
+        try { lock.wait(50L); return false; }
+        catch (InterruptedException ignored) { return true; }
     }
 
     private static boolean parkShutdownRetry() {
@@ -433,8 +454,13 @@ public class PluginLifecycleService {
 
     // ---- 运行期热启停 / quiesce API（按 pluginId）----
 
+    public void requireServiceMutationAllowed() {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
+    }
+
     /** 启动（重新建立服务足迹）一个当前已停止 / 已加载的外置插件。已在服务则幂等返回。 */
     public void start(String pluginId) {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
         synchronized (lock) {
             doStart(require(pluginId));
         }
@@ -446,6 +472,7 @@ public class PluginLifecycleService {
      * 下载任务。已静默则幂等返回。
      */
     public void quiesce(String pluginId) {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
         synchronized (lock) {
             doQuiesce(require(pluginId));
         }
@@ -453,6 +480,7 @@ public class PluginLifecycleService {
 
     /** 停止一个外置插件：quiesce 标记后按序拆除服务足迹。已停 / 已卸 / 纯加载则幂等返回。 */
     public void stop(String pluginId) {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
         synchronized (lock) {
             doStop(require(pluginId));
         }
@@ -460,6 +488,7 @@ public class PluginLifecycleService {
 
     /** 卸下一个外置插件：先确保停止，再从核心注册中心移除（与接入对称、可逆）。已卸则幂等返回。 */
     public void unload(String pluginId) {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
         synchronized (lock) {
             doUnload(require(pluginId));
         }
@@ -467,6 +496,7 @@ public class PluginLifecycleService {
 
     /** 重新接入一个已卸下的外置插件到核心注册中心（可逆于 {@link #unload}）。已加载则幂等返回。 */
     public void load(String pluginId) {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
         synchronized (lock) {
             doLoad(require(pluginId));
         }
@@ -474,6 +504,7 @@ public class PluginLifecycleService {
 
     /** 重载一个外置插件 = stop 后再 start（回收并重建服务足迹）。已卸下的插件不能重载（需先 load）。 */
     public void reload(String pluginId) {
+        capabilityContributionRegistrar.requireLifecycleMutationAllowed();
         synchronized (lock) {
             ManagedPlugin record = require(pluginId);
             PluginRuntimePhase phase = lifecycleState.phase(pluginId).orElse(null);
@@ -499,6 +530,7 @@ public class PluginLifecycleService {
      */
     public void adoptLoadedPackage(LoadedPluginPackage loaded) {
         synchronized (lock) {
+            requireNotShuttingDown();
             String packageId = loaded.packageId();
             if (managed.containsKey(packageId)) {
                 throw new PluginLifecycleException("plugin package is already managed: " + packageId);
@@ -722,6 +754,11 @@ public class PluginLifecycleService {
             return; // 幂等 / 无服务足迹可拆
         }
         ensureQuiesced(record);
+        if (capabilityContributionRegistrar.serviceBindingsPending(pluginId)) {
+            capabilityContributionRegistrar.serviceBindingsChanged();
+            throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
+                    "plugin dependency resources remain pending: " + pluginId);
+        }
         long deadline = System.nanoTime() + RUNTIME_DRAIN_TIMEOUT_NANOS;
         String activeDrain = record.drains.awaitDrained(deadline);
         if (activeDrain != null) {
@@ -979,10 +1016,34 @@ public class PluginLifecycleService {
             return;
         }
         // b) 子 context（仅声明了配置类的插件包）。
+        PluginServices services = null;
+        try {
+            if (record.registered != null) {
+                var imports = ServiceDeclarations.copy(
+                        record.registered.plugin().serviceImports());
+                var exports = ServiceDeclarations.copy(
+                        record.registered.plugin().serviceExports());
+                if (!imports.isEmpty() || !exports.isEmpty()) {
+                    if (record.module == null) {
+                        throw new IllegalArgumentException("service declarations require a child context");
+                    }
+                    for (var key : imports) pluginRuntimeManager.requireServiceContract(record.registered.packageId(), key);
+                    for (var export : exports) pluginRuntimeManager.requireServiceContract(record.registered.packageId(), export.key());
+                    record.capabilityPreparation = capabilityContributionRegistrar.allocateOwner(
+                            pluginId, record.registered.packageId(), record.generation);
+                    record.capabilityRetirementComplete = false;
+                    record.capabilityRetirementAcknowledged = false;
+                    services = capabilityContributionRegistrar.servicesFor(record.capabilityPreparation, imports, exports);
+                }
+            }
+        } catch (Throwable failure) {
+            handleBringUpFailure(record, failure, featureStartedForRollback);
+            return;
+        }
         if (record.module != null) {
             ConfigurableApplicationContext child;
             try {
-                child = contextFactory.create(parent, record.module);
+                child = contextFactory.create(parent, record.module, services, retained -> record.context = retained);
             } catch (Throwable failure) {
                 log.error("Failed to start child context for plugin '{}' (failureType={}) - isolating.",
                         pluginId, failure.getClass().getName());
@@ -996,8 +1057,10 @@ public class PluginLifecycleService {
             try {
                 String packageId = record.registered == null
                         ? pluginId : record.registered.packageId();
-                record.capabilityPreparation = capabilityContributionRegistrar.allocateOwner(
-                        pluginId, packageId, record.generation);
+                if (record.capabilityPreparation == null) {
+                    record.capabilityPreparation = capabilityContributionRegistrar.allocateOwner(
+                            pluginId, packageId, record.generation);
+                }
                 if (record.capabilityPreparation != null) {
                     record.capabilityRetirementComplete = false;
                     record.capabilityRetirementAcknowledged = false;
@@ -1123,6 +1186,7 @@ public class PluginLifecycleService {
         try {
             lifecycleState.transition(pluginId, PluginRuntimePhase.STARTED);
             pluginRegistry.clearLifecycleFailure(record.registered);
+            capabilityContributionRegistrar.serviceBindingsChanged();
         } catch (Throwable failure) {
             handleBringUpFailure(record, failure, featureStartedForRollback);
         }
@@ -1320,6 +1384,10 @@ public class PluginLifecycleService {
                 failure = mergeFailure(failure, quiesceFailure);
             }
         }
+        if (failure == null && capabilityContributionRegistrar.serviceBindingsPending(record.pluginId)) {
+            failure = new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
+                    "bring-up dependency cleanup remains pending: " + record.pluginId);
+        }
         if (failure == null && record.drains.runtimeTasksQuiesced()) {
             long deadline = System.nanoTime() + RUNTIME_DRAIN_TIMEOUT_NANOS;
             String activeDrain = record.drains.awaitDrained(deadline);
@@ -1486,6 +1554,7 @@ public class PluginLifecycleService {
             throw new PluginLifecycleException("refusing to close child context before schedule retirement: "
                     + record.pluginId);
         }
+        runtimeTaskQuiescer.closeResources(record.pluginId, record.drains.runtimeTaskDrain());
         if (child != null) {
             try {
                 child.close();
@@ -1567,11 +1636,17 @@ public class PluginLifecycleService {
     }
 
     private ManagedPlugin require(String pluginId) {
+        requireNotShuttingDown();
         ManagedPlugin record = managed.get(pluginId);
         if (record == null) {
             throw new PluginLifecycleException("unknown external plugin: " + pluginId);
         }
         return record;
+    }
+
+    private void requireNotShuttingDown() {
+        if (shuttingDown) throw new ClassifiedPluginLifecycleException(PluginManagementErrorCode.OPERATION_IN_PROGRESS,
+                "plugin lifecycle is shutting down");
     }
 
     /** 一个受管外置插件的可变运行期记录：标识、装配定义、注册条目、当前子 context 与精确 web serving 句柄。 */

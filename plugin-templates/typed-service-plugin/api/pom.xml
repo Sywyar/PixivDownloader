@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent><groupId>com.example.pixivdownload</groupId><artifactId>typed-service-example</artifactId><version>0.1.0</version></parent>
+    <artifactId>text-metrics-api</artifactId>
+    <dependencies>
+        <dependency>
+            <groupId>io.github.sywyar.pixivdownloader</groupId><artifactId>pixivdownload-plugin-api</artifactId>
+            <version>${pixivdownload.sdk.version}</version><scope>provided</scope>
+        </dependency>
+    </dependencies>
+    <build><plugins><plugin>
+        <groupId>org.apache.maven.plugins</groupId><artifactId>maven-antrun-plugin</artifactId><version>3.1.0</version>
+        <configuration><skip>false</skip></configuration>
+        <executions>
+            <execution><id>begin-schema-build</id><phase>validate</phase><goals><goal>run</goal></goals>
+                <configuration><target><delete file="${project.basedir}/target/schema-generation.complete"/></target></configuration>
+            </execution>
+            <execution><id>require-current-schemas</id><phase>prepare-package</phase><goals><goal>run</goal></goals>
+                <configuration><target>
+                    <fail message="SDK_SCHEMA_GENERATION_REQUIRED"><condition><and>
+                        <or><available file="${project.basedir}/target/classes/META-INF/pixivdownload/schema" type="dir"/><isset property="pixivdownload.sdk.tools"/></or>
+                        <not><available file="${project.basedir}/target/schema-generation.complete" type="file"/></not>
+                    </and></condition></fail>
+                </target></configuration>
+            </execution>
+        </executions>
+    </plugin></plugins></build>
+    <profiles>
+        <profile>
+            <id>schemas</id>
+            <activation><property><name>pixivdownload.sdk.tools</name></property></activation>
+            <build><plugins><plugin>
+                <groupId>org.codehaus.mojo</groupId><artifactId>exec-maven-plugin</artifactId><version>3.5.0</version>
+                <executions><execution><id>generate-value-schemas</id><phase>process-classes</phase><goals><goal>exec</goal></goals>
+                    <configuration>
+                        <executable>${java.home}/bin/java</executable><classpathScope>compile</classpathScope><skip>false</skip>
+                        <arguments>
+                            <argument>-jar</argument><argument>${pixivdownload.sdk.tools}</argument>
+                            <argument>schema</argument><argument>${project.basedir}</argument><classpath/>
+                        </arguments>
+                    </configuration>
+                </execution></executions>
+            </plugin></plugins></build>
+        </profile>
+    </profiles>
+</project>

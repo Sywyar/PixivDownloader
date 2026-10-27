@@ -1,5 +1,9 @@
 package top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime;
 
+import top.sywyar.pixivdownload.plugin.api.service.ServiceKey;
+import top.sywyar.pixivdownload.plugin.api.service.ServiceAccessException;
+import top.sywyar.pixivdownload.plugin.api.service.PluginServices;
+
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Constructor;
@@ -36,6 +40,50 @@ import java.util.stream.BaseStream;
 @Component
 public final class ExternalCapabilityInvocationRegistry {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ExternalCapabilityInvocationRegistry.class);
+    private static final int MAX_SERVICE_CALLS = 64;
+    private int serviceCalls;
+    private final ThreadLocal<Integer> serviceDepth = new ThreadLocal<>();
+    private top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleAdmission serviceAdmission = ignored -> true;
+
+    /** 正式装配只读取宿主状态机，不接受插件提供的准入回调。 */
+    @org.springframework.beans.factory.annotation.Autowired
+    public ExternalCapabilityInvocationRegistry(
+            top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleAdmission admission) {
+        this();
+        serviceAdmission = Objects.requireNonNull(admission, "admission");
+    }
+
+    private record ScopedServices(ExternalCapabilityOwner owner, ExternalCapabilityInvocationRegistry registry)
+            implements PluginServices {
+        @Override
+        public <T> Optional<T> find(ServiceKey<T> key) {
+            return registry.findService(owner, key);
+        }
+
+        @Override
+        public top.sywyar.pixivdownload.plugin.api.service.ServiceBinding bind(List<ServiceKey<?>> dependencies,
+                java.util.function.Consumer<top.sywyar.pixivdownload.plugin.api.service.ServiceBindingScope> activate) {
+            return registry.bindings.bind(owner, dependencies, activate);
+        }
+    }
+
+    private record ServiceInvocationHandler(ExternalCapabilityOwner consumer, ExternalCapabilityHandle handle,
+                                            ExternalCapabilityInvocationRegistry registry) implements InvocationHandler {
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] arguments) throws Throwable {
+            if (method.getDeclaringClass() == Object.class) {
+                return switch (method.getName()) {
+                    case "equals" -> proxy == arguments[0];
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "toString" -> "PluginServiceProxy[" + handle.capabilityTypeName() + "]";
+                    default -> throw new IllegalStateException("unsupported proxy method");
+                };
+            }
+            return registry.invoke(handle, method, arguments, consumer);
+        }
+    }
+
     @FunctionalInterface
     public interface MetadataSupplier<T> {
         T get() throws Throwable;
@@ -50,6 +98,8 @@ public final class ExternalCapabilityInvocationRegistry {
     private static final class TargetEntry {
         private final Class<?> capabilityType;
         private Object target;
+        private ServiceKey<?> serviceKey;
+        private final java.util.concurrent.atomic.AtomicBoolean failureReported = new java.util.concurrent.atomic.AtomicBoolean();
 
         private TargetEntry(Class<?> capabilityType, Object target) {
             this.capabilityType = capabilityType;
@@ -67,6 +117,7 @@ public final class ExternalCapabilityInvocationRegistry {
         private final ExternalCapabilityLeaseState leaseState;
         private final ExternalCapabilityDrain drain;
         private final Map<Long, TargetEntry> targets = new HashMap<>();
+        private java.util.Set<ServiceKey<?>> serviceImports = java.util.Set.of();
         private ExternalCapabilityPublication publication;
         private Phase phase = Phase.PREPARED;
         private int preparationOperations;
@@ -89,6 +140,7 @@ public final class ExternalCapabilityInvocationRegistry {
         }
 
         private void clearTargets() {
+            serviceImports = java.util.Set.of();
             targets.values().forEach(TargetEntry::clear);
             targets.clear();
         }
@@ -155,6 +207,7 @@ public final class ExternalCapabilityInvocationRegistry {
     }
 
     private final Object lock = new Object();
+    private final ExternalServiceBindings bindings = new ExternalServiceBindings(this, lock);
     private final Map<Long, OwnerState> states = new HashMap<>();
     private final Map<Long, RetiredOwner> retirementProofs = new HashMap<>();
     private final ThreadLocal<ActiveOwnerScope> activeOwners = new ThreadLocal<>();
@@ -453,6 +506,159 @@ public final class ExternalCapabilityInvocationRegistry {
         }
     }
 
+    /** 准备期注入的访问器只携带宿主身份，不能在 publication 激活前解析服务。 */
+    public PluginServices servicesFor(
+            ExternalCapabilityPreparation preparation,
+            java.util.List<ServiceKey<?>> imports) {
+        imports = ServiceDeclarations.copy(imports);
+        java.util.Set<ServiceKey<?>> declared = java.util.Set.copyOf(imports);
+        if (declared.size() != imports.size() || declared.size() > 128) throw new IllegalArgumentException("SERVICE_IMPORT_INVALID");
+        declared.forEach(key -> ServiceValueBoundary.validate(key.type()));
+        synchronized (lock) {
+            requirePrepared(preparation).serviceImports = declared;
+        }
+        return new ScopedServices(preparation.owner(), this);
+    }
+
+    /** 具名导出留在同一准备批次中，发布、撤回和排空复用现有 owner 状态。 */
+    public <T> void prepareService(ExternalCapabilityPreparation preparation,
+            ServiceKey<T> key, T target) {
+        ServiceValueBoundary.validate(key.type());
+        if (!key.type().isInstance(target)) throw new IllegalArgumentException("SERVICE_EXPORT_TYPE_MISMATCH");
+        synchronized (lock) {
+            OwnerState state = requirePrepared(preparation);
+            if (state.targets.values().stream().anyMatch(entry -> key.equals(entry.serviceKey))) {
+                throw new IllegalArgumentException("SERVICE_EXPORT_DUPLICATE");
+            }
+            TargetEntry entry = new TargetEntry(key.type(), target);
+            entry.serviceKey = key;
+            long token = Math.incrementExact(nextCapabilityToken);
+            state.targets.put(token, entry);
+            nextCapabilityToken = token;
+        }
+    }
+
+    private <T> Optional<T> findService(ExternalCapabilityOwner consumer,
+            ServiceKey<T> key) {
+        Objects.requireNonNull(key, "key");
+        ExternalCapabilityHandle handle = null;
+        synchronized (lock) {
+            OwnerState owner = states.get(consumer.publicationId());
+            if (owner == null || !owner.owner.equals(consumer) || owner.phase != Phase.PUBLISHED
+                    || !serviceAdmission.acceptsNewRequests(consumer.pluginId())) {
+                throw serviceFailure(ServiceAccessException.Reason.NOT_ACTIVE);
+            }
+            if (!owner.serviceImports.contains(key)) {
+                throw serviceFailure(ServiceAccessException.Reason.UNDECLARED);
+            }
+            for (OwnerState provider : states.values()) {
+                if (provider.phase != Phase.PUBLISHED
+                        || !serviceAdmission.acceptsNewRequests(provider.owner.pluginId())) continue;
+                for (Map.Entry<Long, TargetEntry> candidate : provider.targets.entrySet()) {
+                    if (!key.equals(candidate.getValue().serviceKey)) continue;
+                    if (handle != null) throw serviceFailure(ServiceAccessException.Reason.AMBIGUOUS);
+                    handle = new ExternalCapabilityHandle(provider.owner, candidate.getKey(), key.type().getName());
+                }
+            }
+        }
+        if (handle == null) return Optional.empty();
+        return Optional.of(key.type().cast(Proxy.newProxyInstance(key.type().getClassLoader(), new Class<?>[]{key.type()},
+                new ServiceInvocationHandler(consumer, handle, this))));
+    }
+
+    /** 同步调用栈不能等待自身排空；生命周期入口在取得操作锁前拒绝这种重入。 */
+    public boolean serviceInvocationOnCurrentThread() {
+        return serviceDepth.get() != null || bindings.onCallbackThread();
+    }
+
+    /** 合并通知复用宿主执行器；每个绑定至多排队一个协调任务。 */
+    @org.springframework.beans.factory.annotation.Autowired
+    public void configureBindings(top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry tasks,
+            @org.springframework.beans.factory.annotation.Qualifier("applicationTaskExecutor") Executor executor) {
+        bindings.configure(tasks, executor);
+    }
+
+    public void serviceBindingsChanged() { bindings.changed(); }
+
+    public boolean serviceBindingsPending(String pluginId) { return bindings.pending(pluginId); }
+
+
+    boolean bindingOwnerGone(ExternalCapabilityOwner owner) {
+        synchronized (lock) {
+            OwnerState state = states.get(owner.publicationId());
+            return state == null || !state.owner.equals(owner) || state.phase == Phase.WITHDRAWN;
+        }
+    }
+
+    void validateBindingImports(ExternalCapabilityOwner owner, List<ServiceKey<?>> keys) {
+        synchronized (lock) {
+            if (bindingOwnerGone(owner)) throw serviceFailure(ServiceAccessException.Reason.NOT_ACTIVE);
+            if (!states.get(owner.publicationId()).serviceImports.containsAll(keys)) {
+                throw serviceFailure(ServiceAccessException.Reason.UNDECLARED);
+            }
+        }
+    }
+
+    Map<ServiceKey<?>, ExternalCapabilityHandle> selectBinding(ExternalCapabilityOwner owner, List<ServiceKey<?>> keys) {
+        synchronized (lock) {
+            validateBindingImports(owner, keys);
+            if (states.get(owner.publicationId()).phase != Phase.PUBLISHED
+                    || !serviceAdmission.acceptsNewRequests(owner.pluginId())) {
+                throw serviceFailure(ServiceAccessException.Reason.NOT_ACTIVE);
+            }
+            Map<ServiceKey<?>, ExternalCapabilityHandle> selected = new java.util.LinkedHashMap<>();
+            for (ServiceKey<?> key : keys) {
+                for (OwnerState provider : states.values()) {
+                    if (provider.phase != Phase.PUBLISHED
+                            || !serviceAdmission.acceptsNewRequests(provider.owner.pluginId())) continue;
+                    for (var target : provider.targets.entrySet()) {
+                        if (!key.equals(target.getValue().serviceKey)) continue;
+                        if (selected.putIfAbsent(key, new ExternalCapabilityHandle(provider.owner,
+                                target.getKey(), key.type().getName())) != null) {
+                            throw serviceFailure(ServiceAccessException.Reason.AMBIGUOUS);
+                        }
+                    }
+                }
+                if (!selected.containsKey(key)) throw serviceFailure(ServiceAccessException.Reason.UNAVAILABLE);
+            }
+            return java.util.Collections.unmodifiableMap(selected);
+        }
+    }
+
+    <T> T bindingProxy(ExternalCapabilityOwner owner, ServiceKey<T> key, ExternalCapabilityHandle handle) {
+        return key.type().cast(Proxy.newProxyInstance(key.type().getClassLoader(), new Class<?>[]{key.type()},
+                new ServiceInvocationHandler(owner, handle, this)));
+    }
+
+    /** 本轮资源清理完成前保留双方 context；撤回不等于实际退出。 */
+    Runnable holdBinding(ExternalCapabilityOwner consumer, Collection<ExternalCapabilityHandle> selected) {
+        synchronized (lock) {
+            java.util.Set<ExternalCapabilityOwner> owners = new java.util.LinkedHashSet<>();
+            owners.add(consumer);
+            selected.forEach(handle -> owners.add(handle.owner()));
+            Map<ExternalCapabilityLeaseState, ExternalCapabilityLeaseState.LeaseToken> leases = new java.util.LinkedHashMap<>();
+            try {
+                for (ExternalCapabilityOwner owner : owners) {
+                    OwnerState state = states.get(owner.publicationId());
+                    var token = new ExternalCapabilityLeaseState.LeaseToken();
+                    if (state == null || state.phase != Phase.PUBLISHED || !state.leaseState.tryAcquire(token)) {
+                        throw serviceFailure(ServiceAccessException.Reason.UNAVAILABLE);
+                    }
+                    leases.put(state.leaseState, token);
+                }
+            } catch (Throwable failure) {
+                leases.forEach(ExternalCapabilityLeaseState::release);
+                throw failure;
+            }
+            return () -> leases.forEach(ExternalCapabilityLeaseState::release);
+        }
+    }
+
+    private static ServiceAccessException serviceFailure(
+            ServiceAccessException.Reason reason) {
+        return new ServiceAccessException(reason);
+    }
+
     /** Capture parent-owned metadata before proxy publication, without retaining the supplier or a child failure. */
     @SuppressWarnings("unchecked")
     public <T> T captureMetadata(
@@ -508,6 +714,7 @@ public final class ExternalCapabilityInvocationRegistry {
             state.leaseState.publish();
             state.publication = publication;
             state.phase = Phase.PUBLISHED;
+            bindings.changed();
             postPublishProbe.run();
             return publication;
         }
@@ -545,6 +752,7 @@ public final class ExternalCapabilityInvocationRegistry {
             preparation.markDiscarded();
             state.clearTargets();
             states.remove(state.owner.publicationId());
+            bindings.changed();
             postDiscardProbe.run();
             return true;
         }
@@ -569,6 +777,7 @@ public final class ExternalCapabilityInvocationRegistry {
             Optional<ExternalCapabilityDrain> result = Optional.of(state.drain);
             state.leaseState.withdraw();
             state.phase = Phase.WITHDRAWN;
+            bindings.changed();
             return result;
         }
     }
@@ -593,6 +802,7 @@ public final class ExternalCapabilityInvocationRegistry {
             if (state.phase == Phase.PUBLISHED || state.phase == Phase.WITHDRAWN) {
                 state.leaseState.withdraw();
                 state.phase = Phase.WITHDRAWN;
+                bindings.changed();
                 return state.drain;
             }
             return null;
@@ -668,7 +878,18 @@ public final class ExternalCapabilityInvocationRegistry {
             ExternalCapabilityHandle handle,
             Method method,
             Object[] arguments) throws Throwable {
+        return invoke(handle, method, arguments, null);
+    }
+
+    private Object invoke(ExternalCapabilityHandle handle, Method method, Object[] arguments,
+                          ExternalCapabilityOwner consumer) throws Throwable {
         OwnerState state = null;
+        OwnerState consumerState = null;
+        ActiveOwnerScope consumerScope = null;
+        boolean serviceReserved = false;
+        boolean serviceDepthAttached = false;
+        Integer previousServiceDepth = null;
+        Object[] copiedArguments = null;
         TargetEntry entry = null;
         Object target = null;
         ActiveOwnerScope ownerScope = null;
@@ -677,6 +898,7 @@ public final class ExternalCapabilityInvocationRegistry {
         Throwable primaryFailure = null;
         CleanupTracker cleanupFailures = new CleanupTracker();
         ExternalCapabilityLeaseState.LeaseToken leaseToken = new ExternalCapabilityLeaseState.LeaseToken();
+        ExternalCapabilityLeaseState.LeaseToken consumerLease = new ExternalCapabilityLeaseState.LeaseToken();
         try {
             synchronized (lock) {
                 state = states.get(handle.owner().publicationId());
@@ -687,6 +909,32 @@ public final class ExternalCapabilityInvocationRegistry {
                 if (entry == null || !entry.capabilityType.getName().equals(handle.capabilityTypeName())
                         || !method.getDeclaringClass().isAssignableFrom(entry.capabilityType)) {
                     throw unavailable(handle);
+                }
+                if (consumer != null) {
+                    consumerState = states.get(consumer.publicationId());
+                    if (consumerState == null || !consumerState.owner.equals(consumer)
+                            || consumerState.phase != Phase.PUBLISHED
+                            || !serviceAdmission.acceptsNewRequests(consumer.pluginId())
+                            || entry.serviceKey == null || !consumerState.serviceImports.contains(entry.serviceKey)) {
+                        throw serviceFailure(ServiceAccessException.Reason.NOT_ACTIVE);
+                    }
+                    if (state.phase != Phase.PUBLISHED
+                            || !serviceAdmission.acceptsNewRequests(state.owner.pluginId())) {
+                        throw serviceFailure(ServiceAccessException.Reason.UNAVAILABLE);
+                    }
+                    if (serviceCalls >= MAX_SERVICE_CALLS) {
+                        throw serviceFailure(ServiceAccessException.Reason.CAPACITY);
+                    }
+                    serviceCalls++;
+                    serviceReserved = true;
+                    previousServiceDepth = serviceDepth.get();
+                    serviceDepthAttached = true;
+                    serviceDepth.set(previousServiceDepth == null ? 1 : previousServiceDepth + 1);
+                    consumerScope = new ActiveOwnerScope(consumerState);
+                    consumerScope.enter();
+                    if (!consumerState.leaseState.tryAcquire(consumerLease)) {
+                        throw serviceFailure(ServiceAccessException.Reason.NOT_ACTIVE);
+                    }
                 }
                 boolean nestedSameOwner = hasActiveOwner(state);
                 ownerScope = new ActiveOwnerScope(state);
@@ -705,26 +953,63 @@ public final class ExternalCapabilityInvocationRegistry {
             }
 
             postAcquireProbe.run();
+            ServiceValueBoundary serviceBoundary = consumer == null ? null : new ServiceValueBoundary(entry.capabilityType);
+            if (serviceBoundary != null) {
+                copiedArguments = new Object[method.getParameterCount()];
+                try {
+                    for (int i = 0; i < copiedArguments.length; i++) {
+                        copiedArguments[i] = serviceBoundary.copy(arguments[i], method.getGenericParameterTypes()[i]);
+                    }
+                } catch (Throwable failure) {
+                    rethrowFatal(failure);
+                    throw serviceFailure(ServiceAccessException.Reason.INVALID_VALUE);
+                }
+            }
             try {
-                rawResult = method.invoke(target, arguments);
+                rawResult = method.invoke(target, serviceBoundary == null ? arguments : copiedArguments);
             } catch (InvocationTargetException failure) {
+                if (consumer != null) {
+                    rethrowFatal(failure.getCause());
+                    reportServiceFailure(entry, handle, method, failure.getCause());
+                    throw serviceFailure(ServiceAccessException.Reason.INVOCATION_FAILED);
+                }
                 throw failure.getCause();
             }
-            copiedResult = method.getReturnType() == void.class
-                    ? null
-                    : CapabilityValueBoundary.copy(rawResult, boundaryLoader(entry.capabilityType));
+            try {
+                copiedResult = method.getReturnType() == void.class ? null : serviceBoundary == null
+                        ? CapabilityValueBoundary.copy(rawResult, boundaryLoader(entry.capabilityType))
+                        : serviceBoundary.copy(rawResult, method.getGenericReturnType());
+            } catch (Throwable failure) {
+                if (consumer == null) throw failure;
+                rethrowFatal(failure);
+                throw serviceFailure(ServiceAccessException.Reason.INVALID_VALUE);
+            }
         } catch (Throwable failure) {
             primaryFailure = failure;
         } finally {
             // Clear every stack-local path to the child target/result before releasing the outer admission lease.
             rawResult = null;
+            copiedArguments = null;
             target = null;
             entry = null;
             if (ownerScope != null) {
                 closeOwnerScopeFully(ownerScope, cleanupFailures);
             }
+            if (consumerScope != null) closeOwnerScopeFully(consumerScope, cleanupFailures);
             if (state != null) {
                 releaseLeaseFully(state.leaseState, leaseToken, cleanupFailures);
+            }
+            if (consumerState != null) releaseLeaseFully(consumerState.leaseState, consumerLease, cleanupFailures);
+            if (serviceReserved) {
+                synchronized (lock) { serviceCalls--; }
+            }
+            if (serviceDepthAttached) {
+                try {
+                    if (previousServiceDepth == null) serviceDepth.remove();
+                    else serviceDepth.set(previousServiceDepth);
+                } catch (Throwable cleanupFailure) {
+                    cleanupFailures.record(cleanupFailure);
+                }
             }
         }
 
@@ -733,9 +1018,15 @@ public final class ExternalCapabilityInvocationRegistry {
             rethrowFatal(fatal);
         }
         if (primaryFailure != null) {
+            if (consumer != null) {
+                if (primaryFailure instanceof ServiceAccessException serviceFailure
+                        && cleanupFailures.isEmpty()) throw serviceFailure;
+                throw serviceFailure(ServiceAccessException.Reason.UNAVAILABLE);
+            }
             throw sanitizeInvocationFailure(handle, method, primaryFailure, cleanupFailures);
         }
         if (!cleanupFailures.isEmpty()) {
+            if (consumer != null) throw serviceFailure(ServiceAccessException.Reason.INVOCATION_FAILED);
             throw new ExternalCapabilityInvocationException(
                     "external capability cleanup failed (owner=" + handle.owner()
                             + ", capability=" + handle.capabilityTypeName()
@@ -873,6 +1164,26 @@ public final class ExternalCapabilityInvocationRegistry {
             }
         }
         return new ExternalCapabilityInvocationException(diagnostic);
+    }
+
+    private static void reportServiceFailure(TargetEntry entry, ExternalCapabilityHandle handle,
+                                             Method method, Throwable failure) {
+        if (!entry.failureReported.compareAndSet(false, true)) return;
+        var owner = handle.owner();
+        log.warn("PLUGIN_SERVICE_INVOCATION_FAILED plugin={} package={} generation={} publication={} service={} method={} failureType={}",
+                diagnosticName(owner.pluginId()), diagnosticName(owner.packageId()), owner.pluginGeneration(),
+                owner.publicationId(), handle.capabilityToken(),
+                diagnosticName(method.getDeclaringClass().getName()) + "#" + diagnosticName(method.getName()),
+                diagnosticName(failure.getClass().getName()));
+    }
+
+    private static String diagnosticName(String value) {
+        StringBuilder result = new StringBuilder(Math.min(value.length(), 256));
+        for (int i = 0; i < Math.min(value.length(), 256); i++) {
+            char character = value.charAt(i);
+            result.append(Character.isISOControl(character) ? '_' : character);
+        }
+        return result.toString();
     }
 
     private static Throwable instantiateDeclaredFailure(

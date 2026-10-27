@@ -176,6 +176,8 @@ java -jar tools/sdk-tools.jar stop <absolute-project-path>
 
 ## Independent examples
 
+`examples/typed-service-plugin/README_en.md` contains an independent API, contract wrapper, provider, and consumer. From the SDK root, run `mvnw -f examples/typed-service-plugin/pom.xml package`, then sign and install the three plugins through the normal installer. Restart the host process after installing the contract. This Maven reactor uses its own build rather than the single-plugin run tasks listed below.
+
 | Directory | Purpose | Run / debug / stop |
 | --- | --- | --- |
 | `examples/download-type-plugin/` | Download types, queues, scheduled sources, and a plugin-owned gallery | From the SDK root: `mvnw -f examples/download-type-plugin/pom.xml verify exec:exec@sdk-run`; use `sdk-debug` to debug, or only `exec:exec@sdk-stop` to stop |

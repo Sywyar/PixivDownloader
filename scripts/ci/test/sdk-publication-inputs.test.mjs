@@ -61,6 +61,9 @@ test('发布恢复入口为全部 Maven POM 和主 JAR 生成匹配原始字节�
         ...['minimal-feature-plugin', 'download-type-plugin'].flatMap(name => [
             `plugin-templates/${name}/pom.xml`, `plugin-templates/${name}/src/main/resources/plugin.properties`,
         ]),
+        'plugin-templates/typed-service-plugin/pom.xml',
+        ...['contract', 'provider', 'consumer'].map(module =>
+            `plugin-templates/typed-service-plugin/${module}/src/main/resources/plugin.properties`),
     ]) {
         fs.mkdirSync(path.dirname(path.join(work, relative)), { recursive: true });
         fs.copyFileSync(path.join(root, relative), path.join(work, relative));

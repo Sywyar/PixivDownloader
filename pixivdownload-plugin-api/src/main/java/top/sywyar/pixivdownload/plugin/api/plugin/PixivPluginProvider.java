@@ -10,7 +10,9 @@ import java.util.List;
  * <p><b>跨 classloader 边界契约。</b>本接口与 {@link PixivFeaturePlugin} 是外置插件发现和 contribution
  * 发布的入口类型，必须由父 classloader 加载的共享契约包 {@code pixivdownload-plugin-api} 提供——否则会出现
  * 「同名类不同 classloader」的 {@link ClassCastException}。插件 Bean 还可以消费父 classloader 提供的稳定
- * core-api 语义端口与宿主明确共享的规范依赖；任何跨边界类型都必须来自父 classloader，不能复制进插件产物。
+ * core-api 语义端口与宿主明确共享的规范依赖；这些类型必须来自父 classloader，不能复制进插件产物。
+ * 独立同步服务的接口及 DTO 则由 required 契约包唯一加载，经
+ * {@link top.sywyar.pixivdownload.plugin.api.service.PluginServices} 校验并复制，提供者和消费者均不得重复打包。
  * 本接口自身保持零业务、零框架依赖（仅 JDK + {@code plugin.api}），<b>不</b>引用 PF4J、Spring 等加载框架类型。
  *
  * <p>一个外置插件包必须贡献且只贡献一个非 {@code null} 的 {@link PixivFeaturePlugin}，其
@@ -36,7 +38,7 @@ public interface PixivPluginProvider {
      *
      * <p>子 context 的 Bean 可注入父 context 暴露的 plugin-api 契约与 core-api 稳定语义端口，但<b>不得</b>
      * 直接依赖宿主实现类；跨子 context 边界传递的类型限于 plugin-api、core-api、JDK 与宿主父 classloader
-     * 明确共享的规范依赖。
+     * 明确共享的规范依赖，以及经 PluginServices 调用的独立契约包纯值类型。
      *
      * <p>返回类型只用 JDK {@link Class}，本契约不引用 Spring 类型，保持 {@code plugin.api} 的零框架依赖。
      * 默认返回空列表。新插件必须在包描述符声明配置类；不得依赖本方法让当前宿主发现配置类。

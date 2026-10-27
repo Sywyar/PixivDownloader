@@ -7,12 +7,55 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { inspectSdkVersion } from '../sdk-version.mjs';
 
-import { assertSdkResolution, parsePluginIdentity, prepareDouyinSource, stageSdkArtifacts, verifyConsumer } from '../sdk-consumer.mjs';
+import { assertSdkResolution, parsePluginIdentity, prepareDouyinSource, stageSdkArtifacts, verifyConsumer, verifyTypedServiceArtifacts } from '../sdk-consumer.mjs';
+import { createHash } from 'node:crypto';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const VERSION = inspectSdkVersion(ROOT).version;
 const PLUGIN_VERSION = '9.8.7-test.5';
 const GROUP_PATH = path.join('io', 'github', 'sywyar', 'pixivdownloader');
+
+test('独立服务产物必须携带原 API 字节，消费与提供包不得重复契约或宿主类', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pixiv-typed-artifacts-'));
+    const pack = (module, entries) => {
+        const target = path.join(root, module, 'target');
+        const content = path.join(target, 'content');
+        fs.rmSync(content, { recursive: true, force: true });
+        fs.mkdirSync(content, { recursive: true });
+        for (const [name, value] of Object.entries(entries)) {
+            fs.mkdirSync(path.dirname(path.join(content, name)), { recursive: true });
+            fs.writeFileSync(path.join(content, name), value);
+        }
+        const jar = path.join(target, 'fixture.jar');
+        execFileSync('jar', ['--create', '--file', jar, '-C', content, '.']);
+        return jar;
+    };
+    const ordinary = module => ({ 'plugin.properties': `plugin.id=${module}\n`,
+        [`com/example/textmetrics/${module}/Entry.class`]: 'class fixture' });
+    try {
+        const api = fs.readFileSync(pack('api', { 'com/example/textmetrics/api/Api.class': 'API class fixture' }));
+        const digest = createHash('sha256').update(api).digest('hex');
+        const contract = { ...ordinary('contract'), 'lib/text-metrics-api.jar': api,
+            'plugin.properties': `pixiv.contract-api=lib/text-metrics-api.jar\npixiv.contract-sha256=${digest}\n` };
+        pack('contract', contract);
+        pack('provider', ordinary('provider'));
+        pack('consumer', ordinary('consumer'));
+        assert.deepEqual(verifyTypedServiceArtifacts(root), { apiDigest: digest });
+        for (const [module, entry] of [['provider', 'com/example/textmetrics/api/Api.class'],
+            ['consumer', 'org/springframework/Context.class'], ['consumer', 'hidden.jar']]) {
+            pack(module, { ...ordinary(module), [entry]: 'unexpected' });
+            assert.throws(() => verifyTypedServiceArtifacts(root), /unexpected|duplicated/u);
+            pack(module, ordinary(module));
+        }
+        pack('contract', { ...contract, 'lib/text-metrics-api.jar': Buffer.from('different bytes') });
+        assert.throws(() => verifyTypedServiceArtifacts(root), /original API JAR bytes/u);
+        pack('contract', { ...contract, 'plugin.properties': contract['plugin.properties'].replace(digest, '0'.repeat(64)) });
+        assert.throws(() => verifyTypedServiceArtifacts(root), /original API JAR bytes/u);
+        assert.deepEqual(fs.readdirSync(path.join(root, 'target')), []);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
 const ARTIFACTS = [
     ['pixivdownload-sdk-bom', ['pom']],
     ['pixivdownload-sdk-info', ['pom', 'jar']],

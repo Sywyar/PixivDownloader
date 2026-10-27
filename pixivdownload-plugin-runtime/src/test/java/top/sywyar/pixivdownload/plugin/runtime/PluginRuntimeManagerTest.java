@@ -255,6 +255,45 @@ class PluginRuntimeManagerTest {
         ).forEach(System::clearProperty);
     }
 
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    @DisplayName("声明式包和契约包的文件排序不影响生产模式启动及重新扫描")
+    void startsContractAlongsideDeclarativePackage(boolean isolatedFirst) throws Exception {
+        Path plugins = tempDir.resolve("contract-order");
+        Path isolated = plugins.resolve(isolatedFirst ? "a-isolated.jar" : "z-isolated.jar");
+        Path contract = plugins.resolve(isolatedFirst ? "z-contract.jar" : "a-contract.jar");
+        writeIsolatedStaticProbeJar(isolated);
+        writeDeclarativeProbeJar(contract);
+        byte[] api;
+        try (var input = getClass().getResourceAsStream("/contractprobe/LoadOrderContract.class")) {
+            api = PluginPackageFixtures.zipBytes(java.util.Map.of("contractprobe/LoadOrderContract.class", input.readAllBytes()));
+        }
+        String digest = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(api));
+        try (var zip = FileSystems.newFileSystem(contract)) {
+            Path descriptor = zip.getPath("/plugin.properties");
+            Files.writeString(descriptor, Files.readString(descriptor, StandardCharsets.UTF_8)
+                    .replace("declarative-process", "host-process-full-trust")
+                    .replace("pixiv.lifecycle-policy=hot-reload", "pixiv.lifecycle-policy=process-restart")
+                    + "pixiv.contract-api=lib/api.jar\npixiv.contract-sha256=" + digest + "\n", StandardCharsets.UTF_8);
+            Files.createDirectories(zip.getPath("/lib"));
+            Files.write(zip.getPath("/lib/api.jar"), api);
+        }
+        writeConfirmedLocalProvenance(plugins, isolated);
+        writeConfirmedLocalProvenance(plugins, contract);
+        var manager = new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> false);
+        try {
+            for (int attempt = 0; attempt < 2; attempt++) {
+                var status = manager.start();
+                assertThat(status.failures()).isEmpty();
+                assertThat(manager.packagePhases()).containsEntry(PROBE_ID, PluginRuntimePackagePhase.STARTED)
+                        .containsEntry("isolated-static-probe", PluginRuntimePackagePhase.STARTED);
+                manager.shutdown();
+            }
+        } finally {
+            manager.shutdown();
+        }
+    }
+
     @Test
     @DisplayName("显式声明式生产包只在独立 worker 中实例化并以进程退出完成清退")
     void runsDeclarativePackageInWorkerAndTerminatesItOnStop() throws IOException {
@@ -720,6 +759,10 @@ class PluginRuntimeManagerTest {
         writeLocalProvenance(plugins, jar);
         PluginRuntimeManager manager = new PluginRuntimeManager(plugins);
         manager.loadPlugin(jar);
+        Field spacesField = top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager.class.getDeclaredField("classSpaces");
+        spacesField.setAccessible(true);
+        var spaces = (java.util.Map<?, ?>) spacesField.get(manager);
+        assertThat(spaces.containsKey(PROBE_ID)).isTrue();
         PluginManager delegate = manager.pluginManagerForTest().orElseThrow();
         Path retainedWorkspace = delegate.getPlugin(PROBE_ID).getPluginPath()
                 .toAbsolutePath().normalize().getParent();
@@ -736,6 +779,7 @@ class PluginRuntimeManagerTest {
 
         assertThat(manager.packagePhases()).doesNotContainKey(PROBE_ID);
         assertThat(manager.generation(PROBE_ID)).isEmpty();
+        assertThat(spaces.containsKey(PROBE_ID)).isFalse();
         manager.shutdown();
         assertThat(retainedWorkspace).exists();
         PluginArtifactSnapshot.cleanupAbandonedWorkspaces(new PluginRuntimeLayout(plugins));

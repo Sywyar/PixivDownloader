@@ -27,6 +27,7 @@
     "doctor:github-gate": "node scripts/ci/doctor-github-ruleset.mjs"
   },
   "devDependencies": {
+    "typescript": "5.9.3",
     "yaml": "^2.5.1"
   }
 }

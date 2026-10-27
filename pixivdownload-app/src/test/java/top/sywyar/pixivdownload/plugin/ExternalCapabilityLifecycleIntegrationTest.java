@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.core.push.PushChannelRegistry;
 import top.sywyar.pixivdownload.core.schedule.capability.PluginScheduleContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
+import top.sywyar.pixivdownload.plugin.api.resource.PluginResources;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginCapabilityContributionRegistrar;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleState;
@@ -48,6 +49,7 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -131,6 +133,8 @@ class ExternalCapabilityLifecycleIntegrationTest {
             service.startAll();
             PushChannel proxy = pushRegistry.byId(new PushChannelId("test-channel")).orElseThrow();
             ConfigurableApplicationContext child = service.contextFor(PLUGIN_ID).orElseThrow();
+            AtomicInteger resourceCloses = new AtomicInteger();
+            child.getBean(PluginResources.class).openScope().acquire(() -> resourceCloses::incrementAndGet);
             assertThat(service.generation(PLUGIN_ID)).contains(9L);
             assertThat(queueRegistry.operationsForOwner(PLUGIN_ID)).singleElement()
                     .extracting(QueueOperationRegistry.OwnedQueueOperations::queueType)
@@ -160,6 +164,7 @@ class ExternalCapabilityLifecycleIntegrationTest {
             assertThat(stopThread.isAlive()).isTrue();
             assertThat(service.phase(PLUGIN_ID)).contains(PluginRuntimePhase.QUIESCED);
             assertThat(child.isActive()).isTrue();
+            assertThat(resourceCloses).hasValue(0);
             assertThatThrownBy(proxy::isConfigured)
                     .isInstanceOf(ExternalCapabilityUnavailableException.class);
 
@@ -174,6 +179,7 @@ class ExternalCapabilityLifecycleIntegrationTest {
             assertThat(pushRegistry.byId(PUSH_CHANNEL_ID)).isEmpty();
             assertThat(queueRegistry.operationsForOwner(PLUGIN_ID)).isEmpty();
             assertThat(child.isActive()).isFalse();
+            assertThat(resourceCloses).hasValue(1);
             assertThat(service.contextFor(PLUGIN_ID)).isEmpty();
             assertThat(service.phase(PLUGIN_ID)).contains(PluginRuntimePhase.STOPPED);
             verify(pluginRegistry).stopFeature(same(registered));
