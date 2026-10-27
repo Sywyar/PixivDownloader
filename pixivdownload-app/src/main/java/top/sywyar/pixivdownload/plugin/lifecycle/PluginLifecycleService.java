@@ -1021,8 +1021,7 @@ public class PluginLifecycleService {
         if (record.module != null) {
             ConfigurableApplicationContext child;
             try {
-                child = services == null ? contextFactory.create(parent, record.module)
-                        : contextFactory.create(parent, record.module, services);
+                child = contextFactory.create(parent, record.module, services, retained -> record.context = retained);
             } catch (Throwable failure) {
                 log.error("Failed to start child context for plugin '{}' (failureType={}) - isolating.",
                         pluginId, failure.getClass().getName());
@@ -1528,6 +1527,7 @@ public class PluginLifecycleService {
             throw new PluginLifecycleException("refusing to close child context before schedule retirement: "
                     + record.pluginId);
         }
+        runtimeTaskQuiescer.closeResources(record.pluginId, record.drains.runtimeTaskDrain());
         if (child != null) {
             try {
                 child.close();

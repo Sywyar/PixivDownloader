@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 ### Features
 
 - 插件可通过独立契约包声明和调用同步纯值服务，新增业务接口无需加入宿主基础 SDK。
+- 插件可按作用域管理订阅、监听器和临时注册，停用时由宿主在在途调用结束后清理。
+- SDK 开发工具可从 Java record 与显式字段约束生成 JSON Schema，并用生成结果校验 JSON 样本。
 
 - 插件可通过公共接口协调本地文件变更与主库记录的提交和恢复。
 - Compose 关于页显示当前数据库及插件运行状态，复制软件信息时一并包含。

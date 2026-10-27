@@ -22,6 +22,7 @@ import java.util.Objects;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Consumer;
 
 /**
  * 每外置插件子 {@code ApplicationContext} 工厂：为一个外置插件包（{@link PluginContextModule}）建立一个子
@@ -118,7 +119,8 @@ public final class PluginApplicationContextFactory {
 
     /**
      * 为一个外置插件包建立并刷新子 {@code ApplicationContext}。返回的 context 已 {@code refresh()}、可用；
-     * 调用方负责在插件停止 / 卸载时 {@code close()} 它。
+     * 调用方负责先通过同一任务 registry 撤回、排空并关闭资源，再 {@code close()} context。
+     * 初始化可能启动在途工作时，须使用带接管回调的重载，以便刷新失败后仍能延迟销毁。
      *
      * @param parent 父 context（核心应用 context），子 context 据此解析SDK / 服务 Bean 并继承环境属性
      * @param module 外置插件包的子 context 装配定义（插件 classloader + 配置类 + 来源 id）
@@ -128,13 +130,26 @@ public final class PluginApplicationContextFactory {
         return create(parent, module, null);
     }
 
-    /** 在刷新前注入本 owner 的服务访问器；实际调用须等生命周期完成发布。 */
+    /**
+     * 在刷新前注入本 owner 的服务访问器；实际调用须等生命周期完成发布。
+     * 排空与关闭责任同双参重载；需要初始化失败回滚时使用带接管回调的重载。
+     */
     public ConfigurableApplicationContext create(ApplicationContext parent, PluginContextModule module,
             PluginServices services) {
+        return create(parent, module, services, null);
+    }
+
+    /**
+     * 生命周期在任何插件代码执行前接管 context；刷新失败时也由同一 drain 流程决定销毁时机。
+     */
+    public ConfigurableApplicationContext create(ApplicationContext parent, PluginContextModule module,
+            PluginServices services, Consumer<ConfigurableApplicationContext> retainBeforeRefresh) {
         Objects.requireNonNull(parent, "parent");
         Objects.requireNonNull(module, "module");
 
-        AnnotationConfigApplicationContext child = new AnnotationConfigApplicationContext();
+        AnnotationConfigApplicationContext child = retainBeforeRefresh == null
+                ? new AnnotationConfigApplicationContext() : new DrainAwarePluginApplicationContext();
+        if (retainBeforeRefresh != null) retainBeforeRefresh.accept(child);
         child.setId("plugin-context:" + module.sourcePluginId());
         child.setDisplayName("Plugin ApplicationContext for '" + module.sourcePluginId() + "'");
         // 子 context 的类加载用插件 classloader：插件配置类 / Bean 类与其类路径资源都经插件 loader 解析。
@@ -157,6 +172,8 @@ public final class PluginApplicationContextFactory {
         child.getBeanFactory().registerSingleton(
                 PLUGIN_RUNTIME_TASK_REGISTRAR_BEAN_NAME,
                 pluginRuntimeTaskRegistry.registrarForPlugin(module.sourcePluginId()));
+        child.getBeanFactory().registerSingleton("pluginResources",
+                pluginRuntimeTaskRegistry.resourcesForPlugin(module.sourcePluginId()));
         if (runtimePathProviderFactory != null) {
             child.registerBean(
                     RUNTIME_PATH_PROVIDER_BEAN_NAME,

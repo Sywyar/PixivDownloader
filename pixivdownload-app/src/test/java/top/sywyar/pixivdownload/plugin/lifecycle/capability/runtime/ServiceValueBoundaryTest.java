@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.sywyar.pixivdownload.plugin.api.resource.PluginResourceScope;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +20,8 @@ class ServiceValueBoundaryTest {
     public interface Echo { Payload echo(Payload input); }
     public interface NestedAsync { Box<List<CompletableFuture<String>>> get(); }
     public interface Untyped { Map<String, Object> get(); }
+    public interface ResourceService { PluginResourceScope get(); }
+    public interface CallbackService { void listen(Runnable callback); }
     public interface RecursiveService { Recursive echo(Recursive input); }
     public record Replaced(byte[] bytes) {
         public Replaced { bytes = new byte[ServiceValueBoundary.MAX_BYTES + 1]; }
@@ -68,7 +71,8 @@ class ServiceValueBoundaryTest {
     void rejectsUnsafeTypeGraphs() {
         assertThatThrownBy(() -> ServiceValueBoundary.validate(NestedAsync.class)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> ServiceValueBoundary.validate(Untyped.class)).isInstanceOf(IllegalArgumentException.class);
-        for (Class<?> type : List.of(InvalidConstructor.class, MutatingConstructor.class, StatefulEnum.class, RecordKey.class)) {
+        for (Class<?> type : List.of(InvalidConstructor.class, MutatingConstructor.class, StatefulEnum.class,
+                RecordKey.class, ResourceService.class, CallbackService.class)) {
             assertThatThrownBy(() -> ServiceValueBoundary.validate(type)).isInstanceOf(IllegalArgumentException.class);
         }
     }

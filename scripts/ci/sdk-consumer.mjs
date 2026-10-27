@@ -44,7 +44,7 @@ function jarEntries(pluginJar) {
     return entries;
 }
 
-export function verifyTypedServiceArtifacts(project) {
+export function verifyTypedServiceArtifacts(project, toolsJar) {
     project = path.resolve(project);
     const api = currentPluginJar(path.join(project, 'api'));
     const apiBytes = fs.readFileSync(api);
@@ -55,6 +55,16 @@ export function verifyTypedServiceArtifacts(project) {
         for (const module of ['api', 'contract', 'provider', 'consumer']) {
             const jar = currentPluginJar(path.join(project, module));
             const entries = jarEntries(jar);
+            if (module === 'api' && toolsJar) {
+                for (const [name, value] of Object.entries({ Request: { texts: ['abc', '你好'] }, Result: { lengths: [3, 2], total: 5 } })) {
+                    const schema = `META-INF/pixivdownload/schema/com.example.textmetrics.api.TextMetrics.${name}.schema.json`;
+                    if (!entries.includes(schema)) fail(`typed service API is missing its generated ${name} schema`);
+                    run('jar', ['--extract', '--file', jar, schema], { cwd: extracted });
+                    const data = path.join(extracted, `${name}.json`);
+                    fs.writeFileSync(data, JSON.stringify(value), 'utf8');
+                    run('java', ['-jar', toolsJar, 'schema-check', path.join(extracted, schema), data]);
+                }
+            }
             const classes = entries.filter(entry => entry.endsWith('.class'));
             if (!classes.length || classes.some(entry => !entry.startsWith(`com/example/textmetrics/${module}/`))) {
                 fail(`typed service ${module} contains unexpected or duplicated contract/host classes`);
@@ -79,6 +89,61 @@ export function verifyTypedServiceArtifacts(project) {
         fs.rmSync(extracted, { recursive: true, force: true });
     }
     return { apiDigest };
+}
+
+export function verifyTypedServiceSchemaRebuild(project, workDirectory, toolsJar, runMaven) {
+    fs.cpSync(project, workDirectory, { recursive: true, errorOnExist: true, force: false,
+        filter: source => path.basename(source) !== 'target' });
+    const probe = path.join(workDirectory, 'api/src/main/java/com/example/textmetrics/api/SchemaRebuildProbe.java');
+    const writeProbe = field => fs.writeFileSync(probe, 'package com.example.textmetrics.api;\n'
+        + 'import top.sywyar.pixivdownload.plugin.api.contract.schema.*;\n'
+        + `@ValueSchema public record SchemaRebuildProbe(@ValueProperty(required=true, nullable=false) String ${field}) {}\n`, 'utf8');
+    const build = (enabled, extra = []) => runMaven(['-f', path.join(workDirectory, 'pom.xml'), '-pl', 'api', '-am', 'package',
+        ...(enabled ? [`-Dpixivdownload.sdk.tools=${toolsJar}`] : []), ...extra]);
+    const requireSuccess = result => {
+        if (result.status !== 0) fail(`incremental schema build failed: ${result.status}`);
+    };
+    const inspect = field => {
+        const jar = currentPluginJar(path.join(workDirectory, 'api'));
+        const extracted = path.join(workDirectory, 'target', field);
+        fs.mkdirSync(extracted, { recursive: true });
+        const name = 'META-INF/pixivdownload/schema/com.example.textmetrics.api.SchemaRebuildProbe.schema.json';
+        run('jar', ['--extract', '--file', jar, name], { cwd: extracted });
+        const schema = JSON.parse(fs.readFileSync(path.join(extracted, name), 'utf8'));
+        const properties = schema.$defs['com.example.textmetrics.api.SchemaRebuildProbe'].properties;
+        if (JSON.stringify(Object.keys(properties)) !== JSON.stringify([field])) fail('incremental schema does not match source');
+        const data = path.join(extracted, 'sample.json');
+        fs.writeFileSync(data, JSON.stringify({ [field]: 'sample' }), 'utf8');
+        run('java', ['-jar', toolsJar, 'schema-check', path.join(extracted, name), data]);
+        fs.writeFileSync(data, JSON.stringify({ [field === 'before' ? 'after' : 'before']: 'sample' }), 'utf8');
+        const rejected = spawnSync('java', ['-jar', toolsJar, 'schema-check', path.join(extracted, name), data], { encoding: 'utf8' });
+        if (rejected.status !== 1 || !`${rejected.stdout}\n${rejected.stderr}`.includes('SDK_SCHEMA_DATA_INVALID')) {
+            fail('incremental schema accepted data from the other contract shape');
+        }
+        const declaration = spawnSync('javap', ['-classpath', jar, 'com.example.textmetrics.api.SchemaRebuildProbe'], { encoding: 'utf8' });
+        if (declaration.status !== 0 || !declaration.stdout.includes(`java.lang.String ${field}()`)) {
+            fail('incremental API class does not match source');
+        }
+        return fs.readFileSync(jar);
+    };
+    requireSuccess(build(false));
+    if (jarEntries(currentPluginJar(path.join(workDirectory, 'api'))).some(entry => entry.startsWith('META-INF/pixivdownload/schema/'))) {
+        fail('initial build without schema generation must not contain schemas');
+    }
+    writeProbe('before');
+    requireSuccess(build(true));
+    const before = inspect('before');
+    writeProbe('after');
+    for (const disabled of [() => build(false), () => build(true, ['-P!schemas', '-Dmaven.antrun.skip=true'])]) {
+        const result = disabled();
+        if (result.status === 0 || !`${result.stdout}\n${result.stderr}`.includes('SDK_SCHEMA_GENERATION_REQUIRED')) {
+            fail('non-clean build without schema generation must reject stale output');
+        }
+        if (!before.equals(inspect('before'))) fail('rejected build changed the previous API JAR');
+    }
+    requireSuccess(build(true, ['-Dexec.skip=true', '-Dmaven.antrun.skip=true']));
+    const after = inspect('after');
+    if (before.equals(after)) fail('enabled schema rebuild did not update the API JAR');
 }
 
 function currentPluginJar(project) {
@@ -372,6 +437,7 @@ export function verifyConsumer(options) {
     const buildTemplates = offline => {
         for (const pom of ['pom.xml', 'examples/download-type-plugin/pom.xml', 'examples/typed-service-plugin/pom.xml']) {
             runMaven([...(offline ? ['-o'] : []), '-s', settings,
+                ...(pom.includes('typed-service-plugin') ? [`-Dpixivdownload.sdk.tools=${path.join(project, 'tools', 'sdk-tools.jar')}`] : []),
                 `-Dmaven.repo.local=${localRepository}`, '-f', path.join(project, pom), 'clean', 'verify']);
         }
     };
@@ -383,6 +449,14 @@ export function verifyConsumer(options) {
     buildDouyin(false);
     stageSdkArtifacts(localRepository, sdkRepository, identity.version);
     buildTemplates(true);
+    verifyTypedServiceSchemaRebuild(path.join(project, 'examples', 'typed-service-plugin'),
+            path.join(work, 'schema-incremental'), path.join(project, 'tools', 'sdk-tools.jar'), args => {
+        const result = spawnSync(command, [...prefix, '-B', '-ntp', '-o', '-s', settings,
+            `-Dmaven.repo.local=${localRepository}`, ...args], { cwd: project, env: mavenEnvironment, encoding: 'utf8' });
+        process.stdout.write(result.stdout || '');
+        process.stderr.write(result.stderr || '');
+        return result;
+    });
     runMaven(['-o', '-s', settings, `-Dmaven.repo.local=${localRepository}`,
         `org.apache.maven.plugins:maven-dependency-plugin:${dependencyVersion}:get`,
         `-Dartifact=${SDK_GROUP_ID}:pixivdownload-core-api:${identity.version}`,
@@ -395,7 +469,8 @@ export function verifyConsumer(options) {
     const pluginJar = currentPluginJar(path.join(project, 'examples', 'download-type-plugin'));
     thinJarEntries(pluginJar);
     thinJarEntries(currentPluginJar(project));
-    const typedServices = verifyTypedServiceArtifacts(path.join(project, 'examples', 'typed-service-plugin'));
+    const typedServices = verifyTypedServiceArtifacts(path.join(project, 'examples', 'typed-service-plugin'),
+            path.join(project, 'tools', 'sdk-tools.jar'));
     const douyinCandidates = fs.readdirSync(douyinBuildDirectory)
             .filter(name => /^pixivdownload-plugin-douyin-.+\.jar$/u.test(name))
             .filter(name => !name.endsWith('-sources.jar') && !name.endsWith('-javadoc.jar'));

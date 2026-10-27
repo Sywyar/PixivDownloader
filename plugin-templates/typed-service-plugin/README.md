@@ -6,7 +6,7 @@
 
 | 模块 | 产物与用途 |
 | --- | --- |
-| api | 仅依赖 JDK 的接口和 record；可单独作为 Maven API 发布 |
+| api | 运行时仅依赖 JDK 的接口和 record；可单独作为 Maven API 发布 |
 | contract | 安装包，携带原始 API JAR 及其 SHA-256 |
 | provider | 显式导出 `textMetrics` Bean |
 | consumer | 声明导入服务，通过管理员 HTTP 入口调用 |
@@ -16,6 +16,16 @@
 ```sh
 mvn package
 ```
+
+需要 JSON Schema 时，把 SDK 开发包中的 `tools/sdk-tools.jar` 绝对路径传给构建：
+
+```sh
+mvn package "-Dpixivdownload.sdk.tools=/absolute/path/to/tools/sdk-tools.jar"
+```
+
+工具读取 `@ValueSchema` record 和显式的 `@ValueProperty` 约束，将 JSON Schema 2020-12 写入 `api/target/classes/META-INF/pixivdownload/schema/`，随 API JAR 一起打包。注解只用于源码编译，运行时契约仍只依赖 JDK。修改 Java 定义后重新构建即可；不要手改生成文件。可用 `java -jar /absolute/path/to/tools/sdk-tools.jar schema-check <schema.json> <data.json>` 检查本地样本，退出码 0 表示通过。该工具不为 HTTP 入口自动增加校验或导出服务；支持类型和约束见 `ValueSchema`、`ValueProperty` 的 Javadoc。
+
+生成过 Schema 后，后续 `package` 仍需传入工具路径；省略参数或关闭 `schemas` profile 会报 `SDK_SCHEMA_GENERATION_REQUIRED`。如需改为不携带 Schema 的 API JAR，执行不带该参数的 `mvn clean package`。
 
 使用 SDK 的签名工具给 `contract`、`provider`、`consumer` 各自的 `target/*.jar` 签名。通过正常插件安装入口安装并确认信任；不要把 `api` JAR 当作插件安装，也不要把 API 类打入提供者或消费者。
 
@@ -37,6 +47,8 @@ fetch('/api/text-metrics', {
 服务键的 `contractId` 是契约插件 id；接口类型区分同一契约内的不同服务。只会导出声明的本地 Bean。构造器和 `PostConstruct` 可以保存 `PluginServices`，首次业务调用时再解析服务。多提供者返回 `AMBIGUOUS`；旧代理不会转接新提供者，任一方停止后都应重新解析。调用取消不代表在途方法已退出，插件仍须等待排空。
 
 消费者重启后使用新注入的 `PluginServices`；旧访问器也已失效。
+
+需要管理本插件的订阅、监听器或临时注册时，可注入 `PluginResources`，以 `openScope()` 创建局部作用域，并用 `acquire(factory)` 创建和接管关闭句柄。辅助事件回调通过该作用域的 `guard(callback)` 包装；撤回后的迟到回调跳过。宿主在请求、服务和任务真实排空后释放这些资源。局部 `close()` 若报告 `BUSY` 或 `CLOSE_FAILED`，应保留作用域稍后重试；完整使用约束见 `PluginResourceScope` Javadoc。
 
 新通道仅支持同步纯值。服务接口必须非 sealed，接口、DTO 必须来自同一原始 API JAR；record 使用默认 canonical 构造器。完整类型和资源边界见 SDK 的 `PluginServices` Javadoc。异步任务、流和资源句柄继续使用专用契约。
 

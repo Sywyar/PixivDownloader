@@ -85,6 +85,11 @@ public class PluginRuntimeTaskQuiescer {
         runtimeTaskRegistry.resume(pluginId);
     }
 
+    /** 全部业务 drain 已归零后释放精确代际的资源；失败保留同代资源供重试。 */
+    public void closeResources(String pluginId, @Nullable PluginRuntimeTaskDrain drain) {
+        if (drain != null) runtimeTaskRegistry.closeResources(pluginId, drain);
+    }
+
     /** 禁止新推流并重试关闭全部既有 / 迟到连接；最终复核必须确认没有 callback 残留。 */
     public void quiesceStreams(String pluginId) {
         Throwable failure = closeStreams(pluginId);
