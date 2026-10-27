@@ -1,7 +1,6 @@
 package top.sywyar.pixivdownload.sdk.community.project;
 
 import top.sywyar.pixivdownload.sdk.community.format.ContractException;
-import top.sywyar.pixivdownload.sdk.community.submission.VersionSubmission.BuildProfile;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
