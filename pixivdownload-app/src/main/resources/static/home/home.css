@@ -1,0 +1,99 @@
+:root {
+    color-scheme: light;
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --line: #dce0e6;
+    --text: #20242c;
+    --muted: #596270;
+    --brand: #1463c4;
+    --control-bg: #edf3fc;
+    --hover-bg: #f7f9fc;
+    --focus-ring: #1463c4;
+}
+
+html[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #101216;
+    --surface: #1b1e24;
+    --line: #383f4a;
+    --text: #f4f7fb;
+    --muted: #b0b9c6;
+    --brand: #8ebcff;
+    --control-bg: #252f40;
+    --hover-bg: #252a33;
+    --focus-ring: #8ebcff;
+}
+
+* { box-sizing: border-box; }
+body {
+    margin: 0;
+    min-block-size: 100svh;
+    background: var(--bg);
+    color: var(--text);
+    font: 1rem/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+[hidden] { display: none !important; }
+a { color: var(--brand); }
+button, select { font: inherit; }
+:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 4px; }
+.home-header, .home-main { inline-size: min(100%, 72rem); margin-inline: auto; padding-inline: var(--layout-gutter); }
+.home-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding-block: 1.5rem; }
+.home-brand { font-weight: 650; letter-spacing: -.02em; }
+.home-controls { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+.home-controls > * { display: inline-flex; min-inline-size: 0; }
+.home-controls select, .pixiv-theme-toggle, .home-button {
+    min-block-size: 2.75rem;
+    max-inline-size: 100%;
+    padding: .5rem .8rem;
+    border: 1px solid var(--line);
+    border-radius: .75rem;
+    color: var(--text);
+    background: var(--surface);
+    cursor: pointer;
+}
+.pixiv-theme-toggle { display: inline-flex; align-items: center; justify-content: center; min-inline-size: 2.75rem; }
+.pixiv-theme-toggle svg { inline-size: 1.2rem; block-size: 1.2rem; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.home-main { padding-block: clamp(1.5rem, 6vh, 4rem) 2rem; }
+.home-intro { max-inline-size: 42rem; margin-block-end: 2.5rem; }
+.home-eyebrow { color: var(--brand); font-size: .9rem; font-weight: 650; margin: 0 0 .6rem; }
+h1 { font-size: clamp(1.8rem, 3vw, 2.6rem); line-height: 1.2; letter-spacing: -.035em; margin: 0; }
+.home-subtitle { color: var(--muted); margin: 1rem 0 0; }
+.home-grid { display: grid; gap: 2rem; }
+.home-grid h2 { font-size: 1.1rem; font-weight: 600; line-height: 1.4; margin: 0 0 .75rem; }
+.home-grid [data-nav-group-items] { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); gap: 1rem; }
+.home-link {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    min-block-size: 6.5rem;
+    padding: 1.25rem;
+    border: 1px solid var(--line);
+    border-radius: 1.25rem;
+    background: var(--surface);
+    color: var(--text);
+    text-decoration: none;
+    transition: transform .15s ease-out, background-color .15s ease-out;
+}
+.home-link::after { content: "›"; color: var(--muted); margin-inline-start: auto; font-size: 1.5rem; }
+.home-icon { flex: 0 0 auto; display: grid; place-items: center; padding: .75rem; border-radius: .875rem; background: var(--control-bg); color: var(--brand); }
+.home-icon svg { inline-size: 1.5rem; block-size: 1.5rem; }
+.home-label { min-inline-size: 0; overflow-wrap: anywhere; font-weight: 600; }
+.home-link:active { transform: scale(.985); }
+.home-status { padding-block: 1.5rem; color: var(--muted); }
+.home-footer { margin-block-start: 2.5rem; padding-block-start: 1.25rem; border-block-start: 1px solid var(--line); font-size: .9rem; }
+.visually-hidden { position: absolute; inline-size: 1px; block-size: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (hover: hover) {
+    .home-link:hover, .home-button:hover, .pixiv-theme-toggle:hover { background: var(--hover-bg); }
+}
+@media (max-width: 36rem) {
+    .home-link { gap: 12px; padding: 16px; min-block-size: 88px; border-radius: 16px; }
+    .home-icon { padding: 12px; }
+    .home-icon svg { inline-size: 24px; block-size: 24px; }
+    .home-link::after { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .home-link, .home-link:active { transition: none; transform: none; } }
+@media (prefers-contrast: more) {
+    :root { --line: #6a7280; --muted: #343c48; }
+    html[data-theme="dark"] { --line: #a7b0bf; --muted: #e0e6ef; }
+}
+@media (forced-colors: active) { .home-icon { border: 1px solid ButtonText; } }

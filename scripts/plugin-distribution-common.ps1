@@ -62,12 +62,7 @@ function Get-PixivDownloadSdkVersion {
 function Get-OfficialRequiredPlugins {
     [CmdletBinding()]
     param()
-    return @(
-        [pscustomobject]@{
-            Id = "download-workbench"; Module = "pixivdownload-plugin-download-workbench"; Format = "jar"; PrivateLibs = $false
-            DeliveryPaths = @('Pixiv ', 'scripts/userscript-', 'scripts/build-userscript-bundle.ps1')
-        }
-    )
+    return @()
 }
 
 # Official plugins installed into the default build artifacts. They remain separate PF4J artifacts and retain
@@ -77,6 +72,10 @@ function Get-OfficialDefaultInstalledPlugins {
     param()
     $plugins = @(Get-OfficialRequiredPlugins)
     $plugins += @(
+        [pscustomobject]@{
+            Id = "download-workbench"; Module = "pixivdownload-plugin-download-workbench"; Format = "jar"; PrivateLibs = $false
+            DeliveryPaths = @('Pixiv ', 'scripts/userscript-', 'scripts/build-userscript-bundle.ps1')
+        },
         [pscustomobject]@{
             Id = "database-sqlite"; Module = "pixivdownload-plugin-database-sqlite"; Format = "jar"; PrivateLibs = $true;
             ClassPrefix = "top/sywyar/pixivdownload/databasesqlite/";

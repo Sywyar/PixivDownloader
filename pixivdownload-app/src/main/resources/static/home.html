@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="home.title">Home · PixivDownloader</title>
+    <link rel="stylesheet" href="/css/pixiv-layout.css">
+    <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
+    <link rel="stylesheet" href="/css/pixiv-feedback.css">
+    <link rel="stylesheet" href="/home/home.css">
+    <script src="/js/pixiv-theme.js"></script>
+    <script src="/js/pixiv-i18n.js" defer></script>
+    <script src="/js/pixiv-lang-switcher.js" defer></script>
+    <script src="/js/pixiv-feedback.js" defer></script>
+    <script src="/js/pixiv-vue.js" defer></script>
+    <script src="/home/home.js" defer></script>
+    <script src="/js/pixiv-navigation.js" defer></script>
+</head>
+<body class="layout-flow">
+    <header class="home-header">
+        <span class="home-brand" data-i18n="app.name">PixivDownloader</span>
+        <div class="home-controls">
+            <label id="home-language"><span class="visually-hidden" data-i18n="language.current">Current language</span></label>
+            <span id="home-theme"></span>
+        </div>
+    </header>
+    <main class="home-main">
+        <div class="home-intro">
+            <p class="home-eyebrow" data-i18n="nav.home">Home</p>
+            <h1 data-i18n="home.heading">Where would you like to go?</h1>
+            <p class="home-subtitle" data-i18n="home.subtitle">Your available features, together in one place.</p>
+        </div>
+        <nav id="home-navigation" class="home-grid" aria-labelledby="home-navigation-label"
+             data-nav-slot="*" data-nav-link-class="home-link"
+             data-nav-icon-wrap-class="home-icon" data-nav-label-class="home-label" aria-busy="true"></nav>
+        <span id="home-navigation-label" class="visually-hidden" data-i18n="home.navigation">Available features</span>
+        <div class="home-status" id="home-status">
+            <p id="home-status-text" role="status" data-i18n="home.loading">Loading your features…</p>
+            <button id="home-retry" class="home-button" type="button" hidden data-i18n="home.retry">Try again</button>
+        </div>
+        <footer class="home-footer">
+            <a href="/plugin-manage.html" data-i18n="home.manage">Manage plugins</a>
+        </footer>
+    </main>
+</body>
+</html>

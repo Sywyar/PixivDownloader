@@ -185,6 +185,8 @@ public class PluginWebContributionRegistrar {
 
     /** 插件 getter 在任何 host registry 变更前一次性快照化，后续注册事务不再回调插件代码。 */
     private record ContributionSnapshot(
+            String pluginNamespace,
+            String pluginNameKey,
             List<WebRouteContribution> routes,
             List<StaticResourceContribution> staticResources,
             List<I18nContribution> i18n,
@@ -564,7 +566,8 @@ public class PluginWebContributionRegistrar {
                 }
                 if (!contributions.navigation().isEmpty()) {
                     registration.requireCleanup(CleanupStep.NAVIGATION);
-                    navigationRegistry.register(pluginId, contributions.navigation());
+                    navigationRegistry.register(pluginId, contributions.pluginNamespace(),
+                            contributions.pluginNameKey(), contributions.navigation());
                 }
                 if (!contributions.startupRoutes().isEmpty()) {
                     registration.requireCleanup(CleanupStep.STARTUP_ROUTE);
@@ -653,6 +656,8 @@ public class PluginWebContributionRegistrar {
                 ? List.of()
                 : readPluginList(pluginId, "downloadTypes", plugin::downloadTypes);
         return new ContributionSnapshot(
+                navigation.isEmpty() ? null : plugin.displayNamespace(),
+                navigation.isEmpty() ? null : plugin.displayName(),
                 routes, staticResources, i18n, navigation, startupRoutes, landings, pageSections, drilldowns,
                 uiSlots, userscripts, downloadTypes);
     }

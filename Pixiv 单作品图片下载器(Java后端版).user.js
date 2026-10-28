@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv作品图片下载器（Java后端版）
 // @namespace    http://tampermonkey.net/
-// @version      2.2.1
+// @version      2.2.2
 // @updateURL    https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E5%8D%95%E4%BD%9C%E5%93%81%E5%9B%BE%E7%89%87%E4%B8%8B%E8%BD%BD%E5%99%A8(Java%E5%90%8E%E7%AB%AF%E7%89%88).user.js
 // @downloadURL  https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E5%8D%95%E4%BD%9C%E5%93%81%E5%9B%BE%E7%89%87%E4%B8%8B%E8%BD%BD%E5%99%A8(Java%E5%90%8E%E7%AB%AF%E7%89%88).user.js
 // @description  通过Java后端服务下载 Pixiv 单个作品图片
@@ -16,6 +16,8 @@
 // @connect      localhost
 // @connect      YOUR_SERVER_HOST
 // @run-at       document-start
+// @pixiv-presence-page /pixiv-batch.html
+// @pixiv-presence-page /pixiv-batch-alt.html
 // ==/UserScript==
 
 (function () {
@@ -370,28 +372,46 @@
             return SUPPORTED.slice();
         }
 
+        let enrichmentId = 0;
         function enrichFromBackend(serverBase) {
+            const current = ++enrichmentId;
             if (!serverBase || typeof GM_xmlhttpRequest !== 'function') return;
-            SUPPORTED.forEach(lang => {
-                try {
-                    GM_xmlhttpRequest({
-                        method: 'GET',
-                        url: serverBase.replace(/\/$/, '') + '/api/i18n/messages/userscript?lang=' + encodeURIComponent(lang),
-                        timeout: 3000,
-                        onload: res => {
-                            if (res.status !== 200) return;
+            const base = serverBase.replace(/\/$/, '');
+            try {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: base + '/api/i18n/meta',
+                    timeout: 3000,
+                    onload: res => {
+                        if (current !== enrichmentId || res.status !== 200) return;
+                        let metadata;
+                        try { metadata = JSON.parse(res.responseText); } catch (e) { return; }
+                        // 插件词典随贡献撤回，缺席时保留脚本自带翻译。
+                        if (!Array.isArray(metadata?.supportedNamespaces)
+                                || !metadata.supportedNamespaces.includes('userscript')) return;
+                        SUPPORTED.forEach(lang => {
                             try {
-                                const data = JSON.parse(res.responseText);
-                                if (!data || !data.messages) return;
-                                const incoming = {};
-                                incoming[lang] = data.messages;
-                                register(incoming);
-                                if (lang === currentLang) notify(currentLang);
+                                GM_xmlhttpRequest({
+                                    method: 'GET',
+                                    url: base + '/api/i18n/messages/userscript?lang=' + encodeURIComponent(lang),
+                                    timeout: 3000,
+                                    onload: bundle => {
+                                        if (current !== enrichmentId || bundle.status !== 200) return;
+                                        try {
+                                            const data = JSON.parse(bundle.responseText);
+                                            if (!data || !data.messages) return;
+                                            const incoming = {};
+                                            incoming[lang] = data.messages;
+                                            register(incoming);
+                                            if (lang === currentLang) notify(currentLang);
+                                        } catch (e) {}
+                                    }
+                                });
                             } catch (e) {}
-                        }
-                    });
-                } catch (e) {}
-            });
+                        });
+                    }
+                });
+            } catch (e) {}
         }
 
         const api = {

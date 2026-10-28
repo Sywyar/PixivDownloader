@@ -32,6 +32,7 @@ import top.sywyar.pixivdownload.config.credential.PluginCredentialPropertySource
 import top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleService;
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextFactory;
 import top.sywyar.pixivdownload.update.UpdateConfig;
+import top.sywyar.pixivdownload.schedule.ScheduleConfig;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -63,6 +64,7 @@ public class RuntimeConfigReloadService {
     private final UpdateConfig updateConfig;
     private final NarrationTtsConfig narrationTtsConfig;
     private final NotificationConfig notificationConfig;
+    private final ScheduleConfig scheduleConfig;
     private final ObjectProvider<PluginLifecycleService> pluginLifecycleService;
     private final ConfigurableEnvironment environment;
     private final PluginCredentialPropertySourceService pluginCredentialPropertySourceService;
@@ -84,6 +86,7 @@ public class RuntimeConfigReloadService {
         UpdateConfig nextUpdate = bind(binder, "update", UpdateConfig::new, UpdateConfig.class);
         NarrationTtsConfig nextNarrationTts = bind(binder, "narration-tts", NarrationTtsConfig::new, NarrationTtsConfig.class);
         NotificationConfig nextNotification = bind(binder, "notification", NotificationConfig::new, NotificationConfig.class);
+        ScheduleConfig nextSchedule = bind(binder, "schedule", ScheduleConfig::new, ScheduleConfig.class);
 
         Set<String> applied = new LinkedHashSet<>();
         applyDownloadConfig(nextDownload, applied);
@@ -96,6 +99,7 @@ public class RuntimeConfigReloadService {
         applyUpdateConfig(nextUpdate, applied);
         applyNarrationTtsConfig(nextNarrationTts, applied);
         applyNotificationConfig(nextNotification, applied);
+        applyScheduleConfig(nextSchedule, applied);
         Set<String> pluginRebindKeys = new LinkedHashSet<>(requestedChangedKeys);
         pluginRebindKeys.addAll(applied);
         rebindPluginConfig(List.copyOf(pluginRebindKeys), applied);
@@ -147,6 +151,19 @@ public class RuntimeConfigReloadService {
                 downloadConfig.isUserFlatFolder(),
                 next.isUserFlatFolder(),
                 () -> downloadConfig.setUserFlatFolder(next.isUserFlatFolder()));
+    }
+
+    private void applyScheduleConfig(ScheduleConfig next, Set<String> applied) {
+        applyIfChanged(applied, "schedule.enabled", scheduleConfig.isEnabled(), next.isEnabled(),
+                () -> scheduleConfig.setEnabled(next.isEnabled()));
+        applyIfChanged(applied, "schedule.max-tasks", scheduleConfig.getMaxTasks(), next.getMaxTasks(),
+                () -> scheduleConfig.setMaxTasks(next.getMaxTasks()));
+        applyIfChanged(applied, "schedule.auth-failure-circuit-breaker",
+                scheduleConfig.getAuthFailureCircuitBreaker(), next.getAuthFailureCircuitBreaker(),
+                () -> scheduleConfig.setAuthFailureCircuitBreaker(next.getAuthFailureCircuitBreaker()));
+        applyIfChanged(applied, "schedule.pending-max-attempts",
+                scheduleConfig.getPendingMaxAttempts(), next.getPendingMaxAttempts(),
+                () -> scheduleConfig.setPendingMaxAttempts(next.getPendingMaxAttempts()));
     }
 
     private void applyMultiModeConfig(MultiModeConfig next, Set<String> applied) {

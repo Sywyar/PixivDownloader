@@ -613,7 +613,8 @@ Write-Output 'Certificate probe diagnostic output'
         $program = Read-Program (Join-Path $repo 'scripts/generate-market-manifest.ps1')
         foreach ($definition in $program.Functions) { . ([scriptblock]::Create($definition.Extent.Text)) }
         $fixtureUtf8 = New-Object System.Text.UTF8Encoding($false)
-        $marketPlugin = @(Get-OfficialRequiredPlugins)[0]
+        Assert-Equal @(Get-OfficialRequiredPlugins).Count 0
+        $marketPlugin = @(Get-OfficialDefaultInstalledPlugins | Where-Object { $_.Id -eq 'download-workbench' })[0]
         $ProjectRoot = $repo
         $sourceDescriptor = Read-PropertiesFile (Join-Path $repo "$($marketPlugin.Module)/src/main/resources/plugin.properties")
         $currentSdk = Get-PixivDownloadSdkVersion -ProjectRoot $repo
@@ -1133,7 +1134,8 @@ if ($case -eq 'patch-failure') { throw 'Fixture manifest patch failed.' }
         $manifest = Join-Path $root 'plugins-manifest.json'
         $entries = @(@{id='gui-compose'; file='gui-compose.jar'; required=$false},
             @{id='gui-swing'; file='gui-swing.jar'; required=$false},
-            @{id='required'; file='required.jar'; required=$true})
+            @{id='download-workbench'; file='download-workbench.jar'; required=$false},
+            @{id='database-sqlite'; file='database-sqlite.jar'; required=$false})
         [IO.File]::WriteAllText($manifest, ($entries | ConvertTo-Json))
         foreach ($entry in $entries) { [IO.File]::WriteAllText((Join-Path $root "plugins/$($entry.file)"), 'original') }
         $script:ReleaseTools = @{ Fixture=(Join-Path $fixture 'input') }
@@ -1148,7 +1150,17 @@ if ($case -eq 'patch-failure') { throw 'Fixture manifest patch failed.' }
         function Test-ApplicationScenario {
             param($Label, $RuntimeRoot, $Provider, $ConfiguredProvider, [switch]$Headless,
                 [switch]$FirstRun, [switch]$InjectsFailure, [switch]$BootstrapPrompt, [switch]$Recovery,
-                $UnavailableIds, $CrashedIds, $Exercise)
+                $UnavailableIds, $CrashedIds, $Exercise, $ExpectedHealth)
+            if ($Label -match '(missing|corrupt)-workbench$') {
+                Assert-Equal ([bool]$Recovery) $false
+                Assert-Equal $ExpectedHealth 'UP'
+                Assert-Equal ([bool]$Exercise) $false
+            }
+            if ($Label -match '(missing|corrupt)-database$|core-shell$') {
+                Assert-Equal ([bool]$Recovery) $true
+                Assert-Equal $ExpectedHealth 'DOWN'
+                Assert-Equal ([bool]$Exercise) $true
+            }
             $script:observed.Add((@($Label, $RuntimeRoot, $Provider, $ConfiguredProvider, $Headless,
                 $FirstRun, $InjectsFailure, $BootstrapPrompt, $Recovery, ($UnavailableIds -join ','),
                 ($CrashedIds -join ','), [bool]$Exercise) -join '|'))
@@ -1160,7 +1172,7 @@ if ($case -eq 'patch-failure') { throw 'Fixture manifest patch failed.' }
         $script:observed.Clear()
         foreach ($group in @('failures', 'recovery')) { Test-ReleaseAdverseLayouts @parameters -ScenarioGroup $group }
         Assert-Equal $script:observed $complete
-        Assert-Equal $complete.Count 9
+        Assert-Equal $complete.Count 11
         foreach ($entry in $entries) { Assert-Equal ([IO.File]::ReadAllText((Join-Path $root "plugins/$($entry.file)"))) 'original' }
     }
     & {

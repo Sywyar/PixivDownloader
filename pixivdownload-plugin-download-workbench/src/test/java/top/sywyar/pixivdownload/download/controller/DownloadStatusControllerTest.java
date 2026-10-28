@@ -45,14 +45,7 @@ class DownloadStatusControllerTest {
 
     // ========== GET /api/download/status ==========
 
-    @Test
-    @DisplayName("GET /api/download/status 应返回服务状态")
-    void shouldReturnServiceStatus() throws Exception {
-        mockMvc.perform(get("/api/download/status").locale(Locale.US))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.message").value("Service is running normally"));
-    }
+
 
     // ========== GET /api/download/status/{artworkId} ==========
 

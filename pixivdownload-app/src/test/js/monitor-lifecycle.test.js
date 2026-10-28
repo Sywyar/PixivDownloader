@@ -88,6 +88,29 @@ test('活跃查询 HTTP 失败仍安排下一次轮询', async () => {
     await flush();
 });
 
+test('下载状态能力缺席时清除旧活动与连接，停止轮询，页面恢复后重新发现', async () => {
+    const p = page();
+    await p.discover(42);
+    const pending = p.sync();
+    p.requests.at(-1).resolve({ok: false, status: 404});
+    await pending;
+    assert.equal(p.count(), '—');
+    assert.equal(p.streams[0].closed, true);
+    assert.equal(p.timers.size, 0);
+    assert.equal(p.run('activeDownloads.length'), 0);
+    assert.notEqual(p.element('emptyActiveTitle').textContent, '');
+    p.events.get('visibilitychange')();
+    assert.equal(p.timers.size, 0);
+    const count = p.requests.length;
+    p.events.get('pagehide')();
+    p.events.get('pageshow')({persisted: true});
+    assert.ok(p.requests.length > count);
+    p.requests.find((r, i) => i >= count && r.url === '/api/download/status/active')
+        .resolve(response({artworkIds: []}));
+    await flush();
+    assert.equal(p.count(), 0);
+});
+
 test('前台事件与轮询共用一个在途查询，不重复添加活跃作品', async () => {
     const p = page(), pending = p.sync();
     p.events.get('visibilitychange')();

@@ -32,6 +32,7 @@ class El {
     setAttribute(k, v) { this.attrs[k] = String(v); }
     getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k) ? this.attrs[k] : null; }
     hasAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k); }
+    removeAttribute(k) { delete this.attrs[k]; }
     get innerHTML() { return this._html; }
     set innerHTML(v) { this._html = String(v); this.children = []; }
     appendChild(c) { c.parent = this; this.children.push(c); return c; }
@@ -190,6 +191,45 @@ const ITEMS = [
 ];
 
 async function main() {
+    for (const pixivVue of [false, true]) {
+        const slot = navSlot('*');
+        const link = new El('a');
+        link.setAttribute('data-nav-preferred-href-marker', 'preferred-download-workbench');
+        link.setAttribute('href', '/stale');
+        let items = [
+            {id: 'home', placements: ['app.top'], href: '/home.html'},
+            {id: 'custom', pluginId: 'custom-plugin', pluginNamespace: 'plugin-title', pluginNameKey: 'name', placements: ['custom.placement'], href: '/custom?view=all', labelI18nKey: 'custom'},
+            {id: 'duplicate', pluginId: 'custom-plugin', placements: ['app.top'], href: '/custom?view=all'},
+            {id: 'download', pluginId: 'download-plugin', pluginNamespace: 'downloads', pluginNameKey: 'name', placements: ['desktop.quick-start'], href: '/download', markers: ['preferred-download-workbench']},
+            {id: 'custom-extra', pluginId: 'custom-plugin', pluginNamespace: 'plugin-title', pluginNameKey: 'name', placements: ['custom.placement'], href: '/custom?view=extra'},
+            {id: 'shared-target', pluginId: 'download-plugin', pluginNamespace: 'downloads', pluginNameKey: 'name', placements: ['other.placement'], href: '/custom?view=all'}
+        ];
+        let fetchOk = true;
+        const runtime = load({slots: [slot], anchors: [link], pixivVue, pathname: '/home.html',
+            fetch: async () => ({ok: fetchOk, json: async () => items})});
+        await runtime.PixivNav.ready();
+        const descendants = el => el.children.flatMap(child => [child, ...descendants(child)]);
+        const hrefs = () => pixivVue ? descendants(slot).filter(el => el.tag === 'a').map(el => el.attrs.href)
+            : Array.from(slot.innerHTML.matchAll(/href="([^"]*)"/g), match => match[1]);
+        assert.deepEqual(hrefs(), ['/custom?view=all', '/custom?view=extra', '/download', '/custom?view=all']);
+        const headings = pixivVue ? descendants(slot).filter(el => el.tag === 'h2').map(el => el.text)
+            : Array.from(slot.innerHTML.matchAll(/<h2>(.*?)<\/h2>/g), match => match[1]);
+        assert.deepEqual(headings, ['T:plugin-title:name', 'T:downloads:name']);
+        assert.ok(I18N.lastNamespaces.includes('plugin-title'));
+        assert.equal(link.getAttribute('href'), '/download');
+        assert.equal(link.hidden, false);
+        items = [];
+        await runtime.PixivNav.mount();
+        assert.deepEqual(hrefs(), []);
+        assert.equal(link.hidden, true);
+        assert.equal(link.hasAttribute('href'), false);
+        link.setAttribute('href', '/stale');
+        fetchOk = false;
+        await runtime.PixivNav.mount();
+        assert.equal(link.hasAttribute('href'), false);
+        assert.equal(runtime.record.events.filter(e => e.type === 'pixivnav:rendered').at(-1).detail.items, null);
+        passed += 8;
+    }
     for (const pixivVue of [false, true]) {
         const slot = navSlot('app.top');
         const items = ['constructor', '__proto__', 'toString', 'unknown'].map((icon, index) => ({

@@ -13,7 +13,7 @@
           PixivDownload-<Version>.jar            # core shell boot jar; no download-workbench implementation
           plugins/
             pixivdownload-plugin-download-workbench-<version>.jar
-                                                 # official required plugin
+                                                 # default-installed, optional at runtime
             <plugin>-<version>.jar               # default-installed official plugin
             <plugin>-<version>.jar.sha256        # per-package sha256 checksum file
             provenance/
@@ -23,8 +23,8 @@
           SHA256SUMS                             # aggregate checksum file (sha256sum -c compatible)
           plugins-manifest.json                  # per external plugin: id / version / requires / file / sha256
 
-    The boot jar alone is the core-shell package and must enter recovery/repair mode because the required
-    download-workbench plugin is missing. The default downloader is the boot jar plus the canonical default-installed
+    The boot jar alone is the core-shell package and enters recovery/repair mode when the selected database
+    provider is unavailable. The default downloader is the boot jar plus the canonical default-installed
     official plugin set under plugins/. The full-offline bundle adds any canonical optional official packages. The launcher scripts
     reference the exact PixivDownload-<Version>.jar staged for this distribution, set
     -Dpixivdownload.plugins-dir to the distribution's plugins/ folder, and forward all user arguments

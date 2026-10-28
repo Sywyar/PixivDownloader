@@ -246,7 +246,8 @@ class PluginReleaseScriptsTest {
             assertThat(entry.path("officialRequired").isBoolean()).as("%s officialRequired must be boolean", pluginId).isTrue();
             assertThat(entry.path("officialRequired").asBoolean())
                     .as("%s officialRequired should mirror required plugin policy, not replace it", pluginId)
-                    .isEqualTo("download-workbench".equals(pluginId));
+                    .isEqualTo(new top.sywyar.pixivdownload.plugin.PluginRuntimeConfiguration()
+                            .requiredPluginPolicy(new org.springframework.mock.env.MockEnvironment()).isRequired(pluginId));
             assertThat(entry.has("defaultInstalled"))
                     .as("%s defaultInstalled is derived from the distribution source", pluginId)
                     .isFalse();
@@ -286,9 +287,10 @@ class PluginReleaseScriptsTest {
     void distributionSeparatesDefaultInstalledOptionalAndValidationPlugins() throws Exception {
         Set<String> defaults = officialPluginIds("Get-OfficialDefaultInstalledPlugins");
         Set<String> optional = officialPluginIds("Get-OfficialOptionalPlugins");
+        assertThat(runPowerShell(". './scripts/plugin-distribution-common.ps1'; "
+                + "ConvertTo-Json -InputObject @(Get-OfficialRequiredPlugins) -Compress").trim()).isEqualTo("[]");
         assertThat(defaults)
-                .containsAll(officialPluginIds("Get-OfficialRequiredPlugins"))
-                .contains("gui-compose", "gui-swing", "database-sqlite")
+                .contains("download-workbench", "gui-compose", "gui-swing", "database-sqlite")
                 .doesNotContain("database-postgresql", "pixiv-batch-downloader-import", "recovery-sentinel");
         assertThat(optional)
                 .contains("database-postgresql", "pixiv-batch-downloader-import")

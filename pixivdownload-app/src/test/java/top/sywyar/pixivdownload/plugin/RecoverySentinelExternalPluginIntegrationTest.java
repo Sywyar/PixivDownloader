@@ -45,7 +45,7 @@ import top.sywyar.pixivdownload.plugin.registry.PluginSource;
  * {@link RecoveryModeService} 覆盖；此处用真实 jar 专门覆盖「已安装且启用」与「已安装但禁用」两案，正是没有真实外置
  * 插件时无法复现的两种状态。
  *
- * <p>本测试用的必选策略<b>只含 recovery-sentinel</b>（不含宿主必选的外置 download-workbench），以隔离被验证的变量——
+ * <p>本测试用的必选策略<b>只含 recovery-sentinel</b>，以隔离被验证的变量——
  * 组件级 fixture 此处不安装 / 发现该外置插件，若策略含 download-workbench 会因其缺失干扰判定。
  *
  * <p>recovery-sentinel 构建产物目录经 surefire 系统属性 {@code recovery-sentinel.plugin.classes} 传入（reactor 中先于

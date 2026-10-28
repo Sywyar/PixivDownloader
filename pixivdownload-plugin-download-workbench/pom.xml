@@ -138,6 +138,13 @@
     </dependencies>
 
     <build>
+        <testResources>
+            <testResource><directory>src/test/resources</directory></testResource>
+            <testResource>
+                <directory>../pixivdownload-app/src/main/resources</directory>
+                <includes><include>i18n/messages*.properties</include></includes>
+            </testResource>
+        </testResources>
         <plugins>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>

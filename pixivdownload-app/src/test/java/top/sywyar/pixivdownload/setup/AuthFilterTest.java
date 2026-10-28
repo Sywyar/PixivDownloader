@@ -31,6 +31,7 @@ import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
 import top.sywyar.pixivdownload.plugin.registry.web.LandingRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.NavigationRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.route.StartupRouteRegistry;
@@ -89,7 +90,8 @@ class AuthFilterTest {
         PluginRegistry registry = new PluginRegistry(plugins);
         return new AuthFilter(setupService, staticResourceRateLimitService, rateLimitService,
                 localeResolver, appMessages, maintenanceProvider, guestInviteService, guiTokenProvider,
-                new RouteAccessRegistry(registry), new StartupRouteRegistry(registry), new LandingRegistry(registry));
+                new RouteAccessRegistry(registry), new StartupRouteRegistry(registry), new LandingRegistry(registry),
+                new NavigationRegistry(registry));
     }
 
     private AuthFilter authFilterWithNovel() {
@@ -98,24 +100,8 @@ class AuthFilterTest {
         PluginRegistry registry = new PluginRegistry(plugins);
         return new AuthFilter(setupService, staticResourceRateLimitService, rateLimitService,
                 localeResolver, appMessages, maintenanceProvider, guestInviteService, guiTokenProvider,
-                new RouteAccessRegistry(registry), new StartupRouteRegistry(registry), new LandingRegistry(registry));
-    }
-
-    private AuthFilter authFilterWithUserscriptRoute() {
-        RouteAccessRegistry routes =
-                new RouteAccessRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
-        routes.register("download-workbench",
-                List.of(WebRouteContribution.visitor("/api/scripts**")));
-        return new AuthFilter(
-                setupService,
-                staticResourceRateLimitService,
-                rateLimitService,
-                localeResolver,
-                appMessages,
-                maintenanceProvider,
-                guestInviteService,
-                guiTokenProvider,
-                routes);
+                new RouteAccessRegistry(registry), new StartupRouteRegistry(registry), new LandingRegistry(registry),
+                new NavigationRegistry(registry));
     }
 
     private AuthFilter authFilterWithGuiActionRoute(String owner, WebRouteContribution route) {
@@ -1303,7 +1289,6 @@ class AuthFilterTest {
 
         @BeforeEach
         void setupUserscriptRoute() {
-            authFilter = authFilterWithUserscriptRoute();
             when(setupService.isSetupComplete()).thenReturn(true);
             request.setMethod("GET");
             request.setRequestURI("/api/scripts/test.user.js");
@@ -1712,6 +1697,43 @@ class AuthFilterTest {
     class RedirectPathTests {
 
         @Test
+        @DisplayName("管理员优先进入活动下载贡献，撤回后回退首页，不依赖插件身份或页面路径")
+        void adminUsesActiveDownloadEntry() throws Exception {
+            PluginRegistry plugins = new PluginRegistry(BuiltInPlugins.createAll());
+            NavigationRegistry navigation = new NavigationRegistry(plugins);
+            navigation.register("custom-download", List.of(new top.sywyar.pixivdownload.plugin.api.web.NavigationContribution(
+                    "custom-download", Set.of("custom.slot"), "custom", "title", "/custom.html?view=download",
+                    "download", AccessPolicy.ADMIN, 10,
+                    Set.of(top.sywyar.pixivdownload.plugin.api.web.NavigationMarkers.PREFERRED_DOWNLOAD_WORKBENCH), null)));
+            authFilter = new AuthFilter(setupService, staticResourceRateLimitService, rateLimitService,
+                    localeResolver, appMessages, maintenanceProvider, guestInviteService, guiTokenProvider,
+                    new RouteAccessRegistry(plugins), new StartupRouteRegistry(plugins), new LandingRegistry(plugins), navigation);
+            when(setupService.isAdminLoggedIn(request)).thenReturn(true);
+            request.setMethod("GET");
+            request.setRequestURI("/redirect");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+            assertThat(response.getRedirectedUrl()).isEqualTo("/custom.html?view=download");
+            navigation.unregister("custom-download");
+            response = new MockHttpServletResponse();
+            authFilter.doFilterInternal(request, response, filterChain);
+            assertThat(response.getRedirectedUrl()).isEqualTo("/home.html");
+        }
+
+        @Test
+        @DisplayName("管理员没有下载入口时进入宿主兜底首页")
+        void adminRedirectsToHostHome() throws Exception {
+            when(setupService.isAdminLoggedIn(request)).thenReturn(true);
+            request.setMethod("GET");
+            request.setRequestURI("/redirect");
+
+            authFilter.doFilterInternal(request, response, filterChain);
+
+            assertThat(response.getRedirectedUrl()).isEqualTo("/home.html");
+            verifyNoInteractions(filterChain);
+        }
+
+        @Test
         @DisplayName("intro 模式下应重定向到 intro.html")
         void shouldRedirectToIntroInIntroMode() throws Exception {
             when(setupService.isIntroMode()).thenReturn(true);
@@ -2030,32 +2052,33 @@ class AuthFilterTest {
         }
     }
 
-    // ========== 下载页扩展点装配端点（download-workbench 缺席时 core-only 不开放） ==========
+    // ========== 宿主下载扩展点装配端点 ==========
 
     @Nested
-    @DisplayName("download-workbench 缺席时 /api/download/extensions 不开放")
+    @DisplayName("下载工作台缺席时宿主下载扩展点仍按原策略鉴权")
     class DownloadExtensionsEndpointTests {
 
         @Test
-        @DisplayName("多人模式普通访客访问返回 404（不落到 core 宽前缀放行）")
-        void multiVisitorReturns404() throws Exception {
+        @DisplayName("多人模式游客通过限流后可以访问")
+        void multiVisitorCanAccess() throws Exception {
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("multi");
 
             request.setMethod("GET");
             request.setRequestURI("/api/download/extensions");
             request.setRemoteAddr("192.168.1.100");
+            when(rateLimitService.isAllowed(any())).thenReturn(true);
 
             authFilter.doFilterInternal(request, response, filterChain);
 
-            assertThat(response.getStatus()).isEqualTo(404);
-            verify(rateLimitService, never()).isAllowed(any());
-            verify(filterChain, never()).doFilter(request, response);
+            assertThat(response.getStatus()).isEqualTo(200);
+            verify(rateLimitService).isAllowed(any());
+            verify(filterChain).doFilter(request, response);
         }
 
         @Test
-        @DisplayName("solo 模式未登录访问返回 404（未声明优先于 401）")
-        void soloUnauthorizedReturns404() throws Exception {
+        @DisplayName("solo 模式未登录访问返回 401")
+        void soloUnauthorizedReturns401() throws Exception {
             when(setupService.isSetupComplete()).thenReturn(true);
             when(setupService.getMode()).thenReturn("solo");
 
@@ -2065,7 +2088,7 @@ class AuthFilterTest {
 
             authFilter.doFilterInternal(request, response, filterChain);
 
-            assertThat(response.getStatus()).isEqualTo(404);
+            assertThat(response.getStatus()).isEqualTo(401);
             verify(filterChain, never()).doFilter(request, response);
         }
 

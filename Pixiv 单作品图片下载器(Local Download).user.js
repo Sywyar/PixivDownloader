@@ -20,6 +20,8 @@
 // @connect           i.pximg.net
 // @connect           www.pixiv.net
 // @run-at            document-start
+// @pixiv-presence-page /pixiv-batch.html
+// @pixiv-presence-page /pixiv-batch-alt.html
 // ==/UserScript==
 
 (function () {

@@ -17,7 +17,7 @@ public final class WorkbenchTestMessages {
                 WorkbenchTestMessages.class.getClassLoader(),
                 new FixedLegacyPolicy(),
                 "i18n.workbench.messages",
-                "i18n.workbench.notification-templates");
+                "i18n.messages");
         return new RequestLocaleMessageResolver(delegate);
     }
 

@@ -28,6 +28,8 @@
     "detail.title": "标题",
     "empty.active.body": "当前没有活跃下载任务。",
     "empty.active.title": "队列为空",
+    "empty.active.unavailable-body": "下载状态功能未启用，已有下载记录仍可查看。",
+    "empty.active.unavailable-title": "实时下载状态不可用",
     "empty.history.body": "当前还没有已下载作品。",
     "empty.history.title": "暂无下载历史",
     "filter.ai.title": "AI 筛选",

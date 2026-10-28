@@ -74,13 +74,18 @@
             .replace(/'/g, '&#39;');
     }
 
-    // 收集后端响应里全部需要的展示 namespace（displayNameKey 在其 displayNamespace 内解析）。
-    // 前端据此动态扩展 i18n 客户端的 namespace 集，不硬编码哪个插件用哪个 namespace。
+    // 受管插件以运行阶段为准，已保存但待重启的开关不改变当前运行态。
+    function isRunning(entry) {
+        return (entry.managed && entry.runtimePhase ? entry.runtimePhase : entry.status) === 'STARTED';
+    }
+
+    // 安装态展示词典独立于运行态，停用后仍用于识别插件。
     function collectNamespaces(report) {
         var set = {};
         var list = (report && report.plugins) || [];
         for (var i = 0; i < list.length; i++) {
-            var raw = list[i] && list[i].displayNamespace;
+            if (!list[i]) continue;
+            var raw = list[i].displayNamespace;
             // displayNamespace 规范化（与 tns 同一规则）：null / "" / 纯空白都跳过——不请求空白 namespace bundle；非空先 trim。
             var ns = raw == null ? '' : String(raw).trim();
             if (ns) {
@@ -242,13 +247,7 @@
         var status = entry.status || 'STARTED';
         var meta = statusMeta(status);
         var phase = entry.runtimePhase || null;
-        // 受管外置插件以 runtimePhase 为权威运行态；不受管 / 无运行阶段的条目回退到 status。
-        var running;
-        if (entry.managed && entry.runtimePhase) {
-            running = entry.runtimePhase === 'STARTED';
-        } else {
-            running = entry.status === 'STARTED';
-        }
+        var running = isRunning(entry);
         var name = tns(entry.displayNamespace, entry.displayNameKey, entry.id);
         var version = entry.version ? ('v' + entry.version) : null;
         var verification = entry.verification || {};

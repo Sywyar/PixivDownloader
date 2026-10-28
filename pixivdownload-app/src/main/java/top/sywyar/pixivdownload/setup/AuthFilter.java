@@ -27,6 +27,8 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.maintenance.MaintenanceCoordinator;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
 import top.sywyar.pixivdownload.plugin.registry.web.LandingRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.NavigationRegistry;
+import top.sywyar.pixivdownload.plugin.api.web.NavigationMarkers;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.route.StartupRouteRegistry;
@@ -73,6 +75,7 @@ public class AuthFilter extends OncePerRequestFilter {
 
     /** 默认启动落点注册中心：{@code /redirect} 据此按模式选定首选插件落点（缺失则回退 / 兜底）。 */
     private final StartupRouteRegistry startupRouteRegistry;
+    private final NavigationRegistry navigationRegistry;
 
     /** 落点注册中心：GET {@code /invite} 兑换成功后据此按受邀访客落点优先级解析目标页（缺失则回登录页），与导航排序解耦。 */
     private final LandingRegistry landingRegistry;
@@ -98,7 +101,8 @@ public class AuthFilter extends OncePerRequestFilter {
                       GuiTokenProvider guiTokenProvider,
                       RouteAccessRegistry routeAccessRegistry,
                       StartupRouteRegistry startupRouteRegistry,
-                      LandingRegistry landingRegistry) {
+                      LandingRegistry landingRegistry,
+                      NavigationRegistry navigationRegistry) {
         this.setupService = setupService;
         this.staticResourceRateLimitService = staticResourceRateLimitService;
         this.rateLimitService = rateLimitService;
@@ -110,6 +114,7 @@ public class AuthFilter extends OncePerRequestFilter {
         this.routeAccessRegistry = routeAccessRegistry;
         this.startupRouteRegistry = startupRouteRegistry;
         this.landingRegistry = landingRegistry;
+        this.navigationRegistry = navigationRegistry;
     }
 
     /**
@@ -129,7 +134,8 @@ public class AuthFilter extends OncePerRequestFilter {
                 messages, maintenanceCoordinatorProvider, guestInviteService, guiTokenProvider,
                 routeAccessRegistry,
                 new StartupRouteRegistry(new PluginRegistry(BuiltInPlugins.createAll())),
-                new LandingRegistry(new PluginRegistry(BuiltInPlugins.createAll())));
+                new LandingRegistry(new PluginRegistry(BuiltInPlugins.createAll())),
+                new NavigationRegistry(new PluginRegistry(BuiltInPlugins.createAll())));
     }
 
     /**
@@ -327,7 +333,10 @@ public class AuthFilter extends OncePerRequestFilter {
         }
 
         if (path.equals("/redirect")) {
-            if (setupService.isIntroMode()) {
+            if (setupService.isAdminLoggedIn(req)) {
+                res.sendRedirect(navigationRegistry.preferredHref(
+                        NavigationMarkers.PREFERRED_DOWNLOAD_WORKBENCH, Audience.ADMIN).orElse("/home.html"));
+            } else if (setupService.isIntroMode()) {
                 res.sendRedirect("/intro.html");
             } else {
                 StartupRouteContext startupContext = "multi".equals(setupService.getMode())

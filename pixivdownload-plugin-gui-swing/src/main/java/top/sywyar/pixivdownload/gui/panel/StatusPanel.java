@@ -43,7 +43,6 @@ public class StatusPanel extends JPanel {
     private static final int LIVE_STATUS_TICK_INTERVAL_MS = 1000;
     private static final long LONG_RUNNING_ELAPSED_THRESHOLD_SECONDS = 30L;
     private static final long PIXIV_CONNECTIVITY_AUTO_CHECK_INTERVAL_MS = 60_000L;
-    private static final String BATCH_PAGE = "/pixiv-batch.html";
 
     private static String message(String code, Object... args) {
         return GuiMessages.get(code, args);
@@ -285,7 +284,6 @@ public class StatusPanel extends JPanel {
         buttons.setOpaque(false);
 
         List<JButton> navigationButtons = new ArrayList<>();
-        navigationButtons.add(webButton(message("gui.action.open-batch"), BATCH_PAGE));
         for (GuiWebEntrySpec entry : guiWebEntries.statusActions()) {
             navigationButtons.add(webButton(entry.label(), entry.href()));
         }
@@ -1507,10 +1505,6 @@ public class StatusPanel extends JPanel {
 
     public String getWebUrl(String path) {
         return SwingHost.host().backendUri(path).toASCIIString();
-    }
-
-    public String getBatchUrl() {
-        return getWebUrl(BATCH_PAGE);
     }
 
     /** 更新安装期间语言切换会重建窗口，因此界面偏好页需只读此状态并暂时阻止切换。 */

@@ -133,10 +133,11 @@ class NavigationControllerTest {
         assertThat(first.icon()).isEqualTo("i");
         assertThat(first.priority()).isEqualTo(5);
         assertThat(first.markers()).isEmpty();
+        assertThat(first.pluginId()).isEqualTo("plug");
         assertThat(NavigationController.NavigationView.class.getRecordComponents())
                 .extracting(RecordComponent::getName)
                 .containsExactly("id", "placements", "labelNamespace", "labelI18nKey", "href", "icon",
-                        "priority", "markers");
+                        "priority", "markers", "pluginId", "pluginNamespace", "pluginNameKey");
     }
 
     @Test
@@ -150,6 +151,19 @@ class NavigationControllerTest {
         assertThat(view.id()).isEqualTo("n-null");
         assertThat(view.labelNamespace()).isNull();
         assertThat(view.labelI18nKey()).isEqualTo("nav.n");
+    }
+
+    @Test
+    @DisplayName("导航分组名称来自所属插件，保留翻译键且不增加首页导航项")
+    void ownerNameComesFromPlugin() {
+        NavigationRegistry registry = new NavigationRegistry(new PluginRegistry(List.of(new CorePlugin())));
+        var entries = controllerFor(registry).navigation(adminRequest());
+        assertThat(entries).allSatisfy(entry -> {
+            assertThat(entry.pluginId()).isEqualTo("core");
+            assertThat(entry.pluginNamespace()).isEqualTo(new CorePlugin().displayNamespace());
+            assertThat(entry.pluginNameKey()).isEqualTo(new CorePlugin().displayName());
+        });
+        assertThat(entries).extracting(NavigationController.NavigationView::href).doesNotContain("/home.html");
     }
 
     // ========== 来源层级 + placement 内 priority 排序 ==========

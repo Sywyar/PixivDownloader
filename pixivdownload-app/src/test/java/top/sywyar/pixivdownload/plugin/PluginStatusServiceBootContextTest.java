@@ -18,7 +18,7 @@ import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
 
 /**
  * 真实 Spring 上下文：无 {@code plugins/} 目录时，插件状态服务把 core-only 内置插件报告为
- * {@link PluginStatus#STARTED}，并把缺失的 required download-workbench 报告为未满足要求。
+ * {@link PluginStatus#STARTED}，不把未安装的可选插件报告为必装缺失。
  */
 @SpringBootTest(properties = {
         "pixivdownload.config-dir=target/test-runtime/config",
@@ -27,7 +27,7 @@ import top.sywyar.pixivdownload.plugin.management.PluginStatusService;
         "pixivdownload.plugins-dir=target/test-runtime/plugins-absent",
         "setup.browser.auto-open=false"
 })
-@DisplayName("插件状态服务真实上下文：core-only 内置插件 STARTED、required download-workbench 缺失")
+@DisplayName("插件状态服务真实上下文：core-only 内置插件 STARTED、没有必装缺失")
 class PluginStatusServiceBootContextTest {
 
     private static final Map<String, String> originalProperties = new LinkedHashMap<>();
@@ -58,19 +58,17 @@ class PluginStatusServiceBootContextTest {
     private PluginStatusService pluginStatusService;
 
     @Test
-    @DisplayName("core-only 内置插件 STARTED，download-workbench 缺失 required")
+    @DisplayName("core-only 内置插件 STARTED，可选下载工作台不产生缺失诊断")
     void builtInPluginsAreAllStartedAndCompatible() {
         PluginStatusReport report = pluginStatusService.report();
 
         assertThat(report.withStatus(PluginStatus.STARTED)).extracting(PluginDiagnostic::id)
                 .containsExactlyInAnyOrder(
                         "core", "plugin-market");
-        assertThat(report.withStatus(PluginStatus.MISSING_REQUIRED)).extracting(PluginDiagnostic::id)
-                .containsExactly("download-workbench");
+        assertThat(report.withStatus(PluginStatus.MISSING_REQUIRED)).isEmpty();
         assertThat(report.withStatus(PluginStatus.INCOMPATIBLE)).isEmpty();
         assertThat(report.withStatus(PluginStatus.FAILED)).isEmpty();
-        assertThat(report.hasUnmetRequirement()).isTrue();
-        // 有描述符的内置插件均与当前SDK 兼容；缺失 required 没有 descriptor。
+        assertThat(report.hasUnmetRequirement()).isFalse();
         assertThat(report.diagnostics().stream().filter(diagnostic -> diagnostic.descriptor() != null).toList())
                 .allSatisfy(diagnostic -> assertThat(diagnostic.descriptor().isSdkCompatible()).isTrue());
     }

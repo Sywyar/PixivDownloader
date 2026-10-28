@@ -19,7 +19,6 @@ import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessOutcome;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
-import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.download.testsupport.WorkbenchTestMessages;
@@ -50,8 +49,6 @@ class PixivProxyControllerTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Mock
-    private PixivThumbnailFetcher pixivThumbnailFetcher;
-    @Mock
     private PixivAjaxClient pixivAjaxClient;
     @Mock
     private PixivProxyAccessPolicy pixivProxyAccessPolicy;
@@ -70,7 +67,7 @@ class PixivProxyControllerTest {
         PixivFetchService pixivFetchService =
                 new PixivFetchService(pixivAjaxClient, objectMapper);
         PixivProxyController controller = new PixivProxyController(
-                objectMapper, pixivThumbnailFetcher, pixivFetchService, pixivProxyAccessPolicy,
+                objectMapper, pixivFetchService, pixivProxyAccessPolicy,
                 requestOwnerIdentityResolver, workVisibilityService, MESSAGES);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setCustomArgumentResolvers(new FixedVisibilityScopeResolver())
@@ -177,7 +174,7 @@ class PixivProxyControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error").value("Conflicting acquisition credential headers"));
 
-            verifyNoInteractions(pixivAjaxClient, pixivThumbnailFetcher);
+            verifyNoInteractions(pixivAjaxClient);
         }
 
         @Test
@@ -448,7 +445,7 @@ class PixivProxyControllerTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error").isNotEmpty());
 
-            verifyNoInteractions(pixivAjaxClient, pixivThumbnailFetcher);
+            verifyNoInteractions(pixivAjaxClient);
         }
     }
 

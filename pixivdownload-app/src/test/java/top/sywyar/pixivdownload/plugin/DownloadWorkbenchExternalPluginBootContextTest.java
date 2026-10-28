@@ -181,7 +181,7 @@ class DownloadWorkbenchExternalPluginBootContextTest {
     }
 
     @Test
-    @DisplayName("PF4J 发现并启动 required 工作台，注册来源为 EXTERNAL 且使用独立 classloader")
+    @DisplayName("PF4J 发现并启动可选工作台，注册来源为 EXTERNAL 且使用独立 classloader")
     void runtimeDiscoversDownloadWorkbenchAsExternalPlugin() {
         assertThat(pluginRuntimeStatus.state()).isEqualTo(PluginDirectoryState.POPULATED);
         assertThat(pluginRuntimeStatus.startedPluginIds()).contains(PLUGIN_ID);
@@ -201,7 +201,7 @@ class DownloadWorkbenchExternalPluginBootContextTest {
     }
 
     @Test
-    @DisplayName("工作台 controller 与计划执行器只由外置 child context 托管")
+    @DisplayName("工作台页面归插件，通用队列和计划控制器归宿主")
     void childContextOwnsWorkbenchControllersAndScheduleExecutors() throws Exception {
         ClassLoader externalClassLoader = externalDownloadWorkbenchClassLoader();
         ConfigurableApplicationContext child =
@@ -210,13 +210,13 @@ class DownloadWorkbenchExternalPluginBootContextTest {
         assertThat(child.getClassLoader()).isSameAs(externalClassLoader);
 
         Class<?> queueController = externalClassLoader.loadClass(
-                "top.sywyar.pixivdownload.download.controller.DownloadQueueController");
+                "top.sywyar.pixivdownload.core.download.web.DownloadQueueController");
         Class<?> scheduleController = externalClassLoader.loadClass(
                 "top.sywyar.pixivdownload.schedule.controller.ScheduleController");
-        assertThat(child.getBeanNamesForType(queueController)).isNotEmpty();
-        assertThat(child.getBeanNamesForType(scheduleController)).isNotEmpty();
-        assertThat(applicationContext.getBeanNamesForType(queueController)).isEmpty();
-        assertThat(applicationContext.getBeanNamesForType(scheduleController)).isEmpty();
+        assertThat(child.getBeanNamesForType(queueController)).isEmpty();
+        assertThat(child.getBeanNamesForType(scheduleController)).isEmpty();
+        assertThat(applicationContext.getBeanNamesForType(queueController)).isNotEmpty();
+        assertThat(applicationContext.getBeanNamesForType(scheduleController)).isNotEmpty();
         Class<?> pageController = externalClassLoader.loadClass(
                 "top.sywyar.pixivdownload.download.controller.DownloadPageController");
         assertThat(child.getBeanNamesForType(pageController)).isNotEmpty();
@@ -248,9 +248,9 @@ class DownloadWorkbenchExternalPluginBootContextTest {
 
         assertThat(pluginControllerRegistrar.registeredPluginIds()).contains(PLUGIN_ID);
         assertThat(handlerBean("/api/download/queue/clear").getClass().getClassLoader())
-                .isSameAs(externalClassLoader);
+                .isSameAs(getClass().getClassLoader());
         assertThat(handlerBean("/api/schedule/sources").getClass().getClassLoader())
-                .isSameAs(externalClassLoader);
+                .isSameAs(getClass().getClassLoader());
     }
 
     @Test
@@ -289,7 +289,12 @@ class DownloadWorkbenchExternalPluginBootContextTest {
         assertRoute("/pixiv-batch-alt.html", AccessPolicy.VISITOR);
         assertRoute("/pixiv-batch-alt/**", AccessPolicy.VISITOR);
         assertRoute("/api/download/pixiv", AccessPolicy.VISITOR);
-        assertRoute("/api/schedule/**", AccessPolicy.ADMIN);
+        assertThat(routeAccessRegistry.routes())
+                .filteredOn(route -> route.route().pathPattern().equals("/api/schedule/**"))
+                .singleElement().satisfies(route -> {
+                    assertThat(route.pluginId()).isEqualTo("core");
+                    assertThat(route.route().accessPolicy()).isEqualTo(AccessPolicy.ADMIN);
+                });
         assertThat(routeAccessRegistry.isDeclared(
                 "/api/schedule/sources", HttpMethod.GET)).isTrue();
 
@@ -537,7 +542,11 @@ class DownloadWorkbenchExternalPluginBootContextTest {
                 .noneMatch(owner -> owner.owner().featurePluginId().equals(PLUGIN_ID));
         assertThat(queueOperationRegistry.operationsForOwner(PLUGIN_ID)).isEmpty();
         assertThat(downloadExtensionRegistry.resolveDownloadType("illust")).isEmpty();
-        assertThat(notificationTemplateCatalog.find("run-summary", "mail", Locale.US)).isEmpty();
+        assertThat(notificationTemplateCatalog.find("run-summary", "mail", Locale.US)).isPresent();
+        assertThat(applicationContext.getBean(top.sywyar.pixivdownload.schedule.ScheduleHostLifecycle.class)
+                .isRunning()).isTrue();
+        assertThat(handlerBean("/api/schedule/sources"))
+                .isSameAs(applicationContext.getBean(top.sywyar.pixivdownload.schedule.controller.ScheduleController.class));
         assertThat(pluginControllerRegistrar.registeredPluginIds())
                 .doesNotContain(PLUGIN_ID);
         assertThat(anyHandlerLoadedBy(previousClassLoader)).isFalse();
@@ -555,7 +564,7 @@ class DownloadWorkbenchExternalPluginBootContextTest {
     private Object handlerBean(String pattern) {
         return requestMappingHandlerMapping.getHandlerMethods().entrySet().stream()
                 .filter(entry -> entry.getKey().getPatternValues().contains(pattern))
-                .map(entry -> entry.getValue().getBean())
+                .map(entry -> entry.getValue().createWithResolvedBean().getBean())
                 .findFirst()
                 .orElseThrow();
     }

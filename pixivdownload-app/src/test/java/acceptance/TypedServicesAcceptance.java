@@ -115,7 +115,7 @@ public final class TypedServicesAcceptance {
             check(login.statusCode() == 200, "login: " + login.statusCode());
             String cookie = login.headers().allValues("set-cookie").stream()
                     .filter(value -> value.startsWith("pixiv_session=")).findFirst().orElseThrow().split(";")[0];
-            check(contexts.contextFor("download-workbench").orElseThrow().isActive(), "required workbench context active");
+            check(contexts.contextFor("download-workbench").orElseThrow().isActive(), "workbench context active");
             var workbenchPage = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build()
                     .send(HttpRequest.newBuilder(URI.create(origin + "/pixiv-batch.html"))
                     .header("Cookie", cookie).GET().build(), HttpResponse.BodyHandlers.ofString());

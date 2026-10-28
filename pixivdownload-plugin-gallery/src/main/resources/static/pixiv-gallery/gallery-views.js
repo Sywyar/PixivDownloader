@@ -114,9 +114,10 @@
                 grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1">' + escapeHtml(t('status.no-matching-artworks', 'No matching artworks')) + '</div>';
             } else {
                 grid.innerHTML = '<div class="empty-state empty-state-cta" style="grid-column:1/-1">'
-                    + '<div>' + escapeHtml(t('status.no-downloads', '没有下载的作品，快去下载页下载吧！')) + '</div>'
-                    + '<a class="btn btn-primary" href="/pixiv-batch.html" target="_blank" rel="noopener">' + escapeHtml(t('status.go-download', '前往下载页')) + '</a>'
+                    + '<div>' + escapeHtml(t('status.no-downloads', '还没有收录作品。')) + '</div>'
+                    + '<a class="btn btn-primary" hidden data-nav-preferred-href-marker="preferred-download-workbench" target="_blank" rel="noopener">' + escapeHtml(t('status.go-download', '前往下载页')) + '</a>'
                     + '</div>';
+                if (window.PixivNav) PixivNav.refreshLinks();
             }
             return;
         }

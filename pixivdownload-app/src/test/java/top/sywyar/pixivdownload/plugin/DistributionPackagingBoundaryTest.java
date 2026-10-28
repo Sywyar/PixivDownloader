@@ -393,7 +393,11 @@ class DistributionPackagingBoundaryTest {
         assertThat(host.getResource("mail/templates/mail-config-success.html"))
                 .as("mail 配置测试模板资源不应在 boot jar 内").isNull();
         assertThat(host.getResource("notification/templates/mail/run-summary.html"))
-                .as("download-workbench 通知模板资源不应在 boot jar 内").isNull();
+                .as("宿主计划通知模板应随 boot jar 提供").isNotNull();
+        assertThat(host.getResource("i18n/notification-templates.properties"))
+                .as("宿主计划通知词典应随 boot jar 提供").isNotNull();
+        assertThat(host.getResource("i18n/workbench/notification-templates.properties"))
+                .as("工作台旧计划通知词典不应在 boot jar 内").isNull();
     }
 
     @Test

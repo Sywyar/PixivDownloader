@@ -403,8 +403,8 @@ class PluginApiDependencyGuardTest {
                         "javax.sql..", "java.sql..",
                         "org.springframework.jdbc..",
                         "org.apache.ibatis..")
-                .because("计划事实归核心 schema；工作台 schedule 引擎通过 ScheduledTaskStore 访问，不能绕过语义接口写表")
-                .check(importDownloadWorkbenchClasses());
+                .because("计划事实归核心 schema；宿主 schedule 引擎通过 ScheduledTaskStore 访问，不能绕过语义接口写表")
+                .check(CLASSES);
     }
 
     @Test
@@ -417,7 +417,7 @@ class PluginApiDependencyGuardTest {
                 .because("计划任务的小说下载 / 系列合订 / 翻译状态经 plugin-api ScheduledWorkExecutor"
                         + "（小说插件贡献执行器实现）完成，调度编排层不得 import 任何 novel 包类型；小说插件经 plugin→plugin-api 正向"
                         + "依赖实现该契约，发现 / 筛选 / 系列补全 / 共享调度机器仍留调度壳")
-                .check(importDownloadWorkbenchClasses());
+                .check(CLASSES);
     }
 
     @Test
@@ -532,20 +532,20 @@ class PluginApiDependencyGuardTest {
         // 此规则只约束跨类型取消/清空的队列控制器，不扩大到同包其它控制器。
         noClasses()
                 .that().haveFullyQualifiedName(
-                        "top.sywyar.pixivdownload.download.controller.DownloadQueueController")
+                        "top.sywyar.pixivdownload.core.download.web.DownloadQueueController")
                 .should().dependOnClassesThat()
                 .haveFullyQualifiedName(
                         "top.sywyar.pixivdownload.download.ArtworkDownloadExecutor")
                 .because("下载队列控制器的跨类型取消 / 清空经稳定 DownloadControlPlane 多态派发，"
                         + "不得直接依赖插画下载执行器")
-                .check(importDownloadWorkbenchClasses());
+                .check(CLASSES);
         noClasses()
                 .that().haveFullyQualifiedName(
-                        "top.sywyar.pixivdownload.download.controller.DownloadQueueController")
+                        "top.sywyar.pixivdownload.core.download.web.DownloadQueueController")
                 .should().dependOnClassesThat()
                 .resideInAnyPackage("top.sywyar.pixivdownload.novel.download..")
                 .because("下载队列控制器不得反向依赖小说下载实现；小说只经稳定队列契约贡献能力")
-                .check(importDownloadWorkbenchClasses());
+                .check(CLASSES);
     }
 
     @Test

@@ -298,8 +298,7 @@ class NavigationRegistryTest {
         NavigationRegistry registry = emptyRegistry();
         registry.register("demo", List.of(nav("a")));
         List<NavigationRegistry.RegisteredNavigation> navigation = registry.navigation();
-        assertThatThrownBy(() -> navigation.add(
-                new NavigationRegistry.RegisteredNavigation("x", nav("x"))))
+        assertThatThrownBy(() -> navigation.add(navigation.get(0)))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 

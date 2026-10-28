@@ -75,9 +75,26 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
     private final Clock clock;
     private final Duration sourceTimeout;
 
-    @Autowired
     public DesktopControlCenterRegistry(ExternalCapabilityInvocationRegistry invocations) {
         this(invocations::acceptsInvocations, newWorkerExecutor(), Clock.systemUTC(), SOURCE_TIMEOUT, true);
+    }
+
+    @Autowired
+    public DesktopControlCenterRegistry(ExternalCapabilityInvocationRegistry invocations,
+                                        DesktopAutomationSource hostSource) {
+        this(invocations);
+        registerHostAutomation(hostSource);
+    }
+
+    private OwnerEntry hostAutomation;
+
+    /** 宿主事实源复用相同的异步物化、预算和过期检查，不创建外置插件 publication。 */
+    public void registerHostAutomation(DesktopAutomationSource source) {
+        synchronized (lock) {
+            if (hostAutomation != null) throw new IllegalStateException("host automation already registered");
+            hostAutomation = new OwnerEntry(null, null, Objects.requireNonNull(source),
+                    null, DesktopUiText.raw("core"));
+        }
     }
 
     DesktopControlCenterRegistry(Predicate<ExternalCapabilityOwner> admission,
@@ -139,7 +156,7 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
     public void refresh() {
         Instant now = clock.instant();
         for (OwnerEntry entry : entries()) {
-            if (!admission.test(entry.owner)) {
+            if (!admitted(entry)) {
                 continue;
             }
             if (entry.inFlight.get()) {
@@ -172,7 +189,7 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
         List<OwnedAutomationSnapshot> automations = new ArrayList<>();
         List<OwnedDirectorySuggestion> directories = new ArrayList<>();
         for (OwnerEntry entry : entries()) {
-            if (!admission.test(entry.owner)) {
+            if (!admitted(entry)) {
                 continue;
             }
             Owner owner = Owner.from(entry.owner);
@@ -184,7 +201,7 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
             materialized.cards.forEach(card -> cards.add(new OwnedDashboardCard(owner, card)));
             materialized.runningTasks.forEach(task -> tasks.add(new OwnedRunningTask(owner, task)));
             if (materialized.automation != null) {
-                automations.add(new OwnedAutomationSnapshot(owner, materialized.automation));
+                automations.add(new OwnedAutomationSnapshot(owner, materialized.automation, entry.owner == null));
             }
         }
         cards.sort(CARD_ORDER);
@@ -199,7 +216,7 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
         OwnerEntry entry;
         synchronized (lock) { entry = owners.get(owner.publication()); }
         if (entry == null || !Owner.from(entry.owner).equals(owner) || entry.directories == null
-                || !admission.test(entry.owner)) throw new IllegalStateException("DIRECTORY_SUGGESTION_STALE");
+                || !admitted(entry)) throw new IllegalStateException("DIRECTORY_SUGGESTION_STALE");
         if (dismiss) entry.directories.dismiss(suggestionId);
         else entry.directories.confirm(suggestionId, selectedDirectory);
         entry.directory = null;
@@ -207,7 +224,7 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
 
     private void materialize(OwnerEntry entry) {
         try {
-            if (!isCurrent(entry) || !admission.test(entry.owner)) {
+            if (!isCurrent(entry) || !admitted(entry)) {
                 return;
             }
             Instant now = clock.instant();
@@ -253,7 +270,7 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
                             "CONTROL_CENTER_AUTOMATION_SOURCE_FAILED", failure);
                 }
             }
-            if (isCurrent(entry) && admission.test(entry.owner)) {
+            if (isCurrent(entry) && admitted(entry)) {
                 entry.timeoutReported.set(false);
                 entry.materialized = new Materialized(cards, runningTasks, automation);
                 entry.directory = directory;
@@ -359,14 +376,21 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
 
     private boolean isCurrent(OwnerEntry entry) {
         synchronized (lock) {
+            if (entry.owner == null) return hostAutomation == entry;
             return owners.get(entry.owner.publicationId()) == entry;
         }
     }
 
     private List<OwnerEntry> entries() {
         synchronized (lock) {
-            return List.copyOf(owners.values());
+            List<OwnerEntry> result = new ArrayList<>(owners.values());
+            if (hostAutomation != null) result.add(hostAutomation);
+            return result;
         }
+    }
+
+    private boolean admitted(OwnerEntry entry) {
+        return entry.owner == null || admission.test(entry.owner);
     }
 
     private static <T> T single(List<T> values) {
@@ -430,10 +454,11 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
                                    String diagnosticCode,
                                    Throwable failure) {
         if (reported.compareAndSet(false, true)) {
+            Owner identity = Owner.from(owner);
             log.warn("desktop control-center source degraded: code={}, pluginId={}, packageId={}, generation={}, "
                             + "publication={}, failureType={}",
-                    diagnosticCode, owner.pluginId(), owner.packageId(), owner.pluginGeneration(),
-                    owner.publicationId(), failure == null ? "none" : failure.getClass().getName());
+                    diagnosticCode, identity.pluginId(), identity.packageId(), identity.generation(),
+                    identity.publication(), failure == null ? "none" : failure.getClass().getName());
         }
     }
 
@@ -450,6 +475,10 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
 
     @Override
     public void destroy() {
+        synchronized (lock) {
+            owners.clear();
+            hostAutomation = null;
+        }
         if (ownedExecutor != null) {
             ownedExecutor.shutdownNow();
         }
@@ -457,6 +486,7 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
 
     public record Owner(String pluginId, String packageId, long generation, long publication) {
         private static Owner from(ExternalCapabilityOwner owner) {
+            if (owner == null) return new Owner("core", "core", 0, 0);
             return new Owner(owner.pluginId(), owner.packageId(), owner.pluginGeneration(), owner.publicationId());
         }
     }
@@ -475,7 +505,7 @@ public final class DesktopControlCenterRegistry implements DisposableBean {
         }
     }
 
-    public record OwnedAutomationSnapshot(Owner owner, DesktopAutomationSnapshot snapshot) {
+    public record OwnedAutomationSnapshot(Owner owner, DesktopAutomationSnapshot snapshot, boolean hostOwned) {
         public OwnedAutomationSnapshot {
             owner = Objects.requireNonNull(owner, "owner");
             snapshot = Objects.requireNonNull(snapshot, "snapshot");

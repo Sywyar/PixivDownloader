@@ -158,8 +158,13 @@ final class DesktopControlCenterView {
         List<DesktopUiNode.AutomationSource> sources = new ArrayList<>();
         List<DesktopUiNode.Button> management = new ArrayList<>();
         Map<String, String> actions = new java.util.HashMap<>();
-        for (QuickStartEntry entry : quickStartEntries(owner.currentSources())) {
-            if (quickStartIcon(entry.navigation().icon()) != DesktopUiIcon.DOWNLOAD) continue;
+        List<QuickStartEntry> scheduleEntries = navigationEntries(
+                owner.currentSources(), NavigationPlacements.DESKTOP_SCHEDULE_MANAGE);
+        List<QuickStartEntry> managementEntries = new ArrayList<>(scheduleEntries);
+        quickStartEntries(owner.currentSources()).stream()
+                .filter(entry -> quickStartIcon(entry.navigation().icon()) == DesktopUiIcon.DOWNLOAD)
+                .forEach(managementEntries::add);
+        for (QuickStartEntry entry : managementEntries) {
             String action = "automation.manage." + safeId(entry.owner());
             if (actions.putIfAbsent(entry.owner(), action) != null) continue;
             nextActions.put(action, () -> owner.openWeb(entry.navigation().href()));
@@ -182,7 +187,9 @@ final class DesktopControlCenterView {
                         guiToken(task.path("title")), guiToken(task.path("triggerSummary")),
                         task.path("status").asText("UNKNOWN"), task.path("lastResult").asText("UNKNOWN"),
                         runs, parseInstant(task.path("observedAt").asText("")).map(Instant::toEpochMilli).orElse(null),
-                        available, actions.get(plugin)));
+                        available, owned.path("hostOwned").asBoolean(false)
+                                ? scheduleEntries.isEmpty() ? null : actions.get(scheduleEntries.get(0).owner())
+                                : actions.get(plugin)));
             }
         }
         return new DesktopUiNode.AutomationOverview("automation.overview",

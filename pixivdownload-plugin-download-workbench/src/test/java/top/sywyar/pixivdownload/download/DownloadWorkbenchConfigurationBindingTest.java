@@ -18,7 +18,6 @@ import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextF
 import top.sywyar.pixivdownload.plugin.runtime.context.PluginContextModule;
 import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
-import top.sywyar.pixivdownload.schedule.ScheduleConfig;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -76,7 +75,6 @@ class DownloadWorkbenchConfigurationBindingTest {
                 values.put("download-workbench.ugoira.parallelism", Integer.toString(parallelism));
                 try (var child = child(parent)) {
                     var encoder = child.getBean(UgoiraEncoderSettings.class);
-                    var schedule = child.getBean(ScheduleConfig.class);
                     var pixiv = child.getBean(PixivScheduleSettings.class);
                     assertAll(
                             () -> assertThat(encoder.getParallelism()).isEqualTo(parallelism),
@@ -84,11 +82,6 @@ class DownloadWorkbenchConfigurationBindingTest {
                             () -> assertThat(encoder.getMaxOutputMib()).isEqualTo(16),
                             () -> assertThat(encoder.getTemporaryBudgetGib()).isEqualTo(1),
                             () -> assertThat(encoder.getTimeoutMinutes()).isEqualTo(1),
-                            () -> assertThat(schedule.isEnabled()).isFalse(),
-                            () -> assertThat(schedule.getTickIntervalMs()).isEqualTo(120000),
-                            () -> assertThat(schedule.getMaxTasks()).isEqualTo(7),
-                            () -> assertThat(schedule.getAuthFailureCircuitBreaker()).isEqualTo(3),
-                            () -> assertThat(schedule.getPendingMaxAttempts()).isEqualTo(2),
                             () -> assertThat(pixiv.getInboxCheckEvery()).isEqualTo(13),
                             () -> assertThat(pixiv.getOveruseDeferDefaultMinutes()).isEqualTo(17));
                 }
@@ -102,8 +95,6 @@ class DownloadWorkbenchConfigurationBindingTest {
         try (var parent = parent(Map.of()); var child = child(parent)) {
             assertThat(child.getBean(UgoiraEncoderSettings.class))
                     .usingRecursiveComparison().isEqualTo(new UgoiraEncoderSettings());
-            assertThat(child.getBean(ScheduleConfig.class))
-                    .usingRecursiveComparison().isEqualTo(new ScheduleConfig());
             assertThat(child.getBean(PixivScheduleSettings.class))
                     .usingRecursiveComparison().isEqualTo(new PixivScheduleSettings());
         }

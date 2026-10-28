@@ -5,10 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.CacheControl;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.download.response.collection.CollectionPageResponse;
@@ -18,16 +14,11 @@ import top.sywyar.pixivdownload.download.response.error.ProxyRateLimitResponse;
 import top.sywyar.pixivdownload.download.response.search.SearchRangeResponse;
 import top.sywyar.pixivdownload.download.response.search.SearchResponse;
 import top.sywyar.pixivdownload.download.response.user.FollowLatestResponse;
-import top.sywyar.pixivdownload.download.response.user.MeUidResponse;
 import top.sywyar.pixivdownload.download.response.user.UserArtworksResponse;
-import top.sywyar.pixivdownload.download.response.user.UserMetaResponse;
 import top.sywyar.pixivdownload.download.PixivFetchService;
 import top.sywyar.pixivdownload.core.pixiv.PixivCookieUserResolver;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
-import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetchException;
-import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFailure;
-import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 import top.sywyar.pixivdownload.core.web.AcquisitionCredentialResolver;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
@@ -37,13 +28,9 @@ import top.sywyar.pixivdownload.core.work.service.WorkVisibilityService;
 
 import org.springframework.web.util.UriComponentsBuilder;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.URI;
-import java.net.URLConnection;
-import java.nio.ByteBuffer;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 代理 Pixiv AJAX API，供 pixiv-batch.html 使用。
@@ -56,7 +43,6 @@ import java.util.concurrent.TimeUnit;
 public class PixivProxyController {
 
     private final ObjectMapper objectMapper;
-    private final PixivThumbnailFetcher pixivThumbnailFetcher;
     private final PixivFetchService pixivFetchService;
     private final PixivProxyAccessPolicy pixivProxyAccessPolicy;
     private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
@@ -72,29 +58,6 @@ public class PixivProxyController {
         }
         log.warn(messages.getForLog("workbench.log.request.failed", detail));
         return ResponseEntity.badRequest().body(new ErrorResponse(detail));
-    }
-
-    /** 缩略图端口失败由插件按既有 HTTP 语义投影，不依赖宿主实现层异常处理器。 */
-    @ExceptionHandler(PixivThumbnailFetchException.class)
-    public ResponseEntity<ErrorResponse> handleThumbnailFetch(PixivThumbnailFetchException failure) {
-        return switch (failure.failure()) {
-            case INVALID_TARGET -> thumbnailFailureResponse(
-                    HttpStatus.BAD_REQUEST,
-                    messages.get("pixiv.proxy.thumbnail-url.host.invalid"));
-            case HTTP_STATUS -> thumbnailFailureResponse(
-                    HttpStatus.BAD_GATEWAY,
-                    failure.statusCode() == 401 || failure.statusCode() == 403
-                            ? messages.get("pixiv.proxy.thumbnail.upstream.unauthorized")
-                            : messages.get("pixiv.proxy.thumbnail.upstream.failed", failure.statusCode()));
-            case TRANSPORT -> thumbnailFailureResponse(
-                    HttpStatus.INTERNAL_SERVER_ERROR,
-                    messages.get("pixiv.proxy.thumbnail.transport.failed"));
-        };
-    }
-
-    private ResponseEntity<ErrorResponse> thumbnailFailureResponse(HttpStatus responseStatus, String detail) {
-        log.warn(messages.getForLog("workbench.log.request.failed", detail));
-        return ResponseEntity.status(responseStatus).body(new ErrorResponse(detail));
     }
 
     /**
@@ -191,24 +154,6 @@ public class PixivProxyController {
         }
     }
 
-    @GetMapping("/user/{userId}/meta")
-    public ResponseEntity<?> getUserMeta(
-            @PathVariable String userId,
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) throws IOException {
-        cookie = acquisitionCredential(request, cookie);
-        ResponseEntity<?> deny = checkMultiModeAccess(request);
-        if (deny != null) return deny;
-        String body = proxyGet(
-                "https://www.pixiv.net/ajax/user/" + userId + "?lang=zh", cookie);
-        JsonNode root = objectMapper.readTree(body);
-        if (root.path("error").asBoolean(false)) {
-            return ResponseEntity.badRequest()
-                    .body(new ErrorResponse(root.path("message").asText()));
-        }
-        String name = root.path("body").path("name").asText();
-        return ResponseEntity.ok(new UserMetaResponse(name, userId));
-    }
 
     @GetMapping("/artwork/{artworkId}/meta")
     public ResponseEntity<?> getArtworkMeta(
@@ -497,37 +442,7 @@ public class PixivProxyController {
         return ResponseEntity.ok(new SearchResponse(items, items.size(), 1));
     }
 
-    @GetMapping("/thumbnail-proxy")
-    public ResponseEntity<byte[]> proxyThumbnail(@RequestParam String url) {
-        URI uri;
-        try {
-            uri = URI.create(url);
-        } catch (IllegalArgumentException e) {
-            throw new SecurityException(messages.get("pixiv.proxy.thumbnail-url.invalid"));
-        }
-        byte[] bytes = pixivThumbnailFetcher.fetch(uri);
-        HttpHeaders responseHeaders = new HttpHeaders();
-        responseHeaders.setContentType(thumbnailMediaType(bytes));
-        responseHeaders.setCacheControl(CacheControl.maxAge(1, TimeUnit.HOURS).cachePublic());
-        return ResponseEntity.ok().headers(responseHeaders).body(bytes);
-    }
 
-    private static MediaType thumbnailMediaType(byte[] bytes) {
-        // JDK 的文件头探测不包含 WebP；只读头部，不解码或重编码图片。
-        if (bytes.length >= 12 && ByteBuffer.wrap(bytes).getInt(0) == 0x52494646
-                && ByteBuffer.wrap(bytes).getInt(8) == 0x57454250) {
-            return MediaType.parseMediaType("image/webp");
-        }
-        try {
-            String type = URLConnection.guessContentTypeFromStream(new ByteArrayInputStream(bytes));
-            if ("image/jpeg".equals(type) || "image/png".equals(type) || "image/gif".equals(type)) {
-                return MediaType.parseMediaType(type);
-            }
-        } catch (IOException ignored) {
-            // 未识别的字节保持二进制响应，不能把上游 HTML 当作本机页面提供。
-        }
-        return MediaType.APPLICATION_OCTET_STREAM;
-    }
 
     // ── /me 端点：基于 cookie 解析当前用户 uid，代理「我的」书签 / 关注 / 珍藏集 ─────────────
 
@@ -542,19 +457,6 @@ public class PixivProxyController {
         return PixivCookieUserResolver.extractUidFromCookie(cookie);
     }
 
-    @GetMapping("/me/uid")
-    public ResponseEntity<?> getMeUid(
-            @RequestHeader(value = "X-Pixiv-Cookie", required = false) String cookie,
-            HttpServletRequest request) {
-        cookie = acquisitionCredential(request, cookie);
-        ResponseEntity<?> deny = checkMultiModeAccess(request);
-        if (deny != null) return deny;
-        String uid = extractUidFromCookie(cookie);
-        if (uid == null) {
-            return ResponseEntity.status(401).body(new ErrorResponse(messages.get("pixiv.proxy.me.cookie.missing")));
-        }
-        return ResponseEntity.ok(new MeUidResponse(uid));
-    }
 
     @GetMapping("/me/illust-bookmarks")
     public ResponseEntity<?> getMyIllustBookmarks(

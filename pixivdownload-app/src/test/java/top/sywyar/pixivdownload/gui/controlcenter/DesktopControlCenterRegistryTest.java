@@ -34,6 +34,23 @@ class DesktopControlCenterRegistryTest {
     private static final Instant NOW = Instant.parse("2026-08-20T00:00:00Z");
 
     @Test
+    @DisplayName("宿主计划无需插件准入，复用物化预算并在关闭后释放")
+    void hostAutomationDoesNotRequirePluginPublication() {
+        var registry = registry(Set.of(), Runnable::run, new MutableClock(NOW));
+        registry.registerHostAutomation(() -> new DesktopAutomationSnapshot(
+                List.of(automationTask("host-task", 0, List.of(NOW.plusSeconds(60)))),
+                DesktopControlCenterAvailability.AVAILABLE, NOW));
+        registry.refresh();
+        assertThat(registry.snapshot().automations()).singleElement().satisfies(item -> {
+            assertThat(item.owner().pluginId()).isEqualTo("core");
+            assertThat(item.snapshot().tasks()).extracting(DesktopAutomationTaskContribution::taskId)
+                    .containsExactly("host-task");
+        });
+        registry.destroy();
+        assertThat(registry.snapshot().automations()).isEmpty();
+    }
+
+    @Test
     @DisplayName("多 owner 卡片与任务确定排序，自动化只保留未来二十四小时")
     void sortsMultipleOwnersAndBoundsAutomationWindow() {
         Set<ExternalCapabilityOwner> admitted = ConcurrentHashMap.newKeySet();

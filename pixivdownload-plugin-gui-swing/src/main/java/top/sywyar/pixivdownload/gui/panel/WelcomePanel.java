@@ -496,7 +496,7 @@ public class WelcomePanel extends JPanel {
         s.bullet("gui.welcome.start.point.formats");
         s.gap(8);
         JButton open = new JButton(GuiMessages.get("gui.welcome.start.button"));
-        open.addActionListener(e -> openUrl(statusPanel.getBatchUrl()));
+        open.addActionListener(e -> openUrl(statusPanel.getWebUrl("/redirect")));
         s.add(open);
         s.gap(8);
         JLabel hint = secondary(GuiMessages.get("gui.welcome.start.waiting"));

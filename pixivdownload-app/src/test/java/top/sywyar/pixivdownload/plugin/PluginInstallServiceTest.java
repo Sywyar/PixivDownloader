@@ -251,7 +251,7 @@ class PluginInstallServiceTest {
     @Test
     @DisplayName("依赖诊断：本地上传非可选依赖缺失时拒绝安装，返回 unsatisfiedDependencies 与结构化问题")
     void diagnosesUnsatisfiedDependencies() {
-        // 壳-only 环境下 download-workbench 是 required 但未安装；ghost-plugin 也未安装，二者均列入诊断。
+        // 上传包显式依赖两个未安装的插件，二者均列入诊断。
         PluginInstallReport report = service.install(
                 explodedUpload("a.zip", "ext", "1.0.0", null, "download-workbench,ghost-plugin"), false);
 
