@@ -12,13 +12,17 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import top.sywyar.pixivdownload.schedule.ScheduleService;
+import top.sywyar.pixivdownload.GlobalExceptionHandler;
+import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.testsupport.HostTestMessages;
 import top.sywyar.pixivdownload.schedule.dto.ScheduleSourceManifestView;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -43,7 +47,8 @@ class ScheduleControllerTest {
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders.standaloneSetup(
-                new ScheduleController(scheduleService, HostTestMessages.messages())).build();
+                new ScheduleController(scheduleService, HostTestMessages.messages()))
+                .setControllerAdvice(new GlobalExceptionHandler(TestI18nBeans.appMessages())).build();
         objectMapper = new ObjectMapper();
     }
 
@@ -77,6 +82,21 @@ class ScheduleControllerTest {
 
         verify(scheduleService).bindCredential(
                 43L, "generic-credential-43", "activation-43");
+    }
+
+    @Test
+    @DisplayName("缺少取得凭证头返回本地化 JSON 400 且不调用绑定服务")
+    void missingCredentialHeaderDoesNotReachService() throws Exception {
+        mockMvc.perform(post("/api/schedule/tasks/{id}/credential", 43L)
+                        .locale(Locale.US).accept(MediaType.TEXT_HTML)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"activationToken\":\"activation-43\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(header().string(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE))
+                .andExpect(jsonPath("$.code").value("error.request.param.invalid"))
+                .andExpect(jsonPath("$.error").value(TestI18nBeans.appMessages()
+                        .get(Locale.US, "error.request.param.invalid")));
+        verifyNoInteractions(scheduleService);
     }
 
     @Test
