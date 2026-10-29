@@ -320,7 +320,17 @@ public interface DesktopUiToolHost {
             boolean dryRun,
             boolean alwaysNetwork
     ) {
-        /** 保留旧调用的本地优先行为。 */
+        /**
+         * 创建优先使用本地元数据的回填选项。
+         *
+         * @param dbPath    数据库路径
+         * @param proxyHost 代理主机
+         * @param proxyPort 代理端口
+         * @param useProxy  是否启用代理
+         * @param delayMs   请求间隔毫秒数
+         * @param limit     最大候选项数量
+         * @param dryRun    是否避免持久化写入
+         */
         public BackfillOptions(String dbPath, String proxyHost, int proxyPort, boolean useProxy,
                                long delayMs, int limit, boolean dryRun) {
             this(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun, false);
@@ -363,7 +373,24 @@ public interface DesktopUiToolHost {
             boolean rateLimited,
             int filledUploadTime
     ) {
-        /** 兼容不报告上传时间的宿主。 */
+        /**
+         * 创建未统计上传时间补齐数量的回填结果。
+         *
+         * @param totalCandidates       候选项总数
+         * @param processed             已处理数量
+         * @param filledAuthor          已填充作者值数量
+         * @param filledR18             已填充成人标记数量
+         * @param filledAi              已填充 AI 标记数量
+         * @param filledDescription     已填充描述数量
+         * @param filledTags            已填充标签集数量
+         * @param filledSeries          已填充系列值数量
+         * @param deletedCount          观察到的已删除记录数量
+         * @param skipped               已跳过数量
+         * @param previouslyUnreachable 先前不可达数量
+         * @param newlyUnreachable      新增不可达数量
+         * @param dryRun                是否禁用持久化写入
+         * @param rateLimited           是否因限流停止
+         */
         public BackfillSummary(int totalCandidates, int processed, int filledAuthor, int filledR18,
                                int filledAi, int filledDescription, int filledTags, int filledSeries,
                                int deletedCount, int skipped, int previouslyUnreachable, int newlyUnreachable,
@@ -400,12 +427,24 @@ public interface DesktopUiToolHost {
             String message,
             int failed
     ) {
-        /** 保留既有调用方构造成功结果的入口。 */
+        /**
+         * 创建没有失败项的迁移结果。
+         *
+         * @param totalCandidates    候选项总数
+         * @param migrated           已迁移数量
+         * @param skipped            已跳过数量
+         * @param historyFileMissing 旧历史文件是否缺失
+         * @param message            摘要消息
+         */
         public MigrationSummary(int totalCandidates, int migrated, int skipped, boolean historyFileMissing, String message) {
             this(totalCandidates, migrated, skipped, historyFileMissing, message, 0);
         }
 
-        /** 按结构化计数返回终态，不解析本地化消息。 */
+        /**
+         * 按结构化计数返回终态，不解析本地化消息。
+         *
+         * @return 由失败数量及已迁移、已跳过数量确定的工具执行终态
+         */
         public ToolOutcome outcome() {
             return failed == 0 ? ToolOutcome.SUCCEEDED
                     : migrated + skipped > 0 ? ToolOutcome.PARTIALLY_FAILED : ToolOutcome.FAILED;

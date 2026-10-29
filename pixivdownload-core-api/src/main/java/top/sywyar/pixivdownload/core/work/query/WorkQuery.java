@@ -72,7 +72,30 @@ public record WorkQuery(
         Long uploadedFrom,
         Long uploadedBefore) {
 
-    /** 保留未指定上传时间范围的查询构造方式。 */
+    /**
+     * 创建不限制上传时间范围的查询。
+     *
+     * @param workType 作品所属媒体类型
+     * @param page 从零开始的页码
+     * @param size 每页数量，至少为一
+     * @param sort 排序字段
+     * @param order 排序方向，取 {@code asc} 或 {@code desc}
+     * @param search 搜索文本
+     * @param searchType 搜索匹配的字段范围
+     * @param r18 年龄分级筛选条件
+     * @param ai AI 生成标记的筛选条件
+     * @param formats 插画文件扩展名筛选列表
+     * @param collectionIds 收藏夹筛选标识
+     * @param tagIds 必须匹配的标签标识
+     * @param excludedTagIds 必须排除的标签标识
+     * @param optionalTagIds 可选匹配的标签标识
+     * @param authorIds 必须匹配的作者标识
+     * @param excludedAuthorIds 必须排除的作者标识
+     * @param optionalAuthorIds 可选匹配的作者标识
+     * @param seriesIds 必须匹配的系列标识
+     * @param excludedSeriesIds 必须排除的系列标识
+     * @param restriction 访客可见性限制；null 表示无限制
+     */
     public WorkQuery(WorkType workType, int page, int size, String sort, String order, String search,
                      String searchType, String r18, String ai, List<String> formats, List<Long> collectionIds,
                      List<Long> tagIds, List<Long> excludedTagIds, List<Long> optionalTagIds,
@@ -83,7 +106,13 @@ public record WorkQuery(
                 seriesIds, excludedSeriesIds, restriction, null, null);
     }
 
-    /** 在现有筛选上附加上传时间范围，保留可见性约束。 */
+    /**
+     * 在现有筛选上设置上传时间范围，保留可见性约束。
+     *
+     * @param from 上传时间下界（epoch 毫秒，含边界）；null 表示不限
+     * @param before 上传时间上界（epoch 毫秒，不含边界）；null 表示不限
+     * @return 使用指定上传时间范围的新查询
+     */
     public WorkQuery withUploadTimeRange(Long from, Long before) {
         return new WorkQuery(workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds,
                 tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds,
@@ -113,6 +142,8 @@ public record WorkQuery(
      * @param seriesIds 系列标识集合
      * @param excludedSeriesIds 已排除项系列标识集合
      * @param restriction 访问限制
+     * @param uploadedFrom 上传时间下界（epoch 毫秒，含边界）；null 表示不限
+     * @param uploadedBefore 上传时间上界（epoch 毫秒，不含边界）；null 表示不限
      */
     public WorkQuery {
         if ((uploadedFrom != null && uploadedFrom <= 0) || (uploadedBefore != null && uploadedBefore <= 0)
