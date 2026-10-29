@@ -19,6 +19,7 @@
   - [⚙️ 配置参考](/zh-cn/configuration)
   - [🌐 网络访问与第三方服务](/zh-cn/network-access)
   - [🔌 插件管理](/zh-cn/plugin-management)
+  - [页面编辑器](/zh-cn/page-editor)
   - [🧰 第三方插件 SDK](/zh-cn/plugin-development)
   - [💾 存储原理](/zh-cn/storage)
   - [❓ 常见问题](/zh-cn/faq)

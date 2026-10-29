@@ -19,6 +19,7 @@
   - [⚙️ Configuration](/en/configuration)
   - [🌐 Network Access & Third-Party Services](/en/network-access)
   - [🔌 Plugin Management](/en/plugin-management)
+  - [Page editor](/en/page-editor)
   - [💾 Storage Principles](/en/storage)
   - [🧰 Third-party Plugin SDK](/en/plugin-development)
   - [❓ FAQ](/en/faq)

@@ -255,6 +255,8 @@ JDBC 的 TCP / TLS 连接不经过 Pixiv HTTP 代理；TLS 由 `sslmode` 和可�
 
 ## 本机、同源及管理员配置的目标地址
 
+- 选用的页面编辑器从当前应用同源加载随包分发的 GrapesJS Core，关闭 CDN 图标与遥测；首次展开 CSS 时才加载本地 CodeMirror。ADMIN 目录和草稿请求使用既有会话；匿名页面投影只暴露已发布的渲染数据。打开的编辑器与已挂载组件每两秒检查目录或 publication 是否仍可用，同类检查不重叠；离页或最后一个实例销毁后取消。组件业务调用使用自身生成契约与既有路由权限；外部目标由各业务组件插件另行说明。
+
 - 桌面 GUI 由应用宿主通过 `http://127.0.0.1:{临时端口}/api/gui/**` 轮询状态和提交操作，携带当前后端的 GUI token、语言、操作参数，以及声明式动作的插件 owner。桌面模式默认创建此入口，端口由系统分配并随每次后端启动重新取得，不写入配置。连接明确绕过系统与宿主代理，不跟随重定向，不自动重发写操作，也不使用 `ssl.domain` 或公开 HTTPS 端口。入口仅绑定本机，拒绝非 GUI 路径和转发头，仍校验本机来源、Host / Origin 与 token。使用 `--no-gui` 或无头模式时不创建该入口；没有远端替换选项。
 - Web 页面和插件前端使用浏览器同源地址访问 `/api/**`、静态资源和 SSE。邀请链接、首次配置和桌面网页入口由宿主统一构造，使用实际公开监听协议、端口与管理员配置的 `ssl.domain`（默认 `localhost`）。开发模式自动顺延端口后，链接随当前实例更新，不改写配置端口。公开 HTTP 到 HTTPS 的重定向只作用于配置的重定向入口，不影响 GUI 本机通信。
 - Ollama、LM Studio、VoxCPM、CosyVoice 和油猴脚本后端可配置为本机服务；基础地址指向远端后，该远端即成为新的数据接收方。
@@ -274,6 +276,8 @@ JDBC 的 TCP / TLS 连接不经过 Pixiv HTTP 代理；TLS 由 `sslmode` 和可�
 - 如果启用 HTTP/SOCKS 代理，程序首先连接管理员配置的代理主机和端口，再由代理访问最终服务。
 
 ## 开发、构建和发布流程的网络访问
+
+页面编辑器验收命令使用已安装的 Playwright/Chromium，不自动下载。单独安装这些工具时，目标和代理遵循 npm 与 Playwright 的包、浏览器下载配置。维护者更新固定 GrapesJS 文件时获取其 npm 包；重建 CodeMirror 时，在 `pixivdownload-plugin-page-editor/tools/codemirror` 执行 `npm ci --ignore-scripts --no-audit --no-fund` 和 `npm run build`，安装锁文件固定的 CodeMirror、Lezer、esbuild 及传递依赖。当前锁文件的包归档来自 `registry.npmmirror.com`，镜像或代理调整须连同锁文件来源和完整性值一起核对。两种编辑引擎均在 `vendor.json` 记录固定版本、摘要与许可证；普通 Maven 构建直接使用随仓库保存的资源，应用运行期不执行更新。准备请求携带工具或包标识，不发送应用凭据或页面文档；npm 认证与代理凭据遵循本机 npm 配置。已有本地工具及随包 vendor 文件可避免下载。
 
 数据库插件的 JDBC 依赖由 Maven 获取：PostgreSQL 为 `org.postgresql:postgresql`（`org/postgresql/postgresql/<版本>/`），SQLite 为 `org.xerial:sqlite-jdbc`（`org/xerial/sqlite-jdbc/<版本>/`），默认来源为 Maven Central，仓库 / 镜像和代理沿用 Maven 的配置。只在源码构建或依赖预取缺少缓存时下载，不发送应用数据库凭据。真实数据库验收由操作者显式提供隔离服务；使用 Docker `postgres:17` 时，Docker 按自身镜像源、代理和认证设置访问 Docker Hub registry / token 服务及其重定向的镜像层 CDN。测试只连接 `PIXIV_TEST_POSTGRES_URL` 指定的隔离服务并使用测试账号；停止测试和容器可停止这些访问，默认应用运行不会下载数据库镜像。
 

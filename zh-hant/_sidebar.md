@@ -18,6 +18,7 @@
   - [⚙️ 配置參考](/zh-hant/configuration)
   - [🌐 網絡訪問與第三方服務](/zh-hant/network-access)
   - [🔌 插件管理](/zh-hant/plugin-management)
+  - [頁面編輯器](/zh-hant/page-editor)
   - [🧰 第三方插件 SDK](/zh-hant/plugin-development)
   - [💾 存儲原理](/zh-hant/storage)
   - [❓ 常見問題](/zh-hant/faq)

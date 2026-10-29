@@ -18,6 +18,7 @@
   - [⚙️ 設定リファレンス](/ja/configuration)
   - [🌐 ネットワークアクセスとサードパーティサービス](/ja/network-access)
   - [🔌 プラグイン管理](/ja/plugin-management)
+  - [ページエディター](/ja/page-editor)
   - [💾 ストレージの仕組み](/ja/storage)
   - [🧰 サードパーティプラグイン SDK](/ja/plugin-development)
   - [❓ よくある質問](/ja/faq)

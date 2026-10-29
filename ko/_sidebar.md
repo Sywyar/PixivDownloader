@@ -18,6 +18,7 @@
   - [⚙️ 설정](/ko/configuration)
   - [🌐 네트워크 액세스 및 타사 서비스](/ko/network-access)
   - [🔌 플러그인 관리](/ko/plugin-management)
+  - [페이지 편집기](/ko/page-editor)
   - [💾 저장 원칙](/ko/storage)
   - [🧰 타사 플러그인 SDK](/ko/plugin-development)
   - [❓ FAQ](/ko/faq)
