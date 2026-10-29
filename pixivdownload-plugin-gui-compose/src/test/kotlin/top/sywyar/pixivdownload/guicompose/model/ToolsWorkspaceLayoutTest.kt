@@ -9,6 +9,7 @@ import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
@@ -395,6 +396,68 @@ class ToolsWorkspaceLayoutTest {
                 onNodeWithTag("status.ffmpeg.help").performScrollTo().performClick()
                 waitUntil(timeoutMillis = 5_000) { !model.busy() }
                 assertEquals("guide:https://ffmpeg.org/download.html", calls.last())
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("FFmpeg 安装初始进度无文字时仍可显示，随后更新进度并完成安装")
+    fun ffmpegInstallationProgress() = runComposeUiTest {
+        val installed = AtomicBoolean()
+        val progress = AtomicReference<DesktopUiToolHost.FfmpegProgressListener>()
+        val finish = Semaphore(0)
+        val installation = DesktopUiToolHost.FfmpegInstallation(
+            temp.resolve("ffmpeg.exe"),
+            temp.resolve("ffprobe.exe"),
+            temp,
+            DesktopUiToolHost.FfmpegSource.MANAGED,
+        )
+        val overrides = mapOf<String, Function<Array<Any>, Any>>(
+            "message" to Function { message(it[0].toString()) },
+            "locateFfmpeg" to Function { if (installed.get()) Optional.of(installation) else Optional.empty<DesktopUiToolHost.FfmpegInstallation>() },
+            "supportsManagedFfmpegInstall" to Function { true },
+            "installManagedFfmpeg" to Function {
+                progress.set(it[1] as DesktopUiToolHost.FfmpegProgressListener)
+                finish.acquire()
+                installed.set(true)
+                installation
+            },
+        )
+        DesktopConfigurationControllerTest.model(hashMapOf(), overrides).use { model ->
+            var snapshot by mutableStateOf(model.snapshot())
+            model.subscribeSnapshots { snapshot = it }.use {
+                try {
+                    setContent {
+                        PixivDownloaderTheme("light") {
+                            val observed = snapshot
+                            val root = observed.document().pages().first { it.id() == "tools" }.content()
+                            Box(Modifier.fillMaxSize().background(LocalExperiencePalette.current.surface)) {
+                                ComposeDesktopUiNodeRenderer.Render(root, ::resolve, { model.dispatch(observed, it) })
+                            }
+                        }
+                    }
+                    onNodeWithTag("tools.entry.media").performScrollTo().performClick()
+                    waitUntilExactlyOneExists(hasTestTag("status.ffmpeg.install") and isEnabled(), timeoutMillis = 5_000)
+                    onNodeWithTag("status.ffmpeg.install").performScrollTo().performClick()
+                    onNodeWithTag("ffmpeg.confirm.install").performScrollTo().performClick()
+                    waitUntil(timeoutMillis = 5_000) { progress.get() != null }
+                    onNode(SemanticsMatcher.expectValue(SemanticsProperties.ProgressBarRangeInfo, ProgressBarRangeInfo.Indeterminate))
+                        .performScrollTo().assertIsDisplayed()
+                    onNodeWithTag("status.ffmpeg.install").assertIsNotEnabled()
+                    screenshot("ffmpeg-install-starting")
+
+                    runOnIdle { progress.get().onProgress(DesktopUiToolHost.FfmpegInstallStage.DOWNLOADING, 3, 10) }
+                    onNode(SemanticsMatcher.expectValue(SemanticsProperties.ProgressBarRangeInfo, ProgressBarRangeInfo(.3f, 0f..1f)))
+                        .performScrollTo().assertIsDisplayed()
+                    onNodeWithText(message("gui.ffmpeg.install.stage.downloading")).assertIsDisplayed()
+                    screenshot("ffmpeg-install-downloading")
+
+                    finish.release()
+                    waitUntilExactlyOneExists(hasText(message("gui.ffmpeg.badge.ready")), timeoutMillis = 5_000)
+                    onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo)).assertDoesNotExist()
+                    onNodeWithTag("status.ffmpeg.install").assertIsEnabled()
+                    onNodeWithTag("status.ffmpeg.open").assertIsEnabled()
+                } finally { finish.release() }
             }
         }
     }

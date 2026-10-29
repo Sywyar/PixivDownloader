@@ -32,6 +32,7 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复 Compose 界面下载 FFmpeg 到软件目录时崩溃并切换到 Swing 的问题。
 - 修复新版下载页在动图转换、图片处理及小说下载切换阶段时追加进度条造成的布局跳动，配额与归档刷新复用已有控件。
 - 新版下载页切换语言时保留输入、焦点和展开状态，计划队列刷新时复用已有进度条。
 - 修复下载结果读写缓慢时，其他任务的登记、状态查询和取消也被阻塞的问题。
