@@ -29,7 +29,7 @@ Switch between Structure and Add component in the left sidebar. Select content o
 
 ## Component CSS
 
-Select a component and click Style · CSS to expand the inline CodeMirror editor. It provides line numbers, highlighting, supported-property completion and error locations. Use the question-mark button for input syntax and keyboard shortcuts. The diagonal-arrow button fills the screen; click it again or press Esc to return to the sidebar with your input and undo history intact. Enter declarations and choose Apply styles, for example:
+Select a component and expand Custom CSS within Style to use the inline CodeMirror editor. Layout, Appearance and Custom CSS expand independently; collapsing Style hides the whole group and preserves unapplied CSS. The editor provides line numbers, highlighting, supported-property completion and error locations. Use the question-mark button for input syntax and keyboard shortcuts. The diagonal-arrow button fills the screen; click it again or press Esc to return to the sidebar with your input and undo history intact. Enter declarations and choose Apply styles, for example:
 
 ```css
 padding: 16px;
