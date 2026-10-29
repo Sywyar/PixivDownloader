@@ -65,6 +65,8 @@ Multiple "must have" conditions use **intersection**, multiple "or have" conditi
 
 ## Sorting
 
+Upload time and download time are separate sort options. Cards and detail pages show the upload time, or “Upload time unknown” when it is missing. Unknown values sort last in both directions. The upload date filter includes the entire end date in the browser's time zone and excludes unknown dates. Filter selection, batch export, and deletion use the same range.
+
 | Sort Option | Description |
 |-------------|-------------|
 | Download Time | Sort by ingestion time (default, newest first) |

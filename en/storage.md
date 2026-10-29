@@ -92,6 +92,8 @@ Douyin derives its default root from `DownloadSettings.getRootFolder()` plus `do
 
 A third-party download type should likewise write works below a plugin-id directory under `download.root-folder`, or to a work directory explicitly chosen in that plugin's settings. `state/{pluginId}` and `data/{pluginId}` are for auxiliary state and data, not downloaded works.
 
+The tools page's “Legacy data and metadata import” detects `download_history.json` / `statistics.json` and imports `<work ID>.meta.json` from registered artwork and novel folders. Existing snapshots and source files are kept. Unregistered, damaged, or mismatched files cannot restore work records. Artwork backfill imports snapshots first, fills missing fields such as upload time from local metadata, and fetches remaining fields from the network. “Always fetch from the network” skips local values while keeping existing fields. A dry run reports candidates without saving snapshots or fields.
+
 ## Database path encoding
 
 The database avoids repeating long absolute paths by storing prefix references:
