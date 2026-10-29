@@ -57,6 +57,8 @@ Pixiv 業務請求的 HTTP 傳輸由應用宿主提供，業務觸發方則可�
 | HTTPS `douyin.com` / `*.douyin.com`、`iesdouyin.com` / `*.iesdouyin.com`，常見爲 `v.douyin.com` | 解析用戶粘貼的短鏈接，最多跟隨受限跳轉 | 輸入 Douyin 短鏈接並開始解析時觸發 | 與該次 Douyin 任務使用相同路由 |
 | HTTPS `*.douyinvod.com`、`*.douyinpic.com`、`*.douyinstatic.com`、`*.amemv.com`、`*.byteimg.com`、`*.bytedance.com`、`*.bytecdn.cn`、`*.pstatp.com`、`*.snssdk.com`，以及上述 Douyin 域 | 下載視頻、圖片、封面和實況照片媒體；具體 URL 來自 Douyin API 響應並可能發生受限重定向 | 執行 Douyin 媒體下載時觸發 | 與該次 Douyin 任務使用相同路由；停止任務或禁用插件即可終止後續請求 |
 
+`www.douyin.com/aweme/v1/web/` 請求會從使用者提供的 Cookie 讀取 UIFID，並將它作為請求標頭和查詢參數傳送；查詢還包含時間戳記及在本機計算的 `x-secsdk-web-signature`。簽章計算不呼叫第三方服務。Cookie 未包含 UIFID 時不會產生替代身分，受保護的端點仍可能拒絕請求。
+
 ## `ai` 插件
 
 AI 插件使用 OpenAI 兼容協議，向所選基礎地址的 `/chat/completions` 發送請求。請求通常包含待翻譯或待處理文本、特定用途提示詞、模型名稱和 API Key。插件安裝操作不會發起此類請求；保存有效配置後執行連接測試、翻譯或其他 AI 功能時纔會觸發。

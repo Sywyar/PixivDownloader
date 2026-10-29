@@ -59,7 +59,8 @@ Pixiv 业务请求的 HTTP 传输由应用宿主提供，业务触发方则可�
 
 | 请求所有者 | 目标地址 | 用途与主要发送内容 | 触发场景 | 代理与关闭方式 |
 | --- | --- | --- | --- | --- |
-| `download-workbench` 插件 | `https://www.pixiv.net/ajax/illust/**`、`/ajax/user/**`、`/ajax/search/artworks/**`、`/ajax/series/**`、`/ajax/collection/**`、`/ajax/follow_latest/illust`、`/rpc/index.php` | 获取插画、动图、画师、系列、搜索、收藏夹、关注动态和约稿等元数据；需要登录的请求会使用已配置的 Pixiv Cookie | 预览、快捷获取、提交下载、执行计划任务、回填作品信息或浏览相关取得模式时触发 | 经宿主提供给插件的 Pixiv HTTP 能力和所选代理路由；`download-workbench` 是必需插件（required），其缺失或不可用时主要下载功能不可用 |
+| 应用宿主共用 Pixiv 查询 | `https://www.pixiv.net/ajax/user/{id}?lang=zh`；HTTPS `*.pximg.net` 和 `embed.pixiv.net` | 用户元数据使用请求提供的取得凭据；缩略图使用经过地址校验的上游图片 URL 和 Pixiv 请求头 | 仅在客户端请求 `/api/pixiv/user/{id}/meta` 或 `/api/pixiv/thumbnail-proxy` 时触发，无新增后台轮询；`/api/pixiv/me/uid` 只在本机解析凭据 | 沿用宿主 Pixiv API / 图片路由和代理设置；停止相关查询或预览即可避免，停用下载工作台不撤回这些共用接口 |
+| `download-workbench` 插件 | `https://www.pixiv.net/ajax/illust/**`、`/ajax/user/**`、`/ajax/search/artworks/**`、`/ajax/series/**`、`/ajax/collection/**`、`/ajax/follow_latest/illust`、`/rpc/index.php` | 获取插画、动图、画师、系列、搜索、收藏夹、关注动态和约稿等元数据；需要登录的请求会使用已配置的 Pixiv Cookie | 预览、快捷获取、提交下载、执行计划任务、回填作品信息或浏览相关取得模式时触发 | 经宿主提供给插件的 Pixiv HTTP 能力和所选代理路由；`download-workbench` 默认安装但可停用；其缺失或不可用时，由它提供的下载功能和外部请求停止 |
 | `download-workbench` 插件 | `https://www.pixiv.net/ajax/illusts/bookmarks/add` | 下载完成后收藏插画；发送作品 ID、收藏可见性和标签，并使用 Pixiv 登录凭据 | 仅在启用“下载后收藏”等相应选项且作品下载完成后触发；请求失败不会回滚已完成的下载 | 关闭下载后收藏功能可停用该请求 |
 | `novel` 插件 | `https://www.pixiv.net/ajax/novel/**`、`/ajax/novel/series/**`、`/ajax/novel/series_content/**`、`/ajax/user/**/novels`、`/ajax/user/**/novels/bookmarks`、`/ajax/search/novels/**` | 获取小说正文、小说系列、作者小说列表、收藏和搜索结果；需要登录的请求会使用 Pixiv Cookie。下载工作台通过绑定当前 owner、作品与取得凭据的一次性短期票据复用预览时已验证的小说响应，不会在提交下载时再次请求同一小说正文 | 预览小说、系列合订、小说搜索、画师小说和计划任务处理时触发；紧随预览的下载提交会复用响应，不带票据的兼容客户端直接提交仍由后端抓取，无效票据会被拒绝 | 经宿主 Pixiv HTTP 能力；禁用 `novel` 会撤回小说页面和相关能力 |
 | `novel` 插件 | `https://www.pixiv.net/ajax/novels/bookmarks/add` | 下载完成后收藏小说 | 仅在启用相应选项且小说下载完成后触发 | 关闭下载后收藏功能即可停用 |
@@ -82,6 +83,8 @@ Pixiv 业务请求的 HTTP 传输由应用宿主提供，业务触发方则可�
 
 插画元数据、分页图片及 Ugoira 代理只接受范围内的正整数作品 ID，规范化后用于 `www.pixiv.net/ajax/illust/{id}` 及其固定子路径。邀请访客只能请求可见作品；非法或不可见 ID 不会触发上游请求。
 
+后端下载油猴脚本和工具箱初始化补充翻译时，先向所选后端读取 `/api/i18n/meta`；只有后端公布 `userscript` 命名空间时才请求各支持语言的词典。每次请求最多等待 3 秒，缺席或失败时使用脚本自带翻译，不自动重试；工具箱切换服务器会重新检查，旧查询结果不再更新翻译。这些 GET 请求由脚本管理器发送，沿用其后端会话及浏览器网络设置，不向翻译服务发送文本；停用脚本可停止后续请求。
+
 ## `douyin` 插件
 
 `douyin` 是按需安装插件，默认 Windows 安装包和 Java 标准包不预置。只有安装、启用并使用 Douyin 功能后才会产生下列请求。
@@ -91,6 +94,8 @@ Pixiv 业务请求的 HTTP 传输由应用宿主提供，业务触发方则可�
 | `https://www.douyin.com/aweme/v1/web/**` | 获取用户作品、喜欢列表、合集、搜索、音乐作品、收藏夹、账号信息和作品详情；会发送 Douyin Cookie、查询参数及模拟浏览器所需请求头 | 手动取得、预览、下载、计划任务发现、Cookie 探活和 Douyin 画廊刷新时触发 | 使用任务级、来源默认或宿主全局路由；禁用/卸载 `douyin` 即完全停用 |
 | HTTPS `douyin.com` / `*.douyin.com`、`iesdouyin.com` / `*.iesdouyin.com`，常见为 `v.douyin.com` | 解析用户粘贴的短链接，最多跟随受限跳转 | 输入 Douyin 短链接并开始解析时触发 | 与该次 Douyin 任务使用相同路由 |
 | HTTPS `*.douyinvod.com`、`*.douyinpic.com`、`*.douyinstatic.com`、`*.amemv.com`、`*.byteimg.com`、`*.bytedance.com`、`*.bytecdn.cn`、`*.pstatp.com`、`*.snssdk.com`，以及上述 Douyin 域 | 下载视频、图片、封面和实况照片媒体；具体 URL 来自 Douyin API 响应并可能发生受限重定向 | 执行 Douyin 媒体下载时触发 | 与该次 Douyin 任务使用相同路由；停止任务或禁用插件即可终止后续请求 |
+
+`www.douyin.com/aweme/v1/web/` 请求会从用户提供的 Cookie 读取 UIFID，并将它作为请求头和查询参数发送；查询还包含时间戳及在本地计算的 `x-secsdk-web-signature`。签名计算不调用第三方服务。Cookie 未包含 UIFID 时不会生成替代身份，受保护端点仍可能拒绝请求。
 
 ## `ai` 插件
 
