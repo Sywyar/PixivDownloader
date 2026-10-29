@@ -13,6 +13,7 @@
   - [🖼️ 작품 갤러리](/ko/gallery)
   - [⏰ 예약 작업](/ko/scheduled-tasks)
   - [🧩 사용자 스크립트](/ko/userscripts)
+  - [📂 외부 다운로드 가져오기](/ko/pixiv-batch-downloader-import)
 
 - **참조**
   - [⚙️ 설정](/ko/configuration)

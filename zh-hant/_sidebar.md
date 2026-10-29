@@ -13,6 +13,7 @@
   - [🖼️ 作品畫廊](/zh-hant/gallery)
   - [⏰ 計劃任務](/zh-hant/scheduled-tasks)
   - [🧩 油猴腳本](/zh-hant/userscripts)
+  - [PixivBatchDownloader 匯入支援](/zh-hant/pixiv-batch-downloader-import)
 
 - **參考**
   - [⚙️ 配置參考](/zh-hant/configuration)

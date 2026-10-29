@@ -13,6 +13,7 @@
   - [🖼️ 作品ギャラリー](/ja/gallery)
   - [⏰ スケジュールタスク](/ja/scheduled-tasks)
   - [🧩 ユーザースクリプト](/ja/userscripts)
+  - [PixivBatchDownloader インポート](/ja/pixiv-batch-downloader-import)
 
 - **リファレンス**
   - [⚙️ 設定リファレンス](/ja/configuration)
