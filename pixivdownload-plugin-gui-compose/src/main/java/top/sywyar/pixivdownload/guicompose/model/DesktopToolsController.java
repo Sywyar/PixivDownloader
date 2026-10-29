@@ -254,7 +254,8 @@ final class DesktopToolsController {
                 boolForm("tools.backfill.proxy", true),
                 intForm("tools.backfill.delay", 1000),
                 intForm("tools.backfill.limit", 0),
-                boolForm("tools.backfill.dry", false)
+                boolForm("tools.backfill.dry", false),
+                boolForm("tools.backfill.always-network", false)
         );
         runExclusiveTool(
                 host.message("gui.tools.card.backfill.title"),
@@ -363,14 +364,26 @@ final class DesktopToolsController {
                             migrationNotice = host.message(
                                     "gui.tools.migration.status.history-missing");
                         } else {
-                            String result = host.message("gui.tools.migration.result.completed");
-                            migrationNotice = host.message("gui.tools.dialog.migration.completed.message",
-                                    result, summary.migrated(), summary.skipped(), summary.totalCandidates());
+                            String result = host.message(switch (summary.outcome()) {
+                                case PARTIALLY_FAILED -> "gui.tools.migration.result.partial";
+                                case FAILED -> "gui.tools.migration.result.failed";
+                                default -> "gui.tools.migration.result.completed";
+                            });
+                            migrationNotice = host.message(
+                                    "gui.tools.dialog.migration.completed.message",
+                                    result,
+                                    summary.migrated(),
+                                    summary.skipped(),
+                                    summary.totalCandidates(),
+                                    summary.failed()
+                            );
                         }
                         return new ToolCompletion(
                                 summary.totalCandidates(),
                                 summary.migrated(),
-                                log.sessionPath()
+                                log.sessionPath(),
+                                summary.outcome(),
+                                summary.failed()
                         );
                     }
                 },
@@ -1024,15 +1037,19 @@ final class DesktopToolsController {
                     }
                 }
                 ToolCompletion completion = operation.run();
-                activity = new DesktopUiNode.ToolActivity(activityId, false, false,
-                        TextToken.raw(activityId.equals("backfill") ? backfillNotice : migrationNotice));
+                activity = new DesktopUiNode.ToolActivity(
+                        activityId,
+                        false,
+                        completion.outcome() != DesktopUiToolHost.ToolOutcome.SUCCEEDED,
+                        TextToken.raw(activityId.equals("backfill") ? backfillNotice : migrationNotice)
+                );
                 host.recordToolHistory(
                         toolId,
-                        DesktopUiToolHost.ToolOutcome.SUCCEEDED,
+                        completion.outcome(),
                         startedAt,
                         completion.processedCount(),
                         completion.changedCount(),
-                        null,
+                        completion.failedCount(),
                         completion.logPath()
                 );
             } catch (InterruptedException | java.util.concurrent.CancellationException interrupted) {
@@ -1100,6 +1117,10 @@ final class DesktopToolsController {
                     "tools.backfill.dry",
                     Boolean.toString(defaults.dryRun())
             );
+            formValues.putIfAbsent(
+                    "tools.backfill.always-network",
+                    Boolean.toString(defaults.alwaysNetwork())
+            );
         } catch (RuntimeException failure) {
             LOG.warn(host.message("gui.tools.log.proxy-defaults.failed", failure.getMessage()), failure);
         }
@@ -1164,8 +1185,13 @@ final class DesktopToolsController {
     private record ToolCompletion(
             Integer processedCount,
             Integer changedCount,
-            Path logPath
+            Path logPath,
+            DesktopUiToolHost.ToolOutcome outcome,
+            Integer failedCount
     ) {
+        private ToolCompletion(Integer processedCount, Integer changedCount, Path logPath) {
+            this(processedCount, changedCount, logPath, DesktopUiToolHost.ToolOutcome.SUCCEEDED, null);
+        }
         private static final ToolCompletion EMPTY = new ToolCompletion(
                 null,
                 null,

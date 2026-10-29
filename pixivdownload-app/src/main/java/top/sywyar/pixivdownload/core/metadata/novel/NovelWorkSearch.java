@@ -91,6 +91,11 @@ public class NovelWorkSearch {
         if (!"asc".equalsIgnoreCase(q.order())) {
             cmp = cmp.reversed();
         }
+        if ("uploadTime".equals(q.sort())) {
+            Comparator<Long> timeOrder = "asc".equalsIgnoreCase(q.order()) ? Comparator.naturalOrder() : Comparator.reverseOrder();
+            cmp = Comparator.comparing(NovelMetadataRow::uploadTime, Comparator.nullsLast(timeOrder))
+                    .thenComparingLong(NovelMetadataRow::novelId);
+        }
         filtered.sort(cmp);
         List<Long> out = new ArrayList<>(filtered.size());
         for (NovelMetadataRow r : filtered) {

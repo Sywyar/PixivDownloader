@@ -29,7 +29,7 @@ final class SqliteStorageSchema {
         schema.tables().forEach(SqliteMigrationSchema::renderCheck);
         var expected = physical(schema);
 
-        var before = SqliteMigrationSchema.readActualTables(connection);
+        var before = SqliteMigrationSchema.readActualTables(connection, false, expected.tables().keySet());
         int created = 0, added = 0, indexed = 0;
         var skipped = new ArrayList<String>();
         for (var table : schema.tables()) {
@@ -53,14 +53,16 @@ final class SqliteStorageSchema {
             }
         }
 
-        if (strict || skipped.isEmpty()) {
-            var actual = new LinkedHashMap<>(SqliteMigrationSchema.readActualTables(connection));
-            actual.keySet().retainAll(expected.tables().keySet());
+        if (strict) {
+            var actual = SqliteMigrationSchema.readActualTables(connection, true, expected.tables().keySet());
             try { requireSchema(expected, actual); }
             catch (Exception failure) { throw new SQLException("STORAGE_SCHEMA_MISMATCH", "0A000"); }
-            for (var table : schema.tables()) SqliteCheckMigration.apply(connection, table);
-            SqliteMigrationSchema.validateConstraints(connection, schema);
         }
+        for (var table : schema.tables()) {
+            if (skipped.stream().anyMatch(column -> column.startsWith(table.name() + "."))) continue;
+            SqliteCheckMigration.apply(connection, table);
+        }
+        if (strict || skipped.isEmpty()) SqliteMigrationSchema.validateConstraints(connection, schema, strict);
         return new SchemaApplyResult(created, added, indexed, skipped);
     }
 }

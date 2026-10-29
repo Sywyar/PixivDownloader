@@ -83,6 +83,7 @@ final class LegacyDdlBaseline {
             "CREATE INDEX IF NOT EXISTS idx_artwork_image_hashes_dhash ON artwork_image_hashes(dhash)",
             "CREATE INDEX IF NOT EXISTS idx_artworks_author_time ON artworks(author_id, time)",
             "CREATE INDEX IF NOT EXISTS idx_artworks_series_order ON artworks(series_id, series_order)",
+            "CREATE INDEX IF NOT EXISTS idx_artworks_upload_time ON artworks(upload_time, artwork_id)",
             // ── AuthorMapper ───────────────────────────────────────────────────
             "CREATE TABLE IF NOT EXISTS authors ("
                     + "author_id INTEGER PRIMARY KEY,"
@@ -192,6 +193,7 @@ final class LegacyDdlBaseline {
                     + "file_name_max_length INTEGER NOT NULL DEFAULT 180,metadata_json TEXT)",
             "CREATE INDEX IF NOT EXISTS idx_novels_author_id ON novels(author_id)",
             "CREATE INDEX IF NOT EXISTS idx_novels_series_order ON novels(series_id, series_order)",
+            "CREATE INDEX IF NOT EXISTS idx_novels_upload_time ON novels(upload_time, novel_id)",
             "CREATE TABLE IF NOT EXISTS novel_series ("
                     + "series_id INTEGER PRIMARY KEY,"
                     + "title TEXT NOT NULL,"

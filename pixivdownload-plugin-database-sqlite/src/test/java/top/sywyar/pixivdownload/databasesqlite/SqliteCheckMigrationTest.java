@@ -39,6 +39,42 @@ class SqliteCheckMigrationTest {
         }
     }
 
+    @Test @DisplayName("兼容初始化的 CHECK 重建不能遗漏额外列数据")
+    void refusesLossyRebuildInCompatibleMode() throws Exception {
+        try (var connection = DriverManager.getConnection("jdbc:sqlite::memory:"); var sql = connection.createStatement()) {
+            create(connection, "id>0", 1);
+            sql.execute("ALTER TABLE facts ADD COLUMN extra TEXT");
+            sql.execute("UPDATE facts SET extra='keep extra'");
+            connection.setAutoCommit(false);
+            assertThatThrownBy(() -> SqliteStorageSchema.apply(connection, schema(), false))
+                    .isInstanceOfAny(SQLException.class, IllegalStateException.class);
+            try (var row = sql.executeQuery("SELECT extra FROM facts")) {
+                assertThat(row.next()).isTrue();
+                assertThat(row.getString(1)).isEqualTo("keep extra");
+            }
+            sql.execute("INSERT INTO facts(active) VALUES(2)");
+            connection.rollback();
+        }
+    }
+
+    @Test @DisplayName("当前 CHECK 的附加列与辅助索引在兼容初始化中保留")
+    void keepsAdditionsWithoutRebuildingCurrentCheck() throws Exception {
+        try (var connection = DriverManager.getConnection("jdbc:sqlite::memory:"); var sql = connection.createStatement()) {
+            create(connection, "id>0 AND active IN(0,1)", 1);
+            sql.execute("ALTER TABLE facts ADD COLUMN extra TEXT");
+            sql.execute("CREATE INDEX auxiliary ON facts(active DESC)");
+            sql.execute("UPDATE facts SET extra='keep extra'");
+            connection.setAutoCommit(false);
+            SqliteStorageSchema.apply(connection, schema(), false);
+            try (var row = sql.executeQuery("SELECT extra FROM facts")) {
+                assertThat(row.next()).isTrue();
+                assertThat(row.getString(1)).isEqualTo("keep extra");
+            }
+            assertThatThrownBy(() -> sql.execute("INSERT INTO facts(active) VALUES(2)")).isInstanceOf(SQLException.class);
+            connection.rollback();
+        }
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.CsvSource({"true,false", "false,false", "true,true", "false,true"})
     @DisplayName("升级保留数据、索引、触发器、视图和已删除生成键高水位，重复执行无变化")
@@ -69,13 +105,15 @@ class SqliteCheckMigrationTest {
         }
     }
 
-    @Test @DisplayName("不合规数据与未知旧约束均拒绝并完整保留原库")
-    void refusesInvalidDataAndUnknownChecks() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("不合规数据与未知旧约束均拒绝并完整保留原库")
+    void refusesInvalidDataAndUnknownChecks(boolean strict) throws Exception {
         for (String check : List.of("id>0", "id>=0")) {
             try (var connection = DriverManager.getConnection("jdbc:sqlite::memory:"); var sql = connection.createStatement()) {
                 create(connection, check, 2);
                 connection.setAutoCommit(false);
-                assertThatThrownBy(() -> SqliteStorageSchema.apply(connection, schema(), true)).isInstanceOfAny(SQLException.class, IllegalStateException.class);
+                assertThatThrownBy(() -> SqliteStorageSchema.apply(connection, schema(), strict)).isInstanceOfAny(SQLException.class, IllegalStateException.class);
                 assertThat(scalar(connection, "SELECT active FROM facts")).isEqualTo(2);
                 assertThat(scalar(connection, "SELECT seq FROM sqlite_sequence WHERE name='facts'")).isEqualTo(200);
                 assertThat(scalar(connection, "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'")).isEqualTo(1);

@@ -144,7 +144,7 @@ public class GalleryBatchService {
                 filter.orAuthorIds(),
                 seriesIds,
                 filter.notSeriesIds(),
-                null);
+                null).withUploadTimeRange(filter.uploadedFrom(), filter.uploadedBefore());
     }
 
     private List<String> normalizeFormats(Collection<String> formats) {
@@ -174,6 +174,7 @@ public class GalleryBatchService {
         out.put("xRestrict", meta.xRestrict());
         out.put("isAi", meta.isAi());
         out.put("time", meta.downloadTime());
+        out.put("uploadTime", meta.uploadTime());
         out.put("tags", tagManifest(meta.tags()));
         out.put("files", files);
         return out;

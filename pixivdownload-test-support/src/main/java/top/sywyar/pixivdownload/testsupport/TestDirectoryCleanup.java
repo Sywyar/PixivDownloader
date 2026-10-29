@@ -5,7 +5,7 @@ import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Locale;
 
-/** 资源关闭后清理测试目录；Windows 空目录短暂报告非空时有限重试。 */
+/** 资源关闭后清理测试目录；Windows 延迟删除或临时条目消退时有限等待。 */
 public final class TestDirectoryCleanup {
     private static final boolean WINDOWS = System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
 
@@ -24,7 +24,7 @@ public final class TestDirectoryCleanup {
 
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                Files.deleteIfExists(file);
+                deleteFile(file);
                 return FileVisitResult.CONTINUE;
             }
 
@@ -50,23 +50,36 @@ public final class TestDirectoryCleanup {
                 return;
             } catch (DirectoryNotEmptyException failure) {
                 if (!WINDOWS || attempt == 9) throw failure;
-                try (var entries = Files.newDirectoryStream(directory)) {
-                    for (Path entry : entries) {
-                        try {
-                            Files.readAttributes(entry, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
-                        } catch (NoSuchFileException disappeared) {
-                            continue;
-                        }
-                        throw failure;
-                    }
-                }
+                // 不删除遍历结束后出现的条目；持续残留仍按上限失败。
+                awaitDeletion();
+            }
+        }
+    }
+
+    static void deleteFile(Path file) throws IOException {
+        try {
+            Files.deleteIfExists(file);
+        } catch (FileSystemException failure) {
+            if (!WINDOWS || failure instanceof AccessDeniedException) throw failure;
+            // 已进入删除中的文件可能暂时报占用；只等待它消失，不重试删除活跃文件。
+            for (int attempt = 0; attempt < 9; attempt++) {
+                awaitDeletion();
                 try {
-                    Thread.sleep(25);
-                } catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    throw new IOException("Interrupted while deleting empty test directory", interrupted);
+                    Files.readAttributes(file, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+                } catch (NoSuchFileException disappeared) {
+                    return;
                 }
             }
+            throw failure;
+        }
+    }
+
+    private static void awaitDeletion() throws IOException {
+        try {
+            Thread.sleep(25);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while deleting test directory", interrupted);
         }
     }
 }

@@ -10,6 +10,7 @@ import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiContext;
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost;
 
 import javax.swing.JLabel;
+import javax.swing.JCheckBox;
 import javax.swing.JButton;
 import javax.swing.JSpinner;
 import javax.swing.JTextField;
@@ -27,10 +28,71 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @DisplayName("Swing 工具配置继承")
 class ToolsConfigurationTest {
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"2,0,0,SUCCEEDED,completed,1", "2,0,1,PARTIALLY_FAILED,partial,2",
+            "0,2,1,PARTIALLY_FAILED,partial,2", "0,0,1,FAILED,failed,0"})
+    @DisplayName("迁移结果按失败数显示状态与提示级别，并写入准确工具历史")
+    void migrationResultMapping(int migrated, int skipped, int failed, DesktopUiHost.ToolOutcome outcome,
+            String status, int messageType) throws Exception {
+        var summary = new DesktopUiHost.MigrationSummary(migrated + skipped + failed, migrated, skipped, false, "opaque", failed);
+        var recorded = new CountDownLatch(1);
+        var finished = new CountDownLatch(1);
+        var record = new AtomicReference<Object[]>();
+        var locale = new DesktopUiHost.UiLocale("en-US", "English", "_en");
+        var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "", 8080, false, 0, 0, false);
+                    case "readDownloadRootFromConfig" -> "downloads";
+                    case "resolveDatabasePath" -> Path.of("data/test.db");
+                    case "supportsDatabaseFileSelection" -> true;
+                    case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
+                    case "mediaTools", "coreConfigGroups", "coreConfigFields" -> List.of();
+                    case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);
+                    case "subscribeBackend" -> (AutoCloseable) () -> {};
+                    case "runMigration" -> summary;
+                    case "recordToolHistory" -> { record.set(args); recorded.countDown(); yield null; }
+                    case "startBackend" -> { finished.countDown(); yield true; }
+                    case "message" -> args[0];
+                    default -> throw new AssertionError(method.getName());
+                });
+        var path = Path.of("config.yaml");
+        SwingHost.install(new DesktopUiContext(false, 8080, "downloads", path, "gui-swing", host,
+                List.of(), List::of, text -> text.key(), () -> "system"));
+        GuiMessages.setLocale(Locale.ENGLISH);
+        var panel = new AtomicReference<ToolsPanel>();
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                panel.set(new ToolsPanel(path));
+                var feedback = ToolsPanel.migrationFeedback(summary);
+                String expectedStatus = GuiMessages.get("gui.tools.migration.result." + status);
+                assertEquals(expectedStatus, feedback.status());
+                assertEquals(GuiMessages.get("gui.tools.dialog.migration.completed.message", expectedStatus,
+                        migrated, skipped, summary.totalCandidates(), failed), feedback.details());
+                assertEquals(messageType, feedback.messageType());
+            });
+            var run = ToolsPanel.class.getDeclaredMethod("runMigrationInBackground", DesktopUiHost.MigrationOptions.class);
+            run.setAccessible(true);
+            SwingUtilities.invokeAndWait(() -> {
+                try { run.invoke(panel.get(), new DesktopUiHost.MigrationOptions("data/test.db", "downloads")); }
+                catch (ReflectiveOperationException e) { throw new AssertionError(e); }
+            });
+            assertTrue(recorded.await(5, TimeUnit.SECONDS));
+            assertTrue(finished.await(5, TimeUnit.SECONDS));
+            assertEquals(outcome, record.get()[1]);
+            assertEquals(summary.totalCandidates(), record.get()[3]);
+            assertEquals(migrated, record.get()[4]);
+            assertEquals(failed, record.get()[5]);
+        } finally {
+            SwingUtilities.invokeAndWait(() -> { if (panel.get() != null) panel.get().dispose(); });
+            GuiMessages.clearLocaleOverride();
+        }
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"backfill", "migration"})
     @DisplayName("工具页面重建后，回填和迁移准备提示使用当前语言")
@@ -74,6 +136,7 @@ class ToolsConfigurationTest {
                         yield true;
                     }
                     case "countBackfillCandidates", "countMigrationCandidates" -> {
+                        if (args[0] instanceof DesktopUiHost.BackfillOptions options) assertTrue(options.alwaysNetwork());
                         preparation.set(Thread.currentThread());
                         entered.countDown();
                         assertTrue(release.await(5, TimeUnit.SECONDS));
@@ -84,6 +147,7 @@ class ToolsConfigurationTest {
                         execution.set(Thread.currentThread());
                         yield null;
                     }
+                    case "recordToolHistory" -> null;
                     case "message" -> args[0];
                     default -> throw new AssertionError(method.getName());
                 });
@@ -95,6 +159,13 @@ class ToolsConfigurationTest {
         try {
             SwingUtilities.invokeAndWait(() -> {
                 panel.set(new ToolsPanel(path));
+                String sourceLabel = GuiMessages.get("gui.tools.form.always-network");
+                assertFalse(sourceLabel.equals("gui.tools.form.always-network"));
+                var source = descendants(panel.get()).filter(JCheckBox.class::isInstance).map(JCheckBox.class::cast)
+                        .filter(check -> sourceLabel.equals(check.getText())).findFirst().orElseThrow();
+                assertFalse(source.isSelected());
+                source.doClick();
+                assertTrue(source.isSelected());
                 descendants(panel.get()).filter(JButton.class::isInstance).map(JButton.class::cast)
                         .filter(button -> button.getText().equals(GuiMessages.get("gui.tools.action.start-" + operation)))
                         .findFirst().orElseThrow().doClick();

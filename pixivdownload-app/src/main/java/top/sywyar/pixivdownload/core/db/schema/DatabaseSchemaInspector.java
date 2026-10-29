@@ -66,6 +66,8 @@ public final class DatabaseSchemaInspector {
             Set<String> tableNames,
             boolean includeUnmanagedTables) {
         List<SchemaDifference> differences = new ArrayList<>();
+        Set<String> indexNames = actualTables.values().stream().flatMap(table -> table.indexes().stream())
+                .map(ManagedDatabaseSchema.IndexSpec::name).filter(Objects::nonNull).collect(Collectors.toSet());
 
         for (String tableName : tableNames) {
             ManagedDatabaseSchema.TableSpec expectedTable = expectedSchema.tables().get(tableName);
@@ -75,7 +77,7 @@ public final class DatabaseSchemaInspector {
                         MessageBundles.get("download.db.schema.missing-table", tableName));
                 continue;
             }
-            compareTable(expectedTable, actualTable, differences);
+            compareTable(expectedTable, actualTable, indexNames, differences);
         }
 
         if (includeUnmanagedTables) {
@@ -92,6 +94,7 @@ public final class DatabaseSchemaInspector {
 
     private static void compareTable(ManagedDatabaseSchema.TableSpec expected,
                                      ManagedDatabaseSchema.TableSpec actual,
+                                     Set<String> indexNames,
                                      List<SchemaDifference> differences) {
         Map<String, ManagedDatabaseSchema.ColumnSpec> expectedColumns = expected.columns().stream()
                 .collect(Collectors.toMap(ManagedDatabaseSchema.ColumnSpec::name, column -> column, (left, right) -> left, LinkedHashMap::new));
@@ -111,7 +114,10 @@ public final class DatabaseSchemaInspector {
 
         for (String actualColumn : actualColumns.keySet()) {
             if (!expectedColumns.containsKey(actualColumn)) {
-                addDifference(differences, SchemaDifferenceKind.UNMANAGED_COLUMN, expected.name(), actualColumn,
+                var column = actualColumns.get(actualColumn);
+                boolean required = column.primaryKeyPosition() > 0 || column.notNull() && column.defaultValue() == null;
+                addDifference(differences, required ? SchemaDifferenceKind.UNMANAGED_REQUIRED_COLUMN
+                                : SchemaDifferenceKind.UNMANAGED_COLUMN, expected.name(), actualColumn,
                         MessageBundles.get("download.db.schema.unmanaged-column", expected.name(), actualColumn));
             }
         }
@@ -123,15 +129,20 @@ public final class DatabaseSchemaInspector {
                 .map(ManagedDatabaseSchema.IndexSpec::signature)
                 .collect(Collectors.toCollection(TreeSet::new));
 
-        for (String expectedIndex : expectedIndexes) {
-            if (!actualIndexes.contains(expectedIndex)) {
-                addDifference(differences, SchemaDifferenceKind.MISSING_INDEX, expected.name(), null,
-                        MessageBundles.get("download.db.schema.missing-index", expected.name(), expectedIndex));
+        for (var expectedIndex : expected.indexes()) {
+            if (!actualIndexes.contains(expectedIndex.signature())) {
+                boolean creatable = expectedIndex.origin() == ManagedDatabaseSchema.IndexOrigin.CREATE_INDEX
+                        && !indexNames.contains(expectedIndex.name());
+                addDifference(differences, creatable ? SchemaDifferenceKind.MISSING_INDEX
+                                : SchemaDifferenceKind.INDEX_DEFINITION_MISMATCH, expected.name(), null,
+                        MessageBundles.get("download.db.schema.missing-index", expected.name(), expectedIndex.signature()));
             }
         }
         for (String actualIndex : actualIndexes) {
             if (!expectedIndexes.contains(actualIndex)) {
-                addDifference(differences, SchemaDifferenceKind.UNMANAGED_INDEX, expected.name(), null,
+                boolean unique = actual.indexes().stream().anyMatch(index -> index.unique() && index.signature().equals(actualIndex));
+                addDifference(differences, unique ? SchemaDifferenceKind.UNMANAGED_UNIQUE_INDEX
+                                : SchemaDifferenceKind.UNMANAGED_INDEX, expected.name(), null,
                         MessageBundles.get("download.db.schema.unmanaged-index", expected.name(), actualIndex));
             }
         }
@@ -176,8 +187,11 @@ public final class DatabaseSchemaInspector {
         UNMANAGED_TABLE,
         MISSING_COLUMN,
         UNMANAGED_COLUMN,
+        UNMANAGED_REQUIRED_COLUMN,
         MISSING_INDEX,
+        INDEX_DEFINITION_MISMATCH,
         UNMANAGED_INDEX,
+        UNMANAGED_UNIQUE_INDEX,
         COLUMN_TYPE_MISMATCH,
         COLUMN_NOT_NULL_MISMATCH,
         COLUMN_DEFAULT_MISMATCH,
@@ -188,6 +202,12 @@ public final class DatabaseSchemaInspector {
                                    String tableName,
                                    String columnName,
                                    String message) {
+        public boolean isHarmlessAddition() {
+            return kind == SchemaDifferenceKind.UNMANAGED_TABLE
+                    || kind == SchemaDifferenceKind.UNMANAGED_COLUMN
+                    || kind == SchemaDifferenceKind.UNMANAGED_INDEX;
+        }
+
         public boolean hasColumn() {
             return columnName != null && !columnName.isBlank();
         }
@@ -200,6 +220,12 @@ public final class DatabaseSchemaInspector {
 
         public List<String> differences() {
             return details.stream().map(SchemaDifference::message).toList();
+        }
+
+        /** 普通使用允许保留附加对象，精确迁移和 owner 发布继续检查完整差异。 */
+        public SchemaComparison requiredStructure() {
+            var required = details.stream().filter(difference -> !difference.isHarmlessAddition()).toList();
+            return new SchemaComparison(required.isEmpty(), required);
         }
 
         public String summary(int limit) {

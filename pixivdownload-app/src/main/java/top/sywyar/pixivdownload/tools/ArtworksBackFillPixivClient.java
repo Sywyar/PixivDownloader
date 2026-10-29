@@ -115,30 +115,40 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
         if (authorId <= 0) {
             return LookupResult.skip(message("artworks-backfill.lookup.empty-response"));
         }
+        return parsePayload(payload, null, true);
+    }
+
+    static LookupResult parsePayload(JsonNode payload, Long uploadTime, boolean completeResponse) {
+        long authorId = payload.path("userId").asLong(0);
         String authorName = payload.path("userName").asText("").trim();
         if (authorName.isEmpty()) {
-            authorName = String.valueOf(authorId);
+            authorName = null;
         }
-        int xRestrict = payload.path("xRestrict").asInt(0);
-        boolean isAi = payload.path("aiType").asInt(0) >= 2;
-        String description = payload.path("description").asText("");
-        List<TagEntry> tags = extractTags(payload);
+        Integer xRestrict = payload.path("xRestrict").canConvertToInt()
+                ? payload.path("xRestrict").intValue() : null;
+        Boolean isAi = payload.path("aiType").canConvertToInt()
+                ? payload.path("aiType").intValue() >= 2 : null;
+        String description = payload.path("description").isTextual() ? payload.path("description").textValue() : null;
+        List<TagEntry> tags = payload.path("tags").path("tags").isArray() ? extractTags(payload) : null;
         long seriesId = 0;
-        long seriesOrder = 0;
+        Long seriesOrder = null;
         String seriesTitle = null;
         JsonNode navigation = payload.path("seriesNavData");
         if (navigation.isObject()) {
             long candidateSeriesId = navigation.path("seriesId").asLong(0);
             if (candidateSeriesId > 0) {
                 seriesId = candidateSeriesId;
-                seriesOrder = navigation.path("order").asLong(0);
+                if (navigation.path("order").canConvertToLong()) seriesOrder = navigation.path("order").longValue();
                 seriesTitle = navigation.path("title").asText("").trim();
                 if (seriesTitle.isEmpty()) {
-                    seriesTitle = String.valueOf(seriesId);
+                    seriesTitle = null;
                 }
             }
         }
-        return LookupResult.found(
+        if (uploadTime == null) uploadTime = new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(new ObjectMapper())
+                .curateArtwork(1, payload, null, "backfill").uploadTime();
+        return new LookupResult(
+                ResultType.FOUND,
                 authorId,
                 authorName,
                 xRestrict,
@@ -147,7 +157,10 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
                 tags,
                 seriesId,
                 seriesOrder,
-                seriesTitle
+                seriesTitle,
+                null,
+                uploadTime,
+                navigation.isNull() || seriesId > 0 || (completeResponse && navigation.isMissingNode())
         );
     }
 
@@ -197,27 +210,31 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
         final ResultType type;
         final long authorId;
         final String authorName;
-        final int xRestrict;
-        final boolean isAi;
+        final Integer xRestrict;
+        final Boolean isAi;
         final String description;
         final List<TagEntry> tags;
         final long seriesId;
-        final long seriesOrder;
+        final Long seriesOrder;
         final String seriesTitle;
         final String message;
+        final Long uploadTime;
+        final boolean seriesKnown;
 
         private LookupResult(
                 ResultType type,
                 long authorId,
                 String authorName,
-                int xRestrict,
-                boolean isAi,
+                Integer xRestrict,
+                Boolean isAi,
                 String description,
                 List<TagEntry> tags,
                 long seriesId,
-                long seriesOrder,
+                Long seriesOrder,
                 String seriesTitle,
-                String message
+                String message,
+                Long uploadTime,
+                boolean seriesKnown
         ) {
             this.type = type;
             this.authorId = authorId;
@@ -230,6 +247,8 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
             this.seriesOrder = seriesOrder;
             this.seriesTitle = seriesTitle;
             this.message = message;
+            this.uploadTime = uploadTime;
+            this.seriesKnown = seriesKnown;
         }
 
         static LookupResult found(
@@ -254,24 +273,24 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
                     seriesId,
                     seriesOrder,
                     seriesTitle,
-                    null
+                    null, null, true
             );
         }
 
         static LookupResult r18Only(String message) {
-            return new LookupResult(ResultType.R18_ONLY, 0, null, 1, false, null, null, 0, 0, null, message);
+            return new LookupResult(ResultType.R18_ONLY, 0, null, 1, false, null, null, 0, null, null, message, null, false);
         }
 
         static LookupResult deleted(String message) {
-            return new LookupResult(ResultType.DELETED, 0, null, 0, false, null, null, 0, 0, null, message);
+            return new LookupResult(ResultType.DELETED, 0, null, 0, false, null, null, 0, null, null, message, null, false);
         }
 
         static LookupResult skip(String message) {
-            return new LookupResult(ResultType.SKIP, 0, null, 0, false, null, null, 0, 0, null, message);
+            return new LookupResult(ResultType.SKIP, 0, null, 0, false, null, null, 0, null, null, message, null, false);
         }
 
         static LookupResult rateLimited() {
-            return new LookupResult(ResultType.RATE_LIMITED, 0, null, 0, false, null, null, 0, 0, null, "HTTP 429");
+            return new LookupResult(ResultType.RATE_LIMITED, 0, null, 0, false, null, null, 0, null, null, "HTTP 429", null, false);
         }
     }
 

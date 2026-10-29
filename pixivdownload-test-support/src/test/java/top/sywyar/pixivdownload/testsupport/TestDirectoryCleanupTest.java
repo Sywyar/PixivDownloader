@@ -42,7 +42,7 @@ class TestDirectoryCleanupTest {
     void waitsForPendingDelete() throws Exception {
         Path root = Files.createDirectory(directory.resolve("pending"));
         var provider = mock(FileSystemProvider.class);
-        Path path = deletionPath(root, provider);
+        Path path = deletionPath(provider);
         when(provider.deleteIfExists(path)).thenThrow(new DirectoryNotEmptyException(root.toString()))
                 .thenAnswer(invocation -> Files.deleteIfExists(root));
         TestDirectoryCleanup.deleteEmptyDirectory(path);
@@ -52,20 +52,94 @@ class TestDirectoryCleanupTest {
 
     @Test
     @EnabledOnOs(OS.WINDOWS)
-    @DisplayName("Windows 枚举到已消失条目时仍可等待目录删除")
-    void waitsForStaleDirectoryEntry() throws Exception {
-        Path root = Files.createDirectory(directory.resolve("stale"));
+    @DisplayName("Windows 等待临时条目自行消失，不主动删除后来出现的文件")
+    void waitsForTransientChild() throws Exception {
+        Path root = Files.createDirectory(directory.resolve("transient"));
+        Path child = Files.writeString(root.resolve("temporary"), "retained until owner closes");
         var provider = mock(FileSystemProvider.class);
-        Path path = deletionPath(root, provider);
-        var entries = mock(DirectoryStream.class);
-        when(entries.iterator()).thenReturn(java.util.List.of(root.resolve("deleted")).iterator());
-        when(provider.newDirectoryStream(eq(path), any())).thenReturn(entries);
+        Path path = deletionPath(provider);
         when(provider.deleteIfExists(path)).thenThrow(new DirectoryNotEmptyException(root.toString()))
-                .thenAnswer(invocation -> Files.deleteIfExists(root));
+                .thenAnswer(invocation -> {
+                    assertThat(child).hasContent("retained until owner closes");
+                    Files.delete(child);
+                    return Files.deleteIfExists(root);
+                });
         TestDirectoryCleanup.deleteEmptyDirectory(path);
         assertThat(root).doesNotExist();
-        verify(entries).close();
         verify(provider, times(2)).deleteIfExists(path);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("文件和目录权限错误直接传播且不重试")
+    void propagatesAccessDenied(boolean file) throws Exception {
+        var provider = mock(FileSystemProvider.class);
+        Path path = deletionPath(provider);
+        when(provider.deleteIfExists(path)).thenThrow(new AccessDeniedException("fixture"));
+        assertThatThrownBy(() -> {
+            if (file) TestDirectoryCleanup.deleteFile(path);
+            else TestDirectoryCleanup.deleteEmptyDirectory(path);
+        })
+                .isInstanceOf(AccessDeniedException.class);
+        verify(provider).deleteIfExists(path);
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @EnabledOnOs(OS.WINDOWS)
+    @DisplayName("等待被中断时传播失败并保留中断标记")
+    void preservesInterruption(boolean file) throws Exception {
+        var provider = mock(FileSystemProvider.class);
+        Path path = deletionPath(provider);
+        when(provider.deleteIfExists(path)).thenThrow(new DirectoryNotEmptyException("fixture"));
+        Thread.currentThread().interrupt();
+        try {
+            assertThatThrownBy(() -> {
+                if (file) TestDirectoryCleanup.deleteFile(path);
+                else TestDirectoryCleanup.deleteEmptyDirectory(path);
+            })
+                    .isInstanceOf(java.io.IOException.class).hasCauseInstanceOf(InterruptedException.class);
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+            verify(provider).deleteIfExists(path);
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    @DisplayName("Windows 文件占用错误后只等待消失，不重试删除")
+    void waitsForDisappearingFile() throws Exception {
+        Path file = Files.writeString(directory.resolve("pending-file"), "retained");
+        var provider = mock(FileSystemProvider.class);
+        Path path = deletionPath(provider);
+        when(provider.deleteIfExists(path)).thenThrow(new FileSystemException(file.toString()));
+        when(provider.readAttributes(eq(path), eq(java.nio.file.attribute.BasicFileAttributes.class), any(LinkOption[].class)))
+                .thenAnswer(invocation -> {
+                    assertThat(file).hasContent("retained");
+                    Files.delete(file);
+                    throw new NoSuchFileException(file.toString());
+                });
+        TestDirectoryCleanup.deleteFile(path);
+        assertThat(file).doesNotExist();
+        verify(provider).deleteIfExists(path);
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    @DisplayName("Windows 文件持续占用时保留文件并传播原错误")
+    void preservesPersistentFileFailure() throws Exception {
+        Path file = Files.writeString(directory.resolve("occupied-file"), "retained");
+        var provider = mock(FileSystemProvider.class);
+        Path path = deletionPath(provider);
+        var failure = new FileSystemException(file.toString());
+        when(provider.deleteIfExists(path)).thenThrow(failure);
+        when(provider.readAttributes(eq(path), eq(java.nio.file.attribute.BasicFileAttributes.class), any(LinkOption[].class)))
+                .thenAnswer(invocation -> Files.readAttributes(file, java.nio.file.attribute.BasicFileAttributes.class));
+        assertThatThrownBy(() -> TestDirectoryCleanup.deleteFile(path)).isSameAs(failure);
+        assertThat(file).hasContent("retained");
+        verify(provider).deleteIfExists(path);
+        verify(provider, times(9)).readAttributes(eq(path), eq(java.nio.file.attribute.BasicFileAttributes.class), any(LinkOption[].class));
     }
 
     @Test
@@ -74,7 +148,7 @@ class TestDirectoryCleanupTest {
     void persistentHandleIsNotHidden() throws Exception {
         Path root = Files.createDirectory(directory.resolve("locked"));
         var provider = mock(FileSystemProvider.class);
-        Path path = deletionPath(root, provider);
+        Path path = deletionPath(provider);
         when(provider.deleteIfExists(path)).thenThrow(new DirectoryNotEmptyException(root.toString()));
         assertThatThrownBy(() -> TestDirectoryCleanup.deleteEmptyDirectory(path))
                 .isInstanceOf(DirectoryNotEmptyException.class);
@@ -82,12 +156,11 @@ class TestDirectoryCleanupTest {
         verify(provider, times(10)).deleteIfExists(path);
     }
 
-    private static Path deletionPath(Path root, FileSystemProvider provider) throws Exception {
+    private static Path deletionPath(FileSystemProvider provider) throws Exception {
         Path path = mock(Path.class);
         FileSystem fileSystem = mock(FileSystem.class);
         when(path.getFileSystem()).thenReturn(fileSystem);
         when(fileSystem.provider()).thenReturn(provider);
-        when(provider.newDirectoryStream(eq(path), any())).thenAnswer(invocation -> Files.newDirectoryStream(root));
         return path;
     }
 

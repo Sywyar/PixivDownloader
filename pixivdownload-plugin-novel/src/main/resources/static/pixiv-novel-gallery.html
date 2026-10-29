@@ -172,9 +172,21 @@
                 <span class="filter-row-label" data-i18n="filter.sort.label">排序</span>
                 <button class="chip active" data-sort="date" data-i18n="filter.sort.date">时间</button>
                 <button class="chip" data-sort="novelId" data-i18n="novel-gallery:filter.sort.novel-id">小说 ID</button>
+                <button class="chip" data-sort="uploadTime" data-i18n="filter.sort.upload-time">上传时间</button>
                 <button class="chip" data-sort="wordCount" data-i18n="novel-gallery:filter.sort.word-count">字数</button>
                 <button class="chip" data-sort="series" data-i18n="novel-gallery:filter.sort.series">系列</button>
                 <button class="chip" id="orderToggle" data-order="desc" data-i18n="filter.order.desc" style="margin-left:auto">↓ 降序</button>
+            </div>
+            <div class="filter-row">
+                <span class="filter-row-label" data-i18n="filter.upload-time.label">上传日期</span>
+                <label for="uploadStartDate" class="upload-date-field">
+                    <span data-i18n="filter.upload-time.from">从</span>
+                    <input id="uploadStartDate" type="date" min="1970-01-02" class="chip">
+                </label>
+                <label for="uploadEndDate" class="upload-date-field">
+                    <span data-i18n="filter.upload-time.to">至</span>
+                    <input id="uploadEndDate" type="date" min="1970-01-02" class="chip">
+                </label>
             </div>
             <div class="filter-row">
                 <span class="filter-row-label" data-i18n="filter.r18.label">R-18</span>

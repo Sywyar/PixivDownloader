@@ -16,7 +16,7 @@ import java.util.Set;
 public final class GalleryWorkQueryFactory {
 
     private static final Set<String> ALLOWED_SORTS = Set.of(
-            "date", "artworkId", "imgs", "status", "authorId", "tags", "series");
+            "date", "uploadTime", "artworkId", "imgs", "status", "authorId", "tags", "series");
     private static final Set<String> ALLOWED_TRISTATE = Set.of("any", "yes", "no");
     private static final Set<String> ALLOWED_R18 = Set.of(
             "any", "yes", "no", "r18", "r18g", "r18plus");

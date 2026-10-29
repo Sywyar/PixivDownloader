@@ -113,6 +113,7 @@ public final class NovelOwnedWorkSearch {
                 .seriesIds(query.seriesIds())
                 .excludedSeriesIds(query.excludedSeriesIds())
                 .restriction(query.restriction())
+                .uploadTimeRange(query.uploadedFrom(), query.uploadedBefore())
                 .build();
     }
 }

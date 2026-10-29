@@ -59,6 +59,9 @@ async function reloadNovels() {
         sort: state.sort, order: state.order, r18: state.r18, ai: state.ai
     });
     if (state.search) params.set('search', state.search);
+    for (const [key, value] of Object.entries(galleryUploadTimeRange())) {
+        if (value != null) params.set(key, String(value));
+    }
     if (state.search && state.searchType && state.searchType !== 'all') params.set('searchType', state.searchType);
     if (state.selectedCollections.size) params.set('collectionIds', Array.from(state.selectedCollections).join(','));
 
@@ -148,6 +151,7 @@ function renderGrid(items) {
         if (item.isAi) badges.push('<span class="badge ai">AI</span>');
         if (item.isOriginal) badges.push(`<span class="badge original">${esc(pageI18n.t('novel-gallery:meta.original', '原创'))}</span>`);
         const meta = [];
+        meta.push(esc(item.uploadTime ? pageI18n.t('work.upload-time', 'Uploaded {time}', { time: new Date(item.uploadTime).toLocaleDateString() }) : pageI18n.t('work.upload-time-unknown', 'Upload time unknown')));
         if (item.wordCount && item.wordCount > 0) meta.push(esc(pageI18n.t('novel-gallery:meta.word-count', '{count} 字', { count: item.wordCount })));
         else if (item.textLength && item.textLength > 0) meta.push(esc(pageI18n.t('novel-gallery:meta.text-length', '{count} 字符', { count: item.textLength })));
         const readingText = formatReadingTime(item.readingTimeSeconds);

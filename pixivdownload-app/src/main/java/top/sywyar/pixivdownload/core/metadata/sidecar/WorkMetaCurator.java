@@ -54,6 +54,45 @@ public class WorkMetaCurator {
 
     private final ObjectMapper objectMapper;
 
+    /** 校验已保存的快照，保留捕获时间和来源，不将历史快照伪装成新响应。 */
+    public CuratedWorkMeta restore(WorkType type, long id, JsonNode snapshot) {
+        if (snapshot == null || !snapshot.isObject()
+                || !snapshot.path("schemaVersion").isIntegralNumber()
+                || !snapshot.path("schemaVersion").canConvertToInt()
+                || snapshot.path("schemaVersion").asInt() != SCHEMA_VERSION
+                || !type.name().equals(snapshot.path("workType").asText())
+                || !snapshot.path("workId").isIntegralNumber()
+                || !snapshot.path("workId").canConvertToLong()
+                || snapshot.path("workId").asLong() != id
+                || !snapshot.path("raw").isObject()
+                || !snapshot.path("normalized").isObject()
+                || estimateBytes(snapshot) > MAX_DOCUMENT_BYTES) {
+            throw new IllegalArgumentException("INVALID_WORK_METADATA");
+        }
+        if (!snapshot.path("source").isTextual() || snapshot.path("source").textValue().length() > MAX_TEXT_FIELD
+                || !snapshot.path("fetchedAt").isTextual()) throw new IllegalArgumentException("INVALID_METADATA_SOURCE");
+        try { Instant.parse(snapshot.path("fetchedAt").textValue()); }
+        catch (java.time.format.DateTimeParseException invalid) { throw new IllegalArgumentException("INVALID_METADATA_TIME"); }
+        JsonNode raw = snapshot.path("raw");
+        if (raw.has("id") && !Long.toString(id).equals(raw.path("id").asText())) {
+            throw new IllegalArgumentException("WORK_METADATA_ID_MISMATCH");
+        }
+        ObjectNode document = snapshot.deepCopy();
+        ObjectNode pruned = prune(raw, COMMON_STRIP);
+        if (type == WorkType.NOVEL) NOVEL_EXTRA_STRIP.forEach(pruned::remove);
+        document.set("raw", pruned);
+        JsonNode normalized = document.path("normalized");
+        JsonNode time = normalized.path("uploadTime");
+        Long uploadTime = time.isIntegralNumber() && time.canConvertToLong() && time.longValue() > 0
+                ? time.longValue() : null;
+        if (uploadTime == null) {
+            uploadTime = (type == WorkType.ARTWORK
+                    ? curateArtwork(id, raw, null, "backfill")
+                    : curateNovel(id, raw, "backfill")).uploadTime();
+        }
+        return new CuratedWorkMeta(uploadTime, boolOrNull(normalized, "isOriginal"), document);
+    }
+
     /**
      * 归一化插画捕获 meta。
      *
