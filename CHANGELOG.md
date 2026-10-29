@@ -38,6 +38,8 @@ The format is based on [Keep a Changelog EN-us](https://keepachangelog.com/en/1.
 
 ### Bug Fixes
 
+- 修复桌面界面刷新与后端启动并发时可能发生的死锁，避免界面和托盘同时无响应。
+
 - 修复 Compose 界面下载 FFmpeg 到软件目录时崩溃并切换到 Swing 的问题。
 - 修复作品说明中的引号、逗号等字符和链接参数被重复转义；维护时可依据完整原始快照修复匹配的历史说明，保留无法确认或已被编辑的记录。
 - 修复下载终态未能保存，导致重启后无法查询已完成、失败或取消任务的问题。
