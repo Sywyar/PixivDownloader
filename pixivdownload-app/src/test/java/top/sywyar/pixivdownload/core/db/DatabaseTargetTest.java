@@ -29,7 +29,7 @@ class DatabaseTargetTest {
         var failure = new java.sql.SQLException("controlled schema failure");
         Error cleanup = stage.equals("rollback") ? new ThreadDeath() : new OutOfMemoryError("controlled cleanup failure");
         org.mockito.Mockito.doThrow(failure).when(target).applySchema(org.mockito.ArgumentMatchers.eq(connection),
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(true));
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(false));
         if (stage.equals("restore")) org.mockito.Mockito.doThrow(cleanup).when(connection).setAutoCommit(true);
         else if (stage.equals("release")) org.mockito.Mockito.doThrow(cleanup).when(connection).releaseSavepoint(savepoint);
         else if (autoCommit) org.mockito.Mockito.doThrow(cleanup).when(connection).rollback();
@@ -51,12 +51,11 @@ class DatabaseTargetTest {
         org.mockito.Mockito.doNothing().when(target).prepareTransaction(connection, false);
         var failure = new OutOfMemoryError("controlled " + stage + " failure");
         var rollback = new java.sql.SQLException("controlled rollback failure");
-        org.mockito.Mockito.doReturn(null).when(target).applySchema(org.mockito.ArgumentMatchers.eq(connection),
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(true));
+        stubCompatibleSchema(target, connection);
         org.mockito.Mockito.doThrow(rollback).when(connection).rollback();
         if (stage.equals("prepare")) org.mockito.Mockito.doThrow(failure).when(target).prepareTransaction(connection, false);
         if (stage.equals("work")) org.mockito.Mockito.doThrow(failure).when(target).applySchema(
-                org.mockito.ArgumentMatchers.eq(connection), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(true));
+                org.mockito.ArgumentMatchers.eq(connection), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(false));
         if (stage.equals("commit")) org.mockito.Mockito.doThrow(failure).when(connection).commit();
 
         assertThatThrownBy(() -> top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target))
@@ -90,8 +89,7 @@ class DatabaseTargetTest {
         var target = org.mockito.Mockito.mock(DatabaseTarget.class, org.mockito.Mockito.CALLS_REAL_METHODS);
         org.mockito.Mockito.doNothing().when(target).prepareTransaction(connection, false);
         var failure = new java.sql.SQLException("controlled commit failure");
-        org.mockito.Mockito.doReturn(null).when(target).applySchema(org.mockito.ArgumentMatchers.eq(connection),
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(true));
+        stubCompatibleSchema(target, connection);
         org.mockito.Mockito.doThrow(failure).when(connection).commit();
         assertThatThrownBy(() -> top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target))
                 .isSameAs(failure);
@@ -99,6 +97,16 @@ class DatabaseTargetTest {
         order.verify(connection).commit();
         order.verify(connection).rollback();
         order.verify(connection).setAutoCommit(true);
+    }
+
+    private static void stubCompatibleSchema(DatabaseTarget target, java.sql.Connection connection) throws java.sql.SQLException {
+        var registry = top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry.forBuiltInPlugins();
+        var schema = top.sywyar.pixivdownload.plugin.api.database.migration.jdbc.JdbcMigrationSupport.physical(
+                top.sywyar.pixivdownload.core.db.schema.CoreMigrationSchema.create(registry, true));
+        org.mockito.Mockito.doReturn(null).when(target).applySchema(org.mockito.ArgumentMatchers.eq(connection),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(false));
+        org.mockito.Mockito.doReturn(schema).when(target).physicalSchema(org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.doReturn(schema.tables()).when(target).readSchema(connection);
     }
 
     @Test
