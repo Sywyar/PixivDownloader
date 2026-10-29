@@ -35,6 +35,7 @@ public class ToolsPanel extends JPanel {
     private String inheritedRootFolder;
     private boolean logPageOpening;
     private final MediaToolsPanel mediaTools = new MediaToolsPanel(SwingHost.context());
+    private final FileImportToolsPanel fileImports = new FileImportToolsPanel(SwingHost.context());
 
     private final JLabel backendStateLabel = new JLabel(message("gui.tools.backend-status", message("gui.tools.backend-status.detecting")));
     private final JLabel exclusiveToolLabel = new JLabel(message("gui.tools.exclusive-tool", message("gui.value.none")));
@@ -114,6 +115,8 @@ public class ToolsPanel extends JPanel {
         content.add(backfillCard);
         content.add(Box.createVerticalStrut(12));
         content.add(buildMigrationCard());
+        content.add(Box.createVerticalStrut(12));
+        content.add(fileImports);
         content.add(Box.createVerticalGlue());
 
         JScrollPane scrollPane = new JScrollPane(content);
@@ -855,6 +858,7 @@ public class ToolsPanel extends JPanel {
 
     private void handleBackendState(DesktopUiHost.BackendSnapshot snapshot) {
         mediaTools.refreshTools();
+        fileImports.refreshTools();
         backendStateLabel.setText(message("gui.tools.backend-status", switch (snapshot.state()) {
             case RUNNING -> message("gui.backend.state.running");
             case STARTING -> message("gui.tools.backend-status.starting");
@@ -966,6 +970,7 @@ public class ToolsPanel extends JPanel {
 
     public void dispose() {
         mediaTools.close();
+        fileImports.close();
         SwingBackendLifecycle.removeListener(backendListener);
         disposed = true;
         backfillTimer.stop();

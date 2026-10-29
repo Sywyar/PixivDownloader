@@ -57,7 +57,7 @@ class MediaToolsPanelTest {
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{DesktopUiHost.class},
                 (proxy, method, args) -> switch (method.getName()) {
                     case "mediaTools" -> tools.get();
-                    case "coreConfigGroups", "coreConfigFields" -> List.of();
+                    case "coreConfigGroups", "coreConfigFields", "fileImportTools" -> List.of();
                     case "mediaTool" -> { assertEquals(identity, args[0]); yield source; }
                     case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
                     case "readDownloadRootFromConfig" -> ".";

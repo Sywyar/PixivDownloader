@@ -31,6 +31,8 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.robinpcrd.cupertino.*
@@ -104,9 +106,12 @@ internal fun ToolField(
     focusError: Boolean = false,
 ) {
     val palette = LocalExperiencePalette.current
-    var value by rememberSaveable(node.id(), stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue(node.value())) }
+    val secret = node.inputKind() == InputKind.PASSWORD
+    val state = if (secret) remember(node.id(), node.stateRevision()) { mutableStateOf(TextFieldValue("")) }
+        else rememberSaveable(node.id(), stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue(node.value())) }
+    var value by state
     LaunchedEffect(node.value()) {
-        if (value.text != node.value()) value = TextFieldValue(node.value(), TextRange(value.selection.end.coerceAtMost(node.value().length)))
+        if (!secret && value.text != node.value()) value = TextFieldValue(node.value(), TextRange(value.selection.end.coerceAtMost(node.value().length)))
     }
     fun update(next: TextFieldValue) {
         val changed = next.text != value.text
@@ -142,6 +147,7 @@ internal fun ToolField(
                 onValueChange = ::update,
                 enabled = node.enabled(),
                 singleLine = true,
+                visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
                 interactionSource = interaction,
                 cursorBrush = SolidColor(palette.link),
                 textStyle = CupertinoTheme.typography.body.copy(fontSize = 13.sp, color = palette.text),
@@ -149,7 +155,7 @@ internal fun ToolField(
                     .semantics { contentDescription = label }
                     .padding(horizontal = 12.dp, vertical = 11.dp),
             )
-            if (node.inputKind() == InputKind.FILE || node.inputKind() == InputKind.DIRECTORY) {
+            if (node.inputKind() in listOf(InputKind.FILE, InputKind.DIRECTORY, InputKind.FILE_OR_DIRECTORY)) {
                 CupertinoIconButton(
                     onClick = {
                         ComposeDesktopUiNodeRenderer.choosePath(node.inputKind(), value.text)?.let { update(TextFieldValue(it, TextRange(it.length))) }

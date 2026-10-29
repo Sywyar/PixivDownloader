@@ -30,14 +30,14 @@ public final class PixivBatchDownloaderImportStatistics implements DesktopDashbo
         this.dataSource = dataSource;
     }
 
-    synchronized void recordImported(WorkFileImportRequest request) throws SQLException {
+    public synchronized void recordImported(WorkFileImportRequest request) throws SQLException {
         flushPending();
         pending = new ImportedWork(request.workType(), request.workId(), System.currentTimeMillis());
         flushPending();
     }
 
     /** 下次接收前补写上一笔成功记录；失败时暂停新导入，不积压作品元数据。 */
-    synchronized void flushPending() throws SQLException {
+    public synchronized void flushPending() throws SQLException {
         if (!dataSource.available()) throw new SQLException("DATABASE_UNAVAILABLE", "08003");
         if (pending == null) return;
         dataSource.transaction(session -> session.insert("imported_works",

@@ -112,7 +112,7 @@ class ToolsOverviewTest {
             val history = Table("history", "history.selection", listOf("tool", "outcome", "start", "end", "processed").map { TableColumn(it, TextToken.raw(it), 80) },
                 listOf(TableRow("history.1", listOf("Backfill", "Succeeded", "09:01", "09:02", "2"))), SelectionMode.SINGLE, emptyList(), false)
             return DesktopUiNode.ToolsOverview("tools.workspace", Text("backend", TextToken.raw("Service running"), TextStyle.CAPTION, true, false),
-                listOf(content("classifier"), content("folder"), content("backfill", Form("form.backfill", FormStyle.COMPACT, null, rows)), content("migration")), media, mediaTools, history, activity, null)
+                listOf(content("classifier"), content("folder"), content("backfill", Form("form.backfill", FormStyle.COMPACT, null, rows)), content("migration")), media, mediaTools, emptyList(), history, activity, null)
         }
     }
 }

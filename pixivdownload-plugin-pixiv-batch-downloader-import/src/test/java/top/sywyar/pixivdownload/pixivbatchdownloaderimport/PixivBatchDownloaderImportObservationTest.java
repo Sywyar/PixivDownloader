@@ -72,7 +72,7 @@ class PixivBatchDownloaderImportObservationTest {
             if (value.workId() == 99) throw new java.io.IOException("unavailable");
             if (value.workId() == 84) return false;
             return written.add(value.workType() + ":" + value.workId());
-        }, (ns, locale, key) -> Optional.empty(), directory(ROOT.toString()), () -> "solo", statistics);
+        }, (ns, locale, key) -> Optional.empty(), directory(ROOT.toString()), () -> "solo", statistics, null);
 
         // 插画与小说可使用相同数值 ID；漫画页数不构成新的作品身份。
         for (int type : List.of(0, 0, 3))
@@ -97,7 +97,7 @@ class PixivBatchDownloaderImportObservationTest {
         var statistics = new PixivBatchDownloaderImportStatistics(source);
         var calls = new java.util.concurrent.atomic.AtomicInteger();
         var controller = new PixivBatchDownloaderImportController(value -> calls.incrementAndGet() == 1,
-                (ns, locale, key) -> Optional.empty(), directory(ROOT.toString()), () -> "solo", statistics);
+                (ns, locale, key) -> Optional.empty(), directory(ROOT.toString()), () -> "solo", statistics, null);
         try (var connection = ((javax.sql.DataSource) source).getConnection(); var statement = connection.createStatement()) {
             statement.executeUpdate("CREATE TRIGGER unavailable BEFORE INSERT ON imported_works BEGIN SELECT RAISE(ABORT, 'unavailable'); END");
             assertEquals(503, controller.importWork(http(input(0).toString(), token(controller), "127.0.0.1")).getStatusCode().value());
@@ -187,7 +187,7 @@ class PixivBatchDownloaderImportObservationTest {
     void protectsLocalBridge() throws Exception {
         var calls = new java.util.concurrent.atomic.AtomicInteger();
         var controller = new PixivBatchDownloaderImportController(value -> { calls.incrementAndGet(); return true; },
-                (namespace, locale, key) -> Optional.of("localized"), directory(ROOT.toString()), () -> "solo", statistics());
+                (namespace, locale, key) -> Optional.of("localized"), directory(ROOT.toString()), () -> "solo", statistics(), null);
         assertEquals(401, controller.importWork(http(input(0).toString(), null, "127.0.0.1")).getStatusCode().value());
         assertEquals(403, controller.token(http("", null, "192.0.2.1")).getStatusCode().value());
         String token = token(controller);
@@ -198,10 +198,10 @@ class PixivBatchDownloaderImportObservationTest {
         assertEquals(413, controller.importWork(http(" ".repeat(12*1024*1024+1), token(controller), "127.0.0.1")).getStatusCode().value());
         assertEquals(1, calls.get());
         java.nio.file.Files.delete(temporary.resolve("settings.properties"));
-        var disabled = new PixivBatchDownloaderImportController(value -> true, (ns,l,k)->Optional.empty(), directory(""), ()->"solo", statistics());
+        var disabled = new PixivBatchDownloaderImportController(value -> true, (ns,l,k)->Optional.empty(), directory(""), ()->"solo", statistics(), null);
         assertEquals(200, disabled.token(http("",null,"127.0.0.1")).getStatusCode().value());
         assertEquals(503, disabled.importWork(http(input(0).toString(), token(disabled), "127.0.0.1")).getStatusCode().value());
-        var multi = new PixivBatchDownloaderImportController(value -> true, (ns,l,k)->Optional.empty(), directory(ROOT.toString()), ()->"multi", statistics());
+        var multi = new PixivBatchDownloaderImportController(value -> true, (ns,l,k)->Optional.empty(), directory(ROOT.toString()), ()->"multi", statistics(), null);
         assertEquals(403, multi.token(http("",null,"127.0.0.1")).getStatusCode().value());
     }
 
@@ -212,7 +212,7 @@ class PixivBatchDownloaderImportObservationTest {
         var controller = new PixivBatchDownloaderImportController(value -> {
             assertEquals(temporary, value.sourceRoot());
             calls.incrementAndGet(); return true;
-        }, (ns,l,k) -> Optional.empty(), directory, () -> "solo", statistics());
+        }, (ns,l,k) -> Optional.empty(), directory, () -> "solo", statistics(), null);
         var observation = input(0);
         assertEquals(503, controller.importWork(http(observation.toString(), token(controller), "127.0.0.1")).getStatusCode().value());
         assertTrue(directory.directorySuggestion().isEmpty());

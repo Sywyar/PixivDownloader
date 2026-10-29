@@ -50,6 +50,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     private final DesktopUiHost host;
     private final DesktopToolsController tools;
     private final DesktopMediaToolsController mediaTools;
+    private final DesktopFileImportController fileImports;
     private final DesktopOnboardingController onboarding;
     private final DesktopStatusController statusController;
     final DesktopNavigationView navigation;
@@ -116,6 +117,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         this.selectedProviderId = Objects.requireNonNull(selectedProviderId, "selectedProviderId");
         this.host = Objects.requireNonNull(host, "host");
         this.mediaTools = new DesktopMediaToolsController(this, host);
+        this.fileImports = new DesktopFileImportController(this, host);
         this.tools = new DesktopToolsController(
                 this,
                 host,
@@ -286,7 +288,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
             return;
         }
         String value = event.value().values().stream().findFirst().orElse("");
-        if (mediaTools.accept(targetId, value)) {
+        if (fileImports.accept(targetId, value) || mediaTools.accept(targetId, value)) {
             rebuild();
             return;
         }
@@ -478,7 +480,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
                 "tools",
                 DesktopUiIcon.TOOLS,
                 tools.controlCenterPage(nextActions, statusController.ffmpegPanel(nextActions),
-                        mediaTools.panels(nextSelections, nextActions)),
+                        mediaTools.panels(nextSelections, nextActions), fileImports.panels(nextActions)),
                 DesktopUiNode.Insets.NONE
         ));
         var platformFacts = platformFacts();
@@ -872,6 +874,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         security.clearSecrets();
         configuration.transfer.clear();
         mediaTools.close();
+        fileImports.close();
         configuration.invalidatePage();
         stablePages = null;
         pageEventIndexes.clear();

@@ -23,7 +23,9 @@ public final class PixivBatchDownloaderImportPlugin extends Plugin implements Pi
             @Override public List<WebRouteContribution> routes() {
                 return List.of(new WebRouteContribution("/api/pixiv-batch-downloader-import", AccessPolicy.LOCAL,
                         Set.of(HttpMethod.POST), false, Set.of("https://www.pixiv.net", "https://pixiv.net")),
-                        new WebRouteContribution("/api/pixiv-batch-downloader-import/token", AccessPolicy.LOCAL, Set.of(HttpMethod.GET), false));
+                        new WebRouteContribution("/api/pixiv-batch-downloader-import/token", AccessPolicy.LOCAL, Set.of(HttpMethod.GET), false),
+                        new WebRouteContribution("/api/pixiv-batch-downloader-import/history", AccessPolicy.LOCAL,
+                                Set.of(HttpMethod.POST), false, Set.of("https://www.pixiv.net", "https://pixiv.net")));
             }
             @Override public List<I18nContribution> i18n() {
                 return List.of(new I18nContribution("pixiv-batch-downloader-import", "i18n.web.pixiv-batch-downloader-import"));

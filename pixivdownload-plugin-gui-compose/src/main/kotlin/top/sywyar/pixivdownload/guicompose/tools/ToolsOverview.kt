@@ -61,6 +61,11 @@ internal fun ToolsOverview(
     val anchors = remember { mutableMapOf<String, FocusRequester>() }
     val tools = node.tools().map { it as Group }
     val mediaTools = node.mediaTools().filterIsInstance<Group>()
+    val fileImports = node.fileImports().filterIsInstance<Group>()
+    val selectedImport = fileImports.firstOrNull { it.id() == selected }
+    LaunchedEffect(fileImports.map { it.id() }) {
+        if (selected?.startsWith("import.") == true && selectedImport == null) selected = null
+    }
     fun label(key: String) = workspaceText(text, key)
     fun select(id: String) {
         restoreFocus = id
@@ -75,7 +80,9 @@ internal fun ToolsOverview(
     val activity = node.activity()
     val mediaProgress = descendants(node.media()).filterIsInstance<Progress>().firstOrNull()
         ?: mediaTools.asSequence().flatMap(::descendants).filterIsInstance<Progress>().firstOrNull { it.id().endsWith(".progress") }
-    if (selected == "media") {
+    if (selectedImport != null) {
+        FileImportWorkspace(selectedImport, text, emit, { selected = null }, modifier)
+    } else if (selected == "media") {
         FfmpegToolsWorkspace(node.media(), mediaTools, text, emit, { selected = null }, modifier)
     } else {
         BoxWithConstraints(modifier.fillMaxSize().testTag("tools.overview")) {
@@ -123,6 +130,12 @@ internal fun ToolsOverview(
                         category(0..1, label("organize"))
                         category(2..3, label("maintain"))
                     }
+                    fileImports.forEach { tool ->
+                        val help = descendants(tool).filterIsInstance<Text>().firstOrNull { it.id().endsWith(".help") }
+                        ToolRow(text(tool.title()), help?.text()?.let(text).orEmpty(), "", Icons.Default.FileDownload,
+                            "tools.entry.${tool.id()}", Modifier.fillMaxWidth()
+                                .focusRequester(anchors.getOrPut(tool.id()) { FocusRequester() })) { select(tool.id()) }
+                    }
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         CupertinoText(label("media-group"), fontSize = 12.sp, fontWeight = FontWeight.Medium,
                             color = palette.secondaryText, modifier = Modifier.semantics { heading() })
@@ -149,12 +162,12 @@ internal fun ToolsOverview(
         }
     }
     LaunchedEffect(selected) {
-        if (selected == null && restoreFocus == "media") anchors["media"]?.requestFocus()
+        if (selected == null) restoreFocus?.let { anchors[it]?.requestFocus() }
     }
     var retainedWorkspace by remember { mutableStateOf<ToolWorkspace?>(null) }
     node.workspace()?.let { retainedWorkspace = it }
     val workspace = node.workspace()
-    val current = workspace?.toolId() ?: selected?.takeUnless { it == "media" }
+    val current = workspace?.toolId() ?: selected?.takeUnless { it == "media" || it.startsWith("import.") }
     val close = {
         if (workspace != null) activate(workspace.close()) else selected = null
     }
