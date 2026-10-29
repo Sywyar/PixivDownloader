@@ -70,7 +70,11 @@ public final class PluginDatabaseFactory {
         if (owner == null || !owner.matches("[a-z][a-z0-9]*(-[a-z0-9]+)*")) {
             throw new IllegalArgumentException("DATABASE_OWNER_INVALID");
         }
-        String installation = InstallIdentity.get();
+        String installation;
+        try {
+            installation = create ? InstallIdentity.get() : InstallIdentity.readExisting()
+                    .orElseThrow(() -> new IOException("DATABASE_INSTALL_IDENTITY_MISSING"));
+        } catch (IOException failure) { throw new UncheckedIOException(failure); }
         String key;
         try {
             key = "host.database." + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(
@@ -80,9 +84,11 @@ public final class PluginDatabaseFactory {
         }
         var password = new AtomicReference<String>();
         try {
+            if (!create) return new DatabasePrivateStorageSettings(owner, RuntimeFiles.peekPluginDataDirectory(owner),
+                    installation, credentials.readForTransfer(owner).getOrDefault(key, ""));
             credentials.withOwnerLocks(List.of(owner), () -> {
                 String stored = credentials.readAll(owner).get(key);
-                if (stored == null && create) {
+                if (stored == null) {
                     byte[] bytes = new byte[32];
                     new SecureRandom().nextBytes(bytes);
                     stored = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);

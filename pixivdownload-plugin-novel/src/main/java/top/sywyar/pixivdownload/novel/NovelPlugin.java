@@ -29,6 +29,10 @@ import java.util.Set;
  */
 public class NovelPlugin implements PixivFeaturePlugin {
 
+    @Override public List<top.sywyar.pixivdownload.plugin.api.storage.EnvironmentFileContribution> environmentFiles() {
+        return List.of(new top.sywyar.pixivdownload.novel.narration.NarrationVoiceTransfer());
+    }
+
     public static final String ID = "novel";
 
     @Override

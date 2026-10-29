@@ -94,7 +94,7 @@ public final class DatabaseSwitchService {
                             store.target().target().checkConnection();
                             phase = repair ? "CONNECTION_REPAIR" : "SAME_TARGET";
                         } else {
-                            var sourceInspection = store.source().provider().inspectMigration(store.source().target(), store.request().schema(), true);
+                            var sourceInspection = store.source().inspect(store.request().schema());
                             objects = sourceInspection.rebuildObjects();
                             rebuild.put(store.owner(), objects);
                             var inspection = store.target().provider().inspectMigration(store.target().target(), store.request().schema(), false);
@@ -103,11 +103,11 @@ public final class DatabaseSwitchService {
                             boolean previouslyCommitted = retained != null
                                     && Set.of(ProviderDatabaseMigration.Phase.COMMITTED, ProviderDatabaseMigration.Phase.COMMITTING,
                                             ProviderDatabaseMigration.Phase.UNKNOWN).contains(retained.phase())
-                                    && store.source().target().description().equals(retained.source())
+                                    && store.source().description().equals(retained.source())
                                     && store.target().target().description().equals(retained.target());
                             if (previouslyCommitted) {
                                 requireRetained(store, retained);
-                                store.source().provider().verifySource(store.source().target(), retained.snapshot().sourceRevision());
+                                store.source().verifyRevision(retained.snapshot().sourceRevision());
                                 store.target().provider().verifyImported(store.target().target(), retained.snapshot(), CONTROL);
                                 reuse.put(store.owner(), retained);
                                 phase = "COMMITTED";
@@ -122,7 +122,7 @@ public final class DatabaseSwitchService {
                         phase = "BLOCKED";
                         if (failure.isEmpty()) failure = ProviderDatabaseMigration.safeFailure(rejected);
                     }
-                    entries.add(new MigrationStore(store.owner(), store.source().target().description(),
+                    entries.add(new MigrationStore(store.owner(), store.source().description(),
                             store.target().target().description(), phase, objects.stream().sorted().toList()));
                 }
                 if (!baseline.equals(config.snapshot())) throw new IllegalStateException("CONFIG_CHANGED");
@@ -140,7 +140,9 @@ public final class DatabaseSwitchService {
     }
 
     public void start(String token, DesktopUiHost.IoOperation saveOtherSettings) throws IOException {
-        synchronized (LOCK) {
+        try (var ignored = top.sywyar.pixivdownload.transfer.OfflineRestoreLock.acquire()) {
+          synchronized (LOCK) {
+            if (top.sywyar.pixivdownload.transfer.EnvironmentTransferService.pending()) throw new IOException("MIGRATION_BUSY");
             Pending pending = prepared;
             if (pending == null || !pending.plan().token().equals(token)) throw new IOException("MIGRATION_PLAN_CHANGED");
             config.withWriteLock(() -> {
@@ -185,6 +187,7 @@ public final class DatabaseSwitchService {
                     throw new IOException("RESTART_FAILED");
                 }
             });
+          }
         }
     }
 
@@ -244,7 +247,7 @@ public final class DatabaseSwitchService {
                         var emptyOwners = job.stores().stream().filter(store -> store.phase().equals("EMPTY_SOURCE"))
                                 .map(MigrationStore::owner).collect(java.util.stream.Collectors.toSet());
                         for (var store : configured) if (emptyOwners.contains(store.owner())) {
-                            if (!store.source().provider().inspectMigration(store.source().target(), store.request().schema(), true).empty()
+                            if (!store.source().inspect(store.request().schema()).empty()
                                     || !store.target().provider().inspectMigration(store.target().target(), store.request().schema(), false).empty())
                                 throw new IllegalStateException("MIGRATION_SOURCE_CHANGED");
                         }
@@ -301,7 +304,7 @@ public final class DatabaseSwitchService {
                 DatabaseTarget.configurationEnvironment("--spring.config.location=" + file.toUri()));
     }
     private static void requireSameStores(List<MigrationStore> expected, List<ProviderDatabaseMigration.Store> actual) {
-        var identities = actual.stream().map(store -> List.of(store.owner(), store.source().target().description(), store.target().target().description())).toList();
+        var identities = actual.stream().map(store -> List.of(store.owner(), store.source().description(), store.target().target().description())).toList();
         if (!expected.stream().map(store -> List.of(store.owner(), store.source(), store.target())).toList().equals(identities))
             throw new IllegalStateException("MIGRATION_STORES_CHANGED");
     }
@@ -311,7 +314,7 @@ public final class DatabaseSwitchService {
                         ProviderDatabaseMigration.Phase.UNKNOWN).contains(report.phase())
                 || !store.request().schema().equals(report.snapshot().schema())
                 || !store.source().owner().equals(report.sourceProvider()) || !store.target().owner().equals(report.targetProvider())
-                || !store.source().target().description().equals(report.source()) || !store.target().target().description().equals(report.target()))
+                || !store.source().description().equals(report.source()) || !store.target().target().description().equals(report.target()))
             throw new IllegalStateException("TARGET_NOT_EMPTY");
     }
     private static Job readJob() throws IOException {

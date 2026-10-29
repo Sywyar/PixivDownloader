@@ -176,7 +176,8 @@ public final class DatabaseMigration {
             MigrationEndpoint target, Path runDirectory, Path backup, Set<String> rebuild,
             boolean createCredentials) throws Exception {
         Path sourceData = RuntimeFiles.dataDirectory();
-        String installation = top.sywyar.pixivdownload.config.InstallIdentity.get();
+        String installation = createCredentials ? top.sywyar.pixivdownload.config.InstallIdentity.get()
+                : top.sywyar.pixivdownload.config.InstallIdentity.readExisting().orElse("");
         Set<String> owners = source.provider().privateDatabaseOwners(source.target(), sourceData, installation);
         List<ProviderDatabaseMigration.Store> stores = new ArrayList<>();
         stores.add(new ProviderDatabaseMigration.Store("main", source, target,

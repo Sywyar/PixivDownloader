@@ -32,6 +32,11 @@ import java.util.List;
  */
 public interface PixivFeaturePlugin {
 
+    /** {@return 自有状态与资源声明，不含插件包、安装身份、运行会话和活动执行} */
+    default List<top.sywyar.pixivdownload.plugin.api.storage.EnvironmentFileContribution> environmentFiles() {
+        return List.of();
+    }
+
     /**
      * 声明要消费的独立契约服务；提供者可缺席，契约包必须是 required 依赖。
      * @return 至多 128 项且不重复的导入；默认无导入

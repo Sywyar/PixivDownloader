@@ -28,6 +28,36 @@ import static org.mockito.Mockito.*;
 class PluginDatabaseFactoryTest {
     @TempDir Path directory;
 
+    @Test @DisplayName("只读私库预检不创建身份、数据目录或凭据，也不调用会升级信封的读取")
+    void previewDoesNotCreatePrivateFiles() throws Exception {
+        String oldData = System.getProperty(RuntimeFiles.DATA_DIR_PROPERTY);
+        String oldConfig = System.getProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
+        try {
+            Path data = directory.resolve("data"), config = directory.resolve("config");
+            System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, data.toString());
+            System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, config.toString());
+            var credentials = mock(PluginCredentialStore.class);
+            when(credentials.readForTransfer("fixture-owner")).thenReturn(Map.of());
+            assertThatThrownBy(() -> PluginDatabaseFactory.privateSettings("fixture-owner", credentials, false))
+                    .isInstanceOf(java.io.UncheckedIOException.class);
+            assertThat(data).doesNotExist();
+            java.nio.file.Files.createDirectories(data);
+            String identity = java.util.UUID.randomUUID().toString();
+            java.nio.file.Files.writeString(data.resolve(RuntimeFiles.INSTALL_IDENTITY_FILE), identity);
+            var settings = PluginDatabaseFactory.privateSettings("fixture-owner", credentials, false);
+            assertThat(settings.installationId()).isEqualTo(identity);
+            assertThat(settings.password()).isEmpty();
+            assertThat(settings.directory()).isEqualTo(data.resolve("fixture-owner"));
+            assertThat(config).doesNotExist();
+            assertThat(data.resolve("fixture-owner")).doesNotExist();
+            verify(credentials).readForTransfer("fixture-owner");
+            verifyNoMoreInteractions(credentials);
+        } finally {
+            if (oldData == null) System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY); else System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, oldData);
+            if (oldConfig == null) System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY); else System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, oldConfig);
+        }
+    }
+
     @ParameterizedTest
     @CsvSource({"false, false", "true, false", "false, true", "true, true"})
     @DisplayName("私库初始化失败关闭已创建资源，清理致命错误仍传播")

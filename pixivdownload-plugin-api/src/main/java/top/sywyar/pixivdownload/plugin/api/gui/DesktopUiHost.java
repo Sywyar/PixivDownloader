@@ -62,6 +62,11 @@ public interface DesktopUiHost extends DesktopUiToolHost {
      */
     ConfigFile applicationConfig();
 
+    /** {@return 可选的宿主环境迁移能力；缺席时不提供迁移操作入口} */
+    default java.util.Optional<DesktopEnvironmentTransfer> environmentTransfer() {
+        return java.util.Optional.empty();
+    }
+
     /** {@return 可选的进程级数据库配置能力；缺席时不提供连接检查} */
     default Optional<DesktopDatabaseSettings> databaseSettings() {
         return Optional.empty();

@@ -831,6 +831,11 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         openFile.addActionListener(e -> openConfigFile());
 
         JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
+        if (SwingHost.host().environmentTransfer().isPresent()) {
+            JButton transfer = new JButton(SwingHost.host().message("transfer.title"));
+            transfer.addActionListener(event -> new EnvironmentTransferDialog(this, SwingHost.host(), this::hasTransferDraft).open());
+            btnRow.add(transfer);
+        }
         btnRow.add(openFile);
         btnRow.add(reset);
         btnRow.add(saveButton);
@@ -839,6 +844,19 @@ public class ConfigPanel extends JPanel implements ConfigSectionContext {
         bottom.add(noticeBar, BorderLayout.NORTH);
         bottom.add(btnRow, BorderLayout.CENTER);
         return bottom;
+    }
+
+    private boolean hasTransferDraft() {
+        if (!interfacePreferencesPanel.pendingChanges(Map.of()).isEmpty()) return true;
+        for (ConfigFieldSpec spec : allFields) {
+            var field = renderedFields.get(spec.key());
+            if (field == null) continue;
+            String value = field.getValue().get();
+            if (spec.type() == FieldType.PASSWORD) {
+                if (field.credentialClearRequested() || value != null && !value.isEmpty()) return true;
+            } else if (!Objects.equals(value, loadedValues.get(spec.key()))) return true;
+        }
+        return false;
     }
 
     // ── 数据加载 ──────────────────────────────────────────────────────────────────

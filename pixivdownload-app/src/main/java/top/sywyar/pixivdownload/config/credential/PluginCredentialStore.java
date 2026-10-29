@@ -64,6 +64,30 @@ public class PluginCredentialStore {
         }
     }
 
+    /** 迁移读取不创建目录、不升级信封；归档加密由调用方负责。 */
+    public Map<String, String> readForTransfer(String ownerPluginId) throws IOException {
+        Path path = RuntimeFiles.peekPluginCredentialPath(ownerPluginId).toAbsolutePath().normalize();
+        top.sywyar.pixivdownload.plugin.api.database.migration.MigrationFiles.requirePlain(path, false);
+        if (!Files.exists(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return Map.of();
+        try (var input = Files.newInputStream(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            byte[] bytes = input.readNBytes(8 * 1024 * 1024 + 1);
+            try {
+                if (bytes.length > 8 * 1024 * 1024) throw new IOException("transfer.archive-limit");
+                return withoutBlankValues(cipher.decode(ownerPluginId, bytes).values());
+            } finally { Arrays.fill(bytes, (byte) 0); }
+        }
+    }
+
+    /** 按目标环境密钥生成合并后的信封，尚不改变正在使用的凭据。 */
+    public byte[] prepareTransfer(String ownerPluginId, Map<String, String> updates) throws IOException {
+        Map<String, String> merged = new LinkedHashMap<>(readForTransfer(ownerPluginId));
+        for (var entry : validatedUpdates(updates).entrySet()) {
+            if (entry.getValue().isBlank()) throw new IOException("transfer.credential-empty");
+            merged.put(entry.getKey(), entry.getValue());
+        }
+        return cipher.encrypt(ownerPluginId, merged);
+    }
+
     private Map<String, String> readAllLocked(String ownerPluginId, Path path) throws IOException {
         if (!Files.isRegularFile(path)) {
             return Map.of();

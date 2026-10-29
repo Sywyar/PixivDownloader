@@ -48,6 +48,20 @@ class InstallIdentityTest {
     }
 
     @Test
+    @DisplayName("迁移预检不创建身份，绕过进程缓存并拒绝超长内容")
+    void readsIdentityWithoutCreatingOrCaching() throws IOException {
+        assertThat(InstallIdentity.readExisting()).isEmpty();
+        assertThat(dataDir).doesNotExist();
+        InstallIdentity.get();
+        Path file = dataDir.resolve(RuntimeFiles.INSTALL_IDENTITY_FILE);
+        Files.writeString(file, V4_ID, StandardCharsets.UTF_8);
+        assertThat(InstallIdentity.readExisting()).contains(V4_ID);
+        Files.writeString(file, V4_ID + " ".repeat(257), StandardCharsets.UTF_8);
+        assertThatThrownBy(InstallIdentity::readExisting).isInstanceOf(IOException.class);
+        assertThat(Files.readString(file)).hasSize(V4_ID.length() + 257);
+    }
+
+    @Test
     @DisplayName("首次请求生成随机 UUID v4 并落盘，二次请求返回同一标识")
     void generatesAndPersistsIdentity() {
         String first = InstallIdentity.get();

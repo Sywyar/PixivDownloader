@@ -229,6 +229,7 @@ final class DesktopConfigurationView {
             actions.add(effectNode("settings.impact", model.pendingConfigurationEffect()));
         }
         bottom.add(new DesktopUiNode.Separator("settings.save.separator", DesktopUiNode.Axis.HORIZONTAL));
+        actions.addAll(model.transfer.buttons(nextActions));
         actions.add(new DesktopUiNode.Group("config.maintenance", composeToken("gui.compose.settings.maintenance"),
                 row("config.maintenance.actions",
                         button("config.open", "config.open", "gui.button.open-config", !owner.busy(), nextActions, model::openConfigFile),

@@ -66,6 +66,7 @@ final class DesktopWindowStateStore {
         if (state == null) return false;
         Path temporary = null;
         try {
+            if (top.sywyar.pixivdownload.transfer.EnvironmentTransferService.windowStateRestorePending()) return false;
             Files.createDirectories(file.getParent());
             Map<String, Object> value = new LinkedHashMap<>();
             value.put("width", state.width());

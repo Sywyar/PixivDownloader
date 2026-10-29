@@ -65,8 +65,9 @@ var
 begin
   ResolveExistingInstallation;
   MaintenanceMode := MaintenanceRepairMode;
-  if ExistingInstallDir <> '' then
-    WizardForm.DirEdit.Text := ExistingInstallDir;
+  { Inno 已按 /DIR、UsePreviousAppDir 与 GetDefaultInstallDir 解析目标，不覆盖显式路径。 }
+  if not SameInstallationDirectory(ExistingInstallDir, WizardDirValue) then
+    ShowMaintenancePage := False;
 
   if ShowMaintenancePage then
   begin
@@ -360,7 +361,10 @@ begin
   if Result <> '' then
     exit;
   if ShouldInstallApplicationFiles then
-    Result := RemoveLegacyMsiSilently(NeedsRestart);
+  begin
+    Result := PrepareInstallationRelocation;
+    if Result = '' then Result := RemoveLegacyMsiSilently(NeedsRestart);
+  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -368,7 +372,10 @@ var
   ErrorMessage: String;
 begin
   if (CurStep = ssPostInstall) and ShouldInstallApplicationFiles then
+  begin
+    FinishInstallationRegistration;
     ReconcileBundledDefaultPlugins;
+  end;
 
   if (CurStep = ssPostInstall) and AnyPluginSelected then
   begin
@@ -395,4 +402,9 @@ begin
       SuppressibleMsgBox(CustomMessage('FfmpegFailed') + #13#10#13#10 + ErrorMessage, mbError, MB_OK, IDOK);
     end;
   end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then RemoveInstallationStartupShortcut;
 end;

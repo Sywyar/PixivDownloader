@@ -184,6 +184,7 @@ public class GuiLauncher {
         // 开发进程允许并存；CLI 管理命令仍需单实例检查，避免并发修改初始化配置。
         boolean singleInstanceRequired = !PluginDevelopmentArtifacts.enabled()
                 || top.sywyar.pixivdownload.gui.config.DatabaseSwitchService.pending()
+                || top.sywyar.pixivdownload.transfer.EnvironmentTransferService.pending()
                 || CliSetupCommand.containsCliCommand(args);
 
         SingleInstanceManager singleInstanceManager;
@@ -221,6 +222,15 @@ public class GuiLauncher {
             registerSingleInstanceShutdown(singleInstanceManager);
         }
 
+        try {
+            top.sywyar.pixivdownload.transfer.EnvironmentTransferService.runPending(filterArgs(args));
+        } catch (java.io.IOException failure) {
+            String detail = message("transfer.startup-failed", RuntimeFiles.environmentTransferDirectory().toAbsolutePath());
+            log.error(detail);
+            if (!GraphicsEnvironment.isHeadless()) DesktopUiDialogs.showMessageDialog(null, detail,
+                    message("transfer.title"), DesktopUiDialogs.ERROR_MESSAGE);
+            throw new java.io.IOException("transfer.restore-recovery-required");
+        }
         if (top.sywyar.pixivdownload.gui.config.DatabaseSwitchService.pending())
             splash.showStatus(message("gui.config.database.migration.status.running"));
         top.sywyar.pixivdownload.gui.config.DatabaseSwitchService.runPending(filterArgs(args));
@@ -327,6 +337,8 @@ public class GuiLauncher {
                     pluginSession.startupDiscovery(), startupPluginSources);
             Supplier<List<DesktopUiPluginSnapshot>> currentDesktopSnapshots =
                     () -> buildDesktopUiPluginSnapshots(currentDesktopSources.get());
+            desktopUiHost.configureEnvironmentTransfer(() -> buildTransferPluginSnapshots(
+                    pluginRegistry(pluginSession, pluginSession.manager().discoverFeaturePlugins())));
             Supplier<WebI18nBundleRegistry> currentDesktopBundles = memoizedDesktopUiBundles(
                     () -> pluginSession.manager().discoverFeaturePlugins(),
                     discovery -> new WebI18nBundleRegistry(
@@ -743,6 +755,22 @@ public class GuiLauncher {
                         registered.plugin(), registered.classLoader(),
                         registered.packageId(), registered.generation()))
                 .toList();
+    }
+
+    /** 配置备份包含禁用插件的声明，但不装配其运行期页面或业务对象。 */
+    static List<DesktopUiPluginSnapshot> buildTransferPluginSnapshots(PluginRegistry registry) {
+        return registry.allRegisteredPlugins().stream().map(registered -> {
+            try {
+                return new DesktopUiPluginSnapshot(registered.id(), registered.source() == PluginSource.BUILT_IN,
+                        registered.packageId(), registered.generation(), registered.plugin() instanceof DesktopUiProvider,
+                        null, "", registered.plugin().guiThemes(),
+                        registered.plugin().guiConfigContributions(), List.of(), List.of(), List.of());
+            } catch (Throwable failure) {
+                DesktopUiFailover.rethrowFatal(failure);
+                registry.recordLifecycleFailure(registered, failure);
+                throw new IllegalStateException("transfer.config-owner-invalid", failure);
+            }
+        }).toList();
     }
 
     static List<DesktopUiPluginSnapshot> buildDesktopUiPluginSnapshots(

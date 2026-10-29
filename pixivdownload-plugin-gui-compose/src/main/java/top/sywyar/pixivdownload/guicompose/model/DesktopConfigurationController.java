@@ -78,6 +78,7 @@ final class DesktopConfigurationController {
     final Map<FieldKey, Long> credentialRevisions = new ConcurrentHashMap<>();
     final Set<FieldKey> clearedCoreCredentials = ConcurrentHashMap.newKeySet();
     final DesktopDatabaseSettingsView database = new DesktopDatabaseSettingsView(this);
+    final DesktopEnvironmentTransferView transfer = new DesktopEnvironmentTransferView(this);
 
     DesktopConfigurationController(
             ComposeDesktopUiModel owner,
@@ -176,6 +177,7 @@ final class DesktopConfigurationController {
     }
 
     boolean acceptForm(String binding, String value) {
+        if (transfer.accept(binding, value)) return true;
         if (!binding.startsWith("interface.") && !binding.startsWith("config.market."))
             return false;
         formValues.put(binding, value);

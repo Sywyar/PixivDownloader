@@ -111,6 +111,16 @@ final class AppDesktopUiHost implements DesktopUiHost {
     @Override public String defaultUpdateManifestUrl(){return top.sywyar.pixivdownload.update.UpdateConfig.DEFAULT_MANIFEST_URL;}
     @Override public String defaultNightlyUpdateManifestUrl(){return top.sywyar.pixivdownload.update.UpdateConfig.DEFAULT_NIGHTLY_MANIFEST_URL;}
     @Override public ConfigFile applicationConfig(){return applicationConfig;}
+    private top.sywyar.pixivdownload.plugin.api.gui.DesktopEnvironmentTransfer environmentTransfer;
+
+    void configureEnvironmentTransfer(java.util.function.Supplier<List<top.sywyar.pixivdownload.plugin.api.gui.DesktopUiPluginSnapshot>> plugins) {
+        environmentTransfer = new top.sywyar.pixivdownload.transfer.EnvironmentTransferService(this, plugins,
+                () -> top.sywyar.pixivdownload.gui.bootstrap.ApplicationRestartService.forBootstrap().requestRestart(), pluginSession, startupArguments);
+    }
+
+    @Override public Optional<top.sywyar.pixivdownload.plugin.api.gui.DesktopEnvironmentTransfer> environmentTransfer() {
+        return Optional.ofNullable(environmentTransfer);
+    }
     @Override public Optional<top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings> databaseSettings() {
         return Optional.of(databaseSettings);
     }

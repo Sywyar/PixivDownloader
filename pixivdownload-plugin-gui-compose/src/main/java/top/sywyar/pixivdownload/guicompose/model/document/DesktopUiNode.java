@@ -1710,6 +1710,7 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         /** 一天内的时间。 */ TIME,
         /** 日期与时间。 */ DATE_TIME,
         /** 文件路径。 */ FILE,
+        /** 新文件的保存路径。 */ FILE_SAVE,
         /** 目录路径。 */ DIRECTORY
     }
     /** 布尔输入呈现样式。 */

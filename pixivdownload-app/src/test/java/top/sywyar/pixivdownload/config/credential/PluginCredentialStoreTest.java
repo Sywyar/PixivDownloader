@@ -64,6 +64,35 @@ class PluginCredentialStoreTest {
     }
 
     @Test
+    @DisplayName("迁移读取不创建目录或升级信封，导入使用目标密钥且保留未选凭据")
+    void transfersBetweenIndependentKeysWithoutWritingDuringPreview() throws Exception {
+        Path sourceDirectory = tempDir.resolve("source");
+        System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, sourceDirectory.toString());
+        var source = store((byte) 0x61);
+        assertThat(source.readForTransfer(OWNER)).isEmpty();
+        assertThat(sourceDirectory).doesNotExist();
+        source.update(OWNER, Map.of(KEY, SECRET));
+        Map<String, String> exported = source.readForTransfer(OWNER);
+        byte[] sourceEnvelope = Files.readAllBytes(RuntimeFiles.peekPluginCredentialPath(OWNER));
+        var fallbackReader = new PluginCredentialStore(PluginCredentialKeyMaterial.forTesting(
+                repeated((byte) 0x62), repeated((byte) 0x61)));
+        assertThat(fallbackReader.readForTransfer(OWNER)).isEqualTo(exported);
+        assertThat(Files.readAllBytes(RuntimeFiles.peekPluginCredentialPath(OWNER))).isEqualTo(sourceEnvelope);
+
+        Path targetDirectory = tempDir.resolve("target");
+        System.setProperty(RuntimeFiles.CONFIG_DIR_PROPERTY, targetDirectory.toString());
+        var target = store((byte) 0x63);
+        target.update(OWNER, Map.of("fixture.other", "keep-this"));
+        Path targetPath = RuntimeFiles.peekPluginCredentialPath(OWNER);
+        byte[] original = Files.readAllBytes(targetPath);
+        byte[] prepared = target.prepareTransfer(OWNER, exported);
+        assertThat(Files.readAllBytes(targetPath)).isEqualTo(original);
+        Files.write(targetPath, prepared);
+        assertThat(target.readForTransfer(OWNER)).containsEntry(KEY, SECRET).containsEntry("fixture.other", "keep-this");
+        assertThatThrownBy(() -> source.readForTransfer(OWNER)).isInstanceOf(IOException.class);
+    }
+
+    @Test
     @DisplayName("相同更新保持密文不变，显式清除最后字段后删除文件")
     void keepsNoOpByteIdenticalAndDeletesEmptyOwnerFile() throws Exception {
         configureRuntimeDirectory();

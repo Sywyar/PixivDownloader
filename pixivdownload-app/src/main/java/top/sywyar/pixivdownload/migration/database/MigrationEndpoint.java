@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Objects;
 
 /** 停机工具的精确可信 provider 目标；不经过运行期支持方言枚举，也不保存首次选择。 */
-public record MigrationEndpoint(String owner, DatabaseProvider provider, DatabaseConnectionTarget target) {
+public record MigrationEndpoint(String owner, DatabaseProvider provider, DatabaseConnectionTarget target) implements MigrationSource {
     public MigrationEndpoint {
         if (owner == null || owner.isBlank()) throw new IllegalArgumentException("DATABASE_PROVIDER_NOT_SELECTED");
         Objects.requireNonNull(provider); Objects.requireNonNull(target);
@@ -31,5 +31,16 @@ public record MigrationEndpoint(String owner, DatabaseProvider provider, Databas
     public MigrationEndpoint privateStorage(DatabasePrivateStorageSettings settings) throws Exception {
         return new MigrationEndpoint(owner, provider, target.privateStorage(settings));
     }
+    @Override public String description() { return target.description(); }
+    @Override public top.sywyar.pixivdownload.plugin.api.database.migration.DatabaseMigrationProvider.Inspection inspect(
+            top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema schema) throws Exception {
+        return provider.inspectMigration(target, schema, true);
+    }
+    @Override public top.sywyar.pixivdownload.plugin.api.database.migration.DatabaseExportSession export(
+            top.sywyar.pixivdownload.plugin.api.database.migration.MigrationRequest request,
+            top.sywyar.pixivdownload.plugin.api.database.migration.MigrationControl control) throws Exception {
+        return provider.exportDatabase(target, request, control);
+    }
+    @Override public void verifyRevision(String revision) throws Exception { provider.verifySource(target, revision); }
     @Override public String toString() { return "MigrationEndpoint[owner=" + owner + "]"; }
 }

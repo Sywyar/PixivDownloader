@@ -161,6 +161,21 @@ public final class BackendLifecycleManager {
      * 能复位。
      */
     private static volatile boolean shutdownInitiated = false;
+    private static Object snapshotReservation;
+
+    /** 停机快照期间阻止新的业务启动；关闭租约不撤销进程退出闩锁。 */
+    public static AutoCloseable suspendBackendStarts() {
+        synchronized (LOCK) {
+            if (shutdownInitiated || snapshotReservation != null) throw new IllegalStateException("transfer.busy");
+            Object reservation = new Object();
+            snapshotReservation = reservation;
+            return () -> {
+                synchronized (LOCK) {
+                    if (snapshotReservation == reservation) snapshotReservation = null;
+                }
+            };
+        }
+    }
 
     /** 当前 worker operation；完成后清空，既是唯一 context owner，也是有限等待句柄。 */
     private static volatile StartOperation activeStartOperation;
@@ -378,6 +393,7 @@ public final class BackendLifecycleManager {
      */
     static void resetForTests() {
         synchronized (LOCK) {
+            snapshotReservation = null;
             shutdownInitiated = true;
             if (activeStartOperation != null) {
                 activeStartOperation.closeRequested = true;
@@ -466,7 +482,7 @@ public final class BackendLifecycleManager {
         final Consumer<Throwable> failureHandler;
         final StartOperation operation;
         synchronized (LOCK) {
-            if (shutdownInitiated || state == State.STARTING || state == State.RUNNING
+            if (shutdownInitiated || snapshotReservation != null || state == State.STARTING || state == State.RUNNING
                     || state == State.STOPPING || (state == State.FAILED && context != null)) {
                 return false;
             }

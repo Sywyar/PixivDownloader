@@ -194,6 +194,11 @@
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-crypto</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.google.crypto.tink</groupId>
+            <artifactId>tink</artifactId>
+            <version>1.24.0</version>
+        </dependency>
 
     </dependencies>
 
