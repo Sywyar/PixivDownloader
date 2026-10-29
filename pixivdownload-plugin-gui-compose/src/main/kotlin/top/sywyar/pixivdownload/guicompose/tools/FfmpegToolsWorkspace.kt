@@ -146,7 +146,13 @@ private fun FfmpegManagement(
         }
         nodes.filterIsInstance<Progress>().forEach {
             DesktopLinearProgress(it.progress().toFloat().takeUnless { _ -> it.indeterminate() }, Modifier.fillMaxWidth().height(5.dp))
-            CupertinoText(text(it.text()), fontSize = 12.sp, color = palette.secondaryText)
+            it.text()?.let { progressText ->
+                CupertinoText(
+                    text(progressText),
+                    fontSize = 12.sp,
+                    color = palette.secondaryText,
+                )
+            }
         }
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
