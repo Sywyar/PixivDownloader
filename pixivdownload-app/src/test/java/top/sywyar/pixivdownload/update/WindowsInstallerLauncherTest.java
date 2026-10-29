@@ -61,8 +61,8 @@ class WindowsInstallerLauncherTest {
                 using System.IO;
                 using System.Reflection;
                 class Fixture {
-                    static void Main() {
-                        File.WriteAllText(Assembly.GetExecutingAssembly().Location + ".started", "ok");
+                    static void Main(string[] args) {
+                        File.WriteAllText(Assembly.GetExecutingAssembly().Location + ".started", string.Join("\\n", args));
                     }
                 }
                 """, StandardCharsets.UTF_8);
@@ -87,11 +87,12 @@ class WindowsInstallerLauncherTest {
         } finally {
             if (compile.isAlive()) compile.destroyForcibly();
         }
-        assertThat(WindowsInstallerLauncher.launch(executable)).isZero();
+        Path destination = temp.resolve("安装 ' $(literal) & [target]");
+        assertThat(WindowsInstallerLauncher.launch(executable, destination)).isZero();
         Path marker = Path.of(executable + ".started");
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
         while (!Files.exists(marker) && System.nanoTime() < deadline) Thread.sleep(20);
-        assertThat(Files.readString(marker, StandardCharsets.UTF_8)).isEqualTo("ok");
+        assertThat(Files.readString(marker, StandardCharsets.UTF_8)).isEqualTo("/DIR=" + destination);
         assertThat(WindowsInstallerLauncher.launch(temp.resolve("absent.exe"))).isNotZero();
     }
 }

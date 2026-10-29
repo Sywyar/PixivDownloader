@@ -104,6 +104,21 @@ public final class RuntimeFiles {
         return directory.resolve(safePluginId + ".properties").normalize();
     }
 
+    /** 迁移预检只解析路径，不创建配置目录。 */
+    public static Path peekPluginConfigPath(String pluginId) {
+        return configDirectory().resolve(PLUGIN_CONFIG_DIR).resolve(safePathToken(pluginId, "pluginId") + ".properties");
+    }
+
+    /** 迁移预检只解析凭据路径，不触发信封升级。 */
+    public static Path peekPluginCredentialPath(String pluginId) {
+        return configDirectory().resolve(PLUGIN_CREDENTIAL_DIR).resolve(safePathToken(pluginId, "pluginId") + ".properties");
+    }
+
+    /** 导入暂存、目标备份和中断恢复记录；不作为普通缓存清理。 */
+    public static Path environmentTransferDirectory() {
+        return dataDirectory().resolve("environment-transfers");
+    }
+
     public static Path stateDirectory() {
         return resolveDirectory(STATE_DIR_PROPERTY, DEFAULT_STATE_DIR);
     }
@@ -118,6 +133,10 @@ public final class RuntimeFiles {
 
     public static Path resolvePluginDataDirectory(String pluginId) {
         return resolvePluginDirectory(dataDirectory(), pluginId);
+    }
+
+    public static Path peekPluginDataDirectory(String pluginId) {
+        return dataDirectory().resolve(safePathToken(pluginId, "pluginId"));
     }
 
     /**

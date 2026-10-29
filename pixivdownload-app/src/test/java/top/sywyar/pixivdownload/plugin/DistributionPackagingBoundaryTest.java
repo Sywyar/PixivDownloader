@@ -528,7 +528,7 @@ class DistributionPackagingBoundaryTest {
     }
 
     @Test
-    @DisplayName("最终宿主产物可独立加载共享实现、社区合同、语言目录和许可证")
+    @DisplayName("最终宿主产物可独立加载共享实现、迁移与社区合同、语言目录和许可证")
     void bootJarLoadsCommunityContracts() throws Exception {
         Path bootJar = locateBootJar();
         requireAvailable(bootJar != null, "需要本次构建的宿主 boot JAR");
@@ -569,6 +569,17 @@ class DistributionPackagingBoundaryTest {
                 assertThat(model.getMethod("owner").invoke(value)).isNotNull();
             }
             assertThat(java.util.Collections.list(loader.getResources("community/v1/catalogs.json"))).hasSize(1);
+            Class<?> mapperType = loader.loadClass("com.fasterxml.jackson.databind.ObjectMapper");
+            Object mapper = mapperType.getConstructor().newInstance();
+            Class<?> inventoryType = loader.loadClass("top.sywyar.pixivdownload.transfer.TransferInventory$Inventory");
+            String inventoryJson = """
+                    {"version":1,"plugins":[{"id":"fixture-plugin","version":"fixture"}],"repositories":[]}
+                    """;
+            Object inventory = mapperType.getMethod("readValue", String.class, Class.class)
+                    .invoke(mapper, inventoryJson, inventoryType);
+            String serialized = (String) mapperType.getMethod("writeValueAsString", Object.class).invoke(mapper, inventory);
+            var verifier = new com.fasterxml.jackson.databind.ObjectMapper();
+            assertThat(verifier.readTree(serialized)).isEqualTo(verifier.readTree(inventoryJson));
         }
     }
 

@@ -7,9 +7,9 @@ import java.util.*;
 public final class ProviderDatabaseMigration {
     private ProviderDatabaseMigration() {}
     public enum Phase { NOT_STARTED, PREPARING, COPYING, VERIFIED, COMMITTING, COMMITTED, ROLLED_BACK, UNKNOWN }
-    public record Store(String owner, MigrationEndpoint source, MigrationEndpoint target, MigrationRequest request,
+    public record Store(String owner, MigrationSource source, MigrationEndpoint target, MigrationRequest request,
                         MigrationReplacement replacement) {
-        public Store(String owner, MigrationEndpoint source, MigrationEndpoint target, MigrationRequest request) {
+        public Store(String owner, MigrationSource source, MigrationEndpoint target, MigrationRequest request) {
             this(owner, source, target, request, null);
         }
     }
@@ -37,9 +37,9 @@ public final class ProviderDatabaseMigration {
             throw new IllegalStateException("MIGRATION_STORES_CHANGED");
         Map<String, StoreReport> state = new LinkedHashMap<>();
         for (var store : stores) {
-            if (store.source().target().description().equals(store.target().target().description()))
+            if (store.source().description().equals(store.target().target().description()))
                 throw new IllegalArgumentException("MIGRATION_SAME_TARGET");
-            state.put(store.owner(), new StoreReport(store.source().owner(), store.source().target().description(),
+            state.put(store.owner(), new StoreReport(store.source().owner(), store.source().description(),
                     store.target().owner(), store.target().target().description(), Phase.NOT_STARTED, "", 0, null));
             var retained = previous.get(store.owner());
             if (reusable(retained)) {
@@ -63,7 +63,7 @@ public final class ProviderDatabaseMigration {
                 var progress = new Progress(store.owner(), state, reports, control, releaseFailures);
                 if (reuse) {
                     open.committed = true;
-                    store.source().provider().verifySource(store.source().target(), retained.snapshot().sourceRevision());
+                    store.source().verifyRevision(retained.snapshot().sourceRevision());
                     store.target().provider().verifyImported(store.target().target(), retained.snapshot(), progress);
                 } else {
                     open.destination = Objects.requireNonNull(store.replacement() == null
@@ -71,8 +71,7 @@ public final class ProviderDatabaseMigration {
                             : store.target().provider().replaceDatabase(store.target().target(), store.request().schema(),
                                     store.replacement(), progress));
                 }
-                open.source = Objects.requireNonNull(store.source().provider().exportDatabase(
-                        store.source().target(), store.request(), progress));
+                open.source = Objects.requireNonNull(store.source().export(store.request(), progress));
                 var snapshot = Objects.requireNonNull(open.source.snapshot());
                 if (!store.request().schema().equals(snapshot.schema())) throw new IllegalStateException("MIGRATION_SCHEMA_MISMATCH");
                 if (reuse) {
@@ -158,14 +157,14 @@ public final class ProviderDatabaseMigration {
             var report = reports.get(store.owner());
             requireIdentity(store, report);
             if (report.phase() != Phase.COMMITTED) throw new IllegalStateException("MIGRATION_NOT_COMMITTED");
-            store.source().provider().verifySource(store.source().target(), report.snapshot().sourceRevision());
+            store.source().verifyRevision(report.snapshot().sourceRevision());
             store.target().provider().verifyImported(store.target().target(), report.snapshot(), control);
         }
     }
     private static void requireIdentity(Store store, StoreReport report) {
         if (report == null || report.snapshot() == null || !store.request().schema().equals(report.snapshot().schema())
                 || !store.source().owner().equals(report.sourceProvider()) || !store.target().owner().equals(report.targetProvider())
-                || !store.source().target().description().equals(report.source())
+                || !store.source().description().equals(report.source())
                 || !store.target().target().description().equals(report.target()))
             throw new IllegalStateException("MIGRATION_IDENTITY_CHANGED");
     }

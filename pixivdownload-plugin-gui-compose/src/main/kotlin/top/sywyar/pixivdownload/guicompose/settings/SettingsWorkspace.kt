@@ -112,7 +112,7 @@ internal fun SettingsWorkspace(
                         DesktopIcon(Icons.Default.MoreHoriz, text(settingsText("maintenance")), tint = palette.secondaryText)
                     }
                     CupertinoDropdownMenu(maintenance, { maintenance = false }) {
-                        listOf("config.open", "config.reset", "config.reload").mapNotNull(buttons::get).forEach { button ->
+                        listOf("transfer.export", "transfer.import", "config.open", "config.reset", "config.reload").mapNotNull(buttons::get).forEach { button ->
                             MenuPickerAction(title = { CupertinoText(text(button.label()), fontSize = 13.sp) },
                                 onClick = { maintenance = false; activate(button) }, enabled = button.enabled(), isSelected = false)
                         }

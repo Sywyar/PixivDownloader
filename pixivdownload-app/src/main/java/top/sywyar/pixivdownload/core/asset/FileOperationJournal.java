@@ -34,6 +34,23 @@ public class FileOperationJournal {
 
     public record Entry(int index, Path target, String oldHash, String newHash) {}
 
+    /** 文件恢复意图依赖原安装的暂存副本，不能随数据库转移到另一安装。 */
+    public static boolean hasPendingFileOperations(top.sywyar.pixivdownload.plugin.api.database.migration.MigrationVerification snapshot) {
+        var table = snapshot.tables().get(TABLE);
+        return table != null && table.rows() != 0;
+    }
+
+    public static boolean hasPendingFileOperations(top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionTarget target,
+            top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema schema) throws java.sql.SQLException {
+        try (var connection = target.openConnection(top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionTarget.OpenMode.READ_ONLY)) {
+            if (!target.readSchema(connection).containsKey(TABLE)) return false;
+            try (var session = target.storageSession(connection, schema)) {
+                return !session.query(new Query(TABLE, Map.of("entry_id", column(TABLE, "entry_id")), null,
+                        List.of(), List.of(), 1, 0)).isEmpty();
+            }
+        }
+    }
+
     public boolean isUnavailable() {
         return !database.available();
     }

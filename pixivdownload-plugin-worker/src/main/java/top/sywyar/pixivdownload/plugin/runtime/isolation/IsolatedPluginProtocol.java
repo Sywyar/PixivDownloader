@@ -172,6 +172,7 @@ final class IsolatedPluginProtocol {
             List<NavigationContribution> navigation = requireList(plugin.navigation(), "navigation");
 
             requireEmpty(plugin.schema(), "schema");
+            requireEmpty(plugin.environmentFiles(), "environmentFiles");
             requireEmpty(plugin.startupRoutes(), "startupRoutes");
             requireEmpty(plugin.landings(), "landings");
             requireEmpty(plugin.pageSections(), "pageSections");

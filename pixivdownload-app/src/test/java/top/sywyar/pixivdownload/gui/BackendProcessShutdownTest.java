@@ -60,6 +60,21 @@ class BackendProcessShutdownTest {
 
     // ── BackendShutdownCoordinator ───────────────────────────────────────────
 
+    @Test @DisplayName("快照租约阻止后端重新启动，旧租约重复关闭不释放新租约")
+    void snapshotReservationKeepsBackendStopped() throws Exception {
+        var first = BackendLifecycleManager.suspendBackendStarts();
+        try {
+            assertThat(BackendLifecycleManager.startAsync()).isFalse();
+            assertThatThrownBy(BackendLifecycleManager::suspendBackendStarts).hasMessage("transfer.busy");
+        } finally { first.close(); }
+        try (var second = BackendLifecycleManager.suspendBackendStarts()) {
+            first.close();
+            assertThat(BackendLifecycleManager.startAsync()).isFalse();
+            BackendLifecycleManager.forbidLifecycle();
+        }
+        assertThat(BackendLifecycleManager.startAsync()).isFalse();
+    }
+
     @Test
     @DisplayName("进程退出顺序：禁止启动 → 清理注册 → 关 context → 关 session（严格序，context 确认关闭才关 session）")
     void shutdownOrderIsForbidThenRegistrationThenContextThenSession() {

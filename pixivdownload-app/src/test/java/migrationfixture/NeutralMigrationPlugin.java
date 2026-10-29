@@ -14,6 +14,16 @@ import java.util.*;
 public final class NeutralMigrationPlugin extends Plugin implements PixivPluginProvider {
     @Override public PixivFeaturePlugin featurePlugin() { return new Provider(); }
     public static final class Provider implements PixivFeaturePlugin, DatabaseProvider {
+        @Override public List<top.sywyar.pixivdownload.plugin.api.storage.EnvironmentFileContribution> environmentFiles() {
+            return List.of(new top.sywyar.pixivdownload.plugin.api.storage.EnvironmentFileContribution() {
+                @Override public Definition definition() {
+                    return new Definition("preferences", Root.STATE, "", "preferences\\.txt", 1, Kind.STATE, 1, 16 * 1024, false);
+                }
+                @Override public void copy(String name, InputStream source, InputStream existing, OutputStream output, boolean credentials) throws IOException {
+                    source.transferTo(output);
+                }
+            });
+        }
         @Override public String id() { return "neutral-migration"; }
         @Override public String displayName() { return "fixture.name"; }
         @Override public String description() { return "fixture.summary"; }

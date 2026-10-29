@@ -613,6 +613,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     ) {
         String dismissAction = state.id() + ".dismiss";
         Runnable dismiss = () -> {
+            configuration.transfer.dismissed(state.id());
             dialogState = null;
             rebuild();
         };
@@ -858,6 +859,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         if (closed) return;
         closed = true;
         security.clearSecrets();
+        configuration.transfer.clear();
         mediaTools.close();
         configuration.invalidatePage();
         stablePages = null;

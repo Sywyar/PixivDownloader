@@ -278,6 +278,7 @@ final class DesktopConfigurationLoader {
                 ConfigSection::order).thenComparing(ConfigSection::id)).toList();
         repositories.load();
         model.database.refresh();
+        model.transfer.refreshRestoreState();
 
     }
 

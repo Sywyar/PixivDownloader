@@ -70,6 +70,18 @@ public final class MigrationProcessHarness {
                     entry.getName()));
         } else {
             assertThat(Path.of(bootJar)).isRegularFile();
+            Path testClasses = Path.of(MigrationProcessHarness.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+            String entryPath = entry.getName().replace('.', '/');
+            if (Files.isRegularFile(testClasses.resolve(entryPath + ".class"))) {
+                // 只增加测试入口，避免 classes 目录遮蔽发行 JAR 中的生产实现。
+                Path loader = directory.resolve("test-entry");
+                Path entryDirectory = Path.of(entryPath).getParent();
+                Path destination = Files.createDirectories(loader.resolve(entryDirectory));
+                try (var entries = Files.newDirectoryStream(testClasses.resolve(entryDirectory), entry.getSimpleName() + "*.class")) {
+                    for (Path file : entries) Files.copy(file, destination.resolve(file.getFileName()), StandardCopyOption.REPLACE_EXISTING);
+                }
+                command.add("-Dloader.path=" + loader);
+            }
             command.addAll(List.of("-Dloader.main=" + entry.getName(), "-cp", bootJar,
                     "org.springframework.boot.loader.launch.PropertiesLauncher"));
         }

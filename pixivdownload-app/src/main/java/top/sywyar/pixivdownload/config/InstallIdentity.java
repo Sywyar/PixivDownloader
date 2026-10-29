@@ -41,6 +41,21 @@ public class InstallIdentity {
         }
     }
 
+    /** 预检读取磁盘事实，不生成身份或复用可能已过期的进程缓存。 */
+    public static java.util.Optional<String> readExisting() throws IOException {
+        Path file = RuntimeFiles.resolveInstallIdentityPath();
+        top.sywyar.pixivdownload.plugin.api.database.migration.MigrationFiles.requirePlain(file, false);
+        if (!Files.exists(file, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return java.util.Optional.empty();
+        top.sywyar.pixivdownload.common.PlainFilePathGuard.requirePlainRegularFile(file);
+        try (var input = Files.newInputStream(file, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            byte[] bytes = input.readNBytes(257);
+            if (bytes.length > 256) throw new IOException("DATABASE_INSTALL_IDENTITY_INVALID");
+            UUID id = UuidUtils.parseUuidV4(new String(bytes, StandardCharsets.UTF_8).trim());
+            if (id == null) throw new IOException("DATABASE_INSTALL_IDENTITY_INVALID");
+            return java.util.Optional.of(id.toString());
+        }
+    }
+
     private static String loadOrCreate() {
         Path file = RuntimeFiles.resolveInstallIdentityPath();
         if (Files.isRegularFile(file)) {

@@ -99,6 +99,14 @@ class IsolatedPluginSessionTest {
         assertThatThrownBy(SdkWorkerDebug::fromSystemProperties).isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test @DisplayName("声明式 worker 明确拒绝不能跨进程执行的环境文件复制能力")
+    void rejectsEnvironmentFileCallbacks() {
+        var plugin = mock(top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin.class);
+        when(plugin.environmentFiles()).thenReturn(List.of(mock(top.sywyar.pixivdownload.plugin.api.storage.EnvironmentFileContribution.class)));
+        assertThatThrownBy(() -> IsolatedPluginProtocol.Snapshot.capture(plugin))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("environmentFiles");
+    }
+
     @Test
     @DisplayName("worker 保留宿主环境并仅覆盖私有临时目录")
     void preservesInheritedEnvironment() {

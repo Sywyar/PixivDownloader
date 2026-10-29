@@ -72,6 +72,8 @@ class GuiLauncherDesktopSourcesTest {
             assertThat(GuiLauncher.buildDesktopUiPluginSnapshots(GuiLauncher.buildDesktopUiPluginSources(registry)))
                     .hasSize(enabled ? 1 : 0);
             assertThat(registry.allRegisteredPlugins()).hasSize(1);
+            assertThat(GuiLauncher.buildTransferPluginSnapshots(registry)).extracting(snapshotValue -> snapshotValue.id())
+                    .containsExactly("fixture");
         }
     }
 

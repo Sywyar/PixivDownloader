@@ -169,7 +169,8 @@ public class PluginCredentialDefinitionResolver {
         return Set.copyOf(keys);
     }
 
-    private static boolean isOwnedNamespace(String owner, String key) {
+    /** 凭据迁移和配置归档共用同一 owner 命名空间边界。 */
+    public static boolean isOwnedNamespace(String owner, String key) {
         int separator = key.indexOf('.');
         String namespace = (separator < 0 ? key : key.substring(0, separator))
                 .toLowerCase(java.util.Locale.ROOT);

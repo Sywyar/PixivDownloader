@@ -15,6 +15,7 @@ final class WindowsInstallerLauncher {
                 $info = New-Object System.Diagnostics.ProcessStartInfo
                 $info.FileName = $env:PIXIV_INSTALLER_PATH
                 $info.WorkingDirectory = [System.IO.Path]::GetDirectoryName($info.FileName)
+                $info.Arguments = $env:PIXIV_INSTALLER_ARGUMENTS
                 $info.UseShellExecute = $true
                 $info.Verb = 'open'
                 $installerProcess = [System.Diagnostics.Process]::Start($info)
@@ -34,6 +35,11 @@ final class WindowsInstallerLauncher {
     }
 
     static int launch(Path installer) throws IOException {
+        return launch(installer, top.sywyar.pixivdownload.gui.AutoStartManager.currentApplicationExecutable()
+                .map(Path::getParent).orElse(null));
+    }
+
+    static int launch(Path installer, Path installationDirectory) throws IOException {
         String systemRoot = System.getenv("SystemRoot");
         if (systemRoot == null || systemRoot.isBlank()) {
             throw new IOException("WINDOWS_SYSTEM_ROOT_MISSING");
@@ -45,6 +51,14 @@ final class WindowsInstallerLauncher {
                 .redirectError(ProcessBuilder.Redirect.DISCARD);
         // 路径只作为环境值传入，不成为 PowerShell 代码或命令参数片段。
         builder.environment().put("PIXIV_INSTALLER_PATH", installer.toAbsolutePath().normalize().toString());
+        String arguments = "";
+        if (installationDirectory != null) {
+            String directory = installationDirectory.toAbsolutePath().normalize().toString();
+            // Windows 参数的结尾反斜杠必须转义，避免吃掉路径的结束引号。
+            if (directory.endsWith("\\")) directory += "\\";
+            arguments = "/DIR=\"" + directory + "\"";
+        }
+        builder.environment().put("PIXIV_INSTALLER_ARGUMENTS", arguments);
         return awaitLaunch(builder.start());
     }
 

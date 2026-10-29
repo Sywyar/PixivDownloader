@@ -71,6 +71,7 @@ Name: "ja"; MessagesFile: "compiler:Default.isl,Japanese.isl"
 Name: "ko"; MessagesFile: "compiler:Default.isl,Korean.isl"
 
 [CustomMessages]
+#include "PixivDownload-relocation-messages.iss.inc"
 en.OptionalTasksGroup=Optional setup tasks:
 zhcn.OptionalTasksGroup=可选安装任务：
 en.TaskDownloadFfmpeg=Download and install FFmpeg after PixivDownload is installed
@@ -331,6 +332,8 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent runascurrentuser; Check: ShouldInstallApplicationFiles
 
 [UninstallDelete]
+Type: files; Name: "{app}\.pixivdownload-installation"
+Type: files; Name: "{app}\.pixivdownload-installation.tmp"
 Type: filesandordirs; Name: "{app}\tools"
 
 [Code]
@@ -468,6 +471,7 @@ end;
 
 #include "PixivDownload-process.iss.inc"
 #include "PixivDownload-maintenance.iss.inc"
+#include "PixivDownload-relocation.iss.inc"
 #include "PixivDownload-plugins.iss.inc"
 #include "PixivDownload-ffmpeg.iss.inc"
 #include "PixivDownload-lifecycle.iss.inc"

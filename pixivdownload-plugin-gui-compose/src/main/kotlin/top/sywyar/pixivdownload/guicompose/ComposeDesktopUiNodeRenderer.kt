@@ -1286,6 +1286,7 @@ object ComposeDesktopUiNodeRenderer {
                     }
                 }
                 if (node.inputKind() == DesktopUiNode.InputKind.FILE
+                    || node.inputKind() == DesktopUiNode.InputKind.FILE_SAVE
                     || node.inputKind() == DesktopUiNode.InputKind.DIRECTORY) {
                     CupertinoButton(
                         colors = CupertinoButtonDefaults.grayButtonColors(contentColor = LocalExperiencePalette.current.text),
@@ -1929,7 +1930,9 @@ object ComposeDesktopUiNodeRenderer {
         val chooser = JFileChooser(value.ifBlank { "." })
         chooser.fileSelectionMode = if (kind == DesktopUiNode.InputKind.DIRECTORY)
             JFileChooser.DIRECTORIES_ONLY else JFileChooser.FILES_ONLY
-        return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION)
+        if (kind == DesktopUiNode.InputKind.FILE_SAVE) chooser.selectedFile = java.io.File(value.ifBlank { "PixivDownloader.pdbackup" })
+        val result = if (kind == DesktopUiNode.InputKind.FILE_SAVE) chooser.showSaveDialog(null) else chooser.showOpenDialog(null)
+        return if (result == JFileChooser.APPROVE_OPTION)
             chooser.selectedFile.absolutePath else null
     }
 

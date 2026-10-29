@@ -34,10 +34,10 @@ public final class PrivateDatabaseMigrationState {
                 data.toAbsolutePath().normalize().toString());
     }
 
-    public static void recordVerified(String owner, MigrationEndpoint source, MigrationEndpoint targetMain,
+    public static void recordVerified(String owner, top.sywyar.pixivdownload.migration.database.MigrationSource source, MigrationEndpoint targetMain,
             MigrationEndpoint targetPrivate, SourceConfiguration config, MigrationSnapshot snapshot) throws Exception {
-        source.provider().verifySource(source.target(), snapshot.sourceRevision());
-        var receipt = new Receipt(1, owner, InstallIdentity.get(), config, source.owner(), source.target().description(),
+        source.verifyRevision(snapshot.sourceRevision());
+        var receipt = new Receipt(1, owner, InstallIdentity.get(), config, source.owner(), source.description(),
                 snapshot.sourceRevision(), targetMain.owner(), targetMain.target().description(), targetPrivate.target().description());
         Path path = RuntimeFiles.privateDatabaseMigrationReceipt(owner);
         PlainFilePathGuard.requirePlainParent(path, true);
