@@ -54,9 +54,6 @@ import top.sywyar.pixivdownload.plugin.storage.PluginDatabaseFactory;
 @Configuration
 public class PluginRuntimeConfiguration {
 
-    private static final int DOWNLOAD_WORKBENCH_REQUIRED_MAJOR = 1;
-    private static final int DOWNLOAD_WORKBENCH_REQUIRED_MINOR = 0;
-
     /**
      * 唯一 bootstrap 会话 Bean。
      * <ul>
@@ -150,8 +147,6 @@ public class PluginRuntimeConfiguration {
      * {@link RecoveryModeService} 据本策略与插件状态报告判定是否进入恢复模式；本配置只声明策略数据，不在启动期据此
      * 拦截请求（拦截由恢复模式访问控制 {@link RecoveryModeGate} 执行）。必选性由本策略声明，而非由插件自称。
      * <ul>
-     *   <li>下载工作台 {@code download-workbench} 恒为必选——它是官方 required 外置插件，由发行元数据和本核心策略
-     *       约束，不依赖插件自称必选；缺失 / 不兼容 / 验签失败时核心进入恢复模式。</li>
      *   <li>{@code recovery-sentinel} 仅当显式开关 {@code pixivdownload.recovery-sentinel.required=true} 打开时才追加为
      *       必选项（默认关闭、不参与判定，故默认配置下核心不因它进入恢复模式）。它是一个不贡献任何功能的最小外置插件：
      *       开关打开后，若该外置插件缺失（未放入 {@code plugins/}）或被 {@code plugins.recovery-sentinel.enabled=false}
@@ -161,15 +156,6 @@ public class PluginRuntimeConfiguration {
     @Bean
     public RequiredPluginPolicy requiredPluginPolicy(Environment environment) {
         List<RequiredPluginPolicy.RequiredPlugin> required = new ArrayList<>();
-        required.add(new RequiredPluginPolicy.RequiredPlugin(
-                "download-workbench",
-                // 这里约束 download-workbench 自身版本，不是宿主 SDK 版本；
-                // SDK 升级不能把仍兼容的既有下载工作台误判为过期。
-                VersionRequirement.of(
-                        DOWNLOAD_WORKBENCH_REQUIRED_MAJOR,
-                        DOWNLOAD_WORKBENCH_REQUIRED_MINOR),
-                false,
-                "plugin.recovery.missing.download-workbench"));
         if (environment.getProperty("pixivdownload.recovery-sentinel.required", Boolean.class, false)) {
             // 不约束插件自身版本（unspecified）：只要求它在场且启动即可——它是「存在性 / 启用性」探针，
             // 版本无关。其对SDK 的 requires 兼容仍由发现桥接的接入兼容门独立校验。

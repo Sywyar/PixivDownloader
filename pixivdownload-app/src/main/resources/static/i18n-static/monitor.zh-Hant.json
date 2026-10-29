@@ -28,6 +28,8 @@
     "detail.title": "標題",
     "empty.active.body": "目前沒有活躍下載工作。",
     "empty.active.title": "佇列為空",
+    "empty.active.unavailable-body": "下載狀態功能未啟用，仍可查看既有下載紀錄。",
+    "empty.active.unavailable-title": "即時下載狀態無法使用",
     "empty.history.body": "目前還沒有已下載的作品。",
     "empty.history.title": "目前沒有下載歷史",
     "filter.ai.title": "AI 篩選",

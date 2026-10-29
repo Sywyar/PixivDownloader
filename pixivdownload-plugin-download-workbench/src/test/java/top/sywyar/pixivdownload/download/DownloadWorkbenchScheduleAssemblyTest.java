@@ -27,8 +27,9 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskDefiniti
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkExecutor;
 import top.sywyar.pixivdownload.download.schedule.credential.OveruseWarningService;
-import top.sywyar.pixivdownload.schedule.FakeScheduleCapabilityAccess;
-import top.sywyar.pixivdownload.schedule.ScheduleCapabilityTestFixture;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleCapabilityRegistry;
+import top.sywyar.pixivdownload.core.schedule.capability.WorkbenchScheduleTestAccess;
+import top.sywyar.pixivdownload.core.schedule.capability.ScheduleOwnerBundle;
 import top.sywyar.pixivdownload.download.schedule.persistence.PixivSchedulePersistenceCodec;
 import top.sywyar.pixivdownload.download.schedule.snapshot.ScheduleTaskSnapshot;
 
@@ -163,8 +164,8 @@ class DownloadWorkbenchScheduleAssemblyTest {
                 configuration.pixivFollowLatestScheduledSourceExecutor(support),
                 configuration.pixivCollectionScheduledSourceExecutor(support));
 
-        FakeScheduleCapabilityAccess registry = new FakeScheduleCapabilityAccess();
-        ScheduleCapabilityTestFixture.publish(registry, ScheduleCapabilityTestFixture.bundle(
+        ScheduleCapabilityRegistry registry = new ScheduleCapabilityRegistry();
+        WorkbenchScheduleTestAccess.publish(registry, ScheduleOwnerBundle.prepare(
                 WORKBENCH_OWNER,
                 plugin.scheduledSourceDescriptors(),
                 sourceExecutors,
@@ -174,7 +175,7 @@ class DownloadWorkbenchScheduleAssemblyTest {
 
         ScheduledWorkExecutor novelExecutor = mock(ScheduledWorkExecutor.class);
         when(novelExecutor.workType()).thenReturn("novel");
-        ScheduleCapabilityTestFixture.publish(registry, ScheduleCapabilityTestFixture.bundle(
+        WorkbenchScheduleTestAccess.publish(registry, ScheduleOwnerBundle.prepare(
                 NOVEL_OWNER,
                 List.of(), List.of(), List.of(novelExecutor), List.of(), List.of()));
 

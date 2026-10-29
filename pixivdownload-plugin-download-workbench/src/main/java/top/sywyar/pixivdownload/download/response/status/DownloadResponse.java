@@ -3,7 +3,7 @@ package top.sywyar.pixivdownload.download.response.status;
 import lombok.Builder;
 import lombok.Getter;
 
-/** 下载工作台控制面响应；由插件自身拥有，避免复用宿主应用 DTO。 */
+/** 下载控制面的通用响应，保持既有 HTTP 字段。 */
 @Getter
 @Builder
 public class DownloadResponse {

@@ -28,6 +28,8 @@
     "detail.title": "タイトル",
     "empty.active.body": "アクティブなダウンロードタスクはありません。",
     "empty.active.title": "キューは空です",
+    "empty.active.unavailable-body": "ダウンロード状況の機能は有効になっていません。過去のダウンロード履歴は引き続き確認できます。",
+    "empty.active.unavailable-title": "ダウンロード状況を取得できません",
     "empty.history.body": "ダウンロード済みの作品はまだありません。",
     "empty.history.title": "ダウンロード履歴はありません",
     "filter.ai.title": "AI で絞り込む",

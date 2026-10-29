@@ -5,32 +5,21 @@ import org.junit.jupiter.api.Test;
 import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
-import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
-
-import java.util.List;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * 计划任务宿主能力已并入 download-workbench 外置 required 包；核心壳不再携带独立 schedule 插件。
- */
-@DisplayName("schedule 宿主随 download-workbench 外置包贡献")
+@DisplayName("下载工作台只贡献 Pixiv 计划兼容入口")
 class ScheduleHostRequiredContextTest {
-
     @Test
-    @DisplayName("schedule 管理路由由 download-workbench 声明，不再存在独立 schedule 插件 id")
-    void scheduleRoutesOwnedByDownloadWorkbench() {
-        DownloadWorkbenchPlugin plugin = new DownloadWorkbenchPlugin();
-        List<WebRouteContribution> scheduleRoutes = plugin.routes().stream()
-                .filter(route -> route.matches("/api/schedule/tasks")
-                        && route.acceptsMethod(HttpMethod.GET))
-                .toList();
-
-        assertThat(plugin.id()).isEqualTo("download-workbench");
-        assertThat(scheduleRoutes).singleElement().satisfies(route -> {
-            assertThat(route.pathPattern()).isEqualTo("/api/schedule/**");
-            assertThat(route.accessPolicy()).isEqualTo(AccessPolicy.ADMIN);
-            assertThat(route.acceptsMethod(HttpMethod.POST)).isTrue();
-        });
+    @DisplayName("通用管理面不随工作台撤回，兼容动作仍要求管理员")
+    void onlyPixivCompatibilityRoutesBelongToWorkbench() {
+        var routes = new DownloadWorkbenchPlugin().routes();
+        assertThat(routes.stream().filter(route -> route.matches("/api/schedule/tasks"))).isEmpty();
+        for (String path : new String[]{"/api/schedule/tasks/1/authorize-cookie",
+                "/api/schedule/tasks/1/revoke-cookie", "/api/schedule/account/1/resume"}) {
+            assertThat(routes.stream().filter(route -> route.matches(path)
+                    && route.acceptsMethod(HttpMethod.POST)))
+                    .singleElement().satisfies(route ->
+                            assertThat(route.accessPolicy()).isEqualTo(AccessPolicy.ADMIN));
+        }
     }
 }

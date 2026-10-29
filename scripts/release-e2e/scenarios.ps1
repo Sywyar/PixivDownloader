@@ -204,11 +204,9 @@ function Test-ReleaseRuntimeFailures {
     foreach ($id in @('mail', 'download-workbench')) {
         Invoke-ReleaseProbe $Run.Process $Run.ProbeRoot 'crash' $id | Out-Null
         $crashed += $id
-        $recovery = $id -eq 'download-workbench'
-        Wait-ReleaseTransition $Run $crashed -Recovery $recovery
+        Wait-ReleaseTransition $Run $crashed
         Assert-ReleaseStable -Process $Run.Process -ProbeRoot $Run.ProbeRoot -Port $Run.Port -Session $Run.Session `
-            -ExpectedIds $Run.ExpectedIds -Provider $Run.Provider -CrashedIds $crashed -Recovery $recovery
-        if ($recovery) { Assert-ReleaseRecoveryGate $Run }
+            -ExpectedIds $Run.ExpectedIds -Provider $Run.Provider -CrashedIds $crashed
         $desktop = Invoke-ReleaseProbe $Run.Process $Run.ProbeRoot 'desktop'
         if (-not ($desktop.windows | ConvertTo-Json -Depth 4).Contains("RELEASE_E2E_PLUGIN_CRASH $id")) {
             throw "Plugin failure notification is not visible: $id"
@@ -295,13 +293,14 @@ function Test-ReleaseAdverseLayouts {
 function Test-ReleaseUnavailableLayouts {
     param([string]$Label, [string]$Root, [string]$Launcher, [string]$RuntimeRoot, [string]$LogRoot)
     $manifest = Get-Content (Get-ManifestPath $Root) -Raw -Encoding UTF8 | ConvertFrom-Json
-    foreach ($scenario in @('no-gui', 'missing-required', 'corrupt-required', 'core-shell')) {
+    foreach ($scenario in @('no-gui', 'missing-workbench', 'corrupt-workbench', 'missing-database', 'corrupt-database', 'core-shell')) {
         $hidden = New-Object 'System.Collections.Generic.List[object]'
         try {
             $ids = @(switch ($scenario) {
                 'no-gui' { @('gui-compose', 'gui-swing') }
                 'core-shell' { @($manifest.id) }
-                default { @($manifest | Where-Object { $_.required } | ForEach-Object { $_.id }) }
+                { $_ -in @('missing-workbench', 'corrupt-workbench') } { @('download-workbench') }
+                default { @('database-sqlite') }
             })
             if (-not $ids.Count) { throw 'Adverse scenario selected no plugins.' }
             foreach ($entry in @($manifest | Where-Object { $ids -contains $_.id })) {
@@ -309,16 +308,17 @@ function Test-ReleaseUnavailableLayouts {
                 $backup = "$file.e2e-hidden"
                 Move-Item -LiteralPath $file -Destination $backup
                 $hidden.Add([pscustomobject]@{ File = $file; Backup = $backup })
-                if ($scenario -eq 'corrupt-required') { [IO.File]::WriteAllText($file, 'invalid archive', [Text.Encoding]::ASCII) }
+                if ($scenario.StartsWith('corrupt-')) { [IO.File]::WriteAllText($file, 'invalid archive', [Text.Encoding]::ASCII) }
             }
             $prompt = $scenario -eq 'no-gui'
             $headless = $scenario -eq 'core-shell'
             $provider = if ($prompt -or $headless) { '' } else { 'gui-compose' }
-            $health = if ($scenario -eq 'core-shell') { 'DOWN' } else { 'UP' }
-            $exercise = if ($prompt) { $null } else { ${function:Assert-ReleaseRecoveryGate} }
+            $recovery = $scenario -in @('missing-database', 'corrupt-database', 'core-shell')
+            $health = if ($recovery) { 'DOWN' } else { 'UP' }
+            $exercise = if ($recovery) { ${function:Assert-ReleaseRecoveryGate} } else { $null }
             Test-ApplicationScenario -Label "$Label-$scenario" -Root $Root -Launcher $Launcher `
                 -RuntimeRoot "$RuntimeRoot-$scenario" -LogRoot "$LogRoot-$scenario" -Provider $provider `
-                -BootstrapPrompt:$prompt -Headless:$headless -Recovery:(-not $prompt) -UnavailableIds $ids -Exercise $exercise `
+                -BootstrapPrompt:$prompt -Headless:$headless -Recovery:$recovery -UnavailableIds $ids -Exercise $exercise `
                 -ExpectedHealth $health
         } finally {
             foreach ($entry in $hidden) {

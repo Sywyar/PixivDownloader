@@ -32,6 +32,15 @@ import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 import top.sywyar.pixivdownload.setup.SetupProperties;
 import top.sywyar.pixivdownload.setup.guest.config.GuestInviteConfig;
 import top.sywyar.pixivdownload.update.UpdateConfig;
+import top.sywyar.pixivdownload.gui.config.ConfigFileEditor;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTaskStore;
+import top.sywyar.pixivdownload.core.schedule.ScheduledTask;
+import top.sywyar.pixivdownload.core.schedule.state.ScheduleRunToken;
+import top.sywyar.pixivdownload.schedule.ScheduleConfig;
+import top.sywyar.pixivdownload.schedule.ScheduleExecutor;
+import top.sywyar.pixivdownload.schedule.ScheduleHostLifecycle;
+import top.sywyar.pixivdownload.schedule.ScheduleRunner;
+import top.sywyar.pixivdownload.schedule.ScheduleRunState;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -40,6 +49,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -48,6 +58,11 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 
 @DisplayName("运行期配置热重载")
 class RuntimeConfigReloadServiceTest {
@@ -59,6 +74,66 @@ class RuntimeConfigReloadServiceTest {
 
     private String previousConfigDir;
     private boolean configDirOverridden;
+    private final ScheduleConfig scheduleConfig = new ScheduleConfig();
+
+    @Test
+    @DisplayName("保存后原宿主调度配置即时生效，停用阻止调度且周期仍需重启")
+    void reloadsHostScheduleConfigAndStopsDispatchWithoutReplacingBean() throws IOException {
+        Path configDir = useTempConfigDir();
+        Files.createDirectories(configDir);
+        ConfigFileEditor editor = new ConfigFileEditor(configDir.resolve(RuntimeFiles.CONFIG_YAML));
+        ScheduledTaskStore store = mock(ScheduledTaskStore.class);
+        ScheduleExecutor executor = mock(ScheduleExecutor.class);
+        ScheduledTask due = mock(ScheduledTask.class);
+        when(due.id()).thenReturn(31L);
+        ScheduleRunToken token = new ScheduleRunToken("fixture-claim", 1L,
+                top.sywyar.pixivdownload.core.schedule.state.ScheduleRunState.QUEUED);
+        when(store.findDue(anyLong())).thenReturn(List.of(), List.of(due));
+        when(store.tryQueueDue(eq(31L), anyLong(), anyString(), anyLong())).thenReturn(Optional.of(token));
+        ScheduleRunState runState = new ScheduleRunState();
+        ScheduleHostLifecycle lifecycle = new ScheduleHostLifecycle(runState);
+        lifecycle.start();
+        ScheduleRunner runner = new ScheduleRunner(store, executor, scheduleConfig, runState, lifecycle, () -> true);
+        long originalInterval = scheduleConfig.getTickIntervalMs();
+        try (AnnotationConfigApplicationContext parent = new AnnotationConfigApplicationContext()) {
+            parent.registerBean(ScheduleConfig.class, () -> scheduleConfig);
+            parent.refresh();
+            RuntimeConfigReloadService service = newService(provider(null), parent.getEnvironment());
+            runner.tick();
+            verify(store).findDue(anyLong());
+            clearInvocations(store, executor);
+
+            Map<String, String> saved = Map.of(
+                    "schedule.enabled", "false", "schedule.max-tasks", "7",
+                    "schedule.auth-failure-circuit-breaker", "3", "schedule.pending-max-attempts", "2",
+                    "schedule.tick-interval-ms", "4321");
+            editor.writeAll(saved);
+            RuntimeConfigReloadService.ReloadResult result = service.reloadHotConfig(List.copyOf(saved.keySet()));
+
+            assertThat(editor.readAll(saved.keySet())).containsAllEntriesOf(saved);
+            assertThat(parent.getBean(ScheduleConfig.class)).isSameAs(scheduleConfig);
+            assertThat(scheduleConfig.isEnabled()).isFalse();
+            assertThat(scheduleConfig.getMaxTasks()).isEqualTo(7);
+            assertThat(scheduleConfig.getAuthFailureCircuitBreaker()).isEqualTo(3);
+            assertThat(scheduleConfig.getPendingMaxAttempts()).isEqualTo(2);
+            assertThat(scheduleConfig.getTickIntervalMs()).isEqualTo(originalInterval);
+            assertThat(result.appliedKeys()).containsExactlyInAnyOrder(
+                    "schedule.enabled", "schedule.max-tasks", "schedule.auth-failure-circuit-breaker",
+                    "schedule.pending-max-attempts");
+            assertThat(parent.getEnvironment().getProperty("schedule.enabled")).isEqualTo("false");
+            runner.tick();
+            verifyNoInteractions(store, executor);
+
+            editor.writeAll(Map.of("schedule.enabled", "true"));
+            assertThat(service.reloadHotConfig(List.of("schedule.enabled")).appliedKeys())
+                    .containsExactly("schedule.enabled");
+            runner.tick();
+            verify(store).findDue(anyLong());
+            verify(store).tryQueueDue(eq(31L), anyLong(), anyString(), anyLong());
+        } finally {
+            lifecycle.stop();
+        }
+    }
 
     @AfterEach
     void restoreConfigDirProperty() {
@@ -381,6 +456,7 @@ class RuntimeConfigReloadServiceTest {
                 new UpdateConfig(),
                 new NarrationTtsConfig(),
                 new NotificationConfig(),
+                scheduleConfig,
                 lifecycleService,
                 environment,
                 credentialPropertySourceProvider());

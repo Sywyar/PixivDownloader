@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pixiv 体验增强工具箱
 // @namespace    http://tampermonkey.net/
-// @version      1.2.2
+// @version      1.2.3
 // @updateURL    https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E4%BD%93%E9%AA%8C%E5%A2%9E%E5%BC%BA%E5%B7%A5%E5%85%B7%E7%AE%B1(Toolbox).user.js
 // @downloadURL  https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/Pixiv%20%E4%BD%93%E9%AA%8C%E5%A2%9E%E5%BC%BA%E5%B7%A5%E5%85%B7%E7%AE%B1(Toolbox).user.js
 // @description  Pixiv 使用体验增强工具箱
@@ -19,6 +19,8 @@
 // @connect      localhost
 // @connect      YOUR_SERVER_HOST
 // @run-at       document-end
+// @pixiv-presence-page /pixiv-batch.html
+// @pixiv-presence-page /pixiv-batch-alt.html
 // ==/UserScript==
 
 (function () {
@@ -312,28 +314,46 @@
             return SUPPORTED.slice();
         }
 
+        let enrichmentId = 0;
         function enrichFromBackend(serverBase) {
+            const current = ++enrichmentId;
             if (!serverBase || typeof GM_xmlhttpRequest !== 'function') return;
-            SUPPORTED.forEach(lang => {
-                try {
-                    GM_xmlhttpRequest({
-                        method: 'GET',
-                        url: serverBase.replace(/\/$/, '') + '/api/i18n/messages/userscript?lang=' + encodeURIComponent(lang),
-                        timeout: 3000,
-                        onload: res => {
-                            if (res.status !== 200) return;
+            const base = serverBase.replace(/\/$/, '');
+            try {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: base + '/api/i18n/meta',
+                    timeout: 3000,
+                    onload: res => {
+                        if (current !== enrichmentId || res.status !== 200) return;
+                        let metadata;
+                        try { metadata = JSON.parse(res.responseText); } catch (e) { return; }
+                        // 插件词典随贡献撤回，缺席时保留脚本自带翻译。
+                        if (!Array.isArray(metadata?.supportedNamespaces)
+                                || !metadata.supportedNamespaces.includes('userscript')) return;
+                        SUPPORTED.forEach(lang => {
                             try {
-                                const data = JSON.parse(res.responseText);
-                                if (!data || !data.messages) return;
-                                const incoming = {};
-                                incoming[lang] = data.messages;
-                                register(incoming);
-                                if (lang === currentLang) notify(currentLang);
+                                GM_xmlhttpRequest({
+                                    method: 'GET',
+                                    url: base + '/api/i18n/messages/userscript?lang=' + encodeURIComponent(lang),
+                                    timeout: 3000,
+                                    onload: bundle => {
+                                        if (current !== enrichmentId || bundle.status !== 200) return;
+                                        try {
+                                            const data = JSON.parse(bundle.responseText);
+                                            if (!data || !data.messages) return;
+                                            const incoming = {};
+                                            incoming[lang] = data.messages;
+                                            register(incoming);
+                                            if (lang === currentLang) notify(currentLang);
+                                        } catch (e) {}
+                                    }
+                                });
                             } catch (e) {}
-                        }
-                    });
-                } catch (e) {}
-            });
+                        });
+                    }
+                });
+            } catch (e) {}
         }
 
         const api = {

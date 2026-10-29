@@ -50,9 +50,10 @@ class SetupServiceTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown() throws IOException {
         System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
         System.clearProperty(RuntimeFiles.STATE_DIR_PROPERTY);
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(tempDir);
     }
 
     private SetupService createSetupService() {

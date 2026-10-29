@@ -106,10 +106,6 @@ public final class SystemTrayManager {
 
         menu.addSeparator();
 
-        JMenuItem batchItem = new JMenuItem(message("gui.action.open-batch"));
-        batchItem.addActionListener(e -> openBrowser(frame.getBatchUrl()));
-        menu.add(batchItem);
-
         for (GuiWebEntrySpec action : frame.getTrayWebActions()) {
             JMenuItem item = new JMenuItem(action.label());
             item.addActionListener(e -> openBrowser(frame.getWebUrl(action.href())));

@@ -153,11 +153,18 @@ class DesktopControlCenterViewTest {
     }
 
     @Test
-    @DisplayName("自动化保留来源、过期状态和真实时间，管理入口只绑定同一来源的注册路由")
+    @DisplayName("自动化保留真实状态，宿主计划仅使用明确贡献的计划管理入口")
     void projectsAutomationFactsAndOwnedActions() throws Exception {
+        assertAutomationFactsAndOwnedActions(true);
+        assertAutomationFactsAndOwnedActions(false);
+    }
+
+    private void assertAutomationFactsAndOwnedActions(boolean managesHostSchedules) throws Exception {
         var source = new DesktopUiPluginSnapshot("sample", false, "sample", 1, false, null, "",
                 List.of(), List.of(), List.of(), List.of(WebRouteContribution.admin("/sample.html")),
-                List.of(new NavigationContribution("plans", Set.of(NavigationPlacements.DESKTOP_QUICK_START),
+                List.of(new NavigationContribution("plans", managesHostSchedules
+                        ? Set.of(NavigationPlacements.DESKTOP_QUICK_START, NavigationPlacements.DESKTOP_SCHEDULE_MANAGE)
+                        : Set.of(NavigationPlacements.DESKTOP_QUICK_START),
                         "sample", "label", "/sample.html", "download", AccessPolicy.ADMIN, 0)));
         var task = Map.of("taskId", "task-one", "title", token("Actual plan"),
                 "triggerSummary", token("Every day"), "status", "SUSPENDED", "lastResult", "ERROR",
@@ -167,6 +174,8 @@ class DesktopControlCenterViewTest {
                 Map.of("owner", Map.of("pluginId", "sample"), "snapshot",
                         Map.of("availability", "STALE", "tasks", List.of(task))),
                 Map.of("owner", Map.of("pluginId", "another"), "snapshot",
+                        Map.of("availability", "AVAILABLE", "tasks", List.of(task))),
+                Map.of("owner", Map.of("pluginId", "host-fixture"), "hostOwned", true, "snapshot",
                         Map.of("availability", "AVAILABLE", "tasks", List.of(task)))));
         try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), Map.of(
                 "controlCenterSnapshot", args -> new DesktopUiHost.GuiResponse(true, 200,
@@ -176,7 +185,7 @@ class DesktopControlCenterViewTest {
             var overview = assertInstanceOf(DesktopUiNode.AutomationOverview.class,
                     assertInstanceOf(DesktopUiNode.Surface.class, page.content()).content());
             assertTrue(overview.known());
-            assertEquals(2, overview.plans().size());
+            assertEquals(3, overview.plans().size());
             var first = overview.plans().get(0);
             assertEquals("Actual plan", first.title().fallback());
             assertEquals("SUSPENDED", first.status());
@@ -184,6 +193,8 @@ class DesktopControlCenterViewTest {
             assertEquals("STALE", first.availability());
             assertEquals(List.of(java.time.Instant.parse("2025-01-02T01:00:00Z").toEpochMilli()), first.nextRuns());
             assertNotNull(first.actionId());
+            assertNull(overview.plans().get(1).actionId());
+            assertEquals(managesHostSchedules, overview.plans().get(2).actionId() != null);
             assertNull(overview.plans().get(1).actionId());
             assertEquals(1, overview.management().size());
             assertTrue(DesktopUiEventProtocol.index(model.snapshot().document()).containsKey(overview.management().get(0).id()));

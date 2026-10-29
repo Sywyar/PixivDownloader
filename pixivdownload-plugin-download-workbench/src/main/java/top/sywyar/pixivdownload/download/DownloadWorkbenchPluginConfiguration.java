@@ -15,12 +15,10 @@ import top.sywyar.pixivdownload.plugin.api.storage.RuntimePathProvider;
 import top.sywyar.pixivdownload.core.collection.CollectionDownloadRootResolver;
 import top.sywyar.pixivdownload.core.collection.WorkCollectionMembership;
 import top.sywyar.pixivdownload.core.download.InteractiveDownloadExecutionLane;
-import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 import top.sywyar.pixivdownload.plugin.api.download.control.DownloadControlPlane;
 import top.sywyar.pixivdownload.plugin.api.download.queue.QueueOperations;
 import top.sywyar.pixivdownload.plugin.api.stream.PluginStreamRegistrar;
 import top.sywyar.pixivdownload.plugin.api.task.PluginRuntimeTaskRegistrar;
-import top.sywyar.pixivdownload.plugin.api.userscript.UserscriptCatalog;
 import top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentityResolver;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkAuthorLookup;
 import top.sywyar.pixivdownload.core.artwork.download.ArtworkDownloadHistory;
@@ -41,7 +39,6 @@ import top.sywyar.pixivdownload.core.quota.VisitorDownloadQuotaService;
 import top.sywyar.pixivdownload.core.work.service.WorkMetadataCapture;
 import top.sywyar.pixivdownload.download.controller.BatchStateController;
 import top.sywyar.pixivdownload.download.controller.DownloadPageController;
-import top.sywyar.pixivdownload.download.controller.DownloadQueueController;
 import top.sywyar.pixivdownload.download.controller.DownloadStatusController;
 import top.sywyar.pixivdownload.download.controller.DownloadTaskController;
 import top.sywyar.pixivdownload.download.controller.LayoutFeedbackStateController;
@@ -73,12 +70,8 @@ import top.sywyar.pixivdownload.download.state.LayoutFeedbackStateStore;
 import top.sywyar.pixivdownload.i18n.LocaleBundlePolicy;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
-import top.sywyar.pixivdownload.download.web.DownloadExtensionController;
-import top.sywyar.pixivdownload.scripts.ScriptController;
 import top.sywyar.pixivdownload.setup.ApplicationModeProvider;
 import top.sywyar.pixivdownload.setup.InstallIdentityProvider;
-import top.sywyar.pixivdownload.schedule.ScheduleHostIdentity;
-import top.sywyar.pixivdownload.schedule.ScheduleService;
 
 /**
  * 下载工作台外置插件的 Bean 装配收敛点。子上下文只注册本配置类，不扫描应用根包；因此下载执行器、
@@ -86,14 +79,6 @@ import top.sywyar.pixivdownload.schedule.ScheduleService;
  */
 @Configuration
 public class DownloadWorkbenchPluginConfiguration {
-
-    @Bean
-    public top.sywyar.pixivdownload.download.controller.DownloadTasksController downloadTasksController(
-            top.sywyar.pixivdownload.plugin.api.download.task.DownloadTasks tasks,
-            RequestOwnerIdentityResolver identities,
-            @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
-        return new top.sywyar.pixivdownload.download.controller.DownloadTasksController(tasks, identities, messages);
-    }
 
     @Bean
     public ArtworkSubmissionHandler artworkSubmissionHandler(PixivFetchService fetch, ArtworkDownloadExecutor executor) {
@@ -140,25 +125,30 @@ public class DownloadWorkbenchPluginConfiguration {
         return new top.sywyar.pixivdownload.download.media.ImageOutputService(runner, mapper, mediaStore);
     }
 
+    @Bean(name = "downloadWorkbenchTaskScheduler", destroyMethod = "shutdown")
+    public org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler downloadWorkbenchTaskScheduler() {
+        var scheduler = new org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(5);
+        scheduler.setThreadNamePrefix("download-workbench-scheduler-");
+        scheduler.setRemoveOnCancelPolicy(true);
+        scheduler.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
+        scheduler.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        return scheduler;
+    }
+
     @Bean("downloadWorkbenchMessages")
     public MessageResolver downloadWorkbenchMessages(MessageResolver messages, LocaleBundlePolicy localeBundlePolicy) {
         return ResourceBundleMessageResolver.of(
                 messages,
                 DownloadWorkbenchPlugin.class.getClassLoader(),
                 localeBundlePolicy,
-                "i18n.workbench.messages",
-                "i18n.workbench.notification-templates");
+                "i18n.workbench.messages");
     }
 
     @Bean
     public PixivFetchService pixivFetchService(PixivAjaxClient pixivAjaxClient,
                                                ObjectMapper objectMapper) {
         return new PixivFetchService(pixivAjaxClient, objectMapper);
-    }
-
-    @Bean
-    public ScheduleHostIdentity scheduleHostIdentity() {
-        return new ScheduleHostIdentity(DownloadWorkbenchPlugin.ID);
     }
 
     @Bean
@@ -203,7 +193,7 @@ public class DownloadWorkbenchPluginConfiguration {
 
     @Bean
     public PixivScheduleCredentialController pixivScheduleCredentialController(
-            ScheduleService scheduleService,
+            top.sywyar.pixivdownload.plugin.api.schedule.management.ScheduledTaskCredentials scheduleService,
             @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
         return new PixivScheduleCredentialController(scheduleService, messages);
     }
@@ -424,26 +414,6 @@ public class DownloadWorkbenchPluginConfiguration {
     }
 
     @Bean
-    public DownloadQueueController downloadQueueController(DownloadControlPlane downloadControlPlane,
-                                                           RequestOwnerIdentityResolver requestOwnerIdentityResolver,
-                                                           @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
-        return new DownloadQueueController(
-                downloadControlPlane, requestOwnerIdentityResolver, messages);
-    }
-
-    @Bean
-    public DownloadExtensionController downloadExtensionController(DownloadControlPlane downloadControlPlane) {
-        return new DownloadExtensionController(downloadControlPlane);
-    }
-
-    @Bean
-    public ScriptController scriptController(UserscriptCatalog userscriptCatalog,
-                                             @Qualifier("downloadWorkbenchMessages") MessageResolver messages,
-                                             top.sywyar.pixivdownload.i18n.NamespaceMessageResolver namespaceMessages) {
-        return new ScriptController(userscriptCatalog, messages, namespaceMessages);
-    }
-
-    @Bean
     public DownloadStatusController downloadStatusController(ArtworkDownloadExecutor artworkDownloadExecutor,
                                                              RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                                              @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
@@ -469,13 +439,12 @@ public class DownloadWorkbenchPluginConfiguration {
 
     @Bean
     public PixivProxyController pixivProxyController(ObjectMapper objectMapper,
-                                                     PixivThumbnailFetcher pixivThumbnailFetcher,
                                                      PixivFetchService pixivFetchService,
                                                      PixivProxyAccessPolicy pixivProxyAccessPolicy,
                                                      RequestOwnerIdentityResolver requestOwnerIdentityResolver,
                                                      WorkVisibilityService workVisibilityService,
                                                      @Qualifier("downloadWorkbenchMessages") MessageResolver messages) {
-        return new PixivProxyController(objectMapper, pixivThumbnailFetcher, pixivFetchService,
+        return new PixivProxyController(objectMapper, pixivFetchService,
                 pixivProxyAccessPolicy, requestOwnerIdentityResolver,
                 workVisibilityService, messages);
     }

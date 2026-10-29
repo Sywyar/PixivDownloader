@@ -251,9 +251,6 @@ public class MainFrame extends JFrame {
         repaint();
     }
 
-    public String getBatchUrl() {
-        return statusPanel.getBatchUrl();
-    }
 
     public String getWebUrl(String path) {
         return statusPanel.getWebUrl(path);

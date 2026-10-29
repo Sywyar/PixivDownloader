@@ -41,9 +41,10 @@ class DatabaseSettingsControllerTest {
         controller = controller(editor);
     }
 
-    @AfterEach void restore() {
+    @AfterEach void restore() throws java.io.IOException {
         if (previousData == null) System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY);
         else System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, previousData);
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(directory);
     }
 
     private DatabaseSettingsController controller(ConfigFileEditor file) {

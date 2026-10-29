@@ -46,7 +46,7 @@ class RecoveryModeGateTest {
 
     private static final RequiredPlugin DW_REQUIRED = new RequiredPlugin(
             "download-workbench", VersionRequirement.of(1, 0), false,
-            "plugin.recovery.missing.download-workbench");
+            "plugin.recovery.blocked");
 
     @Mock
     private AppLocaleResolver localeResolver;
@@ -150,7 +150,7 @@ class RecoveryModeGateTest {
         assertThat(response.getStatus()).isEqualTo(503);
         assertThat(response.getContentType()).contains("application/json");
         assertThat(response.getContentAsString())
-                .contains("\"code\":\"plugin.recovery.missing.download-workbench\"")
+                .contains("\"code\":\"plugin.recovery.blocked\"")
                 .contains("\"error\":");
         verify(chain, never()).doFilter(any(), any());
     }

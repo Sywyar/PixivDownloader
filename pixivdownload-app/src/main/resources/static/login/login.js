@@ -105,7 +105,7 @@ function getRedirect() {
       if (target.origin === window.location.origin) return target.href;
     } catch (_) { /* 无效回跳地址使用默认页面。 */ }
   }
-  return '/pixiv-batch.html';
+  return '/redirect';
 }
 
 function setAuthButtonsDisabled(disabled) {

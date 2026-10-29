@@ -16,6 +16,9 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 
 class RegisteredPluginsTest {
     @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory;
+    @org.junit.jupiter.api.AfterEach void cleanupDirectory() throws Exception {
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(directory);
+    }
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             // 组合根切片使用同一真实 SQLite 目标与连接池，结构随临时目录丢弃。

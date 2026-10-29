@@ -98,6 +98,20 @@ public class CorePlugin implements PixivFeaturePlugin {
         return List.of(
                 // ── monitor：仅管理员（不在访客白名单）的页面与 API ───────────────────────────────
                 WebRouteContribution.admin("/monitor.html"),
+                WebRouteContribution.visitor("/api/scripts**"),
+                WebRouteContribution.visitor("/api/download/queue/**"),
+                WebRouteContribution.visitor("/api/cancel/**"),
+                WebRouteContribution.visitor("/api/download/cancel/**"),
+                WebRouteContribution.visitor("/api/download/extensions"),
+                WebRouteContribution.admin("/api/download/tasks"),
+                WebRouteContribution.admin("/api/download/tasks/**"),
+                WebRouteContribution.local("/api/download/status"),
+                WebRouteContribution.admin("/api/schedule/**"),
+                WebRouteContribution.visitor("/api/pixiv/user/*/meta"),
+                WebRouteContribution.visitor("/api/pixiv/me/uid"),
+                WebRouteContribution.visitor("/api/pixiv/thumbnail-proxy"),
+                WebRouteContribution.admin("/home.html"),
+                WebRouteContribution.admin("/home/**"),
                 WebRouteContribution.admin("/pixiv-invite-manage.html"),
                 WebRouteContribution.admin("/pixiv-invite-detail.html"),
                 WebRouteContribution.admin("/plugin-manage.html"),
@@ -259,9 +273,7 @@ public class CorePlugin implements PixivFeaturePlugin {
 
     @Override
     public List<NavigationContribution> navigation() {
-        // 核心拥有的跨页基础入口：邀请码管理（管理员邀请治理）与插件管理（管理员插件治理）。
-        // 二者均 ADMIN，仅管理员身份在 /api/navigation 可见。标签走核心
-        // 自有 i18n namespace（invite / plugins），与各功能插件的 nav.label 同一套「插件自有 i18n」机制。
+        // 邀请码管理与插件管理均为 ADMIN，标签使用各自的核心 i18n namespace。
         //
         // 邀请管理属于核心安全能力；可选内容插件撤回后仍可管理和撤销已有邀请。
         // 仅贡献到 Web 侧栏与桌面安全入口，不占用顶部应用导航。

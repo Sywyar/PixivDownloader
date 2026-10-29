@@ -159,10 +159,18 @@ class WebI18nServiceTest {
                             "plugin.name", "Mail Notifications", "plugin.summary", "English summary"));
             Files.delete(plugins.resolve("mail-1.0.0.jar"));
             assertThatThrownBy(() -> new WebI18nService(registry).loadBundle("mail", Locale.US))
-                    .isInstanceOf(MissingResourceException.class);
+                    .isInstanceOfSatisfying(LocalizedException.class, failure -> {
+                        assertThat(failure.getStatus()).isEqualTo(org.springframework.http.HttpStatus.BAD_REQUEST);
+                        assertThat(failure.getMessageCode()).isEqualTo("i18n.namespace.unsupported");
+                        assertThat(failure.getMessageArgs()).containsExactly("mail");
+                    });
             assertThatThrownBy(() -> new WebI18nService(registry)
                     .loadMessages("mail", Locale.US, List.of("plugin.name")))
-                    .isInstanceOf(MissingResourceException.class);
+                    .isInstanceOfSatisfying(LocalizedException.class, failure -> {
+                        assertThat(failure.getStatus()).isEqualTo(org.springframework.http.HttpStatus.BAD_REQUEST);
+                        assertThat(failure.getMessageCode()).isEqualTo("i18n.namespace.unsupported");
+                        assertThat(failure.getMessageArgs()).containsExactly("mail");
+                    });
         }
     }
 

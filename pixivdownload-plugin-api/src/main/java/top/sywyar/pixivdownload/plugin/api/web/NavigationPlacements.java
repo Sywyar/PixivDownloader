@@ -67,6 +67,9 @@ public final class NavigationPlacements {
     /** 桌面控制中心首页的快速开始入口。 */
     public static final String DESKTOP_QUICK_START = "desktop.quick-start";
 
+    /** 桌面自动化页打开宿主计划任务的管理界面；由实际拥有该界面的插件贡献。 */
+    public static final String DESKTOP_SCHEDULE_MANAGE = "desktop.schedule.manage";
+
     /** 桌面安全页的可选管理入口；没有活动贡献时不显示，目标仍受其所属插件的路由策略保护。 */
     public static final String DESKTOP_SECURITY_ACTIONS = "desktop.security.actions";
 

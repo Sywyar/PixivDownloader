@@ -33,15 +33,9 @@ import java.util.Properties;
 import java.util.Set;
 
 /**
- * 下载工作台插件：{@code pixiv-batch} 页面、下载队列、油猴脚本入口与下载执行。
- * <p>
- * 计划任务安全壳随下载工作台外置包加载：调度 tick / 队列 / 限流 / 熔断 / cookie·proxy 作用域 /
- * 隔离重试 / 水位线以及 {@code /api/schedule/**} 路由均在本外置包上下文内装配。下载工作台通过
- * {@link #scheduledSourceDescriptors()} 声明 7 个内置来源，并由 child context 中的
- * {@code ScheduledSourceExecutor} / {@code PixivScheduledIllustWorkExecutor} 执行发现与下载。
- * <p>
- * 核心只保留下载历史 / 统计 / 本地资产 serving 等长期事实 API（{@code /api/downloaded/*}）；下载提交、
- * 队列状态、Pixiv 抓取代理、SSE 和 userscript 分发入口均随本插件启停。
+ * 下载工作台拥有两版下载页面、插画提交与状态、SSE、Pixiv 来源和自有油猴脚本资源。
+ * 通用计划编排、队列控制与脚本分发由宿主提供；本插件经稳定契约贡献 Pixiv 来源、
+ * 插画执行器、凭证策略和 Guard，停用时只撤回自己的能力。
  */
 public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
 
@@ -108,8 +102,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         );
     }
 
-    // 展示名 / 简介为纯 i18n key；namespace 由 displayNamespace() 默认取本插件首个 namespace（batch）。下载工作台必选、
-    // 不在配置页「插件」分组呈现（GUI 只列可禁用功能插件），但 Web 插件管理页会展示并解析它，故 key 须真实存在于 batch。
+    // 展示名与简介使用 batch namespace，供桌面配置和 Web 插件管理共同解析。
     @Override
     public String displayName() {
         return "plugin.name";
@@ -144,6 +137,9 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         WebRouteContribution.visitor("/pixiv-batch-alt.html"),
         WebRouteContribution.visitor("/pixiv-batch-alt/**"),
         WebRouteContribution.admin("/api/batch/page"),
+        WebRouteContribution.admin("/api/schedule/tasks/*/authorize-cookie"),
+        WebRouteContribution.admin("/api/schedule/tasks/*/revoke-cookie"),
+        WebRouteContribution.admin("/api/schedule/account/*/resume"),
         WebRouteContribution.admin("/pixiv-layout-feedback/embed.html"),
         WebRouteContribution.publicRoute("/pixiv-layout-feedback/pixiv-layout-feedback.css"),
         WebRouteContribution.publicRoute("/pixiv-layout-feedback/release-activation.js"),
@@ -157,34 +153,22 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         WebRouteContribution.publicRoute("/pixiv-layout-feedback/embed.js"),
         new WebRouteContribution("/api/layout-feedback/state", AccessPolicy.VISITOR,
                 Set.of(HttpMethod.GET, HttpMethod.POST), false),
-        WebRouteContribution.admin("/api/schedule/**"),
         WebRouteContribution.invitedGuest("/api/download/status/active"),
         WebRouteContribution.visitorAndInvitedGuest("/api/download/status/**"),
-        WebRouteContribution.local("/api/download/status"),
         WebRouteContribution.visitorAndInvitedGuest("/api/pixiv/artwork/**"),
         WebRouteContribution.visitor("/api/pixiv/user/*/artworks"),
         WebRouteContribution.visitor("/api/pixiv/user/*/request-artworks"),
-        WebRouteContribution.visitor("/api/pixiv/user/*/meta"),
         WebRouteContribution.visitor("/api/pixiv/user/*/illust-cards"),
         WebRouteContribution.visitor("/api/pixiv/search**"),
         WebRouteContribution.visitor("/api/pixiv/series/**"),
-        WebRouteContribution.visitor("/api/pixiv/me/uid"),
         WebRouteContribution.visitor("/api/pixiv/me/illust-bookmarks"),
         WebRouteContribution.visitor("/api/pixiv/me/following"),
         WebRouteContribution.visitor("/api/pixiv/me/follow-latest"),
         WebRouteContribution.visitor("/api/pixiv/me/collections"),
         WebRouteContribution.visitor("/api/pixiv/me/collection/*/works"),
-        WebRouteContribution.visitor("/api/pixiv/thumbnail-proxy"),
-        WebRouteContribution.visitor("/api/scripts**"),
         WebRouteContribution.visitor("/api/sse/**"),
         WebRouteContribution.visitor("/api/download/pixiv"),
-        WebRouteContribution.visitor("/api/cancel/**"),
-        WebRouteContribution.visitor("/api/download/cancel/**"),
-        WebRouteContribution.visitor("/api/download/queue/**"),
-        WebRouteContribution.visitor("/api/batch/**"),
-        WebRouteContribution.visitor("/api/download/extensions"),
-        WebRouteContribution.admin("/api/download/tasks"),
-        WebRouteContribution.admin("/api/download/tasks/**"));
+        WebRouteContribution.visitor("/api/batch/**"));
 
     @Override
     public List<WebRouteContribution> routes() {
@@ -212,7 +196,9 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
         ID,
         Set.of(NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
                 NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR,
-                NavigationPlacements.DESKTOP_QUICK_START),
+                NavigationPlacements.DESKTOP_QUICK_START,
+                NavigationPlacements.DESKTOP_SCHEDULE_MANAGE,
+                NavigationPlacements.GUI_STATUS_ACTIONS, NavigationPlacements.GUI_TRAY_ACTIONS),
         "batch", "nav.label", "/pixiv-batch.html", "download", AccessPolicy.VISITOR, 10,
         Set.of(NavigationMarkers.PREFERRED_DOWNLOAD_WORKBENCH), "nav.description"));
 
@@ -262,7 +248,7 @@ public class DownloadWorkbenchPlugin implements PixivFeaturePlugin {
     }
 
     private static UserscriptContribution userscript(String id, String fileName) {
-        return new UserscriptContribution(id, "classpath:/static/userscripts/" + fileName);
+        return new UserscriptContribution(id, "classpath:/static/userscripts/" + fileName, "userscript");
     }
 
     private static boolean officialSurveyRelease() {

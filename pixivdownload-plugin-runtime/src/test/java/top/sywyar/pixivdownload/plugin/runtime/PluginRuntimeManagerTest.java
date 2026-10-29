@@ -1078,6 +1078,8 @@ class PluginRuntimeManagerTest {
                     .containsExactlyInAnyOrder("broken-plugin.jar", "untrusted.jar");
             assertThat(manager.artifactPath(PROBE_ID)).contains(classesDirectory.toAbsolutePath().normalize());
             assertThat(manager.isDevelopmentArtifact(PROBE_ID)).isTrue();
+            assertThat(manager.developmentResourceArtifacts())
+                    .containsEntry(pf4jPath.resolve("classes"), manager.loadedDescriptor(PROBE_ID).orElseThrow());
             assertThat(pf4jPath).startsWith(repositoryRoot.resolve("target/pixivdownload-plugin-dev-runtime")
                     .toAbsolutePath().normalize());
             developmentSessionRoot = pf4jPath.getParent();
@@ -1102,11 +1104,13 @@ class PluginRuntimeManagerTest {
                     .hasMessageContaining("development plugin artifact not found");
             manager.stopPlugin(PROBE_ID);
             assertThat(manager.loadedDescriptors()).containsKey(PROBE_ID);
+            assertThat(manager.developmentResourceArtifacts()).containsKey(pf4jPath.resolve("classes"));
             manager.startPlugin(PROBE_ID);
             long firstGeneration = manager.generation(PROBE_ID).orElseThrow();
 
             manager.unloadPlugin(PROBE_ID);
             assertThat(manager.isDevelopmentArtifact(PROBE_ID)).isFalse();
+            assertThat(manager.developmentResourceArtifacts()).isEmpty();
             LoadedPluginPackage reloaded = manager.loadPlugin(classesDirectory);
             assertThat(manager.isDevelopmentArtifact(PROBE_ID)).isTrue();
             manager.startPlugin(PROBE_ID);
@@ -1119,6 +1123,8 @@ class PluginRuntimeManagerTest {
             assertThat(reloaded.generation()).isGreaterThan(firstGeneration);
             assertThat(reloadedClassLoader).isNotSameAs(firstClassLoader);
             assertThat(reloadedPf4jPath).isNotEqualTo(pf4jPath);
+            assertThat(manager.developmentResourceArtifacts())
+                    .containsOnlyKeys(reloadedPf4jPath.resolve("classes"));
             assertThat(reloadedPf4jPath.getParent()).isEqualTo(developmentSessionRoot);
             assertThat(activeCacheMarker).exists();
             assertThat(manager.packagePhases().get(PROBE_ID))

@@ -39,6 +39,15 @@ $context = New-TestSessionRoot
 $children = @()
 try {
     & {
+        $WorkRoot = $context.Session
+        $nested = New-TestSessionRoot
+        $deep = Join-Path $nested.Session (('segment' * 12) + '/' + ('nested' * 14) + '/' + ('leaf' * 21))
+        [IO.Directory]::CreateDirectory($deep) | Out-Null
+        [IO.File]::WriteAllText((Join-Path $deep 'fixture.txt'), 'owned fixture')
+        Remove-TestSessionRoot $nested
+        if (Test-Path -LiteralPath $nested.Session) { throw 'Long test session path was not cleaned.' }
+    }
+    & {
         $port = Get-FreePort
         $responseFile = Join-Path $context.Session 'health-response.json'
         $readyFile = Join-Path $context.Session 'health-ready'
@@ -352,8 +361,11 @@ try {
     New-Item -ItemType Directory -Path $agentClasses, $startupProbe | Out-Null
     & javac --release 17 -encoding UTF-8 -d $agentClasses `
         (Join-Path $PSScriptRoot 'ReleaseProbeAgent.java') `
+        (Join-Path $PSScriptRoot 'fixtures/AccessibleLabelsProbe.java') `
         (Join-Path $PSScriptRoot 'fixtures/DelayedLauncher.java')
     if ($LASTEXITCODE -ne 0) { throw 'Cannot compile startup observer regression.' }
+    & java '-Djava.awt.headless=true' -cp $agentClasses releasee2e.AccessibleLabelsProbe
+    if ($LASTEXITCODE -ne 0) { throw 'Accessibility observer regression failed.' }
     $manifest = Join-Path $agentRoot 'manifest.mf'
     [IO.File]::WriteAllText($manifest, "Premain-Class: releasee2e.ReleaseProbeAgent`n`n", [Text.Encoding]::ASCII)
     $agentJar = Join-Path $agentRoot 'observer.jar'

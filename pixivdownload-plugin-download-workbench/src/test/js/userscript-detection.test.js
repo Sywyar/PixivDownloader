@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const {webcrypto} = require('node:crypto');
 
 const resources = path.resolve(__dirname, '../../main/resources');
-const bootstrap = fs.readFileSync(path.join(resources, 'userscript-presence-bootstrap.js'), 'utf8');
+const bootstrap = fs.readFileSync(path.resolve(__dirname, '../../../../pixivdownload-app/src/main/resources/userscript-presence-bootstrap.js'), 'utf8');
 const client = fs.readFileSync(path.join(resources, 'static/pixiv-batch/userscript-detection.js'), 'utf8');
 
 function browser() {
@@ -51,7 +51,7 @@ function browser() {
         sandboxWindow.top = sandboxWindow;
         const sandbox = vm.createContext({
             window: sandboxWindow, document: context.document, location: context.location,
-            GM_info: {script: {version}}, presenceConfig: {id, origin, page: '/pixiv-batch'}
+            GM_info: {script: {version}}, presenceConfig: {id, origin, pages: ['/pixiv-batch.html', '/pixiv-batch-alt.html']}
         });
         return vm.runInContext(bootstrap + '\nregisterUserscriptPresence(presenceConfig)', sandbox);
     }

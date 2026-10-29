@@ -22,6 +22,9 @@ import static org.assertj.core.api.Assertions.*;
 @DisplayName("真实 SQLite 到 PostgreSQL 停机迁移")
 class SqliteToPostgresMigrationTest {
     @TempDir Path directory;
+    @org.junit.jupiter.api.AfterEach void cleanupDirectory() throws Exception {
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(directory);
+    }
     private final DatabaseSchemaRegistry registry = DatabaseSchemaRegistry.forBuiltInPlugins();
 
     private Connection source(Path file) throws Exception {

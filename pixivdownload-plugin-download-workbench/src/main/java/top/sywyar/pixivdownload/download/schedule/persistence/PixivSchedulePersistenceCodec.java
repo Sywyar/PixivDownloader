@@ -12,7 +12,7 @@ import top.sywyar.pixivdownload.plugin.api.schedule.source.ScheduledTaskPresenta
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWork;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkKey;
 import top.sywyar.pixivdownload.plugin.api.schedule.work.ScheduledWorkPresentation;
-import top.sywyar.pixivdownload.schedule.security.ScheduleCredentialRedactor;
+import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduleCredentialRedactor;
 
 import java.io.IOException;
 import java.util.LinkedHashMap;

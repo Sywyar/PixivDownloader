@@ -66,6 +66,21 @@ vm.runInContext(CORE_SRC, sandbox);
 vm.runInContext(API_SRC, sandbox);
 vm.runInContext(VIEWS_SRC, sandbox);
 const PM = sandbox.window.PixivPluginManage;
+{
+    const active = {id: 'active', displayNamespace: 'active-labels', status: 'STARTED', configuredEnabled: false};
+    const inactive = {id: 'inactive', displayNamespace: 'inactive-labels', status: 'DISABLED', configuredEnabled: true};
+    const managed = {id: 'managed', displayNamespace: 'managed-labels', status: 'STARTED', managed: true, runtimePhase: 'STOPPED'};
+    assert.deepStrictEqual(Array.from(PM.collectNamespaces({plugins: [active, inactive, managed]})),
+        ['active-labels', 'inactive-labels', 'managed-labels']);
+    inactive.status = 'STARTED';
+    managed.runtimePhase = 'STARTED';
+    assert.deepStrictEqual(Array.from(PM.collectNamespaces({plugins: [active, inactive, managed]})),
+        ['active-labels', 'inactive-labels', 'managed-labels']);
+    inactive.status = 'INSTALLED';
+    managed.runtimePhase = 'UNLOADED';
+    assert.deepStrictEqual(Array.from(PM.collectNamespaces({plugins: [active, inactive, managed]})),
+        ['active-labels', 'inactive-labels', 'managed-labels']);
+}
 ok('PixivPluginManage 已挂载（core+api+views）', PM
     && typeof PM.allViewModels === 'function'
     && typeof PM.applyReport === 'function'

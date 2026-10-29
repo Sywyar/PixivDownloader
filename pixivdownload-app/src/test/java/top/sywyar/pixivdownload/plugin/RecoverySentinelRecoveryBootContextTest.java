@@ -15,8 +15,7 @@ import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 
 /**
  * 真实 Spring 上下文：打开显式开关 {@code pixivdownload.recovery-sentinel.required=true}，插件目录仅安装测试签名的
- * SQLite provider。核心已把 recovery-sentinel 与 download-workbench 都声明为必选，因此启动时会检测到
- * 两个必选缺失项并进入恢复模式。该用例用于验证配置开关、必选策略 Bean、插件状态服务与 {@link RecoveryModeService} 在真实容器里串起来后
+ * SQLite provider。缺少被显式要求的 recovery-sentinel 时进入恢复模式。该用例用于验证配置开关、必选策略 Bean、插件状态服务与 {@link RecoveryModeService} 在真实容器里串起来后
  * 的失配行为。
  *
  * <p>用独立的属性集与目录（{@code plugins-recovery-sentinel-absent}），与其它 boot 用例的上下文缓存隔离；
@@ -60,15 +59,15 @@ class RecoverySentinelRecoveryBootContextTest {
     @DisplayName("开关打开后 recovery-sentinel 被声明为必选")
     void policyDeclaresRecoverySentinelRequired() {
         assertThat(requiredPluginPolicy.isRequired("recovery-sentinel")).isTrue();
-        assertThat(requiredPluginPolicy.isRequired("download-workbench")).isTrue();
+        assertThat(requiredPluginPolicy.isRequired("download-workbench")).isFalse();
     }
 
     @Test
-    @DisplayName("必选插件缺失：应用进入恢复模式，并识别到多个必选缺失项")
+    @DisplayName("必选插件缺失：只报告显式要求的探针，不报告可选工作台")
     void missingRequiredSentinelEntersRecovery() {
         assertThat(recoveryModeService.isActive()).isTrue();
         assertThat(recoveryModeService.decision().reasons()).extracting("pluginId")
-                .containsExactlyInAnyOrder("download-workbench", "recovery-sentinel");
+                .containsExactly("recovery-sentinel");
         assertThat(recoveryModeService.decision().firstReason().orElseThrow().status())
                 .isEqualTo(PluginStatus.MISSING_REQUIRED);
     }

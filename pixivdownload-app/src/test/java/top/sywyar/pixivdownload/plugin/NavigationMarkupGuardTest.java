@@ -54,6 +54,7 @@ class NavigationMarkupGuardTest {
 
     /** 已接入动态导航 slot 的页面 → 其预期声明的 placement slot。 */
     private static final Map<String, List<String>> EXPECTED_SLOTS = Map.of(
+            "home.html", List.of("*"),
             "monitor.html", List.of(NavigationPlacements.APP_TOP),
             "plugin-manage.html", List.of(NavigationPlacements.APP_TOP, NavigationPlacements.PLUGINS_SEGMENT),
             "plugin-market.html", List.of(NavigationPlacements.APP_TOP),
@@ -63,6 +64,7 @@ class NavigationMarkupGuardTest {
 
     /** 全部已知 placement（HTML slot 值必须取自此集合，确保前端 slot 与后端 contribution 名一致）。 */
     private static final Set<String> KNOWN_PLACEMENTS = Set.of(
+            "*",
             NavigationPlacements.APP_TOP, NavigationPlacements.APP_SIDEBAR,
             NavigationPlacements.GALLERY_SIDEBAR, NavigationPlacements.NOVEL_SIDEBAR,
             NavigationPlacements.GALLERY_SIDEBAR_TOOLS, NavigationPlacements.NOVEL_SIDEBAR_TOOLS,

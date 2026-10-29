@@ -154,6 +154,8 @@
         items.forEach(function (it) {
             var ns = it.labelNamespace == null ? '' : String(it.labelNamespace).trim();
             if (ns) seen.add(ns);
+            var ownerNs = it.pluginNamespace == null ? '' : String(it.pluginNamespace).trim();
+            if (ownerNs) seen.add(ownerNs);
         });
         return Array.from(seen);
     }
@@ -187,8 +189,10 @@
             var marker = anchor.getAttribute('data-nav-preferred-href-marker');
             marker = marker == null ? '' : String(marker).trim();
             if (!marker) return;
-            var item = items.find(function (candidate) { return itemMarkers(candidate).indexOf(marker) !== -1; });
+            var item = (items || []).find(function (candidate) { return itemMarkers(candidate).indexOf(marker) !== -1; });
+            anchor.hidden = !item;
             if (item) anchor.setAttribute('href', hrefFor(item));
+            else anchor.removeAttribute('href');
         });
     }
 
@@ -205,6 +209,33 @@
 
     function placementsOf(item) {
         return Array.isArray(item.placements) ? item.placements : [];
+    }
+
+    // 首页汇总全部贡献；插件内相同目标只显示一次，保留服务端排序与完整查询参数。
+    function itemsForSlot(items, placement, isCurrent) {
+        var seen = new Set();
+        return items.filter(function (item) {
+            if (placement !== '*') return placementsOf(item).indexOf(placement) !== -1;
+            var href = hrefFor(item);
+            var key = item.pluginId + '\u0000' + href;
+            if (isCurrent(item) || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    }
+
+    function pluginGroups(items, i18n) {
+        var groups = new Map();
+        items.forEach(function (item) {
+            var id = item.pluginId;
+            if (!groups.has(id)) {
+                var name = i18n && item.pluginNameKey
+                    ? i18n.tns(item.pluginNamespace, item.pluginNameKey, id) : id;
+                groups.set(id, { id: id, name: name, items: [] });
+            }
+            groups.get(id).items.push(item);
+        });
+        return Array.from(groups.values());
     }
 
     // 读取某 slot 的渲染选项（命令式与 Vue 共用同一份语义）。
@@ -275,12 +306,14 @@
         if (!placement) { slot.innerHTML = ''; return; }
         var isCurrent = currentMatcher(slot);
         var opt = readOpt(slot);
-        var html = items.filter(function (it) {
-            return placementsOf(it).indexOf(placement) !== -1;
-        }).map(function (it) {
+        var selected = itemsForSlot(items, placement, isCurrent);
+        function links(entries) { return entries.map(function (it) {
             return buildItemHtml(it, resolveLabel(i18n, it), isCurrent(it), opt);
-        }).join('');
-        slot.innerHTML = html;
+        }).join(''); }
+        slot.innerHTML = placement === '*' ? pluginGroups(selected, i18n).map(function (group) {
+            return '<section data-nav-plugin="' + escapeAttr(group.id) + '"><h2>'
+                + escapeText(group.name) + '</h2><div data-nav-group-items>' + links(group.items) + '</div></section>';
+        }).join('') : links(selected);
     }
 
     // —— Vue 主渲染 ——
@@ -296,9 +329,7 @@
                 function label(it) { return resolveLabel(vueState.i18n, it); }
                 return {
                     navItems: function () {
-                        return ((vueState && vueState.items) || []).filter(function (it) {
-                            return placementsOf(it).indexOf(placement) !== -1;
-                        });
+                        return itemsForSlot((vueState && vueState.items) || [], placement, isCurrent);
                     },
                     isCur: isCurrent,
                     clsOf: function (it) { return clsFor(opt, isCurrent(it)); },
@@ -315,7 +346,7 @@
             // 原生 VNode 无需动态编译模板，兼容禁用 unsafe-eval 的 CSP。
             render: function () {
                 var view = this;
-                return view.navItems().map(function (it) {
+                function link(it) {
                     var current = view.isCur(it);
                     return vueRuntime.h(current ? 'span' : 'a', {
                         key: it.id,
@@ -331,7 +362,14 @@
                         title: current ? null : view.iconLabelOf(it),
                         innerHTML: view.innerOf(it)
                     });
-                });
+                }
+                var items = view.navItems();
+                return placement === '*' ? pluginGroups(items, vueState.i18n).map(function (group) {
+                    return vueRuntime.h('section', { key: group.id, 'data-nav-plugin': group.id }, [
+                        vueRuntime.h('h2', null, group.name),
+                        vueRuntime.h('div', { 'data-nav-group-items': '' }, group.items.map(link))
+                    ]);
+                }) : items.map(link);
             }
         };
     }
@@ -385,6 +423,7 @@
     async function renderFromState() {
         if (pageHidden) return;
         var revision = ++renderRevision;
+        applyPreferredHrefAnchors(state.items);
         var slots = qsa('[data-nav-slot]');
         slotApps = slotApps.filter(function (record) {
             if (slots.indexOf(record.el) !== -1) return true;
@@ -405,7 +444,6 @@
             dispatchRendered();
             return;
         }
-        applyPreferredHrefAnchors(state.items);
         var nextI18n = await buildI18n(state.items);
         if (revision !== renderRevision) {
             if (nextI18n && nextI18n.dispose) nextI18n.dispose();
@@ -517,6 +555,7 @@
     global.PixivNav = {
         mount: mount,
         refresh: refresh,
+        refreshLinks: function () { applyPreferredHrefAnchors(state.items); },
         pluginUpdates: pluginUpdates,
         // 首次渲染完成（成功或失败）后 resolve；供宿主在导航数据到位、slot 链接渲染后再处理。
         ready: function () { return readyPromise; }

@@ -15,12 +15,11 @@ import top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin;
 import top.sywyar.pixivdownload.download.response.error.ErrorResponse;
 import top.sywyar.pixivdownload.download.schedule.credential.dto.AccountResumeRequest;
 import top.sywyar.pixivdownload.download.schedule.credential.dto.CookieAuthorizeRequest;
-import top.sywyar.pixivdownload.download.web.LocalizedException;
-import top.sywyar.pixivdownload.download.web.WorkbenchErrorResponses;
+import top.sywyar.pixivdownload.plugin.api.schedule.management.ScheduleManagementException;
 import top.sywyar.pixivdownload.i18n.MessageResolver;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginManagedBean;
-import top.sywyar.pixivdownload.schedule.ScheduleService;
-import top.sywyar.pixivdownload.schedule.dto.ScheduleTaskView;
+import top.sywyar.pixivdownload.plugin.api.schedule.management.ScheduledTaskCredentials;
+import top.sywyar.pixivdownload.plugin.api.schedule.management.ScheduleTaskView;
 
 import java.util.Locale;
 import java.util.Map;
@@ -34,7 +33,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class PixivScheduleCredentialController {
 
-    private final ScheduleService scheduleService;
+    private final ScheduledTaskCredentials scheduleService;
     private final MessageResolver messages;
 
     @PostMapping("/tasks/{id}/authorize-cookie")
@@ -72,10 +71,12 @@ public class PixivScheduleCredentialController {
 
     public record ResumeAccountResponse(boolean success) {}
 
-    @ExceptionHandler(LocalizedException.class)
+    @ExceptionHandler(ScheduleManagementException.class)
     public ResponseEntity<ErrorResponse> handleLocalized(
-            LocalizedException failure,
+            ScheduleManagementException failure,
             Locale locale) {
-        return WorkbenchErrorResponses.localized(failure, messages, locale);
+        return ResponseEntity.status((failure.code() == ScheduleManagementException.Code.CONFLICT ? 409 : 400)).body(new ErrorResponse(
+                failure.messageCode(), messages.getOrDefault(locale, failure.messageCode(),
+                        failure.defaultMessage(), failure.messageArgs())));
     }
 }

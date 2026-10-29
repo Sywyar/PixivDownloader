@@ -267,22 +267,30 @@ class RouteAccessMirrorTest {
         assertOwnerPolicy("/plugin-market.html", "plugin-market", AccessPolicy.ADMIN);
         assertOwnerPolicy("/plugin-market/**", "plugin-market", AccessPolicy.ADMIN);
         assertOwnerPolicy("/api/plugin-market/**", "plugin-market", AccessPolicy.ADMIN);
-        // 外置 required download-workbench 缺席时，core-only 快照不得声明下载工作台 / 计划任务宿主 URL。
-        assertRouteAbsent("/api/schedule/**");
-        assertRouteAbsent("/api/download/extensions");
+        // 通用接口归宿主，工作台缺席不改变原有权限策略。
+        assertOwnerPolicy("/api/schedule/**", "core", AccessPolicy.ADMIN);
+        assertOwnerPolicy("/api/download/tasks", "core", AccessPolicy.ADMIN);
+        assertOwnerPolicy("/api/download/tasks/**", "core", AccessPolicy.ADMIN);
+        assertOwnerPolicy("/api/download/extensions", "core", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/download/queue/**", "core", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/download/cancel/**", "core", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/download/status", "core", AccessPolicy.LOCAL);
+        assertOwnerPolicy("/api/pixiv/user/*/meta", "core", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/pixiv/me/uid", "core", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/pixiv/thumbnail-proxy", "core", AccessPolicy.VISITOR);
+        assertOwnerPolicy("/api/scripts**", "core", AccessPolicy.VISITOR);
+        // 工作台自有页面、提交、状态与来源代理仍随插件缺席。
         assertRouteAbsent("/pixiv-batch.html");
         assertRouteAbsent("/pixiv-batch/**");
         assertRouteAbsent("/api/download/pixiv");
         assertRouteAbsent("/api/batch/**");
         assertRouteAbsent("/api/download/status/active");
         assertRouteAbsent("/api/download/status/**");
-        assertRouteAbsent("/api/download/status");
         assertRouteAbsent("/api/pixiv/artwork/**");
         assertRouteAbsent("/api/pixiv/user/**");
         assertRouteAbsent("/api/pixiv/search**");
         assertRouteAbsent("/api/pixiv/series/**");
         assertRouteAbsent("/api/pixiv/me/**");
-        assertRouteAbsent("/api/scripts**");
         assertRouteAbsent("/api/sse/**");
     }
 

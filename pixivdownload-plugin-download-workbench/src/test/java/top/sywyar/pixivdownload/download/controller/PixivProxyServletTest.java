@@ -25,7 +25,6 @@ import top.sywyar.pixivdownload.core.pixiv.PixivAjaxClient;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessDecision;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessOutcome;
 import top.sywyar.pixivdownload.core.pixiv.PixivProxyAccessPolicy;
-import top.sywyar.pixivdownload.core.pixiv.thumbnail.PixivThumbnailFetcher;
 import top.sywyar.pixivdownload.core.work.model.WorkRestriction;
 import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.work.model.WorkVisibilityScope;
@@ -75,7 +74,7 @@ class PixivProxyServletTest {
             }
             return null;
         }).when(visibility).requireVisible(eq(SCOPE), eq(WorkType.ARTWORK), anyLong());
-        var controller = new PixivProxyController(mapper, mock(PixivThumbnailFetcher.class),
+        var controller = new PixivProxyController(mapper,
                 new PixivFetchService(upstream, mapper), access, mock(RequestOwnerIdentityResolver.class),
                 visibility, WorkbenchTestMessages.messages());
         context = new AnnotationConfigWebApplicationContext();

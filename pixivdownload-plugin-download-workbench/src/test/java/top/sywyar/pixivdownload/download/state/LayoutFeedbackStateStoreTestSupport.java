@@ -17,6 +17,11 @@ abstract class LayoutFeedbackStateStoreTestSupport {
     @TempDir
     Path tempDir;
 
+    @org.junit.jupiter.api.AfterEach
+    void cleanupDirectory() throws IOException {
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(tempDir);
+    }
+
     protected Path stateFile() {
         return tempDir.resolve("state/download-workbench/layout-feedback-state.json");
     }

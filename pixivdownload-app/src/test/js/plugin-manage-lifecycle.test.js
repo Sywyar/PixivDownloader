@@ -13,13 +13,13 @@ function deferred() {
     return { promise, resolve, reject };
 }
 function report(id, namespace) {
-    return { plugins: [{ id, displayNamespace: namespace }] };
+    return { plugins: [{ id, displayNamespace: namespace, status: 'STARTED' }] };
 }
 function client(lang = 'en-US') {
     return { lang, disposed: false, apply() {}, t(key) { return this.lang + ':' + key; },
         dispose() { this.disposed = true; } };
 }
-async function page() {
+async function page(initialReport = report('initial'), createClient = options => client(options.lang)) {
     const nodes = new Map(), events = new Map(), requests = [], mounts = [];
     const node = id => {
         if (!nodes.has(id)) nodes.set(id, {
@@ -36,7 +36,7 @@ async function page() {
         addEventListener(name, callback) { events.set(name, callback); },
         PixivActions: { bind() {} },
         PixivNav: { ready: async () => {}, pluginUpdates: async () => {}, refresh() {}, mount() {} },
-        PixivI18n: { create: async options => client(options.lang) },
+        PixivI18n: { create: async options => createClient(options) },
         PixivLangSwitcher: { async mount(options) {
             const handle = { options, client: options.i18n, refresh(next) {
                 this.client.dispose(); this.client = next;
@@ -46,7 +46,7 @@ async function page() {
         PixivTheme: { mount() {} },
         fetch: async (url, options) => {
             requests.push({ url, options });
-            return { ok: true, json: async () => report('initial') };
+            return { ok: true, json: async () => initialReport };
         }
     };
     context.window = context;
@@ -63,6 +63,51 @@ async function page() {
     await document.DOMContentLoaded();
     return { context, PM, nodes, events, requests, mounts, render, refresh: () => node('refreshBtn').click(), node };
 }
+
+for (const state of [
+    { status: 'DISABLED' },
+    { status: 'STOPPED' },
+    { status: 'INSTALLED', managed: true, runtimePhase: 'UNLOADED' },
+    { status: 'STARTED', managed: true, runtimePhase: 'STOPPED' },
+    { status: 'STARTED', configuredEnabled: false, lifecyclePolicy: 'PROCESS_RESTART', toggleable: true }
+]) {
+    test('重新打开管理页保留已安装插件身份：' + JSON.stringify(state), async () => {
+        const source = fs.readFileSync(path.resolve(__dirname,
+            '../../../../pixivdownload-plugin-download-workbench/src/main/resources/i18n/web/batch.properties'), 'utf8');
+        const messages = Object.fromEntries(source.split(/\r?\n/)
+            .filter(line => /^plugin\.(name|summary)=/.test(line))
+            .map(line => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]));
+        const entry = { id: 'download-workbench', source: 'external', displayNamespace: 'batch',
+            displayNameKey: 'plugin.name', descriptionKey: 'plugin.summary', ...state };
+        const p = await page({ plugins: [entry] }, options => ({ ...client('zh-CN'),
+            tns(namespace, key, fallback) {
+                return options.namespaces.includes(namespace) && namespace === 'batch'
+                    ? messages[key] || fallback : fallback;
+            }
+        }));
+        const model = p.PM.allViewModels()[0];
+        assert.equal(model.name, messages['plugin.name']);
+        assert.equal(model.desc, messages['plugin.summary']);
+        assert.equal(model.running, (state.runtimePhase || state.status) === 'STARTED');
+        if (state.configuredEnabled === false) {
+            assert.equal(model.enabled, false);
+            assert.ok(model.pendingToggleLabel);
+        }
+    });
+}
+
+test('展示词典不可用时管理页保留稳定名称和通用简介回退', async () => {
+    const entry = { id: 'fixture', source: 'external', status: 'DISABLED',
+        displayNamespace: 'unavailable', displayNameKey: 'plugin.name', descriptionKey: 'plugin.summary' };
+    const p = await page({ plugins: [entry] }, options => ({ ...client(options.lang),
+        tns(namespace, key, fallback) { return fallback; }
+    }));
+    const model = p.PM.allViewModels()[0];
+    assert.equal(p.PM.state.error, null);
+    assert.equal(model.name, entry.id);
+    assert.equal(model.desc, p.PM.buildViewModel({ ...entry, descriptionKey: null }).desc);
+    assert.ok(model.desc);
+});
 
 test('状态正文乱序完成时保留最新报告', async () => {
     const p = await page(), old = deferred();

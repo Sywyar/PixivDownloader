@@ -953,6 +953,17 @@ public class PluginRuntimeManager {
         return packageIndex.descriptors();
     }
 
+    /** 已加载开发插件的冻结资源目录与描述符；停止后保留，物理卸载后撤回，不暴露 ClassLoader。 */
+    public synchronized Map<Path, PluginDescriptor> developmentResourceArtifacts() {
+        Map<Path, PluginDescriptor> artifacts = new LinkedHashMap<>();
+        for (Entry entry : packageIndex.entries()) {
+            if (packageIndex.isDevelopmentArtifact(entry.packageId())) {
+                artifacts.put(entry.pf4jLoadPath().resolve("classes"), entry.descriptor());
+            }
+        }
+        return java.util.Collections.unmodifiableMap(artifacts);
+    }
+
     /** 当前已加载的非可选反向依赖包。 */
     public synchronized List<String> activeDependents(String packageId) {
         List<String> result = new ArrayList<>();

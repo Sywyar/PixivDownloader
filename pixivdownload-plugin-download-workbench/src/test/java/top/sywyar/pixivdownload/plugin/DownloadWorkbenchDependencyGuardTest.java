@@ -37,6 +37,9 @@ class DownloadWorkbenchDependencyGuardTest {
 
     private static final String[] HOST_PRIVATE_CLASS_RESOURCES = {
             "top/sywyar/pixivdownload/PixivDownloadApplication.class",
+            "top/sywyar/pixivdownload/schedule/ScheduleService.class",
+            "top/sywyar/pixivdownload/scripts/ScriptController.class",
+            "top/sywyar/pixivdownload/core/download/web/DownloadQueueController.class",
             "org/apache/hc/client5/http/impl/classic/CloseableHttpClient.class",
             "org/apache/hc/core5/http/HttpRequest.class",
             "org/apache/http/client/HttpClient.class",
@@ -325,77 +328,19 @@ class DownloadWorkbenchDependencyGuardTest {
                 .check(CLASSES);
     }
 
-    @Test
-    @DisplayName("schedule 宿主不得依赖 novel 插件包")
-    void scheduleDoesNotDependOnNovelPlugin() {
-        noClasses()
-                .that().resideInAPackage("top.sywyar.pixivdownload.schedule..")
-                .should().dependOnClassesThat()
-                .resideInAPackage("top.sywyar.pixivdownload.novel..")
-                .because("计划任务宿主只能经 plugin-api ScheduledWorkExecutor 契约派发小说作品，不得 import novel 包")
-                .check(CLASSES);
-    }
 
-    @Test
-    @DisplayName("通用 schedule 宿主不得依赖下载工作台的具体计划策略")
-    void scheduleHostDoesNotDependOnConcreteWorkbenchSchedulePolicy() {
-        noClasses()
-                .that().resideInAPackage("top.sywyar.pixivdownload.schedule..")
-                .should().dependOnClassesThat()
-                .resideInAPackage("top.sywyar.pixivdownload.download.schedule..")
-                .orShould().dependOnClassesThat()
-                .haveFullyQualifiedName(
-                        "top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin")
-                .because("调度宿主只能经稳定契约接收来源、凭证、风险与持久化贡献")
-                .check(CLASSES);
-    }
 
-    @Test
-    @DisplayName("通用 schedule 源码不得重新解释 Pixiv 凭证策略 wire")
-    void scheduleHostSourceDoesNotInterpretPixivCredentialPolicy() throws IOException {
-        Path sourceRoot = repositoryRoot().resolve(
-                "pixivdownload-plugin-download-workbench/src/main/java/"
-                        + "top/sywyar/pixivdownload/schedule");
-        List<Path> sources;
-        try (Stream<Path> paths = Files.walk(sourceRoot)) {
-            sources = paths
-                    .filter(path -> path.toString().endsWith(".java"))
-                    .sorted()
-                    .toList();
-        }
-        assertThat(sources)
-                .as("generic schedule source set must be non-vacuous")
-                .hasSizeGreaterThan(20);
-        String[] forbidden = {
-                "top.sywyar.pixivdownload.download.schedule.",
-                "DownloadWorkbenchPlugin",
-                "PixivScheduled",
-                "PixivSchedule",
-                "PIXIV_OVERUSE",
-                "CookieAuthorizeRequest",
-                "AccountResumeRequest",
-                "authorize-cookie",
-                "revoke-cookie",
-                "/accounts/",
-                "cookieMode",
-                "cookieBound",
-                "accountId",
-                "ackWarningTime"
-        };
-        for (Path source : sources) {
-            assertThat(read(source))
-                    .as(repositoryRoot().relativize(source).toString())
-                    .doesNotContain(forbidden);
-        }
-    }
+
+
+
 
     @Test
     @DisplayName("通用凭证宿主不得硬编码来源会话字段或策略私有命名")
     void genericCredentialHostDoesNotHardcodeSourceCredentialSemantics() throws IOException {
         Path root = repositoryRoot().resolve("pixivdownload-plugin-download-workbench");
         List<Path> genericCredentialSources = List.of(
-                root.resolve("src/main/java/top/sywyar/pixivdownload/schedule/security/"
-                        + "ScheduleCredentialRedactor.java"),
+                repositoryRoot().resolve("pixivdownload-plugin-api/src/main/java/"
+                        + "top/sywyar/pixivdownload/plugin/api/schedule/security/ScheduleCredentialRedactor.java"),
                 root.resolve("src/main/resources/static/pixiv-batch/modes/schedule.js"));
         String[] forbidden = {
                 "PHPSESSID",
@@ -421,34 +366,7 @@ class DownloadWorkbenchDependencyGuardTest {
                 .doesNotContain("schedule-overuse");
     }
 
-    @Test
-    @DisplayName("计划队列投影不得解释具体作品类型与插件私有实时状态")
-    void scheduleQueueProjectionDoesNotInterpretPluginPrivateLiveStatus() {
-        Path root = repositoryRoot().resolve(
-                "pixivdownload-plugin-download-workbench/src/main/java/top/sywyar/pixivdownload");
-        List<Path> genericHostSources = List.of(
-                root.resolve("schedule/ScheduleRunQueue.java"),
-                root.resolve("schedule/ScheduleService.java"),
-                root.resolve("schedule/ScheduleExecutor.java"),
-                root.resolve("schedule/execution/ScheduleWorkCoordinator.java"),
-                root.resolve("schedule/dto/ScheduleQueueView.java"));
-        List<String> forbidden = List.of(
-                "KIND_NOVEL",
-                "WORK_TYPE_ILLUST",
-                "WORK_TYPE_NOVEL",
-                "autoTranslateSubmitted",
-                "TranslateStatus",
-                "translatePhase",
-                "xRestrict",
-                "pixiv.net/artworks",
-                "novel/show.php");
 
-        for (Path source : genericHostSources) {
-            assertThat(read(source))
-                    .as(source.getFileName().toString())
-                    .doesNotContain(forbidden.toArray(String[]::new));
-        }
-    }
 
     @Test
     @DisplayName("下载工作台计划任务来源 / 执行器不得依赖 novel 包")
@@ -461,20 +379,7 @@ class DownloadWorkbenchDependencyGuardTest {
                 .check(CLASSES);
     }
 
-    @Test
-    @DisplayName("计划任务宿主 Bean 不得直连核心计划任务数据实现层")
-    void scheduleEngineBeansMustNotAccessCoreScheduleImplDirectly() {
-        noClasses()
-                .that().resideInAPackage("top.sywyar.pixivdownload.schedule..")
-                .should().dependOnClassesThat()
-                .resideInAnyPackage(
-                        "top.sywyar.pixivdownload.core.schedule.db..",
-                        "javax.sql..", "java.sql..",
-                        "org.springframework.jdbc..",
-                        "org.apache.ibatis..")
-                .because("scheduled_tasks / scheduled_task_pending 是核心 owned schema，调度壳只能经 core.schedule 语义 Store/API")
-                .check(CLASSES);
-    }
+
 
     @Test
     @DisplayName("插件托管业务 Bean 不得直连数据库底层")
@@ -492,16 +397,7 @@ class DownloadWorkbenchDependencyGuardTest {
                 .check(CLASSES);
     }
 
-    @Test
-    @DisplayName("下载队列控制器不得直接依赖具体作品类型下载服务")
-    void downloadQueueControllerDoesNotDependOnConcreteDownloadServices() {
-        noClasses()
-                .that().haveFullyQualifiedName(
-                        "top.sywyar.pixivdownload.download.controller.DownloadQueueController")
-                .should().dependOnClassesThat(CONCRETE_DOWNLOAD_SERVICE)
-                .because("下载队列控制器的跨类型取消 / 清空只能经稳定 DownloadControlPlane")
-                .check(CLASSES);
-    }
+
 
     @Test
     @DisplayName("下载工作台不得依赖宿主队列命令与扩展 registry 实现")
@@ -512,33 +408,7 @@ class DownloadWorkbenchDependencyGuardTest {
                 .check(CLASSES);
     }
 
-    @Test
-    @DisplayName("计划任务宿主只通过 plugin-api 稳定端口访问能力")
-    void scheduleHostUsesStableCapabilityAccess() {
-        noClasses()
-                .that().resideInAPackage("top.sywyar.pixivdownload.schedule..")
-                .should().dependOnClassesThat(HOST_SCHEDULE_CAPABILITY_IMPLEMENTATION)
-                .because("外置工作台不得依赖宿主 ScheduleCapabilityRegistry、publication、lease 或 owner 实现")
-                .check(CLASSES);
 
-        classes()
-                .that().haveFullyQualifiedName(
-                        "top.sywyar.pixivdownload.schedule.ScheduleHostPluginConfiguration")
-                .should().dependOnClassesThat()
-                .haveFullyQualifiedName(
-                        "top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess")
-                .because("child context 必须显式从父 context 注入稳定计划能力访问端口")
-                .check(CLASSES);
-
-        classes()
-                .that().haveFullyQualifiedName(
-                        "top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine")
-                .should().dependOnClassesThat()
-                .haveFullyQualifiedName(
-                        "top.sywyar.pixivdownload.plugin.api.schedule.capability.ScheduleCapabilityAccess")
-                .because("执行引擎必须通过稳定端口取得 planning 与 execution lease")
-                .check(CLASSES);
-    }
 
     @Test
     @DisplayName("下载工作台脚本入口只消费稳定目录且不自行重复限流")
@@ -633,20 +503,20 @@ class DownloadWorkbenchDependencyGuardTest {
     }
 
     @Test
-    @DisplayName("宿主策略必选的下载工作台不得用插件开关门控配置类或 Bean")
-    void requiredWorkbenchBeansMustNotBeConditionalOnPluginEnabled() {
+    @DisplayName("工作台的启停由插件上下文统一管理，内部 Bean 不读取原始插件开关")
+    void workbenchBeansMustNotBeConditionalOnPluginEnabled() {
         assertThat(CLASSES.stream()
                 .filter(javaClass -> javaClass.isAnnotatedWith(ConditionalOnPluginEnabled.class))
                 .map(JavaClass::getName)
                 .toList())
-                .as("download-workbench 配置类由宿主 RequiredPluginPolicy 保证恒活动，不得读取原始插件开关门控")
+                .as("工作台配置类随插件上下文启停，不得读取待重启的期望开关")
                 .isEmpty();
         assertThat(CLASSES.stream()
                 .flatMap(javaClass -> javaClass.getMethods().stream())
                 .filter(method -> method.isAnnotatedWith(ConditionalOnPluginEnabled.class))
                 .map(method -> method.getFullName())
                 .toList())
-                .as("download-workbench Bean 由宿主 RequiredPluginPolicy 保证恒活动，不得读取原始插件开关门控")
+                .as("工作台 Bean 随插件上下文启停，不得读取待重启的期望开关")
                 .isEmpty();
     }
 
@@ -657,12 +527,11 @@ class DownloadWorkbenchDependencyGuardTest {
                 .extracting(javaClass -> javaClass.getName())
                 .contains(
                         "top.sywyar.pixivdownload.download.DownloadWorkbenchPlugin",
-                        "top.sywyar.pixivdownload.download.controller.DownloadQueueController",
                         "top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserNewScheduledSourceExecutor",
                         "top.sywyar.pixivdownload.download.schedule.work.PixivScheduledIllustWorkExecutor",
-                        "top.sywyar.pixivdownload.schedule.ScheduleExecutor",
-                        "top.sywyar.pixivdownload.schedule.ScheduleHostPluginConfiguration",
-                        "top.sywyar.pixivdownload.schedule.execution.ScheduleExecutionEngine");
+                        "top.sywyar.pixivdownload.download.controller.DownloadTaskController",
+                        "top.sywyar.pixivdownload.download.schedule.source.executor.PixivUserNewScheduledSourceExecutor",
+                        "top.sywyar.pixivdownload.download.schedule.credential.PixivScheduleCredentialController");
     }
 
     private static JavaClasses importPluginClasses() {

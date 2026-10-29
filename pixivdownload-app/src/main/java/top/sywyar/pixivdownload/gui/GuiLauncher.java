@@ -296,7 +296,8 @@ public class GuiLauncher {
         final List<DesktopUiPluginSource> startupPluginSources = buildDesktopUiPluginSources(startupPluginRegistry);
         final List<DesktopUiPluginSnapshot> startupDesktopSnapshots =
                 buildDesktopUiPluginSnapshots(startupPluginSources);
-        final WebI18nBundleRegistry startupDesktopBundles = new WebI18nBundleRegistry(startupPluginRegistry);
+        final WebI18nBundleRegistry startupDesktopBundles =
+                new WebI18nBundleRegistry(startupPluginRegistry, pluginSession.manager());
         final ManagedDatabaseSchema.DatabaseSchema startupManagedSchema =
                 buildStartupManagedSchema(pluginSession.enabledSnapshot(), pluginSession.startupDiscovery());
 
@@ -328,7 +329,8 @@ public class GuiLauncher {
                     () -> buildDesktopUiPluginSnapshots(currentDesktopSources.get());
             Supplier<WebI18nBundleRegistry> currentDesktopBundles = memoizedDesktopUiBundles(
                     () -> pluginSession.manager().discoverFeaturePlugins(),
-                    discovery -> new WebI18nBundleRegistry(pluginRegistry(pluginSession, discovery)),
+                    discovery -> new WebI18nBundleRegistry(
+                            pluginRegistry(pluginSession, discovery), pluginSession.manager()),
                     pluginSession.startupDiscovery(), startupDesktopBundles);
             DesktopUiFailover ui = new DesktopUiFailover(
                     startupPluginSources,

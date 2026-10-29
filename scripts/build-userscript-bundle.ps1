@@ -205,6 +205,8 @@ foreach ($value in $connectValues) {
     $null = $metadataLines.Add("// @connect      $value")
 }
 $null = $metadataLines.Add("// @run-at       $runAt")
+$null = $metadataLines.Add("// @pixiv-presence-page /pixiv-batch.html")
+$null = $metadataLines.Add("// @pixiv-presence-page /pixiv-batch-alt.html")
 $null = $metadataLines.Add("// ==/UserScript==")
 
 $bootstrap = @"

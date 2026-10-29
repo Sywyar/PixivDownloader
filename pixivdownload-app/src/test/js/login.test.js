@@ -59,7 +59,7 @@ test('登录后的回跳按浏览器URL语义限制在当前来源', async () =>
             }
             const target = new URL(s.location.href);
             assert.equal(target.origin, 'https://app.example.test', redirect);
-            if (blocked.includes(redirect)) assert.equal(target.pathname, '/pixiv-batch.html');
+            if (blocked.includes(redirect)) assert.equal(target.pathname, '/redirect');
             else assert.equal(target.href, new URL(redirect, 'https://app.example.test').href);
         }
     }
@@ -90,7 +90,7 @@ for (const first of ['doLogin', 'doInviteRedeem']) {
             s.posts[1].resolve({ok: true, json: async () => ({success: true, redirect: '/guest-landing'})});
             await retry;
             assert.equal(new URL(s.location.href).pathname,
-                other === 'doInviteRedeem' ? '/guest-landing' : '/pixiv-batch.html');
+                other === 'doInviteRedeem' ? '/guest-landing' : '/redirect');
         }
     });
 }

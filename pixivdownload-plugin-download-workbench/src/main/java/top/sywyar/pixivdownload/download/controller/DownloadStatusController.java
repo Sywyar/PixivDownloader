@@ -29,13 +29,6 @@ public class DownloadStatusController {
     private final RequestOwnerIdentityResolver requestOwnerIdentityResolver;
     private final MessageResolver messages;
 
-    @GetMapping("/download/status")
-    public ResponseEntity<DownloadResponse> getStatus() {
-        return ResponseEntity.ok(DownloadResponse.builder()
-                .success(true)
-                .message(messages.get("download.service.healthy"))
-                .build());
-    }
 
     //获取作品下载状态
     @GetMapping("/download/status/{artworkId}")

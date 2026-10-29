@@ -10,12 +10,15 @@ import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.web.I18nContribution;
 import top.sywyar.pixivdownload.plugin.runtime.install.ExternalPluginInstaller;
 import top.sywyar.pixivdownload.plugin.runtime.install.model.InstalledPlugin;
+import top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager;
+import top.sywyar.pixivdownload.plugin.runtime.descriptor.PluginDescriptor;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Collection;
@@ -57,7 +60,7 @@ import java.util.zip.ZipFile;
  * {@link PluginRegistry.RegisteredPlugin#classLoader()} 权威提供，不能从插件实例的类自行推导。
  * <p>
  * 安装态但未进入活动快照的外置插件只暴露展示身份所需的只读 i18n fallback：按 descriptor 声明的
- * {@code displayNamespace} 从已安装 artifact 内读取 {@code i18n/web/<namespace>.properties}，不注册路由、
+ * {@code displayNamespace} 从已安装 artifact 或当前开发 generation 的冻结资源目录读取词典，不注册路由、
  * 静态资源、导航、userscript 或其它运行期 contribution。这样插件管理页 / GUI 状态可以解析未启动插件的名称与简介，
  * 同时禁用 / 停止插件的服务入口仍按「未声明即 404」清退。
  * <p>
@@ -179,6 +182,7 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
 
     private final Object lock = new Object();
     private final Supplier<List<InstalledPlugin>> installedPlugins;
+    private final Supplier<Map<Path, PluginDescriptor>> developmentArtifacts;
     private final LocaleCatalog catalog;
 
     private volatile List<RegisteredBundle> activeSnapshot = List.of();
@@ -187,8 +191,9 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
     @Autowired
     public WebI18nBundleRegistry(PluginRegistry pluginRegistry,
                                  ObjectProvider<ExternalPluginInstaller> installer,
+                                 ObjectProvider<PluginRuntimeManager> runtime,
                                  LocaleCatalog catalog) {
-        this(pluginRegistry, installedPluginSupplier(installer), catalog);
+        this(pluginRegistry, installedPluginSupplier(installer), runtime.getIfAvailable(), catalog);
     }
 
     public WebI18nBundleRegistry(PluginRegistry pluginRegistry) {
@@ -207,7 +212,19 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
     WebI18nBundleRegistry(PluginRegistry pluginRegistry,
                           Supplier<List<InstalledPlugin>> installedPlugins,
                           LocaleCatalog catalog) {
+        this(pluginRegistry, installedPlugins, null, catalog);
+    }
+
+    public WebI18nBundleRegistry(PluginRegistry pluginRegistry, PluginRuntimeManager runtime) {
+        this(pluginRegistry, List::of, runtime, LocaleCatalog.defaultCatalog());
+    }
+
+    WebI18nBundleRegistry(PluginRegistry pluginRegistry,
+                          Supplier<List<InstalledPlugin>> installedPlugins,
+                          PluginRuntimeManager runtime,
+                          LocaleCatalog catalog) {
         this.installedPlugins = installedPlugins != null ? installedPlugins : List::of;
+        this.developmentArtifacts = runtime == null ? Map::of : runtime::developmentResourceArtifacts;
         this.catalog = catalog == null ? LocaleCatalog.defaultCatalog() : catalog;
         pluginRegistry.forEachBootPlugin(registered -> {
             PixivFeaturePlugin plugin = registered.plugin();
@@ -284,11 +301,6 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
     /** namespace → 已注册的纯宿主 bundle 快照，未注册返回 {@code null}。 */
     public RegisteredBundle resolve(String namespace) {
         for (RegisteredBundle registered : activeSnapshot) {
-            if (registered.contribution().namespace().equals(namespace)) {
-                return registered;
-            }
-        }
-        for (RegisteredBundle registered : installedSnapshot) {
             if (registered.contribution().namespace().equals(namespace)) {
                 return registered;
             }
@@ -374,18 +386,21 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
     private List<RegisteredBundle> installedBundles(List<InstalledPlugin> installedPlugins) {
         List<RegisteredBundle> bundles = new ArrayList<>();
         Set<String> namespaces = new HashSet<>();
+        Map<Path, PluginDescriptor> artifacts = new LinkedHashMap<>(developmentArtifacts.get());
         for (InstalledPlugin installed : installedPlugins == null ? List.<InstalledPlugin>of() : installedPlugins) {
-            String namespace = trimToNull(installed.descriptor().displayNamespace());
+            artifacts.putIfAbsent(installed.path(), installed.descriptor());
+        }
+        for (Map.Entry<Path, PluginDescriptor> artifact : artifacts.entrySet()) {
+            String namespace = trimToNull(artifact.getValue().displayNamespace());
             if (namespace == null || !namespaces.add(namespace)) {
                 continue;
             }
             I18nContribution contribution = new I18nContribution(namespace, "i18n.web." + namespace);
-            Path artifact = installed.path();
             bundles.add(new RegisteredBundle(
-                    installed.id(),
+                    artifact.getValue().id(),
                     contribution,
                     Map.of(),
-                    artifact,
+                    artifact.getKey(),
                     catalog));
         }
         return List.copyOf(bundles);
@@ -436,6 +451,22 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
     }
 
     private static Map<String, String> readArtifactProperties(Path artifact, String resourceName) {
+        if (Files.isDirectory(artifact)) {
+            try {
+                Path root = artifact.toRealPath();
+                Path resource = root.resolve(resourceName).normalize();
+                if (!resource.startsWith(root) || !Files.isRegularFile(resource)
+                        || !resource.toRealPath().startsWith(root)) {
+                    return null;
+                }
+                try (InputStream in = Files.newInputStream(resource)) {
+                    return readProperties(in);
+                }
+            } catch (IOException | IllegalArgumentException e) {
+                throw new MissingResourceException("Cannot read development plugin i18n bundle "
+                        + resourceName, resourceName, "");
+            }
+        }
         try (ZipFile zip = new ZipFile(artifact.toFile())) {
             ZipEntry entry = zip.getEntry(resourceName);
             if (entry == null) {
@@ -447,7 +478,7 @@ public class WebI18nBundleRegistry implements NamespaceMessageResolver {
             try (InputStream in = zip.getInputStream(entry)) {
                 return readProperties(in);
             }
-        } catch (IOException e) {
+        } catch (IOException | IllegalArgumentException e) {
             throw new MissingResourceException("Cannot read installed plugin i18n bundle "
                     + resourceName + " from " + artifact + ": " + e.getMessage(), resourceName, "");
         }

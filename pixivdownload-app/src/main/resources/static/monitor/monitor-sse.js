@@ -1,4 +1,5 @@
 'use strict';
+    let activeStatusUnavailable = false;
     // ===================== SSE 管理（共享单连接版） =====================
     function ensureSharedSSE() {
         if (sharedSse || pageSuspended || activeDownloads.length === 0) return;
@@ -61,7 +62,7 @@
     function scheduleActiveSync(immediate) {
         clearTimeout(activeUpdateTimer);
         activeUpdateTimer = null;
-        if (pageSuspended || activeSyncController) return;
+        if (pageSuspended || activeSyncController || activeStatusUnavailable) return;
         if (immediate) {
             syncActiveIds();
         } else {
@@ -70,12 +71,22 @@
     }
 
     async function syncActiveIds() {
-        if (pageSuspended || activeSyncController) return;
+        if (pageSuspended || activeSyncController || activeStatusUnavailable) return;
         clearTimeout(activeUpdateTimer);
         activeUpdateTimer = null;
         const controller = activeSyncController = new AbortController();
         try {
             const res = await fetch('/api/download/status/active', {signal: controller.signal});
+            if (activeSyncController !== controller) return;
+            if (res.status === 404) {
+                activeStatusUnavailable = true;
+                activeDownloads = [];
+                closeSharedSSE();
+                document.getElementById('activeCount').textContent = '—';
+                document.getElementById('activeDownloads').textContent = '—';
+                renderActiveDownloads();
+                return;
+            }
             if (!res.ok) return;
             const { artworkIds } = await res.json();
             if (activeSyncController !== controller) return;
@@ -127,6 +138,12 @@
 
         if (!activeDownloads.length) {
             container.innerHTML = '';
+            document.getElementById('emptyActiveTitle').textContent = activeStatusUnavailable
+                ? t('empty.active.unavailable-title', 'Live downloads unavailable')
+                : t('empty.active.title', 'Queue Empty');
+            document.getElementById('emptyActiveBody').textContent = activeStatusUnavailable
+                ? t('empty.active.unavailable-body', 'The download status feature is not enabled. Your download history is still available.')
+                : t('empty.active.body', 'No active download tasks.');
             emptyState.classList.remove('d-none');
             return;
         }

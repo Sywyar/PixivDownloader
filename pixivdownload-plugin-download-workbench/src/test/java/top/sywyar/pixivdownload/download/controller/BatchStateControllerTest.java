@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.download.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.AfterEach;
+import top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -38,6 +40,11 @@ class BatchStateControllerTest {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String ENDPOINT = "/api/batch/state";
     @TempDir Path directory;
+
+    @AfterEach
+    void cleanDirectoryAfterResourcesClose() throws Exception {
+        TestDirectoryCleanup.delete(directory);
+    }
 
     @Test
     @DisplayName("缺失状态为空对象，完整替换后查询和重启均恢复原始 JSON")

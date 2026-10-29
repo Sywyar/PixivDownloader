@@ -28,6 +28,8 @@
     "detail.title": "Title",
     "empty.active.body": "No active download tasks.",
     "empty.active.title": "Queue Empty",
+    "empty.active.unavailable-body": "The download status feature is not enabled. Your download history is still available.",
+    "empty.active.unavailable-title": "Live downloads unavailable",
     "empty.history.body": "No artworks downloaded yet.",
     "empty.history.title": "No Download History",
     "filter.ai.title": "AI FILTER",

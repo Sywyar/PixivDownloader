@@ -4,7 +4,7 @@
   "download-workbench": {
     "defaultLocale": "zh-CN",
     "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
-    "description": { "zh": "官方必需插件，提供基础插画下载工作流、下载队列、批量状态、Pixiv 代理入口、下载页静态资源、油猴脚本分发与计划下载宿主。缺失时核心壳进入恢复 / 补齐模式。", "en": "Official required plugin providing the basic illustration download workflow, queue, batch state, Pixiv proxy endpoints, workbench static assets, userscript distribution, and scheduled download host. When missing, the core shell enters recovery/repair mode." },
+    "description": { "zh": "可选下载工作台插件，提供基础插画下载工作流、下载队列、批量状态、Pixiv 代理入口、下载页静态资源、油猴脚本分发与计划下载宿主。停用后保留已有数据，完整重启后生效。", "en": "Optional download workbench plugin providing the basic illustration download workflow, queue, batch state, Pixiv proxy endpoints, workbench static assets, userscript distribution, and scheduled download host. Disabling it preserves existing data and takes effect after a full restart." },
     "author": "Sywyar",
     "sourceType": "official",
     "category": "download",
@@ -12,8 +12,8 @@
     "homepageUrl": "https://github.com/Sywyar/PixivDownloader",
     "license": "AGPL-3.0-only",
     "recommended": true,
-    "officialRequired": true,
-    "changeNotes": ["下载工作台从核心壳外置为官方必需插件"]
+    "officialRequired": false,
+    "changeNotes": ["下载工作台支持按需停用"]
   },
   "pixiv-batch-downloader-import": {
     "defaultLocale": "zh-CN",

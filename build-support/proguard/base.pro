@@ -24,3 +24,8 @@
     <fields>;
     <methods>;
 }
+
+# Jackson 依据 Record 属性查找规范构造器，不能删去恒定参数。
+-keepclassmembers class * extends java.lang.Record {
+    <init>(...);
+}

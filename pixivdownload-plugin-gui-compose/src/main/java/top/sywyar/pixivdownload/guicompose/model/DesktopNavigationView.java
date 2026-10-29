@@ -88,12 +88,6 @@ final class DesktopNavigationView {
                 key("gui.tray.menu.show-main-window")
         ));
         items.add(DesktopUiDocument.TrayItem.separator("tray.separator.actions"));
-        nextActions.put("tray.batch.open", () -> owner.openWeb("/pixiv-batch.html"));
-        items.add(DesktopUiDocument.TrayItem.dispatch(
-                "tray.batch",
-                key("gui.action.open-batch"),
-                "tray.batch.open"
-        ));
         int index = 0;
         for (NavigationContribution entry : webEntries(NavigationPlacements.GUI_TRAY_ACTIONS)) {
             String id = "tray.web." + index++;

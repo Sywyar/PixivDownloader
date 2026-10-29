@@ -61,7 +61,8 @@ public class NavigationController {
                     NavigationContribution item = registered.navigation();
                     return new NavigationView(item.id(), item.placements(),
                             item.labelNamespace(), item.labelI18nKey(),
-                            item.href(), item.icon(), item.priority(), item.markers());
+                            item.href(), item.icon(), item.priority(), item.markers(),
+                            registered.pluginId(), registered.pluginNamespace(), registered.pluginNameKey());
                 })
                 .toList();
     }
@@ -79,6 +80,7 @@ public class NavigationController {
      * {@link #placements()} 供前端把本项渲染进对应的空 slot（{@code data-nav-slot="<placement>"}）。
      */
     public record NavigationView(String id, Set<String> placements, String labelNamespace, String labelI18nKey,
-                                 String href, String icon, int priority, Set<String> markers) {
+                                 String href, String icon, int priority, Set<String> markers,
+                                 String pluginId, String pluginNamespace, String pluginNameKey) {
     }
 }

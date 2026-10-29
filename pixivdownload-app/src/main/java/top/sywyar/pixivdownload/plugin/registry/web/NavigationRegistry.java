@@ -11,6 +11,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Comparator;
+import java.util.Optional;
+import top.sywyar.pixivdownload.plugin.api.web.Audience;
 import java.util.stream.Collectors;
 import top.sywyar.pixivdownload.plugin.web.controller.NavigationController;
 
@@ -29,7 +32,8 @@ import top.sywyar.pixivdownload.plugin.web.controller.NavigationController;
 public class NavigationRegistry {
 
     /** 一条已注册导航项及其声明方插件。 */
-    public record RegisteredNavigation(String pluginId, NavigationContribution navigation) {
+    public record RegisteredNavigation(String pluginId, String pluginNamespace, String pluginNameKey,
+                                       NavigationContribution navigation) {
     }
 
     private final Object lock = new Object();
@@ -41,7 +45,7 @@ public class NavigationRegistry {
             PixivFeaturePlugin plugin = registered.plugin();
             List<NavigationContribution> navigation = plugin.navigation();
             if (!navigation.isEmpty()) {
-                register(registered.id(), navigation);
+                register(registered.id(), plugin.displayNamespace(), plugin.displayName(), navigation);
             }
         });
     }
@@ -56,6 +60,12 @@ public class NavigationRegistry {
      * 但不同 placement 可复用同一 href（如类型切换 tab 与疑似重复页图标都指向画廊），故 href 冲突按 placement 判定、不做全局判定。
      */
     public void register(String pluginId, List<NavigationContribution> navigation) {
+        register(pluginId, null, null, navigation);
+    }
+
+    /** 注册时冻结所属插件的展示信息，读取快照时不再回调插件。 */
+    public void register(String pluginId, String pluginNamespace, String pluginNameKey,
+                         List<NavigationContribution> navigation) {
         if (pluginId == null || pluginId.isBlank()) {
             throw new IllegalStateException("navigation contribution without pluginId");
         }
@@ -90,7 +100,7 @@ public class NavigationRegistry {
                                 + " in placement " + placement + " (plugin: " + pluginId + ")");
                     }
                 }
-                next.add(new RegisteredNavigation(pluginId, item));
+                next.add(new RegisteredNavigation(pluginId, pluginNamespace, pluginNameKey, item));
             }
             snapshot = List.copyOf(next);
         }
@@ -111,6 +121,15 @@ public class NavigationRegistry {
     /** 按注册顺序返回全部导航项的不可变快照。 */
     public List<RegisteredNavigation> navigation() {
         return snapshot;
+    }
+
+    /** 从当前身份可见的活动贡献中选择带指定语义标记的入口。 */
+    public Optional<String> preferredHref(String marker, Audience audience) {
+        return snapshot.stream().map(RegisteredNavigation::navigation)
+                .filter(item -> item.markers().contains(marker) && item.visibleTo().isVisibleTo(audience))
+                .min(Comparator.comparingInt(NavigationContribution::priority)
+                        .thenComparing(NavigationContribution::id))
+                .map(NavigationContribution::href);
     }
 
     private static void validate(NavigationContribution navigation, String pluginId) {

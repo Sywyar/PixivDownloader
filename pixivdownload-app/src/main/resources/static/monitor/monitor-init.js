@@ -91,6 +91,7 @@
     function startDashboardUpdates() {
         if (updateInterval !== null) return;
         pageSuspended = false;
+        activeStatusUnavailable = false;
         updateInterval = setInterval(updateDashboard, 5000);
         foregroundBurstUntil = Date.now() + 10000;
         ensureSharedSSE();
@@ -133,6 +134,8 @@
 
         document.getElementById('searchInput').addEventListener('input', onSearch);
         document.getElementById('refreshHistory').addEventListener('click', () => {
+            activeStatusUnavailable = false;
+            scheduleActiveSync(true);
             searchQuery = '';
             document.getElementById('searchInput').value = '';
             sortKey = 'time';

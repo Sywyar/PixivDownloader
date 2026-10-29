@@ -43,6 +43,7 @@ public class I18nConfig implements WebMvcConfigurer {
         return new CatalogMessageSource(
                 localeCatalog,
                 "i18n/messages",
+                "i18n/notification-templates",
                 "i18n/ValidationMessages"
         );
     }

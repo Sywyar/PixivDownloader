@@ -62,12 +62,7 @@ function Get-PixivDownloadSdkVersion {
 function Get-OfficialRequiredPlugins {
     [CmdletBinding()]
     param()
-    return @(
-        [pscustomobject]@{
-            Id = "download-workbench"; Module = "pixivdownload-plugin-download-workbench"; Format = "jar"; PrivateLibs = $false
-            DeliveryPaths = @('Pixiv ', 'scripts/userscript-', 'scripts/build-userscript-bundle.ps1')
-        }
-    )
+    return @()
 }
 
 # Official plugins installed into the default build artifacts. They remain separate PF4J artifacts and retain
@@ -77,6 +72,10 @@ function Get-OfficialDefaultInstalledPlugins {
     param()
     $plugins = @(Get-OfficialRequiredPlugins)
     $plugins += @(
+        [pscustomobject]@{
+            Id = "download-workbench"; Module = "pixivdownload-plugin-download-workbench"; Format = "jar"; PrivateLibs = $false
+            DeliveryPaths = @('Pixiv ', 'scripts/userscript-', 'scripts/build-userscript-bundle.ps1')
+        },
         [pscustomobject]@{
             Id = "database-sqlite"; Module = "pixivdownload-plugin-database-sqlite"; Format = "jar"; PrivateLibs = $true;
             ClassPrefix = "top/sywyar/pixivdownload/databasesqlite/";
@@ -573,7 +572,6 @@ function Assert-BootJarBoundary {
         "BOOT-INF/classes/i18n/web/tts",
         "BOOT-INF/classes/i18n/web/userscript",
         "BOOT-INF/classes/mail/",
-        "BOOT-INF/classes/notification/templates/",
         "BOOT-INF/classes/org/pf4j/",
         "BOOT-INF/classes/static/pixiv-batch-downloader-import/",
         "BOOT-INF/classes/userscripts/pixiv-batch-downloader-import.user.js",
@@ -633,7 +631,6 @@ function Assert-BootJarBoundary {
         "BOOT-INF/classes/top/sywyar/pixivdownload/push/controller/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/push/http/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/recoverysentinel/",
-        "BOOT-INF/classes/top/sywyar/pixivdownload/schedule/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/stats/",
         "BOOT-INF/classes/top/sywyar/pixivdownload/tts/DefaultEdgeTtsWebSocketConnector",
         "BOOT-INF/classes/top/sywyar/pixivdownload/tts/EdgeTts",

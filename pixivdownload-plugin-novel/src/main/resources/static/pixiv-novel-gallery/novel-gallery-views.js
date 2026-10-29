@@ -133,9 +133,10 @@ function renderGrid(items) {
             grid.innerHTML = `<div class="empty" style="grid-column:1/-1;">${esc(pageI18n.t('novel-gallery:status.empty', '暂无小说'))}</div>`;
         } else {
             grid.innerHTML = `<div class="empty empty-cta" style="grid-column:1/-1;">`
-                + `<div>${esc(pageI18n.t('novel-gallery:status.no-downloads', '没有下载的作品，快去下载页下载吧！'))}</div>`
-                + `<a class="btn btn-primary" href="/pixiv-batch.html" target="_blank" rel="noopener">${esc(pageI18n.t('novel-gallery:status.go-download', '前往下载页'))}</a>`
+                + `<div>${esc(pageI18n.t('novel-gallery:status.no-downloads', '还没有收录作品。'))}</div>`
+                + `<a class="btn btn-primary" hidden data-nav-preferred-href-marker="preferred-download-workbench" target="_blank" rel="noopener">${esc(pageI18n.t('novel-gallery:status.go-download', '前往下载页'))}</a>`
                 + `</div>`;
+            if (window.PixivNav) PixivNav.refreshLinks();
         }
         return;
     }

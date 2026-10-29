@@ -32,6 +32,11 @@ class PluginRepositoryConfigEditorTest {
     @TempDir
     Path tempDir;
 
+    @org.junit.jupiter.api.AfterEach
+    void cleanupDirectory() throws IOException {
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(tempDir);
+    }
+
     private Path writeFile(String... lines) throws IOException {
         Path file = tempDir.resolve("config.yaml");
         Files.write(file, List.of(lines), StandardCharsets.UTF_8);
