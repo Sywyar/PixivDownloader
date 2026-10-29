@@ -411,7 +411,7 @@ final class AppDesktopUiHost implements DesktopUiHost {
         var value = ArtworksBackFill.run(map(options), requireBackfillDataSource(), progress);
         return new BackfillSummary(value.totalCandidates(), value.processed(), value.filledAuthor(), value.filledR18(),
                 value.filledAi(), value.filledDescription(), value.filledTags(), value.filledSeries(), value.deletedCount(),
-                value.skipped(), value.previouslyUnreachable(), value.newlyUnreachable(), value.dryRun(), value.rateLimited());
+                value.skipped(), value.previouslyUnreachable(), value.newlyUnreachable(), value.dryRun(), value.rateLimited(), value.filledUploadTime());
     }
 
     private DataSource requireBackfillDataSource() {
@@ -422,13 +422,14 @@ final class AppDesktopUiHost implements DesktopUiHost {
         }
     }
     @Override public int countMigrationCandidates(MigrationOptions options) throws Exception {
-        return JsonToSqliteMigration.countCandidates(new JsonToSqliteMigration.Options(options.dbPath(), options.rootFolder()));
+        return JsonToSqliteMigration.countCandidates(new JsonToSqliteMigration.Options(options.dbPath(), options.rootFolder(),
+                toolDatabaseTarget(options.dbPath())), BackendLifecycleManager.isRunning() ? requireBackfillDataSource() : null);
     }
     @Override public MigrationSummary runMigration(MigrationOptions options, Consumer<String> reporter) throws Exception {
         var value = JsonToSqliteMigration.run(new JsonToSqliteMigration.Options(options.dbPath(), options.rootFolder(),
                 toolDatabaseTarget(options.dbPath())), reporter,
                 BackendLifecycleManager.isRunning() ? requireBackfillDataSource() : null);
-        return new MigrationSummary(value.totalCandidates(), value.migrated(), value.skipped(), value.historyFileMissing(), value.message());
+        return new MigrationSummary(value.totalCandidates(), value.migrated(), value.skipped(), value.historyFileMissing(), value.message(), value.failed());
     }
     @Override public ToolLogSession openToolLog(String stem) throws Exception {
         Class<?> loggerType = stem.contains("migration") ? JsonToSqliteMigration.class : ArtworksBackFill.class;
@@ -547,8 +548,8 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private static BackendSnapshot map(BackendLifecycleManager.Snapshot value) {
         return new BackendSnapshot(BackendState.valueOf(value.state().name()), value.error());
     }
-    private ArtworksBackFill.Options map(BackfillOptions value) {
+    private ArtworksBackFill.Options map(BackfillOptions value) throws IOException {
         return new ArtworksBackFill.Options(value.dbPath(), value.proxyHost(), value.proxyPort(), value.useProxy(), value.delayMs(), value.limit(), value.dryRun())
-                .withTarget(toolDatabaseTarget(value.dbPath()));
+                .withTarget(toolDatabaseTarget(value.dbPath())).withSources(folderCheckRoot(), value.alwaysNetwork());
     }
 }

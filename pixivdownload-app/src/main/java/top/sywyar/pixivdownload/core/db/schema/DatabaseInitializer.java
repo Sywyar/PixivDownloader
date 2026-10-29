@@ -27,10 +27,18 @@ public class DatabaseInitializer {
 
     public static void prepareOffline(java.sql.Connection connection, DatabaseTarget target) throws java.sql.SQLException {
         var registry = top.sywyar.pixivdownload.plugin.registry.schema.DatabaseSchemaRegistry.forBuiltInPlugins();
+        prepareOffline(connection, target, CoreMigrationSchema.create(registry, true));
+    }
+
+    public static void prepareOffline(java.sql.Connection connection, DatabaseTarget target,
+            top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema schema) throws java.sql.SQLException {
         var transaction = target.beginToolTransaction(connection);
         Throwable failure = null;
         try {
-            target.applySchema(connection, CoreMigrationSchema.create(registry, true), true);
+            target.applySchema(connection, schema, false);
+            var expected = top.sywyar.pixivdownload.plugin.api.database.migration.jdbc.JdbcMigrationSupport.physical(schema);
+            var comparison = DatabaseSchemaInspector.compare(connection, target, expected);
+            requireCompatible(comparison);
             transaction.commit();
         } catch (java.sql.SQLException | RuntimeException | Error e) {
             failure = e;
@@ -60,16 +68,29 @@ public class DatabaseInitializer {
                 target.prepareTransaction(connection, false);
                 return null;
             });
-            applySchema(contributions, mergedSchema, mergedSchema.tables().keySet(), true);
+            applySchema(contributions, mergedSchema);
             var comparison = jdbcTemplate.execute(
                     (ConnectionCallback<DatabaseSchemaInspector.SchemaComparison>) connection ->
                             DatabaseSchemaInspector.compare(connection, target, mergedSchema));
-            if (comparison == null || !comparison.matches()) {
+            if (comparison == null || !comparison.requiredStructure().matches()) {
                 throw new IllegalStateException(messages.getForLog("core.db.schema-mismatch",
-                        comparison == null ? "" : comparison.summary(12)));
+                        comparison == null ? "" : comparison.requiredStructure().summary(12)));
             }
+            logAdditions(comparison);
         });
         eventPublisher.publishEvent(new DatabaseReadyEvent());
+    }
+
+    private static void requireCompatible(DatabaseSchemaInspector.SchemaComparison comparison) throws java.sql.SQLException {
+        if (!comparison.requiredStructure().matches()) {
+            throw new java.sql.SQLException("STORAGE_SCHEMA_MISMATCH: " + comparison.requiredStructure().summary(12), "0A000");
+        }
+        logAdditions(comparison);
+    }
+
+    private static void logAdditions(DatabaseSchemaInspector.SchemaComparison comparison) {
+        if (!comparison.matches()) log.warn(top.sywyar.pixivdownload.i18n.MessageBundles.getForLog(
+                "core.db.log.additional-schema-preserved", comparison.summary(12)));
     }
 
     /** 不可用不等于空库，缺席时不发布就绪事件。 */

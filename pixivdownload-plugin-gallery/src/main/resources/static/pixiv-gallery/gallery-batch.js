@@ -45,6 +45,7 @@
 
     function currentBatchFilterSnapshot() {
         return {
+            ...galleryUploadTimeRange(),
             sort: state.sort,
             order: state.order,
             search: state.search || null,

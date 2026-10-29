@@ -33,7 +33,7 @@ final class SqliteConnectionTarget implements DatabaseConnectionTarget {
     }
     @Override public java.util.Map<String, top.sywyar.pixivdownload.plugin.api.database.migration.jdbc.PhysicalDatabaseSchema.TableSpec>
             readSchema(Connection connection) throws SQLException {
-        return SqliteMigrationSchema.readActualTables(connection);
+        return SqliteMigrationSchema.readActualTables(connection, false, null);
     }
     @Override public void initializeStorage(Connection connection,
             top.sywyar.pixivdownload.plugin.api.database.migration.MigrationSchema schema) throws SQLException {

@@ -54,6 +54,8 @@ public class GalleryController {
             @RequestParam(required = false) String seriesIds,
             @RequestParam(required = false) String notSeriesIds,
             @RequestParam(required = false) Long seriesId,
+            @RequestParam(required = false) Long uploadedFrom,
+            @RequestParam(required = false) Long uploadedBefore,
             WorkVisibilityScope visibilityScope) {
 
         List<Long> requiredAuthorIds = parseLongList(authorIds);
@@ -79,7 +81,7 @@ public class GalleryController {
                 parseLongList(orAuthorIds),
                 requiredSeriesIds,
                 parseLongList(notSeriesIds),
-                restriction);
+                restriction).withUploadTimeRange(uploadedFrom, uploadedBefore);
         return galleryService.query(query);
     }
 

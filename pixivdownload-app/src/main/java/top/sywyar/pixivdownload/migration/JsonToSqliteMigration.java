@@ -38,16 +38,17 @@ import java.util.function.Consumer;
  * <ul>
  *   <li>download_history.json - 作品下载记录（含移动信息）</li>
  *   <li>statistics.json - 统计数据（totalArtworks / totalImages / totalMoved）</li>
+ *   <li>已登记作品目录中的 {@code <id>.meta.json} - 元数据快照</li>
  *   <li>timeArtwork.json - 已集成至 download_history.json 的 time 字段，无需单独迁移</li>
  * </ul>
- * 迁移操作是幂等的：已存在于数据库中的作品会被自动跳过。
+ * 迁移操作是幂等的：已有作品记录与元数据快照分别跳过，源文件保留。
  *
  * <p>同时提供两套调用入口：
  * <ul>
  *   <li>Spring 注入版本：{@link #migrate()} / {@link #migrateAsync(SseEmitter)}，
  *       由 {@link MigrationController} 通过 REST 触发。</li>
  *   <li>独立运行版本：静态 {@link #run(Options, Consumer)} 和 {@link #countCandidates(Options)}，
- *       供 GUI 工具面板在停掉后端后通过 JDBC 操作配置中的目标。</li>
+ *       供离线工具使用；在线调用复用当前主库连接池。</li>
  * </ul>
  */
 @Slf4j
@@ -107,6 +108,20 @@ public class JsonToSqliteMigration {
         return history.path("downloaded").size();
     }
 
+    /** 预览历史记录和已登记作品的旧快照，不写入内容。 */
+    public static int countCandidates(Options options, DataSource dataSource) throws Exception {
+        int history = countCandidates(options);
+        if (dataSource == null && options.target().localFile().filter(java.nio.file.Files::notExists).isPresent()) return history;
+        try (Connection connection = dataSource == null ? options.target().openConnection(
+                top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionTarget.OpenMode.READ_ONLY) : dataSource.getConnection()) {
+            options.target().requireConnectionTarget(connection);
+            var schema = options.target().readSchema(connection);
+            if (!schema.containsKey("artworks") || schema.get("artworks").columns().stream().noneMatch(c -> c.name().equals("metadata_json"))) return history;
+            var metadata = WorkMetadataImport.run(connection, options.target(), options.rootFolder(), true, null);
+            return history + metadata.imported() + metadata.failed();
+        }
+    }
+
     /**
      * 不依赖 Spring 上下文的迁移入口，按指定目标幂等执行。
      */
@@ -120,15 +135,8 @@ public class JsonToSqliteMigration {
 
         log.info(logMessage("migration.log.started", historyFile.getAbsolutePath()));
 
-        if (!historyFile.exists()) {
-            String msg = message("migration.log.history-not-found");
-            log.info(logMessage("migration.log.history-not-found"));
-            report(reporter, msg);
-            return new Summary(0, 0, 0, true, msg);
-        }
-
         ObjectMapper mapper = new ObjectMapper();
-        JsonNode history = mapper.readTree(historyFile);
+        JsonNode history = historyFile.exists() ? mapper.readTree(historyFile) : mapper.createObjectNode();
         JsonNode downloaded = history.path("downloaded");
         int total = downloaded.size();
 
@@ -136,6 +144,7 @@ public class JsonToSqliteMigration {
 
         int migrated = 0;
         int skipped = 0;
+        WorkMetadataImport.Summary metadata;
 
         try (Connection conn = dataSource == null ? options.target().openConnection() : dataSource.getConnection()) {
             options.target().requireConnectionTarget(conn);
@@ -222,12 +231,19 @@ public class JsonToSqliteMigration {
             } finally {
                 transaction.finish(failure);
             }
+            metadata = WorkMetadataImport.run(conn, options.target(), options.rootFolder(), false,
+                    text -> { log.info(text); report(reporter, text); });
         }
 
-        String msg = message("migration.log.completed", migrated, skipped);
-        log.info(logMessage("migration.log.completed", migrated, skipped));
+        total += metadata.imported() + metadata.skipped() + metadata.failed();
+        migrated += metadata.imported();
+        skipped += metadata.skipped();
+        String msg = metadata.failed() == 0 ? message("migration.log.completed", migrated, skipped)
+                : message("metadata-import.summary", migrated, skipped, metadata.failed());
+        log.info(metadata.failed() == 0 ? logMessage("migration.log.completed", migrated, skipped)
+                : logMessage("metadata-import.summary", migrated, skipped, metadata.failed()));
         report(reporter, msg);
-        return new Summary(total, migrated, skipped, false, msg);
+        return new Summary(total, migrated, skipped, !historyFile.exists() && !statisticsFile.exists() && total == 0, msg, metadata.failed());
     }
 
     private static boolean exists(DatabaseSession session, String field, long value) throws SQLException {
@@ -285,5 +301,6 @@ public class JsonToSqliteMigration {
                           int migrated,
                           int skipped,
                           boolean historyFileMissing,
-                          String message) {}
+                          String message,
+                          int failed) {}
 }

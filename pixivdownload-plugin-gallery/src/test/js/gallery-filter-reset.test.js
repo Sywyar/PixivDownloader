@@ -18,6 +18,8 @@ function load() {
                 addEventListener: (type, fn) => listeners.set(type, fn),
                 click() { return listeners.get('click')?.({target: this}); },
                 dispatchEvent(event) { listeners.get(event.type)?.({...event, target: this}); },
+                setCustomValidity(message) { this.validationMessage = message; },
+                reportValidity() { return !this.validationMessage; },
                 querySelector: () => null, querySelectorAll: () => [], setAttribute() {}, replaceChildren() {}
             });
         }
@@ -48,6 +50,7 @@ for (const entry of ['reset', 'collection']) {
         const h = load(), s = h.state;
         s.page = 3; s.search = 'keep'; s.searchType = 'title'; s.sort = 'artworkId'; s.order = 'asc';
         s.r18 = 'r18'; s.ai = 'yes'; s.formats.add('png'); s.collectionIds.add(9);
+        s.uploadStartDate = '2020-01-01'; s.uploadEndDate = '2020-01-31';
         s.seriesFilter = {id: 10, title: 'series'}; s.authorNames.set(11, 'author');
         for (const kind of ['tag', 'author']) {
             h.sandbox.setFilterSelectionMode(kind, 12, 'not');
@@ -62,6 +65,7 @@ for (const entry of ['reset', 'collection']) {
         else h.sandbox.switchCollectionFilter(7);
         assert.equal(s.page, 0);
         assert.equal(s.r18, 'any'); assert.equal(s.ai, 'any'); assert.equal(s.formats.size, 0);
+        assert.equal(s.uploadStartDate, ''); assert.equal(s.uploadEndDate, '');
         assert.deepEqual([...s.collectionIds], entry === 'reset' ? [] : [7]);
         assert.equal(s.seriesFilter.id, null); assert.equal(s.authorNames.size, 0);
         for (const kind of ['tag', 'author']) {
@@ -127,4 +131,36 @@ test('收藏夹保存固定原对象和图标，重复提交不发请求且完�
     assert.equal(h.node('collectionFormName').value, 'Second draft');
     assert.equal(h.node('modalCollectionForm').classList.contains('open'), true);
     assert.equal(h.node('collectionFormSubmit').disabled, false);
+});
+
+test('上传日期范围按本地日历保存，包含结束日，并进入批量筛选快照', () => {
+    const h = load();
+    h.state.uploadStartDate = '2020-02-03'; h.state.uploadEndDate = '2020-02-03';
+    h.state.sort = 'uploadTime';
+    const range = h.sandbox.galleryUploadTimeRange();
+    assert.equal(range.uploadedFrom, new Date('2020-02-03T00:00:00').getTime());
+    assert.equal(range.uploadedBefore, new Date('2020-02-04T00:00:00').getTime());
+    const saved = h.sandbox.serializeGalleryState();
+    h.state.uploadStartDate = ''; h.state.uploadEndDate = '';
+    h.sandbox.applyPersistedGalleryState(saved);
+    assert.equal(h.state.uploadStartDate, '2020-02-03');
+    assert.equal(h.state.uploadEndDate, '2020-02-03');
+    const snapshot = h.sandbox.currentBatchFilterSnapshot();
+    assert.equal(snapshot.uploadedFrom, range.uploadedFrom);
+    assert.equal(snapshot.uploadedBefore, range.uploadedBefore);
+    h.sandbox.applyPersistedGalleryState({...saved, uploadStartDate: '2020-02-31'});
+    assert.equal(h.state.uploadStartDate, '');
+});
+
+test('结束日期早于起始日期时不发送筛选请求', () => {
+    const h = load();
+    h.node('uploadStartDate').value = '2020-02-04';
+    h.node('uploadEndDate').value = '2020-02-03';
+    h.node('uploadEndDate').dispatchEvent({type: 'change'});
+    assert.equal(h.requests.length, 0);
+    assert.ok(h.node('uploadEndDate').validationMessage);
+    h.node('uploadEndDate').value = '2020-02-04';
+    h.node('uploadEndDate').dispatchEvent({type: 'change'});
+    assert.equal(h.requests.length, 1);
+    assert.equal(h.state.uploadStartDate, '2020-02-04');
 });

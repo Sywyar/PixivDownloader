@@ -307,6 +307,7 @@ public interface DesktopUiToolHost {
      * @param useProxy  是否启用代理
      * @param delayMs   请求间隔毫秒数
      * @param limit     最大候选项数量
+     * @param alwaysNetwork 是否跳过本地元数据，仍只补缺失字段
      * @param dryRun    是否避免持久化写入
      */
     record BackfillOptions(
@@ -316,8 +317,14 @@ public interface DesktopUiToolHost {
             boolean useProxy,
             long delayMs,
             int limit,
-            boolean dryRun
+            boolean dryRun,
+            boolean alwaysNetwork
     ) {
+        /** 保留旧调用的本地优先行为。 */
+        public BackfillOptions(String dbPath, String proxyHost, int proxyPort, boolean useProxy,
+                               long delayMs, int limit, boolean dryRun) {
+            this(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun, false);
+        }
     }
 
     /**
@@ -336,6 +343,7 @@ public interface DesktopUiToolHost {
      * @param previouslyUnreachable 先前不可达数量
      * @param newlyUnreachable      新增不可达数量
      * @param dryRun                是否禁用持久化写入
+     * @param filledUploadTime      已补齐上传时间数量
      * @param rateLimited           是否因限流停止
      */
     record BackfillSummary(
@@ -352,8 +360,17 @@ public interface DesktopUiToolHost {
             int previouslyUnreachable,
             int newlyUnreachable,
             boolean dryRun,
-            boolean rateLimited
+            boolean rateLimited,
+            int filledUploadTime
     ) {
+        /** 兼容不报告上传时间的宿主。 */
+        public BackfillSummary(int totalCandidates, int processed, int filledAuthor, int filledR18,
+                               int filledAi, int filledDescription, int filledTags, int filledSeries,
+                               int deletedCount, int skipped, int previouslyUnreachable, int newlyUnreachable,
+                               boolean dryRun, boolean rateLimited) {
+            this(totalCandidates, processed, filledAuthor, filledR18, filledAi, filledDescription, filledTags,
+                    filledSeries, deletedCount, skipped, previouslyUnreachable, newlyUnreachable, dryRun, rateLimited, 0);
+        }
     }
 
     /**
@@ -373,14 +390,26 @@ public interface DesktopUiToolHost {
      * @param skipped            已跳过数量
      * @param historyFileMissing 旧历史文件是否缺失
      * @param message            摘要消息
+     * @param failed             失败数量
      */
     record MigrationSummary(
             int totalCandidates,
             int migrated,
             int skipped,
             boolean historyFileMissing,
-            String message
+            String message,
+            int failed
     ) {
+        /** 保留既有调用方构造成功结果的入口。 */
+        public MigrationSummary(int totalCandidates, int migrated, int skipped, boolean historyFileMissing, String message) {
+            this(totalCandidates, migrated, skipped, historyFileMissing, message, 0);
+        }
+
+        /** 按结构化计数返回终态，不解析本地化消息。 */
+        public ToolOutcome outcome() {
+            return failed == 0 ? ToolOutcome.SUCCEEDED
+                    : migrated + skipped > 0 ? ToolOutcome.PARTIALLY_FAILED : ToolOutcome.FAILED;
+        }
     }
 
     /**
@@ -457,6 +486,8 @@ public interface DesktopUiToolHost {
     enum ToolOutcome {
         /** 工具成功完成。 */
         SUCCEEDED,
+        /** 工具完成，但部分项目失败。 */
+        PARTIALLY_FAILED,
         /** 工具执行失败。 */
         FAILED,
         /** 工具由用户取消。 */

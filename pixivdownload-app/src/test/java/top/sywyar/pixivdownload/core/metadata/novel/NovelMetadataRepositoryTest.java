@@ -152,6 +152,19 @@ class NovelMetadataRepositoryTest {
     }
 
     @Test
+    @DisplayName("小说上传日期包含起点且排除终点、未知时间与软删除记录")
+    void shouldFilterUploadTimeRange() {
+        for (long id = 1; id <= 5; id++) insertNovel(id, "{1}/" + id, id, id, id == 5);
+        jdbc.update("UPDATE novels SET upload_time = CASE novel_id WHEN 1 THEN 100 WHEN 2 THEN 199 WHEN 3 THEN 200 WHEN 5 THEN 150 END");
+        var restriction = new top.sywyar.pixivdownload.core.work.model.WorkRestriction(
+                Set.of(0, 1, 2), true, List.of(), true, List.of());
+        var query = top.sywyar.pixivdownload.core.work.query.WorkQuery.builder(top.sywyar.pixivdownload.core.work.model.WorkType.NOVEL)
+                .restriction(restriction).uploadTimeRange(100L, 200L).build();
+        assertThat(repository.findSearchCandidates(query)).extracting(NovelMetadataRow::novelId)
+                .containsExactly(2L, 1L);
+    }
+
+    @Test
     @DisplayName("宿主小说包只保留显式窄投影且不得持有正文或全文索引 SQL")
     void shouldKeepPluginOwnedPersistenceAndFtsOutOfHostPackage() throws IOException {
         Path sourceRoot = hostNovelSourceRoot();

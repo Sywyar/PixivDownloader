@@ -9,6 +9,7 @@ import androidx.compose.foundation.interaction.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -19,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -204,7 +206,16 @@ internal fun ToolDisclosure(label: String, tag: String, expanded: Boolean, onCli
 @Composable
 private fun ToolSwitch(node: Toggle, label: String, help: String, emit: (Event) -> Unit) {
     val palette = LocalExperiencePalette.current
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+    Row(
+        Modifier.fillMaxWidth().testTag(node.id()).toggleable(
+            value = node.selected(),
+            enabled = node.enabled(),
+            role = Role.Switch,
+            onValueChange = { emit(Event(EventType.CHANGE, node.id(), Value.bool(it))) },
+        ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             CupertinoText(label, fontSize = 13.sp)
             CupertinoText(help, fontSize = 11.sp, color = palette.secondaryText)
@@ -214,7 +225,7 @@ private fun ToolSwitch(node: Toggle, label: String, help: String, emit: (Event) 
             onCheckedChange = { emit(Event(EventType.CHANGE, node.id(), Value.bool(it))) },
             enabled = node.enabled(),
             colors = CupertinoSwitchDefaults.colors(checkedTrackColor = palette.link),
-            modifier = Modifier.testTag(node.id()).semantics { contentDescription = label },
+            modifier = Modifier.focusProperties { canFocus = false }.clearAndSetSemantics {},
         )
     }
 }
@@ -325,6 +336,8 @@ private fun ToolForm(form: Form, id: String, text: (TextToken) -> String, emit: 
         if (id == "backfill") {
             val proxy = row("proxy").content() as Toggle
             ToolSwitch(proxy, text(proxy.label()), label("proxy-help"), emit)
+            val source = row("always-network")
+            ToolSwitch(source.content() as Toggle, text(source.label()), source.help()?.let(text).orEmpty(), emit)
             AnimatedVisibility(proxy.selected(), enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     field(row("proxy-host"), Modifier.weight(1f))

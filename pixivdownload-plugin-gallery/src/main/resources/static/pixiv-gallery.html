@@ -205,6 +205,7 @@
             <div class="filter-row">
                 <span class="filter-row-label" data-i18n="filter.sort.label">排序</span>
                 <button class="chip active" data-sort="date" data-i18n="filter.sort.date">时间</button>
+                <button class="chip" data-sort="uploadTime" data-i18n="filter.sort.upload-time">上传时间</button>
                 <button class="chip" data-sort="artworkId" data-i18n="filter.sort.artwork-id">作品 ID</button>
                 <button class="chip" data-sort="imgs" data-i18n="filter.sort.image-count">图片数</button>
                 <button class="chip" data-sort="status" data-i18n="filter.sort.status">状态</button>
@@ -212,6 +213,17 @@
                 <button class="chip" data-sort="tags" data-i18n="filter.sort.tags">标签数</button>
                 <button class="chip" data-sort="series" data-i18n="filter.sort.series">漫画系列</button>
                 <button class="chip" id="orderToggle" data-order="desc" style="margin-left:auto" data-i18n="filter.order.desc">↓ 降序</button>
+            </div>
+            <div class="filter-row">
+                <span class="filter-row-label" data-i18n="filter.upload-time.label">上传日期</span>
+                <label for="uploadStartDate" class="upload-date-field">
+                    <span data-i18n="filter.upload-time.from">从</span>
+                    <input id="uploadStartDate" type="date" min="1970-01-02" class="chip">
+                </label>
+                <label for="uploadEndDate" class="upload-date-field">
+                    <span data-i18n="filter.upload-time.to">至</span>
+                    <input id="uploadEndDate" type="date" min="1970-01-02" class="chip">
+                </label>
             </div>
             <div class="filter-row">
                 <span class="filter-row-label" data-i18n="filter.r18.label">R-18</span>

@@ -85,7 +85,8 @@ final class LegacySchemaBaseline {
                 List.of(
                         uniqueConstraint("time"),
                         explicitIndex("idx_artworks_author_time", false, "author_id", "time"),
-                        explicitIndex("idx_artworks_series_order", false, "series_id", "series_order")
+                        explicitIndex("idx_artworks_series_order", false, "series_id", "series_order"),
+                                explicitIndex("idx_artworks_upload_time", false, "upload_time", "artwork_id")
                 )
         ));
 
@@ -342,7 +343,8 @@ final class LegacySchemaBaseline {
                 List.of(
                         uniqueConstraint("time"),
                         explicitIndex("idx_novels_author_id", false, "author_id"),
-                        explicitIndex("idx_novels_series_order", false, "series_id", "series_order")
+                        explicitIndex("idx_novels_series_order", false, "series_id", "series_order"),
+                                explicitIndex("idx_novels_upload_time", false, "upload_time", "novel_id")
                 )
         ));
 

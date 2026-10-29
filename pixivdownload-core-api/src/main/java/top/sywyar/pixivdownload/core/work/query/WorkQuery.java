@@ -44,6 +44,8 @@ import java.util.List;
  * @param optionalAuthorIds 可选匹配的作者标识
  * @param seriesIds 必须匹配的系列标识
  * @param excludedSeriesIds 必须排除的系列标识
+ * @param uploadedFrom 上传时间下界（epoch 毫秒，含边界）；null 表示不限
+ * @param uploadedBefore 上传时间上界（epoch 毫秒，不含边界）；null 表示不限
  * @param restriction 访客可见性限制；null 表示无限制
  */
 public record WorkQuery(
@@ -66,7 +68,27 @@ public record WorkQuery(
         List<Long> optionalAuthorIds,
         List<Long> seriesIds,
         List<Long> excludedSeriesIds,
-        WorkRestriction restriction) {
+        WorkRestriction restriction,
+        Long uploadedFrom,
+        Long uploadedBefore) {
+
+    /** 保留未指定上传时间范围的查询构造方式。 */
+    public WorkQuery(WorkType workType, int page, int size, String sort, String order, String search,
+                     String searchType, String r18, String ai, List<String> formats, List<Long> collectionIds,
+                     List<Long> tagIds, List<Long> excludedTagIds, List<Long> optionalTagIds,
+                     List<Long> authorIds, List<Long> excludedAuthorIds, List<Long> optionalAuthorIds,
+                     List<Long> seriesIds, List<Long> excludedSeriesIds, WorkRestriction restriction) {
+        this(workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds,
+                tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds,
+                seriesIds, excludedSeriesIds, restriction, null, null);
+    }
+
+    /** 在现有筛选上附加上传时间范围，保留可见性约束。 */
+    public WorkQuery withUploadTimeRange(Long from, Long before) {
+        return new WorkQuery(workType, page, size, sort, order, search, searchType, r18, ai, formats, collectionIds,
+                tagIds, excludedTagIds, optionalTagIds, authorIds, excludedAuthorIds, optionalAuthorIds,
+                seriesIds, excludedSeriesIds, restriction, from, before);
+    }
 
     /**
      * 创建 {@code WorkQuery} 实例。
@@ -93,6 +115,10 @@ public record WorkQuery(
      * @param restriction 访问限制
      */
     public WorkQuery {
+        if ((uploadedFrom != null && uploadedFrom <= 0) || (uploadedBefore != null && uploadedBefore <= 0)
+                || (uploadedFrom != null && uploadedBefore != null && uploadedFrom >= uploadedBefore)) {
+            throw new IllegalArgumentException("INVALID_UPLOAD_TIME_RANGE");
+        }
         formats = copyOrNull(formats);
         collectionIds = copyOrNull(collectionIds);
         tagIds = copyOrNull(tagIds);
@@ -141,6 +167,8 @@ public record WorkQuery(
         private List<Long> seriesIds;
         private List<Long> excludedSeriesIds;
         private WorkRestriction restriction;
+        private Long uploadedFrom;
+        private Long uploadedBefore;
 
         private Builder(WorkType workType) {
             this.workType = workType;
@@ -281,15 +309,23 @@ public record WorkQuery(
         public Builder restriction(WorkRestriction restriction) { this.restriction = restriction; return this; }
 
         /**
-         * 返回对应值。
-         *
-         * @return 方法返回的 {@code WorkQuery} 实例
+         * 设置上传时间范围，使用毫秒时间戳；下界包含，上界不包含，null 表示不限。
+         * @param from 包含的起始时间
+         * @param before 不包含的结束时间
+         * @return 当前构建器
          */
+        public Builder uploadTimeRange(Long from, Long before) {
+            this.uploadedFrom = from;
+            this.uploadedBefore = before;
+            return this;
+        }
+
+        /** @return 构建的查询 */
         public WorkQuery build() {
             return new WorkQuery(workType, page, size, sort, order, search, searchType, r18, ai,
                     formats, collectionIds, tagIds, excludedTagIds, optionalTagIds,
                     authorIds, excludedAuthorIds, optionalAuthorIds, seriesIds, excludedSeriesIds,
-                    restriction);
+                    restriction, uploadedFrom, uploadedBefore);
         }
     }
 }

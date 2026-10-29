@@ -542,6 +542,19 @@ final class DesktopToolsView {
                                                 null
                                         ),
                                         new DesktopUiNode.FormRow(
+                                                "tools.backfill.always-network.row",
+                                                key("gui.tools.form.always-network"),
+                                                key("gui.tools.form.always-network-hint"),
+                                                toggle(
+                                                        "tools.backfill.always-network",
+                                                        "tools.backfill.always-network",
+                                                        "gui.tools.form.always-network",
+                                                        model.boolForm("tools.backfill.always-network", false),
+                                                        !model.owner.busy()
+                                                ),
+                                                null
+                                        ),
+                                        new DesktopUiNode.FormRow(
                                                 "tools.backfill.dry.row",
                                                 key("gui.tools.form.dry-run"),
                                                 null,

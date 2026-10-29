@@ -3,6 +3,7 @@ package top.sywyar.pixivdownload.gui;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseSchemaInspector;
@@ -30,6 +31,75 @@ import static org.mockito.Mockito.when;
 class StartupSchemaBackfillTest {
     private enum Step { OPTIONS, COMPARE, COUNT, RUN }
 
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"", "CREATE UNIQUE INDEX idx_artworks_upload_time ON artworks(upload_time)",
+            "CREATE INDEX idx_artworks_upload_time ON artworks(title)",
+            "CREATE INDEX idx_artworks_upload_time ON authors(name)"})
+    @DisplayName("旧库缺列与新索引并存时可回填，同名索引漂移仍阻断自动回填")
+    void handlesMissingIndexesInLegacyDatabase(String replacement,
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("legacy.db"));
+        var registry = DatabaseSchemaRegistry.forBuiltInPlugins();
+        try (var connection = target.openConnection(); var sql = connection.createStatement()) {
+            top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target);
+            sql.execute("DROP INDEX idx_artworks_upload_time");
+            sql.execute("DROP INDEX idx_novels_upload_time");
+            sql.execute("ALTER TABLE artworks DROP COLUMN r18");
+            if (!replacement.isEmpty()) sql.execute(replacement);
+            var comparison = DatabaseSchemaInspector.compare(connection, target, registry.mergedSchema());
+            org.assertj.core.api.Assertions.assertThat(comparison.details())
+                    .anyMatch(d -> d.kind() == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_COLUMN);
+        }
+        var host = mock(DesktopUiHost.class);
+        when(host.applicationConfig()).thenReturn(mock(DesktopUiHost.ConfigFile.class));
+        when(host.defaultBackfillOptions()).thenReturn(new DesktopUiHost.BackfillOptions(
+                "fixture", "", 0, false, 0, 0, false));
+        try (var backfill = mockStatic(ArtworksBackFill.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+             var dialogs = mockStatic(DesktopUiDialogs.class);
+             var backend = mockStatic(BackendLifecycleManager.class)) {
+            backfill.when(() -> ArtworksBackFill.countCandidates(any(ArtworksBackFill.Options.class))).thenReturn(0);
+            StartupSchemaBackfill.run(mock(DesktopUiSession.class), host, registry.mergedSchema(), target);
+            backfill.verify(() -> ArtworksBackFill.countCandidates(any(ArtworksBackFill.Options.class)),
+                    replacement.isEmpty() ? org.mockito.Mockito.times(1) : never());
+            backend.verify(BackendLifecycleManager::startAsync);
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = DatabaseSchemaInspector.SchemaDifferenceKind.class,
+            names = {"MISSING_COLUMN", "COLUMN_TYPE_MISMATCH"})
+    @DisplayName("附加表不阻断缺列回填，受管类型漂移不能误触发回填")
+    void distinguishesMissingColumnsFromDrift(DatabaseSchemaInspector.SchemaDifferenceKind kind) throws Exception {
+        var host = mock(DesktopUiHost.class);
+        when(host.applicationConfig()).thenReturn(mock(DesktopUiHost.ConfigFile.class));
+        when(host.defaultBackfillOptions()).thenReturn(new DesktopUiHost.BackfillOptions(
+                "fixture", "", 0, false, 0, 0, false));
+        var target = mock(DatabaseTarget.class);
+        var connection = mock(Connection.class);
+        when(target.available()).thenReturn(true);
+        when(target.localFile()).thenReturn(Optional.empty());
+        when(target.openConnection()).thenReturn(connection);
+        var schema = DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema();
+        var comparison = new DatabaseSchemaInspector.SchemaComparison(false, List.of(
+                new DatabaseSchemaInspector.SchemaDifference(kind, "artworks", "description", "fixture"),
+                new DatabaseSchemaInspector.SchemaDifference(
+                        DatabaseSchemaInspector.SchemaDifferenceKind.UNMANAGED_TABLE, "absent_plugin", null, "fixture")));
+        try (var inspector = mockStatic(DatabaseSchemaInspector.class);
+             var backfill = mockStatic(ArtworksBackFill.class);
+             var dialogs = mockStatic(DesktopUiDialogs.class);
+             var backend = mockStatic(BackendLifecycleManager.class)) {
+            inspector.when(() -> DatabaseSchemaInspector.compare(connection, target, schema)).thenReturn(comparison);
+            backfill.when(() -> ArtworksBackFill.supportsDatabaseColumn("artworks", "description")).thenReturn(true);
+            StartupSchemaBackfill.run(mock(DesktopUiSession.class), host, schema, target);
+            backfill.verify(() -> ArtworksBackFill.countCandidates(any(ArtworksBackFill.Options.class)),
+                    kind == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_COLUMN
+                            ? org.mockito.Mockito.times(1) : never());
+            backfill.verify(() -> ArtworksBackFill.run(any(ArtworksBackFill.Options.class)), never());
+            backend.verify(BackendLifecycleManager::startAsync);
+            verify(connection).close();
+        }
+    }
+
     static Stream<Arguments> failures() {
         return Arrays.stream(Step.values()).flatMap(step -> Stream.of(
                 Arguments.of(step, new OutOfMemoryError("fixture")),
@@ -43,6 +113,7 @@ class StartupSchemaBackfillTest {
     @DisplayName("各回填步骤的致命错误原样传播，普通失败继续后端启动并释放本次资源")
     void failureKeepsFatalBoundary(Step step, Throwable failure) throws Exception {
         var host = mock(DesktopUiHost.class);
+        when(host.applicationConfig()).thenReturn(mock(DesktopUiHost.ConfigFile.class));
         var ui = mock(DesktopUiSession.class);
         var target = mock(DatabaseTarget.class);
         var connection = mock(Connection.class);

@@ -32,7 +32,7 @@ class OfflineSchemaTransactionTest {
                 invocation.callRealMethod();
                 throw failure;
             }).when(target).applySchema(org.mockito.ArgumentMatchers.eq(connection),
-                    org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(true));
+                    org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(false));
             org.assertj.core.api.Assertions.assertThatThrownBy(() -> DatabaseInitializer.prepareOffline(connection, target))
                     .isSameAs(failure);
             assertThat(target.readSchema(connection)).containsOnlyKeys("transaction_probe");

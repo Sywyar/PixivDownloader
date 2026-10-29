@@ -31,6 +31,80 @@ import static org.mockito.ArgumentMatchers.*;
 @DisplayName("作品回填数据库")
 class ArtworksBackFillDatabaseTest {
 
+    @Test
+    @DisplayName("回填保留附加对象且不修补无关的核心表")
+    void ignoresUnrelatedSchema(@TempDir Path directory) throws Exception {
+        var target = DatabaseProviderTestFixtures.sqlite(directory.resolve("unrelated.db"));
+        try (var connection = target.openConnection(); var sql = connection.createStatement()) {
+            sql.execute(legacyArtworks());
+            sql.execute("INSERT INTO artworks VALUES(1,'fixture','folder',1,'png',1)");
+            sql.execute("ALTER TABLE artworks ADD COLUMN extra TEXT");
+            sql.execute("UPDATE artworks SET extra='keep extra'");
+            sql.execute("CREATE INDEX auxiliary ON artworks(lower(title)) WHERE artwork_id>0");
+            sql.execute("CREATE TABLE statistics(id TEXT PRIMARY KEY,private_data TEXT)");
+            sql.execute("INSERT INTO statistics VALUES('legacy','keep unrelated')");
+            sql.execute("CREATE TABLE absent_plugin(id INTEGER PRIMARY KEY,body TEXT)");
+            sql.execute("INSERT INTO absent_plugin VALUES(2,'plugin data')");
+        }
+        var unreachable = ArtworksBackFillUnreachableStore.load(directory.resolve("unreachable.json"), new ObjectMapper());
+        try (var database = ArtworksBackFillDatabase.open(target)) {
+            assertThat(database.findCandidates(1, unreachable).candidates()).hasSize(1);
+        }
+        try (var connection = target.openConnection(); var sql = connection.createStatement()) {
+            assertThat(queryString(sql, "SELECT extra FROM artworks")).isEqualTo("keep extra");
+            assertThat(queryString(sql, "SELECT private_data FROM statistics")).isEqualTo("keep unrelated");
+            assertThat(queryString(sql, "SELECT body FROM absent_plugin")).isEqualTo("plugin data");
+            assertThat(queryInt(sql, "SELECT count(*) FROM pragma_table_info('statistics')")).isEqualTo(2);
+            assertThat(queryInt(sql, "SELECT count(*) FROM sqlite_schema WHERE name='auxiliary'")).isEqualTo(1);
+        }
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource(value = {
+            "NULL,NULL,7,3,true", "7,NULL,7,3,true", "8,NULL,8,NULL,false",
+            "0,NULL,0,NULL,false", "7,9,7,9,true", "8,9,8,9,false"
+    }, nullValues = "NULL")
+    @DisplayName("候选读取后并发改变系列身份时拒绝旧系列投影，保留其他补缺与同系列正常更新")
+    void guardsSeriesIdentityAtWrite(Long concurrentSeries, Long concurrentOrder, long expectedSeries,
+            Long expectedOrder, boolean acceptsSeries, @TempDir Path directory) throws Exception {
+        var target = DatabaseProviderTestFixtures.sqlite(directory.resolve("series-race.db"));
+        try (var connection = target.openConnection(); var sql = connection.createStatement()) {
+            top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target);
+            sql.executeUpdate("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time,r18) "
+                    + "VALUES(2,'fixture','folder',1,'png',2,1)");
+            sql.executeUpdate("INSERT INTO manga_series(series_id,title,updated_time) VALUES(8,'current-series',1)");
+        }
+        var unreachable = ArtworksBackFillUnreachableStore.load(directory.resolve("unreachable.json"), new ObjectMapper());
+        var result = ArtworksBackFillPixivClient.parsePayload(new ObjectMapper().readTree("""
+                {"userId":42,"description":"filled","xRestrict":0,
+                 "seriesNavData":{"seriesId":7,"order":3,"title":"old-series"}}
+                """), null, false);
+        try (var database = ArtworksBackFillDatabase.open(target)) {
+            var candidate = database.findCandidates(1, unreachable).candidates().get(0);
+            assertThat(candidate.seriesId()).isNull();
+            try (var other = target.openConnection();
+                 var update = other.prepareStatement("UPDATE artworks SET series_id=?,series_order=? WHERE artwork_id=2")) {
+                update.setObject(1, concurrentSeries);
+                update.setObject(2, concurrentOrder);
+                update.executeUpdate();
+            }
+            database.applyUpdates(candidate, result, false, true, false, true, false, true);
+            database.applyUpdates(candidate, result, false, true, false, true, false, true);
+        }
+        try (var connection = target.openConnection(); var sql = connection.createStatement()) {
+            try (var row = sql.executeQuery("SELECT series_id,series_order,description,r18 FROM artworks WHERE artwork_id=2")) {
+                assertThat(row.next()).isTrue();
+                assertThat(row.getLong(1)).isEqualTo(expectedSeries);
+                assertThat(row.getObject(2) == null ? null : row.getLong(2)).isEqualTo(expectedOrder);
+                assertThat(row.getString(3)).isEqualTo("filled");
+                assertThat(row.getInt(4)).isEqualTo(1);
+            }
+            assertThat(queryInt(sql, "SELECT count(*) FROM manga_series WHERE series_id=7")).isEqualTo(acceptsSeries ? 1 : 0);
+            assertThat(queryString(sql, "SELECT title FROM manga_series WHERE series_id=8")).isEqualTo("current-series");
+            if (acceptsSeries) assertThat(queryString(sql, "SELECT title FROM manga_series WHERE series_id=7")).isEqualTo("old-series");
+        }
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     @DisplayName("回填普通失败后的回滚致命错误不被原错误掩盖")

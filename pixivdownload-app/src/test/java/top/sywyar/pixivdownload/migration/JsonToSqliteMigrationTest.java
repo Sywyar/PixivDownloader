@@ -14,6 +14,92 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("旧 JSON 离线迁移")
 class JsonToSqliteMigrationTest {
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("预览不存在的数据库不创建文件，仍统计旧 JSON")
+    void previewDoesNotCreateDatabase(boolean historyExists, @TempDir Path directory) throws Exception {
+        var file = directory.resolve("absent.db");
+        var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(file);
+        if (historyExists) Files.writeString(directory.resolve(JsonToSqliteMigration.DOWNLOAD_HISTORY_FILE),
+                "{\"downloaded\":{\"1\":{}}}", StandardCharsets.UTF_8);
+        var options = new JsonToSqliteMigration.Options(target.displayName(), directory.toString(), target);
+        assertThat(JsonToSqliteMigration.countCandidates(options, null)).isEqualTo(historyExists ? 1 : 0);
+        assertThat(file).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("已有库的旧快照预览使用只读连接，内容和结构字节不变")
+    void previewExistingDatabaseIsReadOnly(@TempDir Path directory) throws Exception {
+        var file = directory.resolve("existing.db");
+        var target = org.mockito.Mockito.spy(top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(file));
+        try (var connection = target.openConnection(); var sql = connection.createStatement()) {
+            top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target);
+            sql.execute("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time) VALUES(1,'keep','{0}',1,'jpg',1)");
+        }
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        Files.writeString(directory.resolve("1.meta.json"), new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(mapper)
+                .curateArtwork(1, mapper.readTree("{\"id\":1,\"userId\":42}"), null, "forward").document().toString(),
+                StandardCharsets.UTF_8);
+        byte[] before = Files.readAllBytes(file);
+        var options = new JsonToSqliteMigration.Options(target.displayName(), directory.toString(), target);
+        assertThat(JsonToSqliteMigration.countCandidates(options, null)).isEqualTo(1);
+        org.mockito.Mockito.verify(target).openConnection(
+                top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionTarget.OpenMode.READ_ONLY);
+        assertThat(Files.readAllBytes(file)).isEqualTo(before);
+        assertThat(directory.resolve("1.meta.json")).exists();
+    }
+
+    @Test
+    @DisplayName("在线预览仍核验借用连接的目标身份并释放错误目标连接")
+    void previewRejectsWrongPooledTarget(@TempDir Path directory) throws Exception {
+        var requested = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("requested.db"));
+        var other = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("other.db"));
+        var source = org.mockito.Mockito.mock(javax.sql.DataSource.class);
+        try (var connection = other.openConnection()) {
+            org.mockito.Mockito.when(source.getConnection()).thenReturn(connection);
+            var options = new JsonToSqliteMigration.Options(requested.displayName(), directory.toString(), requested);
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> JsonToSqliteMigration.countCandidates(options, source))
+                    .isInstanceOf(java.sql.SQLException.class).hasMessageContaining("DATABASE_TARGET_MISMATCH");
+            assertThat(connection.isClosed()).isTrue();
+        }
+        assertThat(directory.resolve("requested.db")).doesNotExist();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    @DisplayName("混合与全部失败均返回结构化失败数量，保留成功写入和原文件")
+    void reportsSnapshotFailures(boolean mixed, @TempDir Path directory) throws Exception {
+        var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("metadata.db"));
+        Files.writeString(directory.resolve("3.meta.json"), "{\"invalid\":true}");
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        if (mixed) Files.writeString(directory.resolve("4.meta.json"),
+                new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(mapper)
+                        .curateNovel(4, mapper.readTree("{\"id\":4}"), "forward").document().toString());
+        try (var connection = target.openConnection(); var sql = connection.createStatement()) {
+            top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target);
+            sql.executeUpdate("INSERT INTO novels(novel_id,title,folder,count,extensions,time) VALUES(3,'bad','{0}',1,'txt',1)");
+            if (mixed) sql.executeUpdate("INSERT INTO novels(novel_id,title,folder,count,extensions,time) VALUES(4,'good','{0}',1,'txt',2)");
+        }
+        var options = new JsonToSqliteMigration.Options(target.displayName(), directory.toString(), target);
+        var summary = JsonToSqliteMigration.run(options, null);
+        assertThat(summary.failed()).isEqualTo(1);
+        assertThat(summary.totalCandidates()).isEqualTo(mixed ? 2 : 1);
+        assertThat(summary.migrated()).isEqualTo(mixed ? 1 : 0);
+        assertThat(summary.skipped()).isZero();
+        assertThat(summary.historyFileMissing()).isFalse();
+        var retry = JsonToSqliteMigration.run(options, null);
+        assertThat(retry.failed()).isEqualTo(1);
+        assertThat(retry.migrated()).isZero();
+        assertThat(retry.skipped()).isEqualTo(mixed ? 1 : 0);
+        try (var connection = target.openConnection(); var sql = connection.createStatement();
+             var rows = sql.executeQuery("SELECT count(*) FROM novels WHERE metadata_json IS NOT NULL")) {
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getInt(1)).isEqualTo(mixed ? 1 : 0);
+        }
+        assertThat(directory.resolve("3.meta.json")).hasContent("{\"invalid\":true}");
+        if (mixed) assertThat(directory.resolve("4.meta.json")).exists();
+    }
+
     @Test
     @DisplayName("JSON 导入普通失败后的回滚致命错误优先传播且关闭连接")
     void fatalRollbackEscapesOrdinaryFailure(@TempDir Path directory) throws Exception {

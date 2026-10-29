@@ -196,7 +196,8 @@ final class StartupSchemaBackfill {
 
     /** 该差异是否由回填工具实际填充——即差异的列在 {@link ArtworksBackFill#SUPPORTED_DATABASE_COLUMNS} 支持范围内。 */
     private static boolean isBackfillableDifference(DatabaseSchemaInspector.SchemaDifference difference) {
-        return difference.hasColumn()
+        return difference.kind() == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_COLUMN
+                && difference.hasColumn()
                 && ArtworksBackFill.supportsDatabaseColumn(difference.tableName(), difference.columnName());
     }
 
@@ -208,20 +209,18 @@ final class StartupSchemaBackfill {
     private static boolean isNonBlockingStartupDifference(
             DatabaseSchemaInspector.SchemaDifference difference
     ) {
+        if (difference.isHarmlessAddition()) return true;
         if (difference.hasColumn()) {
-            if (ArtworksBackFill.supportsDatabaseColumn(difference.tableName(), difference.columnName())) {
+            if (isBackfillableDifference(difference)) {
                 return true;
             }
             return difference.kind() == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_COLUMN
                     && StartupColumns.AUTO_MIGRATED.contains(
                             new ArtworksBackFill.DatabaseColumn(difference.tableName(), difference.columnName()));
         }
-        // 缺表（MISSING_TABLE）一律放行：受管 schema（DatabaseSchemaRegistry 合并结果）登记的每张表
-        // 都由后端在启动时 CREATE TABLE IF NOT EXISTS 自建（FTS 虚拟表不入受管 schema），
-        // 旧库缺表只是后端首启前的暂时状态，
-        // 会自动补齐，不应阻断元数据自动回填。其余差异（列类型/默认值/主键不一致、索引差异、
-        // 未受管的表/列等）属于无法自动消解的真实漂移，保持阻断并提示用户。
-        return difference.kind() == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE;
+        // 缺表和可创建索引由后端补齐；同名索引漂移及缺失表级唯一约束不能据此放行。
+        return difference.kind() == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE
+                || difference.kind() == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_INDEX;
     }
 
     private static void showStartupBackfillResult(
@@ -264,8 +263,10 @@ final class StartupSchemaBackfill {
         );
     }
 
-    static ArtworksBackFill.Options options(DesktopUiHost host) {
+    static ArtworksBackFill.Options options(DesktopUiHost host) throws java.io.IOException {
         DesktopUiHost.BackfillOptions defaults = host.defaultBackfillOptions();
+        String root = host.applicationConfig().read("download.root-folder");
+        if (root == null || root.isBlank()) root = new top.sywyar.pixivdownload.core.appconfig.DownloadConfig().getRootFolder();
         return new ArtworksBackFill.Options(
                 defaults.dbPath(),
                 defaults.proxyHost(),
@@ -274,7 +275,7 @@ final class StartupSchemaBackfill {
                 defaults.delayMs(),
                 defaults.limit(),
                 false
-        );
+        ).withSources(root, defaults.alwaysNetwork());
     }
 
     private static boolean hasInspectableDatabase(Path databasePath) {

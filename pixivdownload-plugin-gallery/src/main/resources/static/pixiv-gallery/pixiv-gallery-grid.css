@@ -509,3 +509,9 @@
             color: var(--on-accent);
             border-color: var(--danger);
         }
+
+.work-upload-time {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-top: 4px;
+}

@@ -16,6 +16,11 @@ import static top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionTar
 @DisplayName("SQLite 迁移结构保真与跨编码行序")
 class SqliteMigrationContractTest {
     @TempDir Path directory;
+
+    @org.junit.jupiter.api.AfterEach
+    void cleanDirectoryAfterResourcesClose() throws java.io.IOException {
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(directory);
+    }
     private final SqliteDatabasePlugin provider = new SqliteDatabasePlugin();
     private final MigrationControl control = (table, count) -> {};
 
