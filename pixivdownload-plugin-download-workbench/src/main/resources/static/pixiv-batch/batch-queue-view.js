@@ -239,6 +239,36 @@
         return true;
     }
 
+    function queueItemTags(q) {
+        const sourceDescriptor = queueDataSource(q);
+        const acquisitionMode = queueAcquisitionMode(q.source);
+        const modeClass = acquisitionMode === 'single-import' ? 'import' : acquisitionMode;
+        const xRestrict = q.xRestrict == null ? null : Number(q.xRestrict);
+        const rating = xRestrict === 2
+            ? {id: 'r18g', label: 'R-18G'}
+            : xRestrict === 1
+                ? {id: 'r18', label: 'R-18'}
+                : xRestrict === null || !Number.isFinite(xRestrict)
+                    ? {id: 'unknown', label: bt('queue.unknown', '未知')}
+                    : {id: 'sfw', label: 'SFW'};
+        const tags = [
+            {className: 'queue-tag queue-tag--source', sourceId: sourceDescriptor ? sourceDescriptor.id : 'unknown', label: queueDataSourceText(sourceDescriptor)},
+            {className: 'queue-tag queue-tag--mode queue-tag--mode-' + modeClass, label: queueSourceText(q.source)},
+            {className: 'queue-tag queue-tag--rating queue-tag--rating-' + rating.id, label: rating.label}
+        ];
+        const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
+        const contributedTags = queueTypes && typeof queueTypes.queueTags === 'function'
+            ? queueTypes.queueTags(q) : [];
+        for (const tag of Array.isArray(contributedTags) ? contributedTags : []) {
+            tags.push({className: 'queue-tag queue-tag--plugin', pluginId: tag.id, label: tag.label});
+        }
+        return tags;
+    }
+
+    function formatQueueTagsHtml(tags) {
+        return tags.map(tag => `<span class="${tag.className}"${tag.sourceId != null ? ` data-source-id="${esc(tag.sourceId)}"` : ''}${tag.pluginId != null ? ` data-queue-tag-id="${esc(tag.pluginId)}"` : ''}>${esc(tag.label)}</span>`).join('');
+    }
+
     // 单个队列项的 HTML。下载工作区底部的「下载队列」与计划任务卡片底部的「本轮队列详情」共用此函数，
     // 保证两处队列展示完全一致（进度条、数据来源/模式/分级/插件标签、小说进度等）。
     // opts.removable=false 时不渲染移除按钮（计划任务为服务端队列，前端不可移除）。
@@ -258,7 +288,7 @@
             + formatUgoiraProgressHtml(q.ugoiraProgress, q.status)
             + formatNovelProgressHtml(q)
             + formatQueueLiveStatusHtml(q);
-        const tags = model.tags.map(tag => `<span class="${tag.className}"${tag.sourceId != null ? ` data-source-id="${esc(tag.sourceId)}"` : ''}${tag.pluginId != null ? ` data-queue-tag-id="${esc(tag.pluginId)}"` : ''}>${esc(tag.label)}</span>`).join('');
+        const tags = formatQueueTagsHtml(model.tags);
         const descHtml = model.message.map(part => `<span style="color:${part.color};font-weight:bold;">${esc(part.text)}</span>`).join('');
         const cancelBtn = model.canCancel
             ? `<button type="button" class="queue-cancel-btn" data-queue-cancel-id="${esc(String(q.id))}" title="${esc(model.cancelLabel)}" aria-label="${esc(model.cancelLabel)}">■</button>` : '';
@@ -284,28 +314,7 @@
         const desc = q.statusMessageKey
             ? bt(q.statusMessageKey, q.lastMessage || queueStatusText(q.status), {count: q.downloadedCount})
             : (q.lastMessage || queueStatusText(q.status));
-        const sourceDescriptor = queueDataSource(q);
-        const acquisitionMode = queueAcquisitionMode(q.source);
-        const modeClass = acquisitionMode === 'single-import' ? 'import' : acquisitionMode;
-        const xRestrict = q.xRestrict == null ? null : Number(q.xRestrict);
-        const rating = xRestrict === 2
-            ? {id: 'r18g', label: 'R-18G'}
-            : xRestrict === 1
-                ? {id: 'r18', label: 'R-18'}
-                : xRestrict === null || !Number.isFinite(xRestrict)
-                    ? {id: 'unknown', label: bt('queue.unknown', '未知')}
-                    : {id: 'sfw', label: 'SFW'};
-        const tags = [
-            {className: 'queue-tag queue-tag--source', sourceId: sourceDescriptor ? sourceDescriptor.id : 'unknown', label: queueDataSourceText(sourceDescriptor)},
-            {className: 'queue-tag queue-tag--mode queue-tag--mode-' + modeClass, label: queueSourceText(q.source)},
-            {className: 'queue-tag queue-tag--rating queue-tag--rating-' + rating.id, label: rating.label}
-        ];
-        const queueTypes = window.PixivBatch && window.PixivBatch.queueTypes;
-        const contributedTags = queueTypes && typeof queueTypes.queueTags === 'function'
-            ? queueTypes.queueTags(q) : [];
-        for (const tag of Array.isArray(contributedTags) ? contributedTags : []) {
-            tags.push({className: 'queue-tag queue-tag--plugin', pluginId: tag.id, label: tag.label});
-        }
+        const tags = queueItemTags(q);
         const canRemove = removable && q.status !== 'downloading';
         const canCancel = removable && canCancelQueueItem(q);
         const isNovel = q.kind === 'novel';

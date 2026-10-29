@@ -264,6 +264,34 @@ function refreshCurrentCard(changedItem) {
     renderCurrentImperative(currentFrontItem(state.queue, state.isPaused));
 }
 
+function queueItemTags(q) {
+    const runtime = window.PixivBatch && window.PixivBatch.queueTypes;
+    const xr = q.xRestrict == null ? null : Number(q.xRestrict);
+    let xrTag;
+    if (xr === 2) xrTag = {key: 'xr', cls: 'ab-queue-tag--r18g', text: 'R-18G'};
+    else if (xr === 1) xrTag = {key: 'xr', cls: 'ab-queue-tag--r18', text: 'R-18'};
+    else if (xr === null || !Number.isFinite(xr)) {
+        xrTag = {key: 'xr', cls: 'ab-queue-tag--unknown', text: bt('queue.unknown', '未知')};
+    } else xrTag = {key: 'xr', cls: 'ab-queue-tag--sfw', text: 'SFW'};
+    const tags = [
+        {key: 'source', cls: 'ab-queue-tag--source', text: queueDataSourceText(q)},
+        {key: 'mode', cls: 'ab-queue-tag--mode', text: queueSourceText(q.source)},
+        xrTag
+    ];
+    const contributed = runtime && typeof runtime.queueTags === 'function' ? runtime.queueTags(q) : [];
+    contributed.forEach(tag => {
+        if (!tag || !tag.label) return;
+        tags.push({key: 'plugin-' + (tag.id || tag.label), cls: 'ab-queue-tag--plugin', text: tag.label});
+    });
+    return tags;
+}
+
+function renderQueueTags(item) {
+    const tags = el('div', 'ab-queue-tags');
+    queueItemTags(item).forEach(tag => tags.appendChild(el('span', 'ab-queue-tag ' + tag.cls, tag.text)));
+    return tags;
+}
+
 // 当前卡内容节点构建（命令式回退与 Vue 主路径共用同一外观）：head + 队首进度信息（进度环 + 标题 + 详情 +
 // 流式图片进度条 + 附加进度）；item 为 null（空闲 / 暂停且无收尾任务）时仅 head + idle「无」。
 function buildCurrentCardContent(item) {
@@ -285,6 +313,7 @@ function buildCurrentCardContent(item) {
     const detail = el('div', 'ab-current-detail');
     detail.textContent = model.detail;
     meta.appendChild(detail);
+    meta.appendChild(renderQueueTags(item));
     row.appendChild(meta);
     card.appendChild(row);
     // 流式图片进度条（与列表行 miniProgress 同口径，由 downloadedCount / totalImages 派生，始终实时可见）。
@@ -654,21 +683,7 @@ function queueItemRow(q, options = {}) {
     }
     row.appendChild(titleRow);
 
-    const tags = el('div', 'ab-queue-tags');
-    tags.appendChild(el('span', 'ab-queue-tag ab-queue-tag--source', queueDataSourceText(q)));
-    tags.appendChild(el('span', 'ab-queue-tag ab-queue-tag--mode', queueSourceText(q.source)));
-    const xr = q.xRestrict == null ? null : Number(q.xRestrict);
-    if (xr === 2) tags.appendChild(el('span', 'ab-queue-tag ab-queue-tag--r18g', 'R-18G'));
-    else if (xr === 1) tags.appendChild(el('span', 'ab-queue-tag ab-queue-tag--r18', 'R-18'));
-    else if (xr === null || !Number.isFinite(xr)) {
-        tags.appendChild(el('span', 'ab-queue-tag ab-queue-tag--unknown', bt('queue.unknown', '未知')));
-    } else tags.appendChild(el('span', 'ab-queue-tag ab-queue-tag--sfw', 'SFW'));
-    const contributedTags = queueRuntime ? queueRuntime.queueTags(q) : [];
-    contributedTags.forEach(tag => {
-        if (!tag || !tag.label) return;
-        tags.appendChild(el('span', 'ab-queue-tag ab-queue-tag--plugin', tag.label));
-    });
-    row.appendChild(tags);
+    row.appendChild(renderQueueTags(q));
 
     const metaLine = el('div', 'ab-queue-meta');
     metaLine.appendChild(document.createTextNode('ID: ' + (q.kind === 'novel'

@@ -45,36 +45,16 @@
         return items.map(item => Object.assign({}, item, {liveStatus: null}));
     }
 
-    // 缓存里随队列一起记录的「该队列所属那一轮运行的完成时刻」（写入时取任务当时的 lastRunTime）。
-    // 与任务当前的 lastRunTime 比对即可判断缓存是否已过期：任务又跑过新的一轮（前端没刷到、或后端重启后），
-    // 两者就不再一致。无缓存返回 undefined。
-    function scheduleQueueCacheRunTime(id) {
-        const cache = readScheduleQueueCache(id);
-        if (!cache) return undefined;
-        return cache.lastRunTime != null ? cache.lastRunTime : null;
-    }
-
-    // 缓存队列是否已不属于任务的最新一轮：把缓存记录的运行时刻与任务当前 lastRunTime 比对，不一致即过期。
-    // 无缓存时不算过期（fetch 会负责填充）。
-    function isScheduleQueueCacheStale(id, task) {
-        const cachedRunTime = scheduleQueueCacheRunTime(id);
-        if (cachedRunTime === undefined) return false;
-        const latestRunTime = task && task.lastRunTime != null ? task.lastRunTime : null;
-        return cachedRunTime !== latestRunTime;
-    }
-
-    // 丢弃某任务的队列缓存与内存模型：过期时清空，让 renderScheduleQueueBody 即时显示空、
-    // 并避免 fetchScheduleQueue 的 keepCache 分支用陈旧队列盖住后端的空响应。
-    function discardScheduleQueueCache(id) {
-        id = Number(id);
-        delete scheduleQueueModels[id];
-        try { storeRemove(scheduleQueueCacheKey(id)); } catch (e) { /* 存储不可用时忽略 */ }
+    // 完成记录变化只表示缓存需要核验；是否同轮必须等队列响应的 startedTime 确认。
+    function scheduleQueueCacheNeedsValidation(cache, task) {
+        return !!cache && (cache.lastRunTime ?? null) !== (task?.lastRunTime ?? null);
     }
 
     // 计划任务「本轮队列详情」的客户端模型：taskId → 队列项数组（与下载工作区 state.queue 同形，
     // 直接喂给 buildQueueItemHtml 渲染，保证两处队列完全一致）。后端 4s 快照提供权威的发现/终态，
     // SSE 提供运行中的逐图实时进度。
     const scheduleQueueModels = {};
+    const scheduleQueueStartedTimes = new Map();
     // 已登记的 SSE 监听器：taskId → { compositeQueueKey: {workId, fn} }，用于精确解绑、
     // 避免同 raw id 的不同 workType 覆盖彼此或误删工作区监听。
     const scheduleSseHandlers = {};
@@ -98,6 +78,7 @@
         const cache = readScheduleQueueCache(id);
         if (cache && Array.isArray(cache.items)) {
             scheduleQueueModels[id] = cache.items;
+            scheduleQueueStartedTimes.set(id, cache.startedTime);
             return cache.items;
         }
         return null;
@@ -163,7 +144,7 @@
     // 后端队列项 → 工作区队列项（同 state.queue 形状），供 buildQueueItemHtml 渲染。
     // 注意：title / lastMessage 不在这里写入；只存 rawTitle / rawStatus、校验后的 failureCode 与
     // authoritative failureWorkType，渲染时由 localizeScheduleQueueItem 用当前语言派生 title / lastMessage。
-    function scheduleItemToQueue(it, type, task) {
+    function scheduleItemToQueue(it, type, task, previous) {
         const mapped = scheduleStatusToQueue(it);
         const workType = String(it.workType == null ? (it.kind == null ? '' : it.kind) : it.workType).trim()
             || 'unknown';
@@ -189,7 +170,7 @@
         const base = registry && typeof registry.scheduledQueueItem === 'function'
             ? registry.scheduledQueueItem(workType, it, {
                 sourceType: type,
-                task: task || null
+                task: task || null, previous
             })
             : {
                 id: workId,
@@ -276,14 +257,13 @@
 
     // 用后端快照重建模型，同时保留 SSE 实时进度：后端仍为 pending 而本地正在下载时沿用本地实时态，
     // 避免每 4s 快照把进行中的进度条打回原形。
-    function mergeScheduleQueueModel(id, incoming, type) {
-        const prev = scheduleQueueModels[Number(id)] || [];
+    function mergeScheduleQueueModel(id, incoming, type, prev = scheduleQueueModels[Number(id)] || []) {
         const task = scheduleTaskById(id);
         const prevByKey = new Map();
         prev.forEach(q => { prevByKey.set(scheduleQueueItemKey(q), q); });
         return incoming.map(it => {
-            const q = scheduleItemToQueue(it, type, task);
-            const old = prevByKey.get(scheduleQueueItemKey(q));
+            const old = prevByKey.get(scheduleQueueItemKey(it));
+            const q = scheduleItemToQueue(it, type, task, old);
             if (old && q.status === 'pending' && old.status === 'downloading') {
                 q.status = 'downloading';
                 q.totalImages = old.totalImages || 0;
@@ -331,6 +311,10 @@
         if (!wrap) return;
         const body = wrap.querySelector('.schedule-queue-body');
         if (!body) return;
+        if (body.dataset?.scheduleQueueFeedback) {
+            renderScheduleQueueFeedback(id, body, body.dataset.scheduleQueueFeedback);
+            return;
+        }
         const qv = scheduleQueueVue();
         if (qv && qv.ensureScheduleQueue(Number(id), scheduleQueueVueContext(id, body))) {
             // Vue 已接管该 body：合并一次 reactive 同步（Vue 据 :key + v-html 仅 patch 变化，不整块重建 .schedule-queue-body）。
@@ -347,6 +331,33 @@
         if (newList) newList.scrollTop = prevScroll;
         // 整块已重渲染（含状态/统计/当前项/全部行）：丢弃此前累积的脏行与待执行的局部/低频刷新，避免重复刷新。
         cancelScheduleQueueFlush(id);
+    }
+
+    function renderScheduleQueueFeedback(id, body, phase) {
+        scheduleQueueVue()?.unmountScheduleQueue(id);
+        cancelScheduleQueueFlush(id);
+        body.dataset.scheduleQueueFeedback = phase;
+        body.setAttribute('aria-busy', phase === 'loading' ? 'true' : 'false');
+        body.innerHTML = '';
+        const message = document.createElement('div');
+        message.className = 'schedule-queue-status';
+        message.setAttribute('role', phase === 'loading' ? 'status' : 'alert');
+        message.textContent = phase === 'loading'
+            ? bt('schedule.queue.loading', '正在加载队列…')
+            : bt('schedule.queue.load-failed', '加载队列失败');
+        body.appendChild(message);
+        if (phase === 'error') {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'btn btn-gray';
+            button.textContent = bt('schedule.queue.retry', '重试');
+            button.addEventListener('click', () => {
+                const currentBody = document.querySelector(`.schedule-queue[data-task-id="${id}"]`)
+                    ?.querySelector('.schedule-queue-body');
+                if (currentBody === body && body.contains(button)) fetchScheduleQueue(id);
+            });
+            body.appendChild(button);
+        }
     }
 
     // 展开某任务的队列：切换箭头，先用缓存模型即时渲染，再向后端拉取最新一轮队列；折叠则不请求并解绑 SSE。
@@ -371,14 +382,12 @@
             return;
         }
         scheduleExpandedQueues.add(id);
-        // 展开即比对：缓存队列若不属于任务最新一轮（任务又跑过新的一轮、前端没刷到，或后端重启丢失内存），
-        // 先清掉过期缓存再渲染 —— 这样立即显示空、随后 fetch；后端若已无该轮队列则保持空，不再用旧队列盖住。
-        if (isScheduleQueueCacheStale(id, scheduleTaskById(id))) {
-            discardScheduleQueueCache(id);
-        }
         if (body) {
             body.hidden = false;
-            body.innerHTML = renderScheduleQueueBody(id); // 缓存模型即时渲染（可能为空）
+            // 待核验缓存由读取过程展示加载反馈，原数据保留到响应确认轮次。
+            if (!scheduleQueueCacheNeedsValidation(readScheduleQueueCache(id), scheduleTaskById(id))) {
+                body.innerHTML = renderScheduleQueueBody(id);
+            }
         }
         if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
         if (caret) caret.textContent = '▾';
@@ -386,7 +395,7 @@
     }
 
     // 列表重渲染后：运行 / 排队中的展开卡片拉取最新队列（实现「运行中展开则自动刷新」），
-    // 运行刚结束的那一拍补拉一次终态快照，其余非运行态保持缓存渲染、撤掉 SSE 监听。
+    // 运行刚结束或缓存核验尚未完成时补拉快照，其余非运行态保持缓存渲染、撤掉 SSE 监听。
     function refreshExpandedScheduleQueues(force = false) {
         scheduleTasksCache.forEach(t => {
             const id = Number(t.id);
@@ -402,7 +411,10 @@
                 fetchScheduleQueue(id); // 运行刚结束：拉取最终终态快照
             } else {
                 unsubscribeScheduleQueueSse(id);
-                if (force) fetchScheduleQueue(id);
+                const body = document.querySelector(`.schedule-queue[data-task-id="${id}"]`)
+                    ?.querySelector('.schedule-queue-body');
+                // 两次列表刷新之间可能已经完成一轮，未完成的核验不能依赖观察到 RUNNING。
+                if (force || body?.dataset?.scheduleQueueFeedback === 'loading') fetchScheduleQueue(id);
             }
         });
     }
@@ -413,6 +425,11 @@
                 || !scheduleExpandedQueues.has(id) || scheduleQueueRequests.has(id)) return;
         const task = scheduleTaskById(id);
         if (!task) return;
+        const runState = task.runState;
+        const currentBody = () => document.querySelector(`.schedule-queue[data-task-id="${id}"]`)
+            ?.querySelector('.schedule-queue-body') || null;
+        const body = currentBody();
+        const needsValidation = scheduleQueueCacheNeedsValidation(readScheduleQueueCache(id), task);
         const request = new AbortController();
         scheduleQueueRequests.set(id, request);
         const current = () => {
@@ -420,35 +437,49 @@
             return scheduleQueueRequests.get(id) === request && !request.signal.aborted
                 && state.mode === 'schedule' && document.visibilityState !== 'hidden'
                 && scheduleExpandedQueues.has(id) && latest
+                && currentBody() === body && latest.runState === runState
                 && latest.runStartedTime === task.runStartedTime
                 && latest.lastRunTime === task.lastRunTime
                 && latest.sourceActivationToken === task.sourceActivationToken;
         };
+        if (body && needsValidation) {
+            unsubscribeScheduleQueueSse(id);
+            renderScheduleQueueFeedback(id, body, 'loading');
+        }
         try {
             const res = await fetch(`${BASE}/api/schedule/tasks/${id}/queue`, {
                 credentials: 'same-origin', signal: request.signal
             });
-            if (!res.ok) return; // 失败时保留已有模型渲染
+            if (!res.ok) throw new Error('schedule queue request failed');
             const data = await res.json();
             if (!current()) return;
             const incoming = Array.isArray(data.items) ? data.items : [];
             const cached = readScheduleQueueCache(id);
-            // 后端无当轮队列（如进程重启后）而本地仍有缓存时，保留缓存继续展示，不被空队列覆盖。
+            // 后端无队列时，仅在完成记录未变的情况下保留缓存；否则不能确认它仍属于最新一轮。
             const keepCache = incoming.length === 0 && data.startedTime == null
-                && cached && Array.isArray(cached.items) && cached.items.length > 0;
+                && cached && Array.isArray(cached.items) && cached.items.length > 0
+                && !scheduleQueueCacheNeedsValidation(cached, task);
             if (!keepCache) {
+                const previous = getScheduleQueueModel(id) || [];
+                // 完成时间变化不代表换轮；元数据和实时进度只在相同 startedTime 下继承。
+                const sameRun = data.startedTime != null && data.startedTime === scheduleQueueStartedTimes.get(id);
                 const model = mergeScheduleQueueModel(id, incoming,
-                    task ? (task.sourceType || task.type) : null);
+                    task ? (task.sourceType || task.type) : null, sameRun ? previous : []);
                 scheduleQueueModels[id] = model;
+                scheduleQueueStartedTimes.set(id, data.startedTime);
                 writeScheduleQueueCache(id, {
                     startedTime: data.startedTime != null ? data.startedTime : null,
-                    // 记录该队列所属那一轮的运行时刻（任务当前 lastRunTime），供下次展开时比对是否过期。
+                    // 保存此快照对应的完成记录，用于决定缓存是否需要重新核验。
                     lastRunTime: task && task.lastRunTime != null ? task.lastRunTime : null,
                     truncated: !!data.truncated,
                     total: typeof data.total === 'number' ? data.total : model.length,
                     items: model,
                     savedAt: Date.now()
                 });
+            }
+            if (body?.dataset?.scheduleQueueFeedback) {
+                body.removeAttribute('data-schedule-queue-feedback');
+                body.removeAttribute('aria-busy');
             }
             renderScheduleQueueBodyInto(id);
             // 运行中 + 展开：订阅 SSE 逐图实时进度；否则解绑。
@@ -459,7 +490,9 @@
                 scheduleQueueWasRunning.delete(id);
                 unsubscribeScheduleQueueSse(id);
             }
-        } catch (e) { /* 网络异常：保留模型渲染 */ }
+        } catch (e) {
+            if (current() && body && needsValidation) renderScheduleQueueFeedback(id, body, 'error');
+        }
         finally {
             if (scheduleQueueRequests.get(id) === request) scheduleQueueRequests.delete(id);
         }
@@ -659,6 +692,7 @@
             const queueKey = scheduleQueueItemKey(q);
             if (handlers[queueKey]) return; // 已注册
             const fn = data => {
+                if (scheduleSseHandlers[id] !== handlers) return;
                 const eventWorkType = data && data.workType != null
                     ? String(data.workType).trim() : '';
                 const eventQueueKey = eventWorkType
@@ -692,8 +726,7 @@
     }
 
     // 计划任务列表刷新后，对已不在 liveIds 中的任务连带清理：解绑 SSE / 删除内存模型 / 撤掉展开态 /
-    // 移除本地缓存。覆盖 scheduleExpandedQueues、scheduleQueueModels、scheduleSseHandlers、
-    // scheduleQueueWasRunning 四张表，避免任一处残留导致旧 handler 继续消费事件或阻止
+    // 移除本地缓存、轮次与运行标记，避免残留导致旧 handler 继续消费事件或阻止
     // stopSchedulePolling 关闭共享 SSE 连接。
     function releaseStaleScheduleQueueIds(liveIds) {
         const stale = new Set();
@@ -719,6 +752,7 @@
             if (qvRelease) qvRelease.unmountScheduleQueue(id); // 任务下线：卸载其 reactive 岛
             scheduleExpandedQueues.delete(id);
             delete scheduleQueueModels[id];
+            scheduleQueueStartedTimes.delete(id);
             scheduleQueueWasRunning.delete(id);
             try { storeRemove(scheduleQueueCacheKey(id)); } catch (e) { /* 存储不可用：忽略 */ }
         });
@@ -730,6 +764,13 @@
         if (!model || !data) return;
         const q = model.find(item => scheduleQueueItemKey(item) === queueKey);
         if (!q) return;
+        const registry = window.PixivBatch && window.PixivBatch.queueTypes;
+        if (registry && (data.title || data.presentationAttributes)) {
+            const task = scheduleTaskById(id);
+            Object.assign(q, registry.scheduledQueueItem(q.workType,
+                Object.assign({}, q, {title: data.title, presentationAttributes: data.presentationAttributes}),
+                {sourceType: task && (task.sourceType || task.type), task, previous: q}));
+        }
         // SSE 同步对齐 rawStatus，让 localizeScheduleQueueItem 在渲染时派生出正确语言的 lastMessage；
         // downloading 不对应后端 raw 状态，置为 'downloading' 与 q.status 同步，localizer 走默认分支
         // 让共享渲染器用 queueStatusText(status) 兜底显示「下载中」。

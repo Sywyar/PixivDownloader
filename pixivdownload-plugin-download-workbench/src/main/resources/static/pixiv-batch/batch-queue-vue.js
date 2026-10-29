@@ -199,6 +199,13 @@
         ]);
     }
 
+    function queueTagsPart(tags) {
+        var h = Vue.h;
+        return h('div', { class: 'q-tags' }, tags.map(function (tag) {
+            return h('span', { class: tag.className, 'data-source-id': tag.sourceId, 'data-queue-tag-id': tag.pluginId }, tag.label);
+        }));
+    }
+
     function imageDetails(q) {
         var parts = callG('ugoiraProgressModel', [q.ugoiraProgress, q.status], []);
         var images = callG('imageDownloadProgressModels', [q.imageProgress, q.status], []);
@@ -228,6 +235,7 @@
                 var children = [h('strong', null, tt('label.current', '当前下载:'))];
                 if (front) {
                     children.push(' ' + (front.title == null ? '' : front.title) + ' (ID: ' + (front.id == null ? '' : front.id) + ')');
+                    children.push(queueTagsPart(callG('queueItemTags', [front], [])));
                     children.push(imageCountProgress(front, true));
                     children.push.apply(children, imageDetails(front));
                     var remaining = this.remaining;
@@ -261,9 +269,7 @@
             }, '✕'));
             var children = [
                 h('div', { class: 'q-title' }, title),
-                h('div', { class: 'q-tags' }, model.tags.map(function (tag) {
-                    return h('span', { class: tag.className, 'data-source-id': tag.sourceId, 'data-queue-tag-id': tag.pluginId }, tag.label);
-                })),
+                queueTagsPart(model.tags),
                 h('div', { class: 'q-meta' }, ['ID: ' + model.displayId + ' | '].concat(model.message.map(function (part) {
                     return h('span', { style: { color: part.color, fontWeight: 'bold' } }, part.text == null ? '' : String(part.text));
                 }))),

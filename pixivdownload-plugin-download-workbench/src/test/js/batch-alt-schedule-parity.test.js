@@ -33,6 +33,7 @@ function setup() {
     const document = {
         getElementById: id => nodes.get(id) || null, addEventListener() {},
         createElement: tag => new Element(tag),
+        createElementNS: (_namespace, tag) => new Element(tag),
         createTextNode: text => ({textContent: String(text), outerHTML: escape(text), children: [], matches: () => false}),
         querySelectorAll: () => []
     };
@@ -55,7 +56,7 @@ function setup() {
     c.window = c;
     c.PixivBatchAlt = {queue: {}, schedule: {}};
     c.PixivBatch = {queueTypes: runtime};
-    for (const file of ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', '../pixiv-batch/state-storage.js', 'alt-state.js', 'alt-queue-model.js', 'alt-queue.js', 'alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js']) {
+    for (const file of ['../pixiv-batch/queue-display.js', 'alt-core.js', '../pixiv-batch/batch-download-defaults.js', '../pixiv-batch/batch-pagination.js', '../pixiv-batch/state-storage.js', 'alt-state.js', 'alt-queue-model.js', 'alt-queue.js', 'alt-engine-stream.js', 'alt-schedule.js', 'alt-schedule-actions.js', 'alt-schedule-editor.js']) {
         vm.runInContext(readFileSync(resolve(rootPath, file), 'utf8'), c, {filename: file});
     }
     vm.runInContext(readFileSync(resolve(rootPath, '../pixiv-batch/batch-media-progress.js'), 'utf8'), c);
@@ -71,7 +72,7 @@ function setup() {
             const node = new Element('aside'); node.textContent = message; return node;
         },
         queueDataSourceText: () => 'Fixture',
-        ensureSharedSSE() {}, mergeUgoiraProgress: (old, next) => ({...old, ...next}),
+        ensureSharedSSE() {},
         addSSEListener(id, fn) { const set = listeners.get(id) || new Set(); set.add(fn); listeners.set(id, set); },
         removeSSEListener(id, fn) { listeners.get(id)?.delete(fn); }
     });
@@ -134,7 +135,7 @@ test('SSE 使用复合身份，合批刷新，并保留后续快照前的逐图�
     assert.equal(h.frames.size, 0);
 });
 
-test('同轮缓存保留、换轮失效且不会复活 liveStatus', async () => {
+test('后端丢失队列时保留缓存，完成时间变化且无法确认轮次时清空', async () => {
     const h = setup();
     h.setSnapshot({startedTime: 1, items: [{workType: 'image', workId: '1', status: 'downloaded', title: 'Cached'}]});
     await h.c.loadScheduleQueue(h.task);
@@ -162,7 +163,7 @@ test('同轮刷新保留已识别的进度位置，持久缓存不保存展示�
     assert.equal(h.c.queueProgressSnapshot(item).progressSlots.length, 2);
     assert.equal(item.ugoiraProgress, null);
     assert.doesNotMatch(h.storage.get('pixiv_schedule_queue_1'), /progressSlots/);
-    h.task.lastRunTime++;
+    h.setSnapshot({startedTime: 2, items: [{workType: 'image', workId: '1', status: 'pending'}]});
     await h.c.loadScheduleQueue(h.task);
     item = h.c.run('altScheduleQueues.get(1).data.items[0]');
     assert.equal(h.c.queueProgressSnapshot(item).progressSlots.length, 0);
@@ -291,4 +292,109 @@ test('计划媒体状态显示等待格式并正确区分失败和取消', async
     send({completed: true, cancelled: true});
     assert.equal(data.items[0].status, 'paused');
     assert.equal(data.items[0].rawStatus, 'cancelled');
+});
+
+
+test('计划下载从实时元数据补齐标题和标签，同轮快照保留、换轮清空', async () => {
+    const h = setup();
+    Object.assign(h.runtime, await require('./scheduled-metadata-test-support').metadataRuntime());
+    const raw = {workType: 'illust', workId: '123', status: 'pending', title: null, presentationAttributes: {}};
+    h.setSnapshot({startedTime: 1, items: [raw]});
+    await h.c.loadScheduleQueue(h.task);
+    const send = event => [...h.listeners.get('123')].forEach(fn => fn(event));
+    send({title: '<b>作品标题</b>', presentationAttributes: {xRestrict: '1', ai: 'true', illustType: '1'},
+        totalImages: 90, downloadedCount: 43});
+    send({totalImages: 90, downloadedCount: 44});
+    await h.c.loadScheduleQueue(h.task, true);
+    const item = h.c.run('altScheduleQueues.get(1).data.items[0]');
+    assert.equal(item.rawTitle, '<b>作品标题</b>');
+    assert.equal(item.xRestrict, 1);
+    assert.equal(item.isAi, true);
+    assert.equal(item.typeData.illustType, 1);
+    assert.equal(item.downloadedCount, 44);
+    const card = h.c.buildCurrentCardContent(h.c.localizedScheduleQueueItem(item)).outerHTML;
+    assert.match(card, /&lt;b&gt;作品标题&lt;\/b&gt;/);
+    assert.match(card, /R-18/);
+    assert.match(card, /漫画/);
+    assert.match(card, /AI/);
+    assert.doesNotMatch(card, /<b>/);
+    assert.equal(h.c.scheduleQueueCached(h.task).items[0].rawTitle, item.rawTitle);
+    h.setSnapshot({startedTime: 2, items: [raw]});
+    await h.c.loadScheduleQueue(h.task, true);
+    const fresh = h.c.run('altScheduleQueues.get(1).data.items[0]');
+    assert.equal(fresh.rawTitle, null);
+    assert.equal(fresh.xRestrict, null);
+    assert.equal(fresh.isAi, false);
+    assert.equal(fresh.typeData.illustType, undefined);
+});
+
+for (const [outcome, status] of [['ERROR', 'failed'], ['CANCELLED', 'paused']]) {
+    test(`同轮 ${outcome} 结束保留实时元数据，下一轮清空且旧监听不能回写`, async () => {
+        const h = setup();
+        Object.assign(h.runtime, await require('./scheduled-metadata-test-support').metadataRuntime());
+        const raw = {workType: 'illust', workId: '123', status: 'pending'};
+        h.setSnapshot({startedTime: 100, items: [raw]});
+        await h.c.loadScheduleQueue(h.task);
+        const oldListener = [...h.listeners.get('123')][0];
+        const metadata = {title: 'known title', presentationAttributes: {xRestrict: '1', ai: 'true', illustType: '1'},
+            totalImages: 4, downloadedCount: 2};
+        oldListener(metadata);
+        h.task.runState = null;
+        h.task.lastOutcome = outcome;
+        h.task.lastRunTime = 150;
+        h.setSnapshot({startedTime: 100, items: [{...raw, status, message: 'pixiv.illust.download-failed'}]});
+        await h.c.loadScheduleQueue(h.task, true);
+        const item = h.c.run('altScheduleQueues.get(1).data.items[0]');
+        assert.equal(item.rawTitle, 'known title');
+        assert.equal(item.xRestrict, 1);
+        assert.equal(item.isAi, true);
+        assert.equal(item.typeData.illustType, 1);
+        assert.equal(item.rawStatus, status);
+        assert.equal(item.downloadedCount, 2);
+        assert.equal(h.listeners.get('123').size, 0);
+        oldListener({...metadata, title: 'late title'});
+        assert.equal(h.frames.size, 0, '已解绑的监听不能再次安排刷新');
+        assert.equal(item.rawTitle, 'known title');
+
+        h.task.runState = 'RUNNING';
+        h.setSnapshot({startedTime: 200, items: [raw]});
+        await h.c.loadScheduleQueue(h.task, true);
+        const fresh = h.c.run('altScheduleQueues.get(1).data.items[0]');
+        oldListener(metadata);
+        assert.equal(fresh.rawTitle, null);
+        assert.equal(fresh.xRestrict, null);
+        assert.equal(fresh.isAi, false);
+        assert.equal(fresh.typeData.illustType, undefined);
+        assert.equal(fresh.downloadedCount, 0);
+        assert.equal(fresh.status, 'pending');
+        assert.equal(h.listeners.get('123').size, 1);
+        [...h.listeners.get('123')][0]({...metadata, title: 'new title'});
+        assert.equal(fresh.rawTitle, 'new title');
+        h.c.releaseScheduleQueue(h.task.id);
+    });
+}
+
+test('恢复缓存后以队列轮次确认继承，完成时间变化不丢失本轮元数据', async () => {
+    const h = setup();
+    Object.assign(h.runtime, await require('./scheduled-metadata-test-support').metadataRuntime());
+    const raw = {workType: 'illust', workId: '123', status: 'pending'};
+    h.setSnapshot({startedTime: 100, items: [raw]});
+    await h.c.loadScheduleQueue(h.task);
+    [...h.listeners.get('123')][0]({title: 'cached title', presentationAttributes: {xRestrict: '1', illustType: '1'},
+        totalImages: 4, downloadedCount: 2});
+    await h.c.loadScheduleQueue(h.task, true);
+    const cache = h.storage.get('pixiv_schedule_queue_1');
+    h.task.runState = null;
+    h.task.lastRunTime = 150;
+    for (const startedTime of [100, 200]) {
+        h.c.releaseScheduleQueue(1);
+        h.c.run('altScheduleQueues.clear()');
+        h.storage.set('pixiv_schedule_queue_1', cache);
+        h.setSnapshot({startedTime, items: [{...raw, status: 'failed'}]});
+        await h.c.loadScheduleQueue(h.task);
+        const item = h.c.run('altScheduleQueues.get(1).data.items[0]');
+        assert.equal(item.rawTitle, startedTime === 100 ? 'cached title' : null);
+        assert.equal(item.xRestrict, startedTime === 100 ? 1 : null);
+        assert.equal(item.downloadedCount, startedTime === 100 ? 2 : 0);
+    }
 });

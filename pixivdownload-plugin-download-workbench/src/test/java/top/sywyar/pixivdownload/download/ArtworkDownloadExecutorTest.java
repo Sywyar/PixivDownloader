@@ -282,8 +282,12 @@ class ArtworkDownloadExecutorTest {
                         return "jpg";
                     });
 
+            var metadata = new DownloadRequest.Other();
+            metadata.setXRestrict(1);
+            metadata.setAi(true);
+            metadata.setIllustType(1);
             executor.downloadImages(1000L, "runtime title", List.of(imageUrl),
-                    "https://www.pixiv.net/artworks/1000", new DownloadRequest.Other(), null, "owner-a");
+                    "https://www.pixiv.net/artworks/1000", metadata, null, "owner-a");
 
             assertThat(executor.snapshot().cards())
                     .filteredOn(card -> card.cardId().equals("waiting-queue"))
@@ -298,6 +302,12 @@ class ArtworkDownloadExecutorTest {
             worker.start();
             assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
 
+            assertThat(executor.getDownloadStatus(1000L)).satisfies(status -> {
+                assertThat(status.isCompleted()).isFalse();
+                assertThat(status.getTitle()).isEqualTo("runtime title");
+                assertThat(status.getPresentationAttributes()).containsExactlyInAnyOrderEntriesOf(
+                        java.util.Map.of("xRestrict", "1", "ai", "true", "illustType", "1"));
+            });
             assertThat(executor.snapshot().runningTasks()).singleElement().satisfies(task -> {
                 assertThat(task.taskId()).startsWith("illust:").doesNotContain("owner-a");
                 assertThat(task.title().fallback()).isEqualTo("runtime title");

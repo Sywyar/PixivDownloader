@@ -2,8 +2,10 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const {MiniElement} = require('./pixiv-layout-feedback-test-dom');
 const {
     harness,
+    deferred,
     source
 } = require('./schedule-submit-test-support');
 
@@ -375,3 +377,356 @@ test('计划队列接收媒体等待和清空快照，失败与取消不会显�
     assert.equal(item.status, 'paused');
     assert.equal(item.rawStatus, 'cancelled');
 });
+
+
+test('计划实时标题和标签经过类型映射，同轮轮询保留且不串写同 ID 的其他类型', async () => {
+    const runtime = await require('./scheduled-metadata-test-support').metadataRuntime();
+    const h = harness({queueTypes: runtime});
+    h.replaceTasks([{id: 7, sourceType: 'user-new', runState: 'RUNNING'}]);
+    const raw = [{workType: 'illust', workId: '123', status: 'pending'},
+        {workType: 'other', workId: '123', status: 'pending'}];
+    h.setQueueModel(7, h.mergeQueue(7, raw, 'user-new'));
+    h.subscribeQueueSse(7);
+    h.dispatchQueueSse('123', {title: '下载中的标题', presentationAttributes: {xRestrict: '2', ai: 'true', illustType: '2'},
+        totalImages: 90, downloadedCount: 43});
+    const merged = h.mergeQueue(7, raw, 'user-new');
+    assert.equal(merged[0].rawTitle, '下载中的标题');
+    assert.equal(merged[0].xRestrict, 2);
+    assert.equal(merged[0].typeData.illustType, 2);
+    assert.equal(merged[0].isAi, true);
+    assert.equal(merged[0].downloadedCount, 43);
+    assert.equal(merged[1].rawTitle, null);
+    assert.deepEqual(Array.from(runtime.queueTags(merged[0]), tag => tag.id), ['media.ugoira', 'attribute.ai']);
+    const completed = runtime.scheduledQueueItem('illust', {workId: '123', resultAttributes:
+        {title: '完成后的标题', xRestrict: '0', ai: 'false', illustType: '0'}}, {previous: merged[0]});
+    assert.equal(completed.rawTitle, '完成后的标题');
+    assert.equal(completed.xRestrict, 0);
+    assert.equal(completed.isAi, false);
+    assert.equal(completed.typeData.illustType, 0);
+    h.unsubscribeQueueSse(7);
+});
+
+for (const [outcome, status] of [['ERROR', 'failed'], ['CANCELLED', 'paused']]) {
+    test(`持续展开的计划队列同轮 ${outcome} 保留元数据，换轮清空并拒绝旧监听`, async t => {
+        const runtime = await require('./scheduled-metadata-test-support').metadataRuntime();
+        const raw = {workType: 'illust', workId: '123', status: 'pending'};
+        let snapshot = {startedTime: 100, items: [raw]};
+        const h = harness({queueTypes: runtime, fetch: async () => ({ok: true, json: async () => snapshot})});
+        t.after(() => h.unsubscribeQueueSse(7));
+        const task = {id: 7, sourceType: 'user-new', runState: 'RUNNING', lastRunTime: 42};
+        h.replaceTasks([task]);
+        h.state.mode = 'schedule';
+        h.setExpanded(7, true);
+        await h.fetchQueue(7);
+        const oldListener = h.queueSseListeners('123')[0];
+        const metadata = {title: 'old title', presentationAttributes: {xRestrict: '2', ai: 'true', illustType: '2'},
+            totalImages: 4, downloadedCount: 2};
+        h.dispatchQueueSse('123', metadata);
+
+        task.runState = null;
+        task.lastOutcome = outcome;
+        task.lastRunTime = 150;
+        snapshot = {startedTime: 100, items: [{...raw, status, message: 'pixiv.illust.download-failed'}]};
+        await h.fetchQueue(7);
+        const finished = h.getQueueModel(7)[0];
+        assert.equal(finished.rawTitle, 'old title');
+        assert.equal(finished.xRestrict, 2);
+        assert.equal(finished.isAi, true);
+        assert.equal(finished.typeData.illustType, 2);
+        assert.equal(finished.rawStatus, status);
+        assert.equal(finished.downloadedCount, 2);
+        assert.equal(h.queueSseListenerCount('123'), 0);
+        oldListener({...metadata, title: 'late title'});
+        assert.equal(finished.rawTitle, 'old title');
+        assert.equal(finished.rawStatus, status);
+
+        task.runState = 'RUNNING';
+        snapshot = {startedTime: 200, items: [raw]};
+        await h.fetchQueue(7);
+        const fresh = h.getQueueModel(7)[0];
+        assert.equal(fresh.rawTitle, null);
+        assert.equal(fresh.xRestrict, null);
+        assert.equal(fresh.isAi, false);
+        assert.equal(fresh.typeData.illustType, undefined);
+        assert.equal(fresh.downloadedCount, 0);
+        assert.equal(fresh.status, 'pending');
+        assert.equal(h.queueSseListenerCount('123'), 1);
+        oldListener(metadata);
+        assert.equal(fresh.rawTitle, null, '解绑前已排队的旧回调不能污染新一轮');
+        assert.equal(fresh.status, 'pending');
+        h.dispatchQueueSse('123', {...metadata, title: 'new title'});
+        assert.equal(fresh.rawTitle, 'new title');
+        snapshot = {startedTime: 300, items: [raw]};
+        await h.fetchQueue(7);
+        assert.equal(h.getQueueModel(7)[0].rawTitle, null, '漏过中间终态时也按新轮次清空');
+        assert.equal(h.getQueueModel(7)[0].downloadedCount, 0);
+    });
+}
+
+class QueueElement extends MiniElement {
+    set innerHTML(value) {
+        this.children.slice().forEach(child => this.removeChild(child));
+        this.html = String(value);
+    }
+    get innerHTML() {
+        return (this.html || '') + this.children.map(child =>
+            `<${child.tagName.toLowerCase()}>${child.textContent}${child.innerHTML}</${child.tagName.toLowerCase()}>`).join('');
+    }
+}
+
+async function cachedQueueHarness(t) {
+    const runtime = await require('./scheduled-metadata-test-support').metadataRuntime();
+    const raw = {workType: 'illust', workId: '123', status: 'pending'};
+    let response = {startedTime: 100, items: [raw]};
+    let httpResponse = null;
+    const wrap = new QueueElement('div'), body = new QueueElement('div');
+    body.classList.add('schedule-queue-body');
+    wrap.appendChild(body);
+    const h = harness({queueTypes: runtime, querySelector: () => wrap,
+        createElement: tag => new QueueElement(tag),
+        translations: {
+            'schedule.queue.loading': 'Queue loading fixture',
+            'schedule.queue.load-failed': 'Queue error fixture',
+            'schedule.queue.retry': 'Queue retry fixture',
+            'schedule.queue.no-title': 'Queue title missing fixture'
+        },
+        fetch: async () => httpResponse || ({ok: true, json: () => response})});
+    t.after(() => h.stopPolling());
+    const task = {id: 7, sourceType: 'user-new', runState: 'RUNNING', lastRunTime: 42};
+    h.replaceTasks([task]);
+    h.state.mode = 'schedule';
+    h.setExpanded(7, true);
+    await h.fetchQueue(7);
+    h.dispatchQueueSse('123', {title: 'known title', presentationAttributes: {xRestrict: '1', ai: 'true', illustType: '1'},
+        totalImages: 4, downloadedCount: 2});
+    await h.fetchQueue(7);
+    assert.equal(h.readQueueCache(7).items[0].rawTitle, 'known title');
+    h.toggleQueue(7);
+    h.refreshQueues();
+    assert.equal(h.queueSseListenerCount('123'), 0);
+    return {h, task, raw, body, setResponse: value => { response = value; },
+        setHttpResponse: value => { httpResponse = value; }};
+}
+
+for (const failure of ['network', 'http-503']) {
+    for (const startedTime of [100, 200]) {
+        test(`缓存核验 ${failure} 显示错误，点击重试恢复轮次 ${startedTime}`, async t => {
+            const {h, task, raw, body, setResponse, setHttpResponse} = await cachedQueueHarness(t);
+            const pending = deferred();
+            setHttpResponse(pending.promise);
+            h.replaceTasks([{...task, runState: null, lastRunTime: 150, lastOutcome: 'ERROR'}]);
+            h.toggleQueue(7);
+            assert.equal(body.hidden, false);
+            assert.match(body.innerHTML, /Queue loading fixture/);
+            assert.doesNotMatch(body.innerHTML, /known title/);
+            assert.equal(body.getAttribute('aria-busy'), 'true');
+            if (failure === 'network') pending.resolve(Promise.reject(new Error('connection failed')));
+            else pending.resolve({ok: false, status: 503});
+            await new Promise(resolve => setImmediate(resolve));
+            assert.match(body.innerHTML, /Queue error fixture/);
+            assert.equal(body.getAttribute('aria-busy'), 'false');
+            assert.equal(h.readQueueCache(7).items[0].rawTitle, 'known title');
+            h.renderQueue(7);
+            h.refreshQueues();
+            assert.match(body.innerHTML, /Queue error fixture/, '重绘不能将未核验缓存当成当前事实');
+            assert.doesNotMatch(body.innerHTML, /known title/);
+            const retry = body.querySelector('button');
+            assert.ok(retry);
+            assert.equal(retry.textContent, 'Queue retry fixture');
+            const recovery = deferred();
+            setHttpResponse(null);
+            setResponse(recovery.promise);
+            const reads = h.fetchCount;
+            retry.click();
+            assert.equal(h.fetchCount, reads + 1);
+            assert.match(body.innerHTML, /Queue loading fixture/);
+            recovery.resolve({startedTime, items: [{...raw, status: 'failed'}]});
+            await new Promise(resolve => setImmediate(resolve));
+            assert.doesNotMatch(body.innerHTML, /Queue error fixture|Queue loading fixture/);
+            const item = h.getQueueModel(7)[0];
+            assert.equal(item.rawTitle, startedTime === 100 ? 'known title' : null);
+            assert.equal(item.xRestrict, startedTime === 100 ? 1 : null);
+            assert.equal(item.isAi, startedTime === 100);
+            assert.equal(item.typeData.illustType, startedTime === 100 ? 1 : undefined);
+            assert.match(body.innerHTML, startedTime === 100 ? /known title/ : /Queue title missing fixture/);
+            retry.click();
+            assert.equal(h.fetchCount, reads + 1, '已撤下的重试按钮失效');
+        });
+    }
+}
+
+for (const action of ['collapse', 'leave', 'hidden', 'deleted', 'next-run', 'replaced']) {
+    for (const result of ['success', 'network', 'http-503']) {
+        test(`缓存核验在 ${action} 后忽略旧 ${result} 响应`, async t => {
+            const {h, task, raw, body, setHttpResponse} = await cachedQueueHarness(t);
+            const pending = deferred();
+            setHttpResponse(pending.promise);
+            const finished = {...task, runState: null, lastRunTime: 150};
+            h.replaceTasks([finished]);
+            h.toggleQueue(7);
+            assert.match(body.innerHTML, /Queue loading fixture/);
+            if (action === 'collapse' || action === 'replaced') h.toggleQueue(7);
+            if (action === 'leave') { h.stopPolling(); h.state.mode = 'user'; }
+            if (action === 'hidden') h.document.visibilityState = 'hidden';
+            if (action === 'deleted') h.replaceTasks([]);
+            if (action === 'next-run') h.replaceTasks([{...finished, runState: 'RUNNING'}]);
+            const replacement = deferred();
+            if (action === 'replaced') { setHttpResponse(replacement.promise); h.toggleQueue(7); }
+            const html = body.innerHTML;
+            if (result === 'success') pending.resolve({ok: true, json: async () => ({startedTime: 100, items: []})});
+            else if (result === 'network') pending.resolve(Promise.reject(new Error('old failure')));
+            else pending.resolve({ok: false, status: 503});
+            await new Promise(resolve => setImmediate(resolve));
+            assert.equal(body.innerHTML, html);
+            assert.equal(h.getQueueModel(7)[0].rawTitle, 'known title');
+            assert.equal(h.queueSseListenerCount('123'), 0);
+            if (action !== 'next-run') {
+                const reads = h.fetchCount;
+                for (let i = 0; i < 3; i++) h.refreshQueues();
+                assert.equal(h.fetchCount, reads, '失效页面不补查，替代请求在途时不叠加读取');
+            }
+            if (action === 'replaced') {
+                replacement.resolve({ok: true, json: async () => ({startedTime: 100, items: [{...raw, status: 'failed'}]})});
+                await new Promise(resolve => setImmediate(resolve));
+                assert.match(body.innerHTML, /known title/);
+                assert.doesNotMatch(body.innerHTML, /Queue loading fixture|Queue error fixture/);
+            }
+        });
+    }
+}
+
+for (const oldResult of ['success', 'network', 'http-503']) {
+    for (const startedTime of [100, 200]) {
+        test(`未观察到 RUNNING 时，过期 ${oldResult} 核验由普通轮询补查并确认轮次 ${startedTime}`, async t => {
+            const {h, task, raw, body, setHttpResponse, setResponse} = await cachedQueueHarness(t);
+            const pending = deferred();
+            setHttpResponse(pending.promise);
+            const finished = {...task, runState: null, lastRunTime: 150, lastOutcome: 'ERROR'};
+            h.replaceTasks([finished]);
+            h.toggleQueue(7);
+            const reads = h.fetchCount;
+            h.replaceTasks([{...finished, lastRunTime: 250}]);
+            h.refreshQueues();
+            assert.equal(h.fetchCount, reads, '旧请求未结算时保持单一在途请求');
+            if (oldResult === 'success') pending.resolve({ok: true, json: async () => ({startedTime: 100, items: []})});
+            else if (oldResult === 'network') pending.resolve(Promise.reject(new Error('stale request failed')));
+            else pending.resolve({ok: false, status: 503});
+            await new Promise(resolve => setImmediate(resolve));
+            assert.equal(h.fetchCount, reads, '旧回调不自行发起读取');
+            assert.equal(h.readQueueCache(7).lastRunTime, 42);
+            assert.equal(h.readQueueCache(7).items[0].rawTitle, 'known title');
+
+            const recovery = deferred();
+            setHttpResponse(null);
+            setResponse(recovery.promise);
+            for (let i = 0; i < 3; i++) h.refreshQueues();
+            assert.equal(h.fetchCount, reads + 1, '普通轮询补查当前任务且不叠加慢请求');
+            recovery.resolve({startedTime, items: [{...raw, status: 'failed'}]});
+            await new Promise(resolve => setImmediate(resolve));
+            assert.equal(body.getAttribute('data-schedule-queue-feedback'), null);
+            assert.notEqual(body.getAttribute('aria-busy'), 'true');
+            assert.doesNotMatch(body.innerHTML, /Queue loading fixture|Queue error fixture/);
+            assert.match(body.innerHTML, startedTime === 100 ? /known title/ : /Queue title missing fixture/);
+            const item = h.getQueueModel(7)[0];
+            assert.equal(item.rawTitle, startedTime === 100 ? 'known title' : null);
+            assert.equal(item.xRestrict, startedTime === 100 ? 1 : null);
+            assert.equal(item.isAi, startedTime === 100);
+            assert.equal(item.typeData.illustType, startedTime === 100 ? 1 : undefined);
+            assert.equal(h.readQueueCache(7).lastRunTime, 250);
+            h.refreshQueues();
+            assert.equal(h.fetchCount, reads + 1, '核验完成后不持续补查已结束任务');
+        });
+    }
+}
+
+test('未观察到 RUNNING 的补查失败后提供手动重试，普通轮询不循环重试错误', async t => {
+    const {h, task, raw, body, setHttpResponse, setResponse} = await cachedQueueHarness(t);
+    const pending = deferred();
+    setHttpResponse(pending.promise);
+    h.replaceTasks([{...task, runState: null, lastRunTime: 150}]);
+    h.toggleQueue(7);
+    h.replaceTasks([{...task, runState: null, lastRunTime: 250}]);
+    pending.resolve({ok: true, json: async () => ({startedTime: 100, items: []})});
+    await new Promise(resolve => setImmediate(resolve));
+    setHttpResponse({ok: false, status: 503});
+    h.refreshQueues();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.match(body.innerHTML, /Queue error fixture/);
+    assert.equal(body.getAttribute('aria-busy'), 'false');
+    const reads = h.fetchCount;
+    for (let i = 0; i < 3; i++) h.refreshQueues();
+    assert.equal(h.fetchCount, reads);
+    setHttpResponse(null);
+    setResponse({startedTime: 100, items: [{...raw, status: 'failed'}]});
+    body.querySelector('button').click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.match(body.innerHTML, /known title/);
+    assert.doesNotMatch(body.innerHTML, /Queue loading fixture|Queue error fixture/);
+    assert.equal(h.readQueueCache(7).lastRunTime, 250);
+});
+
+for (const scenario of [
+    {name: '同轮失败', outcome: 'ERROR', status: 'failed', startedTime: 100, retain: true},
+    {name: '同轮取消', outcome: 'CANCELLED', status: 'paused', startedTime: 100, retain: true},
+    {name: '真实换轮', startedTime: 200},
+    {name: '新轮空队列', startedTime: 200, empty: true},
+    {name: '后端重启且完成记录未变', startedTime: null, empty: true, retain: true, lastRunTime: 42},
+    {name: '后端重启且完成记录已变', outcome: 'ERROR', startedTime: null, empty: true}
+]) {
+    test(`收起后重新展开：${scenario.name}按响应确认缓存`, async t => {
+        const {h, task, raw, setResponse} = await cachedQueueHarness(t);
+        const pending = deferred();
+        setResponse(pending.promise);
+        h.replaceTasks([{...task, runState: scenario.outcome ? null : 'RUNNING',
+            lastRunTime: scenario.lastRunTime ?? 150, lastOutcome: scenario.outcome}]);
+        h.toggleQueue(7);
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(h.getQueueModel(7)[0]?.rawTitle, 'known title', '响应前保留待核验的内存模型');
+        assert.equal(h.readQueueCache(7)?.items[0]?.rawTitle, 'known title', '响应前不删除持久缓存');
+        pending.resolve({startedTime: scenario.startedTime,
+            items: scenario.empty ? [] : [{...raw, status: scenario.status || 'pending',
+                message: scenario.status === 'failed' ? 'pixiv.illust.download-failed' : null}]});
+        await new Promise(resolve => setImmediate(resolve));
+        const model = h.getQueueModel(7);
+        if (scenario.retain) {
+            assert.equal(model[0].rawTitle, 'known title');
+            assert.equal(model[0].xRestrict, 1);
+            assert.equal(model[0].isAi, true);
+            assert.equal(model[0].typeData.illustType, 1);
+            assert.equal(model[0].downloadedCount, 2);
+            if (scenario.status) assert.equal(model[0].rawStatus, scenario.status);
+            assert.equal(h.readQueueCache(7).items[0].rawTitle, 'known title');
+        } else if (scenario.empty) {
+            assert.equal(model.length, 0);
+            assert.equal(h.readQueueCache(7).items.length, 0);
+        } else {
+            assert.equal(model[0].rawTitle, null);
+            assert.equal(model[0].xRestrict, null);
+            assert.equal(model[0].isAi, false);
+            assert.equal(model[0].typeData.illustType, undefined);
+            assert.equal(model[0].downloadedCount, 0);
+            assert.equal(model[0].status, 'pending');
+        }
+        if (scenario.outcome) assert.equal(h.queueSseListenerCount('123'), 0);
+    });
+}
+
+for (const action of ['collapse', 'leave', 'network-error']) {
+    test(`重新展开核验缓存时 ${action} 不销毁原数据，迟到空响应不清空`, async t => {
+        const {h, task, setResponse} = await cachedQueueHarness(t);
+        const pending = deferred();
+        setResponse(pending.promise);
+        h.replaceTasks([{...task, runState: null, lastRunTime: 150, lastOutcome: 'ERROR'}]);
+        h.toggleQueue(7);
+        await new Promise(resolve => setImmediate(resolve));
+        if (action === 'collapse') h.toggleQueue(7);
+        if (action === 'leave') { h.stopPolling(); h.state.mode = 'user'; }
+        if (action === 'network-error') pending.resolve(Promise.reject(new Error('response failed')));
+        else pending.resolve({startedTime: null, items: []});
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(h.getQueueModel(7)[0]?.rawTitle, 'known title');
+        assert.equal(h.readQueueCache(7)?.items[0]?.rawTitle, 'known title');
+        assert.equal(h.queueSseListenerCount('123'), 0);
+        if (action !== 'network-error') assert.equal(h.requests.at(-1).init.signal.aborted, true);
+    });
+}
