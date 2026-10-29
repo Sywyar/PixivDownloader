@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.databasesqlite;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.AfterEach;
+import top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -16,6 +18,11 @@ import static top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionTar
 @DisplayName("SQLite 迁移结构保真与跨编码行序")
 class SqliteMigrationContractTest {
     @TempDir Path directory;
+
+    @AfterEach
+    void cleanDirectoryAfterResourcesClose() throws Exception {
+        TestDirectoryCleanup.delete(directory);
+    }
     private final SqliteDatabasePlugin provider = new SqliteDatabasePlugin();
     private final MigrationControl control = (table, count) -> {};
 

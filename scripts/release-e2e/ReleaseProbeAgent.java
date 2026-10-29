@@ -23,6 +23,9 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.FutureTask;
@@ -190,7 +193,7 @@ public final class ReleaseProbeAgent {
                         : window instanceof Dialog dialog ? dialog.getTitle() : "";
                 StringBuilder labels = new StringBuilder();
                 labels(window, labels);
-                accessibleLabels(window, labels, 0, new int[]{2048});
+                labels.append(accessibleLabels(window));
                 windows.add("{\"type\":" + quote(window.getClass().getName()) + ",\"title\":" + quote(title)
                         + ",\"text\":" + quote(labels.toString()) + "}");
                 if ((window instanceof Frame || window.getClass() == Dialog.class)
@@ -255,15 +258,25 @@ public final class ReleaseProbeAgent {
         }
     }
 
+    static String accessibleLabels(javax.accessibility.Accessible component) {
+        StringBuilder output = new StringBuilder();
+        accessibleLabels(component, output, 0, new int[]{2048},
+                Collections.newSetFromMap(new IdentityHashMap<>()));
+        return output.toString();
+    }
+
     private static void accessibleLabels(javax.accessibility.Accessible component, StringBuilder output,
-                                         int depth, int[] remaining) {
+                                         int depth, int[] remaining,
+                                         Set<javax.accessibility.AccessibleContext> visited) {
         if (component == null || depth > 32 || remaining[0]-- <= 0) return;
+        // 下拉框的隐藏弹出层可能返回带循环的渲染器树，不属于当前可见诊断。
+        if (component instanceof javax.swing.JPopupMenu popup && !popup.isShowing()) return;
         var context = component.getAccessibleContext();
-        if (context == null) return;
+        if (context == null || !visited.add(context)) return;
         String name = context.getAccessibleName();
         if (name != null) output.append(name).append('\n');
         for (int i = 0; i < context.getAccessibleChildrenCount() && remaining[0] > 0; i++) {
-            accessibleLabels(context.getAccessibleChild(i), output, depth + 1, remaining);
+            accessibleLabels(context.getAccessibleChild(i), output, depth + 1, remaining, visited);
         }
     }
 

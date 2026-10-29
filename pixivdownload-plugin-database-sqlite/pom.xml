@@ -15,6 +15,12 @@
     </properties>
     <dependencies>
         <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-test-support</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>io.github.sywyar.pixivdownloader</groupId><artifactId>pixivdownload-plugin-api</artifactId>
             <version>${pixivdownload.sdk.version}</version><scope>provided</scope>
         </dependency>

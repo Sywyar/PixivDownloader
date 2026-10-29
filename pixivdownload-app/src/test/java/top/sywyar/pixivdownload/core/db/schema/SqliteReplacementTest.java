@@ -14,6 +14,9 @@ import static top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionTar
 @DisplayName("SQLite 非空迁入目标的一致备份与事务替换")
 class SqliteReplacementTest {
     @TempDir Path directory;
+    @AfterEach void cleanupDirectory() throws Exception {
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(directory);
+    }
     private final MigrationControl control = (table, rows) -> {};
     private final MigrationSchema schema = new MigrationSchema(1, List.of(new TableSpec("facts", List.of(
             new ColumnSpec("id", "INTEGER", false, null, 1),

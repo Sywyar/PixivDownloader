@@ -243,6 +243,7 @@ class PluginDatabaseIntegrationTest {
         if (postgres != null) postgres.close();
         if (sqlite != null) sqlite.close();
         if (loader != null) loader.close();
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(directory);
     }
 
     private Object mapper() throws Exception {

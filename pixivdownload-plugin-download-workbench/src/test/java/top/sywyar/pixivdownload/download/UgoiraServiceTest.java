@@ -42,6 +42,11 @@ class UgoiraServiceTest {
     @TempDir
     Path tempDir;
 
+    @org.junit.jupiter.api.AfterEach
+    void cleanupDirectory() throws IOException {
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(tempDir);
+    }
+
     @Test
     @DisplayName("长作品目录从可启动的父目录运行子进程")
     void launchesProcessForLongArtworkDirectory() throws Exception {

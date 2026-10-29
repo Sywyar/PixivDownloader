@@ -1,6 +1,8 @@
 package top.sywyar.pixivdownload.download.media.webp;
 
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.AfterEach;
+import top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -28,6 +30,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class UgoiraWebpEncoderTest {
     @TempDir Path directory;
+
+    @AfterEach
+    void cleanDirectoryAfterResourcesClose() throws Exception {
+        TestDirectoryCleanup.delete(directory);
+    }
 
     @Test
     @DisplayName("合并前累计预留包含分片和成品，单帧占位不挤占成品预算")

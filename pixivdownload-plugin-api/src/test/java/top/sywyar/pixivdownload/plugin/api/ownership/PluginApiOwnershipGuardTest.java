@@ -252,9 +252,12 @@ class PluginApiOwnershipGuardTest {
                             "ScheduledExecutionGuard", "ScheduledGuardBinding", "ScheduledGuardContext",
                             "ScheduledGuardDecision", "ScheduledGuardEvidence", "ScheduledGuardPoint",
                             "ScheduledGuardResult"),
+                    types(API_PREFIX + "schedule.management",
+                            "ScheduleCredentialPolicyView", "ScheduleManagementException",
+                            "ScheduleTaskView", "ScheduledTaskCredentials"),
                     types(API_PREFIX + "schedule.network", "ScheduledNetworkRoute"),
                     types(API_PREFIX + "schedule.security",
-                            "ScheduledCredentialText", "ScheduledSensitiveFieldNames"),
+                            "ScheduleCredentialRedactor", "ScheduledCredentialText", "ScheduledSensitiveFieldNames"),
                     types(API_PREFIX + "schedule.source",
                             "ScheduledCheckpoint", "ScheduledDiscoveryResult", "ScheduledPendingReplayPolicy",
                             "ScheduledSourceContext", "ScheduledSourceDescriptor", "ScheduledSourceExecutor",
@@ -298,7 +301,7 @@ class PluginApiOwnershipGuardTest {
             Map.entry("插件 owner-scoped 存储协议", 4),
             Map.entry("出站 HTTP 传输协议", 12),
             Map.entry("出站 WebSocket 传输协议", 4),
-            Map.entry("计划任务协议", 57),
+            Map.entry("计划任务协议", 62),
             Map.entry("队列生命周期协议", 5)
     );
 
@@ -420,6 +423,7 @@ class PluginApiOwnershipGuardTest {
             API_PREFIX + "schedule.credential.ScheduledCredentialProbeResult$Status",
             API_PREFIX + "schedule.execution.ScheduledFailure$Category",
             API_PREFIX + "schedule.guard.ScheduledGuardDecision$Action",
+            API_PREFIX + "schedule.management.ScheduleManagementException$Code",
             API_PREFIX + "schedule.network.ScheduledNetworkRoute$Mode",
             API_PREFIX + "schedule.work.ScheduledWorkResult$Outcome"
     );

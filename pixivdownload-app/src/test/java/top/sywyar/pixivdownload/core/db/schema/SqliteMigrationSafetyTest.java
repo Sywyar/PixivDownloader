@@ -15,6 +15,12 @@ import static top.sywyar.pixivdownload.plugin.api.database.DatabaseConnectionTar
 @DisplayName("SQLite 迁移的异常数据、结构和取消保护")
 class SqliteMigrationSafetyTest {
     @TempDir Path directory;
+
+    @AfterEach
+    void cleanDirectory() throws java.io.IOException {
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(directory);
+    }
+
     private final MigrationSchema schema = new MigrationSchema(1, List.of(new TableSpec("facts", List.of(
             new ColumnSpec("id", "INTEGER", false, null, 1),
             new ColumnSpec("body", "TEXT", false, null, 0)), List.of())), List.of(), List.of());

@@ -41,6 +41,11 @@ class ArtworkFileServiceTest {
     @TempDir
     Path tempDir;
 
+    @org.junit.jupiter.api.AfterEach
+    void cleanDirectory() throws IOException {
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(tempDir);
+    }
+
     @Test
     @DisplayName("大图生成画廊缓存且保留原文件")
     void cachesLargeThumbnailWithoutChangingSource() throws Exception {

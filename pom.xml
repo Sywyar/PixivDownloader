@@ -32,6 +32,7 @@
         </developer>
     </developers>
     <modules>
+        <module>pixivdownload-test-support</module>
         <!-- SDK 版本与兼容规则的唯一事实源；纯 JDK，独立于应用发行版本。 -->
         <module>pixivdownload-sdk-info</module>
         <!-- 跨插件契约模块先构建（主程序依赖之），零业务依赖由编译期强制；产物仍打进主程序的单一 boot jar -->
@@ -70,7 +71,7 @@
              PF4J 插件 jar，放入 plugins/ 由运行时加载——不进 boot jar、app 不依赖。声明在 app 之前，使其 target/classes 在
              app 测试期已就绪，供恢复模式端到端集成测试组装临时插件 jar 做真实加载验证 -->
         <module>pixivdownload-plugin-recovery-sentinel</module>
-        <!-- 官方必需下载工作台外置插件。app 不依赖本模块；默认发行包把该 jar 放入 plugins/ 由 PF4J 加载。 -->
+        <!-- 官方可选下载工作台外置插件。app 不依赖本模块；默认发行包把该 jar 放入 plugins/ 由 PF4J 加载。 -->
         <module>pixivdownload-plugin-download-workbench</module>
         <module>pixivdownload-plugin-pixiv-batch-downloader-import</module>
         <!-- 官方 PostHog 调查适配插件：提供 vendored SDK，并按调用方 owner key 与参数创建隔离命名客户端。 -->

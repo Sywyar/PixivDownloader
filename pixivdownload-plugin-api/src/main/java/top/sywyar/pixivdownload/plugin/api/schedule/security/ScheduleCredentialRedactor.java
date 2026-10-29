@@ -1,8 +1,5 @@
 package top.sywyar.pixivdownload.plugin.api.schedule.security;
 
-import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduledSensitiveFieldNames;
-import top.sywyar.pixivdownload.plugin.api.schedule.security.ScheduledCredentialText;
-
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -33,7 +30,11 @@ public final class ScheduleCredentialRedactor {
     private ScheduleCredentialRedactor() {
     }
 
-    /** 返回不含已知凭证形态的文本；{@code null} 原样返回。 */
+    /**
+     * 遮蔽已知凭证形态，不承诺识别任意未知秘密。
+     * @param text 待过滤文本，可为空
+     * @return 过滤后的文本；{@code null} 原样返回
+     */
     public static String redact(String text) {
         if (text == null || text.isEmpty()) {
             return text;
@@ -90,22 +91,39 @@ public final class ScheduleCredentialRedactor {
         return value;
     }
 
-    /** 判断一个不透明文本值是否带有凭证头、token、签名或 Cookie 的可识别形态。 */
+    /**
+     * 判断不透明文本是否带有凭证头、token、签名或 Cookie 的可识别形态。
+     * @param text 待检查文本，可为空
+     * @return 是否发现已知凭证形态
+     */
     public static boolean containsCredentialMaterial(String text) {
         return ScheduledCredentialText.containsCredentialMaterial(text);
     }
 
-    /** 判断 JSON 字段名是否声明了凭证、secret、token、签名或会话身份。 */
+    /**
+     * 判断 JSON 字段名是否声明了凭证、secret、token、签名或会话身份。
+     * @param fieldName 待检查的字段名，可为空
+     * @return 是否为敏感字段名
+     */
     public static boolean isSensitiveFieldName(String fieldName) {
         return ScheduledSensitiveFieldNames.isSensitiveFieldName(fieldName);
     }
 
-    /** 判断字段名是否是必须结合值形态校验的凭证元数据。 */
+    /**
+     * 判断字段名是否是必须结合值形态校验的凭证元数据。
+     * @param fieldName 待检查的字段名，可为空
+     * @return 是否需要进一步校验元数据值
+     */
     public static boolean isSensitiveMetadataFieldName(String fieldName) {
         return ScheduledSensitiveFieldNames.isSensitiveMetadataFieldName(fieldName);
     }
 
-    /** 判断凭证元数据值是否为严格的非敏感计数或布尔状态。 */
+    /**
+     * 判断凭证元数据值是否为严格的非敏感计数或布尔状态。
+     * @param fieldName 元数据字段名，可为空
+     * @param value 待检查的字段值，可为空
+     * @return 是否满足已声明元数据的安全值形态
+     */
     public static boolean isSafeMetadataValue(String fieldName, String value) {
         return ScheduledSensitiveFieldNames.isSafeMetadataValue(fieldName, value);
     }

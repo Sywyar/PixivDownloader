@@ -60,7 +60,7 @@ class ArtworkMediaDecoderTest {
             }
             assertThrows(java.io.IOException.class, () -> decoder.read(large, 64));
             assertEquals(size, Files.size(large));
-            try (var files = Files.list(RuntimeFiles.galleryThumbnailDirectory())) { assertEquals(0, files.count()); }
+            assertCacheEmpty();
             verifyNoInteractions(runner);
         } finally {
             if (before == null) System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY);
@@ -92,12 +92,23 @@ class ArtworkMediaDecoderTest {
                 for (int i = 0; i < 33; i++) out.write(buffer);
             }
             assertThrows(java.io.IOException.class, () -> decoder.read(archive, 512));
-            try (var files = Files.list(RuntimeFiles.galleryThumbnailDirectory())) { assertEquals(0, files.count()); }
+            assertCacheEmpty();
             verifyNoInteractions(runner);
         } finally {
             if (before == null) System.clearProperty(RuntimeFiles.DATA_DIR_PROPERTY);
             else System.setProperty(RuntimeFiles.DATA_DIR_PROPERTY, before);
         }
+    }
+
+    private void assertCacheEmpty() {
+        // Windows 删除成功后可能短暂枚举 .tmp 条目；等待目录收敛，不主动清理被测结果。
+        org.awaitility.Awaitility.await().pollDelay(java.time.Duration.ZERO)
+                .pollInterval(java.time.Duration.ofMillis(25)).atMost(java.time.Duration.ofSeconds(1))
+                .untilAsserted(() -> {
+                    try (var entries = Files.list(RuntimeFiles.galleryThumbnailDirectory())) {
+                        assertEquals(java.util.List.of(), entries.toList());
+                    }
+                });
     }
 
     @Test @DisplayName("缩略图取消后不启动 FFmpeg 兜底")

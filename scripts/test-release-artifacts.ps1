@@ -81,7 +81,8 @@ function Remove-TestSessionRoot {
         throw "Refusing to change permissions in a test session containing reparse points: $candidate"
     }
     # Forced process termination leaves plugin snapshots sealed read-only.
-    & icacls.exe $candidate /reset /T /L /Q | Out-Null
+    $nativePath = if ($candidate.StartsWith('\\')) { '\\?\UNC\' + $candidate.Substring(2) } else { '\\?\' + $candidate }
+    & icacls.exe $nativePath /reset /T /L /Q | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to restore test session permissions: $candidate"
     }

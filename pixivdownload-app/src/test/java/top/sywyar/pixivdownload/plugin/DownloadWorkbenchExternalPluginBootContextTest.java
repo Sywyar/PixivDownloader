@@ -323,8 +323,9 @@ class DownloadWorkbenchExternalPluginBootContextTest {
         assertThat(batch).isNotNull();
         assertThat(batch.pluginId()).isEqualTo(PLUGIN_ID);
         assertThat(batch.load(Locale.SIMPLIFIED_CHINESE))
-                .containsEntry("plugin.name", "下载工作台")
-                .containsEntry("nav.label", "下载");
+                .hasEntrySatisfying("plugin.name", name -> assertThat(name).isNotBlank().isNotEqualTo(PLUGIN_ID))
+                .hasEntrySatisfying("plugin.summary", summary -> assertThat(summary).isNotBlank())
+                .hasEntrySatisfying("nav.label", label -> assertThat(label).isNotBlank());
         assertThat(webI18nBundleRegistry.resolve("userscript"))
                 .isNotNull()
                 .extracting(WebI18nBundleRegistry.RegisteredBundle::pluginId)

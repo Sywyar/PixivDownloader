@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -88,6 +89,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 @DisplayName("插件分发打包边界：boot jar 不含外置插件类、外置插件独立产物形态")
 class DistributionPackagingBoundaryTest {
+    @TempDir Path tempDir;
+
+    @AfterEach
+    void cleanDirectory() throws IOException {
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(tempDir);
+    }
 
     private static final boolean REQUIRE_PACKAGED_ARTIFACTS =
             Boolean.getBoolean("distribution.packaging.require-artifacts");
@@ -402,7 +409,7 @@ class DistributionPackagingBoundaryTest {
 
     @Test
     @DisplayName("boot jar 保留宿主契约与 Spring 运行时结构，不含外置插件实现和私有依赖")
-    void bootJarEntriesExcludeExternalPluginPayloads(@TempDir Path tempDir) throws Exception {
+    void bootJarEntriesExcludeExternalPluginPayloads() throws Exception {
         Path bootJar = locateBootJar();
         requireAvailable(bootJar != null,
                 "boot jar 尚未生成（需 package 阶段），无法执行 jar 条目级边界验证");
@@ -416,6 +423,8 @@ class DistributionPackagingBoundaryTest {
                         "BOOT-INF/classes/top/sywyar/pixivdownload/sdk/SdkVersion.class",
                         "BOOT-INF/classes/top/sywyar/pixivdownload/plugin/api/plugin/PixivFeaturePlugin.class",
                         "BOOT-INF/classes/top/sywyar/pixivdownload/core/download/InteractiveDownloadExecutionLane.class",
+                        "BOOT-INF/classes/top/sywyar/pixivdownload/schedule/ScheduleRunner.class",
+                        "BOOT-INF/classes/notification/templates/mail/run-summary.html",
                         "BOOT-INF/classes/top/sywyar/pixivdownload/plugin/signature/PluginSupplyChainVerifier.class",
                         "BOOT-INF/classes/top/sywyar/pixivdownload/plugin/runtime/isolation/IsolatedPluginProtocol.class",
                         "BOOT-INF/classes/top/sywyar/pixivdownload/plugin/runtime/PluginRuntimeManager.class");
@@ -451,7 +460,7 @@ class DistributionPackagingBoundaryTest {
 
     @Test
     @DisplayName("boot jar 内嵌的隔离 worker 可执行产物不携带宿主实现 classpath")
-    void bootJarEmbedsMinimalExecutableIsolatedWorker(@TempDir Path tempDir) throws IOException {
+    void bootJarEmbedsMinimalExecutableIsolatedWorker() throws IOException {
         Path bootJar = locateBootJar();
         requireAvailable(bootJar != null,
                 "boot jar 尚未生成（需 package 阶段），无法验证隔离 worker 产物边界");
@@ -520,24 +529,11 @@ class DistributionPackagingBoundaryTest {
 
     @Test
     @DisplayName("最终宿主产物可独立加载共享实现、社区合同、语言目录和许可证")
-    void bootJarLoadsCommunityContracts(@TempDir Path tempDir) throws Exception {
+    void bootJarLoadsCommunityContracts() throws Exception {
         Path bootJar = locateBootJar();
         requireAvailable(bootJar != null, "需要本次构建的宿主 boot JAR");
-        List<URL> urls = new ArrayList<>();
         Path classes = tempDir.resolve("BOOT-INF/classes");
-        Files.createDirectories(classes);
-        urls.add(classes.toUri().toURL());
-        try (JarFile archive = new JarFile(bootJar.toFile())) {
-            for (JarEntry entry : archive.stream().filter(item -> !item.isDirectory()
-                    && (item.getName().startsWith("BOOT-INF/classes/") || item.getName().startsWith("BOOT-INF/lib/"))).toList()) {
-                Path output = tempDir.resolve(entry.getName()).normalize();
-                assertThat(output.startsWith(tempDir)).isTrue();
-                Files.createDirectories(output.getParent());
-                try (InputStream input = archive.getInputStream(entry)) { Files.copy(input, output); }
-                if (entry.getName().startsWith("BOOT-INF/lib/")) urls.add(output.toUri().toURL());
-            }
-        }
-        try (URLClassLoader loader = new URLClassLoader(urls.toArray(URL[]::new), ClassLoader.getPlatformClassLoader())) {
+        try (URLClassLoader loader = bootArtifactClassLoader(bootJar, tempDir)) {
             for (String databaseClass : List.of("org.sqlite.JDBC", "org.postgresql.Driver",
                     "top.sywyar.pixivdownload.databasesqlite.SqliteDatabasePlugin",
                     "top.sywyar.pixivdownload.databasepostgresql.PostgresDatabasePlugin")) {
@@ -574,6 +570,90 @@ class DistributionPackagingBoundaryTest {
             }
             assertThat(java.util.Collections.list(loader.getResources("community/v1/catalogs.json"))).hasSize(1);
         }
+    }
+
+    @Test
+    @DisplayName("处理后的宿主保存所有下载终态，新加载器仅从持久记录恢复并保持所属者隔离")
+    void bootJarPersistsDownloadResults() throws Exception {
+        Path bootJar = locateBootJar();
+        requireAvailable(bootJar != null, "需要本次构建的宿主 boot JAR");
+        String property = "pixivdownload.data-dir";
+        String previous = System.getProperty(property);
+        Path data = tempDir.resolve("data");
+        System.setProperty(property, data.toString());
+        var attempts = new java.util.LinkedHashMap<java.util.UUID, String>();
+        try {
+            URL[] artifactUrls;
+            try (URLClassLoader loader = bootArtifactClassLoader(bootJar, tempDir.resolve("artifact"))) {
+                artifactUrls = loader.getURLs();
+                Class<?> registryType = loader.loadClass("top.sywyar.pixivdownload.core.download.DownloadTaskRegistry");
+                Class<?> storeType = loader.loadClass("top.sywyar.pixivdownload.core.download.DownloadTaskResultStore");
+                assertThat(registryType.getClassLoader()).isSameAs(loader);
+                Object registry = registryType.getConstructor(storeType).newInstance(storeType.getConstructor().newInstance());
+                Class<?> attemptType = loader.loadClass("top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadAttempt");
+                Class<?> eventType = loader.loadClass("top.sywyar.pixivdownload.plugin.api.download.lifecycle.DownloadEvent");
+                Class<?> phaseType = loader.loadClass(eventType.getName() + "$Phase");
+                for (String phase : List.of("COMPLETED", "FAILED", "CANCELLED")) {
+                    var id = java.util.UUID.randomUUID();
+                    attempts.put(id, phase);
+                    Object attempt = attemptType.getConstructor(java.util.UUID.class, String.class, String.class)
+                            .newInstance(id, "example", "opaque/作品");
+                    registryType.getMethod("register", attemptType, String.class, String.class, String.class)
+                            .invoke(registry, attempt, "result-owner", "example", "终态作品");
+                    Object event = eventType.getConstructor(attemptType, phaseType)
+                            .newInstance(attempt, phaseType.getField(phase).get(null));
+                    assertThat(registryType.getMethod("update", eventType).invoke(registry, event)).isEqualTo(true);
+                    Path result = data.resolve("download-task-results").resolve(id.toString().substring(0, 2))
+                            .resolve(id + ".json");
+                    assertThat(result).isRegularFile();
+                    var json = new com.fasterxml.jackson.databind.ObjectMapper().readTree(Files.readAllBytes(result));
+                    assertThat(json.path("version").asInt()).isEqualTo(1);
+                    assertThat(json.path("phase").asText()).isEqualTo(phase);
+                }
+            }
+            try (URLClassLoader loader = new URLClassLoader(artifactUrls, ClassLoader.getPlatformClassLoader())) {
+                Class<?> registryType = loader.loadClass("top.sywyar.pixivdownload.core.download.DownloadTaskRegistry");
+                Class<?> storeType = loader.loadClass("top.sywyar.pixivdownload.core.download.DownloadTaskResultStore");
+                Object registry = registryType.getConstructor(storeType).newInstance(storeType.getConstructor().newInstance());
+                Class<?> ownerType = loader.loadClass("top.sywyar.pixivdownload.plugin.api.web.RequestOwnerIdentity");
+                Object admin = ownerType.getMethod("adminScope").invoke(null);
+                Object owner = ownerType.getMethod("owner", String.class).invoke(null, "result-owner");
+                Object other = ownerType.getMethod("owner", String.class).invoke(null, "other-owner");
+                var find = registryType.getMethod("find", java.util.UUID.class, ownerType);
+                for (var attempt : attempts.entrySet()) {
+                    for (Object identity : List.of(admin, owner)) {
+                        var result = (java.util.Optional<?>) find.invoke(registry, attempt.getKey(), identity);
+                        assertThat(result).isPresent();
+                        Object snapshot = result.orElseThrow();
+                        assertThat(snapshot.getClass().getMethod("phase").invoke(snapshot).toString())
+                                .isEqualTo(attempt.getValue());
+                        assertThat(snapshot.getClass().getMethod("title").invoke(snapshot)).isEqualTo("终态作品");
+                    }
+                    assertThat((java.util.Optional<?>) find.invoke(registry, attempt.getKey(), other)).isEmpty();
+                }
+            }
+        } finally {
+            if (previous == null) System.clearProperty(property);
+            else System.setProperty(property, previous);
+        }
+    }
+
+    private static URLClassLoader bootArtifactClassLoader(Path bootJar, Path directory) throws IOException {
+        List<URL> urls = new ArrayList<>();
+        Path classes = directory.resolve("BOOT-INF/classes");
+        Files.createDirectories(classes);
+        urls.add(classes.toUri().toURL());
+        try (JarFile archive = new JarFile(bootJar.toFile())) {
+            for (JarEntry entry : archive.stream().filter(item -> !item.isDirectory()
+                    && (item.getName().startsWith("BOOT-INF/classes/") || item.getName().startsWith("BOOT-INF/lib/"))).toList()) {
+                Path output = directory.resolve(entry.getName()).normalize();
+                assertThat(output.startsWith(directory)).isTrue();
+                Files.createDirectories(output.getParent());
+                try (InputStream input = archive.getInputStream(entry)) { Files.copy(input, output); }
+                if (entry.getName().startsWith("BOOT-INF/lib/")) urls.add(output.toUri().toURL());
+            }
+        }
+        return new URLClassLoader(urls.toArray(URL[]::new), ClassLoader.getPlatformClassLoader());
     }
 
     @Test
@@ -721,7 +801,7 @@ class DistributionPackagingBoundaryTest {
 
     @Test
     @DisplayName("SQLite 处理后外置产物通过共享数据库契约使用私有驱动并隔离主库与两个私库")
-    void sqliteArtifactOpensIsolatedDatabasesWithPrivateDriver(@TempDir Path tempDir) throws Exception {
+    void sqliteArtifactOpensIsolatedDatabasesWithPrivateDriver() throws Exception {
         String artifactId = "pixivdownload-plugin-database-sqlite";
         assertJarWithPrivateLibraries(SQLITE_CLASSES_PROPERTY, artifactId,
                 "top/sywyar/pixivdownload/databasesqlite/SqlitePf4jPlugin.class", List.of("sqlite-jdbc-[^/]+\\.jar"));
@@ -796,7 +876,7 @@ class DistributionPackagingBoundaryTest {
 
     @Test
     @DisplayName("PostgreSQL 处理后外置产物通过共享数据库契约与私有驱动解析目标且不建立连接")
-    void postgresArtifactResolvesTargetWithPrivateDriver(@TempDir Path tempDir) throws Exception {
+    void postgresArtifactResolvesTargetWithPrivateDriver() throws Exception {
         String artifactId = "pixivdownload-plugin-database-postgresql";
         assertJarWithPrivateLibraries(POSTGRESQL_CLASSES_PROPERTY, artifactId,
                 "top/sywyar/pixivdownload/databasepostgresql/PostgresPf4jPlugin.class", List.of("postgresql-[^/]+\\.jar"));
@@ -828,7 +908,7 @@ class DistributionPackagingBoundaryTest {
 
     @Test
     @DisplayName("gui-swing 以 JAR-with-lib 形态打包：根 descriptor + 插件类 + lib/*.jar")
-    void guiThemePackagesAsJarWithPrivateLibraries(@TempDir Path tempDir) {
+    void guiThemePackagesAsJarWithPrivateLibraries() {
         Path classesDir = locateConfiguredDir(GUI_THEME_CLASSES_PROPERTY);
         requireAvailable(classesDir != null && Files.isDirectory(classesDir),
                 "插件构建产物未就绪（需 reactor 先构建 pixivdownload-plugin-gui-swing），无法验证 JAR-with-lib 形态");
@@ -871,7 +951,7 @@ class DistributionPackagingBoundaryTest {
 
     @Test
     @DisplayName("gui-compose 由 Gradle 生成通用 JAR-with-lib，并可从私有类加载器初始化 Skiko")
-    void guiComposePackagesAsGradleJarWithPrivateLibraries(@TempDir Path tempDir) {
+    void guiComposePackagesAsGradleJarWithPrivateLibraries() {
         Path classesDir = locateConfiguredDir(GUI_COMPOSE_CLASSES_PROPERTY);
         requireAvailable(classesDir != null && Files.isDirectory(classesDir),
                 "插件构建产物未就绪（需 reactor 先 process-classes pixivdownload-plugin-gui-compose）");
