@@ -139,23 +139,6 @@ function aqvExtras(q) {
 
 function aqvRowModel(q) {
     const runtime = window.PixivBatch && window.PixivBatch.queueTypes;
-    const xr = q.xRestrict == null ? null : Number(q.xRestrict);
-    let xrTag;
-    if (xr === 2) xrTag = {key: 'xr', cls: 'ab-queue-tag--r18g', text: 'R-18G'};
-    else if (xr === 1) xrTag = {key: 'xr', cls: 'ab-queue-tag--r18', text: 'R-18'};
-    else if (xr === null || !Number.isFinite(xr)) {
-        xrTag = {key: 'xr', cls: 'ab-queue-tag--unknown', text: aqvT('queue.unknown', '未知')};
-    } else xrTag = {key: 'xr', cls: 'ab-queue-tag--sfw', text: 'SFW'};
-    const tags = [
-        {key: 'source', cls: 'ab-queue-tag--source', text: queueDataSourceText(q)},
-        {key: 'mode', cls: 'ab-queue-tag--mode', text: queueSourceText(q.source)},
-        xrTag
-    ];
-    const contributed = runtime && typeof runtime.queueTags === 'function' ? runtime.queueTags(q) : [];
-    contributed.forEach(tag => {
-        if (!tag || !tag.label) return;
-        tags.push({key: 'plugin-' + (tag.id || tag.label), cls: 'ab-queue-tag--plugin', text: tag.label});
-    });
     const percent = q.totalImages > 0 ? pct(q) : 0;
     return {
         key: aqvRowKey(q),
@@ -166,7 +149,6 @@ function aqvRowModel(q) {
         canCancel: q.status === 'downloading'
             && !!(runtime && typeof runtime.canCancel === 'function' && runtime.canCancel(q)),
         removable: q.status !== 'downloading',
-        tags,
         idLine: 'ID: ' + (q.kind === 'novel'
             ? (q.novelId || String(q.id).replace(/^n/, '')) + ' (Novel)'
             : q.id) + ' | ',
@@ -246,7 +228,7 @@ function aqvRenderCurrent(front, remaining) {
                 ]), h('span', {class: 'ab-ring-text'}, Math.round(model.percent) + '%')
             ]),
             h('div', {class: 'ab-current-meta'}, [h('div', {class: 'ab-current-title'}, model.title),
-                h('div', {class: 'ab-current-detail'}, model.detail)])
+                h('div', {class: 'ab-current-detail'}, model.detail), aqvTags(front)])
         ]));
         if (front.kind === 'illust' || front.totalImages > 0) children.push(aqvMiniProgress(
             model.progressLabel, null, front.totalImages > 0 ? model.percent : null, 'is-image', 'images', false));
@@ -254,6 +236,12 @@ function aqvRenderCurrent(front, remaining) {
         if (remaining) children.push(h('p', {key: 'remaining', class: 'ab-current-remaining'}, remaining));
     }
     return h('span', {style: {display: 'contents'}}, children);
+}
+
+function aqvTags(item) {
+    const h = aqvVue.h;
+    return h('div', {class: 'ab-queue-tags'}, queueItemTags(item).map(tag =>
+        h('span', {key: tag.key, class: ['ab-queue-tag', tag.cls]}, tag.text)));
 }
 
 function aqvRenderRow(item, vm) {
@@ -273,7 +261,7 @@ function aqvRenderRow(item, vm) {
             vm && r.canCancel ? action(r, 'stop', aqvT('queue.cancel', '取消下载'), vm.cancelRow) : null,
             vm && r.removable ? action(r, 'x', aqvT('queue.remove', '移除'), vm.removeRow) : null
         ]),
-        h('div', {class: 'ab-queue-tags'}, r.tags.map(tag => h('span', {key: tag.key, class: ['ab-queue-tag', tag.cls]}, tag.text))),
+        aqvTags(item),
         h('div', {class: 'ab-queue-meta'}, [r.idLine, h('span', {class: 'ab-queue-status', 'data-status': r.status}, r.message)]),
         r.progress ? h('div', {class: 'ab-mini-prog'}, [
             h('div', {class: 'ab-mini-prog-label'}, [h('span', r.progress.label), h('span', r.progress.text)]),

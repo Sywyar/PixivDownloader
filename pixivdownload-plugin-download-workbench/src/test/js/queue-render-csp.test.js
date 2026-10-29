@@ -85,6 +85,10 @@ async function fixture(alt, size = 300, production = false) {
             sandbox.bt = (key,fallback,vars) => language + ':' + key + (vars ? ':' + JSON.stringify(vars) : '');
         }
     }
+    if (alt && !production) {
+    const tagSource = fs.readFileSync(path.resolve(__dirname, '../../main/resources/static/pixiv-batch-alt/alt-queue.js'), 'utf8');
+    vm.runInContext(tagSource.slice(tagSource.indexOf('function queueItemTags('), tagSource.indexOf('function renderQueueTags(')), sandbox);
+    }
     assert.throws(()=>vm.runInContext('new Function("return 1")',sandbox), /Code generation/);
     vm.runInContext(fs.readFileSync(path.join(repo,'pixivdownload-app/src/main/resources/static/vendor/vue/vue.global.prod.js'),'utf8'),sandbox);
     const Vue = sandbox.Vue;
@@ -527,3 +531,25 @@ test('经典真实展示保留标题、按钮和进度节点，并更新标签�
     assert.deepEqual(byClass(f.list,'q-title-main'),nodes.slice().reverse());
     assert.deepEqual(f.errors,[]);
 });
+
+
+for (const alt of [false, true]) {
+    test((alt ? '侧栏' : '经典') + '当前卡与队列行共享标签并随元数据响应更新', async () => {
+        const f = await fixture(alt, 1, true);
+        f.sandbox.PixivBatch.queueTypes.queueTags = q => q.isAi
+            ? [{id: 'media.manga', label: '漫画'}, {id: 'attribute.ai', label: 'AI'}] : [];
+        Object.assign(f.state.queue[0], {xRestrict: 1, isAi: true});
+        f.sync(f.state.queue[0]);
+        await f.flush();
+        const currentTags = byClass(f.current, alt ? 'ab-queue-tags' : 'q-tags')[0];
+        const rowTags = byClass(f.list, alt ? 'ab-queue-tags' : 'q-tags')[0];
+        assert.equal(textOf(currentTags), textOf(rowTags));
+        assert.match(textOf(currentTags), /R-18.*漫画.*AI/);
+        Object.assign(f.state.queue[0], {xRestrict: 0, isAi: false});
+        f.sync(f.state.queue[0]);
+        await f.flush();
+        assert.match(textOf(currentTags), /SFW/);
+        assert.doesNotMatch(textOf(currentTags), /R-18|漫画|AI/);
+        assert.deepEqual(f.errors, []);
+    });
+}

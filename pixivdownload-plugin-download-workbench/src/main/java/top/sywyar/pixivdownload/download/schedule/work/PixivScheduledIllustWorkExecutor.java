@@ -166,7 +166,8 @@ public final class PixivScheduledIllustWorkExecutor implements ScheduledWorkExec
         Map<String, String> attributes = Map.of(
                 "title", meta.title(),
                 "xRestrict", Integer.toString(meta.xRestrict()),
-                "ai", Boolean.toString(meta.ai()));
+                "ai", Boolean.toString(meta.ai()),
+                "illustType", Integer.toString(meta.illustType()));
         if (!ScheduleWorkFilter.artworkMatches(meta, snapshot.filters())) {
             return new ScheduledWorkResult(
                     ScheduledWorkResult.Outcome.SKIPPED,

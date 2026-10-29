@@ -237,6 +237,9 @@ function harness(options) {
         uiLang: () => config.language || 'en-US',
         BASE: '',
         STATUS_COLORS: {info: 'info', error: 'error', success: 'success'},
+        formatStatsText: (...counts) => counts.join(' '),
+        formatCurrentCardHtml: item => item ? item.title : '',
+        buildQueueItemHtml: item => item.title,
         bt: (key, fallback, vars) => {
             let value = Object.prototype.hasOwnProperty.call(config.translations || {}, key)
                 ? config.translations[key] : fallback;
@@ -334,6 +337,9 @@ function harness(options) {
         queueSseListenerCount(workId) {
             return (sseListeners.get(String(workId)) || []).length;
         },
+        queueSseListeners(workId) {
+            return (sseListeners.get(String(workId)) || []).slice();
+        },
         pendingReason: sandbox.window.__pendingReasonText,
         renderTaskCard: sandbox.window.__renderScheduleTaskCard,
         renderSnapshot: sandbox.window.__renderScheduleSnapshotBody,
@@ -352,6 +358,7 @@ function harness(options) {
         taskById: sandbox.scheduleTaskById,
         replaceCard: sandbox.replaceScheduleCardPreservingInner,
         fetchQueue: sandbox.fetchScheduleQueue,
+        renderQueue: sandbox.renderScheduleQueueBodyInto,
         refreshQueues: sandbox.refreshExpandedScheduleQueues,
         toggleQueue: sandbox.toggleScheduleQueue,
         togglePending: sandbox.togglePendingPanel,

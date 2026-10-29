@@ -413,16 +413,22 @@
                                 ? presentationAttributes.isAi
                                 : (item.ai != null ? item.ai : item.isAi))));
                 const normalizedAi = typeof aiRaw === 'string' ? aiRaw.trim().toLowerCase() : aiRaw;
+                const illustTypeRaw = resultAttributes.illustType ?? presentationAttributes.illustType;
+                const illustType = illustTypeRaw == null ? null : Number(illustTypeRaw);
+                const typeData = ctx && ctx.sourceType ? {sourceType: String(ctx.sourceType)} : {};
+                if (Number.isInteger(illustType) && illustType >= 0 && illustType <= 2) {
+                    typeData.illustType = illustType;
+                }
                 return {
                     id: rawId,
                     kind: type,
                     cancelWorkKey: pixivCancelWorkKey(rawId),
-                    rawTitle: item.title && String(item.title).trim()
-                        ? String(item.title)
-                        : (presentation.title && String(presentation.title).trim()
-                            ? String(presentation.title)
-                            : (resultAttributes.title && String(resultAttributes.title).trim()
-                                ? String(resultAttributes.title) : null)),
+                    rawTitle: resultAttributes.title && String(resultAttributes.title).trim()
+                        ? String(resultAttributes.title)
+                        : (item.title && String(item.title).trim()
+                            ? String(item.title)
+                            : (presentation.title && String(presentation.title).trim()
+                                ? String(presentation.title) : null)),
                     authorName: item.author && String(item.author).trim()
                         ? String(item.author)
                         : (presentation.author && String(presentation.author).trim()
@@ -434,8 +440,7 @@
                     isAi: normalizedAi === true || normalizedAi === 'true'
                         || normalizedAi === 1 || normalizedAi === '1',
                     source: scheduledSourceStyle(ctx && ctx.sourceType),
-                    typeData: ctx && ctx.sourceType
-                        ? {sourceType: String(ctx.sourceType)} : null
+                    typeData
                 };
             },
             import: {
