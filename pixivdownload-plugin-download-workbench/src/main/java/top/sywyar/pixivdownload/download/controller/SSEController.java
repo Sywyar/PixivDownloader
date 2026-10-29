@@ -773,7 +773,9 @@ public class SSEController {
                 .success(true);
 
         if (downloadStatus != null) {
-            builder.currentImageIndex(downloadStatus.getCurrentImageIndex())
+            builder.title(downloadStatus.getTitle())
+                    .presentationAttributes(downloadStatus.getPresentationAttributes())
+                    .currentImageIndex(downloadStatus.getCurrentImageIndex())
                     .totalImages(downloadStatus.getTotalImages())
                     .downloadedCount(downloadStatus.getDownloadedCount())
                     .completed(downloadStatus.isCompleted())

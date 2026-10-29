@@ -166,6 +166,7 @@ class SSEControllerTest {
         status.setCurrentImageIndex(1);
         status.setDownloadedCount(2);
         status.setFolderName("777");
+        status.setPresentationAttributes(Map.of("xRestrict", "1", "ai", "true", "illustType", "1"));
 
         controller.handleDownloadProgressEvent(new DownloadProgressEvent(this, 777L, status, "user-1"));
 
@@ -183,6 +184,8 @@ class SSEControllerTest {
         assertThat(payload.getDownloadedCount()).isEqualTo(2);
         assertThat(payload.getProgress()).isEqualTo(50);
         assertThat(payload.getFolderName()).isEqualTo("777");
+        assertThat(payload.getTitle()).isEqualTo("test");
+        assertThat(payload.getPresentationAttributes()).isEqualTo(status.getPresentationAttributes());
     }
 
     @Test
@@ -265,6 +268,7 @@ class SSEControllerTest {
         var emitter = new RecordingSseEmitter();
         putAggregatedSubscription("media", emitter, "owner-a", false, Locale.US);
         var own = new DownloadStatus(123L, "own", 1, "owner-a");
+        own.setPresentationAttributes(Map.of("xRestrict", "2", "ai", "false", "illustType", "2"));
         own.setImageProgress(top.sywyar.pixivdownload.download.ImageDownloadProgress.builder()
                 .phase("ffmpeg-waiting").status("running").outputFormat("png")
                 .outputIndex(1).outputCount(2).build());
@@ -280,6 +284,9 @@ class SSEControllerTest {
         own.setImageProgress(null);
         ReflectionTestUtils.invokeMethod(controller, "sendActiveStatuses", subscription);
         var json = new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(emitter.events.get(1).payload);
+        assertThat(json.get("title").asText()).isEqualTo("own");
+        assertThat(json.get("presentationAttributes").get("xRestrict").asText()).isEqualTo("2");
+        assertThat(json.get("presentationAttributes").get("illustType").asText()).isEqualTo("2");
         assertThat(json.has("imageProgress")).isTrue();
         assertThat(json.get("imageProgress").isNull()).isTrue();
         assertThat(json.has("ugoiraProgress")).isTrue();

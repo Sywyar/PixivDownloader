@@ -7,6 +7,7 @@ import top.sywyar.pixivdownload.core.work.WorkActionResult;
 public class DownloadStatus {
     private Long artworkId;
     private String title;
+    private java.util.Map<String, String> presentationAttributes = java.util.Map.of();
     private String ownerUuid;
     private int totalImages;
     private volatile int downloadedCount;

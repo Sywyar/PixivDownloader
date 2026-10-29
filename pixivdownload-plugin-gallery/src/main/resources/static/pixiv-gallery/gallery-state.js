@@ -10,6 +10,8 @@
         searchType: 'all',
         r18: 'any',
         ai: 'any',
+        uploadStartDate: '',
+        uploadEndDate: '',
         formats: new Set(),
         collectionIds: new Set(),
         tagFilters: {
@@ -117,7 +119,7 @@
     const GALLERY_CROSS_TRANSFER_KEY = 'pixiv:gallery-cross-transfer-v1';
     const GALLERY_CROSS_TRANSFER_TTL_MS = 60_000;
     const GALLERY_SORT_VALUES = new Set([
-        'date', 'artworkId', 'imgs', 'status', 'authorId', 'tags', 'series'
+        'date', 'uploadTime', 'artworkId', 'imgs', 'status', 'authorId', 'tags', 'series'
     ]);
     const GALLERY_SEARCH_TYPE_VALUES = new Set(['all', 'title', 'author', 'id', 'authorId', 'desc', 'tag', 'tagExact']);
     const GALLERY_R18_VALUES = new Set(['any', 'r18plus', 'r18', 'r18g', 'no']);
@@ -126,6 +128,28 @@
     let tagOptionsPromise = null;
     let authorOptionsPromise = null;
     let seriesOptionsPromise = null;
+
+    function uploadDateMillis(value, nextDay = false) {
+        if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+        const date = new Date(value + 'T00:00:00');
+        if (!Number.isFinite(date.getTime()) || date.getTime() <= 0
+            || date.getDate() !== Number(value.slice(8))) return null;
+        if (nextDay) date.setDate(date.getDate() + 1);
+        return date.getTime();
+    }
+
+    function galleryUploadTimeRange() {
+        return {uploadedFrom: uploadDateMillis(state.uploadStartDate),
+            uploadedBefore: uploadDateMillis(state.uploadEndDate, true)};
+    }
+
+    function restoreUploadDates(payload) {
+        state.uploadStartDate = uploadDateMillis(payload.uploadStartDate) ? payload.uploadStartDate : '';
+        state.uploadEndDate = uploadDateMillis(payload.uploadEndDate) ? payload.uploadEndDate : '';
+        if (state.uploadStartDate && state.uploadEndDate && state.uploadStartDate > state.uploadEndDate) {
+            state.uploadStartDate = state.uploadEndDate = '';
+        }
+    }
 
     function serializeGalleryState() {
         return {
@@ -137,6 +161,8 @@
             searchType: state.searchType,
             r18: state.r18,
             ai: state.ai,
+            uploadStartDate: state.uploadStartDate,
+            uploadEndDate: state.uploadEndDate,
             formats: [...state.formats],
             collectionIds: [...state.collectionIds],
             tagFilters: {
@@ -203,6 +229,7 @@
         }
         if (typeof payload.r18 === 'string' && GALLERY_R18_VALUES.has(payload.r18)) state.r18 = payload.r18;
         if (typeof payload.ai === 'string' && GALLERY_AI_VALUES.has(payload.ai)) state.ai = payload.ai;
+        restoreUploadDates(payload);
         if (Array.isArray(payload.formats)) {
             state.formats = new Set(payload.formats.filter(v => GALLERY_FORMAT_VALUES.has(v)));
         }
@@ -280,6 +307,8 @@
             searchType: state.searchType,
             r18: state.r18,
             ai: state.ai,
+            uploadStartDate: state.uploadStartDate,
+            uploadEndDate: state.uploadEndDate,
             sort: state.sort,
             order: state.order,
             collectionIds: [...state.collectionIds],
@@ -325,6 +354,7 @@
         }
         if (typeof transfer.r18 === 'string' && GALLERY_R18_VALUES.has(transfer.r18)) state.r18 = transfer.r18;
         if (typeof transfer.ai === 'string' && GALLERY_AI_VALUES.has(transfer.ai)) state.ai = transfer.ai;
+        restoreUploadDates(transfer);
         if (typeof transfer.sort === 'string' && GALLERY_SORT_VALUES.has(transfer.sort)) state.sort = transfer.sort;
         if (transfer.order === 'asc' || transfer.order === 'desc') state.order = transfer.order;
         if (typeof transfer.view === 'string' && GALLERY_VIEW_VALUES.includes(transfer.view)) state.view = transfer.view;
@@ -357,6 +387,10 @@
     }
 
     function applyGalleryStateToUi() {
+        for (const name of ['uploadStartDate', 'uploadEndDate']) {
+            const input = document.getElementById(name);
+            if (input) input.value = state[name];
+        }
         document.querySelectorAll('.chip[data-sort]').forEach(chip => {
             chip.classList.toggle('active', chip.dataset.sort === state.sort);
         });

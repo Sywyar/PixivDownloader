@@ -226,7 +226,8 @@ public class NovelGalleryService {
                 toWorkTags(meta.tags()),
                 details.coverExt(),
                 details.embeddedImageIds(),
-                details.translatedLanguages()
+                details.translatedLanguages(),
+                meta.uploadTime()
         );
     }
 
@@ -266,6 +267,7 @@ public class NovelGalleryService {
                 .seriesIds(toList(q.seriesIds()))
                 .excludedSeriesIds(toList(q.notSeriesIds()))
                 .restriction(q.restriction())
+                .uploadTimeRange(q.uploadedFrom(), q.uploadedBefore())
                 .build();
     }
 
@@ -348,7 +350,16 @@ public class NovelGalleryService {
                                     Set<Long> tagIds, Set<Long> notTagIds, Set<Long> orTagIds,
                                     Set<Long> authorIds, Set<Long> notAuthorIds, Set<Long> orAuthorIds,
                                     Set<Long> seriesIds, Set<Long> notSeriesIds,
-                                    WorkRestriction restriction) {
+                                    WorkRestriction restriction, Long uploadedFrom, Long uploadedBefore) {
+        public NovelGalleryQuery(int page, int size, String sort, String order,
+                                 String search, String searchType, String r18, String ai,
+                                 Set<Long> collectionIds, Set<Long> tagIds, Set<Long> notTagIds, Set<Long> orTagIds,
+                                 Set<Long> authorIds, Set<Long> notAuthorIds, Set<Long> orAuthorIds,
+                                 Set<Long> seriesIds, Set<Long> notSeriesIds, WorkRestriction restriction) {
+            this(page, size, sort, order, search, searchType, r18, ai, collectionIds,
+                    tagIds, notTagIds, orTagIds, authorIds, notAuthorIds, orAuthorIds,
+                    seriesIds, notSeriesIds, restriction, null, null);
+        }
         public NovelGalleryQuery(int page, int size, String sort, String order,
                                  String search, String searchType, String r18, String ai,
                                  Set<Long> collectionIds,
@@ -398,7 +409,8 @@ public class NovelGalleryService {
             List<WorkTag> tags,
             String coverExt,
             List<String> embeddedImageIds,
-            List<String> translatedLanguages
+            List<String> translatedLanguages,
+            Long uploadTime
     ) {}
 
 }

@@ -684,8 +684,12 @@ class BackendProcessShutdownTest {
     @DisplayName("状态监听失败不阻断其他监听器与后端启动关闭")
     void listenerFailureDoesNotStrandLifecycle() throws Exception {
         List<BackendLifecycleManager.State> states = new CopyOnWriteArrayList<>();
+        CountDownLatch stoppedNotifications = new CountDownLatch(2);
         BackendLifecycleManager.Listener broken = snapshot -> { throw new IllegalStateException("listener failure"); };
-        BackendLifecycleManager.Listener healthy = snapshot -> states.add(snapshot.state());
+        BackendLifecycleManager.Listener healthy = snapshot -> {
+            states.add(snapshot.state());
+            if (snapshot.state() == BackendLifecycleManager.State.STOPPED) stoppedNotifications.countDown();
+        };
         CountDownLatch started = new CountDownLatch(1);
         try (AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext()) {
             ctx.refresh();
@@ -696,6 +700,7 @@ class BackendProcessShutdownTest {
                 assertThat(BackendLifecycleManager.startAsync(started::countDown)).isTrue();
                 assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
                 assertThat(closeBackendResult(5_000L)).isEqualTo(BackendLifecycleManager.CloseResult.CLOSED);
+                assertThat(stoppedNotifications.await(5, TimeUnit.SECONDS)).isTrue();
                 assertThat(states).containsExactly(BackendLifecycleManager.State.STOPPED,
                         BackendLifecycleManager.State.STARTING, BackendLifecycleManager.State.RUNNING,
                         BackendLifecycleManager.State.STOPPING, BackendLifecycleManager.State.STOPPED);

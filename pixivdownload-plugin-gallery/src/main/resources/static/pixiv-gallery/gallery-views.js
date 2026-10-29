@@ -46,6 +46,9 @@
         if (state.search && state.searchType && state.searchType !== 'all') params.set('searchType', state.searchType);
         if (state.r18 !== 'any') params.set('r18', state.r18);
         if (state.ai !== 'any') params.set('ai', state.ai);
+        for (const [key, value] of Object.entries(galleryUploadTimeRange())) {
+            if (value != null) params.set(key, value);
+        }
         if (state.formats.size) params.set('format', [...state.formats].join(','));
         if (state.collectionIds.size) params.set('collectionIds', [...state.collectionIds].join(','));
         if (state.tagFilters.must.size) params.set('tagIds', [...state.tagFilters.must].join(','));
@@ -99,6 +102,7 @@
         return !!(state.search
             || state.r18 !== 'any'
             || state.ai !== 'any'
+            || state.uploadStartDate || state.uploadEndDate
             || state.formats.size
             || state.collectionIds.size
             || state.tagFilters.must.size || state.tagFilters.not.size || state.tagFilters.or.size
@@ -147,6 +151,7 @@
                     <div class="work-meta">
                         <div class="work-title">${escapeHtml(item.title || t('status.untitled', 'Untitled'))}</div>
                         <div class="work-author">${escapeHtml(item.authorName || (item.authorId ? t('author.default', 'Author {id}', {id: item.authorId}) : t('author.unknown', 'Unknown author')))}</div>
+                        <div class="work-upload-time">${escapeHtml(item.uploadTime ? t('work.upload-time', 'Uploaded {time}', {time: new Date(item.uploadTime).toLocaleDateString()}) : t('work.upload-time-unknown', 'Upload time unknown'))}</div>
                         <div class="work-collections" data-collections-for="${item.artworkId}"></div>
                     </div>
                 </div>

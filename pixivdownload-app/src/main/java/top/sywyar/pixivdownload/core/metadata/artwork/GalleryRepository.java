@@ -54,6 +54,8 @@ public class GalleryRepository {
     private Expression filter(WorkQuery q) {
         var conditions = new ArrayList<Expression>();
         conditions.add(active());
+        if (q.uploadedFrom() != null) conditions.add(call(GREATER_EQUAL, a("upload_time"), value(q.uploadedFrom())));
+        if (q.uploadedBefore() != null) conditions.add(call(LESS, a("upload_time"), value(q.uploadedBefore())));
         if (q.search() != null) {
             String search = q.search();
             String type = q.searchType() == null ? "all" : q.searchType();
@@ -126,6 +128,9 @@ public class GalleryRepository {
         boolean desc = !"asc".equals(q.order());
         var result = new ArrayList<Query.Order>();
         switch (q.sort()) {
+            case "uploadTime" -> {
+                return List.of(new Query.Order(a("upload_time"), desc, false), order(a("artwork_id"), desc));
+            }
             case "artworkId" -> result.add(order(a("artwork_id"), desc));
             case "imgs" -> result.add(order(a("count"), desc));
             case "status" -> result.add(order(a("moved"), desc));

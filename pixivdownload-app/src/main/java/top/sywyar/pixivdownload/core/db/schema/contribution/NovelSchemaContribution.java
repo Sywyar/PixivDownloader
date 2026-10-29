@@ -61,7 +61,8 @@ public final class NovelSchemaContribution {
                         List.of(
                                 uniqueConstraint("time"),
                                 explicitIndex("idx_novels_author_id", false, "author_id"),
-                                explicitIndex("idx_novels_series_order", false, "series_id", "series_order")
+                                explicitIndex("idx_novels_series_order", false, "series_id", "series_order"),
+                                explicitIndex("idx_novels_upload_time", false, "upload_time", "novel_id")
                         )
                 ),
                 new TableSpec(

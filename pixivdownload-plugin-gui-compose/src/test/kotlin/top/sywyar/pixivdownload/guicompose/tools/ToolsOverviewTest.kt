@@ -105,7 +105,7 @@ class ToolsOverviewTest {
             fun content(id: String, form: Form? = null) = Group("tools.$id", TextToken.raw(id), column("tools.$id.body", listOfNotNull(form, button("tools.$id.run"))), false)
             val rows = values.map { (key, value) -> FormRow("row.$key", TextToken.raw(key), null,
                 TextInput("tools.backfill.$key", "tools.backfill.$key", TextToken.raw(key), null, if (key == "db") InputKind.FILE else InputKind.TEXT, value, 20, 1, true), null) } +
-                listOf("proxy", "dry").map { key -> FormRow("row.$key", TextToken.raw(key), null,
+                listOf("proxy", "dry", "always-network").map { key -> FormRow("row.$key", TextToken.raw(key), null,
                     Toggle("tools.backfill.$key", "tools.backfill.$key", TextToken.raw(key), null, ToggleStyle.CHECKBOX, key == "proxy", true), null) }
             val media = Group("media", TextToken.raw("FFmpeg"), column("media.content", listOf(
                 Text("status.ffmpeg.state", TextToken.raw("Ready"), TextStyle.BODY, true, false), button("status.ffmpeg.install"))), false)

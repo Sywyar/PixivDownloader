@@ -233,6 +233,16 @@
             flex-wrap: wrap;
         }
 
+        .upload-date-field {
+            display: inline-flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            max-width: 100%;
+        }
+
+        .upload-date-field input { min-width: 0; }
+
         .filter-row-label {
             font-size: 0.75rem;
             font-weight: 600;

@@ -284,6 +284,21 @@ function setupEventHandlers() {
     document.getElementById('tagExpandToggle').addEventListener('click', () => toggleExpand('filterTagChips', 'tagExpandToggle'));
     document.getElementById('seriesExpandToggle').addEventListener('click', () => toggleExpand('filterSeriesChips', 'seriesExpandToggle'));
     document.getElementById('authorExpandToggle').addEventListener('click', () => toggleExpand('filterAuthorChips', 'authorExpandToggle'));
+    for (const name of ['uploadStartDate', 'uploadEndDate']) {
+        document.getElementById(name).addEventListener('change', () => {
+            const from = document.getElementById('uploadStartDate');
+            const to = document.getElementById('uploadEndDate');
+            to.setCustomValidity(from.value && to.value && from.value > to.value
+                ? pageI18n.t('filter.upload-time.invalid', 'The end date must not precede the start date.') : '');
+            if (!from.reportValidity() || !to.reportValidity()) return;
+            state.uploadStartDate = from.value;
+            state.uploadEndDate = to.value;
+            state.page = 0;
+            updateFilterBadge();
+            reloadCurrentView();
+        });
+    }
+
     document.getElementById('filterReset').addEventListener('click', resetAllFilters);
     document.getElementById('authorFilterClear').addEventListener('click', () => {
         state.exclusiveAuthorId = null; state.selectedAuthors.clear(); renderAuthorChips(); updateAuthorFilterBar(); state.page = 0; updateFilterBadge(); reloadCurrentView();

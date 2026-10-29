@@ -149,7 +149,7 @@ public class NovelBatchService {
                 ArchiveExportRules.normalizeIdSet(filter.notAuthorIds()),
                 ArchiveExportRules.normalizeIdSet(filter.orAuthorIds()),
                 seriesIds,
-                ArchiveExportRules.normalizeIdSet(filter.notSeriesIds()));
+                ArchiveExportRules.normalizeIdSet(filter.notSeriesIds()), null, filter.uploadedFrom(), filter.uploadedBefore());
     }
 
     private Map<String, Object> novelManifest(WorkMetadata meta, NovelWorkDetails details,
@@ -165,6 +165,7 @@ public class NovelBatchService {
         out.put("xRestrict", meta.xRestrict());
         out.put("isAi", meta.isAi());
         out.put("time", meta.downloadTime());
+        out.put("uploadTime", meta.uploadTime());
         out.put("wordCount", details.wordCount());
         out.put("textLength", details.textLength());
         out.put("readingTimeSeconds", details.readingTimeSeconds());

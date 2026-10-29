@@ -24,6 +24,19 @@ class DesktopToolHistoryTest {
     Path tempDir;
 
     @Test
+    @DisplayName("部分失败终态及失败计数跨重启保留")
+    void persistsPartialFailure() {
+        new DesktopToolHistory(tempDir).record(ToolId.JSON_TO_SQLITE_MIGRATION,
+                ToolOutcome.PARTIALLY_FAILED, 1L, 3, 2, 1, null);
+        assertThat(new DesktopToolHistory(tempDir).entries()).singleElement().satisfies(entry -> {
+            assertThat(entry.outcome()).isEqualTo(ToolOutcome.PARTIALLY_FAILED);
+            assertThat(entry.processedCount()).isEqualTo(3);
+            assertThat(entry.changedCount()).isEqualTo(2);
+            assertThat(entry.failedCount()).isEqualTo(1);
+        });
+    }
+
+    @Test
     @DisplayName("终态事实跨重启保留且不持久化敏感路径")
     void persistsTerminalFactsAcrossRestartWithoutSensitivePaths() throws Exception {
         DesktopToolHistory history = new DesktopToolHistory(tempDir);

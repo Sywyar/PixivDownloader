@@ -53,6 +53,7 @@ public class ToolsPanel extends JPanel {
     private final JSpinner proxyPortSpinner = new JSpinner(new SpinnerNumberModel(7890, 1, 65535, 1));
     private final JSpinner delaySpinner = new JSpinner(new SpinnerNumberModel(800, 0, 60_000, 100));
     private final JSpinner limitSpinner = new JSpinner(new SpinnerNumberModel(0, 0, Integer.MAX_VALUE, 100));
+    private final JCheckBox alwaysNetworkCheck = new JCheckBox(message("gui.tools.form.always-network"));
     private final JCheckBox dryRunCheck = new JCheckBox(message("gui.tools.form.dry-run"));
 
     private final JTextField migrationDbPathField = new JTextField(34);
@@ -212,6 +213,12 @@ public class ToolsPanel extends JPanel {
         form.add(limitSpinner, g);
         g.gridx = 2;
         form.add(dryRunCheck, g);
+        g.gridy = ++row;
+        g.gridx = 0;
+        g.gridwidth = 3;
+        alwaysNetworkCheck.setToolTipText(message("gui.tools.form.always-network-hint"));
+        form.add(alwaysNetworkCheck, g);
+        g.gridwidth = 1;
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         actions.setOpaque(false);
@@ -326,6 +333,7 @@ public class ToolsPanel extends JPanel {
             delaySpinner.setValue((int) defaults.delayMs());
             limitSpinner.setValue(defaults.limit());
             dryRunCheck.setSelected(defaults.dryRun());
+            alwaysNetworkCheck.setSelected(defaults.alwaysNetwork());
         } catch (RuntimeException failure) {
             log.warn(logMessage("gui.tools.log.proxy-defaults.failed", failure.getMessage()), failure);
             setBackfillStatus(SwingHost.host().message("desktop.ui.tools.operation-failed"));
@@ -570,7 +578,8 @@ public class ToolsPanel extends JPanel {
                 proxyEnabledCheck.isSelected(),
                 ((Number) delaySpinner.getValue()).longValue(),
                 ((Number) limitSpinner.getValue()).intValue(),
-                dryRunCheck.isSelected()
+                dryRunCheck.isSelected(),
+                alwaysNetworkCheck.isSelected()
         );
     }
 
@@ -702,6 +711,7 @@ public class ToolsPanel extends JPanel {
 
     private void runMigrationInBackground(DesktopUiHost.MigrationOptions options) {
         setMigrationStatus(message("gui.tools.migration.status.running"));
+        long startedAt = System.currentTimeMillis();
 
         Thread worker = new Thread(() -> {
             DesktopUiHost.MigrationSummary summary = null;
@@ -714,17 +724,31 @@ public class ToolsPanel extends JPanel {
                 failure = error;
                 log.error(logMessage("gui.tools.log.migration.failed"), error);
             } finally {
-                log.info(logMessage("gui.tools.log.migration.finished"));
-                closeMigrationLogSession();
-                migrationRunning = false;
-                exclusiveToolName = null;
-                SwingUtilities.invokeLater(this::refreshActionStates);
+                try {
+                    SwingHost.host().recordToolHistory(
+                            DesktopUiHost.ToolId.JSON_TO_SQLITE_MIGRATION,
+                            failure != null || summary == null ? DesktopUiHost.ToolOutcome.FAILED : summary.outcome(),
+                            startedAt,
+                            summary == null ? null : summary.totalCandidates(),
+                            summary == null ? null : summary.migrated(),
+                            summary == null ? null : summary.failed(),
+                            currentMigrationLogSession == null ? null : currentMigrationLogSession.sessionPath()
+                    );
+                } catch (RuntimeException historyFailure) {
+                    log.warn(logMessage("gui.tools.log.migration.failed"), historyFailure);
+                } finally {
+                    log.info(logMessage("gui.tools.log.migration.finished"));
+                    closeMigrationLogSession();
+                    migrationRunning = false;
+                    exclusiveToolName = null;
+                    SwingUtilities.invokeLater(this::refreshActionStates);
 
-                DesktopUiHost.MigrationSummary finalSummary = summary;
-                Throwable finalFailure = failure;
-                if (!SwingBackendLifecycle.startAsync(() ->
-                        SwingUtilities.invokeLater(() -> finishMigration(finalSummary, finalFailure)))) {
-                    SwingUtilities.invokeLater(() -> finishMigration(finalSummary, finalFailure));
+                    DesktopUiHost.MigrationSummary finalSummary = summary;
+                    Throwable finalFailure = failure;
+                    if (!SwingBackendLifecycle.startAsync(() ->
+                            SwingUtilities.invokeLater(() -> finishMigration(finalSummary, finalFailure)))) {
+                        SwingUtilities.invokeLater(() -> finishMigration(finalSummary, finalFailure));
+                    }
                 }
             }
         }, "tools-json-to-sqlite-migration");
@@ -753,13 +777,41 @@ public class ToolsPanel extends JPanel {
             return;
         }
 
-        String result = message("gui.tools.migration.result.completed");
-        setMigrationStatus(result);
-        JOptionPane.showMessageDialog(this,
-                message("gui.tools.dialog.migration.completed.message",
-                        result, summary.migrated(), summary.skipped(), summary.totalCandidates()),
-                message("gui.tools.dialog.migration.completed.title"), JOptionPane.INFORMATION_MESSAGE);
+        var feedback = migrationFeedback(summary);
+        setMigrationStatus(feedback.status());
+        JOptionPane.showMessageDialog(
+                this,
+                feedback.details(),
+                feedback.status(),
+                feedback.messageType()
+        );
     }
+
+    static MigrationFeedback migrationFeedback(DesktopUiHost.MigrationSummary summary) {
+        String result = message(switch (summary.outcome()) {
+            case PARTIALLY_FAILED -> "gui.tools.migration.result.partial";
+            case FAILED -> "gui.tools.migration.result.failed";
+            default -> "gui.tools.migration.result.completed";
+        });
+        return new MigrationFeedback(
+                result,
+                message(
+                        "gui.tools.dialog.migration.completed.message",
+                        result,
+                        summary.migrated(),
+                        summary.skipped(),
+                        summary.totalCandidates(),
+                        summary.failed()
+                ),
+                switch (summary.outcome()) {
+                    case PARTIALLY_FAILED -> JOptionPane.WARNING_MESSAGE;
+                    case FAILED -> JOptionPane.ERROR_MESSAGE;
+                    default -> JOptionPane.INFORMATION_MESSAGE;
+                }
+        );
+    }
+
+    record MigrationFeedback(String status, String details, int messageType) {}
 
     private DesktopUiHost.MigrationOptions buildMigrationOptions() {
         String dbPath = migrationDbPathField.getText().trim();
@@ -868,6 +920,7 @@ public class ToolsPanel extends JPanel {
         dbPathField.setEnabled(backfillEditable && SwingHost.host().supportsDatabaseFileSelection());
         proxyEnabledCheck.setEnabled(backfillEditable);
         dryRunCheck.setEnabled(backfillEditable);
+        alwaysNetworkCheck.setEnabled(backfillEditable);
         delaySpinner.setEnabled(backfillEditable);
         limitSpinner.setEnabled(backfillEditable);
         updateProxyFieldState();

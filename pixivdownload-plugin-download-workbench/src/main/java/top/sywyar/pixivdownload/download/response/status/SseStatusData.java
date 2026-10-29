@@ -12,6 +12,8 @@ import top.sywyar.pixivdownload.download.UgoiraProgress;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class SseStatusData {
     private final Long artworkId;
+    private final String title;
+    private final java.util.Map<String, String> presentationAttributes;
     private final String status;
     private final String message;
     private final boolean success;

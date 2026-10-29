@@ -125,6 +125,9 @@ class DesktopToolsControllerTest {
             DesktopConfigurationControllerTest.awaitReady(model);
             assertEquals(17892, captured.get().proxyPort());
             assertFalse(captured.get().useProxy());
+            assertFalse(captured.get().alwaysNetwork());
+            model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "tools.backfill.always-network", DesktopUiNode.Value.bool(true)));
             model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
                     "tools.backfill.proxy", DesktopUiNode.Value.bool(true)));
             model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
@@ -136,6 +139,7 @@ class DesktopToolsControllerTest {
             DesktopConfigurationControllerTest.awaitReady(model);
             assertEquals("temporary.proxy", captured.get().proxyHost());
             assertTrue(captured.get().useProxy());
+            assertTrue(captured.get().alwaysNetwork());
             assertEquals("wizard.proxy", stored.get("proxy.host"));
             assertEquals(3, stored.size());
         }
@@ -438,6 +442,50 @@ class DesktopToolsControllerTest {
             assertTrue(descendants(overview(model)).filter(DesktopUiNode.Button.class::isInstance)
                     .map(DesktopUiNode.Button.class::cast).filter(button -> button.id().equals("tools.migration.run"))
                     .allMatch(DesktopUiNode.Button::enabled));
+        }
+    }
+
+    @Test
+    @DisplayName("迁移成功、部分失败与全部失败映射到真实状态、提示和工具历史")
+    void mapsMigrationFailures() throws Exception {
+        verifyMigrationResult(2, 0, 0, DesktopUiHost.ToolOutcome.SUCCEEDED, "completed");
+        verifyMigrationResult(2, 0, 1, DesktopUiHost.ToolOutcome.PARTIALLY_FAILED, "partial");
+        verifyMigrationResult(0, 2, 1, DesktopUiHost.ToolOutcome.PARTIALLY_FAILED, "partial");
+        verifyMigrationResult(0, 0, 1, DesktopUiHost.ToolOutcome.FAILED, "failed");
+    }
+
+    private void verifyMigrationResult(int migrated, int skipped, int failed, DesktopUiHost.ToolOutcome outcome, String status) throws Exception {
+        List<Object[]> records = java.util.Collections.synchronizedList(new ArrayList<>());
+        List<String> messages = java.util.Collections.synchronizedList(new ArrayList<>());
+        Map<String, Function<Object[], Object>> overrides = new HashMap<>();
+        int total = migrated + skipped + failed;
+        overrides.put("countMigrationCandidates", args -> total);
+        overrides.put("runMigration", args -> new DesktopUiHost.MigrationSummary(total, migrated, skipped, false, "opaque", failed));
+        overrides.put("recordToolHistory", args -> { records.add(args); return null; });
+        overrides.put("message", args -> {
+            messages.add((String) args[0]);
+            if (args[0].equals("gui.tools.dialog.migration.completed.message"))
+                assertEquals(failed, ((Object[]) args[1])[4]);
+            return args[0];
+        });
+        overrides.put("openToolLog", args -> new DesktopUiHost.ToolLogSession() {
+            public Path latestPath() { return Path.of("latest.html"); }
+            public Path sessionPath() { return Path.of("session.html"); }
+            public void openLatestInBrowser() {}
+            public void close() {}
+        });
+        try (ComposeDesktopUiModel model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+            activate(model, "tools.migration.run");
+            assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+                while (model.busy() || overview(model).activity() == null || overview(model).activity().running()) Thread.sleep(10);
+            });
+            assertEquals(failed > 0, overview(model).activity().failed());
+            assertTrue(messages.contains("gui.tools.migration.result." + status));
+            assertEquals(1, records.size());
+            assertEquals(outcome, records.get(0)[1]);
+            assertEquals(total, records.get(0)[3]);
+            assertEquals(migrated, records.get(0)[4]);
+            assertEquals(failed, records.get(0)[5]);
         }
     }
 

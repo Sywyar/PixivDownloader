@@ -52,7 +52,8 @@ public final class ArtworkSchemaContribution {
                         List.of(
                                 uniqueConstraint("time"),
                                 explicitIndex("idx_artworks_author_time", false, "author_id", "time"),
-                                explicitIndex("idx_artworks_series_order", false, "series_id", "series_order")
+                                explicitIndex("idx_artworks_series_order", false, "series_id", "series_order"),
+                                explicitIndex("idx_artworks_upload_time", false, "upload_time", "artwork_id")
                         )
                 ),
                 new TableSpec(

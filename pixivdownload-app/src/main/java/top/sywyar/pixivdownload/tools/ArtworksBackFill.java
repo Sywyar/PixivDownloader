@@ -46,7 +46,8 @@ public class ArtworksBackFill {
             new DatabaseColumn("artworks", "is_ai"),
             new DatabaseColumn("artworks", "description"),
             new DatabaseColumn("artworks", "series_id"),
-            new DatabaseColumn("artworks", "series_order")
+            new DatabaseColumn("artworks", "series_order"),
+            new DatabaseColumn("artworks", "upload_time")
     );
 
     public static void main(String[] args) throws Exception {
@@ -62,7 +63,10 @@ public class ArtworksBackFill {
         try (var plugins = top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap.openToolSession(environment)) {
             var target = top.sywyar.pixivdownload.core.db.provider.DatabaseBootstrap.inspect(plugins, environment);
             if (java.util.Arrays.asList(args).contains("--db")) target = target.withLocalFile(Path.of(options.dbPath()));
-            run(options.withTarget(target));
+            run(options.withTarget(target).withSources(
+                    java.util.Arrays.asList(args).contains("--root-folder") ? options.rootFolder()
+                            : environment.getProperty("download.root-folder", new top.sywyar.pixivdownload.core.appconfig.DownloadConfig().getRootFolder()),
+                    options.alwaysNetwork()));
         }
     }
 
@@ -87,7 +91,7 @@ public class ArtworksBackFill {
                 RuntimeFiles.resolveBackfillUnreachablePath(),
                 new ObjectMapper()
         );
-        return database.countCandidates(options.limit(), store);
+        return database.findCandidates(options.limit(), store, options.alwaysNetwork() ? null : options.rootFolder()).candidates().size();
     }
 
     public static Summary run(Options options) throws Exception {
@@ -137,197 +141,122 @@ public class ArtworksBackFill {
         );
         log.info(logMessage("artworks-backfill.unreachable.loaded", unreachablePath, unreachable.size()));
 
+        database.importMetadata(options.rootFolder(), options.dryRun(), text -> log.info(text));
         try (ArtworksBackFillPixivClient pixivClient = ArtworksBackFillPixivClient.open(options, mapper)) {
-
-            ArtworksBackFillDatabase.FilteredCandidates filtered = database.findCandidates(
-                    options.limit(),
-                    unreachable
-            );
-            List<ArtworksBackFillDatabase.Candidate> candidates = filtered.candidates();
-            int previouslyUnreachable = filtered.skippedUnreachable();
-            if (previouslyUnreachable > 0) {
-                log.info(logMessage("artworks-backfill.unreachable.skipped-existing", previouslyUnreachable));
-            }
-            log.info(logMessage("artworks-backfill.log.candidates.count", candidates.size()));
+            var filtered = database.findCandidates(options.limit(), unreachable, options.alwaysNetwork() ? null : options.rootFolder());
+            var candidates = filtered.candidates();
+            Counts counts = new Counts();
+            counts.previouslyUnreachable = filtered.skippedUnreachable();
             reportProgress(progress, 0, candidates.size());
-            if (candidates.isEmpty()) {
-                Summary summary = new Summary(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, previouslyUnreachable, 0, options.dryRun(), false);
-                logSummary(summary);
-                return summary;
-            }
-
-            int filledAuthor = 0;
-            int filledR18 = 0;
-            int filledAi = 0;
-            int filledDescription = 0;
-            int filledTags = 0;
-            int filledSeries = 0;
-            int deletedCount = 0;
-            int newlyUnreachable = 0;
-            int skipped = 0;
-            int processed = 0;
-
+            boolean requested = false;
             try {
-                for (int i = 0; i < candidates.size(); i++) {
-                    reportProgress(progress, i, candidates.size());
-                    ArtworksBackFillDatabase.Candidate candidate = candidates.get(i);
+                for (var candidate : candidates) {
+                    reportProgress(progress, counts.processed, candidates.size());
                     database.requireAvailable();
-                    ArtworksBackFillPixivClient.LookupResult result = pixivClient.query(candidate.artworkId());
-                    reportProgress(progress, i, candidates.size());
-                    database.requireAvailable();
-                    String prefix = "[" + (i + 1) + "/" + candidates.size() + "] artwork="
-                            + candidate.artworkId() + " missing=[" + describeMissing(candidate) + "]";
-
-                    switch (result.type) {
-                        case FOUND -> {
-                            boolean didAuthor = candidate.authorMissing() && result.authorId > 0;
-                            boolean didR18 = candidate.r18Missing();
-                            boolean didAi = candidate.aiMissing();
-                            boolean didDesc = candidate.descriptionMissing() && result.description != null;
-                            boolean didTags = candidate.tagsMissing() && result.tags != null;
-                            boolean didSeries = candidate.seriesMissing();
-
-                            List<String> changes = new ArrayList<>();
-                            if (didAuthor) {
-                                changes.add(logMessage("artworks-backfill.log.change.author", result.authorName, result.authorId));
-                            }
-                            if (didR18) {
-                                changes.add(logMessage("artworks-backfill.log.change.r18", result.xRestrict));
-                            }
-                            if (didAi) {
-                                changes.add(logMessage("artworks-backfill.log.change.ai", result.isAi ? 1 : 0));
-                            }
-                            if (didDesc) {
-                                changes.add(logMessage("artworks-backfill.log.change.description", result.description.length()));
-                            }
-                            if (didTags) {
-                                changes.add(logMessage("artworks-backfill.log.change.tags", result.tags.size()));
-                            }
-                            if (didSeries) {
-                                changes.add(logMessage("artworks-backfill.log.change.series", result.seriesId, result.seriesOrder));
-                            }
-
-                            if (changes.isEmpty()) {
-                                log.info(logMessage("artworks-backfill.log.no-fillable-data", prefix));
-                                skipped++;
-                            } else {
-                                log.info(logMessage("artworks-backfill.log.changes", prefix, String.join(", ", changes)));
-                                if (!options.dryRun()) {
-                                    database.applyUpdates(
-                                            candidate,
-                                            result,
-                                            didAuthor,
-                                            didR18,
-                                            didAi,
-                                            didDesc,
-                                            didTags,
-                                            didSeries
-                                    );
+                    int before = counts.filled() + counts.deleted + counts.previouslyUnreachable;
+                    int authorBefore = counts.author, seriesBefore = counts.series;
+                    var remaining = candidate;
+                    if (!options.alwaysNetwork()) {
+                        var local = database.localMetadata(candidate.artworkId(), options.rootFolder());
+                        if (local != null) remaining = fill(database, remaining, local, options.dryRun(), counts);
+                    }
+                    if (remaining.hasMissing()) {
+                        if (unreachable.contains(candidate.artworkId())) {
+                            counts.previouslyUnreachable++;
+                        } else {
+                            if (requested) Thread.sleep(options.delayMs());
+                            reportProgress(progress, counts.processed, candidates.size());
+                            database.requireAvailable();
+                            var result = pixivClient.query(candidate.artworkId());
+                            requested = true;
+                            reportProgress(progress, counts.processed, candidates.size());
+                            database.requireAvailable();
+                            switch (result.type) {
+                                case FOUND -> fill(database, remaining, result, options.dryRun(), counts);
+                                case R18_ONLY -> {
+                                    if (remaining.r18Missing()) {
+                                        if (!options.dryRun()) database.applyR18Only(candidate.artworkId());
+                                        counts.r18++;
+                                    }
                                 }
-                                if (didAuthor) filledAuthor++;
-                                if (didR18) filledR18++;
-                                if (didAi) filledAi++;
-                                if (didDesc) filledDescription++;
-                                if (didTags) filledTags++;
-                                if (didSeries) filledSeries++;
-                            }
-                        }
-                        case R18_ONLY -> {
-                            if (candidate.r18Missing()) {
-                                log.info(logMessage("artworks-backfill.log.r18-only", prefix, result.message));
-                                if (!options.dryRun()) {
-                                    database.applyR18Only(candidate.artworkId());
+                                case DELETED -> {
+                                    counts.deleted++;
+                                    counts.newlyUnreachable++;
+                                    if (!options.dryRun()) {
+                                        unreachable.record(candidate.artworkId(), result.message);
+                                        persistUnreachable(database, unreachable, unreachablePath);
+                                    }
                                 }
-                                filledR18++;
-                            } else {
-                                log.info(logMessage("artworks-backfill.log.skip.r18-already-filled", prefix, result.message));
-                                skipped++;
+                                case SKIP -> { }
+                                case RATE_LIMITED -> {
+                                    var summary = counts.summary(candidates.size(), options.dryRun(), true);
+                                    logSummary(summary);
+                                    return summary;
+                                }
                             }
-                        }
-                        case DELETED -> {
-                            log.info(logMessage("artworks-backfill.log.deleted-skip", prefix, result.message));
-                            deletedCount++;
-                            boolean alreadyKnown = unreachable.contains(candidate.artworkId());
-                            unreachable.record(candidate.artworkId(), result.message);
-                            if (!alreadyKnown) {
-                                newlyUnreachable++;
-                            }
-                            persistUnreachable(database, unreachable, unreachablePath);
-                        }
-                        case SKIP -> {
-                            log.info(logMessage("artworks-backfill.log.skip", prefix, result.message));
-                            skipped++;
-                        }
-                        case RATE_LIMITED -> {
-                            log.warn(logMessage("artworks-backfill.log.rate-limited", prefix));
-                            log.info(logMessage(
-                                    "artworks-backfill.log.progress",
-                                    i, candidates.size(), filledAuthor, filledR18, filledAi, filledDescription, filledTags, filledSeries, deletedCount, skipped
-                            ));
-                            if (options.dryRun()) {
-                                log.info(logMessage("artworks-backfill.log.dry-run"));
-                            }
-                            persistUnreachable(database, unreachable, unreachablePath);
-                            Summary summary = new Summary(
-                                    candidates.size(),
-                                    i,
-                                    filledAuthor,
-                                    filledR18,
-                                    filledAi,
-                                    filledDescription,
-                                    filledTags,
-                                    filledSeries,
-                                    deletedCount,
-                                    skipped,
-                                    previouslyUnreachable,
-                                    newlyUnreachable,
-                                    options.dryRun(),
-                                    true
-                            );
-                            logSummary(summary);
-                            return summary;
                         }
                     }
-
-                    processed = i + 1;
-                    reportProgress(progress, processed, candidates.size());
-                    if (i < candidates.size() - 1) {
-                        Thread.sleep(options.delayMs());
-                    }
+                    // 同一作品的本地与网络分段补齐只计一次字段组。
+                    counts.author = Math.min(counts.author, authorBefore + 1);
+                    counts.series = Math.min(counts.series, seriesBefore + 1);
+                    if (before == counts.filled() + counts.deleted + counts.previouslyUnreachable) counts.skipped++;
+                    counts.processed++;
+                    reportProgress(progress, counts.processed, candidates.size());
                 }
             } catch (Exception failure) {
-                log.info(logMessage("artworks-backfill.log.progress",
-                        processed, candidates.size(), filledAuthor, filledR18, filledAi,
-                        filledDescription, filledTags, filledSeries, deletedCount, skipped));
-                if (failure instanceof InterruptedException
-                        || failure instanceof java.util.concurrent.CancellationException
-                        || Thread.currentThread().isInterrupted()) {
-                    log.warn(logMessage("gui.tools.history.outcome.cancelled"), failure);
-                } else {
-                    log.error(logMessage("gui.tools.log.backfill.failed"), failure);
-                }
+                logSummary(counts.summary(candidates.size(), options.dryRun(), false));
                 throw failure;
             }
-
-            persistUnreachable(database, unreachable, unreachablePath);
-            Summary summary = new Summary(
-                    candidates.size(),
-                    candidates.size(),
-                    filledAuthor,
-                    filledR18,
-                    filledAi,
-                    filledDescription,
-                    filledTags,
-                    filledSeries,
-                    deletedCount,
-                    skipped,
-                    previouslyUnreachable,
-                    newlyUnreachable,
-                    options.dryRun(),
-                    false
-            );
+            var summary = counts.summary(candidates.size(), options.dryRun(), false);
             logSummary(summary);
             return summary;
+        }
+    }
+
+    private static ArtworksBackFillDatabase.Candidate fill(ArtworksBackFillDatabase database,
+            ArtworksBackFillDatabase.Candidate candidate, ArtworksBackFillPixivClient.LookupResult result,
+            boolean dryRun, Counts counts) throws java.sql.SQLException {
+        var available = candidate.availableFields(result);
+        boolean author = available.authorMissing(), r18 = available.r18Missing(), ai = available.aiMissing();
+        boolean description = available.descriptionMissing(), tags = available.tagsMissing();
+        boolean series = available.seriesMissing(), uploadTime = available.uploadTimeMissing();
+        if (available.hasMissing()) {
+            if (!dryRun) {
+                var applied = database.applyUpdates(candidate, result, author, r18, ai, description, tags, series, uploadTime);
+                author = author && applied.author();
+                series = series && applied.series();
+            }
+            if (author) counts.author++;
+            if (r18) counts.r18++;
+            if (ai) counts.ai++;
+            if (description) counts.description++;
+            if (tags) counts.tags++;
+            if (series) counts.series++;
+            if (uploadTime) counts.uploadTime++;
+            var applied = new ArtworksBackFillDatabase.Candidate(candidate.artworkId(), author, r18, ai, description, tags, series, uploadTime);
+            if (applied.hasMissing())
+                log.info(logMessage("artworks-backfill.log.changes", candidate.artworkId(), describeMissing(applied)));
+        }
+        if (!dryRun) return database.currentCandidate(candidate.artworkId());
+        Long authorId = author ? Long.valueOf(result.authorId) : candidate.authorId();
+        Long seriesId = series ? Long.valueOf(result.seriesId) : candidate.seriesId();
+        boolean nameMissing = candidate.authorNameMissing() && !(author && result.authorName != null);
+        boolean orderMissing = candidate.seriesOrderMissing() && !(series && (result.seriesId == 0 || result.seriesOrder != null));
+        boolean titleMissing = candidate.seriesTitleMissing() && !(series && (result.seriesId == 0 || result.seriesTitle != null));
+        return new ArtworksBackFillDatabase.Candidate(candidate.artworkId(),
+                candidate.authorMissing() && (authorId == null || nameMissing), candidate.r18Missing() && !r18,
+                candidate.aiMissing() && !ai, candidate.descriptionMissing() && !description,
+                candidate.tagsMissing() && !tags, candidate.seriesMissing() && (seriesId == null || orderMissing || titleMissing),
+                candidate.uploadTimeMissing() && !uploadTime, authorId, seriesId, nameMissing, orderMissing, titleMissing);
+    }
+
+    private static final class Counts {
+        int processed, author, r18, ai, description, tags, series, uploadTime, deleted, skipped,
+                previouslyUnreachable, newlyUnreachable;
+        int filled() { return author + r18 + ai + description + tags + series + uploadTime; }
+        Summary summary(int total, boolean dryRun, boolean rateLimited) {
+            return new Summary(total, processed, author, r18, ai, description, tags, series, deleted, skipped,
+                    previouslyUnreachable, newlyUnreachable, dryRun, rateLimited, uploadTime);
         }
     }
 
@@ -360,7 +289,8 @@ public class ArtworksBackFill {
                 summary.deletedCount(),
                 summary.skipped(),
                 summary.previouslyUnreachable(),
-                summary.newlyUnreachable()
+                summary.newlyUnreachable(),
+                summary.filledUploadTime()
         ));
         if (summary.dryRun()) {
             log.info(logMessage("artworks-backfill.log.dry-run"));
@@ -375,6 +305,7 @@ public class ArtworksBackFill {
         if (candidate.descriptionMissing()) parts.add("desc");
         if (candidate.tagsMissing()) parts.add("tags");
         if (candidate.seriesMissing()) parts.add("series");
+        if (candidate.uploadTimeMissing()) parts.add("upload_time");
         return String.join("+", parts);
     }
 
@@ -389,7 +320,19 @@ public class ArtworksBackFill {
                           long delayMs,
                           int limit,
                           boolean dryRun,
-                          DatabaseTarget target) {
+                          DatabaseTarget target,
+                          String rootFolder,
+                          boolean alwaysNetwork) {
+
+        public Options(String dbPath, String proxyHost, int proxyPort, boolean useProxy,
+                       long delayMs, int limit, boolean dryRun, DatabaseTarget target) {
+            this(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun, target,
+                    new top.sywyar.pixivdownload.core.appconfig.DownloadConfig().getRootFolder(), false);
+        }
+
+        public Options withSources(String folder, boolean network) {
+            return new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun, target, folder, network);
+        }
 
         public Options(String dbPath, String proxyHost, int proxyPort, boolean useProxy,
                        long delayMs, int limit, boolean dryRun) {
@@ -399,7 +342,7 @@ public class ArtworksBackFill {
 
         public Options withTarget(DatabaseTarget databaseTarget) {
             return new Options(databaseTarget.displayName(), proxyHost, proxyPort, useProxy,
-                    delayMs, limit, dryRun, databaseTarget);
+                    delayMs, limit, dryRun, databaseTarget, rootFolder, alwaysNetwork);
         }
 
         public static Options defaults() {
@@ -424,6 +367,8 @@ public class ArtworksBackFill {
             long delayMs = defaults.delayMs;
             int limit = defaults.limit;
             boolean dryRun = defaults.dryRun;
+            boolean alwaysNetwork = false;
+            String rootFolder = defaults.rootFolder;
 
             for (int i = 0; i < args.length; i++) {
                 switch (args[i]) {
@@ -440,10 +385,13 @@ public class ArtworksBackFill {
                     case "--delay" -> delayMs = Long.parseLong(requireValue(args, ++i, "--delay"));
                     case "--limit" -> limit = Integer.parseInt(requireValue(args, ++i, "--limit"));
                     case "--dry-run" -> dryRun = true;
+                    case "--always-network" -> alwaysNetwork = true;
+                    case "--root-folder" -> rootFolder = requireValue(args, ++i, "--root-folder");
                     default -> throw new IllegalArgumentException(message("artworks-backfill.cli.error.unknown-option", args[i]));
                 }
             }
-            return new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun);
+            return new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun)
+                    .withSources(rootFolder, alwaysNetwork);
         }
 
         private static String requireValue(String[] args, int index, String option) {
@@ -467,7 +415,8 @@ public class ArtworksBackFill {
                           int previouslyUnreachable,
                           int newlyUnreachable,
                           boolean dryRun,
-                          boolean rateLimited) {}
+                          boolean rateLimited,
+                          int filledUploadTime) {}
 
     private static String message(String code, Object... args) {
         return MessageBundles.get(code, args);

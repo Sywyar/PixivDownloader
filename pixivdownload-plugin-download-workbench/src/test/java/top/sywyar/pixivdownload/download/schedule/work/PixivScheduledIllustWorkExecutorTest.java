@@ -346,7 +346,9 @@ class PixivScheduledIllustWorkExecutorTest {
         ScheduledWorkResult result = executor().execute(work("123"), fixture.context());
 
         assertThat(result.outcome()).isEqualTo(ScheduledWorkResult.Outcome.COMPLETED);
-        assertThat(result.attributes()).containsEntry("title", "标题");
+        assertThat(result.attributes()).containsEntry("title", "标题")
+                .containsEntry("xRestrict", "0").containsEntry("ai", "false")
+                .containsEntry("illustType", "0");
         assertThat(fixture.credential().lastCopy()).containsOnly('\0');
         assertThat(OutboundProxyOverride.isActive()).isFalse();
         assertThat(OutboundProxyOverride.current()).isNull();

@@ -518,8 +518,9 @@ window.PixivBatch.queueTypes = (function () {
     // 把后端计划队列项投影为工作区队列项的类型自有部分。context 可提供 source；状态、进度等
     // 跨类型字段由调用方在结果上合并。类型缺席时仍返回可渲染、可保留的中性项。
     function scheduledQueueItem(type, item, context) {
-        const raw = item && typeof item === 'object' ? item : {};
+        const raw = Object.assign({}, item && typeof item === 'object' ? item : {});
         const ctx = context && typeof context === 'object' ? context : {};
+        const previous = isPlainObject(ctx.previous) ? ctx.previous : {};
         const presentation = isPlainObject(raw.presentation) ? raw.presentation : {};
         const presentationAttributes = isPlainObject(raw.presentationAttributes)
             ? raw.presentationAttributes
@@ -528,6 +529,8 @@ window.PixivBatch.queueTypes = (function () {
         const resultAttributes = isPlainObject(raw.resultAttributes)
             ? raw.resultAttributes
             : (isPlainObject(result.attributes) ? result.attributes : {});
+        if (!text(raw.title) && !text(presentation.title)) raw.title = previous.rawTitle || null;
+        raw.presentationAttributes = Object.assign({}, previous.presentationAttributes, presentationAttributes);
         const normalizedType = text(type) || text(raw.kind) || text(raw.workType) || 'unknown';
         const rawId = opaqueText(raw.workId != null ? raw.workId : raw.id);
         const rawLiveStatus = isPlainObject(raw.liveStatus) ? Object.assign({}, raw.liveStatus) : null;
@@ -541,7 +544,7 @@ window.PixivBatch.queueTypes = (function () {
             author: text(raw.author) || text(presentation.author) || null,
             thumbnailReference: text(raw.thumbnailReference)
                 || text(presentation.thumbnailReference) || null,
-            presentationAttributes: Object.assign({}, presentationAttributes),
+            presentationAttributes: raw.presentationAttributes,
             resultAttributes: Object.assign({}, resultAttributes),
             liveStatus: rawLiveStatus,
             source: text(ctx.source) || text(raw.source) || 'schedule'

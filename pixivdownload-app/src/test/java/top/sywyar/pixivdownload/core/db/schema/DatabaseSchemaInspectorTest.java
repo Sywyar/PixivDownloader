@@ -101,6 +101,20 @@ class DatabaseSchemaInspectorTest {
     class DifferenceTests {
 
         @Test
+        @DisplayName("缺失表级唯一约束不能当作可创建的普通索引")
+        void missingUniqueConstraintIsNotCreatableIndex() throws Exception {
+            exec("CREATE TABLE t (id INTEGER PRIMARY KEY, tag_id INTEGER)");
+            var expected = schemaOf(table("t", List.of(
+                    col("id", "INTEGER", false, null, 1), col("tag_id", "INTEGER", false, null, 0)),
+                    List.of(new ManagedDatabaseSchema.IndexSpec(null,
+                            ManagedDatabaseSchema.IndexOrigin.UNIQUE_CONSTRAINT, true, List.of("tag_id")))));
+            var comparison = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.compare(connection, expected);
+            assertThat(comparison.details()).extracting(DatabaseSchemaInspector.SchemaDifference::kind)
+                    .containsExactly(DatabaseSchemaInspector.SchemaDifferenceKind.INDEX_DEFINITION_MISMATCH);
+            assertThat(comparison.requiredStructure().matches()).isFalse();
+        }
+
+        @Test
         @DisplayName("缺表应产生 MISSING_TABLE")
         void shouldDetectMissingTable() throws Exception {
             ManagedDatabaseSchema.DatabaseSchema expected = schemaOf(table(

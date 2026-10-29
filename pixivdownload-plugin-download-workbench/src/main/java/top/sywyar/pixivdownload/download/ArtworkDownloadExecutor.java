@@ -235,6 +235,13 @@ public class ArtworkDownloadExecutor implements ArtworkDownloader, DesktopDashbo
         }
         // 初始化下载状态
         DownloadStatus status = new DownloadStatus(artworkId, title, imageUrls.size(), userUuid);
+        Map<String, String> presentationAttributes = new java.util.HashMap<>();
+        presentationAttributes.put("xRestrict", Integer.toString(other.getXRestrict()));
+        presentationAttributes.put("ai", Boolean.toString(other.isAi()));
+        if (other.getIllustType() != null) {
+            presentationAttributes.put("illustType", Integer.toString(other.getIllustType()));
+        }
+        status.setPresentationAttributes(Map.copyOf(presentationAttributes));
         String statusKey = statusKey(artworkId, userUuid);
         task.onCancellation(() -> cancelTrackedStatus(status));
         if (!task.publishIfActive(() -> downloadStatusMap.put(statusKey, status))) {

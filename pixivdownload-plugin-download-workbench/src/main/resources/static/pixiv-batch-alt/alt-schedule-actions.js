@@ -152,7 +152,7 @@ function scheduleQueueWorkMessage(code, workType) {
     return result && result !== key ? result : null;
 }
 
-function mapScheduleQueueItem(item, task) {
+function mapScheduleQueueItem(item, task, previous) {
     const workType = String(item.workType ?? item.kind ?? 'unknown').trim();
     const workId = String(item.workId ?? item.id ?? '');
     const statuses = {'downloaded': 'completed', 'skipped-downloaded': 'skipped',
@@ -163,7 +163,7 @@ function mapScheduleQueueItem(item, task) {
     const liveStatus = item.liveStatus && typeof item.liveStatus === 'object'
         && !Array.isArray(item.liveStatus) ? Object.assign({}, item.liveStatus) : null;
     const owned = runtime.scheduledQueueItem(workType, item, {
-        sourceType: task.sourceType || task.type, task
+        sourceType: task.sourceType || task.type, task, previous
     });
     return Object.assign({}, owned, {
         id: workId, kind: workType, workType, workId,
@@ -190,8 +190,7 @@ function localizedScheduleQueueItem(item) {
 function scheduleQueueCached(task) {
     try {
         const cached = JSON.parse(storeGet('pixiv_schedule_queue_' + task.id) || 'null');
-        if (!cached || !Array.isArray(cached.items)
-                || (cached.lastRunTime ?? null) !== (task.lastRunTime ?? null)) return null;
+        if (!cached || !Array.isArray(cached.items)) return null;
         cached.items = cached.items.map(item => Object.assign({}, item, {liveStatus: null}));
         return cached;
     } catch (_error) { return null; }
@@ -229,12 +228,18 @@ function subscribeScheduleQueue(task, entry) {
         list.add(item.queueKey);
         identities.set(item.workId, list);
     });
-    entry.listeners = eligible.map(item => {
+    const listeners = entry.listeners;
+    eligible.forEach(item => {
         const listener = data => {
-            if (altScheduleQueues.get(task.id) !== entry) return;
+            if (altScheduleQueues.get(task.id) !== entry || entry.listeners !== listeners) return;
             const type = String(data.workType || '').trim();
             if (type ? runtime.queueKey(type, item.workId) !== item.queueKey
                 : identities.get(item.workId).size > 1) return;
+            if (data.title || data.presentationAttributes) {
+                Object.assign(item, runtime.scheduledQueueItem(item.workType,
+                    Object.assign({}, item, {title: data.title, presentationAttributes: data.presentationAttributes}),
+                    {sourceType: task.sourceType || task.type, task, previous: item}));
+            }
             if (data.cancelled) { item.status = 'paused'; item.rawStatus = 'cancelled'; item.statusMessageKey = 'queue.stage.cancelled'; }
             else if (data.completed && !data.failed) { item.status = 'completed'; item.rawStatus = 'downloaded'; }
             else if (data.failed) { item.status = 'failed'; item.rawStatus = 'failed'; }
@@ -252,7 +257,7 @@ function subscribeScheduleQueue(task, entry) {
             });
         };
         addSSEListener(item.workId, listener);
-        return {workId: item.workId, listener};
+        listeners.push({workId: item.workId, listener});
     });
 }
 
@@ -261,12 +266,12 @@ async function loadScheduleQueue(task, quiet) {
     const box = document.getElementById('abScheduleQueue-' + task.id);
     if (!box) return;
     let entry = altScheduleQueues.get(task.id);
-    if (!entry || entry.lastRunTime !== (task.lastRunTime ?? null)) {
-        releaseScheduleQueue(task.id);
-        entry = {data: scheduleQueueCached(task), lastRunTime: task.lastRunTime ?? null, sequence: 0, listeners: []};
+    if (!entry) {
+        entry = {data: scheduleQueueCached(task), sequence: 0, listeners: []};
         altScheduleQueues.set(task.id, entry);
     }
-    if (!quiet && entry.data) refreshScheduleQueueView(task, entry);
+    const cacheCurrent = (entry.data?.lastRunTime ?? null) === (task.lastRunTime ?? null);
+    if (!quiet && entry.data && cacheCurrent) refreshScheduleQueueView(task, entry);
     if (quiet && entry.request) return;
     entry.request?.abort();
     const request = new AbortController();
@@ -281,11 +286,13 @@ async function loadScheduleQueue(task, quiet) {
         if (sequence !== entry.sequence || altScheduleQueues.get(task.id) !== entry
                 || document.getElementById('abScheduleQueue-' + task.id) !== box) return;
         const incoming = Array.isArray(data.items) ? data.items : [];
-        if (incoming.length || data.startedTime != null || !entry.data?.items.length) {
-            const previous = new Map((entry.data?.items || []).map(item => [scheduleQueueIdentity(item), item]));
+        if (incoming.length || data.startedTime != null || !entry.data?.items.length || !cacheCurrent) {
+            // lastRunTime 是完成时间；只有队列 startedTime 相同才可继承本轮实时展示信息。
+            const sameRun = data.startedTime != null && data.startedTime === entry.data?.startedTime;
+            const previous = new Map((sameRun ? entry.data.items : []).map(item => [scheduleQueueIdentity(item), item]));
             const items = incoming.map(raw => {
-                const item = mapScheduleQueueItem(raw, task);
-                const old = previous.get(item.queueKey);
+                const old = previous.get(scheduleQueueIdentity(raw));
+                const item = mapScheduleQueueItem(raw, task, old);
                 if (old && item.status === 'pending' && old.status === 'downloading') {
                     Object.assign(item, {status: old.status, rawStatus: old.rawStatus,
                         totalImages: old.totalImages, downloadedCount: old.downloadedCount,
@@ -297,7 +304,7 @@ async function loadScheduleQueue(task, quiet) {
                 retainQueueProgressSlots(item, old);
                 return item;
             });
-            entry.data = Object.assign({}, data, {items});
+            entry.data = Object.assign({}, data, {items, lastRunTime: task.lastRunTime ?? null});
             persistScheduleQueue(task, entry.data);
         }
         refreshScheduleQueueView(task, entry);

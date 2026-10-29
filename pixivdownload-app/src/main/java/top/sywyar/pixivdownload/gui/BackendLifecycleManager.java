@@ -10,7 +10,6 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -52,6 +51,10 @@ public final class BackendLifecycleManager {
 
     public record Snapshot(State state, Throwable error) {}
 
+    /**
+     * 异步串行接收状态快照，回调应及时返回。积压超限时保留最近快照并记录告警；
+     * 需要确认操作完成的调用方应使用启停回调或 {@link CloseAttempt#completion()}。
+     */
     @FunctionalInterface
     public interface Listener {
         void onStateChanged(Snapshot snapshot);
@@ -141,7 +144,7 @@ public final class BackendLifecycleManager {
 
     private static final Logger log = LoggerFactory.getLogger(BackendLifecycleManager.class);
     private static final Object LOCK = new Object();
-    private static final CopyOnWriteArrayList<Listener> LISTENERS = new CopyOnWriteArrayList<>();
+    private static final BackendStateNotifications NOTIFICATIONS = new BackendStateNotifications();
 
     /** 默认启动回调：直连 headless {@link PixivDownloadApplication#start(String[])}，不捕获任何 bootstrap 会话。 */
     private static final BackendStarter DEFAULT_STARTER = PixivDownloadApplication::start;
@@ -416,6 +419,7 @@ public final class BackendLifecycleManager {
             throw new AssertionError("backend context was not confirmed closed during test cleanup: " + terminal);
         }
 
+        NOTIFICATIONS.resetForTests();
         synchronized (LOCK) {
             if (activeStartOperation != null || activeStopOperation != null || context != null
                     || state == State.STARTING || state == State.RUNNING || state == State.STOPPING) {
@@ -432,12 +436,13 @@ public final class BackendLifecycleManager {
             context = null;
             state = State.STOPPED;
             lastError = null;
-            LISTENERS.clear();
         }
     }
 
     public static Snapshot snapshot() {
-        return new Snapshot(state, lastError);
+        synchronized (LOCK) {
+            return new Snapshot(state, lastError);
+        }
     }
 
     public static State state() {
@@ -458,14 +463,16 @@ public final class BackendLifecycleManager {
         }
     }
 
+    /** 初始快照与后续变更在同一队列中投递，注册本身不等待监听器执行。 */
     public static void addListener(Listener listener) {
         Listener safeListener = Objects.requireNonNull(listener, "listener");
-        LISTENERS.add(safeListener);
-        notifyListener(safeListener, snapshot());
+        synchronized (LOCK) {
+            NOTIFICATIONS.subscribe(safeListener, new Snapshot(state, lastError));
+        }
     }
 
     public static void removeListener(Listener listener) {
-        LISTENERS.remove(listener);
+        NOTIFICATIONS.unsubscribe(listener);
     }
 
     public static boolean startAsync() {
@@ -590,27 +597,27 @@ public final class BackendLifecycleManager {
     }
 
     public static boolean stopAsync(Runnable afterStop) {
-        final StopOperation operation;
+        StopOperation operation = null;
         synchronized (LOCK) {
             if (state == State.STOPPING || state == State.STARTING) {
                 return false;
             }
             if (state == State.STOPPED || (state == State.FAILED && context == null)) {
                 updateState(State.STOPPED, null);
-                if (afterStop != null) {
-                    afterStop.run();
-                }
-                return true;
-            }
-            if (context == null) {
+            } else if (context == null) {
                 updateState(State.FAILED,
                         new IllegalStateException("backend state has no owned context: " + state));
                 return false;
+            } else {
+                operation = beginStopLocked(context);
             }
-            operation = beginStopLocked(context);
         }
 
-        startStopWorker(operation, afterStop);
+        if (operation != null) {
+            startStopWorker(operation, afterStop);
+        } else if (afterStop != null) {
+            afterStop.run();
+        }
         return true;
     }
     public static boolean restartAsync() {
@@ -631,18 +638,7 @@ public final class BackendLifecycleManager {
     private static void updateState(State newState, Throwable error) {
         state = newState;
         lastError = error;
-        Snapshot snapshot = new Snapshot(newState, error);
-        for (Listener listener : LISTENERS) {
-            notifyListener(listener, snapshot);
-        }
-    }
-
-    private static void notifyListener(Listener listener, Snapshot snapshot) {
-        try {
-            listener.onStateChanged(snapshot);
-        } catch (RuntimeException failure) {
-            log.warn("Backend state listener failed: {}", safeMessage(failure), failure);
-        }
+        NOTIFICATIONS.publish(new Snapshot(newState, error));
     }
 
     /**

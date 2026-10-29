@@ -4,7 +4,7 @@ const NOVEL_GALLERY_STATE_STORAGE_KEY = 'pixiv:novel-gallery-state-v1';
 const GALLERY_CROSS_TRANSFER_KEY = 'pixiv:gallery-cross-transfer-v1';
 const GALLERY_CROSS_TRANSFER_TTL_MS = 60_000;
 const FILTER_SELECTION_RANK = { must: 0, not: 1, or: 2 };
-const NOVEL_SORT_VALUES = new Set(['date', 'novelId', 'wordCount', 'series']);
+const NOVEL_SORT_VALUES = new Set(['date', 'uploadTime', 'novelId', 'wordCount', 'series']);
 const NOVEL_R18_VALUES = new Set(['any', 'r18plus', 'r18', 'r18g', 'no']);
 const NOVEL_AI_VALUES = new Set(['any', 'yes', 'no']);
 const NOVEL_SEARCH_TYPE_VALUES = new Set(['all', 'title', 'author', 'id', 'authorId', 'desc', 'content', 'tag', 'tagExact']);
@@ -18,6 +18,8 @@ const state = {
     view: 'all',                // 'all' | 'authors' | 'series'
     page: 0,
     sort: 'date',
+    uploadStartDate: '',
+    uploadEndDate: '',
     order: 'desc',
     r18: 'any',
     ai: 'any',
@@ -83,6 +85,8 @@ function serializeNovelGalleryState() {
         view: state.view,
         page: state.page,
         sort: state.sort,
+        uploadStartDate: state.uploadStartDate,
+        uploadEndDate: state.uploadEndDate,
         order: state.order,
         r18: state.r18,
         ai: state.ai,
@@ -146,6 +150,7 @@ function applyPersistedNovelGalleryState(payload) {
     if (typeof payload.view === 'string' && GALLERY_VIEW_VALUES.includes(payload.view)) state.view = payload.view;
     if (Number.isInteger(payload.page) && payload.page >= 0) state.page = payload.page;
     if (typeof payload.sort === 'string' && NOVEL_SORT_VALUES.has(payload.sort)) state.sort = payload.sort;
+    restoreUploadDates(payload);
     if (payload.order === 'asc' || payload.order === 'desc') state.order = payload.order;
     if (typeof payload.r18 === 'string' && NOVEL_R18_VALUES.has(payload.r18)) state.r18 = payload.r18;
     if (typeof payload.ai === 'string' && NOVEL_AI_VALUES.has(payload.ai)) state.ai = payload.ai;
@@ -204,6 +209,8 @@ function writeNovelGalleryCrossTransfer() {
         r18: state.r18,
         ai: state.ai,
         sort: state.sort,
+        uploadStartDate: state.uploadStartDate,
+        uploadEndDate: state.uploadEndDate,
         order: state.order,
         collectionIds: [...state.selectedCollections],
         tagMode: state.tagMode,
@@ -242,6 +249,7 @@ function applyCrossTransferToNovelGallery(transfer) {
     if (typeof transfer.r18 === 'string' && NOVEL_R18_VALUES.has(transfer.r18)) state.r18 = transfer.r18;
     if (typeof transfer.ai === 'string' && NOVEL_AI_VALUES.has(transfer.ai)) state.ai = transfer.ai;
     if (typeof transfer.sort === 'string' && NOVEL_SORT_VALUES.has(transfer.sort)) state.sort = transfer.sort;
+    restoreUploadDates(transfer);
     if (transfer.order === 'asc' || transfer.order === 'desc') state.order = transfer.order;
     if (typeof transfer.view === 'string' && GALLERY_VIEW_VALUES.includes(transfer.view)) state.view = transfer.view;
     state.selectedCollections = new Set(toIdArray(transfer.collectionIds));
@@ -269,7 +277,34 @@ function applyCrossTransferToNovelGallery(transfer) {
     state.seriesView.page = 0;
 }
 
+    function uploadDateMillis(value, nextDay = false) {
+        if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+        const date = new Date(value + 'T00:00:00');
+        if (!Number.isFinite(date.getTime()) || date.getTime() <= 0
+            || date.getDate() !== Number(value.slice(8))) return null;
+        if (nextDay) date.setDate(date.getDate() + 1);
+        return date.getTime();
+    }
+
+    function galleryUploadTimeRange() {
+        return {uploadedFrom: uploadDateMillis(state.uploadStartDate),
+            uploadedBefore: uploadDateMillis(state.uploadEndDate, true)};
+    }
+
+    function restoreUploadDates(payload) {
+        state.uploadStartDate = uploadDateMillis(payload.uploadStartDate) ? payload.uploadStartDate : '';
+        state.uploadEndDate = uploadDateMillis(payload.uploadEndDate) ? payload.uploadEndDate : '';
+        if (state.uploadStartDate && state.uploadEndDate && state.uploadStartDate > state.uploadEndDate) {
+            state.uploadStartDate = state.uploadEndDate = '';
+        }
+    }
+
+
 function applyNovelGalleryStateToUi() {
+    for (const name of ['uploadStartDate', 'uploadEndDate']) {
+        const input = document.getElementById(name);
+        if (input) input.value = state[name];
+    }
     document.querySelectorAll('.chip[data-sort]').forEach(chip => {
         chip.classList.toggle('active', chip.dataset.sort === state.sort);
     });

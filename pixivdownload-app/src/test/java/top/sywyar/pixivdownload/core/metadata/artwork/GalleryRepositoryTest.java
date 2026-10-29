@@ -175,6 +175,23 @@ class GalleryRepositoryTest {
         assertThat(result.ids()).containsExactly(ARTWORK_B);
     }
 
+    @Test
+    @DisplayName("上传时间范围含起点不含终点且未知时间在两个排序方向都置后")
+    void uploadTimeRangeAndNullOrdering() {
+        jdbc.update("UPDATE artworks SET upload_time = 100 WHERE artwork_id = ?", ARTWORK_B);
+        jdbc.update("UPDATE artworks SET upload_time = 200 WHERE artwork_id = ?", ARTWORK_F);
+        jdbc.update("UPDATE artworks SET upload_time = 200 WHERE artwork_id = ?", ARTWORK_H);
+        var ascending = WorkQuery.builder(WorkType.ARTWORK).sort("uploadTime").order("asc").build();
+        var descending = WorkQuery.builder(WorkType.ARTWORK).sort("uploadTime").order("desc").build();
+        assertThat(repository.findArtworkIds(ascending).ids()).containsExactly(ARTWORK_B, ARTWORK_F, ARTWORK_H, ARTWORK_K);
+        assertThat(repository.findArtworkIds(descending).ids()).containsExactly(ARTWORK_H, ARTWORK_F, ARTWORK_B, ARTWORK_K);
+        var filtered = repository.findArtworkIds(ascending.withUploadTimeRange(100L, 200L));
+        assertThat(filtered.totalElements()).isEqualTo(1);
+        assertThat(filtered.ids()).containsExactly(ARTWORK_B);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ascending.withUploadTimeRange(200L, 100L))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     private void createTables() {
         jdbc.execute("""
                 CREATE TABLE artworks (
@@ -184,6 +201,7 @@ class GalleryRepositoryTest {
                     count INTEGER NOT NULL,
                     extensions TEXT NOT NULL,
                     time INTEGER NOT NULL,
+                    upload_time INTEGER DEFAULT NULL,
                     "R18" INTEGER DEFAULT NULL,
                     is_ai INTEGER DEFAULT NULL,
                     author_id INTEGER DEFAULT NULL,

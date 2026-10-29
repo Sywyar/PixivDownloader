@@ -80,7 +80,7 @@ function rerenderDynamic() {
     if (!rerenderPayload) return;
     const d = rerenderPayload.data;
     renderBadges({ xRestrict: d.xRestrict, isAi: d.isAi, isOriginal: d.isOriginal });
-    renderMetaRow({ wordCount: d.wordCount, textLength: d.textLength, readingTimeSeconds: d.readingTimeSeconds, language: d.xLanguage, uploadTimestamp: d.time });
+    renderMetaRow({ wordCount: d.wordCount, textLength: d.textLength, readingTimeSeconds: d.readingTimeSeconds, language: d.xLanguage, uploadTimestamp: d.uploadTime });
     renderDescription(d.description);
     renderTags(d.tags || []);
     if (cachedSeriesNav) {
@@ -105,7 +105,7 @@ async function renderLocal(view) {
         textLength: view.textLength,
         readingTimeSeconds: view.readingTimeSeconds,
         language: view.xLanguage,
-        uploadTimestamp: view.time
+        uploadTimestamp: view.uploadTime
     });
     renderDescription(view.description);
     renderTags(view.tags || []);
@@ -227,9 +227,10 @@ function renderMetaRow(o) {
     if (o.uploadTimestamp) {
         const d = new Date(o.uploadTimestamp);
         if (!isNaN(d.getTime())) {
-            parts.push(`<span>${escapeHtml(pageI18n.t('meta.upload', null, { time: d.toISOString().slice(0, 16).replace('T', ' ') }))}</span>`);
+            parts.push(`<span>${escapeHtml(pageI18n.t('meta.upload', null, { time: d.toLocaleString() }))}</span>`);
         }
     }
+    if (!o.uploadTimestamp) parts.push(`<span>${escapeHtml(pageI18n.t('meta.upload-unknown', 'Upload time unknown'))}</span>`);
     document.getElementById('novel-meta-row').innerHTML = parts.join('');
 }
 

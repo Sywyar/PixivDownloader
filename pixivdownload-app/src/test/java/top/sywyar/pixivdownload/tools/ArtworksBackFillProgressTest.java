@@ -58,7 +58,7 @@ class ArtworksBackFillProgressTest {
                 });
             }
             var options = new ArtworksBackFill.Options(database.toString(), "localhost", 1, false,
-                    0, 0, scenario.equals("dry-run"), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database));
+                    0, 0, scenario.equals("dry-run"), top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database)).withSources(database.getParent().toString(), false);
 
             var failure = assertThrows(java.sql.SQLNonTransientConnectionException.class,
                     () -> ArtworksBackFill.run(options, leases, (processed, total) -> {
@@ -112,7 +112,7 @@ class ArtworksBackFillProgressTest {
             worker.setDaemon(true);
             var options = new ArtworksBackFill.Options(database.toString(),
                     proxy.getInetAddress().getHostAddress(), proxy.getLocalPort(), true, 0, 0, false,
-                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database));
+                    top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database)).withSources(database.getParent().toString(), false);
             var progress = new java.util.ArrayList<Integer>();
             assertThrows(java.io.IOException.class,
                     () -> ArtworksBackFill.run(options, pool, (processed, total) -> {
@@ -157,7 +157,7 @@ class ArtworksBackFillProgressTest {
                 statement.executeUpdate("INSERT INTO artworks(artwork_id,title,folder,count,extensions,time)"
                         + " VALUES (1,'first','folder',1,'jpg',1)");
             }
-            var options = new ArtworksBackFill.Options(database.toString(), "localhost", 1, false, 0, 0, false, top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database));
+            var options = new ArtworksBackFill.Options(database.toString(), "localhost", 1, false, 0, 0, false, top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(database)).withSources(database.getParent().toString(), false);
             assertThrows(CancellationException.class, () -> ArtworksBackFill.run(options, pool, (processed, total) -> {
                 assertEquals(1, total);
                 assertEquals(0, processed);

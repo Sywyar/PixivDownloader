@@ -30,7 +30,7 @@ class GalleryWebResponseTest {
                 "artworkId", "title", "folder", "count", "extensions", "time", "moved",
                 "moveFolder", "moveTime", "xRestrict", "isAi", "authorId", "authorName",
                 "description", "fileName", "fileNameTemplate", "tags", "seriesId",
-                "seriesOrder", "seriesTitle", "deleted");
+                "seriesOrder", "seriesTitle", "deleted", "uploadTime");
         assertThat(fieldNames(artworkJson.path("tags").get(0)))
                 .containsExactlyInAnyOrder("tagId", "name", "translatedName");
 

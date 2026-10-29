@@ -18,6 +18,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 @DisplayName("作品回填 Pixiv 响应映射")
 class ArtworksBackFillPixivClientTest {
 
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"seriesNavData\":{}}", "{\"seriesNavData\":\"invalid\"}"})
+    @DisplayName("不完整本地元数据不能将未知系列补为无系列")
+    void incompleteLocalSeriesRemainsUnknown(String body) throws Exception {
+        assertFalse(ArtworksBackFillPixivClient.parsePayload(new ObjectMapper().readTree(body), 1L, false).seriesKnown);
+        assertTrue(ArtworksBackFillPixivClient.parsePayload(new ObjectMapper().readTree("{\"seriesNavData\":null}"), 1L, false).seriesKnown);
+    }
+
     private final ObjectMapper mapper = new ObjectMapper();
 
     @ParameterizedTest
@@ -124,12 +132,13 @@ class ArtworksBackFillPixivClientTest {
 
         assertEquals(ArtworksBackFillPixivClient.ResultType.FOUND, result.type);
         assertEquals(42L, result.authorId);
-        assertEquals("42", result.authorName);
+        org.junit.jupiter.api.Assertions.assertNull(result.authorName);
         assertEquals(1, result.xRestrict);
         assertTrue(result.isAi);
         assertFalse(result.tags.isEmpty());
         assertEquals(new ArtworksBackFillPixivClient.TagEntry("tag-a", "Tag A"), result.tags.get(0));
         assertEquals(7L, result.seriesId);
-        assertEquals("7", result.seriesTitle);
+        org.junit.jupiter.api.Assertions.assertNull(result.seriesTitle);
+        assertEquals(3L, result.seriesOrder);
     }
 }
