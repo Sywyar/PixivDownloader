@@ -158,10 +158,38 @@ public interface DesktopUiToolHost {
     }
 
     /** 回填的真实工作阶段。 */
-    enum BackfillPhase { IMPORTING, SCANNING, LOCAL, NETWORK, WAITING, FINISHED }
+    enum BackfillPhase {
+        /** 导入已登记作品的本地元数据快照。 */
+        IMPORTING,
+        /** 扫描本次可处理的缺失字段候选。 */
+        SCANNING,
+        /** 使用本地元数据补齐缺失字段。 */
+        LOCAL,
+        /** 通过网络查询仍然缺失的作品信息。 */
+        NETWORK,
+        /** 等待下一次网络请求的间隔。 */
+        WAITING,
+        /** 字段处理已结束，执行状态说明最终结果。 */
+        FINISHED
+    }
 
     /** 回填执行状态；停止中仍属于活动任务。 */
-    enum BackfillState { RUNNING, STOPPING, COMPLETED, INCOMPLETE, RATE_LIMITED, CANCELLED, FAILED }
+    enum BackfillState {
+        /** 回填正在执行。 */
+        RUNNING,
+        /** 已请求停止，正在等待任务退出并释放资源。 */
+        STOPPING,
+        /** 本次候选处理完成，已处理作品没有剩余缺项。 */
+        COMPLETED,
+        /** 本次执行结束，仍有未处理候选或缺失字段。 */
+        INCOMPLETE,
+        /** 网络服务限流导致本次回填停止。 */
+        RATE_LIMITED,
+        /** 本次回填已取消，资源已释放。 */
+        CANCELLED,
+        /** 本次回填因错误结束。 */
+        FAILED
+    }
 
     /**
      * 单次回填的机器事实，不携带配置、凭据、异常正文或全部作品列表。
