@@ -1,6 +1,6 @@
 package acceptance.remote;
 import acceptance.remotecontract.RemoteLedger;
-import pixivdownload.generated.remote.RemoteLedgerRemoteAdapter;
+import pixivdownload.generated.remote.acceptance.remotecontract.RemoteLedgerRemoteAdapter;
 import org.pf4j.*;
 import org.springframework.context.annotation.*;
 import top.sywyar.pixivdownload.plugin.api.plugin.*;
@@ -15,6 +15,8 @@ public final class RemoteParticipant extends Plugin implements PixivPluginProvid
     private final String owner;
     public RemoteParticipant(PluginWrapper wrapper) { super(wrapper); owner=wrapper.getPluginId(); }
     static final ServiceKey<RemoteLedger> KEY = new ServiceKey<>("remote-ledger-contract", RemoteLedger.class);
+    static final ServiceKey<acceptance.remotecontract.encoded.RemoteLedger> VALUES = new ServiceKey<>(
+            "remote-ledger-contract", acceptance.remotecontract.encoded.RemoteLedger.class);
     public static final AtomicInteger active = new AtomicInteger(), closed = new AtomicInteger(), calls = new AtomicInteger();
     public static volatile CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1);
     public static void release() { release.countDown(); }
@@ -23,13 +25,15 @@ public final class RemoteParticipant extends Plugin implements PixivPluginProvid
         return new PixivFeaturePlugin() {
             public String id(){return owner;} public String displayName(){return "plugin.name";}
             public String description(){return "plugin.summary";} public PluginKind kind(){return PluginKind.FEATURE;}
-            public List<ServiceKey<?>> serviceImports(){return provider?List.of():List.of(KEY);}
-            public List<ServiceExport<?>> serviceExports(){return provider?List.of(new ServiceExport<>(KEY,"ledger")):List.of();}
-            public List<WebRouteContribution> routes(){return provider?List.of():RemoteLedgerRemoteAdapter.routes();}
+            public List<ServiceKey<?>> serviceImports(){return provider?List.of():List.of(KEY,VALUES);}
+            public List<ServiceExport<?>> serviceExports(){return provider?List.of(new ServiceExport<>(KEY,"ledger"),new ServiceExport<>(VALUES,"values")):List.of();}
+            public List<WebRouteContribution> routes(){return provider?List.of():java.util.stream.Stream.concat(RemoteLedgerRemoteAdapter.routes().stream(),
+                    pixivdownload.generated.remote.acceptance.remotecontract.encoded.RemoteLedgerRemoteAdapter.routes().stream()).toList();}
         };
     }
     @Configuration(proxyBeanMethods=false)
     public static class Provider {
+        @Bean acceptance.remotecontract.encoded.RemoteLedger values() { return request -> request; }
         @Bean RemoteLedger ledger() { return new RemoteLedger() {
           public Receipt record(Command command) {
             calls.incrementAndGet();
@@ -49,6 +53,9 @@ public final class RemoteParticipant extends Plugin implements PixivPluginProvid
     @Configuration(proxyBeanMethods=false)
     public static class Consumer {
         @Bean RemoteLedgerRemoteAdapter remote(RemoteOperations operations) { return new RemoteLedgerRemoteAdapter(operations); }
+        @Bean pixivdownload.generated.remote.acceptance.remotecontract.encoded.RemoteLedgerRemoteAdapter valuesRemote(RemoteOperations operations) {
+            return new pixivdownload.generated.remote.acceptance.remotecontract.encoded.RemoteLedgerRemoteAdapter(operations);
+        }
         @Bean ServiceBinding binding(PluginServices services) {
             return services.bind(List.of(KEY), scope -> {
                 scope.require(KEY);

@@ -9,6 +9,17 @@ import java.util.function.Supplier;
  */
 public interface ServiceBindingScope {
     /**
+     * 读取本轮固定的成员；空集合合法，失效后不可读取或调用。
+     * @param key 本轮声明的导入
+     * @param <T> 服务类型
+     * @return 固定双方 publication 的受管成员
+     * @throws ServiceAccessException 已失效、未声明或宿主不支持
+     */
+    default <T> java.util.List<ServiceProvider<T>> findAll(ServiceKey<T> key) {
+        throw new ServiceAccessException(ServiceAccessException.Reason.UNSUPPORTED);
+    }
+
+    /**
      * @param key 此轮声明的服务依赖
      * @param <T> 服务类型
      * @return 绑定本轮精确 publication 的受控代理

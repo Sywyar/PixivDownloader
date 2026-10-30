@@ -16,6 +16,12 @@
     <dependencies>
         <dependency>
             <groupId>top.sywyar.lovepopup</groupId>
+            <artifactId>pixivdownload-plugin-page-editor</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>top.sywyar.lovepopup</groupId>
             <artifactId>pixivdownload-plugin-database-postgresql</artifactId>
             <version>${project.version}</version>
             <scope>test</scope>

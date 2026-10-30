@@ -102,7 +102,7 @@ public final class GeneratedRemoteOperations implements PluginRemoteOperationsFa
             }
             JsonNode output;
             try {
-                output = RemoteValues.encode(result, method.getGenericReturnType());
+                output = RemoteValues.encode(result, method.getGenericReturnType(), declaration.path("response"));
                 RemoteValues.validate(declaration.path("response"), output);
             } catch (RemoteValues.Invalid invalid) { return error(request, 500, "REMOTE_FAILED", verifiedIdentity); }
             byte[] bytes = RemoteValues.JSON.writeValueAsBytes(output);

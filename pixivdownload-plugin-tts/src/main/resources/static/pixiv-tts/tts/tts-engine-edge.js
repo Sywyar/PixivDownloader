@@ -82,7 +82,7 @@
             }
 
             // 未命中再请求服务端合成
-            const r = await fetch('/api/tts/edge/synthesize', {
+            const r = await (ctx.fetch || global.fetch.bind(global))('/api/tts/edge/synthesize', {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },

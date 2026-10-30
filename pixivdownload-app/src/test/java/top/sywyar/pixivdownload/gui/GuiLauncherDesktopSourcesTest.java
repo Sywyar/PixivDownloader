@@ -94,6 +94,21 @@ class GuiLauncherDesktopSourcesTest {
     }
 
     @Test
+    @org.junit.jupiter.api.DisplayName("独立凭据与普通字段冲突的插件不会向桌面提供可明文保存的字段")
+    void conflictingCredentialCannotReachDesktopForm() {
+        var plugin = org.mockito.Mockito.spy(new TestPlugin());
+        org.mockito.Mockito.when(plugin.credentialKeys()).thenReturn(List.of("fixture.token"));
+        org.mockito.Mockito.when(plugin.guiConfigContributions()).thenReturn(List.of(
+                new top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution(List.of(
+                        new top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution("fixture.token", "fixture", "fixture",
+                                top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType.STRING, "", 1)))));
+        var registry = new PluginRegistry(List.of(plugin));
+        assertThat(GuiLauncher.buildDesktopUiPluginSnapshots(GuiLauncher.buildDesktopUiPluginSources(registry))).isEmpty();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> GuiLauncher.buildTransferPluginSnapshots(registry))
+                .isInstanceOf(IllegalStateException.class).hasMessage("transfer.config-owner-invalid");
+    }
+
+    @Test
     void reusesSourcesUntilTheRuntimeDiscoveryChanges() {
         PluginDiscoveryResult initial = PluginDiscoveryResult.empty();
         PluginDiscoveryResult changed = new PluginDiscoveryResult(

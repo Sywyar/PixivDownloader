@@ -19,49 +19,60 @@
 </head>
 <body class="layout-flow">
 
+<div id="native-page">
 <header data-layout-height="--layout-header-height">
-  <span class="header-title" data-i18n="header.title">Pixiv 批量下载器</span>
-  <span class="header-actions" id="headerActions"></span>
+  <span class="header-title" data-page-region="brand" data-i18n="header.title">Pixiv 批量下载器</span>
+  <span class="header-actions" data-page-region="preferences" id="headerActions">
+    <button id="default-page" type="button" hidden data-i18n="page.default">Use default layout</button>
+  </span>
 </header>
 
-<div class="center">
-  <div class="card" id="loginCard">
-    <div class="card-title" data-i18n="admin.title">管理员登录</div>
-    <div class="field">
-      <label data-i18n="field.username">用户名</label>
+<div class="center" data-page-region="authentication">
+  <div class="card" id="loginCard" data-page-region="admin-card">
+    <div class="card-title" data-page-region="admin-title" data-i18n="admin.title">管理员登录</div>
+    <div class="field" data-page-region="username">
+      <label for="username" data-i18n="field.username">用户名</label>
       <input type="text" id="username" placeholder="用户名" autocomplete="username"
              data-i18n-placeholder="field.username.placeholder">
     </div>
-    <div class="field">
-      <label data-i18n="field.password">密码</label>
+    <div class="field" data-page-region="password">
+      <label for="password" data-i18n="field.password">密码</label>
       <input type="password" id="password" placeholder="密码" autocomplete="current-password"
              data-i18n-placeholder="field.password.placeholder">
     </div>
-    <div class="remember-row">
+    <div class="remember-row" data-page-region="remember">
       <input type="checkbox" id="remember">
       <label for="remember" data-i18n="remember">保持登录状态（30 天）</label>
     </div>
-    <div id="error-msg"></div>
-    <button class="btn btn-green layout-touch" id="login-btn" data-pixiv-click="doLogin()" data-i18n="button.login">登录</button>
-    <div class="invite-link-row">
+    <div data-page-region="login-error">
+      <div id="error-msg" class="auth-error" role="status" aria-live="polite"></div>
+      <div data-ui-slot="login.verification"></div>
+    </div>
+    <button class="btn btn-green layout-touch" id="login-btn" data-page-region="login-submit" data-pixiv-click="doLogin()" data-i18n="button.login">登录</button>
+    <div class="invite-link-row" data-page-region="invite-link">
       <a id="useInviteCode" data-i18n="invite.use-code">使用邀请码</a>
     </div>
   </div>
 
-  <div class="card hidden" id="inviteCard">
-    <div class="card-title" data-i18n="invite.title">使用邀请码</div>
-    <div class="field">
-      <label data-i18n="invite.code">邀请码</label>
+  <div class="card" id="inviteCard" data-page-region="invite-card" hidden>
+    <div class="card-title" data-page-region="invite-title" data-i18n="invite.title">使用邀请码</div>
+    <div class="field" data-page-region="invite-code">
+      <label for="inviteCodeInput" data-i18n="invite.code">邀请码</label>
       <input type="text" id="inviteCodeInput" data-i18n-placeholder="invite.placeholder" placeholder="邀请码" autocomplete="off">
     </div>
-    <div id="invite-error"></div>
-    <button class="btn btn-green layout-touch" id="invite-btn" data-pixiv-click="doInviteRedeem()" data-i18n="invite.submit">进入</button>
-    <div class="invite-link-row">
+    <div id="invite-error" class="auth-error" data-page-region="invite-error"></div>
+    <button class="btn btn-green layout-touch" id="invite-btn" data-page-region="invite-submit" data-pixiv-click="doInviteRedeem()" data-i18n="invite.submit">进入</button>
+    <div class="invite-link-row" data-page-region="back-link">
       <a id="backToLogin" data-i18n="invite.back">返回管理员登录</a>
     </div>
   </div>
 </div>
 
+</div>
+
+<div id="custom-page"></div>
+<script src="/js/pixiv-ui-slots.js"></script>
 <script src="/login/login.js"></script>
+<script type="module" src="/login/login-page.mjs"></script>
 </body>
 </html>

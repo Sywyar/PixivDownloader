@@ -60,6 +60,7 @@
         };
 
         ctx.populateVoices = function () {
+            if (state.signal?.aborted) return;
             const sel = els.voice;
             sel.innerHTML = '';
             const lang = ctx.docLang();
@@ -94,7 +95,7 @@
 
         ctx.ensureEdgeVoices = function () {
             if (state.edgeVoicesLoaded) return Promise.resolve();
-            return fetch('/api/tts/edge/voices', { credentials: 'same-origin' })
+            return (ctx.fetch || global.fetch.bind(global))('/api/tts/edge/voices', { credentials: 'same-origin' })
                 .then((r) => (r.ok ? r.json() : []))
                 .then((list) => {
                     state.edgeVoices = Array.isArray(list) ? list : [];

@@ -63,7 +63,7 @@ class PluginPackageStructureGuardTest {
     private static final java.util.Set<String> REGISTRY_SCHEMA_ALLOWLIST = java.util.Set.of(
             "DatabaseSchemaRegistry");
     private static final java.util.Set<String> REGISTRY_WEB_ALLOWLIST = java.util.Set.of(
-            "DrilldownRegistry", "LandingRegistry", "NavigationRegistry", "PageSectionRegistry",
+            "DrilldownRegistry", "LandingRegistry", "NavigationRegistry", "PageContributionRegistry", "PageSectionRegistry",
             "StaticResourceRegistry", "WebContributionPaths", "WebUiSlotRegistry");
 
     /**

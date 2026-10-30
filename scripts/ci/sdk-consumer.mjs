@@ -67,7 +67,7 @@ export function verifyTypedServiceArtifacts(project, toolsJar) {
             }
             const classes = entries.filter(entry => entry.endsWith('.class'));
             if (!classes.length || classes.some(entry => !entry.startsWith(`com/example/textmetrics/${module}/`)
-                    && !(module === 'consumer' && entry === 'pixivdownload/generated/remote/TextMetricsRemoteAdapter.class'))) {
+                    && !(module === 'consumer' && entry === 'pixivdownload/generated/remote/com/example/textmetrics/api/TextMetricsRemoteAdapter.class'))) {
                 fail(`typed service ${module} contains unexpected or duplicated contract/host classes`);
             }
             const allowedLibrary = module === 'contract' ? 'lib/text-metrics-api.jar' : '';
@@ -162,7 +162,7 @@ export function verifyTypedRemoteRebuild(project, toolsJar, runMaven) {
         fs.mkdirSync(extracted, { recursive: true });
         run('jar', ['--extract', '--file', currentPluginJar(path.join(project, 'api')), 'META-INF/pixivdownload/schema'], { cwd: extracted });
         run('jar', ['--extract', '--file', currentPluginJar(path.join(project, 'consumer')), 'web/generated',
-            'pixivdownload/generated/remote/TextMetricsRemoteAdapter.class'], { cwd: extracted });
+            'pixivdownload/generated/remote/com/example/textmetrics/api/TextMetricsRemoteAdapter.class'], { cwd: extracted });
         const schema = JSON.parse(fs.readFileSync(path.join(extracted, `META-INF/pixivdownload/schema/${service}.remote.json`), 'utf8'));
         for (const prefix of ['META-INF/pixivdownload/schema/', 'web/generated/']) {
             for (const suffix of ['.mjs', '.d.mts']) {
@@ -170,9 +170,11 @@ export function verifyTypedRemoteRebuild(project, toolsJar, runMaven) {
                     fail('packaged remote artifacts have different identities');
             }
         }
-        if (!fs.readFileSync(path.join(extracted, 'pixivdownload/generated/remote/TextMetricsRemoteAdapter.class')).includes(Buffer.from(schema.identity)))
+        if (!fs.readFileSync(path.join(extracted, 'pixivdownload/generated/remote/com/example/textmetrics/api/TextMetricsRemoteAdapter.class')).includes(Buffer.from(schema.identity)))
             fail('packaged adapter uses a stale contract identity');
-        if (fs.readFileSync(marker, 'utf8') !== schema.identity) fail('remote completion does not identify packaged contract');
+        const completed = JSON.parse(fs.readFileSync(marker, 'utf8'));
+        if (Object.keys(completed).length !== 1 || completed[service] !== schema.identity)
+            fail('remote completion does not identify packaged contract');
         return schema.identity;
     };
     const success = (extra = [], tool = toolsJar) => {
@@ -198,7 +200,7 @@ export function verifyTypedRemoteRebuild(project, toolsJar, runMaven) {
             .replace(/@RemoteOperation\([\s\S]*?\)\s*/u, ''), 'utf8');
         rejected('SDK_REMOTE_CONTRACT_MISSING');
         for (const file of ['remote-generation.complete', `classes/web/generated/${service}.mjs`,
-            `classes/web/generated/${service}.d.mts`, 'classes/pixivdownload/generated/remote/TextMetricsRemoteAdapter.class']) {
+            `classes/web/generated/${service}.d.mts`, 'classes/pixivdownload/generated/remote/com/example/textmetrics/api/TextMetricsRemoteAdapter.class']) {
             if (fs.existsSync(path.join(output, file))) fail(`removed remote declaration retained ${file}`);
         }
     } finally { fs.writeFileSync(source, original, 'utf8'); }

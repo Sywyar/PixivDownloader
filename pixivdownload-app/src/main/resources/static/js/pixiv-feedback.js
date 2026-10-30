@@ -90,6 +90,8 @@
             if (options.signal && options.signal.aborted) return null;
             return new Promise(function (resolve) {
                 const dialogId = ++dialogSequence;
+                const validation = new AbortController();
+                const validationError = options.validate ? requiredText(options.validationErrorLabel, 'validationErrorLabel') : '';
                 const previousFocus = document.activeElement;
                 const backdrop = document.createElement('dialog');
                 backdrop.className = 'pixiv-feedback-backdrop';
@@ -162,15 +164,25 @@
                     }
                 }
                 if (kind === 'prompt') {
-                    input = document.createElement('input');
+                    input = document.createElement(options.multiline ? 'textarea' : 'input');
                     input.className = 'pixiv-feedback-input';
-                    input.type = options.inputType || 'text';
+                    if (options.multiline) input.rows = 10;
+                    else input.type = options.inputType || 'text';
                     input.value = options.value == null ? '' : String(options.value);
                     if (options.min != null) input.min = String(options.min);
                     if (options.max != null) input.max = String(options.max);
                     if (options.step != null) input.step = String(options.step);
                     input.setAttribute('aria-labelledby', messageId);
                     panel.appendChild(input);
+                }
+                const error = document.createElement('p');
+                error.className = 'pixiv-feedback-validation';
+                error.id = 'pixiv-feedback-validation-' + dialogId;
+                error.setAttribute('role', 'alert');
+                error.hidden = true;
+                if (input && options.validate) {
+                    input.setAttribute('aria-describedby', error.id);
+                    panel.appendChild(error);
                 }
 
                 const actions = document.createElement('div');
@@ -194,6 +206,7 @@
                 function finish(value) {
                     if (settled) return;
                     settled = true;
+                    validation.abort();
                     document.removeEventListener('keydown', onKeyDown, true);
                     if (options.signal) options.signal.removeEventListener('abort', cancel);
                     backdrop.remove();
@@ -208,7 +221,24 @@
                     finish(kind === 'confirm' ? false : null);
                 }
 
-                function accept() {
+                async function accept() {
+                    if (settled || acceptButton.disabled) return;
+                    if (kind === 'prompt' && options.validate) {
+                        acceptButton.disabled = true;
+                        input.readOnly = true;
+                        input.setAttribute('aria-busy', 'true');
+                        let problem;
+                        try { problem = await options.validate(input.value, validation.signal); }
+                        catch (_) { problem = validationError; }
+                        if (settled) return;
+                        acceptButton.disabled = false;
+                        input.readOnly = false;
+                        input.removeAttribute('aria-busy');
+                        error.textContent = problem || '';
+                        error.hidden = !problem;
+                        input.setAttribute('aria-invalid', problem ? 'true' : 'false');
+                        if (problem) { input.focus(); return; }
+                    }
                     if (kind === 'confirm') finish(true);
                     else if (kind === 'prompt') finish(input.value);
                     else if (kind === 'choice') {
@@ -256,7 +286,7 @@
                 });
                 if (input) {
                     input.addEventListener('keydown', function (event) {
-                        if (event.key === 'Enter') {
+                        if (event.key === 'Enter' && (!options.multiline || event.ctrlKey || event.metaKey)) {
                             event.preventDefault();
                             accept();
                         }

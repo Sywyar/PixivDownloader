@@ -80,6 +80,7 @@
         rebuild(opts.languages, opts.current);
 
         return {
+            destroy: function () { wrap.remove(); },
             element: wrap,
             getValue: function () { return current || ''; },
             setLanguages: function (languages, cur) { rebuild(languages, cur); },

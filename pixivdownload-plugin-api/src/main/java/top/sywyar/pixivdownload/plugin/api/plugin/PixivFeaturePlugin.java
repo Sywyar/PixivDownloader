@@ -32,6 +32,15 @@ import java.util.List;
  */
 public interface PixivFeaturePlugin {
 
+    /**
+     * 不依赖 GUI 的 owner 凭据声明，默认无声明；既有 GUI 敏感字段继续有效。
+     * 至多 128 个不重复键，键须属于本 owner 命名空间，不得包含值。
+     * @return 凭据键列表
+     */
+    default List<String> credentialKeys() {
+        return List.of();
+    }
+
     /** {@return 自有状态与资源声明，不含插件包、安装身份、运行会话和活动执行} */
     default List<top.sywyar.pixivdownload.plugin.api.storage.EnvironmentFileContribution> environmentFiles() {
         return List.of();

@@ -14,6 +14,7 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.PluginSource;
 import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebAssetValidator;
+import top.sywyar.pixivdownload.plugin.web.resource.PluginOwnedWebResourceResolver;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -29,6 +30,7 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DisplayName("PluginOwnedWebAssetValidator 插件自有前端资源校验")
@@ -128,6 +130,46 @@ class PluginOwnedWebAssetValidatorTest {
         assertThatCode(() -> validatorFor(owner).validateOwnedJavaScript(
                 owner, "/owner-only/module.js", "测试模块"))
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("页面 CSS 必须是本代 owner 包内的真实样式文件")
+    void pageStylesheetRequiresOwnedCssAsset() throws Exception {
+        byte[] classBytes = ownerPluginClassBytes();
+        Path jar = tempDir.resolve("page-owner.jar");
+        writeJar(jar, Map.of(ownerClassEntry(), classBytes,
+                "test-download/page.css", "body{color:inherit}".getBytes(StandardCharsets.UTF_8)));
+        var owner = isolatedOwner(jar.toUri().toURL(), classBytes);
+        var validator = validatorFor(owner);
+        assertThatCode(() -> validator.validateOwnedStylesheet(owner, "/owner-only/page.css", "page")).doesNotThrowAnyException();
+        for (String path : List.of("/another/page.css", "/owner-only/missing.css", "/owner-only/module.js",
+                "/owner-only/../page.css", "https://example.test/page.css")) {
+            assertThatThrownBy(() -> validator.validateOwnedStylesheet(owner, path, "page")).isInstanceOf(IllegalStateException.class);
+        }
+        Files.delete(jar);
+        assertThat(jar).doesNotExist();
+    }
+
+    @Test
+    @DisplayName("读取插件静态资源及 HTTP 元数据后可以立即删除其 JAR")
+    void webMetadataReleasesArchive() throws Exception {
+        byte[] classBytes = ownerPluginClassBytes();
+        byte[] module = "export {};".getBytes(StandardCharsets.UTF_8);
+        Path jar = tempDir.resolve("metadata-owner.jar");
+        writeJar(jar, Map.of(ownerClassEntry(), classBytes, "test-download/module.js", module));
+        var owner = isolatedOwner(jar.toUri().toURL(), classBytes);
+        var root = new PluginOwnedWebResourceResolver().resolveLocation(owner,
+                new StaticResourceContribution("classpath:/test-download/", "/owner-only/"));
+        var resource = root.createRelative("module.js");
+        assertThat(resource.exists()).isTrue();
+        assertThat(resource.isReadable()).isTrue();
+        assertThat(resource.contentLength()).isEqualTo(module.length);
+        assertThat(resource.lastModified()).isPositive();
+        try (var input = resource.getInputStream()) {
+            assertThat(input.readAllBytes()).isEqualTo(module);
+        }
+        Files.delete(jar);
+        assertThat(jar).doesNotExist();
     }
 
     @Test

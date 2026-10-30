@@ -10,6 +10,10 @@ import top.sywyar.pixivdownload.plugin.runtime.isolation.IsolatedPluginSession;
 
 import java.net.URI;
 import java.net.URL;
+import java.net.JarURLConnection;
+import java.net.MalformedURLException;
+import java.io.IOException;
+import java.io.FileNotFoundException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.CodeSource;
@@ -47,12 +51,48 @@ public final class PluginOwnedWebResourceResolver {
             if (!isUnderRoot(root, resolved)) {
                 throw new IllegalStateException("static resource location escapes its owner code source");
             }
-            UrlResource resource = new UrlResource(resolved);
-            resource.setUseCaches(false);
-            return resource;
+            return new OwnedResource(resolved);
         } catch (Exception failure) {
             throw new IllegalStateException("failed to resolve owner-only static resource root for plugin: "
                     + owner.id(), failure);
+        }
+    }
+
+    private static final class OwnedResource extends UrlResource {
+        private OwnedResource(URL url) {
+            super(url);
+            setUseCaches(false);
+        }
+
+        @Override
+        public Resource createRelative(String path) throws MalformedURLException {
+            return new OwnedResource(createRelativeURL(path));
+        }
+
+        @Override
+        public boolean isReadable() {
+            try {
+                var connection = getURL().openConnection();
+                if (!(connection instanceof JarURLConnection archive)) return super.isReadable();
+                archive.setUseCaches(false);
+                try (var jar = archive.getJarFile()) {
+                    var entry = jar.getJarEntry(archive.getEntryName());
+                    return entry != null && !entry.isDirectory();
+                }
+            } catch (IOException unavailable) { return false; }
+        }
+
+        @Override
+        public long contentLength() throws IOException {
+            var connection = getURL().openConnection();
+            if (!(connection instanceof JarURLConnection archive)) return super.contentLength();
+            // Spring 的 URL 元数据读取不会关闭未缓存的 JarFile，Windows 因此无法卸载产物。
+            archive.setUseCaches(false);
+            try (var jar = archive.getJarFile()) {
+                var entry = jar.getJarEntry(archive.getEntryName());
+                if (entry == null) throw new FileNotFoundException(getDescription());
+                return entry.getSize();
+            }
         }
     }
 

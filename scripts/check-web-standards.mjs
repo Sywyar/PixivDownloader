@@ -31,10 +31,10 @@ export function analyzeSource(relativePath, source) {
     return {
         hardcodedColors: countHardcodedColors(source),
         inlineStyles: extension === '.html' ? countMatches(source, /\sstyle\s*=/gi) : 0,
-        inlineHandlers: extension === '.html' || extension === '.js'
+        inlineHandlers: extension === '.html' || extension === '.js' || extension === '.mjs'
             ? countMatches(source, /\son[a-z]+\s*=\s*["']/gi)
             : 0,
-        nativeDialogs: extension === '.js'
+        nativeDialogs: extension === '.js' || extension === '.mjs'
             ? countMatches(source, /(^|[^\w$.])(?:(?:window|globalThis)\s*\.\s*)?(?:alert|confirm|prompt)\s*\(/gm)
             : 0
     };
@@ -42,7 +42,7 @@ export function analyzeSource(relativePath, source) {
 
 function isScannableFile(filePath) {
     const normalized = filePath.replaceAll('\\', '/').toLowerCase();
-    if (!/\.(?:css|html|js)$/.test(normalized)) return false;
+    if (!/\.(?:css|html|m?js)$/.test(normalized)) return false;
     if (/(^|\/)(?:vendor|node_modules|target)(\/|$)/.test(normalized)) return false;
     return !/(?:\.min\.(?:css|js)|\.bundle\.js)$/.test(normalized);
 }
@@ -59,8 +59,10 @@ export function collectSnapshot(repositoryRoot = REPOSITORY_ROOT) {
     const files = [];
     for (const entry of fs.readdirSync(repositoryRoot, { withFileTypes: true })) {
         if (!entry.isDirectory() || !entry.name.startsWith('pixivdownload-')) continue;
-        const staticRoot = path.join(repositoryRoot, entry.name, 'src', 'main', 'resources', 'static');
-        if (fs.existsSync(staticRoot)) walk(staticRoot, files);
+        for (const resourceRoot of ['static', 'web']) {
+            const staticRoot = path.join(repositoryRoot, entry.name, 'src', 'main', 'resources', resourceRoot);
+            if (fs.existsSync(staticRoot)) walk(staticRoot, files);
+        }
     }
     const templatesRoot = path.join(repositoryRoot, 'plugin-templates');
     if (fs.existsSync(templatesRoot)) {

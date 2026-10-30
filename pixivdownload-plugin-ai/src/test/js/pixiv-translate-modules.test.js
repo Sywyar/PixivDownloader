@@ -107,8 +107,26 @@ function runSlot(slotFile, pageGlobals, failedScript) {
         createElement() { return {}; },
         querySelector() { return null; }
     };
+    let mounting;
+    sandbox.PixivUiSlots = {registerModule(url, factory) {
+        assert.equal(url, '/pixiv-ai/' + slotFile);
+        mounting = factory({}, {
+            properties: {novelId: '42', seriesId: '7', novel: true, contentLanguages: ['en'], contentLanguage: ''},
+            region: () => ({}), onCleanup() {}, emit() {}, fetch: sandbox.fetch,
+            loadStyle(url) { styles.push(url); },
+            async loadScript(url) {
+                const file = path.posix.basename(url); loadedScripts.push(file);
+                if (file === failedScript) throw new Error('UI_MODULE_UNAVAILABLE');
+                evaluateFile(sandbox, file);
+                if (file === 'pixiv-content-lang.js') sandbox.PixivContentLang.mount = options => {
+                    assert.deepEqual(options.languages, ['en']); mounted = true; return {destroy() {}};
+                };
+                return true;
+            }
+        }).catch(() => toasts.push({kind: 'error'}));
+    }};
     evaluateFile(sandbox, slotFile);
-    return waitFor(function () { return failedScript ? toasts.length : mounted; }).then(function () {
+    return mounting.then(() => waitFor(function () { return failedScript ? toasts.length : mounted; })).then(function () {
         return {loadedScripts, styles, mounted, sandbox, toasts};
     });
 }

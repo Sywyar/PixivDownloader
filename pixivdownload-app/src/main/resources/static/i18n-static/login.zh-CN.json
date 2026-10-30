@@ -5,6 +5,9 @@
   "messages": {
     "admin.title": "管理员登录",
     "button.login": "登录",
+    "editor.authentication": "登录区域",
+    "editor.error": "错误提示",
+    "editor.preferences": "语言与主题",
     "error.invite-expired": "邀请码无效或已失效",
     "error.invite-invalid": "邀请码无效",
     "error.login-failed": "登录失败",
@@ -20,6 +23,7 @@
     "invite.submit": "进入",
     "invite.title": "使用邀请码",
     "invite.use-code": "使用邀请码",
+    "page.default": "使用默认布局",
     "page.title": "Pixiv 批量下载器 — 登录",
     "remember": "保持登录状态（30 天）",
     "validation.credentials-required": "请输入用户名和密码",

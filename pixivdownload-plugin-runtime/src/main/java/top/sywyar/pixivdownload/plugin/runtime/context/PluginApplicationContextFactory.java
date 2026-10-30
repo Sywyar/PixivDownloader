@@ -174,8 +174,13 @@ public final class PluginApplicationContextFactory {
         child.getBeanFactory().registerSingleton(
                 PLUGIN_RUNTIME_TASK_REGISTRAR_BEAN_NAME,
                 pluginRuntimeTaskRegistry.registrarForPlugin(module.sourcePluginId()));
-        child.getBeanFactory().registerSingleton("pluginResources",
-                pluginRuntimeTaskRegistry.resourcesForPlugin(module.sourcePluginId()));
+        var resources = pluginRuntimeTaskRegistry.resourcesForPlugin(module.sourcePluginId());
+        child.getBeanFactory().registerSingleton("pluginResources", resources);
+        PluginCredentialsFactory credentialsFactory = parent.getBeanProvider(PluginCredentialsFactory.class).getIfAvailable();
+        if (credentialsFactory != null) {
+            child.getBeanFactory().registerSingleton("pluginCredentials",
+                    credentialsFactory.create(module.sourcePluginId(), resources));
+        }
         if (runtimePathProviderFactory != null) {
             child.registerBean(
                     RUNTIME_PATH_PROVIDER_BEAN_NAME,

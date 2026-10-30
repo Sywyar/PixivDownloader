@@ -1,9 +1,24 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const test = require('node:test');
+const fs = require('node:fs');
+const os = require('node:os');
 const { pathToFileURL } = require('node:url');
 
 const guardUrl = pathToFileURL(path.resolve(__dirname, '../../../../scripts/check-web-standards.mjs'));
+
+test('前端规范扫描插件 web 目录中的 ES 模块并排除 vendor', async function (context) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'page-web-standards-'));
+    context.after(() => fs.rmSync(root, {recursive: true, force: true}));
+    const web = path.join(root, 'pixivdownload-example/src/main/resources/web');
+    fs.mkdirSync(path.join(web, 'vendor'), {recursive: true});
+    fs.writeFileSync(path.join(web, 'editor.mjs'), 'window.confirm("x");', 'utf8');
+    fs.writeFileSync(path.join(web, 'vendor/engine.mjs'), 'window.confirm("x");', 'utf8');
+    const {collectSnapshot} = await import(guardUrl.href);
+    const snapshot = collectSnapshot(root);
+    assert.equal(Object.keys(snapshot).length, 1);
+    assert.equal(snapshot['pixivdownload-example/src/main/resources/web/editor.mjs'].nativeDialogs, 1);
+});
 
 test('前端规范守卫只豁免令牌定义处的颜色字面量', async function () {
     const { analyzeSource } = await import(guardUrl.href);

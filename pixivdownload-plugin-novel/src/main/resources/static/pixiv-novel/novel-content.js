@@ -9,9 +9,7 @@ async function loadAll() {
             pageI18n = next;
             pageI18n.apply();
             rerenderDynamic();
-            if (contentLangCtl) contentLangCtl.relabel(pageI18n);
-            if (window.PixivNovelTts) PixivNovelTts.setI18n(next);
-            if (window.PixivNovelNarration) PixivNovelNarration.setI18n(next);
+            window.PixivUiSlots?.update('novel-detail-', novelSlotProperties());
         }
     });
     PixivTheme.mount({ mountPoint: document.getElementById('langSwitcherAnchor') });
@@ -43,7 +41,21 @@ function revealNovel() {
 
 function bootstrapNovelUiSlots() {
     if (!window.PixivUiSlots || typeof window.PixivUiSlots.bootstrap !== 'function') return;
-    window.PixivUiSlots.bootstrap({ targetPrefix: 'novel-detail-' }).catch(() => {});
+    window.PixivUiSlots.bootstrap({
+        targetPrefix: 'novel-detail-', properties: novelSlotProperties(), i18n: () => pageI18n,
+        regions: {content: document.getElementById('content-card'), 'content-language': document.getElementById('contentLangAnchor')},
+        onEvent(name, value) {
+            if (name === 'message') toast(value.message, value.kind);
+            if (name === 'content-language') switchContentLang(value.language);
+        }
+    }).catch(() => {});
+}
+
+function novelSlotProperties() {
+    const data = rerenderPayload?.data || {};
+    return {novelId, seriesId: cachedSeriesNav?.seriesId || null, contentLanguage: activeContentLang || '',
+        contentLanguages: availableContentLangs,
+        language: activeContentLang || data.language || data.xLanguage || ''};
 }
 
 async function loadNovel() {
@@ -117,23 +129,15 @@ async function renderLocal(view) {
 function resolveInitialContentLang(langs) {
     const urlLang = params.get('lang');
     if (urlLang && langs.indexOf(urlLang) !== -1) return urlLang;
-    if (window.PixivContentLang) {
-        const stored = PixivContentLang.getStored();
+    try {
+        const stored = localStorage.getItem('pixiv.contentLang');
         if (stored && langs.indexOf(stored) !== -1) return stored;
-    }
+    } catch (_) {}
     return '';
 }
 
 function mountContentLangSwitcher() {
-    const anchor = document.getElementById('contentLangAnchor');
-    if (!anchor || !window.PixivContentLang) return;
-    contentLangCtl = PixivContentLang.mount({
-        mountPoint: anchor,
-        i18n: pageI18n,
-        languages: availableContentLangs,
-        current: activeContentLang,
-        onChange: (lang) => switchContentLang(lang)
-    });
+    window.PixivUiSlots?.update('novel-detail-', novelSlotProperties());
 }
 
 // 切换内容语言：带 ?lang 参数整页重载，使正文与听书都在该语言下重新初始化（界面语言不受影响）。

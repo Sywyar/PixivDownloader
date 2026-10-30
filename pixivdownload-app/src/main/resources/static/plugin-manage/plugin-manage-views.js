@@ -191,6 +191,36 @@
         return parts.join('');
     }
 
+    function serviceSections(id) {
+        var report = PM.state.report || {};
+        var relations = (report.services || []).filter(function (entry) { return entry.owner.pluginId === id; });
+        function identity(owner) {
+            return PM.t('services.identity', '', {plugin: PM.pluginLabel(owner.pluginId), generation: owner.generation,
+                publication: owner.publicationId});
+        }
+        function dependency(entry) {
+            var providers = entry.providers.map(identity).join('\n');
+            return entry.contractId + ' / ' + entry.typeName + '\n'
+                + (providers || PM.t(entry.truncated ? 'services.partial' : 'services.none'))
+                + (entry.truncated && providers ? '\n' + PM.t('services.partial') : '');
+        }
+        if (!relations.length) return report.servicesTruncated ? [{title: PM.t('services.title'), collapsed: true,
+            paragraphs: [PM.t('services.partial')]}] : [];
+        return relations.map(function (entry) {
+            var fields = [{label: PM.t('services.publication'), value: identity(entry.owner)},
+                {label: PM.t('services.imports'), value: entry.imports.map(dependency).join('\n\n') || PM.t('services.empty')},
+                {label: PM.t('services.exports'), value: entry.exports.map(dependency).join('\n\n') || PM.t('services.empty')}];
+            entry.bindings.forEach(function (binding) {
+                fields.push({label: PM.t('services.binding', '', {id: binding.bindingId}),
+                    value: PM.t('services.reason.' + binding.code, binding.code) + '\n'
+                        + binding.dependencies.map(dependency).join('\n\n')
+                        + (binding.truncated ? '\n' + PM.t('services.partial') : '')});
+            });
+            return {title: PM.t('services.title'), collapsed: true, fields: fields,
+                paragraphs: entry.truncated || report.servicesTruncated ? [PM.t('services.partial')] : []};
+        });
+    }
+
     function detailHtml(vm) {
         var busy = PM.state.busyId === vm.id;
         var parts = ['<p class="pm-detail-status">' + E(vm.phaseLabel || vm.statusLabel) + '</p><p class="pm-detail-description">' + E(vm.desc) + '</p><div class="pm-detail-grid">'];
@@ -204,6 +234,7 @@
                 }).join('\n') : PM.t('common:plugin-info.no-dependencies')
             }])
         }, 'dependencies'));
+        serviceSections(vm.id).forEach(function (section, index) { parts.push(sectionHtml(section, 'services-' + index)); });
         if (vm.showExecutionTag) parts.push(vm.trustSections.map(sectionHtml).join(''));
         if (vm.trustPublisher || vm.trustArtifactSha256 || vm.trustPublisherKeyFingerprint) parts.push(sectionHtml({
             title: PM.t('common:plugin-info.artifact'), collapsed: true, fields: [

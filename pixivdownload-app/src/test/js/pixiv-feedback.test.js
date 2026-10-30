@@ -60,6 +60,8 @@ class FakeElement {
         return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null;
     }
 
+    removeAttribute(name) { delete this.attributes[name]; }
+
     addEventListener(type, listener) {
         (this.listeners[type] || (this.listeners[type] = [])).push(listener);
     }
@@ -161,7 +163,7 @@ function loadFeedback(extras) {
     };
     Object.assign(window, extras || {});
     const context = vm.createContext({
-        window, document, console, Date, Promise, Array, Object, String, Number, Math, Set, URL
+        window, document, console, Date, Promise, Array, Object, String, Number, Math, Set, URL, AbortController
     });
     vm.runInContext(source, context, {filename: 'pixiv-feedback.js'});
     return {document, window, assigned, opened, feedback: window.PixivFeedback};
@@ -194,6 +196,36 @@ function clickEvent(target, values) {
     function ok(condition, label) {
         assert.ok(condition, label);
         passed++;
+    }
+
+    {
+        const {document, feedback} = loadFeedback();
+        let complete, signal;
+        const pending = feedback.prompt({
+            message: 'CSS declarations', confirmLabel: 'Apply', cancelLabel: 'Cancel',
+            multiline: true, validationErrorLabel: 'Try again',
+            validate(value, abort) { signal = abort; return new Promise(resolve => { complete = resolve; }); }
+        });
+        await nextTurn();
+        const input = find(document.body, node => node.tagName === 'TEXTAREA');
+        input.value = 'color: red;\npadding: 8px;';
+        const enter = clickEvent(input, {key: 'Enter'});
+        input.emit('keydown', enter);
+        ok(!enter.defaultPrevented, 'multiline Enter preserves a newline');
+        let apply = actionButton(document, 'accept');
+        actionContainer(apply).emit('click', {target: apply});
+        ok(apply.disabled && input.readOnly, 'validation admits one request and freezes its input');
+        complete('Invalid CSS');
+        await nextTurn();
+        ok(document.contains(input) && input.value.includes('padding') && !input.readOnly, 'validation failure retains editable text');
+        ok(input.getAttribute('aria-invalid') === 'true', 'validation failure is accessible');
+        actionContainer(apply).emit('click', {target: apply});
+        const cancel = actionButton(document, 'cancel');
+        actionContainer(cancel).emit('click', {target: cancel});
+        ok(await pending === null && signal.aborted, 'cancel aborts pending validation');
+        complete(null);
+        await nextTurn();
+        ok(!document.contains(input), 'late validation cannot restore a closed dialog');
     }
 
     {

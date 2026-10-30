@@ -24,6 +24,9 @@ function validate(root, input) {
         break;
       case 'string': {
         text(data, budget);
+        if (schema['x-encoding']) {
+          try { validateWireValue(schema, data); } catch { invalid(); }
+        }
         let length = 0;
         for (const ignored of data) length++;
         if (schema.enum && !schema.enum.includes(data) || length < (schema.minLength ?? 0)

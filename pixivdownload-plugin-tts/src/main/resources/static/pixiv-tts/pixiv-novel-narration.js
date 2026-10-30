@@ -56,6 +56,8 @@
     // 进度跳转等按钮事件由宿主统一分发到本控制器；本控制器只额外接管「朗读分析设置 / 选角与音色 / 冲突」
     // 这些朗读专属控件的监听（分段字数与花名册选择都在设置弹窗内）。
     function attach(opts) {
+        state.signal = opts.signal;
+        ctx.fetch = opts.fetch || global.fetch.bind(global);
         state.i18n = opts.i18n;
         state.toast = opts.toast;
         state.contentEl = opts.contentEl;
@@ -87,7 +89,15 @@
         bindResize();
         bindModal();
 
-        window.addEventListener('beforeunload', () => { cancelCurrent(); clearCache(); });
+        window.addEventListener('beforeunload', destroy, {signal: opts.signal});
+    }
+
+    function destroy() {
+        if (state.destroyed) return;
+        state.destroyed = true;
+        deactivate(); cancelCurrent(); clearCache(); closeCast(); ctx.dialog.destroy();
+        state.blocks = []; state.lines = []; state.contentEl = null; state.i18n = null; state.toast = null;
+        for (const name of Object.keys(els)) els[name] = null;
     }
 
     function setI18n(i18n) {
@@ -103,6 +113,7 @@
 
     global.PixivNovelNarration = {
         attach: attach,
+        destroy,
         setI18n: setI18n,
         activate: activate,
         deactivate: deactivate,

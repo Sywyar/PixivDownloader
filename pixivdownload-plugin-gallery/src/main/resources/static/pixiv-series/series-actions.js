@@ -29,10 +29,10 @@
         const params = new URLSearchParams(location.search);
         const urlLang = params.get('lang');
         if (urlLang && langs.indexOf(urlLang) !== -1) return urlLang;
-        if (window.PixivContentLang) {
-            const stored = PixivContentLang.getStored();
+        try {
+            const stored = localStorage.getItem('pixiv.contentLang');
             if (stored && langs.indexOf(stored) !== -1) return stored;
-        }
+        } catch (_) {}
         return '';
     }
 
@@ -43,31 +43,18 @@
         }
         activeContentLang = resolveInitialContentLang(seriesTranslatedLangs);
         refreshDownloadMergedBtn();
-        const anchor = document.getElementById('contentLangAnchor');
-        if (!anchor || !window.PixivContentLang) return;
-        if (contentLangCtl) {
-            contentLangCtl.setLanguages(seriesTranslatedLangs, activeContentLang);
-            return;
+        window.PixivUiSlots?.update('series-detail-', seriesSlotProperties());
+    }
+
+    async function selectSeriesContentLanguage(lang) {
+        activeContentLang = lang || '';
+        try {
+            await Promise.all([fetchSeriesTitleForLang(activeContentLang), fetchChapterTitlesForLang(activeContentLang, state.items)]);
+        } catch (_) {
+            // 读取失败时保留原文，允许用户再次选择。
         }
-        contentLangCtl = PixivContentLang.mount({
-            mountPoint: anchor,
-            i18n: pageI18n,
-            languages: seriesTranslatedLangs,
-            current: activeContentLang,
-            onChange: async (lang) => {
-                activeContentLang = lang || '';
-                try {
-                    await Promise.all([
-                        fetchSeriesTitleForLang(activeContentLang),
-                        fetchChapterTitlesForLang(activeContentLang, state.items),
-                    ]);
-                } catch (_) {
-                    // 切语言时拉译文失败：先按原文渲染，由用户再次切换重试
-                }
-                renderSeriesHeader();
-                renderGrid(state.items);
-            }
-        });
+        renderSeriesHeader(); renderGrid(state.items);
+        window.PixivUiSlots?.update('series-detail-', seriesSlotProperties());
     }
 
     // 系列名 / 系列简介：一次请求取该语言的译后系列名与系列简介（内存缓存）。

@@ -44,6 +44,8 @@ import top.sywyar.pixivdownload.plugin.lifecycle.PluginRuntimePhase;
 import top.sywyar.pixivdownload.plugin.recovery.RecoveryModeService;
 import top.sywyar.pixivdownload.plugin.runtime.status.RecoveryModeReason;
 import top.sywyar.pixivdownload.plugin.BuiltInPlugins;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationRegistry;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationRegistry.ServiceRelations;
 
 /**
  * 插件管理后端服务（admin-grade、不依赖任何 UI）：在只读状态报告 {@link PluginStatusService} 之上叠加外置插件
@@ -80,6 +82,12 @@ public class PluginManagementService {
     private final ExternalPluginLifecycleCoordinator coordinator;
     private final ExternalPluginInstaller installer;
     private top.sywyar.pixivdownload.plugin.catalog.trust.PluginCatalogRevocationService revocations;
+    private ExternalCapabilityInvocationRegistry serviceRegistry;
+
+    @Autowired
+    void configureServiceRelations(ExternalCapabilityInvocationRegistry registry) {
+        this.serviceRegistry = registry;
+    }
 
     public PluginManagementService(PluginStatusService pluginStatusService,
                                    PluginLifecycleService pluginLifecycleService,
@@ -148,10 +156,12 @@ public class PluginManagementService {
                         status, installedArtifacts, gateBefore, gateBefore.safeToScan());
                 boolean recoveryMode = recoveryModeService.isActive();
                 List<RecoveryModeReason> recoveryReasons = recoveryModeService.reasons();
+                var services = serviceRegistry == null ? null : serviceRegistry.serviceRelations();
                 if (gateBefore.equals(pluginStatusService.recoveryGateSnapshot())
                         && mutationBefore == lifecycleMutationEpoch()) {
                     return new PluginManagementReport(recoveryMode, HostPrivilegeDetector.isElevated(),
-                            TransactionRecoveryView.from(gateBefore), recoveryReasons, entries);
+                            TransactionRecoveryView.from(gateBefore), recoveryReasons, entries,
+                            services == null ? List.of() : services.relations(), services != null && services.truncated());
                 }
             } catch (RecoveryGateChangedException ignored) {
                 // gate 单调变化时丢弃混合快照，用新状态重建。
@@ -548,10 +558,14 @@ public class PluginManagementService {
         var target = entries.stream().filter(entry -> entry.id().equals(id)).findFirst()
                 .orElseThrow(() -> new PluginManagementException(PluginManagementErrorCode.UNKNOWN_PLUGIN,
                         id, "preview", null, "unknown plugin"));
-        var consumers = entries.stream().filter(entry -> entry.dependencies().stream()
+        var serviceImpact = serviceRegistry == null ? null : serviceRegistry.serviceImpact(id);
+        var serviceConsumers = serviceImpact == null ? java.util.Set.<String>of() : serviceImpact.consumers();
+        var consumers = entries.stream().filter(entry -> !entry.id().equals(id))
+                .filter(entry -> serviceConsumers.contains(entry.id()) || entry.dependencies().stream()
                         .anyMatch(dep -> !dep.optional() && dep.pluginId().equals(id)))
                 .sorted(java.util.Comparator.comparing(PluginManagementEntry::id)).toList();
-        String facts = impactFacts(target) + consumers.stream().map(PluginManagementService::impactFacts).toList();
+        String facts = impactFacts(target) + consumers.stream().map(PluginManagementService::impactFacts).toList()
+                + (serviceImpact == null ? 0 : serviceImpact.revision());
         try {
             String fingerprint = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
                     .digest(facts.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
@@ -790,7 +804,14 @@ public class PluginManagementService {
             boolean hostElevated,
             TransactionRecoveryView transactionRecovery,
             List<RecoveryModeReason> recoveryReasons,
-            List<PluginManagementEntry> plugins) {
+            List<PluginManagementEntry> plugins,
+            List<ServiceRelations> services,
+            boolean servicesTruncated) {
+        public PluginManagementReport(boolean recoveryMode, boolean hostElevated,
+                TransactionRecoveryView transactionRecovery, List<RecoveryModeReason> recoveryReasons,
+                List<PluginManagementEntry> plugins) {
+            this(recoveryMode, hostElevated, transactionRecovery, recoveryReasons, plugins, List.of(), false);
+        }
     }
 
     public record TransactionRecoveryView(

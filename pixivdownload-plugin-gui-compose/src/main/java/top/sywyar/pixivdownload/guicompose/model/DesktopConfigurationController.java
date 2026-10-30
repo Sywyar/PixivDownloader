@@ -854,13 +854,13 @@ final class DesktopConfigurationController {
                 file,
                 file.snapshot()
         );
-        Map<String, DesktopUiHost.CredentialSnapshot> credentialSnapshots = new LinkedHashMap<>();
-        for (String owner : secrets.keySet())
-            credentialSnapshots.put(owner, host.snapshotCredentials(owner));
-        try {
-            host.withCredentialLocks(
-                    secrets.keySet(),
-                    () -> {
+        host.withCredentialLocks(
+                secrets.keySet(),
+                () -> {
+                    Map<String, DesktopUiHost.CredentialSnapshot> credentialSnapshots = new LinkedHashMap<>();
+                    for (String owner : secrets.keySet())
+                        credentialSnapshots.put(owner, host.snapshotCredentials(owner));
+                    try {
                         for (Map.Entry<DesktopUiHost.ConfigFile, Map<String, String>> entry : normal.entrySet()) {
                             if (!entry.getValue().isEmpty())
                                 entry.getKey().writeAll(entry.getValue());
@@ -871,27 +871,25 @@ final class DesktopConfigurationController {
                         if (repositoriesChanged) {
                             host.writePluginRepositories(applicationConfig, repositories.entries());
                         }
+                    } catch (Exception failure) {
+                        for (Map.Entry<DesktopUiHost.ConfigFile, DesktopUiHost.ConfigSnapshot> entry : snapshots.entrySet()) {
+                            try {
+                                entry.getKey().restore(entry.getValue());
+                            } catch (Exception rollback) {
+                                failure.addSuppressed(rollback);
+                            }
+                        }
+                        for (Map.Entry<String, DesktopUiHost.CredentialSnapshot> entry : credentialSnapshots.entrySet()) {
+                            try {
+                                host.restoreCredentials(entry.getKey(), entry.getValue());
+                            } catch (Exception rollback) {
+                                failure.addSuppressed(rollback);
+                            }
+                        }
+                        throw failure;
                     }
-            );
-        } catch (Exception failure) {
-            Exception rollbackFailure = null;
-            for (Map.Entry<DesktopUiHost.ConfigFile, DesktopUiHost.ConfigSnapshot> entry : snapshots.entrySet()) {
-                try {
-                    entry.getKey().restore(entry.getValue());
-                } catch (Exception rollback) {
-                    rollbackFailure = rollback;
                 }
-            }
-            for (Map.Entry<String, DesktopUiHost.CredentialSnapshot> entry : credentialSnapshots.entrySet()) {
-                try {
-                    host.restoreCredentials(entry.getKey(), entry.getValue());
-                } catch (Exception rollback) {
-                    rollbackFailure = rollback;
-                }
-            }
-            if (rollbackFailure != null) failure.addSuppressed(rollbackFailure);
-            throw failure;
-        }
+        );
         return normal.getOrDefault(applicationConfig, Map.of());
     }
 

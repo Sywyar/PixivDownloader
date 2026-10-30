@@ -28,6 +28,43 @@ class WebUiSlotRegistryTest {
     }
 
     @Test
+    @DisplayName("公开登录清单只包含精确验证目标，不公开相似前缀或业务槽位")
+    void loginManifestIsRestrictedToExactTarget() {
+        var registry = emptyRegistry();
+        registry.register("demo", List.of(
+                new WebUiSlotContribution("login", "login.verification", "/demo/proof.js", 0),
+                new WebUiSlotContribution("private", "login.verification.private", "/demo/private.js", 0),
+                new WebUiSlotContribution("business", "business", "/demo/business.js", 0)));
+        var controller = new WebUiSlotController(registry);
+        assertThat(controller.loginVerificationSlots()).extracting(WebUiSlotController.UiSlotView::slotId)
+                .containsExactly("login");
+        registry.unregister("demo");
+        assertThat(controller.loginVerificationSlots()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("请求准入撤回立即隐藏槽位，旧 publication 不随同 ID 替代者复活")
+    void publicationFollowsExistingRequestAdmission() {
+        var requests = new top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLeaseRegistry();
+        var registry = new WebUiSlotRegistry(new PluginRegistry(List.of()), requests);
+        var owner = new top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner("demo", 1, 1);
+        requests.publish(owner);
+        registry.register("demo", owner, List.of(slot("demo", "demo.a")));
+        String publication = registry.slots().get(0).publication();
+        assertThat(registry.permits(publication, "demo", owner)).isTrue();
+        assertThat(registry.permits(publication, "other", owner)).isFalse();
+        requests.withdraw(owner);
+        assertThat(registry.slots()).isEmpty();
+        assertThat(registry.permits(publication)).isFalse();
+        registry.unregister("demo");
+        var replacement = new top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner("demo", 1, 2);
+        requests.publish(replacement);
+        registry.register("demo", replacement, List.of(slot("demo", "demo.a")));
+        assertThat(registry.permits(publication)).isFalse();
+        assertThat(registry.permits(registry.slots().get(0).publication(), "demo", replacement)).isTrue();
+    }
+
+    @Test
     @DisplayName("core-only 不携带小说下载 UI 槽位，外置 novel 插件贡献下载页 8 个槽位锚点")
     void collectsUiSlotsFromBuiltInPlugins() {
         WebUiSlotRegistry registry = new WebUiSlotRegistry(new PluginRegistry(BuiltInPlugins.createAll()));
@@ -50,7 +87,7 @@ class WebUiSlotRegistryTest {
     }
 
     @Test
-    @DisplayName("register → unregister → 再 register 后快照与首次注册一致（可逆性）")
+    @DisplayName("重新注册保留槽位声明并生成新发布身份")
     void registerUnregisterRoundTrip() {
         WebUiSlotRegistry registry = emptyRegistry();
         List<WebUiSlotContribution> items = List.of(slot("demo", "demo.a"), slot("demo", "demo.b"));
@@ -59,7 +96,11 @@ class WebUiSlotRegistryTest {
         registry.unregister("demo");
         assertThat(registry.slots()).isEmpty();
         registry.register("demo", items);
-        assertThat(registry.slots()).isEqualTo(first);
+        assertThat(registry.slots()).extracting(WebUiSlotRegistry.RegisteredUiSlot::slot)
+                .containsExactlyElementsOf(items);
+        assertThat(registry.slots().get(0).publication()).isNotEqualTo(first.get(0).publication());
+        assertThat(registry.permits(first.get(0).publication(), "demo", null)).isFalse();
+        assertThat(registry.permits(registry.slots().get(0).publication(), "demo", null)).isTrue();
     }
 
     @Test
@@ -176,7 +217,7 @@ class WebUiSlotRegistryTest {
         registry.register("demo", List.of(slot("demo", "demo.a")));
         List<WebUiSlotRegistry.RegisteredUiSlot> slots = registry.slots();
         assertThatThrownBy(() -> slots.add(
-                new WebUiSlotRegistry.RegisteredUiSlot("x", slot("x", "x.a"))))
+                new WebUiSlotRegistry.RegisteredUiSlot("x", slot("x", "x.a"), "publication", null)))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
@@ -199,7 +240,7 @@ class WebUiSlotRegistryTest {
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThat(WebUiSlotController.UiSlotView.class.getRecordComponents())
                 .extracting(component -> component.getName())
-                .containsExactly("slotId", "target", "moduleUrl", "order", "metadata", "i18nNamespace");
+                .containsExactly("slotId", "target", "moduleUrl", "order", "metadata", "i18nNamespace", "publication");
         registry.unregister("demo");
         assertThat(controller.uiSlots(null)).isEmpty();
     }

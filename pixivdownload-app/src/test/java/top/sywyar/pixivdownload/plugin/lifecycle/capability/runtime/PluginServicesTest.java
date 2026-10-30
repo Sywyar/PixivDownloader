@@ -197,6 +197,74 @@ class PluginServicesTest {
     }
 
     @Test
+    @DisplayName("撤回后拒绝缓存反向代理的新调用，外层退出前保留双方租约")
+    void withdrawnReverseCallCannotReuseOuterConsumerScope() throws Exception {
+        var registry = new ExternalCapabilityInvocationRegistry();
+        var a = prepare(registry, "a");
+        var b = prepare(registry, "b");
+        var reverse = new ServiceKey<>("reverse-contract", Echo.class);
+        var fromA = registry.servicesFor(a, List.of(KEY));
+        var fromB = registry.servicesFor(b, List.of(reverse));
+        var reverseCalls = new java.util.concurrent.atomic.AtomicInteger();
+        var cached = new AtomicReference<Echo>();
+        var entered = new CountDownLatch(1);
+        var invokeReverse = new CountDownLatch(1);
+        var attempted = new CountDownLatch(1);
+        var exitOuter = new CountDownLatch(1);
+        var reverseFailure = new AtomicReference<ServiceAccessException>();
+        var outerFailure = new AtomicReference<Throwable>();
+        registry.prepareService(a, reverse, value -> { reverseCalls.incrementAndGet(); return value; });
+        registry.prepareService(b, KEY, value -> {
+            entered.countDown();
+            await(invokeReverse);
+            try { cached.get().echo(value); }
+            catch (ServiceAccessException failure) { reverseFailure.set(failure); }
+            finally { attempted.countDown(); }
+            await(exitOuter);
+            return value;
+        });
+        var publicationA = registry.publish(a);
+        var publicationB = registry.publish(b);
+        cached.set(fromB.require(reverse));
+        var forward = fromA.require(KEY);
+        var call = new Thread(() -> {
+            try { assertThat(forward.echo("outer")).isEqualTo("outer"); }
+            catch (Throwable failure) { outerFailure.set(failure); }
+        });
+        call.start();
+        try {
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            var drainA = registry.withdraw(publicationA).orElseThrow();
+            invokeReverse.countDown();
+            assertThat(attempted.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(reverseCalls).hasValue(0);
+            assertThat(reverseFailure.get()).isNotNull();
+            assertThat(reverseFailure.get().reason()).isEqualTo(ServiceAccessException.Reason.UNAVAILABLE);
+            var drainB = registry.withdraw(publicationB).orElseThrow();
+            assertThat(drainA.isDrained()).isFalse();
+            assertThat(drainB.isDrained()).isFalse();
+            assertThatThrownBy(() -> registry.retireDrained(drainA)).isInstanceOf(IllegalStateException.class);
+            exitOuter.countDown();
+            call.join(5000);
+            assertThat(call.isAlive()).isFalse();
+            assertThat(outerFailure.get()).isNull();
+            assertThat(drainA.isDrained()).isTrue();
+            assertThat(drainB.isDrained()).isTrue();
+            registry.retireDrained(drainA);
+            registry.retireDrained(drainB);
+        } finally {
+            invokeReverse.countDown();
+            exitOuter.countDown();
+            call.join(5000);
+        }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try { assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue(); }
+        catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new AssertionError(interrupted); }
+    }
+
+    @Test
     @DisplayName("发布到 STARTED 及 QUIESCED 到撤回之间均拒绝新服务调用")
     void requiresHostAdmissionForBothOwners() {
         var state = new top.sywyar.pixivdownload.plugin.lifecycle.PluginLifecycleState();

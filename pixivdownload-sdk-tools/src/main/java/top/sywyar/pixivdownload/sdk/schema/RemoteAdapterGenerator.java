@@ -7,63 +7,169 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.jar.JarFile;
 
-/** 从显式编译依赖提取生成适配器；不加载契约类，不启用第三方注解处理器。 */
+/** 整批服务共用完成标记；Java、JS 与声明文件全部就位才允许打包。 */
 public final class RemoteAdapterGenerator {
     private static final String PREFIX = "META-INF/pixivdownload/schema/";
     private RemoteAdapterGenerator() { }
 
     public static void generate(Path module, String classpath, String service) throws IOException {
+        generate(module, classpath, List.of(service));
+    }
+
+    /**
+     * services 是本模块的完整集合；空集合撤回全部生成物。
+     * 失败清理本工具拥有的旧、新产物与标记，不允许将上次结果误装入新包。
+     */
+    public static void generate(Path module, String classpath, List<String> services) throws IOException {
         module = module.toRealPath();
-        if (!javax.lang.model.SourceVersion.isName(service) || !service.contains(".")) throw new IOException("SDK_REMOTE_SERVICE");
         Path completion = module.resolve("target/remote-generation.complete");
-        SchemaGenerator.requireLocalPath(module, completion);
-        Files.deleteIfExists(completion);
         Path manifest = module.resolve("target/remote-generated-files.txt");
+        SchemaGenerator.requireLocalPath(module, completion);
         SchemaGenerator.requireLocalPath(module, manifest);
-        if (Files.exists(manifest)) {
-            for (String name : Files.readAllLines(manifest, StandardCharsets.UTF_8)) {
-                Path path = module.resolve(name).normalize();
-                if (!path.startsWith(module.resolve("target/")) || !name.startsWith("target/")) throw new IOException("SDK_REMOTE_OUTPUT_PATH");
-                SchemaGenerator.requireLocalPath(module, path);
-                if (Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) Files.delete(path);
+        Files.deleteIfExists(completion);
+        Set<String> owned = new LinkedHashSet<>(readManifest(module, manifest));
+        Path stage = null;
+        boolean completed = false;
+        try {
+            if (services.size() > 128 || services.stream().distinct().count() != services.size()) {
+                throw new IOException("SDK_REMOTE_SERVICE_LIMIT");
+            }
+            for (String service : services) {
+                if (service == null || !javax.lang.model.SourceVersion.isName(service) || !service.contains(".")) {
+                    throw new IOException("SDK_REMOTE_SERVICE");
+                }
+            }
+            Files.createDirectories(completion.getParent());
+            stage = Files.createTempDirectory(completion.getParent(), ".remote-stage-");
+            Map<String, byte[]> outputs = new LinkedHashMap<>();
+            Map<String, String> identities = new TreeMap<>();
+            List<Path> sources = new ArrayList<>();
+            Set<String> routes = new HashSet<>();
+            long total = 0;
+            for (String service : services.stream().sorted().toList()) {
+                Map<String, byte[]> files = new LinkedHashMap<>();
+                for (String extension : List.of(".remote.json", ".java.src", ".mjs", ".d.mts")) {
+                    byte[] bytes = readClasspath(classpath, PREFIX + service + extension);
+                    total += bytes.length;
+                    if (total > 16L * 1024 * 1024) throw new IOException("SDK_REMOTE_OUTPUT_LIMIT");
+                    files.put(extension, bytes);
+                }
+                var descriptor = SchemaFiles.JSON.readTree(files.get(".remote.json"));
+                String identity = descriptor.path("identity").asText();
+                if (!identity.matches("[a-f0-9]{64}") || !descriptor.path("service").asText().equals(service)) {
+                    throw new IOException("SDK_REMOTE_CONTRACT");
+                }
+                for (var operation : descriptor.path("operations")) {
+                    if (!routes.add(operation.path("method").asText() + " " + operation.path("path").asText())) {
+                        throw new IOException("SDK_REMOTE_ROUTE_COLLISION");
+                    }
+                }
+                for (String extension : List.of(".java.src", ".mjs", ".d.mts")) {
+                    if (!new String(files.get(extension), StandardCharsets.UTF_8).contains(identity)) {
+                        throw new IOException("SDK_REMOTE_MIXED_OUTPUT");
+                    }
+                }
+                String source = "target/generated-sources/remote/" + adapterName(service).replace('.', '/') + ".java";
+                outputs.put(source, files.get(".java.src"));
+                outputs.put("target/classes/web/generated/" + service + ".mjs", files.get(".mjs"));
+                outputs.put("target/classes/web/generated/" + service + ".d.mts", files.get(".d.mts"));
+                sources.add(stage.resolve(source));
+                identities.put(service, identity);
+            }
+            for (var output : outputs.entrySet()) {
+                Path staged = stage.resolve(output.getKey());
+                Files.createDirectories(staged.getParent());
+                Files.write(staged, output.getValue());
+            }
+            Path classes = stage.resolve("target/classes");
+            Files.createDirectories(classes);
+            if (!sources.isEmpty()) compile(classpath, sources, classes);
+            Set<String> next = new LinkedHashSet<>(outputs.keySet());
+            try (var paths = Files.walk(classes)) {
+                for (Path file : paths.filter(Files::isRegularFile).toList()) {
+                    next.add(stage.relativize(file).toString().replace(File.separatorChar, '/'));
+                }
+            }
+            // 清单记录编译器实际输出，包含内部类；移除旧服务不能留下旧 .class。
+            owned.addAll(next);
+            for (String name : owned) requireOutput(module, name);
+            Files.write(manifest, owned, StandardCharsets.UTF_8);
+            removeOwned(module, owned);
+            for (String name : next) {
+                Path destination = module.resolve(name);
+                Files.createDirectories(destination.getParent());
+                Files.move(stage.resolve(name), destination, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            }
+            Files.write(manifest, next, StandardCharsets.UTF_8);
+            Path marker = stage.resolve("complete");
+            Files.write(marker, SchemaFiles.JSON.writeValueAsBytes(identities));
+            Files.move(marker, completion, StandardCopyOption.ATOMIC_MOVE);
+            completed = true;
+        } finally {
+            try {
+                if (!completed) {
+                    Files.deleteIfExists(completion);
+                    removeOwned(module, owned);
+                }
+            } finally {
+                if (stage != null) removeStage(module, stage);
             }
         }
-        Map<String, byte[]> files = new LinkedHashMap<>();
-        for (String extension : List.of(".remote.json", ".java.src", ".mjs", ".d.mts")) {
-            files.put(extension, readClasspath(classpath, PREFIX + service + extension));
-        }
-        var descriptor = SchemaFiles.JSON.readTree(files.get(".remote.json"));
-        String identity = descriptor.path("identity").asText();
-        if (!identity.matches("[a-f0-9]{64}") || !descriptor.path("service").asText().equals(service)) throw new IOException("SDK_REMOTE_CONTRACT");
-        for (String extension : List.of(".java.src", ".mjs", ".d.mts"))
-            if (!new String(files.get(extension), StandardCharsets.UTF_8).contains(identity)) throw new IOException("SDK_REMOTE_MIXED_OUTPUT");
+    }
+
+    static String adapterName(String service) {
         int dot = service.lastIndexOf('.');
-        String adapter = "pixivdownload/generated/remote/" + service.substring(dot + 1) + "RemoteAdapter";
-        Map<String, byte[]> outputs = new LinkedHashMap<>();
-        String source = "target/generated-sources/remote/" + adapter + ".java";
-        outputs.put(source, files.get(".java.src"));
-        outputs.put("target/classes/web/generated/" + service + ".mjs", files.get(".mjs"));
-        outputs.put("target/classes/web/generated/" + service + ".d.mts", files.get(".d.mts"));
-        List<String> owned = new ArrayList<>(outputs.keySet());
-        owned.add("target/classes/" + adapter + ".class");
-        for (String name : owned) SchemaGenerator.requireLocalPath(module, module.resolve(name));
-        Files.createDirectories(manifest.getParent());
-        Files.write(manifest, owned, StandardCharsets.UTF_8);
-        for (var output : outputs.entrySet()) {
-            Path path = module.resolve(output.getKey());
-            Files.createDirectories(path.getParent()); Files.write(path, output.getValue());
-        }
+        return "pixivdownload.generated.remote." + service.substring(0, dot) + "."
+                + service.substring(dot + 1) + "RemoteAdapter";
+    }
+
+    private static void compile(String classpath, List<Path> sources, Path classes) throws IOException {
         var compiler = ToolProvider.getSystemJavaCompiler();
         if (compiler == null) throw new IOException("SDK_REMOTE_REQUIRES_JDK");
         var diagnostics = new DiagnosticCollector<JavaFileObject>();
         try (var manager = compiler.getStandardFileManager(diagnostics, Locale.ROOT, StandardCharsets.UTF_8)) {
             var task = compiler.getTask(null, manager, diagnostics,
                     List.of("--release", "17", "-proc:none", "-encoding", "UTF-8", "-classpath", classpath,
-                            "-d", module.resolve("target/classes").toString()), null,
-                    manager.getJavaFileObjects(module.resolve(source).toFile()));
+                            "-d", classes.toString()), null, manager.getJavaFileObjectsFromPaths(sources));
             if (!task.call()) throw new IOException("SDK_REMOTE_ADAPTER_COMPILE");
         }
-        Files.writeString(completion, identity, StandardCharsets.UTF_8);
+    }
+
+    private static List<String> readManifest(Path module, Path manifest) throws IOException {
+        if (!Files.exists(manifest)) return List.of();
+        byte[] bytes;
+        try (var input = Files.newInputStream(manifest)) { bytes = input.readNBytes(1024 * 1024 + 1); }
+        if (bytes.length > 1024 * 1024) throw new IOException("SDK_REMOTE_OUTPUT_LIMIT");
+        var names = new String(bytes, StandardCharsets.UTF_8).lines().toList();
+        if (names.size() > 4096) throw new IOException("SDK_REMOTE_OUTPUT_LIMIT");
+        for (String name : names) requireOutput(module, name);
+        return names;
+    }
+
+    private static void requireOutput(Path module, String name) throws IOException {
+        Path path = module.resolve(name).normalize();
+        if (name.length() > 1024 || !name.startsWith("target/") || !path.startsWith(module.resolve("target"))) {
+            throw new IOException("SDK_REMOTE_OUTPUT_PATH");
+        }
+        SchemaGenerator.requireLocalPath(module, path);
+        if (Files.exists(path, LinkOption.NOFOLLOW_LINKS) && !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("SDK_REMOTE_OUTPUT_PATH");
+        }
+    }
+
+    private static void removeOwned(Path module, Collection<String> names) throws IOException {
+        for (String name : names) requireOutput(module, name);
+        for (String name : names) Files.deleteIfExists(module.resolve(name));
+    }
+
+    private static void removeStage(Path module, Path stage) throws IOException {
+        SchemaGenerator.requireLocalPath(module, stage);
+        try (var paths = Files.walk(stage)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                SchemaGenerator.requireLocalPath(module, path);
+                Files.delete(path);
+            }
+        }
     }
 
     private static byte[] readClasspath(String classpath, String resource) throws IOException {

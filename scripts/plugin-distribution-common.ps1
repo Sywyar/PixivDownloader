@@ -109,6 +109,7 @@ function Get-OfficialDefaultInstalledPlugins {
             )
         },
         [pscustomobject]@{ Id = "gallery-tools"; Module = "pixivdownload-plugin-gallery-tools"; Format = "jar"; PrivateLibs = $false },
+        [pscustomobject]@{ Id = "page-editor"; Module = "pixivdownload-plugin-page-editor"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "posthog"; Module = "pixivdownload-plugin-posthog"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "gallery"; Module = "pixivdownload-plugin-gallery"; Format = "jar"; PrivateLibs = $false },
         [pscustomobject]@{ Id = "novel"; Module = "pixivdownload-plugin-novel"; Format = "jar"; PrivateLibs = $false },

@@ -18,7 +18,22 @@
         await renderCastList();
         els.castModal.classList.add('open');
     }
-    function closeCast() { els.castModal.classList.remove('open'); }
+    function closeCast() { els.castModal?.classList.remove('open'); }
+
+    function playPreview(blob, restore) {
+        if (state.signal?.aborted) { restore(); return; }
+        const url = URL.createObjectURL(blob), audio = new Audio(url);
+        let closed = false;
+        const finish = () => {
+            if (closed) return; closed = true;
+            state.signal?.removeEventListener('abort', finish);
+            audio.onended = null; audio.onerror = null;
+            audio.pause(); audio.removeAttribute('src'); audio.load();
+            URL.revokeObjectURL(url); restore();
+        };
+        state.signal?.addEventListener('abort', finish, {once: true});
+        audio.onended = finish; audio.onerror = finish; audio.play().catch(finish);
+    }
 
     function conflictTypeLabel(type) {
         if (type === 'contradiction') return t('narration:conflict.type.contradiction', '与正文矛盾');
@@ -92,7 +107,7 @@
         let voices = [];
         if (state.editCastId > 0) {
             try {
-                const r = await fetch('/api/narration/casts/' + encodeURIComponent(state.editCastId) + '/voices',
+                const r = await (ctx.fetch || global.fetch.bind(global))('/api/narration/casts/' + encodeURIComponent(state.editCastId) + '/voices',
                     { credentials: 'same-origin' });
                 if (r.ok) { const data = await r.json(); voices = Array.isArray(data.voices) ? data.voices : []; }
             } catch {}
@@ -279,7 +294,7 @@
         button.textContent = t('narration:cast.ref.generating', '生成中…');
         let done = false;
         try {
-            const r = await fetch('/api/narration/cast/voice/reference/generate', {
+            const r = await (ctx.fetch || global.fetch.bind(global))('/api/narration/cast/voice/reference/generate', {
                 method: 'POST', credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ castId: state.editCastId, characterId: v.id, text: seed })
@@ -308,18 +323,13 @@
         button.disabled = true;
         button.textContent = t('narration:cast.ref.loading', '加载中…');
         try {
-            const r = await fetch('/api/narration/cast/voice/reference?castId='
+            const r = await (ctx.fetch || global.fetch.bind(global))('/api/narration/cast/voice/reference?castId='
                 + encodeURIComponent(state.editCastId) + '&characterId=' + encodeURIComponent(characterId),
                 { credentials: 'same-origin' });
             if (!r.ok) throw new Error('HTTP ' + r.status);
             const blob = await r.blob();
-            const url = URL.createObjectURL(blob);
-            const audio = new Audio(url);
-            const finish = () => { try { URL.revokeObjectURL(url); } catch {} restore(); };
-            audio.onended = finish;
-            audio.onerror = finish;
             button.textContent = t('narration:cast.previewing', '试听中…');
-            audio.play().catch(finish);
+            playPreview(blob, restore);
         } catch (e) {
             state.toast && state.toast(t('narration:toast.ref.failed', '参考音操作失败：{message}',
                 { message: String(e && e.message ? e.message : e) }), 'error');
@@ -345,7 +355,7 @@
                 form.append('file', file);
                 if (transcript != null && transcript.trim()) form.append('refText', transcript.trim());
                 try {
-                    const r = await fetch('/api/narration/cast/voice/reference',
+                    const r = await (ctx.fetch || global.fetch.bind(global))('/api/narration/cast/voice/reference',
                         { method: 'POST', credentials: 'same-origin', body: form });
                     if (!r.ok) {
                         let msg = 'HTTP ' + r.status;
@@ -376,7 +386,7 @@
         }
         let done = false;
         try {
-            const r = await fetch('/api/narration/cast/voice/reference?castId='
+            const r = await (ctx.fetch || global.fetch.bind(global))('/api/narration/cast/voice/reference?castId='
                 + encodeURIComponent(state.editCastId) + '&characterId=' + encodeURIComponent(v.id),
                 { method: 'DELETE', credentials: 'same-origin' });
             if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -408,7 +418,7 @@
         btn.disabled = true;
         btn.textContent = t('narration:cast.generating', '生成中…');
         try {
-            const r = await fetch('/api/narration/tts/preview', {
+            const r = await (ctx.fetch || global.fetch.bind(global))('/api/narration/tts/preview', {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
@@ -420,13 +430,8 @@
                 throw new Error(msg);
             }
             const blob = await r.blob();
-            const url = URL.createObjectURL(blob);
-            const audio = new Audio(url);
-            const done = () => { try { URL.revokeObjectURL(url); } catch {} restore(); };
-            audio.onended = done;
-            audio.onerror = done;
             btn.textContent = t('narration:cast.previewing', '试听中…'); // 合成完成、进入播放态
-            audio.play().catch(done);
+            playPreview(blob, restore);
         } catch (e) {
             state.toast && state.toast(t('narration:toast.synth-failed', '合成失败：{message}', { message: String(e && e.message ? e.message : e) }), 'error');
             restore();
@@ -441,7 +446,7 @@
 
     async function saveVoice(characterId, instruction) {
         try {
-            const r = await fetch('/api/narration/cast/voice', {
+            const r = await (ctx.fetch || global.fetch.bind(global))('/api/narration/cast/voice', {
                 method: 'PUT',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },

@@ -74,7 +74,7 @@ public final class PluginSdkUsage {
         if (!missing.isEmpty()) throw new IOException("PLUGIN_REQUIRES_NEWER_SDK: " + plugin.getFileName() + ": " + missing);
     }
 
-    private static String resolve(Map<String, Shape> classes, String owner, String member, Set<String> visited) {
+    static String resolve(Map<String, Shape> classes, String owner, String member, Set<String> visited) {
         if (!visited.add(owner)) return null;
         Shape shape = classes.get(owner);
         if (shape == null) return null;
@@ -88,7 +88,7 @@ public final class PluginSdkUsage {
         return null;
     }
 
-    private static Map<String, Shape> read(List<Path> jars) throws IOException {
+    static Map<String, Shape> read(List<Path> jars) throws IOException {
         Map<String, Shape> result = new HashMap<>();
         Budget budget = new Budget();
         for (Path jar : jars) {
@@ -150,9 +150,18 @@ public final class PluginSdkUsage {
 
     private static Shape shape(ClassReader reader) {
         Shape shape = new Shape();
+        shape.access = reader.getAccess();
         if (reader.getSuperName() != null) shape.parents.add(reader.getSuperName());
         shape.parents.addAll(List.of(reader.getInterfaces()));
         reader.accept(new ClassVisitor(Opcodes.ASM9) {
+            @Override public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
+                shape.version = version;
+                shape.signature = signature;
+            }
+            @Override public void visitInnerClass(String name, String outer, String inner, int access) {
+                if (name.equals(reader.getClassName())) shape.access = access;
+            }
+            @Override public void visitPermittedSubclass(String name) { shape.permitted.add(name); }
             @Override public AnnotationVisitor visitAnnotation(String descriptor, boolean visible) {
                 return annotation(descriptor, shape);
             }
@@ -161,6 +170,7 @@ public final class PluginSdkUsage {
             }
             @Override public FieldVisitor visitField(int access, String name, String descriptor, String signature, Object value) {
                 member(shape, access, name + descriptor);
+                shape.details.put(name + descriptor, new Member(access, signature, List.of(), value));
                 types(descriptor, shape.types);
                 return new FieldVisitor(Opcodes.ASM9) {
                     @Override public AnnotationVisitor visitAnnotation(String d, boolean visible) { return annotation(d, shape); }
@@ -171,6 +181,8 @@ public final class PluginSdkUsage {
             }
             @Override public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
                 member(shape, access, name + descriptor);
+                shape.details.put(name + descriptor, new Member(access, signature,
+                        exceptions == null ? List.of() : List.of(exceptions), null));
                 types(descriptor, shape.types);
                 return new MethodVisitor(Opcodes.ASM9) {
                     @Override public AnnotationVisitor visitAnnotation(String d, boolean visible) { return annotation(d, shape); }
@@ -241,13 +253,20 @@ public final class PluginSdkUsage {
         }
     }
 
-    private static final class Shape {
+    static final class Shape {
+        int access;
+        int version;
+        String signature;
+        final Set<String> permitted = new HashSet<>();
+        final Map<String, Member> details = new HashMap<>();
         final List<String> parents = new ArrayList<>();
         final Set<String> members = new HashSet<>();
         final Set<String> publicMembers = new HashSet<>();
         final Set<String> types = new HashSet<>();
         final Set<Reference> references = new HashSet<>();
     }
+
+    record Member(int access, String signature, List<String> exceptions, Object constant) { }
 
     private record Reference(String owner, String member) { }
 

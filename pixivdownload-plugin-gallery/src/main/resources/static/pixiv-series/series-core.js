@@ -22,7 +22,6 @@
     let searchTimer = null;
     let activeContentLang = '';
     let seriesTranslatedLangs = [];
-    let contentLangCtl = null;
     // 译后系列名 / 系列简介按语言缓存，避免切语言时反复请求（首次请求 /series/{id}?lang= 获取后塞入）
     const seriesTitleByLang = {};
     const seriesDescriptionByLang = {};
@@ -153,7 +152,7 @@
                 pageI18n = nextClient;
                 applyStaticPageTranslations();
                 if (window.PixivNav) PixivNav.refresh();
-                if (contentLangCtl) contentLangCtl.relabel(pageI18n);
+                window.PixivUiSlots?.update('series-detail-', seriesSlotProperties());
             }
         });
         PixivTheme.mount({

@@ -36,6 +36,7 @@
   dHash), with adjustable threshold, cross-artwork/all scope switching, and manual scan backfill
 - Plugin management page: a card list showing every plugin with status, source, version, and dependencies; load, start, quiet, stop, unload, remove, restart, and reload actions for external plugins
 - Plugin marketplace: browse, search and install plugins from trusted repositories, with version notes and screenshots.
+- [Page editor](https://sywyar.github.io/PixivDownloader/#/en/page-editor): drag plugin components, edit layouts and styles, preview, save drafts, publish and restore pages.
 - Scheduled tasks: automatically discover and download new works in the background on a fixed interval or cron schedule, with sources such as artists' new works, saved searches, and series; plugins can add more sources
 - Email / push notifications: events needing manual attention are delivered via email and push channels; each notification type individually toggleable
 - Novel download and series compilation (TXT/HTML/EPUB with multi-level TOC and embedded images)

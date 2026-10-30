@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.networknt.schema.SchemaRegistry;
 import com.networknt.schema.SpecificationVersion;
+import top.sywyar.pixivdownload.plugin.api.contract.schema.ValueEncoding;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -37,8 +38,46 @@ public final class SchemaFiles {
         if (!DIALECT.equals(definition.path("$schema").asText())) throw new IOException("SDK_SCHEMA_DIALECT");
         new Shape(definition).check();
         var validator = SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_2020_12).getSchema(definition);
-        var failures = validator.validate(read(data));
+        JsonNode input = read(data);
+        checkEncoding(definition, definition, input, new int[1], 0);
+        var failures = validator.validate(input);
         if (!failures.isEmpty()) throw new IOException("SDK_SCHEMA_DATA_INVALID");
+    }
+
+    private static void checkEncoding(JsonNode root, JsonNode schema, JsonNode value, int[] nodes, int depth) throws IOException {
+        if (++nodes[0] > 16384 || depth > 32) throw new IOException("SDK_SCHEMA_DATA_LIMIT");
+        if (value == null || value.isNull()) return;
+        if (schema.has("$ref")) { checkEncoding(root, root.path("$defs").path(schema.path("$ref").asText().substring(8)), value, nodes, depth + 1); return; }
+        if (schema.has("anyOf")) { checkEncoding(root, schema.path("anyOf").get(0), value, nodes, depth + 1); return; }
+        if (schema.has("x-encoding")) {
+            try {
+                Object decoded = encoding(schema).decode(value.textValue());
+                if (decoded instanceof Long number && (number < Long.parseLong(schema.path("x-minimum").asText())
+                        || number > Long.parseLong(schema.path("x-maximum").asText()))) throw new IllegalArgumentException();
+            } catch (IllegalArgumentException failure) { throw new IOException("SDK_SCHEMA_DATA_INVALID"); }
+        } else if (value.isArray()) {
+            for (JsonNode item : value) checkEncoding(root, schema.path("items"), item, nodes, depth + 1);
+        } else if (value.isObject()) {
+            var fields = value.fields();
+            while (fields.hasNext()) {
+                var field = fields.next();
+                checkEncoding(root, schema.has("properties") ? schema.path("properties").path(field.getKey())
+                        : schema.path("additionalProperties"), field.getValue(), nodes, depth + 1);
+            }
+        }
+    }
+
+    private static ValueEncoding encoding(JsonNode schema) throws IOException {
+        try {
+            ValueEncoding encoding = ValueEncoding.valueOf(schema.path("x-encoding").asText());
+            if (encoding == ValueEncoding.JSON) throw new IllegalArgumentException();
+            if (encoding == ValueEncoding.DECIMAL_STRING) {
+                long min = (Long) encoding.decode(schema.path("x-minimum").asText());
+                long max = (Long) encoding.decode(schema.path("x-maximum").asText());
+                if (min > max) throw new IllegalArgumentException();
+            } else if (schema.has("x-minimum") || schema.has("x-maximum")) throw new IllegalArgumentException();
+            return encoding;
+        } catch (IllegalArgumentException failure) { throw new IOException("SDK_SCHEMA_DOCUMENT_INVALID"); }
     }
 
     /** 只认生成器的结构，nullable 的唯一非 null 分支不会形成组合式搜索。 */
@@ -87,7 +126,9 @@ public final class SchemaFiles {
             }
             switch (schema.path("type").asText()) {
                 case "string" -> {
-                    keys(schema, Set.of("type", "enum", "minLength", "maxLength"));
+                    keys(schema, Set.of("type", "enum", "minLength", "maxLength", "x-encoding", "x-minimum", "x-maximum"));
+                    if (schema.has("x-encoding")) encoding(schema);
+                    else if (schema.has("x-minimum") || schema.has("x-maximum")) throw invalid();
                     bounds(schema, "minLength", "maxLength");
                     if (schema.has("enum")) {
                         if (!schema.get("enum").isArray() || schema.get("enum").isEmpty()) throw invalid();

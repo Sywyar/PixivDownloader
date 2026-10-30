@@ -1,6 +1,12 @@
 /* AI 翻译请求、批量执行与进度状态。 */
 (function (global) {
     'use strict';
+    function create(scope = {}) {
+    const fetch = scope.fetch || global.fetch.bind(global);
+    const signal = scope.signal;
+    const cleanups = new Set();
+    const dispose = () => { for (const cleanup of [...cleanups]) cleanup(); cleanups.clear(); };
+    signal?.addEventListener('abort', dispose, {once: true});
 
     function tt(i18n, key, fallback, vars) {
         if (i18n && typeof i18n.t === 'function') {
@@ -278,6 +284,8 @@
         if (activeJob) { showProgressDialog(); return null; }
         var i18n = opts.i18n;
         var controller = new AbortController();
+        const cancelScope = () => { cancelled = true; controller.abort(); };
+        signal?.addEventListener('abort', cancelScope, {once: true});
         var state = {
             type: 'single',
             i18n: i18n,
@@ -325,6 +333,7 @@
             }
         }
 
+        signal?.removeEventListener('abort', cancelScope);
         endProgressJob();
         if (cancelled) return { cancelled: true };
         if (error) return { error: error };
@@ -336,6 +345,8 @@
         if (activeJob) { showProgressDialog(); return null; }
         var i18n = opts.i18n;
         var controller = new AbortController();
+        const cancelScope = () => { cancelled = true; controller.abort(); };
+        signal?.addEventListener('abort', cancelScope, {once: true});
         var state = {
             type: 'series',
             i18n: i18n,
@@ -369,11 +380,13 @@
         try {
             ids = await fetchSeriesNovelIds(opts.seriesId);
         } catch (e) {
-            endProgressJob();
+            signal?.removeEventListener('abort', cancelScope);
+        endProgressJob();
             return { error: e };
         }
         if (!ids.length) {
-            endProgressJob();
+            signal?.removeEventListener('abort', cancelScope);
+        endProgressJob();
             return { empty: true };
         }
         state.total = ids.length;
@@ -445,6 +458,7 @@
                 mergeFailed = e;
             }
         }
+        signal?.removeEventListener('abort', cancelScope);
         endProgressJob();
         return {
             cancelled: cancelled,
@@ -459,8 +473,13 @@
     function hasActiveJob() { return !!activeJob; }
     function showActiveJob() { if (activeJob) showProgressDialog(); }
 
-    global.PixivTranslate = {
-        openDialog: function (opts) { return global.PixivTranslateDialog.openDialog(opts); },
+    let dialog;
+    cleanups.add(() => { endProgressJob(); progressEl?.remove(); dialog?.destroy(); });
+    return {
+        openDialog: function (opts) {
+            if (!dialog) dialog = global.PixivTranslateDialog.create(scope);
+            return dialog.openDialog(opts);
+        },
         isAiConfigured: isAiConfigured,
         translateNovel: translateNovel,
         translateSeriesTitle: translateSeriesTitle,
@@ -473,7 +492,10 @@
         STATUS_OK: 'OK',
         STATUS_SKIPPED: 'SKIPPED',
         STATUS_SAME_LANGUAGE: 'SAME_LANGUAGE',
-        STATUS_INVALID_LANGUAGE: 'INVALID_LANGUAGE'
+        STATUS_INVALID_LANGUAGE: 'INVALID_LANGUAGE',
+        destroy: dispose
     };
 
+    }
+    global.PixivTranslate = {...create(), create};
 })(window);

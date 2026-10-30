@@ -20,7 +20,7 @@ jar(src/"probe-api.jar",src/"api-classes")
 api=(src/"probe-api.jar").read_bytes()
 compile_one("Contract.java",src/"wrapper-classes")
 def props(id,cls,extra=""):
-    return "plugin.id="+id+"\nplugin.version=0.1.0\nplugin.requires=1.4\nplugin.class="+cls+"\nplugin.provider=Acceptance\nplugin.description=Isolated fixture\npixiv.kind=feature\npixiv.execution-mode=host-process-full-trust\n"+extra
+    return "plugin.id="+id+"\nplugin.version=0.1.0\nplugin.requires="+version+"\nplugin.class="+cls+"\nplugin.provider=Acceptance\nplugin.description=Isolated fixture\npixiv.kind=feature\npixiv.execution-mode=host-process-full-trust\n"+extra
 jar(src/"probe-contract.jar",src/"wrapper-classes",props("probe-contract","acceptance.wrapper.Contract","pixiv.lifecycle-policy=process-restart\npixiv.contract-api=lib/probe-api.jar\npixiv.contract-sha256="+hashlib.sha256(api).hexdigest()+"\n"),{"lib/probe-api.jar":api})
 compile_one("Participant.java",src/"participant-classes",os.pathsep+str(src/"probe-api.jar"))
 for id in ["probe-provider","probe-provider-two","probe-provider-broken","probe-consumer"]:
@@ -34,8 +34,12 @@ remote=root/"remote-contract"
 java=remote/"src/main/java/acceptance/remotecontract/RemoteLedger.java"
 java.parent.mkdir(parents=True,exist_ok=True)
 shutil.copyfile(sources/"RemoteLedger.java",java)
+encoded=java.parent/"encoded/RemoteLedger.java"
+encoded.parent.mkdir(parents=True,exist_ok=True)
+shutil.copyfile(sources/"encoded/RemoteLedger.java",encoded)
 subprocess.run(["java","-jar",str(tools),"schema",str(remote),cp],check=True)
 compile_one("RemoteLedger.java",src/"remote-api-classes")
+compile_one("encoded/RemoteLedger.java",src/"remote-api-classes")
 schemas=remote/"target/classes"
 extra={f.relative_to(schemas).as_posix():f.read_bytes() for f in schemas.rglob("*") if f.is_file()}
 jar(src/"remote-ledger-api.jar",src/"remote-api-classes",extra=extra)
@@ -47,7 +51,7 @@ remote_consumer.mkdir(parents=True,exist_ok=True)
 # JavaCompiler 需要展开的 JAR 列表，而不是 java 启动器的通配符。
 remote_cp=cp.replace(str(host/"BOOT-INF/lib/*"),os.pathsep.join(str(p) for p in sorted((host/"BOOT-INF/lib").glob("*.jar"))))
 remote_cp+=os.pathsep+str(src/"remote-ledger-api.jar")
-subprocess.run(["java","-jar",str(tools),"remote",str(remote_consumer),remote_cp,"acceptance.remotecontract.RemoteLedger"],check=True)
+subprocess.run(["java","-jar",str(tools),"remote",str(remote_consumer),remote_cp,"acceptance.remotecontract.RemoteLedger","acceptance.remotecontract.encoded.RemoteLedger"],check=True)
 compile_one("RemoteParticipant.java",src/"remote-participant-classes",os.pathsep+str(src/"remote-ledger-api.jar")+os.pathsep+str(remote_consumer/"target/classes"))
 generated=remote_consumer/"target/classes"
 extra={f.relative_to(generated).as_posix():f.read_bytes() for f in generated.rglob("*") if f.is_file()}
@@ -64,9 +68,35 @@ tsc=pathlib.Path(sys.argv[4]).resolve()
 probe=generated/"web/type-probe.mts"
 probe.write_text('import {createClient, type __proto___Request, type routes_Request} from "./generated/acceptance.remotecontract.RemoteLedger.mjs";\ncreateClient().record({sequence:1,text:"ok",numbers:[],labels:{},mode:"NORMAL"});\nconst named: __proto___Request & routes_Request = {["__proto__"]:"safe"};\ncreateClient().__proto__(named);\ncreateClient().routes(named);\n',encoding="utf-8")
 arguments=["node",str(tsc),"--noEmit","--strict","--target","es2022","--module","nodenext",str(probe)]
+probe.write_text(probe.read_text(encoding="utf-8")+'''import {createClient as valuesClient, wireValues as w} from "./generated/acceptance.remotecontract.encoded.RemoteLedger.mjs";
+valuesClient().roundTrip({sequence:w.int64(9223372036854775807n),id:w.uuid("12345678-1234-5678-1234-567812345678"),
+  instant:w.instant(-1n,1),duration:w.duration(1n,1),score:w.float32(-0),ratio:w.float64(Number.MIN_VALUE)});
+''',encoding="utf-8")
 subprocess.run(arguments,check=True)
 probe.write_text(probe.read_text(encoding="utf-8").replace("sequence:1","sequence:\"wrong\""),encoding="utf-8")
 rejected=subprocess.run(arguments,capture_output=True)
 if rejected.returncode==0 or b"TS2322" not in rejected.stdout: raise RuntimeError("wrong frontend consumer type was not rejected")
 probe.unlink()
 print("Independent Java and frontend wrong-type consumers rejected by real compilers")
+
+# 业务协作、任务与安全接缝只引用上述冻结的公共 SDK。
+compile_one("Business.java",src/"business-api-classes")
+jar(src/"business-api.jar",src/"business-api-classes")
+api=(src/"business-api.jar").read_bytes()
+jar(src/"independent-contract.jar",src/"wrapper-classes",props("independent-contract","acceptance.wrapper.Contract",
+    "pixiv.lifecycle-policy=process-restart\npixiv.contract-api=lib/business-api.jar\npixiv.contract-sha256="+hashlib.sha256(api).hexdigest()+"\n"),
+    {"lib/business-api.jar":api})
+compile_one("BusinessParticipant.java",src/"business-classes",os.pathsep+str(src/"business-api.jar"))
+for role,config in {"storage":"Storage","collector":"Collector","display":"Display",
+                    "validator-one":"Validation","validator-two":"ValidationTwo","validator-three":"ValidationThree",
+                    "sink-one":"Sink","sink-two":"Sink","jobs":"Jobs"}.items():
+    id="independent-"+role
+    jar(src/(id+".jar"),src/"business-classes",props(id,"acceptance.businessplugin.BusinessParticipant",
+        "pixiv.lifecycle-policy=hot-reload\nplugin.dependencies=independent-contract@0.1.0\n"
+        +"pixiv.configuration-classes=acceptance.businessplugin.BusinessParticipant$"+config+"\n"))
+compile_one("LoginParticipant.java",src/"login-classes")
+for id in ["neutral-login","neutral-login-duplicate"]:
+    jar(src/(id+".jar"),src/"login-classes",props(id,"acceptance.login.LoginParticipant",
+        "pixiv.lifecycle-policy=hot-reload\npixiv.configuration-classes=acceptance.login.LoginParticipant$Wiring\n"),
+        {"proof/proof.js": (sources/"login-proof.js").read_bytes()})
+print("Independent storage, collector, display, validators, sinks, jobs and login fixtures built")

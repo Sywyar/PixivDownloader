@@ -2,7 +2,6 @@ package top.sywyar.pixivdownload.setup;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -32,7 +31,6 @@ import java.time.Duration;
 
 @RestController
 @Slf4j
-@RequiredArgsConstructor
 public class SetupController {
 
     private final SetupService setupService;
@@ -40,6 +38,25 @@ public class SetupController {
     private final MultiModeConfig multiModeConfig;
     private final ProxySetupService proxySetupService;
     private final AppMessages messages;
+    private final LoginVerificationGate verification;
+
+    public SetupController(SetupService setupService, LoginRateLimitService loginRateLimitService,
+                           MultiModeConfig multiModeConfig, ProxySetupService proxySetupService, AppMessages messages) {
+        this(setupService, loginRateLimitService, multiModeConfig, proxySetupService, messages,
+                new LoginVerificationGate(null, messages, ""));
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public SetupController(SetupService setupService, LoginRateLimitService loginRateLimitService,
+                           MultiModeConfig multiModeConfig, ProxySetupService proxySetupService, AppMessages messages,
+                           LoginVerificationGate verification) {
+        this.setupService = setupService;
+        this.loginRateLimitService = loginRateLimitService;
+        this.multiModeConfig = multiModeConfig;
+        this.proxySetupService = proxySetupService;
+        this.messages = messages;
+        this.verification = verification;
+    }
 
     @Value("${server.ssl.enabled:false}")
     private boolean sslEnabled;
@@ -131,7 +148,7 @@ public class SetupController {
     }
 
     @PostMapping("/api/auth/login")
-    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request,
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request,
                                                HttpServletRequest httpRequest) throws IOException {
         if (!loginRateLimitService.isAllowed(httpRequest.getRemoteAddr())) {
             throw new LocalizedException(
@@ -148,6 +165,10 @@ public class SetupController {
             );
         }
 
+        return verification.verify(request, httpRequest.getRemoteAddr(), () -> createLoginSession(request));
+    }
+
+    private ResponseEntity<AuthResponse> createLoginSession(LoginRequest request) throws IOException {
         String token = setupService.createSession(request.isRememberMe());
         ResponseCookie.ResponseCookieBuilder cookieBuilder = ResponseCookie.from("pixiv_session", token)
                 .path("/")

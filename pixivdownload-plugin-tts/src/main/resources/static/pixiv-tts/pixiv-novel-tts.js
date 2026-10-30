@@ -99,7 +99,7 @@
     // 「富感情朗读」是听书的第三个引擎，复用同一控制条；播放逻辑委托给 PixivNovelNarration 驱动控制器。
     ctx.isNarration = function () { return state.engine === 'narration'; };
     ctx.narrationCall = function (fn, arg) {
-        const N = window.PixivNovelNarration;
+        const N = state.narration;
         if (N && typeof N[fn] === 'function') N[fn](arg);
     };
     ctx.narrationActivate = function () { ctx.narrationCall('activate'); };
@@ -177,7 +177,7 @@
         if (!els.engineNarrationOpt || !window.PixivNovelNarration) return;
         els.engineNarrationOpt.style.display = 'none';
         els.engineNarrationOpt.disabled = true;
-        fetch('/api/narration/availability', { credentials: 'same-origin' })
+        (ctx.fetch || global.fetch.bind(global))('/api/narration/availability', { credentials: 'same-origin' })
             .then((r) => (r.ok ? r.json() : null))
             .then((data) => ctx.applyNarrationAvailability(
                 !!(data && data.available), !!(data && data.debug),
@@ -188,6 +188,7 @@
     // 选项是否可选：需文本模型(LLM)已配置（逐句分析依赖它），且 TTS 引擎可用或处于调试模式（不可达时也允许选中以
     // 运行分析、查看结果）。文本模型未配置时分析无从谈起，无论 TTS 是否可达 / 是否调试模式一律隐藏。
     ctx.applyNarrationAvailability = function (available, debug, textModelConfigured, wantNarration) {
+        if (state.signal?.aborted || !els.engineNarrationOpt) return;
         state.narrationAvailable = available;
         state.narrationDebug = debug;
         const selectable = textModelConfigured && (available || debug);
@@ -373,6 +374,9 @@
 
     // ---------- 初始化 ----------
     function attach(opts) {
+        state.narration = global.PixivNovelNarration;
+        state.signal = opts.signal;
+        ctx.fetch = opts.fetch || global.fetch.bind(global);
         state.i18n = opts.i18n;
         state.toast = opts.toast;
         state.contentEl = opts.contentEl;
@@ -437,6 +441,7 @@
         if (window.PixivNovelNarration) {
             window.PixivNovelNarration.attach({
                 i18n: state.i18n, toast: state.toast, contentEl: state.contentEl,
+                signal: opts.signal, fetch: ctx.fetch,
                 novelId: state.novelId, lang: opts.narrationLang || '',
                 els: {
                     playPause: els.playPause, progress: els.progress, progressFill: els.progressFill,
@@ -492,7 +497,17 @@
         ctx.restorePos();
         if (state.novelId) store.touch(state.novelId); // 标记最近使用，保护其缓存音频不被淘汰
 
-        window.addEventListener('beforeunload', () => { ctx.savePos(); ctx.cancelCurrent(); ctx.clearEdgeCache(); });
+        window.addEventListener('beforeunload', destroy, {signal: opts.signal});
+    }
+
+    function destroy() {
+        if (state.destroyed) return;
+        state.destroyed = true;
+        ctx.savePos(); ctx.cancelCurrent(); ctx.clearEdgeCache();
+        state.narration?.destroy(); state.narration = null;
+        if (global.speechSynthesis?.onvoiceschanged === ctx.loadBrowserVoices) global.speechSynthesis.onvoiceschanged = null;
+        state.contentEl = null; state.toast = null; state.i18n = null; state.segments = [];
+        for (const name of Object.keys(els)) els[name] = null;
     }
 
     function setI18n(i18n) {
@@ -507,5 +522,5 @@
         }
     }
 
-    global.PixivNovelTts = { attach: attach, setI18n: setI18n };
+    global.PixivNovelTts = { attach: attach, setI18n: setI18n, destroy };
 })(window);
