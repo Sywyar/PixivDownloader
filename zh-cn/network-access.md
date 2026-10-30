@@ -380,6 +380,8 @@ Windows 安装包构建使用 `actions/setup-java` 查询最新可用的 Temurin
 
 构建机、代理、镜像或包管理器配置可以改写最终下载主机，因此这些传递依赖无法仅凭仓库源码列出稳定的完整域名集合。
 
+SDK 原始旧插件和浏览器验收通过 `scripts/ci/sdk-legacy-plugin.mjs` 从 `api.github.com/repos/Sywyar/PixivDownloader-plugins/releases/assets/647429117` 下载已发布的 `gui-swing-v1.0.2` 原始 JAR；GitHub CLI 可跟随到 Release 资产 CDN。脚本固定校验 5,445,262 字节与 SHA-256，单次下载限 60 秒，不合格缓存直接失败。CI 使用只读 `GITHUB_TOKEN`，本地沿用 GitHub CLI 的认证与代理设置，不上传插件或应用数据。`npm ci` 从锁文件所列 npm registry 安装固定 Playwright，`playwright install --with-deps chromium` 再从 Playwright 配置的浏览器下载地址及重定向 CDN（如 `cdn.playwright.dev`、`playwright.download.prss.microsoft.com`）取得 Chromium，Linux 系统依赖由 runner 的包源安装。浏览器下载遵循 Playwright 的代理与下载环境设置。验收仅在开发及 CI 中运行，取消命令或 workflow 会停止后续请求；已安装客户端不执行这些下载。
+
 ## 链接及非请求型 URL
 
 应用和文档中还包含指向 GitHub、Releases、在线文档、Tampermonkey 和许可证站点的链接。此类链接仅在被访问或由浏览器实际加载资源时产生请求。XML 命名空间、POM Schema、许可证正文中的 URL 和示例域名不属于自动网络请求目标。

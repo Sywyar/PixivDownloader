@@ -260,7 +260,7 @@ example.output-format=json
 
 ## プラグイン認証情報
 
-パスワード、Cookie、トークン、API キー、秘密、Webhook キーは `config/credentials/{pluginId}.properties` に置きます。暗号化、権限、移行、所有者単位の注入はホストが担当します。`config.yaml` や `config/plugins/*.properties` に認証情報を置かず、プラグインから認証情報ファイルを読み取り・復号しないでください。
+パスワード、Cookie、トークン、API キー、秘密、Webhook キーは `config/credentials/{pluginId}.properties` に置きます。暗号化、権限、移行、所有者単位の注入はホストが担当します。プラグインは自身の子コンテキストの `Environment` から復号済みの値を読み取り、または `PluginCredentials` で宣言済みの自身の認証情報を読み書きできます。GUI フィールドの宣言は必須ではありません。`config.yaml` や `config/plugins/*.properties` に認証情報を置かず、プラグインから認証情報ファイルを読み取り・復号しないでください。
 
 暗号化バックアップを別環境で復元するには、元の認証情報マスターキーも必要です。
 
@@ -270,3 +270,9 @@ example.output-format=json
 2. ホストの既定値は現在の `DefaultConfigTemplate` を確認する
 3. プラグイン項目は `GuiConfigContribution`、`@ConfigurationProperties`、設定サービスを確認する
 4. 旧来の `mail.*`、`push.*`、`notification.*`、`download.novel-*` を `config.yaml` にコピーしない
+
+## ログイン検証ポリシー
+
+`setup.login-verification-policies` の既定値は空文字列で、追加検証を要求しません。プラグインの `LoginVerification.policyId()` が宣言したキーをカンマ区切りで最大 16 件設定し、バックエンド再起動後に適用します。必須ポリシーの不在、複数実装、実行失敗はログインを拒否します。既存のパスワードとレート制限検査は維持されます。インストールだけでは有効になりません。チャレンジはログイン画面から送信し、失敗時にセッションは作成しません。
+
+設定前に提供プラグインが使用可能か確認してください。必須の提供者を削除すると新規ログインができなくなります。[プラグイン開発](plugin-development.md)のログイン検証契約を参照してください。

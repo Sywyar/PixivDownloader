@@ -73,6 +73,65 @@ PostHog 기능은 vendor 전용 foundation과 플러그인 소유 consumer를 �
 
 호스트가 제공하는 `OutboundHttpClient`와 proxy 정책을 사용하세요. 플러그인에서 임의의 `HttpClient`나 Apache 타입을 만들지 말고, 인증 헤더와 사이트별 프로토콜은 해당 업무 모듈에 둡니다.
 
+## 독립 서비스 계약과 조합
+
+아래 API에는 SDK 1.4.0이 필요합니다. `typed-service-plugin` 템플릿으로 API, 계약 운반자, 제공자, 소비자 모듈을 분리합니다. 업무 버전은 계약이 관리합니다. 운반자는 `pixiv.contract-api`와 `pixiv.contract-sha256`으로 원본 API JAR을 지정하며 `process-restart`를 사용합니다. 제공자와 소비자는 운반자에 대한 의존성을 선언하고 API 클래스를 각각 중복 포함하지 않습니다.
+
+`PixivFeaturePlugin.serviceImports()`에 사용할 key를, `serviceExports()`에 구현 Bean을 선언하고 child context에 `PluginServices`를 주입합니다. 생성자에서 접근자를 보관하거나 binding을 등록할 수 있지만 업무 호출에는 소비자의 활성 publication이 필요합니다. 인터페이스와 record/enum은 같은 계약 classloader와 코드 출처에 속해야 합니다. 계약 패키지 간 의존성은 지원하지 않으므로 경계 DTO를 명시적으로 변환합니다.
+
+`find(key)`는 부재 시 빈 값, `require(key)`는 `UNAVAILABLE`을 반환합니다. 두 메서드 모두 구현이 여럿이면 `AMBIGUOUS`입니다. `findAll(key)`는 불변 `List<ServiceProvider<T>>`를 반환하며 빈 목록도 유효합니다. 최대 128개입니다. `service()`는 소비자와 제공자의 정확한 publication에 고정된 프록시이고 `publication()`은 신뢰된 식별 값입니다. 게시 순서는 업무 우선순위가 아닙니다. 소비자가 선택·정렬하며 철회된 프록시는 대체 구현으로 연결하지 않습니다.
+
+유일한 의존성은 `bind(keys, activation)`, 빈 목록을 포함한 구현 집합은 `bindAll(keys, activation)`을 사용합니다. 해당 회차의 `scope.require(key)` 또는 `scope.findAll(key)`에서 프록시를 받고 `scope.acquire(...)`, `scope.guard(...)`로 자원과 보조 콜백을 관리합니다. 구성원이 바뀌면 이전 회차의 진입을 닫고 실제 종료와 정리를 기다린 뒤 다음 회차를 활성화합니다. activation에서 업무 명령을 재실행하면 안 됩니다. `FAILED`, `CLOSE_FAILED`는 명시적으로 `retry()`할 수 있으며 정리 완료를 증명하는 상태는 `CLOSED`입니다.
+
+단순 방송은 독립 `EventSink.onEvent(record)` 계약과 `findAll` 순회로 구현합니다. 각 `ServiceAccessException`은 업무 계약에 따라 처리합니다. best effort는 권위 없는 보조 효과에만 적용합니다. 필수 검증은 쓰기 전에 끝내며 필수 구현의 부재나 검증 실패는 쓰기를 거부합니다. 집합 API는 영속 메시지, 자동 재시도, 역압력, 전달 보장을 제공하지 않습니다.
+
+장기 작업은 업무 계약의 순수 값 프로토콜 `start → jobId → query/cancel/result`를 사용합니다. `PluginRuntimeTaskRegistrar`에 작업을 등록하고 `PluginResources`로 실행기와 자원을 소유하며 제공자 자체에서 취소에 응답합니다. 핸들 취소는 작업 종료 증거가 아니며 호스트는 실제 drain을 기다립니다. 재시작 복구, checkpoint, 멱등성은 데이터 owner의 사설 DB에서 정의합니다. Future, 스레드, 콜백을 서비스 값으로 넘기지 않습니다.
+
+`binding.diagnostic()`은 제한된 크기의 순수 값으로 원인, 상태, 의존성, publication을 제공합니다. 관리 화면의 서비스 관계와 중지 영향은 같은 런타임 사실에서 계산하며 선언된 import와 drain 중인 binding을 포함합니다. 대기, 모호함, 활성화 실패, 실행기 거부, 정리 실패를 구분합니다. `truncated`는 표시가 불완전하다는 뜻이며 의존성 부재를 뜻하지 않습니다. 진단 조회는 업무를 재시도하거나 생명주기를 변경하지 않습니다.
+
+## GUI 필드 없이 사용하는 자격 증명과 로그인 검증
+
+`credentialKeys()`에 `my-plugin.token`처럼 owner 접두사가 있는 키를 선언하고 `PluginCredentials`를 주입합니다. `read(key)`는 `Optional<String>`, `update(Map)`는 원자적 병합입니다. 생략한 키는 유지하며 공백 값은 삭제합니다. `delete(key)`는 멱등적입니다. 선언·갱신은 최대 128개, 값당 UTF-8 64 KiB, 한 번에 1 MiB까지입니다. 미선언 키와 오래된 generation 핸들은 거부되며 다른 owner를 지정할 수 없습니다.
+
+자격 증명 키를 일반 GUI 필드로도 선언할 수 없습니다. 같은 키의 필드는 민감 필드여야 합니다. 충돌하면 호스트는 해당 owner의 자격 증명 및 데스크톱 설정 스냅샷을 거부하고 발견된 민감 키의 마스킹을 유지합니다. GUI의 자격 증명 스냅샷, 쓰기, 실패 롤백은 하나의 owner 잠금 안에서 실행합니다. 로드와 다시 로드에서도 자격 증명 읽기와 마이그레이션 판단을 같은 잠금 안에서 수행하여 오래된 스냅샷이나 평문이 성공한 프로그램 갱신을 덮어쓰지 않도록 합니다. 자격 증명을 포함하는 환경 내보내기는 GUI가 없는 선언된 키도 포함하며 암호화가 필수입니다. 자격 증명을 제외하면 해당 값은 내보내지 않으며 복원 시에도 owner와 설치 세대를 확인합니다.
+
+저장소는 기존 호스트 암호화와 파일 잠금을 사용합니다. 기존 GUI의 민감한 필드도 같은 선언과 마스킹 범위에 포함됩니다. 저장해도 기존 `@Value` 또는 설정 객체를 자동으로 다시 바인딩하지 않습니다. 필요할 때 읽거나 기존 재시작 정책을 따릅니다. 평문을 서비스 DTO, 예외, 로그, 진단에 넣지 마세요.
+
+Spring Bean으로 `LoginVerification`을 구현하고 `policyId()`에서 안정적인 키를 반환합니다. 관리자가 `setup.login-verification-policies`에 필수 정책을 쉼표로 구분하여 설정하면 백엔드 재시작 후 적용됩니다. 빈 값은 검증을 끄며 최대 16개입니다. 호스트는 속도 제한과 비밀번호 확인 이후, 세션 생성 전에 호출합니다. 입력에는 사용자 이름, 클라이언트 주소, attemptId, 불투명 proof가 있고 비밀번호나 세션 권한은 없습니다.
+
+결과는 `APPROVED`, `REJECTED`, `CHALLENGE`입니다. 필수 정책의 부재·모호함·예외는 503, 거절은 403, 챌린지는 409와 `verificationToken`, 정책별 `challenges`를 반환합니다. 다음 `/api/auth/login` 요청에 원래 자격 증명, token, `verificationProofs`를 보냅니다. 챌린지는 사용자 이름, 주소, 정확한 publication에 고정되며 5분간 유효하고 응답은 한 번만 받습니다. 오래된 챌린지는 409입니다. 챌린지/proof는 각 UTF-8 16 KiB, 합계 64 KiB, 대기 중 최대 256개입니다. 실패 응답은 세션 Cookie를 만들지 않습니다.
+
+검증 UI가 필요하면 일반 `login.verification` UiSlot에 모듈을 기여하고 정적 모듈의 공개 경로를 선언합니다. 호스트는 `/api/web/login-verification-slots`에서 이 대상만 공개합니다. 속성은 `{verificationToken, challenges}`, `proof` 이벤트 값은 `{verificationToken, policyId, proof}`입니다. 사용자가 로그인을 다시 눌러 제출합니다. 자격 증명을 편집하면 proof를 지웁니다. 타입은 SDK JAR의 `META-INF/pixivdownload/web/login-verification.d.ts`에 있습니다. 화면 표시는 백엔드 검증을 대신하지 않으며 설치만으로 필수 정책이 켜지지 않습니다.
+
+## 일반 슬롯과 페이지 구성 요소
+
+`/js/pixiv-ui-slots.js`를 로드하고 `data-ui-slot` 지점을 추가한 다음 `PixivUiSlots.connect({targetPrefix, properties, regions, onEvent, i18n})`, `refresh()`를 호출합니다. 기본 목록은 기존 경로 권한을 유지합니다. 공개 페이지에는 해당 대상으로 제한한 공개 목록이 필요합니다. 모듈은 스크립트 평가 중 `registerModule(moduleUrl, mount)`를 호출하고 선택적으로 `update(properties)`, `destroy()`를 반환합니다.
+
+`mount(root, context)`는 순수 속성, 이벤트, 명시적 region을 사용하며 다른 페이지의 내부 전역 값을 읽지 않습니다. `context.fetch`는 출발 publication에 고정되고 목적지 API의 권한 검사도 유지합니다. `signal`, `on`, `interval`, `onCleanup`, `loadScript`, `loadStyle`은 인스턴스와 함께 정리합니다. 목록은 2초마다 갱신하며 숨겨진 페이지에서는 새 갱신을 멈춥니다. 여러 인스턴스가 모듈 로드를 공유해도 하나를 닫는 것이 다른 인스턴스를 철회하지 않습니다. 비동기 처리 후 signal을 확인하고 늦은 결과로 이전 DOM을 복원하지 마세요. 페이지를 떠날 때 인스턴스, 리스너, 타이머, 요청을 해제합니다. 타입은 `META-INF/pixivdownload/web/ui-slots.d.ts`를 참조하세요.
+
+같은 target의 기여는 목록의 `order`를 따르며 다시 활성화하거나 추가할 때 새 노드를 올바른 위치에 삽입하여 변경되지 않은 인스턴스와 포커스, 선택 영역을 유지합니다. 기존 노드를 이동해야 하면 `moveBefore` 지원 여부를 확인하고 입력란과 편집 가능한 텍스트의 포커스 및 선택 영역을 보존합니다. 이 API가 없는 브라우저에는 호환 경로를 사용합니다. 늦은 목록 응답은 새 인스턴스를 철회할 수 없습니다. `root` 밖에 노드를 만들면 해당 노드 참조를 정리하는 함수를 즉시 `onCleanup`에 등록하세요. 컨트롤러를 만든 뒤에는 해제 함수를 별도로 등록하여 스크립트 실패나 로딩 중 철회에서도 자원을 해제합니다.
+
+다운로드 작업대의 큐 슬롯은 기존 Vue/큐 전용 프로토콜을 유지합니다. 일반 슬롯은 Swing/Compose 공통 데스크톱 뷰 프로토콜이 아닙니다. 소설·시리즈 페이지는 properties, regions, 이벤트를 AI/TTS 슬롯에 제공하고 업무 모델은 양측이 정의합니다.
+
+편집기 포트는 `PagePort(name, contractId, schema)`로 선언합니다. 연결 양쪽의 버전 계약 식별자와 해석한 Schema가 같아야 합니다. Schema는 SDK 생성기가 지원하는 부분집합입니다. 알 수 없는 포트, 중복 간선, 방향 순환은 저장 시 거부하며 런타임에도 값을 검증합니다. mount 중 이벤트는 모든 인스턴스의 mount가 끝난 뒤 순서대로 전달하며 A→B→C를 지원합니다. 나중에 추가한 인스턴스에 과거 이벤트를 재전송하지 않습니다. 페이지 큐는 256개·16 MiB, 연속 전달은 4096회까지이며 초과하면 명시적으로 실패합니다. 프로젝트 데이터, 순수 값, 제한된 스타일만 저장합니다. 업무 요청은 생성 클라이언트와 인스턴스 fetch를 사용합니다.
+
+## 여러 원격 서비스, 값 인코딩과 계약 변경
+
+독립 API 모듈에서 Schema를 생성하고 소비자 모듈의 전체 서비스 집합을 한 번에 지정합니다. 아래 디렉터리, classpath, 클래스 이름을 자신의 값으로 바꾸세요. classpath 구분자는 Windows에서 세미콜론, Unix에서 콜론입니다.
+
+```text
+java -jar sdk-tools.jar schema <api-module> <classpath>
+java -jar sdk-tools.jar remote <consumer-module> <classpath> example.one.Service example.two.Service
+java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-report.json>
+```
+
+단순 이름이 같아도 전체 클래스 이름으로 Java 어댑터와 `web/generated/<전체이름>.mjs`, `.d.mts`를 구분합니다. `remote`는 최대 128개 서비스를 받으며 빈 목록은 전체 생성물 철회입니다. 서비스를 제거하면 이전 class, JS, 선언도 정리합니다. 실패하면 관리 중인 출력과 완료 표시를 철회하므로 패키징은 `target/remote-generation.complete`를 확인해야 합니다. 전체 컴파일 이후 표시를 게시하지만 여러 파일 쓰기는 하나의 파일 시스템 트랜잭션이 아닙니다. 전체 출력은 16 MiB, 파일당 1 MiB까지입니다.
+
+일반 JSON 정수는 Java 타입 범위와 JS 안전 정수 범위의 교집합으로 제한합니다. 전체 long 범위가 필요한 record 속성에 `@ValueProperty(encoding = ValueEncoding.DECIMAL_STRING)`을 명시합니다. UUID, Instant, Duration, float, double은 고정된 무손실 문자열인 소문자 UUID, `초:9자리나노초`, IEEE 754 고정 길이 소문자 16진수로 인코딩합니다. 비정규 문자열, 범위 초과, 비유한 부동소수를 거부하며 음의 0과 나노초를 보존합니다. JS Date로 정밀도를 버리지 마세요. 생성 클라이언트의 `wireValues.int64/uuid/instant/duration/float32/float64`로 타입 값을 만듭니다. 다른 타입은 독립 계약의 지원 DTO로 명시적으로 변환하며 임의 serializer를 등록하지 않습니다.
+
+`contract-evolution`은 클래스를 로드하지 않고 classfile을 읽어 소스 호환성, 바이너리 링크, 새 호스트의 이전 구현 호출을 각각 보고합니다. 업무 동작은 항상 `NOT_ASSESSED`입니다. 인터페이스 추상 메서드 추가는 이전 링크를 유지하더라도 새 호출 시 미구현 메서드에 도달할 수 있습니다. 재컴파일, 원본 바이트를 유지한 이전 플러그인 로드, 실제 호출 검증은 별도로 필요합니다. 종료 코드 0은 동작 호환성 증명이 아닙니다. 출력 파일은 아직 없어야 합니다. `verify-sdk-usage`는 최소 중앙 SDK 선언을 확인하는 별개의 검사입니다.
+
+
 ## 외부 프로젝트 유지 관리와 SDK 업그레이드
 
 시험판 SDK는 정확한 계약을 사용하며 properties에 `plugin.requires==7.2.3-rc.4`처럼 씁니다(예시). 안정판은 `major.minor`를 사용합니다. 컴파일 의존성, 설명자와 실행 패키지를 일치시키고 서로 다른 RC의 호환성을 가정하지 마세요. 원래 프로젝트와 `.dev/`를 보존하고 새 SDK를 별도 경로에 풀어 도구, 계약 리소스와 실행 매니페스트를 함께 갱신합니다. 플러그인이 자체 데이터 마이그레이션을 책임지며 알 수 없는 형식이나 실패 시 기존 데이터를 보존하고 시작을 중단해야 합니다.

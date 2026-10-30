@@ -313,7 +313,7 @@ example.output-format=json
 
 ## 插件凭据
 
-密码、Cookie、Token、API key、secret 和 webhook key 等敏感值写入 `config/credentials/{pluginId}.properties`。宿主负责加密、权限、迁移和按 owner 注入；插件只从自己的子上下文 `Environment` 读取已经解密的属性值。
+密码、Cookie、Token、API key、secret 和 webhook key 等敏感值写入 `config/credentials/{pluginId}.properties`。宿主负责加密、权限、迁移和按 owner 注入。插件可从自己的子上下文 `Environment` 读取已解密的属性，或通过 `PluginCredentials` 读写已声明的自身凭据；凭据声明不要求提供 GUI 字段。
 
 不要把凭据放入 `config.yaml` 或 `config/plugins/*.properties`，也不要让插件读取、解析或解密凭据文件。备份凭据时必须同时保护凭据主密钥；缺少原主密钥时，加密值不能在另一环境中恢复。
 
@@ -323,3 +323,9 @@ example.output-format=json
 2. 宿主默认键以当前版本的 `DefaultConfigTemplate` 生成结果为准。
 3. 插件字段以对应插件的 `GuiConfigContribution`、`@ConfigurationProperties` 或设置服务为准。
 4. 不要从旧版示例复制已经外置的 `mail.*`、`push.*`、`notification.*` 或 `download.novel-*` 到 `config.yaml`；它们由各自插件拥有。
+
+## 登录验证策略
+
+`setup.login-verification-policies` 默认为空字符串，表示不要求额外验证。配置为插件 `LoginVerification.policyId()` 声明的策略键，以逗号分隔，最多 16 项；后端重启后生效。必要策略缺席、存在多个实现或执行失败时拒绝登录，保留原密码与限流检查。安装插件不会自动启用策略。挑战通过登录页提交，失败不创建会话。
+
+配置前先确认对应插件可用；移除仍被要求的策略插件会阻止新登录。详见[插件开发](plugin-development.md)中的登录验证契约。

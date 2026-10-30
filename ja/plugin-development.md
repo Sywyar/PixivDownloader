@@ -186,6 +186,65 @@ public List<I18nContribution> i18n() {
 
 安定した HTTP / WebSocket SDK または `core-api` のポートを使い、ホストの具体的な HTTP クライアントやプロキシ実装に依存しません。URL、Cookie、API キー、リダイレクト、サイズ上限、タイムアウト、ログへの秘匿情報を明示的に設計します。要求所有者とアクセス権をすべての書き込み API で検証します。
 
+## 独立サービス契約と組み合わせ
+
+以下の API には SDK 1.4.0 が必要です。`typed-service-plugin` テンプレートを使い、API、契約キャリア、提供者、利用者を別モジュールにします。業務バージョンは契約側で管理します。キャリアは `pixiv.contract-api` と `pixiv.contract-sha256` で元の API JAR を指定し、`process-restart` を使用します。提供者と利用者はキャリアへの依存を宣言し、API クラスを重複して同梱しません。
+
+`PixivFeaturePlugin.serviceImports()` に利用する key、`serviceExports()` に実装 Bean を宣言し、child context に `PluginServices` を注入します。コンストラクターでは参照の保存や binding の登録ができますが、業務呼び出しには利用者の有効な publication が必要です。インターフェースと record/enum は同じ契約 classloader とコードの出所に属する必要があります。契約パッケージ間の依存は未対応です。境界 DTO は明示的に変換してください。
+
+`find(key)` は不在時に空、`require(key)` は `UNAVAILABLE` を返します。複数実装がある場合は両方とも `AMBIGUOUS` です。`findAll(key)` は変更不能な `List<ServiceProvider<T>>` を返し、空集合も有効です。上限は 128 メンバーです。`service()` は利用者と提供者の正確な publication に固定されたプロキシ、`publication()` は信頼された識別情報です。公開順は業務上の優先順位ではありません。選択とソートは利用者が定義し、撤回されたプロキシは代替実装へ転送しません。
+
+一意な依存には `bind(keys, activation)`、空集合を含む実装集合には `bindAll(keys, activation)` を使います。各回の `scope.require(key)` または `scope.findAll(key)` から取得し、`scope.acquire(...)` と `scope.guard(...)` でリソースと補助コールバックを管理します。メンバー変更時は旧回の受付を閉じ、実際の終了と清掃を待ってから新しい回を開始します。activation で業務コマンドを再実行してはいけません。`FAILED` と `CLOSE_FAILED` は明示的に `retry()` でき、清掃完了を示すのは `CLOSED` だけです。
+
+単純な配信には独立した `EventSink.onEvent(record)` 契約を定義し、`findAll` を順番に呼び出して `ServiceAccessException` を契約に従って処理します。best effort は補助的な副作用に限ります。必須検証は書き込み前に完了し、不在や失敗時は書き込みを拒否します。集合 API は永続メッセージ、自動再試行、背圧、配信保証を提供しません。
+
+長時間タスクは業務契約内の `start → jobId → query/cancel/result` という純値プロトコルで扱います。`PluginRuntimeTaskRegistrar` に仕事を登録し、`PluginResources` で実行器と資源を所有し、提供者自身がキャンセルに応答します。ハンドルのキャンセルは終了証明ではなく、宿主は実際の drain を待ちます。再起動後の復旧、checkpoint、冪等性はデータ owner の私有 DB で定義します。Future、スレッド、コールバックをサービス値として渡せません。
+
+`binding.diagnostic()` は有界な純値の理由、状態、依存、publication を返します。管理画面のサービス関係と停止影響は同じ登録情報を使い、宣言された import と drain 中の binding を含みます。待機、曖昧、activation 失敗、実行器の拒否、清掃失敗を区別できます。`truncated` は表示の省略を意味し、依存がないという意味ではありません。診断の読み取りで業務の再実行や状態変更は起こりません。
+
+## GUI フィールドに依存しない認証情報とログイン検証
+
+`credentialKeys()` で `my-plugin.token` のような owner 接頭辞付きのキーを宣言し、`PluginCredentials` を注入します。`read(key)` は `Optional<String>`、`update(Map)` は原子的な差分更新です。省略したキーは保持し、空白値は削除します。`delete(key)` は冪等です。宣言・更新は最大 128 項目、値ごとに UTF-8 64 KiB、更新全体で 1 MiB です。未宣言キーと旧 generation のハンドルは拒否され、別 owner は指定できません。
+
+認証情報のキーを通常の GUI フィールドとしても宣言することはできません。同じキーのフィールドは機密扱いが必要です。競合すると宿主はその owner の認証情報とデスクトップ設定のスナップショットを拒否し、検出済み機密キーのマスクは保持します。GUI の認証情報スナップショット、書き込み、失敗時の復元は一つの owner ロック内で実行します。読み込みと再読み込みでも、認証情報の取得と移行判断を同じロック内で行い、古いスナップショットや平文で成功済みのプログラム側の更新を上書きしません。認証情報を含む環境エクスポートは GUI のない宣言済みキーも含み、暗号化が必須です。認証情報を除外すると値は出力されません。復元時も owner とインストール世代を確認します。
+
+暗号化とファイルロックは宿主の既存処理を使います。既存 GUI の機密フィールドも同じ宣言・マスク対象です。保存しても既存の `@Value` や設定オブジェクトは自動で再バインドされません。必要時に読み取るか、既存の再起動方針に従ってください。平文を DTO、例外、ログ、診断に含めないでください。
+
+Spring Bean として `LoginVerification` を実装し、`policyId()` で安定したキーを返します。管理者が `setup.login-verification-policies` に必須ポリシーをカンマ区切りで設定し、バックエンド再起動後に有効になります。空値は無効、上限は 16 項目です。宿主はレート制限とパスワード照合の後、セッション作成の前に呼び出します。入力はユーザー名、クライアントアドレス、attemptId、不透明な proof で、パスワードやセッション権限を含みません。
+
+結果は `APPROVED`、`REJECTED`、`CHALLENGE` です。必須ポリシーの不在・曖昧・例外は 503、拒否は 403、チャレンジは 409 と `verificationToken`、ポリシー別の `challenges` を返します。次の `/api/auth/login` には元の認証情報、token、`verificationProofs` を渡します。チャレンジはユーザー名、アドレス、正確な publication に固定され、有効期間は 5 分、応答は一度だけです。古いチャレンジは 409 です。チャレンジ/proof は各 UTF-8 16 KiB、合計 64 KiB、保留中は最大 256 件です。失敗時にセッション Cookie は作成しません。
+
+画面が必要なら通常の `login.verification` UiSlot にモジュールを提供し、その静的リソースを公開ルートとして宣言します。宿主は `/api/web/login-verification-slots` でこの対象だけを公開します。属性は `{verificationToken, challenges}`、`proof` イベントの値は `{verificationToken, policyId, proof}` です。ユーザーが再度ログインを押して送信します。認証情報を編集すると proof は消去されます。型は SDK JAR 内の `META-INF/pixivdownload/web/login-verification.d.ts` にあります。画面の表示はバックエンド検証の代わりにならず、インストールだけで必須ポリシーが有効になることもありません。
+
+## 通常のスロットとページコンポーネント
+
+`/js/pixiv-ui-slots.js` を読み込み、`data-ui-slot` を設置し、`PixivUiSlots.connect({targetPrefix, properties, regions, onEvent, i18n})` の後に `refresh()` を呼びます。既定の一覧は従来のルート権限を保持します。公開ページには対象を限定した公開一覧が必要です。モジュールはスクリプト評価時に `registerModule(moduleUrl, mount)` を呼び、必要に応じて `update(properties)` と `destroy()` を返します。
+
+`mount(root, context)` は純値の属性、イベント、明示的 region を使い、他ページの私有グローバルを読みません。`context.fetch` は発信元 publication に固定され、宛先 API の認可も維持します。`signal`、`on`、`interval`、`onCleanup`、`loadScript`、`loadStyle` はインスタンスと共に清掃されます。一覧は 2 秒ごとに更新し、非表示中は新しい更新を停止します。複数インスタンスでモジュール読み込みを共有しても、一つの終了は他を撤回しません。非同期処理後に signal を確認し、遅い応答で旧 DOM を再生成しないでください。離脱時にインスタンス、リスナー、タイマー、リクエストを解放します。型は `META-INF/pixivdownload/web/ui-slots.d.ts` を参照してください。
+
+同じ target の要素は一覧の `order` に従い、再有効化や追加時は新しいノードを所定の位置に挿入し、変更のないインスタンスとフォーカス、選択範囲を保持します。既存ノードの移動では `moveBefore` の対応を確認し、入力欄と編集可能なテキストのフォーカス、選択範囲を保持します。未対応ブラウザーには互換処理を使います。遅い一覧応答は新しいインスタンスを撤回できません。`root` 外にノードを作成した直後に、そのノード参照を解放する処理を `onCleanup` に登録してください。コントローラー生成時には破棄処理を別に登録し、スクリプトの失敗や読み込み中の撤回でも資源を解放します。
+
+ダウンロード作業台のキュースロットは既存の Vue/キュー契約を維持します。通常のスロットは Swing/Compose 共通のデスクトップ表示規約ではありません。小説とシリーズのページは properties、regions、イベントを AI/TTS スロットへ渡し、業務モデルは双方で定義します。
+
+エディターの端口は `PagePort(name, contractId, schema)` です。接続する両端のバージョン付き契約識別子と解析済み Schema は一致する必要があります。Schema は SDK 生成器の対応サブセットです。不明な端口、重複辺、有向循環は保存時に拒否し、値は実行時にも検証します。mount 中のイベントは全インスタンスの mount 後に順次配送し、A→B→C を通過できます。後から追加したインスタンスへの履歴再送はありません。ページの待ち行列は 256 件・16 MiB、連続配送は 4096 回までで、超過は明示的に失敗します。保存するのはプロジェクトデータ、純値、制御されたスタイルだけです。業務呼び出しには生成クライアントとインスタンス fetch を使います。
+
+## 複数サービス生成・値の符号化・契約の更新
+
+独立 API モジュールで Schema を生成してから、利用モジュールの全サービスを一度に指定します。以下のディレクトリー、classpath、クラス名は置換してください。classpath の区切りは Windows がセミコロン、Unix がコロンです。
+
+```text
+java -jar sdk-tools.jar schema <api-module> <classpath>
+java -jar sdk-tools.jar remote <consumer-module> <classpath> example.one.Service example.two.Service
+java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-report.json>
+```
+
+同じ単純名でも完全修飾名により Java アダプターと `web/generated/<完全修飾名>.mjs`、`.d.mts` を分離します。`remote` は最大 128 サービス、空リストは全生成物の撤回です。サービス削除時は旧 class・JS・宣言を清掃します。失敗時は管理対象生成物と完了マーカーを撤回するため、パッケージ化は `target/remote-generation.complete` を確認してください。全体のコンパイル後にマーカーを公開しますが、複数ファイルの書き込みは単一ファイルシステムトランザクションではありません。出力全体は 16 MiB、各ファイルは 1 MiB までです。
+
+通常の JSON 整数は Java の型範囲と JS の安全整数範囲の共通部分に限ります。long 全域を使う record 属性には `@ValueProperty(encoding = ValueEncoding.DECIMAL_STRING)` を明示します。UUID、Instant、Duration、float、double は固定の可逆文字列、小文字 UUID、`秒:9桁ナノ秒`、IEEE 754 の固定長小文字 16 進表現です。非正規表現、範囲外、非有限浮動小数を拒否し、負のゼロとナノ秒を保持します。JS Date による精度の切り捨ては避けてください。生成クライアントの `wireValues.int64/uuid/instant/duration/float32/float64` で型付き値を作成できます。その他の型は独立契約内で対応 DTO に変換し、任意 serializer は登録しません。
+
+`contract-evolution` はクラスをロードせず classfile を読み、ソース互換性、バイナリリンク、新宿主から旧実装への呼び出しを別々に報告します。業務動作は常に `NOT_ASSESSED` です。抽象インターフェースメソッドの追加は旧リンクを維持しても、新しい呼び出しで未実装メソッドに到達する可能性があります。再コンパイル、旧プラグインの元バイト列でのロード、実呼び出しを別に検証してください。終了コード 0 は動作互換性の証明ではありません。出力ファイルは未作成である必要があります。`verify-sdk-usage` は最低中央 SDK 宣言を検査する別の検査です。
+
+
 ## 外部工程の保守と SDK 更新
 
 プレリリース SDK は精密な契約を使い、properties では `plugin.requires==7.2.3-rc.4` と記述します（例）。安定版は `major.minor` です。コンパイル依存、記述子、実行パッケージを揃え、異なる RC 間の互換性を仮定しないでください。元の工程と `.dev/` を残し、新 SDK を別の場所に展開してツール、契約資源、実行マニフェストをまとめて更新します。プライベートデータの移行はプラグイン自身が管理し、未知の形式や失敗時は元データを保持して起動を止めます。

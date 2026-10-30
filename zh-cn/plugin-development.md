@@ -642,6 +642,65 @@ WebSocket 使用 `OutboundWebSocketClientFactory.open(profile)`，客户端同�
 
 不要自行创建 `java.net.http.HttpClient`、`ProxySelector`，不要依赖 Apache 类型或 app 的 HTTP 配置。鉴权头、站点请求头和协议消息属于插件业务，不能塞进通用传输层。Douyin 已使用 `OutboundHttpClient` 作为完整参考实现。
 
+## 独立服务契约与组合
+
+以下接口要求 SDK 1.4.0。使用 `typed-service-plugin` 模板建立独立 API、契约载体、提供者和消费者模块；契约包自行管理业务版本，宿主只识别 `ServiceKey` 与声明。契约载体通过 `pixiv.contract-api` 和 `pixiv.contract-sha256` 指定原始 API JAR，采用 `process-restart`；提供者与消费者声明对载体的依赖，不各自打包一份 API 类。
+
+在 `PixivFeaturePlugin.serviceImports()` 声明需要调用的 key，在 `serviceExports()` 声明实现 Bean。子 context 注入 `PluginServices`。构造时可以保存访问器或登记绑定，但自身 publication 激活前不能调用业务。接口与 record/enum 必须来自同一契约类空间和代码来源；契约包不支持依赖其它契约包，跨边界数据应显式转换。
+
+`find(key)` 缺席返回空，`require(key)` 缺席报 `UNAVAILABLE`；两者遇到多个实现都报 `AMBIGUOUS`。`findAll(key)` 返回不可变 `List<ServiceProvider<T>>`，空集合合法，每次最多 128 个成员。成员的 `service()` 是绑定消费者与提供者精确 publication 的代理，`publication()` 是可信纯值身份。顺序按发布序号排列，不代表业务优先级；业务选择与排序由消费者负责。旧代理撤回后失败，不转接替代实例。
+
+需要随依赖变化建立资源时，使用 `bind(keys, activation)` 或 `bindAll(keys, activation)`。前者等待每项唯一实现，后者接受空集合；回调分别从 `scope.require(key)`、`scope.findAll(key)` 取得本轮代理，借 `scope.acquire(...)` 与 `scope.guard(...)` 管理资源和辅助回调。成员变化先关闭旧轮准入，等待在途工作退出并清理，再激活新轮。激活回调不得提交需要重放的业务命令。`FAILED`、`CLOSE_FAILED` 可显式 `retry()`；只有 `CLOSED` 证明关闭完成。
+
+简单广播可由独立接口 `EventSink.onEvent(record)` 实现：发布者遍历 `findAll`，逐个调用，并按业务合同处理 `ServiceAccessException`。只有非权威辅助副作用适合尽力发送；权威验证应在写入前完成，缺少必要实现或验证失败必须拒绝写入。集合接口不提供消息持久化、自动重试、背压或送达保证。
+
+长任务使用业务契约自己的 `start → jobId → query/cancel/result` 纯值协议。提供者通过现有 `PluginRuntimeTaskRegistrar` 登记工作，用 `PluginResources` 管理执行器与资源，并自行响应取消。取消句柄不等于任务退出；宿主等待真实 drain 后才关闭 context。跨重启恢复、checkpoint 和幂等性由数据 owner 通过私库定义，不把 `Future`、线程或回调作为服务值传递。
+
+`binding.diagnostic()` 返回有界纯值原因、状态、依赖及 publication。管理页插件详情的服务关系来自同一运行时事实源，停用影响同时包含声明导入和仍在退出的绑定。诊断区分等待、歧义、激活失败、调度拒绝与关闭失败；`truncated` 表示展示不完整，不代表没有依赖。读取诊断不重试业务，也不改变生命周期。
+
+## 不依赖 GUI 的凭据与登录验证
+
+插件通过 `credentialKeys()` 声明自己前缀下的键，例如 `my-plugin.token`，在子 context 注入 `PluginCredentials`。`read(key)` 返回 `Optional<String>`，`update(Map)` 原子合并，省略键保留，空白值删除，`delete(key)` 幂等删除。最多声明及更新 128 项，单值 UTF-8 最多 64 KiB，单批最多 1 MiB。未声明键与旧 generation 句柄会被拒绝；普通插件不能传入其它 owner。
+
+凭据键不能同时声明为普通 GUI 字段：同键必须是敏感字段，否则宿主拒绝该 owner 的凭据与桌面配置快照，并继续遮蔽已发现的敏感键。GUI 保存的凭据快照、写入和失败回滚共用一次 owner 锁；加载和重新加载时，凭据读取与迁移决策也在同一次锁内完成，避免旧快照或旧明文覆盖已成功的程序化轮换。环境导出选择包含凭据时也包含无 GUI 的已声明键，归档必须加密；排除凭据时不会导出这些值，恢复仍核对 owner 和安装代际。
+
+存储复用宿主加密与文件锁，既有 GUI 敏感字段仍并入同一声明和遮罩范围。保存不会自动重绑已有 `@Value` 或配置对象，业务应按需读取或遵守已有重启策略。不得把明文凭据放入服务 DTO、异常、日志或诊断。
+
+登录策略作为 Spring Bean 实现 `LoginVerification`，以 `policyId()` 声明稳定键。管理员在 `setup.login-verification-policies` 中配置逗号分隔的必要策略，后端重启后生效；空值关闭验证，最多 16 项。宿主在限流、密码核对之后且创建会话之前调用策略，输入包含用户名、客户端地址、attemptId 与不透明 proof，不包含密码或会话权限。
+
+策略返回 `APPROVED`、`REJECTED` 或 `CHALLENGE`。必要策略缺席、歧义或异常返回 503，拒绝返回 403，挑战返回 409 与 `verificationToken`、按策略键索引的 `challenges`。随后 `/api/auth/login` 请求携带原凭证、token 和 `verificationProofs`。挑战绑定用户名、地址和精确 publication，五分钟有效且响应只消费一次；旧挑战返回 409。每项挑战/proof 最多 16 KiB UTF-8、累计 64 KiB，最多保留 256 个待响应挑战。失败响应不创建会话 Cookie。
+
+需要界面的策略向普通 `login.verification` UiSlot 贡献模块，并声明该模块的公开静态资源路由。宿主只通过 `/api/web/login-verification-slots` 公开此目标。上下文属性为 `{verificationToken, challenges}`；模块发出 `proof` 事件，值为 `{verificationToken, policyId, proof}`，用户再次点击登录后提交。修改凭证会清除证明。类型声明位于 SDK JAR 的 `META-INF/pixivdownload/web/login-verification.d.ts`。浏览器显示不代替后端验证；安装插件也不会自动启用必要策略。
+
+## 普通槽位与页面组件
+
+普通页面加载 `/js/pixiv-ui-slots.js`，创建 `data-ui-slot` 挂载点，调用 `PixivUiSlots.connect({targetPrefix, properties, regions, onEvent, i18n})` 后 `refresh()`。默认清单仍受原路由权限保护；公开页面须使用限定目标的公开清单。模块在自身脚本求值时调用 `registerModule(moduleUrl, mount)`，返回可选 `update(properties)` 与 `destroy()`。
+
+`mount(root, context)` 使用上下文的纯值属性、事件和显式 region，不读取其它页面私有全局。`context.fetch` 绑定来源 publication，目标 API 继续鉴权；`signal`、`on`、`interval`、`onCleanup`、`loadScript` 与 `loadStyle` 随实例撤回清理。活动清单两秒刷新，隐藏页面暂停新刷新；同一模块可供多个实例共享，单个实例退出不撤销其它实例。异步返回后应检查 signal，迟到结果不得重建旧 DOM。页面离开时释放实例、监听器、定时器和请求。接口见 `META-INF/pixivdownload/web/ui-slots.d.ts`。
+
+同一 target 内按清单的 `order` 排列，重新启用或加入贡献时，新节点直接插到正确位置，保留未变实例及其焦点与选区。已有节点需要重排时，运行时检测 `moveBefore` 支持，并保留输入框与可编辑文本的焦点、选区；不支持该 API 的浏览器使用兼容路径。迟到清单不得撤销较新实例。模块在 `root` 外创建节点后，须立即用 `onCleanup` 登记对该节点引用的清理；控制器创建后另行登记销毁，确保脚本加载失败或期间撤回也能释放资源。
+
+下载工作台已有的队列槽位继续使用其专用 Vue/队列协议。普通槽位不是跨 Swing/Compose 的桌面视图协议。小说与系列页面通过 properties、regions 和事件向 AI/TTS 槽位提供上下文，业务模型由调用双方约定。
+
+页面编辑器组件用 `PagePort(name, contractId, schema)` 声明端口。连线两端必须具有相同的版本化契约身份及解析后的 Schema；Schema 使用 SDK 生成器的受控子集。未知端口、重复边和有向循环拒绝保存，运行时再次校验载荷。实例全部挂载后按队列转发挂载期间事件，支持 A→B→C；不向后来加入的实例重放历史。单页队列最多 256 项、16 MiB，连续链最多 4096 次交付。超限明确失败。组件只持久化项目数据、纯值与受控样式；业务请求仍经生成客户端和实例 fetch。
+
+## 多服务生成、值编码与契约演进
+
+先在独立 API 模块生成 Schema，再为消费模块一次列出完整服务集合。下面参数中的模块目录、classpath 与类名需替换为自己的值；Windows classpath 用分号，Unix 用冒号。
+
+```text
+java -jar sdk-tools.jar schema <api-module> <classpath>
+java -jar sdk-tools.jar remote <consumer-module> <classpath> example.one.Service example.two.Service
+java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-report.json>
+```
+
+同简单名的接口按完整包名生成 Java 适配器和 `web/generated/<全限定名>.mjs`、`.d.mts`。每次 `remote` 接收最多 128 个服务，空列表撤回全部生成物；删掉服务会清理其旧 class、JS 和声明。失败会撤回受管产物及完成标记，打包必须检查 `target/remote-generation.complete`。完整批次编译成功后才发布完成标记；文件写入不是多文件系统事务。输出累计最多 16 MiB，单文件最多 1 MiB。
+
+普通 JSON 整数仍受 Java 范围与 JS 安全整数范围交集约束。完整 long 在 record 属性上显式使用 `@ValueProperty(encoding = ValueEncoding.DECIMAL_STRING)`。UUID、Instant、Duration、float、double 使用固定无损字符串编码：小写 UUID、`秒:九位纳秒`、IEEE 754 小写定长十六进制。拒绝非规范文本、越界与非有限浮点，保留负零与纳秒；不用 JS Date 截断精度。生成客户端的 `wireValues.int64/uuid/instant/duration/float32/float64` 构造对应带类型值。其它类型应在独立契约中显式转换为受支持 DTO，不注册任意 serializer。
+
+`contract-evolution` 只读两个 JAR 的 classfile，报告源码、二进制链接、新宿主调用旧实现三个维度；业务行为始终为 `NOT_ASSESSED`。新增接口抽象方法可能保留旧二进制链接，却使新调用遇到未实现方法。报告不能替代重编、原字节旧插件装载及真实调用测试；退出码 0 也不代表行为兼容。输出文件必须不存在。`verify-sdk-usage` 继续核对插件声明的最低中央 SDK，不能代替独立契约演进或旧 JAR 运行验收。
+
+
 ## 维护外部工程与 SDK 升级
 
 预发布 SDK 使用精确合同，properties 写为 `plugin.requires==7.2.3-rc.4`（示例版本）；稳定 SDK 使用 `major.minor`。编译依赖、描述符和配套运行包必须一致，不同 RC 及 RC 与稳定版不默认兼容。旧包只声明主次版本时，无法据此推断其编译 RC，应验证后发布新插件版本，不覆盖旧附件。

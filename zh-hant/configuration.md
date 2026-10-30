@@ -317,7 +317,7 @@ example.output-format=json
 
 ## 插件憑據
 
-密碼、Cookie、Token、API key、secret 和 webhook key 等敏感值寫入 `config/credentials/{pluginId}.properties`。宿主負責加密、權限、遷移和按 owner 注入；插件只從自己的子上下文 `Environment` 讀取已經解密的屬性值。
+密碼、Cookie、Token、API key、secret 和 webhook key 等敏感值寫入 `config/credentials/{pluginId}.properties`。宿主負責加密、權限、遷移和按 owner 注入。插件可從自己的子上下文 `Environment` 讀取已解密的屬性，或透過 `PluginCredentials` 讀寫已宣告的自身憑據；憑據宣告不要求提供 GUI 欄位。
 
 不要把憑據放入 `config.yaml` 或 `config/plugins/*.properties`，也不要讓插件讀取、解析或解密憑據文件。備份憑據時必須同時保護憑據主密鑰；缺少原主密鑰時，加密值不能在另一環境中恢復。
 
@@ -327,3 +327,9 @@ example.output-format=json
 2. 宿主默認鍵以當前版本的 `DefaultConfigTemplate` 生成結果爲準。
 3. 插件字段以對應插件的 `GuiConfigContribution`、`@ConfigurationProperties` 或設置服務爲準。
 4. 不要從舊版示例複製已經外置的 `mail.*`、`push.*`、`notification.*` 或 `download.novel-*` 到 `config.yaml`；它們由各自插件擁有。
+
+## 登入驗證策略
+
+`setup.login-verification-policies` 預設為空字串，表示不要求額外驗證。設定為外掛 `LoginVerification.policyId()` 宣告的策略鍵，以逗號分隔，最多 16 項；後端重啟後生效。必要策略缺席、有多個實作或執行失敗時拒絕登入，保留原密碼及限流檢查。安裝外掛不會自動啟用策略。挑戰透過登入頁提交，失敗不建立工作階段。
+
+設定前先確認對應外掛可用；移除仍被要求的策略提供者會阻止新登入。詳見[外掛開發](plugin-development.md)的登入驗證契約。

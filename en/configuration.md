@@ -318,7 +318,7 @@ The plugin's `GuiConfigContribution` is the source of truth for its complete con
 
 ## Plugin credentials
 
-Passwords, cookies, tokens, API keys, secrets, and webhook keys belong in `config/credentials/{pluginId}.properties`. The host owns encryption, permissions, migration, and owner-scoped injection. A plugin reads only its already-decrypted values from its child-context `Environment`.
+Passwords, cookies, tokens, API keys, secrets, and webhook keys belong in `config/credentials/{pluginId}.properties`. The host owns encryption, permissions, migration, and owner-scoped injection. Plugins can read decrypted properties from their own child-context `Environment`, or read and write their declared credentials through `PluginCredentials`. Credential declarations do not require GUI fields.
 
 Do not place credentials in `config.yaml` or `config/plugins/*.properties`, and do not let plugins read, parse, or decrypt credential files. A credential backup is useful only with the protected credential master key; encrypted values cannot be recovered in a different environment without the original key.
 
@@ -328,3 +328,9 @@ Do not place credentials in `config.yaml` or `config/plugins/*.properties`, and 
 2. Host defaults are defined by the current `DefaultConfigTemplate` output.
 3. Plugin fields are defined by that plugin's `GuiConfigContribution`, `@ConfigurationProperties`, or settings service.
 4. Do not copy old `mail.*`, `push.*`, `notification.*`, or `download.novel-*` examples into `config.yaml`; those settings are now plugin-owned.
+
+## Login verification policies
+
+`setup.login-verification-policies` defaults to an empty string, which requires no additional verification. Set it to comma-separated keys declared by plugin `LoginVerification.policyId()`, with at most 16 entries. Changes take effect after backend restart. Missing, ambiguous or failing required policies reject login; password and rate checks remain active. Installing a plugin does not enable a policy. The login page submits challenges, and failed verification creates no session.
+
+Confirm that the corresponding plugins are available before enabling policies. Removing a still-required provider blocks new logins. See the login verification contract in [Plugin development](plugin-development.md).
