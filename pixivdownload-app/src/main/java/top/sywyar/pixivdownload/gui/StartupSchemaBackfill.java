@@ -45,7 +45,7 @@ final class StartupSchemaBackfill {
      * （带安全默认值、无需联网抓取即可迁移，见 {@code DatabaseInitializer} 的安全补列阶段）。
      * <p>这些列在旧库里缺失只是后端首启前的暂时状态，会被自动迁移补齐，不应阻断
      * {@link #supportsStartupAutoBackfill} 的整段元数据自动回填判定。与
-     * {@link ArtworksBackFill#SUPPORTED_DATABASE_COLUMNS} 区分：后者是必须联网抓取才能填充的列。
+     * {@link ArtworksBackFill#SUPPORTED_DATABASE_COLUMNS} 区分：后者可使用本地元数据或网络详情补齐。
      */
     private static final class StartupColumns {
         private static final Set<ArtworksBackFill.DatabaseColumn> AUTO_MIGRATED = Set.of(
@@ -97,11 +97,9 @@ final class StartupSchemaBackfill {
 
         if (comparison.matches()) {
             log.info(MessageBundles.getForLog("gui.launcher.log.startup.schema-check.passed", target.displayName()));
-            BackendLifecycleManager.startAsync();
-            return;
+        } else {
+            log.info(MessageBundles.getForLog("gui.launcher.log.startup.schema-check.mismatch", comparison.summary(8)));
         }
-
-        log.info(MessageBundles.getForLog("gui.launcher.log.startup.schema-check.mismatch", comparison.summary(8)));
         if (!supportsStartupAutoBackfill(comparison)) {
             log.info(MessageBundles.getForLog("gui.launcher.log.startup.schema-check.auto-backfill.unsupported", comparison.summary(8)));
             DesktopUiDialogs.showMessageDialog(
@@ -113,13 +111,6 @@ final class StartupSchemaBackfill {
             BackendLifecycleManager.startAsync();
             return;
         }
-
-        DesktopUiDialogs.showMessageDialog(
-                frame,
-                MessageBundles.get("gui.launcher.dialog.schema-mismatch.message", comparison.summary(6)),
-                MessageBundles.get("gui.launcher.dialog.schema-mismatch.title"),
-                DesktopUiDialogs.INFORMATION_MESSAGE
-        );
 
         int pendingCount;
         try {
@@ -187,11 +178,8 @@ final class StartupSchemaBackfill {
     }
 
     private static boolean supportsStartupAutoBackfill(DatabaseSchemaInspector.SchemaComparison comparison) {
-        return !comparison.details().isEmpty()
-                // 所有差异都不阻断（要么可回填，要么是后端自建表/自动迁移列这类首启自愈差异）。
-                && comparison.details().stream().allMatch(StartupSchemaBackfill::isNonBlockingStartupDifference)
-                // 且至少有一个差异是回填工具真正支持的列；否则差异全是自愈项，没有任何需要联网回填的内容，不启动回填工具。
-                && comparison.details().stream().anyMatch(StartupSchemaBackfill::isBackfillableDifference);
+        // 结构可用只决定能否查询候选；是否需要回填由缺失数据决定。
+        return comparison.details().stream().allMatch(StartupSchemaBackfill::isNonBlockingStartupDifference);
     }
 
     /** 该差异是否由回填工具实际填充——即差异的列在 {@link ArtworksBackFill#SUPPORTED_DATABASE_COLUMNS} 支持范围内。 */
@@ -203,8 +191,7 @@ final class StartupSchemaBackfill {
 
     /**
      * 该差异是否不阻断启动期自动回填：要么可回填（见 {@link #isBackfillableDifference}），
-     * 要么是后端启动时会自愈的差异（缺表 / 自动迁移列）。仅"不阻断"不代表会触发回填——
-     * 是否启动回填还要求 {@link #supportsStartupAutoBackfill} 中至少存在一个可回填差异。
+     * 要么是后端启动时会自愈的差异（缺表 / 自动迁移列）。
      */
     private static boolean isNonBlockingStartupDifference(
             DatabaseSchemaInspector.SchemaDifference difference
@@ -275,7 +262,7 @@ final class StartupSchemaBackfill {
                 defaults.delayMs(),
                 defaults.limit(),
                 false
-        ).withSources(root, defaults.alwaysNetwork());
+        ).withSources(root, defaults.alwaysNetwork()).forStartup();
     }
 
     private static boolean hasInspectableDatabase(Path databasePath) {

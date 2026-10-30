@@ -226,6 +226,10 @@
             display: flex;
         }
 
+        @media (max-height: 35em) {
+            .layout-flow .topbar.layout-sticky { position: relative; }
+        }
+
         .filter-row {
             display: flex;
             align-items: center;
@@ -233,15 +237,54 @@
             flex-wrap: wrap;
         }
 
-        .upload-date-field {
-            display: inline-flex;
+        .filter-date-range {
+            display: flex;
             align-items: center;
             flex-wrap: wrap;
-            gap: 8px;
+            gap: .5rem;
+            min-width: 0;
             max-width: 100%;
         }
 
-        .upload-date-field input { min-width: 0; }
+        .filter-date-field {
+            display: inline-flex;
+            align-items: center;
+            gap: .5rem;
+            min-height: 2rem;
+            max-width: 100%;
+            padding: .25rem .625rem;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            background: var(--surface);
+            color: var(--text-secondary);
+            font-size: .75rem;
+        }
+
+        .filter-date-field > span { flex-shrink: 0; }
+
+        .filter-date-field input {
+            width: 10.5em;
+            min-width: 0;
+            padding: 0;
+            border: 0;
+            outline: none;
+            background: transparent;
+            color: inherit;
+            font: inherit;
+        }
+
+        .filter-date-field:focus-within {
+            outline: 2px solid var(--brand);
+            outline-offset: 2px;
+        }
+
+        html[data-theme="dark"] .filter-date-field { color-scheme: dark; }
+
+        .filter-date-hint {
+            color: var(--text-secondary);
+            font-size: .75rem;
+            line-height: 1.5;
+        }
 
         .filter-row-label {
             font-size: 0.75rem;
@@ -256,8 +299,8 @@
             display: inline-flex;
             align-items: center;
             gap: 4px;
-            height: 28px;
-            padding: 0 12px;
+            min-height: 1.75rem;
+            padding: .25em 12px;
             border-radius: 999px;
             border: 1px solid var(--line);
             background: var(--surface);

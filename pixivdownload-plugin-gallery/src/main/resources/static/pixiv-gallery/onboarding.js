@@ -116,7 +116,7 @@
 
     // 用户先打开画廊（未走下载页）：引导回下载页
     function downloadEntry() {
-        return document.querySelector('a.app-nav-link[data-nav-markers~="preferred-download-workbench"]');
+        return document.querySelector('a[data-nav-markers~="preferred-download-workbench"]');
     }
 
     function phaseGalleryRedirect() {

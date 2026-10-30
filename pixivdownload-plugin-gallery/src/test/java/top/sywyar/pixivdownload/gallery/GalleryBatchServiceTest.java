@@ -65,6 +65,24 @@ class GalleryBatchServiceTest {
     }
 
     @Test
+    @DisplayName("批量筛选从 JSON 完整传递两种日期范围")
+    void forwardsDateRangesFromJson() throws Exception {
+        var request = new ObjectMapper().readValue("""
+                {"mode":"filter","filter":{"sort":"date","order":"asc",
+                  "downloadedFrom":100,"downloadedBefore":200,
+                  "uploadedFrom":300,"uploadedBefore":400}}
+                """, ArtworkBatchRequest.class);
+        when(galleryService.findArtworkIds(any())).thenReturn(List.of(7L));
+        assertThat(service.resolveArtworkIds(request)).containsExactly(7L);
+        var captured = ArgumentCaptor.forClass(WorkQuery.class);
+        verify(galleryService).findArtworkIds(captured.capture());
+        assertThat(captured.getValue().downloadedFrom()).isEqualTo(100L);
+        assertThat(captured.getValue().downloadedBefore()).isEqualTo(200L);
+        assertThat(captured.getValue().uploadedFrom()).isEqualTo(300L);
+        assertThat(captured.getValue().uploadedBefore()).isEqualTo(400L);
+    }
+
+    @Test
     @DisplayName("ids 模式应去重、过滤非法 ID 并应用排除列表")
     void shouldResolveIdsMode() {
         ArtworkBatchRequest request = new ArtworkBatchRequest("ids",

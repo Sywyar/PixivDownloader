@@ -35,6 +35,72 @@ import static org.mockito.Mockito.when;
 class StartupSchemaBackfillTest {
     private enum Step { OPTIONS, COMPARE, COUNT, RUN }
 
+    @org.junit.jupiter.api.Test
+    @DisplayName("结构正常且仅余已暂缓小说时直接启动后端，不再运行联网回填")
+    void startsBackendWhenOnlyRestrictedNovelRemains(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("restricted.db"));
+        try (var connection = target.openConnection(); var sql = connection.createStatement()) {
+            top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target);
+            sql.execute("INSERT INTO novels(novel_id,title,folder,count,extensions,time) VALUES(3,'novel','{0}',1,'txt',1)");
+        }
+        var path = directory.resolve("unreachable.json");
+        java.nio.file.Files.writeString(path, "{\"novel:3\":{\"restricted\":true,\"reason\":\"restricted\"}}");
+        var host = mock(DesktopUiHost.class);
+        var config = mock(DesktopUiHost.ConfigFile.class);
+        when(host.applicationConfig()).thenReturn(config);
+        when(config.read("download.root-folder")).thenReturn(directory.toString());
+        when(host.defaultBackfillOptions()).thenReturn(new DesktopUiHost.BackfillOptions("fixture", "", 0, false, 0, 1, false));
+        try (var files = mockStatic(top.sywyar.pixivdownload.config.RuntimeFiles.class);
+             var backfill = mockStatic(ArtworksBackFill.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+             var backend = mockStatic(BackendLifecycleManager.class);
+             var dialogs = mockStatic(DesktopUiDialogs.class)) {
+            files.when(top.sywyar.pixivdownload.config.RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(path);
+            backfill.when(() -> ArtworksBackFill.run(any(ArtworksBackFill.Options.class))).thenThrow(new AssertionError("unexpected backfill"));
+            StartupSchemaBackfill.run(mock(DesktopUiSession.class), host, DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema(), target);
+            backfill.verify(() -> ArtworksBackFill.run(any(ArtworksBackFill.Options.class)), never());
+            backend.verify(BackendLifecycleManager::startAsync);
+            dialogs.verifyNoInteractions();
+        }
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"complete,true", "complete,false", "indexes,true", "extra,true"})
+    @DisplayName("结构完整或只有可恢复差异时按实际缺失数据触发启动回填")
+    void backfillsMissingDataWithoutMissingColumns(String layout, boolean missing,
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("data.db"));
+        try (var connection = target.openConnection(); var sql = connection.createStatement()) {
+            top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target);
+            sql.execute("INSERT INTO novels(novel_id,title,folder,count,extensions,time,upload_time) "
+                    + "VALUES(3,'novel','{0}',1,'txt',1," + (missing ? "NULL" : "1000") + ")");
+            if (layout.equals("indexes")) sql.execute("DROP INDEX idx_novels_upload_time");
+            if (layout.equals("extra")) sql.execute("CREATE TABLE other_plugin(id INTEGER PRIMARY KEY)");
+        }
+        var host = mock(DesktopUiHost.class);
+        when(host.applicationConfig()).thenReturn(mock(DesktopUiHost.ConfigFile.class));
+        when(host.defaultBackfillOptions()).thenReturn(new DesktopUiHost.BackfillOptions("fixture", "", 0, false, 0, 0, false));
+        var session = mock(ToolHtmlLogSession.class);
+        try (var backfill = mockStatic(ArtworksBackFill.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+             var logs = mockStatic(ToolHtmlLogSession.class);
+             var files = mockStatic(top.sywyar.pixivdownload.config.RuntimeFiles.class);
+             var dialogs = mockStatic(DesktopUiDialogs.class);
+             var backend = mockStatic(BackendLifecycleManager.class)) {
+            files.when(top.sywyar.pixivdownload.config.RuntimeFiles::resolveBackfillUnreachablePath)
+                    .thenReturn(directory.resolve("unreachable.json"));
+            logs.when(() -> ToolHtmlLogSession.open("artworks-backfill", ArtworksBackFill.class)).thenReturn(session);
+            backfill.when(() -> ArtworksBackFill.run(any(ArtworksBackFill.Options.class))).thenReturn(null);
+            StartupSchemaBackfill.run(mock(DesktopUiSession.class), host,
+                    DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema(), target);
+            backfill.verify(() -> ArtworksBackFill.countCandidates(any(ArtworksBackFill.Options.class)));
+            backfill.verify(() -> ArtworksBackFill.run(any(ArtworksBackFill.Options.class)),
+                    missing ? org.mockito.Mockito.times(1) : never());
+            if (missing) {
+                verify(session).close();
+                backend.verify(() -> BackendLifecycleManager.startAsync(any(Runnable.class)));
+            } else backend.verify(BackendLifecycleManager::startAsync);
+        }
+    }
+
     @ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"", "CREATE UNIQUE INDEX idx_artworks_upload_time ON artworks(upload_time)",
             "CREATE INDEX idx_artworks_upload_time ON artworks(title)",

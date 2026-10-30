@@ -11,6 +11,8 @@
         r18: 'any',
         ai: 'any',
         uploadStartDate: '',
+        downloadStartDate: '',
+        downloadEndDate: '',
         uploadEndDate: '',
         formats: new Set(),
         collectionIds: new Set(),
@@ -129,7 +131,7 @@
     let authorOptionsPromise = null;
     let seriesOptionsPromise = null;
 
-    function uploadDateMillis(value, nextDay = false) {
+    function filterDateMillis(value, nextDay = false) {
         if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
         const date = new Date(value + 'T00:00:00');
         if (!Number.isFinite(date.getTime()) || date.getTime() <= 0
@@ -138,16 +140,21 @@
         return date.getTime();
     }
 
-    function galleryUploadTimeRange() {
-        return {uploadedFrom: uploadDateMillis(state.uploadStartDate),
-            uploadedBefore: uploadDateMillis(state.uploadEndDate, true)};
+    function galleryTimeRanges() {
+        return {downloadedFrom: filterDateMillis(state.downloadStartDate),
+            downloadedBefore: filterDateMillis(state.downloadEndDate, true),
+            uploadedFrom: filterDateMillis(state.uploadStartDate),
+            uploadedBefore: filterDateMillis(state.uploadEndDate, true)};
     }
 
-    function restoreUploadDates(payload) {
-        state.uploadStartDate = uploadDateMillis(payload.uploadStartDate) ? payload.uploadStartDate : '';
-        state.uploadEndDate = uploadDateMillis(payload.uploadEndDate) ? payload.uploadEndDate : '';
-        if (state.uploadStartDate && state.uploadEndDate && state.uploadStartDate > state.uploadEndDate) {
-            state.uploadStartDate = state.uploadEndDate = '';
+    function restoreTimeRanges(payload) {
+        for (const prefix of ['upload', 'download']) {
+            const start = prefix + 'StartDate', end = prefix + 'EndDate';
+            state[start] = filterDateMillis(payload[start]) ? payload[start] : '';
+            state[end] = filterDateMillis(payload[end]) ? payload[end] : '';
+            if (state[start] && state[end] && state[start] > state[end]) {
+                state[start] = state[end] = '';
+            }
         }
     }
 
@@ -162,6 +169,8 @@
             r18: state.r18,
             ai: state.ai,
             uploadStartDate: state.uploadStartDate,
+            downloadStartDate: state.downloadStartDate,
+            downloadEndDate: state.downloadEndDate,
             uploadEndDate: state.uploadEndDate,
             formats: [...state.formats],
             collectionIds: [...state.collectionIds],
@@ -229,7 +238,7 @@
         }
         if (typeof payload.r18 === 'string' && GALLERY_R18_VALUES.has(payload.r18)) state.r18 = payload.r18;
         if (typeof payload.ai === 'string' && GALLERY_AI_VALUES.has(payload.ai)) state.ai = payload.ai;
-        restoreUploadDates(payload);
+        restoreTimeRanges(payload);
         if (Array.isArray(payload.formats)) {
             state.formats = new Set(payload.formats.filter(v => GALLERY_FORMAT_VALUES.has(v)));
         }
@@ -308,6 +317,8 @@
             r18: state.r18,
             ai: state.ai,
             uploadStartDate: state.uploadStartDate,
+            downloadStartDate: state.downloadStartDate,
+            downloadEndDate: state.downloadEndDate,
             uploadEndDate: state.uploadEndDate,
             sort: state.sort,
             order: state.order,
@@ -354,7 +365,7 @@
         }
         if (typeof transfer.r18 === 'string' && GALLERY_R18_VALUES.has(transfer.r18)) state.r18 = transfer.r18;
         if (typeof transfer.ai === 'string' && GALLERY_AI_VALUES.has(transfer.ai)) state.ai = transfer.ai;
-        restoreUploadDates(transfer);
+        restoreTimeRanges(transfer);
         if (typeof transfer.sort === 'string' && GALLERY_SORT_VALUES.has(transfer.sort)) state.sort = transfer.sort;
         if (transfer.order === 'asc' || transfer.order === 'desc') state.order = transfer.order;
         if (typeof transfer.view === 'string' && GALLERY_VIEW_VALUES.includes(transfer.view)) state.view = transfer.view;
@@ -387,7 +398,7 @@
     }
 
     function applyGalleryStateToUi() {
-        for (const name of ['uploadStartDate', 'uploadEndDate']) {
+        for (const name of ['uploadStartDate', 'uploadEndDate', 'downloadStartDate', 'downloadEndDate']) {
             const input = document.getElementById(name);
             if (input) input.value = state[name];
         }

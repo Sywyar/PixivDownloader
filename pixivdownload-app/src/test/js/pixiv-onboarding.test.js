@@ -590,7 +590,7 @@ async function main() {
     }
     {
         const h = loadScenario(false, 'gallery', {status: 'new'});
-        const selector = 'a.app-nav-link[data-nav-markers~="preferred-download-workbench"]';
+        const selector = 'a[data-nav-markers~="preferred-download-workbench"]';
         const entry = new El('a');
         entry.href = '/independent-provider/start';
         h.document.elements[selector] = entry;

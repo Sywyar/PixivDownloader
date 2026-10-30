@@ -54,6 +54,8 @@ public class GalleryRepository {
     private Expression filter(WorkQuery q) {
         var conditions = new ArrayList<Expression>();
         conditions.add(active());
+        if (q.downloadedFrom() != null) conditions.add(call(GREATER_EQUAL, a("time"), value(q.downloadedFrom())));
+        if (q.downloadedBefore() != null) conditions.add(call(LESS, a("time"), value(q.downloadedBefore())));
         if (q.uploadedFrom() != null) conditions.add(call(GREATER_EQUAL, a("upload_time"), value(q.uploadedFrom())));
         if (q.uploadedBefore() != null) conditions.add(call(LESS, a("upload_time"), value(q.uploadedBefore())));
         if (q.search() != null) {

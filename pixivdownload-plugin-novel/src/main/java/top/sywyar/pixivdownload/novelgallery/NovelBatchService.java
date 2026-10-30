@@ -149,7 +149,7 @@ public class NovelBatchService {
                 ArchiveExportRules.normalizeIdSet(filter.notAuthorIds()),
                 ArchiveExportRules.normalizeIdSet(filter.orAuthorIds()),
                 seriesIds,
-                ArchiveExportRules.normalizeIdSet(filter.notSeriesIds()), null, filter.uploadedFrom(), filter.uploadedBefore());
+                ArchiveExportRules.normalizeIdSet(filter.notSeriesIds()), null, filter.uploadedFrom(), filter.uploadedBefore(), filter.downloadedFrom(), filter.downloadedBefore());
     }
 
     private Map<String, Object> novelManifest(WorkMetadata meta, NovelWorkDetails details,

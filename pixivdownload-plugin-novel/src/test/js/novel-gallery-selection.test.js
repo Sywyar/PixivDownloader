@@ -14,10 +14,11 @@ function load() {
         }},
         pageI18n: {t: (_key, fallback) => fallback}, esc: text => String(text)
     });
-    for (const file of ['novel-gallery-state.js', 'novel-gallery-filters.js']) {
+    for (const file of ['novel-gallery-core.js', 'novel-gallery-state.js', 'novel-gallery-filters.js', 'novel-gallery-batch.js']) {
         vm.runInContext(fs.readFileSync(path.join(__dirname,
             '../../main/resources/static/pixiv-novel-gallery', file), 'utf8'), context, {filename: file});
     }
+    vm.runInContext("pageI18n = {t: (_key, fallback) => fallback};", context);
     return {context, nodes, state: vm.runInContext('state', context)};
 }
 
@@ -80,4 +81,27 @@ test('小说画廊各筛选输入独立防抖，同一输入只执行最后一�
     assert.deepEqual(rendered, [['tags', 'latest'], ['series', 'other']]);
     t.mock.timers.tick(1000);
     assert.equal(rendered.length, 2);
+});
+
+
+test('小说画廊交接、保存和批量快照同时保留下载与上传日期', () => {
+    const h = load();
+    h.context.applyCrossTransferToNovelGallery({
+        downloadStartDate: '2021-05-01', downloadEndDate: '2021-05-02',
+        uploadStartDate: '2020-02-03', uploadEndDate: '2020-02-03', sort: 'date', order: 'asc'
+    });
+    const saved = h.context.serializeNovelGalleryState();
+    assert.equal(saved.downloadEndDate, '2021-05-02');
+    h.context.restoreTimeRanges(saved);
+    const snapshot = h.context.currentBatchFilterSnapshot();
+    assert.equal(snapshot.downloadedFrom, new Date('2021-05-01T00:00:00').getTime());
+    assert.equal(snapshot.downloadedBefore, new Date('2021-05-03T00:00:00').getTime());
+    assert.equal(snapshot.uploadedBefore, new Date('2020-02-04T00:00:00').getTime());
+    assert.equal(snapshot.sort, 'date');
+    assert.equal(snapshot.order, 'asc');
+    h.context.restoreTimeRanges({downloadStartDate: '2021-05-02', downloadEndDate: '2021-05-01'});
+    assert.equal(h.state.downloadStartDate, '');
+    assert.equal(h.state.downloadEndDate, '');
+    h.context.restoreTimeRanges({downloadStartDate: '2021-05-02'});
+    assert.equal(h.context.galleryTimeRanges().downloadedBefore, null);
 });

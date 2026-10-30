@@ -17,13 +17,8 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * 综合回填工具：一次 Pixiv AJAX 请求同时补全 artworks 表的 {@code author_id}、{@code "R18"}、
- * {@code is_ai}、{@code description} 四个字段，以及 {@code tags} / {@code artwork_tags} 关系表。
- *
- * {@code /ajax/illust/{id}}，根据响应内容选择性地更新当前仍为 NULL 的列；
- * 若 author_id 被补全，则同步维护 {@code authors} 表。
- * {@code artwork_tags} 中尚无任何记录的作品会把 Pixiv 返回的标签写入
- * {@code tags} 表并建立连接。
+ * 从本地元数据或 Pixiv 详情补齐插画资料与小说上传时间，只填当前缺失的值。
+ * 插画同时维护作者、标签与系列关联；小说只更新上传时间。
  *
  * <p>用法：
  * <pre>
@@ -47,7 +42,8 @@ public class ArtworksBackFill {
             new DatabaseColumn("artworks", "description"),
             new DatabaseColumn("artworks", "series_id"),
             new DatabaseColumn("artworks", "series_order"),
-            new DatabaseColumn("artworks", "upload_time")
+            new DatabaseColumn("artworks", "upload_time"),
+            new DatabaseColumn("novels", "upload_time")
     );
 
     public static void main(String[] args) throws Exception {
@@ -91,7 +87,8 @@ public class ArtworksBackFill {
                 RuntimeFiles.resolveBackfillUnreachablePath(),
                 new ObjectMapper()
         );
-        return database.findCandidates(options.limit(), store, options.alwaysNetwork() ? null : options.rootFolder()).candidates().size();
+        return database.findCandidates(options.limit(), store, options.alwaysNetwork() ? null : options.rootFolder(),
+                options.automatic()).candidates().size();
     }
 
     public static Summary run(Options options) throws Exception {
@@ -143,7 +140,8 @@ public class ArtworksBackFill {
 
         database.importMetadata(options.rootFolder(), options.dryRun(), text -> log.info(text));
         try (ArtworksBackFillPixivClient pixivClient = ArtworksBackFillPixivClient.open(options, mapper)) {
-            var filtered = database.findCandidates(options.limit(), unreachable, options.alwaysNetwork() ? null : options.rootFolder());
+            var filtered = database.findCandidates(options.limit(), unreachable, options.alwaysNetwork() ? null : options.rootFolder(),
+                    options.automatic());
             var candidates = filtered.candidates();
             Counts counts = new Counts();
             counts.previouslyUnreachable = filtered.skippedUnreachable();
@@ -156,34 +154,42 @@ public class ArtworksBackFill {
                     int before = counts.filled() + counts.deleted + counts.previouslyUnreachable;
                     int authorBefore = counts.author, seriesBefore = counts.series;
                     var remaining = candidate;
+                    boolean networkFound = false;
                     if (!options.alwaysNetwork()) {
-                        var local = database.localMetadata(candidate.artworkId(), options.rootFolder());
+                        var local = database.localMetadata(candidate.workType(), candidate.artworkId(), options.rootFolder());
                         if (local != null) remaining = fill(database, remaining, local, options.dryRun(), counts);
                     }
                     if (remaining.hasMissing()) {
-                        if (unreachable.contains(candidate.artworkId())) {
-                            counts.previouslyUnreachable++;
+                        if (unreachable.blocksNetwork(candidate.workType(), candidate.artworkId(), options.automatic())) {
+                            if (unreachable.contains(candidate.workType(), candidate.artworkId())) counts.previouslyUnreachable++;
                         } else {
                             if (requested) Thread.sleep(options.delayMs());
                             reportProgress(progress, counts.processed, candidates.size());
                             database.requireAvailable();
-                            var result = pixivClient.query(candidate.artworkId());
+                            var result = candidate.workType() == top.sywyar.pixivdownload.core.work.model.WorkType.NOVEL
+                                    ? pixivClient.queryNovel(candidate.artworkId()) : pixivClient.query(candidate.artworkId());
                             requested = true;
                             reportProgress(progress, counts.processed, candidates.size());
                             database.requireAvailable();
                             switch (result.type) {
-                                case FOUND -> fill(database, remaining, result, options.dryRun(), counts);
+                                case FOUND -> {
+                                    remaining = fill(database, remaining, result, options.dryRun(), counts);
+                                    networkFound = true;
+                                }
                                 case R18_ONLY -> {
-                                    if (remaining.r18Missing()) {
-                                        if (!options.dryRun()) database.applyR18Only(candidate.artworkId());
+                                    if (remaining.r18Missing() && (options.dryRun() || database.applyR18Only(candidate.artworkId()))) {
                                         counts.r18++;
+                                    }
+                                    if (!options.dryRun()) {
+                                        unreachable.recordRestricted(candidate.workType(), candidate.artworkId(), result.message);
+                                        persistUnreachable(database, unreachable, unreachablePath);
                                     }
                                 }
                                 case DELETED -> {
                                     counts.deleted++;
                                     counts.newlyUnreachable++;
                                     if (!options.dryRun()) {
-                                        unreachable.record(candidate.artworkId(), result.message);
+                                        unreachable.record(candidate.workType(), candidate.artworkId(), result.message);
                                         persistUnreachable(database, unreachable, unreachablePath);
                                     }
                                 }
@@ -195,6 +201,10 @@ public class ArtworksBackFill {
                                 }
                             }
                         }
+                    }
+                    if (!options.dryRun() && (networkFound || !remaining.hasMissing())) {
+                        unreachable.clearRestricted(candidate.workType(), candidate.artworkId());
+                        persistUnreachable(database, unreachable, unreachablePath);
                     }
                     // 同一作品的本地与网络分段补齐只计一次字段组。
                     counts.author = Math.min(counts.author, authorBefore + 1);
@@ -224,7 +234,12 @@ public class ArtworksBackFill {
             if (!dryRun) {
                 var applied = database.applyUpdates(candidate, result, author, r18, ai, description, tags, series, uploadTime);
                 author = author && applied.author();
+                r18 = r18 && applied.r18();
+                ai = ai && applied.ai();
+                description = description && applied.description();
+                tags = tags && applied.tags();
                 series = series && applied.series();
+                uploadTime = uploadTime && applied.uploadTime();
             }
             if (author) counts.author++;
             if (r18) counts.r18++;
@@ -235,9 +250,9 @@ public class ArtworksBackFill {
             if (uploadTime) counts.uploadTime++;
             var applied = new ArtworksBackFillDatabase.Candidate(candidate.artworkId(), author, r18, ai, description, tags, series, uploadTime);
             if (applied.hasMissing())
-                log.info(logMessage("artworks-backfill.log.changes", candidate.artworkId(), describeMissing(applied)));
+                log.info(logMessage("artworks-backfill.log.changes", candidate.workType().name() + ":" + candidate.artworkId(), describeMissing(applied)));
         }
-        if (!dryRun) return database.currentCandidate(candidate.artworkId());
+        if (!dryRun) return database.currentCandidate(candidate.workType(), candidate.artworkId());
         Long authorId = author ? Long.valueOf(result.authorId) : candidate.authorId();
         Long seriesId = series ? Long.valueOf(result.seriesId) : candidate.seriesId();
         boolean nameMissing = candidate.authorNameMissing() && !(author && result.authorName != null);
@@ -247,7 +262,7 @@ public class ArtworksBackFill {
                 candidate.authorMissing() && (authorId == null || nameMissing), candidate.r18Missing() && !r18,
                 candidate.aiMissing() && !ai, candidate.descriptionMissing() && !description,
                 candidate.tagsMissing() && !tags, candidate.seriesMissing() && (seriesId == null || orderMissing || titleMissing),
-                candidate.uploadTimeMissing() && !uploadTime, authorId, seriesId, nameMissing, orderMissing, titleMissing);
+                candidate.uploadTimeMissing() && !uploadTime, authorId, seriesId, nameMissing, orderMissing, titleMissing).withType(candidate.workType());
     }
 
     private static final class Counts {
@@ -322,7 +337,13 @@ public class ArtworksBackFill {
                           boolean dryRun,
                           DatabaseTarget target,
                           String rootFolder,
-                          boolean alwaysNetwork) {
+                          boolean alwaysNetwork,
+                          boolean automatic) {
+
+        public Options(String dbPath, String proxyHost, int proxyPort, boolean useProxy,
+                       long delayMs, int limit, boolean dryRun, DatabaseTarget target, String rootFolder, boolean alwaysNetwork) {
+            this(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun, target, rootFolder, alwaysNetwork, false);
+        }
 
         public Options(String dbPath, String proxyHost, int proxyPort, boolean useProxy,
                        long delayMs, int limit, boolean dryRun, DatabaseTarget target) {
@@ -331,7 +352,12 @@ public class ArtworksBackFill {
         }
 
         public Options withSources(String folder, boolean network) {
-            return new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun, target, folder, network);
+            return new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun, target, folder, network, automatic);
+        }
+
+        /** 启动自动恢复暂缓已知受限作品的联网请求，仍允许本地补缺。 */
+        public Options forStartup() {
+            return new Options(dbPath, proxyHost, proxyPort, useProxy, delayMs, limit, dryRun, target, rootFolder, alwaysNetwork, true);
         }
 
         public Options(String dbPath, String proxyHost, int proxyPort, boolean useProxy,
@@ -342,7 +368,7 @@ public class ArtworksBackFill {
 
         public Options withTarget(DatabaseTarget databaseTarget) {
             return new Options(databaseTarget.displayName(), proxyHost, proxyPort, useProxy,
-                    delayMs, limit, dryRun, databaseTarget, rootFolder, alwaysNetwork);
+                    delayMs, limit, dryRun, databaseTarget, rootFolder, alwaysNetwork, automatic);
         }
 
         public static Options defaults() {

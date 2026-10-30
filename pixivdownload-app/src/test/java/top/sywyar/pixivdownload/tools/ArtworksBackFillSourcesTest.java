@@ -30,6 +30,79 @@ class ArtworksBackFillSourcesTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
+    @DisplayName("并发补齐或软删除插画后，普通字段和关联字段均不虚报本次写入")
+    void concurrentArtworkWritesAreNotCounted(boolean deleted) throws Exception {
+        var target = DatabaseProviderTestFixtures.sqlite(directory.resolve("concurrent-fields.db"));
+        initialize(target);
+        try (var connection = target.openConnection(); var sql = connection.createStatement()) {
+            sql.execute("UPDATE artworks SET author_id=NULL,r18=NULL");
+        }
+        var result = ArtworksBackFillPixivClient.parsePayload(mapper.readTree(
+                "{\"userId\":42,\"userName\":\"network author\",\"xRestrict\":1,\"aiType\":2,\"description\":\"network\","
+                        + "\"seriesNavData\":{\"seriesId\":7,\"order\":3,\"title\":\"network series\"},\"tags\":{\"tags\":[{\"tag\":\"network tag\"}]}}"), 9999L, true);
+        var client = mock(ArtworksBackFillPixivClient.class);
+        when(client.query(1)).thenAnswer(ignored -> {
+            try (var connection = target.openConnection(); var sql = connection.createStatement()) {
+                if (deleted) sql.execute("UPDATE artworks SET deleted=1");
+                else {
+                    sql.execute("UPDATE artworks SET author_id=42,r18=0,is_ai=0,description='concurrent',series_id=7,series_order=9,upload_time=1234");
+                    sql.execute("INSERT INTO authors(author_id,name,updated_time) VALUES(42,'concurrent author',1)");
+                    sql.execute("INSERT INTO manga_series(series_id,title,author_id,updated_time) VALUES(7,'concurrent series',42,1)");
+                    sql.execute("INSERT INTO tags(tag_id,name) VALUES(1,'concurrent tag')");
+                    sql.execute("INSERT INTO artwork_tags(artwork_id,tag_id) VALUES(1,1)");
+                }
+            }
+            return result;
+        });
+        try (var files = mockStatic(RuntimeFiles.class); var clients = mockStatic(ArtworksBackFillPixivClient.class,
+                call -> call.getMethod().getName().equals("open") ? client : call.callRealMethod())) {
+            files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(directory.resolve("unreachable.json"));
+            var options = new ArtworksBackFill.Options(target.displayName(), "", 0, false, 0, 1, false, target)
+                    .withSources(directory.toString(), true);
+            var summary = ArtworksBackFill.run(options);
+            assertThat(summary.processed()).isEqualTo(1);
+            assertThat(summary.skipped()).isEqualTo(1);
+            assertThat(java.util.List.of(summary.filledAuthor(), summary.filledR18(), summary.filledAi(),
+                    summary.filledDescription(), summary.filledTags(), summary.filledSeries(), summary.filledUploadTime()))
+                    .containsOnly(0);
+        }
+        try (var connection = target.openConnection(); var sql = connection.createStatement();
+             var row = sql.executeQuery("SELECT r18,is_ai,description,upload_time,series_order FROM artworks WHERE artwork_id=1")) {
+            assertThat(row.next()).isTrue();
+            if (deleted) for (int index = 1; index <= 5; index++) assertThat(row.getObject(index)).isNull();
+            else {
+                assertThat(row.getInt(1)).isZero(); assertThat(row.getInt(2)).isZero();
+                assertThat(row.getString(3)).isEqualTo("concurrent");
+                assertThat(row.getLong(4)).isEqualTo(1234); assertThat(row.getLong(5)).isEqualTo(9);
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("受限响应不覆盖并发年龄标记或软删除作品，也不计为补齐")
+    void restrictedResponseHonorsConcurrentWrites(boolean deleted) throws Exception {
+        var target = DatabaseProviderTestFixtures.sqlite(directory.resolve("restricted-race.db"));
+        initialize(target);
+        try (var connection = target.openConnection(); var sql = connection.createStatement()) { sql.execute("UPDATE artworks SET r18=NULL"); }
+        var client = mock(ArtworksBackFillPixivClient.class);
+        when(client.query(1)).thenAnswer(ignored -> {
+            try (var connection = target.openConnection(); var sql = connection.createStatement()) {
+                sql.execute(deleted ? "UPDATE artworks SET deleted=1" : "UPDATE artworks SET r18=0");
+            }
+            return ArtworksBackFillPixivClient.LookupResult.r18Only("restricted");
+        });
+        try (var files = mockStatic(RuntimeFiles.class); var clients = mockStatic(ArtworksBackFillPixivClient.class,
+                call -> call.getMethod().getName().equals("open") ? client : call.callRealMethod())) {
+            files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(directory.resolve("unreachable.json"));
+            var options = new ArtworksBackFill.Options(target.displayName(), "", 0, false, 0, 1, false, target)
+                    .withSources(directory.toString(), true);
+            assertThat(ArtworksBackFill.run(options).filledR18()).isZero();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     @DisplayName("作者身份并发修正后按实际身份补姓名，拒绝的旧身份不计成功")
     void refreshesConflictingAuthorBeforeNetwork(boolean networkAvailable) throws Exception {
         var target = DatabaseProviderTestFixtures.sqlite(directory.resolve("author-conflict.db"));
@@ -329,14 +402,17 @@ class ArtworksBackFillSourcesTest {
         var network = ArtworksBackFillPixivClient.parsePayload(mapper.readTree(BODY.replace("local", "network")), 4567L, true);
         var client = mock(ArtworksBackFillPixivClient.class);
         when(client.query(1)).thenReturn(network);
+        when(client.queryNovel(3)).thenReturn(network);
         try (var files = mockStatic(RuntimeFiles.class); var clients = mockStatic(ArtworksBackFillPixivClient.class,
                 invocation -> invocation.getMethod().getName().equals("open") ? client : invocation.callRealMethod())) {
             files.when(RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(directory.resolve("unreachable.json"));
             var options = new ArtworksBackFill.Options(target.displayName(), "", 0, false, 0, 0, false, target)
                     .withSources(directory.toString(), alwaysNetwork);
             var summary = ArtworksBackFill.run(options);
-            assertThat(summary.filledUploadTime()).isEqualTo(1);
+            assertThat(summary.filledUploadTime()).isEqualTo(2);
+            assertThat(summary.processed()).isEqualTo(2);
             verify(client, times(alwaysNetwork ? 1 : 0)).query(1);
+            verify(client, times(alwaysNetwork ? 1 : 0)).queryNovel(3);
         }
         try (var connection = target.openConnection(); var sql = connection.createStatement();
              var row = sql.executeQuery("SELECT r18,author_id,description,upload_time,metadata_json FROM artworks")) {
@@ -351,7 +427,7 @@ class ArtworksBackFillSourcesTest {
         try (var connection = target.openConnection(); var sql = connection.createStatement();
              var row = sql.executeQuery("SELECT upload_time FROM novels WHERE novel_id=3")) {
             assertThat(row.next()).isTrue();
-            assertThat(row.getLong(1)).isEqualTo(1580698800000L);
+            assertThat(row.getLong(1)).isEqualTo(alwaysNetwork ? 4567L : 1580698800000L);
         }
         var imported = top.sywyar.pixivdownload.migration.JsonToSqliteMigration.run(
                 new top.sywyar.pixivdownload.migration.JsonToSqliteMigration.Options(target.displayName(), directory.toString(), target), null);

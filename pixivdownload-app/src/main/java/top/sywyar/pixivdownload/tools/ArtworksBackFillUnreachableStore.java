@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
 
 import java.io.IOException;
@@ -18,14 +19,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 持久化回填工具已确认不可达的 Pixiv 作品，避免后续运行重复请求。
+ * 持久化不可达及受限作品；受限记录只暂缓启动自动请求，手动回填仍可重试。
  */
 @Slf4j
 final class ArtworksBackFillUnreachableStore {
 
     private final Path path;
     private final ObjectMapper mapper;
-    private final Map<Long, Entry> entries = new LinkedHashMap<>();
+    private final Map<String, Entry> entries = new LinkedHashMap<>();
     private boolean dirty;
 
     private ArtworksBackFillUnreachableStore(Path path, ObjectMapper mapper) {
@@ -52,7 +53,9 @@ final class ArtworksBackFillUnreachableStore {
                 Map.Entry<String, JsonNode> field = fields.next();
                 long id;
                 try {
-                    id = Long.parseLong(field.getKey());
+                    String key = field.getKey();
+                    id = Long.parseLong(key.startsWith("novel:") ? key.substring(6) : key);
+                    if (id <= 0) continue;
                 } catch (NumberFormatException ignored) {
                     continue;
                 }
@@ -61,7 +64,8 @@ final class ArtworksBackFillUnreachableStore {
                 long firstSeenAt = value.path("firstSeenAt").asLong(0L);
                 long lastSeenAt = value.path("lastSeenAt").asLong(firstSeenAt);
                 int attempts = value.path("attempts").asInt(1);
-                store.entries.put(id, new Entry(reason, firstSeenAt, lastSeenAt, attempts));
+                store.entries.put(key(field.getKey().startsWith("novel:") ? WorkType.NOVEL : WorkType.ARTWORK, id),
+                        new Entry(reason, firstSeenAt, lastSeenAt, attempts, value.path("restricted").asBoolean(false)));
             }
         } catch (IOException e) {
             log.warn(message("artworks-backfill.unreachable.load-failed", path, e.getMessage()));
@@ -70,27 +74,64 @@ final class ArtworksBackFillUnreachableStore {
     }
 
     boolean contains(long artworkId) {
-        return entries.containsKey(artworkId);
+        return contains(WorkType.ARTWORK, artworkId);
+    }
+
+    boolean contains(WorkType type, long id) {
+        Entry entry = entries.get(key(type, id));
+        return entry != null && !entry.restricted();
+    }
+
+    boolean blocksNetwork(WorkType type, long id, boolean automatic) {
+        Entry entry = entries.get(key(type, id));
+        return entry != null && (!entry.restricted() || automatic);
+    }
+
+    void recordRestricted(WorkType type, long id, String reason) {
+        record(type, id, reason, true);
+    }
+
+    void clearRestricted(WorkType type, long id) {
+        String key = key(type, id);
+        Entry entry = entries.get(key);
+        if (entry != null && entry.restricted()) {
+            entries.remove(key);
+            dirty = true;
+        }
+    }
+
+    private static String key(WorkType type, long id) {
+        return type == WorkType.NOVEL ? "novel:" + id : String.valueOf(id);
     }
 
     int size() {
-        return entries.size();
+        return (int) entries.values().stream().filter(entry -> !entry.restricted()).count();
     }
 
     void record(long artworkId, String reason) {
+        record(WorkType.ARTWORK, artworkId, reason);
+    }
+
+    void record(WorkType type, long artworkId, String reason) {
+        record(type, artworkId, reason, false);
+    }
+
+    private void record(WorkType type, long artworkId, String reason, boolean restricted) {
+        String key = key(type, artworkId);
         long now = System.currentTimeMillis();
-        Entry existing = entries.get(artworkId);
+        Entry existing = entries.get(key);
         String effectiveReason = reason == null || reason.isBlank()
                 ? (existing != null ? existing.reason() : "")
                 : reason;
         if (existing == null) {
-            entries.put(artworkId, new Entry(effectiveReason, now, now, 1));
+            entries.put(key, new Entry(effectiveReason, now, now, 1, restricted));
         } else {
-            entries.put(artworkId, new Entry(
+            entries.put(key, new Entry(
                     effectiveReason,
                     existing.firstSeenAt() > 0 ? existing.firstSeenAt() : now,
                     now,
-                    existing.attempts() + 1
+                    existing.attempts() + 1,
+                    restricted
             ));
         }
         dirty = true;
@@ -102,15 +143,16 @@ final class ArtworksBackFillUnreachableStore {
         }
         Files.createDirectories(path.getParent());
         ObjectNode root = mapper.createObjectNode();
-        List<Long> sortedIds = new ArrayList<>(entries.keySet());
+        List<String> sortedIds = new ArrayList<>(entries.keySet());
         Collections.sort(sortedIds);
-        for (Long id : sortedIds) {
+        for (String id : sortedIds) {
             Entry entry = entries.get(id);
             ObjectNode value = root.putObject(String.valueOf(id));
             value.put("reason", entry.reason());
             value.put("firstSeenAt", entry.firstSeenAt());
             value.put("lastSeenAt", entry.lastSeenAt());
             value.put("attempts", entry.attempts());
+            if (entry.restricted()) value.put("restricted", true);
         }
         Path temporaryPath = path.resolveSibling(path.getFileName() + ".tmp");
         mapper.writerWithDefaultPrettyPrinter().writeValue(temporaryPath.toFile(), root);
@@ -131,5 +173,5 @@ final class ArtworksBackFillUnreachableStore {
         return MessageBundles.getForLog(code, args);
     }
 
-    private record Entry(String reason, long firstSeenAt, long lastSeenAt, int attempts) {}
+    private record Entry(String reason, long firstSeenAt, long lastSeenAt, int attempts, boolean restricted) {}
 }

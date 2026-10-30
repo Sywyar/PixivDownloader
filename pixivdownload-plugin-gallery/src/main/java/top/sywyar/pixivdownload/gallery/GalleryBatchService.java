@@ -144,7 +144,8 @@ public class GalleryBatchService {
                 filter.orAuthorIds(),
                 seriesIds,
                 filter.notSeriesIds(),
-                null).withUploadTimeRange(filter.uploadedFrom(), filter.uploadedBefore());
+                null).withUploadTimeRange(filter.uploadedFrom(), filter.uploadedBefore())
+                .withDownloadTimeRange(filter.downloadedFrom(), filter.downloadedBefore());
     }
 
     private List<String> normalizeFormats(Collection<String> formats) {

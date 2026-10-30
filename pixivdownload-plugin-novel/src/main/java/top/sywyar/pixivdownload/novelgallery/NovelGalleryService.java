@@ -268,6 +268,7 @@ public class NovelGalleryService {
                 .excludedSeriesIds(toList(q.notSeriesIds()))
                 .restriction(q.restriction())
                 .uploadTimeRange(q.uploadedFrom(), q.uploadedBefore())
+                .downloadTimeRange(q.downloadedFrom(), q.downloadedBefore())
                 .build();
     }
 
@@ -350,7 +351,8 @@ public class NovelGalleryService {
                                     Set<Long> tagIds, Set<Long> notTagIds, Set<Long> orTagIds,
                                     Set<Long> authorIds, Set<Long> notAuthorIds, Set<Long> orAuthorIds,
                                     Set<Long> seriesIds, Set<Long> notSeriesIds,
-                                    WorkRestriction restriction, Long uploadedFrom, Long uploadedBefore) {
+                                    WorkRestriction restriction, Long uploadedFrom, Long uploadedBefore,
+                                    Long downloadedFrom, Long downloadedBefore) {
         public NovelGalleryQuery(int page, int size, String sort, String order,
                                  String search, String searchType, String r18, String ai,
                                  Set<Long> collectionIds, Set<Long> tagIds, Set<Long> notTagIds, Set<Long> orTagIds,
@@ -358,7 +360,7 @@ public class NovelGalleryService {
                                  Set<Long> seriesIds, Set<Long> notSeriesIds, WorkRestriction restriction) {
             this(page, size, sort, order, search, searchType, r18, ai, collectionIds,
                     tagIds, notTagIds, orTagIds, authorIds, notAuthorIds, orAuthorIds,
-                    seriesIds, notSeriesIds, restriction, null, null);
+                    seriesIds, notSeriesIds, restriction, null, null, null, null);
         }
         public NovelGalleryQuery(int page, int size, String sort, String order,
                                  String search, String searchType, String r18, String ai,
