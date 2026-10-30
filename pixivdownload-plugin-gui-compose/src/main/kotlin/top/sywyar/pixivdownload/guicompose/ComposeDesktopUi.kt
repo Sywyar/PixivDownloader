@@ -2,6 +2,11 @@
 
 package top.sywyar.pixivdownload.guicompose
 
+import top.sywyar.pixivdownload.guicompose.tools.AutomaticBackfillNotice
+import top.sywyar.pixivdownload.guicompose.tools.LocalOpenBackfill
+import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost.BackfillTask
+import java.util.UUID
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
@@ -45,6 +50,7 @@ import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -581,6 +587,8 @@ private fun ComposeDesktopRoot(
         document = document,
         documentRevision = snapshot.revision(),
         resolveText = messages::resolve,
+        automaticBackfillNotice = snapshot.automaticBackfillNotice(),
+        dismissAutomaticBackfill = model::dismissAutomaticBackfill,
         dispatch = { event -> model.dispatch(snapshot, event) },
     )
     document.dialogs().forEach { dialog ->
@@ -604,9 +612,21 @@ internal fun DesktopShell(
     documentRevision: Long,
     resolveText: (DesktopUiNode.TextToken) -> String,
     dispatch: (DesktopUiNode.Event) -> Unit,
+) = DesktopShell(document, documentRevision, resolveText, null, { false }, dispatch)
+
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalAnimationApi::class)
+@Composable
+internal fun DesktopShell(
+    document: DesktopUiDocument,
+    documentRevision: Long,
+    resolveText: (DesktopUiNode.TextToken) -> String,
+    automaticBackfillNotice: BackfillTask?,
+    dismissAutomaticBackfill: (UUID) -> Boolean,
+    dispatch: (DesktopUiNode.Event) -> Unit,
 ) {
     val pageIds = document.pages().map { it.id() }
     var selected by rememberSaveable { mutableStateOf(pageIds.first()) }
+    var openBackfill by remember { mutableStateOf(false) }
     val directoryConfirmation = document.dialogs().any { it.id() == "directory-suggestion" }
     LaunchedEffect(directoryConfirmation) {
         if (directoryConfirmation && "settings" in pageIds) selected = "settings"
@@ -623,65 +643,86 @@ internal fun DesktopShell(
         retainedSceneIds.addAll(sceneIds)
     }
 
-    CupertinoSurface(Modifier.fillMaxSize(), color = LocalExperiencePalette.current.surface) {
-        Row(Modifier.fillMaxSize()) {
-            AnimatedVisibility(
-                document.navigationVisible(),
-                enter = expandHorizontally(tween(280)) + fadeIn(tween(180, delayMillis = 80)),
-                exit = shrinkHorizontally(tween(220)) + fadeOut(tween(150)),
-            ) {
-                NavigationPanel(
-                    document = document,
-                    selected = activePage,
-                    resolveText = resolveText,
-                    modifier = Modifier.width(DesktopLayout.sidebarWidth).fillMaxHeight(),
-                    onSelect = { focusManager.clearFocus(); selected = it },
-                )
-            }
-            val currentPage = document.pages().first { it.id() == activePage }
-            val visit = remember(pageSceneId(currentPage)) { Any() }
-            val currentVisit = rememberUpdatedState(visit)
-            val transition = updateTransition(currentPage, label = "desktop-page")
-            Box(Modifier.weight(1f).fillMaxHeight()) {
-                // 保留退场的向导步骤；其它页面只在可见或退场时组合内容。
-                (document.pages() + transition.currentState).distinctBy(::pageSceneId).forEach { page ->
-                    val sceneId = pageSceneId(page)
-                    val active = sceneId == pageSceneId(currentPage)
-                    key(sceneId) {
-                        transition.AnimatedVisibility(
-                            visible = { pageSceneId(it) == sceneId },
-                            modifier = Modifier.fillMaxSize().zIndex(if (active) 1f else 0f),
-                            enter = fadeIn(tween(180)),
-                            exit = fadeOut(tween(180)),
-                        ) {
-                            pageStates.SaveableStateProvider(sceneId) {
-                                // 退场页面只保留画面，不能向新文档派发旧操作。
-                                val interaction = if (active) Modifier else Modifier
-                                    .clearAndSetSemantics {}
-                                    .onPreviewKeyEvent { true }
-                                    .pointerInput(Unit) {
-                                        awaitPointerEventScope {
-                                            while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
-                                        }
-                                    }
-                                ComposeDesktopUiNodeRenderer.Render(
-                                    page.content(), resolveText, {
-                                        if (active && currentVisit.value === visit) {
-                                            dispatch(it)
-                                            if (it.nodeId() == "status.ffmpeg.settings" && "settings" in pageIds) {
-                                                focusManager.clearFocus()
-                                                selected = "settings"
+    Box(Modifier.fillMaxSize()) {
+        CupertinoSurface(Modifier.fillMaxSize(), color = LocalExperiencePalette.current.surface) {
+            Row(Modifier.fillMaxSize()) {
+                AnimatedVisibility(
+                    document.navigationVisible(),
+                    enter = expandHorizontally(tween(280)) + fadeIn(tween(180, delayMillis = 80)),
+                    exit = shrinkHorizontally(tween(220)) + fadeOut(tween(150)),
+                ) {
+                    NavigationPanel(
+                        document = document,
+                        selected = activePage,
+                        resolveText = resolveText,
+                        modifier = Modifier.width(DesktopLayout.sidebarWidth).fillMaxHeight(),
+                        onSelect = { focusManager.clearFocus(); selected = it },
+                    )
+                }
+                val currentPage = document.pages().first { it.id() == activePage }
+                val visit = remember(pageSceneId(currentPage)) { Any() }
+                val currentVisit = rememberUpdatedState(visit)
+                val transition = updateTransition(currentPage, label = "desktop-page")
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    // 保留退场的向导步骤；其它页面只在可见或退场时组合内容。
+                    (document.pages() + transition.currentState).distinctBy(::pageSceneId).forEach { page ->
+                        val sceneId = pageSceneId(page)
+                        val active = sceneId == pageSceneId(currentPage)
+                        key(sceneId) {
+                            transition.AnimatedVisibility(
+                                visible = { pageSceneId(it) == sceneId },
+                                modifier = Modifier.fillMaxSize().zIndex(if (active) 1f else 0f),
+                                enter = fadeIn(tween(180)),
+                                exit = fadeOut(tween(180)),
+                            ) {
+                                pageStates.SaveableStateProvider(sceneId) {
+                                    // 退场页面只保留画面，不能向新文档派发旧操作。
+                                    val interaction = if (active) Modifier else Modifier
+                                        .clearAndSetSemantics {}
+                                        .onPreviewKeyEvent { true }
+                                        .pointerInput(Unit) {
+                                            awaitPointerEventScope {
+                                                while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
                                             }
                                         }
-                                    },
-                                    Modifier.fillMaxSize().focusProperties { canFocus = active }.then(interaction), documentRevision,
-                                )
+                                    CompositionLocalProvider(
+                                        LocalOpenBackfill provides
+                                            if (active && openBackfill) ({ openBackfill = false }) else null,
+                                    ) {
+                                        ComposeDesktopUiNodeRenderer.Render(
+                                            page.content(), resolveText, {
+                                                if (active && currentVisit.value === visit) {
+                                                    dispatch(it)
+                                                    if (it.nodeId() == "status.ffmpeg.settings" && "settings" in pageIds) {
+                                                        focusManager.clearFocus()
+                                                        selected = "settings"
+                                                    }
+                                                }
+                                            },
+                                            Modifier.fillMaxSize().focusProperties { canFocus = active }.then(interaction), documentRevision,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
         }
+        AutomaticBackfillNotice(
+            task = automaticBackfillNotice,
+            text = resolveText,
+            onView = { executionId ->
+                if (dismissAutomaticBackfill(executionId)) {
+                    focusManager.clearFocus()
+                    selected = "tools"
+                    openBackfill = true
+                }
+            },
+            onDismiss = { dismissAutomaticBackfill(it) },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+            visible = document.navigationVisible() && document.dialogs().isEmpty(),
+        )
     }
 }
 

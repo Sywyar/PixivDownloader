@@ -282,7 +282,8 @@ class ArtworksBackFillDatabaseTest {
                     "series"
             );
             database.applyUpdates(candidate, result, true, true, true, true, true, true);
-            database.applyR18Only(4L);
+            database.applyUpdates(database.currentCandidate(4L), ArtworksBackFillPixivClient.LookupResult.r18Only("fixture"),
+                    false, true, false, false, false, false);
         }
 
         try (Connection connection = DriverManager.getConnection(jdbcUrl);

@@ -19,24 +19,37 @@ class ToolHtmlLogSessionTest {
         var logger = LoggerFactory.getLogger(ToolHtmlLogSessionTest.class);
         var history = new DesktopToolHistory(directory.resolve("state"));
         Path first;
-        try (var session = ToolHtmlLogSession.open(directory, "artworks-backfill", getClass())) {
+        try (var session = ToolHtmlLogSession.open(directory, "artworks-backfill", getClass(), false)) {
             first = session.sessionPath();
             logger.error("first 中文", new java.io.IOException("proxy unavailable"));
             assertThrows(IllegalStateException.class,
-                    () -> ToolHtmlLogSession.open(directory, "artworks-backfill", getClass()));
+                    () -> ToolHtmlLogSession.open(directory, "artworks-backfill", getClass(), false));
             history.record(DesktopUiToolHost.ToolId.ARTWORKS_BACKFILL,
                     DesktopUiToolHost.ToolOutcome.FAILED, 1, 0, null, null, first);
         }
         String previous = Files.readString(first);
-        try (var session = ToolHtmlLogSession.open(directory, "artworks-backfill", getClass())) {
+        try (var session = ToolHtmlLogSession.open(directory, "artworks-backfill", getClass(), false)) {
             assertNotEquals(first, session.sessionPath());
             logger.info("second");
         }
         assertEquals(previous, Files.readString(first));
         assertTrue(previous.contains("proxy unavailable"));
+        assertFalse(previous.contains("http-equiv=\"refresh\""));
+        assertFalse(previous.contains("scrollTo("));
         assertTrue(previous.contains("中文"));
         assertFalse(Files.readString(directory.resolve("artworks-backfill-latest.html")).contains("proxy unavailable"));
         assertEquals(first.getFileName().toString(),
                 new DesktopToolHistory(directory.resolve("state")).entries().get(0).logFileName());
+    }
+
+    @Test
+    @DisplayName("旧数据导入保持原有日志刷新行为")
+    void migrationKeepsExistingLogPresentation(@TempDir Path directory) throws Exception {
+        Path path;
+        try (var session = ToolHtmlLogSession.open(directory, "json-to-sqlite-migration", getClass())) {
+            path = session.sessionPath();
+            LoggerFactory.getLogger(getClass()).info("migration fixture");
+        }
+        assertTrue(Files.readString(path).contains("http-equiv=\"refresh\""));
     }
 }

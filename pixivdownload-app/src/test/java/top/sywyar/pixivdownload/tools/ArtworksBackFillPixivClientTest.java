@@ -19,6 +19,39 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class ArtworksBackFillPixivClientTest {
 
     @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("详情响应按实际字节限流，声明长度不能绕过限制")
+    void boundsResponseBody(boolean knownLength) throws Exception {
+        int limit = 4 * 1024 * 1024;
+        byte[] body = new byte[limit];
+        java.util.Arrays.fill(body, (byte) 'a');
+        try (var entity = new org.apache.hc.core5.http.io.entity.InputStreamEntity(
+                new java.io.ByteArrayInputStream(body), knownLength ? body.length : -1,
+                org.apache.hc.core5.http.ContentType.APPLICATION_JSON)) {
+            assertEquals(limit, ArtworksBackFillPixivClient.readResponse(entity).length());
+        }
+        byte[] oversized = new byte[limit + 1];
+        try (var entity = new org.apache.hc.core5.http.io.entity.InputStreamEntity(
+                new java.io.ByteArrayInputStream(oversized), knownLength ? oversized.length : -1,
+                org.apache.hc.core5.http.ContentType.APPLICATION_JSON)) {
+            assertThrows(java.io.IOException.class, () -> ArtworksBackFillPixivClient.readResponse(entity));
+        }
+    }
+
+    @Test
+    @DisplayName("小说日期按带时区日期解析，失败状态不被当作有效元数据")
+    void parsesNovelResponse() throws Exception {
+        var type = top.sywyar.pixivdownload.core.work.model.WorkType.NOVEL;
+        var result = ArtworksBackFillPixivClient.parseResponse(200,
+                "{\"body\":{\"userId\":42,\"uploadDate\":\"2020-02-03T12:00:00+09:00\"}}", mapper, type);
+        assertEquals(1580698800000L, result.uploadTime);
+        assertEquals(ArtworksBackFillPixivClient.ResultType.RATE_LIMITED,
+                ArtworksBackFillPixivClient.parseResponse(429, "", mapper, type).type);
+        assertEquals(ArtworksBackFillPixivClient.ResultType.DELETED,
+                ArtworksBackFillPixivClient.parseResponse(404, "", mapper, type).type);
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"{}", "{\"seriesNavData\":{}}", "{\"seriesNavData\":\"invalid\"}"})
     @DisplayName("不完整本地元数据不能将未知系列补为无系列")
     void incompleteLocalSeriesRemainsUnknown(String body) throws Exception {

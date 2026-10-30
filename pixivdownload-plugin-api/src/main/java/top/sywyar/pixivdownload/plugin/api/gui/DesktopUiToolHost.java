@@ -123,6 +123,103 @@ public interface DesktopUiToolHost {
             throws Exception;
 
     /**
+     * 启动宿主拥有的后台回填；重复启动在产生副作用前拒绝。
+     * @param options 本次回填参数
+     * @return 独立执行身份
+     * @throws Exception 参数或运行环境不可用
+     */
+    default java.util.UUID startBackfill(BackfillOptions options) throws Exception {
+        return startBackfill(options, false);
+    }
+
+    /**
+     * 按启动恢复或手动重试策略启动后台回填。
+     * @param options 本次参数
+     * @param automatic 为 true 时跳过条件未变的受限作品；手动重试仍可请求
+     * @return 独立执行身份
+     * @throws Exception 参数或运行环境不可用
+     */
+    default java.util.UUID startBackfill(BackfillOptions options, boolean automatic) throws Exception {
+        throw new UnsupportedOperationException("Background backfill is not supported by this host");
+    }
+
+    /** @return 最近一次回填的不可变快照；读取不启动任务、不访问网络 */
+    default Optional<BackfillTask> backfillTask() {
+        return Optional.empty();
+    }
+
+    /**
+     * 请求停止指定执行，已提交修改保留；终态只在资源释放后发布。
+     * @param executionId 要停止的精确执行身份
+     * @return 是否接受停止请求；旧身份或已结束任务返回 false
+     */
+    default boolean cancelBackfill(java.util.UUID executionId) {
+        throw new UnsupportedOperationException("Background backfill is not supported by this host");
+    }
+
+    /** 回填的真实工作阶段。 */
+    enum BackfillPhase {
+        /** 导入已登记作品的本地元数据快照。 */
+        IMPORTING,
+        /** 扫描本次可处理的缺失字段候选。 */
+        SCANNING,
+        /** 使用本地元数据补齐缺失字段。 */
+        LOCAL,
+        /** 通过网络查询仍然缺失的作品信息。 */
+        NETWORK,
+        /** 等待下一次网络请求的间隔。 */
+        WAITING,
+        /** 字段处理已结束，执行状态说明最终结果。 */
+        FINISHED
+    }
+
+    /** 回填执行状态；停止中仍属于活动任务。 */
+    enum BackfillState {
+        /** 回填正在执行。 */
+        RUNNING,
+        /** 已请求停止，正在等待任务退出并释放资源。 */
+        STOPPING,
+        /** 本次候选处理完成，已处理作品没有剩余缺项。 */
+        COMPLETED,
+        /** 本次执行结束，仍有未处理候选或缺失字段。 */
+        INCOMPLETE,
+        /** 网络服务限流导致本次回填停止。 */
+        RATE_LIMITED,
+        /** 本次回填已取消，资源已释放。 */
+        CANCELLED,
+        /** 本次回填因错误结束。 */
+        FAILED
+    }
+
+    /**
+     * 单次回填的机器事实，不携带配置、凭据、异常正文或全部作品列表。
+     * @param executionId 本次执行身份
+     * @param revision 本次执行内单调递增的状态版本
+     * @param state 当前状态
+     * @param phase 当前阶段
+     * @param automatic 是否由启动恢复触发
+     * @param dryRun 是否为试运行
+     * @param startedAtEpochMs 开始时间
+     * @param finishedAtEpochMs 结束时间，运行中为零
+     * @param processed 已处理作品数
+     * @param total 候选总数，扫描结束前为空
+     * @param changed 实际补入字段的作品数，试运行时表示预计可补数
+     * @param remaining 已处理但仍缺字段的作品数
+     * @param unavailable 本次遇到的不可访问作品数
+     * @param workType 当前作品类型；没有时为空
+     * @param workId 当前作品标识；没有时为空
+     * @param summary 已取得的字段统计；没有时为空
+     * @param logFileName 本次日志 basename；日志不可用时为空
+     */
+    record BackfillTask(java.util.UUID executionId, long revision, BackfillState state, BackfillPhase phase,
+                        boolean automatic, boolean dryRun, long startedAtEpochMs, long finishedAtEpochMs,
+                        int processed, Integer total, int changed, int remaining, int unavailable,
+                        String workType, Long workId, BackfillSummary summary, String logFileName) {
+        /** @return 是否仍在执行或停止清理中 */
+        public boolean active() { return state == BackfillState.RUNNING || state == BackfillState.STOPPING; }
+    }
+
+    /**
      * 统计旧 JSON 到数据库迁移的候选项。
      *
      * @param options 迁移选项
@@ -525,6 +622,10 @@ public interface DesktopUiToolHost {
     enum ToolOutcome {
         /** 工具成功完成。 */
         SUCCEEDED,
+        /** 已完成本轮处理，但仍有无法补齐的字段。 */
+        INCOMPLETE,
+        /** 请求受到限流，本轮提前停止。 */
+        RATE_LIMITED,
         /** 工具完成，但部分项目失败。 */
         PARTIALLY_FAILED,
         /** 工具执行失败。 */

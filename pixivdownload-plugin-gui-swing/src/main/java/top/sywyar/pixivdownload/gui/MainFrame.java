@@ -1,5 +1,7 @@
 package top.sywyar.pixivdownload.gui;
 
+import top.sywyar.pixivdownload.gui.tools.AutomaticBackfillNotice;
+
 import top.sywyar.pixivdownload.gui.i18n.GuiMessages;
 import top.sywyar.pixivdownload.gui.config.ConfigFieldRegistry;
 import top.sywyar.pixivdownload.gui.config.GuiConfigContributionSnapshot;
@@ -60,6 +62,11 @@ public class MainFrame extends JFrame {
     private ToolsPanel toolsPanel;
     private ConfigPanel configPanel;
     private PluginsPanel pluginsPanel;
+    private final AutomaticBackfillNotice automaticBackfillNotice =
+            new AutomaticBackfillNotice(this, () -> {
+                tabs.setSelectedComponent(toolsPanel);
+                toolsPanel.showBackfill();
+            });
 
     public MainFrame(int serverPort, String rootFolder, Path configPath) {
         this(serverPort, rootFolder, configPath,
@@ -188,7 +195,8 @@ public class MainFrame extends JFrame {
             welcomePanel = null;
         }
 
-        toolsPanel = new ToolsPanel(configPath);
+        toolsPanel = new ToolsPanel(configPath, task -> automaticBackfillNotice.refresh(
+                task, SwingHost.host().onboardingState(rootFolder).complete()));
         // Web URL 构造复用状态页（scheme 按 SSL、主机名按域名推导，不写死协议 / 主机），用于「打开 Web 插件市场 / 管理页」。
         configPanel = new ConfigPanel(configPath, serverPort, statusPanel::getWebUrl,
                 ConfigFieldRegistry.snapshot(guiConfigContributions()),
@@ -457,6 +465,7 @@ public class MainFrame extends JFrame {
 
     @Override
     public void dispose() {
+        automaticBackfillNotice.close();
         if (welcomePanel != null) {
             welcomePanel.dispose();
         }

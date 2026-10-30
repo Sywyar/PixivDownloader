@@ -34,6 +34,47 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("Swing 工具配置继承")
 class ToolsConfigurationTest {
     @ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(DesktopUiHost.BackfillState.class)
+    @DisplayName("工具面板重建恢复自动回填状态，关闭面板不会停止后台任务")
+    void restoresBackfillTask(DesktopUiHost.BackfillState state) throws Exception {
+        var id = java.util.UUID.randomUUID();
+        var snapshot = new DesktopUiHost.BackfillTask(id, 2, state, DesktopUiHost.BackfillPhase.NETWORK,
+                true, false, 1, 0, 1, 3, 1, 0, 0, "NOVEL", 7L, null, "fixture.html");
+        var locale = new DesktopUiHost.UiLocale("en-US", "English", "_en");
+        var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "backfillTask" -> java.util.Optional.of(snapshot);
+                    case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "", 8080, false, 0, 0, false);
+                    case "readDownloadRootFromConfig" -> "downloads";
+                    case "resolveDatabasePath" -> Path.of("data/test.db");
+                    case "supportsDatabaseFileSelection" -> true;
+                    case "resolveLocale" -> new DesktopUiHost.UiLocaleResolution(locale, List.of(locale));
+                    case "mediaTools", "coreConfigGroups", "coreConfigFields" -> List.of();
+                    case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null);
+                    case "subscribeBackend" -> (AutoCloseable) () -> {};
+                    case "message" -> args[0];
+                    default -> throw new AssertionError("Unexpected host operation: " + method.getName());
+                });
+        var path = Path.of("config.yaml");
+        SwingHost.install(new DesktopUiContext(false, 8080, "downloads", path, "gui-swing", host,
+                List.of(), List::of, text -> text.key(), () -> "system"));
+        SwingUtilities.invokeAndWait(() -> {
+            for (int reopen = 0; reopen < 2; reopen++) {
+                var panel = new ToolsPanel(path);
+                try {
+                    String key = state == DesktopUiHost.BackfillState.RUNNING ? "gui.tools.backfill.phase.network"
+                            : "gui.tools.backfill.state." + state.name().toLowerCase(Locale.ROOT);
+                    assertTrue(descendants(panel).filter(JLabel.class::isInstance).map(JLabel.class::cast)
+                            .anyMatch(label -> label.getText().contains(GuiMessages.get(key))));
+                    var stop = descendants(panel).filter(JButton.class::isInstance).map(JButton.class::cast)
+                            .filter(button -> button.getText().equals(GuiMessages.get("gui.tools.backfill.action.stop"))).findFirst().orElseThrow();
+                    assertEquals(snapshot.active(), stop.isVisible());
+                    assertEquals(state == DesktopUiHost.BackfillState.RUNNING, stop.isEnabled());
+                } finally { panel.dispose(); }
+            }
+        });
+    }
+    @ParameterizedTest
     @org.junit.jupiter.params.provider.CsvSource({"2,0,0,SUCCEEDED,completed,1", "2,0,1,PARTIALLY_FAILED,partial,2",
             "0,2,1,PARTIALLY_FAILED,partial,2", "0,0,1,FAILED,failed,0"})
     @DisplayName("迁移结果按失败数显示状态与提示级别，并写入准确工具历史")
@@ -46,6 +87,7 @@ class ToolsConfigurationTest {
         var locale = new DesktopUiHost.UiLocale("en-US", "English", "_en");
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "backfillTask" -> java.util.Optional.empty();
                     case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "", 8080, false, 0, 0, false);
                     case "readDownloadRootFromConfig" -> "downloads";
                     case "resolveDatabasePath" -> Path.of("data/test.db");
@@ -107,6 +149,7 @@ class ToolsConfigurationTest {
     }
 
     private void verifyCountingStatus(String language, String operation) throws Exception {
+        var observed = new AtomicReference<DesktopUiHost.BackfillTask>();
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var preparation = new AtomicReference<Thread>();
@@ -119,6 +162,7 @@ class ToolsConfigurationTest {
                 });
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "backfillTask" -> java.util.Optional.ofNullable(observed.get());
                     case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "", 8080, false, 0, 0, false);
                     case "readDownloadRootFromConfig" -> "downloads";
                     case "resolveDatabasePath" -> Path.of("data/test.db");
@@ -134,6 +178,17 @@ class ToolsConfigurationTest {
                     case "stopBackend", "startBackend" -> {
                         ((Runnable) args[0]).run();
                         yield true;
+                    }
+                    case "startBackfill" -> {
+                        var options = (DesktopUiHost.BackfillOptions) args[0];
+                        assertTrue(options.alwaysNetwork());
+                        observed.set(new DesktopUiHost.BackfillTask(java.util.UUID.randomUUID(), 1,
+                                DesktopUiHost.BackfillState.RUNNING, DesktopUiHost.BackfillPhase.SCANNING,
+                                false, false, 1, 0, 0, null, 0, 0, 0, null, null, null, null));
+                        preparation.set(Thread.currentThread());
+                        entered.countDown();
+                        assertTrue(release.await(5, TimeUnit.SECONDS));
+                        yield observed.get().executionId();
                     }
                     case "countBackfillCandidates", "countMigrationCandidates" -> {
                         if (args[0] instanceof DesktopUiHost.BackfillOptions options) assertTrue(options.alwaysNetwork());
@@ -171,10 +226,15 @@ class ToolsConfigurationTest {
                         .findFirst().orElseThrow().doClick();
             });
             assertTrue(entered.await(5, TimeUnit.SECONDS));
+            if (operation.equals("backfill")) {
+                var refresh = ToolsPanel.class.getDeclaredMethod("refreshBackfill");
+                refresh.setAccessible(true);
+                SwingUtilities.invokeAndWait(() -> { try { refresh.invoke(panel.get()); } catch (Exception error) { throw new AssertionError(error); } });
+            }
             SwingUtilities.invokeAndWait(() -> assertEquals(1,
                     descendants(panel.get()).filter(JLabel.class::isInstance).map(JLabel.class::cast)
                             .filter(label -> label.getText() != null && label.getText()
-                                    .contains(GuiMessages.get("gui.tools." + operation + ".status.counting")))
+                                    .contains(GuiMessages.get(operation.equals("backfill") ? "gui.tools.backfill.phase.scanning" : "gui.tools.migration.status.counting")))
                             .count(), language + ": " + operation));
         } finally {
             release.countDown();
@@ -191,6 +251,7 @@ class ToolsConfigurationTest {
         var locale = new DesktopUiHost.UiLocale("en-US", "English", "_en");
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "backfillTask" -> java.util.Optional.empty();
                     case "defaultBackfillOptions" -> throw new IllegalStateException("Configuration unavailable");
                     case "readDownloadRootFromConfig" -> "downloads";
                     case "resolveDatabasePath" -> Path.of("data/test.db");
@@ -232,6 +293,9 @@ class ToolsConfigurationTest {
         var locale = new DesktopUiHost.UiLocale("en-US", "English", "_en");
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "backfillTask" -> java.util.Optional.of(new DesktopUiHost.BackfillTask(java.util.UUID.randomUUID(), 1,
+                            DesktopUiHost.BackfillState.COMPLETED, DesktopUiHost.BackfillPhase.FINISHED,
+                            false, false, 1, 2, 1, 1, 1, 0, 0, null, null, null, "backfill-fixture.html"));
                     case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "", 8080, false, 0, 0, false);
                     case "readDownloadRootFromConfig" -> "downloads";
                     case "resolveDatabasePath" -> Path.of("data/test.db");
@@ -243,7 +307,7 @@ class ToolsConfigurationTest {
                     case "findToolLog" -> java.util.Optional.of(Path.of("log", "html", (String) args[0]).toAbsolutePath());
                     case "openExternalUri" -> {
                         org.junit.jupiter.api.Assertions.assertFalse(SwingUtilities.isEventDispatchThread());
-                        assertEquals("artworks-backfill-latest.html", Path.of((java.net.URI) args[0]).getFileName().toString());
+                        assertEquals("backfill-fixture.html", Path.of((java.net.URI) args[0]).getFileName().toString());
                         calls.incrementAndGet();
                         entered.countDown();
                         org.junit.jupiter.api.Assertions.assertTrue(release.await(5, java.util.concurrent.TimeUnit.SECONDS));
@@ -280,6 +344,7 @@ class ToolsConfigurationTest {
         var locale = new DesktopUiHost.UiLocale("en-US", "English", "_en");
         var host = (DesktopUiHost) Proxy.newProxyInstance(getClass().getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "backfillTask" -> java.util.Optional.empty();
                     case "defaultBackfillOptions" -> saved.get();
                     case "readDownloadRootFromConfig" -> root.get();
                     case "resolveDatabasePath" -> Path.of("data/test.db");

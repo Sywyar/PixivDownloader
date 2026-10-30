@@ -922,7 +922,10 @@ public sealed interface DesktopUiNode permits DesktopUiNode.Container, DesktopUi
         }
     }
 
-    record ToolActivity(String toolId, boolean running, boolean failed, TextToken message) {
+    record ToolActivity(String toolId, boolean running, boolean failed, TextToken message, String executionId) {
+        public ToolActivity(String toolId, boolean running, boolean failed, TextToken message) {
+            this(toolId, running, failed, message, "");
+        }
         public ToolActivity {
             toolId = requireId(toolId, "toolId");
             Objects.requireNonNull(message, "message");

@@ -59,7 +59,7 @@ async function reloadNovels() {
         sort: state.sort, order: state.order, r18: state.r18, ai: state.ai
     });
     if (state.search) params.set('search', state.search);
-    for (const [key, value] of Object.entries(galleryUploadTimeRange())) {
+    for (const [key, value] of Object.entries(galleryTimeRanges())) {
         if (value != null) params.set(key, String(value));
     }
     if (state.search && state.searchType && state.searchType !== 'all') params.set('searchType', state.searchType);

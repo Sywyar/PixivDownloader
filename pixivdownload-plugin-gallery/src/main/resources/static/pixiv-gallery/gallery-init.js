@@ -260,19 +260,21 @@
 
     bindTristate('r18', 'r18');
     bindTristate('ai', 'ai');
-    for (const name of ['uploadStartDate', 'uploadEndDate']) {
-        document.getElementById(name).addEventListener('change', () => {
-            const from = document.getElementById('uploadStartDate');
-            const to = document.getElementById('uploadEndDate');
-            to.setCustomValidity(from.value && to.value && from.value > to.value
-                ? t('filter.upload-time.invalid', 'The end date must not precede the start date.') : '');
-            if (!from.reportValidity() || !to.reportValidity()) return;
-            state.uploadStartDate = from.value;
-            state.uploadEndDate = to.value;
-            state.page = 0;
-            updateFilterBadge();
-            refreshGalleryForCurrentState();
-        });
+    for (const prefix of ['upload', 'download']) {
+        for (const name of [prefix + 'StartDate', prefix + 'EndDate']) {
+            document.getElementById(name).addEventListener('change', () => {
+                const from = document.getElementById(prefix + 'StartDate');
+                const to = document.getElementById(prefix + 'EndDate');
+                to.setCustomValidity(from.value && to.value && from.value > to.value
+                    ? t('filter.date.invalid', 'The end date must not precede the start date.') : '');
+                if (!from.reportValidity() || !to.reportValidity()) return;
+                state[prefix + 'StartDate'] = from.value;
+                state[prefix + 'EndDate'] = to.value;
+                state.page = 0;
+                updateFilterBadge();
+                refreshGalleryForCurrentState();
+            });
+        }
     }
 
 

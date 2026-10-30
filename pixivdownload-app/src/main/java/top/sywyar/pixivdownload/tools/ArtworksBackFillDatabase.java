@@ -1,6 +1,7 @@
 package top.sywyar.pixivdownload.tools;
 
 import top.sywyar.pixivdownload.core.db.DatabaseTarget;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
 import top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer;
 
 import javax.sql.DataSource;
@@ -97,44 +98,63 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
 
     FilteredCandidates findCandidates(int limit, ArtworksBackFillUnreachableStore unreachable, String rootFolder)
             throws SQLException {
+        return findCandidates(limit, unreachable, rootFolder, false);
+    }
+
+    FilteredCandidates findCandidates(int limit, ArtworksBackFillUnreachableStore unreachable, String rootFolder, boolean automatic)
+            throws SQLException {
         List<Candidate> candidates = new ArrayList<>();
         int[] skippedUnreachable = {0};
-        long afterId = 0;
-        while (limit <= 0 || candidates.size() < limit) {
-            Candidate[] localCheck = {null};
-            // 先关闭候选游标，再单独读取快照；不把整批 JSON 留在查询结果或候选列表中。
-            try (var session = target.storageSession(connection, SCHEMA)) {
-                session.scan(candidateQuery(call(GREATER, column("a", "artwork_id"), value(afterId))), row -> {
-                    var candidate = candidateFromRow(row);
-                    if (unreachable.contains(candidate.artworkId())) {
-                        if (rootFolder != null) {
-                            localCheck[0] = candidate;
-                            return false;
-                        }
-                        skippedUnreachable[0]++;
-                    } else candidates.add(candidate);
-                    return limit <= 0 || candidates.size() < limit;
-                });
+        for (WorkType type : List.of(WorkType.ARTWORK, WorkType.NOVEL)) {
+            long afterId = 0;
+            while (limit <= 0 || candidates.size() < limit) {
+                Candidate[] localCheck = {null};
+                // 先关闭候选游标，再单独读取快照；不把整批 JSON 留在查询结果或候选列表中。
+                try (var session = target.storageSession(connection, SCHEMA)) {
+                    session.scan(candidateQuery(type, call(GREATER, column("a", key(type)), value(afterId))), row -> {
+                        if (Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException();
+                        var candidate = candidateFromRow(type, row);
+                        if (unreachable.blocksNetwork(candidate.workType(), candidate.artworkId(), automatic)) {
+                            if (rootFolder != null) {
+                                localCheck[0] = candidate;
+                                return false;
+                            }
+                            if (unreachable.contains(candidate.workType(), candidate.artworkId())) skippedUnreachable[0]++;
+                        } else candidates.add(candidate);
+                        return limit <= 0 || candidates.size() < limit;
+                    });
+                }
+                if (localCheck[0] == null) break;
+                var candidate = localCheck[0];
+                afterId = candidate.artworkId();
+                var local = localMetadata(candidate.workType(), candidate.artworkId(), rootFolder);
+                if (local != null && candidate.availableFields(local).hasMissing()) candidates.add(candidate);
+                else if (unreachable.contains(candidate.workType(), candidate.artworkId())) skippedUnreachable[0]++;
             }
-            if (localCheck[0] == null) break;
-            var candidate = localCheck[0];
-            afterId = candidate.artworkId();
-            var local = localMetadata(candidate.artworkId(), rootFolder);
-            if (local != null && candidate.availableFields(local).hasMissing()) candidates.add(candidate);
-            else skippedUnreachable[0]++;
         }
         return new FilteredCandidates(candidates, skippedUnreachable[0]);
     }
 
     Candidate currentCandidate(long artworkId) throws SQLException {
+        return currentCandidate(WorkType.ARTWORK, artworkId);
+    }
+
+    Candidate currentCandidate(WorkType type, long artworkId) throws SQLException {
         try (var session = target.storageSession(connection, SCHEMA)) {
-            var rows = session.query(candidateQuery(identity("a", "artwork_id", artworkId)));
-            return rows.isEmpty() ? new Candidate(artworkId, false, false, false, false, false, false, false)
-                    : candidateFromRow(rows.get(0));
+            var rows = session.query(candidateQuery(type, identity("a", key(type), artworkId)));
+            return rows.isEmpty() ? new Candidate(artworkId, false, false, false, false, false, false, false).withType(type)
+                    : candidateFromRow(type, rows.get(0));
         }
     }
 
-    private static Query candidateQuery(Expression filter) {
+    private static String table(WorkType type) { return type == WorkType.NOVEL ? "novels" : "artworks"; }
+    private static String key(WorkType type) { return type == WorkType.NOVEL ? "novel_id" : "artwork_id"; }
+
+    private static Query candidateQuery(WorkType type, Expression filter) {
+        if (type == WorkType.NOVEL) return new Query(new Query.Table("novels", "a"), List.of(),
+                Map.of("artwork_id", column("a", "novel_id")),
+                call(AND, filter, call(EQUAL, column("a", "deleted"), value(0)), call(IS_NULL, column("a", "upload_time"))),
+                List.of(), null, List.of(new Query.Order(column("a", "novel_id"), false, true)), false, Integer.MAX_VALUE, 0);
         var tags = new Expression.Exists(new Query(new Query.Table("artwork_tags", "t"), List.of(),
                 Map.of("present", value(1)), call(EQUAL, column("t", "artwork_id"), column("a", "artwork_id")),
                 List.of(), null, List.of(), false, 1, 0));
@@ -162,8 +182,9 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
                 List.of(), null, List.of(new Query.Order(column("a", "artwork_id"), false, true)), false, Integer.MAX_VALUE, 0);
     }
 
-    private static Candidate candidateFromRow(Map<String, Object> row) {
+    private static Candidate candidateFromRow(WorkType type, Map<String, Object> row) {
         long id = (Long) row.get("artwork_id");
+        if (type == WorkType.NOVEL) return new Candidate(id, false, false, false, false, false, false, true).withType(type);
         Long authorId = (Long) row.get("author_id"), seriesId = (Long) row.get("series_id");
         boolean nameMissing = !Long.valueOf(1).equals(row.get("has_author_name"));
         boolean orderMissing = seriesId == null || (seriesId > 0 && row.get("series_order") == null);
@@ -187,9 +208,10 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
         return applyUpdates(candidate, result, updateAuthor, updateR18, updateAi, updateDescription, updateTags, updateSeries, false);
     }
 
-    record UpdateResult(boolean author, boolean series) {}
+    record UpdateResult(boolean author, boolean r18, boolean ai, boolean description, boolean tags,
+                        boolean series, boolean uploadTime) {}
 
-    /** 返回作者实际补入结果及系列身份条件是否命中；所有字段只补缺失。 */
+    /** 返回各字段组的实际补入结果；所有字段只补缺失。 */
     UpdateResult applyUpdates(Candidate candidate, ArtworksBackFillPixivClient.LookupResult result,
             boolean updateAuthor, boolean updateR18, boolean updateAi, boolean updateDescription,
             boolean updateTags, boolean updateSeries, boolean updateUploadTime) throws SQLException {
@@ -211,18 +233,24 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
     private UpdateResult applyUpdatesInTransaction(Candidate candidate, ArtworksBackFillPixivClient.LookupResult result,
             boolean updateAuthor, boolean updateR18, boolean updateAi, boolean updateDescription,
             boolean updateTags, boolean updateSeries, boolean updateUploadTime) throws SQLException {
-        var changes = new LinkedHashMap<String, Expression>();
-        if (updateR18) changes.put("r18", value(result.xRestrict));
-        if (updateAi) changes.put("is_ai", value(result.isAi ? 1 : 0));
-        if (updateDescription) changes.put("description", value(result.description));
-        if (updateUploadTime) changes.put("upload_time", value(result.uploadTime));
-        // 候选预览后仍可能有新写入；SQL 内只填 NULL，避免覆盖并发保存的值。
-        changes.replaceAll((name, expression) -> call(COALESCE, column("artworks", name), expression));
+        if (candidate.workType() == WorkType.NOVEL) {
+            try (var session = target.storageSession(connection, SCHEMA)) {
+                boolean written = updateUploadTime && fillColumn(session, "novels", "upload_time", result.uploadTime,
+                        call(AND, identity("novels", "novel_id", candidate.artworkId()),
+                                call(EQUAL, column("novels", "deleted"), value(0))));
+                return new UpdateResult(false, false, false, false, false, false, written);
+            }
+        }
         try (var session = target.storageSession(connection, SCHEMA)) {
             var alive = call(AND, identity("artworks", "artwork_id", candidate.artworkId()),
                     call(EQUAL, column("artworks", "deleted"), value(0)));
-            if (session.query(Query.count("artworks", alive)).get(0).get("count").equals(0L)) return new UpdateResult(false, false);
-            if (!changes.isEmpty()) session.update("artworks", changes, alive);
+            // 同一写事务锁住仍有效的主记录，保护后续作者、系列和标签关联。
+            if (session.update("artworks", Map.of("artwork_id", column("artworks", "artwork_id")), alive) == 0)
+                return new UpdateResult(false, false, false, false, false, false, false);
+            boolean r18Written = updateR18 && fillColumn(session, "artworks", "r18", result.xRestrict, alive);
+            boolean aiWritten = updateAi && fillColumn(session, "artworks", "is_ai", result.isAi ? 1 : 0, alive);
+            boolean descriptionWritten = updateDescription && fillColumn(session, "artworks", "description", result.description, alive);
+            boolean uploadTimeWritten = updateUploadTime && fillColumn(session, "artworks", "upload_time", result.uploadTime, alive);
             boolean authorWritten = false;
             if (updateAuthor) {
                 authorWritten = session.update("artworks", Map.of("author_id", value(result.authorId)),
@@ -232,49 +260,60 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
                         && session.query(Query.count("artworks", sameAuthor)).get(0).get("count").equals(1L))
                     authorWritten = upsertAuthor(session, result.authorId, result.authorName) || authorWritten;
             }
+            boolean tagsWritten = false;
             if (updateTags && result.tags != null && !result.tags.isEmpty()
                     && session.query(Query.count("artwork_tags", identity("artwork_tags", "artwork_id", candidate.artworkId())))
-                    .get(0).get("count").equals(0L)) saveTags(session, candidate.artworkId(), result.tags);
+                    .get(0).get("count").equals(0L)) tagsWritten = saveTags(session, candidate.artworkId(), result.tags);
+            boolean seriesWritten = false;
             if (updateSeries) {
                 var seriesChanges = new LinkedHashMap<String, Expression>();
                 seriesChanges.put("series_id", call(COALESCE, column("artworks", "series_id"), value(result.seriesId)));
-                if (result.seriesOrder != null)
+                var missing = call(IS_NULL, column("artworks", "series_id"));
+                if (result.seriesOrder != null) {
                     seriesChanges.put("series_order", call(COALESCE, column("artworks", "series_order"), value(result.seriesOrder)));
+                    missing = call(OR, missing, call(IS_NULL, column("artworks", "series_order")));
+                }
                 // 身份条件与章节顺序同语句生效；命中后由同一写事务保护关联资料。
-                int changed = session.update("artworks", seriesChanges, call(AND, alive,
+                seriesWritten = session.update("artworks", seriesChanges, call(AND, alive, missing,
                         call(OR, call(IS_NULL, column("artworks", "series_id")),
-                                call(EQUAL, column("artworks", "series_id"), value(result.seriesId)))));
-                if (changed > 0 && result.seriesId > 0 && result.seriesTitle != null)
-                    upsertSeries(session, result.seriesId, result.seriesTitle, result.authorId > 0 ? result.authorId : null);
-                return new UpdateResult(authorWritten, changed > 0);
+                                call(EQUAL, column("artworks", "series_id"), value(result.seriesId))))) > 0;
+                var sameSeries = call(AND, alive, call(EQUAL, column("artworks", "series_id"), value(result.seriesId)));
+                if (result.seriesId > 0 && result.seriesTitle != null
+                        && session.query(Query.count("artworks", sameSeries)).get(0).get("count").equals(1L))
+                    seriesWritten = upsertSeries(session, result.seriesId, result.seriesTitle,
+                            result.authorId > 0 ? result.authorId : null) || seriesWritten;
             }
-            return new UpdateResult(authorWritten, false);
+            return new UpdateResult(authorWritten, r18Written, aiWritten, descriptionWritten, tagsWritten, seriesWritten, uploadTimeWritten);
         }
     }
 
-    void applyR18Only(long artworkId) throws SQLException {
-        try (var session = target.storageSession(connection, SCHEMA)) {
-            session.update("artworks", Map.of("r18", call(COALESCE, column("artworks", "r18"), value(1))),
-                    call(AND, identity("artworks", "artwork_id", artworkId), call(EQUAL, column("artworks", "deleted"), value(0))));
-        }
+    private static boolean fillColumn(DatabaseSession session, String table, String name, Object value, Expression identity)
+            throws SQLException {
+        return session.update(table, Map.of(name, value(value)),
+                call(AND, identity, call(IS_NULL, column(table, name)))) > 0;
     }
 
     void importMetadata(String rootFolder, boolean dryRun, java.util.function.Consumer<String> reporter)
             throws SQLException, InterruptedException {
-        top.sywyar.pixivdownload.migration.WorkMetadataImport.run(connection, target, rootFolder, dryRun, false, reporter);
+        top.sywyar.pixivdownload.migration.WorkMetadataImport.run(connection, target, rootFolder, dryRun, false, false, reporter);
     }
 
     ArtworksBackFillPixivClient.LookupResult localMetadata(long id, String rootFolder) throws SQLException {
+        return localMetadata(WorkType.ARTWORK, id, rootFolder);
+    }
+
+    ArtworksBackFillPixivClient.LookupResult localMetadata(WorkType type, long id, String rootFolder) throws SQLException {
+        String table = table(type);
         try (var session = target.storageSession(connection, SCHEMA)) {
-            var rows = session.query(new Query("artworks", Map.of("metadata_json", column("artworks", "metadata_json")),
-                    identity("artworks", "artwork_id", id), List.of(), List.of(), 1, 0));
+            var rows = session.query(new Query(table, Map.of("metadata_json", column(table, "metadata_json")),
+                    identity(table, key(type), id), List.of(), List.of(), 1, 0));
             if (rows.isEmpty()) return null;
             try {
                 var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
                 var meta = rows.get(0).get("metadata_json") == null
-                        ? top.sywyar.pixivdownload.migration.WorkMetadataImport.readRegisteredSnapshot(connection, target, rootFolder, id)
+                        ? top.sywyar.pixivdownload.migration.WorkMetadataImport.readRegisteredSnapshot(connection, target, rootFolder, type, id)
                         : new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(mapper)
-                        .restore(top.sywyar.pixivdownload.core.work.model.WorkType.ARTWORK, id,
+                        .restore(type, id,
                                 mapper.readTree((String) rows.get(0).get("metadata_json")));
                 if (meta == null) return null;
                 return ArtworksBackFillPixivClient.parsePayload(meta.document().path("raw"), meta.uploadTime(), false);
@@ -293,8 +332,9 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
         return call(EQUAL, column(table, key), value(id));
     }
 
-    private static void saveTags(DatabaseSession session, long artworkId,
+    private static boolean saveTags(DatabaseSession session, long artworkId,
             List<ArtworksBackFillPixivClient.TagEntry> tags) throws SQLException {
+        boolean written = false;
         for (var tag : tags) {
             var values = new LinkedHashMap<String, Object>();
             values.put("name", tag.name()); values.put("translated_name", tag.translatedName());
@@ -302,22 +342,24 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
                     Map.of("translated_name", call(COALESCE, column("tags", "translated_name"), new Incoming("translated_name")))));
             var rows = session.query(new Query("tags", Map.of("id", column("tags", "tag_id")),
                     call(EQUAL, column("tags", "name"), value(tag.name())), List.of(), List.of(), 1, 0));
-            if (!rows.isEmpty()) session.insert("artwork_tags", Map.of("artwork_id", artworkId, "tag_id", rows.get(0).get("id")),
-                    DatabaseSession.Conflict.ignore());
+            if (!rows.isEmpty()) written = session.insert("artwork_tags", Map.of("artwork_id", artworkId, "tag_id", rows.get(0).get("id")),
+                    DatabaseSession.Conflict.ignore()) > 0 || written;
         }
+        return written;
     }
 
-    private static void upsertSeries(DatabaseSession session, long seriesId, String title, Long authorId) throws SQLException {
+    private static boolean upsertSeries(DatabaseSession session, long seriesId, String title, Long authorId) throws SQLException {
         long now = System.currentTimeMillis();
         var values = new LinkedHashMap<String, Object>();
         values.put("series_id", seriesId); values.put("title", title); values.put("author_id", authorId); values.put("updated_time", now);
-        session.insert("manga_series", values, DatabaseSession.Conflict.ignore());
+        int inserted = session.insert("manga_series", values, DatabaseSession.Conflict.ignore());
         var changed = call(IS_NULL, column("manga_series", "title"));
         if (authorId != null) changed = call(OR, changed, call(IS_NULL, column("manga_series", "author_id")));
-        session.update("manga_series", Map.of("title", call(COALESCE, column("manga_series", "title"), value(title)),
+        int updated = session.update("manga_series", Map.of("title", call(COALESCE, column("manga_series", "title"), value(title)),
                         "updated_time", value(now),
                         "author_id", call(COALESCE, column("manga_series", "author_id"), value(authorId))),
                 call(AND, identity("manga_series", "series_id", seriesId), changed));
+        return inserted > 0 || updated > 0;
     }
 
     private static boolean upsertAuthor(DatabaseSession session, long authorId, String authorName) throws SQLException {
@@ -348,8 +390,18 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
             Long seriesId,
             boolean authorNameMissing,
             boolean seriesOrderMissing,
-            boolean seriesTitleMissing
+            boolean seriesTitleMissing,
+            WorkType workType
     ) {
+        Candidate(long id, boolean author, boolean r18, boolean ai, boolean description, boolean tags, boolean series, boolean uploadTime,
+                  Long authorId, Long seriesId, boolean authorNameMissing, boolean seriesOrderMissing, boolean seriesTitleMissing) {
+            this(id, author, r18, ai, description, tags, series, uploadTime, authorId, seriesId, authorNameMissing, seriesOrderMissing, seriesTitleMissing, WorkType.ARTWORK);
+        }
+
+        Candidate withType(WorkType type) {
+            return new Candidate(artworkId, authorMissing, r18Missing, aiMissing, descriptionMissing, tagsMissing, seriesMissing,
+                    uploadTimeMissing, authorId, seriesId, authorNameMissing, seriesOrderMissing, seriesTitleMissing, type);
+        }
         Candidate(long id, boolean author, boolean r18, boolean ai, boolean description, boolean tags, boolean series, boolean uploadTime) {
             this(id, author, r18, ai, description, tags, series, uploadTime, null, null, author, series, series);
         }
@@ -371,7 +423,7 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
             return new Candidate(artworkId, author, r18Missing && result.xRestrict != null,
                     aiMissing && result.isAi != null, descriptionMissing && result.description != null,
                     tagsMissing && result.tags != null && !result.tags.isEmpty(), series,
-                    uploadTimeMissing && result.uploadTime != null && result.uploadTime > 0);
+                    uploadTimeMissing && result.uploadTime != null && result.uploadTime > 0).withType(workType);
         }
     }
 }

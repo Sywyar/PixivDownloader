@@ -137,7 +137,7 @@ test('上传日期范围按本地日历保存，包含结束日，并进入批�
     const h = load();
     h.state.uploadStartDate = '2020-02-03'; h.state.uploadEndDate = '2020-02-03';
     h.state.sort = 'uploadTime';
-    const range = h.sandbox.galleryUploadTimeRange();
+    const range = h.sandbox.galleryTimeRanges();
     assert.equal(range.uploadedFrom, new Date('2020-02-03T00:00:00').getTime());
     assert.equal(range.uploadedBefore, new Date('2020-02-04T00:00:00').getTime());
     const saved = h.sandbox.serializeGalleryState();
@@ -163,4 +163,42 @@ test('结束日期早于起始日期时不发送筛选请求', () => {
     h.node('uploadEndDate').dispatchEvent({type: 'change'});
     assert.equal(h.requests.length, 1);
     assert.equal(h.state.uploadStartDate, '2020-02-04');
+});
+
+
+test('下载和上传日期组合保留于跨页交接和批量快照，重置清除两者', () => {
+    const h = load();
+    h.sandbox.applyCrossTransferToGallery({
+        downloadStartDate: '2021-05-01', downloadEndDate: '2021-05-02',
+        uploadStartDate: '2020-02-03', uploadEndDate: '2020-02-03', sort: 'date', order: 'asc'
+    });
+    const saved = h.sandbox.serializeGalleryState();
+    h.sandbox.applyPersistedGalleryState(saved);
+    const snapshot = h.sandbox.currentBatchFilterSnapshot();
+    assert.equal(snapshot.downloadedFrom, new Date('2021-05-01T00:00:00').getTime());
+    assert.equal(snapshot.downloadedBefore, new Date('2021-05-03T00:00:00').getTime());
+    assert.equal(snapshot.uploadedBefore, new Date('2020-02-04T00:00:00').getTime());
+    assert.equal(snapshot.sort, 'date');
+    assert.equal(snapshot.order, 'asc');
+    h.sandbox.resetGalleryFilters([]);
+    for (const key of ['uploadStartDate', 'uploadEndDate', 'downloadStartDate', 'downloadEndDate']) {
+        assert.equal(h.state[key], '');
+        assert.equal(h.node(key).value, '');
+    }
+});
+
+test('下载日期拒绝倒置区间，允许单边筛选并恢复筛选请求', () => {
+    const h = load();
+    h.node('downloadStartDate').value = '2021-05-02';
+    h.node('downloadEndDate').value = '2021-05-01';
+    h.node('downloadEndDate').dispatchEvent({type: 'change'});
+    assert.equal(h.requests.length, 0);
+    assert.ok(h.node('downloadEndDate').validationMessage);
+    h.node('downloadStartDate').value = '';
+    h.node('downloadStartDate').dispatchEvent({type: 'change'});
+    assert.equal(h.requests.length, 1);
+    assert.equal(h.sandbox.galleryTimeRanges().downloadedFrom, null);
+    assert.equal(h.sandbox.galleryTimeRanges().downloadedBefore, new Date('2021-05-02T00:00:00').getTime());
+    h.sandbox.applyPersistedGalleryState({downloadStartDate: '2021-02-29'});
+    assert.equal(h.state.downloadStartDate, '');
 });

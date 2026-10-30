@@ -72,7 +72,9 @@ public class PixivDownloadApplication {
      * 独占。抽成包级可见 seam 供结构守卫断言「headless 未禁用 hook」。
      */
     static SpringApplication buildHeadlessApplication() {
-        return new SpringApplication(PixivDownloadApplication.class);
+        SpringApplication application = new SpringApplication(PixivDownloadApplication.class);
+        application.addListeners(new top.sywyar.pixivdownload.gui.backfill.HeadlessBackfillStartup(application));
+        return application;
     }
 
     /**

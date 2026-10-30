@@ -137,7 +137,8 @@
         state.r18 = 'any';
         state.ai = 'any';
         state.uploadStartDate = state.uploadEndDate = '';
-        for (const name of ['uploadStartDate', 'uploadEndDate']) {
+        state.downloadStartDate = state.downloadEndDate = '';
+        for (const name of ['uploadStartDate', 'uploadEndDate', 'downloadStartDate', 'downloadEndDate']) {
             const input = document.getElementById(name);
             if (input) { input.value = ''; input.setCustomValidity(''); }
         }
@@ -438,6 +439,7 @@
         if (state.r18 !== 'any') n++;
         if (state.ai !== 'any') n++;
         if (state.uploadStartDate || state.uploadEndDate) n++;
+        if (state.downloadStartDate || state.downloadEndDate) n++;
         n += state.formats.size;
         n += state.collectionIds.size;
         n += getFilterCount('tag');

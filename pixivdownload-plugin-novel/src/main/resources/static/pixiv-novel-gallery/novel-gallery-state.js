@@ -19,6 +19,8 @@ const state = {
     page: 0,
     sort: 'date',
     uploadStartDate: '',
+    downloadStartDate: '',
+    downloadEndDate: '',
     uploadEndDate: '',
     order: 'desc',
     r18: 'any',
@@ -86,6 +88,8 @@ function serializeNovelGalleryState() {
         page: state.page,
         sort: state.sort,
         uploadStartDate: state.uploadStartDate,
+        downloadStartDate: state.downloadStartDate,
+        downloadEndDate: state.downloadEndDate,
         uploadEndDate: state.uploadEndDate,
         order: state.order,
         r18: state.r18,
@@ -150,7 +154,7 @@ function applyPersistedNovelGalleryState(payload) {
     if (typeof payload.view === 'string' && GALLERY_VIEW_VALUES.includes(payload.view)) state.view = payload.view;
     if (Number.isInteger(payload.page) && payload.page >= 0) state.page = payload.page;
     if (typeof payload.sort === 'string' && NOVEL_SORT_VALUES.has(payload.sort)) state.sort = payload.sort;
-    restoreUploadDates(payload);
+    restoreTimeRanges(payload);
     if (payload.order === 'asc' || payload.order === 'desc') state.order = payload.order;
     if (typeof payload.r18 === 'string' && NOVEL_R18_VALUES.has(payload.r18)) state.r18 = payload.r18;
     if (typeof payload.ai === 'string' && NOVEL_AI_VALUES.has(payload.ai)) state.ai = payload.ai;
@@ -210,6 +214,8 @@ function writeNovelGalleryCrossTransfer() {
         ai: state.ai,
         sort: state.sort,
         uploadStartDate: state.uploadStartDate,
+        downloadStartDate: state.downloadStartDate,
+        downloadEndDate: state.downloadEndDate,
         uploadEndDate: state.uploadEndDate,
         order: state.order,
         collectionIds: [...state.selectedCollections],
@@ -249,7 +255,7 @@ function applyCrossTransferToNovelGallery(transfer) {
     if (typeof transfer.r18 === 'string' && NOVEL_R18_VALUES.has(transfer.r18)) state.r18 = transfer.r18;
     if (typeof transfer.ai === 'string' && NOVEL_AI_VALUES.has(transfer.ai)) state.ai = transfer.ai;
     if (typeof transfer.sort === 'string' && NOVEL_SORT_VALUES.has(transfer.sort)) state.sort = transfer.sort;
-    restoreUploadDates(transfer);
+    restoreTimeRanges(transfer);
     if (transfer.order === 'asc' || transfer.order === 'desc') state.order = transfer.order;
     if (typeof transfer.view === 'string' && GALLERY_VIEW_VALUES.includes(transfer.view)) state.view = transfer.view;
     state.selectedCollections = new Set(toIdArray(transfer.collectionIds));
@@ -277,31 +283,36 @@ function applyCrossTransferToNovelGallery(transfer) {
     state.seriesView.page = 0;
 }
 
-    function uploadDateMillis(value, nextDay = false) {
-        if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-        const date = new Date(value + 'T00:00:00');
-        if (!Number.isFinite(date.getTime()) || date.getTime() <= 0
-            || date.getDate() !== Number(value.slice(8))) return null;
-        if (nextDay) date.setDate(date.getDate() + 1);
-        return date.getTime();
-    }
+function filterDateMillis(value, nextDay = false) {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+    const date = new Date(value + 'T00:00:00');
+    if (!Number.isFinite(date.getTime()) || date.getTime() <= 0
+        || date.getDate() !== Number(value.slice(8))) return null;
+    if (nextDay) date.setDate(date.getDate() + 1);
+    return date.getTime();
+}
 
-    function galleryUploadTimeRange() {
-        return {uploadedFrom: uploadDateMillis(state.uploadStartDate),
-            uploadedBefore: uploadDateMillis(state.uploadEndDate, true)};
-    }
+function galleryTimeRanges() {
+    return {downloadedFrom: filterDateMillis(state.downloadStartDate),
+        downloadedBefore: filterDateMillis(state.downloadEndDate, true),
+        uploadedFrom: filterDateMillis(state.uploadStartDate),
+        uploadedBefore: filterDateMillis(state.uploadEndDate, true)};
+}
 
-    function restoreUploadDates(payload) {
-        state.uploadStartDate = uploadDateMillis(payload.uploadStartDate) ? payload.uploadStartDate : '';
-        state.uploadEndDate = uploadDateMillis(payload.uploadEndDate) ? payload.uploadEndDate : '';
-        if (state.uploadStartDate && state.uploadEndDate && state.uploadStartDate > state.uploadEndDate) {
-            state.uploadStartDate = state.uploadEndDate = '';
+function restoreTimeRanges(payload) {
+    for (const prefix of ['upload', 'download']) {
+        const start = prefix + 'StartDate', end = prefix + 'EndDate';
+        state[start] = filterDateMillis(payload[start]) ? payload[start] : '';
+        state[end] = filterDateMillis(payload[end]) ? payload[end] : '';
+        if (state[start] && state[end] && state[start] > state[end]) {
+            state[start] = state[end] = '';
         }
     }
+}
 
 
 function applyNovelGalleryStateToUi() {
-    for (const name of ['uploadStartDate', 'uploadEndDate']) {
+    for (const name of ['uploadStartDate', 'uploadEndDate', 'downloadStartDate', 'downloadEndDate']) {
         const input = document.getElementById(name);
         if (input) input.value = state[name];
     }

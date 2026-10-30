@@ -33,7 +33,78 @@ import static org.mockito.Mockito.when;
 
 @DisplayName("启动回填的失败传播与资源释放")
 class StartupSchemaBackfillTest {
-    private enum Step { OPTIONS, COMPARE, COUNT, RUN }
+    private enum Step { OPTIONS, COMPARE }
+
+    @TempDir
+    Path directory;
+
+    @AfterEach
+    void cleanTestDirectory() throws java.io.IOException {
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(directory);
+    }
+
+    @Test
+    @DisplayName("结构正常且仅余已暂缓小说时直接启动后端，不再运行联网回填")
+    void startsBackendWhenOnlyRestrictedNovelRemains() throws Exception {
+        var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("restricted.db"));
+        try (var connection = target.openConnection(); var sql = connection.createStatement()) {
+            top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target);
+            sql.execute("INSERT INTO novels(novel_id,title,folder,count,extensions,time) VALUES(3,'novel','{0}',1,'txt',1)");
+        }
+        var path = directory.resolve("unreachable.json");
+        java.nio.file.Files.writeString(path, "{\"novel:3\":{\"restricted\":true,\"reason\":\"restricted\"}}");
+        var host = mock(DesktopUiHost.class);
+        var config = mock(DesktopUiHost.ConfigFile.class);
+        when(host.applicationConfig()).thenReturn(config);
+        when(config.read("download.root-folder")).thenReturn(directory.toString());
+        when(host.defaultBackfillOptions()).thenReturn(new DesktopUiHost.BackfillOptions("fixture", "", 0, false, 0, 1, false));
+        try (var files = mockStatic(top.sywyar.pixivdownload.config.RuntimeFiles.class);
+             var backfill = mockStatic(ArtworksBackFill.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+             var backend = mockStatic(BackendLifecycleManager.class);
+             var dialogs = mockStatic(DesktopUiDialogs.class)) {
+            files.when(top.sywyar.pixivdownload.config.RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(path);
+            backfill.when(() -> ArtworksBackFill.run(any(ArtworksBackFill.Options.class))).thenThrow(new AssertionError("unexpected backfill"));
+            StartupSchemaBackfill.run(mock(DesktopUiSession.class), host, DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema(), target);
+            backfill.verify(() -> ArtworksBackFill.run(any(ArtworksBackFill.Options.class)), never());
+            verifyHandoff(backend, host);
+            dialogs.verifyNoInteractions();
+        }
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"complete,true", "complete,false", "indexes,true", "extra,true"})
+    @DisplayName("结构完整或只有可恢复差异时按实际缺失数据触发启动回填")
+    void backfillsMissingDataWithoutMissingColumns(String layout, boolean missing) throws Exception {
+        var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("data.db"));
+        try (var connection = target.openConnection(); var sql = connection.createStatement()) {
+            top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target);
+            sql.execute("INSERT INTO novels(novel_id,title,folder,count,extensions,time,upload_time) "
+                    + "VALUES(3,'novel','{0}',1,'txt',1," + (missing ? "NULL" : "1000") + ")");
+            if (layout.equals("indexes")) sql.execute("DROP INDEX idx_novels_upload_time");
+            if (layout.equals("extra")) sql.execute("CREATE TABLE other_plugin(id INTEGER PRIMARY KEY)");
+        }
+        var host = mock(DesktopUiHost.class);
+        when(host.applicationConfig()).thenReturn(mock(DesktopUiHost.ConfigFile.class));
+        when(host.defaultBackfillOptions()).thenReturn(new DesktopUiHost.BackfillOptions("fixture", "", 0, false, 0, 0, false));
+        var session = mock(ToolHtmlLogSession.class);
+        try (var backfill = mockStatic(ArtworksBackFill.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+             var logs = mockStatic(ToolHtmlLogSession.class);
+             var files = mockStatic(top.sywyar.pixivdownload.config.RuntimeFiles.class);
+             var dialogs = mockStatic(DesktopUiDialogs.class);
+             var backend = mockStatic(BackendLifecycleManager.class)) {
+            files.when(top.sywyar.pixivdownload.config.RuntimeFiles::resolveBackfillUnreachablePath)
+                    .thenReturn(directory.resolve("unreachable.json"));
+            logs.when(() -> ToolHtmlLogSession.open("artworks-backfill", ArtworksBackFill.class)).thenReturn(session);
+            backfill.when(() -> ArtworksBackFill.run(any(ArtworksBackFill.Options.class))).thenReturn(null);
+            StartupSchemaBackfill.run(mock(DesktopUiSession.class), host,
+                    DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema(), target);
+            backfill.verify(() -> ArtworksBackFill.countCandidates(any(ArtworksBackFill.Options.class)), never());
+            backfill.verify(() -> ArtworksBackFill.run(any(ArtworksBackFill.Options.class)), never());
+            verifyHandoff(backend, host);
+            logs.verifyNoInteractions();
+            dialogs.verifyNoInteractions();
+        }
+    }
 
     @ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"", "CREATE UNIQUE INDEX idx_artworks_upload_time ON artworks(upload_time)",
@@ -62,9 +133,9 @@ class StartupSchemaBackfillTest {
              var backend = mockStatic(BackendLifecycleManager.class)) {
             backfill.when(() -> ArtworksBackFill.countCandidates(any(ArtworksBackFill.Options.class))).thenReturn(0);
             StartupSchemaBackfill.run(mock(DesktopUiSession.class), host, registry.mergedSchema(), target);
-            backfill.verify(() -> ArtworksBackFill.countCandidates(any(ArtworksBackFill.Options.class)),
-                    replacement.isEmpty() ? org.mockito.Mockito.times(1) : never());
-            backend.verify(BackendLifecycleManager::startAsync);
+            backfill.verify(() -> ArtworksBackFill.countCandidates(any(ArtworksBackFill.Options.class)), never());
+            if (replacement.isEmpty()) verifyHandoff(backend, host);
+            else backend.verify(BackendLifecycleManager::startAsync);
         }
     }
 
@@ -94,47 +165,11 @@ class StartupSchemaBackfillTest {
             inspector.when(() -> DatabaseSchemaInspector.compare(connection, target, schema)).thenReturn(comparison);
             backfill.when(() -> ArtworksBackFill.supportsDatabaseColumn("artworks", "description")).thenReturn(true);
             StartupSchemaBackfill.run(mock(DesktopUiSession.class), host, schema, target);
-            backfill.verify(() -> ArtworksBackFill.countCandidates(any(ArtworksBackFill.Options.class)),
-                    kind == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_COLUMN
-                            ? org.mockito.Mockito.times(1) : never());
+            backfill.verify(() -> ArtworksBackFill.countCandidates(any(ArtworksBackFill.Options.class)), never());
             backfill.verify(() -> ArtworksBackFill.run(any(ArtworksBackFill.Options.class)), never());
-            backend.verify(BackendLifecycleManager::startAsync);
+            if (kind == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_COLUMN) verifyHandoff(backend, host);
+            else backend.verify(BackendLifecycleManager::startAsync);
             verify(connection).close();
-        }
-    }
-
-    @TempDir Path directory;
-
-    @AfterEach
-    void cleanupDirectory() throws Exception {
-        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(directory);
-    }
-
-    @Test
-    @DisplayName("结构正常且仅余已暂缓小说时直接启动后端，不再运行联网回填")
-    void startsBackendWhenOnlyRestrictedNovelRemains() throws Exception {
-        var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("restricted.db"));
-        try (var connection = target.openConnection(); var sql = connection.createStatement()) {
-            top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target);
-            sql.execute("INSERT INTO novels(novel_id,title,folder,count,extensions,time) VALUES(3,'novel','{0}',1,'txt',1)");
-        }
-        var path = directory.resolve("unreachable.json");
-        java.nio.file.Files.writeString(path, "{\"novel:3\":{\"restricted\":true,\"reason\":\"restricted\"}}");
-        var host = mock(DesktopUiHost.class);
-        var config = mock(DesktopUiHost.ConfigFile.class);
-        when(host.applicationConfig()).thenReturn(config);
-        when(config.read("download.root-folder")).thenReturn(directory.toString());
-        when(host.defaultBackfillOptions()).thenReturn(new DesktopUiHost.BackfillOptions("fixture", "", 0, false, 0, 1, false));
-        try (var files = mockStatic(top.sywyar.pixivdownload.config.RuntimeFiles.class);
-             var backfill = mockStatic(ArtworksBackFill.class, org.mockito.Mockito.CALLS_REAL_METHODS);
-             var backend = mockStatic(BackendLifecycleManager.class);
-             var dialogs = mockStatic(DesktopUiDialogs.class)) {
-            files.when(top.sywyar.pixivdownload.config.RuntimeFiles::resolveBackfillUnreachablePath).thenReturn(path);
-            backfill.when(() -> ArtworksBackFill.run(any(ArtworksBackFill.Options.class))).thenThrow(new AssertionError("unexpected backfill"));
-            StartupSchemaBackfill.run(mock(DesktopUiSession.class), host, DatabaseSchemaRegistry.forBuiltInPlugins().mergedSchema(), target);
-            backfill.verify(() -> ArtworksBackFill.run(any(ArtworksBackFill.Options.class)), never());
-            backend.verify(BackendLifecycleManager::startAsync);
-            dialogs.verifyNoInteractions();
         }
     }
 
@@ -190,10 +225,6 @@ class StartupSchemaBackfillTest {
                 case OPTIONS -> when(host.defaultBackfillOptions()).thenThrow(failure);
                 case COMPARE -> inspector.when(() -> DatabaseSchemaInspector.compare(connection, target, schema))
                         .thenThrow(failure);
-                case COUNT -> backfill.when(() -> ArtworksBackFill.countCandidates(any(ArtworksBackFill.Options.class)))
-                        .thenThrow(failure);
-                case RUN -> backfill.when(() -> ArtworksBackFill.run(any(ArtworksBackFill.Options.class)))
-                        .thenThrow(failure);
             }
 
             if (failure instanceof Error) {
@@ -201,16 +232,20 @@ class StartupSchemaBackfillTest {
                 backend.verifyNoInteractions();
             } else {
                 assertThatCode(() -> StartupSchemaBackfill.run(ui, host, schema, target)).doesNotThrowAnyException();
-                if (step == Step.RUN) {
-                    backend.verify(() -> BackendLifecycleManager.startAsync(any(Runnable.class)));
-                } else {
-                    backend.verify(BackendLifecycleManager::startAsync);
-                }
+                backend.verify(BackendLifecycleManager::startAsync);
             }
             if (step != Step.OPTIONS) verify(connection).close();
             else verify(target, never()).openConnection();
-            if (step == Step.RUN) verify(logSession).close();
-            else logs.verifyNoInteractions();
+            logs.verifyNoInteractions();
         }
+    }
+
+    private static void verifyHandoff(org.mockito.MockedStatic<BackendLifecycleManager> backend,
+                                      DesktopUiHost host) throws Exception {
+        var callback = org.mockito.ArgumentCaptor.forClass(Runnable.class);
+        backend.verify(() -> BackendLifecycleManager.startAsync(callback.capture()));
+        verify(host, never()).startBackfill(any(), org.mockito.ArgumentMatchers.anyBoolean());
+        callback.getValue().run();
+        verify(host).startBackfill(any(), org.mockito.ArgumentMatchers.eq(true));
     }
 }

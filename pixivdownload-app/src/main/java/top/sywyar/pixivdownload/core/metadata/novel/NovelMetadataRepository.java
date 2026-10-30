@@ -77,6 +77,10 @@ public class NovelMetadataRepository {
     public List<NovelMetadataRow> findSearchCandidates(WorkQuery query) {
         Expression where = call(AND, equal("novels", "deleted", 0),
                 WorkQueryPredicates.visible("novels", "novel_id", "novel_tags", "novel_collections", query.restriction()));
+        if (query.downloadedFrom() != null) where = call(AND, where,
+                call(GREATER_EQUAL, column("novels", "time"), value(query.downloadedFrom())));
+        if (query.downloadedBefore() != null) where = call(AND, where,
+                call(LESS, column("novels", "time"), value(query.downloadedBefore())));
         if (query.uploadedFrom() != null) where = call(AND, where,
                 call(GREATER_EQUAL, column("novels", "upload_time"), value(query.uploadedFrom())));
         if (query.uploadedBefore() != null) where = call(AND, where,

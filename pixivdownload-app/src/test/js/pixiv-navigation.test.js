@@ -191,6 +191,52 @@ const ITEMS = [
 ];
 
 async function main() {
+    // 使用画廊真实 slot 的样式声明，经真实导航渲染后再启动画廊引导。
+    for (const pixivVue of [false, true]) {
+        const galleryRoot = path.join(__dirname, '../../../../pixivdownload-plugin-gallery/src/main/resources/static');
+        const html = fs.readFileSync(path.join(galleryRoot, 'pixiv-gallery.html'), 'utf8');
+        const declaration = html.match(/<nav\b[^>]*data-nav-slot="gallery\.sidebar"[^>]*>/)[0];
+        const linkClass = declaration.match(/data-nav-link-class="([^"]+)"/)[1];
+        const slot = navSlot('gallery.sidebar', {'data-nav-link-class': linkClass});
+        const runtime = load({slots: [slot], pixivVue, pathname: '/pixiv-gallery.html', items: [
+            {id: 'download', placements: ['gallery.sidebar'], href: '/download-fixture', markers: ['preferred-download-workbench']}
+        ]});
+        await runtime.PixivNav.ready();
+        const anchors = [];
+        if (pixivVue) {
+            (function walk(element) {
+                if (element.tag === 'a') anchors.push(element.attrs);
+                element.children.forEach(walk);
+            })(slot);
+        } else {
+            for (const match of slot.innerHTML.matchAll(/<a\b([^>]*)>/g)) {
+                anchors.push(Object.fromEntries(Array.from(match[1].matchAll(/([\w-]+)="([^"]*)"/g), attr => [attr[1], attr[2]])));
+            }
+        }
+        let rendered = '', handlers;
+        const sandbox = {Promise, location: {}, PixivNav: runtime.PixivNav,
+            document: {querySelector(selector) {
+                const cssClass = selector.match(/^a\.([\w-]+)/)?.[1];
+                return anchors.find(anchor => (!cssClass || anchor.class.split(/\s+/).includes(cssClass))
+                    && anchor['data-nav-markers']?.split(/\s+/).includes('preferred-download-workbench')) || null;
+            }},
+            PixivOnboarding: {boot(config) { config.start({status: 'new'}); }},
+            PixivOnboardingRuntime: {
+                overlay: {revision: 0, render(spec) { rendered = spec.html; }},
+                footHtml: () => '', bindFoot(value) { handlers = value; },
+                message: key => key, messageHtml: value => value
+            }
+        };
+        sandbox.window = sandbox;
+        vm.createContext(sandbox);
+        vm.runInContext(fs.readFileSync(path.join(galleryRoot, 'pixiv-gallery/onboarding.js'), 'utf8'), sandbox);
+        sandbox.PixivGalleryOnboarding.boot({page: 'gallery'});
+        await Promise.resolve();
+        ok('真实导航到画廊引导：入口可用 ' + pixivVue, rendered.includes('gallery:onboarding.redirect.body'));
+        ok('真实导航到画廊引导：不误报无入口 ' + pixivVue, !rendered.includes('gallery:onboarding.redirect.unavailable'));
+        handlers.go();
+        ok('真实导航到画廊引导：使用贡献的地址 ' + pixivVue, sandbox.location.href === '/download-fixture');
+    }
     for (const pixivVue of [false, true]) {
         const slot = navSlot('*');
         const link = new El('a');

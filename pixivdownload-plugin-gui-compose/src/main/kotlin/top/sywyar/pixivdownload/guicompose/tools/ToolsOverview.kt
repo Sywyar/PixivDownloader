@@ -39,6 +39,8 @@ import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.*
 private val toolIds = listOf("classifier", "folder", "backfill", "migration")
 private val toolIcons = listOf(Icons.Default.Collections, Icons.Default.FolderOpen, Icons.Default.Storage, Icons.Default.SyncAlt)
 
+internal val LocalOpenBackfill = staticCompositionLocalOf<(() -> Unit)?> { null }
+
 @Composable
 internal fun ToolsOverview(
     node: DesktopUiNode.ToolsOverview,
@@ -48,6 +50,13 @@ internal fun ToolsOverview(
 ) {
     val palette = LocalExperiencePalette.current
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    val openBackfill = LocalOpenBackfill.current
+    LaunchedEffect(openBackfill) {
+        if (openBackfill != null) {
+            selected = "backfill"
+            openBackfill()
+        }
+    }
     var restoreFocus by remember { mutableStateOf<String?>(null) }
     val anchors = remember { mutableMapOf<String, FocusRequester>() }
     val tools = node.tools().map { it as Group }

@@ -15,7 +15,7 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Set;
 
-/** 在后端启动前检查受管结构并按既有策略回填，所有连接和日志会话归当次执行。 */
+/** 启动前检查受管结构，在后端就绪后提交自动回填。 */
 final class StartupSchemaBackfill {
     private static final Logger log = LoggerFactory.getLogger(GuiLauncher.class);
 
@@ -32,7 +32,7 @@ final class StartupSchemaBackfill {
                 BackendLifecycleManager.startAsync();
                 return;
             }
-            runStartupSchemaBackfill(frame, options(host).withTarget(target), expectedSchema);
+            runStartupSchemaBackfill(frame, host, options(host).withTarget(target), expectedSchema);
         } catch (Throwable failure) {
             DesktopUiFailover.rethrowFatal(failure);
             log.error(MessageBundles.getForLog("gui.launcher.log.startup.schema-backfill-flow.unexpected"), failure);
@@ -45,7 +45,7 @@ final class StartupSchemaBackfill {
      * （带安全默认值、无需联网抓取即可迁移，见 {@code DatabaseInitializer} 的安全补列阶段）。
      * <p>这些列在旧库里缺失只是后端首启前的暂时状态，会被自动迁移补齐，不应阻断
      * {@link #supportsStartupAutoBackfill} 的整段元数据自动回填判定。与
-     * {@link ArtworksBackFill#SUPPORTED_DATABASE_COLUMNS} 区分：后者是必须联网抓取才能填充的列。
+     * {@link ArtworksBackFill#SUPPORTED_DATABASE_COLUMNS} 区分：后者可使用本地元数据或网络详情补齐。
      */
     private static final class StartupColumns {
         private static final Set<ArtworksBackFill.DatabaseColumn> AUTO_MIGRATED = Set.of(
@@ -66,6 +66,7 @@ final class StartupSchemaBackfill {
 
     private static void runStartupSchemaBackfill(
             DesktopUiSession frame,
+            DesktopUiHost host,
             ArtworksBackFill.Options options,
             ManagedDatabaseSchema.DatabaseSchema expectedSchema
     ) {
@@ -97,11 +98,9 @@ final class StartupSchemaBackfill {
 
         if (comparison.matches()) {
             log.info(MessageBundles.getForLog("gui.launcher.log.startup.schema-check.passed", target.displayName()));
-            BackendLifecycleManager.startAsync();
-            return;
+        } else {
+            log.info(MessageBundles.getForLog("gui.launcher.log.startup.schema-check.mismatch", comparison.summary(8)));
         }
-
-        log.info(MessageBundles.getForLog("gui.launcher.log.startup.schema-check.mismatch", comparison.summary(8)));
         if (!supportsStartupAutoBackfill(comparison)) {
             log.info(MessageBundles.getForLog("gui.launcher.log.startup.schema-check.auto-backfill.unsupported", comparison.summary(8)));
             DesktopUiDialogs.showMessageDialog(
@@ -114,84 +113,20 @@ final class StartupSchemaBackfill {
             return;
         }
 
-        DesktopUiDialogs.showMessageDialog(
-                frame,
-                MessageBundles.get("gui.launcher.dialog.schema-mismatch.message", comparison.summary(6)),
-                MessageBundles.get("gui.launcher.dialog.schema-mismatch.title"),
-                DesktopUiDialogs.INFORMATION_MESSAGE
-        );
-
-        int pendingCount;
-        try {
-            pendingCount = ArtworksBackFill.countCandidates(options);
-            log.info(MessageBundles.getForLog("gui.launcher.log.startup.backfill.pending", pendingCount));
-        } catch (Throwable error) {
-            DesktopUiFailover.rethrowFatal(error);
-            log.warn(MessageBundles.getForLog("gui.launcher.log.startup.backfill.check-failed"), error);
-            DesktopUiDialogs.showMessageDialog(
-                    frame,
-                    MessageBundles.get(
-                            "gui.launcher.dialog.backfill-check-failed.message",
-                            Objects.toString(error.getMessage(), error.getClass().getSimpleName())
-                    ),
-                    MessageBundles.get("gui.launcher.dialog.backfill-check-failed.title"),
-                    DesktopUiDialogs.WARNING_MESSAGE
-            );
-            BackendLifecycleManager.startAsync();
-            return;
-        }
-
-        if (pendingCount <= 0) {
-            BackendLifecycleManager.startAsync();
-            return;
-        }
-
-        DesktopUiDialogs.showMessageDialog(
-                frame,
-                MessageBundles.get("gui.launcher.dialog.backfill-pending.message", pendingCount),
-                MessageBundles.get("gui.launcher.dialog.auto-backfill.title"),
-                DesktopUiDialogs.INFORMATION_MESSAGE
-        );
-
-        ToolHtmlLogSession logSession = null;
-        ArtworksBackFill.Summary summary = null;
-        Throwable failure = null;
-        try {
+        BackendLifecycleManager.startAsync(() -> {
             try {
-                logSession = ToolHtmlLogSession.open("artworks-backfill", ArtworksBackFill.class);
-                try {
-                    logSession.openLatestInBrowser();
-                } catch (Exception browserError) {
-                    log.warn(MessageBundles.getForLog("gui.launcher.log.startup.backfill.open-log-page-failed"), browserError);
-                }
-            } catch (Exception logError) {
-                log.warn(MessageBundles.getForLog("gui.launcher.log.startup.backfill.create-log-session-failed"), logError);
+                host.startBackfill(new DesktopUiHost.BackfillOptions(options.dbPath(), options.proxyHost(),
+                        options.proxyPort(), options.useProxy(), options.delayMs(), options.limit(), false,
+                        options.alwaysNetwork()), true);
+            } catch (Exception failure) {
+                log.warn(MessageBundles.getForLog("gui.launcher.log.startup.backfill.failed"), failure);
             }
-            summary = ArtworksBackFill.run(options);
-        } catch (Throwable error) {
-            DesktopUiFailover.rethrowFatal(error);
-            failure = error;
-            log.error(MessageBundles.getForLog("gui.launcher.log.startup.backfill.failed"), error);
-        } finally {
-            if (logSession != null) {
-                try {
-                    logSession.close();
-                } catch (Exception ignored) {
-                }
-            }
-        }
-
-        ArtworksBackFill.Summary finalSummary = summary;
-        Throwable finalFailure = failure;
-        BackendLifecycleManager.startAsync(() -> showStartupBackfillResult(frame, finalSummary, finalFailure, pendingCount));
+        });
     }
 
     private static boolean supportsStartupAutoBackfill(DatabaseSchemaInspector.SchemaComparison comparison) {
-        return !comparison.details().isEmpty()
-                // 所有差异都不阻断（要么可回填，要么是后端自建表/自动迁移列这类首启自愈差异）。
-                && comparison.details().stream().allMatch(StartupSchemaBackfill::isNonBlockingStartupDifference)
-                // 且至少有一个差异是回填工具真正支持的列；否则差异全是自愈项，没有任何需要联网回填的内容，不启动回填工具。
-                && comparison.details().stream().anyMatch(StartupSchemaBackfill::isBackfillableDifference);
+        // 结构可用只决定能否查询候选；是否需要回填由缺失数据决定。
+        return comparison.details().stream().allMatch(StartupSchemaBackfill::isNonBlockingStartupDifference);
     }
 
     /** 该差异是否由回填工具实际填充——即差异的列在 {@link ArtworksBackFill#SUPPORTED_DATABASE_COLUMNS} 支持范围内。 */
@@ -203,8 +138,7 @@ final class StartupSchemaBackfill {
 
     /**
      * 该差异是否不阻断启动期自动回填：要么可回填（见 {@link #isBackfillableDifference}），
-     * 要么是后端启动时会自愈的差异（缺表 / 自动迁移列）。仅"不阻断"不代表会触发回填——
-     * 是否启动回填还要求 {@link #supportsStartupAutoBackfill} 中至少存在一个可回填差异。
+     * 要么是后端启动时会自愈的差异（缺表 / 自动迁移列）。
      */
     private static boolean isNonBlockingStartupDifference(
             DatabaseSchemaInspector.SchemaDifference difference
@@ -223,46 +157,6 @@ final class StartupSchemaBackfill {
                 || difference.kind() == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_INDEX;
     }
 
-    private static void showStartupBackfillResult(
-            DesktopUiSession owner,
-            ArtworksBackFill.Summary summary,
-            Throwable failure,
-            int checkedCount
-    ) {
-        if (failure != null) {
-            DesktopUiDialogs.show(
-                    owner,
-                    MessageBundles.get("gui.launcher.dialog.auto-backfill.title"),
-                    MessageBundles.get(
-                            "gui.launcher.dialog.auto-backfill.failed.message",
-                            Objects.toString(failure.getMessage(), failure.getClass().getSimpleName())
-                    ),
-                    failure
-            );
-            return;
-        }
-
-        if (summary == null) {
-            return;
-        }
-
-        String resultText = summary.rateLimited()
-                ? MessageBundles.get("gui.launcher.dialog.auto-backfill.rate-limited")
-                : MessageBundles.get("gui.launcher.dialog.auto-backfill.completed");
-        DesktopUiDialogs.showMessageDialog(
-                owner,
-                MessageBundles.get(
-                        "gui.launcher.dialog.auto-backfill.summary.message",
-                        resultText,
-                        checkedCount,
-                        summary.processed(),
-                        summary.totalCandidates()
-                ),
-                MessageBundles.get("gui.launcher.dialog.auto-backfill.title"),
-                summary.rateLimited() ? DesktopUiDialogs.WARNING_MESSAGE : DesktopUiDialogs.INFORMATION_MESSAGE
-        );
-    }
-
     static ArtworksBackFill.Options options(DesktopUiHost host) throws java.io.IOException {
         DesktopUiHost.BackfillOptions defaults = host.defaultBackfillOptions();
         String root = host.applicationConfig().read("download.root-folder");
@@ -275,7 +169,7 @@ final class StartupSchemaBackfill {
                 defaults.delayMs(),
                 defaults.limit(),
                 false
-        ).withSources(root, defaults.alwaysNetwork());
+        ).withSources(root, defaults.alwaysNetwork()).forStartup();
     }
 
     private static boolean hasInspectableDatabase(Path databasePath) {

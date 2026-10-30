@@ -7,7 +7,8 @@ import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.core5.http.HttpHost;
-import org.apache.hc.core5.http.io.entity.EntityUtils;
+import org.apache.hc.core5.http.HttpEntity;
+import top.sywyar.pixivdownload.core.work.model.WorkType;
 import org.apache.hc.core5.util.Timeout;
 import top.sywyar.pixivdownload.common.PixivRequestHeaders;
 import top.sywyar.pixivdownload.i18n.MessageBundles;
@@ -19,11 +20,12 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * 查询 Pixiv 插画详情，并把 HTTP 与 JSON 响应归一为回填结果。
+ * 查询 Pixiv 插画和小说详情，并把 HTTP 与 JSON 响应归一为回填结果。
  */
 final class ArtworksBackFillPixivClient implements AutoCloseable {
 
-    private static final String PIXIV_AJAX = "https://www.pixiv.net/ajax/illust/";
+    private static final String PIXIV_AJAX = "https://www.pixiv.net/ajax/";
+    private static final int MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
     private static final String[] R18_KEYWORDS = {
             "R-18", "R18", "年齢制限", "年龄限制", "閲覧制限", "18歳未満",
             "成人向け", "成人向", "restricted", "age"
@@ -58,22 +60,44 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
     }
 
     LookupResult query(long artworkId) throws IOException {
-        HttpGet request = new HttpGet(PIXIV_AJAX + artworkId);
+        return query(WorkType.ARTWORK, artworkId);
+    }
+
+    LookupResult queryNovel(long id) throws IOException {
+        return query(WorkType.NOVEL, id);
+    }
+
+    private LookupResult query(WorkType type, long artworkId) throws IOException {
+        HttpGet request = new HttpGet(PIXIV_AJAX + (type == WorkType.NOVEL ? "novel/" : "illust/") + artworkId);
         PixivRequestHeaders.applyAjax(request, null);
 
         try {
             return http.execute(request, response -> parseResponse(
                     response.getCode(),
-                    EntityUtils.toString(response.getEntity(), StandardCharsets.UTF_8),
-                    mapper
+                    readResponse(response.getEntity()),
+                    mapper, type
             ));
         } catch (IOException e) {
-            throw new IOException("artwork=" + artworkId + " "
+            throw new IOException(type.name() + "=" + artworkId + " "
                     + message("artworks-backfill.lookup.request-error", e.getMessage()), e);
         }
     }
 
+    static String readResponse(HttpEntity entity) throws IOException {
+        if (entity == null) return "";
+        if (entity.getContentLength() > MAX_RESPONSE_BYTES) throw new IOException("PIXIV_RESPONSE_TOO_LARGE");
+        try (var input = entity.getContent()) {
+            byte[] bytes = input.readNBytes(MAX_RESPONSE_BYTES + 1);
+            if (bytes.length > MAX_RESPONSE_BYTES) throw new IOException("PIXIV_RESPONSE_TOO_LARGE");
+            return new String(bytes, StandardCharsets.UTF_8);
+        }
+    }
+
     static LookupResult parseResponse(int status, String body, ObjectMapper mapper) throws IOException {
+        return parseResponse(status, body, mapper, WorkType.ARTWORK);
+    }
+
+    static LookupResult parseResponse(int status, String body, ObjectMapper mapper, WorkType type) throws IOException {
         if (status == 429) {
             return LookupResult.rateLimited();
         }
@@ -115,7 +139,10 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
         if (authorId <= 0) {
             return LookupResult.skip(message("artworks-backfill.lookup.empty-response"));
         }
-        return parsePayload(payload, null, true);
+        Long uploadTime = type == WorkType.NOVEL
+                ? new top.sywyar.pixivdownload.core.metadata.sidecar.WorkMetaCurator(mapper)
+                        .curateNovel(1, payload, "backfill").uploadTime() : null;
+        return parsePayload(payload, uploadTime, true);
     }
 
     static LookupResult parsePayload(JsonNode payload, Long uploadTime, boolean completeResponse) {
@@ -278,7 +305,7 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
         }
 
         static LookupResult r18Only(String message) {
-            return new LookupResult(ResultType.R18_ONLY, 0, null, 1, false, null, null, 0, null, null, message, null, false);
+            return new LookupResult(ResultType.R18_ONLY, 0, null, 1, null, null, null, 0, null, null, message, null, false);
         }
 
         static LookupResult deleted(String message) {

@@ -193,6 +193,22 @@ class NovelMetadataRepositoryTest {
         }
     }
 
+    @Test
+    @DisplayName("小说下载时间筛选保留软删除与上传时间组合语义")
+    void shouldCombineDownloadAndUploadRanges() {
+        for (long id = 1; id <= 5; id++) insertNovel(id, "{1}/" + id, id * 100, id, id == 5);
+        jdbc.update("UPDATE novels SET upload_time = CASE WHEN novel_id < 4 THEN 1000 ELSE 2000 END");
+        var query = top.sywyar.pixivdownload.core.work.query.WorkQuery.builder(top.sywyar.pixivdownload.core.work.model.WorkType.NOVEL)
+                .downloadTimeRange(200L, 500L).build();
+        assertThat(repository.findSearchCandidates(query)).extracting(NovelMetadataRow::novelId).containsExactly(4L, 3L, 2L);
+        assertThat(repository.findSearchCandidates(query.withUploadTimeRange(1000L, 1001L)))
+                .extracting(NovelMetadataRow::novelId).containsExactly(3L, 2L);
+        assertThat(repository.findSearchCandidates(query.withDownloadTimeRange(400L, null)))
+                .extracting(NovelMetadataRow::novelId).containsExactly(4L);
+        assertThat(repository.findSearchCandidates(query.withDownloadTimeRange(null, 200L)))
+                .extracting(NovelMetadataRow::novelId).containsExactly(1L);
+    }
+
     private void insertNovel(long novelId, String folder, long time, long seriesOrder, boolean deleted) {
         jdbc.update("""
                         INSERT INTO novels(

@@ -61,6 +61,9 @@ final class AppDesktopUiHost implements DesktopUiHost {
     private final top.sywyar.pixivdownload.plugin.api.gui.DesktopDatabaseSettings databaseSettings;
     private final DesktopUiOnboardingState onboardingState = new DesktopUiOnboardingState();
     private final DesktopToolHistory toolHistory = new DesktopToolHistory(RuntimeFiles.guiStateDirectory());
+    private volatile java.util.concurrent.atomic.AtomicReference<BackfillTask> backfillObservation =
+            new java.util.concurrent.atomic.AtomicReference<>();
+    private boolean migrationRunning;
     private final DesktopWindowStateStore windowState = new DesktopWindowStateStore(RuntimeFiles.guiStateDirectory());
 
     AppDesktopUiHost(int serverPort) {
@@ -424,6 +427,40 @@ final class AppDesktopUiHost implements DesktopUiHost {
                 value.skipped(), value.previouslyUnreachable(), value.newlyUnreachable(), value.dryRun(), value.rateLimited(), value.filledUploadTime());
     }
 
+    @Override public synchronized java.util.UUID startBackfill(BackfillOptions options, boolean automatic) throws Exception {
+        if (migrationRunning) throw new IllegalStateException(message("gui.message.backend-busy"));
+        var runner = BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.backfill.DesktopBackfillRunner.class);
+        var observation = new java.util.concurrent.atomic.AtomicReference<BackfillTask>();
+        var mapped = map(options);
+        var receipt = runner.start(automatic ? mapped.forStartup() : mapped, value -> {
+            observation.accumulateAndGet(value, (previous, next) -> previous == null || next.revision() > previous.revision() ? next : previous);
+            if (!value.active()) {
+                var outcome = switch (value.state()) {
+                    case COMPLETED -> ToolOutcome.SUCCEEDED;
+                    case INCOMPLETE -> ToolOutcome.INCOMPLETE;
+                    case RATE_LIMITED -> ToolOutcome.RATE_LIMITED;
+                    case CANCELLED -> ToolOutcome.CANCELLED;
+                    default -> ToolOutcome.FAILED;
+                };
+                toolHistory.record(ToolId.ARTWORKS_BACKFILL, outcome, value.startedAtEpochMs(), value.processed(),
+                        value.dryRun() ? null : value.changed(), null,
+                        value.logFileName() == null ? null : RuntimeFiles.logDirectory().resolve("html").resolve(value.logFileName()),
+                        value.executionId(), null);
+            }
+        });
+        observation.compareAndSet(null, receipt);
+        backfillObservation = observation;
+        return receipt.executionId();
+    }
+
+    @Override public Optional<BackfillTask> backfillTask() { return Optional.ofNullable(backfillObservation.get()); }
+
+    @Override public boolean cancelBackfill(java.util.UUID executionId) {
+        var value = backfillObservation.get();
+        if (value == null || !value.active() || !value.executionId().equals(executionId)) return false;
+        return BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.backfill.DesktopBackfillRunner.class).cancel(executionId);
+    }
+
     private DataSource requireBackfillDataSource() {
         try {
             return java.util.Objects.requireNonNull(backfillDataSource.get(), "backfillDataSource result");
@@ -436,10 +473,19 @@ final class AppDesktopUiHost implements DesktopUiHost {
                 toolDatabaseTarget(options.dbPath())), BackendLifecycleManager.isRunning() ? requireBackfillDataSource() : null);
     }
     @Override public MigrationSummary runMigration(MigrationOptions options, Consumer<String> reporter) throws Exception {
-        var value = JsonToSqliteMigration.run(new JsonToSqliteMigration.Options(options.dbPath(), options.rootFolder(),
-                toolDatabaseTarget(options.dbPath())), reporter,
-                BackendLifecycleManager.isRunning() ? requireBackfillDataSource() : null);
-        return new MigrationSummary(value.totalCandidates(), value.migrated(), value.skipped(), value.historyFileMissing(), value.message(), value.failed());
+        synchronized (this) {
+            if (migrationRunning || backfillTask().filter(BackfillTask::active).isPresent())
+                throw new IllegalStateException(message("gui.message.backend-busy"));
+            migrationRunning = true;
+        }
+        try {
+            var value = JsonToSqliteMigration.run(new JsonToSqliteMigration.Options(options.dbPath(), options.rootFolder(),
+                    toolDatabaseTarget(options.dbPath())), reporter,
+                    BackendLifecycleManager.isRunning() ? requireBackfillDataSource() : null);
+            return new MigrationSummary(value.totalCandidates(), value.migrated(), value.skipped(), value.historyFileMissing(), value.message(), value.failed());
+        } finally {
+            synchronized (this) { migrationRunning = false; }
+        }
     }
     @Override public ToolLogSession openToolLog(String stem) throws Exception {
         Class<?> loggerType = stem.contains("migration") ? JsonToSqliteMigration.class : ArtworksBackFill.class;

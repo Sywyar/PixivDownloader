@@ -38,7 +38,9 @@ public record ArtworkBatchRequest(
             List<Long> notSeriesIds,
             Long seriesId,
             Long uploadedFrom,
-            Long uploadedBefore
+            Long uploadedBefore,
+            Long downloadedFrom,
+            Long downloadedBefore
     ) {
         public Filter(Integer page,
             Integer size,
@@ -60,7 +62,7 @@ public record ArtworkBatchRequest(
             List<Long> seriesIds,
             List<Long> notSeriesIds,
             Long seriesId) {
-            this(page, size, sort, order, search, searchType, r18, ai, formats, collectionIds, tagIds, notTagIds, orTagIds, authorIds, notAuthorIds, orAuthorIds, authorId, seriesIds, notSeriesIds, seriesId, null, null);
+            this(page, size, sort, order, search, searchType, r18, ai, formats, collectionIds, tagIds, notTagIds, orTagIds, authorIds, notAuthorIds, orAuthorIds, authorId, seriesIds, notSeriesIds, seriesId, null, null, null, null);
         }
     }
 }

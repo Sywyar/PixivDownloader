@@ -23,6 +23,53 @@ import static org.mockito.Mockito.when;
 class AppDesktopUiHostBackfillTest {
 
     @ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"COMPLETED,SUCCEEDED", "INCOMPLETE,INCOMPLETE", "RATE_LIMITED,RATE_LIMITED", "CANCELLED,CANCELLED", "FAILED,FAILED"})
+    @DisplayName("宿主保留最新执行身份与终态，历史只记录一次且旧回调不能覆盖新任务")
+    void recordsBackfillOutcome(DesktopUiHost.BackfillState state, DesktopUiHost.ToolOutcome outcome,
+                               @TempDir Path directory) throws Exception {
+        var runner = mock(top.sywyar.pixivdownload.gui.backfill.DesktopBackfillRunner.class);
+        var callbacks = new java.util.ArrayList<java.util.function.Consumer<DesktopUiHost.BackfillTask>>();
+        var identities = new java.util.ArrayList<java.util.UUID>();
+        when(runner.start(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenAnswer(call -> {
+            callbacks.add(call.getArgument(1));
+            var id = java.util.UUID.randomUUID();
+            identities.add(id);
+            return task(id, 0, DesktopUiHost.BackfillState.RUNNING);
+        });
+        try (var files = org.mockito.Mockito.mockStatic(top.sywyar.pixivdownload.config.RuntimeFiles.class);
+             var backend = org.mockito.Mockito.mockStatic(BackendLifecycleManager.class)) {
+            files.when(top.sywyar.pixivdownload.config.RuntimeFiles::guiStateDirectory).thenReturn(directory);
+            files.when(top.sywyar.pixivdownload.config.RuntimeFiles::logDirectory).thenReturn(directory);
+            backend.when(() -> BackendLifecycleManager.requiredBean(top.sywyar.pixivdownload.gui.backfill.DesktopBackfillRunner.class)).thenReturn(runner);
+            var target = top.sywyar.pixivdownload.core.db.DatabaseProviderTestFixtures.sqlite(directory.resolve("works.db"));
+            var config = mock(DesktopUiHost.ConfigFile.class);
+            when(config.read("download.root-folder")).thenReturn(directory.toString());
+            var host = new AppDesktopUiHost(0, config, () -> mock(DataSource.class), null, target);
+            var options = new DesktopUiHost.BackfillOptions(target.displayName(), "", 0, false, 0, 1, false);
+            var id = host.startBackfill(options);
+            assertThat(host.backfillTask().orElseThrow().executionId()).isEqualTo(id);
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                    () -> host.runMigration(new DesktopUiHost.MigrationOptions(target.displayName(), directory.toString()), null));
+            assertThat(host.cancelBackfill(java.util.UUID.randomUUID())).isFalse();
+            callbacks.get(0).accept(task(id, 3, state));
+            callbacks.get(0).accept(task(id, 1, DesktopUiHost.BackfillState.RUNNING));
+            assertThat(host.backfillTask().orElseThrow().state()).isEqualTo(state);
+            assertThat(host.toolHistory()).hasSize(1);
+            assertThat(host.toolHistory().get(0).outcome()).isEqualTo(outcome);
+            assertThat(host.toolHistory().get(0).changedCount()).isEqualTo(1);
+            var second = host.startBackfill(options);
+            callbacks.get(0).accept(task(id, 4, state));
+            assertThat(host.backfillTask().orElseThrow().executionId()).isEqualTo(second);
+            assertThat(host.toolHistory()).hasSize(1);
+        }
+    }
+
+    private static DesktopUiHost.BackfillTask task(java.util.UUID id, long revision, DesktopUiHost.BackfillState state) {
+        return new DesktopUiHost.BackfillTask(id, revision, state, DesktopUiHost.BackfillPhase.LOCAL, true, false,
+                1, state == DesktopUiHost.BackfillState.RUNNING ? 0 : 2, 1, 2, 1, 1, 0, null, null, null, "fixture.html");
+    }
+
+    @ParameterizedTest
     @org.junit.jupiter.params.provider.CsvSource({"false, false", "true, false", "false, true", "true, true"})
     @DisplayName("目录工具目标校验失败归还宿主连接，清理致命错误仍传播")
     void closesBorrowedConnectionOnFatalTargetFailure(boolean update, boolean cleanupFatal) throws Exception {

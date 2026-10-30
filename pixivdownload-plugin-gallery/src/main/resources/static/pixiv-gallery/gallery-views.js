@@ -46,7 +46,7 @@
         if (state.search && state.searchType && state.searchType !== 'all') params.set('searchType', state.searchType);
         if (state.r18 !== 'any') params.set('r18', state.r18);
         if (state.ai !== 'any') params.set('ai', state.ai);
-        for (const [key, value] of Object.entries(galleryUploadTimeRange())) {
+        for (const [key, value] of Object.entries(galleryTimeRanges())) {
             if (value != null) params.set(key, value);
         }
         if (state.formats.size) params.set('format', [...state.formats].join(','));
@@ -103,6 +103,7 @@
             || state.r18 !== 'any'
             || state.ai !== 'any'
             || state.uploadStartDate || state.uploadEndDate
+            || state.downloadStartDate || state.downloadEndDate
             || state.formats.size
             || state.collectionIds.size
             || state.tagFilters.must.size || state.tagFilters.not.size || state.tagFilters.or.size

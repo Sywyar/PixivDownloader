@@ -192,6 +192,28 @@ class GalleryRepositoryTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    @DisplayName("下载日期按边界筛选并在分页前组合上传日期与排序")
+    void downloadTimeRangeAndCombinedPagination() {
+        jdbc.update("UPDATE artworks SET upload_time = 900 WHERE artwork_id IN (?, ?)", ARTWORK_B, ARTWORK_H);
+        WorkQuery query = WorkQuery.builder(WorkType.ARTWORK).sort("date").order("asc")
+                .downloadTimeRange(100L, 301L).build();
+        assertThat(repository.findArtworkIds(query).ids()).containsExactly(ARTWORK_B, ARTWORK_F, ARTWORK_H);
+        var combined = query.withUploadTimeRange(900L, 901L);
+        assertThat(repository.findArtworkIds(combined).ids()).containsExactly(ARTWORK_B, ARTWORK_H);
+        assertThat(repository.findArtworkIds(combined.withDownloadTimeRange(200L, 301L)).ids())
+                .containsExactly(ARTWORK_H);
+        var page = WorkQuery.builder(WorkType.ARTWORK).sort("date").order("desc").page(1).size(1)
+                .downloadTimeRange(100L, 301L).build();
+        assertThat(repository.findArtworkIds(page).ids()).containsExactly(ARTWORK_F);
+        assertThat(repository.findArtworkIds(page).totalElements()).isEqualTo(3);
+        assertThat(repository.findArtworkIds(query.withDownloadTimeRange(null, 200L)).ids()).containsExactly(ARTWORK_B);
+        for (long invalid : new long[]{0, -1, 301, 302}) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> query.withDownloadTimeRange(invalid, 301L))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
     private void createTables() {
         jdbc.execute("""
                 CREATE TABLE artworks (

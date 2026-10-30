@@ -195,6 +195,7 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
         }
         statusController.refresh();
         statusController.startPolling();
+        tools.startPolling();
         statusController.updates.scheduleInitialUpdateLookup();
         directoryMigration.scheduleSymbolicOrphanCheck();
     }
@@ -417,13 +418,16 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
             selectionBindings = Map.copyOf(nextSelections);
             actions = Map.copyOf(nextActions);
             eventEndpoints = nextEventEndpoints;
-            if (sourcesChanged || localeChanged || snapshot == null || !nextDocument.equals(snapshot.document())) {
+            var automaticBackfillNotice = tools.automaticBackfillNotice();
+            if (sourcesChanged || localeChanged || snapshot == null || !nextDocument.equals(snapshot.document())
+                    || !Objects.equals(automaticBackfillNotice, snapshot.automaticBackfillNotice())) {
                 documentSourceFingerprints = sourceFingerprints;
                 documentLocale = currentLocale;
                 snapshot = new DesktopUiSnapshot(
                         candidateRevision,
                         nextDocument,
-                        nextInteractionRevisions
+                        nextInteractionRevisions,
+                        automaticBackfillNotice
                 );
                 published = snapshot;
             }
@@ -743,6 +747,13 @@ public final class ComposeDesktopUiModel implements DesktopUiModel, AutoCloseabl
     }
 
     boolean hasDialog() { return closed || dialogState != null; }
+
+    /** 只收起指定执行的自动提示，不停止回填或改变表单。 */
+    public synchronized boolean dismissAutomaticBackfill(java.util.UUID executionId) {
+        if (closed || dialogState != null) return false;
+        tools.refreshBackfill();
+        return tools.dismissAutomaticBackfill(executionId);
+    }
 
     void pluginDirectorySaved(String pluginId, String key, String value) {
         configuration.pluginValueSaved(pluginId, key, value);

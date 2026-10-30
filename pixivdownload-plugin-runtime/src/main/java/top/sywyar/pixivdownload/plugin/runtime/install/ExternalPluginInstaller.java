@@ -31,6 +31,8 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
@@ -167,6 +169,9 @@ public class ExternalPluginInstaller implements AutoCloseable {
     /** 把恢复、权威枚举与文件事务串行化（同一实例 / 同一安装目录的并发操作互斥）。 */
     private final ReentrantLock installLock = new ReentrantLock();
     private PluginRecoveryResourceBudget previousInventoryBudget;
+    private Map<Path, InventoryFailure> previousInventoryFailures = Map.of();
+
+    private record InventoryFailure(String sha256, String reason) { }
 
     /** 启动期最多枚举的待恢复事务数；超过即在任何事务写入前 fail-closed。 */
     private static final int MAX_RECOVERY_TRANSACTIONS = 256;
@@ -2020,23 +2025,30 @@ public class ExternalPluginInstaller implements AutoCloseable {
             PluginArtifactScanner.ScanResult scan = PluginArtifactScanner.scan(pluginsRoot);
             if (!scan.rootPresent()) {
                 previousInventoryBudget = null;
+                previousInventoryFailures = Map.of();
                 return List.of();
             }
             assertExistingPathComponentsSafe(pluginsRoot, pluginsRoot, "plugins root");
             List<Artifact> result = new ArrayList<>(scan.candidates().size());
             PluginRecoveryResourceBudget inventoryBudget = new PluginRecoveryResourceBudget(previousInventoryBudget);
+            Map<Path, InventoryFailure> failures = new LinkedHashMap<>();
             for (Path path : scan.candidates()) {
+                String digest = null;
                 try {
                     BasicFileAttributes before = Files.readAttributes(
                             path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
                     if (before.isSymbolicLink() || before.isOther() || !before.isRegularFile()
                             || before.size() <= 0L || before.size() > limits.maxArchiveBytes()) {
-                        log.warn("Skipping plugin package outside the supported file shape or size: {}",
-                                path.getFileName());
+                        InventoryFailure failure = new InventoryFailure(null, "file-shape-or-size:" + before.size());
+                        failures.put(path, failure);
+                        if (!failure.equals(previousInventoryFailures.get(path))) {
+                            log.warn("Skipping plugin package outside the supported file shape or size: {}",
+                                    path.getFileName());
+                        }
                         continue;
                     }
                     CleanupIdentity identity = cleanupIdentity(before);
-                    String digest = PluginPackageIntegrity.sha256Hex(path);
+                    digest = PluginPackageIntegrity.sha256Hex(path);
                     PluginPackageInspection inspection = inventoryBudget.inspectArchive(path, digest, limits);
                     BasicFileAttributes after = Files.readAttributes(
                             path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
@@ -2048,13 +2060,20 @@ public class ExternalPluginInstaller implements AutoCloseable {
                     result.add(new Artifact(
                             new InstalledPlugin(inspection.descriptor(), path), before.size(), digest));
                 } catch (PluginPackageException | IOException e) {
-                    log.warn("Skipping unreadable plugin package {}: {}", path.getFileName(), e.getMessage());
+                    InventoryFailure failure = new InventoryFailure(digest, e.getClass().getName() + ":" + e.getMessage());
+                    failures.put(path, failure);
+                    if (!failure.equals(previousInventoryFailures.get(path))) {
+                        log.warn("Skipping unreadable plugin package {}: {}", path.getFileName(), e.getMessage());
+                    }
                 }
             }
             previousInventoryBudget = inventoryBudget;
+            // 只保留当前清点中的故障；恢复、移除或内容变化后重新报告，不影响任何校验。
+            previousInventoryFailures = Map.copyOf(failures);
             return List.copyOf(result);
         } catch (IOException | PluginRecoveryValidationException e) {
             previousInventoryBudget = null;
+            previousInventoryFailures = Map.of();
             throw new IllegalStateException("failed to enumerate plugins directory safely", e);
         }
     }
@@ -2871,16 +2890,14 @@ public class ExternalPluginInstaller implements AutoCloseable {
 
     @Override
     public void close() {
-        if (directorySessionLock == null) {
-            return;
-        }
         installLock.lock();
         try {
-            directorySessionLock.close();
+            if (directorySessionLock != null) directorySessionLock.close();
         } catch (IOException e) {
             throw new IllegalStateException("failed to release the plugin directory session lock", e);
         } finally {
             previousInventoryBudget = null;
+            previousInventoryFailures = Map.of();
             installLock.unlock();
         }
     }

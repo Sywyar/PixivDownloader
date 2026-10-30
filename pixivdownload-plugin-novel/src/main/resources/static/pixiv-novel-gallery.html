@@ -178,15 +178,32 @@
                 <button class="chip" id="orderToggle" data-order="desc" data-i18n="filter.order.desc" style="margin-left:auto">↓ 降序</button>
             </div>
             <div class="filter-row">
-                <span class="filter-row-label" data-i18n="filter.upload-time.label">上传日期</span>
-                <label for="uploadStartDate" class="upload-date-field">
-                    <span data-i18n="filter.upload-time.from">从</span>
-                    <input id="uploadStartDate" type="date" min="1970-01-02" class="chip">
-                </label>
-                <label for="uploadEndDate" class="upload-date-field">
-                    <span data-i18n="filter.upload-time.to">至</span>
-                    <input id="uploadEndDate" type="date" min="1970-01-02" class="chip">
-                </label>
+                <span id="downloadDateLabel" class="filter-row-label" data-i18n="filter.download-time.label">下载时间</span>
+                <div class="filter-date-range" role="group" aria-labelledby="downloadDateLabel">
+                    <label for="downloadStartDate" class="filter-date-field">
+                        <span data-i18n="filter.date.from">从</span>
+                        <input id="downloadStartDate" type="date" min="1970-01-02">
+                    </label>
+                    <label for="downloadEndDate" class="filter-date-field">
+                        <span data-i18n="filter.date.to">至</span>
+                        <input id="downloadEndDate" type="date" min="1970-01-02" aria-describedby="downloadDateHint">
+                    </label>
+                    <span id="downloadDateHint" class="filter-date-hint" data-i18n="filter.date.hint">含结束当天</span>
+                </div>
+            </div>
+            <div class="filter-row">
+                <span id="uploadDateLabel" class="filter-row-label" data-i18n="filter.upload-time.label">上传时间</span>
+                <div class="filter-date-range" role="group" aria-labelledby="uploadDateLabel">
+                    <label for="uploadStartDate" class="filter-date-field">
+                        <span data-i18n="filter.date.from">从</span>
+                        <input id="uploadStartDate" type="date" min="1970-01-02">
+                    </label>
+                    <label for="uploadEndDate" class="filter-date-field">
+                        <span data-i18n="filter.date.to">至</span>
+                        <input id="uploadEndDate" type="date" min="1970-01-02" aria-describedby="uploadDateHint">
+                    </label>
+                    <span id="uploadDateHint" class="filter-date-hint" data-i18n="filter.date.hint">含结束当天</span>
+                </div>
             </div>
             <div class="filter-row">
                 <span class="filter-row-label" data-i18n="filter.r18.label">R-18</span>

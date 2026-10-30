@@ -42,12 +42,18 @@ public final class WorkMetadataImport {
     public static Summary run(Connection connection, DatabaseTarget target, String rootFolder,
                               boolean dryRun, boolean projectArtworkColumns, Consumer<String> reporter)
             throws SQLException, InterruptedException {
+        return run(connection, target, rootFolder, dryRun, projectArtworkColumns, true, reporter);
+    }
+
+    public static Summary run(Connection connection, DatabaseTarget target, String rootFolder,
+                              boolean dryRun, boolean projectArtworkColumns, boolean projectNovelColumns,
+                              Consumer<String> reporter) throws SQLException, InterruptedException {
         var codec = loadCodec(connection, target, rootFolder);
         int imported = 0, skipped = 0, failed = 0;
         for (WorkType type : List.of(WorkType.ARTWORK, WorkType.NOVEL)) {
             String table = type == WorkType.ARTWORK ? "artworks" : "novels";
             String key = type == WorkType.ARTWORK ? "artwork_id" : "novel_id";
-            boolean projectColumns = type == WorkType.NOVEL || projectArtworkColumns;
+            boolean projectColumns = type == WorkType.NOVEL ? projectNovelColumns : projectArtworkColumns;
             long last = 0;
             while (true) {
                 if (Thread.currentThread().isInterrupted()) throw new InterruptedException("Metadata import interrupted");
@@ -151,18 +157,30 @@ public final class WorkMetadataImport {
 
     public static top.sywyar.pixivdownload.core.metadata.sidecar.CuratedWorkMeta readRegisteredSnapshot(
             Connection connection, DatabaseTarget target, String rootFolder, long artworkId) throws SQLException, IOException {
+        return readRegisteredSnapshot(connection, target, rootFolder, WorkType.ARTWORK, artworkId);
+    }
+
+    public static top.sywyar.pixivdownload.core.metadata.sidecar.CuratedWorkMeta readRegisteredSnapshot(
+            Connection connection, DatabaseTarget target, String rootFolder, WorkType type, long artworkId) throws SQLException, IOException {
+        String table = type == WorkType.NOVEL ? "novels" : "artworks";
+        String key = type == WorkType.NOVEL ? "novel_id" : "artwork_id";
+        var fields = new LinkedHashMap<String, Expression>();
+        fields.put("folder", column(table, "folder"));
+        if (type == WorkType.ARTWORK) {
+            fields.put("moved", column(table, "moved"));
+            fields.put("move_folder", column(table, "move_folder"));
+        }
         var codec = loadCodec(connection, target, rootFolder);
         try (var session = target.storageSession(connection, SCHEMA)) {
-            var rows = session.query(new Query("artworks", Map.of("folder", column("artworks", "folder"),
-                    "moved", column("artworks", "moved"), "move_folder", column("artworks", "move_folder")),
-                    call(AND, call(EQUAL, column("artworks", "artwork_id"), value(artworkId)),
-                            call(EQUAL, column("artworks", "deleted"), value(0))), List.of(), List.of(), 1, 0));
+            var rows = session.query(new Query(table, fields,
+                    call(AND, call(EQUAL, column(table, key), value(artworkId)),
+                            call(EQUAL, column(table, "deleted"), value(0))), List.of(), List.of(), 1, 0));
             if (rows.isEmpty()) return null;
             var row = rows.get(0);
             String folder = (String) row.get(Long.valueOf(1).equals(row.get("moved")) ? "move_folder" : "folder");
             if (folder == null || folder.isBlank()) return null;
             Path file = Path.of(codec.resolve(folder)).resolve(artworkId + ".meta.json");
-            return Files.exists(file, LinkOption.NOFOLLOW_LINKS) ? readSnapshot(file, WorkType.ARTWORK, artworkId) : null;
+            return Files.exists(file, LinkOption.NOFOLLOW_LINKS) ? readSnapshot(file, type, artworkId) : null;
         }
     }
 

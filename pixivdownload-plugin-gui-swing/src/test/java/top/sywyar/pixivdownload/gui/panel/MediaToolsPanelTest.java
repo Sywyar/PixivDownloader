@@ -66,6 +66,7 @@ class MediaToolsPanelTest {
                     case "supportsDatabaseFileSelection" -> fileSelection;
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);
                     case "subscribeBackend" -> (AutoCloseable) () -> {};
+                    case "backfillTask" -> java.util.Optional.empty();
                     default -> throw new AssertionError(method.getName());
                 });
         Path config = Path.of("nonexistent-test-config.yaml");
