@@ -44,8 +44,8 @@ final class DesktopToolsController {
     volatile String backfillNotice = "";
     volatile DesktopUiNode.Progress backfillProgress;
     volatile boolean backfillCancelRequested;
-    private final Object backfillLock = new Object();
-    private Thread backfillThread;
+    volatile DesktopUiToolHost.BackfillTask backfillTask;
+    private java.util.UUID dismissedAutomaticBackfill;
     volatile String migrationNotice = "";
     volatile List<DesktopUiNode.TableRow> folderRows = List.of();
     volatile Map<String, DesktopUiHost.FolderArtwork> folderArtworks = Map.of();
@@ -94,12 +94,27 @@ final class DesktopToolsController {
         return exclusiveToolName;
     }
 
+    DesktopUiToolHost.BackfillTask automaticBackfillNotice() {
+        var task = backfillTask;
+        if (task == null || !task.automatic() || task.executionId().equals(dismissedAutomaticBackfill)) return null;
+        return (task.total() != null && task.total() > 0) || task.state() == DesktopUiToolHost.BackfillState.FAILED
+                ? task : null;
+    }
+
+    boolean dismissAutomaticBackfill(java.util.UUID executionId) {
+        var task = automaticBackfillNotice();
+        if (task == null || !task.executionId().equals(executionId)) return false;
+        dismissedAutomaticBackfill = executionId;
+        owner.rebuildStatus();
+        return true;
+    }
+
     long exclusiveToolStartedAt() {
         return exclusiveToolStartedAt;
     }
 
     void openToolDialog(ToolDialog value) {
-        if (owner.busy()) return;
+        if (toolsBusy()) return;
         toolDialog = value;
         lastOpenedTool = value == ToolDialog.FOLDER_CHECKER ? "folder" : "classifier";
         if (value == ToolDialog.IMAGE_CLASSIFIER)
@@ -112,7 +127,7 @@ final class DesktopToolsController {
     }
 
     void openFolderCheckerDialog() {
-        if (owner.busy() || toolDialog != null) return;
+        if (toolsBusy() || toolDialog != null) return;
         if (owner.backendSnapshot().state() != DesktopUiHost.BackendState.RUNNING && owner.backendSnapshot().state() != DesktopUiHost.BackendState.STOPPED) {
             owner.showDialog(
                     "folder.backend-busy",
@@ -257,76 +272,100 @@ final class DesktopToolsController {
                 boolForm("tools.backfill.dry", false),
                 boolForm("tools.backfill.always-network", false)
         );
-        runExclusiveTool(
-                host.message("gui.tools.card.backfill.title"),
-                () -> {
-                    synchronized (backfillLock) {
-                        backfillThread = Thread.currentThread();
-                    }
-                    try {
-                        int count = host.countBackfillCandidates(options);
-                        if (backfillCancelRequested) throw new java.util.concurrent.CancellationException();
-                        backfillNotice = count == 0 ? host.message(
-                                "gui.tools.backfill.status.none-found") : host.message(
-                                        "gui.tools.backfill.status.pending-found",
-                                        count
-                                );
-                        owner.rebuild();
-                        try (DesktopUiHost.ToolLogSession log = host.openToolLog("artworks-backfill")) {
-                            exclusiveToolLogPath = log.sessionPath();
-                            try {
-                                log.openLatestInBrowser();
-                            } catch (Exception failure) {
-                                LOG.warn(host.message("desktop.ui.tools.log-open-failed"), failure);
-                            }
-                            DesktopUiHost.BackfillSummary summary = host.runBackfill(options, (processed, total) -> {
-                                exclusiveToolProcessedCount = processed;
-                                if (backfillCancelRequested) throw new java.util.concurrent.CancellationException();
-                                var progress = new DesktopUiNode.Progress("tools.backfill.progress",
-                                        total == 0 ? 1d : (double) processed / total, false,
-                                        new TextToken("gui-compose", "gui.compose.tools.workspace.progress", "",
-                                                List.of(Integer.toString(processed), Integer.toString(total))),
-                                        DesktopUiNode.ProgressStyle.LINEAR);
-                                if (!progress.equals(backfillProgress)) {
-                                    backfillProgress = progress;
-                                    owner.rebuild();
-                                }
-                            });
-                            String result = host.message(summary.rateLimited() ? "gui.tools.backfill.result.rate-limited" : "gui.tools.backfill.result.completed");
-                            backfillNotice = host.message("gui.tools.dialog.backfill.completed.message",
-                                    result, summary.processed(), summary.totalCandidates());
-                            return new ToolCompletion(
-                                    summary.processed(),
-                                    null,
-                                    log.sessionPath()
-                            );
-                        }
-                    } catch (Exception failure) {
-                        if (!backfillCancelRequested) throw failure;
-                        var cancelled = new java.util.concurrent.CancellationException();
-                        cancelled.initCause(failure);
-                        throw cancelled;
-                    } finally {
-                        synchronized (backfillLock) {
-                            backfillThread = null;
-                            if (backfillCancelRequested) Thread.interrupted();
-                        }
-                        backfillProgress = null;
-                    }
-                },
-                DesktopUiToolHost.ToolId.ARTWORKS_BACKFILL,
-                false
-        );
+        if (toolsBusy()) return;
+        owner.runBusy(() -> {
+            try {
+                host.startBackfill(options);
+                refreshBackfill();
+            } catch (Exception failure) {
+                LOG.error(host.message("gui.tools.log.backfill.failed"), failure);
+                backfillNotice = host.message("desktop.ui.tools.operation-failed");
+                owner.showDialog("backfill.start-failed", "gui.dialog.error.title", "desktop.ui.tools.operation-failed", DesktopUiDocument.DialogStyle.ERROR);
+            }
+        });
     }
 
     void cancelBackfill() {
-        synchronized (backfillLock) {
-            if (activity == null || !activity.toolId().equals("backfill") || !activity.running()
-                    || backfillCancelRequested) return;
-            backfillCancelRequested = true;
-            if (backfillThread != null) backfillThread.interrupt();
+        var task = backfillTask;
+        if (task == null || !task.active()) return;
+        owner.executeAsync(() -> {
+            try { host.cancelBackfill(task.executionId()); }
+            catch (RuntimeException failure) { LOG.warn(host.message("desktop.ui.tools.operation-failed"), failure); }
+            refreshBackfill();
+        });
+    }
+
+    boolean toolsBusy() { return owner.busy() || backfillTask != null && backfillTask.active(); }
+
+    void startPolling() {
+        owner.executeAsync(() -> {
+            try {
+                while (!Thread.currentThread().isInterrupted()) {
+                    refreshBackfill();
+                    Thread.sleep(500);
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        });
+    }
+
+    void refreshBackfill() {
+        synchronized (owner) {
+            var task = host.backfillTask().orElse(null);
+            if (task == null || task.equals(backfillTask)
+                    || backfillTask != null && task.executionId().equals(backfillTask.executionId()) && task.revision() <= backfillTask.revision()) return;
+            backfillTask = task;
+            backfillCancelRequested = task.state() == DesktopUiToolHost.BackfillState.STOPPING;
+            backfillProgress = task.active() ? new DesktopUiNode.Progress("tools.backfill.progress",
+                    task.total() == null || task.total() == 0 ? 0d : (double) task.processed() / task.total(),
+                    task.total() == null, TextToken.key(task.state() == DesktopUiToolHost.BackfillState.STOPPING ? "gui.tools.backfill.state.stopping"
+                            : "gui.tools.backfill.phase." + task.phase().name().toLowerCase(java.util.Locale.ROOT)),
+                    DesktopUiNode.ProgressStyle.LINEAR) : null;
+            activity = new DesktopUiNode.ToolActivity("backfill", task.active(),
+                    !task.active() && task.state() != DesktopUiToolHost.BackfillState.COMPLETED,
+                    TextToken.key("gui.tools.backfill.state." + task.state().name().toLowerCase(java.util.Locale.ROOT)), task.executionId().toString());
+            owner.rebuildStatus();
         }
-        owner.rebuild();
+    }
+
+    String backfillSummary() {
+        var task = backfillTask;
+        if (task == null) return "";
+        return host.message(task.dryRun() ? "gui.tools.backfill.task.preview" : "gui.tools.backfill.task.counts",
+                task.processed(), task.total() == null ? host.message("gui.tools.backfill.task.unknown-total") : task.total(),
+                task.changed(), task.remaining(), task.unavailable());
+    }
+
+    String backfillCurrent() {
+        var task = backfillTask;
+        if (task == null) return "";
+        String origin = host.message(task.automatic() ? "gui.tools.backfill.task.automatic" : "gui.tools.backfill.task.manual");
+        return task.workId() == null ? origin : origin + " · " + task.workType() + ":" + task.workId();
+    }
+
+    String backfillFields() {
+        var task = backfillTask;
+        var summary = task == null ? null : task.summary();
+        if (summary == null) return "";
+        return host.message("gui.tools.backfill.task.fields", summary.filledAuthor(), summary.filledR18(), summary.filledAi(),
+                summary.filledDescription(), summary.filledTags(), summary.filledSeries(), summary.filledUploadTime());
+    }
+
+    void openBackfillLog() {
+        var task = backfillTask;
+        if (task == null || task.logFileName() == null) return;
+        owner.executeAsync(() -> {
+            try {
+                var path = host.findToolLog(task.logFileName());
+                if (path.isPresent()) host.openExternalUri(path.get().toUri());
+                else owner.showDialog("backfill.log-missing", "gui.dialog.error.title", "desktop.ui.tools.log-open-failed", DesktopUiDocument.DialogStyle.WARNING);
+            } catch (Exception failure) {
+                LOG.warn(host.message("desktop.ui.tools.log-open-failed"), failure);
+                owner.showDialog("backfill.log-failed", "gui.dialog.error.title", "desktop.ui.tools.log-open-failed", DesktopUiDocument.DialogStyle.WARNING);
+            }
+            owner.rebuildStatus();
+        });
     }
 
     void runMigration() {
@@ -575,7 +614,7 @@ final class DesktopToolsController {
             );
             return;
         }
-        if (owner.busy()) return;
+        if (toolsBusy()) return;
         owner.setBusy(true);
         owner.rebuild();
         owner.executeAsync(() -> {
@@ -991,7 +1030,7 @@ final class DesktopToolsController {
             DesktopUiToolHost.ToolId toolId,
             boolean stopBackend
     ) {
-        if (owner.busy()) return;
+        if (toolsBusy()) return;
         DesktopUiHost.BackendState backendState = owner.backendSnapshot().state();
         if (stopBackend
                 ? backendState != DesktopUiHost.BackendState.RUNNING

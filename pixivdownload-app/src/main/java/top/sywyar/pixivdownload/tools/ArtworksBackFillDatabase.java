@@ -112,6 +112,7 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
                 // 先关闭候选游标，再单独读取快照；不把整批 JSON 留在查询结果或候选列表中。
                 try (var session = target.storageSession(connection, SCHEMA)) {
                     session.scan(candidateQuery(type, call(GREATER, column("a", key(type)), value(afterId))), row -> {
+                        if (Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException();
                         var candidate = candidateFromRow(type, row);
                         if (unreachable.blocksNetwork(candidate.workType(), candidate.artworkId(), automatic)) {
                             if (rootFolder != null) {
@@ -290,13 +291,6 @@ final class ArtworksBackFillDatabase implements AutoCloseable {
             throws SQLException {
         return session.update(table, Map.of(name, value(value)),
                 call(AND, identity, call(IS_NULL, column(table, name)))) > 0;
-    }
-
-    boolean applyR18Only(long artworkId) throws SQLException {
-        try (var session = target.storageSession(connection, SCHEMA)) {
-            return fillColumn(session, "artworks", "r18", 1,
-                    call(AND, identity("artworks", "artwork_id", artworkId), call(EQUAL, column("artworks", "deleted"), value(0))));
-        }
     }
 
     void importMetadata(String rootFolder, boolean dryRun, java.util.function.Consumer<String> reporter)

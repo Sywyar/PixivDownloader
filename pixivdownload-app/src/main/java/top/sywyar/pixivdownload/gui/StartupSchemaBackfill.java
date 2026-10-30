@@ -15,7 +15,7 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Set;
 
-/** 在后端启动前检查受管结构并按既有策略回填，所有连接和日志会话归当次执行。 */
+/** 启动前检查受管结构，在后端就绪后提交自动回填。 */
 final class StartupSchemaBackfill {
     private static final Logger log = LoggerFactory.getLogger(GuiLauncher.class);
 
@@ -32,7 +32,7 @@ final class StartupSchemaBackfill {
                 BackendLifecycleManager.startAsync();
                 return;
             }
-            runStartupSchemaBackfill(frame, options(host).withTarget(target), expectedSchema);
+            runStartupSchemaBackfill(frame, host, options(host).withTarget(target), expectedSchema);
         } catch (Throwable failure) {
             DesktopUiFailover.rethrowFatal(failure);
             log.error(MessageBundles.getForLog("gui.launcher.log.startup.schema-backfill-flow.unexpected"), failure);
@@ -66,6 +66,7 @@ final class StartupSchemaBackfill {
 
     private static void runStartupSchemaBackfill(
             DesktopUiSession frame,
+            DesktopUiHost host,
             ArtworksBackFill.Options options,
             ManagedDatabaseSchema.DatabaseSchema expectedSchema
     ) {
@@ -112,69 +113,15 @@ final class StartupSchemaBackfill {
             return;
         }
 
-        int pendingCount;
-        try {
-            pendingCount = ArtworksBackFill.countCandidates(options);
-            log.info(MessageBundles.getForLog("gui.launcher.log.startup.backfill.pending", pendingCount));
-        } catch (Throwable error) {
-            DesktopUiFailover.rethrowFatal(error);
-            log.warn(MessageBundles.getForLog("gui.launcher.log.startup.backfill.check-failed"), error);
-            DesktopUiDialogs.showMessageDialog(
-                    frame,
-                    MessageBundles.get(
-                            "gui.launcher.dialog.backfill-check-failed.message",
-                            Objects.toString(error.getMessage(), error.getClass().getSimpleName())
-                    ),
-                    MessageBundles.get("gui.launcher.dialog.backfill-check-failed.title"),
-                    DesktopUiDialogs.WARNING_MESSAGE
-            );
-            BackendLifecycleManager.startAsync();
-            return;
-        }
-
-        if (pendingCount <= 0) {
-            BackendLifecycleManager.startAsync();
-            return;
-        }
-
-        DesktopUiDialogs.showMessageDialog(
-                frame,
-                MessageBundles.get("gui.launcher.dialog.backfill-pending.message", pendingCount),
-                MessageBundles.get("gui.launcher.dialog.auto-backfill.title"),
-                DesktopUiDialogs.INFORMATION_MESSAGE
-        );
-
-        ToolHtmlLogSession logSession = null;
-        ArtworksBackFill.Summary summary = null;
-        Throwable failure = null;
-        try {
+        BackendLifecycleManager.startAsync(() -> {
             try {
-                logSession = ToolHtmlLogSession.open("artworks-backfill", ArtworksBackFill.class);
-                try {
-                    logSession.openLatestInBrowser();
-                } catch (Exception browserError) {
-                    log.warn(MessageBundles.getForLog("gui.launcher.log.startup.backfill.open-log-page-failed"), browserError);
-                }
-            } catch (Exception logError) {
-                log.warn(MessageBundles.getForLog("gui.launcher.log.startup.backfill.create-log-session-failed"), logError);
+                host.startBackfill(new DesktopUiHost.BackfillOptions(options.dbPath(), options.proxyHost(),
+                        options.proxyPort(), options.useProxy(), options.delayMs(), options.limit(), false,
+                        options.alwaysNetwork()), true);
+            } catch (Exception failure) {
+                log.warn(MessageBundles.getForLog("gui.launcher.log.startup.backfill.failed"), failure);
             }
-            summary = ArtworksBackFill.run(options);
-        } catch (Throwable error) {
-            DesktopUiFailover.rethrowFatal(error);
-            failure = error;
-            log.error(MessageBundles.getForLog("gui.launcher.log.startup.backfill.failed"), error);
-        } finally {
-            if (logSession != null) {
-                try {
-                    logSession.close();
-                } catch (Exception ignored) {
-                }
-            }
-        }
-
-        ArtworksBackFill.Summary finalSummary = summary;
-        Throwable finalFailure = failure;
-        BackendLifecycleManager.startAsync(() -> showStartupBackfillResult(frame, finalSummary, finalFailure, pendingCount));
+        });
     }
 
     private static boolean supportsStartupAutoBackfill(DatabaseSchemaInspector.SchemaComparison comparison) {
@@ -208,46 +155,6 @@ final class StartupSchemaBackfill {
         // 缺表和可创建索引由后端补齐；同名索引漂移及缺失表级唯一约束不能据此放行。
         return difference.kind() == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE
                 || difference.kind() == DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_INDEX;
-    }
-
-    private static void showStartupBackfillResult(
-            DesktopUiSession owner,
-            ArtworksBackFill.Summary summary,
-            Throwable failure,
-            int checkedCount
-    ) {
-        if (failure != null) {
-            DesktopUiDialogs.show(
-                    owner,
-                    MessageBundles.get("gui.launcher.dialog.auto-backfill.title"),
-                    MessageBundles.get(
-                            "gui.launcher.dialog.auto-backfill.failed.message",
-                            Objects.toString(failure.getMessage(), failure.getClass().getSimpleName())
-                    ),
-                    failure
-            );
-            return;
-        }
-
-        if (summary == null) {
-            return;
-        }
-
-        String resultText = summary.rateLimited()
-                ? MessageBundles.get("gui.launcher.dialog.auto-backfill.rate-limited")
-                : MessageBundles.get("gui.launcher.dialog.auto-backfill.completed");
-        DesktopUiDialogs.showMessageDialog(
-                owner,
-                MessageBundles.get(
-                        "gui.launcher.dialog.auto-backfill.summary.message",
-                        resultText,
-                        checkedCount,
-                        summary.processed(),
-                        summary.totalCandidates()
-                ),
-                MessageBundles.get("gui.launcher.dialog.auto-backfill.title"),
-                summary.rateLimited() ? DesktopUiDialogs.WARNING_MESSAGE : DesktopUiDialogs.INFORMATION_MESSAGE
-        );
     }
 
     static ArtworksBackFill.Options options(DesktopUiHost host) throws java.io.IOException {

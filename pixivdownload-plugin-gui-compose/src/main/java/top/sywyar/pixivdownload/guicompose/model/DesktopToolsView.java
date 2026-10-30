@@ -42,13 +42,13 @@ final class DesktopToolsView {
                         null,
                         InputKind.DIRECTORY,
                         model.form("classifier.default-folder", ""),
-                        !model.owner.busy()
+                        !model.toolsBusy()
                 ),
                 button(
                         "classifier.open",
                         "classifier.open",
                         "gui.image-classifier.button.open",
-                        !model.owner.busy(),
+                        !model.toolsBusy(),
                         nextActions,
                         model::scanClassifierFolders
                 ),
@@ -56,7 +56,7 @@ final class DesktopToolsView {
                         "classifier.settings",
                         "classifier.settings",
                         "gui.image-classifier.button.settings",
-                        !model.owner.busy(),
+                        !model.toolsBusy(),
                         nextActions,
                         model::showClassifierSettings
                 ),
@@ -111,7 +111,7 @@ final class DesktopToolsView {
                     base + ".open",
                     base + ".open",
                     image.getFileName().toString(),
-                    !model.owner.busy(),
+                    !model.toolsBusy(),
                     nextActions,
                     () -> model.showClassifierImage(imageIndex)
             ));
@@ -147,7 +147,7 @@ final class DesktopToolsView {
                                 "classifier.group.previous",
                                 "classifier.group.previous",
                                 "gui.image-classifier.button.prev-group",
-                                !model.owner.busy() && model.classifierGroupIndex > 0,
+                                !model.toolsBusy() && model.classifierGroupIndex > 0,
                                 nextActions,
                                 () -> model.moveClassifierGroup(-1)
                         ),
@@ -160,7 +160,7 @@ final class DesktopToolsView {
                                 "classifier.group.next",
                                 "classifier.group.next",
                                 "gui.image-classifier.button.next-group",
-                                !model.owner.busy() && model.classifierGroupIndex + 1 < groups,
+                                !model.toolsBusy() && model.classifierGroupIndex + 1 < groups,
                                 nextActions,
                                 () -> model.moveClassifierGroup(1)
                         )
@@ -187,7 +187,7 @@ final class DesktopToolsView {
                                     "classifier.category." + index + ".select",
                                     "classifier.category." + index + ".select",
                                     label,
-                                    !model.owner.busy(),
+                                    !model.toolsBusy(),
                                     nextActions,
                                     () -> {
                                         model.formValues.put(
@@ -217,7 +217,7 @@ final class DesktopToolsView {
                 "classifier.classify",
                 "classifier.classify",
                 "gui.image-classifier.button.classify-folder",
-                !model.owner.busy() && !source.isBlank() && !target.isBlank() && !model.classifierImages.isEmpty(),
+                !model.toolsBusy() && !source.isBlank() && !target.isBlank() && !model.classifierImages.isEmpty(),
                 nextActions,
                 model::classifyFolder
         ));
@@ -226,7 +226,7 @@ final class DesktopToolsView {
                     "classifier.skip",
                     "classifier.skip",
                     "gui.image-classifier.button.skip-folder",
-                    !model.owner.busy() && !source.isBlank(),
+                    !model.toolsBusy() && !source.isBlank(),
                     nextActions,
                     () -> model.moveClassifierFolder(1)
             ));
@@ -235,7 +235,7 @@ final class DesktopToolsView {
                 "classifier.previous",
                 "classifier.previous",
                 "gui.image-classifier.button.prev-folder",
-                !model.owner.busy() && model.classifierFolderIndex() > 0,
+                !model.toolsBusy() && model.classifierFolderIndex() > 0,
                 nextActions,
                 () -> model.moveClassifierFolder(-1)
         ));
@@ -243,7 +243,7 @@ final class DesktopToolsView {
                 "classifier.refresh",
                 "classifier.refresh",
                 "gui.image-classifier.button.refresh-thumbnails",
-                !model.owner.busy() && !source.isBlank(),
+                !model.toolsBusy() && !source.isBlank(),
                 nextActions,
                 model::refreshClassifierFolder
         ));
@@ -305,13 +305,13 @@ final class DesktopToolsView {
                                 "tools.folder.db",
                                 ""
                         ),
-                        !model.owner.busy() && model.host.supportsDatabaseFileSelection()
+                        !model.toolsBusy() && model.host.supportsDatabaseFileSelection()
                 ),
                 button(
                         "tools.folder.check",
                         "tools.folder.check",
                         "gui.folder-checker.button.check-folders",
-                        !model.owner.busy(),
+                        !model.toolsBusy(),
                         nextActions,
                         model::checkFolders
                 ),
@@ -333,7 +333,7 @@ final class DesktopToolsView {
                                 "tools.folder.copy",
                                 "tools.folder.copy",
                                 "gui.folder-checker.button.copy-id",
-                                !model.owner.busy() && selected != null,
+                                !model.toolsBusy() && selected != null,
                                 nextActions,
                                 model::copySelectedFolderId
                         )
@@ -345,13 +345,13 @@ final class DesktopToolsView {
                         null,
                         InputKind.DIRECTORY,
                         model.form("tools.folder.new-path", ""),
-                        !model.owner.busy()
+                        !model.toolsBusy()
                 ),
                 button(
                         "tools.folder.update",
                         "tools.folder.update",
                         "gui.folder-checker.button.update-db",
-                        !model.owner.busy() && selected != null,
+                        !model.toolsBusy() && selected != null,
                         nextActions,
                         model::requestFolderUpdate
                 )
@@ -371,7 +371,7 @@ final class DesktopToolsView {
                     folder ? "folder" : "classifier",
                     folder ? folderDialogContent(nextActions) : classifierDialogContent(nextActions),
                     button("tools.active.close", "tools.active.close", "desktop.ui.action.close",
-                            !model.owner.busy(), nextActions, close),
+                            !model.toolsBusy(), nextActions, close),
                     model.form("classifier.target", "")
             );
         }
@@ -416,7 +416,7 @@ final class DesktopToolsView {
                                         "tools.image-classifier.open",
                                         "tools.image-classifier.open",
                                         "gui.tools.action.open-image-classifier",
-                                        !model.owner.busy(),
+                                        !model.toolsBusy(),
                                         nextActions,
                                         () -> model.openToolDialog(DesktopToolsController.ToolDialog.IMAGE_CLASSIFIER)
                                 )
@@ -439,7 +439,7 @@ final class DesktopToolsView {
                                         "tools.folder-checker.open",
                                         "tools.folder-checker.open",
                                         "gui.tools.action.open-folder-checker",
-                                        !model.owner.busy(),
+                                        !model.toolsBusy(),
                                         nextActions,
                                         model::openFolderCheckerDialog
                                 )
@@ -470,7 +470,7 @@ final class DesktopToolsView {
                                                                 "tools.backfill.db",
                                                                 ""
                                                         ),
-                                                        !model.owner.busy() && model.host.supportsDatabaseFileSelection()
+                                                        !model.toolsBusy() && model.host.supportsDatabaseFileSelection()
                                                 ),
                                                 null
                                         ),
@@ -483,7 +483,7 @@ final class DesktopToolsView {
                                                         "tools.backfill.proxy",
                                                         "gui.tools.form.use-proxy",
                                                         model.boolForm("tools.backfill.proxy", true),
-                                                        !model.owner.busy()
+                                                        !model.toolsBusy()
                                                 ),
                                                 null
                                         ),
@@ -501,7 +501,7 @@ final class DesktopToolsView {
                                                                 "tools.backfill.proxy-host",
                                                                 model.host.defaultProxyHost()
                                                         ),
-                                                        !model.owner.busy() && model.boolForm(
+                                                        !model.toolsBusy() && model.boolForm(
                                                                 "tools.backfill.proxy",
                                                                 true
                                                         )
@@ -515,7 +515,7 @@ final class DesktopToolsView {
                                                 input(
                                                         "tools.backfill.proxy-port", "tools.backfill.proxy-port", "gui.tools.form.proxy-port", null,
                                                         InputKind.NUMBER, model.form("tools.backfill.proxy-port", Integer.toString(model.host.defaultProxyPort())),
-                                                        !model.owner.busy() && model.boolForm("tools.backfill.proxy", true)
+                                                        !model.toolsBusy() && model.boolForm("tools.backfill.proxy", true)
                                                 ),
                                                 null
                                         ),
@@ -526,7 +526,7 @@ final class DesktopToolsView {
                                                 input(
                                                         "tools.backfill.delay", "tools.backfill.delay", "gui.tools.form.delay-ms", null,
                                                         InputKind.NUMBER, model.form("tools.backfill.delay", "1000"),
-                                                        !model.owner.busy()
+                                                        !model.toolsBusy()
                                                 ),
                                                 null
                                         ),
@@ -537,7 +537,7 @@ final class DesktopToolsView {
                                                 input(
                                                         "tools.backfill.limit", "tools.backfill.limit", "gui.tools.form.limit", null,
                                                         InputKind.NUMBER, model.form("tools.backfill.limit", "0"),
-                                                        !model.owner.busy()
+                                                        !model.toolsBusy()
                                                 ),
                                                 null
                                         ),
@@ -550,7 +550,7 @@ final class DesktopToolsView {
                                                         "tools.backfill.always-network",
                                                         "gui.tools.form.always-network",
                                                         model.boolForm("tools.backfill.always-network", false),
-                                                        !model.owner.busy()
+                                                        !model.toolsBusy()
                                                 ),
                                                 null
                                         ),
@@ -563,7 +563,7 @@ final class DesktopToolsView {
                                                         "tools.backfill.dry",
                                                         "gui.tools.form.dry-run",
                                                         model.boolForm("tools.backfill.dry", false),
-                                                        !model.owner.busy()
+                                                        !model.toolsBusy()
                                                 ),
                                                 null
                                         )
@@ -574,13 +574,16 @@ final class DesktopToolsView {
                                 model.backfillNotice.isBlank() ? model.host.message(
                                         "gui.tools.backfill.status.idle") : model.backfillNotice
                         ),
+                        status("tools.backfill.summary", model.backfillSummary()),
+                        status("tools.backfill.current", model.backfillCurrent()),
+                        status("tools.backfill.fields", model.backfillFields()),
                         backfillProgress == null
                                 ? new DesktopUiNode.Container("tools.backfill.progress.idle", DesktopUiNode.ContainerLayout.COLUMN,
                                         1, 0, DesktopUiNode.Alignment.START, List.of())
                                 : backfillProgress,
                         row(
                                 "tools.backfill.actions",
-                                button("tools.backfill.cancel", "tools.backfill.cancel", "desktop.ui.action.cancel",
+                                button("tools.backfill.cancel", "tools.backfill.cancel", "gui.tools.backfill.action.stop",
                                         model.activity != null && model.activity.toolId().equals("backfill")
                                                 && model.activity.running() && !model.backfillCancelRequested,
                                         nextActions, model::cancelBackfill),
@@ -588,7 +591,7 @@ final class DesktopToolsView {
                                         "tools.backfill.run",
                                         "tools.backfill.run",
                                         "gui.tools.action.start-backfill",
-                                        !model.owner.busy(),
+                                        !model.toolsBusy(),
                                         nextActions,
                                         model::runBackfill
                                 ),
@@ -596,13 +599,9 @@ final class DesktopToolsView {
                                         "tools.backfill.log",
                                         "tools.backfill.log",
                                         "gui.tools.action.open-log-page",
-                                        !model.owner.busy() && Files.isRegularFile(Path.of(
-                                                "log",
-                                                "html",
-                                                "artworks-backfill-latest.html"
-                                        )),
+                                        model.backfillTask != null && model.backfillTask.logFileName() != null,
                                         nextActions,
-                                        () -> model.openToolLog("artworks-backfill")
+                                        model::openBackfillLog
                                 )
                         )
                 )
@@ -636,7 +635,7 @@ final class DesktopToolsView {
                                                                 "tools.migration.db",
                                                                 ""
                                                         ),
-                                                        !model.owner.busy() && model.host.supportsDatabaseFileSelection()
+                                                        !model.toolsBusy() && model.host.supportsDatabaseFileSelection()
                                                 ),
                                                 null
                                         ),
@@ -654,7 +653,7 @@ final class DesktopToolsView {
                                                                 "tools.migration.root",
                                                                 model.rootFolder
                                                         ),
-                                                        !model.owner.busy()
+                                                        !model.toolsBusy()
                                                 ),
                                                 null
                                         )
@@ -671,7 +670,7 @@ final class DesktopToolsView {
                                         "tools.migration.run",
                                         "tools.migration.run",
                                         "gui.tools.action.start-migration",
-                                        !model.owner.busy(),
+                                        !model.toolsBusy(),
                                         nextActions,
                                         model::runMigration
                                 ),
@@ -679,7 +678,7 @@ final class DesktopToolsView {
                                         "tools.migration.log",
                                         "tools.migration.log",
                                         "gui.tools.action.open-migration-log-page",
-                                        !model.owner.busy() && Files.isRegularFile(Path.of(
+                                        !model.toolsBusy() && Files.isRegularFile(Path.of(
                                                 "log",
                                                 "html",
                                                 "json-to-sqlite-migration-latest.html"

@@ -26,10 +26,11 @@ import java.nio.file.Path;
 @Slf4j
 public class ToolsPanel extends JPanel {
 
-    private static final Path BACKFILL_LOG_PATH = Path.of("log", "html", "artworks-backfill-latest.html");
     private static final Path MIGRATION_LOG_PATH = Path.of("log", "html", "json-to-sqlite-migration-latest.html");
 
     private final Path configPath;
+    private final java.util.function.Consumer<DesktopUiHost.BackfillTask> automaticBackfillNotice;
+    private JComponent backfillCard;
     private DesktopUiHost.BackfillOptions inheritedBackfillOptions;
     private String inheritedRootFolder;
     private boolean logPageOpening;
@@ -62,17 +63,34 @@ public class ToolsPanel extends JPanel {
     private String exclusiveToolName;
     private boolean backfillRunning;
     private boolean migrationRunning;
-    private volatile DesktopUiHost.ToolLogSession currentBackfillLogSession;
+    private DesktopUiHost.BackfillTask backfillTask;
+    private boolean disposed;
+    private JPanel backfillForm;
+    private final JProgressBar backfillProgress = new JProgressBar();
+    private final JLabel backfillCounts = secondaryLabel("");
+    private final JLabel backfillCurrent = secondaryLabel("");
+    private final JLabel backfillFields = secondaryLabel("");
+    private final JButton backfillStopButton = new JButton(message("gui.tools.backfill.action.stop"));
+    private final JButton backfillEditButton = new JButton(message("gui.tools.backfill.action.edit"));
+    private final JCheckBox backfillDetails = new JCheckBox(message("gui.tools.backfill.action.details"));
+    private final Timer backfillTimer = new Timer(500, event -> refreshBackfill());
     private volatile DesktopUiHost.ToolLogSession currentMigrationLogSession;
 
     private final SwingBackendLifecycle.Listener backendListener = this::handleBackendState;
 
     public ToolsPanel(Path configPath) {
+        this(configPath, task -> { });
+    }
+
+    public ToolsPanel(Path configPath, java.util.function.Consumer<DesktopUiHost.BackfillTask> automaticBackfillNotice) {
         this.configPath = configPath;
+        this.automaticBackfillNotice = automaticBackfillNotice;
         buildUi();
         GuiInputStyleNormalizer.apply(this);
         loadDefaults();
         SwingBackendLifecycle.addListener(backendListener);
+        backfillTimer.start();
+        refreshBackfill();
         refreshActionStates();
     }
 
@@ -92,7 +110,8 @@ public class ToolsPanel extends JPanel {
         content.add(Box.createVerticalStrut(12));
         content.add(buildFolderCheckerCard());
         content.add(Box.createVerticalStrut(12));
-        content.add(buildBackfillCard());
+        backfillCard = buildBackfillCard();
+        content.add(backfillCard);
         content.add(Box.createVerticalStrut(12));
         content.add(buildMigrationCard());
         content.add(Box.createVerticalGlue());
@@ -155,6 +174,7 @@ public class ToolsPanel extends JPanel {
         panel.setLayout(new BorderLayout(0, 12));
 
         JPanel form = new JPanel(new GridBagLayout());
+        backfillForm = form;
         form.setOpaque(false);
         GridBagConstraints g = new GridBagConstraints();
         g.insets = new Insets(4, 0, 4, 8);
@@ -226,6 +246,15 @@ public class ToolsPanel extends JPanel {
         backfillLogButton.addActionListener(e -> openBackfillLogPage());
         actions.add(backfillRunButton);
         actions.add(backfillLogButton);
+        backfillStopButton.addActionListener(event -> stopBackfill());
+        backfillEditButton.addActionListener(event -> {
+            backfillForm.setVisible(true);
+            backfillEditButton.setVisible(false);
+            revalidate();
+        });
+        actions.add(backfillStopButton);
+        actions.add(backfillEditButton);
+        backfillEditButton.setVisible(false);
 
         JPanel bottom = new JPanel();
         bottom.setOpaque(false);
@@ -233,6 +262,21 @@ public class ToolsPanel extends JPanel {
         backfillStatusLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         actions.setAlignmentX(Component.LEFT_ALIGNMENT);
         bottom.add(backfillStatusLabel);
+        backfillProgress.setAlignmentX(Component.LEFT_ALIGNMENT);
+        backfillProgress.setStringPainted(true);
+        backfillProgress.setVisible(false);
+        bottom.add(backfillProgress);
+        bottom.add(backfillCounts);
+        bottom.add(backfillCurrent);
+        backfillDetails.setOpaque(false);
+        backfillDetails.setAlignmentX(Component.LEFT_ALIGNMENT);
+        backfillDetails.addActionListener(event -> {
+            backfillFields.setVisible(backfillDetails.isSelected());
+            revalidate();
+        });
+        backfillFields.setVisible(false);
+        bottom.add(backfillDetails);
+        bottom.add(backfillFields);
         bottom.add(Box.createVerticalStrut(8));
         bottom.add(actions);
 
@@ -418,150 +462,95 @@ public class ToolsPanel extends JPanel {
     }
 
     private void startBackfill() {
-        if (!beginExclusiveTool(message("gui.tools.card.backfill.title"))) {
-            return;
-        }
-
+        if (!beginExclusiveTool(message("gui.tools.card.backfill.title"))) return;
         DesktopUiHost.BackfillOptions options;
-        try {
-            options = buildBackfillOptions();
-        } catch (Exception e) {
+        try { options = buildBackfillOptions(); }
+        catch (Exception failure) {
             exclusiveToolName = null;
             refreshActionStates();
-            log.warn(logMessage("gui.tools.log.backfill.invalid-params", e.getMessage()));
-            GuiErrorDialog.show(this,
-                    message("gui.dialog.error.title"),
-                    message("gui.tools.dialog.backfill.invalid-params.message", e.getMessage()));
+            GuiErrorDialog.show(this, message("gui.dialog.error.title"), failure.getMessage());
             return;
         }
-
         backfillRunning = true;
         refreshActionStates();
-        setBackfillStatus(message("gui.tools.backfill.status.preparing"));
-
-        if (SwingBackendLifecycle.state() != DesktopUiHost.BackendState.RUNNING) {
-            backfillRunning = false;
-            exclusiveToolName = null;
-            closeBackfillLogSession();
-            refreshActionStates();
-            JOptionPane.showMessageDialog(this,
-                    message("gui.message.backend-busy"),
-                    message("gui.dialog.please-wait.title"), JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-        prepareBackfillInBackground(options);
-    }
-
-    private void prepareBackfillInBackground(DesktopUiHost.BackfillOptions options) {
-        setBackfillStatus(message("gui.tools.backfill.status.counting"));
-
-        Thread worker = new Thread(() -> {
-            int totalCandidates;
-            try {
-                totalCandidates = SwingHost.host().countBackfillCandidates(options);
-            } catch (Throwable error) {
-                handleBackfillPreparationFailure(
-                        message("gui.tools.backfill.status.count-failed"),
-                        message("gui.tools.dialog.backfill.count-failed.prefix"),
-                        error
-                );
-                return;
+        backfillStatusLabel.setText(message("gui.tools.backfill.status.preparing"));
+        new SwingWorker<Void, Void>() {
+            @Override protected Void doInBackground() throws Exception {
+                SwingHost.host().startBackfill(options);
+                return null;
             }
-
-            if (totalCandidates > 0) {
-                setBackfillStatus(message("gui.tools.backfill.status.pending-found", totalCandidates));
-            } else {
-                setBackfillStatus(message("gui.tools.backfill.status.none-found"));
-            }
-
-            try {
-                currentBackfillLogSession = SwingHost.host().openToolLog("artworks-backfill");
-                SwingUtilities.invokeLater(this::refreshActionStates);
-            } catch (Exception error) {
-                handleBackfillPreparationFailure(
-                        message("gui.tools.backfill.status.log-open-failed"),
-                        message("gui.tools.dialog.backfill.log-open-failed.prefix"),
-                        error
-                );
-                return;
-            }
-
-            openLogAfterPreparation(currentBackfillLogSession);
-            runBackfillInBackground(options);
-        }, "tools-artworks-backfill-prepare");
-        worker.setDaemon(true);
-        worker.start();
-    }
-
-    private void handleBackfillPreparationFailure(String statusText, String dialogPrefix, Throwable failure) {
-        log.error(logMessage("gui.tools.log.backfill.prepare-failed",
-                failure == null ? logMessage("gui.log.no-detail") : failure.getMessage()), failure);
-        closeBackfillLogSession();
-        backfillRunning = false;
-        exclusiveToolName = null;
-        SwingUtilities.invokeLater(this::refreshActionStates);
-
-        SwingUtilities.invokeLater(() -> {
-            setBackfillStatus(statusText);
-            GuiErrorDialog.show(this,
-                    message("gui.dialog.error.title"),
-                    dialogPrefix + (failure.getMessage() == null
-                            ? message("gui.dialog.error.no-detail") : failure.getMessage()));
-        });
-    }
-
-    private void runBackfillInBackground(DesktopUiHost.BackfillOptions options) {
-        setBackfillStatus(message("gui.tools.backfill.status.running"));
-
-        Thread worker = new Thread(() -> {
-            DesktopUiHost.BackfillSummary summary = null;
-            Throwable failure = null;
-
-            try {
-                log.info(logMessage("gui.tools.log.backfill.requested"));
-                summary = SwingHost.host().runBackfill(options);
-            } catch (Throwable error) {
-                failure = error;
-                log.error(logMessage("gui.tools.log.backfill.failed"), error);
-            } finally {
-                log.info(logMessage("gui.tools.log.backfill.finished"));
-                closeBackfillLogSession();
-                backfillRunning = false;
+            @Override protected void done() {
+                if (disposed) return;
                 exclusiveToolName = null;
-                SwingUtilities.invokeLater(this::refreshActionStates);
-
-                DesktopUiHost.BackfillSummary finalSummary = summary;
-                Throwable finalFailure = failure;
-                SwingUtilities.invokeLater(() -> finishBackfill(finalSummary, finalFailure));
+                backfillRunning = false;
+                try { get(); }
+                catch (Exception failure) {
+                    log.error(logMessage("gui.tools.log.backfill.failed"), failure);
+                    backfillStatusLabel.setText(message("desktop.ui.tools.operation-failed"));
+                }
+                refreshBackfill();
+                refreshActionStates();
             }
-        }, "tools-artworks-backfill");
-        worker.setDaemon(true);
-        worker.start();
+        }.execute();
     }
 
-    private void finishBackfill(DesktopUiHost.BackfillSummary summary, Throwable failure) {
-        if (failure != null) {
-            setBackfillStatus(message("gui.tools.backfill.status.failed"));
-            GuiErrorDialog.show(this,
-                    message("gui.dialog.error.title"),
-                    message("gui.tools.dialog.backfill.failed.message",
-                            failure.getMessage() == null
-                                    ? message("gui.dialog.error.no-detail") : failure.getMessage()));
-            return;
-        }
+    private void stopBackfill() {
+        var task = backfillTask;
+        if (task == null || !task.active()) return;
+        backfillStopButton.setEnabled(false);
+        new SwingWorker<Void, Void>() {
+            @Override protected Void doInBackground() {
+                SwingHost.host().cancelBackfill(task.executionId());
+                return null;
+            }
+            @Override protected void done() {
+                if (disposed) return;
+                try { get(); }
+                catch (Exception failure) { log.warn(logMessage("desktop.ui.tools.operation-failed"), failure); }
+                refreshBackfill();
+                refreshActionStates();
+            }
+        }.execute();
+    }
 
-        if (summary == null) {
-            setBackfillStatus(message("gui.tools.backfill.status.finished"));
-            return;
-        }
+    private void refreshBackfill() {
+        if (disposed) return;
+        var task = SwingHost.host().backfillTask().orElse(null);
+        automaticBackfillNotice.accept(task);
+        if (task == null) return;
+        backfillRunning = task.active();
+        if (task.equals(backfillTask)) return;
+        backfillTask = task;
+        backfillForm.setVisible(false);
+        backfillEditButton.setVisible(!task.active());
+        String key = task.state() == DesktopUiHost.BackfillState.RUNNING
+                ? "gui.tools.backfill.phase." + task.phase().name().toLowerCase(java.util.Locale.ROOT)
+                : "gui.tools.backfill.state." + task.state().name().toLowerCase(java.util.Locale.ROOT);
+        backfillStatusLabel.setText(message(key));
+        backfillProgress.setVisible(task.active());
+        backfillProgress.setIndeterminate(task.total() == null);
+        backfillProgress.setMaximum(task.total() == null ? 1 : Math.max(1, task.total()));
+        backfillProgress.setValue(task.processed());
+        backfillProgress.setString(task.total() == null ? message(key) : task.processed() + " / " + task.total());
+        backfillCounts.setText(message(task.dryRun() ? "gui.tools.backfill.task.preview" : "gui.tools.backfill.task.counts",
+                task.processed(), task.total() == null ? message("gui.tools.backfill.task.unknown-total") : task.total(),
+                task.changed(), task.remaining(), task.unavailable()));
+        String origin = message(task.automatic() ? "gui.tools.backfill.task.automatic" : "gui.tools.backfill.task.manual");
+        backfillCurrent.setText(task.workId() == null ? origin : origin + " · " + task.workType() + ":" + task.workId());
+        var summary = task.summary();
+        backfillFields.setText(summary == null ? "" : message("gui.tools.backfill.task.fields", summary.filledAuthor(),
+                summary.filledR18(), summary.filledAi(), summary.filledDescription(), summary.filledTags(),
+                summary.filledSeries(), summary.filledUploadTime()));
+        refreshActionStates();
+        revalidate();
+        repaint();
+    }
 
-        String result = summary.rateLimited()
-                ? message("gui.tools.backfill.result.rate-limited")
-                : message("gui.tools.backfill.result.completed");
-        setBackfillStatus(result);
-        JOptionPane.showMessageDialog(this,
-                message("gui.tools.dialog.backfill.completed.message", result, summary.processed(), summary.totalCandidates()),
-                message("gui.tools.dialog.backfill.completed.title"), JOptionPane.INFORMATION_MESSAGE);
+    public void showBackfill() {
+        refreshBackfill();
+        backfillCard.scrollRectToVisible(new Rectangle(0, 0, backfillCard.getWidth(), backfillCard.getHeight()));
+        if (backfillTask != null && backfillTask.active()) backfillStopButton.requestFocusInWindow();
+        else backfillEditButton.requestFocusInWindow();
     }
 
     private DesktopUiHost.BackfillOptions buildBackfillOptions() {
@@ -598,7 +587,8 @@ public class ToolsPanel extends JPanel {
     }
 
     private void openBackfillLogPage() {
-        openToolLogPage("artworks-backfill");
+        var task = backfillTask;
+        if (task != null && task.logFileName() != null) openToolLogFile(task.logFileName());
     }
 
     private void browseMigrationRootFolder() {
@@ -830,12 +820,16 @@ public class ToolsPanel extends JPanel {
     }
 
     private void openToolLogPage(String stem) {
+        openToolLogFile(stem + "-latest.html");
+    }
+
+    private void openToolLogFile(String fileName) {
         if (logPageOpening) return;
         logPageOpening = true;
         new SwingWorker<Void, Void>() {
             @Override protected Void doInBackground() throws Exception {
                 var host = SwingHost.host();
-                Path logPath = host.findToolLog(stem + "-latest.html").orElseThrow(
+                Path logPath = host.findToolLog(fileName).orElseThrow(
                         () -> new java.io.IOException("Tool log is no longer available"));
                 host.openExternalUri(logPath.toUri());
                 return null;
@@ -911,8 +905,10 @@ public class ToolsPanel extends JPanel {
 
         imageClassifierButton.setEnabled(!exclusiveBusy && !backendTransitioning);
         folderCheckerButton.setEnabled(!exclusiveBusy && !backendTransitioning);
-        backfillRunButton.setEnabled(!exclusiveBusy && !backendTransitioning);
-        backfillLogButton.setEnabled(currentBackfillLogSession != null || Files.exists(BACKFILL_LOG_PATH));
+        backfillRunButton.setEnabled(!exclusiveBusy && state == DesktopUiHost.BackendState.RUNNING);
+        backfillLogButton.setEnabled(backfillTask != null && backfillTask.logFileName() != null);
+        backfillStopButton.setVisible(backfillRunning);
+        backfillStopButton.setEnabled(backfillTask != null && backfillTask.state() == DesktopUiHost.BackfillState.RUNNING);
         migrationRunButton.setEnabled(!exclusiveBusy && !backendTransitioning);
         migrationLogButton.setEnabled(currentMigrationLogSession != null || Files.exists(MIGRATION_LOG_PATH));
 
@@ -930,7 +926,8 @@ public class ToolsPanel extends JPanel {
         migrationRootFolderField.setEnabled(migrationEditable);
 
         exclusiveToolLabel.setText(message("gui.tools.exclusive-tool",
-                exclusiveToolName == null ? message("gui.value.none") : exclusiveToolName));
+                backfillRunning ? message("gui.tools.card.backfill.title")
+                        : exclusiveToolName == null ? message("gui.value.none") : exclusiveToolName));
 
         // 把独占工具名镜像到进程内持有者，供状态页把「已停止」细化为「使用某工具导致后端停止」。
         // 每次工具状态变更都会走到这里，故此处是与状态页同步的单一事实源。
@@ -941,18 +938,6 @@ public class ToolsPanel extends JPanel {
         boolean enabled = proxyEnabledCheck.isSelected() && proxyEnabledCheck.isEnabled();
         proxyHostField.setEnabled(enabled);
         proxyPortSpinner.setEnabled(enabled);
-    }
-
-    private void closeBackfillLogSession() {
-        if (currentBackfillLogSession == null) {
-            return;
-        }
-        try {
-            currentBackfillLogSession.close();
-        } catch (Exception ignored) {
-        } finally {
-            currentBackfillLogSession = null;
-        }
     }
 
     private void closeMigrationLogSession() {
@@ -982,7 +967,8 @@ public class ToolsPanel extends JPanel {
     public void dispose() {
         mediaTools.close();
         SwingBackendLifecycle.removeListener(backendListener);
-        closeBackfillLogSession();
+        disposed = true;
+        backfillTimer.stop();
         closeMigrationLogSession();
     }
 

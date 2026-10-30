@@ -93,7 +93,7 @@ public class ArtworksBackFill {
 
     public static Summary run(Options options) throws Exception {
         try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(options.target())) {
-            return run(options, database, true, (processed, total) -> {});
+            return run(options, database, true, value -> {});
         }
     }
 
@@ -104,17 +104,33 @@ public class ArtworksBackFill {
     public static Summary run(Options options, DataSource dataSource,
             java.util.function.BiConsumer<Integer, Integer> progress) throws Exception {
         java.util.Objects.requireNonNull(progress, "progress");
+        return runObserved(options, dataSource, value -> {
+            if (value.total() != null) progress.accept(value.processed(), value.total());
+        });
+    }
+
+    /** 同步发布真实阶段与计数；调用方不需要解析日志。 */
+    public static Summary runObserved(Options options, DataSource dataSource,
+            java.util.function.Consumer<Progress> progress) throws Exception {
+        java.util.Objects.requireNonNull(progress, "progress");
         try (ArtworksBackFillDatabase database = ArtworksBackFillDatabase.open(dataSource, options.target())) {
             return run(options, database, false, progress);
         }
     }
 
+    public enum Phase { IMPORTING, SCANNING, LOCAL, NETWORK, WAITING, FINISHED }
+
+    /** total 在候选扫描完成前未知；changed 按作品去重，不累计字段数。 */
+    public record Progress(Phase phase, int processed, Integer total, int changed, int remaining,
+                           int unavailable, String workType, Long workId, Summary summary) {}
+
     private static Summary run(
             Options options,
             ArtworksBackFillDatabase database,
             boolean requiresStoppedBackend,
-            java.util.function.BiConsumer<Integer, Integer> progress
+            java.util.function.Consumer<Progress> observer
     ) throws Exception {
+        var progress = new top.sywyar.pixivdownload.tools.backfill.BackfillProgressLogger().andThen(observer);
         log.info(logMessage(
                 "artworks-backfill.log.started",
                 options.dbPath(),
@@ -138,18 +154,25 @@ public class ArtworksBackFill {
         );
         log.info(logMessage("artworks-backfill.unreachable.loaded", unreachablePath, unreachable.size()));
 
-        database.importMetadata(options.rootFolder(), options.dryRun(), text -> log.info(text));
+        Counts counts = new Counts();
+        reportProgress(progress, Phase.IMPORTING, counts, null, options.dryRun());
+        database.importMetadata(options.rootFolder(), options.dryRun(), text -> {
+            if (Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException();
+            log.info(text);
+        });
         try (ArtworksBackFillPixivClient pixivClient = ArtworksBackFillPixivClient.open(options, mapper)) {
+            reportProgress(progress, Phase.SCANNING, counts, null, options.dryRun());
             var filtered = database.findCandidates(options.limit(), unreachable, options.alwaysNetwork() ? null : options.rootFolder(),
                     options.automatic());
             var candidates = filtered.candidates();
-            Counts counts = new Counts();
             counts.previouslyUnreachable = filtered.skippedUnreachable();
-            reportProgress(progress, 0, candidates.size());
+            reportProgress(progress, Phase.LOCAL, counts, candidates.size(), options.dryRun());
             boolean requested = false;
             try {
                 for (var candidate : candidates) {
-                    reportProgress(progress, counts.processed, candidates.size());
+                    counts.current = candidate;
+                    counts.workStartFilled = counts.filled();
+                    reportProgress(progress, Phase.LOCAL, counts, candidates.size(), options.dryRun());
                     database.requireAvailable();
                     int before = counts.filled() + counts.deleted + counts.previouslyUnreachable;
                     int authorBefore = counts.author, seriesBefore = counts.series;
@@ -158,18 +181,23 @@ public class ArtworksBackFill {
                     if (!options.alwaysNetwork()) {
                         var local = database.localMetadata(candidate.workType(), candidate.artworkId(), options.rootFolder());
                         if (local != null) remaining = fill(database, remaining, local, options.dryRun(), counts);
+                        reportProgress(progress, Phase.LOCAL, counts, candidates.size(), options.dryRun());
                     }
                     if (remaining.hasMissing()) {
                         if (unreachable.blocksNetwork(candidate.workType(), candidate.artworkId(), options.automatic())) {
+                            counts.unavailable++;
                             if (unreachable.contains(candidate.workType(), candidate.artworkId())) counts.previouslyUnreachable++;
                         } else {
-                            if (requested) Thread.sleep(options.delayMs());
-                            reportProgress(progress, counts.processed, candidates.size());
+                            if (requested && options.delayMs() > 0) {
+                                reportProgress(progress, Phase.WAITING, counts, candidates.size(), options.dryRun());
+                                Thread.sleep(options.delayMs());
+                            }
+                            reportProgress(progress, Phase.NETWORK, counts, candidates.size(), options.dryRun());
                             database.requireAvailable();
                             var result = candidate.workType() == top.sywyar.pixivdownload.core.work.model.WorkType.NOVEL
                                     ? pixivClient.queryNovel(candidate.artworkId()) : pixivClient.query(candidate.artworkId());
                             requested = true;
-                            reportProgress(progress, counts.processed, candidates.size());
+                            reportProgress(progress, Phase.NETWORK, counts, candidates.size(), options.dryRun());
                             database.requireAvailable();
                             switch (result.type) {
                                 case FOUND -> {
@@ -177,15 +205,15 @@ public class ArtworksBackFill {
                                     networkFound = true;
                                 }
                                 case R18_ONLY -> {
-                                    if (remaining.r18Missing() && (options.dryRun() || database.applyR18Only(candidate.artworkId()))) {
-                                        counts.r18++;
-                                    }
+                                    counts.unavailable++;
+                                    remaining = fill(database, remaining, result, options.dryRun(), counts);
                                     if (!options.dryRun()) {
                                         unreachable.recordRestricted(candidate.workType(), candidate.artworkId(), result.message);
                                         persistUnreachable(database, unreachable, unreachablePath);
                                     }
                                 }
                                 case DELETED -> {
+                                    counts.unavailable++;
                                     counts.deleted++;
                                     counts.newlyUnreachable++;
                                     if (!options.dryRun()) {
@@ -196,6 +224,7 @@ public class ArtworksBackFill {
                                 case SKIP -> { }
                                 case RATE_LIMITED -> {
                                     var summary = counts.summary(candidates.size(), options.dryRun(), true);
+                                    publishProgress(progress, Phase.FINISHED, counts, candidates.size(), options.dryRun());
                                     logSummary(summary);
                                     return summary;
                                 }
@@ -209,15 +238,20 @@ public class ArtworksBackFill {
                     // 同一作品的本地与网络分段补齐只计一次字段组。
                     counts.author = Math.min(counts.author, authorBefore + 1);
                     counts.series = Math.min(counts.series, seriesBefore + 1);
+                    if (counts.filled() > counts.workStartFilled) counts.changed++;
+                    if (remaining.hasMissing()) counts.remaining++;
                     if (before == counts.filled() + counts.deleted + counts.previouslyUnreachable) counts.skipped++;
                     counts.processed++;
-                    reportProgress(progress, counts.processed, candidates.size());
+                    counts.current = null;
+                    reportProgress(progress, Phase.LOCAL, counts, candidates.size(), options.dryRun());
                 }
             } catch (Exception failure) {
+                publishProgress(progress, Phase.FINISHED, counts, candidates.size(), options.dryRun());
                 logSummary(counts.summary(candidates.size(), options.dryRun(), false));
                 throw failure;
             }
             var summary = counts.summary(candidates.size(), options.dryRun(), false);
+            publishProgress(progress, Phase.FINISHED, counts, candidates.size(), options.dryRun());
             logSummary(summary);
             return summary;
         }
@@ -250,7 +284,7 @@ public class ArtworksBackFill {
             if (uploadTime) counts.uploadTime++;
             var applied = new ArtworksBackFillDatabase.Candidate(candidate.artworkId(), author, r18, ai, description, tags, series, uploadTime);
             if (applied.hasMissing())
-                log.info(logMessage("artworks-backfill.log.changes", candidate.workType().name() + ":" + candidate.artworkId(), describeMissing(applied)));
+                log.debug(logMessage("artworks-backfill.log.changes", candidate.workType().name() + ":" + candidate.artworkId(), describeMissing(applied)));
         }
         if (!dryRun) return database.currentCandidate(candidate.workType(), candidate.artworkId());
         Long authorId = author ? Long.valueOf(result.authorId) : candidate.authorId();
@@ -268,6 +302,8 @@ public class ArtworksBackFill {
     private static final class Counts {
         int processed, author, r18, ai, description, tags, series, uploadTime, deleted, skipped,
                 previouslyUnreachable, newlyUnreachable;
+        int changed, remaining, unavailable, workStartFilled;
+        ArtworksBackFillDatabase.Candidate current;
         int filled() { return author + r18 + ai + description + tags + series + uploadTime; }
         Summary summary(int total, boolean dryRun, boolean rateLimited) {
             return new Summary(total, processed, author, r18, ai, description, tags, series, deleted, skipped,
@@ -275,10 +311,20 @@ public class ArtworksBackFill {
         }
     }
 
-    private static void reportProgress(java.util.function.BiConsumer<Integer, Integer> progress,
-            int processed, int total) throws InterruptedException {
-        progress.accept(processed, total);
+    private static void reportProgress(java.util.function.Consumer<Progress> progress,
+            Phase phase, Counts counts, Integer total, boolean dryRun) throws InterruptedException {
+        publishProgress(progress, phase, counts, total, dryRun);
         if (Thread.currentThread().isInterrupted()) throw new InterruptedException("Backfill interrupted");
+    }
+
+    private static void publishProgress(java.util.function.Consumer<Progress> progress,
+            Phase phase, Counts counts, Integer total, boolean dryRun) {
+        var current = counts.current;
+        progress.accept(new Progress(phase, counts.processed, total,
+                counts.changed + (current != null && counts.filled() > counts.workStartFilled ? 1 : 0),
+                counts.remaining, counts.unavailable,
+                current == null ? null : current.workType().name(), current == null ? null : current.artworkId(),
+                counts.summary(total == null ? 0 : total, dryRun, false)));
     }
 
     private static void persistUnreachable(ArtworksBackFillDatabase database,

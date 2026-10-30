@@ -305,7 +305,7 @@ final class ArtworksBackFillPixivClient implements AutoCloseable {
         }
 
         static LookupResult r18Only(String message) {
-            return new LookupResult(ResultType.R18_ONLY, 0, null, 1, false, null, null, 0, null, null, message, null, false);
+            return new LookupResult(ResultType.R18_ONLY, 0, null, 1, null, null, null, 0, null, null, message, null, false);
         }
 
         static LookupResult deleted(String message) {

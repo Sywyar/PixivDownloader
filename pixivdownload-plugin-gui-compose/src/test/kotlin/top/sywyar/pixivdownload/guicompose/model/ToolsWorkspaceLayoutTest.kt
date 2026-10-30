@@ -9,9 +9,12 @@ import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.v2.runComposeUiTest
 import androidx.compose.ui.unit.Density
@@ -20,6 +23,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import top.sywyar.pixivdownload.guicompose.*
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode
+import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument
 import top.sywyar.pixivdownload.guicompose.model.document.DesktopUiNode.*
 import top.sywyar.pixivdownload.guicompose.tools.descendants
 import top.sywyar.pixivdownload.plugin.api.gui.DesktopUiToolHost
@@ -46,6 +50,191 @@ import kotlin.test.*
 @OptIn(ExperimentalTestApi::class)
 class ToolsWorkspaceLayoutTest {
     @TempDir lateinit var temp: Path
+
+    @Test
+    @DisplayName("提示在完整首页展示，浅深主题、长译文与高缩放下操作可达且不遮挡标题")
+    fun backfillNoticeOnHome() {
+        for ((theme, suffix, scale) in listOf(Triple("light", "_en", 1f), Triple("dark", "", 1f),
+            Triple("dark", "_ja", 1.5f))) {
+            runComposeUiTest(effectContext = object : MotionDurationScale { override val scaleFactor = if (scale > 1) 0f else 1f }) {
+                mainClock.autoAdvance = false
+                val localeMessages = Properties().apply {
+                    File("../pixivdownload-app/src/main/resources/i18n/messages$suffix.properties").reader(Charsets.UTF_8).use(::load)
+                }
+                var task by mutableStateOf<DesktopUiToolHost.BackfillTask?>(DesktopUiToolHost.BackfillTask(java.util.UUID.randomUUID(), 0,
+                    DesktopUiToolHost.BackfillState.RUNNING, DesktopUiToolHost.BackfillPhase.NETWORK, true, false,
+                    1, 0, 1, 10, 1, 9, 0, null, null, null, "fixture.html"))
+                DesktopConfigurationControllerTest.model(hashMapOf()).use { model ->
+                    val pages = model.snapshot().document().pages().map {
+                        if (it.id() == "home") DesktopUiDocument.Page(it.id(), it.title(), it.icon(),
+                            HomeOverviewTest.home(empty = true)) else it
+                    }
+                    val document = DesktopUiDocument(pages)
+                    setContent {
+                        CompositionLocalProvider(
+                            LocalWindowInfo provides object : WindowInfo { override val isWindowFocused = true },
+                            LocalDensity provides Density(scale, if (scale > 1) 1.35f else 1f),
+                        ) {
+                            PixivDownloaderTheme(theme) {
+                                CompositionLocalProvider(LocalExperiencePalette provides experiencePalette(theme == "dark", scale > 1)) {
+                                    DesktopShell(document, 1, { token ->
+                                        if (token.key().startsWith("gui.tools.backfill.")) MessageFormat(
+                                            localeMessages.getProperty(token.key(), token.key()), Locale.ROOT
+                                        ).format(token.arguments().toTypedArray())
+                                        else if (token.namespace() == HomeTips.NAMESPACE) HomeOverviewTest.resolve(token)
+                                        else resolve(token)
+                                    }, task, { task = null; true }, {})
+                                }
+                            }
+                        }
+                    }
+                    mainClock.advanceTimeBy(80)
+                    val entering = File("target/tools-ui/backfill-home-enter-$theme$suffix.png").apply { parentFile.mkdirs() }
+                    ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", entering)
+                    mainClock.advanceTimeBy(1_000)
+                    val notice = onNodeWithTag("backfill.notice").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+                    val heading = onNodeWithTag("home.greeting").fetchSemanticsNode().boundsInRoot
+                    assertFalse(notice.overlaps(heading), "Notice must leave the home heading visible")
+                    onNodeWithTag("backfill.notice.view").assertIsDisplayed()
+                    onNodeWithTag("backfill.notice.dismiss").assertIsDisplayed()
+                    val image = File("target/tools-ui/backfill-home-final-$theme$suffix.png").apply { parentFile.mkdirs() }
+                    ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", image)
+                    onNodeWithTag("backfill.notice.dismiss").performClick()
+                    mainClock.advanceTimeBy(64)
+                    val exiting = File("target/tools-ui/backfill-home-exit-$theme$suffix.png")
+                    ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", exiting)
+                    mainClock.advanceTimeBy(300)
+                    onNodeWithTag("backfill.notice").assertDoesNotExist()
+                }
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("自动回填提示不阻塞导航，关闭不取消，终态更新且可直接进入现有进度面板")
+    fun automaticBackfillNotice() {
+        for (theme in listOf("light", "dark")) automaticBackfillNotice(theme)
+    }
+
+    private fun automaticBackfillNotice(theme: String) = runComposeUiTest(effectContext = object : MotionDurationScale { override val scaleFactor = 0f }) {
+        var id = java.util.UUID.randomUUID()
+        fun task(revision: Long, state: DesktopUiToolHost.BackfillState) = DesktopUiToolHost.BackfillTask(
+            id, revision, state, DesktopUiToolHost.BackfillPhase.NETWORK, true, false,
+            1, 0, 1, 3, 1, 1, 0, null, null, null, "fixture.html")
+        val current = AtomicReference(task(0, DesktopUiToolHost.BackfillState.RUNNING))
+        val ready = AtomicBoolean(false)
+        val overrides = hashMapOf<String, Function<Array<Any>, Any?>>(
+            "message" to Function { args -> message(args[0].toString(), *(args.getOrNull(1) as? Array<*> ?: emptyArray<Any>())) },
+            "backfillTask" to Function { Optional.of(current.get()) },
+            "onboardingState" to Function { top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.OnboardingSnapshot(
+                true, true, 3, ready.get(), true) },
+            "cancelBackfill" to Function { error("Dismissing a notice must not cancel the task") },
+        )
+        DesktopConfigurationControllerTest.model(hashMapOf(), overrides).use { model ->
+            var snapshot by mutableStateOf(model.snapshot())
+            model.subscribeSnapshots { snapshot = it }.use {
+                setContent {
+                    CompositionLocalProvider(
+                        LocalDensity provides Density(if (theme == "dark") 1.5f else 1f, if (theme == "dark") 1.35f else 1f),
+                        // 导航回归固定暂停倒计时；计时交互由 AutomaticBackfillNoticeTest 推进时钟验证。
+                        LocalWindowInfo provides object : WindowInfo { override val isWindowFocused = false },
+                    ) {
+                        PixivDownloaderTheme(theme) {
+                            DesktopShell(snapshot.document(), snapshot.revision(), ::resolve,
+                                snapshot.automaticBackfillNotice(), model::dismissAutomaticBackfill) { model.dispatch(snapshot, it) }
+                        }
+                    }
+                }
+                onNodeWithTag("backfill.notice").assertDoesNotExist()
+                runOnIdle { ready.set(true); model.rebuildStatus() }
+                waitUntilExactlyOneExists(hasTestTag("backfill.notice"), timeoutMillis = 5_000)
+                val homeImage = File("target/tools-ui/backfill-home-$theme.png").apply { parentFile.mkdirs() }
+                ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", homeImage)
+                onNodeWithText(message("desktop.ui.page.tools")).performClick()
+                onNodeWithTag("tools.entry.backfill").assertExists()
+                onNodeWithTag("backfill.notice").assertIsDisplayed()
+                val image = File("target/tools-ui/backfill-notice-$theme.png").apply { parentFile.mkdirs() }
+                ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", image)
+                onNodeWithTag("backfill.notice.dismiss").performSemanticsAction(SemanticsActions.RequestFocus)
+                onNodeWithTag("backfill.notice.dismiss").performKeyInput { pressKey(Key.Escape) }
+                waitUntilDoesNotExist(hasTestTag("backfill.notice"), timeoutMillis = 5_000)
+                runOnIdle { model.rebuildStatus() }
+                onNodeWithTag("backfill.notice").assertDoesNotExist()
+                runOnIdle {
+                    model.showDialog("notice-fixture", "gui.tools.backfill.notice.title", "gui.tools.backfill.notice.finished",
+                        top.sywyar.pixivdownload.guicompose.model.document.DesktopUiDocument.DialogStyle.INFO)
+                    id = java.util.UUID.randomUUID()
+                    current.set(task(0, DesktopUiToolHost.BackfillState.RUNNING))
+                    model.rebuildStatus()
+                }
+                waitUntil(timeoutMillis = 5_000) { snapshot.automaticBackfillNotice()?.executionId() == id }
+                onNodeWithTag("backfill.notice").assertDoesNotExist()
+                runOnIdle { model.closeDialog(); model.rebuildStatus() }
+                waitUntilExactlyOneExists(hasTestTag("backfill.notice"), timeoutMillis = 5_000)
+                current.set(task(1, DesktopUiToolHost.BackfillState.INCOMPLETE))
+                waitUntilExactlyOneExists(hasTestTag("backfill.notice.state") and hasText(message("gui.tools.backfill.state.incomplete")), timeoutMillis = 5_000)
+                onNodeWithTag("backfill.notice.view").assertIsDisplayed().performClick()
+                waitUntilExactlyOneExists(hasTestTag("tools.result") and hasText(message("gui.tools.backfill.state.incomplete")), timeoutMillis = 5_000)
+                onNodeWithTag("backfill.notice").assertDoesNotExist()
+                onNodeWithTag("tools.done").assertIsDisplayed().performClick()
+                onNodeWithTag("backfill.notice").assertDoesNotExist()
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("真实工具页面恢复后台回填，显示真实阶段并在资源释放后结束")
+    fun backfillTaskPresentation() {
+        for (theme in listOf("light", "dark")) backfillTaskPresentation(theme)
+    }
+
+    private fun backfillTaskPresentation(theme: String) = runComposeUiTest(effectContext = object : MotionDurationScale { override val scaleFactor = 0f }) {
+        val id = java.util.UUID.randomUUID()
+        fun task(revision: Long, state: DesktopUiToolHost.BackfillState, total: Int?) = DesktopUiToolHost.BackfillTask(
+            id, revision, state, DesktopUiToolHost.BackfillPhase.SCANNING, true, false,
+            System.currentTimeMillis(), 0, if (total == null) 0 else 1, total, if (total == null) 0 else 1, if (total == null) 0 else 1, 0, null, null,
+            DesktopUiToolHost.BackfillSummary(3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false, 1), "fixture.html")
+        val current = AtomicReference(task(0, DesktopUiToolHost.BackfillState.RUNNING, null))
+        val cancellations = AtomicInteger()
+        val overrides = hashMapOf<String, Function<Array<Any>, Any?>>(
+            "message" to Function { args -> message(args[0].toString(), *(args.getOrNull(1) as? Array<*> ?: emptyArray<Any>())) },
+            "backfillTask" to Function { Optional.of(current.get()) },
+            "backendSnapshot" to Function { top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.BackendSnapshot(top.sywyar.pixivdownload.plugin.api.gui.DesktopUiHost.BackendState.RUNNING, null) },
+            "cancelBackfill" to Function { args ->
+                assertEquals(id, args[0]); cancellations.incrementAndGet()
+                current.set(task(1, DesktopUiToolHost.BackfillState.STOPPING, 3)); true
+            },
+        )
+        DesktopConfigurationControllerTest.model(hashMapOf(), overrides).use { model ->
+            var snapshot by mutableStateOf(model.snapshot())
+            model.subscribeSnapshots { snapshot = it }.use {
+                setContent {
+                    CompositionLocalProvider(LocalDensity provides Density(if (theme == "dark") 1.5f else 1f)) {
+                        PixivDownloaderTheme(theme) {
+                            DesktopShell(snapshot.document(), snapshot.revision(), ::resolve) { model.dispatch(snapshot, it) }
+                        }
+                    }
+                }
+                onNodeWithText(message("desktop.ui.page.tools")).performClick()
+                onNodeWithTag("tools.entry.backfill").performScrollTo().performClick()
+                waitUntilExactlyOneExists(hasTestTag("tools.result") and hasText(message("gui.tools.backfill.phase.scanning")), timeoutMillis = 5_000)
+                onNodeWithTag("tools.backfill.cancel").assertIsDisplayed()
+                onNodeWithTag("tools.minimize").performClick()
+                assertEquals(0, cancellations.get())
+                onNodeWithTag("tools.entry.backfill").performScrollTo().performClick()
+                screenshot("backfill-$theme-scanning")
+                onNodeWithTag("tools.backfill.cancel").performClick()
+                waitUntilExactlyOneExists(hasTestTag("tools.result") and hasText(message("gui.tools.backfill.state.stopping")), timeoutMillis = 5_000)
+                onNodeWithTag("tools.backfill.cancel").assertIsNotEnabled()
+                current.set(task(2, DesktopUiToolHost.BackfillState.CANCELLED, 3))
+                waitUntilExactlyOneExists(hasTestTag("tools.result") and hasText(message("gui.tools.backfill.state.cancelled")), timeoutMillis = 5_000)
+                onNodeWithTag("tools.backfill.details").performScrollTo().performClick()
+                onNodeWithTag("tools.done").assertIsDisplayed()
+                screenshot("backfill-$theme-stopped")
+                assertEquals(1, cancellations.get())
+            }
+        }
+    }
 
     @Test
     @DisplayName("首页状态推进时仍接纳界面已显示且上下文未变的分类预览点击")

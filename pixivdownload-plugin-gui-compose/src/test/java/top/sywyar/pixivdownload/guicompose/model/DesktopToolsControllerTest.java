@@ -23,6 +23,91 @@ import java.util.function.Function;
 @DisplayName("Compose 工具表单默认值")
 class DesktopToolsControllerTest {
     @Test
+    @DisplayName("自动提示按执行去重，忽略空扫描与手动任务，旧操作不能收起新任务")
+    void automaticNoticeTracksExecution() throws Exception {
+        var id = java.util.UUID.randomUUID();
+        var current = new java.util.concurrent.atomic.AtomicReference<>(task(id, 0,
+                DesktopUiHost.BackfillState.RUNNING, DesktopUiHost.BackfillPhase.SCANNING, false, null));
+        var overrides = new HashMap<String, Function<Object[], Object>>();
+        overrides.put("backfillTask", args -> java.util.Optional.of(current.get()));
+        overrides.put("cancelBackfill", args -> { throw new AssertionError("Dismiss must not cancel"); });
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+            awaitBackfillState(model, "running");
+            assertNull(model.snapshot().automaticBackfillNotice());
+            current.set(task(id, 1, DesktopUiHost.BackfillState.COMPLETED, DesktopUiHost.BackfillPhase.FINISHED, false, 0));
+            awaitBackfillState(model, "completed");
+            assertNull(model.snapshot().automaticBackfillNotice());
+            var next = java.util.UUID.randomUUID();
+            current.set(task(next, 1, DesktopUiHost.BackfillState.COMPLETED, DesktopUiHost.BackfillPhase.FINISHED, false, 2));
+            assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+                while (model.snapshot().automaticBackfillNotice() == null) Thread.sleep(10);
+            });
+            assertEquals(next, model.snapshot().automaticBackfillNotice().executionId());
+            assertFalse(model.dismissAutomaticBackfill(id));
+            assertTrue(model.dismissAutomaticBackfill(next));
+            model.rebuildStatus();
+            assertNull(model.snapshot().automaticBackfillNotice());
+            var newer = java.util.UUID.randomUUID();
+            current.set(task(newer, 2, DesktopUiHost.BackfillState.RUNNING, DesktopUiHost.BackfillPhase.NETWORK, false, 2));
+            assertFalse(model.dismissAutomaticBackfill(next));
+            assertEquals(newer, model.snapshot().automaticBackfillNotice().executionId());
+            var manual = new DesktopUiHost.BackfillTask(java.util.UUID.randomUUID(), 0,
+                    DesktopUiHost.BackfillState.RUNNING, DesktopUiHost.BackfillPhase.NETWORK, false, false,
+                    1, 0, 0, 2, 0, 0, 0, null, null, null, "");
+            current.set(manual);
+            assertFalse(model.dismissAutomaticBackfill(newer));
+            assertNull(model.snapshot().automaticBackfillNotice());
+        }
+    }
+
+    @Test
+    @DisplayName("重新打开桌面恢复自动回填状态，不重跑任务或取消后台工作")
+    void restoresAutomaticBackfill() throws Exception {
+        for (var state : DesktopUiHost.BackfillState.values()) {
+            var id = java.util.UUID.randomUUID();
+            var snapshot = task(id, 4, state, DesktopUiHost.BackfillPhase.NETWORK, false, 3);
+            var calls = new java.util.concurrent.CopyOnWriteArrayList<String>();
+            var overrides = new HashMap<String, Function<Object[], Object>>();
+            overrides.put("backfillTask", args -> java.util.Optional.of(snapshot));
+            overrides.put("startBackfill", args -> { calls.add("start"); return id; });
+            overrides.put("cancelBackfill", args -> { calls.add("cancel"); return true; });
+            overrides.put("openToolLog", args -> { throw new AssertionError("Observation cannot open logs"); });
+            for (int reopen = 0; reopen < 2; reopen++) {
+                try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+                    awaitBackfillState(model, state.name().toLowerCase(java.util.Locale.ROOT));
+                    var activity = overview(model).activity();
+                    assertEquals(id.toString(), activity.executionId());
+                    assertEquals(snapshot.active(), activity.running());
+                    if (state == DesktopUiHost.BackfillState.STOPPING) {
+                        var progress = descendants(overview(model)).filter(DesktopUiNode.Progress.class::isInstance)
+                                .map(DesktopUiNode.Progress.class::cast).findFirst().orElseThrow();
+                        assertEquals("gui.tools.backfill.state.stopping", progress.text().key());
+                    }
+                }
+            }
+            assertTrue(calls.isEmpty());
+        }
+    }
+
+    @Test
+    @DisplayName("提交回填失败有可见错误，后端保持运行且不伪造已完成历史")
+    void failedBackfillSubmissionRemainsVisible() throws Exception {
+        var calls = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        var overrides = new HashMap<String, Function<Object[], Object>>();
+        overrides.put("backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null));
+        overrides.put("startBackfill", args -> { throw new IllegalStateException("busy"); });
+        overrides.put("stopBackend", args -> { calls.add("stop"); return true; });
+        overrides.put("recordToolHistory", args -> { calls.add("history"); return null; });
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+            awaitMediaReady(model);
+            activate(model, "tools.backfill.run");
+            DesktopConfigurationControllerTest.awaitReady(model);
+            assertTrue(model.snapshot().document().dialogs().stream().anyMatch(dialog -> dialog.id().equals("backfill.start-failed")));
+            assertNull(overview(model).activity());
+            assertTrue(calls.isEmpty());
+        }
+    }
+    @Test
     @DisplayName("工具配置读取失败不会阻断页面加载")
     void configurationFailureKeepsToolsAvailable() throws Exception {
         var overrides = new HashMap<String, Function<Object[], Object>>();
@@ -70,6 +155,9 @@ class DesktopToolsControllerTest {
         overrides.put("findToolLog", args -> java.util.Optional.of(Path.of("log", "html", (String) args[0]).toAbsolutePath()));
         overrides.put("openExternalUri", args -> { opened.add(Path.of((java.net.URI) args[0]).getFileName().toString()); return null; });
         overrides.put("openToolLog", args -> { throw new AssertionError("Viewing must not create a session"); });
+        var executionId = java.util.UUID.randomUUID();
+        overrides.put("backfillTask", args -> java.util.Optional.of(task(executionId, 1,
+                DesktopUiHost.BackfillState.COMPLETED, DesktopUiHost.BackfillPhase.FINISHED, false, 1)));
         try {
             for (String stem : List.of("artworks-backfill", "json-to-sqlite-migration")) {
                 Path log = Path.of("log", "html", stem + "-latest.html");
@@ -85,7 +173,7 @@ class DesktopToolsControllerTest {
                 DesktopConfigurationControllerTest.awaitReady(model);
                 activate(model, "tools.migration.log");
                 DesktopConfigurationControllerTest.awaitReady(model);
-                assertEquals(List.of("artworks-backfill-latest.html", "json-to-sqlite-migration-latest.html"), opened);
+                assertEquals(List.of("backfill-fixture.html", "json-to-sqlite-migration-latest.html"), opened);
             }
         } finally {
             for (Path log : created) {
@@ -114,9 +202,9 @@ class DesktopToolsControllerTest {
             public void openLatestInBrowser() {}
             public void close() {}
         });
-        overrides.put("runBackfill", args -> {
+        overrides.put("startBackfill", args -> {
             captured.set((DesktopUiHost.BackfillOptions) args[0]);
-            return new DesktopUiHost.BackfillSummary(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false);
+            return java.util.UUID.randomUUID();
         });
         try (var model = DesktopConfigurationControllerTest.model(stored, overrides)) {
             awaitMediaReady(model);
@@ -168,69 +256,48 @@ class DesktopToolsControllerTest {
     @DisplayName("回填展示真实进度，取消后释放互锁且不把中断带入后续动作")
     @SuppressWarnings("unchecked")
     void cancelsBackfillWithoutInterruptingLaterWork() throws Exception {
-        for (boolean cancelDuringCount : List.of(false, true)) {
+        for (boolean scanning : List.of(false, true)) {
             for (boolean dryRun : List.of(false, true)) {
-                var started = new java.util.concurrent.CountDownLatch(1);
-                var records = new java.util.concurrent.CopyOnWriteArrayList<Object[]>();
+                var id = java.util.UUID.randomUUID();
+                var observed = new java.util.concurrent.atomic.AtomicReference<DesktopUiHost.BackfillTask>();
                 Map<String, Function<Object[], Object>> overrides = new HashMap<>();
                 overrides.put("backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null));
-                overrides.put("countBackfillCandidates", args -> {
-                    if (cancelDuringCount) {
-                        started.countDown();
-                        try { new java.util.concurrent.CountDownLatch(1).await(); }
-                        catch (InterruptedException expected) {
-                            Thread.currentThread().interrupt();
-                            throw new IllegalStateException(new java.sql.SQLException("connection wait interrupted", expected));
-                        }
-                    }
-                    return 3;
+                overrides.put("backfillTask", args -> java.util.Optional.ofNullable(observed.get()));
+                overrides.put("startBackfill", args -> {
+                    assertEquals(dryRun, ((DesktopUiHost.BackfillOptions) args[0]).dryRun());
+                    observed.set(task(id, 1, DesktopUiHost.BackfillState.RUNNING,
+                            scanning ? DesktopUiHost.BackfillPhase.SCANNING : DesktopUiHost.BackfillPhase.NETWORK,
+                            dryRun, scanning ? null : 3));
+                    return id;
                 });
-                overrides.put("recordToolHistory", args -> {
-                    assertFalse(Thread.currentThread().isInterrupted());
-                    records.add(args);
-                    return null;
+                overrides.put("cancelBackfill", args -> {
+                    assertEquals(id, args[0]);
+                    observed.set(task(id, 2, DesktopUiHost.BackfillState.STOPPING,
+                            observed.get().phase(), dryRun, observed.get().total()));
+                    return true;
                 });
-                overrides.put("openToolLog", args -> new DesktopUiHost.ToolLogSession() {
-                    public Path latestPath() { return Path.of("latest.html"); }
-                    public Path sessionPath() { return Path.of("session.html"); }
-                    public void openLatestInBrowser() {}
-                    public void close() {}
-                });
-                overrides.put("runBackfill", args -> {
-                    var progress = (java.util.function.BiConsumer<Integer, Integer>) args[1];
-                    progress.accept(1, 3);
-                    started.countDown();
-                    try { new java.util.concurrent.CountDownLatch(1).await(); }
-                    catch (InterruptedException expected) {
-                        Thread.currentThread().interrupt();
-                        progress.accept(1, 3);
-                    }
-                    throw new AssertionError("cancel must abort the operation");
-                });
+                overrides.put("recordToolHistory", args -> { throw new AssertionError("Host owns backfill history"); });
+                overrides.put("openToolLog", args -> { throw new AssertionError("UI must not create a log session"); });
                 try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
                     awaitMediaReady(model);
                     model.dispatch(model.snapshot(), new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
                             "tools.backfill.dry", DesktopUiNode.Value.bool(dryRun)));
                     activate(model, "tools.backfill.run");
-                    assertTrue(started.await(5, java.util.concurrent.TimeUnit.SECONDS));
-                    if (!cancelDuringCount) {
-                        var progress = descendants(overview(model)).filter(DesktopUiNode.Progress.class::isInstance)
-                                .map(DesktopUiNode.Progress.class::cast)
-                                .filter(node -> node.id().equals("tools.backfill.progress")).findFirst().orElseThrow();
-                        assertEquals(1d / 3, progress.progress());
-                    }
+                    DesktopConfigurationControllerTest.awaitReady(model);
+                    awaitBackfillState(model, "running");
+                    var progress = descendants(overview(model)).filter(DesktopUiNode.Progress.class::isInstance)
+                            .map(DesktopUiNode.Progress.class::cast)
+                            .filter(node -> node.id().equals("tools.backfill.progress")).findFirst().orElseThrow();
+                    assertEquals(scanning, progress.indeterminate());
+                    if (!scanning) assertEquals(1d / 3, progress.progress());
                     activate(model, "tools.backfill.cancel");
-                    assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
-                        while (model.busy() || overview(model).activity().running()) Thread.sleep(10);
-                    });
+                    awaitBackfillState(model, "stopping");
+                    assertTrue(overview(model).activity().running());
+                    observed.set(task(id, 3, DesktopUiHost.BackfillState.CANCELLED,
+                            DesktopUiHost.BackfillPhase.FINISHED, dryRun, scanning ? null : 3));
+                    awaitBackfillState(model, "cancelled");
                     assertFalse(overview(model).activity().running());
-                    assertFalse(overview(model).activity().failed());
-                    assertEquals(dryRun ? "gui.tools.history.outcome.cancelled" : "gui.compose.tools.workspace.cancelled",
-                            overview(model).activity().message().key());
                     assertEquals("gui.tools.backend-status", overview(model).backend().text().key());
-                    assertEquals(DesktopUiHost.ToolOutcome.CANCELLED, records.get(0)[1]);
-                    assertEquals(cancelDuringCount ? null : 1, records.get(0)[3]);
-                    assertEquals(cancelDuringCount ? null : Path.of("session.html"), records.get(0)[6]);
                     var next = new java.util.concurrent.CompletableFuture<Boolean>();
                     model.executeAsync(() -> next.complete(Thread.currentThread().isInterrupted()));
                     assertFalse(next.get(5, java.util.concurrent.TimeUnit.SECONDS));
@@ -240,34 +307,32 @@ class DesktopToolsControllerTest {
     }
 
     @Test
-    @DisplayName("回填和迁移失败后仍记录本次日志路径并关闭日志会话")
+    @DisplayName("迁移失败后仍记录本次日志路径并关闭日志会话")
     void failedToolsKeepTheirLogPath() throws Exception {
-        for (boolean migration : List.of(false, true)) {
-            var records = new java.util.concurrent.CopyOnWriteArrayList<Object[]>();
-            var closed = new java.util.concurrent.atomic.AtomicBoolean();
-            Map<String, Function<Object[], Object>> overrides = new HashMap<>();
-            overrides.put("backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null));
-            overrides.put("stopBackend", args -> { ((Runnable) args[0]).run(); return true; });
-            overrides.put("startBackend", args -> { ((Runnable) args[0]).run(); return true; });
-            overrides.put("recordToolHistory", args -> { records.add(args); return null; });
-            overrides.put("openToolLog", args -> new DesktopUiHost.ToolLogSession() {
-                public Path latestPath() { return Path.of("latest.html"); }
-                public Path sessionPath() { return Path.of("session.html"); }
-                public void openLatestInBrowser() {}
-                public void close() { closed.set(true); }
-            });
-            overrides.put(migration ? "runMigration" : "runBackfill", args -> {
-                throw new IllegalStateException("simulated operation failure");
-            });
-            try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
-                awaitMediaReady(model);
-                activate(model, migration ? "tools.migration.run" : "tools.backfill.run");
-                DesktopConfigurationControllerTest.awaitReady(model);
-                assertEquals(1, records.size());
-                assertEquals(DesktopUiHost.ToolOutcome.FAILED, records.get(0)[1]);
-                assertEquals(Path.of("session.html"), records.get(0)[6]);
-                assertTrue(closed.get());
-            }
+        var records = new java.util.concurrent.CopyOnWriteArrayList<Object[]>();
+        var closed = new java.util.concurrent.atomic.AtomicBoolean();
+        Map<String, Function<Object[], Object>> overrides = new HashMap<>();
+        overrides.put("backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null));
+        overrides.put("stopBackend", args -> { ((Runnable) args[0]).run(); return true; });
+        overrides.put("startBackend", args -> { ((Runnable) args[0]).run(); return true; });
+        overrides.put("recordToolHistory", args -> { records.add(args); return null; });
+        overrides.put("openToolLog", args -> new DesktopUiHost.ToolLogSession() {
+            public Path latestPath() { return Path.of("latest.html"); }
+            public Path sessionPath() { return Path.of("session.html"); }
+            public void openLatestInBrowser() {}
+            public void close() { closed.set(true); }
+        });
+        overrides.put("runMigration", args -> {
+            throw new IllegalStateException("simulated operation failure");
+        });
+        try (var model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+            awaitMediaReady(model);
+            activate(model, "tools.migration.run");
+            DesktopConfigurationControllerTest.awaitReady(model);
+            assertEquals(1, records.size());
+            assertEquals(DesktopUiHost.ToolOutcome.FAILED, records.get(0)[1]);
+            assertEquals(Path.of("session.html"), records.get(0)[6]);
+            assertTrue(closed.get());
         }
     }
 
@@ -301,26 +366,24 @@ class DesktopToolsControllerTest {
     }
 
     @Test
-    @DisplayName("迁移失败仍尝试恢复服务，回填失败不停止运行中的服务")
+    @DisplayName("迁移失败仍尝试恢复服务")
     void restoresOnlyToolsThatPauseTheBackend() throws Exception {
-        for (boolean migration : List.of(true, false)) {
-            List<String> calls = java.util.Collections.synchronizedList(new ArrayList<>());
-            Map<String, Function<Object[], Object>> overrides = new HashMap<>();
-            overrides.put("backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null));
-            overrides.put("stopBackend", args -> { calls.add("stop"); ((Runnable) args[0]).run(); return true; });
-            overrides.put("startBackend", args -> { calls.add("start"); ((Runnable) args[0]).run(); return true; });
-            overrides.put("recordToolHistory", args -> { calls.add(args[1].toString()); return null; });
-            overrides.put(migration ? "countMigrationCandidates" : "countBackfillCandidates",
-                    args -> { throw new IllegalStateException("simulated database failure"); });
-            try (ComposeDesktopUiModel model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
-                activate(model, migration ? "tools.migration.run" : "tools.backfill.run");
-                assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
-                    while (model.busy() || overview(model).activity() == null || overview(model).activity().running()) Thread.sleep(10);
-                });
-                assertEquals(migration ? List.of("stop", "FAILED", "start") : List.of("FAILED"), calls);
-                assertTrue(overview(model).activity().failed());
-                assertTrue(model.snapshot().document().dialogs().isEmpty());
-            }
+        List<String> calls = java.util.Collections.synchronizedList(new ArrayList<>());
+        Map<String, Function<Object[], Object>> overrides = new HashMap<>();
+        overrides.put("backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null));
+        overrides.put("stopBackend", args -> { calls.add("stop"); ((Runnable) args[0]).run(); return true; });
+        overrides.put("startBackend", args -> { calls.add("start"); ((Runnable) args[0]).run(); return true; });
+        overrides.put("recordToolHistory", args -> { calls.add(args[1].toString()); return null; });
+        overrides.put("countMigrationCandidates",
+                args -> { throw new IllegalStateException("simulated database failure"); });
+        try (ComposeDesktopUiModel model = DesktopConfigurationControllerTest.model(new HashMap<>(), overrides)) {
+            activate(model, "tools.migration.run");
+            assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+                while (model.busy() || overview(model).activity() == null || overview(model).activity().running()) Thread.sleep(10);
+            });
+            assertEquals(List.of("stop", "FAILED", "start"), calls);
+            assertTrue(overview(model).activity().failed());
+            assertTrue(model.snapshot().document().dialogs().isEmpty());
         }
     }
 
@@ -542,5 +605,20 @@ class DesktopToolsControllerTest {
                     default -> throw new AssertionError("unexpected DesktopUiHost call: " + method.getName());
                 }
         );
+    }
+
+    private static DesktopUiHost.BackfillTask task(java.util.UUID id, long revision,
+            DesktopUiHost.BackfillState state, DesktopUiHost.BackfillPhase phase, boolean dryRun, Integer total) {
+        return new DesktopUiHost.BackfillTask(id, revision, state, phase, true, dryRun, 1,
+                state == DesktopUiHost.BackfillState.RUNNING || state == DesktopUiHost.BackfillState.STOPPING ? 0 : 2,
+                total == null ? 0 : 1, total, total == null ? 0 : 1, 0, 0, null, null, null, "backfill-fixture.html");
+    }
+
+    private static void awaitBackfillState(ComposeDesktopUiModel model, String state) {
+        assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
+            while (overview(model).activity() == null || !overview(model).activity().message().key().equals("gui.tools.backfill.state." + state)) {
+                Thread.sleep(10);
+            }
+        });
     }
 }

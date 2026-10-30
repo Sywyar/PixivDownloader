@@ -182,6 +182,8 @@ class PluginBootstrapHandoffTest {
         assertThat(app.getInitializers())
                 .as("GUI 路径必须注入 bootstrap 会话交接载体")
                 .anyMatch(PixivDownloadApplication.PluginBootstrapHandoffInitializer.class::isInstance);
+        assertThat(app.getListeners())
+                .noneMatch(top.sywyar.pixivdownload.gui.backfill.HeadlessBackfillStartup.class::isInstance);
     }
 
     @Test

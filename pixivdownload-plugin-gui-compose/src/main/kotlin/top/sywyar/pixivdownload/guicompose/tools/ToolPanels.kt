@@ -249,7 +249,8 @@ internal fun ToolPanel(
     val buttons = nodes.filterIsInstance<Button>()
     val form = nodes.filterIsInstance<Form>().firstOrNull()
     val progress = nodes.filterIsInstance<Progress>().firstOrNull()
-    var showForm by remember(id) { mutableStateOf(false) }
+    var showForm by remember(id, activity?.executionId()) { mutableStateOf(false) }
+    var showDetails by remember(id, activity?.executionId()) { mutableStateOf(false) }
     var attempt by remember(id) { mutableIntStateOf(0) }
     val errors = if (form != null && id in listOf("backfill", "migration")) ToolInputValidation.errors(id, form.rows().associate { row ->
         row.content().id() to when (val field = row.content()) { is TextInput -> field.value(); is Toggle -> field.selected().toString(); else -> "" }
@@ -284,13 +285,28 @@ internal fun ToolPanel(
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 if (state != "form") {
                     Column(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                        ToolIcon(if (state == "running") icon else if (activity!!.failed()) Icons.Default.ErrorOutline else Icons.Default.CheckCircleOutline)
+                        ToolIcon(when {
+                            state == "running" -> icon
+                            activity?.message()?.key() == "gui.tools.backfill.state.cancelled" -> Icons.Default.StopCircle
+                            activity?.message()?.key() in listOf("gui.tools.backfill.state.incomplete", "gui.tools.backfill.state.rate_limited") -> Icons.Default.Info
+                            activity!!.failed() -> Icons.Default.ErrorOutline
+                            else -> Icons.Default.CheckCircleOutline
+                        })
                         SelectionContainer {
                             CupertinoText(progress?.text()?.let(text) ?: activity?.message()?.let(text).orEmpty(),
                                 fontSize = 16.sp, fontWeight = FontWeight.Medium,
                                 modifier = Modifier.testTag("tools.result").semantics { liveRegion = LiveRegionMode.Polite })
                         }
                         if (state == "running") DesktopLinearProgress(progress?.takeUnless { it.indeterminate() }?.progress()?.toFloat(), Modifier.fillMaxWidth().height(5.dp))
+                        if (id == "backfill") {
+                            nodes.filterIsInstance<Text>().filter { it.id() == "tools.backfill.summary" || it.id() == "tools.backfill.current" }.forEach {
+                                SelectionContainer { CupertinoText(text(it.text()), fontSize = 12.sp, color = palette.secondaryText) }
+                            }
+                            ToolButton(text(TextToken.key("gui.tools.backfill.action.details")), "tools.backfill.details") { showDetails = !showDetails }
+                            if (showDetails) nodes.filterIsInstance<Text>().firstOrNull { it.id() == "tools.backfill.fields" }?.let {
+                                SelectionContainer { CupertinoText(text(it.text()), fontSize = 12.sp, color = palette.secondaryText) }
+                            }
+                        }
                         ToolNotice(text(backend.text()))
                     }
                 } else {

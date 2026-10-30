@@ -47,7 +47,15 @@ public final class ToolHtmlLogSession implements ToolLogSession {
         return open(top.sywyar.pixivdownload.config.RuntimeFiles.logDirectory().resolve("html"), stem, loggerType);
     }
 
-    static synchronized ToolHtmlLogSession open(Path directory, String stem, Class<?> loggerType) throws Exception {
+    public static ToolHtmlLogSession openStatic(String stem, Class<?> loggerType) throws Exception {
+        return open(top.sywyar.pixivdownload.config.RuntimeFiles.logDirectory().resolve("html"), stem, loggerType, false);
+    }
+
+    static ToolHtmlLogSession open(Path directory, String stem, Class<?> loggerType) throws Exception {
+        return open(directory, stem, loggerType, true);
+    }
+
+    static synchronized ToolHtmlLogSession open(Path directory, String stem, Class<?> loggerType, boolean autoRefresh) throws Exception {
         String fileStem = normalizeStem(stem);
         Files.createDirectories(directory);
 
@@ -66,8 +74,8 @@ public final class ToolHtmlLogSession implements ToolLogSession {
         Files.deleteIfExists(latestPath);
         cleanOldSessions(directory, fileStem);
 
-        FileAppender<ILoggingEvent> latestAppender = newAppender(context, latestAppenderName, latestPath);
-        FileAppender<ILoggingEvent> sessionAppender = newAppender(context, sessionAppenderName, sessionPath);
+        FileAppender<ILoggingEvent> latestAppender = newAppender(context, latestAppenderName, latestPath, autoRefresh);
+        FileAppender<ILoggingEvent> sessionAppender = newAppender(context, sessionAppenderName, sessionPath, autoRefresh);
         if (!latestAppender.isStarted() || !sessionAppender.isStarted()) {
             latestAppender.stop();
             sessionAppender.stop();
@@ -110,8 +118,8 @@ public final class ToolHtmlLogSession implements ToolLogSession {
         appender.stop();
     }
 
-    private static FileAppender<ILoggingEvent> newAppender(LoggerContext context, String name, Path file) {
-        AutoRefreshHtmlLogLayout layout = new AutoRefreshHtmlLogLayout();
+    private static FileAppender<ILoggingEvent> newAppender(LoggerContext context, String name, Path file, boolean autoRefresh) {
+        HtmlLogLayout layout = autoRefresh ? new AutoRefreshHtmlLogLayout() : new HtmlLogLayout();
         layout.setContext(context);
         layout.start();
 
