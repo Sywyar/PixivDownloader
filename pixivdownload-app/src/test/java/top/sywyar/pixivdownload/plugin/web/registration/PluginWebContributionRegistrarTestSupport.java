@@ -167,6 +167,8 @@ abstract class PluginWebContributionRegistrarTestSupport {
     }
 
     protected static final class LifecycleHarness {
+        protected final WebUiSlotRegistry uiSlots;
+        protected final PluginRequestLeaseRegistry requests;
         protected final StartupRouteRegistry startup;
         protected final LandingRegistry landing;
         protected final PageSectionRegistry pageSections;
@@ -174,11 +176,15 @@ abstract class PluginWebContributionRegistrarTestSupport {
         protected final PluginWebContributionRegistrar registrar;
 
         protected LifecycleHarness(
+                WebUiSlotRegistry uiSlots,
+                PluginRequestLeaseRegistry requests,
                 StartupRouteRegistry startup,
                 LandingRegistry landing,
                 PageSectionRegistry pageSections,
                 DrilldownRegistry drilldowns,
                 PluginWebContributionRegistrar registrar) {
+            this.uiSlots = uiSlots;
+            this.requests = requests;
             this.startup = startup;
             this.landing = landing;
             this.pageSections = pageSections;
@@ -239,7 +245,8 @@ abstract class PluginWebContributionRegistrarTestSupport {
         StaticResourceRegistry staticResources = new StaticResourceRegistry(plugins);
         WebI18nBundleRegistry i18n = new WebI18nBundleRegistry(plugins);
         NavigationRegistry navigation = new NavigationRegistry(plugins);
-        WebUiSlotRegistry uiSlots = new WebUiSlotRegistry(plugins);
+        PluginRequestLeaseRegistry requests = new PluginRequestLeaseRegistry();
+        WebUiSlotRegistry uiSlots = new WebUiSlotRegistry(plugins, requests);
         UserscriptRegistry userscripts = new UserscriptRegistry(plugins);
         ScriptRegistry scripts = new ScriptRegistry(TestI18nBeans.appMessages(), userscripts);
         StartupRouteRegistry startup = new StartupRouteRegistry(plugins);
@@ -247,12 +254,12 @@ abstract class PluginWebContributionRegistrarTestSupport {
         PageSectionRegistry pageSections = new PageSectionRegistry(plugins);
         DrilldownRegistry drilldowns = new DrilldownRegistry(plugins);
         DownloadExtensionRegistry downloads = new DownloadExtensionRegistry(
-                plugins, staticResources, new PluginOwnedWebAssetValidator(staticResources));
+                plugins, staticResources, new PluginOwnedWebAssetValidator(staticResources), uiSlots);
         PluginWebContributionRegistrar registrar = new PluginWebContributionRegistrar(
                 route, staticResources, i18n, navigation, uiSlots, userscripts, scripts,
-                plugins, downloads, new PluginRequestLeaseRegistry(),
+                plugins, downloads, requests,
                 startup, landing, pageSections, drilldowns);
-        return new LifecycleHarness(startup, landing, pageSections, drilldowns, registrar);
+        return new LifecycleHarness(uiSlots, requests, startup, landing, pageSections, drilldowns, registrar);
     }
 
     protected static DownloadHarness downloadHarness(PluginRegistry plugins) {

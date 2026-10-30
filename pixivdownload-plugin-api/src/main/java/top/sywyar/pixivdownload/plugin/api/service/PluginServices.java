@@ -19,6 +19,32 @@ import java.util.Optional;
  */
 public interface PluginServices {
     /**
+     * 取得全部活动实现的不可变快照；零实现返回空，最多 128 个成员，超限明确拒绝。
+     * 顺序仅按发布序号稳定排列，不表达业务优先级。调用与错误隔离由消费者决定；
+     * 本入口不广播、不重试、不重放，也不提供持久订阅。
+     * @param key 已声明导入的契约
+     * @param <T> 服务类型
+     * @return 固定当前精确 publication 的成员快照
+     * @throws ServiceAccessException 未激活、未声明、超限或宿主不支持
+     */
+    default <T> java.util.List<ServiceProvider<T>> findAll(ServiceKey<T> key) {
+        throw new ServiceAccessException(ServiceAccessException.Reason.UNSUPPORTED);
+    }
+
+    /**
+     * 绑定各项导入的完整集合，空集合也是有效选择；成员变化先排空旧轮再激活新轮。
+     * 激活只建立资源，不得重放业务命令；唯一依赖绑定继续使用 bind。
+     * @param dependencies 非空且无重复的已声明导入
+     * @param activate 通过 scope.findAll 取得本轮成员的同步回调
+     * @return 与唯一绑定共用生命周期的意图
+     * @throws ServiceAccessException 未声明、超限或宿主不支持
+     */
+    default ServiceBinding bindAll(java.util.List<ServiceKey<?>> dependencies,
+            java.util.function.Consumer<ServiceBindingScope> activate) {
+        throw new ServiceAccessException(ServiceAccessException.Reason.UNSUPPORTED);
+    }
+
+    /**
      * 登记一组服务依赖；可在初始化时登记，但激活只在消费者及全部唯一提供者发布后执行。
      * 回调负责通过本轮 scope 登记订阅、辅助回调与临时注册；不得提交需要自动重放的业务命令。
      * 失效先关闭本轮准入，实际在途调用退出且资源清理成功后才建立下一轮。

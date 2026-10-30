@@ -16,16 +16,19 @@ final class RemoteArtifacts {
         String generator;
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            for (Class<?> tool : List.of(RemoteArtifacts.class, RemoteSource.class, ValueSchemaProcessor.class, RemoteAdapterGenerator.class)) {
+            for (Class<?> tool : List.of(RemoteArtifacts.class, RemoteSource.class, ValueSchemaProcessor.class,
+                    RemoteAdapterGenerator.class, top.sywyar.pixivdownload.plugin.api.contract.schema.ValueEncoding.class)) {
                 try (var input = tool.getResourceAsStream(tool.getSimpleName() + ".class")) {
                     if (input == null) throw new IOException("SDK_REMOTE_RUNTIME_MISSING");
                     digest.update(input.readAllBytes());
                 }
             }
-            try (var input = RemoteArtifacts.class.getResourceAsStream("/remote/client-runtime.mjs")) {
-                if (input == null) throw new IOException("SDK_REMOTE_RUNTIME_MISSING");
+            try (var input = RemoteArtifacts.class.getResourceAsStream("/remote/client-runtime.mjs");
+                 var codecs = RemoteArtifacts.class.getResourceAsStream("/META-INF/pixivdownload/web/value-codecs.mjs")) {
+                if (input == null || codecs == null) throw new IOException("SDK_REMOTE_RUNTIME_MISSING");
+                byte[] codecBytes = codecs.readAllBytes(); digest.update(codecBytes);
                 byte[] bytes = input.readAllBytes(); digest.update(bytes);
-                runtime = new String(bytes, StandardCharsets.UTF_8);
+                runtime = new String(codecBytes, StandardCharsets.UTF_8) + "\n" + new String(bytes, StandardCharsets.UTF_8);
             }
             generator = HexFormat.of().formatHex(digest.digest());
         } catch (NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
@@ -62,6 +65,7 @@ final class RemoteArtifacts {
             case "boolean" -> "boolean";
             case "integer" -> "number";
             case "string" -> {
+                if (schema.has("x-encoding")) yield "EncodedValue<\"" + schema.path("x-encoding").asText() + "\">";
                 if (!schema.has("enum")) yield "string";
                 List<String> values = new ArrayList<>();
                 for (var item : schema.path("enum")) values.add(SchemaFiles.JSON.writeValueAsString(item.asText()));
@@ -91,6 +95,20 @@ final class RemoteArtifacts {
             operation.path(direction).path("$defs").fields().forEachRemaining(e -> definitions.put(e.getKey(), e.getValue()));
         }
         StringBuilder result = new StringBuilder("// 契约身份: ").append(contract.path("identity").asText()).append("\n");
+        result.append("""
+                export type EncodedValue<K extends string> = string & { readonly __sdkEncoding: K };
+                export declare const wireValues: {
+                  int64(value: bigint): EncodedValue<"DECIMAL_STRING">;
+                  uuid(value: string): EncodedValue<"UUID_STRING">;
+                  instant(seconds: bigint, nanos?: number): EncodedValue<"INSTANT_SECONDS_NANOS">;
+                  duration(seconds: bigint, nanos?: number): EncodedValue<"DURATION_SECONDS_NANOS">;
+                  float32(value: number): EncodedValue<"FLOAT32_HEX">;
+                  float64(value: number): EncodedValue<"FLOAT64_HEX">;
+                  number32(value: EncodedValue<"FLOAT32_HEX">): number;
+                  number64(value: EncodedValue<"FLOAT64_HEX">): number;
+                };
+                export declare function validateWireValue(schema: Readonly<Record<string, string>>, value: unknown): string;
+                """);
         for (var definition : definitions.entrySet())
             result.append("type ").append(typeName(definition.getKey())).append(" = ").append(type(definition.getValue())).append(";\n");
         var operations = contract.path("operations").fields();
@@ -107,8 +125,9 @@ final class RemoteArtifacts {
 
     private static String adapter(ObjectNode contract) {
         String service = contract.path("service").asText();
-        String pack = "pixivdownload.generated.remote";
-        String simple = service.substring(service.lastIndexOf('.') + 1) + "RemoteAdapter";
+        String adapter = RemoteAdapterGenerator.adapterName(service);
+        String pack = adapter.substring(0, adapter.lastIndexOf('.'));
+        String simple = adapter.substring(adapter.lastIndexOf('.') + 1);
         StringBuilder result = new StringBuilder("package ").append(pack).append(";\n")
                 .append("import top.sywyar.pixivdownload.plugin.api.web.*;\n")
                 .append("import top.sywyar.pixivdownload.plugin.api.service.ServiceKey;\n")

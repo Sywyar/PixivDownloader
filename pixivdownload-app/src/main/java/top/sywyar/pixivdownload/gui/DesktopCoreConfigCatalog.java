@@ -315,6 +315,16 @@ final class DesktopCoreConfigCatalog {
                 order++
         ));
         fields.add(core(
+                "setup.login-verification-policies",
+                GuiConfigGroups.SECURITY,
+                GuiConfigFieldType.STRING,
+                "",
+                GuiConfigEffect.BACKEND_RESTART,
+                null,
+                null,
+                order++
+        ));
+        fields.add(core(
                 "maintenance.enabled",
                 GuiConfigGroups.MAINTENANCE,
                 GuiConfigFieldType.BOOL,

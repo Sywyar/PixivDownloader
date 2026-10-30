@@ -1,6 +1,9 @@
 package top.sywyar.pixivdownload.plugin.registry.web;
 
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
+import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner;
+import top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLeaseRegistry;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotCatalog;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
@@ -26,14 +29,21 @@ import java.util.stream.Collectors;
 public class WebUiSlotRegistry implements WebUiSlotCatalog {
 
     /** 一条已注册 UI 槽位及其声明方插件。 */
-    public record RegisteredUiSlot(String pluginId, WebUiSlotContribution slot) {
+    public record RegisteredUiSlot(String pluginId, WebUiSlotContribution slot, String publication, PluginRequestOwner requestOwner) {
     }
 
     private final Object lock = new Object();
 
     private volatile List<RegisteredUiSlot> snapshot = List.of();
+    private final PluginRequestLeaseRegistry requests;
 
     public WebUiSlotRegistry(PluginRegistry pluginRegistry) {
+        this(pluginRegistry, new PluginRequestLeaseRegistry());
+    }
+
+    @Autowired
+    public WebUiSlotRegistry(PluginRegistry pluginRegistry, PluginRequestLeaseRegistry requests) {
+        this.requests = requests;
         pluginRegistry.forEachBootPlugin(registered -> {
             List<WebUiSlotContribution> slots = registered.plugin().uiSlots();
             if (!slots.isEmpty()) {
@@ -47,6 +57,11 @@ public class WebUiSlotRegistry implements WebUiSlotCatalog {
      * 使应用启动失败而不是带病运行。slotId 要求全局唯一（便于诊断 / 去重 / 前端定位）。
      */
     public void register(String pluginId, List<WebUiSlotContribution> slots) {
+        register(pluginId, null, slots);
+    }
+
+    /** 同一 web 发布事务盖章；撤回检查复用请求代际准入。 */
+    public void register(String pluginId, PluginRequestOwner owner, List<WebUiSlotContribution> slots) {
         if (pluginId == null || pluginId.isBlank()) {
             throw new IllegalStateException("ui slot contribution without pluginId");
         }
@@ -61,13 +76,14 @@ public class WebUiSlotRegistry implements WebUiSlotCatalog {
                     .map(registered -> registered.slot().slotId())
                     .collect(Collectors.toCollection(HashSet::new));
             List<RegisteredUiSlot> next = new ArrayList<>(snapshot);
+            String publication = java.util.UUID.randomUUID().toString();
             for (WebUiSlotContribution item : slots) {
                 validate(item, pluginId);
                 if (!ids.add(item.slotId())) {
                     throw new IllegalStateException("duplicate ui slot id: "
                             + item.slotId() + " (plugin: " + pluginId + ")");
                 }
-                next.add(new RegisteredUiSlot(pluginId, item));
+                next.add(new RegisteredUiSlot(pluginId, item, publication, owner));
             }
             snapshot = List.copyOf(next);
         }
@@ -85,14 +101,43 @@ public class WebUiSlotRegistry implements WebUiSlotCatalog {
         }
     }
 
+    /** 启动期已物化的声明绑定同一 web 请求 owner，不再调用插件 getter。 */
+    public void bindBootRequestOwner(PluginRequestOwner owner) {
+        java.util.Objects.requireNonNull(owner, "owner");
+        synchronized (lock) {
+            snapshot = snapshot.stream().map(slot -> {
+                if (!slot.pluginId().equals(owner.pluginId())) return slot;
+                if (slot.requestOwner() != null && !slot.requestOwner().equals(owner)) {
+                    throw new IllegalStateException("ui slot request owner already bound: " + owner.pluginId());
+                }
+                return new RegisteredUiSlot(slot.pluginId(), slot.slot(), slot.publication(), owner);
+            }).toList();
+        }
+    }
+
     /** 按注册顺序返回全部 UI 槽位的不可变快照。 */
     public List<RegisteredUiSlot> slots() {
-        return snapshot;
+        return snapshot.stream().filter(this::active).toList();
+    }
+
+    private boolean active(RegisteredUiSlot slot) {
+        return slot.requestOwner() == null || requests.currentOwner(slot.pluginId()).filter(slot.requestOwner()::equals).isPresent();
+    }
+
+    /** 旧实例请求不能进入同 ID 的新 web 发布；路由权限仍由既有过滤链决定。 */
+    public boolean permits(String publication, String routeOwner, PluginRequestOwner owner) {
+        return slots().stream().anyMatch(slot -> slot.publication().equals(publication)
+                && slot.pluginId().equals(routeOwner) && java.util.Objects.equals(slot.requestOwner(), owner));
+    }
+
+    /** 实例发出的业务调用绑定来源贡献，跨 owner 路由仍独立鉴权并获取目标请求 lease。 */
+    public boolean permits(String publication) {
+        return slots().stream().anyMatch(slot -> slot.publication().equals(publication));
     }
 
     @Override
     public List<WebUiSlotContribution> uiSlots() {
-        return snapshot.stream().map(RegisteredUiSlot::slot).toList();
+        return slots().stream().map(RegisteredUiSlot::slot).toList();
     }
 
     /** 返回某 owner 已在构造期或运行期提交的同一份槽位快照，供下载扩展 boot 装配避免再次调用插件 getter。 */

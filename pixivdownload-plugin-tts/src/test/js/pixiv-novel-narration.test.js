@@ -63,6 +63,8 @@ async function waitFor(predicate) {
 function runSlot(failedScript) {
     const loadedScripts = [];
     const toasts = [];
+    const cleanups = [];
+    const bodyNodes = new Set();
     const sandbox = createSandbox();
     const slotHost = {};
     const content = {querySelector() { return {}; }};
@@ -80,10 +82,13 @@ function runSlot(failedScript) {
     };
     sandbox.PixivFeedback = {toast(options) { toasts.push(options); }};
     sandbox.document = {
-        body: {insertAdjacentHTML() {}},
+        body: {append(fragment) { fragment.children.forEach(node => bodyNodes.add(node)); }},
         documentElement: head,
         head,
-        createElement() { return {}; },
+        createElement(tag) {
+            if (tag !== 'template') return {};
+            return {content: {children: [0, 1].map(() => ({remove() { bodyNodes.delete(this); }}))}};
+        },
         getElementById(id) {
             if (id === 'content-card') return content;
             return null;
@@ -92,11 +97,30 @@ function runSlot(failedScript) {
             return selector === '[data-vue-slot="novel-detail-tts"]' ? slotHost : null;
         }
     };
+    let mounted;
+    sandbox.PixivUiSlots = {registerModule(url, factory) {
+        assert.equal(url, '/pixiv-tts/novel-detail-tts-slot.js');
+        mounted = factory(slotHost, {
+            properties: {novelId: '42', language: 'en', contentLanguage: ''},
+            region: name => name === 'content' ? content : null,
+            signal: new AbortController().signal,
+            loadStyle() {}, onCleanup(cleanup) { cleanups.push(cleanup); }, emit() {},
+            async loadScript(url) {
+                const file = url.replace('/pixiv-tts/', '');
+                loadedScripts.push(file);
+                if (file === failedScript) throw new Error('UI_MODULE_UNAVAILABLE');
+                return true;
+            }
+        }).catch(async () => {
+            for (const cleanup of cleanups.reverse()) await cleanup();
+            toasts.push({kind: 'error'});
+        });
+    }};
     evaluate(sandbox, 'novel-detail-tts-slot.js');
     const expectedCount = failedScript ? SLOT_SCRIPT_FILES.indexOf(failedScript) + 1 : SLOT_SCRIPT_FILES.length;
-    return waitFor(function () {
+    return mounted.then(() => waitFor(function () {
         return loadedScripts.length === expectedCount && (!failedScript || toasts.length === 1);
-    }).then(function () { return {loadedScripts, toasts}; });
+    })).then(function () { return {loadedScripts, toasts, bodyNodes}; });
 }
 
 test('多角色朗读模块按显式上下文装配并保留公共门面', function () {
@@ -104,7 +128,7 @@ test('多角色朗读模块按显式上下文装配并保留公共门面', funct
     MODULE_FILES.forEach(function (file) { evaluate(sandbox, file); });
 
     assert.deepEqual(Object.keys(sandbox.PixivNovelNarration).sort(), [
-        'activate', 'attach', 'deactivate', 'next', 'openCast', 'prev', 'seekFrac',
+        'activate', 'attach', 'deactivate', 'destroy', 'next', 'openCast', 'prev', 'seekFrac',
         'setI18n', 'stop', 'togglePlay'
     ]);
     assert.deepEqual(Object.keys(sandbox.PixivNovelNarrationModules).sort(), [
@@ -145,6 +169,7 @@ test('TTS 槽位在职责脚本加载失败时提示并停止后续初始化', a
         SLOT_SCRIPT_FILES.slice(0, SLOT_SCRIPT_FILES.indexOf(failedScript) + 1));
     assert.equal(result.toasts.length, 1);
     assert.equal(result.toasts[0].kind, 'error');
+    assert.equal(result.bodyNodes.size, 0);
 });
 
 test('共享反馈组件缺失时朗读交互显示错误并失败关闭', async function () {

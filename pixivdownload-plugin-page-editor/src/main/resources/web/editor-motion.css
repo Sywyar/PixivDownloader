@@ -1,0 +1,22 @@
+:root { --editor-ease: cubic-bezier(.2, .8, .2, 1); --editor-fast: 140ms; --editor-settle: 240ms; }
+:where(.editor-header, .editor-main, #css-panel) :is(button, a, summary, input, select, textarea),
+.gjs-block, .gjs-layer-item, .gjs-field, .gjs-sm-sector-title {
+    transition: border-color var(--editor-fast), box-shadow var(--editor-fast), opacity var(--editor-fast), transform var(--editor-fast) var(--editor-ease);
+}
+:where(.editor-header, .editor-main, #css-panel) button:not(:disabled):active, #blocks .gjs-block:active { transform: scale(.97); transition-duration: 70ms; }
+.inspector-disclosure::before, #styles .gjs-sm-sector-title::before { transition: transform var(--editor-fast) var(--editor-ease); }
+#status { display: flex; align-items: center; gap: .5rem; }
+#status[data-state="error"] { color: var(--editor-danger); }
+#status[data-state="success"]::before { content: '✓'; font-weight: 600; }
+#status[data-state="busy"]::before, #css-panel[aria-busy="true"] #css-message::before {
+    content: ''; display: inline-block; width: .875rem; height: .875rem; flex-shrink: 0;
+    border: 2px solid var(--editor-border); border-top-color: var(--editor-accent); border-radius: 50%; animation: editor-working 700ms linear infinite;
+}
+#css-panel[aria-busy="true"] #css-message::before { margin-right: .5rem; }
+.canvas-area.is-dragging { border-color: var(--editor-accent); box-shadow: 0 0 0 2px var(--editor-selected); }
+.gjs-highlighter, .gjs-badge { transition: opacity var(--editor-fast); }
+@keyframes editor-working { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+    :where(.editor-header, .editor-main, #css-panel) *, .inspector-disclosure::before, #styles .gjs-sm-sector-title::before, .gjs-block, .gjs-layer-item { transition: none !important; animation: none !important; }
+    :where(.editor-header, .editor-main, #css-panel) button:not(:disabled):active, #blocks .gjs-block:active { transform: none; }
+}

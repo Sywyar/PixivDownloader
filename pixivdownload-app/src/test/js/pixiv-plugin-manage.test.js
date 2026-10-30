@@ -265,6 +265,25 @@ const DESC_NOT_INSTALLED = '该插件尚未安装。';
     delete KNOWN['fixture/name'];
 })();
 
+(function () {
+    const previous = PM.state.report;
+    const client = PM.i18n.client;
+    const consumer = {id:'service-consumer',source:'external',status:'STARTED'};
+    PM.i18n.client = {t(key, fallback, args) { return key + (args ? JSON.stringify(args) : ''); }};
+    PM.state.report = {plugins:[consumer],servicesTruncated:true,services:[{
+        owner:{pluginId:'service-consumer',generation:9,publicationId:12},imports:[{
+            contractId:'unknown-contract',typeName:'example.<Unsafe>',providers:[],truncated:true}],exports:[],
+        bindings:[{bindingId:77,code:'SCHEDULING_REJECTED',dependencies:[],truncated:false}],truncated:true
+    }]};
+    const html = PM.renderDetailHtml(PM.buildViewModel(consumer));
+    ok('服务诊断沿用详情折叠区', html.includes('data-pm-section="services-0"') && html.includes('<details'));
+    ok('服务身份与失败原因经过本地化', html.includes('plugins:services.identity')
+        && html.includes('plugins:services.reason.SCHEDULING_REJECTED') && html.includes('77'));
+    ok('截断诊断不能误报没有实现', html.includes('plugins:services.partial') && !html.includes('plugins:services.none'));
+    ok('契约名只作为转义文本呈现', html.includes('example.&lt;Unsafe&gt;') && !html.includes('example.<Unsafe>'));
+    PM.state.report = previous; PM.i18n.client = client;
+})();
+
 // —— 1) descriptionKey 命中：经 tns(displayNamespace, descriptionKey, fallback) 解析 ——
 (function () {
     const vmm = vmOf({ id: 'gallery', source: 'built-in', status: 'STARTED',

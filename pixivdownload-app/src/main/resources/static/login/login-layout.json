@@ -1,0 +1,160 @@
+{
+  "format": 1,
+  "project": {
+    "pages": [
+      {
+        "frames": [
+          {
+            "component": {
+              "type": "wrapper",
+              "style": {
+                "display": "flex",
+                "flex-direction": "column",
+                "flex": "1"
+              },
+              "components": [
+                {
+                  "type": "page-box",
+                  "role": "header",
+                  "style": {
+                    "display": "flex",
+                    "align-items": "center",
+                    "gap": "12px",
+                    "padding": "14px 4%",
+                    "background-color": "var(--brand)",
+                    "color": "var(--brand-contrast)",
+                    "font-size": "18px",
+                    "font-weight": "700"
+                  },
+                  "components": [
+                    {
+                      "type": "page-region",
+                      "region": "brand",
+                      "style": {
+                        "flex": "1"
+                      }
+                    },
+                    {
+                      "type": "page-region",
+                      "region": "preferences"
+                    }
+                  ]
+                },
+                {
+                  "type": "page-box",
+                  "role": "main",
+                  "style": {
+                    "display": "flex",
+                    "flex-direction": "column",
+                    "flex": "1"
+                  },
+                  "components": [
+                    {
+                      "type": "page-region",
+                      "region": "authentication",
+                      "style": {
+                        "flex": "1",
+                        "display": "flex",
+                        "align-items": "center",
+                        "justify-content": "center",
+                        "padding": "20px 4%"
+                      },
+                      "components": [
+                        {
+                          "type": "page-region",
+                          "region": "admin-card",
+                          "style": {
+                            "width": "100%",
+                            "max-width": "32rem",
+                            "padding": "28px",
+                            "background-color": "var(--surface)",
+                            "border-radius": "8px",
+                            "box-shadow": "var(--shadow)"
+                          },
+                          "components": [
+                            {
+                              "type": "page-region",
+                              "region": "admin-title"
+                            },
+                            {
+                              "type": "page-region",
+                              "region": "username"
+                            },
+                            {
+                              "type": "page-region",
+                              "region": "password"
+                            },
+                            {
+                              "type": "page-region",
+                              "region": "remember"
+                            },
+                            {
+                              "type": "page-region",
+                              "region": "login-error"
+                            },
+                            {
+                              "type": "page-region",
+                              "region": "login-submit"
+                            },
+                            {
+                              "type": "page-region",
+                              "region": "invite-link"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "page-region",
+                          "region": "invite-card",
+                          "style": {
+                            "width": "100%",
+                            "max-width": "32rem",
+                            "padding": "28px",
+                            "background-color": "var(--surface)",
+                            "border-radius": "8px",
+                            "box-shadow": "var(--shadow)"
+                          },
+                          "components": [
+                            {
+                              "type": "page-region",
+                              "region": "invite-title"
+                            },
+                            {
+                              "type": "page-region",
+                              "region": "invite-code"
+                            },
+                            {
+                              "type": "page-region",
+                              "region": "invite-error"
+                            },
+                            {
+                              "type": "page-region",
+                              "region": "invite-submit"
+                            },
+                            {
+                              "type": "page-region",
+                              "region": "back-link"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "page-box",
+                  "role": "footer",
+                  "style": {
+                    "padding": "16px",
+                    "text-align": "center",
+                    "font-size": "14px"
+                  },
+                  "components": []
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

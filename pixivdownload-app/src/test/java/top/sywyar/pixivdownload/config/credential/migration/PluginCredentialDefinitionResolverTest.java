@@ -161,6 +161,36 @@ class PluginCredentialDefinitionResolverTest {
     }
 
     @Test
+    @DisplayName("独立声明与 GUI 同键共用定义，重复独立键拒绝且仍保留遮罩")
+    void combinesIndependentDeclarationsWithoutGuiDependency() {
+        MutablePlugin plugin = new MutablePlugin("owner",
+                List.of(field("owner.token", GuiConfigFieldType.PASSWORD, false)));
+        plugin.credentials = List.of("owner.token", "owner.refresh");
+        var resolver = resolver(new PluginRegistry(List.of(plugin)));
+        assertThat(resolver.resolveForOwner("owner")).containsExactlyInAnyOrder("owner.token", "owner.refresh");
+        assertThat(resolver.resolveSnapshot().maskKeys()).contains("owner.token", "owner.refresh");
+        plugin.credentials = List.of("owner.refresh", "owner.refresh");
+        assertThat(resolver.resolveSnapshot().validDefinitions()).isEmpty();
+        assertThat(resolver.resolveSnapshot().maskKeys()).contains("owner.token", "owner.refresh");
+        plugin.credentials = List.of("foreign.token");
+        assertThat(resolver.resolveSnapshot().validDefinitions()).isEmpty();
+        assertThat(resolver.resolveSnapshot().maskKeys()).contains("foreign.token");
+    }
+
+    @Test
+    @DisplayName("独立凭据与普通 GUI 字段冲突时拒绝全部定义和 GUI 物化并保留遮罩")
+    void rejectsCredentialPresentedAsOrdinaryField() {
+        var plugin = new MutablePlugin("owner", List.of(field("owner.token", GuiConfigFieldType.STRING, false)));
+        plugin.credentials = List.of("owner.token", "owner.refresh");
+        var resolver = resolver(new PluginRegistry(List.of(plugin)));
+        assertThat(resolver.resolveSnapshot().validDefinitions()).isEmpty();
+        assertThat(resolver.resolveSnapshot().maskKeys()).contains("owner.token", "owner.refresh");
+        assertThatThrownBy(() -> resolver.resolveForOwner("owner")).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> PluginCredentialDefinitionResolver.validatedGuiContributions(plugin))
+                .isInstanceOf(IllegalStateException.class).hasMessage("INVALID_CREDENTIAL_DEFINITION");
+    }
+
+    @Test
     @DisplayName("凭据声明初始化错误只拒绝故障 owner，进程级致命错误仍原样抛出")
     void isolatesCredentialGetterFailure() {
         PixivFeaturePlugin broken = org.mockito.Mockito.mock(PixivFeaturePlugin.class);
@@ -189,6 +219,10 @@ class PluginCredentialDefinitionResolverTest {
 
         private String id;
         private final List<GuiConfigFieldContribution> fields;
+        private List<String> credentials = List.of();
+
+        @Override
+        public List<String> credentialKeys() { return credentials; }
 
         private MutablePlugin(String id, List<GuiConfigFieldContribution> fields) {
             this.id = id;

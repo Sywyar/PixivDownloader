@@ -163,18 +163,22 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-onboarding-overlay.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-onboarding.js"),
                 WebRouteContribution.visitorAndInvitedGuest("/css/pixiv-onboarding.css"),
-                WebRouteContribution.visitorAndInvitedGuest("/js/pixiv-ui-slots.js"),
+                WebRouteContribution.publicRoute("/js/pixiv-ui-slots.js"),
                 // 装配端点按当前身份裁剪贡献；共享资源须允许邀请访客读取，不能依赖 VISITOR 目录兜底。
                 WebRouteContribution.visitorAndInvitedGuest("/api/navigation"),
                 WebRouteContribution.visitorAndInvitedGuest("/api/page-sections"),
                 WebRouteContribution.visitorAndInvitedGuest("/api/drilldowns"),
                 // 通用 UI 槽位清单：宿主页面按 target 前缀加载活动插件声明的同源渲染模块。
                 WebRouteContribution.visitorAndInvitedGuest("/api/web/ui-slots"),
+                WebRouteContribution.publicRoute("/api/web/login-verification-slots"),
                 // ── 公开（两种模式均公开）：基础页面、公开 API、公开静态前缀 ──────────────────────
                 WebRouteContribution.publicRoute("/"),
                 WebRouteContribution.publicRoute("/index"),
                 WebRouteContribution.publicRoute("/index.html"),
                 WebRouteContribution.publicRoute("/login.html"),
+                new WebRouteContribution("/api/web/page-publications/*", AccessPolicy.PUBLIC, Set.of(HttpMethod.GET, HttpMethod.HEAD), false),
+                WebRouteContribution.publicRoute("/js/pixiv-pages.mjs"),
+                WebRouteContribution.publicRoute("/sdk/values/value-codecs.mjs"),
                 WebRouteContribution.publicRoute("/intro.html"),
                 WebRouteContribution.publicRoute("/intro-canary.html"),
                 WebRouteContribution.publicRoute("/favicon.ico"),

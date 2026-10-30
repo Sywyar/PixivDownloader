@@ -80,12 +80,13 @@ public class PluginCredentialDefinitionResolver {
             discovered.put(owner, keys);
             owned.put(owner, new LinkedHashSet<>());
             try {
-                collectSensitiveKeys(registered, keys);
+                collectKeys(registered.plugin(), keys);
             } catch (Throwable e) {
                 if (e instanceof VirtualMachineError fatal) throw fatal;
                 if (e instanceof ThreadDeath fatal) throw fatal;
-                failures.put(owner, safeMessage(e));
-                pluginRegistry.recordLifecycleFailure(registered, e);
+                failures.put(owner, "INVALID_CREDENTIAL_DEFINITION");
+                pluginRegistry.recordLifecycleFailure(registered,
+                        new IllegalStateException("INVALID_CREDENTIAL_DEFINITION"));
             }
         }
 
@@ -129,12 +130,19 @@ public class PluginCredentialDefinitionResolver {
         return new Resolution(valid, maskKeys, hostKeys, failures);
     }
 
-    private static void collectSensitiveKeys(PluginRegistry.RegisteredPlugin registered,
-                                             Set<String> keys) throws IOException {
-        List<GuiConfigContribution> contributions = registered.plugin().guiConfigContributions();
+    /** 桌面物化与凭据解析共用分类校验，冲突声明不得进入普通配置保存路径。 */
+    public static List<GuiConfigContribution> validatedGuiContributions(
+            top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin plugin) throws IOException {
+        return collectKeys(plugin, new LinkedHashSet<>());
+    }
+
+    private static List<GuiConfigContribution> collectKeys(
+            top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin plugin, Set<String> keys) throws IOException {
+        List<GuiConfigContribution> contributions = plugin.guiConfigContributions();
         if (contributions == null) {
             throw new IllegalStateException("GUI config contribution list is null");
         }
+        Set<String> ordinary = new LinkedHashSet<>();
         for (GuiConfigContribution contribution : contributions) {
             if (contribution == null) {
                 throw new IllegalStateException("GUI config contribution is null");
@@ -147,15 +155,21 @@ public class PluginCredentialDefinitionResolver {
                 if (field == null) {
                     throw new IllegalStateException("GUI config field is null");
                 }
+                String key = ConfigFileEditor.requireSafeKey(field.key());
                 if (!field.sensitive() && field.type() != GuiConfigFieldType.PASSWORD) {
+                    ordinary.add(key);
                     continue;
                 }
-                String key = ConfigFileEditor.requireSafeKey(field.key());
                 if (!keys.add(key)) {
                     throw new IllegalStateException("duplicate credential key: " + key);
                 }
             }
         }
+        collectDeclaredKeys(plugin, keys);
+        if (ordinary.stream().anyMatch(keys::contains)) {
+            throw new IllegalStateException("INVALID_CREDENTIAL_DEFINITION");
+        }
+        return List.copyOf(contributions);
     }
 
     private static Set<String> currentCoreConfigKeys() {
@@ -193,11 +207,21 @@ public class PluginCredentialDefinitionResolver {
         return owner;
     }
 
-    private static String safeMessage(Throwable failure) {
-        String message = failure.getMessage();
-        return message == null || message.isBlank()
-                ? failure.getClass().getSimpleName()
-                : message;
+    private static void collectDeclaredKeys(top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin plugin,
+                                            Set<String> keys) throws IOException {
+        List<String> declared = plugin.credentialKeys();
+        if (declared == null || declared.size() > 128) {
+            throw new IllegalStateException("INVALID_CREDENTIAL_DEFINITION");
+        }
+        Set<String> seen = new LinkedHashSet<>();
+        for (String candidate : declared) {
+            if (candidate == null || candidate.length() > 256) {
+                throw new IllegalStateException("INVALID_CREDENTIAL_DEFINITION");
+            }
+            String key = ConfigFileEditor.requireSafeKey(candidate);
+            keys.add(key);
+            if (!seen.add(key)) throw new IllegalStateException("INVALID_CREDENTIAL_DEFINITION");
+        }
     }
 
     record Resolution(Map<String, Set<String>> validDefinitions,

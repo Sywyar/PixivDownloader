@@ -1,0 +1,89 @@
+{
+  "license": "MIT",
+  "packages": {
+    "@codemirror/autocomplete": {
+      "version": "6.20.4",
+      "source": "https://registry.npmmirror.com/@codemirror/autocomplete/-/autocomplete-6.20.4.tgz",
+      "integrity": "sha512-yF8RhOf2SXlg00+qtupzLhrglcas61boqaONiNcbPIebHCpJocpqTBA6dyrtUrQO47hqyTdeob/3XnYilT7TaQ=="
+    },
+    "@codemirror/commands": {
+      "version": "6.11.1",
+      "source": "https://registry.npmmirror.com/@codemirror/commands/-/commands-6.11.1.tgz",
+      "integrity": "sha512-O/4hG3SC1YwcmQ0d2UVNDs+AsaNWd1iHVxbTeEBuqH+6bExAiPK3iS/BvpY6rZGURALv4ZD3sIgcCmRvw3ehBg=="
+    },
+    "@codemirror/lang-css": {
+      "version": "6.3.1",
+      "source": "https://registry.npmmirror.com/@codemirror/lang-css/-/lang-css-6.3.1.tgz",
+      "integrity": "sha512-kr5fwBGiGtmz6l0LSJIbno9QrifNMUusivHbnA1H6Dmqy4HZFte3UAICix1VuKo0lMPKQr2rqB+0BkKi/S3Ejg=="
+    },
+    "@codemirror/language": {
+      "version": "6.13.1",
+      "source": "https://registry.npmmirror.com/@codemirror/language/-/language-6.13.1.tgz",
+      "integrity": "sha512-zfvU2r3TyylQLMj/te+5CnQ0rSqZi8B1oTCBbQkagcLW4Xc6imab6qN+pEJhsuNOLaJqiRyBXp9UhWA1DhVvDw=="
+    },
+    "@codemirror/lint": {
+      "version": "6.9.7",
+      "source": "https://registry.npmmirror.com/@codemirror/lint/-/lint-6.9.7.tgz",
+      "integrity": "sha512-28/+iWLYxKxsvGYhSYL7zaCZqLz5+FFFDq9tVsvGv9kv8RY4fFAchJ5WX9M3YrrRlTIsECjsXPqeNgnSmNP2dg=="
+    },
+    "@codemirror/state": {
+      "version": "6.7.6",
+      "source": "https://registry.npmmirror.com/@codemirror/state/-/state-6.7.6.tgz",
+      "integrity": "sha512-kAz+AncRtKuIknedxT1bq4XwXv4UowhbkHU1myPrtVb/jZtImWuV5BXzv5vK6i3kYACsdiZiQKFQQ5Mq7elW8w=="
+    },
+    "@codemirror/streamparser": {
+      "version": "6.0.0",
+      "source": "https://registry.npmmirror.com/@codemirror/streamparser/-/streamparser-6.0.0.tgz",
+      "integrity": "sha512-JTFPF6xrfjt0mnfGPgzcLiMwYmvIyNaoizp8BYzv8FE8KrT6GBGDZ190rtt+O7Wke3gG/MFHyiY9YGNeimof4w=="
+    },
+    "@codemirror/view": {
+      "version": "6.43.15",
+      "source": "https://registry.npmmirror.com/@codemirror/view/-/view-6.43.15.tgz",
+      "integrity": "sha512-HHsfpqFeHyXLs983pSRe38Xajs0vFWZQ2BuX0m7Ki8w3jZ5iD8cuR3lBz2/5/X53Dhf32SBHKh6rtSTB6tKeGw=="
+    },
+    "@lezer/common": {
+      "version": "1.5.4",
+      "source": "https://registry.npmmirror.com/@lezer/common/-/common-1.5.4.tgz",
+      "integrity": "sha512-xt3Q4z64xM+xhg4M7NXqw1N//1O74bUFo5kz6fwMeC4qwxSuRdwkYSmjcqCEEKYkNw5e67f2hcNqBoNERAEU0w=="
+    },
+    "@lezer/css": {
+      "version": "1.3.9",
+      "source": "https://registry.npmmirror.com/@lezer/css/-/css-1.3.9.tgz",
+      "integrity": "sha512-ZmzgvTOBdJWGIsY/ItAfN7UW8DV802oZG+jeG6E508SwEzz5YhuAajptpWPICvIyqYAD2+VjMdOS40GgGkyEOQ=="
+    },
+    "@lezer/highlight": {
+      "version": "1.2.5",
+      "source": "https://registry.npmmirror.com/@lezer/highlight/-/highlight-1.2.5.tgz",
+      "integrity": "sha512-O1GMVKgtf5YspFaRzpmqkVgMtIk2HG9uMAbH6wdAIdNh3TVzCsch/+cRi+6l2//UGDKe6NB9BW3cvuR5ezMQ0w=="
+    },
+    "@lezer/lr": {
+      "version": "1.4.11",
+      "source": "https://registry.npmmirror.com/@lezer/lr/-/lr-1.4.11.tgz",
+      "integrity": "sha512-UwgZcl1R66H2hDzBrA7kWyYmX6s8p5TQ+e/t7CuvgCtBEPxbEPaHYHu+pJBvTvDotEJpuQkJjbXuHiw5Cixxgw=="
+    },
+    "@marijn/find-cluster-break": {
+      "version": "1.0.4",
+      "source": "https://registry.npmmirror.com/@marijn/find-cluster-break/-/find-cluster-break-1.0.4.tgz",
+      "integrity": "sha512-Wy0V7+SGUjnF9/TkiM1hKVDPj7jKXduPNboMVtHTA8dySMURWqfg/JZ9E2Sq8JgSJmkl7k7Qe9FLeMSrSraWmQ=="
+    },
+    "crelt": {
+      "version": "1.0.7",
+      "source": "https://registry.npmmirror.com/crelt/-/crelt-1.0.7.tgz",
+      "integrity": "sha512-aK6BbWfhf4U/wCcLHKPJl/xa6VkVstRaPywWtMKGwuOLc/wZTyQYuoxgvZnNsBvv7Kg3YTBQYYBCggcviQczuA=="
+    },
+    "style-mod": {
+      "version": "4.1.4",
+      "source": "https://registry.npmmirror.com/style-mod/-/style-mod-4.1.4.tgz",
+      "integrity": "sha512-XXWIQt633/EpAFx8aZDOTjBzrCaGmhvEQlQo6MVPfa2OzO2cWo+4hV9h+6UkHYlXGfy+ODXKUdP7Pthmcu5ATw=="
+    },
+    "w3c-keyname": {
+      "version": "2.2.8",
+      "source": "https://registry.npmmirror.com/w3c-keyname/-/w3c-keyname-2.2.8.tgz",
+      "integrity": "sha512-dpojBhNsCNN7T82Tm7k26A6G9ML3NkhDsnw9n/eoxSRlVBB4CEtIQ/KTCLI2Fwf3ataSXRhYFkQi3SlnFwPvPQ=="
+    }
+  },
+  "files": {
+    "codemirror.mjs": "dcf5a1aec37297d2d490cfee80bcdb30a258f054d9e11485e563fe5ab52bebe3",
+    "LICENSES.txt": "565d77836e68f31e23327632f983c351397b123d30efe9e93959434af54b3aa3"
+  }
+}

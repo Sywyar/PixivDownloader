@@ -196,11 +196,12 @@
         if (markResizeBound) return;
         markResizeBound = true;
         let rt = null;
+        state.signal?.addEventListener('abort', () => { clearTimeout(rt); markResizeBound = false; }, {once: true});
         window.addEventListener('resize', () => {
             if (!markedBlocks.length) return;
             if (rt) clearTimeout(rt);
             rt = setTimeout(computeMarkGutter, 150);
-        });
+        }, {signal: state.signal});
     }
 
     function hasMarkedBlocks() { return markedBlocks.length > 0; }

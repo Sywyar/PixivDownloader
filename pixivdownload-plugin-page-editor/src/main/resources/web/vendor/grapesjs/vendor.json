@@ -1,0 +1,12 @@
+{
+  "name": "grapesjs",
+  "version": "0.23.8",
+  "license": "BSD-3-Clause",
+  "source": "https://github.com/GrapesJS/grapesjs",
+  "package": "https://registry.npmjs.org/grapesjs/-/grapesjs-0.23.8.tgz",
+  "files": {
+    "grapes.min.css": "fb55e939b3349c280d68c0617dc87e56baa3eab55ea56a1855db9f5efcc7268d",
+    "grapes.min.js": "69fb7276354a4181f82c0081c56b96e6d6664aeb040599a9a2896b48ee055392",
+    "LICENSE": "1a7603ac82661e3ec4f0ad015e37f68ab62c85c725f07659b81760edb459ff8d"
+  }
+}

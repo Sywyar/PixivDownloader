@@ -78,6 +78,8 @@ public final class TypedServicesAcceptance {
             check(installer.recoverPendingTransactions().safeToScan(), "initial recovery");
             install(installer, Path.of(args[1]), true);
             install(installer, Path.of(args[2]), true);
+            check(args.length == 6, "original published plugin argument is required");
+            install(installer, Path.of(args[5]), true);
             install(installer, contract, false);
             install(installer, consumer, false);
             install(installer, fixtures.resolve("probe-contract.jar"), false);
@@ -85,6 +87,9 @@ public final class TypedServicesAcceptance {
             install(installer, fixtures.resolve("probe-consumer.jar"), false);
             install(installer, fixtures.resolve("remote-ledger-contract.jar"), false);
             install(installer, fixtures.resolve("remote-ledger-consumer.jar"), false);
+            for(String id : List.of("independent-contract", "independent-collector", "independent-display", "neutral-login")) {
+                install(installer, fixtures.resolve(id + ".jar"), false);
+            }
         }
         var app = new SpringApplication(PixivDownloadApplication.class);
         app.addInitializers(context -> {
@@ -100,7 +105,8 @@ public final class TypedServicesAcceptance {
             });
         });
         try (ConfigurableApplicationContext context = app.run("--server.port=0", "--server.address=127.0.0.1",
-                "--setup.browser.auto-open=false", "--spring.main.banner-mode=off")) {
+                "--setup.browser.auto-open=false", "--spring.main.banner-mode=off",
+                "--setup.login-verification-policies=neutral-policy", "--setup.login-rate-limit-minute=100")) {
             var coordinator = context.getBean(ExternalPluginLifecycleCoordinator.class);
             var contexts = context.getBean(ExternalPluginContextManager.class);
             var setup = context.getBean(SetupService.class);
@@ -115,6 +121,35 @@ public final class TypedServicesAcceptance {
             check(login.statusCode() == 200, "login: " + login.statusCode());
             String cookie = login.headers().allValues("set-cookie").stream()
                     .filter(value -> value.startsWith("pixiv_session=")).findFirst().orElseThrow().split(";")[0];
+            check(args.length == 6, "original published plugin argument is required");
+            {
+                var descriptor = PluginPackageReader.inspect(Path.of(args[5])).descriptor();
+                var legacy = context.getBean(top.sywyar.pixivdownload.plugin.registry.PluginRegistry.class).registeredPlugins()
+                    .stream().filter(item -> item.id().equals(descriptor.id())).findFirst().orElseThrow();
+                check(!legacy.plugin().guiThemes().isEmpty(), "published original theme plugin contributes actual themes");
+                var theme = legacy.plugin().guiThemes().stream()
+                        .filter(item -> item.appearance() == top.sywyar.pixivdownload.plugin.api.gui.GuiThemeAppearance.DARK)
+                        .findFirst().orElseThrow();
+                var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+                java.awt.EventQueue.invokeAndWait(() -> {
+                    var before = javax.swing.UIManager.getLookAndFeel();
+                    try {
+                        theme.applyOnEventDispatchThread();
+                        check(javax.swing.UIManager.getLookAndFeel() != before, "old plugin theme entry changes the active look and feel");
+                        check(javax.swing.UIManager.getLookAndFeel().getClass().getClassLoader() == legacy.classLoader(),
+                                "theme implementation executes from the loaded original plugin");
+                    } catch (Throwable error) { failure.set(error); }
+                    finally {
+                        try { javax.swing.UIManager.setLookAndFeel(before); }
+                        catch (Exception error) { failure.set(error); }
+                    }
+                });
+                if (failure.get() != null) throw new AssertionError("original plugin theme invocation failed", failure.get());
+                check(legacy.plugin().credentialKeys().isEmpty() && legacy.plugin().serviceImports().isEmpty(),
+                    "new additive default contracts execute on unchanged old implementation");
+                System.out.println("ORIGINAL_PUBLISHED_PLUGIN_BINARY_PASSED id=" + descriptor.id()
+                    + " version=" + descriptor.version() + " entry=theme.applyOnEventDispatchThread sha256=" + PluginPackageIntegrity.sha256Hex(Path.of(args[5])));
+            }
             check(contexts.contextFor("download-workbench").orElseThrow().isActive(), "workbench context active");
             var workbenchPage = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).build()
                     .send(HttpRequest.newBuilder(URI.create(origin + "/pixiv-batch.html"))
@@ -123,6 +158,7 @@ public final class TypedServicesAcceptance {
                     "workbench page from installed binary: status=" + workbenchPage.statusCode()
                             + ", type=" + workbenchPage.headers().firstValue("Content-Type")
                             + ", location=" + workbenchPage.headers().firstValue("Location"));
+            PlatformServicesAcceptance.verifyLogin(context, fixtures, origin);
             checkLocalizedUnavailable(client, origin, cookie);
             rejectPackagedCopies(coordinator, provider, examples.resolve("api/target/text-metrics-api-0.1.0.jar"));
             var pending = coordinator.installOrUpdate(provider, false, origin(provider, false, null));
@@ -162,6 +198,7 @@ public final class TypedServicesAcceptance {
             check(context.getBean(PluginRuntimeManager.class).loadedDescriptor("text-metrics-contract").isPresent(), "contract retained");
             exerciseFaults(context, fixtures);
             exerciseRemote(context, fixtures, origin, cookie);
+            PlatformServicesAcceptance.run(context, fixtures, origin, cookie);
             var contractEntry = context.getBean(top.sywyar.pixivdownload.plugin.registry.PluginRegistry.class)
                     .registeredPlugins().stream().filter(item -> item.id().equals("text-metrics-contract")).findFirst().orElseThrow();
             ClassLoader resident = contractEntry.classLoader();
@@ -375,14 +412,14 @@ public final class TypedServicesAcceptance {
         }
     }
 
-    private static void activate(ExternalPluginLifecycleCoordinator coordinator, Path jar) throws Exception {
+    static void activate(ExternalPluginLifecycleCoordinator coordinator, Path jar) throws Exception {
         var pending = coordinator.installOrUpdate(jar, false, origin(jar, false, null));
         check(pending.installResult().outcome() == PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED, "trust: " + pending);
         var active = coordinator.installOrUpdate(jar, false, origin(jar, false, pending.installResult().trustRequirement().artifactSha256()));
         check(active.activated(), "activation: " + active);
     }
 
-    private static HttpResponse<String> post(HttpClient client, String origin, String path, String body, String cookie) throws Exception {
+    static HttpResponse<String> post(HttpClient client, String origin, String path, String body, String cookie) throws Exception {
         return post(client, origin, path, body, cookie, "en-US");
     }
 
@@ -468,7 +505,7 @@ public final class TypedServicesAcceptance {
         if (active) check(calls.get() - before == 5, "only three valid requests and two explicit failure probes reach provider");
     }
 
-    private static void stopEventually(ExternalPluginLifecycleCoordinator coordinator, String id) throws Exception {
+    static void stopEventually(ExternalPluginLifecycleCoordinator coordinator, String id) throws Exception {
         long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
         while (true) {
             try { coordinator.stop(id); return; }
@@ -479,7 +516,7 @@ public final class TypedServicesAcceptance {
         }
     }
 
-    private static void await(java.util.function.BooleanSupplier condition, String label) throws Exception {
+    static void await(java.util.function.BooleanSupplier condition, String label) throws Exception {
         long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
         while (!condition.getAsBoolean() && System.nanoTime() < deadline) Thread.sleep(10);
         check(condition.getAsBoolean(), label);
@@ -545,7 +582,7 @@ public final class TypedServicesAcceptance {
         installer.completeTransaction(committed);
     }
 
-    private static void check(boolean condition, String message) {
+    static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
     }
 }

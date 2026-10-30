@@ -234,6 +234,196 @@ class DesktopConfigurationControllerTest {
         }
     }
 
+    @Test
+    @DisplayName("凭据快照和失败回滚共享同一锁，锁前完成的并发轮换不会被覆盖")
+    @SuppressWarnings("unchecked")
+    void rollbackPreservesConcurrentCredentialRotation() throws Exception {
+        var secret = new GuiConfigFieldContribution("demo.secret", "demo", "secret", GuiConfigFieldType.PASSWORD, "", 1);
+        var source = new DesktopUiPluginSnapshot("demo", false, "demo", 1, false, "demo", "demo",
+                List.of(), List.of(new GuiConfigContribution(
+                        List.of(new GuiConfigGroupContribution("demo", "demo", "demo", 1, true)),
+                        List.of(secret), List.of())), List.of(), List.of(), List.of());
+        var lock = new java.util.concurrent.locks.ReentrantLock();
+        var beforeLock = new java.util.concurrent.CountDownLatch(1);
+        var rotated = new java.util.concurrent.CountDownLatch(1);
+        var rolledBack = new java.util.concurrent.CountDownLatch(1);
+        var rotationFailure = new AtomicReference<Throwable>();
+        var saving = new java.util.concurrent.atomic.AtomicBoolean();
+        var credentials = new HashMap<>(Map.of("demo.refresh", "old"));
+        var rotation = new Thread(() -> {
+            try {
+                assertTrue(beforeLock.await(5, java.util.concurrent.TimeUnit.SECONDS));
+                lock.lock();
+                try { credentials.put("demo.refresh", "rotated"); }
+                finally { lock.unlock(); }
+            } catch (Throwable failure) { rotationFailure.set(failure); }
+            finally { rotated.countDown(); }
+        });
+        DesktopUiHost.ConfigFile file = new DesktopUiHost.ConfigFile() {
+            public Map<String, String> readAll(Collection<String> keys) { return Map.of(); }
+            public void writeAll(Map<String, String> values) { throw new AssertionError("plaintext write"); }
+            public void removeAll(Collection<String> keys) { }
+            public DesktopUiHost.ConfigSnapshot snapshot() { return new DesktopUiHost.ConfigSnapshot(false, List.of()); }
+            public void restore(DesktopUiHost.ConfigSnapshot snapshot) { throw new AssertionError("unexpected rollback"); }
+        };
+        try (var model = model(new HashMap<>(), Map.of(
+                "pluginConfig", args -> file,
+                "snapshotCredentials", args -> new DesktopUiHost.CredentialSnapshot(true,
+                        credentials.get("demo.refresh").getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+                "withCredentialLocks", args -> {
+                    try {
+                        if (saving.get()) {
+                            beforeLock.countDown();
+                            assertTrue(rotated.await(5, java.util.concurrent.TimeUnit.SECONDS));
+                        }
+                        lock.lock();
+                        try { ((DesktopUiHost.IoOperation) args[1]).run(); }
+                        finally { lock.unlock(); }
+                    } catch (InterruptedException failure) {
+                        Thread.currentThread().interrupt(); throw new AssertionError(failure);
+                    } catch (java.io.IOException failure) { throw new java.io.UncheckedIOException(failure); }
+                    return null;
+                },
+                "updateCredentials", args -> {
+                    credentials.putAll((Map<String, String>) args[1]);
+                    throw new java.io.UncheckedIOException(new java.io.IOException("fixture write failed"));
+                },
+                "restoreCredentials", args -> {
+                    assertTrue(lock.isHeldByCurrentThread());
+                    credentials.clear();
+                    credentials.put("demo.refresh", new String(((DesktopUiHost.CredentialSnapshot) args[1]).content(),
+                            java.nio.charset.StandardCharsets.UTF_8));
+                    rolledBack.countDown();
+                    return null;
+                }), () -> List.of(source))) {
+            dispatch(model, new DesktopUiNode.Event(DesktopUiNode.EventType.CHANGE,
+                    "config.demo.demo.secret.input", DesktopUiNode.Value.text("draft")));
+            rotation.start();
+            saving.set(true);
+            activate(model, "config.save");
+            assertTrue(rolledBack.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            awaitReady(model);
+            rotation.join(5000);
+            assertFalse(rotation.isAlive());
+            assertEquals(null, rotationFailure.get());
+            assertEquals(Map.of("demo.refresh", "rotated"), credentials);
+            assertEquals(1, pendingCount(model));
+        } finally {
+            beforeLock.countDown();
+            rotation.join(5000);
+        }
+    }
+
+    @Test
+    @DisplayName("重新加载补写普通默认值失败时，不回滚已成功的并发凭据轮换")
+    void reloadRollbackPreservesConcurrentCredentialRotation() throws Exception {
+        reloadPreservesConcurrentCredentialRotation(true);
+    }
+
+    @Test
+    @DisplayName("重新加载在同一锁内读取和规划迁移，不用旧明文覆盖已成功轮换的凭据")
+    void reloadMigrationPreservesConcurrentCredentialRotation() throws Exception {
+        reloadPreservesConcurrentCredentialRotation(false);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void reloadPreservesConcurrentCredentialRotation(boolean failWrite) throws Exception {
+        var secret = new GuiConfigFieldContribution("demo.secret", "demo", "secret", GuiConfigFieldType.PASSWORD, "", 1);
+        var ordinary = new GuiConfigFieldContribution("demo.option", "demo", "option", GuiConfigFieldType.STRING, "default", 2);
+        var source = new DesktopUiPluginSnapshot("demo", false, "demo", 1, false, "demo", "demo",
+                List.of(), List.of(new GuiConfigContribution(
+                        List.of(new GuiConfigGroupContribution("demo", "demo", "demo", 1, true)),
+                        List.of(secret, ordinary), List.of())), List.of(), List.of(), List.of());
+        var sources = new AtomicReference<List<DesktopUiPluginSnapshot>>(List.of());
+        var lock = new java.util.concurrent.locks.ReentrantLock();
+        var beforeLock = new java.util.concurrent.CountDownLatch(1);
+        var rotated = new java.util.concurrent.CountDownLatch(1);
+        var completed = new java.util.concurrent.CountDownLatch(1);
+        var rotationFailure = new AtomicReference<Throwable>();
+        var credentials = new HashMap<String, String>();
+        var pluginValues = new HashMap<String, String>();
+        if (failWrite) credentials.put("demo.secret", "old");
+        else pluginValues.put("demo.secret", "legacy");
+        var writes = new java.util.concurrent.atomic.AtomicInteger();
+        var rollbacks = new java.util.concurrent.atomic.AtomicInteger();
+        DesktopUiHost.ConfigFile application = new DesktopUiHost.ConfigFile() {
+            public Map<String, String> readAll(Collection<String> keys) { return Map.of(); }
+            public void writeAll(Map<String, String> values) { throw new AssertionError("unexpected application write"); }
+            public void removeAll(Collection<String> keys) { throw new AssertionError("unexpected application removal"); }
+            public DesktopUiHost.ConfigSnapshot snapshot() { return new DesktopUiHost.ConfigSnapshot(false, List.of()); }
+            public void restore(DesktopUiHost.ConfigSnapshot snapshot) { }
+        };
+        DesktopUiHost.ConfigFile plugin = new DesktopUiHost.ConfigFile() {
+            public Map<String, String> readAll(Collection<String> keys) { return Map.copyOf(pluginValues); }
+            public void writeAll(Map<String, String> values) throws java.io.IOException {
+                writes.incrementAndGet();
+                assertEquals(Map.of("demo.option", "default"), values);
+                if (failWrite) throw new java.io.IOException("fixture ordinary write failed");
+                pluginValues.putAll(values);
+            }
+            public void removeAll(Collection<String> keys) { keys.forEach(pluginValues::remove); }
+            public DesktopUiHost.ConfigSnapshot snapshot() { return new DesktopUiHost.ConfigSnapshot(false, List.of()); }
+            public void restore(DesktopUiHost.ConfigSnapshot snapshot) { }
+        };
+        var rotation = new Thread(() -> {
+            try {
+                assertTrue(beforeLock.await(5, java.util.concurrent.TimeUnit.SECONDS));
+                lock.lock();
+                try { credentials.put("demo.secret", "rotated"); }
+                finally { lock.unlock(); }
+            } catch (Throwable failure) { rotationFailure.set(failure); }
+            finally { rotated.countDown(); }
+        });
+        try (var model = model(new HashMap<>(), Map.of(
+                "applicationConfig", args -> application,
+                "pluginConfig", args -> plugin,
+                "backendSnapshot", args -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.RUNNING, null),
+                "readCredentials", args -> Map.copyOf(credentials),
+                "snapshotCredentials", args -> new DesktopUiHost.CredentialSnapshot(true,
+                        credentials.getOrDefault("demo.secret", "").getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+                "withCredentialLocks", args -> {
+                    beforeLock.countDown();
+                    try {
+                        assertTrue(rotated.await(5, java.util.concurrent.TimeUnit.SECONDS));
+                        lock.lock();
+                        try { ((DesktopUiHost.IoOperation) args[1]).run(); }
+                        finally { lock.unlock(); }
+                    } catch (InterruptedException failure) {
+                        Thread.currentThread().interrupt(); throw new AssertionError(failure);
+                    } catch (java.io.IOException failure) { throw new java.io.UncheckedIOException(failure); }
+                    finally { completed.countDown(); }
+                    return null;
+                },
+                "updateCredentials", args -> { credentials.putAll((Map<String, String>) args[1]); return null; },
+                "restoreCredentials", args -> {
+                    rollbacks.incrementAndGet();
+                    credentials.clear();
+                    credentials.put("demo.secret", new String(((DesktopUiHost.CredentialSnapshot) args[1]).content(),
+                            java.nio.charset.StandardCharsets.UTF_8));
+                    return null;
+                }), sources::get)) {
+            sources.set(List.of(source));
+            rotation.start();
+            activate(model, "config.reload");
+            assertTrue(completed.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            awaitReady(model);
+            rotation.join(5000);
+            assertFalse(rotation.isAlive());
+            assertEquals(null, rotationFailure.get());
+            assertEquals(1, writes.get());
+            assertEquals(failWrite ? 1 : 0, rollbacks.get());
+            assertEquals(Map.of("demo.secret", "rotated"), credentials);
+            assertFalse(pluginValues.containsKey("demo.secret"));
+            assertEquals("", nodes(model).filter(DesktopUiNode.TextInput.class::isInstance)
+                    .map(DesktopUiNode.TextInput.class::cast)
+                    .filter(input -> input.id().equals("config.demo.demo.secret.input"))
+                    .findFirst().orElseThrow().value());
+        } finally {
+            beforeLock.countDown();
+            rotation.join(5000);
+        }
+    }
+
     private static void assertCredentialSaveRejected(ComposeDesktopUiModel model) {
         activate(model, "config.save");
         assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
@@ -696,7 +886,10 @@ class DesktopConfigurationControllerTest {
                 DesktopUiHost.class.getClassLoader(),
                 new Class<?>[]{DesktopUiHost.class},
                 (proxy, method, arguments) -> {
-                    if (overrides.containsKey(method.getName())) return overrides.get(method.getName()).apply(arguments);
+                    if (overrides.containsKey(method.getName())) {
+                        try { return overrides.get(method.getName()).apply(arguments); }
+                        catch (java.io.UncheckedIOException failure) { throw failure.getCause(); }
+                    }
                     switch (method.getName()) {
                         case "applicationName": return "PixivDownloader";
                         case "applicationBuildChannel": return DesktopUiHost.BuildChannel.UNKNOWN;

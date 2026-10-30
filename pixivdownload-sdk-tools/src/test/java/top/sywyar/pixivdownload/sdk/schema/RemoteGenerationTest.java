@@ -44,6 +44,56 @@ class RemoteGenerationTest {
                 @ValueProperty(required=false, nullable=true) String note) {}
             """;
 
+    @Test @DisplayName("生成客户端与本地校验器共同拒绝无损编码的非法值，响应保留精度")
+    void encodedValues() throws Exception {
+        Path project = source("""
+                @ValueSchema record Request(
+                  @ValueProperty(required=true,nullable=false,encoding=ValueEncoding.DECIMAL_STRING) long sequence,
+                  @ValueProperty(required=true,nullable=false) UUID id,
+                  @ValueProperty(required=true,nullable=false) java.time.Instant time,
+                  @ValueProperty(required=true,nullable=false) java.time.Duration delay,
+                  @ValueProperty(required=true,nullable=false) float score,
+                  @ValueProperty(required=true,nullable=false) double ratio) {}
+                """);
+        Path source = project.resolve("src/main/java/unknown/RemoteProbe.java");
+        Files.writeString(source, Files.readString(source).replace("Reply execute(Request", "Request execute(Request"));
+        generate(project);
+        Path generated = project.resolve("target/classes/META-INF/pixivdownload/schema");
+        Path schema = generated.resolve("unknown.RemoteProbe.Request.schema.json");
+        String valid = """
+                {"sequence":"9223372036854775807","id":"12345678-1234-5678-1234-567812345678",
+                 "time":"31556889864403199:999999999","delay":"-1:000000001","score":"80000000","ratio":"0000000000000001"}
+                """;
+        Path sample = project.resolve("sample.json"); Files.writeString(sample, valid);
+        SchemaFiles.check(schema, sample);
+        for (String broken : List.of(valid.replace("9223372036854775807", "9223372036854775808"),
+                valid.replace("80000000", "7f800000"), valid.replace("31556889864403199", "31556889864403200"))) {
+            Files.writeString(sample, broken);
+            assertThatThrownBy(() -> SchemaFiles.check(schema, sample)).hasMessage("SDK_SCHEMA_DATA_INVALID");
+        }
+        Path script = project.resolve("encoded.mjs");
+        Files.writeString(script, """
+                import assert from 'node:assert/strict';
+                import {createClient, contractIdentity, wireValues as w} from './target/classes/META-INF/pixivdownload/schema/unknown.RemoteProbe.mjs';
+                const input = {sequence: w.int64(9223372036854775807n), id: w.uuid('12345678-1234-5678-1234-567812345678'),
+                  time:w.instant(31556889864403199n,999999999),delay:w.duration(-1n,1),score:w.float32(-0),ratio:w.float64(Number.MIN_VALUE)};
+                let calls = 0;
+                const client = createClient(async (path, init) => { calls++; return new Response(init.body,{headers:{'X-Pixiv-Contract':contractIdentity}}); });
+                const result = await client.execute(input);
+                assert.deepEqual(result,input); assert.equal(result.sequence,'9223372036854775807');
+                assert.ok(Object.is(w.number32(result.score),-0)); assert.equal(w.number64(result.ratio),Number.MIN_VALUE);
+                for (const changes of [{sequence:'9223372036854775808'},{time:'31556889864403200:000000000'},
+                    {score:'7f800000'},{ratio:'7ff8000000000000'},{id:'1-1-1-1-1'},{sequence:9223372036854775807}])
+                  await assert.rejects(client.execute({...input,...changes}), {code:'REMOTE_VALUE_INVALID'});
+                assert.equal(calls,1);
+                const broken = createClient(async () => new Response(JSON.stringify({...input,ratio:'7ff0000000000000'}),{headers:{'X-Pixiv-Contract':contractIdentity}}));
+                await assert.rejects(broken.execute(input),{code:'REMOTE_VALUE_INVALID'});
+                """, StandardCharsets.UTF_8);
+        Process process = new ProcessBuilder("node", script.toString()).redirectErrorStream(true).start();
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertThat(process.waitFor()).withFailMessage(output).isZero();
+    }
+
     @Test @DisplayName("双下划线 proto 操作作为普通成员执行")
     void executesProtoOperation() throws Exception {
         executeSpecialName("__proto__", "text");
@@ -100,7 +150,7 @@ class RemoteGenerationTest {
         RemoteAdapterGenerator.generate(consumer, classpath, "unknown.RemoteProbe");
         try (var loader = new URLClassLoader(new java.net.URL[]{classes.toUri().toURL(),
                 consumer.resolve("target/classes").toUri().toURL()}, getClass().getClassLoader())) {
-            Class<?> adapter = loader.loadClass("pixivdownload.generated.remote.RemoteProbeRemoteAdapter");
+            Class<?> adapter = loader.loadClass("pixivdownload.generated.remote.unknown.RemoteProbeRemoteAdapter");
             var calls = new ArrayList<String>();
             RemoteOperations operations = (key, operation, identity) -> {
                 assertThat(key.type().getName()).isEqualTo("unknown.RemoteProbe");
@@ -135,6 +185,68 @@ class RemoteGenerationTest {
         source(REQUEST + "@RemoteOperation(path=\"/api/probe/other\", method=HttpMethod.POST, access=AccessPolicy.ADMIN) Reply execute(String localOnly);\n");
         assertThatThrownBy(() -> generate(project)).hasMessageContaining("SDK_SCHEMA_COMPILE");
         assertThat(project.resolve("target/schema-generation.complete")).doesNotExist();
+    }
+
+    @Test @DisplayName("同简单名的多服务整批编译，非 clean 删除及编译失败均清理旧 Java 和浏览器产物")
+    void publishesMultipleServicesAsOneBatch() throws Exception {
+        Path project = source(REQUEST);
+        Path original = project.resolve("src/main/java/unknown/RemoteProbe.java");
+        String contents = Files.readString(original, StandardCharsets.UTF_8);
+        Files.delete(original);
+        List<Path> sources = new ArrayList<>();
+        for (String pack : List.of("first", "second")) {
+            Path file = project.resolve("src/main/java/" + pack + "/RemoteProbe.java");
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, contents.replace("package unknown;", "package " + pack + ";")
+                    .replace("/api/probe/execute", "/api/" + pack + "/execute"), StandardCharsets.UTF_8);
+            sources.add(file);
+        }
+        generate(project);
+        Path classes = project.resolve("target/classes");
+        String classpath = classes + java.io.File.pathSeparator + System.getProperty("java.class.path");
+        var arguments = new ArrayList<>(List.of("--release", "17", "-proc:none", "-encoding", "UTF-8",
+                "-cp", classpath, "-d", classes.toString()));
+        sources.forEach(source -> arguments.add(source.toString()));
+        assertThat(ToolProvider.getSystemJavaCompiler().run(null, null, null, arguments.toArray(String[]::new))).isZero();
+        Path consumer = temporary.resolve("multi-consumer");
+        Files.createDirectories(consumer);
+        var services = List.of("first.RemoteProbe", "second.RemoteProbe");
+        RemoteAdapterGenerator.generate(consumer, classpath, services);
+        byte[] marker = Files.readAllBytes(consumer.resolve("target/remote-generation.complete"));
+        for (String service : services) {
+            assertThat(consumer.resolve("target/classes/" + RemoteAdapterGenerator.adapterName(service).replace('.', '/') + ".class"))
+                    .isRegularFile();
+            assertThat(consumer.resolve("target/classes/web/generated/" + service + ".mjs")).isRegularFile();
+        }
+        try (var loader = new URLClassLoader(new java.net.URL[]{classes.toUri().toURL(),
+                consumer.resolve("target/classes").toUri().toURL()}, getClass().getClassLoader())) {
+            for (String service : services) {
+                Class<?> adapter = loader.loadClass(RemoteAdapterGenerator.adapterName(service));
+                assertThat((List<?>) adapter.getMethod("routes").invoke(null)).hasSize(1);
+            }
+        }
+        RemoteAdapterGenerator.generate(consumer, classpath, List.of(services.get(1), services.get(0)));
+        assertThat(Files.readAllBytes(consumer.resolve("target/remote-generation.complete"))).isEqualTo(marker);
+        RemoteAdapterGenerator.generate(consumer, classpath, List.of(services.get(0)));
+        assertThat(consumer.resolve("target/classes/" + RemoteAdapterGenerator.adapterName(services.get(1)).replace('.', '/') + ".class"))
+                .doesNotExist();
+        assertThat(consumer.resolve("target/classes/web/generated/" + services.get(1) + ".mjs")).doesNotExist();
+        assertThat(consumer.resolve("target/classes/web/generated/" + services.get(1) + ".d.mts")).doesNotExist();
+        Path broken = classes.resolve("META-INF/pixivdownload/schema/" + services.get(1) + ".java.src");
+        Files.writeString(broken, Files.readString(broken) + "\nthis cannot compile", StandardCharsets.UTF_8);
+        assertThatThrownBy(() -> RemoteAdapterGenerator.generate(consumer, classpath, services))
+                .hasMessage("SDK_REMOTE_ADAPTER_COMPILE");
+        assertThat(consumer.resolve("target/remote-generation.complete")).doesNotExist();
+        for (String service : services) {
+            assertThat(consumer.resolve("target/classes/" + RemoteAdapterGenerator.adapterName(service).replace('.', '/') + ".class"))
+                    .doesNotExist();
+            assertThat(consumer.resolve("target/classes/web/generated/" + service + ".mjs")).doesNotExist();
+        }
+        generate(project);
+        RemoteAdapterGenerator.generate(consumer, classpath, services);
+        RemoteAdapterGenerator.generate(consumer, classpath, List.of());
+        assertThat(Files.readString(consumer.resolve("target/remote-generation.complete"))).isEqualTo("{}");
+        assertThat(Files.readString(consumer.resolve("target/remote-generated-files.txt"))).isEmpty();
     }
 
     @Test @DisplayName("生成可重复，客户端实际运行并在网络调用前拒绝非法值")

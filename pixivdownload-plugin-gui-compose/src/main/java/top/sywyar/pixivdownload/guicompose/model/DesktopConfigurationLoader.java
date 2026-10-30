@@ -287,16 +287,13 @@ final class DesktopConfigurationLoader {
             List<ConfigField> fields,
             Set<FieldKey> storedCredentials
     ) {
-        DesktopUiHost.ConfigFile application = host.applicationConfig();
-        DesktopUiHost.ConfigFile plugin = host.pluginConfig(owner);
-        List<String> keys = fields.stream().map(field -> field.spec().key()).toList();
-        Map<String, String> pluginValues;
-        Map<String, String> legacyValues;
-        Map<String, String> credentials;
+        Map<FieldKey, String> loaded = new LinkedHashMap<>();
         try {
-            pluginValues = plugin.readAll(keys);
-            legacyValues = application.readAll(keys);
-            credentials = host.readCredentials(owner);
+            host.withCredentialLocks(
+                    Set.of(owner),
+                    () -> loaded.putAll(loadLockedPluginConfiguration(owner, fields, storedCredentials))
+            );
+            return loaded;
         } catch (Exception failure) {
             LOG.warn(
                     "Unable to read plugin-owned desktop configuration for {}",
@@ -305,6 +302,19 @@ final class DesktopConfigurationLoader {
             );
             return defaultPluginValues(fields);
         }
+    }
+
+    private Map<FieldKey, String> loadLockedPluginConfiguration(
+            String owner,
+            List<ConfigField> fields,
+            Set<FieldKey> storedCredentials
+    ) throws IOException {
+        DesktopUiHost.ConfigFile application = host.applicationConfig();
+        DesktopUiHost.ConfigFile plugin = host.pluginConfig(owner);
+        List<String> keys = fields.stream().map(field -> field.spec().key()).toList();
+        Map<String, String> pluginValues = plugin.readAll(keys);
+        Map<String, String> legacyValues = application.readAll(keys);
+        Map<String, String> credentials = host.readCredentials(owner);
 
         Map<FieldKey, String> loaded = new LinkedHashMap<>();
         Map<String, String> pluginWrites = new LinkedHashMap<>();
@@ -352,16 +362,10 @@ final class DesktopConfigurationLoader {
             DesktopUiHost.ConfigSnapshot pluginSnapshot = plugin.snapshot();
             DesktopUiHost.CredentialSnapshot credentialSnapshot = host.snapshotCredentials(owner);
             try {
-                host.withCredentialLocks(
-                        Set.of(owner),
-                        () -> {
-                            if (!pluginWrites.isEmpty()) plugin.writeAll(pluginWrites);
-                            if (!credentialWrites.isEmpty())
-                                host.updateCredentials(owner, credentialWrites);
-                            if (!pluginRemovals.isEmpty()) plugin.removeAll(pluginRemovals);
-                            if (!legacyRemovals.isEmpty()) application.removeAll(legacyRemovals);
-                        }
-                );
+                if (!pluginWrites.isEmpty()) plugin.writeAll(pluginWrites);
+                if (!credentialWrites.isEmpty()) host.updateCredentials(owner, credentialWrites);
+                if (!pluginRemovals.isEmpty()) plugin.removeAll(pluginRemovals);
+                if (!legacyRemovals.isEmpty()) application.removeAll(legacyRemovals);
             } catch (IOException failure) {
                 try {
                     application.restore(applicationSnapshot);

@@ -5,6 +5,9 @@
   "messages": {
     "admin.title": "Admin Login",
     "button.login": "Log In",
+    "editor.authentication": "Authentication",
+    "editor.error": "Error message",
+    "editor.preferences": "Language and theme",
     "error.invite-expired": "Invalid or expired invite code",
     "error.invite-invalid": "Invalid invite code",
     "error.login-failed": "Login failed",
@@ -20,6 +23,7 @@
     "invite.submit": "Enter",
     "invite.title": "Use an invite code",
     "invite.use-code": "Use an invite code",
+    "page.default": "Use default layout",
     "page.title": "Pixiv Batch Downloader - Login",
     "remember": "Keep me signed in (30 days)",
     "validation.credentials-required": "Please enter a username and password",

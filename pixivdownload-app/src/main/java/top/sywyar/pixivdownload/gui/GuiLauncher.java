@@ -759,12 +759,28 @@ public class GuiLauncher {
 
     /** 配置备份包含禁用插件的声明，但不装配其运行期页面或业务对象。 */
     static List<DesktopUiPluginSnapshot> buildTransferPluginSnapshots(PluginRegistry registry) {
+        var credentials = new top.sywyar.pixivdownload.config.credential.migration.PluginCredentialDefinitionResolver(registry)
+                .resolveAll();
         return registry.allRegisteredPlugins().stream().map(registered -> {
             try {
+                var keys = credentials.get(registered.id());
+                if (keys == null) throw new IllegalStateException("transfer.config-owner-invalid");
+                var contributions = new java.util.ArrayList<>(
+                        top.sywyar.pixivdownload.config.credential.migration.PluginCredentialDefinitionResolver
+                                .validatedGuiContributions(registered.plugin()));
+                var declaredFields = contributions.stream().flatMap(contribution -> contribution.fields().stream())
+                        .map(top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution::key)
+                        .collect(java.util.stream.Collectors.toSet());
+                var credentialFields = keys.stream().filter(key -> !declaredFields.contains(key)).sorted()
+                        .map(key -> new top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldContribution(
+                                key, "credentials", "transfer.title",
+                                top.sywyar.pixivdownload.plugin.api.gui.GuiConfigFieldType.PASSWORD, "", 0)).toList();
+                if (!credentialFields.isEmpty()) contributions.add(new top.sywyar.pixivdownload.plugin.api.gui.GuiConfigContribution(
+                        List.of(), credentialFields, List.of()));
                 return new DesktopUiPluginSnapshot(registered.id(), registered.source() == PluginSource.BUILT_IN,
                         registered.packageId(), registered.generation(), registered.plugin() instanceof DesktopUiProvider,
                         null, "", registered.plugin().guiThemes(),
-                        registered.plugin().guiConfigContributions(), List.of(), List.of(), List.of());
+                        contributions, List.of(), List.of(), List.of());
             } catch (Throwable failure) {
                 DesktopUiFailover.rethrowFatal(failure);
                 registry.recordLifecycleFailure(registered, failure);
@@ -789,7 +805,8 @@ public class GuiLauncher {
                         plugin.displayNamespace(),
                         plugin.displayName(),
                         plugin.guiThemes(),
-                        plugin.guiConfigContributions(),
+                        top.sywyar.pixivdownload.config.credential.migration.PluginCredentialDefinitionResolver
+                                .validatedGuiContributions(plugin),
                         plugin.guiOnboardingSteps(),
                         plugin.routes(),
                         plugin.navigation()

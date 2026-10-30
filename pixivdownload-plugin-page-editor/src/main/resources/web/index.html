@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Page editor</title>
+  <link rel="stylesheet" href="/css/pixiv-layout.css">
+  <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
+  <link rel="stylesheet" href="/css/pixiv-feedback.css">
+  <link rel="stylesheet" href="/page-editor/vendor/grapesjs/grapes.min.css">
+  <link rel="stylesheet" href="/page-editor/editor.css">
+  <link rel="stylesheet" href="/page-editor/editor-css.css">
+  <link rel="stylesheet" href="/page-editor/editor-motion.css">
+  <script src="/js/pixiv-i18n.js"></script>
+  <script src="/js/pixiv-feedback.js"></script>
+  <script src="/js/pixiv-theme.js"></script>
+  <script src="/js/pixiv-lang-switcher.js"></script>
+  <script src="/page-editor/vendor/grapesjs/grapes.min.js"></script>
+  <script type="module" src="/page-editor/editor.mjs"></script>
+</head>
+<body class="layout-flow">
+  <header class="editor-header">
+    <div class="editor-location">
+      <a class="home-link" href="/index.html"><span aria-hidden="true">←</span><span data-i18n="home">Home</span></a>
+      <h1 data-i18n="plugin.name">Page editor</h1>
+    </div>
+    <section class="editor-actions" aria-label="Page" data-i18n-aria-label="page">
+      <label class="editor-field page-field"><span data-i18n="page">Page</span><select id="page"></select></label>
+      <div class="document-buttons">
+        <button id="save" data-i18n="save">Save draft</button>
+        <button id="preview" data-i18n="preview">Preview</button>
+        <button id="publish" class="primary" data-i18n="publish">Publish</button>
+        <details id="document-more" class="action-menu">
+          <summary data-i18n="more">More</summary>
+          <div class="action-menu-content">
+            <button id="reload" data-i18n="reload">Reload draft</button>
+            <button id="defaults" data-i18n="defaults">Restore page default layout</button>
+            <button id="restore" data-i18n="restore">Restore previous publication</button>
+          </div>
+        </details>
+      </div>
+    </section>
+    <div id="preferences"></div>
+  </header>
+  <main class="editor-main">
+    <div class="workspace-status"><p id="status" role="status" aria-live="polite"></p><span data-i18n="canvas-help">Select content on the page to edit it.</span></div>
+    <nav class="workspace-jumps" aria-label="Workspace" data-i18n-aria-label="workspace">
+      <a href="#catalog" data-i18n="add">Add component</a><a href="#canvas-area" data-i18n="canvas">Canvas</a><a href="#inspector" data-i18n="properties">Properties</a>
+    </nav>
+    <div class="workspace">
+      <aside id="catalog" class="catalog">
+        <div class="sidebar-tabs" role="tablist" aria-label="Content" data-i18n-aria-label="content">
+          <button id="structure-tab" role="tab" aria-selected="true" aria-controls="structure-panel" data-i18n="structure">Structure</button>
+          <button id="add-tab" role="tab" aria-selected="false" aria-controls="add-panel" tabindex="-1" data-i18n="add">Add component</button>
+        </div>
+        <section id="add-panel" class="panel-section" role="tabpanel" aria-labelledby="add-tab" hidden>
+          <p class="library-help" data-i18n="add-help">Drag onto the page, or select a position and press Enter to add.</p>
+          <div id="blocks"></div>
+        </section>
+        <section id="structure-panel" class="panel-section layer-section" role="tabpanel" aria-labelledby="structure-tab">
+          <div id="layers"></div>
+        </section>
+      </aside>
+      <section id="canvas-area" class="canvas-area" aria-label="Canvas" data-i18n-aria-label="canvas">
+        <div class="canvas-toolbar">
+          <label class="editor-field viewport-field"><span data-i18n="viewport">Viewport</span><select id="viewport">
+            <option value="Desktop" data-i18n="wide">Wide</option><option value="Mobile" data-i18n="narrow">Narrow</option>
+          </select></label>
+          <div class="history-actions"><button id="undo" data-i18n="undo">Undo</button><button id="redo" data-i18n="redo">Redo</button></div>
+        </div>
+        <div id="recovery" class="canvas-notice" role="status" hidden>
+          <div><strong data-i18n="repair-title">This draft needs attention</strong><p data-i18n="repair-help">Required page content is missing. The default layout is shown below; your saved draft is unchanged.</p></div>
+          <button id="repair" data-i18n="repair">Start from this layout</button>
+        </div>
+        <div class="editor-stage">
+          <div id="editor"></div>
+          <section id="preview-panel" aria-label="Preview" data-i18n-aria-label="preview" hidden>
+            <div class="preview-caption"><p data-i18n="preview-readonly">Preview only. No sign-in or business operations are submitted.</p><button id="close-preview" data-i18n="back-edit">Back to editing</button></div>
+            <p id="preview-loading" role="status" data-i18n="loading-preview">Loading page…</p>
+            <iframe id="preview-root" title="Preview" data-i18n-title="preview"></iframe>
+          </section>
+        </div>
+      </section>
+      <aside id="inspector" class="inspector">
+        <details id="page-settings" class="panel-section" open>
+          <summary class="inspector-disclosure" data-i18n="page-settings">Page settings</summary>
+          <label class="editor-field title-field"><span data-i18n="title">Browser tab title</span><input id="page-title" maxlength="256" data-i18n-placeholder="title-default" placeholder="Use the page's default title"></label>
+          <p class="help" data-i18n="title-help">This changes the browser tab, not text on the page.</p>
+          <label class="hidden-regions"><input id="show-hidden" type="checkbox"><span data-i18n="show-hidden">Show alternate regions</span></label>
+        </details>
+        <section class="panel-section">
+          <h2 id="inspector-selection"></h2>
+          <div id="properties"></div>
+          <div class="layer-actions" id="selection-actions" hidden>
+            <button id="up" data-i18n="up">Move up</button>
+            <button id="down" data-i18n="down">Move down</button>
+            <button id="nest" data-i18n="nest">Nest in previous container</button>
+            <button id="outdent" data-i18n="outdent">Move out</button>
+            <button id="delete" class="destructive" data-i18n="delete">Delete</button>
+          </div>
+        </section>
+        <section id="style-section" class="style-section">
+          <h2 class="style-heading"><button id="style-toggle" class="inspector-disclosure" type="button" aria-expanded="true" aria-controls="style-content" data-i18n="styles">Style</button></h2>
+          <div id="style-content">
+          <div id="styles"></div>
+          <h3 class="css-heading"><button id="edit-css" class="inspector-disclosure" type="button" aria-expanded="false" aria-controls="css-panel" data-i18n="css-edit">Custom CSS</button></h3>
+          <div id="css-anchor">
+            <section id="css-panel" aria-labelledby="css-title" hidden>
+              <div class="css-toolbar">
+                <div><h3 id="css-title" data-i18n="css-title">Component CSS</h3><p id="css-context"></p></div>
+                <div class="css-tools">
+                <button id="css-help-toggle" type="button" class="icon-button" data-i18n-title="css-help-toggle" data-i18n-aria-label="css-help-toggle" aria-label="CSS help" title="CSS help" aria-expanded="false" aria-controls="css-help">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 8.5a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4M12 16h.01"/></svg>
+                </button>
+                <button id="css-expand" type="button" class="icon-button" data-i18n-title="css-expand" data-i18n-aria-label="css-expand" aria-label="Expand editor" title="Expand editor" aria-pressed="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path class="expand-path" d="M14 4h6v6m0-6-7 7M10 20H4v-6m0 6 7-7"/><path class="collapse-path" d="M20 4l-7 7m0-6v6h6M4 20l7-7m-6 0h6v6"/></svg>
+                </button>
+                </div>
+              </div>
+              <p id="css-help" class="css-hint" data-i18n="css-help" hidden>Enter property: value; declarations. Ctrl/Cmd + Enter applies; Tab moves to the next control.</p>
+              <div id="css-code" aria-describedby="css-message"></div>
+              <div class="css-footer">
+                <p id="css-message" role="status" aria-live="polite" hidden></p>
+                <div class="css-actions"><button id="css-reset" type="button" data-i18n="css-reset">Discard changes</button><button id="css-apply" type="button" data-i18n="css-apply">Apply styles</button></div>
+              </div>
+            </section>
+          </div>
+          </div>
+        </section>
+        <details class="connections-section panel-section"><summary class="inspector-disclosure" data-i18n="connections">Instance connections</summary>
+          <div id="connections"></div>
+          <form id="connect">
+            <label><span data-i18n="from">From</span><select id="from"></select></label>
+            <label><span data-i18n="output">Output</span><select id="output"></select></label>
+            <label><span data-i18n="to">To</span><select id="to"></select></label>
+            <label><span data-i18n="input">Input</span><select id="input"></select></label>
+            <button data-i18n="connect">Connect</button>
+          </form>
+        </details>
+      </aside>
+    </div>
+  </main>
+</body>
+</html>

@@ -111,6 +111,7 @@ public final class DefaultConfigTemplate {
 
         appendSection(config, messages, "config.template.section.login-security");
         appendSetting(config, messages, "setup.login-rate-limit-minute: 10", "config.template.setup.login-rate-limit-minute.comment");
+        appendSetting(config, messages, "setup.login-verification-policies: ''", "config.template.setup.login-verification-policies.comment");
         appendBlankLine(config);
 
         appendSection(config, messages, "config.template.section.maintenance");

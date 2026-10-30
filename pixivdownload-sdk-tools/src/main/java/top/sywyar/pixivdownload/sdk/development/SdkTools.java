@@ -52,8 +52,9 @@ public final class SdkTools {
     }
 
     static int execute(String[] args) throws Exception {
-        if (args.length == 4 && args[0].equals("remote")) {
-            top.sywyar.pixivdownload.sdk.schema.RemoteAdapterGenerator.generate(Path.of(args[1]), args[2], args[3]);
+        if (args.length >= 3 && args[0].equals("remote")) {
+            top.sywyar.pixivdownload.sdk.schema.RemoteAdapterGenerator.generate(Path.of(args[1]), args[2],
+                    Arrays.asList(args).subList(3, args.length));
             return 0;
         }
         if (args.length == 3 && args[0].equals("schema")) {
@@ -69,6 +70,9 @@ public final class SdkTools {
                     Arrays.stream(args[2].split(java.io.File.pathSeparator)).map(Path::of).toList(),
                     Arrays.stream(args[3].split(java.io.File.pathSeparator)).map(Path::of).toList());
             return 0;
+        }
+        if (args.length == 4 && args[0].equals("contract-evolution")) {
+            return ContractEvolution.write(Path.of(args[1]), Path.of(args[2]), Path.of(args[3])) ? 0 : 1;
         }
         if (args.length == 3 && args[0].equals("market-content-download")) {
             String base = args[1];

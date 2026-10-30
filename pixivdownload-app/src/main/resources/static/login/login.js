@@ -4,6 +4,36 @@ let pageI18n = null;
 let activeLoginError = null;
 let activeInviteError = null;
 let themeToggleMounted = false;
+let verificationSlots;
+let verificationToken = '';
+let verificationChallenges = {};
+let verificationProofs = Object.create(null);
+
+function resetVerification() {
+  verificationToken = '';
+  verificationChallenges = {};
+  verificationProofs = Object.create(null);
+  void verificationSlots?.update({verificationToken, challenges: verificationChallenges});
+}
+
+function initVerification() {
+  if (!window.PixivUiSlots) return;
+  verificationSlots = window.PixivUiSlots.connect({
+    targetPrefix: 'login.verification',
+    manifestUrl: '/api/web/login-verification-slots',
+    properties: {verificationToken, challenges: verificationChallenges},
+    i18n: () => pageI18n,
+    onEvent(name, value) {
+      if (name !== 'proof' || !verificationToken || value?.verificationToken !== verificationToken
+          || !Object.hasOwn(verificationChallenges, value.policyId)
+          || typeof value.proof !== 'string' || value.proof.length > 16384) return;
+      verificationProofs[value.policyId] = value.proof;
+    },
+    onError() { showLoginErrorKey('error.login-failed', '登录失败'); }
+  });
+  for (const id of ['username', 'password']) document.getElementById(id).addEventListener('input', resetVerification);
+  void verificationSlots.refresh();
+}
 
 function interpolate(template, vars) {
   if (!vars) return String(template);
@@ -59,7 +89,7 @@ function syncErrorMessages() {
 }
 
 function applyStaticPageTranslations() {
-  document.title = lt('page.title', 'Pixiv 批量下载器 — 登录');
+  document.title = window.loginPageTitle || lt('page.title', 'Pixiv 批量下载器 — 登录');
   if (pageI18n) pageI18n.apply(document.body);
   syncErrorMessages();
 }
@@ -131,11 +161,20 @@ async function doLogin() {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password, rememberMe }),
+      body: JSON.stringify({ username, password, rememberMe, verificationToken, verificationProofs }),
       credentials: 'same-origin'
     });
     const data = await res.json();
     if (!res.ok) {
+      resetVerification();
+      if (res.status === 409 && data.code === 'setup.login.verification.required'
+          && typeof data.verificationToken === 'string' && data.verificationToken.length <= 128
+          && data.challenges && typeof data.challenges === 'object' && !Array.isArray(data.challenges)
+          && Object.keys(data.challenges).length <= 16) {
+        verificationToken = data.verificationToken;
+        verificationChallenges = data.challenges;
+        void verificationSlots?.update({verificationToken, challenges: verificationChallenges});
+      }
       if (data.error) {
         showLoginErrorText(data.error);
       } else {
@@ -146,6 +185,7 @@ async function doLogin() {
     }
     window.location.href = getRedirect();
   } catch (e) {
+    resetVerification();
     showLoginErrorKey('error.network', 'error.network', {message: e.message});
     setAuthButtonsDisabled(false);
   }
@@ -190,18 +230,18 @@ document.getElementById('useInviteCode').addEventListener('click', () => {
   document.getElementById('inviteCodeInput').focus();
 });
 document.getElementById('backToLogin').addEventListener('click', () => {
-  document.getElementById('inviteCard').classList.add('hidden');
-  document.getElementById('loginCard').classList.remove('hidden');
+  document.getElementById('inviteCard').hidden = true;
+  document.getElementById('loginCard').hidden = false;
 });
 
 function showInvitePanel() {
-  document.getElementById('loginCard').classList.add('hidden');
-  document.getElementById('inviteCard').classList.remove('hidden');
+  document.getElementById('loginCard').hidden = true;
+  document.getElementById('inviteCard').hidden = false;
 }
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Enter') {
-    if (!document.getElementById('inviteCard').classList.contains('hidden')) {
+  if (e.key === 'Enter' && !e.defaultPrevented && !e.target?.closest?.('[data-ui-slot]')) {
+    if (!document.getElementById('inviteCard').hidden) {
       doInviteRedeem();
     } else {
       doLogin();
@@ -219,6 +259,7 @@ async function redirectIfLoggedIn() {
 
 async function initLoginPage() {
   PixivActions.bind(document, {click: {doLogin, doInviteRedeem}});
+  initVerification();
   await initPageI18n();
   mountThemeToggle();
   // 若 URL 带 inviteError，直接展开邀请码面板并提示

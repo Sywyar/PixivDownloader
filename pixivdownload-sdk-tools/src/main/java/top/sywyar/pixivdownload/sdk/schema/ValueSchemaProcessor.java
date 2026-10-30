@@ -2,6 +2,7 @@ package top.sywyar.pixivdownload.sdk.schema;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import top.sywyar.pixivdownload.plugin.api.contract.schema.ValueProperty;
+import top.sywyar.pixivdownload.plugin.api.contract.schema.ValueEncoding;
 import top.sywyar.pixivdownload.plugin.api.contract.remote.RemoteService;
 import top.sywyar.pixivdownload.plugin.api.contract.remote.RemoteOperation;
 import top.sywyar.pixivdownload.plugin.api.contract.schema.ValueSchema;
@@ -81,6 +82,11 @@ final class ValueSchemaProcessor extends AbstractProcessor {
             case "int", "java.lang.Integer" -> integer(result, Integer.MIN_VALUE, Integer.MAX_VALUE);
             case "long", "java.lang.Long" -> integer(result, Long.MIN_VALUE, Long.MAX_VALUE);
             case "java.lang.String" -> result.put("type", "string");
+            case "java.util.UUID" -> encoded(result, ValueEncoding.UUID_STRING);
+            case "java.time.Instant" -> encoded(result, ValueEncoding.INSTANT_SECONDS_NANOS);
+            case "java.time.Duration" -> encoded(result, ValueEncoding.DURATION_SECONDS_NANOS);
+            case "float", "java.lang.Float" -> encoded(result, ValueEncoding.FLOAT32_HEX);
+            case "double", "java.lang.Double" -> encoded(result, ValueEncoding.FLOAT64_HEX);
             default -> {
                 if (!(mirror instanceof DeclaredType declared)
                         || !(declared.asElement() instanceof TypeElement type)) throw invalid();
@@ -119,6 +125,14 @@ final class ValueSchemaProcessor extends AbstractProcessor {
                                 if (property == null || component.asType().getKind().isPrimitive() && property.nullable()) throw invalid();
                                 ObjectNode schema = value(component.asType(), false, property.elementsNullable(), depth + 1);
                                 constraints(schema, property);
+                                if (property.encoding() != ValueEncoding.JSON) {
+                                    if (property.encoding() != ValueEncoding.DECIMAL_STRING
+                                            || !Set.of("long", "java.lang.Long").contains(component.asType().toString())) throw invalid();
+                                    String minimum = schema.remove("minimum").asText();
+                                    String maximum = schema.remove("maximum").asText();
+                                    encoded(schema, ValueEncoding.DECIMAL_STRING);
+                                    schema.put("x-minimum", minimum).put("x-maximum", maximum);
+                                }
                                 properties.set(component.getSimpleName().toString(), nullable(schema, property.nullable()));
                                 if (property.required()) required.add(component.getSimpleName().toString());
                             }
@@ -133,7 +147,7 @@ final class ValueSchemaProcessor extends AbstractProcessor {
     private void constraints(ObjectNode schema, ValueProperty property) {
         String type = schema.path("type").asText();
         if (!property.elementsNullable() && !type.equals("array") && !schema.has("additionalProperties")) throw invalid();
-        bound(schema, "minLength", "maxLength", property.minLength(), property.maxLength(), type.equals("string"));
+        bound(schema, "minLength", "maxLength", property.minLength(), property.maxLength(), type.equals("string") && !schema.has("x-encoding"));
         bound(schema, "minItems", "maxItems", property.minItems(), property.maxItems(), type.equals("array"));
         if (!property.minimum().isEmpty() || !property.maximum().isEmpty()) {
             if (!type.equals("integer")) throw invalid();
@@ -161,6 +175,10 @@ final class ValueSchemaProcessor extends AbstractProcessor {
 
     private static void integer(ObjectNode schema, long minimum, long maximum) {
         schema.put("type", "integer").put("minimum", minimum).put("maximum", maximum);
+    }
+
+    private static void encoded(ObjectNode schema, ValueEncoding encoding) {
+        schema.put("type", "string").put("x-encoding", encoding.name());
     }
 
     private static ObjectNode nullable(ObjectNode schema, boolean nullable) {

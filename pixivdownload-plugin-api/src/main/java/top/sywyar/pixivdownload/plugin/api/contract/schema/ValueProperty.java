@@ -16,6 +16,8 @@ public @interface ValueProperty {
     boolean required();
     /** @return 属性值是否允许 JSON null；基本类型不能声明为可空 */
     boolean nullable();
+    /** @return JSON 默认编码；完整 long 范围可显式选择 DECIMAL_STRING，其余编码由 JDK 类型决定 */
+    ValueEncoding encoding() default ValueEncoding.JSON;
     /** @return 集合元素是否可空；只用于 List 元素或 Map 值 */
     boolean elementsNullable() default true;
     /** @return 整数下界的十进制表示，空字符串表示没有额外业务下界 */

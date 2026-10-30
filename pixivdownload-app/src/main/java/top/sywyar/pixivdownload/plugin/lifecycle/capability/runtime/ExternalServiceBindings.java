@@ -13,12 +13,15 @@ import java.util.function.Supplier;
 
 /** 只协调依赖资源，不执行业务重试；与服务 publication 共用一个锁和租约。 */
 final class ExternalServiceBindings {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ExternalServiceBindings.class);
     private final ExternalCapabilityInvocationRegistry registry;
     private final Object lock;
     private final Set<Binding> bindings = new LinkedHashSet<>();
     private final ThreadLocal<Boolean> callbackThread = new ThreadLocal<>();
     private PluginRuntimeTaskRegistry tasks;
     private Executor executor;
+    private long nextBindingId;
+    private long relationshipRevision;
 
     ExternalServiceBindings(ExternalCapabilityInvocationRegistry registry, Object lock) {
         this.registry = registry;
@@ -34,7 +37,7 @@ final class ExternalServiceBindings {
 
     boolean onCallbackThread() { return callbackThread.get() != null; }
 
-    ServiceBinding bind(ExternalCapabilityOwner owner, List<ServiceKey<?>> keys,
+    ServiceBinding bind(ExternalCapabilityOwner owner, List<ServiceKey<?>> keys, boolean multiple,
             Consumer<ServiceBindingScope> activate) {
         Objects.requireNonNull(activate, "activate");
         keys = ServiceDeclarations.copy(keys);
@@ -47,7 +50,7 @@ final class ExternalServiceBindings {
             if (bindings.stream().filter(b -> b.owner.equals(owner)).count() >= 128) {
                 throw failure(ServiceAccessException.Reason.CAPACITY);
             }
-            Binding binding = new Binding(owner, keys, activate);
+            Binding binding = new Binding(owner, keys, multiple, activate);
             bindings.add(binding);
             changed();
             return binding;
@@ -57,6 +60,7 @@ final class ExternalServiceBindings {
     /** 调用者可持 publication 锁；这里只撤回内存入口，绝不执行插件回调。 */
     void changed() {
         synchronized (lock) {
+            relationshipRevision++;
             for (Binding binding : List.copyOf(bindings)) {
                 if (registry.bindingOwnerGone(binding.owner)) binding.closed = true;
                 if (binding.closed && binding.round == null) { binding.detach(); continue; }
@@ -73,20 +77,52 @@ final class ExternalServiceBindings {
         }
     }
 
+    List<ServiceBindingDiagnostic> diagnostics(ExternalCapabilityOwner owner) {
+        synchronized (lock) {
+            return bindings.stream().filter(binding -> binding.owner.equals(owner))
+                    .map(Binding::diagnostic).toList();
+        }
+    }
+
+    long relationshipRevision() { synchronized (lock) { return relationshipRevision; } }
+
+    Set<String> consumersOf(String provider) {
+        synchronized (lock) {
+            Set<String> result = new HashSet<>();
+            for (Binding binding : bindings)
+                if (binding.round != null && binding.round.owners.contains(provider)) result.add(binding.owner.pluginId());
+            return result;
+        }
+    }
+
     private final class Binding implements ServiceBinding {
         private final ExternalCapabilityOwner owner;
+        private final long id;
         private List<ServiceKey<?>> keys;
+        private final boolean multiple;
         private Consumer<ServiceBindingScope> activate;
         private State state = State.WAITING;
         private boolean closed;
         private boolean retry;
-        private Map<ServiceKey<?>, ExternalCapabilityHandle> failedSelection;
+        private Map<ServiceKey<?>, List<ExternalCapabilityHandle>> failedSelection;
         private Round round;
         private boolean queued;
         private boolean dirty;
+        private String code = "CONSUMER_NOT_ACTIVE";
+        private ServiceDiagnosticProjection.Capture evidence = ServiceDiagnosticProjection.Capture.EMPTY;
+
+        private void reason(String value) {
+            if (!value.equals(code)) relationshipRevision++;
+            if (!value.equals(code) && (value.endsWith("FAILED") || value.equals("SCHEDULING_REJECTED"))) {
+                log.warn("PLUGIN_SERVICE_BINDING_FAILURE consumer={} generation={} publication={} binding={} code={}",
+                        owner.pluginId(), owner.pluginGeneration(), owner.publicationId(), id, value);
+            }
+            code = value;
+        }
 
         private void detach() {
             state = State.CLOSED;
+            reason("CLOSED");
             keys = List.of();
             activate = null;
             failedSelection = null;
@@ -99,7 +135,10 @@ final class ExternalServiceBindings {
             if (queued || executor == null || state == State.CLOSED) return;
             queued = true;
             try { executor.execute(this::run); }
-            catch (RuntimeException rejected) { queued = false; }
+            catch (RuntimeException rejected) {
+                queued = false;
+                reason("SCHEDULING_REJECTED");
+            }
         }
 
         private void run() {
@@ -119,13 +158,23 @@ final class ExternalServiceBindings {
             }
         }
 
-        Binding(ExternalCapabilityOwner owner, List<ServiceKey<?>> keys, Consumer<ServiceBindingScope> activate) {
+        Binding(ExternalCapabilityOwner owner, List<ServiceKey<?>> keys, boolean multiple,
+                Consumer<ServiceBindingScope> activate) {
             this.owner = owner;
+            this.id = Math.incrementExact(nextBindingId);
+            nextBindingId = id;
             this.keys = keys;
+            this.multiple = multiple;
             this.activate = activate;
         }
 
         @Override public State state() { synchronized (lock) { return state; } }
+        @Override public ServiceBindingDiagnostic diagnostic() {
+            synchronized (lock) {
+                return new ServiceBindingDiagnostic(id, ExternalCapabilityInvocationRegistry.publication(owner),
+                        state, code, evidence.dependencies(), evidence.truncated());
+            }
+        }
         @Override public void retry() { synchronized (lock) { retry = true; schedule(); } }
         @Override public void close() {
             synchronized (lock) {
@@ -139,7 +188,7 @@ final class ExternalServiceBindings {
 
         private boolean current(Round candidate) {
             if (closed || !candidate.accepting) return false;
-            try { return candidate.selection.equals(registry.selectBinding(owner, keys)); }
+            try { return candidate.selection.equals(registry.selectBinding(owner, keys, multiple)); }
             catch (ServiceAccessException unavailable) { return false; }
         }
 
@@ -151,7 +200,11 @@ final class ExternalServiceBindings {
                 retry = false;
                 previous = round;
                 if (previous != null) {
-                    if (current(previous)) return;
+                    if (current(previous)) {
+                        state = State.ACTIVE;
+                        reason("ACTIVE");
+                        return;
+                    }
                     previous.seal();
                     if (previous.running != 0) return;
                     if (state == State.CLOSE_FAILED && !explicitRetry) return;
@@ -165,7 +218,7 @@ final class ExternalServiceBindings {
                     previous.resources.close();
                     synchronized (lock) { previous.clear(); round = null; lock.notifyAll(); }
                 } catch (Throwable closeFailure) {
-                    synchronized (lock) { state = State.CLOSE_FAILED; }
+                    synchronized (lock) { state = State.CLOSE_FAILED; reason("CLOSE_FAILED"); }
                     ExternalCapabilityInvocationRegistry.rethrowFatal(closeFailure);
                     return;
                 } finally {
@@ -179,21 +232,32 @@ final class ExternalServiceBindings {
                     detach();
                     return;
                 }
-                Map<ServiceKey<?>, ExternalCapabilityHandle> selection;
-                try { selection = registry.selectBinding(owner, keys); }
+                Map<ServiceKey<?>, List<ExternalCapabilityHandle>> selection;
+                try { selection = registry.selectBinding(owner, keys, multiple); }
                 catch (ServiceAccessException unavailable) {
                     state = unavailable.reason() == ServiceAccessException.Reason.AMBIGUOUS
                             ? State.AMBIGUOUS : State.WAITING;
+                    reason(unavailable.reason() == ServiceAccessException.Reason.NOT_ACTIVE
+                            ? "CONSUMER_NOT_ACTIVE" : unavailable.reason().name());
+                    evidence = registry.describeServices(keys);
                     failedSelection = null;
                     return;
                 }
-                if (!explicitRetry && selection.equals(failedSelection)) { state = State.FAILED; return; }
+                if (!explicitRetry && selection.equals(failedSelection)) {
+                    state = State.FAILED;
+                    reason("ACTIVATION_FAILED");
+                    return;
+                }
+                evidence = ServiceDiagnosticProjection.capture(keys, key -> selection.get(key).stream()
+                        .map(handle -> ExternalCapabilityInvocationRegistry.publication(handle.owner())).toList());
                 PluginResourceScope resources;
                 try { resources = tasks.resourcesForPlugin(owner.pluginId()).openScope(); }
-                catch (RuntimeException unavailable) { state = State.WAITING; return; }
-                next = new Round(this, selection, resources, registry.holdBinding(owner, selection.values()));
+                catch (RuntimeException unavailable) { state = State.WAITING; reason("RESOURCE_UNAVAILABLE"); return; }
+                next = new Round(this, selection, resources,
+                        registry.holdBinding(owner, selection.values().stream().flatMap(List::stream).toList()));
                 round = next;
                 state = State.ACTIVATING;
+                reason("ACTIVATING");
                 callback = activate;
             }
             boolean succeeded = false;
@@ -202,11 +266,12 @@ final class ExternalServiceBindings {
                 next.guard(() -> { callback.accept(next); entered[0] = true; }).run();
                 succeeded = entered[0];
             } catch (Throwable activationFailure) {
+                synchronized (lock) { reason("ACTIVATION_FAILED"); }
                 ExternalCapabilityInvocationRegistry.rethrowFatal(activationFailure);
             } finally {
                 synchronized (lock) {
                     if (!succeeded) { failedSelection = next.selection; next.seal(); }
-                    if (current(next)) state = State.ACTIVE;
+                    if (current(next)) { state = State.ACTIVE; reason("ACTIVE"); }
                     else { next.seal(); schedule(); }
                 }
             }
@@ -215,7 +280,7 @@ final class ExternalServiceBindings {
 
     private final class Round implements ServiceBindingScope {
         private final Binding binding;
-        private Map<ServiceKey<?>, ExternalCapabilityHandle> selection;
+        private Map<ServiceKey<?>, List<ExternalCapabilityHandle>> selection;
         private final Set<String> owners;
         private PluginResourceScope resources;
         private Runnable release;
@@ -223,7 +288,7 @@ final class ExternalServiceBindings {
         private boolean accepting = true;
         private int running;
 
-        Round(Binding binding, Map<ServiceKey<?>, ExternalCapabilityHandle> selection,
+        Round(Binding binding, Map<ServiceKey<?>, List<ExternalCapabilityHandle>> selection,
                 PluginResourceScope resources, Runnable release) {
             this.binding = binding;
             this.selection = selection;
@@ -231,7 +296,7 @@ final class ExternalServiceBindings {
             this.release = release;
             Set<String> ids = new HashSet<>();
             ids.add(binding.owner.pluginId());
-            selection.values().forEach(h -> ids.add(h.owner().pluginId()));
+            selection.values().forEach(members -> members.forEach(h -> ids.add(h.owner().pluginId())));
             owners = Set.copyOf(ids);
         }
 
@@ -239,7 +304,10 @@ final class ExternalServiceBindings {
             accepting = false;
             guards.forEach(g -> { g.callback = null; g.tracked = null; });
             guards.clear();
-            if (binding.state != ServiceBinding.State.CLOSE_FAILED) binding.state = ServiceBinding.State.DRAINING;
+            if (binding.state != ServiceBinding.State.CLOSE_FAILED) {
+                binding.state = ServiceBinding.State.DRAINING;
+                if (!binding.code.endsWith("FAILED")) binding.reason("DRAINING");
+            }
         }
 
         private void clear() {
@@ -270,12 +338,25 @@ final class ExternalServiceBindings {
         }
 
         @Override public <T> T require(ServiceKey<T> key) {
+            var members = findAll(key);
+            if (members.isEmpty()) throw failure(ServiceAccessException.Reason.UNAVAILABLE);
+            if (members.size() > 1) throw failure(ServiceAccessException.Reason.AMBIGUOUS);
+            return members.get(0).service();
+        }
+
+        @Override public <T> List<ServiceProvider<T>> findAll(ServiceKey<T> key) {
             synchronized (lock) {
                 if (!binding.current(this)) throw failure(ServiceAccessException.Reason.UNAVAILABLE);
-                ExternalCapabilityHandle handle = selection.get(key);
-                if (handle == null) throw failure(ServiceAccessException.Reason.UNDECLARED);
-                T proxy = registry.bindingProxy(binding.owner, key, handle);
-                return key.type().cast(Proxy.newProxyInstance(key.type().getClassLoader(), new Class<?>[]{key.type()},
+                var handles = selection.get(key);
+                if (handles == null) throw failure(ServiceAccessException.Reason.UNDECLARED);
+                return handles.stream().map(handle -> new ServiceProvider<>(
+                        ExternalCapabilityInvocationRegistry.publication(handle.owner()), proxy(key, handle))).toList();
+            }
+        }
+
+        private <T> T proxy(ServiceKey<T> key, ExternalCapabilityHandle handle) {
+            T proxy = registry.bindingProxy(binding.owner, key, handle);
+            return key.type().cast(Proxy.newProxyInstance(key.type().getClassLoader(), new Class<?>[]{key.type()},
                         (self, method, args) -> {
                             if (method.getDeclaringClass() == Object.class) return switch (method.getName()) {
                                 case "equals" -> self == args[0];
@@ -293,7 +374,6 @@ final class ExternalServiceBindings {
                                 }
                             }, false);
                         }));
-            }
         }
 
         @Override public <T extends AutoCloseable> T acquire(Supplier<T> factory) {

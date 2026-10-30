@@ -34,6 +34,10 @@
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html { min-width: 0; }
+  [hidden] { display: none !important; }
+  #native-page, #custom-page { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+  #custom-page:empty { display: none; }
+  #custom-page > :first-child { flex: 1; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     background: var(--page-bg); color: var(--text); font-size: 0.875rem;
@@ -41,6 +45,15 @@
     line-height: 1.4;
   }
   button, input, select, textarea { max-width: 100%; }
+  #default-page {
+    padding: 3px 7px; min-height: max(1.75rem, var(--layout-control-height));
+    font: 500 .75rem/1.4 system-ui, sans-serif; letter-spacing: normal;
+    color: var(--text); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 4px; cursor: pointer;
+  }
+  #default-page:hover { background: var(--bg); }
+  #default-page:active { border-color: var(--text); }
+  #default-page:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
   header {
     background: var(--brand); color: var(--brand-contrast);
     padding: 14px var(--layout-inset-right) 14px var(--layout-inset-left); font-size: 1.125rem; font-weight: bold; letter-spacing: .5px;
@@ -108,8 +121,7 @@
   }
   .remember-row input[type=checkbox] { width: 15px; height: 15px; cursor: pointer; accent-color: var(--brand); }
   .remember-row label { font-size: 0.8125rem; cursor: pointer; color: var(--heading); }
-  #error-msg,
-  #invite-error {
+  .auth-error {
     font-size: 0.75rem; color: var(--danger);
     min-height: 18px; margin-bottom: 10px; text-align: center;
   }

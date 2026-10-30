@@ -212,6 +212,24 @@ test('Quality Gate preserves required roles and the active event contract', () =
     }
 });
 
+test('SDK 门禁必须取得固定旧插件并执行浏览器验收，入口失败不能变成成功', () => {
+    const steps = load('.github/actions/verify-sdk/action.yml').runs.steps;
+    const fixtures = steps.find(step => /sdk-legacy-plugin\.mjs/.test(step.run || ''));
+    const services = steps.find(step => /sdk-typed-services\.mjs/.test(step.run || ''));
+    const browser = steps.find(step => /page-editor-acceptance\.mjs/.test(step.run || ''));
+    assert.ok(fixtures && services && browser);
+    for (const step of [fixtures, services, browser]) {
+        assert.equal(step.if, undefined);
+        assert.equal(step['continue-on-error'], undefined);
+    }
+    assert.ok(steps.indexOf(fixtures) < steps.indexOf(services));
+    assert.equal(services.env.SDK_OLD_PLUGIN_JAR, 'target/sdk-legacy-original.jar');
+    assert.match(fixtures.run, /playwright install --with-deps chromium/);
+    assert.throws(() => execFileSync('bash', ['-e', '-o', 'pipefail', '-c',
+        `node() { printf '%s\\n' "$@"; return 17; }\n${browser.run}`], {cwd: ROOT, encoding: 'utf8'}),
+        error => error.status === 17 && error.stdout.includes('scripts/ci/page-editor-acceptance.mjs'));
+});
+
 test('模板构建收到与 SDK 暂存相同的精确源码参数', () => {
     const steps = load('.github/actions/verify-sdk/action.yml').runs.steps;
     const stage = steps.find(step => /altDeploymentRepository=sdk-staging/u.test(step.run || ''));

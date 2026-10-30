@@ -40,6 +40,25 @@ import static org.mockito.Mockito.when;
 class PluginWebContributionRegistrarTest extends PluginWebContributionRegistrarTestSupport {
 
     @Test
+    @DisplayName("启动槽位与路由共用精确请求 owner，撤回后拒绝旧发布且不能换绑")
+    void bootUiSlotUsesServingOwner() {
+        var plugin = org.mockito.Mockito.spy(new WebDemoPlugin());
+        var registered = external(plugin, "web-demo", 1L);
+        var h = bootLifecycleHarness(registered);
+        var owner = h.registrar.currentHandle(registered).orElseThrow().requestOwner();
+        var slot = h.uiSlots.slots().get(0);
+        assertThat(slot.requestOwner()).isEqualTo(owner);
+        assertThat(h.uiSlots.permits(slot.publication(), "web-demo", owner)).isTrue();
+        org.mockito.Mockito.verify(plugin, org.mockito.Mockito.times(1)).uiSlots();
+        h.requests.withdraw(owner);
+        assertThat(h.uiSlots.permits(slot.publication())).isFalse();
+        var replacement = new top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner(
+                owner.pluginId(), owner.generation(), owner.servingId() + 1);
+        assertThatThrownBy(() -> h.uiSlots.bindBootRequestOwner(replacement))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     @DisplayName("启动期路由 getter 崩溃后保留精确句柄，既有贡献仍可完整撤回")
     void bootRouteFailureRetainsHandleForCleanup() {
         var plugin = org.mockito.Mockito.spy(new LifecycleWebPlugin("boot-failure", "boot-failure.section"));

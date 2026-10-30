@@ -49,9 +49,20 @@ public final class PluginOwnedWebAssetValidator {
                                         List<StaticResourceRegistry.RegisteredStaticResource> resources,
                                         String moduleUrl,
                                         String contributionLabel) {
+        validateOwnedAsset(owner, resources, moduleUrl, contributionLabel, List.of(".js", ".mjs"));
+    }
+
+    /** 校验页面样式确实位于本代 owner 的静态资源目录中。 */
+    public void validateOwnedStylesheet(PluginRegistry.RegisteredPlugin owner, String url, String label) {
+        validateOwnedAsset(owner, staticResourceRegistry.resourcesFor(owner), url, label, List.of(".css"));
+    }
+
+    private void validateOwnedAsset(PluginRegistry.RegisteredPlugin owner,
+                                   List<StaticResourceRegistry.RegisteredStaticResource> resources,
+                                   String moduleUrl, String contributionLabel, List<String> extensions) {
         Objects.requireNonNull(owner, "plugin owner");
         Objects.requireNonNull(resources, "owner static resources");
-        String path = requireSafeModulePath(moduleUrl, contributionLabel);
+        String path = requireSafeModulePath(moduleUrl, contributionLabel, extensions);
 
         for (StaticResourceRegistry.RegisteredStaticResource registered : resources) {
             if (registered == null) {
@@ -105,7 +116,7 @@ public final class PluginOwnedWebAssetValidator {
         }
     }
 
-    private static String requireSafeModulePath(String value, String label) {
+    private static String requireSafeModulePath(String value, String label, List<String> extensions) {
         if (value == null || value.isBlank() || !value.equals(value.trim())) {
             throw invalid(label, value, "module URL must be a normalized same-origin absolute path", null);
         }
@@ -123,8 +134,8 @@ public final class PluginOwnedWebAssetValidator {
                     || path == null || !path.equals(value)
                     || path.length() <= 1 || !path.startsWith("/") || path.startsWith("//")
                     || path.contains("//") || !uri.normalize().getRawPath().equals(path)
-                    || !path.toLowerCase(Locale.ROOT).endsWith(".js")) {
-                throw invalid(label, value, "module URL must identify one normalized same-origin .js asset", null);
+                    || extensions.stream().noneMatch(extension -> path.toLowerCase(Locale.ROOT).endsWith(extension))) {
+                throw invalid(label, value, "module URL must identify one normalized same-origin asset of the declared type", null);
             }
             for (String segment : path.split("/", -1)) {
                 if (segment.equals(".") || segment.equals("..")) {

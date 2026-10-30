@@ -5,6 +5,9 @@
   "messages": {
     "admin.title": "管理者ログイン",
     "button.login": "ログイン",
+    "editor.authentication": "ログイン領域",
+    "editor.error": "エラーメッセージ",
+    "editor.preferences": "言語とテーマ",
     "error.invite-expired": "招待コードが無効または期限切れです",
     "error.invite-invalid": "招待コードが無効です",
     "error.login-failed": "ログインに失敗しました",
@@ -20,6 +23,7 @@
     "invite.submit": "入室",
     "invite.title": "招待コードを使用",
     "invite.use-code": "招待コードを使用",
+    "page.default": "標準レイアウトに戻す",
     "page.title": "Pixiv 一括ダウンローダー — ログイン",
     "remember": "ログイン状態を保持（30日間）",
     "validation.credentials-required": "ユーザー名とパスワードを入力してください",

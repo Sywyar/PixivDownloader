@@ -1,57 +1,16 @@
-(function (global) {
+PixivUiSlots.registerModule('/pixiv-tts/novel-detail-tts-slot.js', async function (root, context) {
     'use strict';
-
+    var global = window;
+    var pageI18n = context.i18n;
+    var toast = (message, kind) => context.emit('message', {message, kind: kind || 'info'});
     var initialized = false;
-    var loaded = {};
     var BASE = '/pixiv-tts/';
 
-    function showLoadFailure() {
-        var fallback = 'This feature is temporarily unavailable. Refresh the page and try again.';
-        var message = typeof pageI18n !== 'undefined' && pageI18n
-                ? pageI18n.t('common:error.feature-unavailable', fallback) : fallback;
-        if (global.PixivFeedback && typeof global.PixivFeedback.toast === 'function') {
-            global.PixivFeedback.toast({ message: message, kind: 'error' });
-        } else if (typeof toast === 'function') {
-            toast(message, 'error');
-        }
-    }
-
-    function loadScript(url) {
-        if (loaded[url]) return loaded[url];
-        loaded[url] = new Promise(function (resolve) {
-            var script = document.createElement('script');
-            script.src = global.PixivAssets ? global.PixivAssets.url(url) : url;
-            script.async = false;
-            script.onload = function () { resolve(true); };
-            script.onerror = function () {
-                console.warn('[TTS] script load failed:', url);
-                showLoadFailure();
-                resolve(false);
-            };
-            (document.head || document.documentElement).appendChild(script);
-        });
-        return loaded[url];
-    }
-
-    function loadStyle(url) {
-        if (global.PixivAssets) url = global.PixivAssets.url(url);
-        if (document.querySelector('link[href="' + url + '"]')) return;
-        var link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = url;
-        document.head.appendChild(link);
-    }
-
-    function host() {
-        if (global.PixivVue && typeof global.PixivVue.anchorFor === 'function') {
-            return global.PixivVue.anchorFor('novel-detail-tts');
-        }
-        return document.querySelector('[data-vue-slot="novel-detail-tts"]')
-                || document.getElementById('novel-detail-tts');
-    }
+    function loadScript(url) { return context.loadScript(url); }
+    function loadStyle(url) { context.loadStyle(url); }
 
     function hasReadableContent() {
-        var contentEl = document.getElementById('content-card');
+        var contentEl = context.region('content');
         return !!(contentEl && contentEl.querySelector('p, h2.novel-chapter'));
     }
 
@@ -61,8 +20,9 @@
     }
 
     function ensureControls() {
-        if (document.getElementById('ttsBar')) return;
-        document.body.insertAdjacentHTML('beforeend',
+        if (document.getElementById('ttsBar') || document.getElementById('modalNarrationCast')) throw new Error('TTS_CONTROLS_IN_USE');
+        var template = document.createElement('template');
+        template.innerHTML =
             '<div class="tts-bar" id="ttsBar" style="display:none;">' +
             '  <div class="tts-progressbar" id="ttsProgressBar" data-i18n-title="tts:seek" title="Seek">' +
             '    <div class="tts-progressbar-fill" id="ttsProgressFill"></div>' +
@@ -117,7 +77,10 @@
             '      <button class="btn" id="narrationCastDone" data-i18n="common:button.done" type="button">Done</button>' +
             '    </div>' +
             '  </div>' +
-            '</div>');
+            '</div>';
+        var controls = Array.from(template.content.children);
+        context.onCleanup(() => controls.forEach(node => node.remove()));
+        document.body.append(template.content);
     }
 
     async function loadControllers() {
@@ -143,19 +106,17 @@
 
     function attach() {
         if (!global.PixivNovelTts) return;
-        var contentEl = document.getElementById('content-card');
-        var data = (typeof rerenderPayload !== 'undefined' && rerenderPayload) ? rerenderPayload.data : null;
-        var language = (typeof activeContentLang !== 'undefined' && activeContentLang)
-                || (data ? (data.language || data.xLanguage || '') : '');
-        var id = typeof novelId !== 'undefined' ? novelId : '';
-        var toastFn = typeof toast === 'function' ? toast : function () {};
+        var contentEl = context.region('content');
+        var language = context.properties.language;
+        var id = context.properties.novelId;
+        var toastFn = toast;
         global.PixivNovelTts.attach({
-            i18n: typeof pageI18n !== 'undefined' ? pageI18n : null,
+            i18n: pageI18n, signal: context.signal, fetch: context.fetch,
             contentEl: contentEl,
             toast: toastFn,
             language: language,
             novelId: id,
-            narrationLang: typeof activeContentLang !== 'undefined' ? activeContentLang : ''
+            narrationLang: context.properties.contentLanguage || ''
         });
         var toggle = document.getElementById('ttsToggle');
         if (toggle) toggle.style.display = '';
@@ -164,17 +125,20 @@
     async function init() {
         if (initialized) return;
         initialized = true;
-        var slotHost = host();
-        if (!slotHost || !hasReadableContent()) return;
+        if (!hasReadableContent()) return;
         loadStyle(BASE + 'pixiv-tts.css');
-        renderButton(slotHost);
+        renderButton(root);
         ensureControls();
         if (typeof pageI18n !== 'undefined' && pageI18n) {
             try { pageI18n.apply(document.body); } catch (_) {}
         }
         if (!await loadControllers()) return;
+        if (context.signal.aborted) return;
+        const controller = global.PixivNovelTts;
+        context.onCleanup(() => controller?.destroy());
         attach();
     }
 
-    init();
-})(window);
+    await init();
+    return {update() { pageI18n = context.i18n; global.PixivNovelTts?.setI18n(pageI18n); global.PixivNovelNarration?.setI18n(pageI18n); }, destroy() { root.replaceChildren(); }};
+});

@@ -13,7 +13,7 @@
     // ---------- 脚本加载 / 分析 ----------
     // 低层：调 /api/narration/script。analyzeIfMissing=false 时仅取缓存（无缓存返回 null，对应 204），绝不分析。
     async function requestScript(body) {
-        const r = await fetch('/api/narration/script', {
+        const r = await (ctx.fetch || global.fetch.bind(global))('/api/narration/script', {
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
@@ -331,7 +331,7 @@
             NarrationStore.touch(novelId);
             return url;
         }
-        const r = await fetch('/api/narration/tts/line', {
+        const r = await (ctx.fetch || global.fetch.bind(global))('/api/narration/tts/line', {
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },

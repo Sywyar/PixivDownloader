@@ -98,8 +98,9 @@ class SchemaGeneratorTest {
                 "@ValueProperty(required=true, nullable=false, minItems=1) String text",
                 "@ValueProperty(required=true, nullable=false) Object value",
                 "@ValueProperty(required=true, nullable=false) Optional<String> value",
-                "@ValueProperty(required=true, nullable=false) java.time.Instant value",
-                "@ValueProperty(required=true, nullable=false) double value",
+                "@ValueProperty(required=true, nullable=false) java.time.LocalDate value",
+                "@ValueProperty(required=true, nullable=false) java.math.BigDecimal value",
+                "@ValueProperty(required=true, nullable=false, encoding=ValueEncoding.DECIMAL_STRING) String value",
                 "@ValueProperty(required=true, nullable=false) Map<Integer, String> value",
                 "@ValueProperty(required=true, nullable=false) List<?> value")) {
             Path project = source("invalid-" + index++, "@ValueSchema public record Request(" + component + ") {}");

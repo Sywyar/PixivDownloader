@@ -1,6 +1,12 @@
 /* AI 翻译设置与名词映射表弹窗。 */
 (function (global) {
     'use strict';
+    function create(scope = {}) {
+    const fetch = scope.fetch || global.fetch.bind(global);
+    const signal = scope.signal;
+    const cleanups = new Set();
+    const dispose = () => { for (const cleanup of [...cleanups]) cleanup(); cleanups.clear(); };
+    signal?.addEventListener('abort', dispose, {once: true});
 
     function tt(i18n, key, fallback, vars) {
         if (i18n && typeof i18n.t === 'function') {
@@ -208,7 +214,10 @@
         setTimeout(function () { if (firstInput) firstInput.focus(); }, 30);
 
         return new Promise(function (resolve) {
+            const cancel = () => cleanup(null);
+            cleanups.add(cancel);
             function cleanup(result) {
+                cleanups.delete(cancel);
                 langEditorEl.classList.remove('open');
                 r.close.onclick = null;
                 r.cancel.onclick = null;
@@ -347,7 +356,10 @@
         setTimeout(function () { r.nameInput.focus(); }, 30);
 
         return new Promise(function (resolve) {
+            const cancel = () => cleanup(null);
+            cleanups.add(cancel);
             function cleanup(result) {
+                cleanups.delete(cancel);
                 glossaryEditorEl.classList.remove('open');
                 r.close.onclick = null;
                 r.cancel.onclick = null;
@@ -666,7 +678,10 @@
 
         return new Promise(function (resolve) {
             var lastGlossaryValue = OPT_DEFAULT;
+            const cancel = () => cleanup(null);
+            cleanups.add(cancel);
             function cleanup(result) {
+                cleanups.delete(cancel);
                 dialogEl.classList.remove('open');
                 r.close.onclick = null;
                 r.cancel.onclick = null;
@@ -810,7 +825,8 @@
         });
     }
 
-    global.PixivTranslateDialog = Object.freeze({
-        openDialog: openDialog
-    });
+    cleanups.add(() => { langEditorEl?.remove(); glossaryEditorEl?.remove(); dialogEl?.remove(); });
+    return {openDialog, destroy: dispose};
+    }
+    global.PixivTranslateDialog = Object.freeze({...create(), create});
 })(window);

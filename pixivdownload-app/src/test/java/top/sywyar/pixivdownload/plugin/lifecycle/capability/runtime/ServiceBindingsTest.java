@@ -64,6 +64,7 @@ class ServiceBindingsTest {
         var first = f.provider("provider", 1, KEY);
         f.flush();
         assertThat(binding.state()).isEqualTo(ServiceBinding.State.WAITING);
+        assertThat(binding.diagnostic().code()).isEqualTo("CONSUMER_NOT_ACTIVE");
         assertThat(scopes).isEmpty();
         var consumer = f.publish(f.consumer); f.flush();
         assertThat(binding.state()).isEqualTo(ServiceBinding.State.ACTIVE);
@@ -101,6 +102,8 @@ class ServiceBindingsTest {
         assertThat(calls).hasValue(1);
         var duplicate = f.provider("duplicate", 1, SECOND); f.flush();
         assertThat(binding.state()).isEqualTo(ServiceBinding.State.AMBIGUOUS);
+        assertThat(binding.diagnostic().code()).isEqualTo("AMBIGUOUS");
+        assertThat(binding.diagnostic().dependencies().get(1).providers()).hasSize(2);
         f.registry.withdraw(duplicate); f.flush();
         assertThat(calls).hasValue(2);
     }
@@ -115,6 +118,8 @@ class ServiceBindingsTest {
         });
         f.flush();
         assertThat(binding.state()).isEqualTo(ServiceBinding.State.FAILED);
+        assertThat(binding.diagnostic().code()).isEqualTo("ACTIVATION_FAILED");
+        assertThat(binding.diagnostic().toString()).doesNotContain("private");
         assertThat(closes).hasValue(1);
         f.registry.serviceBindingsChanged(); f.flush();
         assertThat(attempts).hasValue(1);
@@ -136,6 +141,9 @@ class ServiceBindingsTest {
         var drain = f.registry.withdraw(provider).orElseThrow();
         f.provider("replacement", 2, KEY); f.flush();
         assertThat(binding.state()).isEqualTo(ServiceBinding.State.CLOSE_FAILED);
+        assertThat(binding.diagnostic().code()).isEqualTo("CLOSE_FAILED");
+        assertThat(binding.diagnostic().dependencies().get(0).providers().get(0).publicationId())
+                .isEqualTo(provider.owner().publicationId());
         assertThat(drain.isDrained()).isFalse(); assertThat(activated).hasValue(1);
         binding.retry(); f.flush();
         assertThat(drain.isDrained()).isTrue(); assertThat(activated).hasValue(2);
@@ -281,6 +289,151 @@ class ServiceBindingsTest {
 
     private static void assertUnavailable(Runnable action) {
         assertThatThrownBy(action::run).isInstanceOf(ServiceAccessException.class).hasMessage("UNAVAILABLE");
+    }
+
+    @Test @DisplayName("调度拒绝有纯值诊断，查询不重试，显式重试恢复且撤回后不串代")
+    void rejectedSchedulingAndRelations() {
+        var f = new Fixture(); var consumer = f.publish(f.consumer);
+        var reject = new AtomicBoolean(true);
+        f.registry.configureBindings(f.tasks, command -> {
+            if (reject.get()) throw new RejectedExecutionException("credential-canary");
+            f.work.add(command);
+        });
+        var binding = f.services.bindAll(List.of(KEY), scope -> {});
+        var diagnostic = binding.diagnostic();
+        assertThat(diagnostic.code()).isEqualTo("SCHEDULING_REJECTED");
+        assertThat(diagnostic.toString()).doesNotContain("credential-canary");
+        assertThat(f.work).isEmpty();
+        assertThat(f.registry.serviceRelations().relations()).singleElement().satisfies(relation -> {
+            assertThat(relation.owner().publicationId()).isEqualTo(consumer.owner().publicationId());
+            assertThat(relation.bindings()).containsExactly(diagnostic);
+        });
+        assertThat(f.work).isEmpty();
+        reject.set(false); binding.retry(); f.flush();
+        assertThat(binding.state()).isEqualTo(ServiceBinding.State.ACTIVE);
+        f.registry.withdraw(consumer); f.flush();
+        assertThat(binding.diagnostic().code()).isEqualTo("CLOSED");
+        assertThat(binding.diagnostic().consumer()).isEqualTo(diagnostic.consumer());
+        assertThat(f.registry.serviceRelations().relations()).allSatisfy(relation -> assertThat(relation.bindings()).isEmpty());
+    }
+
+    @Test @DisplayName("活动绑定调度拒绝后恢复正常诊断且不重建有效轮次")
+    void activeRoundRecoversSchedulingDiagnostic() {
+        var f = new Fixture();
+        f.publish(f.consumer);
+        f.provider("provider", 1, KEY);
+        var activations = new AtomicInteger();
+        var proxy = new AtomicReference<Echo>();
+        var binding = f.services.bind(List.of(KEY), scope -> {
+            activations.incrementAndGet();
+            proxy.set(scope.require(KEY));
+        });
+        f.flush();
+        var original = proxy.get();
+        var reject = new AtomicBoolean(true);
+        f.registry.configureBindings(f.tasks, command -> {
+            if (reject.get()) throw new RejectedExecutionException();
+            f.work.add(command);
+        });
+        f.provider("unrelated", 1, SECOND);
+        assertThat(binding.diagnostic().code()).isEqualTo("SCHEDULING_REJECTED");
+        reject.set(false);
+        f.registry.serviceRelations();
+        assertThat(binding.diagnostic().code()).isEqualTo("SCHEDULING_REJECTED");
+        assertThat(f.work).isEmpty();
+        binding.retry();
+        f.flush();
+        assertThat(binding.diagnostic().code()).isEqualTo("ACTIVE");
+        assertThat(binding.state()).isEqualTo(ServiceBinding.State.ACTIVE);
+        assertThat(activations).hasValue(1);
+        assertThat(proxy.get()).isSameAs(original);
+        assertThat(original.echo("ready")).isEqualTo("provider:ready");
+    }
+
+    @Test @DisplayName("集合绑定接受零到多个实现，第三实现变化不重放命令，旧成员不转投新实例")
+    void collectionMembershipAndExactPublication() {
+        var f = new Fixture();
+        var consumer = f.publish(f.consumer);
+        var scopes = new ArrayList<ServiceBindingScope>();
+        var closes = new AtomicInteger();
+        var binding = f.services.bindAll(List.of(KEY), scope -> {
+            scopes.add(scope);
+            scope.acquire(() -> closes::incrementAndGet);
+        });
+        f.flush();
+        assertThat(binding.state()).isEqualTo(ServiceBinding.State.ACTIVE);
+        assertThat(scopes.get(0).findAll(KEY)).isEmpty();
+        assertThat(f.services.findAll(KEY)).isEmpty();
+        var first = f.provider("one", 1, KEY); f.flush();
+        var old = scopes.get(1).findAll(KEY).get(0);
+        assertThat(old.publication().publicationId()).isEqualTo(first.owner().publicationId());
+        assertThat(old.service().echo("a")).isEqualTo("one:a");
+        f.provider("two", 1, KEY); f.flush();
+        assertUnavailable(() -> old.service().echo("stale-round"));
+        f.provider("unknown-third", 1, KEY); f.flush();
+        assertThat(scopes.get(3).findAll(KEY)).hasSize(3);
+        assertThat(f.services.findAll(KEY)).extracting(p -> p.service().echo("b"))
+                .containsExactly("one:b", "two:b", "unknown-third:b");
+        assertThatThrownBy(() -> f.services.require(KEY)).hasMessage("AMBIGUOUS");
+        assertThatThrownBy(() -> scopes.get(3).require(KEY)).hasMessage("AMBIGUOUS");
+        var snapshot = f.services.findAll(KEY);
+        var drain = f.registry.withdraw(first).orElseThrow();
+        assertThat(drain.isDrained()).isFalse();
+        f.flush();
+        assertThat(drain.isDrained()).isTrue();
+        f.registry.retireDrained(drain); f.registry.acknowledgeRetired(drain);
+        f.provider("one", 2, KEY); f.flush();
+        assertUnavailable(() -> snapshot.get(0).service().echo("replacement"));
+        assertThat(scopes.get(scopes.size() - 1).findAll(KEY)).hasSize(3);
+        f.registry.withdraw(consumer); f.flush();
+        assertThat(binding.state()).isEqualTo(ServiceBinding.State.CLOSED);
+        assertThat(closes).hasValue(scopes.size());
+        int previous = scopes.size();
+        f.provider("later", 1, KEY); f.flush();
+        assertThat(scopes).hasSize(previous);
+    }
+
+    @Test @DisplayName("诊断截断明确可见，管理投影有累计预算，完整操作影响不漏掉被截断的提供者")
+    void boundedDiagnosticsDoNotTruncateImpact() throws Exception {
+        var f = new Fixture(); f.publish(f.consumer);
+        for (int i = 0; i < 129; i++) f.provider("provider-" + i + "-" + "x".repeat(70), 1, KEY);
+        var bindings = new ArrayList<ServiceBinding>();
+        for (int i = 0; i < 128; i++) bindings.add(f.services.bind(List.of(KEY), scope -> fail("ambiguous selection")));
+        f.flush();
+        var diagnostic = bindings.get(0).diagnostic();
+        assertThat(diagnostic.code()).isEqualTo("AMBIGUOUS");
+        assertThat(diagnostic.truncated()).isTrue();
+        assertThat(diagnostic.dependencies()).singleElement().satisfies(dependency -> {
+            assertThat(dependency.truncated()).isTrue();
+            assertThat(dependency.providers()).hasSizeLessThan(129);
+        });
+        var report = f.registry.serviceRelations();
+        assertThat(report.truncated()).isTrue();
+        assertThat(new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsBytes(report).length).isLessThan(4 * 1024 * 1024);
+        assertThat(f.registry.serviceImpact("provider-128-" + "x".repeat(70)).consumers()).containsExactly("consumer");
+        assertThat(f.work).isEmpty();
+        assertThat(bindings).allSatisfy(binding -> assertThat(binding.state()).isEqualTo(ServiceBinding.State.AMBIGUOUS));
+    }
+
+    @Test @DisplayName("集合中的普通失败由消费者隔离，其它事件接收者继续接收一次")
+    void collectionFailureIsolation() {
+        var f = new Fixture(); f.publish(f.consumer);
+        var calls = new AtomicInteger();
+        var bad = f.prepare("failing-sink", 1);
+        f.registry.prepareService(bad, KEY, value -> { throw new IllegalArgumentException("private-payload"); });
+        f.publish(bad);
+        for (String id : List.of("first-sink", "second-sink")) {
+            var p = f.prepare(id, 1);
+            f.registry.prepareService(p, KEY, value -> { calls.incrementAndGet(); return value; });
+            f.publish(p);
+        }
+        var failures = new ArrayList<ServiceAccessException.Reason>();
+        for (var member : f.services.findAll(KEY)) {
+            try { member.service().echo("event"); }
+            catch (ServiceAccessException failure) { failures.add(failure.reason()); }
+        }
+        assertThat(calls).hasValue(2);
+        assertThat(failures).containsExactly(ServiceAccessException.Reason.INVOCATION_FAILED);
     }
     private static void awaitIgnoringInterrupt(CountDownLatch latch) {
         boolean done = false;

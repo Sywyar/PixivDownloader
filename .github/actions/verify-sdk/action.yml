@@ -113,8 +113,19 @@ runs:
           -RuntimeArchive (Join-Path target/sdk-release $release.developmentRuntime.archive.file) `
           -TestRepositoryConfig build/sdk-development-runtime/ci-repository.yaml
 
+    - name: Prepare pinned browser and original published plugin fixtures
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        npx --no-install playwright install --with-deps chromium
+        node scripts/ci/sdk-legacy-plugin.mjs target/sdk-legacy-original.jar
+
     - name: Verify independent service bindings and generated HTTP with a frozen host
       shell: bash
+      env:
+        SDK_OLD_PLUGIN_JAR: target/sdk-legacy-original.jar
       run: |
         set -euo pipefail
         hosts=(pixivdownload-app/target/PixivDownload-*-boot.jar)
@@ -124,3 +135,7 @@ runs:
         node scripts/ci/sdk-typed-services.mjs "${hosts[0]}" target/sdk-tools.jar target/sdk-staging \
           target/sdk-staged-consumer/project/examples/typed-service-plugin "${sqlite[0]}" "${workbench[0]}" \
           target/sdk-typed-services
+
+    - name: Verify page editor and ordinary plugin slots with a frozen host
+      shell: bash
+      run: node scripts/ci/page-editor-acceptance.mjs target/sdk-page-editor-acceptance

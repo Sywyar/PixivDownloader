@@ -64,6 +64,13 @@
     outline-offset: 2px;
 }
 
+.pixiv-feedback-validation {
+    color: var(--danger, var(--accent-red, Mark));
+    overflow-wrap: anywhere;
+}
+
+textarea.pixiv-feedback-input { resize: vertical; }
+
 .pixiv-feedback-choices {
     display: grid;
     gap: var(--space-3, 12px);

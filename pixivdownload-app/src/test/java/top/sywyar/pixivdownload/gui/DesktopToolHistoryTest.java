@@ -1,5 +1,6 @@
 package top.sywyar.pixivdownload.gui;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -22,6 +23,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DesktopToolHistoryTest {
     @TempDir
     Path tempDir;
+
+    @AfterEach
+    void cleanupDirectory() throws Exception {
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(tempDir);
+    }
 
     @Test
     @DisplayName("部分失败终态及失败计数跨重启保留")

@@ -15,6 +15,8 @@ async function page(redirect = '', valid = false) {
     const listeners = new Map();
     const posts = [];
     let actions;
+    let slotOptions;
+    const properties = [];
     function node(id) {
         if (!nodes.has(id)) {
             const classes = new Set(id === 'inviteCard' ? ['hidden'] : []);
@@ -37,14 +39,44 @@ async function page(redirect = '', valid = false) {
         if (endpoint === '/api/auth/check') return Promise.resolve({json: async () => ({valid})});
         return new Promise((resolve, reject) => posts.push({endpoint, options, resolve, reject}));
     };
-    vm.runInNewContext(source, {window: {location}, document, URL, URLSearchParams, fetch,
+    const PixivUiSlots = {connect(options) { slotOptions = options; return {
+        refresh: async () => [], update: async value => properties.push(JSON.parse(JSON.stringify(value)))
+    }; }};
+    vm.runInNewContext(source, {window: {location, PixivUiSlots}, document, URL, URLSearchParams, fetch,
         PixivActions: {bind: (_, handlers) => { actions = handlers.click; }}});
     await settle();
     node('username').value = 'test-admin';
     node('password').value = 'test-password';
     node('inviteCodeInput').value = 'test-invite';
-    return {node, listeners, posts, actions, location};
+    return {node, listeners, posts, actions, location, slotOptions, properties};
 }
+
+test('挑战槽位只接收挑战纯值，证明绑定当前token，修改凭证后清除', async () => {
+    const s = await page();
+    const pending = s.actions.doLogin();
+    s.posts[0].resolve({ok: false, status: 409, json: async () => ({code: 'setup.login.verification.required',
+        verificationToken: 'attempt', challenges: {'neutral-policy': 'challenge'}, error: 'Verification required'})});
+    await pending;
+    assert.deepEqual(s.properties.at(-1), {verificationToken: 'attempt', challenges: {'neutral-policy': 'challenge'}});
+    s.slotOptions.onEvent('proof', {verificationToken: 'old', policyId: 'neutral-policy', proof: 'stale'});
+    s.slotOptions.onEvent('proof', {verificationToken: 'attempt', policyId: 'unknown', proof: 'wrong'});
+    s.slotOptions.onEvent('proof', {verificationToken: 'attempt', policyId: 'neutral-policy', proof: 'accepted'});
+    s.listeners.get('keydown')({key: 'Enter', target: {closest: () => true}});
+    assert.equal(s.posts.length, 1, 'proof button Enter does not submit login');
+    const response = s.actions.doLogin();
+    const body = JSON.parse(s.posts[1].options.body);
+    assert.deepEqual(body.verificationProofs, {'neutral-policy': 'accepted'});
+    assert.equal(body.verificationToken, 'attempt');
+    s.posts[1].resolve({ok: false, status: 409, json: async () => ({code: 'setup.login.verification.required',
+        verificationToken: 'next', challenges: {'neutral-policy': 'challenge'}})});
+    await response;
+    s.node('password').input();
+    assert.deepEqual(s.properties.at(-1), {verificationToken: '', challenges: {}});
+    const cleared = s.actions.doLogin();
+    assert.deepEqual(JSON.parse(s.posts[2].options.body).verificationProofs, {});
+    s.posts[2].resolve({ok: true, json: async () => ({success: true})});
+    await cleared;
+});
 
 test('登录后的回跳按浏览器URL语义限制在当前来源', async () => {
     const blocked = [String.raw`/\outside.example.test/`, '/\t/outside.example.test/',

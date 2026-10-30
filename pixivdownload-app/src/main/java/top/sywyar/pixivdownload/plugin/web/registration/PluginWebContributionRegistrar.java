@@ -397,6 +397,7 @@ public class PluginWebContributionRegistrar {
                 new Registration(handle, publication, RegistrationState.ACTIVE);
         boolean registrationPublished = false;
         try {
+            webUiSlotRegistry.bindBootRequestOwner(owner);
             requestLeaseRegistry.publish(owner);
             if (!prepared.routes().isEmpty()) {
                 routeAccessRegistry.register(owner, prepared.routes());
@@ -587,7 +588,8 @@ public class PluginWebContributionRegistrar {
                 }
                 if (!contributions.uiSlots().isEmpty()) {
                     registration.requireCleanup(CleanupStep.UI_SLOT);
-                    webUiSlotRegistry.register(pluginId, contributions.uiSlots());
+                    webUiSlotRegistry.register(pluginId,
+                            isRequestManaged(registered) ? registration.handle().requestOwner() : null, contributions.uiSlots());
                 }
                 if (!contributions.userscripts().isEmpty()) {
                     registration.requireCleanup(CleanupStep.USERSCRIPT);

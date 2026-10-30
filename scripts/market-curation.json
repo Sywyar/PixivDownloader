@@ -1,6 +1,20 @@
 {
   "_legacySdkVersions": ["1.0.0", "1.1.0"],
   "_comment": "插件市场专属策展源（运营者维护）。插件身份展示字段 displayNamespace/displayNameKey/descriptionKey/iconToken/colorToken/displayName/summary 由 source plugin.properties 的 pixiv.* 和 i18n bundle 派生；安装关键字段（version/packageUrl/sha256/size/requiredSdk）由 generate-market-manifest.ps1 从真实产物推导，requiredCoreApi 仅作旧客户端 wire alias 同值发布。键为 pluginId。",
+  "page-editor": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
+    "description": {"zh":"通过拖拽组件编辑页面布局、样式和属性，保存草稿并发布或恢复上一版。组件由独立插件贡献，登录页面保留原认证表单与默认外观恢复入口。","en":"Drag components to edit page layout, styles and properties. Save drafts, publish, or restore the previous publication. Independent plugins contribute components; the login page retains its authentication form and default appearance recovery."},
+    "author": "Sywyar",
+    "sourceType": "official",
+    "category": "utility",
+    "tags": ["page", "editor", "layout"],
+    "homepageUrl": "https://sywyar.github.io/PixivDownloader/#/zh-cn/page-editor",
+    "license": "AGPL-3.0-only",
+    "recommended": false,
+    "officialRequired": false,
+    "changeNotes": ["新增可视化页面编辑、插件组件与发布恢复"]
+  },
   "download-workbench": {
     "defaultLocale": "zh-CN",
     "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},

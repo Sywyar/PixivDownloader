@@ -8,6 +8,35 @@ import static org.assertj.core.api.Assertions.*;
 
 @DisplayName("远程 JSON 边界的无损整数、Unicode、预算及显式空值")
 class RemoteValuesTest {
+    public record Encoded(long sequence, UUID id, java.time.Instant time, java.time.Duration delay, float score, double ratio) {}
+
+    @Test @DisplayName("显式完整整数、UUID、时间和浮点经过运行期 Schema 校验与 Java 编解码")
+    void encodedValues() throws Exception {
+        var schema = parse("""
+                {"$ref":"#/$defs/E","$defs":{"E":{"type":"object","additionalProperties":false,
+                  "required":["sequence","id","time","delay","score","ratio"],"properties":{
+                  "sequence":{"type":"string","x-encoding":"DECIMAL_STRING","x-minimum":"-9223372036854775808","x-maximum":"9223372036854775807"},
+                  "id":{"type":"string","x-encoding":"UUID_STRING"},
+                  "time":{"type":"string","x-encoding":"INSTANT_SECONDS_NANOS"},
+                  "delay":{"type":"string","x-encoding":"DURATION_SECONDS_NANOS"},
+                  "score":{"type":"string","x-encoding":"FLOAT32_HEX"},
+                  "ratio":{"type":"string","x-encoding":"FLOAT64_HEX"}}}}}
+                """);
+        RemoteValues.validateSchema(schema.toString());
+        var record = new Encoded(Long.MAX_VALUE, UUID.fromString("12345678-1234-5678-1234-567812345678"),
+                java.time.Instant.MAX, java.time.Duration.ofSeconds(-1, 1), -0.0f, Double.MIN_VALUE);
+        var json = RemoteValues.encode(record, Encoded.class, schema);
+        assertThat(json.path("sequence").textValue()).isEqualTo("9223372036854775807");
+        assertThat(json.path("score").textValue()).isEqualTo("80000000");
+        RemoteValues.validate(schema, json);
+        assertThat(RemoteValues.decode(json, Encoded.class)).isEqualTo(record);
+        for (String broken : List.of(json.toString().replace("80000000", "7f800000"),
+                json.toString().replace("9223372036854775807", "9223372036854775808"),
+                json.toString().replace("31556889864403199", "31556889864403200")))
+            assertThatThrownBy(() -> RemoteValues.validate(schema, parse(broken))).hasMessage("REMOTE_VALUE_INVALID").hasNoCause();
+        assertThatThrownBy(() -> RemoteValues.validateSchema("{\"type\":\"string\",\"x-encoding\":\"UNKNOWN\"}"))
+                .hasMessage("PAGE_PORT_SCHEMA_INVALID");
+    }
     public record Input(long number, String text, List<Integer> values, Map<String, String> labels, String note) {}
     private static final String SCHEMA = """
             {"$ref":"#/$defs/Input","$defs":{"Input":{"type":"object","additionalProperties":false,

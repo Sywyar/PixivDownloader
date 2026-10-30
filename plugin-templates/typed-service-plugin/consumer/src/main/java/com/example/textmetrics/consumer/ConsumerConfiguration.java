@@ -11,9 +11,9 @@ import top.sywyar.pixivdownload.i18n.ResourceBundleMessageResolver;
 @Configuration(proxyBeanMethods = false)
 public class ConsumerConfiguration {
     @Bean
-    pixivdownload.generated.remote.TextMetricsRemoteAdapter remoteMetrics(
+    pixivdownload.generated.remote.com.example.textmetrics.api.TextMetricsRemoteAdapter remoteMetrics(
             top.sywyar.pixivdownload.plugin.api.web.RemoteOperations operations) {
-        return new pixivdownload.generated.remote.TextMetricsRemoteAdapter(operations);
+        return new pixivdownload.generated.remote.com.example.textmetrics.api.TextMetricsRemoteAdapter(operations);
     }
 
     @Bean

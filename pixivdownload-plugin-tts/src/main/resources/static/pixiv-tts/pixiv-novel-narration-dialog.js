@@ -137,7 +137,7 @@
     }
 
     async function castApi(url, options) {
-        const res = await fetch(url, Object.assign({ credentials: 'same-origin' }, options || {}));
+        const res = await (ctx.fetch || global.fetch.bind(global))(url, Object.assign({ credentials: 'same-origin' }, options || {}));
         if (!res.ok) {
             let msg = 'HTTP ' + res.status;
             try { const j = await res.json(); if (j && j.message) msg = j.message; } catch {}
@@ -309,11 +309,14 @@
         loadCastContext().then(loadNarratorContext);
 
         dialogEl.classList.add('open');
-        setTimeout(() => { r.segInput.focus(); }, 30);
+        setTimeout(() => { if (!state.signal?.aborted) r.segInput.focus(); }, 30);
 
         return new Promise((resolve) => {
             let lastCastValue = CAST_OPT_DEFAULT;
+            const cancel = () => cleanup(null);
+            state.signal?.addEventListener('abort', cancel, {once: true});
             function cleanup(result) {
+                state.signal?.removeEventListener('abort', cancel);
                 dialogEl.classList.remove('open');
                 r.close.onclick = null; r.cancel.onclick = null; r.confirm.onclick = null;
                 r.backdrop.onclick = null; r.castEdit.onclick = null; r.castSelect.onchange = null;
@@ -399,7 +402,7 @@
     }
 
 
-            ctx.dialog = { openAnalysisDialog };
+            ctx.dialog = { openAnalysisDialog, destroy() { dialogEl?.remove(); dialogEl = null; } };
         }
     };
 })(window);
