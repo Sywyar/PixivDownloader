@@ -40,6 +40,7 @@ class DesktopPageLayoutTest {
                     case "defaultBackfillOptions" -> new DesktopUiHost.BackfillOptions("data/test.db", "localhost", 8080, false, 1000, 0, false);
                     case "backendSnapshot" -> new DesktopUiHost.BackendSnapshot(DesktopUiHost.BackendState.STOPPED, null);
                     case "subscribeBackend" -> (AutoCloseable) () -> {};
+                    case "backfillTask" -> java.util.Optional.empty();
                     default -> throw new AssertionError(method.getName());
                 });
         var config = Path.of("config.yaml");

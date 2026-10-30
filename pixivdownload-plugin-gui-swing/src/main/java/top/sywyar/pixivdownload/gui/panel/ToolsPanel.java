@@ -486,7 +486,7 @@ public class ToolsPanel extends JPanel {
                 try { get(); }
                 catch (Exception failure) {
                     log.error(logMessage("gui.tools.log.backfill.failed"), failure);
-                    backfillStatusLabel.setText(message("desktop.ui.tools.operation-failed"));
+                    backfillStatusLabel.setText(SwingHost.host().message("desktop.ui.tools.operation-failed"));
                 }
                 refreshBackfill();
                 refreshActionStates();

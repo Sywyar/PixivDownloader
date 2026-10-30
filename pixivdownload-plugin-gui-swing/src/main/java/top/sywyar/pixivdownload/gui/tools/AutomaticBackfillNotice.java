@@ -51,17 +51,25 @@ public final class AutomaticBackfillNotice implements AutoCloseable {
         boolean opening = !dialog.isVisible();
         rendered = task;
         renderedLocale = GuiMessages.currentLocale();
-        dialog.setTitle(message("title"));
+        dialog.setTitle(GuiMessages.get("gui.tools.backfill.notice.title"));
         JPanel content = new JPanel(new BorderLayout(0, 16));
         content.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
         JPanel body = new JPanel();
         body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
-        JLabel title = new JLabel(message("title"), UIManager.getIcon("OptionPane.informationIcon"), SwingConstants.LEFT);
+        JLabel title = new JLabel(
+                GuiMessages.get("gui.tools.backfill.notice.title"),
+                UIManager.getIcon("OptionPane.informationIcon"),
+                SwingConstants.LEFT
+        );
         title.setFont(title.getFont().deriveFont(Font.BOLD));
         title.setAlignmentX(Component.LEFT_ALIGNMENT);
         body.add(title);
         body.add(Box.createVerticalStrut(12));
-        JTextArea detail = new JTextArea(message(task.active() ? "body" : "finished"), 3, 32);
+        JTextArea detail = new JTextArea(
+                GuiMessages.get(task.active() ? "gui.tools.backfill.notice.body" : "gui.tools.backfill.notice.finished"),
+                3,
+                32
+        );
         detail.setLineWrap(true);
         detail.setWrapStyleWord(true);
         detail.setEditable(false);
@@ -78,10 +86,12 @@ public final class AutomaticBackfillNotice implements AutoCloseable {
         scroll.setBorder(null);
         content.add(scroll, BorderLayout.CENTER);
         JPanel actions = new JPanel(new GridLayout(0, 1, 0, 8));
-        JButton view = new JButton(message(task.active() ? "view" : "results"));
+        JButton view = new JButton(GuiMessages.get(task.active()
+                ? "gui.tools.backfill.notice.view" : "gui.tools.backfill.notice.results"));
         UUID executionId = task.executionId();
         view.addActionListener(event -> { if (dismiss(executionId)) viewProgress.run(); });
-        JButton dismiss = new JButton(message(task.active() ? "background" : "dismiss"));
+        JButton dismiss = new JButton(GuiMessages.get(task.active()
+                ? "gui.tools.backfill.notice.background" : "gui.tools.backfill.notice.dismiss"));
         dismiss.addActionListener(event -> dismiss(executionId));
         actions.add(view);
         actions.add(dismiss);
@@ -133,9 +143,5 @@ public final class AutomaticBackfillNotice implements AutoCloseable {
         hide();
         current = null;
         dismissed = null;
-    }
-
-    private static String message(String key) {
-        return GuiMessages.get("gui.tools.backfill.notice." + key);
     }
 }
