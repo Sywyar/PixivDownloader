@@ -1,4 +1,6 @@
 import {checkCssEditor} from './css-editor-browser.mjs';
+import {checkCustomComponents} from './custom-components-browser.mjs';
+import {checkPublishedTitle} from './title-browser.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -30,7 +32,7 @@ page.on('request', request => { if (!request.url().startsWith(origin) && !reques
 await page.exposeFunction('recordCsp', value => violations.push(value));
 await page.addInitScript(() => document.addEventListener('securitypolicyviolation', event =>
     window.recordCsp({directive: event.violatedDirective, blocked: event.blockedURI})));
-const clickConfirm = async () => page.locator('[data-pixiv-feedback-action="accept"],.pixiv-feedback-button--primary').click();
+const clickConfirm = async () => page.locator('.pixiv-feedback-backdrop[open] .pixiv-feedback-button--primary').click();
 const waitStatus = async text => page.waitForFunction(value => document.getElementById('status')?.textContent === value, text);
 async function editor() {
     await context.addCookies([{name: cookie[0], value: cookie.slice(1).join('='), url: origin}]);
@@ -107,14 +109,18 @@ async function checkEditorLayout() {
     await page.screenshot({path: path.join(work, 'editor-design-light.png'), fullPage: true});
     await page.locator('.pixiv-theme-toggle').click();
     await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
+    await page.evaluate(() => Promise.allSettled(document.getAnimations().filter(animation =>
+        animation.effect.getTiming().iterations !== Infinity).map(animation => animation.finished)));
     await checkContrast();
     await page.screenshot({path: path.join(work, 'editor-design-dark.png'), fullPage: true});
     await page.locator('.pixiv-theme-toggle').click();
     await page.locator('#add-tab').click();
     const container = page.getByRole('button', {name: 'Container', exact: true});
     await container.press('Enter');
+    await page.locator('#component-add').click();
     await page.locator('.gjs-sm-property__flex-direction').waitFor();
     await page.getByRole('button', {name: 'Text', exact: true}).press('Enter');
+    await page.locator('#component-add').click();
     await page.waitForFunction(() => !document.getElementById('outdent').disabled);
     const layerAlignment = await page.locator('#layers .gjs-layer-item').evaluateAll(rows => rows.every(row => {
         const elements = [...row.querySelectorAll('.gjs-layer-name,.gjs-layer-caret')].filter(node => node.getBoundingClientRect().height);
@@ -145,7 +151,7 @@ async function checkEditorLayout() {
             page.locator('.pixiv-lang-switcher__select').selectOption(locale.tag)
         ]);
         await page.waitForFunction(() => window.pageEditorReady);
-        assert.ok(!(await page.locator('#status').textContent()).includes('(PAGE_'), 'loading an intact draft succeeds');
+        assert.equal(await page.locator('#document-feedback').getAttribute('data-state'), 'idle', 'loading an intact draft succeeds');
         assert.equal(await page.locator('html').getAttribute('lang'), locale.tag);
         await page.locator('#selection').selectOption({index: 2});
         const labels = await page.locator('#styles .gjs-sm-property__padding-top .gjs-sm-label').textContent();
@@ -190,12 +196,11 @@ try {
         assert.deepEqual((await documentState()).published, source, 'default source is preserved');
         await page.locator('#page-title').fill('Custom login title');
         await page.locator('#publish').click(); await clickConfirm(); await waitStatus('Page published');
+        await checkPublishedTitle(context.browser(), origin, 'Custom login title');
         await login();
-        await page.locator('#default-page').waitFor({state: 'visible'});
+        await page.waitForFunction(() => document.getElementById('native-page').hidden);
         assert.equal(await page.title(), 'Custom login title');
-        await page.locator('#default-page').click();
-        await page.locator('#default-page').waitFor({state: 'hidden'});
-        assert.equal(await page.locator('.center').evaluate(node => node.parentElement.id === 'native-page'), true);
+        assert.equal(await page.locator('#default-page').count(), 0, 'published pages have no visitor layout override');
         await editor();
         await restore();
         assert.deepEqual((await documentState()).published, source, 'restore keeps the original default document');
@@ -241,6 +246,7 @@ try {
         await page.locator('#add-tab').click();
         const block = page.getByRole('button', {name: 'Checklist', exact: true});
         await block.waitFor({timeout: 30000}); await block.press('Enter');
+        await page.locator('#component-add').click();
         await page.getByLabel('Checklist title', {exact: true}).waitFor();
         const frame = page.frameLocator('iframe.gjs-frame');
         const mounted = await frame.locator('[data-tick]').elementHandle();
@@ -261,19 +267,33 @@ try {
         await checklist.waitFor();
         const frame = page.frameLocator('iframe.gjs-frame');
         await frame.locator('[data-page-region="password"]').waitFor();
+        await page.waitForFunction(() => [document, window.grapesjs.editors[0].Canvas.getDocument()].every(doc =>
+            doc.getAnimations().every(animation => animation.playState === 'finished' || animation.playState === 'idle'
+                || animation.effect.getTiming().iterations === Infinity)));
+        assert.deepEqual(await page.evaluate(() => {
+            const editor = window.grapesjs.editors[0], root = editor.getWrapper();
+            const password = root.findType('page-region').find(model => model.get('region') === 'password');
+            return {withinForm: editor.Components.canMove(password.parent(), password).result,
+                outsideForm: editor.Components.canMove(root, password).result};
+        }), {withinForm: true, outsideForm: false}, 'dragging keeps required fields inside their form');
         const blockBox = await checklist.boundingBox();
-        const fieldBox = await frame.locator('[data-page-region="password"]').boundingBox();
+        const fieldBox = await frame.locator('[data-page-region="remember"]').boundingBox();
         await page.mouse.move(blockBox.x + blockBox.width / 2, blockBox.y + blockBox.height / 2);
         await page.mouse.down();
-        await page.mouse.move(fieldBox.x + 30, fieldBox.y + fieldBox.height - 2, {steps: 20});
-        await page.mouse.move(fieldBox.x + 35, fieldBox.y + fieldBox.height - 1, {steps: 5});
+        await page.mouse.move(fieldBox.x + 30, fieldBox.y + fieldBox.height / 2, {steps: 20});
+        await page.mouse.move(fieldBox.x + 35, fieldBox.y + fieldBox.height / 2, {steps: 5});
+        await page.waitForFunction(() => window.grapesjs.editors[0].Canvas.getSpots({type: 'target'})
+            .some(spot => spot.get('component')?.get('region') === 'admin-card'));
         await page.mouse.up();
         await frame.getByRole('heading', {name: 'Checklist', exact: true}).waitFor({timeout: 5000});
+        assert.equal(await page.evaluate(() => window.grapesjs.editors[0].getWrapper()
+            .findType('page-component')[0].parent().get('region')), 'admin-card');
         await page.getByLabel('Checklist title', {exact: true}).fill('First list');
         await page.getByLabel('Checklist title', {exact: true}).press('Tab');
         await page.getByRole('button', {name: 'Add item', exact: true}).click();
         assert.equal(await page.locator('#properties').getByRole('textbox').count(), 3);
         await checklist.focus(); await checklist.press('Enter');
+        await page.locator('#component-add').click();
         await page.getByLabel('Checklist title', {exact: true}).fill('Second list');
         await page.getByLabel('Checklist title', {exact: true}).press('Tab');
         const instanceLabels = (await page.locator('#selection option').allTextContents()).filter(text => text.includes('Checklist'));
@@ -281,10 +301,12 @@ try {
         assert.equal(new Set(instanceLabels).size, 2, 'component instances have distinct selection labels');
         await page.locator('#properties input[type="checkbox"]').first().check();
         await checklist.focus(); await checklist.press('Enter');
+        await page.locator('#component-add').click();
         await page.getByLabel('Checklist title', {exact: true}).fill('Third list');
         await page.getByLabel('Checklist title', {exact: true}).press('Tab');
         const containerBlock = page.getByRole('button', {name: 'Container', exact: true});
         await containerBlock.press('Enter');
+        await page.locator('#component-add').click();
         await page.waitForFunction(() => document.querySelector('.gjs-sm-property__gap input')?.value === '16');
         await page.locator('.gjs-sm-property__gap input').fill('12');
         await page.locator('.gjs-sm-property__gap input').press('Tab');
@@ -293,6 +315,7 @@ try {
         await page.locator('.gjs-sm-property__gap input').press('Tab');
         await page.locator('#viewport').selectOption('Desktop');
         await page.getByRole('button', {name: 'Text', exact: true}).press('Enter');
+        await page.locator('#component-add').click();
         await page.locator('#properties textarea').fill('Layout note');
         await page.locator('#properties textarea').press('Tab');
         await page.locator('#outdent').click();
@@ -320,11 +343,11 @@ try {
         await selectLayer('page-box', 'footer');
         await page.locator('#add-tab').click();
         await page.getByRole('button', {name: 'Link', exact: true}).press('Enter');
+        await page.locator('#component-add').click();
         await page.locator('#properties textarea').fill('Registration information');
         await page.locator('#properties textarea').press('Tab');
         await page.getByLabel('Link URL', {exact: true}).fill('https://example.org/registration');
         await page.getByLabel('Link URL', {exact: true}).press('Tab');
-        await page.locator('#page-settings > summary').click();
         await page.locator('#show-hidden').check();
         await frame.locator('[data-page-region="invite-card"]').waitFor({state: 'visible'});
         await page.locator('#show-hidden').uncheck();
@@ -378,15 +401,7 @@ try {
         await login();
         await page.getByRole('heading', {name: 'First list', exact: true}).waitFor();
         assert.equal(await page.getByText('Layout note', {exact: true}).evaluate(node => getComputedStyle(node).paddingTop), '18px');
-        const controls = await page.locator('#default-page').evaluate(node => {
-            const language = document.querySelector('.pixiv-lang-switcher__select');
-            return {font: getComputedStyle(node).fontSize, weight: getComputedStyle(node).fontWeight,
-                languageFont: getComputedStyle(language).fontSize, height: node.getBoundingClientRect().height,
-                languageHeight: language.getBoundingClientRect().height};
-        });
-        assert.equal(controls.font, controls.languageFont);
-        assert.equal(controls.weight, '500');
-        assert.ok(Math.abs(controls.height - controls.languageHeight) <= 2, JSON.stringify(controls));
+        assert.equal(await page.locator('#default-page').count(), 0, 'published layouts remain controlled by the editor');
         assert.equal(await page.title(), 'Published example');
         assert.equal(await page.locator('#custom-page header').evaluate(node => getComputedStyle(node).paddingTop), '20px');
         await page.locator('#loginCard').getByRole('heading', {name: 'First list', exact: true}).waitFor();
@@ -420,7 +435,10 @@ try {
             .find(node => node.textContent === 'Layout note').parentElement).gap === '28px');
         assert.equal(await page.getByText('Layout note', {exact: true}).evaluate(node => getComputedStyle(node.parentElement).gap), '28px');
         await page.screenshot({path: path.join(work, 'login-mobile.png'), fullPage: true});
-        await page.locator('#default-page').click();
+        await page.route('**/api/web/page-publications/**', route => route.request().method() === 'HEAD'
+            ? route.fulfill({status: 404}) : route.continue());
+        await page.waitForFunction(() => !document.getElementById('native-page').hidden);
+        await page.unroute('**/api/web/page-publications/**');
         assert.equal(await page.locator('#custom-page').textContent(), '');
         await page.locator('#login-btn').waitFor({state: 'visible'});
         assert.equal(await page.locator('#loginCard input').count(), 3, 'fallback restores original controls');
@@ -430,6 +448,7 @@ try {
         await page.locator('#add-tab').click();
         await page.getByRole('button', {name: 'Text', exact: true}).focus();
         await page.getByRole('button', {name: 'Text', exact: true}).press('Enter');
+        await page.locator('#component-add').click();
         await page.locator('#properties textarea').fill('A changed publication');
         await page.locator('#properties textarea').press('Tab');
         await page.locator('#publish').click(); await clickConfirm(); await waitStatus('Page published');
@@ -482,6 +501,9 @@ try {
         await context.addCookies([{name: cookie[0], value: cookie.slice(1).join('='), url: origin}]);
         await page.getByRole('button', {name: 'Verify checklist', exact: true}).first().click();
         await page.waitForFunction(() => document.querySelector('#custom-page output')?.textContent === '0 / 2');
+    } else if (phase === 'custom' || phase === 'custom-restarted') {
+        await editor();
+        await checkCustomComponents({page, context, origin, phase, work, clickConfirm});
     } else if (phase === 'default' || phase === 'corrupt') {
         await login();
         assert.equal(await page.locator('#custom-page').textContent(), '');
@@ -499,7 +521,8 @@ try {
 } catch (failure) {
     fs.writeFileSync(path.join(work, 'failure-' + phase + '.json'), JSON.stringify(await page.evaluate(() => {
         const editor = window.grapesjs?.editors[0];
-        return {selected: editor?.getSelected()?.toJSON(), styles: editor?.getProjectData().styles,
+        const selected = editor?.getSelected();
+        return {selected: selected && {id: selected.getId(), type: selected.get('type')}, styles: editor?.getProjectData().styles,
             gap: document.querySelector('.gjs-sm-property__gap input')?.value};
     }), null, 2), 'utf8');
     fs.writeFileSync(path.join(work, 'failure-' + phase + '.html'), await page.content(), 'utf8');

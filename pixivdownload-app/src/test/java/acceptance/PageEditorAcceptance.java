@@ -105,7 +105,7 @@ public final class PageEditorAcceptance {
                 check(Arrays.equals(damaged, Files.readAllBytes(incompleteFile)), "recovery preview never rewrites the saved draft");
             } finally { Files.write(incompleteFile, completeState); }
             var catalog = context.getBean(PageCatalog.class);
-            check(catalog.components().isEmpty(), "fixed editor has no knowledge of fixture");
+            check(fixtureComponents(catalog).isEmpty(), "fixed editor has no knowledge of fixture");
             var coordinator = context.getBean(ExternalPluginLifecycleCoordinator.class);
             Process live = startBrowser(args[1], origin, cookie, "live", fixed);
             awaitFile(fixed.resolve("live-ready"), live);
@@ -114,7 +114,7 @@ public final class PageEditorAcceptance {
             check(pending.installResult().outcome() == PluginInstallOutcome.TRUST_CONFIRMATION_REQUIRED, "independent plugin needs trust");
             var active = coordinator.installOrUpdate(sample, false, origin(sample, false, pending.installResult().trustRequirement().artifactSha256()));
             check(active.activated(), "independent plugin activated: " + active);
-            check(catalog.components().size() == 1, "component discovered");
+            check(fixtureComponents(catalog).size() == 1, "component discovered");
             awaitFile(fixed.resolve("live-discovered"), live);
             coordinator.stop("page-checklist");
             awaitFile(fixed.resolve("live-withdrawn"), live);
@@ -135,7 +135,7 @@ public final class PageEditorAcceptance {
             coordinator.start("ai");
             coordinator.start("tts");
             check(officialSlots.waitFor() == 0, "real AI and TTS browser lifecycle");
-            String oldPublication = catalog.components().get(0).publication();
+            String oldPublication = fixtureComponents(catalog).get(0).publication();
             browser(args[1], origin, cookie, "active", fixed);
             var publicView = request(origin, "/api/web/page-publications/core:login", null, null);
             check(publicView.statusCode() == 200 && !publicView.body().contains("propertiesModuleUrl")
@@ -161,12 +161,12 @@ public final class PageEditorAcceptance {
             coordinator.stop("page-checklist");
             coordinator.unload("page-checklist");
             check(!Files.exists(snapshot), "unload releases the served artifact snapshot");
-            check(catalog.components().isEmpty(), "withdrawn catalog");
+            check(fixtureComponents(catalog).isEmpty(), "withdrawn catalog");
             check(request(origin, "/api/web/page-publications/core:login", null, null).statusCode() == 503, "missing component refuses publication");
             browser(args[1], origin, cookie, "missing", fixed);
             coordinator.load("page-checklist");
             coordinator.start("page-checklist");
-            check(!catalog.components().get(0).publication().equals(oldPublication), "new publication after start");
+            check(!fixtureComponents(catalog).get(0).publication().equals(oldPublication), "new publication after start");
             var stale = HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(origin + "/page-checklist/render/component.mjs?pagePublication=" + oldPublication))
                     .header("Cookie", cookie).GET().build(), HttpResponse.BodyHandlers.ofString());
             check(stale.statusCode() == 409, "old module publication rejected");
@@ -180,11 +180,19 @@ public final class PageEditorAcceptance {
             } finally { Files.write(pageFile, savedPage); }
             verifyDrain(context, coordinator, origin, cookie);
             coordinator.start("page-checklist");
+            browser(args[1], origin, cookie, "custom", fixed);
+            coordinator.stop("page-editor");
+            coordinator.start("page-editor");
+            browser(args[1], origin, cookie, "custom-restarted", fixed);
             coordinator.stop("page-editor");
             check(request(origin, "/api/web/page-publications/core:login", null, null).statusCode() == 404, "editor absence withdraws source");
             browser(args[1], origin, cookie, "default", fixed);
             System.out.println("PAGE_EDITOR_SIGNED_INSTALL_HTTP_BROWSER_LIFECYCLE_PASSED");
         }
+    }
+
+    private static List<PageCatalog.AvailableComponent> fixtureComponents(PageCatalog catalog) {
+        return catalog.components().stream().filter(component -> component.definition().type().equals("page-checklist:list")).toList();
     }
 
     private static void verifyDrain(ConfigurableApplicationContext context, ExternalPluginLifecycleCoordinator coordinator,
@@ -195,7 +203,7 @@ public final class PageEditorAcceptance {
         try (var input = child.getClassLoader().getResourceAsStream("META-INF/pixivdownload/schema/example.pages.contract.Checklist.remote.json")) {
             identity = JSON.readTree(input).path("identity").asText();
         }
-        String publication = context.getBean(PageCatalog.class).components().get(0).publication();
+        String publication = fixtureComponents(context.getBean(PageCatalog.class)).get(0).publication();
         var failed = HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(origin + "/api/page-checklist/verify"))
                 .header("Origin", origin).header("Cookie", cookie).header("Content-Type", "application/json")
                 .header("X-Pixiv-Contract", identity).header("X-Pixiv-Page-Publication", publication)

@@ -1,22 +1,49 @@
 :root { --editor-ease: cubic-bezier(.2, .8, .2, 1); --editor-fast: 140ms; --editor-settle: 240ms; }
-:where(.editor-header, .editor-main, #css-panel) :is(button, a, summary, input, select, textarea),
+:where(.editor-header, .editor-main, #css-panel, .component-page, #component-details) :is(button, a, summary, input, select, textarea),
 .gjs-block, .gjs-layer-item, .gjs-field, .gjs-sm-sector-title {
-    transition: border-color var(--editor-fast), box-shadow var(--editor-fast), opacity var(--editor-fast), transform var(--editor-fast) var(--editor-ease);
+    transition: background-color var(--editor-fast), color var(--editor-fast), border-color var(--editor-fast), box-shadow var(--editor-fast), opacity var(--editor-fast), transform var(--editor-fast) var(--editor-ease);
 }
-:where(.editor-header, .editor-main, #css-panel) button:not(:disabled):active, #blocks .gjs-block:active { transform: scale(.97); transition-duration: 70ms; }
-.inspector-disclosure::before, #styles .gjs-sm-sector-title::before { transition: transform var(--editor-fast) var(--editor-ease); }
-#status { display: flex; align-items: center; gap: .5rem; }
-#status[data-state="error"] { color: var(--editor-danger); }
-#status[data-state="success"]::before { content: '✓'; font-weight: 600; }
-#status[data-state="busy"]::before, #css-panel[aria-busy="true"] #css-message::before {
+:where(.editor-header, .editor-main, #css-panel, .component-page, #component-details) :is(button:not(:disabled), .button-link):active, #blocks .gjs-block:active { transform: scale(.97); transition-duration: 70ms; }
+.inspector-disclosure::before, #styles .gjs-sm-sector-title::before, #blocks .gjs-title::after { transition: transform var(--editor-fast) var(--editor-ease); }
+#css-panel[aria-busy="true"] #css-message::before {
     content: ''; display: inline-block; width: .875rem; height: .875rem; flex-shrink: 0;
     border: 2px solid var(--editor-border); border-top-color: var(--editor-accent); border-radius: 50%; animation: editor-working 700ms linear infinite;
 }
 #css-panel[aria-busy="true"] #css-message::before { margin-right: .5rem; }
+#component-refresh:disabled .editor-icon { animation: editor-working 700ms linear infinite; }
 .canvas-area.is-dragging { border-color: var(--editor-accent); box-shadow: 0 0 0 2px var(--editor-selected); }
 .gjs-highlighter, .gjs-badge { transition: opacity var(--editor-fast); }
 @keyframes editor-working { to { transform: rotate(360deg); } }
+
+body, .editor-header, .library-browser, .library-sidebar, .component-navigator, .source-region, #custom-preview, #component-details {
+    transition: background-color var(--editor-settle), color var(--editor-fast), border-color var(--editor-fast);
+}
+.source-help > summary { list-style: none; display: flex; align-items: center; gap: .5rem; }
+.source-help > summary::-webkit-details-marker { display: none; }
+.source-help > summary::before { content: ''; width: .375rem; height: .375rem; border: solid currentColor; border-width: 1.5px 1.5px 0 0; transform: rotate(45deg); transition: transform var(--editor-fast) var(--editor-ease); }
+.source-help > summary[aria-expanded="true"]::before { transform: rotate(135deg); }
+#component-details {
+    flex-direction: column; opacity: 0; transform: scale(.96);
+    transition: opacity 180ms ease, transform var(--editor-settle) var(--editor-ease),
+        display var(--editor-settle) allow-discrete, overlay var(--editor-settle) allow-discrete,
+        background-color var(--editor-settle), color var(--editor-fast);
+}
+#component-details:popover-open { opacity: 1; transform: scale(1); }
+#component-details:not(:popover-open) { pointer-events: none; }
+.pixiv-feedback-backdrop {
+    opacity: 1;
+    transition: opacity 180ms ease, display 180ms allow-discrete, overlay 180ms allow-discrete;
+}
+.pixiv-feedback-dialog { transform: translateY(0) scale(1); transition: transform var(--editor-settle) var(--editor-ease); }
+.pixiv-feedback-backdrop[data-closing] { display: none; opacity: 0; pointer-events: none; }
+.pixiv-feedback-backdrop[data-closing] .pixiv-feedback-dialog { transform: translateY(6px) scale(.98); }
+@starting-style {
+    #component-details:popover-open { opacity: 0; transform: scale(.96); }
+    .pixiv-feedback-backdrop[open] { opacity: 0; }
+    .pixiv-feedback-backdrop[open] .pixiv-feedback-dialog { transform: translateY(6px) scale(.98); }
+}
 @media (prefers-reduced-motion: reduce) {
-    :where(.editor-header, .editor-main, #css-panel) *, .inspector-disclosure::before, #styles .gjs-sm-sector-title::before, .gjs-block, .gjs-layer-item { transition: none !important; animation: none !important; }
-    :where(.editor-header, .editor-main, #css-panel) button:not(:disabled):active, #blocks .gjs-block:active { transform: none; }
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+    :where(.editor-header, .editor-main, #css-panel, .component-page, #component-details) :is(button:not(:disabled), .button-link):active,
+    #blocks .gjs-block:active, #component-details, .pixiv-feedback-dialog { transform: none; }
 }

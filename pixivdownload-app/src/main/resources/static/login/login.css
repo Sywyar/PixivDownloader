@@ -45,15 +45,6 @@
     line-height: 1.4;
   }
   button, input, select, textarea { max-width: 100%; }
-  #default-page {
-    padding: 3px 7px; min-height: max(1.75rem, var(--layout-control-height));
-    font: 500 .75rem/1.4 system-ui, sans-serif; letter-spacing: normal;
-    color: var(--text); background: var(--surface);
-    border: 1px solid var(--line); border-radius: 4px; cursor: pointer;
-  }
-  #default-page:hover { background: var(--bg); }
-  #default-page:active { border-color: var(--text); }
-  #default-page:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
   header {
     background: var(--brand); color: var(--brand-contrast);
     padding: 14px var(--layout-inset-right) 14px var(--layout-inset-left); font-size: 1.125rem; font-weight: bold; letter-spacing: .5px;

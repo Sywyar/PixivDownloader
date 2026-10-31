@@ -1,6 +1,8 @@
 import {mountComponent, renderPage, pureValue} from '/js/pixiv-pages.mjs';
 import {installCssEditor} from './editor-css.mjs';
 import {installEditorMotion} from './editor-motion.mjs';
+import {icon, decorateIcons} from './editor-icons.mjs';
+import {createEditorFeedback} from './editor-feedback.mjs';
 
 const $ = id => document.getElementById(id);
 let i18n;
@@ -10,6 +12,7 @@ let editor;
 let cssEditor;
 let motion;
 let catalog;
+let detailBlockId = null;
 let state;
 let pageId;
 let dirty = false;
@@ -24,17 +27,25 @@ let previewAbort;
 let previewWork;
 let needsRepair = false;
 const componentViews = new Set();
-const t = (key, fallback) => i18n?.t('page-editor:' + key, fallback || key) || fallback || key;
+const t = (key, fallback, values) => i18n?.t('page-editor:' + key, fallback || key, values) || fallback || key;
+const notify = createEditorFeedback(lifetime.signal, t);
 const componentDefinition = type => catalog.components.find(entry => entry.definition.type === type);
 const label = definition => componentI18n.t(definition.namespace + ':' + definition.labelKey, definition.type || definition.id);
 const activePage = () => catalog.pages.find(entry => entry.definition.id === pageId);
 const regionDefinition = id => activePage()?.definition.regions.find(region => region.id === id);
 const pageT = (key, fallback) => componentI18n.t(activePage().definition.namespace + ':' + key, fallback || key);
-const status = key => {
+const status = (key, detail = '') => {
+    if (busy && key === 'unsaved') return;
+    const feedback = $('document-feedback');
+    const kind = ['saved', 'published', 'restored', 'css-applied'].includes(key) ? 'success'
+        : ['failed', 'conflict', 'required-region', 'css-pending', 'repair-title', 'unavailable'].includes(key) ? 'error'
+        : ['working', 'saving', 'publishing', 'restoring'].includes(key) ? 'busy' : 'idle';
+    feedback.dataset.state = kind;
     $('status').textContent = t(key);
-    $('status').dataset.state = ['saved', 'published', 'restored', 'css-applied'].includes(key) ? 'success'
-        : ['failed', 'conflict', 'required-region', 'css-pending'].includes(key) ? 'error' : 'idle';
-    if (key !== 'unsaved') motion?.reveal($('status'));
+    $('status').dataset.state = kind;
+    if (key === 'unsaved') return;
+    const description = detail || (['saved', 'published'].includes(key) ? t(key + '-help') : '');
+    notify(kind, t(key), description);
 };
 
 function canMove(model, target) {
@@ -61,20 +72,19 @@ async function api(path, data, signal = lifetime.signal) {
     if (!response.ok) throw new Error(result.code || 'PAGE_OPERATION_FAILED');
     return result;
 }
-async function action(work) {
+async function action(work, progress = 'working') {
     if (busy) return;
     busy = true; syncActions();
-    $('status').dataset.state = 'busy'; $('status').textContent = t('working');
-    document.querySelector('.editor-actions').setAttribute('aria-busy', 'true');
+    status(progress);
+    document.querySelector('.document-buttons').setAttribute('aria-busy', 'true');
     closeActions();
     try { await work(); }
     catch (error) {
         if (error.name === 'AbortError') return;
-        $('status').textContent = t(error.message === 'PAGE_REVISION_CONFLICT' ? 'conflict' : 'failed') + ' (' + error.message + ')';
-        $('status').dataset.state = 'error';
+        status(error.message === 'PAGE_REVISION_CONFLICT' ? 'conflict' : 'failed', error.message);
     } finally {
-        busy = false; syncActions(); document.querySelector('.editor-actions').setAttribute('aria-busy', 'false');
-        if ($('status').dataset.state === 'busy') status(dirty ? 'unsaved' : 'loaded');
+        busy = false; syncActions(); document.querySelector('.document-buttons').setAttribute('aria-busy', 'false');
+        if ($('status').dataset.state === 'busy') { notify('idle', ''); status(dirty ? 'unsaved' : 'loaded'); }
     }
 }
 
@@ -85,7 +95,13 @@ function closeActions() {
     menu.open = false;
 }
 
+function syncDirtyIndicator() {
+    const unsaved = dirty || !!cssEditor?.pending();
+    $('document-dirty').setAttribute('aria-hidden', String(!unsaved));
+    $('page').setAttribute('aria-describedby', unsaved ? 'document-dirty' : '');
+}
 function syncActions() {
+    syncDirtyIndicator();
     for (const button of document.querySelectorAll('.editor-actions button')) button.disabled = busy || !state;
     $('page').disabled = busy;
     $('restore').disabled = busy || !state?.previous;
@@ -153,25 +169,34 @@ function configureTypes(engine) {
         model: {defaults: {tagName: 'div', droppable: false, editable: false, name: t('component')},
             init() { if (!this.get('instanceId')) this.set('instanceId', crypto.randomUUID()); },
             getName() {
+                if (this.get('componentType') === 'page-editor:custom') {
+                    return catalog.customComponents?.find(entry => entry.id === this.get('configuration')?.componentId)?.name || t('custom.component');
+                }
                 const entry = componentDefinition(this.get('componentType'));
                 return entry ? label(entry.definition) : this.get('componentType') || t('component');
             }},
         view: {
+            // 子树由组件运行时拥有；布局重绘不能清空 iframe 并丢失实例状态。
+            renderChildren() {},
             init() {
                 this.generation = 0;
                 componentViews.add(this);
                 this.listenTo(this.model, 'change:configuration change:componentType change:configVersion', this.onRender);
             },
             async onRender() {
+                const entry = componentDefinition(this.model.get('componentType'));
+                const key = JSON.stringify([entry?.publication, this.model.get('componentType'),
+                    this.model.get('configVersion'), this.model.get('configuration')]);
+                if (this.renderKey === key && (this.pending || this.instance) && this.slot?.parentNode === this.el) return;
                 const generation = ++this.generation;
                 this.abort?.abort(); this.abort = new AbortController();
                 await this.instance?.destroy(); this.instance = null;
                 if (generation !== this.generation) return;
-                const entry = componentDefinition(this.model.get('componentType'));
                 if (!entry || entry.definition.version !== this.model.get('configVersion')) {
                     this.el.textContent = t('unavailable'); return;
                 }
                 const slot = this.el.ownerDocument.createElement('div'); this.el.replaceChildren(slot);
+                this.slot = slot; this.renderKey = key; this.pending = true;
                 try {
                     const instance = await mountComponent(slot, {...entry.definition, publication: entry.publication},
                         this.model.get('configuration'), {mode: 'edit', signal: this.abort.signal, instanceId: this.model.get('instanceId'),
@@ -179,6 +204,7 @@ function configureTypes(engine) {
                             onUnavailable: () => { slot.textContent = t('unavailable'); }});
                     if (generation !== this.generation) await instance.destroy(); else this.instance = instance;
                 } catch (_) { if (generation === this.generation) slot.textContent = t('unavailable'); }
+                finally { if (generation === this.generation) this.pending = false; }
             },
             removed() { this.generation++; this.abort?.abort(); this.instance?.destroy(); componentViews.delete(this); }
         }
@@ -230,6 +256,7 @@ function syncSelection() {
         select.append(option);
     }
     select.value = selected || '';
+    if (detailBlockId !== null) syncInsertionTarget();
     syncActions();
 }
 function changed() {
@@ -248,7 +275,6 @@ async function properties(model) {
     motion?.reveal(root);
     $('style-section').hidden = !model && !cssEditor?.pending();
     $('inspector-selection').textContent = model?.getName() || t('select-first');
-    if (motion) motion.setDetails($('page-settings'), !model); else $('page-settings').open = !model;
     if (!model) return;
     if (model.get('type') === 'page-text' || model.get('type') === 'page-link') {
         field(root, t('text'), 'text', model.get('content'), value => model.set('content', value));
@@ -320,37 +346,156 @@ function field(root, caption, type, value, update) {
 }
 
 function blocks() {
+    const openGroups = new Map(editor.BlockManager.getCategories().map(category => [category.id, category.get('open')]));
     editor.BlockManager.getAll().reset();
-    editor.BlockManager.add('box', {label: t('container'), content: {type: 'page-box',
-        style: {display: 'flex', 'flex-direction': 'column', gap: '16px', padding: '24px', 'min-height': '80px'}}});
-    editor.BlockManager.add('text', {label: t('text'), content: {type: 'page-text'}});
-    editor.BlockManager.add('link', {label: t('link'), content: {type: 'page-link', style: {'font-size': 'inherit'}}});
-    for (const role of ['header', 'main', 'footer']) editor.BlockManager.add(role, {
+    const add = (id, options, group) => {
+        const label = document.createElement('span'); label.textContent = options.label;
+        editor.BlockManager.add(id, {...options, detailName: options.label, detailGroup: group, label: label.innerHTML,
+            media: icon(group === 'layout' || group === 'content' ? id : 'component'), onClick: block => showBlockDetails(block.id),
+            attributes: {'data-component-block': id}, category: {id: group, label: t('custom.group-' + group), open: openGroups.get(group) ?? true}});
+    };
+    add('box', {label: t('container'), content: {type: 'page-box',
+        style: {display: 'flex', 'flex-direction': 'column', gap: '16px', padding: '24px', 'min-height': '80px'}}}, 'layout');
+    for (const role of ['header', 'main', 'footer']) add(role, {
         label: t(role), content: {type: 'page-box', role,
             style: {display: 'flex', 'flex-direction': 'column', gap: '16px', padding: '16px',
                 ...(role === 'main' ? {flex: '1'} : {})}}
-    });
+    }, 'layout');
+    add('text', {label: t('text'), content: {type: 'page-text'}}, 'content');
+    add('link', {label: t('link'), content: {type: 'page-link', style: {'font-size': 'inherit'}}}, 'content');
     for (const entry of catalog.components) {
         const definition = entry.definition;
-        editor.BlockManager.add(definition.type, {label: label(definition), content: {
+        if (definition.type === 'page-editor:custom') continue;
+        add(definition.type, {label: label(definition), content: {
             type: 'page-component', componentType: definition.type, configVersion: definition.version,
             configuration: JSON.parse(definition.defaults)
-        }});
+        }}, 'plugins');
+    }
+    for (const component of catalog.customComponents || []) if (component.enabled && component.latest) {
+        add('custom:' + component.id, {label: component.name, content: {
+            type: 'page-component', componentType: 'page-editor:custom', configVersion: 1,
+            configuration: {componentId: component.id, version: component.latest, properties: {}}
+        }}, 'custom');
     }
     editor.BlockManager.render();
-    for (const [index, element] of [...$('blocks').querySelectorAll('.gjs-block')].entries()) {
-        const block = editor.BlockManager.getAll().at(index);
-        element.dataset.componentBlock = block.getId();
+    $('custom-blocks-empty').hidden = (catalog.customComponents || []).some(item => item.enabled && item.latest);
+    for (const group of $('blocks').querySelectorAll('.gjs-block-category')) {
+        const content = group.querySelector('.gjs-blocks-c');
+        const kind = editor.BlockManager.get(content.querySelector('.gjs-block')?.dataset.componentBlock)?.get('detailGroup');
+        if (kind === 'layout' || kind === 'content') {
+            const help = document.createElement('p'); help.className = 'block-group-help';
+            help.textContent = t('custom.group-' + kind + '-help'); content.prepend(help);
+        }
+    }
+    for (const element of $('blocks').querySelectorAll('.gjs-block')) {
+        const block = editor.BlockManager.get(element.dataset.componentBlock);
         element.tabIndex = 0; element.setAttribute('role', 'button');
+        element.setAttribute('aria-haspopup', 'dialog'); element.setAttribute('aria-controls', 'component-details');
+        element.setAttribute('aria-expanded', 'false');
         element.addEventListener('keydown', event => {
             if (event.key !== 'Enter' && event.key !== ' ') return;
             event.preventDefault(); event.stopPropagation();
-            const selected = editor.getSelected();
-            const parent = selected?.get('droppable') ? selected : selected?.parent() || editor.getWrapper();
-            const [model] = parent.append(block.getContent(), selected && parent !== selected ? {at: selected.index() + 1} : {});
-            editor.select(model);
+            showBlockDetails(block.id);
         });
     }
+    filterBlocks();
+    if (detailBlockId !== null) showBlockDetails(detailBlockId, false);
+}
+function showBlockDetails(id, focus = true) {
+    const popup = $('component-details');
+    if (detailBlockId !== null && detailBlockId !== id) closeBlockDetails(false);
+    detailBlockId = id;
+    const block = editor.BlockManager.get(id);
+    $('component-add').disabled = !block;
+    $('component-detail-unavailable').hidden = !!block;
+    $('component-detail-edit').hidden = true;
+    if (block) {
+        const group = block.get('detailGroup'), content = block.getContent();
+        const builtin = group === 'layout' || group === 'content';
+        $('component-detail-name').textContent = block.get('detailName');
+        $('component-detail-group').textContent = t('custom.group-' + group);
+        $('component-detail-description').textContent = t('details.' + (builtin ? id : group));
+        $('component-detail-version-row').hidden = builtin;
+        $('component-detail-version-label').textContent = t(group === 'custom' ? 'custom.version' : 'details.config-version');
+        $('component-detail-version').textContent = group === 'custom' ? content.configuration.version.slice(0, 12) : content.configVersion ?? '';
+        if (group === 'custom') {
+            $('component-detail-edit').href = '/page-editor/component.html?id=' + encodeURIComponent(content.configuration.componentId);
+            $('component-detail-edit').hidden = false;
+        }
+    }
+    syncInsertionTarget();
+    const anchor = detailBlockElement();
+    anchor?.setAttribute('aria-expanded', 'true');
+    if (!popup.matches(':popover-open')) popup.showPopover({source: anchor || $('block-search')});
+    positionBlockDetails();
+    if (focus) {
+        popup.querySelector('.component-detail-body').scrollTop = 0;
+        motion?.reveal(popup.querySelector('.component-detail-body'));
+        $('component-detail-name').focus({preventScroll: true});
+    }
+}
+function detailBlockElement() {
+    return $('blocks').querySelector('[data-component-block="' + CSS.escape(detailBlockId) + '"]');
+}
+function positionBlockDetails() {
+    const popup = $('component-details');
+    if (!popup.matches(':popover-open')) return;
+    const anchor = (detailBlockElement() || $('catalog')).getBoundingClientRect();
+    const gap = 8, margin = 16, width = popup.offsetWidth, height = popup.offsetHeight;
+    let left = anchor.right + gap, top = anchor.top;
+    if (left + width > innerWidth - margin) {
+        left = anchor.left - gap - width;
+        if (left < margin) {
+            left = anchor.left;
+            top = anchor.bottom + gap + height <= innerHeight - margin ? anchor.bottom + gap : anchor.top - gap - height;
+        }
+    }
+    left = Math.max(margin, Math.min(left, innerWidth - width - margin));
+    top = Math.max(margin, Math.min(top, innerHeight - height - margin));
+    popup.style.left = left + 'px'; popup.style.top = top + 'px';
+    popup.style.transformOrigin = Math.max(0, Math.min(width, anchor.x + anchor.width / 2 - left)) + 'px '
+        + Math.max(0, Math.min(height, anchor.y + anchor.height / 2 - top)) + 'px';
+}
+function closeBlockDetails(focus = true) {
+    const anchor = detailBlockElement();
+    $('component-details').hidePopover();
+    if (focus) (anchor?.getClientRects().length ? anchor : $('block-search')).focus({preventScroll: true});
+}
+function insertionTarget() {
+    const selected = editor.getSelected();
+    const parent = selected?.get('droppable') ? selected : selected?.parent() || editor.getWrapper();
+    return {selected, parent};
+}
+function syncInsertionTarget() {
+    const {selected, parent} = insertionTarget(), names = [];
+    for (let node = parent; node && node !== editor.getWrapper(); node = node.parent()) names.unshift(node.getName());
+    names.unshift(t('page'));
+    $('component-insertion-path').textContent = names.join(' › ');
+    $('component-insertion-order').textContent = selected && parent !== selected
+        ? t('details.position-after', undefined, {name: selected.getName()}) : t('details.position-end');
+}
+function insertBlock(block) {
+    const {selected, parent} = insertionTarget();
+    const [model] = parent.append(block.getContent(), selected && parent !== selected ? {at: selected.index() + 1} : {});
+    editor.select(model);
+}
+function filterBlocks() {
+    const query = $('block-search').value.trim().toLocaleLowerCase();
+    for (const content of $('blocks').querySelectorAll('.gjs-blocks-c')) motion?.settle(content);
+    if (query) editor.BlockManager.getCategories().forEach(category => category.set('open', true));
+    let count = 0;
+    for (const element of $('blocks').querySelectorAll('.gjs-block')) {
+        element.hidden = !element.textContent.toLocaleLowerCase().includes(query);
+        if (!element.hidden) count++;
+    }
+    for (const group of $('blocks').querySelectorAll('.gjs-block-category')) {
+        group.hidden = !group.querySelector('.gjs-block:not([hidden])');
+        const content = group.querySelector('.gjs-blocks-c'), open = group.classList.contains('gjs-open');
+        group.querySelector('.gjs-title').setAttribute('aria-expanded', String(open)); content.inert = !open;
+    }
+    $('blocks-no-match').hidden = count !== 0;
+    motion?.reveal($('blocks'));
+    motion?.reveal($('blocks-no-match'));
 }
 function syncConnections() {
     if (!editor) return;
@@ -398,7 +543,7 @@ async function loadPage() {
     try { await api('documents/' + encodeURIComponent(pageId) + '/preview', {document: state.draft}); }
     catch (error) {
         if (!['PAGE_REQUIRED_REGION', 'PAGE_REGION_PARENT'].includes(error.message)) {
-            $('status').textContent = t('failed') + ' (' + error.message + ')'; return;
+            status('failed', error.message); return;
         }
         needsRepair = true; $('recovery').hidden = false;
         const defaults = await api('documents/' + encodeURIComponent(pageId) + '/default');
@@ -535,7 +680,7 @@ async function start() {
         ...(display ? {requires: {display}} : {}),
         options: values.map(value => ({id: value, label: t('value.' + value)}))});
     editor = window.grapesjs.init({
-        container: '#editor', height: '', storageManager: false, telemetry: false, cssIcons: '', allowScripts: false, nativeDnD: false,
+        container: '#editor', height: '', storageManager: false, telemetry: false, cssIcons: '', allowScripts: false, nativeDnD: true,
         canvasCss: ':where(body){min-height:100vh;margin:0;font-family:system-ui,sans-serif;color:var(--editor-text);background:var(--editor-panel)}[hidden]{display:none!important}[data-empty-region]:empty{min-height:4rem;border:1px dashed currentColor;padding:1rem}[data-empty-region]:empty:after{content:attr(data-empty-region)}',
         panels: {defaults: []}, blockManager: {appendTo: '#blocks'},
         layerManager: {appendTo: '#layers', scrollCanvas: {behavior: 'auto', block: 'nearest'}},
@@ -566,7 +711,7 @@ async function start() {
     });
     await new Promise(resolve => editor.onReady(resolve));
     motion = installEditorMotion(editor, lifetime.signal);
-    cssEditor = installCssEditor(editor, api, t, lifetime.signal, catalog.styleProperties, motion);
+    cssEditor = installCssEditor(editor, api, t, lifetime.signal, catalog.styleProperties, motion, syncDirtyIndicator);
     const canvasTheme = ({window: canvasWindow} = {}) => {
         const root = (canvasWindow?.document || editor.Canvas.getDocument())?.documentElement;
         if (!root) return;
@@ -582,6 +727,33 @@ async function start() {
     themes.observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme']});
     canvasTheme();
     blocks();
+    decorateIcons($('catalog'));
+    $('block-search').addEventListener('input', filterBlocks);
+    $('component-close').addEventListener('click', () => closeBlockDetails());
+    $('component-details').addEventListener('beforetoggle', event => {
+        $('component-details').inert = event.newState === 'closed';
+        if (event.newState !== 'closed') return;
+        detailBlockElement()?.setAttribute('aria-expanded', 'false'); detailBlockId = null;
+    });
+    window.addEventListener('resize', positionBlockDetails, {signal: lifetime.signal});
+    document.addEventListener('scroll', positionBlockDetails, {capture: true, signal: lifetime.signal});
+    // 画布事件由 GrapesJS 转发，原生浮层不会将其视为外部点击。
+    document.addEventListener('pointerdown', event => {
+        if (event.target === editor.Canvas.getFrameEl() && $('component-details').matches(':popover-open')) closeBlockDetails(false);
+    }, {signal: lifetime.signal});
+    const detailSize = new ResizeObserver(positionBlockDetails);
+    detailSize.observe($('component-details'));
+    lifetime.signal.addEventListener('abort', () => detailSize.disconnect(), {once: true});
+    $('component-add').addEventListener('click', () => {
+        const block = editor.BlockManager.get(detailBlockId);
+        if (!block) return;
+        insertBlock(block);
+        closeBlockDetails();
+    });
+    $('component-details').addEventListener('keydown', event => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault(); event.stopPropagation(); closeBlockDetails();
+    });
     const selectLabel = document.createElement('label'); selectLabel.className = 'editor-field selection-field';
     selectLabel.textContent = t('selection');
     const selection = document.createElement('select'); selection.id = 'selection';
@@ -601,7 +773,7 @@ async function start() {
         for (const model of allModels(clone)) if (model.get('type') === 'page-component') model.set('instanceId', crypto.randomUUID());
     });
     editor.on('component:create', model => {
-        model.set('draggable', parent => canMove(model, parent), {silent: true});
+        model.set('draggable', canMove, {silent: true});
     });
     editor.on('component:remove:before', (model, remove, options) => {
         if (!loading && !options.temporary && allModels(model).some(child => child.get('type') === 'page-region')) {
@@ -648,10 +820,11 @@ async function start() {
         const source = documentSource();
         state = await api('documents/' + encodeURIComponent(pageId) + '/save', {revision: state.revision, document: source});
         savedSource = JSON.stringify(source); changed(); if (!dirty) status('saved');
-    }));
+    }, 'saving'));
     $('publish').addEventListener('click', () => action(async () => {
         if (!await cssEditor.ready()) { status('css-pending'); return; }
         if (!await confirmAction('publish-confirm')) return;
+        status('publishing');
         const source = documentSource();
         state = await api('documents/' + encodeURIComponent(pageId) + '/save', {revision: state.revision, document: source});
         savedSource = JSON.stringify(source); changed();
@@ -659,6 +832,7 @@ async function start() {
     }));
     $('restore').addEventListener('click', () => action(async () => {
         if (!await confirmAction('restore-confirm')) return;
+        status('restoring');
         state = await api('documents/' + encodeURIComponent(pageId) + '/restore', {revision: state.revision});
         dirty = false; await loadPage(); status('restored');
     }));
@@ -681,6 +855,7 @@ async function start() {
         connections.push({from: $('from').value, to: $('to').value, output: $('output').value, input: $('input').value}); changed();
     });
     document.addEventListener('keydown', event => {
+        if (document.querySelector('dialog[open], #component-details:popover-open')) return;
         if (event.key === 'Escape' && !$('preview-panel').hidden && !needsRepair) { event.preventDefault(); closePreview(); return; }
         if (event.key === 'Delete' && !event.target.closest('input,textarea,select,[contenteditable]')) { event.preventDefault(); manipulate('delete'); }
     });
@@ -714,4 +889,4 @@ async function start() {
     window.addEventListener('pagehide', () => clearInterval(discovery), {once: true});
     window.pageEditorReady = true;
 }
-start().catch(error => { $('status').textContent = t('failed') + ' (' + error.message + ')'; });
+start().catch(error => status('failed', error.message));

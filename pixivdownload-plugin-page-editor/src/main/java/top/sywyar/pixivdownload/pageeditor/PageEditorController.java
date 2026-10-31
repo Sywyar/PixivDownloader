@@ -17,11 +17,14 @@ public final class PageEditorController {
     private final PageCatalog catalog;
     private final PageStore store;
     private final MessageResolver messages;
-    public PageEditorController(PageCatalog catalog, PageStore store, MessageResolver messages) {
-        this.catalog = catalog; this.store = store; this.messages = messages;
+    private final top.sywyar.pixivdownload.pageeditor.components.ComponentLibrary library;
+    public PageEditorController(PageCatalog catalog, PageStore store, MessageResolver messages,
+            top.sywyar.pixivdownload.pageeditor.components.ComponentLibrary library) {
+        this.catalog = catalog; this.store = store; this.messages = messages; this.library = library;
     }
     @GetMapping("/catalog") public ResponseEntity<?> catalog() {
-        return ok(Map.of("pages", catalog.pages(), "components", catalog.components(), "styleProperties", PageStyles.properties()));
+        return ok(Map.of("pages", catalog.pages(), "components", catalog.components(), "styleProperties", PageStyles.properties(),
+                "customComponents", library.catalog()));
     }
     @GetMapping("/documents/{id}") public ResponseEntity<?> read(@PathVariable String id) { return ok(store.read(id)); }
     @GetMapping("/documents/{id}/default") public ResponseEntity<?> defaults(@PathVariable String id) { return ok(store.defaults(id)); }

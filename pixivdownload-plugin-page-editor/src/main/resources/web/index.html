@@ -25,25 +25,26 @@
       <h1 data-i18n="plugin.name">Page editor</h1>
     </div>
     <section class="editor-actions" aria-label="Page" data-i18n-aria-label="page">
-      <label class="editor-field page-field"><span data-i18n="page">Page</span><select id="page"></select></label>
-      <div class="document-buttons">
-        <button id="save" data-i18n="save">Save draft</button>
-        <button id="preview" data-i18n="preview">Preview</button>
-        <button id="publish" class="primary" data-i18n="publish">Publish</button>
-        <details id="document-more" class="action-menu">
-          <summary data-i18n="more">More</summary>
-          <div class="action-menu-content">
-            <button id="reload" data-i18n="reload">Reload draft</button>
-            <button id="defaults" data-i18n="defaults">Restore page default layout</button>
-            <button id="restore" data-i18n="restore">Restore previous publication</button>
-          </div>
-        </details>
-      </div>
+      <label class="editor-field page-field document-identity"><span data-i18n="page">Page</span><select id="page" aria-describedby="document-dirty"></select><span id="document-dirty" class="unsaved-indicator" role="img" aria-hidden="true" data-i18n-aria-label="unsaved" aria-label="Unsaved changes" data-i18n-title="unsaved" title="Unsaved changes"></span></label>
+        <div class="document-buttons">
+          <button id="save" data-i18n="save">Save draft</button>
+          <button id="preview" data-i18n="preview">Preview</button>
+          <button id="publish" class="primary" data-i18n="publish">Publish</button>
+          <details id="document-more" class="action-menu">
+            <summary data-i18n="more">More</summary>
+            <div class="action-menu-content">
+              <button id="reload" data-i18n="reload">Reload draft</button>
+              <button id="defaults" data-i18n="defaults">Restore page default layout</button>
+              <button id="restore" data-i18n="restore">Restore previous publication</button>
+            </div>
+          </details>
+        </div>
     </section>
     <div id="preferences"></div>
   </header>
   <main class="editor-main">
-    <div class="workspace-status"><p id="status" role="status" aria-live="polite"></p><span data-i18n="canvas-help">Select content on the page to edit it.</span></div>
+    <div id="document-feedback" hidden><p id="status"></p></div>
+    <div class="workspace-status"><span data-i18n="canvas-help">Select content on the page to edit it.</span></div>
     <nav class="workspace-jumps" aria-label="Workspace" data-i18n-aria-label="workspace">
       <a href="#catalog" data-i18n="add">Add component</a><a href="#canvas-area" data-i18n="canvas">Canvas</a><a href="#inspector" data-i18n="properties">Properties</a>
     </nav>
@@ -54,8 +55,33 @@
           <button id="add-tab" role="tab" aria-selected="false" aria-controls="add-panel" tabindex="-1" data-i18n="add">Add component</button>
         </div>
         <section id="add-panel" class="panel-section" role="tabpanel" aria-labelledby="add-tab" hidden>
-          <p class="library-help" data-i18n="add-help">Drag onto the page, or select a position and press Enter to add.</p>
+          <label class="palette-search"><span data-icon="search"></span><span class="visually-hidden" data-i18n="custom.search">Find a component</span><input id="block-search" type="search" autocomplete="off" data-i18n-placeholder="custom.search" placeholder="Find a component"></label>
+          <p class="library-help" data-i18n="custom.insert-help">Click to view details. Drag to the canvas to add.</p>
           <div id="blocks"></div>
+          <p id="blocks-no-match" class="library-help" data-i18n="custom.no-match" hidden>No components match these filters.</p>
+          <p id="custom-blocks-empty" class="library-help" data-i18n="custom.add-empty" hidden>Publish a component to add it here.</p>
+          <nav class="component-library-links" aria-label="Custom component library" data-i18n-aria-label="custom.library">
+            <a id="custom-open" href="/page-editor/components.html" target="_blank" rel="noopener" data-i18n-title="custom.new-tab"><span data-icon="library"></span><span data-i18n="custom.manage-link">Manage library ↗</span></a>
+            <a href="/page-editor/component.html" target="_blank" rel="noopener" data-i18n-title="custom.new-tab"><span data-icon="plus"></span><span data-i18n="custom.new-link">New component ↗</span></a>
+          </nav>
+          <section id="component-details" popover="auto" role="dialog" aria-labelledby="component-detail-name" aria-describedby="component-detail-description">
+            <header class="component-detail-heading">
+              <p id="component-detail-group" class="library-help"></p>
+              <button id="component-close" data-i18n-aria-label="details.close" aria-label="Close details"><span aria-hidden="true">×</span></button>
+            </header>
+            <div class="component-detail-body">
+              <h2 id="component-detail-name" tabindex="-1"></h2>
+              <p id="component-detail-description"></p>
+              <dl id="component-detail-version-row" hidden><dt id="component-detail-version-label"></dt><dd id="component-detail-version"></dd></dl>
+              <p id="component-detail-unavailable" role="status" data-i18n="details.unavailable" hidden>This component is no longer available to add.</p>
+              <a id="component-detail-edit" target="_blank" rel="noopener" data-i18n="details.edit" hidden>Edit component ↗</a>
+              <div class="component-insertion">
+                <dl><dt data-i18n="details.position">Add location</dt><dd id="component-insertion-path"></dd></dl>
+                <p id="component-insertion-order" class="library-help"></p>
+              </div>
+            </div>
+            <footer class="component-detail-actions"><button id="component-add" class="primary" data-i18n="details.add">Add here</button></footer>
+          </section>
         </section>
         <section id="structure-panel" class="panel-section layer-section" role="tabpanel" aria-labelledby="structure-tab">
           <div id="layers"></div>
@@ -84,8 +110,8 @@
       <aside id="inspector" class="inspector">
         <details id="page-settings" class="panel-section" open>
           <summary class="inspector-disclosure" data-i18n="page-settings">Page settings</summary>
-          <label class="editor-field title-field"><span data-i18n="title">Browser tab title</span><input id="page-title" maxlength="256" data-i18n-placeholder="title-default" placeholder="Use the page's default title"></label>
-          <p class="help" data-i18n="title-help">This changes the browser tab, not text on the page.</p>
+          <label class="editor-field title-field"><span data-i18n="title">Browser tab title</span><input id="page-title" maxlength="256" aria-describedby="page-title-help" data-i18n-placeholder="title-default" placeholder="Use the page's default title"></label>
+          <p id="page-title-help" class="help" data-i18n="title-help">This changes the browser tab, not text on the page.</p>
           <label class="hidden-regions"><input id="show-hidden" type="checkbox"><span data-i18n="show-hidden">Show alternate regions</span></label>
         </details>
         <section class="panel-section">

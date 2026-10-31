@@ -2,16 +2,23 @@
   "name": "pixivdownloader-css-editor-vendor",
   "private": true,
   "type": "module",
-  "scripts": {"build": "node build.mjs"},
+  "scripts": {
+    "build": "node build.mjs"
+  },
   "dependencies": {
     "@codemirror/autocomplete": "6.20.4",
     "@codemirror/commands": "6.11.1",
     "@codemirror/lang-css": "6.3.1",
+    "@codemirror/lang-html": "6.4.12",
+    "@codemirror/lang-javascript": "6.2.5",
+    "@codemirror/lang-json": "6.0.2",
     "@codemirror/language": "6.13.1",
     "@codemirror/lint": "6.9.7",
     "@codemirror/state": "6.7.6",
     "@codemirror/view": "6.43.15",
     "@lezer/highlight": "1.2.5"
   },
-  "devDependencies": {"esbuild": "0.28.2"}
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
 }

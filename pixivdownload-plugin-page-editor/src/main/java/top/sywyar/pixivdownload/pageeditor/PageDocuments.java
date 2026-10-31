@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.*;
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.node.*;
 import top.sywyar.pixivdownload.plugin.api.web.page.*;
+import top.sywyar.pixivdownload.pageeditor.components.ComponentLibrary;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -18,7 +19,9 @@ public final class PageDocuments {
     private static final Set<String> NODE_FIELDS = Set.of("type", "attributes", "style", "components", "content",
             "region", "componentType", "instanceId", "configVersion", "configuration", "role", "href");
     private final PageCatalog catalog;
-    public PageDocuments(PageCatalog catalog) { this.catalog = catalog; }
+    private final ComponentLibrary library;
+    public PageDocuments(PageCatalog catalog) { this(catalog, null); }
+    public PageDocuments(PageCatalog catalog, ComponentLibrary library) { this.catalog = catalog; this.library = library; }
 
     static JsonNode parse(String input) {
         return parse(input.getBytes(StandardCharsets.UTF_8));
@@ -248,6 +251,7 @@ public final class PageDocuments {
                 if (check.publishing && check.page.publicPage() && !definition.publicRenderable()) throw invalid("PAGE_COMPONENT_PRIVATE");
                 check.instances.put(instance, definition);
                 catalog.validate(component, available.publication(), node.path("configVersion").asInt(), configuration.toString());
+                if (library != null && ComponentLibrary.TYPE.equals(component)) library.validateConfiguration(configuration, check.publishing);
                 out.put("moduleUrl", definition.moduleUrl()).put("publication", available.publication())
                         .put("namespace", definition.namespace());
                 out.set("inputs", JSON.valueToTree(definition.inputs()));

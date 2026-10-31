@@ -33,7 +33,7 @@ async function page(redirect = '', valid = false) {
         get href() { return url.href; }, set href(value) { url = new URL(value, url); },
         get search() { return url.search; }, get origin() { return url.origin; }
     };
-    const document = {body: {}, getElementById: node,
+    const document = {body: {}, getElementById: node, querySelector: () => null,
         addEventListener: (type, handler) => listeners.set(type, handler)};
     const fetch = (endpoint, options) => {
         if (endpoint === '/api/auth/check') return Promise.resolve({json: async () => ({valid})});

@@ -11,6 +11,7 @@ import org.springframework.web.servlet.resource.ResourceHttpRequestHandler;
 import org.springframework.web.util.ServletRequestPathUtils;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
 import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry;
 
 import java.util.List;
 
@@ -39,7 +40,7 @@ class DynamicStaticResourceHandlerMappingTest {
             context.setServletContext(new MockServletContext());
             context.refresh();
             DynamicStaticResourceHandlerMapping mapping = new DynamicStaticResourceHandlerMapping(
-                    registry, new ContentNegotiationManager(), new StaticResourceVersioning(registry));
+                    registry, new ContentNegotiationManager(), new StaticResourceVersioning(registry, mock(PageContributionRegistry.class)));
             mapping.setApplicationContext(context);
             MockHttpServletRequest request = new MockHttpServletRequest("GET", "/latest/example.js");
             ServletRequestPathUtils.parseAndCache(request);

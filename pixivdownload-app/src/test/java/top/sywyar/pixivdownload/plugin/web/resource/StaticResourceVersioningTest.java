@@ -20,7 +20,10 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.support.AnnotationConfigWebApplicationContext;
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 import top.sywyar.pixivdownload.plugin.api.web.StaticResourceContribution;
+import top.sywyar.pixivdownload.plugin.api.web.page.EditablePage;
+import top.sywyar.pixivdownload.plugin.api.web.page.PageCatalog;
 import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
+import top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry;
 import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 
 import java.nio.charset.StandardCharsets;
@@ -28,10 +31,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -47,6 +54,11 @@ class StaticResourceVersioningTest {
     @EnableWebMvc
     @Import({StaticResourceConfig.class, ResourcePageAdvice.class, PageController.class})
     static class ServingConfig {
+        @Bean
+        PageContributionRegistry pageContributionRegistry() {
+            return mock(PageContributionRegistry.class);
+        }
+
         @Bean
         StaticResourceRegistry staticResourceRegistry() {
             StaticResourceRegistry registry = mock(StaticResourceRegistry.class);
@@ -102,6 +114,111 @@ class StaticResourceVersioningTest {
                 mock(PluginRegistry.RegisteredPlugin.class),
                 new StaticResourceContribution("classpath:/static/", prefix, exact),
                 new FileSystemResource(directory.toString() + "/"));
+    }
+
+    private PageCatalog.AvailablePage page(String id, String path, boolean publicPage) {
+        return new PageCatalog.AvailablePage(new EditablePage(id, "page.title", "example", path,
+                publicPage, List.of(), "", "", List.of()), "publication");
+    }
+
+    private String publication(String pageId, String title) throws Exception {
+        return new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode()
+                .put("pageId", pageId).put("title", title).toString();
+    }
+
+    @Test
+    @DisplayName("首次 HTML 包含已发布标题，重新发布与撤回立即改变条件请求结果")
+    void publishedTitleParticipatesInContentValidation() throws Exception {
+        try (var context = context()) {
+            var pages = context.getBean(PageContributionRegistry.class);
+            when(pages.pages()).thenReturn(List.of(page("example:login", "/login.html", true)));
+            MockMvc mvc = MockMvcBuilders.webAppContextSetup(context).build();
+            var original = mvc.perform(get("/login.html")).andReturn().getResponse();
+            String title = "备案 </title><script>alert(1)</script> & \"site\"";
+            when(pages.published("example:login")).thenReturn(Optional.of(publication("example:login", title)));
+            var published = mvc.perform(get("/login.html").header("If-None-Match", original.getHeader("ETag")))
+                    .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-cache"))
+                    .andReturn().getResponse();
+            var html = Jsoup.parse(published.getContentAsString(StandardCharsets.UTF_8));
+            assertThat(html.title()).isEqualTo(title);
+            assertThat(html.select("title[data-pixiv-page-title]")).hasSize(1);
+            assertThat(html.select("script:not([src])")).isEmpty();
+            mvc.perform(get("/login.html").header("If-None-Match", published.getHeader("ETag")))
+                    .andExpect(status().isNotModified());
+            mvc.perform(head("/login.html")).andExpect(status().isOk())
+                    .andExpect(header().string("ETag", published.getHeader("ETag")));
+            when(pages.published("example:login")).thenReturn(Optional.of(publication("example:login", "Updated title")));
+            var changed = mvc.perform(get("/login.html").header("If-None-Match", published.getHeader("ETag")))
+                    .andExpect(status().isOk()).andReturn().getResponse();
+            assertThat(Jsoup.parse(changed.getContentAsString(StandardCharsets.UTF_8)).title()).isEqualTo("Updated title");
+            when(pages.published("example:login")).thenReturn(Optional.empty());
+            var withdrawn = mvc.perform(get("/login.html").header("If-None-Match", changed.getHeader("ETag")))
+                    .andExpect(status().isOk()).andReturn().getResponse();
+            assertThat(withdrawn.getContentAsByteArray()).isEqualTo(original.getContentAsByteArray());
+            assertThat(withdrawn.getHeader("ETag")).isEqualTo(original.getHeader("ETag"));
+        }
+    }
+
+    @Test
+    @DisplayName("声明的插件页面与控制器页面共享标题处理，保留子路径和原有缓存限制")
+    void titleResolutionUsesDeclaredPagePaths() throws Exception {
+        Files.writeString(directory.resolve("page.html"), "<title id='page-name'></title><p>Content</p>", StandardCharsets.UTF_8);
+        try (var context = context()) {
+            when(context.getBean(StaticResourceRegistry.class).resources()).thenReturn(List.of(contribution("/demo/", false)));
+            var pages = context.getBean(PageContributionRegistry.class);
+            when(pages.pages()).thenReturn(List.of(page("example:custom", "/demo/page.html", true),
+                    page("example:controlled", "/controlled.html", true)));
+            when(pages.published("example:custom")).thenReturn(Optional.of(publication("example:custom", "Custom page")));
+            when(pages.published("example:controlled")).thenReturn(Optional.of(publication("example:controlled", "Controlled page")));
+            var mvc = MockMvcBuilders.webAppContextSetup(context).build();
+            var custom = mvc.perform(get("/app/demo/page.html?redirect=/other").contextPath("/app"))
+                    .andExpect(status().isOk()).andReturn().getResponse();
+            var html = Jsoup.parse(custom.getContentAsString(StandardCharsets.UTF_8));
+            assertThat(html.title()).isEqualTo("Custom page");
+            assertThat(html.selectFirst("title").id()).isEqualTo("page-name");
+            var controlled = mvc.perform(get("/controlled.html")).andExpect(status().isOk())
+                    .andExpect(header().string("Cache-Control", "no-store")).andReturn().getResponse();
+            assertThat(Jsoup.parse(controlled.getContentAsString(StandardCharsets.UTF_8)).title()).isEqualTo("Controlled page");
+        }
+    }
+
+    @Test
+    @DisplayName("无效投影和来源失败保留默认页面及标题")
+    void unavailableOrInvalidPublicationKeepsDefaultTitle() throws Exception {
+        try (var context = context()) {
+            var pages = context.getBean(PageContributionRegistry.class);
+            when(pages.pages()).thenReturn(List.of(page("example:login", "/login.html", true)));
+            var mvc = MockMvcBuilders.webAppContextSetup(context).build();
+            byte[] original = mvc.perform(get("/login.html")).andReturn().getResponse().getContentAsByteArray();
+            for (String value : List.of("null", "{", "{}", publication("other:page", "Private title"),
+                    publication("example:login", ""), publication("example:login", "x".repeat(257)),
+                    "{\"pageId\":\"example:login\",\"title\":42}")) {
+                when(pages.published("example:login")).thenReturn(Optional.of(value));
+                assertThat(mvc.perform(get("/login.html")).andExpect(status().isOk())
+                        .andReturn().getResponse().getContentAsByteArray()).isEqualTo(original);
+            }
+            when(pages.published("example:login")).thenThrow(new IllegalStateException("PAGE_STORAGE_FAILED"));
+            assertThat(mvc.perform(get("/login.html")).andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsByteArray()).isEqualTo(original);
+        }
+    }
+
+    @Test
+    @DisplayName("未声明、非公开与路径歧义不读取发布内容")
+    void onlyUniquePublicPageCanSupplyTitle() throws Exception {
+        try (var context = context()) {
+            var pages = context.getBean(PageContributionRegistry.class);
+            var mvc = MockMvcBuilders.webAppContextSetup(context).build();
+            for (var declarations : List.of(List.<PageCatalog.AvailablePage>of(),
+                    List.of(page("example:private", "/login.html", false)),
+                    List.of(page("example:first", "/login.html", true), page("example:second", "/login.html", true)))) {
+                when(pages.pages()).thenReturn(declarations);
+                var response = mvc.perform(get("/login.html")).andExpect(status().isOk()).andReturn().getResponse();
+                assertThat(Jsoup.parse(response.getContentAsString(StandardCharsets.UTF_8))
+                        .select("title[data-pixiv-page-title]")).isEmpty();
+            }
+            verify(pages, never()).published(anyString());
+        }
     }
 
     @Test

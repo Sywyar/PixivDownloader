@@ -62,6 +62,19 @@ class FakeElement {
 
     removeAttribute(name) { delete this.attributes[name]; }
 
+    animate(keyframes, options) {
+        const timing = {...options};
+        const animation = {
+            timing, currentTime: 0, playState: 'running',
+            effect: {updateTiming(value) { Object.assign(timing, value); }},
+            pause() { this.playState = 'paused'; },
+            play() { this.playState = 'running'; },
+            cancel() { this.playState = 'idle'; }
+        };
+        this.animation = animation;
+        return animation;
+    }
+
     addEventListener(type, listener) {
         (this.listeners[type] || (this.listeners[type] = [])).push(listener);
     }
@@ -144,6 +157,8 @@ function loadFeedback(extras) {
     const window = {
         setTimeout,
         clearTimeout,
+        performance,
+        matchMedia: () => ({matches: false, addEventListener() {}, removeEventListener() {}}),
         location: {
             href: 'http://localhost:8080/page',
             origin: 'http://localhost:8080',
@@ -464,6 +479,94 @@ function clickEvent(target, values) {
                     });
             });
         ok(missing.length === 0, 'all site pages load the external-link guard: ' + missing.join(', '));
+    }
+
+    {
+        const {document, feedback} = loadFeedback();
+        const trigger = document.createElement('button'); document.body.appendChild(trigger); trigger.focus();
+        const pending = feedback.confirm({message: 'Animated confirmation', confirmLabel: 'Save', cancelLabel: 'Cancel'});
+        await nextTurn();
+        const backdrop = find(document.body, node => node.tagName === 'DIALOG');
+        let finishMotion, closed = false;
+        backdrop.close = () => { closed = true; };
+        backdrop.getAnimations = () => [{finished: new Promise(resolve => { finishMotion = resolve; })}];
+        const accept = actionButton(document, 'accept');
+        actionContainer(accept).emit('click', {target: accept});
+        ok(await pending === true, 'confirmation resolves before its exit animation finishes');
+        ok(closed && backdrop.inert && document.activeElement === trigger, 'closing releases modal interaction and restores focus immediately');
+        ok(document.contains(backdrop), 'closing surface remains available to its exit animation');
+        finishMotion(); await nextTurn();
+        ok(!document.contains(backdrop), 'finished exit releases the dialog DOM');
+    }
+
+    {
+        const timers = new Map();
+        let sequence = 0, clock = 0;
+        const motion = new EventTarget();
+        motion.matches = false;
+        const {document, feedback} = loadFeedback({
+            setTimeout(fn, delay) { const id = ++sequence; timers.set(id, {fn, delay}); return id; },
+            clearTimeout(id) { timers.delete(id); },
+            performance: {now: () => clock},
+            matchMedia: () => motion
+        });
+        const fire = delay => {
+            const item = [...timers].find(([, value]) => value.delay === delay);
+            assert.ok(item, 'expected scheduled timer: ' + delay);
+            timers.delete(item[0]); clock += delay; item[1].fn();
+        };
+        const controller = new AbortController();
+        const handle = feedback.toast({message: 'Saving', kind: 'progress', durationMs: 0, signal: controller.signal});
+        const node = find(document.body, node => node.className === 'pixiv-feedback-toast pixiv-feedback-toast--progress');
+        ok(timers.size === 0, 'progress remains until the operation settles');
+        handle.update({message: 'Saved', description: '<b>plain text</b>', kind: 'success', dismissLabel: 'Close'});
+        ok(node.children[1].children[1].textContent === '<b>plain text</b>', 'toast details are plain text');
+        ok(node.children[1].getAttribute('role') === 'status', 'success is announced politely');
+        node.emit('pointerenter');
+        ok(timers.size === 0, 'hover pauses automatic dismissal');
+        node.emit('pointerleave');
+        fire(3500);
+        ok(node.className.includes('--leaving') && document.contains(node), 'timeout starts a fade before removing the toast');
+        handle.update({message: 'Conflict', kind: 'error', durationMs: 0, dismissLabel: 'Close'});
+        ok(timers.size === 0 && !node.className.includes('--leaving'), 'new feedback cancels an in-flight exit');
+        ok(node.children[1].getAttribute('role') === 'alert', 'errors are announced assertively');
+        node.children[2].emit('click');
+        fire(180);
+        ok(!document.contains(node) && !handle.update({message: 'Too late'}), 'dismissed handles cannot revive detached nodes');
+        const pending = feedback.toast({message: 'Saved', signal: controller.signal});
+        controller.abort();
+        ok(timers.size === 0 && !pending.update({message: 'Stale'}), 'page disposal releases timers and rejects late updates');
+        feedback.toast({message: 'Already aborted', signal: controller.signal});
+        ok(timers.size === 0 && document.body.children[0].children.length === 0, 'aborted pages cannot create a toast');
+        const legacy = feedback.toast({message: 'Existing caller'});
+        ok([...timers.values()][0].delay === 3500, 'existing callers retain their default timeout');
+        legacy.close(); fire(180);
+        const counted = feedback.toast({message: 'Countdown', durationMs: 5000, countdown: true, dismissLabel: 'Close'});
+        const countedNode = document.body.children[0].children[0];
+        const counter = countedNode.children[3];
+        ok(counter.textContent === '' && counter.getAttribute('aria-hidden') === 'true', 'bottom border countdown has no numeric or repeated live announcement');
+        ok(counter.animation.timing.duration === 5000 && timers.size === 1, 'visual duration matches the single dismissal timer');
+        clock += 1250; countedNode.emit('pointerenter');
+        clock += 10000; countedNode.emit('focusin'); countedNode.emit('pointerleave');
+        ok(counter.animation.currentTime === 1250 && counter.animation.playState === 'paused' && timers.size === 0, 'hover and focus freeze both the border and deadline');
+        motion.matches = true; motion.dispatchEvent(new Event('change'));
+        ok(counter.animation.timing.easing === 'steps(5, end)' && counter.animation.currentTime === 1250, 'reduced motion changes the border without resetting the countdown');
+        motion.matches = false; motion.dispatchEvent(new Event('change'));
+        ok(counter.animation.timing.easing === 'linear', 'normal motion restores continuous border shrinkage');
+        countedNode.emit('focusout');
+        ok(counter.animation.currentTime === 1250 && counter.animation.playState === 'running' && [...timers.values()][0].delay === 3750, 'resume continues from the remaining border length and time');
+        const oldAnimation = counter.animation;
+        counted.update({message: 'Failure', kind: 'error', countdown: true, durationMs: 8000, dismissLabel: 'Close'});
+        ok(oldAnimation.playState === 'idle' && counter.animation.timing.duration === 8000, 'replacement cancels the old animation and starts the new deadline');
+        fire(8000);
+        ok(countedNode.className.includes('--leaving'), 'errors can auto-dismiss after their countdown');
+        fire(180);
+        ok(timers.size === 0 && !document.contains(countedNode) && counter.animation.playState === 'idle', 'countdown dismissal releases its timer, animation and DOM');
+        feedback.toast({message: 'Delayed callback', countdown: true, durationMs: 1000});
+        const delayed = document.body.children[0].children[0];
+        clock += 1200; delayed.emit('pointerenter');
+        ok(delayed.className.includes('--leaving'), 'entering after the deadline cannot pin an expired countdown');
+        fire(180);
     }
 
     console.log(`pixiv-feedback.test.js: ${passed} assertions passed`);

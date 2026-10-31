@@ -209,7 +209,13 @@
                     validation.abort();
                     document.removeEventListener('keydown', onKeyDown, true);
                     if (options.signal) options.signal.removeEventListener('abort', cancel);
-                    backdrop.remove();
+                    backdrop.inert = true;
+                    backdrop.setAttribute('data-closing', '');
+                    if (typeof backdrop.close === 'function') backdrop.close();
+                    const leaving = typeof backdrop.getAnimations === 'function' ? backdrop.getAnimations({subtree: true}) : [];
+                    if (leaving.length) Promise.allSettled(leaving.map(function (animation) { return animation.finished; }))
+                        .then(function () { backdrop.remove(); });
+                    else backdrop.remove();
                     document.body.classList.remove('pixiv-feedback-open');
                     if (previousFocus && typeof previousFocus.focus === 'function' && document.contains(previousFocus)) {
                         previousFocus.focus();
@@ -308,7 +314,6 @@
         if (toastHost && document.contains(toastHost)) return toastHost;
         toastHost = document.createElement('div');
         toastHost.className = 'pixiv-feedback-toast-host';
-        toastHost.setAttribute('aria-live', 'polite');
         if (typeof toastHost.showPopover === 'function') toastHost.setAttribute('popover', 'manual');
         document.body.appendChild(toastHost);
         return toastHost;
@@ -316,20 +321,122 @@
 
     function toast(options) {
         const node = document.createElement('div');
-        const kind = options.kind || 'info';
-        node.className = 'pixiv-feedback-toast pixiv-feedback-toast--' + kind;
-        node.setAttribute('role', kind === 'error' ? 'alert' : 'status');
-        node.textContent = requiredText(options.message, 'message');
+        const icon = document.createElement('span');
+        icon.className = 'pixiv-feedback-toast-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        const content = document.createElement('div');
+        content.className = 'pixiv-feedback-toast-content';
+        content.setAttribute('aria-atomic', 'true');
+        const title = document.createElement('p');
+        title.className = 'pixiv-feedback-toast-title';
+        const detail = document.createElement('p');
+        detail.className = 'pixiv-feedback-toast-detail';
+        content.appendChild(title);
+        content.appendChild(detail);
+        const dismiss = document.createElement('button');
+        dismiss.type = 'button';
+        dismiss.className = 'pixiv-feedback-toast-close';
+        dismiss.textContent = '×';
+        const countdown = document.createElement('span');
+        countdown.className = 'pixiv-feedback-toast-countdown';
+        countdown.setAttribute('aria-hidden', 'true');
+        node.appendChild(icon);
+        node.appendChild(content);
+        node.appendChild(dismiss);
+        node.appendChild(countdown);
+        const signal = options.signal;
+        const previousFocus = document.activeElement;
+        let timer, removal, progress, disposed = false, leaving = false, remaining = 0, duration = 0, deadline = 0;
+        let hovered = false, focused = false, showCountdown = false;
+        const motion = global.matchMedia('(prefers-reduced-motion: reduce)');
+        function updateMotion() {
+            progress?.effect.updateTiming({easing: motion.matches ? 'steps(' + Math.ceil(duration / 1000) + ', end)' : 'linear'});
+        }
+        function pause() {
+            progress?.pause();
+            if (timer !== undefined) {
+                remaining = Math.max(0, deadline - global.performance.now());
+                global.clearTimeout(timer);
+                timer = undefined;
+            }
+        }
+        function remove() {
+            disposed = true;
+            global.clearTimeout(timer);
+            global.clearTimeout(removal);
+            signal?.removeEventListener('abort', remove);
+            motion.removeEventListener('change', updateMotion);
+            progress?.cancel();
+            node.remove();
+        }
+        function close() {
+            if (disposed) return;
+            leaving = true;
+            pause();
+            global.clearTimeout(removal);
+            if (document.activeElement === dismiss && document.contains(previousFocus) && !previousFocus.disabled) previousFocus.focus();
+            node.classList.add('pixiv-feedback-toast--leaving');
+            removal = global.setTimeout(remove, 180);
+        }
+        function schedule() {
+            if (disposed || leaving) return;
+            if (showCountdown && !remaining) { close(); return; }
+            if (progress) progress.currentTime = duration - remaining;
+            if (!remaining || hovered || focused) return;
+            progress?.play();
+            deadline = global.performance.now() + remaining;
+            timer = global.setTimeout(function () {
+                timer = undefined;
+                remaining = Math.max(0, deadline - global.performance.now());
+                if (!remaining) close(); else schedule();
+            }, remaining);
+        }
+        function update(next) {
+            if (disposed) return false;
+            const message = requiredText(next.message, 'message');
+            const kind = next.kind || 'info';
+            pause();
+            leaving = false;
+            global.clearTimeout(removal);
+            node.className = 'pixiv-feedback-toast pixiv-feedback-toast--' + kind;
+            content.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+            if (title.textContent !== message) title.textContent = message;
+            if (detail.textContent !== (next.description || '')) detail.textContent = next.description || '';
+            detail.hidden = !next.description;
+            icon.textContent = kind === 'success' ? '✓' : kind === 'error' || kind === 'warning' ? '!' : kind === 'progress' ? '' : 'i';
+            dismiss.hidden = !next.dismissLabel || kind === 'progress';
+            if (next.dismissLabel) dismiss.setAttribute('aria-label', next.dismissLabel);
+            remaining = next.durationMs === 0 ? 0 : Math.max(1000, Number(next.durationMs) || 3500);
+            showCountdown = !!next.countdown && remaining > 0;
+            countdown.hidden = !showCountdown;
+            progress?.cancel();
+            progress = null;
+            if (showCountdown) {
+                duration = remaining;
+                progress = countdown.animate([{transform: 'scaleX(1)'}, {transform: 'scaleX(0)'}], {duration, fill: 'both'});
+                progress.pause();
+                updateMotion();
+            }
+            schedule();
+            return true;
+        }
+        dismiss.addEventListener('click', close);
+        node.addEventListener('pointerenter', function () { pause(); hovered = true; schedule(); });
+        node.addEventListener('pointerleave', function () { pause(); hovered = false; schedule(); });
+        node.addEventListener('focusin', function () { pause(); focused = true; schedule(); });
+        node.addEventListener('focusout', function () { pause(); focused = false; schedule(); });
+        const handle = Object.freeze({update: update, close: close});
+        if (signal?.aborted) { remove(); return handle; }
+        update(options);
+        motion.addEventListener('change', updateMotion);
+        signal?.addEventListener('abort', remove, {once: true});
         const host = ensureToastHost();
         host.appendChild(node);
         if (typeof host.showPopover === 'function') {
             if (host.matches(':popover-open')) host.hidePopover();
             host.showPopover();
         }
-        global.setTimeout(function () {
-            node.classList.add('pixiv-feedback-toast--leaving');
-            global.setTimeout(function () { node.remove(); }, 180);
-        }, Math.max(1000, Number(options.durationMs) || 3500));
+        return handle;
     }
 
     function httpUrl(value) {

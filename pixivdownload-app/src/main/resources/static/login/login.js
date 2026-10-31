@@ -1,5 +1,6 @@
 'use strict';
 
+window.loginPageTitle = document.querySelector('title[data-pixiv-page-title]')?.textContent || '';
 let pageI18n = null;
 let activeLoginError = null;
 let activeInviteError = null;

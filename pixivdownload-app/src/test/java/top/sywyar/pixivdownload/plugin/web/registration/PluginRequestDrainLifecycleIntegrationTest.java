@@ -47,6 +47,7 @@ import top.sywyar.pixivdownload.plugin.runtime.context.PluginApplicationContextF
 import top.sywyar.pixivdownload.plugin.runtime.stream.PluginStreamRegistry;
 import top.sywyar.pixivdownload.plugin.runtime.task.PluginRuntimeTaskRegistry;
 import top.sywyar.pixivdownload.plugin.web.resource.StaticResourceConfig;
+import top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry;
 
 import java.io.ByteArrayInputStream;
 import java.io.FileNotFoundException;
@@ -406,6 +407,8 @@ class PluginRequestDrainLifecycleIntegrationTest {
 
             context = new AnnotationConfigWebApplicationContext();
             context.setServletContext(new MockServletContext());
+            context.addBeanFactoryPostProcessor(
+                    beanFactory -> beanFactory.registerSingleton("pages", mock(PageContributionRegistry.class)));
             context.addBeanFactoryPostProcessor(
                     beanFactory -> beanFactory.registerSingleton("staticResourceRegistry", registry));
             context.register(StaticMvcConfig.class);

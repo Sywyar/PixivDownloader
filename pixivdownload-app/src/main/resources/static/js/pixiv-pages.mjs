@@ -367,7 +367,7 @@ export async function renderPage(root, view, options = {}) {
 }
 
 /** 页面 owner 提供受控区域及默认回退；共享渲染器不认识具体页面身份。 */
-export async function attachPage({pageId, root, regions, title, t, onMounted, onFallback, resetButton}) {
+export async function attachPage({pageId, root, regions, title, t, onMounted, onFallback}) {
     let mounted;
     let closed = false;
     const controller = new AbortController();
@@ -375,20 +375,18 @@ export async function attachPage({pageId, root, regions, title, t, onMounted, on
     const fallback = async () => {
         if (closed) return; closed = true; controller.abort(); clearTimeout(timer);
         await mounted?.destroy(); root.replaceChildren(); onFallback?.();
-        resetButton.hidden = true;
     };
-    resetButton.addEventListener('click', fallback, {signal: controller.signal});
     window.addEventListener('pagehide', fallback, {once: true, signal: controller.signal});
     try {
         const response = await fetch('/api/web/page-publications/' + encodeURIComponent(pageId), {cache: 'no-store', signal: controller.signal});
         if (!response.ok) return fallback();
         const view = await response.json();
+        if (closed) return;
+        title(view.title || '');
         const result = await renderPage(root, view, {mode: 'display', regions, t, signal: controller.signal, onUnavailable: fallback});
         if (closed) { await result.destroy(); return; }
         mounted = result;
         onMounted?.();
-        if (view.title) title(view.title);
-        resetButton.hidden = false;
         const verifySource = async () => {
             if (closed) return;
             try {

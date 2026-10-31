@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Custom component library</title>
+  <link rel="stylesheet" href="/css/pixiv-layout.css">
+  <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
+  <link rel="stylesheet" href="/css/pixiv-feedback.css">
+  <link rel="stylesheet" href="/page-editor/editor.css">
+  <link rel="stylesheet" href="/page-editor/components.css">
+  <link rel="stylesheet" href="/page-editor/editor-motion.css">
+  <script src="/js/pixiv-i18n.js"></script>
+  <script src="/js/pixiv-feedback.js"></script>
+  <script src="/js/pixiv-theme.js"></script>
+  <script src="/js/pixiv-lang-switcher.js"></script>
+  <script type="module" src="/page-editor/components.mjs"></script>
+</head>
+<body class="layout-flow component-page library-page">
+  <header class="editor-header library-header">
+    <a class="home-link" href="/page-editor/index.html"><span aria-hidden="true">←</span><span data-i18n="plugin.name">Page editor</span></a>
+    <h1 data-i18n="custom.library">Custom component library</h1>
+    <div id="preferences"></div>
+  </header>
+  <main class="library-main">
+    <div class="library-toolbar">
+      <label class="search-field"><span data-icon="search"></span><span class="visually-hidden" data-i18n="custom.search">Find a component</span><input id="component-search" type="search" autocomplete="off" data-i18n-placeholder="custom.search" placeholder="Find a component"></label>
+      <button id="component-refresh" class="icon-button quiet" data-i18n-title="custom.refresh" data-i18n-aria-label="custom.refresh" aria-label="Refresh list"><span data-icon="refresh"></span></button>
+      <a id="custom-new" class="button-link primary" href="/page-editor/component.html"><span data-icon="plus"></span><span data-i18n="custom.new">New component</span></a>
+    </div>
+    <div class="library-browser">
+      <aside class="library-sidebar">
+        <h2 class="navigator-caption" data-i18n="custom.status">Status</h2>
+        <div id="component-filter" class="library-scopes" role="group" aria-label="Status" data-i18n-aria-label="custom.status">
+          <button data-filter="all" aria-pressed="true"><span data-icon="component"></span><span data-i18n="custom.all">All</span><span class="scope-count" data-count="all"></span></button>
+          <button data-filter="published" aria-pressed="false"><span data-i18n="custom.published">Published</span><span class="scope-count" data-count="published"></span></button>
+          <button data-filter="draft" aria-pressed="false"><span data-i18n="custom.draft">Unpublished draft</span><span class="scope-count" data-count="draft"></span></button>
+          <button data-filter="withdrawn" aria-pressed="false"><span data-i18n="custom.withdrawn">Withdrawn</span><span class="scope-count" data-count="withdrawn"></span></button>
+        </div>
+        <p class="help library-guidance" data-i18n="custom.library-help">Create reusable components, then publish them to add to a page.</p>
+      </aside>
+      <section class="library-content" aria-labelledby="library-heading">
+        <div class="library-list-heading"><h2 id="library-heading" data-i18n="custom.all">All</h2><span id="component-count" role="status"></span></div>
+        <p id="custom-message" hidden></p>
+        <ul id="component-list" class="component-list" aria-label="Custom component library" data-i18n-aria-label="custom.library"></ul>
+        <section id="component-empty" class="empty-state" hidden><span class="empty-symbol" data-icon="component"></span><h2 data-i18n="custom.empty">Your component library is empty</h2><p data-i18n="custom.empty-help">Start with HTML and CSS. Add JavaScript when your component needs interaction.</p><a class="button-link" href="/page-editor/component.html" data-i18n="custom.new">New component</a></section>
+        <section id="component-no-match" class="empty-state" hidden><span class="empty-symbol" data-icon="search"></span><h2 data-i18n="custom.no-match">No components match these filters.</h2><button id="component-clear" class="quiet" data-i18n="custom.clear-filters">Clear filters</button></section>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

@@ -38,6 +38,7 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 import top.sywyar.pixivdownload.plugin.web.resource.StaticResourceConfig;
+import top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry;
 import top.sywyar.pixivdownload.plugin.api.web.AccessPolicy;
 import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
 import top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution;
@@ -130,6 +131,8 @@ class AuthFilterServletTest {
 
         context = new AnnotationConfigWebApplicationContext();
         context.register(WebConfig.class, StaticResourceConfig.class);
+        context.addBeanFactoryPostProcessor(factory -> factory.registerSingleton("pages",
+                mock(PageContributionRegistry.class)));
         context.addBeanFactoryPostProcessor(factory -> factory.registerSingleton("staticResources",
                 new StaticResourceRegistry(new PluginRegistry(List.of()))));
         context.addBeanFactoryPostProcessor(factory -> factory.registerSingleton("assets", controller));

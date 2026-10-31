@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Component editor</title>
+  <link rel="stylesheet" href="/css/pixiv-layout.css">
+  <link rel="stylesheet" href="/css/pixiv-scrollbar.css">
+  <link rel="stylesheet" href="/css/pixiv-feedback.css">
+  <link rel="stylesheet" href="/page-editor/editor.css">
+  <link rel="stylesheet" href="/page-editor/editor-css.css">
+  <link rel="stylesheet" href="/page-editor/components.css">
+  <link rel="stylesheet" href="/page-editor/editor-motion.css">
+  <script src="/js/pixiv-i18n.js"></script>
+  <script src="/js/pixiv-feedback.js"></script>
+  <script src="/js/pixiv-theme.js"></script>
+  <script src="/js/pixiv-lang-switcher.js"></script>
+  <script type="module" src="/page-editor/component-editor.mjs"></script>
+</head>
+<body class="layout-flow component-page component-editor-page">
+  <header class="editor-header component-header" data-layout-height="--component-header-height">
+    <a id="custom-back" class="home-link" href="/page-editor/components.html"><span aria-hidden="true">←</span><span data-i18n="custom.library">Custom component library</span></a>
+    <h1 id="component-title" class="visually-hidden" data-i18n="custom.editor">Component editor</h1>
+    <label class="document-name document-identity"><span class="visually-hidden" data-i18n="custom.name">Component name</span><input id="custom-name" maxlength="128" required autocomplete="off" disabled data-i18n-placeholder="custom.name" placeholder="Component name" aria-describedby="custom-dirty"><span id="custom-dirty" class="unsaved-indicator" role="img" aria-hidden="true" data-i18n-aria-label="unsaved" aria-label="Unsaved changes" data-i18n-title="unsaved" title="Unsaved changes"></span></label>
+    <div class="document-buttons"><span id="custom-save-state" class="visually-hidden" role="status"></span><button id="custom-save" disabled data-i18n="save">Save draft</button><button id="custom-publish" class="primary" disabled data-i18n="publish">Publish</button></div>
+    <div id="preferences"></div>
+  </header>
+  <main class="component-main">
+    <p id="custom-message" hidden></p>
+    <div id="component-fields" class="component-workbench" inert>
+      <aside class="component-navigator">
+        <p class="navigator-caption" data-i18n="custom.editor">Component editor</p>
+        <div id="component-sections" class="component-tabs section-tabs" role="tablist" aria-orientation="vertical" aria-label="Component editor" data-i18n-aria-label="custom.editor">
+          <button id="section-code" role="tab" data-tab="code" aria-controls="component-code-panel"><span data-icon="code"></span><span data-i18n="custom.source">Source</span></button>
+          <button id="section-properties" role="tab" data-tab="properties" aria-controls="component-properties-panel"><span data-icon="properties"></span><span data-i18n="custom.properties">Property definitions</span></button>
+          <button id="section-versions" role="tab" data-tab="versions" aria-controls="component-versions-panel"><span data-icon="history"></span><span data-i18n="custom.versions">Versions and publishing</span></button>
+        </div>
+      </aside>
+      <div class="component-detail">
+      <section id="component-code-panel" role="tabpanel" aria-labelledby="section-code">
+        <div class="component-workspace">
+          <section class="source-region" aria-label="Source" data-i18n-aria-label="custom.source">
+            <div id="source-tabs" class="component-tabs" role="tablist" aria-label="Source" data-i18n-aria-label="custom.source">
+              <button id="custom-tab-html" role="tab" data-tab="html" aria-controls="custom-code" data-i18n="custom.html">HTML</button>
+              <button id="custom-tab-css" role="tab" data-tab="css" aria-controls="custom-code" data-i18n="custom.css">CSS</button>
+              <button id="custom-tab-javascript" role="tab" data-tab="javascript" aria-controls="custom-code" data-i18n="custom.javascript">JavaScript</button>
+            </div>
+            <div id="custom-code" role="tabpanel" tabindex="0"></div>
+            <details class="source-help"><summary data-i18n="custom.source-help">Code guidance</summary><p id="custom-source-help" class="help"></p></details>
+          </section>
+          <section class="preview-region" aria-labelledby="preview-title">
+            <div class="region-heading"><h2 id="preview-title" data-i18n="preview">Preview</h2><button id="custom-run" class="quiet"><span data-icon="play"></span><span data-i18n="custom.run">Run preview</span></button></div>
+            <p id="custom-preview-state" class="help empty" role="status" data-i18n="custom.preview-empty">Run a preview to see your current code.</p>
+            <div id="custom-preview"></div>
+          </section>
+        </div>
+      </section>
+      <section id="component-properties-panel" class="detail-panel" role="tabpanel" aria-labelledby="section-properties" hidden>
+        <h2 data-i18n="custom.properties">Property definitions</h2>
+        <p class="help" data-i18n="custom.property-help">Choose what can be changed for each copy of this component. Read these values from context.properties in JavaScript.</p>
+        <div id="property-fields"></div>
+        <p id="properties-empty" class="help" data-i18n="custom.properties-empty">This component has no configurable properties.</p>
+        <button id="property-add" data-i18n="custom.property-add">Add property</button>
+      </section>
+      <section id="component-versions-panel" class="detail-panel" role="tabpanel" aria-labelledby="section-versions" hidden>
+        <h2 data-i18n="custom.versions">Versions and publishing</h2>
+        <p class="help" data-i18n="custom.help">Published source is publicly readable. Keep passwords and tokens out of your code.</p>
+        <div class="publication-state"><p id="custom-publication"></p><button id="custom-availability" hidden></button></div>
+        <p class="help" data-i18n="custom.version-help">Publishing creates a fixed version. Existing pages keep their selected version until you change it in the page editor.</p>
+        <h3 data-i18n="custom.history">Published versions</h3>
+        <p id="versions-empty" class="help" data-i18n="custom.versions-empty">No published versions yet. Save and preview your component, then publish it.</p>
+        <ul id="custom-versions" class="version-list"></ul>
+      </section>
+      </div>
+    </div>
+  </main>
+  <script src="/js/pixiv-layout.js"></script>
+</body>
+</html>
