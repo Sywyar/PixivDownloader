@@ -15,11 +15,14 @@
   - [🧩 Userscripts](/en/userscripts)
   - [PixivBatchDownloader import support](/en/pixiv-batch-downloader-import)
 
+- **Plugins**
+  - [🔌 Plugin Management](/en/plugin-management)
+  - [Page editor](/en/page-editor)
+  - [Operation CAPTCHA](/en/captcha)
+
 - **Reference**
   - [⚙️ Configuration](/en/configuration)
   - [🌐 Network Access & Third-Party Services](/en/network-access)
-  - [🔌 Plugin Management](/en/plugin-management)
-  - [Page editor](/en/page-editor)
   - [💾 Storage Principles](/en/storage)
   - [🧰 Third-party Plugin SDK](/en/plugin-development)
   - [❓ FAQ](/en/faq)

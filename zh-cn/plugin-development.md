@@ -658,7 +658,7 @@ WebSocket 使用 `OutboundWebSocketClientFactory.open(profile)`，客户端同�
 
 `binding.diagnostic()` 返回有界纯值原因、状态、依赖及 publication。管理页插件详情的服务关系来自同一运行时事实源，停用影响同时包含声明导入和仍在退出的绑定。诊断区分等待、歧义、激活失败、调度拒绝与关闭失败；`truncated` 表示展示不完整，不代表没有依赖。读取诊断不重试业务，也不改变生命周期。
 
-## 不依赖 GUI 的凭据与登录验证
+## 不依赖 GUI 的凭据与通用操作验证
 
 插件通过 `credentialKeys()` 声明自己前缀下的键，例如 `my-plugin.token`，在子 context 注入 `PluginCredentials`。`read(key)` 返回 `Optional<String>`，`update(Map)` 原子合并，省略键保留，空白值删除，`delete(key)` 幂等删除。最多声明及更新 128 项，单值 UTF-8 最多 64 KiB，单批最多 1 MiB。未声明键与旧 generation 句柄会被拒绝；普通插件不能传入其它 owner。
 
@@ -666,11 +666,17 @@ WebSocket 使用 `OutboundWebSocketClientFactory.open(profile)`，客户端同�
 
 存储复用宿主加密与文件锁，既有 GUI 敏感字段仍并入同一声明和遮罩范围。保存不会自动重绑已有 `@Value` 或配置对象，业务应按需读取或遵守已有重启策略。不得把明文凭据放入服务 DTO、异常、日志或诊断。
 
-登录策略作为 Spring Bean 实现 `LoginVerification`，以 `policyId()` 声明稳定键。管理员在 `setup.login-verification-policies` 中配置逗号分隔的必要策略，后端重启后生效；空值关闭验证，最多 16 项。宿主在限流、密码核对之后且创建会话之前调用策略，输入包含用户名、客户端地址、attemptId 与不透明 proof，不包含密码或会话权限。
+策略在自己的子 context 中提供 `OperationVerification` Bean。`policyId()` 是稳定策略键；`policy()` 返回无副作用的规则修订、上下文 schema、交互协议和结构化资源 profile。规则或资源变化须更新修订并重新发布页面；`generation()` 表示凭据代际，使旧挑战失效。`verify()` 只接收必要的纯值事实和不透明 proof，返回 `APPROVED`、`REJECTED` 或 `CHALLENGE`，不得取得密码、Cookie、完整请求或业务回调。
 
-策略返回 `APPROVED`、`REJECTED` 或 `CHALLENGE`。必要策略缺席、歧义或异常返回 503，拒绝返回 403，挑战返回 409 与 `verificationToken`、按策略键索引的 `challenges`。随后 `/api/auth/login` 请求携带原凭证、token 和 `verificationProofs`。挑战绑定用户名、地址和精确 publication，五分钟有效且响应只消费一次；旧挑战返回 409。每项挑战/proof 最多 16 KiB UTF-8、累计 64 KiB，最多保留 256 个待响应挑战。失败响应不创建会话 Cookie。
+业务 owner 在 `serviceImports()` 声明 `OperationVerification.IMPORT`，注入本 owner 的 `OperationGuard`，对于已有身份的业务 API，完成身份、权限、CSRF、限流与输入检查后调用 `execute(operationId, subject, context, token, proofs, action)`。操作身份必须属于该 owner；普通业务的主体从可信身份解析器取得；登录准备使用格式校验后的用户名，不代表已认证。只有全部必要策略通过，才在 owner 本地执行一次 action；租约持续到动作实际结束。缺席、超时、换代均拒绝，业务失败不自动重试。不要用辅助回调的 `ServiceBindingScope.guard()` 承接用户命令。
 
-需要界面的策略向普通 `login.verification` UiSlot 贡献模块，并声明该模块的公开静态资源路由。宿主只通过 `/api/web/login-verification-slots` 公开此目标。上下文属性为 `{verificationToken, challenges}`；模块发出 `proof` 事件，值为 `{verificationToken, policyId, proof}`，用户再次点击登录后提交。修改凭证会清除证明。类型声明位于 SDK JAR 的 `META-INF/pixivdownload/web/login-verification.d.ts`。浏览器显示不代替后端验证；安装插件也不会自动启用必要策略。
+准备入口调用 `OperationGuard.prepare(operationId, subject, context)`，不执行业务；提交入口继续使用 `execute` 复核。浏览器 `createOperationTarget` 的第三个参数是表单 owner 的准备请求回调，接收取消信号；只有 `ready()` 为真才能使用 `request()` 获取提交数据。准备与提交须绑定相同主体和上下文。输入变化调用 `reset()`，组件失效调用 `invalidate(id)`，取消准备并清除证明；不自动重放业务。操作步骤见[页面编辑器指南](page-editor.md)。
+
+页面 owner 在 `EditablePage.targets` 中声明 `PageInteraction.Target`，组件通过 `PageComponent` 的参与声明关联策略与协议。唯一兼容目标自动绑定；歧义须选择，无匹配只可存草稿。组件先调用 `context.interaction.prepare()`，再通过 `context.interaction.onState()` 接收自己的挑战，用 `respond(id, proof)` 响应；状态清空或实例销毁时须退出 Worker、请求和监听器。表单 owner 使用 `/js/pixiv-pages.mjs` 的 `createOperationTarget`，经页面挂载传入目标；类型见 SDK 的 `page-interaction.d.ts`、`operation-verification.d.ts` 与 `page-components.d.mts`。普通 `PagePort` 连线仍是 DAG，不用它模拟挑战循环。
+
+登录提交依次执行限流、验证、密码检查和创建会话。`setup.login-verification-policies` 是最多 16 项的静态必要策略，空值只清除静态要求，页面发布不能抹掉非空静态要求。`POST /api/auth/login/prepare` 只提交用户名和 rememberMe，复用登录限流，准备成功以 200 返回 `token`、`revision` 和按策略键索引的 `challenges`。全部证明齐备后，登录请求才提交 `operationToken`、`operationProofs` 和登录凭据；直接提交但缺少证明时仍返回 409 挑战。拒绝为 403，必要能力不可用为 503，旧挑战为 409，失败不创建 Cookie。挑战绑定主体、操作、上下文、规则、凭据、provider 及正式修订，五分钟有效且单次消费；单项挑战/proof 为 16 KiB UTF-8，累计 64 KiB，最多 256 个待响应挑战。
+
+固定 `login.verification` UiSlot 也声明相同参与协议，接收实例交互通道，不使用自报成功事件授予权限。正式页面、绑定、操作要求和资源授权由 `PagePublications` 持有同一修订；预检不调用厂商，提交重新核验并排空受影响操作。资源来源须经管理员明确批准；未绑定页面和自定义组件沙箱不会继承这些权限。用 [页面编辑器指南](page-editor.md) 配置绑定与恢复；[独立验证码示例](https://github.com/Sywyar/PixivDownloader/tree/master/examples/captcha-plugin) 包含 Turnstile、ALTCHA SHA-256 和 PBKDF2 适配。
 
 ## 普通槽位与页面组件
 

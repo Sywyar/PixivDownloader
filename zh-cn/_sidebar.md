@@ -15,11 +15,14 @@
   - [🧩 油猴脚本](/zh-cn/userscripts)
   - [PixivBatchDownloader 导入支持](/zh-cn/pixiv-batch-downloader-import)
 
+- **插件**
+  - [🔌 插件管理](/zh-cn/plugin-management)
+  - [页面编辑器](/zh-cn/page-editor)
+  - [操作验证码](/zh-cn/captcha)
+
 - **参考**
   - [⚙️ 配置参考](/zh-cn/configuration)
   - [🌐 网络访问与第三方服务](/zh-cn/network-access)
-  - [🔌 插件管理](/zh-cn/plugin-management)
-  - [页面编辑器](/zh-cn/page-editor)
   - [🧰 第三方插件 SDK](/zh-cn/plugin-development)
   - [💾 存储原理](/zh-cn/storage)
   - [❓ 常见问题](/zh-cn/faq)

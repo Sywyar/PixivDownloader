@@ -4,6 +4,10 @@
 
 ?> 本清单涵盖当前代码内固定的默认地址和允许的动态地址范围。第三方服务可能使用 DNS、CDN、重定向或临时下载地址，因此实际连接的 IP 地址和最终子域可能发生变化。管理员配置的自定义 URL 不在可预先穷举的范围内。
 
+## 官方验证码插件的运行时访问
+
+官方可选插件 `captcha` 默认不安装。管理员配置 Turnstile 并发布表单绑定后，用户开始验证并取得挑战后，浏览器加载 `https://challenges.cloudflare.com/turnstile/v0/api.js` 及该来源的 iframe，发送站点公钥、操作标记和本次尝试标识，并按厂商协议提供浏览器网络信息。插件仅在验证响应时向同一来源的 `/turnstile/v0/siteverify` POST 验签密钥与票据，不发送登录密码、Cookie 或完整业务请求。浏览器使用自身网络/代理配置；服务端使用受管 HTTP 并继承应用代理，禁止重定向和 Cookie。取消绑定并发布可停止该页面的在线验证；停用插件会拒绝已保护操作，不能用停用绕过验证。ALTCHA 的 SHA-256/PBKDF2 Worker 随插件提供，仅访问当前实例，不请求第三方服务。
+
 ## 网络访问概览
 
 - AI、TTS、推送、邮件和 Douyin 仅在相应功能完成配置并被调用时访问外部服务；`notification` 是例外，它会在启用并启动后自动检查固定公告索引。
@@ -288,6 +292,8 @@ JDBC 的 TCP / TLS 连接不经过 Pixiv HTTP 代理；TLS 由 `sslmode` 和可�
 - 如果启用 HTTP/SOCKS 代理，程序首先连接管理员配置的代理主机和端口，再由代理访问最终服务。
 
 ## 开发、构建和发布流程的网络访问
+
+官方模块 `pixivdownload-plugin-captcha` 或独立 SDK 构建工程 `examples/captcha-plugin` 构建时，Maven 按配置的仓库、镜像与代理取得 `org.altcha:altcha`、`org.json:json` 及构建依赖；资源构建自动执行 `npm ci`，按锁文件取得 `altcha` 与传递依赖，当前锁文件使用 `registry.npmmirror.com`。下载只发送包坐标与包管理器配置的认证，不上传项目凭据。构建将官方 Worker 与许可证写入插件。显式运行 `page-editor-acceptance.mjs` 的验证码验收会访问 Cloudflare 官方测试组件和 Siteverify，仅使用公开测试密钥；普通应用启动不执行这些工程请求。取消构建/测试停止后续访问；使用经核验的本地依赖缓存可减少下载。
 
 页面编辑器验收命令使用已安装的 Playwright/Chromium，不自动下载。单独安装这些工具时，目标和代理遵循 npm 与 Playwright 的包、浏览器下载配置。维护者更新固定 GrapesJS 文件时获取其 npm 包；重建 CodeMirror 时，在 `pixivdownload-plugin-page-editor/tools/codemirror` 执行 `npm ci --ignore-scripts --no-audit --no-fund` 和 `npm run build`，安装锁文件固定的 CodeMirror、Lezer、esbuild 及传递依赖。当前锁文件的包归档来自 `registry.npmmirror.com`，镜像或代理调整须连同锁文件来源和完整性值一起核对。两种编辑引擎均在 `vendor.json` 记录固定版本、摘要与许可证；普通 Maven 构建直接使用随仓库保存的资源，应用运行期不执行更新。准备请求携带工具或包标识，不发送应用凭据或页面文档；npm 认证与代理凭据遵循本机 npm 配置。已有本地工具及随包 vendor 文件可避免下载。
 

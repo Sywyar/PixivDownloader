@@ -13,9 +13,26 @@
 
 “重载草稿”和“恢复上一发布版”位于顶部的“更多”菜单。没有可恢复的发布版本时，恢复按钮不可用。
 
-登录页的认证表单由核心保留，账户登录、邀请码和回跳沿用原流程。自定义外观下可选择“使用默认布局”；组件缺席、发布内容无效或编辑器停用时也使用默认登录页。页面编辑不会改变认证策略。已登录用户仍按原规则跳转。
+登录页的认证表单由核心保留，账户登录、邀请码和回跳沿用原流程。正式页面及其操作保护不依赖编辑器继续运行。“使用默认布局”只改变当前浏览器的呈现，不删除服务端验证要求。正式记录、必要组件或策略不可用时，受保护操作保持拒绝；已登录用户仍按原规则跳转。
 
-缺席或配置版本不兼容的组件会保留原类型、版本、实例身份和配置。可以保存其他布局修改，但不能发布不完整页面；重新启用正确插件版本或执行插件提供的配置迁移后再发布。发布或恢复失败不会覆盖上一个已提交版本。
+缺席或配置版本不兼容的组件会保留原类型、版本、实例身份和配置。可以保存其他布局修改，但不能发布不完整页面；重新启用正确插件版本或执行插件提供的配置迁移后再发布。提交前的发布或恢复失败保留上一个正式版本；提交记录已经落盘后，激活失败会保持拒绝并从已提交修订恢复。
+
+## 表单验证与资源授权
+
+将验证码组件拖入页面 owner 声明的表单区域后，唯一兼容目标会自动选中。多个目标可用时，在“保护操作”中明确选择；没有兼容目标时可以保存草稿，但不能发布保护。同一目标的参与策略全部必需，重复策略会被拒绝。复制、移动和撤销保留各自实例关系，不复制正在使用的证明。
+
+发布前会列出受影响操作、必要策略变化及组件所需的资源来源。确认后，服务器重新检查当前目录与修订，暂停受影响操作的新请求并等待在途动作结束，再一并提交页面、绑定和权限。草稿与预览不改变正式保护，也不生成真实挑战。同一操作被多个页面引用时，配置必须一致。静态 `setup.login-verification-policies` 始终作为登录保护要求保留。
+
+页面 HTML、标题、投影、ETag 和 CSP 使用同一正式修订。旧文档发现修订变化后重新导航；旧证明由后端拒绝，组件须清理 Worker 和其他实例资源。自定义 HTML/JS 组件仍使用原有沙箱，不获得验证码插件的外部脚本权限。
+
+正式状态位于 `data/web-publications/`，登记文件为 `config/web-publications.enrolled`，均不能作为缓存删除。停止编辑器或主库故障不会清除保护。需要离线修复时，先停止该实例，在相同运行目录执行以下本机命令。查询会列出候选文件及 SHA-256；选择已核实的完整候选后才执行恢复，不按文件时间猜测。
+
+```text
+java -jar "<boot-jar>" --no-gui --web-publications
+java -jar "<boot-jar>" --no-gui --web-publications --publication-restore=<candidate.json> --publication-sha256=<sha256>
+```
+
+将 `<boot-jar>` 替换为实际启动 JAR，`<candidate.json>` 与 `<sha256>` 使用查询得到并核实的值。
 
 ## 页眉、页脚和登录卡片
 
@@ -60,6 +77,8 @@ Ctrl/Cmd+Enter 应用样式，Tab 移到下一个控件，Esc 先关闭补全列
 | 静态资源、路由与 i18n | 贡献同源模块及词典；公开渲染模块需显式 PUBLIC，编辑资源和业务操作按各自鉴权声明 |
 
 `PageComponent` 包含稳定的 `owner:type` 身份、正整数配置版本、显示 key/namespace、渲染和可选属性编辑模块 URL、schema/defaults JSON、`publicRenderable` 及输入/输出端口名。类型命名空间必须属于实际插件 owner；同名类型冲突会拒绝发布。目录聚合多个 owner，不通过单 provider 的 `PluginServices` key 收集组件。
+
+插件通过 `PageContribution.componentCategories()` 返回 `PageComponentCategory(id, labelKey, namespace, descriptionKey, components)`。分类 ID 使用 `owner:local-id`，标题和可选说明使用 i18n key，成员按显示顺序列出本插件的组件类型。分类必须非空，每个组件最多归入一个分类；重复 ID、重复成员及未知或其它插件的类型会被拒绝。未列出的组件归入插件显示名称分类。分类随插件撤回，不改变页面绑定或操作权限。分类数量不得超过组件数量，并与页面及组件声明共用 1 MiB UTF-8 预算。
 
 配置 schema 使用 SDK 当前生成器支持的语义，服务器复用同一校验器；不要将任意 JSON Schema 草案当成受支持合同。基础属性面板处理字符串、布尔值和数值；嵌套对象和数组由插件属性编辑器负责。业务约束在 `validate(type, json)` 中再次检查。版本迁移由 `migrate(type, fromVersion, json)` 返回新配置，服务器验证结果后才接受；默认不支持迁移。
 
@@ -119,3 +138,9 @@ node scripts/ci/page-editor-acceptance.mjs target/page-editor-acceptance
 第一条仅构建聚焦产物；单元测试另行运行。第二条要求目标目录不存在，冻结输入 JAR 后另行生成、编译并通过真实安装入口加载示例插件，使用隔离配置和数据库运行浏览器与生命周期验收，完成时核对冻结产物摘要。它不会操作真实用户数据，也不构成发行包或验证码业务验收。
 
 GrapesJS Core 的固定本地文件、许可证和摘要见编辑器插件的 `web/vendor/grapesjs/vendor.json`。运行期不使用默认 CDN 图标或 GrapesJS 遥测；组件自己的网络访问仍需按业务契约和插件声明处理。
+
+## 官方验证码插件
+
+官方 `captcha` 插件提供 Turnstile、ALTCHA SHA-256 和 ALTCHA PBKDF2 三种组件。安装、表单绑定、密钥配置、本地测试和故障排查见[操作验证码插件](/zh-cn/captcha)。
+
+表单开发者通过 `OperationGuard.prepare(operation, subject, context)` 获取挑战，此调用不执行业务。浏览器使用 `createOperationTarget(operation, onChange, prepareRequest)` 注册表单自己的准备请求；验证码组件调用 `context.interaction.prepare()` 后接收挑战并提交证明。只有 `target.ready()` 为真时，表单才能通过 `target.request()` 获取提交数据。后端实际提交仍须调用同一 owner 的 `OperationGuard.execute(...)`，业务动作放在验证后的回调内。准备与提交必须使用相同主体和上下文；输入变化调用 `reset()`，组件失效调用 `invalidate(id)`，都会清除证明并取消未完成的准备请求。准备请求只发送验证所需的非敏感上下文，验证码组件不读取密码或完整业务请求。

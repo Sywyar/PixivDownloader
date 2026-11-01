@@ -15,11 +15,14 @@
   - [🧩 油猴腳本](/zh-hant/userscripts)
   - [PixivBatchDownloader 匯入支援](/zh-hant/pixiv-batch-downloader-import)
 
+- **插件**
+  - [🔌 插件管理](/zh-hant/plugin-management)
+  - [頁面編輯器](/zh-hant/page-editor)
+  - [操作驗證碼](/zh-hant/captcha)
+
 - **參考**
   - [⚙️ 配置參考](/zh-hant/configuration)
   - [🌐 網絡訪問與第三方服務](/zh-hant/network-access)
-  - [🔌 插件管理](/zh-hant/plugin-management)
-  - [頁面編輯器](/zh-hant/page-editor)
   - [🧰 第三方插件 SDK](/zh-hant/plugin-development)
   - [💾 存儲原理](/zh-hant/storage)
   - [❓ 常見問題](/zh-hant/faq)

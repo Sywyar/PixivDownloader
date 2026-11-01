@@ -15,11 +15,14 @@
   - [🧩 ユーザースクリプト](/ja/userscripts)
   - [PixivBatchDownloader インポート](/ja/pixiv-batch-downloader-import)
 
+- **プラグイン**
+  - [🔌 プラグイン管理](/ja/plugin-management)
+  - [ページエディター](/ja/page-editor)
+  - [操作認証](/ja/captcha)
+
 - **リファレンス**
   - [⚙️ 設定リファレンス](/ja/configuration)
   - [🌐 ネットワークアクセスとサードパーティサービス](/ja/network-access)
-  - [🔌 プラグイン管理](/ja/plugin-management)
-  - [ページエディター](/ja/page-editor)
   - [💾 ストレージの仕組み](/ja/storage)
   - [🧰 サードパーティプラグイン SDK](/ja/plugin-development)
   - [❓ よくある質問](/ja/faq)

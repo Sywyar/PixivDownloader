@@ -202,7 +202,7 @@ public List<I18nContribution> i18n() {
 
 `binding.diagnostic()` は有界な純値の理由、状態、依存、publication を返します。管理画面のサービス関係と停止影響は同じ登録情報を使い、宣言された import と drain 中の binding を含みます。待機、曖昧、activation 失敗、実行器の拒否、清掃失敗を区別できます。`truncated` は表示の省略を意味し、依存がないという意味ではありません。診断の読み取りで業務の再実行や状態変更は起こりません。
 
-## GUI フィールドに依存しない認証情報とログイン検証
+## GUI フィールドに依存しない認証情報と操作検証
 
 `credentialKeys()` で `my-plugin.token` のような owner 接頭辞付きのキーを宣言し、`PluginCredentials` を注入します。`read(key)` は `Optional<String>`、`update(Map)` は原子的な差分更新です。省略したキーは保持し、空白値は削除します。`delete(key)` は冪等です。宣言・更新は最大 128 項目、値ごとに UTF-8 64 KiB、更新全体で 1 MiB です。未宣言キーと旧 generation のハンドルは拒否され、別 owner は指定できません。
 
@@ -210,11 +210,17 @@ public List<I18nContribution> i18n() {
 
 暗号化とファイルロックは宿主の既存処理を使います。既存 GUI の機密フィールドも同じ宣言・マスク対象です。保存しても既存の `@Value` や設定オブジェクトは自動で再バインドされません。必要時に読み取るか、既存の再起動方針に従ってください。平文を DTO、例外、ログ、診断に含めないでください。
 
-Spring Bean として `LoginVerification` を実装し、`policyId()` で安定したキーを返します。管理者が `setup.login-verification-policies` に必須ポリシーをカンマ区切りで設定し、バックエンド再起動後に有効になります。空値は無効、上限は 16 項目です。宿主はレート制限とパスワード照合の後、セッション作成の前に呼び出します。入力はユーザー名、クライアントアドレス、attemptId、不透明な proof で、パスワードやセッション権限を含みません。
+プラグインの子 context に `OperationVerification` Bean を登録します。`policyId()` は安定したポリシーキーです。副作用のない `policy()` はルールのリビジョン、コンテキスト schema、対話プロトコル、構造化リソース profile を返します。ルールやリソースを変更した場合はリビジョンを変更し、ページを再公開します。`generation()` は認証情報の世代を表し、古いチャレンジを無効にします。`verify()` は必要な純粋値と不透明な proof のみを受け取り、`APPROVED`、`REJECTED`、`CHALLENGE` を返します。パスワード、Cookie、リクエスト全体、業務コールバックは渡されません。
 
-結果は `APPROVED`、`REJECTED`、`CHALLENGE` です。必須ポリシーの不在・曖昧・例外は 503、拒否は 403、チャレンジは 409 と `verificationToken`、ポリシー別の `challenges` を返します。次の `/api/auth/login` には元の認証情報、token、`verificationProofs` を渡します。チャレンジはユーザー名、アドレス、正確な publication に固定され、有効期間は 5 分、応答は一度だけです。古いチャレンジは 409 です。チャレンジ/proof は各 UTF-8 16 KiB、合計 64 KiB、保留中は最大 256 件です。失敗時にセッション Cookie は作成しません。
+業務 owner は `serviceImports()` で `OperationVerification.IMPORT` を宣言し、自分に結び付いた `OperationGuard` を注入します。既存の本人情報を使用する業務 API では、本人確認、権限、CSRF、レート制限、入力を検証してから `execute(operationId, subject, context, token, proofs, action)` を呼び出します。操作 ID は同じ owner に属し、通常業務の subject は信頼できる本人確認結果から取得します。ログイン準備では形式検証済みのユーザー名を使いますが、認証済みとは扱いません。すべての必須ポリシーが通った場合のみ、owner 内で action を一度実行します。リースは業務処理の実際の終了まで保持されます。不在、時間超過、世代変更時は拒否し、業務失敗を自動再試行しません。補助コールバック用の `ServiceBindingScope.guard()` をユーザー操作に使用しないでください。
 
-画面が必要なら通常の `login.verification` UiSlot にモジュールを提供し、その静的リソースを公開ルートとして宣言します。宿主は `/api/web/login-verification-slots` でこの対象だけを公開します。属性は `{verificationToken, challenges}`、`proof` イベントの値は `{verificationToken, policyId, proof}` です。ユーザーが再度ログインを押して送信します。認証情報を編集すると proof は消去されます。型は SDK JAR 内の `META-INF/pixivdownload/web/login-verification.d.ts` にあります。画面の表示はバックエンド検証の代わりにならず、インストールだけで必須ポリシーが有効になることもありません。
+準備エンドポイントは `OperationGuard.prepare(operationId, subject, context)` を呼び、業務を実行しません。送信時は引き続き `execute` で再検証します。ブラウザーの `createOperationTarget` の第 3 引数はキャンセルシグナルを受け取るフォーム所有者の準備コールバックです。`ready()` が true の場合だけ `request()` で送信データを取得できます。準備と送信は同じ主体とコンテキストに結び付けます。入力変更時は `reset()`、認証無効時は `invalidate(id)` で準備をキャンセルし、証明を消去します。業務は自動再送しません。操作方法は[ページエディター](page-editor.md)を参照してください。
+
+ページ owner は `EditablePage.targets` に `PageInteraction.Target` を宣言し、`PageComponent` の参加宣言でポリシーとプロトコルを指定します。互換対象が一つなら自動で関連付け、複数なら選択が必要です。対象がなければ下書きのみ保存できます。コンポーネントはまず `context.interaction.prepare()` を呼び、`context.interaction.onState()` で自分のチャレンジを受け取り、`respond(id, proof)` で応答します。状態消去や破棄時は Worker、リクエスト、リスナーを終了します。フォーム owner は `/js/pixiv-pages.mjs` の `createOperationTarget` を使い、ページのマウントに対象を渡します。SDK の型は `page-interaction.d.ts`、`operation-verification.d.ts`、`page-components.d.mts` にあります。通常の `PagePort` 接続は DAG のままです。
+
+ログイン送信はレート制限、検証、パスワード照合、セッション作成の順です。`setup.login-verification-policies` は最大 16 件の静的必須ポリシーです。空値で消えるのは静的要求だけで、ページ公開は設定済みの静的要求を解除できません。`POST /api/auth/login/prepare` はユーザー名と rememberMe だけを送り、ログインのレート制限を共有します。準備成功時は 200 と `token`、`revision`、ポリシー別 `challenges` を返します。すべての証明を取得してから、ログイン要求に `operationToken`、`operationProofs` と認証情報を送ります。証明なしで直接送信した場合は 409 のチャレンジを返します。拒否は 403、必須能力の利用不可は 503、古いチャレンジは 409 で、失敗時に Cookie は作成しません。チャレンジは主体、操作、コンテキスト、ルール、認証情報、provider、正式リビジョンに固定し、5 分で失効、一度だけ消費します。チャレンジ/proof は各 UTF-8 16 KiB、合計 64 KiB、保留中は最大 256 件です。
+
+固定の `login.verification` UiSlot も同じ参加プロトコルを宣言し、インスタンス専用の対話チャネルを受け取ります。クライアントの成功イベントは権限を付与しません。`PagePublications` がページ、関連付け、操作要求、リソース承認を同じリビジョンで保持します。事前検査は外部サービスを呼ばず、コミット時に再検証して対象操作の終了を待ちます。リソースの接続元は管理者の明示承認が必要です。関連付けのないページやカスタムコンポーネントのサンドボックスには権限を継承しません。[ページエディター](page-editor.md) と [独立 CAPTCHA サンプル](https://github.com/Sywyar/PixivDownloader/tree/master/examples/captcha-plugin)を参照してください。サンプルには Turnstile、ALTCHA SHA-256、PBKDF2 が含まれます。
 
 ## 通常のスロットとページコンポーネント
 

@@ -13,9 +13,26 @@
 
 「重新載入草稿」和「還原上一發布版本」位於頂部的「更多」選單。沒有可還原的發布版本時，還原按鈕無法使用。
 
-核心保留登入表單、帳號登入、邀請碼與回跳行為。「使用預設配置」可恢復原本外觀。元件缺席、發布內容無效或編輯器停用時，也會回退到預設登入頁。編輯不改變認證策略；已登入使用者仍按原有規則重新導向。
+核心保留登入表單、帳號登入、邀請碼與回跳行為。正式頁面及操作保護不依賴編輯器持續執行。「使用預設配置」只改變目前瀏覽器的呈現，不刪除伺服器驗證要求。正式記錄、必要元件或策略不可用時，受保護操作維持拒絕；已登入使用者仍依原有規則重新導向。
 
-缺席或不相容的元件保留原始類型、設定版本、實例身分與設定。其他版面修改可以儲存，但不完整的頁面不能發布。請重新啟用相符的外掛，或明確執行該外掛提供的設定遷移。發布或復原失敗不改寫上次已儲存的發布版本。
+缺席或不相容的元件保留原始類型、設定版本、實例身分與設定。其他版面修改可以儲存，但不完整的頁面不能發布。請重新啟用相符的外掛，或明確執行該外掛提供的設定遷移。提交前的發布或復原失敗保留上一正式版本；提交記錄已落盤後，啟用失敗會維持拒絕並從已提交修訂復原。
+
+## 表單驗證與資源授權
+
+將驗證碼元件拖入頁面 owner 宣告的表單區域後，唯一相容目標會自動選取。多個目標可用時，請明確選擇保護操作；無相容目標時只能儲存草稿，不能發布保護。同一目標的參與策略全部必需，重複策略會被拒絕。複製、移動及復原維持各自實例關係，不複製使用中的證明。
+
+發布前會列出受影響操作、必要策略變更與元件所需資源來源。確認後，伺服器重新檢查目前目錄與修訂，暫停受影響操作的新請求，等待執行中動作結束，再一併提交頁面、綁定與權限。草稿與預覽不改變正式保護，也不產生實際挑戰。同一操作由多個頁面引用時，設定須一致。靜態 `setup.login-verification-policies` 始終保留為登入必要要求。
+
+頁面 HTML、標題、投影、ETag 與 CSP 使用同一正式修訂。舊文件發現修訂變更後重新導覽；舊證明由後端拒絕，元件須清理 Worker 與其他實例資源。自訂 HTML/JS 元件維持原有沙箱，不取得驗證碼外掛的外部指令碼權限。
+
+正式狀態位於 `data/web-publications/`，登記檔為 `config/web-publications.enrolled`，均不可當作快取刪除。停止編輯器或主資料庫故障不會清除保護。離線修復時，先停止該實例，再於相同執行目錄使用以下本機命令。查詢會列出候選檔案及 SHA-256；確認完整候選後才復原，不依檔案時間猜測。
+
+```text
+java -jar "<boot-jar>" --no-gui --web-publications
+java -jar "<boot-jar>" --no-gui --web-publications --publication-restore=<candidate.json> --publication-sha256=<sha256>
+```
+
+將 `<boot-jar>` 替換為實際啟動 JAR，`<candidate.json>` 與 `<sha256>` 使用查詢後核實的值。
 
 ## 頁首、頁尾與登入卡片
 
@@ -61,6 +78,8 @@ Ctrl/Cmd+Enter 套用樣式，Tab 移到下一個控制項，Esc 先關閉補全
 
 `PageComponent` 宣告穩定的 `owner:type`、正整數設定版本、標籤 key/namespace、渲染與選用編輯模組 URL、schema/defaults JSON、`publicRenderable` 及輸入輸出埠名稱。類型的 owner 前綴必須符合實際外掛 owner，重複類型會被拒絕。目錄聚合多個 owner，不把單一 provider 的 `PluginServices` key 當成元件集合。
 
+外掛透過 `PageContribution.componentCategories()` 回傳 `PageComponentCategory(id, labelKey, namespace, descriptionKey, components)`。分類 ID 使用 `owner:local-id`，標題和選用說明使用 i18n key，成員按顯示順序列出本外掛的元件類型。分類必須非空，每個元件最多歸入一個分類；重複 ID、重複成員及未知或其他外掛的類型會被拒絕。未列出的元件歸入外掛顯示名稱分類。分類隨外掛撤回，不改變頁面綁定或操作權限。分類數量不得超過元件數量，並與頁面和元件宣告共用 1 MiB UTF-8 預算。
+
 Schema 使用目前 SDK 生成器與同一伺服器校驗器支援的語義，不支援任意 JSON Schema draft。基本 inspector 處理字串、布林與數字；陣列及物件由外掛提供專用屬性編輯器。`validate(type, json)` 校驗業務限制，`migrate(type, fromVersion, json)` 回傳遷移設定，伺服器會再次校驗。預設不支援遷移。
 
 Plugin API JAR 的 `META-INF/pixivdownload/web/page-components.d.mts` 提供瀏覽器宣告。context 包含實例身分、`edit/preview/display` 模式、純值屬性、取消、翻譯、受控 fetch、清理與宣告埠連線，不暴露 GrapesJS 物件。將 `context.fetch` 傳給 `createClient`，操作使用 `context.signal`；訂閱、監聽器與計時器透過 `context.onCleanup` 清理，取消後不再套用遲到結果。舊 publication 的請求不會改投新外掛。後端鑑權仍有效；瀏覽器斷線不代表伺服器業務已排空。
@@ -93,3 +112,9 @@ node scripts/ci/page-editor-acceptance.mjs target/page-editor-acceptance
 第一個命令只建置相關產物，單元測試另行執行。第二個命令需要全新的輸出目錄：先固定 JAR，再獨立生成及編譯範例，經真實宿主安裝入口執行瀏覽器與生命週期檢查，最後核對固定 hash。設定與資料庫均隔離，不修改真實使用者資料，也不代表發行套件或驗證碼已驗收。
 
 固定的 GrapesJS Core 檔案、授權及 hash 記錄於 `web/vendor/grapesjs/vendor.json`。執行時關閉預設 CDN 圖示與 telemetry；元件自身的業務網路存取由各外掛宣告。
+
+## 官方驗證碼外掛
+
+官方 `captcha` 插件提供 Turnstile、ALTCHA SHA-256 和 ALTCHA PBKDF2 三種元件。安裝、表單綁定、金鑰設定、本機測試和疑難排解見[操作驗證碼插件](/zh-hant/captcha)。
+
+表單開發者透過 `OperationGuard.prepare(operation, subject, context)` 取得挑戰，此呼叫不執行業務。瀏覽器使用 `createOperationTarget(operation, onChange, prepareRequest)` 註冊表單自己的準備請求；驗證碼元件呼叫 `context.interaction.prepare()` 後接收挑戰並提交證明。只有 `target.ready()` 為 true 時，表單才能透過 `target.request()` 取得提交資料。後端實際提交仍須呼叫同一 owner 的 `OperationGuard.execute(...)`，業務動作放在驗證後的回呼內。準備與提交必須使用相同主體及上下文；輸入變更呼叫 `reset()`，元件失效呼叫 `invalidate(id)`，都會清除證明並取消未完成的準備請求。準備請求只傳送驗證所需的非敏感上下文，驗證碼元件不讀取密碼或完整業務請求。

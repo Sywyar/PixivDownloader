@@ -11,9 +11,26 @@ The page editor requires SDK 1.4 or later. Install and start the optional `page-
 
 Reload draft and Restore previous publication are in the More menu at the top. Restore is unavailable until a previous publication exists.
 
-Core retains the login form, account login, invitation-code flow and redirect behavior. Use default layout restores its original appearance. Missing components, invalid publications or an inactive editor also fall back to the default login page. Editing does not change authentication policy; signed-in users still redirect as before.
+Core retains the login form, account login, invitation-code flow and redirects. Published pages and operation protection remain active when the editor stops. Use default layout changes only the current browser view; it does not remove server verification requirements. Unavailable formal records, required components or policies keep protected operations closed. Signed-in users still redirect as before.
 
-Missing or incompatible components retain their original type, configuration version, instance identity and configuration. Other layout changes can be saved, but an incomplete page cannot be published. Reactivate the matching plugin or explicitly apply its configuration migration. A failed publication or restore leaves the last committed version intact.
+Missing or incompatible components retain their original type, configuration version, instance identity and configuration. Other layout changes can be saved, but an incomplete page cannot be published. Reactivate the matching plugin or explicitly apply its configuration migration. Failure before commit preserves the previous formal version. If activation fails after the commit record is written, operations remain closed while the committed revision is restored.
+
+## Form verification and resource approval
+
+Drag a verification component into a form region declared by the page owner. A unique compatible target is selected automatically. If several targets match, choose one under Protected operation. With no match, you can save a draft but cannot publish protection. All participating policies on a target are required; duplicate policies are rejected. Copy, move and undo preserve separate instance relationships without copying active proofs.
+
+Before publication, the editor lists affected operations, changes to required policies and requested resource origins. After confirmation, the server rechecks the current catalog and revision, closes admission for affected operations, waits for active actions to finish, and commits pages, bindings and permissions together. Drafts and previews do not change live protection or create real challenges. Pages referring to the same operation must agree on configuration. Static `setup.login-verification-policies` remain required for login.
+
+HTML, title, projection, ETag and CSP use one formal revision. Old documents navigate again when they detect a revision change; the backend rejects old proofs, and components dispose workers and other instance resources. Custom HTML/JS components keep their existing sandbox and receive no CAPTCHA plugin script permissions.
+
+Formal state lives in `data/web-publications/`, with enrollment recorded in `config/web-publications.enrolled`. Do not delete them as cache. Stopping the editor or losing the main database does not clear protection. For offline repair, stop the instance and run these local commands from its runtime directory. Query lists candidate files and SHA-256 digests. Restore only a verified complete candidate; file timestamps do not establish which revision was committed.
+
+```text
+java -jar "<boot-jar>" --no-gui --web-publications
+java -jar "<boot-jar>" --no-gui --web-publications --publication-restore=<candidate.json> --publication-sha256=<sha256>
+```
+
+Replace `<boot-jar>` with the actual boot JAR and use verified query values for `<candidate.json>` and `<sha256>`.
 
 ## Header, footer and login card
 
@@ -60,6 +77,8 @@ A new component changes only its own plugin and independent business contract. N
 | Static resources, routes and i18n | Contribute same-origin modules and dictionaries; public render modules require actual PUBLIC routes, while management assets and business operations keep their declared access policies |
 
 `PageComponent` declares a stable `owner:type`, positive configuration version, label key/namespace, render and optional property-editor URLs, schema/defaults JSON, `publicRenderable`, and input/output port names. The type's owner prefix must match the actual plugin owner. Duplicate types reject publication. The catalog aggregates multiple owners; it does not use a single-provider `PluginServices` key as a component collection.
+
+Return `PageComponentCategory(id, labelKey, namespace, descriptionKey, components)` from `PageContribution.componentCategories()`. Use an `owner:local-id`, i18n keys for the title and optional description, and this plugin’s component types in display order. Categories must be nonempty; each component may belong to only one category. Duplicate IDs or members and unknown or foreign types are rejected. Unassigned components use the plugin display name. Categories disappear with their plugin and do not change page bindings or operation permissions. Category count cannot exceed component count; categories share the 1 MiB UTF-8 declaration budget with pages and components.
 
 Schemas use the semantics supported by the current SDK generator and the same server validator. Arbitrary JSON Schema drafts are not supported. The basic inspector handles strings, booleans and numbers; plugins provide property editors for nested objects and arrays. Check business invariants in `validate(type, json)`. `migrate(type, fromVersion, json)` returns updated configuration, which the server validates before accepting. Migration is unsupported by default.
 
@@ -119,3 +138,9 @@ node scripts/ci/page-editor-acceptance.mjs target/page-editor-acceptance
 The first command builds focused artifacts only; run unit tests separately. The second requires a new destination directory. It freezes the input JARs, separately generates and compiles the example, installs it through the real host entry point, runs browser and lifecycle checks with isolated configuration/database, and checks frozen hashes afterward. It does not touch real user data or constitute distribution-package or CAPTCHA acceptance.
 
 Pinned GrapesJS Core files, license and hashes are recorded in the editor's `web/vendor/grapesjs/vendor.json`. Runtime use disables default CDN icons and GrapesJS telemetry. Components retain responsibility for declaring their own business network access.
+
+## Official CAPTCHA plugin
+
+The official `captcha` plugin provides Turnstile, ALTCHA SHA-256 and ALTCHA PBKDF2 components. See [Operation CAPTCHA plugin](/en/captcha) for installation, form binding, key configuration, local testing and troubleshooting.
+
+Form owners obtain challenges with `OperationGuard.prepare(operation, subject, context)`, which does not execute business actions. In the browser, register the form-owned preparation request with `createOperationTarget(operation, onChange, prepareRequest)`. Verification components call `context.interaction.prepare()`, receive challenges and return proofs. Only when `target.ready()` is true can the form obtain submission data through `target.request()`. The submission endpoint must still call the same owner's `OperationGuard.execute(...)`, with business actions inside its verified callback. Preparation and submission must use the same subject and context. Call `reset()` on input changes; components call `invalidate(id)` when verification becomes invalid. Both clear proofs and cancel pending preparation. Preparation sends only the non-sensitive context needed for verification; verification components do not read passwords or complete business requests.

@@ -89,7 +89,7 @@ PostHog 기능은 vendor 전용 foundation과 플러그인 소유 consumer를 �
 
 `binding.diagnostic()`은 제한된 크기의 순수 값으로 원인, 상태, 의존성, publication을 제공합니다. 관리 화면의 서비스 관계와 중지 영향은 같은 런타임 사실에서 계산하며 선언된 import와 drain 중인 binding을 포함합니다. 대기, 모호함, 활성화 실패, 실행기 거부, 정리 실패를 구분합니다. `truncated`는 표시가 불완전하다는 뜻이며 의존성 부재를 뜻하지 않습니다. 진단 조회는 업무를 재시도하거나 생명주기를 변경하지 않습니다.
 
-## GUI 필드 없이 사용하는 자격 증명과 로그인 검증
+## GUI 필드 없이 사용하는 자격 증명과 작업 검증
 
 `credentialKeys()`에 `my-plugin.token`처럼 owner 접두사가 있는 키를 선언하고 `PluginCredentials`를 주입합니다. `read(key)`는 `Optional<String>`, `update(Map)`는 원자적 병합입니다. 생략한 키는 유지하며 공백 값은 삭제합니다. `delete(key)`는 멱등적입니다. 선언·갱신은 최대 128개, 값당 UTF-8 64 KiB, 한 번에 1 MiB까지입니다. 미선언 키와 오래된 generation 핸들은 거부되며 다른 owner를 지정할 수 없습니다.
 
@@ -97,11 +97,17 @@ PostHog 기능은 vendor 전용 foundation과 플러그인 소유 consumer를 �
 
 저장소는 기존 호스트 암호화와 파일 잠금을 사용합니다. 기존 GUI의 민감한 필드도 같은 선언과 마스킹 범위에 포함됩니다. 저장해도 기존 `@Value` 또는 설정 객체를 자동으로 다시 바인딩하지 않습니다. 필요할 때 읽거나 기존 재시작 정책을 따릅니다. 평문을 서비스 DTO, 예외, 로그, 진단에 넣지 마세요.
 
-Spring Bean으로 `LoginVerification`을 구현하고 `policyId()`에서 안정적인 키를 반환합니다. 관리자가 `setup.login-verification-policies`에 필수 정책을 쉼표로 구분하여 설정하면 백엔드 재시작 후 적용됩니다. 빈 값은 검증을 끄며 최대 16개입니다. 호스트는 속도 제한과 비밀번호 확인 이후, 세션 생성 전에 호출합니다. 입력에는 사용자 이름, 클라이언트 주소, attemptId, 불투명 proof가 있고 비밀번호나 세션 권한은 없습니다.
+플러그인의 자식 context에 `OperationVerification` Bean을 등록합니다. `policyId()`는 안정적인 정책 키입니다. 부작용이 없는 `policy()`는 규칙 리비전, 컨텍스트 schema, 상호작용 프로토콜 및 구조화된 리소스 profile을 반환합니다. 규칙이나 리소스가 바뀌면 리비전을 바꾸고 페이지를 다시 게시합니다. `generation()`은 자격 증명 세대를 나타내며 이전 챌린지를 무효화합니다. `verify()`는 필요한 순수 값과 불투명 proof만 받고 `APPROVED`, `REJECTED`, `CHALLENGE`를 반환합니다. 비밀번호, Cookie, 전체 요청, 업무 콜백은 전달받지 않습니다.
 
-결과는 `APPROVED`, `REJECTED`, `CHALLENGE`입니다. 필수 정책의 부재·모호함·예외는 503, 거절은 403, 챌린지는 409와 `verificationToken`, 정책별 `challenges`를 반환합니다. 다음 `/api/auth/login` 요청에 원래 자격 증명, token, `verificationProofs`를 보냅니다. 챌린지는 사용자 이름, 주소, 정확한 publication에 고정되며 5분간 유효하고 응답은 한 번만 받습니다. 오래된 챌린지는 409입니다. 챌린지/proof는 각 UTF-8 16 KiB, 합계 64 KiB, 대기 중 최대 256개입니다. 실패 응답은 세션 Cookie를 만들지 않습니다.
+업무 owner는 `serviceImports()`에 `OperationVerification.IMPORT`를 선언하고 자신에게 연결된 `OperationGuard`를 주입합니다. 기존 신원을 사용하는 업무 API에서는 신원, 권한, CSRF, 요청 제한과 입력을 확인한 뒤 `execute(operationId, subject, context, token, proofs, action)`을 호출합니다. 작업 ID는 해당 owner 소속이어야 하며 일반 업무의 subject는 신뢰할 수 있는 신원 확인 결과에서 가져옵니다. 로그인 준비는 형식 검사를 마친 사용자 이름을 사용하지만 인증된 신원으로 취급하지 않습니다. 모든 필수 정책을 통과한 경우에만 owner 내부에서 action을 한 번 실행합니다. 리스는 업무가 실제로 끝날 때까지 유지됩니다. 능력 부재, 시간 초과, 세대 변경은 거부되며 업무 실패를 자동 재시도하지 않습니다. 보조 콜백용 `ServiceBindingScope.guard()`를 사용자 명령에 사용하지 마세요.
 
-검증 UI가 필요하면 일반 `login.verification` UiSlot에 모듈을 기여하고 정적 모듈의 공개 경로를 선언합니다. 호스트는 `/api/web/login-verification-slots`에서 이 대상만 공개합니다. 속성은 `{verificationToken, challenges}`, `proof` 이벤트 값은 `{verificationToken, policyId, proof}`입니다. 사용자가 로그인을 다시 눌러 제출합니다. 자격 증명을 편집하면 proof를 지웁니다. 타입은 SDK JAR의 `META-INF/pixivdownload/web/login-verification.d.ts`에 있습니다. 화면 표시는 백엔드 검증을 대신하지 않으며 설치만으로 필수 정책이 켜지지 않습니다.
+준비 엔드포인트는 `OperationGuard.prepare(operationId, subject, context)`를 호출하고 업무를 실행하지 않습니다. 제출은 계속 `execute`로 재검증합니다. 브라우저 `createOperationTarget`의 세 번째 인수는 취소 신호를 받는 폼 소유자의 준비 콜백입니다. `ready()`가 true일 때만 `request()`로 제출 데이터를 얻을 수 있습니다. 준비와 제출은 같은 주체와 컨텍스트에 연결해야 합니다. 입력 변경 시 `reset()`, 인증 무효화 시 `invalidate(id)`로 준비를 취소하고 증명을 지웁니다. 업무는 자동 재전송하지 않습니다. 사용법은 [페이지 편집기](page-editor.md)를 참고하세요.
+
+페이지 owner는 `EditablePage.targets`에 `PageInteraction.Target`을 선언하고 `PageComponent` 참여 선언에서 정책과 프로토콜을 지정합니다. 호환 대상이 하나면 자동 연결하고, 여러 개면 선택해야 합니다. 대상이 없으면 초안만 저장할 수 있습니다. 컴포넌트는 먼저 `context.interaction.prepare()`를 호출한 후 `context.interaction.onState()`로 자신의 챌린지를 받고 `respond(id, proof)`로 응답합니다. 상태가 지워지거나 인스턴스가 삭제되면 Worker, 요청, 리스너를 종료해야 합니다. 폼 owner는 `/js/pixiv-pages.mjs`의 `createOperationTarget`을 사용하고 페이지 마운트에 대상을 전달합니다. SDK 타입은 `page-interaction.d.ts`, `operation-verification.d.ts`, `page-components.d.mts`에 있습니다. 일반 `PagePort` 연결은 DAG를 유지합니다.
+
+로그인 제출은 요청 제한, 검증, 비밀번호 확인, 세션 생성 순서입니다. `setup.login-verification-policies`는 최대 16개의 정적 필수 정책을 지정합니다. 빈 값은 정적 요구만 지우며 페이지 게시는 설정된 정적 요구를 제거할 수 없습니다. `POST /api/auth/login/prepare`는 사용자 이름과 rememberMe만 보내며 로그인 요청 제한을 공유합니다. 준비가 성공하면 200과 `token`, `revision`, 정책별 `challenges`를 반환합니다. 모든 증명을 얻은 후 로그인 요청에 `operationToken`, `operationProofs`와 자격 증명을 보냅니다. 증명 없이 직접 제출하면 409 챌린지를 반환합니다. 거부는 403, 필수 능력 이용 불가는 503, 오래된 챌린지는 409이며 실패 시 Cookie를 생성하지 않습니다. 챌린지는 주체, 작업, 컨텍스트, 규칙, 자격 증명, provider 및 공식 리비전에 고정되고 5분 뒤 만료되며 한 번만 소비됩니다. 챌린지/proof는 각 UTF-8 16 KiB, 합계 64 KiB, 대기 중 최대 256개입니다.
+
+고정 `login.verification` UiSlot도 같은 참여 프로토콜을 선언하고 인스턴스 전용 상호작용 채널을 받습니다. 클라이언트의 성공 이벤트는 권한을 부여하지 않습니다. `PagePublications`가 페이지, 연결, 작업 요구, 리소스 승인을 하나의 리비전으로 보관합니다. 사전 검사는 외부 업체를 호출하지 않으며 커밋 때 재검증하고 영향받는 작업의 종료를 기다립니다. 리소스 출처는 관리자의 명시적 승인이 필요합니다. 연결되지 않은 페이지나 사용자 컴포넌트 샌드박스에는 권한이 상속되지 않습니다. [페이지 편집기](page-editor.md)와 Turnstile, ALTCHA SHA-256, PBKDF2를 포함한 [독립 CAPTCHA 예제](https://github.com/Sywyar/PixivDownloader/tree/master/examples/captcha-plugin)를 참고하세요.
 
 ## 일반 슬롯과 페이지 구성 요소
 

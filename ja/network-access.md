@@ -6,6 +6,10 @@
 
 ?> 管理者が設定するカスタム URL は事前に列挙できません。AI、TTS、プッシュ、メール、Douyin は対応機能を設定して実際に呼び出したときだけ外部アクセスします。`notification` は有効化・起動後に公告インデックスを定期確認する例外です。
 
+## 公式 CAPTCHA プラグインの実行時アクセス
+
+任意の公式プラグイン `captcha` は既定ではインストールされません。管理者が Turnstile を設定してフォームへの関連付けを公開すると、チャレンジ時にブラウザーが `https://challenges.cloudflare.com/turnstile/v0/api.js` と同じオリジンの iframe を読み込みます。サイトキー、操作、試行 ID と、サービスのプロトコルが使用するブラウザーのネットワーク情報を送ります。応答の検証時のみ、プラグインが同じオリジンの `/turnstile/v0/siteverify` にシークレットキーと票を POST します。ログインパスワード、Cookie、業務リクエスト全体は送りません。ブラウザーは自身のネットワーク設定、サーバーはアプリのプロキシを継承する受管 HTTP を使い、リダイレクトと Cookie を無効にします。関連付けを削除して公開すると、そのページのオンライン検証を停止できます。プラグイン停止時は保護対象操作を拒否します。ALTCHA SHA-256/PBKDF2 Worker は同梱され、現在のインスタンス以外へ接続しません。
+
 ## ネットワークアクセスの概要
 
 - 更新確認を有効にすると、起動準備後に GitHub Releases を確認します。頻度はキャッシュ間隔で制限されます。
@@ -180,6 +184,8 @@ GUI は記述子のプレビュー時と確認時に通信します。新しい�
 - SMTP は Mail 固有の設定と任意の SOCKS プロキシを使う
 
 ## 開発、ビルド、リリース時
+
+公式モジュール `pixivdownload-plugin-captcha` または独立 SDK 工程 `examples/captcha-plugin` のビルドでは Maven の設定済みリポジトリ、ミラー、プロキシから `org.altcha:altcha`、`org.json:json` とビルド依存を取得します。リソース生成は `npm ci` を実行し、ロックファイルに従って `altcha` と推移依存を取得し、現在の取得先は `registry.npmmirror.com` です。要求にはパッケージ座標と設定済みのパッケージ管理認証を使い、プロジェクトの認証情報はアップロードしません。公式 Worker とライセンスをプラグインに同梱します。`page-editor-acceptance.mjs` の CAPTCHA 検証を明示実行した場合は公開テストキーで Cloudflare の公式テストコンポーネントと Siteverify に接続します。通常起動では実行しません。ビルドや検証の中止で以後の接続を止められ、検証済みローカルキャッシュでダウンロードを減らせます。
 
 インストール済みアプリの通常ランタイムとは別に、Git / リリーススクリプトは GitHub API と Releases、GitHub Actions は CI / Artifact / Release、Maven は `https://repo.maven.apache.org/maven2`、npm は現在のロックファイルのレジストリ、Docker は設定済み OCI レジストリと Debian パッケージ源、Windows CI は Chocolatey 源へ接続します。ミラー、プロキシ、パッケージマネージャー設定により最終先は変わるため、ソースだけから完全な固定ドメイン一覧は作れません。
 
