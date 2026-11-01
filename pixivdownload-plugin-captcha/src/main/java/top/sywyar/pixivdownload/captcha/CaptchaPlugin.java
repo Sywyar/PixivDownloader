@@ -22,6 +22,8 @@ import top.sywyar.pixivdownload.plugin.api.web.*;
 import top.sywyar.pixivdownload.plugin.api.web.page.*;
 
 public final class CaptchaPlugin extends Plugin implements PixivPluginProvider {
+    private static final List<GuiConfigContribution> GUI_CONFIG = createGuiConfigContributions();
+
     public CaptchaPlugin(PluginWrapper wrapper) { super(wrapper); }
     public PixivFeaturePlugin featurePlugin() {
         return new PixivFeaturePlugin() {
@@ -30,10 +32,11 @@ public final class CaptchaPlugin extends Plugin implements PixivPluginProvider {
             public String description() { return "plugin.summary"; }
             public PluginKind kind() { return PluginKind.FEATURE; }
             public List<String> credentialKeys() {
-                return List.of("captcha.altcha-secret", "captcha.turnstile-secret");
+                return List.of("captcha.altcha-secret", "captcha.turnstile-secret", "captcha.recaptcha-secret");
             }
             public List<WebRouteContribution> routes() {
-                return List.of(WebRouteContribution.publicRoute("/captcha/**"));
+                return List.of(WebRouteContribution.publicRoute("/captcha/**"),
+                        new WebRouteContribution("/api/captcha/images/**", AccessPolicy.PUBLIC, java.util.Set.of(HttpMethod.GET), false));
             }
             public List<StaticResourceContribution> staticResources() {
                 return List.of(new StaticResourceContribution("classpath:/web/", "/captcha/"));
@@ -42,13 +45,7 @@ public final class CaptchaPlugin extends Plugin implements PixivPluginProvider {
                 return List.of(new I18nContribution("captcha", "i18n.web.captcha"));
             }
             public List<GuiConfigContribution> guiConfigContributions() {
-                return List.of(new GuiConfigContribution(
-                        List.of(new GuiConfigGroupContribution("captcha", "plugin.name", "captcha", 500, true)),
-                        List.of(field("altcha-secret", GuiConfigFieldType.PASSWORD, 0),
-                                field("turnstile-sitekey", GuiConfigFieldType.STRING, 1),
-                                field("turnstile-secret", GuiConfigFieldType.PASSWORD, 2),
-                                field("turnstile-hostname", GuiConfigFieldType.STRING, 3),
-                                field("turnstile-test-mode", GuiConfigFieldType.BOOL, 4))));
+                return GUI_CONFIG;
             }
         };
     }
@@ -74,6 +71,13 @@ public final class CaptchaPlugin extends Plugin implements PixivPluginProvider {
         @Bean OperationVerification turnstile(PluginCredentials credentials, Environment environment, OutboundHttpClient captchaHttp) {
             return new TurnstileVerification(credentials, environment, captchaHttp, diagnostics);
         }
+        @Bean OperationVerification recaptcha(PluginCredentials credentials, Environment environment, OutboundHttpClient captchaHttp) {
+            return new RecaptchaVerification(credentials, environment, captchaHttp, diagnostics);
+        }
+        @Bean(destroyMethod = "close") ImageChallengeStore imageChallenges() { return new ImageChallengeStore(); }
+        @Bean CaptchaImageController captchaImages(ImageChallengeStore store) { return new CaptchaImageController(store); }
+        @Bean OperationVerification textCaptcha(ImageChallengeStore store) { return new ImageVerification(store, false, diagnostics); }
+        @Bean OperationVerification sliderCaptcha(ImageChallengeStore store) { return new ImageVerification(store, true, diagnostics); }
         @Bean PageContribution captchaPages() {
             return new PageContribution() {
                 public void validate(String type, String configuration) {
@@ -81,7 +85,8 @@ public final class CaptchaPlugin extends Plugin implements PixivPluginProvider {
                         throw new IllegalArgumentException("PAGE_COMPONENT_UNAVAILABLE");
                 }
                 public List<PageComponent> components() {
-                    return List.of(component("altcha"), component("turnstile"), component("altcha-pbkdf2"));
+                    return List.of(component("altcha"), component("turnstile"), component("altcha-pbkdf2"),
+                            component("text"), component("slider"), component("recaptcha"));
                 }
                 public List<PageComponentCategory> componentCategories() {
                     return List.of(new PageComponentCategory("captcha:verification", "category", "captcha", "category.help",
@@ -90,9 +95,59 @@ public final class CaptchaPlugin extends Plugin implements PixivPluginProvider {
             };
         }
     }
+    private static List<GuiConfigContribution> createGuiConfigContributions() {
+        var fields = List.of(
+                field("altcha-secret", GuiConfigFieldType.PASSWORD, 0),
+                field("turnstile-sitekey", GuiConfigFieldType.STRING, 1),
+                field("turnstile-secret", GuiConfigFieldType.PASSWORD, 2),
+                field("turnstile-hostname", GuiConfigFieldType.STRING, 3),
+                field("turnstile-test-mode", GuiConfigFieldType.BOOL, 4),
+                field("recaptcha-sitekey", GuiConfigFieldType.STRING, 5),
+                field("recaptcha-secret", GuiConfigFieldType.PASSWORD, 6),
+                field("recaptcha-hostname", GuiConfigFieldType.STRING, 7),
+                field("recaptcha-test-mode", GuiConfigFieldType.BOOL, 8)
+        );
+        var layouts = fields.stream().map(field -> {
+            String provider = field.key().substring("captcha.".length(), field.key().indexOf('-'));
+            return new GuiConfigFieldLayoutContribution(
+                    field.key(),
+                    provider,
+                    "settings." + provider,
+                    "captcha",
+                    field.order()
+            );
+        }).toList();
+        var section = new GuiConfigSectionContribution(
+                "captcha.providers",
+                "captcha",
+                "",
+                "",
+                "captcha",
+                "settings.component",
+                "settings.component.help",
+                "",
+                "",
+                List.of(),
+                GuiConfigSectionLayout.CARD_SWITCHER,
+                0,
+                layouts,
+                List.of(),
+                List.of()
+        );
+        return List.of(new GuiConfigContribution(
+                List.of(new GuiConfigGroupContribution("captcha", "plugin.name", "captcha", 500, true)),
+                fields,
+                List.of(section)
+        ));
+    }
     private static PageComponent component(String method) {
+        String module = switch (method) {
+            case "altcha", "altcha-pbkdf2" -> "altcha";
+            case "text", "slider" -> "image";
+            default -> method;
+        };
         return new PageComponent("captcha:" + method, 1, method, "captcha",
-                "/captcha/" + (method.startsWith("altcha") ? "altcha" : method) + ".mjs", "", "{\"type\":\"object\",\"additionalProperties\":false}", "{}",
+                "/captcha/" + module + ".mjs", "", "{\"type\":\"object\",\"additionalProperties\":false}", "{}",
                 true, List.of(), List.of(), new PageInteraction.Participant("captcha-" + method, OperationVerification.INTERACTION));
     }
     private static GuiConfigFieldContribution field(String name, GuiConfigFieldType type, int order) {

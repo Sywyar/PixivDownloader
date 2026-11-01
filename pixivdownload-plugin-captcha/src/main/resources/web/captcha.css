@@ -53,7 +53,7 @@
 .captcha-control[data-state="ready"] .captcha-button { border-color: var(--brand, Highlight); }
 .captcha-status { margin: .5rem 0 0; font-size: .875em; overflow-wrap: anywhere; }
 .captcha-control[data-state="failed"] .captcha-status { color: var(--danger, CanvasText); }
-.captcha-status:empty, .captcha-provider:empty, .captcha-button[hidden] { display: none; }
+.captcha-status:empty, .captcha-provider:empty, .captcha-provider[hidden], .captcha-button[hidden] { display: none; }
 .captcha-status--quiet:not(:empty) {
     position: absolute;
     width: 1px;
@@ -64,6 +64,27 @@
     clip-path: inset(50%);
     white-space: nowrap;
 }
+.captcha-provider:has(.captcha-picture) { display: grid; gap: .75rem; margin-block-end: .75rem; max-width: 22.5rem; }
+.captcha-picture { min-width: 0; }
+.captcha-picture img, .captcha-picture canvas { display: block; max-width: 100%; height: auto; border-radius: .375rem; }
+.captcha-picture--slider canvas { width: 100%; }
+.captcha-answer { display: grid; gap: .375rem; min-width: 0; font-size: .9375em; }
+.captcha-input {
+    box-sizing: border-box;
+    width: 12ch;
+    max-width: 100%;
+    min-height: var(--layout-control-height, 2.75rem);
+    padding: .5rem .75rem;
+    border: 1px solid var(--line, ButtonBorder);
+    border-radius: .375rem;
+    color: inherit;
+    background: var(--control-bg, Canvas);
+    font: inherit;
+    letter-spacing: .15em;
+}
+.captcha-range { width: 100%; min-height: 2.75rem; margin: 0; accent-color: var(--brand, Highlight); cursor: ew-resize; }
+.captcha-input:focus-visible, .captcha-range:focus-visible { outline: 2px solid var(--brand, Highlight); outline-offset: 3px; }
+.captcha-refresh { justify-self: start; font-size: .875em; }
 @keyframes captcha-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
     .captcha-control[data-state="working"] .captcha-icon { animation: none; }

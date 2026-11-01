@@ -22,12 +22,12 @@ export function createWidget(root, context) {
     status.setAttribute('role', 'status');
     control.append(button, container, status);
     root.append(stylesheet, control);
-    function show(state, message = '') {
+    function show(state, message = '', action = '') {
         control.dataset.state = state;
         button.disabled = state === 'working' || state === 'ready' || context.mode !== 'display' || !context.interaction;
         button.setAttribute('aria-busy', String(state === 'working'));
-        label.textContent = context.t(state === 'working' || state === 'ready' ? state : 'verify');
-        status.textContent = message ? context.t(message) : state === 'working' || state === 'ready' ? context.t(state) : '';
+        label.textContent = context.t(action || (state === 'working' || state === 'ready' ? state : 'verify'));
+        status.textContent = message ? context.t(message) : state === 'working' || state === 'ready' ? label.textContent : '';
         status.classList.toggle('captcha-status--quiet', !message);
     }
     show('idle');

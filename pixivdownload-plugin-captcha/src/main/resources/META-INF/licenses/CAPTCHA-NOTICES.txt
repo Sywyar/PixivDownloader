@@ -1,0 +1,10 @@
+Hutool CAPTCHA and Core
+Source: https://github.com/chinabugotech/hutool/tree/5.8.48
+License: Mulan Permissive Software License, Version 2
+See HUTOOL-LICENSE.txt.
+
+Tianai CAPTCHA
+Source: https://github.com/dromara/tianai-captcha/tree/1.5.6
+The source tag includes the Apache License, Version 2.0 (TIANAI-LICENSE.txt).
+The published Maven POM declares MulanPSL2 (HUTOOL-LICENSE.txt).
+Both license texts are included; upstream JARs and embedded notices are unmodified.

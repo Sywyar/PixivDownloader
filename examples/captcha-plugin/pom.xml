@@ -12,8 +12,13 @@
   <dependencies>
     <dependency><groupId>io.github.sywyar.pixivdownloader</groupId><artifactId>pixivdownload-sdk</artifactId><version>${pixivdownload.sdk.version}</version><scope>provided</scope></dependency>
     <dependency><groupId>org.altcha</groupId><artifactId>altcha</artifactId><version>2.1.1</version></dependency>
+    <dependency><groupId>cn.hutool</groupId><artifactId>hutool-captcha</artifactId><version>5.8.48</version></dependency>
+    <dependency><groupId>cloud.tianai.captcha</groupId><artifactId>tianai-captcha</artifactId><version>1.5.6</version>
+      <exclusions><exclusion><groupId>org.slf4j</groupId><artifactId>slf4j-api</artifactId></exclusion></exclusions>
+    </dependency>
     <dependency><groupId>org.json</groupId><artifactId>json</artifactId><version>20240303</version></dependency>
     <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.12.2</version><scope>test</scope></dependency>
+    <dependency><groupId>ch.qos.logback</groupId><artifactId>logback-classic</artifactId><version>1.5.20</version><scope>test</scope></dependency>
   </dependencies>
   <build>
     <sourceDirectory>${captcha.source}/src/main/java</sourceDirectory>

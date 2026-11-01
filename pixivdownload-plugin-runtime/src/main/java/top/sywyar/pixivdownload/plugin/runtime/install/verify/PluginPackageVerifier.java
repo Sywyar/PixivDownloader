@@ -157,7 +157,9 @@ public final class PluginPackageVerifier {
                 if (nestedKind != null) {
                     scanArchive(measuredInput, limits, budget, nestedKind, nestedLabel);
                 } else if (entryName.equalsIgnoreCase("META-INF/INDEX.LIST")) {
-                    budget.implicitClassPaths.add(archiveLabel);
+                    if (archiveKind != NestedArchiveKind.PRIVATE_LIBRARY
+                            || !selfContainedIndex(measuredInput.readNBytes(64 * 1024 + 1), archiveLabel))
+                        budget.implicitClassPaths.add(archiveLabel);
                 } else if (entryName.equalsIgnoreCase("META-INF/MANIFEST.MF")) {
                     // 无法完整证明的清单只禁止加入共享契约类空间，不改变旧独立插件的准入。
                     byte[] manifest = measuredInput.readNBytes(64 * 1024 + 1);
@@ -181,6 +183,24 @@ public final class PluginPackageVerifier {
                 zis.closeEntry();
             }
         }
+    }
+
+    private static boolean selfContainedIndex(byte[] bytes, String archive) {
+        if (archive.isEmpty() || bytes.length > 64 * 1024) return false;
+        String name = archive.substring(archive.lastIndexOf('/') + 1);
+        if (!name.matches("[A-Za-z0-9_$-][A-Za-z0-9_$.-]*\\.jar")) return false;
+        String[] lines = new String(bytes, java.nio.charset.StandardCharsets.UTF_8).split("\\r?\\n", -1);
+        if (lines.length < 4 || !lines[0].equals("JarIndex-Version: 1.0")
+                || !lines[1].isEmpty() || !lines[2].equals(name)) return false;
+        // JDK 将任意以 .jar 结尾的行视为新的归档；只接受一个明确指向自身的段。
+        boolean ended = false;
+        for (int i = 3; i < lines.length; i++) {
+            String line = lines[i];
+            if (line.isEmpty()) { ended = true; continue; }
+            if (ended || line.endsWith(".jar") || line.startsWith("/") || line.contains("..")
+                    || !line.matches("[A-Za-z0-9_$./-]+")) return false;
+        }
+        return true;
     }
 
     private static void requireNoHostControlledClass(String entryName) {

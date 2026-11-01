@@ -82,6 +82,38 @@ class PluginContractClassSpaceTest {
     }
 
     @Test
+    @DisplayName("私有库自引用索引可与契约共存，外部、畸形与超限索引仍拒绝")
+    void selfContainedIndexDoesNotExtendClasspath() throws Exception {
+        var contract = inspect(contract(Map.of("sample/contract/Api.class", new byte[]{1}), Map.of(), null));
+        String safe = "JarIndex-Version: 1.0\r\n\r\nprivate.jar\r\nMETA-INF\r\nsample/privateapi\r\n\r\n";
+        for (String index : java.util.List.of(safe,
+                safe + "hidden.jar\nother/package\n", safe.replace("private.jar", "../private.jar"),
+                safe.replace("private.jar", "https://example.test/private.jar"),
+                safe.replace("sample/privateapi", "hidden.jar\nother/package"),
+                safe.replace("META-INF", "invalid\u0000"), safe.stripTrailing() + "\n"
+                        + java.util.stream.IntStream.range(0, 2000).mapToObj(i -> java.util.UUID.randomUUID().toString())
+                        .collect(java.util.stream.Collectors.joining("\n")))) {
+            Path other = directory.resolve("indexed.jar");
+            PluginPackageFixtures.writeZip(other, Map.of(
+                    "plugin.properties", PluginPackageFixtures.bytes(
+                            PluginPackageFixtures.pluginProperties("indexed", "3.2.1", null, "sample.Other")),
+                    "lib/private.jar", PluginPackageFixtures.zipBytes(Map.of(
+                            "sample/privateapi/Value.class", new byte[]{1},
+                            "META-INF/INDEX.LIST", PluginPackageFixtures.bytes(index)))));
+            var inspection = inspect(other);
+            if (index.equals(safe)) {
+                assertThat(inspection.classSpace().implicitClassPaths()).isEmpty();
+                PluginClassSpaceVerifier.requireCompatible(contract.classSpace(), contract.descriptor(),
+                        inspection.descriptor(), inspection.classSpace());
+            } else {
+                assertThat(inspection.classSpace().implicitClassPaths()).containsExactly("lib/private.jar");
+                assertThatThrownBy(() -> PluginClassSpaceVerifier.requireCompatible(contract.classSpace(), contract.descriptor(),
+                        inspection.descriptor(), inspection.classSpace())).isInstanceOf(PluginPackageException.class);
+            }
+        }
+    }
+
+    @Test
     @DisplayName("事务安装拒绝与已安装契约重复的包并返回结构化原因")
     void transactionRejectsSplitPackage() throws Exception {
         Path source = contract(Map.of("sample/contract/Api.class", new byte[]{1}), Map.of(), null);

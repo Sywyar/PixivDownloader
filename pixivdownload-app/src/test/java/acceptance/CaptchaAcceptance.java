@@ -17,7 +17,7 @@ import top.sywyar.pixivdownload.plugin.api.http.*;
 import top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginLifecycleCoordinator;
 import static acceptance.PageEditorAcceptance.*;
 
-/** 同一独立插件的真实本地 Worker 与官方测试服务，基础产物由既有入口冻结。 */
+/** 同一独立插件的本地计算、图片交互与官方在线测试服务，基础产物由既有入口冻结。 */
 final class CaptchaAcceptance {
     private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
     static void verify(ConfigurableApplicationContext context, String origin, String cookie, Path fixed) throws Exception {
@@ -30,11 +30,15 @@ final class CaptchaAcceptance {
             new PropertiesConfigFileEditor(RuntimeFiles.resolvePluginConfigPath("captcha", "properties")).writeAll(Map.of(
                     "captcha.turnstile-sitekey", "1x00000000000000000000AA",
                     "captcha.turnstile-hostname", "example.com",
-                    "captcha.turnstile-test-mode", "true"));
+                    "captcha.turnstile-test-mode", "true",
+                    "captcha.recaptcha-sitekey", "6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI",
+                    "captcha.recaptcha-test-mode", "true"));
             var coordinator = context.getBean(ExternalPluginLifecycleCoordinator.class);
             for (String owner : List.of("operation-form", "captcha")) {
                 Path artifact = fixed.resolve("fixture/" + owner + ".jar");
                 var pending = coordinator.installOrUpdate(artifact, false, origin(artifact, false, null));
+                check(pending.installResult().trustRequirement() != null,
+                        "plugin trust request " + owner + ": " + pending.installResult().outcome() + " " + pending.installResult().messages());
                 var active = coordinator.installOrUpdate(artifact, false,
                         origin(artifact, false, pending.installResult().trustRequirement().artifactSha256()));
                 check(active.activated(), "independent CAPTCHA/form plugin activated: " + owner);
@@ -76,11 +80,17 @@ final class CaptchaAcceptance {
                 browser(script, origin, cookie, "altcha", fixed);
                 browser(script, origin, cookie, "altcha-pbkdf2", fixed);
                 verifyRotation(origin, "captcha-altcha-pbkdf2", "captcha.altcha-secret", privateKey, sensitive);
-                check(denied.get() == baseline, "ALTCHA performs no third-party server request");
+                verifyImages(context, script, origin, cookie, fixed);
+                check(denied.get() == baseline, "offline schemes perform no third-party server request");
                 new PluginCredentialStore().update("captcha", Map.of("captcha.altcha-secret", "",
                         "captcha.turnstile-secret", "1x0000000000000000000000000000000AA"));
                 coordinator.stop("captcha"); coordinator.start("captcha");
                 proxy.setHost(host); proxy.setPort(port); proxy.setEnabled(enabled);
+                waitForLoginWindow();
+                new PluginCredentialStore().update("captcha", Map.of("captcha.recaptcha-secret", "6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe"));
+                browser(script, origin, cookie, "recaptcha", fixed);
+                verifyRotation(origin, "captcha-recaptcha", "captcha.recaptcha-secret",
+                        "6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe", sensitive);
                 waitForLoginWindow();
                 browser(script, origin, cookie, "turnstile", fixed);
                 verifyRotation(origin, "captcha-turnstile", "captcha.turnstile-secret",
@@ -180,10 +190,12 @@ final class CaptchaAcceptance {
             var child = context.getBean(top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager.class)
                     .contextFor("captcha").orElseThrow();
             var providers = child.getBeansOfType(top.sywyar.pixivdownload.plugin.api.security.OperationVerification.class);
-            check(child.isActive() && providers.size() == 3, "all CAPTCHA capabilities activate with independently configured credentials");
+            check(child.isActive() && providers.size() == 6, "all CAPTCHA capabilities activate with independently configured credentials");
             for (var provider : providers.values()) {
                 check(!provider.generation().isBlank() && provider.generation().equals(provider.generation()), "stable capability generation");
-                boolean configured = provider.policyId().startsWith("captcha-altcha") || mode.equals("turnstile");
+                boolean configured = provider.policyId().startsWith("captcha-altcha")
+                        || provider.policyId().equals("captcha-text") || provider.policyId().equals("captcha-slider")
+                        || provider.policyId().equals("captcha-turnstile") && mode.equals("turnstile");
                 if (!configured) {
                     boolean rejected = false;
                     try { provider.verify(new top.sywyar.pixivdownload.plugin.api.security.OperationVerificationRequest(
@@ -195,6 +207,43 @@ final class CaptchaAcceptance {
         }
         System.out.println("CAPTCHA_INDEPENDENT_CREDENTIAL_LIFECYCLE_PASSED");
         return privateKey;
+    }
+
+    private static void verifyImages(ConfigurableApplicationContext context, String script, String origin, String cookie, Path fixed) throws Exception {
+        var child = context.getBean(top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager.class)
+                .contextFor("captcha").orElseThrow();
+        Object store = child.getBean("imageChallenges");
+        var entries = store.getClass().getDeclaredField("entries"); entries.setAccessible(true);
+        var stopped = new java.util.concurrent.atomic.AtomicBoolean();
+        Path oracle = fixed.resolve("captcha-test-answers.json");
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        // 测试进程读取真实内存答案，不改挑战、签名或生产 HTTP；这里只验收提交流程，不测识图难度。
+        var writer = executor.submit(() -> {
+            while (!stopped.get()) {
+                var answers = new java.util.HashMap<String, String>();
+                synchronized (store) {
+                    for (var entry : ((Map<?, ?>) entries.get(store)).entrySet()) {
+                        var accessor = entry.getValue().getClass().getDeclaredMethod("images"); accessor.setAccessible(true);
+                        Object images = accessor.invoke(entry.getValue());
+                        var answer = images.getClass().getDeclaredMethod("answer"); answer.setAccessible(true);
+                        answers.put(entry.getKey().toString(), answer.invoke(images).toString());
+                    }
+                }
+                java.nio.file.Files.writeString(oracle, JSON.writeValueAsString(answers), StandardCharsets.UTF_8);
+                Thread.sleep(50);
+            }
+            return null;
+        });
+        try {
+            for (String method : List.of("text", "slider")) {
+                waitForLoginWindow();
+                browser(script, origin, cookie, method, fixed);
+            }
+        } finally {
+            stopped.set(true);
+            try { writer.get(10, java.util.concurrent.TimeUnit.SECONDS); }
+            finally { executor.shutdownNow(); java.nio.file.Files.deleteIfExists(oracle); }
+        }
     }
 
     private static void verifyRotation(String origin, String policy, String key, String original, List<String> sensitive) throws Exception {

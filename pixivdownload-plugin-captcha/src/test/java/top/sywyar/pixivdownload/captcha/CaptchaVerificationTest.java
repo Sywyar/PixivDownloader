@@ -52,20 +52,39 @@ class CaptchaVerificationTest {
     private OperationVerificationRequest request(boolean response, String proof) {
         return new OperationVerificationRequest("unknown:submit", "subject", "{}", "attempt-test", "revision", "", response, proof);
     }
-    @Test @DisplayName("各配置字段拥有独立且可解析的帮助文案")
+    @Test @DisplayName("验证码配置按方案下拉切换且保留独立字段和帮助文案")
     void configurationHelpBelongsToEachField(@org.junit.jupiter.api.io.TempDir java.nio.file.Path root) {
         var manager = new org.pf4j.DefaultPluginManager(root);
         var wrapper = new org.pf4j.PluginWrapper(manager, new org.pf4j.DefaultPluginDescriptor(), root, getClass().getClassLoader());
         var contribution = new CaptchaPlugin(wrapper).featurePlugin().guiConfigContributions().get(0);
         var fields = contribution.fields();
         assertEquals(Set.of("captcha.altcha-secret", "captcha.turnstile-sitekey", "captcha.turnstile-secret",
-                "captcha.turnstile-hostname", "captcha.turnstile-test-mode"),
+                "captcha.turnstile-hostname", "captcha.turnstile-test-mode", "captcha.recaptcha-sitekey",
+                "captcha.recaptcha-secret", "captcha.recaptcha-hostname", "captcha.recaptcha-test-mode"),
                 fields.stream().map(field -> field.key()).collect(java.util.stream.Collectors.toSet()));
         assertEquals(fields.size(), fields.stream().map(field -> field.helpKey()).distinct().count());
         for (var field : fields) {
             assertFalse(field.helpKey().isBlank());
             assertNotEquals(field.helpKey(), messages.get(field.helpKey()));
         }
+        assertEquals(1, contribution.sections().size());
+        var section = contribution.sections().get(0);
+        assertEquals(top.sywyar.pixivdownload.plugin.api.gui.GuiConfigSectionLayout.CARD_SWITCHER, section.layout());
+        assertNotEquals(section.layoutLabelKey(), messages.get(section.layoutLabelKey()));
+        assertNotEquals(section.layoutHelpKey(), messages.get(section.layoutHelpKey()));
+        var cards = section.fieldLayouts().stream().collect(java.util.stream.Collectors.groupingBy(
+                layout -> layout.cardId(),
+                java.util.stream.Collectors.mapping(layout -> layout.fieldKey(), java.util.stream.Collectors.toSet())));
+        assertEquals(Map.of(
+                "altcha", Set.of("captcha.altcha-secret"),
+                "turnstile", Set.of("captcha.turnstile-sitekey", "captcha.turnstile-secret", "captcha.turnstile-hostname", "captcha.turnstile-test-mode"),
+                "recaptcha", Set.of("captcha.recaptcha-sitekey", "captcha.recaptcha-secret", "captcha.recaptcha-hostname", "captcha.recaptcha-test-mode")
+        ), cards);
+        assertEquals(fields.size(), section.fieldLayouts().size());
+        section.fieldLayouts().forEach(layout -> assertNotEquals(layout.cardLabelKey(), messages.get(layout.cardLabelKey())));
+        assertEquals(Set.of("captcha.altcha-secret", "captcha.turnstile-secret", "captcha.recaptcha-secret"),
+                fields.stream().filter(field -> field.sensitive()).map(field -> field.key()).collect(java.util.stream.Collectors.toSet()));
+        assertTrue(section.presets().isEmpty(), "切换配置页不应套用预设或修改验证策略");
     }
     @Test @DisplayName("非英文系统下诊断记录原因、字段和关联身份而不泄露秘密")
     void diagnosticsIdentifyConfigurationAndRemoteFailures() {
