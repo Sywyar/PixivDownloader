@@ -90,6 +90,9 @@ shutil.copyfile(sources / "properties.mjs", manage / "properties.mjs")
 bundles = classes / "i18n/web"
 bundles.mkdir(parents=True)
 translations = [
+    ("badge", "清单徽标", "Checklist badge"), ("summary", "清单摘要", "Checklist summary"),
+    ("group.checks", "检查与状态", "Checks & status"), ("group.details", "清单详情", "Checklist details"),
+    ("group.help", "独立插件提供的分类说明。", "Category description from an independent plugin."),
     ("plugin.name", "示例清单", "Example checklist"), ("plugin.summary", "页面组件独立接入示例", "Independent page component example"),
     ("component", "清单", "Checklist"), ("verify", "校验清单", "Verify checklist"), ("failed", "校验失败", "Verification failed"),
     ("title", "清单标题", "Checklist title"), ("item", "条目", "Item"), ("checked", "已完成", "Checked"),

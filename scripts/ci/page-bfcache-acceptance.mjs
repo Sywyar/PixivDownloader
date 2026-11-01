@@ -8,10 +8,11 @@ const repo = new URL('../../', import.meta.url);
 const staticRoot = new URL('pixivdownload-app/src/main/resources/static/', repo);
 const proofModule = new URL('pixivdownload-app/src/test/resources/page-components/operation-proof.mjs', repo);
 const protocol = {stateSchema: '{"type":"string"}', responseSchema: '{"type":"string"}'};
-let revision, documents, projections, submissions, accepted, challenge;
+let revision, documents, projections, preparations, submissions, accepted, challenge;
 const slowPaths = {auth: '/api/auth/check', 'page-i18n': '/fixture-i18n/1', 'login-i18n': '/fixture-i18n/2'};
 let timing, delayFinished, delayed;
-const html = () => `<!doctype html><html lang="en"><head><meta charset="utf-8">
+const html = () => `<!doctype html>
+<html lang="en-US"><head><meta charset="utf-8">
 <meta name="pixiv-page-revision" content="${revision}"><title>Login fixture</title></head><body>
 <div id="native-page"><div data-page-region="form" id="loginCard">
 <input id="username" aria-label="Username"><input id="password" type="password" aria-label="Password">
@@ -21,7 +22,7 @@ const html = () => `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <div id="inviteCard" hidden><input id="inviteCodeInput"><button id="invite-btn" disabled>Redeem</button>
 <button id="backToLogin">Back</button><div id="invite-error"></div></div>
 <script src="/fixture.js"></script><script src="/js/pixiv-actions.js"></script>
-<script src="/login/login.js"></script><script>window.readOperation = () => loginOperation?.request();</script>
+<script src="/login/login.js"></script><script>window.readOperation = () => loginOperation?.ready() ? loginOperation.request() : null;</script>
 <script type="module" src="/login/login-page.mjs"></script></body></html>`;
 const fixture = `
 let dictionaries = 0;
@@ -57,6 +58,15 @@ const server = createServer(async (request, response) => {
         if (url.pathname === '/fixture.js') return send(200, 'text/javascript', fixture);
         if (url.pathname.startsWith('/fixture-i18n/')) return json(200, {});
         if (url.pathname === '/api/auth/check') return json(200, {valid: false});
+        if (url.pathname === '/api/auth/login/prepare') {
+            let body = '';
+            for await (const part of request) body += part;
+            const data = JSON.parse(body);
+            assert.deepEqual(Object.keys(data).sort(), ['rememberMe', 'username']);
+            preparations.push(data);
+            challenge = 'challenge-' + revision + '-' + preparations.length;
+            return json(200, {status: 'CHALLENGE', token: challenge, revision, challenges: {proof: revision}});
+        }
         if (url.pathname === '/api/auth/login') {
             let body = '';
             for await (const part of request) body += part;
@@ -105,7 +115,7 @@ try {
     for (timing of ['ready', 'auth', 'page-i18n', 'login-i18n'])
     for (const responseBeforeReturn of timing === 'ready' ? [false] : [false, true])
     for (const direction of ['back', 'forward']) for (const changed of [false, true]) {
-        revision = 'revision-a'; documents = []; projections = []; submissions = []; accepted = 0; challenge = '';
+        revision = 'revision-a'; documents = []; projections = []; preparations = []; submissions = []; accepted = 0; challenge = '';
         delayed = false; delayFinished = undefined;
         const context = await browser.newContext();
         const page = await context.newPage();
@@ -120,9 +130,8 @@ try {
         const prepareProof = async () => {
             await page.locator('#username').fill('fixture-user');
             await page.locator('#password').fill('fixture-password');
-            await page.locator('#login-btn').click();
-            await page.waitForFunction(() => !document.querySelector('[data-page-component="proof"] button').disabled);
             await proof.click();
+            await page.waitForFunction(() => window.readOperation() !== null);
             const state = await page.evaluate(() => window.readOperation());
             assert.deepEqual(state.proofs, {proof: 'fixture:' + revision});
             return state;
@@ -153,17 +162,18 @@ try {
             const restored = shows.filter(event => event.persisted);
             assert.equal(restored.length, 1, 'History navigation must use BFCache');
             assert.equal(restored[0].revision, 'revision-a');
-            if (timing !== 'page-i18n') assert.deepEqual(restored[0].operation, {token: '', proofs: {}}, 'Leaving must clear the old proof');
+            if (timing !== 'page-i18n') assert.equal(restored[0].operation, null, 'Leaving must clear the old proof');
             assert.deepEqual(documents, ['revision-a', revision], 'Restore must load exactly one fresh document');
             assert.deepEqual(projections.filter(item => item.method === 'GET').map(item => item.revision),
                 timing === 'ready' ? ['revision-a', revision] : [revision]);
-            assert.deepEqual(await page.evaluate(() => window.readOperation()), {token: '', proofs: {}});
-            assert.equal(await proof.isDisabled(), true, 'Old challenge must not resume');
+            assert.equal(await page.evaluate(() => window.readOperation()), null);
+            assert.equal(await proof.isDisabled(), false, 'A fresh verification must be available');
             const fresh = await prepareProof();
             if (old) assert.notEqual(fresh.token, old.token);
-            assert.deepEqual(submissions[old ? 1 : 0], {token: '', proofs: {}}, 'First restored submission must not replay the old proof');
+            assert.equal(submissions.length, 0, 'Verification must not submit credentials');
             await page.locator('#login-btn').click();
             await page.waitForURL(origin + '/redirect');
+            assert.deepEqual(submissions, [fresh], 'Only the fresh proof may be submitted');
             assert.equal(accepted, 1, 'Restored login must complete challenge and response');
             assert.deepEqual(errors, []);
             console.log(JSON.stringify({timing, responseBeforeReturn, direction, changed, persisted: true, documents, accepted, pageErrors: errors.length, result: 'PASS'}));

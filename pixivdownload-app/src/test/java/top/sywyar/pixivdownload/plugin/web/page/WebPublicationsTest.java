@@ -43,7 +43,7 @@ class WebPublicationsTest {
                         List.of(OperationVerification.INTERACTION), 1)));
         var otherPage = new EditablePage("form:other-page", page.labelKey(), page.namespace(), "/other.html", true,
                 page.regions(), "", "", List.of(), page.targets());
-        catalog.publish(new PageContributionRegistry.Entry(form.owner(), "form-token", List.of(), List.of(page, otherPage), null));
+        catalog.publish(new PageContributionRegistry.Entry(form.owner(), "form-token", List.of(), List.of(page, otherPage), List.of(), null));
         registry.publish(form);
         var provider = registry.allocatePreparation("proof", "proof", 1); registry.installPreparation(provider);
         registry.prepareService(provider, OperationVerificationCapabilityAdapter.key("neutral"), new OperationVerification() {
@@ -59,7 +59,7 @@ class WebPublicationsTest {
         var port = new PagePort("value", "test-text", "{\"type\":\"string\"}");
         var component = new PageComponent("proof:widget", 1, "widget", "proof", "/widget.mjs", "", schema, "{}", true,
                 List.of(port), List.of(port), new PageInteraction.Participant("neutral", OperationVerification.INTERACTION));
-        catalog.publish(new PageContributionRegistry.Entry(provider.owner(), "proof-token", List.of(component), List.of(), null));
+        catalog.publish(new PageContributionRegistry.Entry(provider.owner(), "proof-token", List.of(component), List.of(), List.of(), null));
         registry.publish(provider);
         var publications = new WebPublications(store, catalog, registry, admissions, required);
         var gate = new OperationVerificationGate(registry, OperationRequirement.collect(required), Clock.systemUTC(), store, catalog, admissions);
@@ -87,7 +87,7 @@ class WebPublicationsTest {
         var changed = new PageComponent(component.type(), component.version(), component.labelKey(), component.namespace(),
                 "/replacement.mjs", component.propertiesModuleUrl(), component.schema(), component.defaults(), component.publicRenderable(),
                 component.inputs(), component.outputs(), component.participation());
-        catalog.publish(new PageContributionRegistry.Entry(owner, "replacement-token", List.of(changed), List.of(), null));
+        catalog.publish(new PageContributionRegistry.Entry(owner, "replacement-token", List.of(changed), List.of(), List.of(), null));
         assertThatThrownBy(() -> fixture.publications().render("form:page", fixture.store().snapshot())).hasMessage("PAGE_COMPONENT_UNAVAILABLE");
         assertThat(fixture.publications().read("form:page")).isPresent();
         var formOwner = catalog.owners(Set.of("form-token")).get(0);
@@ -95,7 +95,7 @@ class WebPublicationsTest {
         catalog.withdraw(formOwner);
         catalog.publish(new PageContributionRegistry.Entry(formOwner, "form-next", List.of(), List.of(new EditablePage(
                 page.id(), page.labelKey(), page.namespace(), page.path(), page.publicPage(), page.regions(), page.defaultProject(),
-                page.previewModuleUrl(), page.stylesheets(), List.of())), null));
+                page.previewModuleUrl(), page.stylesheets(), List.of())), List.of(), null));
         assertThatThrownBy(() -> fixture.publications().render("form:page", fixture.store().snapshot())).hasMessage("PAGE_OWNER_CHANGED");
         assertThat(fixture.publications().read("form:page")).isPresent();
         assertThat(fixture.guard().execute("form:submit", "user", "{}", "", Map.of(), actions::incrementAndGet).status()).isEqualTo(UNAVAILABLE);

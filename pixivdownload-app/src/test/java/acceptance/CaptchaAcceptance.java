@@ -21,31 +21,34 @@ import static acceptance.PageEditorAcceptance.*;
 final class CaptchaAcceptance {
     private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
     static void verify(ConfigurableApplicationContext context, String origin, String cookie, Path fixed) throws Exception {
-        String privateKey = java.util.UUID.randomUUID().toString() + java.util.UUID.randomUUID();
-        var sensitive = new java.util.ArrayList<>(List.of(privateKey, "Isolated-page-password-2026",
+        var sensitive = new java.util.ArrayList<>(List.of("Isolated-page-password-2026",
                 "XXXX.DUMMY.TOKEN.XXXX", "1x0000000000000000000000000000000AA"));
         var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
         var capture = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
         capture.start(); logger.addAppender(capture);
         try {
-            new PropertiesConfigFileEditor(RuntimeFiles.resolvePluginConfigPath("captcha-example", "properties")).writeAll(Map.of(
-                    "captcha-example.turnstile-sitekey", "1x00000000000000000000AA",
-                    "captcha-example.turnstile-hostname", "example.com",
-                    "captcha-example.turnstile-test-mode", "true"));
+            new PropertiesConfigFileEditor(RuntimeFiles.resolvePluginConfigPath("captcha", "properties")).writeAll(Map.of(
+                    "captcha.turnstile-sitekey", "1x00000000000000000000AA",
+                    "captcha.turnstile-hostname", "example.com",
+                    "captcha.turnstile-test-mode", "true"));
             var coordinator = context.getBean(ExternalPluginLifecycleCoordinator.class);
-            for (String owner : List.of("operation-form", "captcha-example")) {
+            for (String owner : List.of("operation-form", "captcha")) {
                 Path artifact = fixed.resolve("fixture/" + owner + ".jar");
                 var pending = coordinator.installOrUpdate(artifact, false, origin(artifact, false, null));
                 var active = coordinator.installOrUpdate(artifact, false,
                         origin(artifact, false, pending.installResult().trustRequirement().artifactSha256()));
                 check(active.activated(), "independent CAPTCHA/form plugin activated: " + owner);
             }
-            verifyIndependentCredentials(context, coordinator, privateKey);
+            String privateKey = verifyIndependentCredentials(context, coordinator);
+            sensitive.add(privateKey);
+            String envelope = java.nio.file.Files.readString(RuntimeFiles.resolvePluginCredentialPath("captcha"));
+            check(!envelope.contains(privateKey) && envelope.contains("pixivdownload-plugin-credentials-v1"),
+                    "automatically initialized key is persisted only in the encrypted owner store");
             context.getBean(top.sywyar.pixivdownload.config.RuntimeConfigReloadService.class).reloadHotConfig(
-                    List.of("captcha-example.turnstile-sitekey", "captcha-example.turnstile-hostname", "captcha-example.turnstile-test-mode"));
+                    List.of("captcha.turnstile-sitekey", "captcha.turnstile-hostname", "captcha.turnstile-test-mode"));
             var child = context.getBean(top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager.class)
-                    .contextFor("captcha-example").orElseThrow();
-            check("true".equals(child.getEnvironment().getProperty("captcha-example.turnstile-test-mode")),
+                    .contextFor("captcha").orElseThrow();
+            check("true".equals(child.getEnvironment().getProperty("captcha.turnstile-test-mode")),
                     "saved configuration is loaded through the production hot-reload path");
             String script = Path.of("pixivdownload-app/src/test/resources/page-components/captcha-browser.mjs").toAbsolutePath().toString();
             var proxy = context.getBean(ProxyConfig.class);
@@ -72,19 +75,19 @@ final class CaptchaAcceptance {
                 int baseline = denied.get();
                 browser(script, origin, cookie, "altcha", fixed);
                 browser(script, origin, cookie, "altcha-pbkdf2", fixed);
-                verifyRotation(origin, "captcha-altcha-pbkdf2", "captcha-example.altcha-secret", privateKey, sensitive);
+                verifyRotation(origin, "captcha-altcha-pbkdf2", "captcha.altcha-secret", privateKey, sensitive);
                 check(denied.get() == baseline, "ALTCHA performs no third-party server request");
-                new PluginCredentialStore().update("captcha-example", Map.of("captcha-example.altcha-secret", "",
-                        "captcha-example.turnstile-secret", "1x0000000000000000000000000000000AA"));
-                coordinator.stop("captcha-example"); coordinator.start("captcha-example");
+                new PluginCredentialStore().update("captcha", Map.of("captcha.altcha-secret", "",
+                        "captcha.turnstile-secret", "1x0000000000000000000000000000000AA"));
+                coordinator.stop("captcha"); coordinator.start("captcha");
                 proxy.setHost(host); proxy.setPort(port); proxy.setEnabled(enabled);
                 waitForLoginWindow();
                 browser(script, origin, cookie, "turnstile", fixed);
-                verifyRotation(origin, "captcha-turnstile", "captcha-example.turnstile-secret",
+                verifyRotation(origin, "captcha-turnstile", "captcha.turnstile-secret",
                         "1x0000000000000000000000000000000AA", sensitive);
                 waitForLoginWindow();
                 for (String secret : List.of("2x0000000000000000000000000000000AA", "3x0000000000000000000000000000000AA")) {
-                    new PluginCredentialStore().update("captcha-example", Map.of("captcha-example.turnstile-secret", secret));
+                    new PluginCredentialStore().update("captcha", Map.of("captcha.turnstile-secret", secret));
                     var login = JSON.createObjectNode().put("username", "acceptance").put("password", "Isolated-page-password-2026");
                     var challenge = request(origin, "/api/auth/login", login.toString(), null);
                     check(challenge.statusCode() == 409, "official rejection configuration issues a challenge");
@@ -98,12 +101,12 @@ final class CaptchaAcceptance {
                     check(request(origin, "/api/auth/login", login.toString(), null).statusCode() == 409,
                             "failed official proof is consumed and cannot be retried");
                 }
-                new PluginCredentialStore().update("captcha-example", Map.of("captcha-example.turnstile-secret", ""));
+                new PluginCredentialStore().update("captcha", Map.of("captcha.turnstile-secret", ""));
                 var login = JSON.createObjectNode().put("username", "acceptance").put("password", "Isolated-page-password-2026");
                 var missing = request(origin, "/api/auth/login", login.toString(), null);
                 check(missing.statusCode() == 503 && missing.headers().firstValue("Set-Cookie").isEmpty(),
                         "missing credentials cannot create a session");
-                new PluginCredentialStore().update("captcha-example", Map.of("captcha-example.turnstile-secret", "1x0000000000000000000000000000000AA"));
+                new PluginCredentialStore().update("captcha", Map.of("captcha.turnstile-secret", "1x0000000000000000000000000000000AA"));
                 var challenge = request(origin, "/api/auth/login", login.toString(), null);
                 check(challenge.statusCode() == 409, "direct login still requires the published CAPTCHA");
                 login.put("operationToken", JSON.readTree(challenge.body()).path("token").asText());
@@ -127,12 +130,12 @@ final class CaptchaAcceptance {
                         for (String secret : sensitive) check(!content.contains(secret), "formal snapshots omit sensitive data");
                     }
                 }
-                coordinator.stop("captcha-example");
+                coordinator.stop("captcha");
                 check(request(origin, "/api/auth/login", "{\"username\":\"acceptance\",\"password\":\"Isolated-page-password-2026\"}", null).statusCode() == 503,
                         "missing CAPTCHA cannot bypass login");
             } finally { proxy.setHost(host); proxy.setPort(port); proxy.setEnabled(enabled); }
             waitForLoginWindow();
-            coordinator.start("captcha-example");
+            coordinator.start("captcha");
             var publications = context.getBean(top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore.class);
             var committed = publications.snapshot();
             var database = context.getBean(javax.sql.DataSource.class);
@@ -161,21 +164,26 @@ final class CaptchaAcceptance {
         } finally { logger.detachAppender(capture); capture.stop(); }
     }
 
-    private static void verifyIndependentCredentials(ConfigurableApplicationContext context,
-            ExternalPluginLifecycleCoordinator coordinator, String privateKey) throws java.io.IOException {
+    private static String verifyIndependentCredentials(ConfigurableApplicationContext context,
+            ExternalPluginLifecycleCoordinator coordinator) throws java.io.IOException {
         var credentials = new PluginCredentialStore();
+        String privateKey = credentials.readAll("captcha").get("captcha.altcha-secret");
+        check(privateKey != null && java.util.HexFormat.of().parseHex(privateKey).length == 32,
+                "first activation generates a local signing key without manual configuration");
         for (String mode : List.of("neither", "turnstile", "altcha")) {
-            coordinator.stop("captcha-example");
-            credentials.update("captcha-example", Map.of("captcha-example.altcha-secret", mode.equals("altcha") ? privateKey : "",
-                    "captcha-example.turnstile-secret", mode.equals("turnstile") ? "1x0000000000000000000000000000000AA" : ""));
-            coordinator.start("captcha-example");
+            coordinator.stop("captcha");
+            credentials.update("captcha", Map.of("captcha.turnstile-secret",
+                    mode.equals("turnstile") ? "1x0000000000000000000000000000000AA" : ""));
+            coordinator.start("captcha");
+            check(privateKey.equals(credentials.readAll("captcha").get("captcha.altcha-secret")),
+                    "reactivation preserves the encrypted local signing key");
             var child = context.getBean(top.sywyar.pixivdownload.plugin.lifecycle.ExternalPluginContextManager.class)
-                    .contextFor("captcha-example").orElseThrow();
+                    .contextFor("captcha").orElseThrow();
             var providers = child.getBeansOfType(top.sywyar.pixivdownload.plugin.api.security.OperationVerification.class);
             check(child.isActive() && providers.size() == 3, "all CAPTCHA capabilities activate with independently configured credentials");
             for (var provider : providers.values()) {
                 check(!provider.generation().isBlank() && provider.generation().equals(provider.generation()), "stable capability generation");
-                boolean configured = provider.policyId().startsWith("captcha-altcha") ? mode.equals("altcha") : mode.equals("turnstile");
+                boolean configured = provider.policyId().startsWith("captcha-altcha") || mode.equals("turnstile");
                 if (!configured) {
                     boolean rejected = false;
                     try { provider.verify(new top.sywyar.pixivdownload.plugin.api.security.OperationVerificationRequest(
@@ -186,6 +194,7 @@ final class CaptchaAcceptance {
             }
         }
         System.out.println("CAPTCHA_INDEPENDENT_CREDENTIAL_LIFECYCLE_PASSED");
+        return privateKey;
     }
 
     private static void verifyRotation(String origin, String policy, String key, String original, List<String> sensitive) throws Exception {
@@ -198,14 +207,14 @@ final class CaptchaAcceptance {
         login.putObject("operationProofs").put(policy, "stale-proof");
         var credentials = new PluginCredentialStore();
         try {
-            credentials.update("captcha-example", Map.of(key, original + "-rotated"));
+            credentials.update("captcha", Map.of(key, original + "-rotated"));
             var stale = request(origin, "/api/auth/login", login.toString(), null);
             check(stale.statusCode() == 409 && stale.headers().firstValue("Set-Cookie").isEmpty(), "credential rotation rejects the old challenge");
-            credentials.update("captcha-example", Map.of(key, ""));
+            credentials.update("captcha", Map.of(key, ""));
             login.remove(List.of("operationToken", "operationProofs"));
             var missing = request(origin, "/api/auth/login", login.toString(), null);
             check(missing.statusCode() == 503 && missing.headers().firstValue("Set-Cookie").isEmpty(), "required unconfigured scheme cannot create a session");
-        } finally { credentials.update("captcha-example", Map.of(key, original)); }
+        } finally { credentials.update("captcha", Map.of(key, original)); }
         System.out.println("CAPTCHA_CREDENTIAL_ROTATION_AND_ABSENCE_PASSED " + policy);
     }
 

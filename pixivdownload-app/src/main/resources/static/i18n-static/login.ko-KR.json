@@ -27,6 +27,7 @@
     "page.title": "Pixiv 일괄 다운로더 — 로그인",
     "remember": "로그인 상태 유지 (30일)",
     "validation.credentials-required": "사용자 이름과 비밀번호를 입력하세요",
-    "validation.invite-required": "초대 코드를 입력하세요"
+    "validation.invite-required": "초대 코드를 입력하세요",
+    "validation.verification-required": "제출하기 전에 인증을 완료하세요."
   }
 }

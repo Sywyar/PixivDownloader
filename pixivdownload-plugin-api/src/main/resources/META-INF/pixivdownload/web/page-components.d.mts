@@ -1,5 +1,5 @@
 import type {PageInteraction} from './page-interaction.js';
-import type {OperationTarget} from './operation-verification.js';
+import type {OperationTarget, OperationPreparation} from './operation-verification.js';
 /** 页面组件只传递纯值；业务类型由组件自己的公开契约定义。 */
 export type PageMode = 'edit' | 'preview' | 'display';
 export interface PageComponentContext<Properties> {
@@ -23,7 +23,8 @@ export interface PageComponentContext<Properties> {
     change(properties: Properties): void;
 }
 export declare function createOperationTarget(operation: string,
-    onChange?: (state: {token: string; revision: string; challenges: Record<string, string>}) => void): OperationTarget;
+    onChange?: (state: {token: string; revision: string; challenges: Record<string, string>; ready: boolean; preparing: boolean}) => void,
+    prepareRequest?: (signal: AbortSignal) => Promise<OperationPreparation>): OperationTarget;
 /** 页面 owner 提供已声明区域和操作实例；正式修订变化时销毁旧实例并重新导航。 */
 export declare function attachPage(options: {
     pageId: string;

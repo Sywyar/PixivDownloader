@@ -36,7 +36,10 @@ public final class PageContributionAdapter implements ExternalRuntimeCapabilityA
                 preparation, PageContribution.class, "page components", provider::components));
         List<EditablePage> pages = provider == null ? List.of() : List.copyOf(invocations.captureMetadata(
                 preparation, PageContribution.class, "editable pages", provider::pages));
+        var categories = new ArrayList<PageComponentCategory>(provider == null ? List.of() : invocations.captureMetadata(
+                preparation, PageContribution.class, "component categories", provider::componentCategories));
         if (components.size() + pages.size() > 128) throw new IllegalArgumentException("PAGE_CATALOG_BUDGET");
+        if (categories.size() > components.size()) throw new IllegalArgumentException("PAGE_CATALOG_BUDGET");
         long bytes = 0;
         for (PageComponent c : components) {
             identity(c.type(), preparation.owner().pluginId()); path(c.moduleUrl());
@@ -84,9 +87,32 @@ public final class PageContributionAdapter implements ExternalRuntimeCapabilityA
             bytes += page.toString().getBytes(StandardCharsets.UTF_8).length;
             if (bytes > 1024 * 1024) throw new IllegalArgumentException("PAGE_CATALOG_BUDGET");
         }
+        var ungrouped = new LinkedHashSet<String>();
+        components.forEach(component -> ungrouped.add(component.type()));
+        var categoryIds = new HashSet<String>();
+        for (var category : categories) {
+            identity(category.id(), preparation.owner().pluginId());
+            if (!categoryIds.add(category.id()) || category.labelKey().isBlank() || category.namespace().isBlank()
+                    || category.descriptionKey() == null || category.components().isEmpty()
+                    || category.components().stream().anyMatch(type -> !ungrouped.remove(type)))
+                throw new IllegalArgumentException("PAGE_CATEGORY_INVALID");
+        }
+        if (!ungrouped.isEmpty()) {
+            var owner = preparation.owner();
+            var feature = plugins.registeredPlugins().stream().filter(plugin -> plugin.id().equals(owner.pluginId())
+                    && plugin.packageId().equals(owner.packageId()) && plugin.generation() == owner.pluginGeneration())
+                    .findFirst().orElseThrow(() -> new IllegalStateException("PAGE_OWNER_UNAVAILABLE")).plugin();
+            categories.add(invocations.captureMetadata(preparation, PageContribution.class, "component category name",
+                    () -> new PageComponentCategory(owner.pluginId(), Objects.toString(feature.displayName(), ""),
+                            Objects.toString(feature.displayNamespace(), ""), "", List.copyOf(ungrouped))));
+        }
+        for (var category : categories) {
+            bytes += category.toString().getBytes(StandardCharsets.UTF_8).length;
+            if (bytes > 1024 * 1024) throw new IllegalArgumentException("PAGE_CATALOG_BUDGET");
+        }
         PageContribution proxy = provider == null ? null : invocations.prepareProxy(preparation, PageContribution.class, provider);
         return new Prepared(preparation.owner(), new PageContributionRegistry.Entry(preparation.owner(), UUID.randomUUID().toString(),
-                components, pages, proxy));
+                components, pages, categories, proxy));
     }
     private static void identity(String id, String owner) {
         if (id == null || id.length() > 128 || !id.startsWith(owner + ":") || !id.matches("[a-z0-9-]+:[a-zA-Z0-9._-]+"))

@@ -1,6 +1,8 @@
 import {attachPage, createOperationTarget} from '/js/pixiv-pages.mjs';
 
-const operation = createOperationTarget('core:login');
+const operation = createOperationTarget('core:login', state => {
+    if (state.ready) showLoginErrorText('');
+}, prepareLoginVerification);
 const revision = document.querySelector('meta[name="pixiv-page-revision"]')?.content || 'unavailable';
 operation.configure(revision);
 let slots, i18n, closed = false;
@@ -45,4 +47,5 @@ else {
             if (available) await presentFixed();
         }
     });
+    if (!closed) setAuthButtonsDisabled(false);
 }

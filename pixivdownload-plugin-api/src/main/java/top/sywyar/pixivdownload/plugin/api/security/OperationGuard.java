@@ -34,7 +34,7 @@ public interface OperationGuard {
 
     /** 稳定结果由 HTTP 或其它调用方按自身传输协议投影。 */
     enum Status {
-        /** 动作已完成。 */ APPROVED,
+        /** 准备时无需交互证明，或执行时动作已完成。 */ APPROVED,
         /** 等待一次响应，动作未执行。 */ CHALLENGE,
         /** 验证拒绝。 */ REJECTED,
         /** 必要依赖或正式状态不可用。 */ UNAVAILABLE,
@@ -45,7 +45,7 @@ public interface OperationGuard {
     /**
      * 操作身份必须属于当前 owner；必要策略只取服务端正式状态。
      * @param operationId owner 命名空间中的稳定操作身份
-     * @param subject 业务 owner 已验证的主体绑定材料，不含密码或会话
+     * @param subject 业务 owner 校验格式后的主体绑定材料，不含密码或会话，不代表已认证
      * @param context owner 筛选后的必要上下文 JSON
      * @param token 首次请求为空，响应使用当前挑战 token
      * @param proofs provider 拥有的有限证明，不作为授权事实
@@ -56,4 +56,15 @@ public interface OperationGuard {
      */
     <T> Result<T> execute(String operationId, String subject, String context,
             String token, Map<String, String> proofs, Action<T> action) throws IOException;
+
+    /**
+     * 在业务提交前准备必要挑战，不接收或执行业务动作。缺席和换代仍按当前正式策略拒绝。
+     * APPROVED 只表示本次准备无需交互证明，正式执行仍须重新校验服务端策略。
+     * @param operationId 当前 owner 声明的操作身份
+     * @param subject 格式已校验的主体绑定材料，不代表已认证，不含密码或会话
+     * @param context owner 筛选后的必要上下文 JSON
+     * @return 准备结论、正式修订及按策略索引的挑战，业务值始终为空
+     * @throws IOException 准备流程失败
+     */
+    Result<Void> prepare(String operationId, String subject, String context) throws IOException;
 }

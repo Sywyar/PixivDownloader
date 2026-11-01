@@ -1,6 +1,20 @@
 {
   "_legacySdkVersions": ["1.0.0", "1.1.0"],
   "_comment": "插件市场专属策展源（运营者维护）。插件身份展示字段 displayNamespace/displayNameKey/descriptionKey/iconToken/colorToken/displayName/summary 由 source plugin.properties 的 pixiv.* 和 i18n bundle 派生；安装关键字段（version/packageUrl/sha256/size/requiredSdk）由 generate-market-manifest.ps1 从真实产物推导，requiredCoreApi 仅作旧客户端 wire alias 同值发布。键为 pluginId。",
+  "captcha": {
+    "defaultLocale": "zh-CN",
+    "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
+    "description": {"zh":"官方可选验证码插件，提供 Turnstile 在线验证、ALTCHA SHA-256 与 PBKDF2 离线验证组件。拖入兼容表单并发布后由后端强制验证。首次启用自动生成并加密保存离线签名密钥；Turnstile 须配置站点凭据。普通发行包不预装，离线全量包包含。","en":"Optional official CAPTCHA plugin with Turnstile online verification and ALTCHA SHA-256 and PBKDF2 offline components. Bind a compatible form and publish to enforce verification on the server. The local signing key is generated and encrypted on first activation; Turnstile requires site credentials. Standard distributions do not preinstall it; the full offline bundle includes it."},
+    "author": "Sywyar",
+    "sourceType": "official",
+    "category": "utility",
+    "tags": ["captcha", "verification", "form"],
+    "homepageUrl": "https://sywyar.github.io/PixivDownloader/#/zh-cn/page-editor",
+    "license": "AGPL-3.0-only",
+    "recommended": false,
+    "officialRequired": false,
+    "changeNotes": ["提供可绑定表单的在线与离线验证码"]
+  },
   "page-editor": {
     "defaultLocale": "zh-CN",
     "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},

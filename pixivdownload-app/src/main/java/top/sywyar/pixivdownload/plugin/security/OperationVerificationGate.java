@@ -91,6 +91,15 @@ public final class OperationVerificationGate implements PluginOperationGuardFact
 
         @Override public <T> Result<T> execute(String operation, String subject, String context,
                 String token, Map<String, String> input, Action<T> action) throws IOException {
+            return run(operation, subject, context, token, input, Objects.requireNonNull(action));
+        }
+
+        @Override public Result<Void> prepare(String operation, String subject, String context) throws IOException {
+            return run(operation, subject, context, "", Map.of(), null);
+        }
+
+        private <T> Result<T> run(String operation, String subject, String context,
+                String token, Map<String, String> input, Action<T> action) throws IOException {
             if (operation == null || operation.length() > 256 || !operation.startsWith(owner + ":")
                     || !operation.matches("[a-z0-9-]+:[a-zA-Z0-9._-]+")
                     || subject == null || subject.length() > 1024 || context == null || context.length() > 16384
@@ -98,12 +107,14 @@ public final class OperationVerificationGate implements PluginOperationGuardFact
                 return result(INVALID);
             long started = elapsedTime.getAsLong();
             String correlation = UUID.randomUUID().toString();
-            LOG.info(getForLog("operation.log.started", correlation, operation));
+            String previousCorrelation = org.slf4j.MDC.get("operationVerificationId");
+            org.slf4j.MDC.put("operationVerificationId", correlation);
+            LOG.info(getForLog("operation.log.started", correlation, operation, action == null ? "PREPARE" : "SUBMIT"));
             String outcome = "FAILED";
             try {
                 OperationAdmissions.Lease lease;
                 try { lease = admissions.enter(operation); }
-                catch (IllegalStateException closed) { outcome = "UNAVAILABLE"; return result(UNAVAILABLE); }
+                catch (IllegalStateException closed) { outcome = "UNAVAILABLE"; return unavailable(correlation, "ADMISSION_CLOSED"); }
                 try (lease) {
                     Result<T> result = admitted(operation, subject, context, token, input, action, started, correlation);
                     outcome = result.status().name();
@@ -112,6 +123,8 @@ public final class OperationVerificationGate implements PluginOperationGuardFact
             } finally {
                 LOG.info(getForLog("operation.log.finished", correlation, operation, outcome,
                         java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(elapsedTime.getAsLong() - started)));
+                if (previousCorrelation == null) org.slf4j.MDC.remove("operationVerificationId");
+                else org.slf4j.MDC.put("operationVerificationId", previousCorrelation);
             }
         }
 
@@ -119,19 +132,20 @@ public final class OperationVerificationGate implements PluginOperationGuardFact
                 String token, Map<String, String> input, Action<T> action, long started, String correlation) throws IOException {
             WebPublicationStore.Snapshot snapshot;
             try { snapshot = publications.snapshot(); }
-            catch (IllegalStateException unavailable) { return result(UNAVAILABLE); }
+            catch (IllegalStateException unavailable) { return unavailable(correlation, "PUBLICATION_UNAVAILABLE"); }
             var published = snapshot.requirements(operation);
             var declared = pages.pages().stream().flatMap(page -> page.definition().targets().stream())
                     .filter(target -> target.operation().equals(operation)).toList();
-            if (declared.isEmpty()) return result(UNAVAILABLE);
-            if (declared.stream().map(target -> target.contextSchema()).distinct().count() != 1) return result(UNAVAILABLE);
+            if (declared.isEmpty()) return unavailable(correlation, "TARGET_UNAVAILABLE");
+            if (declared.stream().map(target -> target.contextSchema()).distinct().count() != 1)
+                return unavailable(correlation, "TARGET_AMBIGUOUS");
             if (published.stream().anyMatch(expected -> !expected.contextSchema().equals(declared.get(0).contextSchema())))
-                return result(UNAVAILABLE);
+                return unavailable(correlation, "CONTEXT_SCHEMA_CHANGED");
             try { RemoteValues.validateConfiguration(declared.get(0).contextSchema(), context); }
             catch (IllegalArgumentException invalid) { return result(INVALID); }
             List<String> policies = java.util.stream.Stream.concat(requirements.getOrDefault(operation, List.of()).stream(),
                     published.stream().map(WebPublicationStore.Requirement::policy)).distinct().sorted().toList();
-            if (policies.size() > 16) return result(UNAVAILABLE);
+            if (policies.size() > 16) return unavailable(correlation, "POLICY_LIMIT");
             Map<String, String> proofs = validateProofs(input, policies);
             if (proofs == null) return result(INVALID);
             boolean response = token != null && !token.isBlank();
@@ -150,10 +164,11 @@ public final class OperationVerificationGate implements PluginOperationGuardFact
                     List<Identity> identities = new ArrayList<>();
                     for (var provider : providers) {
                         if (expired(started, correlation)) return result(UNAVAILABLE);
-                        if (!policies.get(identities.size()).equals(provider.service().policyId())) return result(UNAVAILABLE);
+                        if (!policies.get(identities.size()).equals(provider.service().policyId()))
+                            return unavailable(correlation, "POLICY_ID_MISMATCH");
                         OperationVerification.Policy policy = OperationPolicies.validate(provider.service().policy());
                         String generation = provider.service().generation();
-                        if (!validIdentity(generation)) return result(UNAVAILABLE);
+                        if (!validIdentity(generation)) return unavailable(correlation, "GENERATION_INVALID");
                         identities.add(new Identity(provider.publication(), policy, generation));
                     }
                     if (previous != null && !previous.identities().equals(identities)) return result(STALE);
@@ -163,14 +178,17 @@ public final class OperationVerificationGate implements PluginOperationGuardFact
                         for (var expected : published) if (expected.policy().equals(policy)
                                 && (!expected.provider().equals(actual.publication().pluginId())
                                 || !expected.packageId().equals(actual.publication().packageId())
-                                || !expected.plan().equals(actual.policy()))) return result(UNAVAILABLE);
+                                || !expected.plan().equals(actual.policy())))
+                            return unavailable(correlation, "PUBLISHED_POLICY_CHANGED policy=" + policy
+                                    + " provider=" + actual.publication().pluginId());
                         if (requirements.getOrDefault(operation, List.of()).contains(policy)) {
                             if (published.stream().anyMatch(expected -> expected.policy().equals(policy))) {
                                 configuredPlans.put(policy, actual.policy());
                                 continue;
                             }
                             var configured = configuredPlans.putIfAbsent(policy, actual.policy());
-                            if (configured != null && !configured.equals(actual.policy())) return result(UNAVAILABLE);
+                            if (configured != null && !configured.equals(actual.policy()))
+                                return unavailable(correlation, "CONFIGURED_POLICY_CHANGED policy=" + policy);
                         }
                     }
                     Map<String, String> challenges = new LinkedHashMap<>();
@@ -185,14 +203,14 @@ public final class OperationVerificationGate implements PluginOperationGuardFact
                                 identity.policy().revision(), identity.policy().protocol().id(),
                                 response, proofs.getOrDefault(policies.get(i), "")));
                         if (expired(started, correlation)) return result(UNAVAILABLE);
-                        if (decision == null || decision.status() == null) return result(UNAVAILABLE);
+                        if (decision == null || decision.status() == null) return unavailable(correlation, "PROVIDER_RESULT_INVALID");
                         if (decision.status() == OperationVerificationResult.Status.REJECTED) return result(REJECTED);
                         if (decision.status() == OperationVerificationResult.Status.CHALLENGE) {
                             String challenge = decision.challenge();
-                            if (challenge == null || challenge.length() > 16384) return result(UNAVAILABLE);
+                            if (challenge == null || challenge.length() > 16384) return unavailable(correlation, "CHALLENGE_INVALID");
                             int bytes = challenge.getBytes(StandardCharsets.UTF_8).length;
                             challengeBytes += bytes;
-                            if (bytes > 16384 || challengeBytes > 65536) return result(UNAVAILABLE);
+                            if (bytes > 16384 || challengeBytes > 65536) return unavailable(correlation, "CHALLENGE_LIMIT");
                             challenges.put(policies.get(i), challenge);
                         }
                     }
@@ -205,26 +223,30 @@ public final class OperationVerificationGate implements PluginOperationGuardFact
                     }
                     if (expired(started, correlation)) return result(UNAVAILABLE);
                     if (challenges.isEmpty()) {
+                        if (action == null) return new Result<>(APPROVED, null, "", snapshot.identity(), Map.of());
                         actionStarted[0] = true;
                         LOG.info(getForLog("operation.log.action", correlation, operation));
                         return new Result<>(APPROVED, action.run(), "", snapshot.identity(), Map.of());
                     }
                     if (response) return result(REJECTED);
                     if (!retain(attempt, new Pending(identity, operation, digest, policies, List.copyOf(identities),
-                            snapshot.identity(), clock.millis() + 300_000))) return result(UNAVAILABLE);
+                            snapshot.identity(), clock.millis() + 300_000))) return unavailable(correlation, "PENDING_CAPACITY");
                     return new Result<>(CHALLENGE, null, attempt, snapshot.identity(), challenges);
                 });
             } catch (ServiceAccessException unavailable) {
                 // 业务已开始后的异常属于业务 owner，不能伪装成可重试的验证失败。
                 if (actionStarted[0]) throw unavailable;
-                LOG.info(getForLog("operation.log.unavailable", correlation, unavailable.reason()));
-                return result(UNAVAILABLE);
+                return unavailable(correlation, unavailable.reason().name() + " policies=" + policies);
             } catch (IllegalArgumentException invalidPolicy) {
                 if (actionStarted[0]) throw invalidPolicy;
-                LOG.info(getForLog("operation.log.unavailable", correlation, "INVALID_POLICY"));
-                return result(UNAVAILABLE);
+                return unavailable(correlation, "INVALID_POLICY");
             }
         }
+    }
+
+    private static <T> OperationGuard.Result<T> unavailable(String correlation, String reason) {
+        LOG.warn(getForLog("operation.log.unavailable", correlation, reason));
+        return result(UNAVAILABLE);
     }
 
     private boolean expired(long started, String correlation) {

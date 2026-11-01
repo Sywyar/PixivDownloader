@@ -25,11 +25,11 @@ test('实例交互拒绝跨目标和迟到证明，重置及撤销真实释放�
     assert.throws(() => target.challenge({token: 'new', revision: 'old', challenges: {proof: 'question'}}), /PAGE_REVISION_CHANGED/);
     target.configure('r2');
     assert.equal(channel.respond('attempt', 'answer'), false);
-    assert.deepEqual(target.request(), {token: '', proofs: {}});
+    assert.throws(() => target.request(), /OPERATION_VERIFICATION_REQUIRED/);
     target.challenge({token: 'next', revision: 'r2', challenges: {proof: 'question'}});
     abort.abort();
     assert.equal(channel.respond('next', 'answer'), false);
-    assert.deepEqual(target.request(), {token: '', proofs: {}});
+    assert.throws(() => target.request(), /OPERATION_VERIFICATION_REQUIRED/);
     const replacement = target.connect(binding);
     target.destroy();
     assert.equal(replacement.respond('next', 'answer'), false);
@@ -44,7 +44,7 @@ test('交互证明保持实例隔离并限制累计数据', () => {
     second.challenge({token: 'b', revision: '', challenges: {proof: 'question'}});
     assert.equal(b.respond('a', 'answer'), false);
     assert.equal(a.respond('a', 'answer'), true);
-    assert.deepEqual(second.request().proofs, {});
+    assert.throws(() => second.request(), /OPERATION_VERIFICATION_REQUIRED/);
     assert.throws(() => first.challenge({token: 'large', revision: '', challenges: {proof: 'x'.repeat(16385)}}), /PAGE_INTERACTION_INVALID/);
     first.destroy(); second.destroy();
 });

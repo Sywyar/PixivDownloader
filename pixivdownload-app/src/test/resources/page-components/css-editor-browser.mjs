@@ -10,6 +10,7 @@ export async function checkCssEditor(page, work, zoom) {
     };
     const open = async () => {
         if (await page.locator('#style-toggle').getAttribute('aria-expanded') !== 'true') await page.locator('#style-toggle').click();
+        await page.waitForFunction(() => !document.getElementById('style-content').getAnimations().some(animation => animation.playState === 'running'));
         if (await page.locator('#edit-css').getAttribute('aria-expanded') !== 'true') await page.locator('#edit-css').click();
         await input.waitFor();
     };

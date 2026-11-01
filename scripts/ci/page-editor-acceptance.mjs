@@ -42,7 +42,7 @@ const host = path.join(destination, 'host'); fs.mkdirSync(host);
 run('jar', ['--extract', '--file', path.join(destination, 'host.jar')], host);
 run(process.platform === 'win32' ? 'python' : 'python3', [path.join(repo, 'pixivdownload-app/src/test/resources/page-components/build.py'),
     destination, createRequire(import.meta.url).resolve('typescript/bin/tsc')]);
-if (captcha) fs.copyFileSync(captcha, path.join(destination, 'fixture/captcha-example.jar'));
+if (captcha) fs.copyFileSync(captcha, path.join(destination, 'fixture/captcha.jar'));
 const classes = path.join(destination, 'acceptance-classes'); fs.mkdirSync(classes);
 const classpath = [host, path.join(host, 'BOOT-INF/classes'), path.join(host, 'BOOT-INF/lib/*')].join(path.delimiter);
 run('javac', ['-proc:none', '-encoding', 'UTF-8', '-cp', classpath, '-d', classes,

@@ -56,7 +56,7 @@ class ManagedOperationGuardTest {
                 name, "form:" + name, "form", schema, List.of(OperationVerification.INTERACTION), 1)).toList();
         var page = new EditablePage("form:page", "page", "form", "/form.html", true,
                 List.of(new PageRegion("form", "form", "", true, false)), "", "", List.of(), targets);
-        catalog.publish(new PageContributionRegistry.Entry(preparation.owner(), "form-token", List.of(), List.of(page), null));
+        catalog.publish(new PageContributionRegistry.Entry(preparation.owner(), "form-token", List.of(), List.of(page), List.of(), null));
         registry.publish(preparation);
         return services;
     }
@@ -92,12 +92,20 @@ class ManagedOperationGuardTest {
         var capture = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
         var locale = java.util.Locale.getDefault();
         capture.start(); logger.addAppender(capture);
+        String previousCorrelation = org.slf4j.MDC.get("operationVerificationId");
+        org.slf4j.MDC.put("operationVerificationId", "outer-operation");
         try {
             java.util.Locale.setDefault(java.util.Locale.JAPAN);
             var guard = gate.create(consumer(true));
-            var publication = provider(request -> approved());
+            var publication = provider(request -> {
+                String correlation = org.slf4j.MDC.get("operationVerificationId");
+                assertThat(correlation).isNotBlank().isNotEqualTo("outer-operation");
+                assertThat(correlation).isNotEqualTo(request.attemptId());
+                return approved();
+            });
             assertThat(guard.execute("form:submit", "private-subject", "{\"private-context\":true}", "", Map.of(), () -> "private-result").status())
                     .isEqualTo(APPROVED);
+            assertThat(org.slf4j.MDC.get("operationVerificationId")).isEqualTo("outer-operation");
             registry.withdraw(publication);
             assertThat(guard.execute("form:submit", "private-subject", "{}", "", Map.of(), () -> "unexpected").status()).isEqualTo(UNAVAILABLE);
             var messages = capture.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage).toList();
@@ -108,7 +116,12 @@ class ManagedOperationGuardTest {
             var start = messages.stream().filter(message -> message.startsWith("Operation verification started")).findFirst().orElseThrow();
             String id = start.substring(start.indexOf("id=") + 3, start.indexOf(" operation="));
             assertThat(messages.stream().filter(message -> message.contains(id)).count()).isEqualTo(3);
-        } finally { java.util.Locale.setDefault(locale); logger.detachAppender(capture); capture.stop(); }
+            assertThat(org.slf4j.MDC.get("operationVerificationId")).isEqualTo("outer-operation");
+        } finally {
+            java.util.Locale.setDefault(locale); logger.detachAppender(capture); capture.stop();
+            if (previousCorrelation == null) org.slf4j.MDC.remove("operationVerificationId");
+            else org.slf4j.MDC.put("operationVerificationId", previousCorrelation);
+        }
     }
 
     @Test @DisplayName("超过验证预算的通过结果不能执行动作，provider 实际返回前不释放租约")

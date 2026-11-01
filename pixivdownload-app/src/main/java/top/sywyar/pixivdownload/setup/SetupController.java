@@ -19,6 +19,7 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.setup.request.LoginRequest;
+import top.sywyar.pixivdownload.setup.request.LoginPreparationRequest;
 import top.sywyar.pixivdownload.plugin.api.security.OperationGuard;
 import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
 import top.sywyar.pixivdownload.plugin.security.OperationVerificationGate;
@@ -144,9 +145,18 @@ public class SetupController {
     private record ProxySettings(boolean enabled, String host, int port) {
     }
 
-    @PostMapping("/api/auth/login")
-    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request,
-                                               HttpServletRequest httpRequest) throws IOException {
+    @PostMapping("/api/auth/login/prepare")
+    public ResponseEntity<?> prepareLogin(@Valid @RequestBody LoginPreparationRequest request,
+                                         HttpServletRequest httpRequest) throws IOException {
+        checkLoginRateLimit(httpRequest);
+        var result = verification.host().prepare("core:login", request.username(),
+                loginContext(httpRequest, request.rememberMe()));
+        if (result.status() == OperationGuard.Status.APPROVED || result.status() == OperationGuard.Status.CHALLENGE)
+            return ResponseEntity.ok(result);
+        return verificationFailure(result);
+    }
+
+    private void checkLoginRateLimit(HttpServletRequest httpRequest) {
         if (!loginRateLimitService.isAllowed(httpRequest.getRemoteAddr())) {
             throw new LocalizedException(
                     HttpStatus.TOO_MANY_REQUESTS,
@@ -154,20 +164,31 @@ public class SetupController {
                     "Too many login attempts. Please try again later."
             );
         }
-        if (!setupService.checkLogin(request.getUsername(), request.getPassword())) {
-            throw new LocalizedException(
-                    HttpStatus.UNAUTHORIZED,
-                    "setup.login.invalid-credentials",
-                    "Invalid username or password"
-            );
-        }
+    }
 
+    private String loginContext(HttpServletRequest httpRequest, boolean rememberMe) {
         // 上下文只包含可信地址与会话时效选择，密码和整个请求不离开登录 owner。
-        String context = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()
-                .put("clientAddress", httpRequest.getRemoteAddr()).put("rememberMe", request.isRememberMe()).toString();
-        var result = verification.host().execute("core:login", request.getUsername(), context,
-                request.getOperationToken(), request.getOperationProofs(), () -> createLoginSession(request));
+        return com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()
+                .put("clientAddress", httpRequest.getRemoteAddr()).put("rememberMe", rememberMe).toString();
+    }
+
+    @PostMapping("/api/auth/login")
+    public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request,
+                                   HttpServletRequest httpRequest) throws IOException {
+        checkLoginRateLimit(httpRequest);
+        var result = verification.host().execute("core:login", request.getUsername(),
+                loginContext(httpRequest, request.isRememberMe()),
+                request.getOperationToken(), request.getOperationProofs(), () -> {
+                    if (!setupService.checkLogin(request.getUsername(), request.getPassword()))
+                        throw new LocalizedException(HttpStatus.UNAUTHORIZED,
+                                "setup.login.invalid-credentials", "Invalid username or password");
+                    return createLoginSession(request);
+                });
         if (result.status() == OperationGuard.Status.APPROVED) return result.value();
+        return verificationFailure(result);
+    }
+
+    private ResponseEntity<?> verificationFailure(OperationGuard.Result<?> result) {
         if (result.status() == OperationGuard.Status.CHALLENGE) {
             String code = "setup.login.verification.required";
             return ResponseEntity.status(HttpStatus.CONFLICT).body(

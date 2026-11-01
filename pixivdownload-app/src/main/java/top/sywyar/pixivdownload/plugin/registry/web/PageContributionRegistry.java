@@ -11,7 +11,11 @@ import java.util.*;
 @Component
 public final class PageContributionRegistry implements PageCatalog {
     public record Entry(ExternalCapabilityOwner owner, String token, List<PageComponent> components,
-            List<EditablePage> pages, PageContribution provider) { }
+            List<EditablePage> pages, List<PageComponentCategory> categories, PageContribution provider) {
+        public Entry {
+            components = List.copyOf(components); pages = List.copyOf(pages); categories = List.copyOf(categories);
+        }
+    }
     private volatile List<Entry> entries = List.of();
     private final List<EditablePage> corePages;
     private final String corePublication = UUID.randomUUID().toString();
@@ -55,6 +59,10 @@ public final class PageContributionRegistry implements PageCatalog {
 
     @Override public List<AvailableComponent> components() {
         return active().stream().flatMap(e -> e.components().stream().map(c -> new AvailableComponent(c, e.token()))).toList();
+    }
+
+    @Override public List<PageComponentCategory> componentCategories() {
+        return active().stream().flatMap(e -> e.categories().stream()).toList();
     }
 
     @Override public List<AvailablePage> pages() {

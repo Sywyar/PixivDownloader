@@ -1,14 +1,13 @@
-# Independent CAPTCHA plugin
+# Independent SDK build of the CAPTCHA plugin
 
 [简体中文](README.md) | [English](README_en.md) | [日本語](README_ja.md) | [한국어](README_ko.md) | [繁體中文](README_zh-Hant.md)
 
-One plugin provides Turnstile online verification and ALTCHA SHA-256/PBKDF2 offline components through SDK 1.4 operation verification and page binding.
+This project compiles the source and tests in `pixivdownload-plugin-captcha`, using only public SDK 1.4 and CAPTCHA libraries without inheriting the host Maven parent. One plugin provides Turnstile online verification and ALTCHA SHA-256 and PBKDF2 offline components.
 
-Use JDK 17, Maven, Node.js/npm and a resolvable exact SDK dependency. Run here:
+Use a complete source checkout, JDK 17, Maven, Node.js/npm and resolvable exact SDK dependencies. Run in this directory:
 
 ```text
-npm ci
 mvn package
 ```
 
-Install `target/captcha-example-0.1.0.jar`, then follow the [page editor guide](https://sywyar.github.io/PixivDownloader/#/en/page-editor) to configure credentials, bind a form and publish. The build packages official ALTCHA workers and their license. Official test configuration is disabled by default; production sites need their own Turnstile credentials.
+The build installs locked npm dependencies and packages official ALTCHA workers and their license. The artifact is `target/captcha-sdk-consumer-1.0.0.jar`, with plugin ID `captcha`. It is the same plugin as the official module; install only one build. First activation generates and encrypts the local signing key. See the [page editor guide](https://sywyar.github.io/PixivDownloader/#/en/page-editor) for installation, form binding and Turnstile configuration.

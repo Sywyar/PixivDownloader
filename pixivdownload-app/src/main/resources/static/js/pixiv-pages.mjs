@@ -98,10 +98,12 @@ export function portValue(port, input) {
 }
 
 /** 表单 owner 持有目标，组件只取得自己实例的有界挑战通道。 */
-export function createOperationTarget(operation, onChange = () => {}) {
+export function createOperationTarget(operation, onChange = () => {}, prepareRequest) {
     ensurePageRecovery();
     const participants = new Map();
-    let revision = '', token = '', challenges = {}, proofs = {}, closed = false;
+    let revision = '', token = '', challenges = {}, proofs = {}, closed = false, prepared = false, preparation;
+    const ready = () => !closed && prepared && Object.keys(challenges).every(policy => Object.hasOwn(proofs, policy));
+    const changed = () => onChange({token, revision, challenges: pureValue(challenges), ready: ready(), preparing: !!preparation});
     const notify = () => {
         for (const entry of participants.values()) {
             const value = token && Object.hasOwn(challenges, entry.policy)
@@ -112,26 +114,51 @@ export function createOperationTarget(operation, onChange = () => {}) {
                 catch (_) { console.error('PAGE_INTERACTION_LISTENER_FAILED'); }
             }
         }
-        onChange({token, revision, challenges: pureValue(challenges)});
+        changed();
     };
-    const reset = () => { token = ''; challenges = {}; proofs = {}; notify(); };
-    return Object.freeze({
+    const reset = () => {
+        preparation?.controller.abort(); preparation = undefined;
+        prepared = false; token = ''; challenges = {}; proofs = {}; notify();
+    };
+    const target = {
         operation,
         configure(next) { if (closed) throw new Error('PAGE_INTERACTION_CLOSED'); if (revision !== next) { revision = next; reset(); } },
         challenge(next) {
             if (next.revision !== revision) { reset(); throw new Error('PAGE_REVISION_CHANGED'); }
-            if (closed || typeof next.token !== 'string' || !next.token || next.token.length > 128
+            if (closed || typeof next.token !== 'string' || next.token.length > 128
                     || !next.challenges || Array.isArray(next.challenges) || typeof next.challenges !== 'object'
-                    || Object.keys(next.challenges).length > 16) throw new Error('PAGE_INTERACTION_INVALID');
+                    || Object.keys(next.challenges).length > 16
+                    || (!next.token && Object.keys(next.challenges).length)) throw new Error('PAGE_INTERACTION_INVALID');
             const checked = pureValue(next.challenges);
             for (const [policy, value] of Object.entries(checked)) {
                 if (!/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(policy) || policy.length > 96 || typeof value !== 'string'
                         || new TextEncoder().encode(value).length > 16384) throw new Error('PAGE_INTERACTION_INVALID');
             }
             if (new TextEncoder().encode(JSON.stringify(checked)).length > 65536) throw new Error('PAGE_INTERACTION_INVALID');
-            token = next.token; challenges = checked; proofs = {}; notify();
+            token = next.token; challenges = checked; proofs = {}; prepared = true; notify();
         },
-        request() { return {token, proofs: pureValue(proofs)}; },
+        prepare() {
+            if (closed) return Promise.reject(new Error('PAGE_INTERACTION_CLOSED'));
+            if (prepared) return Promise.resolve();
+            if (preparation) return preparation.promise;
+            if (typeof prepareRequest !== 'function') return Promise.reject(new Error('OPERATION_PREPARATION_UNAVAILABLE'));
+            const current = {controller: new AbortController()};
+            preparation = current;
+            current.promise = Promise.resolve().then(() => prepareRequest(current.controller.signal)).then(value => {
+                if (closed || preparation !== current || current.controller.signal.aborted)
+                    throw new DOMException('Preparation cancelled', 'AbortError');
+                target.challenge(value);
+            }).finally(() => {
+                if (preparation === current) { preparation = undefined; changed(); }
+            });
+            changed();
+            return current.promise;
+        },
+        ready,
+        request() {
+            if (!ready()) throw new Error('OPERATION_VERIFICATION_REQUIRED');
+            return {token, proofs: pureValue(proofs)};
+        },
         reset,
         connect({instanceId, policy, protocol, operation: declared}, signal) {
             if (closed || declared !== operation || !instanceId || participants.has(instanceId) || participants.size >= 16)
@@ -149,6 +176,14 @@ export function createOperationTarget(operation, onChange = () => {}) {
             signal?.addEventListener('abort', dispose, {once: true});
             if (signal?.aborted) dispose(); else notify();
             return Object.freeze({
+                prepare() {
+                    if (disposed || closed) return Promise.reject(new Error('PAGE_INTERACTION_CLOSED'));
+                    return target.prepare();
+                },
+                invalidate(id) {
+                    if (disposed || closed || !token || id !== token) return false;
+                    reset(); return true;
+                },
                 onState(listener) {
                     if (disposed || typeof listener !== 'function' || entry.listeners.size >= 16) throw new Error('PAGE_INTERACTION_INVALID');
                     entry.listeners.add(listener); listener(entry.state === null ? null : pureValue(entry.state));
@@ -161,7 +196,7 @@ export function createOperationTarget(operation, onChange = () => {}) {
                     if (typeof checked !== 'string' || new TextEncoder().encode(checked).length > 16384) throw new Error('PAGE_INTERACTION_INVALID');
                     const next = {...proofs, [policy]: checked};
                     if (new TextEncoder().encode(JSON.stringify(next)).length > 65536) throw new Error('PAGE_INTERACTION_INVALID');
-                    proofs = next; return true;
+                    proofs = next; changed(); return true;
                 },
                 destroy: dispose
             });
@@ -171,7 +206,8 @@ export function createOperationTarget(operation, onChange = () => {}) {
             for (const entry of [...participants.values()]) entry.dispose();
             participants.clear();
         }
-    });
+    };
+    return Object.freeze(target);
 }
 
 /** 串行转发保留中间组件的输出；队列仅属于当前页面实例。 */
@@ -488,6 +524,7 @@ export async function attachPage({pageId, root, regions, targets = {}, title, t,
         await mounted?.destroy(); root.replaceChildren();
     };
     const withdraw = async () => {
+        if (unavailable) return;
         unavailable = true;
         for (const target of Object.values(targets)) target.reset();
         await mounted?.destroy(); mounted = undefined;

@@ -33,7 +33,7 @@ try {
     await page.locator('#page').selectOption('operation-form:page');
     const frame = page.frameLocator('iframe.gjs-frame');
     await frame.locator('[data-page-region="alpha-fields"]').waitFor();
-    const block = page.getByRole('button', {name: 'Neutral verification', exact: true});
+    const block = page.locator('[data-component-block="operation-proof:verify"]');
     async function drag(region, targetRegion) {
         await page.locator('#add-tab').click();
         await block.scrollIntoViewIfNeeded();
@@ -78,7 +78,7 @@ try {
         const editor = window.grapesjs.editors[0], model = editor.getWrapper().findType('page-component')[1];
         editor.select(model); model.move(editor.getWrapper());
     });
-    assert.equal(await page.getByLabel('Protected operation', {exact: true}).inputValue(), '');
+    await page.waitForFunction(() => document.querySelector('#properties [aria-label="Protected operation"]')?.value === '');
     const unmatchedSave = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/operation-form:page/save'));
     await page.locator('#save').click();
     assert.equal((await unmatchedSave).status(), 200, 'unmatched participant can remain in a draft');
@@ -101,18 +101,26 @@ try {
     await page.locator('.pixiv-feedback-backdrop[open] .pixiv-feedback-button--primary').click();
     assert.equal((await publish).status(), 200);
     await page.goto(origin + '/operation-form/index.html');
+    const businessRequests = [];
+    page.on('request', request => {
+        const path = new URL(request.url()).pathname;
+        if (/^\/api\/operation-form\/(alpha|beta)$/.test(path)) businessRequests.push(path);
+    });
     const alpha = page.locator('form[data-target="alpha"]'), beta = page.locator('form[data-target="beta"]');
     const alphaProof = page.locator('[data-page-region="alpha"]').getByRole('button', {name: 'Respond to challenge'});
     const betaProof = page.locator('[data-page-region="beta"]').getByRole('button', {name: 'Respond to challenge'});
     await alpha.locator('button').click();
     await alpha.locator('output[data-status="CHALLENGE"]').waitFor();
-    assert.equal(await alphaProof.isEnabled(), true); assert.equal(await betaProof.isDisabled(), true);
+    assert.equal(await alphaProof.isEnabled(), true); assert.equal(await betaProof.isEnabled(), true);
+    assert.deepEqual(businessRequests, [], 'preparation must not submit either business form');
     await alphaProof.click(); await alpha.locator('button').click(); await alpha.locator('output[data-status="APPROVED"]').waitFor();
-    assert.equal(await betaProof.isDisabled(), true);
+    assert.deepEqual(businessRequests, ['/api/operation-form/alpha']);
     await beta.locator('button').click(); await beta.locator('output[data-status="CHALLENGE"]').waitFor();
+    assert.deepEqual(businessRequests, ['/api/operation-form/alpha'], 'changed inputs require fresh proof before submission');
     await betaProof.click(); await beta.locator('input').fill('changed');
     await beta.locator('button').click(); await beta.locator('output[data-status="CHALLENGE"]').waitFor();
     await betaProof.click(); await beta.locator('button').click(); await beta.locator('output[data-status="APPROVED"]').waitFor();
+    assert.deepEqual(businessRequests, ['/api/operation-form/alpha', '/api/operation-form/beta']);
     await page.goto(origin + '/page-editor/index.html'); await ready();
     await page.locator('#page').selectOption('operation-form:ambiguous');
     await frame.locator('[data-page-region="shared"]').waitFor();

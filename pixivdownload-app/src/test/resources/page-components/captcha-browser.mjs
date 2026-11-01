@@ -8,7 +8,7 @@ const offline = method.startsWith('altcha');
 const browser = await chromium.launch({headless: true, ...(process.env.PAGE_EDITOR_CHROMIUM ? {executablePath: process.env.PAGE_EDITOR_CHROMIUM} : {})});
 let page;
 try {
-    const context = await browser.newContext({locale: 'en-US'}), blocked = [], errors = [], violations = [];
+    const context = await browser.newContext({locale: 'en-US', viewport: {width: 1920, height: 1080}}), blocked = [], errors = [], violations = [];
     const [name, ...value] = process.env.PAGE_COOKIE.split('=');
     await context.addCookies([{name, value: value.join('='), url: origin}, {name: 'pixiv_lang', value: 'en-US', url: origin}]);
     const track = async context => {
@@ -48,6 +48,12 @@ try {
     await page.evaluate(() => window.grapesjs.editors[0].getWrapper().findType('page-component').forEach(model => model.remove()));
     assert.equal(await page.evaluate(() => window.grapesjs.editors[0].getWrapper().findType('page-component').length), 0);
     await page.locator('#add-tab').click();
+    const captchaGroup = page.locator('#blocks .gjs-block-category').filter({
+        has: page.locator('[data-component-block="captcha:altcha"]')
+    });
+    assert.equal((await captchaGroup.locator('.gjs-title').innerText()).trim(), 'CAPTCHA');
+    assert.equal(await captchaGroup.locator('.gjs-block').count(), 3);
+    assert.equal(await page.locator('[data-component-block^="captcha-example:"]').count(), 0);
     const block = page.getByRole('button', {name: {altcha: 'ALTCHA offline verification',
         'altcha-pbkdf2': 'ALTCHA PBKDF2 offline verification', turnstile: 'Turnstile online verification'}[method], exact: true});
     await block.scrollIntoViewIfNeeded();
@@ -60,6 +66,21 @@ try {
     await page.mouse.up();
     await page.waitForFunction(() => window.grapesjs.editors[0].getWrapper().findType('page-component').length === 1);
     assert.equal(await page.getByLabel('Protected operation', {exact: true}).inputValue(), 'login.verification');
+    await frame.locator('.captcha-button').waitFor();
+    assert.equal(await frame.locator('.captcha-status').innerText(), '', 'editor preview has no repeated instructions');
+    assert.equal(await frame.locator('.captcha-button').isDisabled(), true);
+    await page.evaluate(selected => {
+        const editor = window.grapesjs.editors[0];
+        const region = editor.getWrapper().findType('page-region').find(model => model.get('region') === 'admin-card');
+        for (const method of ['altcha', 'altcha-pbkdf2', 'turnstile']) {
+            if (method !== selected) region.append(editor.BlockManager.get('captcha:' + method).get('content'));
+        }
+    }, method);
+    await frame.locator('.captcha-button').nth(2).waitFor();
+    assert.deepEqual(await frame.locator('.captcha-status').allTextContents(), ['', '', '']);
+    await page.screenshot({path: path.join(work, 'captcha-editor-' + method + '.png'), fullPage: true, animations: 'disabled'});
+    await page.evaluate(selected => window.grapesjs.editors[0].getWrapper().findType('page-component')
+        .filter(model => model.get('componentType') !== 'captcha:' + selected).forEach(model => model.remove()), method);
     const published = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/core:login/publish'));
     await page.locator('#publish').click();
     const dialog = page.locator('.pixiv-feedback-backdrop[open]');
@@ -69,10 +90,13 @@ try {
     assert.equal((await published).status(), 200);
     const anonymous = await browser.newContext({locale: 'en-US', viewport: {width: 390, height: 844}, colorScheme: 'dark'});
     await anonymous.addCookies([{name: 'pixiv_lang', value: 'en-US', url: origin}]);
+    await anonymous.addInitScript(() => localStorage.setItem('pixiv_theme', 'dark'));
     await track(anonymous);
     const deniedScripts = 'https://challenges.cloudflare.com/**';
     if (!offline) await anonymous.route(deniedScripts, route => route.abort());
     page = await anonymous.newPage();
+    const loginRequests = [];
+    page.on('request', request => { if (new URL(request.url()).pathname === '/api/auth/login') loginRequests.push(request); });
     page.on('pageerror', error => errors.push(error.message));
     await page.exposeFunction('recordCsp', value => violations.push(value));
     await page.addInitScript(() => document.addEventListener('securitypolicyviolation', event =>
@@ -82,26 +106,64 @@ try {
     assert.ok(csp.includes(offline ? "worker-src 'self'" : 'https://challenges.cloudflare.com'));
     await page.locator('#username').fill('acceptance');
     await page.locator('#password').fill('Isolated-page-password-2026');
-    const challenge = page.waitForResponse(response => response.url().endsWith('/api/auth/login') && response.status() === 409);
-    await page.locator('#login-btn').click(); await challenge;
+    await page.locator('.captcha-button').waitFor();
+    assert.equal(await page.locator('.captcha-status').innerText(), '', 'idle verification has no extra instructions');
+    const layout = await page.locator('.captcha-button').evaluate(button => {
+        const css = getComputedStyle(button), bounds = button.getBoundingClientRect();
+        return {height: bounds.height, radius: parseFloat(css.borderRadius), display: css.display,
+            background: css.backgroundColor, pageBackground: getComputedStyle(document.documentElement).getPropertyValue('--control-bg').trim()};
+    });
+    assert.ok(layout.height >= 44 && layout.radius > 0 && layout.display === 'inline-flex', 'owned stylesheet styles the real page control');
+    assert.equal(await page.evaluate(() => window.PixivTheme.current()), 'dark');
+    await page.screenshot({path: path.join(work, 'captcha-' + method + '-idle-dark.png'), fullPage: true, animations: 'disabled'});
+    await page.setViewportSize({width: 1280, height: 720});
+    await page.evaluate(() => window.PixivTheme.apply('light'));
+    await page.screenshot({path: path.join(work, 'captcha-' + method + '-idle-light.png'), fullPage: true, animations: 'disabled'});
+    await page.setViewportSize({width: 390, height: 844});
+    await page.evaluate(() => window.PixivTheme.apply('dark'));
+    if (method === 'altcha') {
+        await page.setViewportSize({width: 320, height: 568});
+        await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), '200% text fits the narrow page');
+        await page.screenshot({path: path.join(work, 'captcha-large-text.png'), fullPage: true, animations: 'disabled'});
+        await page.evaluate(() => { document.documentElement.style.removeProperty('font-size'); });
+        await page.emulateMedia({forcedColors: 'active', reducedMotion: 'reduce'});
+        await page.locator('.captcha-button').focus();
+        assert.equal(await page.locator('.captcha-button').evaluate(button => button.matches(':focus-visible')), true);
+        await page.screenshot({path: path.join(work, 'captcha-high-contrast.png'), fullPage: true, animations: 'disabled'});
+        await page.emulateMedia({forcedColors: 'none', reducedMotion: 'no-preference'});
+        await page.setViewportSize({width: 390, height: 844});
+    }
+    const challenge = page.waitForResponse(response => response.url().endsWith('/api/auth/login/prepare') && response.status() === 200);
+    await page.getByRole('button', {name: 'Start verification', exact: true}).press('Enter');
+    const preparation = (await challenge).request().postDataJSON();
+    assert.deepEqual(Object.keys(preparation).sort(), ['rememberMe', 'username'], 'preparation never sends the password or proofs');
+    assert.equal(loginRequests.length, 0, 'verification starts without submitting login');
     assert.equal((await (await page.request.get(origin + '/api/auth/check')).json()).valid, false);
     if (!offline) {
-        await page.getByText('Verification failed. Submit again for a new challenge.', {exact: true}).waitFor();
+        await page.locator('.captcha-control[data-state="failed"]').waitFor();
+        assert.ok((await page.locator('.captcha-status').innerText()).trim(), 'failure remains visible');
+        assert.equal(loginRequests.length, 0);
         assert.equal((await (await page.request.get(origin + '/api/auth/check')).json()).valid, false);
         await anonymous.unroute(deniedScripts);
         await page.reload();
         await page.locator('#username').fill('acceptance');
         await page.locator('#password').fill('Isolated-page-password-2026');
-        const retry = page.waitForResponse(response => response.url().endsWith('/api/auth/login') && response.status() === 409);
-        await page.locator('#login-btn').click(); await retry;
+        const retry = page.waitForResponse(response => response.url().endsWith('/api/auth/login/prepare') && response.status() === 200);
+        await page.getByRole('button', {name: 'Start verification', exact: true}).click(); await retry;
     }
-    if (offline) await page.getByRole('button', {name: 'Start verification', exact: true}).press('Enter');
-    await page.getByText('Verification complete. Submit again to continue.', {exact: true}).waitFor({timeout: 30000});
+    await page.locator('.captcha-control[data-state="ready"]').waitFor({timeout: 30000});
+    if (offline) {
+        assert.equal(await page.locator('.captcha-button').isDisabled(), true);
+        assert.equal(await page.locator('.captcha-status--quiet').count(), 1, 'completion is announced without a duplicate paragraph');
+    }
+    assert.equal(loginRequests.length, 0, 'proof completion does not submit the form');
     if (offline) assert.deepEqual(await page.evaluate(() => window.captchaWorkers), {created: 1, terminated: 1});
     await page.screenshot({path: path.join(work, 'captcha-' + method + '.png'), fullPage: true});
     const success = page.waitForResponse(response => response.url().endsWith('/api/auth/login') && response.status() === 200);
     await page.locator('#login-btn').click();
     const submitted = (await success).request().postDataJSON();
+    assert.equal(loginRequests.length, 1, 'only the verified business submission reaches login');
     assert.equal((await (await page.request.get(origin + '/api/auth/check')).json()).valid, true);
     for (const endpoint of ['/api/web/page-publications/core:login', '/api/page-editor/catalog', '/api/page-editor/documents/core:login']) {
         const response = await context.request.get(origin + endpoint);
@@ -121,12 +183,11 @@ try {
         const oldDocument = await stalePage.goto(origin + '/login.html');
         await stalePage.locator('#username').fill('acceptance');
         await stalePage.locator('#password').fill('Isolated-page-password-2026');
-        const challengeResponse = stalePage.waitForResponse(response => response.url().endsWith('/api/auth/login') && response.status() === 409);
-        await stalePage.locator('#login-btn').click();
-        const oldChallenge = await (await challengeResponse).json();
         // 延迟真实 Worker 的结果交付，复现发布发生时仍在等待的实例。
         await stalePage.evaluate(() => { window.deferCaptchaResult = true; });
+        const challengeResponse = stalePage.waitForResponse(response => response.url().endsWith('/api/auth/login/prepare') && response.status() === 200);
         await stalePage.getByRole('button', {name: 'Start verification', exact: true}).click();
+        const oldChallenge = await (await challengeResponse).json();
         await stalePage.waitForFunction(() => window.deferredCaptchaSolution);
         const solution = await stalePage.evaluate(() => window.deferredCaptchaSolution);
         assert.deepEqual(await stalePage.evaluate(() => window.captchaWorkers), {created: 1, terminated: 0});
@@ -134,7 +195,7 @@ try {
         await editorPage.evaluate(() => {
             const editor = window.grapesjs.editors[0], region = editor.getWrapper().findType('page-region').find(model => model.get('region') === 'admin-card');
             editor.getWrapper().findType('page-component').forEach(model => model.remove());
-            region.append(editor.BlockManager.get('captcha-example:turnstile').get('content'));
+            region.append(editor.BlockManager.get('captcha:turnstile').get('content'));
         });
         const navigation = stalePage.waitForNavigation({waitUntil: 'domcontentloaded'});
         const replacement = editorPage.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/core:login/publish'));

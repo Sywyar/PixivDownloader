@@ -310,12 +310,15 @@ try {
         await page.locator('#add-tab').click();
         const block = page.getByRole('button', {name: 'Checklist', exact: true});
         await block.waitFor({timeout: 30000}); await block.press('Enter');
+        assert.equal(await page.locator('#component-detail-group').textContent(), 'Example checklist');
         await page.locator('#component-add').click();
         await page.getByLabel('Checklist title', {exact: true}).waitFor();
         const frame = page.frameLocator('iframe.gjs-frame');
         const mounted = await frame.locator('[data-tick]').elementHandle();
         fs.writeFileSync(path.join(work, 'live-discovered'), 'discovered');
         await block.waitFor({state: 'detached', timeout: 15000});
+        assert.deepEqual(await page.evaluate(() => window.grapesjs.editors[0].BlockManager.getCategories()
+            .filter(category => category.id.startsWith('plugin:page-checklist')).map(category => category.id)), []);
         await page.waitForFunction(element => element.dataset.disposed === 'true', mounted);
         const ticks = await mounted.evaluate(element => element.dataset.tick);
         await page.waitForTimeout(160);
@@ -326,6 +329,55 @@ try {
         await frame.getByRole('heading', {name: 'Checklist', exact: true}).waitFor();
     } else if (phase === 'active') {
         await editor();
+        await page.locator('#add-tab').click();
+        const group = type => page.locator('#blocks .gjs-block-category')
+            .filter({has: page.locator('[data-component-block="page-checklist:' + type + '"]')});
+        assert.equal((await group('list').locator('.gjs-title').innerText()).trim(), 'Example checklist');
+        assert.equal((await group('badge').locator('.gjs-title').innerText()).trim(), 'Checks & status');
+        assert.equal((await group('summary').locator('.gjs-title').innerText()).trim(), 'Checklist details');
+        assert.match(await group('badge').locator('.block-group-help').textContent(), /independent plugin/);
+        await page.locator('#block-search').fill('Checks & status');
+        assert.equal(await page.locator('#blocks .gjs-block:not([hidden])').count(), 1);
+        assert.equal(await page.locator('[data-component-block="page-checklist:badge"]').isVisible(), true);
+        await page.locator('#block-search').fill('');
+        await group('badge').locator('.gjs-title').press('Enter');
+        await page.waitForFunction(() => document.querySelector('[data-component-block="page-checklist:badge"]')
+            .closest('.gjs-block-category').querySelector('.gjs-title').getAttribute('aria-expanded') === 'false');
+        await group('badge').locator('.gjs-title').press('Space');
+        for (const type of ['box', 'text']) {
+            const heading = page.locator('#blocks .gjs-block-category')
+                .filter({has: page.locator('[data-component-block="' + type + '"]')}).locator('.gjs-title');
+            await heading.click();
+        }
+        await page.waitForFunction(() => [...document.querySelectorAll('#blocks .gjs-blocks-c')]
+            .every(element => element.getAnimations().length === 0));
+        await page.screenshot({path: path.join(work, 'component-categories.png'), fullPage: true});
+        const catalogRoute = '**/api/page-editor/catalog';
+        await page.route(catalogRoute, async route => {
+            const response = await route.fetch(), body = await response.json();
+            body.componentCategories.find(category => category.id === 'page-checklist').namespace = '';
+            await route.fulfill({response, json: body});
+        });
+        try {
+            await page.waitForFunction(() => window.grapesjs.editors[0].BlockManager.get('page-checklist:list')
+                .get('detailCategory') === 'page-checklist');
+            assert.equal((await group('list').locator('.gjs-title').innerText()).trim(), 'page-checklist');
+        } finally { await page.unroute(catalogRoute); }
+        await page.waitForFunction(() => window.grapesjs.editors[0].BlockManager.get('page-checklist:list')
+            .get('detailCategory') === 'Example checklist');
+        await Promise.all([
+            page.waitForEvent('framenavigated', {predicate: frame => frame === page.mainFrame()}),
+            page.locator('.pixiv-lang-switcher__select').selectOption('zh-CN')
+        ]);
+        await page.waitForFunction(() => window.pageEditorReady);
+        await page.locator('#add-tab').click();
+        assert.equal((await group('badge').locator('.gjs-title').innerText()).trim(), '检查与状态');
+        assert.equal((await group('list').locator('.gjs-title').innerText()).trim(), '示例清单');
+        await Promise.all([
+            page.waitForEvent('framenavigated', {predicate: frame => frame === page.mainFrame()}),
+            page.locator('.pixiv-lang-switcher__select').selectOption('en-US')
+        ]);
+        await page.waitForFunction(() => window.pageEditorReady);
         await page.locator('#add-tab').click();
         const checklist = page.getByRole('button', {name: 'Checklist', exact: true});
         await checklist.waitFor();
@@ -340,6 +392,7 @@ try {
             return {withinForm: editor.Components.canMove(password.parent(), password).result,
                 outsideForm: editor.Components.canMove(root, password).result};
         }), {withinForm: true, outsideForm: false}, 'dragging keeps required fields inside their form');
+        await checklist.scrollIntoViewIfNeeded();
         const blockBox = await checklist.boundingBox();
         const fieldBox = await frame.locator('[data-page-region="remember"]').boundingBox();
         await page.mouse.move(blockBox.x + blockBox.width / 2, blockBox.y + blockBox.height / 2);
@@ -573,8 +626,13 @@ try {
         assert.equal(await page.locator('#custom-page').textContent(), '');
         await page.locator('#username').fill('acceptance');
         await page.locator('#password').fill('wrong');
+        const submissions = [];
+        page.on('request', request => { if (new URL(request.url()).pathname === '/api/auth/login') submissions.push(request); });
+        const prepared = page.waitForResponse(response => response.url().endsWith('/api/auth/login/prepare'));
         await page.locator('#login-btn').click();
+        assert.equal((await prepared).status(), phase === 'corrupt' ? 503 : 200);
         await page.waitForFunction(() => document.getElementById('error-msg').textContent.length > 0);
+        assert.equal(submissions.length, phase === 'corrupt' ? 0 : 1);
     } else throw new Error('unknown phase');
     assert.deepEqual(violations.filter(value => !value.blocked.includes('.kaspersky-labs.com/')), [], 'product CSP violations');
     assert.deepEqual(errors, [], 'browser errors');

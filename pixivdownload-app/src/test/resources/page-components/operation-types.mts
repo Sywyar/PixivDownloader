@@ -1,5 +1,10 @@
 import {attachPage, createOperationTarget, type PageComponentModule} from './page-components.mjs';
-const target = createOperationTarget('independent:submit');
+const target = createOperationTarget('independent:submit', state => { void state.ready; }, async signal => {
+    const response = await fetch('/api/independent/prepare', {method: 'POST', signal});
+    return response.json();
+});
+await target.prepare();
+if (target.ready()) void target.request();
 const root = document.createElement('main');
 const mounted = await attachPage({
     pageId: 'independent:page', root, regions: {form: root}, targets: {form: target},
@@ -12,6 +17,10 @@ const component: PageComponentModule<{label: string}> = {
         if (context.interaction) context.onCleanup(context.interaction.onState(state => {
             if (state) context.interaction?.respond(state.id, 'proof');
         }));
+        if (context.interaction) {
+            void context.interaction.prepare();
+            context.interaction.invalidate('expired');
+        }
         return {destroy() { root.replaceChildren(); }};
     }
 };

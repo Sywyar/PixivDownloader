@@ -13,14 +13,14 @@ const runtimeModule = import('data:text/javascript;base64,' + Buffer.from(runtim
 const source = fs.readFileSync(path.join(__dirname, '../../main/resources/static/login/login.js'), 'utf8');
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-async function page(redirect = '', valid = false) {
+async function page(redirect = '', valid = false, manualPreparation = false) {
     let url = new URL('https://app.example.test/login.html?redirect=' + encodeURIComponent(redirect));
     const nodes = new Map();
     const listeners = new Map();
     const posts = [];
-    let actions;
+    let actions, context;
     const {createOperationTarget} = await runtimeModule;
-    const operation = createOperationTarget('core:login'); operation.configure('0');
+    const operation = createOperationTarget('core:login', undefined, signal => context.prepareLoginVerification(signal)); operation.configure('0');
     const channel = operation.connect({instanceId: 'proof', operation: operation.operation, policy: 'neutral-policy',
         protocol: {stateSchema: '{"type":"string"}', responseSchema: '{"type":"string"}'}});
     const states = []; channel.onState(state => states.push(state));
@@ -44,9 +44,11 @@ async function page(redirect = '', valid = false) {
         addEventListener: (type, handler) => listeners.set(type, handler)};
     const fetch = (endpoint, options) => {
         if (endpoint === '/api/auth/check') return Promise.resolve({json: async () => ({valid})});
+        if (endpoint === '/api/auth/login/prepare' && !manualPreparation)
+            return Promise.resolve({ok: true, json: async () => ({token: '', revision: '0', challenges: {}})});
         return new Promise((resolve, reject) => posts.push({endpoint, options, resolve, reject}));
     };
-    const context = vm.createContext({window: {location}, document, URL, URLSearchParams, fetch, operation,
+    context = vm.createContext({window: {location}, document, URL, URLSearchParams, fetch, operation,
         PixivActions: {bind: (_, handlers) => { actions = handlers.click; }}});
     vm.runInContext(source, context);
     await vm.runInContext('initLoginPage(operation)', context);
@@ -57,12 +59,18 @@ async function page(redirect = '', valid = false) {
     return {node, listeners, posts, actions, location, operation, channel, states};
 }
 
-test('挑战槽位只接收挑战纯值，证明绑定当前token，修改凭证后清除', async () => {
-    const s = await page();
+test('验证码完成前只发送无密码准备请求，证明绑定当前token，修改凭证后清除', async () => {
+    const s = await page('', false, true);
     const pending = s.actions.doLogin();
-    s.posts[0].resolve({ok: false, status: 409, json: async () => ({code: 'setup.login.verification.required',
+    await settle();
+    assert.equal(s.posts[0].endpoint, '/api/auth/login/prepare');
+    assert.deepEqual(JSON.parse(s.posts[0].options.body), {username: 'test-admin', rememberMe: false});
+    s.posts[0].resolve({ok: true, json: async () => ({
         token: 'attempt', revision: '0', challenges: {'neutral-policy': 'challenge'}, error: 'Verification required'})});
     await pending;
+    assert.equal(s.posts.length, 1, 'no login request before proof');
+    await s.actions.doLogin();
+    assert.equal(s.posts.length, 1, 'repeated submit cannot send an incomplete proof');
     assert.deepEqual(s.states.at(-1), {id: 'attempt', revision: '0', value: 'challenge'});
     assert.equal(s.channel.respond('old', 'stale'), false);
     assert.equal(s.channel.respond('attempt', 'accepted'), true);
@@ -78,8 +86,10 @@ test('挑战槽位只接收挑战纯值，证明绑定当前token，修改凭证
     s.node('password').input();
     assert.equal(s.states.at(-1), null);
     const cleared = s.actions.doLogin();
-    assert.deepEqual(JSON.parse(s.posts[2].options.body).operationProofs, {});
-    s.posts[2].resolve({ok: true, json: async () => ({success: true})});
+    await settle();
+    assert.equal(s.posts[2].endpoint, '/api/auth/login/prepare');
+    assert.equal(Object.hasOwn(JSON.parse(s.posts[2].options.body), 'password'), false);
+    s.posts[2].resolve({ok: true, json: async () => ({token: 'third', revision: '0', challenges: {'neutral-policy': 'challenge'}})});
     await cleared;
 });
 
@@ -91,6 +101,7 @@ test('登录后的回跳按浏览器URL语义限制在当前来源', async () =>
             const s = await page(redirect, valid);
             if (!valid) {
                 const login = s.actions.doLogin();
+                await settle();
                 s.posts[0].resolve({ok: true, json: async () => ({success: true})});
                 await login;
             }
@@ -112,6 +123,7 @@ for (const first of ['doLogin', 'doInviteRedeem']) {
             s.listeners.get('keydown')({key: 'Enter'});
             const other = first === 'doLogin' ? 'doInviteRedeem' : 'doLogin';
             s.actions[other]();
+            await settle();
             assert.equal(s.posts.length, 1);
             assert.equal(s.node('login-btn').disabled, true);
             assert.equal(s.node('invite-btn').disabled, true);
@@ -123,6 +135,7 @@ for (const first of ['doLogin', 'doInviteRedeem']) {
             assert.equal(s.node('password').value, 'test-password');
             assert.equal(s.node('inviteCodeInput').value, 'test-invite');
             const retry = s.actions[other]();
+            await settle();
             assert.equal(s.posts.length, 2);
             s.posts[1].resolve({ok: true, json: async () => ({success: true, redirect: '/guest-landing'})});
             await retry;
@@ -131,3 +144,61 @@ for (const first of ['doLogin', 'doInviteRedeem']) {
         }
     });
 }
+
+test('准备合并并发，取消拒绝迟到响应，多策略齐备后才能提交，失效撤销证明', async () => {
+    const {createOperationTarget} = await runtimeModule;
+    const requests = [];
+    const target = createOperationTarget('independent:submit', undefined,
+        signal => new Promise(resolve => requests.push({signal, resolve})));
+    target.configure('revision');
+    const binding = policy => ({instanceId: policy, operation: target.operation, policy,
+        protocol: {stateSchema: '{"type":"string"}', responseSchema: '{"type":"string"}'}});
+    const first = target.connect(binding('first')), second = target.connect(binding('second'));
+    const old = target.prepare();
+    assert.equal(target.prepare(), old);
+    await settle();
+    target.reset();
+    assert.equal(requests[0].signal.aborted, true);
+    requests[0].resolve({token: 'old', revision: 'revision', challenges: {first: 'question'}});
+    await assert.rejects(old, {name: 'AbortError'});
+    assert.throws(() => target.request(), /OPERATION_VERIFICATION_REQUIRED/);
+    const pending = first.prepare();
+    await settle();
+    requests[1].resolve({token: 'current', revision: 'revision', challenges: {first: 'one', second: 'two'}});
+    await pending;
+    assert.equal(first.respond('current', 'answer'), true);
+    await second.prepare();
+    assert.equal(requests.length, 2, 'second component reuses the same form preparation');
+    assert.equal(target.ready(), false);
+    assert.equal(second.respond('current', 'answer'), true);
+    assert.equal(target.ready(), true);
+    assert.equal(first.invalidate('old'), false);
+    assert.equal(first.invalidate('current'), true);
+    assert.equal(target.ready(), false);
+    target.destroy();
+    await assert.rejects(first.prepare(), /PAGE_INTERACTION_CLOSED/);
+});
+
+test('准备失败显示服务端原因并允许重试，不提交登录', async () => {
+    const s = await page('', false, true);
+    const pending = s.actions.doLogin();
+    await settle();
+    s.posts[0].resolve({ok: false, json: async () => ({error: 'Verification unavailable'})});
+    await pending;
+    assert.equal(s.posts.length, 1);
+    assert.equal(s.node('error-msg').textContent, 'Verification unavailable');
+    assert.equal(s.node('login-btn').disabled, false);
+    assert.equal(s.operation.ready(), false);
+});
+
+test('准备期间修改密码会取消请求，迟到结果不能触发登录', async () => {
+    const s = await page('', false, true);
+    const pending = s.actions.doLogin();
+    await settle();
+    s.node('password').input();
+    assert.equal(s.posts[0].options.signal.aborted, true);
+    s.posts[0].resolve({ok: true, json: async () => ({token: '', revision: '0', challenges: {}})});
+    await pending;
+    assert.equal(s.posts.length, 1);
+    assert.equal(s.operation.ready(), false);
+});

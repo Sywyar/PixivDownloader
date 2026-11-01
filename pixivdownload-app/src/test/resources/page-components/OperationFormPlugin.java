@@ -68,13 +68,21 @@ public final class OperationFormPlugin extends Plugin implements PixivPluginProv
         public record Command(String value, String token, Map<String, String> proofs) { }
         @PostMapping("/api/operation-form/{target}")
         public ResponseEntity<?> submit(@PathVariable("target") String target, HttpServletRequest request) throws IOException {
+            return run(target, request, false);
+        }
+        @PostMapping("/api/operation-form/{target}/prepare")
+        public ResponseEntity<?> prepare(@PathVariable("target") String target, HttpServletRequest request) throws IOException {
+            return run(target, request, true);
+        }
+        private ResponseEntity<?> run(String target, HttpServletRequest request, boolean preparing) throws IOException {
             if (!Set.of("alpha", "beta").contains(target)) return ResponseEntity.notFound().build();
             if (!identities.isAdminAuthenticated(request)) return ResponseEntity.status(401).build();
             byte[] bytes = request.getInputStream().readNBytes(71681);
             if (bytes.length > 71680) return ResponseEntity.status(413).build();
             Command command = json.readValue(bytes, Command.class);
             if (command.value() == null || command.value().length() > 64) return ResponseEntity.badRequest().build();
-            var result = guard.execute("operation-form:" + target, "authenticated-administrator",
+            var result = preparing ? guard.prepare("operation-form:" + target, "authenticated-administrator",
+                    json.writeValueAsString(Map.of("value", command.value()))) : guard.execute("operation-form:" + target, "authenticated-administrator",
                     json.writeValueAsString(Map.of("value", command.value())), command.token(), command.proofs(), () -> {
                         if (command.value().equals("__fail")) throw new IOException("fixture-action-failed");
                         if (command.value().equals("__block")) {

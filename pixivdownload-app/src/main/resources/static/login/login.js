@@ -117,6 +117,26 @@ function setAuthButtonsDisabled(disabled) {
   document.getElementById('invite-btn').disabled = disabled;
 }
 
+async function prepareLoginVerification(signal) {
+  const username = document.getElementById('username').value.trim();
+  if (!username) {
+    showLoginErrorKey('validation.credentials-required', '请输入用户名和密码');
+    throw new Error('LOGIN_USERNAME_REQUIRED');
+  }
+  const res = await fetch('/api/auth/login/prepare', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username, rememberMe: document.getElementById('remember').checked}),
+    credentials: 'same-origin', signal
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    if (!signal.aborted) showLoginErrorText(data.error || lt('error.login-failed', '登录失败'));
+    throw new Error('LOGIN_PREPARATION_FAILED');
+  }
+  return data;
+}
+
 async function doLogin() {
   if (document.getElementById('login-btn').disabled || !loginOperation) return;
   const username  = document.getElementById('username').value.trim();
@@ -132,10 +152,17 @@ async function doLogin() {
   showLoginErrorText('');
 
   try {
+    if (!loginOperation.ready()) await loginOperation.prepare();
+    if (!loginOperation.ready()) {
+      showLoginErrorKey('validation.verification-required', '请先完成验证码验证');
+      setAuthButtonsDisabled(false);
+      return;
+    }
+    const verification = loginOperation.request();
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({username, password, rememberMe, operationToken: loginOperation.request().token, operationProofs: loginOperation.request().proofs}),
+      body: JSON.stringify({username, password, rememberMe, operationToken: verification.token, operationProofs: verification.proofs}),
       credentials: 'same-origin'
     });
     const data = await res.json();
@@ -158,6 +185,9 @@ async function doLogin() {
     }
     window.location.href = getRedirect();
   } catch (e) {
+    if (e.name === 'AbortError') { setAuthButtonsDisabled(false); return; }
+    if (e.message === 'PAGE_REVISION_CHANGED') { window.location.reload(); return; }
+    if (e.message === 'LOGIN_PREPARATION_FAILED') { setAuthButtonsDisabled(false); return; }
     resetVerification();
     showLoginErrorKey('error.network', 'error.network', {message: e.message});
     setAuthButtonsDisabled(false);
@@ -242,5 +272,4 @@ async function initLoginPage(operation) {
     showInviteErrorKey('error.invite-expired', '邀请码无效或已失效');
   }
   await redirectIfLoggedIn();
-  setAuthButtonsDisabled(false);
 }

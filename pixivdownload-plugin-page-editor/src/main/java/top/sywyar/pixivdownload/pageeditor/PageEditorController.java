@@ -24,7 +24,7 @@ public final class PageEditorController {
     }
     @GetMapping("/catalog") public ResponseEntity<?> catalog() {
         return ok(Map.of("pages", catalog.pages(), "components", catalog.components(), "styleProperties", PageStyles.properties(),
-                "customComponents", library.catalog()));
+                "componentCategories", catalog.componentCategories(), "customComponents", library.catalog()));
     }
     @GetMapping("/documents/{id}") public ResponseEntity<?> read(@PathVariable String id) { return ok(store.read(id)); }
     @GetMapping("/documents/{id}/default") public ResponseEntity<?> defaults(@PathVariable String id) { return ok(store.defaults(id)); }

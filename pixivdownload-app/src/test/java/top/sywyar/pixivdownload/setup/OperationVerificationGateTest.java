@@ -132,13 +132,14 @@ class OperationVerificationGateTest {
         login(request()).andExpect(status().isForbidden());
         assertThat(Files.readAllBytes(state)).isEqualTo(original);
         verify(setup, never()).createSession(anyBoolean());
+        verify(setup, never()).checkLogin(anyString(), anyString());
         configure("");
         login(request()).andExpect(status().isOk()).andExpect(cookie().exists("pixiv_session"));
         verify(setup).createSession(true);
     }
 
     @Test
-    @DisplayName("策略异常仅返回稳定错误，密码错误、限流和 CSRF 在策略之前拒绝")
+    @DisplayName("策略失败不核对密码，限流和 CSRF 在策略之前拒绝")
     void failureDoesNotExposeProofOrBypassExistingGuards() throws Exception {
         var calls = new java.util.concurrent.atomic.AtomicInteger();
         install("broken", "neutral", attempt -> {
@@ -149,13 +150,14 @@ class OperationVerificationGateTest {
         assertThat(result.getResponse().getContentAsString()).doesNotContain("private-proof");
         var wrong = request();
         wrong.put("password", "wrong");
-        login(wrong).andExpect(status().isUnauthorized());
+        login(wrong).andExpect(status().isServiceUnavailable());
         mvc.perform(post("/api/auth/login").header("Origin", "https://foreign.example")
                 .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsBytes(request())))
                 .andExpect(status().isForbidden());
         when(limits.isAllowed(anyString())).thenReturn(false);
         login(request()).andExpect(status().isTooManyRequests());
-        assertThat(calls).hasValue(1);
+        assertThat(calls).hasValue(2);
+        verify(setup, never()).checkLogin(anyString(), anyString());
         verify(setup, never()).createSession(anyBoolean());
     }
 
@@ -184,10 +186,51 @@ class OperationVerificationGateTest {
     }
 
     private String challengeToken() throws Exception {
-        var response = login(request()).andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("setup.login.verification.required"))
+        var response = mvc.perform(post("/api/auth/login/prepare").header("Origin", "http://localhost")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsBytes(Map.of("username", "admin", "rememberMe", true))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CHALLENGE"))
                 .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE)).andReturn().getResponse();
         return json.readTree(response.getContentAsByteArray()).get("token").asText();
+    }
+
+    @Test
+    @DisplayName("准备不核对密码，完整证明只允许一次密码尝试，错误密码也消费证明")
+    void preparesBeforeCredentialsAndConsumesFailedAttempt() throws Exception {
+        install("provider", "neutral", attempt -> attempt.response() && attempt.proof().equals("answer")
+                ? approve() : new OperationVerificationResult(OperationVerificationResult.Status.CHALLENGE, "question"));
+        var answer = request();
+        answer.put("operationToken", challengeToken());
+        verify(setup, never()).checkLogin(anyString(), anyString());
+        verify(setup, never()).createSession(anyBoolean());
+        answer.put("operationProofs", Map.of("neutral", "answer"));
+        answer.put("password", "wrong");
+        login(answer).andExpect(status().isUnauthorized()).andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
+        verify(setup, times(1)).checkLogin("admin", "wrong");
+        answer.put("password", "password1234");
+        login(answer).andExpect(status().isConflict());
+        verify(setup, never()).checkLogin("admin", "password1234");
+        answer.put("operationToken", challengeToken());
+        login(answer).andExpect(status().isOk()).andExpect(cookie().exists("pixiv_session"));
+    }
+
+    @Test
+    @DisplayName("无需验证的准备也不创建会话，准备入口仍执行输入、CSRF 和限流检查")
+    void preparationDoesNotExecuteLogin() throws Exception {
+        configure("");
+        mvc.perform(post("/api/auth/login/prepare").header("Origin", "http://localhost")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"username\":\"admin\",\"rememberMe\":false}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("APPROVED"))
+                .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
+        verify(setup, never()).checkLogin(anyString(), anyString());
+        verify(setup, never()).createSession(anyBoolean());
+        mvc.perform(post("/api/auth/login/prepare").header("Origin", "http://localhost")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"username\":\"\"}")).andExpect(status().isBadRequest());
+        mvc.perform(post("/api/auth/login/prepare").header("Origin", "https://foreign.example")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"username\":\"admin\"}")).andExpect(status().isForbidden());
+        when(limits.isAllowed(anyString())).thenReturn(false);
+        mvc.perform(post("/api/auth/login/prepare").header("Origin", "http://localhost")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"username\":\"admin\"}")).andExpect(status().isTooManyRequests());
     }
 
     @Test

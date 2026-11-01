@@ -386,11 +386,21 @@ function field(root, caption, type, value, update) {
 function blocks() {
     const openGroups = new Map(editor.BlockManager.getCategories().map(category => [category.id, category.get('open')]));
     editor.BlockManager.getAll().reset();
-    const add = (id, options, group) => {
+    editor.BlockManager.getCategories().reset();
+    const categories = new Map();
+    for (const category of catalog.componentCategories || []) {
+        const name = category.namespace && category.labelKey
+            ? componentI18n.t(category.namespace + ':' + category.labelKey, category.id) : category.id;
+        const description = category.descriptionKey ? componentI18n.t(category.namespace + ':' + category.descriptionKey, '') : '';
+        for (const type of category.components) categories.set(type, {id: 'plugin:' + category.id, name, description});
+    }
+    const add = (id, options, group, category = {id: group, name: t('custom.group-' + group)}) => {
         const label = document.createElement('span'); label.textContent = options.label;
-        editor.BlockManager.add(id, {...options, detailName: options.label, detailGroup: group, label: label.innerHTML,
+        editor.BlockManager.add(id, {...options, detailName: options.label, detailGroup: group,
+            detailCategory: category.name, categoryDescription: category.description, label: label.innerHTML,
             media: icon(group === 'layout' || group === 'content' ? id : 'component'), onClick: block => showBlockDetails(block.id),
-            attributes: {'data-component-block': id}, category: {id: group, label: t('custom.group-' + group), open: openGroups.get(group) ?? true}});
+            attributes: {'data-component-block': id},
+            category: {id: category.id, label: category.name, open: openGroups.get(category.id) ?? true}});
     };
     add('box', {label: t('container'), content: {type: 'page-box',
         style: {display: 'flex', 'flex-direction': 'column', gap: '16px', padding: '24px', 'min-height': '80px'}}}, 'layout');
@@ -401,13 +411,16 @@ function blocks() {
     }, 'layout');
     add('text', {label: t('text'), content: {type: 'page-text'}}, 'content');
     add('link', {label: t('link'), content: {type: 'page-link', style: {'font-size': 'inherit'}}}, 'content');
-    for (const entry of catalog.components) {
+    const categoryOrder = new Map([...categories.keys()].map((type, index) => [type, index]));
+    for (const entry of [...catalog.components].sort((a, b) =>
+        (categoryOrder.get(a.definition.type) ?? Infinity) - (categoryOrder.get(b.definition.type) ?? Infinity))) {
         const definition = entry.definition;
         if (definition.type === 'page-editor:custom') continue;
+        const owner = definition.type.split(':')[0];
         add(definition.type, {label: label(definition), content: {
             type: 'page-component', componentType: definition.type, configVersion: definition.version,
             configuration: JSON.parse(definition.defaults)
-        }}, 'plugins');
+        }}, 'plugins', categories.get(definition.type) || {id: 'plugin:' + owner, name: owner});
     }
     for (const component of catalog.customComponents || []) if (component.enabled && component.latest) {
         add('custom:' + component.id, {label: component.name, content: {
@@ -419,10 +432,13 @@ function blocks() {
     $('custom-blocks-empty').hidden = (catalog.customComponents || []).some(item => item.enabled && item.latest);
     for (const group of $('blocks').querySelectorAll('.gjs-block-category')) {
         const content = group.querySelector('.gjs-blocks-c');
-        const kind = editor.BlockManager.get(content.querySelector('.gjs-block')?.dataset.componentBlock)?.get('detailGroup');
-        if (kind === 'layout' || kind === 'content') {
+        const block = editor.BlockManager.get(content.querySelector('.gjs-block')?.dataset.componentBlock);
+        const kind = block?.get('detailGroup');
+        const description = kind === 'layout' || kind === 'content'
+            ? t('custom.group-' + kind + '-help') : block?.get('categoryDescription');
+        if (description) {
             const help = document.createElement('p'); help.className = 'block-group-help';
-            help.textContent = t('custom.group-' + kind + '-help'); content.prepend(help);
+            help.textContent = description; content.prepend(help);
         }
     }
     for (const element of $('blocks').querySelectorAll('.gjs-block')) {
@@ -451,7 +467,7 @@ function showBlockDetails(id, focus = true) {
         const group = block.get('detailGroup'), content = block.getContent();
         const builtin = group === 'layout' || group === 'content';
         $('component-detail-name').textContent = block.get('detailName');
-        $('component-detail-group').textContent = t('custom.group-' + group);
+        $('component-detail-group').textContent = block.get('detailCategory');
         $('component-detail-description').textContent = t('details.' + (builtin ? id : group));
         $('component-detail-version-row').hidden = builtin;
         $('component-detail-version-label').textContent = t(group === 'custom' ? 'custom.version' : 'details.config-version');
@@ -523,7 +539,8 @@ function filterBlocks() {
     if (query) editor.BlockManager.getCategories().forEach(category => category.set('open', true));
     let count = 0;
     for (const element of $('blocks').querySelectorAll('.gjs-block')) {
-        element.hidden = !element.textContent.toLocaleLowerCase().includes(query);
+        const category = editor.BlockManager.get(element.dataset.componentBlock)?.get('detailCategory') || '';
+        element.hidden = !(element.textContent + ' ' + category).toLocaleLowerCase().includes(query);
         if (!element.hidden) count++;
     }
     for (const group of $('blocks').querySelectorAll('.gjs-block-category')) {
@@ -715,7 +732,8 @@ function manipulate(action) {
 }
 
 async function loadComponentTranslations(next) {
-    const namespaces = [...new Set([...next.components.map(entry => entry.definition.namespace), ...next.pages.map(page => page.definition.namespace)])];
+    const namespaces = [...new Set([...next.components.map(entry => entry.definition.namespace),
+        ...next.pages.map(page => page.definition.namespace), ...(next.componentCategories || []).map(category => category.namespace)].filter(Boolean))];
     const client = await window.PixivI18n.create({namespaces, signal: lifetime.signal});
     if (lifetime.signal.aborted) { client.dispose(); return; }
     componentI18n?.dispose(); componentI18n = client;

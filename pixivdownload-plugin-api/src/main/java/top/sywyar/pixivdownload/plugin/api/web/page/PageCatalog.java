@@ -9,6 +9,8 @@ import java.util.List;
 public interface PageCatalog {
     /** @return 所有活动组件的纯值快照 */
     List<AvailableComponent> components();
+    /** @return 活动贡献的组件分类，包含宿主按插件名称补齐的默认分类；撤回后自然缺席 */
+    default List<PageComponentCategory> componentCategories() { return List.of(); }
     /** @return 所有活动页面 */
     List<AvailablePage> pages();
     /**
