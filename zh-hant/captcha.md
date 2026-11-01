@@ -1,6 +1,6 @@
 # 操作驗證碼插件
 
-官方 `captcha` 插件提供 Turnstile、ALTCHA SHA-256 與 ALTCHA PBKDF2 三種表單驗證元件。插件按需安裝，標準發行包不預先安裝，完整離線包包含。將元件放入相容表單並發佈後，伺服器會強制驗證證明。
+官方 `captcha` 插件提供 Turnstile、reCAPTCHA v2、ALTCHA SHA-256、ALTCHA PBKDF2、字元輸入與滑塊拼圖六種表單驗證元件。插件按需安裝，標準發行包不預先安裝，完整離線包包含。將元件放入相容表單並發佈後，伺服器會強制驗證證明。
 
 驗證碼用於增加自動化提交的成本，不能取代網路層 DDoS 防護、反向代理限流或存取控制。外部連線見[網路存取與第三方服務](/zh-hant/network-access)。
 
@@ -11,6 +11,9 @@
 | Turnstile 線上驗證 | 託管模式下，點擊「開始驗證」後由 Cloudflare 控件決定是否需要進一步互動 | 瀏覽器載入 Cloudflare，伺服器向 Cloudflare 驗證票據 | Cloudflare 帳號、Sitekey、Secret key 及允許的主機名稱 |
 | ALTCHA SHA-256 | 元件名為「ALTCHA 離線驗證」；點擊後等待計算，完成時顯示「已完成驗證」 | 瀏覽器完成 SHA-256 工作量證明，本機服務簽發挑戰並驗簽 | 首次啟用自動產生本機簽章金鑰，無需第三方帳號 |
 | ALTCHA PBKDF2 | 元件名為「ALTCHA PBKDF2 離線驗證」；互動與 SHA-256 相同 | 瀏覽器透過 PBKDF2/SHA-256 金鑰衍生完成工作量證明，本機服務驗簽 | 與 SHA-256 共用本機簽章金鑰，無需第三方帳號 |
+| 字元驗證碼（離線） | 輸入圖片中的 5 位字元並確認 | Hutool 本機產生，伺服器核對答案 | 無額外設定 |
+| 滑塊拼圖（離線） | 拖動滑塊對準缺口並確認 | Tianai 本機產生，伺服器核對位置 | 無額外設定 |
+| reCAPTCHA v2 | 勾選核取方塊，可能出現識圖題 | Google 控件與 Siteverify | v2 Checkbox 公鑰、密鑰及主機名稱 |
 
 兩種 ALTCHA 都不要求辨識圖片或輸入字元。「離線」指不依賴第三方驗證碼服務，瀏覽器仍需連線至目前的 PixivDownloader 實例。耗時取決於演算法、參數與裝置，不能僅憑 PBKDF2 名稱判斷速度或防護較佳。機制見 [ALTCHA 工作量證明說明](https://altcha.org/docs/integration/proof-of-work-captcha/)。
 
@@ -18,8 +21,10 @@
 
 ## 安裝並綁定表單
 
+在「設定 → 操作驗證碼」中，透過「驗證元件」下拉選單選擇 ALTCHA、Cloudflare Turnstile 或 Google reCAPTCHA v2，查看各自的設定。切換選項會保留未儲存的輸入，不會啟用或停用元件；表單使用哪種驗證仍由頁面編輯器中的綁定決定。
+
 1. 在[插件管理與市場](/zh-hant/plugin-management)安裝並啟用「操作驗證碼」及「頁面編輯器」。
-2. 離線方案保留自動產生的金鑰即可；Turnstile 請先依下文設定。
+2. ALTCHA 保留自動產生的金鑰即可；字元與滑塊無需額外設定；線上方式請先依下文設定。
 3. 開啟[頁面編輯器](/zh-hant/page-editor)，選擇登入頁等相容頁面，從「驗證碼」分類將元件拖入表單。確認其保護操作已綁定目標表單；若放在表單外或綁定有歧義，先修正再發佈。
 4. 發佈頁面並核對要求的資源權限。僅儲存草稿不會改變正式頁面的驗證要求。
 5. 以未登入視窗開啟正式頁面。登入時先填寫使用者名稱、密碼，再點擊「開始驗證」；全部驗證完成後點擊登入。
@@ -28,13 +33,32 @@
 
 插件支援熱載入，正常安裝與啟用後重新整理頁面即可。若更新開發環境中已載入的 Java 類別或宿主程式碼，須重新啟動開發實例後再整理頁面。
 
-## 設定離線驗證
+## 設定 ALTCHA 離線驗證
 
 兩種 ALTCHA 共用「ALTCHA 簽章金鑰」。首次啟用自動產生 32 位元組隨機值，由宿主加密儲存在目前實例的 `config/credentials/captcha.properties`；若自訂設定根目錄，路徑會隨之變更。重新啟用或啟動沿用已有金鑰，沒有自動到期時間，通常不需手動修改。
 
-手動替換至少需要 32 個字元；密碼欄位留空儲存會保留原值。清除已儲存憑據後，執行中的離線驗證會拒絕操作，下次重新啟用插件才產生新金鑰。已有無效值、儲存損壞或寫入失敗不會改用暫時金鑰。
+手動替換至少需要 32 個字元；密碼欄位留空儲存會保留原值。清除已儲存憑據後，執行中的 ALTCHA 驗證會拒絕操作，下次重新啟用插件才產生新金鑰。已有無效值、儲存損壞或寫入失敗不會改用暫時金鑰。
 
 Worker 隨插件提供，無需外部 CDN。計算依賴 Web Crypto，請透過 HTTPS 或瀏覽器認可的本機安全來源存取；普通 HTTP 的區域網路 IP 可能無法使用該 API。參見 [Web Crypto 安全環境要求](https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto)。
+
+## 字元輸入與滑塊拼圖
+
+「字元驗證碼（離線）」使用 Hutool 產生圖片，輸入其中的 5 位字母或數字（不區分大小寫）後點擊「確認輸入」。「滑塊拼圖（離線）」使用 Tianai 產生拼圖，拖動滑塊將拼圖對準缺口後點擊「確認位置」；也可聚焦滑塊後用方向鍵調整、Enter 確認。
+
+這兩種方式不需要第三方帳號或額外密鑰。圖片由目前實例產生，答案僅存於伺服器記憶體；挑戰 120 秒有效，每次提交僅檢查一次。「換一張」會清除目前表單的全部驗證結果；過期或重新啟動後須重新取得圖片。「已確認」表示答案已準備好隨表單提交，正確與否由伺服器在提交時判斷。
+
+字元辨識與滑塊位置檢查只提供基本防自動化能力。目前滑塊沒有行為辨識模型，應搭配請求限流使用。視力受限使用者可選擇無需識圖的 ALTCHA。
+
+## 申請與設定 Google reCAPTCHA v2
+
+1. 在 [Google reCAPTCHA 管理控制台](https://www.google.com/recaptcha/admin/create)建立 **v2 →「我不是機器人」核取方塊**類型的網站，不要選 v3 或 Invisible。
+2. 加入實際主機名稱。本機測試加入 `localhost`，以 `http://localhost:6999` 存取。不填協定、連接埠或路徑。
+3. 在「設定 → 操作驗證碼」填入「reCAPTCHA 網站公鑰」、同一網站的「reCAPTCHA 驗證密鑰」與「reCAPTCHA 預期主機名稱」（例如 `localhost`）。關閉「允許 reCAPTCHA 官方測試設定」。密鑰會加密儲存。
+4. 將「reCAPTCHA v2 線上驗證」拖入表單並發佈。變更公鑰、主機名稱或測試模式後須重新發佈；僅更換密鑰會使舊挑戰失效。
+
+瀏覽器及伺服器皆須連線 Google。是否顯示圖片選擇題由 Google 決定，並非每次都會出現。插件使用傳統 Siteverify，不接入 Enterprise Assessments。[顯示設定](https://developers.google.com/recaptcha/docs/display) · [伺服器驗證](https://developers.google.com/recaptcha/docs/verify)
+
+僅檢查整合時，公鑰可用 `6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI`、密鑰可用 `6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe`，開啟官方測試設定並重新發佈。測試時預期主機名稱可留白，插件核對回應中的 `testkey.google.com`，不需擁有或開啟該網域。[官方測試密鑰](https://developers.google.com/recaptcha/docs/faq)不提供防自動化保護，也不能驗收真實識圖挑戰。正式使用時換回自己的密鑰、實際主機名稱並關閉測試設定。
 
 ## 申請與設定 Turnstile
 
@@ -96,9 +120,9 @@ Worker 隨插件提供，無需外部 CDN。計算依賴 Web Crypto，請透過 
 | `CAPTCHA_CREDENTIAL_MISSING` / `CAPTCHA_CREDENTIAL_INVALID` | 依日誌中的設定鍵檢查憑據；請勿把金鑰放入日誌或問題回報 |
 | `CAPTCHA_CONFIG_INVALID` | 檢查指出的公鑰、主機名稱或測試模式，確保金鑰組合相符 |
 | `PUBLISHED_POLICY_CHANGED` | 核對設定後重新發佈對應頁面 |
-| `CAPTCHA_REMOTE_UNAVAILABLE` 或控件載入失敗 | 檢查瀏覽器及伺服器連線 Cloudflare 的網路、代理及攔截規則 |
-| `HOSTNAME_MISMATCH` | 比對瀏覽器位址、Cloudflare 允許主機及插件預期主機 |
-| 加入 ALTCHA 後仍有策略無法使用 | 檢查表單是否也要求未設定的 Turnstile；僅需離線驗證時移除它並重新發佈 |
+| `CAPTCHA_REMOTE_UNAVAILABLE` 或控件載入失敗 | 檢查瀏覽器及伺服器連線 Cloudflare 或 Google 的網路、代理及攔截規則 |
+| `HOSTNAME_MISMATCH` | 比對瀏覽器位址、驗證碼服務允許的主機及插件預期主機 |
+| 加入 ALTCHA 後仍有策略無法使用 | 檢查表單是否也要求未設定的 Turnstile 或 reCAPTCHA；僅需離線驗證時移除對應元件並重新發佈 |
 | 完成後再次要求驗證 | 檢查是否修改輸入、提交錯誤密碼、挑戰過期或插件設定變更 |
 
 必要登入驗證策略無法使用是彙總錯誤，應查看前面的原因與設定鍵。停用或移除插件不會取消已發佈的要求，受保護操作仍會被阻擋。若要取消要求，請修改頁面並重新發佈。

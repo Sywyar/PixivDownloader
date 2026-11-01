@@ -10,6 +10,8 @@
 
 任意の公式プラグイン `captcha` は既定ではインストールされません。管理者が Turnstile を設定してフォームへの関連付けを公開すると、チャレンジ時にブラウザーが `https://challenges.cloudflare.com/turnstile/v0/api.js` と同じオリジンの iframe を読み込みます。サイトキー、操作、試行 ID と、サービスのプロトコルが使用するブラウザーのネットワーク情報を送ります。応答の検証時のみ、プラグインが同じオリジンの `/turnstile/v0/siteverify` にシークレットキーと票を POST します。ログインパスワード、Cookie、業務リクエスト全体は送りません。ブラウザーは自身のネットワーク設定、サーバーはアプリのプロキシを継承する受管 HTTP を使い、リダイレクトと Cookie を無効にします。関連付けを削除して公開すると、そのページのオンライン検証を停止できます。プラグイン停止時は保護対象操作を拒否します。ALTCHA SHA-256/PBKDF2 Worker は同梱され、現在のインスタンス以外へ接続しません。
 
+reCAPTCHA v2 を配置・公開して認証を開始すると、`https://www.google.com/recaptcha/api.js?render=explicit` を読み込みます。スクリプトと埋め込みリソースは `www.google.com`、`www.gstatic.com`、`recaptcha.google.com` を使用します。ブラウザーはサイト識別子と Google のプロトコルが収集する情報を送信します。送信時のサーバー通信は受管 HTTP で `https://www.google.com/recaptcha/api/siteverify` に秘密キーとトークンだけを POST し、ログインパスワード、Cookie、フォーム全体、追加の remoteip は送りません。アプリのプロキシを継承し、リダイレクトと Cookie は無効です。コンポーネントを削除して再公開すると、そのページの Google 接続が止まります。Hutool の文字と Tianai のパズルはローカル生成で、ブラウザーは同一オリジンの短期画像だけを取得し、答えを外部へ送りません。
+
 ## ネットワークアクセスの概要
 
 - 更新確認を有効にすると、起動準備後に GitHub Releases を確認します。頻度はキャッシュ間隔で制限されます。
@@ -186,6 +188,8 @@ GUI は記述子のプレビュー時と確認時に通信します。新しい�
 ## 開発、ビルド、リリース時
 
 公式モジュール `pixivdownload-plugin-captcha` または独立 SDK 工程 `examples/captcha-plugin` のビルドでは Maven の設定済みリポジトリ、ミラー、プロキシから `org.altcha:altcha`、`org.json:json` とビルド依存を取得します。リソース生成は `npm ci` を実行し、ロックファイルに従って `altcha` と推移依存を取得し、現在の取得先は `registry.npmmirror.com` です。要求にはパッケージ座標と設定済みのパッケージ管理認証を使い、プロジェクトの認証情報はアップロードしません。公式 Worker とライセンスをプラグインに同梱します。`page-editor-acceptance.mjs` の CAPTCHA 検証を明示実行した場合は公開テストキーで Cloudflare の公式テストコンポーネントと Siteverify に接続します。通常起動では実行しません。ビルドや検証の中止で以後の接続を止められ、検証済みローカルキャッシュでダウンロードを減らせます。
+
+画像コンポーネントは Maven の `cn.hutool:hutool-captcha`（および `hutool-core`）、`cloud.tianai.captcha:tianai-captcha` に依存し、設定済みリポジトリ、ミラー、プロキシを使います。CAPTCHA ブラウザー検証を明示実行すると、公開テストキーで Google 公式テストウィジェットと Siteverify にも接続します。通常起動では実行しません。
 
 インストール済みアプリの通常ランタイムとは別に、Git / リリーススクリプトは GitHub API と Releases、GitHub Actions は CI / Artifact / Release、Maven は `https://repo.maven.apache.org/maven2`、npm は現在のロックファイルのレジストリ、Docker は設定済み OCI レジストリと Debian パッケージ源、Windows CI は Chocolatey 源へ接続します。ミラー、プロキシ、パッケージマネージャー設定により最終先は変わるため、ソースだけから完全な固定ドメイン一覧は作れません。
 

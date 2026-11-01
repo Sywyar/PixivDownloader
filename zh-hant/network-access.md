@@ -10,6 +10,8 @@
 
 官方選用外掛 `captcha` 預設不安裝。管理員設定 Turnstile 並發布表單綁定後，實際挑戰會在瀏覽器載入 `https://challenges.cloudflare.com/turnstile/v0/api.js` 及同源 iframe，傳送網站公鑰、操作標記、本次嘗試識別及廠商協定使用的瀏覽器網路資訊。外掛僅在驗證回應時，向同源 `/turnstile/v0/siteverify` POST 驗證金鑰與票據，不傳送登入密碼、Cookie 或完整業務請求。瀏覽器使用自身網路/代理設定；伺服器使用受管 HTTP 並繼承應用代理，禁止重新導向與 Cookie。取消綁定並發布可停止該頁面的線上驗證；停用外掛會拒絕受保護操作。ALTCHA SHA-256/PBKDF2 Worker 隨外掛提供，只存取目前實例，不請求第三方服務。
 
+綁定並發佈 reCAPTCHA v2 後，開始驗證才載入 `https://www.google.com/recaptcha/api.js?render=explicit`，腳本及內嵌資源使用 `www.google.com`、`www.gstatic.com`、`recaptcha.google.com`。瀏覽器傳送網站識別碼及 Google 協定收集的資訊；提交時，伺服器經受管 HTTP 向 `https://www.google.com/recaptcha/api/siteverify` POST 密鑰與票據，不傳送登入密碼、Cookie、完整表單或額外 remoteip 參數。伺服器沿用應用程式代理並停用重新導向及 Cookie。移除元件並重新發佈可停止該頁面的 Google 存取。Hutool 字元及 Tianai 拼圖皆在本機產生；瀏覽器僅取得同源短期圖片，不向第三方傳送答案。
+
 ## 網絡訪問概覽
 
 - AI、TTS、推送、郵件和 Douyin 僅在相應功能完成配置並被調用時訪問外部服務；`notification` 是例外，它會在啓用並啓動後自動檢查固定公告索引。
@@ -220,6 +222,8 @@ GUI 預覽及確認描述檔時會連線；儲存含有新描述檔快照的設�
 ## 開發、構建和發佈流程的網絡訪問
 
 建置官方模組 `pixivdownload-plugin-captcha` 或獨立 SDK 工程 `examples/captcha-plugin` 時，Maven 依設定的儲存庫、鏡像及代理取得 `org.altcha:altcha`、`org.json:json` 與建置依賴；資源建置自動執行 `npm ci`，依鎖定檔取得 `altcha` 與傳遞依賴，目前鎖定檔使用 `registry.npmmirror.com`。請求傳送套件座標及已設定的套件管理器認證，不上傳專案憑證。建置會將官方 Worker 與授權文件寫入外掛。明確執行 `page-editor-acceptance.mjs` 驗證碼驗收時，會以公開測試金鑰存取 Cloudflare 官方測試元件及 Siteverify。一般應用啟動不執行這些工程請求。取消建置/測試會停止後續存取；經驗證的本機依賴快取可減少下載。
+
+圖片元件新增 Maven 依賴 `cn.hutool:hutool-captcha`（及 `hutool-core`）、`cloud.tianai.captcha:tianai-captcha`，沿用設定的倉庫、鏡像與代理。明確執行驗證碼瀏覽器驗收也會以公開測試密鑰連線 Google 官方測試控件與 Siteverify；一般啟動不執行這些請求。
 
 以下目標不屬於已安裝應用的常規運行時請求：
 

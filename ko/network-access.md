@@ -6,6 +6,8 @@
 
 선택 사항인 공식 `captcha` 플러그인은 기본 설치되지 않습니다. 관리자가 Turnstile을 설정하고 폼 연결을 게시하면 챌린지 시 브라우저가 `https://challenges.cloudflare.com/turnstile/v0/api.js`와 같은 출처의 iframe을 로드합니다. 사이트 키, 작업, 시도 ID와 업체 프로토콜이 사용하는 브라우저 네트워크 정보를 보냅니다. 응답 검증 시에만 플러그인이 같은 출처의 `/turnstile/v0/siteverify`로 비밀 키와 토큰을 POST합니다. 로그인 비밀번호, Cookie, 전체 업무 요청은 보내지 않습니다. 브라우저는 자체 네트워크 설정을 사용하고 서버는 앱 프록시를 상속하는 관리형 HTTP를 사용하며 리디렉션과 Cookie를 금지합니다. 연결을 삭제하고 게시하면 해당 페이지의 온라인 검증이 중지됩니다. 플러그인을 중지하면 보호된 작업이 거부됩니다. ALTCHA SHA-256/PBKDF2 Worker는 플러그인에 포함되어 현재 인스턴스에만 접근하며 외부 서비스를 요청하지 않습니다.
 
+reCAPTCHA v2를 연결하고 게시한 후 인증을 시작하면 `https://www.google.com/recaptcha/api.js?render=explicit`를 로드합니다. 스크립트와 내장 리소스는 `www.google.com`, `www.gstatic.com`, `recaptcha.google.com`을 사용합니다. 브라우저는 사이트 식별자와 Google 프로토콜에서 수집한 정보를 보냅니다. 제출 시 서버의 관리형 HTTP는 `https://www.google.com/recaptcha/api/siteverify`에 비밀 키와 토큰만 POST하며 로그인 비밀번호, Cookie, 전체 폼, 추가 remoteip는 보내지 않습니다. 앱 프록시를 따르고 리디렉션과 Cookie를 사용하지 않습니다. 구성 요소를 제거하고 다시 게시하면 해당 페이지의 Google 연결이 중단됩니다. Hutool 문자와 Tianai 퍼즐은 로컬에서 생성하며 브라우저는 동일 출처의 단기 이미지 주소만 요청하고 정답을 타사로 보내지 않습니다.
+
 ## 네트워크 개요
 
 PixivDownloader는 동작에 필요한 요청만 수행하며, 요청의 주체·시점·목적·전송 데이터는 플러그인과 작업에 따라 달라집니다. Cookie, 계정, 작품 정보와 로컬 경로는 외부 분석 서비스로 전송하지 않습니다.
@@ -86,6 +88,8 @@ GUI는 설명자 미리보기와 확인 시 네트워크에 연결합니다. 새
 ## 개발·빌드·릴리스 중 네트워크
 
 공식 모듈 `pixivdownload-plugin-captcha` 또는 독립 SDK 프로젝트 `examples/captcha-plugin` 빌드는 Maven의 저장소, 미러, 프록시 설정으로 `org.altcha:altcha`, `org.json:json` 및 빌드 의존성을 받습니다. 리소스 생성 시 `npm ci`를 실행하여 잠금 파일에 따라 `altcha`와 전이 의존성을 받으며 현재 호스트는 `registry.npmmirror.com`입니다. 패키지 좌표와 설정된 패키지 관리자 인증을 보내지만 프로젝트 자격 증명은 업로드하지 않습니다. 공식 Worker와 라이선스를 플러그인에 포함합니다. `page-editor-acceptance.mjs`의 CAPTCHA 검증을 명시적으로 실행하면 공개 테스트 키로 Cloudflare 공식 테스트 컴포넌트와 Siteverify에 접근합니다. 일반 앱 시작 시에는 실행하지 않습니다. 빌드나 테스트를 취소하면 이후 요청이 중지되며 검증된 로컬 캐시로 다운로드를 줄일 수 있습니다.
+
+이미지 구성 요소는 Maven 의존성 `cn.hutool:hutool-captcha`(및 `hutool-core`), `cloud.tianai.captcha:tianai-captcha`를 추가하며 설정된 저장소, 미러, 프록시를 사용합니다. CAPTCHA 브라우저 검증을 명시적으로 실행하면 공개 테스트 키로 Google 공식 테스트 위젯과 Siteverify에도 연결합니다. 일반 시작 시에는 실행하지 않습니다.
 
 Maven, npm, GitHub Actions, Docker와 패키징 도구는 의존성·아티팩트·릴리스 서비스에 연결할 수 있습니다. 이는 최종 사용자 런타임 요청과 별개의 공급망 경계입니다.
 
