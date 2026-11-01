@@ -31,11 +31,8 @@ public interface ServiceBinding extends AutoCloseable {
     /**
      * 只读诊断不触发重试或生命周期变化；旧句柄只报告自身绑定。
      * @return 当前状态与最近原因的精确发布证据
-     * @throws ServiceAccessException 宿主不支持诊断
      */
-    default ServiceBindingDiagnostic diagnostic() {
-        throw new ServiceAccessException(ServiceAccessException.Reason.UNSUPPORTED);
-    }
+    ServiceBindingDiagnostic diagnostic();
 
     /** 请求重试失败的资源清理或激活；不重放服务命令。 */
     void retry();

@@ -1,5 +1,14 @@
 /* 插件只接收纯值与可取消上下文，不接收编辑器对象。 */
 import {validateWireValue} from '/sdk/values/value-codecs.mjs';
+let pageRecoveryInstalled = false;
+function ensurePageRecovery() {
+    if (pageRecoveryInstalled || typeof window === 'undefined') return;
+    pageRecoveryInstalled = true;
+    window.addEventListener('pagehide', event => {
+        // 初始化也可能被缓存；恢复监听独立于实例清理，每份文档只重载一次。
+        if (event.persisted) window.addEventListener('pageshow', () => location.reload(), {once: true});
+    }, {once: true});
+}
 const publications = new Map();
 function watchPublication(token, url, withdrawn) {
     let entry = publications.get(token);
@@ -10,7 +19,8 @@ function watchPublication(token, url, withdrawn) {
             if (entry.pending || abort.signal.aborted) return;
             entry.pending = true;
             try {
-                const response = await fetch(url, {method: 'HEAD', cache: 'no-store', signal: abort.signal, redirect: 'error'});
+                const response = await fetch(url, {method: 'HEAD', cache: 'no-store',
+                    signal: AbortSignal.any([abort.signal, AbortSignal.timeout(10000)]), redirect: 'error'});
                 if (!response.ok) throw new Error('PAGE_COMPONENT_UNAVAILABLE');
             } catch (_) {
                 if (!abort.signal.aborted) for (const callback of [...entry.callbacks]) callback();
@@ -87,6 +97,83 @@ export function portValue(port, input) {
     return value;
 }
 
+/** 表单 owner 持有目标，组件只取得自己实例的有界挑战通道。 */
+export function createOperationTarget(operation, onChange = () => {}) {
+    ensurePageRecovery();
+    const participants = new Map();
+    let revision = '', token = '', challenges = {}, proofs = {}, closed = false;
+    const notify = () => {
+        for (const entry of participants.values()) {
+            const value = token && Object.hasOwn(challenges, entry.policy)
+                ? {id: token, revision, value: portValue({schema: entry.protocol.stateSchema}, challenges[entry.policy])} : null;
+            entry.state = value;
+            for (const listener of entry.listeners) {
+                try { listener(value === null ? null : pureValue(value)); }
+                catch (_) { console.error('PAGE_INTERACTION_LISTENER_FAILED'); }
+            }
+        }
+        onChange({token, revision, challenges: pureValue(challenges)});
+    };
+    const reset = () => { token = ''; challenges = {}; proofs = {}; notify(); };
+    return Object.freeze({
+        operation,
+        configure(next) { if (closed) throw new Error('PAGE_INTERACTION_CLOSED'); if (revision !== next) { revision = next; reset(); } },
+        challenge(next) {
+            if (next.revision !== revision) { reset(); throw new Error('PAGE_REVISION_CHANGED'); }
+            if (closed || typeof next.token !== 'string' || !next.token || next.token.length > 128
+                    || !next.challenges || Array.isArray(next.challenges) || typeof next.challenges !== 'object'
+                    || Object.keys(next.challenges).length > 16) throw new Error('PAGE_INTERACTION_INVALID');
+            const checked = pureValue(next.challenges);
+            for (const [policy, value] of Object.entries(checked)) {
+                if (!/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(policy) || policy.length > 96 || typeof value !== 'string'
+                        || new TextEncoder().encode(value).length > 16384) throw new Error('PAGE_INTERACTION_INVALID');
+            }
+            if (new TextEncoder().encode(JSON.stringify(checked)).length > 65536) throw new Error('PAGE_INTERACTION_INVALID');
+            token = next.token; challenges = checked; proofs = {}; notify();
+        },
+        request() { return {token, proofs: pureValue(proofs)}; },
+        reset,
+        connect({instanceId, policy, protocol, operation: declared}, signal) {
+            if (closed || declared !== operation || !instanceId || participants.has(instanceId) || participants.size >= 16)
+                throw new Error('PAGE_INTERACTION_INVALID');
+            if ([...participants.values()].some(entry => entry.policy === policy)) throw new Error('PAGE_INTERACTION_DUPLICATE');
+            const entry = {policy, protocol: pureValue(protocol), listeners: new Set(), state: null};
+            participants.set(instanceId, entry);
+            let disposed = false;
+            const dispose = () => {
+                if (disposed) return;
+                disposed = true; participants.delete(instanceId); entry.listeners.clear();
+                signal?.removeEventListener('abort', dispose); reset();
+            };
+            entry.dispose = dispose;
+            signal?.addEventListener('abort', dispose, {once: true});
+            if (signal?.aborted) dispose(); else notify();
+            return Object.freeze({
+                onState(listener) {
+                    if (disposed || typeof listener !== 'function' || entry.listeners.size >= 16) throw new Error('PAGE_INTERACTION_INVALID');
+                    entry.listeners.add(listener); listener(entry.state === null ? null : pureValue(entry.state));
+                    return () => entry.listeners.delete(listener);
+                },
+                respond(id, value) {
+                    if (disposed || closed || !token || id !== token || entry.state?.revision !== revision
+                            || !Object.hasOwn(challenges, policy) || Object.hasOwn(proofs, policy)) return false;
+                    const checked = portValue({schema: protocol.responseSchema}, value);
+                    if (typeof checked !== 'string' || new TextEncoder().encode(checked).length > 16384) throw new Error('PAGE_INTERACTION_INVALID');
+                    const next = {...proofs, [policy]: checked};
+                    if (new TextEncoder().encode(JSON.stringify(next)).length > 65536) throw new Error('PAGE_INTERACTION_INVALID');
+                    proofs = next; return true;
+                },
+                destroy: dispose
+            });
+        },
+        destroy() {
+            if (closed) return; closed = true; reset();
+            for (const entry of [...participants.values()]) entry.dispose();
+            participants.clear();
+        }
+    });
+}
+
 /** 串行转发保留中间组件的输出；队列仅属于当前页面实例。 */
 export function connectionDispatcher(connections, receive, onError = () => {}) {
     if (connections.length > 256) throw new Error('PAGE_CONNECTION_INVALID');
@@ -141,6 +228,15 @@ export async function mountComponent(root, definition, configuration, options = 
     let mounted;
     let destroyed = false;
     let disposal;
+    let cleanupFailed = false;
+    const reportCleanupFailure = () => {
+        if (cleanupFailed) return;
+        cleanupFailed = true;
+        const error = new Error('PAGE_COMPONENT_CLEANUP_FAILED');
+        console.error(error.message);
+        try { options.onError?.(error); }
+        catch (_) { console.error('PAGE_COMPONENT_ERROR_HANDLER_FAILED'); }
+    };
     let props = pureValue(configuration);
     const mode = options.mode || 'display';
     const url = new URL(options.properties ? definition.propertiesModuleUrl : definition.moduleUrl, location.origin);
@@ -149,7 +245,8 @@ export async function mountComponent(root, definition, configuration, options = 
     const assertActive = () => { if (destroyed) throw new DOMException('Page component disposed', 'AbortError'); };
     const onCleanup = fn => {
         if (typeof fn !== 'function') throw new TypeError('cleanup');
-        if (destroyed) fn(); else cleanups.push(fn);
+        if (destroyed) Promise.resolve().then(fn).catch(reportCleanupFailure);
+        else cleanups.push(fn);
     };
     const dispose = () => {
         if (destroyed) return disposal;
@@ -157,9 +254,10 @@ export async function mountComponent(root, definition, configuration, options = 
         abort.abort();
         disposal = (async () => {
         for (const fn of cleanups.splice(0).reverse()) {
-            try { await fn(); } catch (error) { options.onError?.(error); }
+            try { await fn(); } catch (_) { reportCleanupFailure(); }
         }
-        try { await mounted?.destroy?.(); } finally { root.replaceChildren(); inputs.clear(); }
+        try { await mounted?.destroy?.(); } catch (_) { reportCleanupFailure(); }
+        finally { root.replaceChildren(); inputs.clear(); }
         })();
         return disposal;
     };
@@ -183,6 +281,7 @@ export async function mountComponent(root, definition, configuration, options = 
         instanceId: options.instanceId, mode, signal: abort.signal,
         get properties() { return pureValue(props); },
         t: options.t || ((key) => key), fetch: fetchBound, onCleanup,
+        interaction: options.interaction,
         async importModule(path) {
             assertActive();
             const dependency = new URL(path, url);
@@ -215,6 +314,7 @@ export async function mountComponent(root, definition, configuration, options = 
         },
         change: value => { assertActive(); options.onChange?.(pureValue(value)); }
     });
+    onCleanup(() => options.interaction?.destroy());
     options.signal?.addEventListener('abort', dispose, {once: true});
     onCleanup(() => options.signal?.removeEventListener('abort', dispose));
     if (options.signal?.aborted) await dispose();
@@ -226,7 +326,10 @@ export async function mountComponent(root, definition, configuration, options = 
         const factory = options.properties ? module.mountProperties : module.mount;
         if (typeof factory !== 'function') throw new Error('PAGE_MODULE_INVALID');
         const pending = await factory(root, context);
-        if (destroyed) { await pending?.destroy?.(); throw new DOMException('Disposed', 'AbortError'); }
+        if (destroyed) {
+            try { await pending?.destroy?.(); } catch (_) { reportCleanupFailure(); }
+            throw new DOMException('Disposed', 'AbortError');
+        }
         mounted = pending;
         // 服务端立即关闭准入；同一 publication 共用轮询以释放闲置实例。
         onCleanup(watchPublication(definition.publication, url, async () => {
@@ -316,8 +419,11 @@ export async function renderPage(root, view, options = {}) {
         if (node.id) ids.set(node.id, element);
         for (const [property, value] of Object.entries(node.style || {})) element.style.setProperty(property, value);
         if (node.type === 'page-component') {
+            element.dataset.pageComponent = node.instanceId;
             if (node.unavailable) element.textContent = options.t('unavailable');
             else mounts.push(async () => {
+                if (options.mode === 'display' && node.target && !options.targets?.[node.target])
+                    throw new Error('PAGE_TARGET_UNAVAILABLE');
                 let client = namespaces.get(node.namespace);
                 if (!client && window.PixivI18n) {
                     client = await window.PixivI18n.create({namespaces: [node.namespace]});
@@ -326,6 +432,8 @@ export async function renderPage(root, view, options = {}) {
                 }
                 const instance = await mountComponent(element, node, node.configuration, {
                     ...options, signal: abort.signal, instanceId: node.instanceId,
+                    interaction: options.mode === 'display' && node.target
+                        ? options.targets?.[node.target]?.connect({...node, protocol: node.interaction}, abort.signal) : undefined,
                     t: (key, fallback) => client?.t(node.namespace + ':' + key, fallback || key) || fallback || key,
                     emit: (port, value) => forwarding.emit(node.instanceId, port, value)
                 });
@@ -367,35 +475,64 @@ export async function renderPage(root, view, options = {}) {
 }
 
 /** 页面 owner 提供受控区域及默认回退；共享渲染器不认识具体页面身份。 */
-export async function attachPage({pageId, root, regions, title, t, onMounted, onFallback}) {
-    let mounted;
-    let closed = false;
+export async function attachPage({pageId, root, regions, targets = {}, title, t, onMounted, onFallback}) {
+    ensurePageRecovery();
+    const revision = document.querySelector('meta[name="pixiv-page-revision"]')?.content || 'unavailable';
+    for (const target of Object.values(targets)) target.configure(revision);
+    let mounted, timer, closed = false, unavailable = false;
     const controller = new AbortController();
-    let timer;
-    const fallback = async () => {
-        if (closed) return; closed = true; controller.abort(); clearTimeout(timer);
-        await mounted?.destroy(); root.replaceChildren(); onFallback?.();
-    };
-    window.addEventListener('pagehide', fallback, {once: true, signal: controller.signal});
-    try {
-        const response = await fetch('/api/web/page-publications/' + encodeURIComponent(pageId), {cache: 'no-store', signal: controller.signal});
-        if (!response.ok) return fallback();
-        const view = await response.json();
+    const dispose = async () => {
         if (closed) return;
-        title(view.title || '');
-        const result = await renderPage(root, view, {mode: 'display', regions, t, signal: controller.signal, onUnavailable: fallback});
-        if (closed) { await result.destroy(); return; }
-        mounted = result;
-        onMounted?.();
-        const verifySource = async () => {
+        closed = true; controller.abort(); clearTimeout(timer);
+        for (const target of Object.values(targets)) target.reset();
+        await mounted?.destroy(); root.replaceChildren();
+    };
+    const withdraw = async () => {
+        unavailable = true;
+        for (const target of Object.values(targets)) target.reset();
+        await mounted?.destroy(); mounted = undefined;
+        root.replaceChildren(); await onFallback?.(false);
+    };
+    const reload = async () => {
+        let deadline;
+        try {
+            await Promise.race([dispose(), new Promise(resolve => { deadline = setTimeout(resolve, 2000); })]);
+        } finally { clearTimeout(deadline); location.reload(); }
+    };
+    window.addEventListener('pagehide', dispose, {once: true, signal: controller.signal});
+    const endpoint = '/api/web/page-publications/' + encodeURIComponent(pageId) + '?revision=' + encodeURIComponent(revision);
+    const request = method => fetch(endpoint, {method, cache: 'no-store', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)])});
+    const changed = response => response.status === 409 || response.headers.get('X-Pixiv-Page-Revision') !== revision;
+    try {
+        const response = await request('GET');
+        if (closed) return;
+        if ((response.ok || response.status === 404 || response.status === 409) && changed(response)) {
+            if (response.status !== 404 || response.headers.has('X-Pixiv-Page-Revision')) return reload();
+        }
+        if (response.ok) {
+            const view = await response.json();
             if (closed) return;
-            try {
-                const response = await fetch('/api/web/page-publications/' + encodeURIComponent(pageId), {method: 'HEAD', cache: 'no-store', signal: controller.signal});
-                if (!response.ok) return fallback();
-            } catch (_) { return fallback(); }
-            timer = setTimeout(verifySource, 2000);
-        };
-        timer = setTimeout(verifySource, 2000);
-    } catch (_) { await fallback(); }
-    return {destroy: fallback};
+            title(view.title || '');
+            const result = await renderPage(root, view, {mode: 'display', regions, targets, t,
+                signal: controller.signal, onUnavailable: withdraw});
+            if (closed || unavailable) await result.destroy();
+            else { mounted = result; await onMounted?.(view); }
+        } else if (response.status === 404 && response.headers.get('X-Pixiv-Page-Revision') === revision) {
+            await onFallback?.(true);
+        } else await withdraw();
+    } catch (_) { if (!closed) await withdraw(); }
+    const verifySource = async () => {
+        if (closed) return;
+        try {
+            const response = await request('HEAD');
+            if (closed) return;
+            if (response.status === 409 || (response.ok || response.status === 404) && response.headers.has('X-Pixiv-Page-Revision') && changed(response)) return reload();
+            if (response.ok || response.status === 404 && response.headers.get('X-Pixiv-Page-Revision') === revision) {
+                if (unavailable) return reload();
+            } else await withdraw();
+        } catch (_) { if (!closed) await withdraw(); }
+        if (!closed) timer = setTimeout(verifySource, 2000);
+    };
+    if (!closed) timer = setTimeout(verifySource, 2000);
+    return {destroy: dispose};
 }

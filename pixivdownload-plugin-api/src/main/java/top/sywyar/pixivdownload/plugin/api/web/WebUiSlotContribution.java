@@ -32,6 +32,7 @@ import java.util.Map;
  * @param metadata  挂载点消费者约定的只读字符串元数据；不承载宿主盖章的 owner 身份
  * @param i18nNamespace 槽位需要预加载的可选国际化命名空间；空值表示不追加资源。
  *                      随所属活动槽位发布和撤回，仅提供展示依赖，不授予额外能力
+ * @param participation 可选的操作参与声明；普通槽位为空
  */
 public record WebUiSlotContribution(
         String slotId,
@@ -39,7 +40,8 @@ public record WebUiSlotContribution(
         String moduleUrl,
         int order,
         Map<String, String> metadata,
-        String i18nNamespace
+        String i18nNamespace,
+        top.sywyar.pixivdownload.plugin.api.web.page.PageInteraction.Participant participation
 ) {
 
     /**
@@ -51,10 +53,25 @@ public record WebUiSlotContribution(
      * @param order 排序值
      * @param metadata 元数据
      * @param i18nNamespace 可选国际化命名空间
+     * @param participation 可选操作参与声明
      */
     public WebUiSlotContribution {
         metadata = Map.copyOf(metadata == null ? Map.of() : metadata);
         i18nNamespace = i18nNamespace == null ? "" : i18nNamespace.trim();
+    }
+
+    /**
+     * 已发布的普通槽位构造契约；未声明参与关系的槽位没有操作验证通道。
+     * @param slotId 槽位标识
+     * @param target 目标
+     * @param moduleUrl 模块地址
+     * @param order 排序值
+     * @param metadata 元数据
+     * @param i18nNamespace 可选国际化命名空间
+     */
+    public WebUiSlotContribution(String slotId, String target, String moduleUrl, int order,
+                                Map<String, String> metadata, String i18nNamespace) {
+        this(slotId, target, moduleUrl, order, metadata, i18nNamespace, null);
     }
 
     /**

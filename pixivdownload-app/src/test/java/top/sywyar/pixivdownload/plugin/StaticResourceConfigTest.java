@@ -45,6 +45,11 @@ class StaticResourceConfigTest {
     static class ServingConfig {
 
         @Bean
+        top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest pagePublicationRequest() {
+            return org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest.class);
+        }
+
+        @Bean
         PageContributionRegistry pageContributionRegistry() {
             return org.mockito.Mockito.mock(PageContributionRegistry.class);
         }
@@ -224,6 +229,11 @@ class StaticResourceConfigTest {
     @EnableWebMvc
     @Import(StaticResourceConfig.class)
     static class ExactFileServingConfig {
+
+        @Bean
+        top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest pagePublicationRequest() {
+            return org.mockito.Mockito.mock(top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest.class);
+        }
 
         @Bean
         PageContributionRegistry pageContributionRegistry() {

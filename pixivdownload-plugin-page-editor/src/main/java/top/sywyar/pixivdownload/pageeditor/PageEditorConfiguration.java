@@ -17,7 +17,10 @@ public class PageEditorConfiguration {
         return new ComponentSandboxController(library, previews);
     }
     @Bean PageDocuments pageDocuments(PageCatalog catalog, ComponentLibrary library) { return new PageDocuments(catalog, library); }
-    @Bean PageStore pageStore(RuntimePathProvider paths, PageDocuments documents) { return new PageStore(paths.dataDirectory().resolve("pages"), documents); }
+    @Bean PageStore pageStore(RuntimePathProvider paths, PageDocuments documents,
+            top.sywyar.pixivdownload.plugin.api.web.page.PagePublications publications) {
+        return new PageStore(paths.dataDirectory().resolve("pages"), documents, publications);
+    }
     @Bean PageEditorController pageEditorController(PageCatalog catalog, PageStore store, top.sywyar.pixivdownload.i18n.MessageResolver messages,
             ComponentLibrary library) {
         return new PageEditorController(catalog, store, messages, library);

@@ -131,6 +131,8 @@ class AuthFilterServletTest {
 
         context = new AnnotationConfigWebApplicationContext();
         context.register(WebConfig.class, StaticResourceConfig.class);
+        context.addBeanFactoryPostProcessor(factory -> factory.registerSingleton("pagePublications",
+                mock(top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest.class)));
         context.addBeanFactoryPostProcessor(factory -> factory.registerSingleton("pages",
                 mock(PageContributionRegistry.class)));
         context.addBeanFactoryPostProcessor(factory -> factory.registerSingleton("staticResources",

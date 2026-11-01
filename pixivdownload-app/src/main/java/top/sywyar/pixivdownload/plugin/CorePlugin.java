@@ -170,7 +170,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.visitorAndInvitedGuest("/api/drilldowns"),
                 // 通用 UI 槽位清单：宿主页面按 target 前缀加载活动插件声明的同源渲染模块。
                 WebRouteContribution.visitorAndInvitedGuest("/api/web/ui-slots"),
-                WebRouteContribution.publicRoute("/api/web/login-verification-slots"),
+                WebRouteContribution.publicRoute("/api/web/page-slots/**"),
                 // ── 公开（两种模式均公开）：基础页面、公开 API、公开静态前缀 ──────────────────────
                 WebRouteContribution.publicRoute("/"),
                 WebRouteContribution.publicRoute("/index"),

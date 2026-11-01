@@ -12,8 +12,130 @@ import static org.assertj.core.api.Assertions.*;
 
 class PageStoreTest {
     @TempDir Path directory;
+    @org.junit.jupiter.api.AfterEach
+    void cleanupDirectory() throws Exception {
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(directory);
+        assertThat(directory).doesNotExist();
+    }
     private final Catalog catalog = new Catalog();
-    private PageStore store() { return new PageStore(directory, new PageDocuments(catalog)); }
+    private final TestPublications publications = new TestPublications();
+    private ObjectNode publish(PageStore store, String id, long revision) { return commit(store, id, revision, false); }
+    private ObjectNode restore(PageStore store, String id, long revision) { return commit(store, id, revision, true); }
+    private ObjectNode commit(PageStore store, String id, long revision, boolean restoring) {
+        var preview = store.prepare(id, revision, restoring);
+        return store.publish(id, revision, new PageStore.Decision(preview.revision(), preview.fingerprint(), preview.permissions()), restoring);
+    }
+    private Optional<String> published(String id) {
+        return publications.read(id).map(PagePublications.Published::projection)
+                .filter(view -> !PageDocuments.parse(view).path("defaultLayout").asBoolean());
+    }
+    /** 正式存储由宿主集成测试覆盖；此替身只检验编辑器委托及草稿行为。 */
+    static final class TestPublications implements PagePublications {
+        private long revision;
+        private final Map<String, Published> values = new HashMap<>();
+        Runnable afterCommit = () -> { };
+        boolean rejectCommit;
+        public long revision() { return revision; }
+        public Optional<Published> read(String page) { return Optional.ofNullable(values.get(page)); }
+        public Plan prepare(long expected, List<Change> changes) {
+            if (expected != revision) throw new IllegalStateException("PAGE_REVISION_CONFLICT");
+            return new Plan(expected, Integer.toString(changes.hashCode()), changes, List.of(), List.of());
+        }
+        public long publish(Plan plan, List<Permission> approvals) {
+            if (plan.revision() != revision) throw new IllegalStateException("PAGE_REVISION_CONFLICT");
+            if (rejectCommit) throw new IllegalStateException("PAGE_PUBLICATION_STALE");
+            revision++;
+            for (var change : plan.changes()) {
+                Published previous = values.get(change.page());
+                values.put(change.page(), new Published(revision, change.document(), change.projection(),
+                        previous == null ? "" : previous.document()));
+            }
+            afterCommit.run();
+            return revision;
+        }
+    }
+
+    private PageStore store() { return new PageStore(directory, new PageDocuments(catalog), publications); }
+
+    private void blockDraftDirectory(Path pages) {
+        try {
+            Files.move(pages, directory.resolve("saved-pages"));
+            Files.writeString(pages, "blocked");
+        } catch (java.io.IOException failure) { throw new AssertionError(failure); }
+    }
+
+    @Test @DisplayName("正式发布提交后不再依赖草稿写盘或回读，原回滚点保持可用")
+    void committedPublicationDoesNotWriteDraftAgain() throws Exception {
+        Path pages = directory.resolve("pages");
+        var store = new PageStore(pages, new PageDocuments(catalog), publications);
+        var first = source().put("title", "first");
+        var saved = store.save("owner:page", 0, first);
+        var published = publish(store, "owner:page", saved.path("revision").asLong());
+        var second = source().put("title", "second");
+        saved = store.save("owner:page", published.path("revision").asLong(), second);
+        long revision = saved.path("revision").asLong();
+        publications.afterCommit = () -> blockDraftDirectory(pages);
+        var result = publish(store, "owner:page", revision);
+        assertThat(result.path("publicationRevision").asLong()).isEqualTo(2);
+        assertThat(result.path("revision").asLong()).isEqualTo(revision);
+        assertThat(result.path("published")).isEqualTo(second);
+        assertThat(result.path("previous")).isEqualTo(first);
+        assertThat(result.path("draftSaveFailed").asBoolean()).isFalse();
+        assertThat(PageDocuments.parse(publications.read("owner:page").orElseThrow().previousDocument())).isEqualTo(first);
+        Files.delete(pages); Files.move(directory.resolve("saved-pages"), pages);
+        assertThat(store.read("owner:page")).isEqualTo(result);
+    }
+
+    @Test @DisplayName("恢复提交后的草稿故障返回正式修订，重试保存不重复发布或损失回滚点")
+    void committedRestoreCanRetryDraftSave() throws Exception {
+        Path pages = directory.resolve("pages");
+        var store = new PageStore(pages, new PageDocuments(catalog), publications);
+        var first = source().put("title", "first");
+        var state = store.save("owner:page", 0, first);
+        state = publish(store, "owner:page", state.path("revision").asLong());
+        var second = source().put("title", "second");
+        state = store.save("owner:page", state.path("revision").asLong(), second);
+        state = publish(store, "owner:page", state.path("revision").asLong());
+        long revision = state.path("revision").asLong();
+        var preview = store.prepare("owner:page", revision, true);
+        var decision = new PageStore.Decision(preview.revision(), preview.fingerprint(), preview.permissions());
+        publications.rejectCommit = true;
+        assertThatThrownBy(() -> store.publish("owner:page", revision, decision, true)).hasMessage("PAGE_PUBLICATION_STALE");
+        assertThat(store.read("owner:page")).isEqualTo(state);
+        publications.rejectCommit = false;
+        publications.afterCommit = () -> blockDraftDirectory(pages);
+        var restored = store.publish("owner:page", revision, decision, true);
+        assertThat(restored.path("publicationRevision").asLong()).isEqualTo(3);
+        assertThat(restored.path("revision").asLong()).isEqualTo(revision);
+        assertThat(restored.path("draftSaveFailed").asBoolean()).isTrue();
+        assertThat(restored.path("published")).isEqualTo(first);
+        assertThat(restored.path("draft")).isEqualTo(first);
+        assertThat(restored.path("previous")).isEqualTo(second);
+        Files.delete(pages); Files.move(directory.resolve("saved-pages"), pages);
+        assertThat(store.read("owner:page").path("draft")).isEqualTo(second);
+        assertThatThrownBy(() -> store.publish("owner:page", revision, decision, true)).hasMessage("PAGE_PUBLICATION_STALE");
+        var saved = store.save("owner:page", revision, restored.path("draft"));
+        assertThat(saved.path("draft")).isEqualTo(first);
+        assertThat(saved.path("published")).isEqualTo(first);
+        assertThat(saved.path("previous")).isEqualTo(second);
+        assertThat(saved.path("publicationRevision").asLong()).isEqualTo(3);
+        assertThat(saved.has("draftSaveFailed")).isFalse();
+    }
+    @Test
+    @DisplayName("覆盖旧编辑器存档前保留原始内容，旧发布字段不恢复安全状态")
+    void retainsExistingContentBeforeFirstWrite() throws Exception {
+        var original = PageDocuments.JSON.createObjectNode().put("revision", 4);
+        original.set("draft", source()); original.set("published", source()); original.set("previous", source());
+        byte[] bytes = original.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        Files.write(directory.resolve("owner_page.json"), bytes);
+        var store = store();
+        assertThat(store.read("owner:page").has("published")).isFalse();
+        store.save("owner:page", 4, source());
+        assertThat(Files.readAllBytes(directory.resolve("owner_page.retained.json"))).isEqualTo(bytes);
+        store.save("owner:page", 5, source());
+        assertThat(Files.readAllBytes(directory.resolve("owner_page.retained.json"))).isEqualTo(bytes);
+        assertThat(PageDocuments.parse(Files.readString(directory.resolve("owner_page.json"))).has("published")).isFalse();
+    }
     private ObjectNode source() { return new PageDocuments(catalog).initial("owner:page"); }
     private static ArrayNode children(JsonNode source) {
         return (ArrayNode) source.path("project").path("pages").get(0).path("frames").get(0).path("component").path("components");
@@ -29,7 +151,7 @@ class PageStoreTest {
                 "components":[{"type":"page-region","region":"required"}]}}]}]}}
                 """;
         var store = store();
-        assertThat(store.published("owner:page")).isEmpty();
+        assertThat(published("owner:page")).isEmpty();
         assertThat(Files.exists(directory.resolve("owner_page.json"))).isFalse();
         var source = source();
         var root = (ObjectNode) source.at("/project/pages/0/frames/0/component");
@@ -39,10 +161,10 @@ class PageStoreTest {
         rule.putObject("style").put("display", "flex");
         ((ObjectNode) children(source).get(0)).putObject("attributes").put("id", "generated-region");
         store.save("owner:page", 0, source);
-        assertThat(store.published("owner:page")).isEmpty();
-        store.publish("owner:page", 1);
+        assertThat(published("owner:page")).isEmpty();
+        publish(store, "owner:page", 1);
         byte[] saved = Files.readAllBytes(directory.resolve("owner_page.json"));
-        assertThat(store().published("owner:page")).isEmpty();
+        assertThat(published("owner:page")).isEmpty();
         assertThat(store().read("owner:page").get("published")).isEqualTo(source);
         assertThat(Files.readAllBytes(directory.resolve("owner_page.json"))).isEqualTo(saved);
     }
@@ -62,42 +184,43 @@ class PageStoreTest {
         long revision = 0;
         for (var source : List.of(title, inline, responsive, layout)) {
             var store = store();
-            store.save("owner:page", revision++, source); store.publish("owner:page", revision++);
-            assertThat(store.published("owner:page")).isPresent();
+            revision = store.save("owner:page", revision, source).path("revision").asLong();
+            revision = publish(store, "owner:page", revision).path("revision").asLong();
+            assertThat(published("owner:page")).isPresent();
         }
     }
     @Test @DisplayName("默认布局与自定义发布之间可恢复，保留两版源文档")
     void defaultPublicationCanRestorePreviousCustomizationAndReturnToDefault() {
         var store = store();
-        store.save("owner:page", 0, source().put("title", "Custom title")); store.publish("owner:page", 1);
-        store.save("owner:page", 2, source()); store.publish("owner:page", 3);
-        assertThat(store.published("owner:page")).isEmpty();
-        store.restore("owner:page", 4);
-        assertThat(store.published("owner:page").orElseThrow()).contains("Custom title");
-        store.restore("owner:page", 5);
-        assertThat(store.published("owner:page")).isEmpty();
+        store.save("owner:page", 0, source().put("title", "Custom title")); publish(store, "owner:page", 1);
+        store.save("owner:page", 1, source()); publish(store, "owner:page", 2);
+        assertThat(published("owner:page")).isEmpty();
+        restore(store, "owner:page", 2);
+        assertThat(published("owner:page").orElseThrow()).contains("Custom title");
+        restore(store, "owner:page", 3);
+        assertThat(published("owner:page")).isEmpty();
     }
     @Test @DisplayName("并发保存拒绝覆盖，发布内容可在重新打开后恢复")
     void concurrentSaveDoesNotOverwriteAndPublicationSurvivesReopen() {
         var store = store(); var source = source(); component(source, "a"); component(source, "b");
-        store.save("owner:page", 0, source); store.publish("owner:page", 1);
+        store.save("owner:page", 0, source); publish(store, "owner:page", 1);
         assertThatThrownBy(() -> store.save("owner:page", 0, source)).hasMessage("PAGE_REVISION_CONFLICT");
-        assertThat(store().published("owner:page").orElseThrow()).contains("example:checklist", "\"instanceId\":\"a\"", "\"instanceId\":\"b\"");
-        assertThat(store().read("owner:page").path("revision").asInt()).isEqualTo(2);
+        assertThat(published("owner:page").orElseThrow()).contains("example:checklist", "\"instanceId\":\"a\"", "\"instanceId\":\"b\"");
+        assertThat(store().read("owner:page").path("revision").asInt()).isEqualTo(1);
     }
     @Test @DisplayName("无效发布与不可用恢复均保留上次已发布内容")
     void invalidPublishAndUnavailableRestoreLeaveLastPublicationUntouched() {
         var store = store(); var first = source(); component(first, "a");
-        store.save("owner:page", 0, first); store.publish("owner:page", 1);
+        store.save("owner:page", 0, first); publish(store, "owner:page", 1);
         var second = source().put("title", "second");
-        store.save("owner:page", 2, second); store.publish("owner:page", 3);
+        store.save("owner:page", 1, second); publish(store, "owner:page", 2);
         catalog.available = false;
-        assertThatThrownBy(() -> store.restore("owner:page", 4)).hasMessage("PAGE_COMPONENT_UNAVAILABLE");
-        assertThat(store.read("owner:page").path("revision").asInt()).isEqualTo(4);
-        assertThat(store.published("owner:page").orElseThrow()).contains("second");
+        assertThatThrownBy(() -> restore(store, "owner:page", 2)).hasMessage("PAGE_COMPONENT_UNAVAILABLE");
+        assertThat(store.read("owner:page").path("revision").asInt()).isEqualTo(2);
+        assertThat(published("owner:page").orElseThrow()).contains("second");
         catalog.available = true;
-        store.restore("owner:page", 4);
-        assertThat(store.published("owner:page").orElseThrow()).contains("example:checklist").doesNotContain("second");
+        restore(store, "owner:page", 2);
+        assertThat(published("owner:page").orElseThrow()).contains("example:checklist").doesNotContain("second");
     }
     @Test @DisplayName("缺席及版本不兼容的组件保留配置并阻止发布")
     void missingAndIncompatibleComponentsKeepTheirConfigurationButCannotPublish() {
@@ -107,12 +230,12 @@ class PageStoreTest {
         var changed = source.deepCopy().put("title", "layout update");
         store.save("owner:page", 1, changed);
         assertThat(store.read("owner:page").path("draft").path("project")).isEqualTo(source.path("project"));
-        assertThatThrownBy(() -> store.publish("owner:page", 2)).hasMessage("PAGE_COMPONENT_UNAVAILABLE");
+        assertThatThrownBy(() -> publish(store, "owner:page", 2)).hasMessage("PAGE_COMPONENT_UNAVAILABLE");
         ((ObjectNode) children(changed).get(1).path("configuration")).put("foreign", true);
         assertThatThrownBy(() -> store.save("owner:page", 2, changed)).hasMessage("PAGE_COMPONENT_UNAVAILABLE");
         catalog.available = true; catalog.version = 2;
         store.save("owner:page", 2, source);
-        assertThatThrownBy(() -> store.publish("owner:page", 3)).hasMessage("PAGE_COMPONENT_UNAVAILABLE");
+        assertThatThrownBy(() -> publish(store, "owner:page", 3)).hasMessage("PAGE_COMPONENT_UNAVAILABLE");
     }
     @Test @DisplayName("拒绝脚本、非法配置及缺少必需区域的页面")
     void rejectsExecutableEngineFieldsInvalidConfigAndMissingOwnerRegion() {
@@ -150,17 +273,17 @@ class PageStoreTest {
         var links = (ArrayNode) source.path("connections");
         links.addObject().put("from", "a").put("output", "out").put("to", "b").put("input", "in");
         links.addObject().put("from", "b").put("output", "out").put("to", "c").put("input", "in");
-        var store = store(); store.save("owner:page", 0, source); store.publish("owner:page", 1);
-        assertThat(store.published("owner:page")).isPresent();
+        var store = store(); store.save("owner:page", 0, source); publish(store, "owner:page", 1);
+        assertThat(published("owner:page")).isPresent();
         catalog.inputContract = "example.text/v2";
-        assertThatThrownBy(() -> store.save("owner:page", 2, source)).hasMessage("PAGE_CONNECTION_INVALID");
+        assertThatThrownBy(() -> store.save("owner:page", 1, source)).hasMessage("PAGE_CONNECTION_INVALID");
         catalog.inputContract = "example.text/v1"; catalog.inputSchema = "{\"type\":\"boolean\"}";
-        assertThatThrownBy(() -> store.save("owner:page", 2, source)).hasMessage("PAGE_CONNECTION_INVALID");
+        assertThatThrownBy(() -> store.save("owner:page", 1, source)).hasMessage("PAGE_CONNECTION_INVALID");
         catalog.inputSchema = "{\"type\":\"string\"}";
         links.addObject().put("from", "c").put("output", "out").put("to", "a").put("input", "in");
-        assertThatThrownBy(() -> store.save("owner:page", 2, source)).hasMessage("PAGE_CONNECTION_CYCLE");
+        assertThatThrownBy(() -> store.save("owner:page", 1, source)).hasMessage("PAGE_CONNECTION_CYCLE");
         links.remove(2); links.add(links.get(0).deepCopy());
-        assertThatThrownBy(() -> store.save("owner:page", 2, source)).hasMessage("PAGE_CONNECTION_INVALID");
+        assertThatThrownBy(() -> store.save("owner:page", 1, source)).hasMessage("PAGE_CONNECTION_INVALID");
     }
 
     private static class Catalog implements PageCatalog {
@@ -172,10 +295,10 @@ class PageStoreTest {
             return available ? List.of(new AvailableComponent(new PageComponent("example:checklist", version,
                     "label", "example", "/example/component.mjs", "", "{}", "{}", true,
                     List.of(new PagePort("in", inputContract, inputSchema)),
-                    List.of(new PagePort("out", "example.text/v1", "{\"type\":\"string\"}"))), "publication")) : List.of();
+                    List.of(new PagePort("out", "example.text/v1", "{\"type\":\"string\"}")), null), "publication")) : List.of();
         }
         public List<AvailablePage> pages() { return List.of(new AvailablePage(new EditablePage("owner:page", "page", "owner", "/page", true,
-                regions, project, "", List.of()), "page-publication")); }
+                regions, project, "", List.of(), List.of()), "page-publication")); }
         public void validate(String type, String publication, int version, String json) {
             if (!PageDocuments.parse(json).path("items").isArray()) throw PageDocuments.invalid("PAGE_CONFIGURATION_INVALID");
         }
@@ -198,13 +321,13 @@ class PageStoreTest {
         card.addObject().put("type", "page-text").put("content", "Inside card");
         ((ArrayNode) children(source).get(2).path("components")).addObject().put("type", "page-link")
                 .put("content", "Site information").put("href", "https://example.org/info");
-        store.save("owner:page", 0, source); store.publish("owner:page", 1);
+        store.save("owner:page", 0, source); publish(store, "owner:page", 1);
         byte[] before = Files.readAllBytes(directory.resolve("owner_page.json"));
-        assertThat(store.published("owner:page").orElseThrow()).contains("Inside card", "https://example.org/info", "footer");
+        assertThat(published("owner:page").orElseThrow()).contains("Inside card", "https://example.org/info", "footer");
         assertThat(store.defaults("owner:page").toString()).doesNotContain("Inside card");
         assertThat(Files.readAllBytes(directory.resolve("owner_page.json"))).isEqualTo(before);
         JsonNode field = card.remove(0); children(source).add(field);
-        assertThatThrownBy(() -> store.save("owner:page", 2, source)).hasMessage("PAGE_REGION_PARENT");
+        assertThatThrownBy(() -> store.save("owner:page", 1, source)).hasMessage("PAGE_REGION_PARENT");
         assertThat(Files.readAllBytes(directory.resolve("owner_page.json"))).isEqualTo(before);
     }
 

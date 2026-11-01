@@ -8,6 +8,11 @@ import java.util.List;
 /** 认证页面自己声明不可删除区域，编辑器与正式渲染器不认识认证业务。 */
 @Configuration(proxyBeanMethods = false)
 public class LoginPageContribution {
+    @Bean top.sywyar.pixivdownload.plugin.security.OperationRequirement loginRequirement(
+            @org.springframework.beans.factory.annotation.Value("${setup.login-verification-policies:}") String policies) {
+        return new top.sywyar.pixivdownload.plugin.security.OperationRequirement("core:login", policies.isBlank() ? List.of()
+                : java.util.Arrays.stream(policies.split(",", -1)).map(String::strip).toList());
+    }
     @Bean EditablePage loginEditablePage() throws java.io.IOException {
         var regions = new java.util.ArrayList<PageRegion>();
         regions.add(new PageRegion("brand", "header.title", "", false, false));
@@ -25,7 +30,11 @@ public class LoginPageContribution {
         try (var resource = new org.springframework.core.io.ClassPathResource("static/login/login-layout.json").getInputStream()) {
             return new EditablePage("core:login", "page.title", "login", "/login.html", true, regions,
                     new String(resource.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8),
-                    "/login/login-preview.mjs", List.of("/css/pixiv-layout.css", "/login/login.css"));
+                    "/login/login-preview.mjs", List.of("/css/pixiv-layout.css", "/login/login.css"),
+                    List.of(new PageInteraction.Target("login.verification", "button.login", "core:login", "admin-card",
+                            "{\"type\":\"object\",\"properties\":{\"clientAddress\":{\"type\":\"string\",\"maxLength\":128},"
+                                    + "\"rememberMe\":{\"type\":\"boolean\"}},\"required\":[\"clientAddress\",\"rememberMe\"],\"additionalProperties\":false}",
+                            List.of(top.sywyar.pixivdownload.plugin.api.security.OperationVerification.INTERACTION), 16)));
         }
     }
 }

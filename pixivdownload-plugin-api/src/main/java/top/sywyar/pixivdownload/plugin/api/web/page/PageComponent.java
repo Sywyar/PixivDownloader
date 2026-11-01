@@ -17,10 +17,11 @@ import java.util.List;
  * @param publicRenderable 是否允许在公开页面发布配置与模块
  * @param inputs 可连接的输入契约
  * @param outputs 可连接的输出契约
+ * @param participation 可选操作验证参与声明；普通组件为 null
  */
 public record PageComponent(String type, int version, String labelKey, String namespace,
         String moduleUrl, String propertiesModuleUrl, String schema, String defaults,
-        boolean publicRenderable, List<PagePort> inputs, List<PagePort> outputs) {
+        boolean publicRenderable, List<PagePort> inputs, List<PagePort> outputs, PageInteraction.Participant participation) {
     /**
      * 复制端口列表，声明快照不再依赖贡献者的可变集合。
      * @param type 组件身份
@@ -34,6 +35,7 @@ public record PageComponent(String type, int version, String labelKey, String na
      * @param publicRenderable 公开渲染许可
      * @param inputs 输入端口
      * @param outputs 输出端口
+     * @param participation 验证参与声明
      */
     public PageComponent {
         inputs = List.copyOf(inputs);

@@ -165,7 +165,71 @@ async function checkEditorLayout() {
     await page.waitForFunction(() => window.pageEditorReady);
 }
 try {
-    if (phase === 'unchanged') {
+    if (phase === 'publication-recovery') {
+        const route = '/api/page-editor/documents/core:login';
+        const post = async (suffix, body) => {
+            const response = await context.request.post(origin + route + suffix, {data: body, headers: {Origin: origin}});
+            assert.equal(response.status(), 200); return response.json();
+        };
+        const commit = async state => {
+            const plan = await post('/prepare', {revision: state.revision, restoring: false});
+            return post('/publish', {revision: state.revision, decision: {
+                revision: plan.revision, fingerprint: plan.fingerprint, approvals: plan.permissions}});
+        };
+        let state = await (await context.request.get(origin + route)).json();
+        const defaults = await (await context.request.get(origin + route + '/default')).json();
+        state = await post('/save', {revision: state.revision, document: {...defaults, title: 'First publication'}});
+        state = await commit(state);
+        state = await post('/save', {revision: state.revision, document: {...defaults, title: 'Second publication'}});
+        const file = path.join(work, 'runtime/data/page-editor/pages/core_login.json');
+        const retained = path.join(path.dirname(file), 'core_login.retained.json');
+        const original = fs.readFileSync(file);
+        const originalRetained = fs.existsSync(retained) ? fs.readFileSync(retained) : null;
+        try {
+            fs.writeFileSync(file, JSON.stringify({...JSON.parse(original), published: defaults}));
+            fs.writeFileSync(retained, 'conflicting retained state');
+            const blocked = fs.readFileSync(file);
+            state = await commit(state);
+            assert.equal(state.publicationRevision > 0, true);
+            assert.equal(state.previous.title, 'First publication');
+            assert.deepEqual(fs.readFileSync(file), blocked, 'ordinary publication never rewrites the draft');
+            await editor();
+            const response = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/core:login/restore'));
+            await page.locator('#document-more > summary').click();
+            await page.locator('#restore').click(); await clickConfirm();
+            const restoredResponse = await response;
+            assert.equal(restoredResponse.status(), 200);
+            const restored = await restoredResponse.json();
+            assert.equal(restored.draftSaveFailed, true);
+            assert.equal(restored.published.title, 'First publication');
+            assert.equal(restored.previous.title, 'Second publication');
+            assert.equal(restored.publicationRevision, state.publicationRevision + 1);
+            assert.equal(restored.revision, state.revision);
+            await page.waitForFunction(() => document.querySelector('#status')?.dataset.state === 'error');
+            assert.match(await page.locator('#status').textContent(), /published page was restored.*draft was not saved/i);
+            assert.equal(await page.locator('#document-dirty').getAttribute('aria-hidden'), 'false');
+            const persisted = await documentState();
+            assert.equal(persisted.published.title, 'First publication');
+            assert.equal(persisted.draft.title, 'Second publication');
+            assert.deepEqual(persisted.previous, restored.previous);
+            assert.deepEqual(fs.readFileSync(file), blocked, 'failed restore draft save preserves existing bytes');
+            fs.writeFileSync(file, original);
+            if (originalRetained) fs.writeFileSync(retained, originalRetained); else fs.unlinkSync(retained);
+            await page.locator('#save').click(); await waitStatus('Draft saved');
+            const saved = await documentState();
+            assert.equal(saved.draft.title, 'First publication');
+            assert.equal(saved.publicationRevision, restored.publicationRevision);
+            assert.deepEqual(saved.previous, restored.previous);
+            assert.equal(await page.locator('#document-dirty').getAttribute('aria-hidden'), 'true');
+            await page.reload(); await page.waitForFunction(() => window.pageEditorReady);
+            assert.equal((await documentState()).draft.title, 'First publication');
+        } finally {
+            if (fs.existsSync(retained) && fs.readFileSync(retained, 'utf8') === 'conflicting retained state') {
+                fs.writeFileSync(file, original);
+                if (originalRetained) fs.writeFileSync(retained, originalRetained); else fs.unlinkSync(retained);
+            }
+        }
+    } else if (phase === 'unchanged') {
         await checkEditorLayout();
         const defaultLogin = async () => {
             const projection = page.waitForResponse(response => response.request().method() === 'GET'
@@ -371,8 +435,8 @@ try {
         await page.locator('#preview-loading').waitFor({state: 'hidden'});
         assert.equal(await page.locator('#catalog').isVisible(), false);
         assert.equal(await page.locator('#inspector').isVisible(), false);
-        await page.frameLocator('#preview-root').locator('button:disabled').nth(1).waitFor();
-        assert.equal(await page.frameLocator('#preview-root').locator('button:disabled').count(), 3);
+        await page.frameLocator('#preview-root').locator('[data-tick] button:disabled').nth(1).waitFor();
+        assert.equal(await page.frameLocator('#preview-root').locator('[data-tick] button:disabled').count(), 3);
         await page.frameLocator('#preview-root').getByRole('link', {name: 'Registration information'}).waitFor();
         await page.frameLocator('#preview-root').locator('input[type=password]').waitFor();
         assert.equal(await page.frameLocator('#preview-root').getByText('Layout note', {exact: true})

@@ -94,6 +94,26 @@ class PluginRuntimeManagerTest {
 
     private static final String PROBE_ID = "bootstrap-probe";
 
+    @Test @DisplayName("通用验证导入只接受 SDK 精确键，其它接口仍要求真实契约包")
+    void acceptsExactOperationVerificationImport() throws IOException {
+        Path plugins = tempDir.resolve("operation-import/plugins");
+        Path jar = plugins.resolve(PROBE_ID + ".jar");
+        writeProbeJar(jar, false);
+        writeConfirmedLocalProvenance(plugins, jar);
+        var manager = new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins, () -> false);
+        try {
+            manager.loadPlugin(jar);
+            manager.requireServiceContract(PROBE_ID, top.sywyar.pixivdownload.plugin.api.security.OperationVerification.IMPORT);
+            assertThatThrownBy(() -> manager.requireServiceContract(PROBE_ID,
+                    new top.sywyar.pixivdownload.plugin.api.service.ServiceKey<>("operation-verification-other",
+                            top.sywyar.pixivdownload.plugin.api.security.OperationVerification.class)))
+                    .isInstanceOf(PluginRuntimeOperationException.class);
+            assertThatThrownBy(() -> manager.requireServiceContract(PROBE_ID,
+                    new top.sywyar.pixivdownload.plugin.api.service.ServiceKey<>("operation-verification", Runnable.class)))
+                    .isInstanceOf(PluginRuntimeOperationException.class);
+        } finally { manager.shutdown(); }
+    }
+
     @ParameterizedTest
     @CsvSource({"normal,false", "normal,true", "{app},false", "{app},true",
             "中文 空格,false", "中文 空格,true", "percent%23#hash,false", "percent%23#hash,true"})

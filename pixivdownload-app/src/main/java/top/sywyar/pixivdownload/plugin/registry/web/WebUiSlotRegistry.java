@@ -159,6 +159,10 @@ public class WebUiSlotRegistry implements WebUiSlotCatalog {
             throw new IllegalStateException("ui slot without target: "
                     + slot.slotId() + " (plugin: " + pluginId + ")");
         }
+        if (slot.participation() != null) {
+            top.sywyar.pixivdownload.plugin.lifecycle.capability.OperationVerificationCapabilityAdapter.key(slot.participation().policy());
+            top.sywyar.pixivdownload.plugin.security.OperationPolicies.protocol(slot.participation().protocol());
+        }
         // moduleUrl 是可选字段：要么不提供（null），要么必须是同源绝对路径。拒绝 javascript: / http(s):// 等带协议的
         // URL、//host 协议相对 URL 与 /\host 变体（都不以「单个 /」开头）。这是<b>声明期</b>安全边界：moduleUrl 会被
         // 前端作为 <script src> 加载，限定为同源路径可防止槽位声明把宿主导去外部站点或执行伪协议脚本。运行期权限

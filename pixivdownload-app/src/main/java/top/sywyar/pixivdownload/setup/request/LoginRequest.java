@@ -16,8 +16,8 @@ public class LoginRequest {
     private boolean rememberMe;
     @Size(max = 128)
     @lombok.ToString.Exclude
-    private String verificationToken;
+    private String operationToken;
     @Size(max = 16)
     @lombok.ToString.Exclude
-    private java.util.Map<String, String> verificationProofs = java.util.Map.of();
+    private java.util.Map<String, String> operationProofs = java.util.Map.of();
 }

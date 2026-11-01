@@ -33,6 +33,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @DisplayName("SetupController 单元测试")
 class SetupControllerTest {
 
+    @org.junit.jupiter.api.io.TempDir java.nio.file.Path temporary;
+
     private MockMvc mockMvc;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -46,12 +48,20 @@ class SetupControllerTest {
     private ProxySetupService proxySetupService;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws IOException {
         LocaleContextHolder.setLocale(Locale.US);
         MessageSource messageSource = TestI18nBeans.messageSource();
         AppMessages appMessages = TestI18nBeans.appMessages(messageSource);
+        var registry = new top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationRegistry();
         SetupController controller = new SetupController(
-                setupService, loginRateLimitService, multiModeConfig, proxySetupService, appMessages);
+                setupService, loginRateLimitService, multiModeConfig, proxySetupService, appMessages,
+                new top.sywyar.pixivdownload.plugin.security.OperationVerificationGate(
+                        registry, java.util.Map.of("core:login", java.util.List.of()), java.time.Clock.systemUTC(),
+                        new top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore(
+                                temporary.resolve("publications"), temporary.resolve("config/enrolled")),
+                        new top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry(
+                                java.util.List.of(new LoginPageContribution().loginEditablePage()), registry),
+                        new top.sywyar.pixivdownload.plugin.security.OperationAdmissions()));
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(appMessages))
                 .setValidator(TestI18nBeans.validator(messageSource))

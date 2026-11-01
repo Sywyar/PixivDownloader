@@ -3,6 +3,7 @@ import {installCssEditor} from './editor-css.mjs';
 import {installEditorMotion} from './editor-motion.mjs';
 import {icon, decorateIcons} from './editor-icons.mjs';
 import {createEditorFeedback} from './editor-feedback.mjs';
+import {resolveBinding, publicationSections} from './editor-bindings.mjs';
 
 const $ = id => document.getElementById(id);
 let i18n;
@@ -21,6 +22,7 @@ let loading = false;
 let busy = false;
 let inspector;
 let inspectorGeneration = 0;
+let refreshBinding;
 let connections = [];
 let preview;
 let previewAbort;
@@ -35,10 +37,10 @@ const activePage = () => catalog.pages.find(entry => entry.definition.id === pag
 const regionDefinition = id => activePage()?.definition.regions.find(region => region.id === id);
 const pageT = (key, fallback) => componentI18n.t(activePage().definition.namespace + ':' + key, fallback || key);
 const status = (key, detail = '') => {
-    if (busy && key === 'unsaved') return;
+    if (key === 'unsaved' && (busy || state?.draftSaveFailed)) return;
     const feedback = $('document-feedback');
     const kind = ['saved', 'published', 'restored', 'css-applied'].includes(key) ? 'success'
-        : ['failed', 'conflict', 'required-region', 'css-pending', 'repair-title', 'unavailable'].includes(key) ? 'error'
+        : ['failed', 'conflict', 'required-region', 'css-pending', 'repair-title', 'unavailable', 'restored-unsaved'].includes(key) ? 'error'
         : ['working', 'saving', 'publishing', 'restoring'].includes(key) ? 'busy' : 'idle';
     feedback.dataset.state = kind;
     $('status').textContent = t(key);
@@ -211,6 +213,13 @@ function configureTypes(engine) {
     });
 }
 
+function bindingFor(model) {
+    let parent = model.parent();
+    while (parent && parent.get('type') !== 'page-region') parent = parent.parent();
+    return resolveBinding(componentDefinition(model.get('componentType'))?.definition,
+        parent?.get('region'), activePage().definition, model.get('target'));
+}
+
 function modelSource(model) {
     const type = model.get('type') || 'wrapper';
     const source = {type, attributes: {id: model.getId()}, style: pureValue(model.getStyle())};
@@ -219,6 +228,10 @@ function modelSource(model) {
     if (type === 'page-box') source.role = model.get('role');
     if (type === 'page-region') source.region = model.get('region');
     if (type === 'page-component') for (const key of ['componentType', 'instanceId', 'configVersion', 'configuration']) source[key] = pureValue(model.get(key));
+    if (type === 'page-component') {
+        const target = componentDefinition(model.get('componentType')) ? bindingFor(model).target : model.get('target');
+        if (target) source.target = target;
+    }
     source.components = model.components().map(modelSource);
     return source;
 }
@@ -264,11 +277,12 @@ function changed() {
         dirty = JSON.stringify(documentSource()) !== savedSource;
         if (dirty) status('unsaved');
     }
-    syncSelection(); syncConnections();
+    syncSelection(); syncConnections(); refreshBinding?.();
 }
 
 async function properties(model) {
     const generation = ++inspectorGeneration;
+    refreshBinding = undefined;
     await inspector?.destroy(); inspector = null;
     if (generation !== inspectorGeneration) return;
     const root = $('properties'); root.replaceChildren();
@@ -299,6 +313,30 @@ async function properties(model) {
     const entry = componentDefinition(model.get('componentType'));
     if (!entry) { root.textContent = t('unavailable'); return; }
     const definition = entry.definition;
+    if (definition.participation) {
+        const caption = document.createElement('label'); caption.className = 'editor-field'; caption.textContent = t('binding-target');
+        const select = document.createElement('select');
+        select.setAttribute('aria-label', t('binding-target'));
+        select.addEventListener('change', () => model.set('target', select.value));
+        caption.append(select); root.append(caption);
+        const notice = document.createElement('p'); notice.className = 'help';
+        root.append(notice);
+        refreshBinding = () => {
+            const binding = bindingFor(model);
+            select.replaceChildren();
+            if (!binding.target) {
+                const option = document.createElement('option'); option.value = ''; option.textContent = t('binding-' + binding.status); select.append(option);
+            }
+            for (const target of binding.candidates) {
+                const option = document.createElement('option'); option.value = target.id; option.textContent = pageT(target.labelKey); select.append(option);
+            }
+            select.value = binding.target; select.disabled = binding.candidates.length < 2;
+            const target = binding.candidates.find(target => target.id === binding.target);
+            const count = target ? allModels().filter(entry => entry.get('type') === 'page-component' && bindingFor(entry).target === target.id).length : 0;
+            notice.textContent = t(count > target?.maximumParticipants ? 'binding-capacity' : 'binding-' + binding.status + '-help');
+        };
+        refreshBinding();
+    }
     if (model.get('configVersion') !== definition.version) {
         const button = document.createElement('button'); button.textContent = t('migrate');
         button.addEventListener('click', () => action(async () => {
@@ -631,6 +669,29 @@ async function confirmAction(key) {
         message: t(key), confirmLabel: t('confirm'), cancelLabel: t('cancel')
     }));
 }
+
+async function saveDraft() {
+    const source = documentSource();
+    state = await api('documents/' + encodeURIComponent(pageId) + '/save', {revision: state.revision, document: source});
+    savedSource = JSON.stringify(source); changed();
+}
+
+async function publishDraft(restoring) {
+    const path = 'documents/' + encodeURIComponent(pageId);
+    const plan = await api(path + '/prepare', {revision: state.revision, restoring});
+    const confirmed = await window.PixivFeedback.confirm({message: t(restoring ? 'restore-confirm' : 'publish-confirm'),
+        sections: publicationSections(plan, t), confirmLabel: t('confirm'), cancelLabel: t('cancel')});
+    if (!confirmed) return;
+    status(restoring ? 'restoring' : 'publishing');
+    state = await api(path + (restoring ? '/restore' : '/publish'), {revision: state.revision,
+        decision: {revision: plan.revision, fingerprint: plan.fingerprint, approvals: plan.permissions}});
+    if (restoring) {
+        await loadProject(state.draft);
+        savedSource = state.draftSaveFailed ? '' : JSON.stringify(documentSource());
+        dirty = Boolean(state.draftSaveFailed);
+    }
+    status(state.draftSaveFailed ? 'restored-unsaved' : restoring ? 'restored' : 'published');
+}
 function manipulate(action) {
     const selected = editor.getSelected();
     if (!selected || selected === editor.getWrapper()) return;
@@ -762,6 +823,7 @@ async function start() {
     let selectionFrame;
     editor.on('component:selected component:deselected', () => {
         inspectorGeneration++;
+        refreshBinding = undefined;
         $('properties').replaceChildren();
         cancelAnimationFrame(selectionFrame);
         selectionFrame = requestAnimationFrame(() => {
@@ -817,24 +879,14 @@ async function start() {
     });
     $('save').addEventListener('click', () => action(async () => {
         if (!await cssEditor.ready()) { status('css-pending'); return; }
-        const source = documentSource();
-        state = await api('documents/' + encodeURIComponent(pageId) + '/save', {revision: state.revision, document: source});
-        savedSource = JSON.stringify(source); changed(); if (!dirty) status('saved');
+        await saveDraft(); if (!dirty) status('saved');
     }, 'saving'));
     $('publish').addEventListener('click', () => action(async () => {
         if (!await cssEditor.ready()) { status('css-pending'); return; }
-        if (!await confirmAction('publish-confirm')) return;
-        status('publishing');
-        const source = documentSource();
-        state = await api('documents/' + encodeURIComponent(pageId) + '/save', {revision: state.revision, document: source});
-        savedSource = JSON.stringify(source); changed();
-        state = await api('documents/' + encodeURIComponent(pageId) + '/publish', {revision: state.revision}); status('published');
+        await saveDraft(); await publishDraft(false);
     }));
     $('restore').addEventListener('click', () => action(async () => {
-        if (!await confirmAction('restore-confirm')) return;
-        status('restoring');
-        state = await api('documents/' + encodeURIComponent(pageId) + '/restore', {revision: state.revision});
-        dirty = false; await loadPage(); status('restored');
+        await publishDraft(true);
     }));
     $('preview').addEventListener('click', () => action(async () => {
         if (!await cssEditor.ready()) { status('css-pending'); return; }
@@ -861,6 +913,7 @@ async function start() {
     });
     window.addEventListener('beforeunload', event => { if (dirty || cssEditor.pending()) { event.preventDefault(); event.returnValue = ''; } });
     window.addEventListener('pagehide', () => {
+        refreshBinding = undefined;
         inspectorGeneration++; inspector?.destroy(); previewAbort?.abort(); preview?.destroy();
         for (const view of componentViews) view.removed();
         lifetime.abort(); editor.destroy(); themes.disconnect(); i18n.dispose(); componentI18n?.dispose();

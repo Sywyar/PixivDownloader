@@ -575,7 +575,7 @@ public final class ExternalCapabilityInvocationRegistry {
     }
 
     @FunctionalInterface
-    public interface HostServiceOperation<T, R> {
+    public interface ManagedServiceOperation<T, R> {
         R run(List<ServiceProvider<T>> providers) throws java.io.IOException;
     }
 
@@ -584,9 +584,11 @@ public final class ExternalCapabilityInvocationRegistry {
      * 从验证到宿主副作用共持有精确 provider 租约，撤回等待整个操作退出。
      * 此入口不进入插件 SDK，也不绕过插件的显式 imports。
      */
-    public <T, R> R withHostServices(List<ServiceKey<T>> keys, HostServiceOperation<T, R> operation)
+    public <T, R> R withServices(PluginServices consumer, ServiceKey<T> imported, List<ServiceKey<T>> keys,
+            List<ExternalCapabilityOwner> contributions, ManagedServiceOperation<T, R> operation)
             throws java.io.IOException {
-        if (keys.isEmpty() || keys.size() > 128 || keys.stream().distinct().count() != keys.size()) {
+        ExternalCapabilityOwner consumerOwner = consumer == null ? null : serviceOwner(consumer);
+        if (keys.size() > 128 || keys.stream().distinct().count() != keys.size()) {
             throw serviceFailure(ServiceAccessException.Reason.INVALID_VALUE);
         }
         List<ExternalCapabilityHandle> selected = new java.util.ArrayList<>();
@@ -598,14 +600,34 @@ public final class ExternalCapabilityInvocationRegistry {
         try {
             synchronized (lock) {
                 if (serviceCalls >= MAX_SERVICE_CALLS) throw serviceFailure(ServiceAccessException.Reason.CAPACITY);
+                if (consumerOwner != null) {
+                    if (imported == null || keys.stream().anyMatch(key -> key.type() != imported.type()))
+                        throw serviceFailure(ServiceAccessException.Reason.UNDECLARED);
+                    validateBindingImports(consumerOwner, List.of(imported));
+                    if (states.get(consumerOwner.publicationId()).phase != Phase.PUBLISHED
+                            || !serviceAdmission.acceptsNewRequests(consumerOwner.pluginId())) {
+                        throw serviceFailure(ServiceAccessException.Reason.NOT_ACTIVE);
+                    }
+                }
                 for (var key : keys) {
                     var candidates = serviceCandidates(key, 2);
                     if (candidates.isEmpty()) throw serviceFailure(ServiceAccessException.Reason.UNAVAILABLE);
                     if (candidates.size() != 1) throw serviceFailure(ServiceAccessException.Reason.AMBIGUOUS);
                     selected.add(candidates.get(0));
                 }
-                for (var handle : selected) {
-                    var state = states.get(handle.owner().publicationId());
+                var owners = new java.util.LinkedHashSet<ExternalCapabilityOwner>();
+                if (consumerOwner != null) owners.add(consumerOwner);
+                selected.forEach(handle -> owners.add(handle.owner()));
+                if (contributions.size() > 128) throw serviceFailure(ServiceAccessException.Reason.CAPACITY);
+                for (var owner : contributions) {
+                    var state = states.get(owner.publicationId());
+                    if (state == null || !state.owner.equals(owner) || state.phase != Phase.PUBLISHED
+                            || !serviceAdmission.acceptsNewRequests(owner.pluginId()))
+                        throw serviceFailure(ServiceAccessException.Reason.NOT_ACTIVE);
+                    owners.add(owner);
+                }
+                for (var owner : owners) {
+                    var state = states.get(owner.publicationId());
                     if (leases.containsKey(state.leaseState)) continue;
                     var token = new ExternalCapabilityLeaseState.LeaseToken();
                     leases.put(state.leaseState, token);
@@ -621,6 +643,7 @@ public final class ExternalCapabilityInvocationRegistry {
             List<ServiceProvider<T>> providers = new java.util.ArrayList<>();
             for (int i = 0; i < keys.size(); i++) {
                 var handle = selected.get(i);
+                // 选择与导入已由宿主受管入口校验；代理只在整个 owner 租约内交给宿主回调。
                 providers.add(new ServiceProvider<>(publication(handle.owner()), bindingProxy(null, keys.get(i), handle)));
             }
             return operation.run(List.copyOf(providers));
@@ -635,6 +658,14 @@ public final class ExternalCapabilityInvocationRegistry {
             if (cleanup.firstFatal() != null) rethrowFatal(cleanup.firstFatal());
             if (!cleanup.isEmpty()) throw serviceFailure(ServiceAccessException.Reason.INVOCATION_FAILED);
         }
+    }
+
+    /** 仅接纳本注册中心创建的访问器，插件自报身份不能建立受管操作入口。 */
+    public ExternalCapabilityOwner serviceOwner(PluginServices services) {
+        if (!(services instanceof ScopedServices scoped) || scoped.registry() != this) {
+            throw serviceFailure(ServiceAccessException.Reason.UNDECLARED);
+        }
+        return scoped.owner();
     }
 
     /** 同步调用栈不能等待自身排空；生命周期入口在取得操作锁前拒绝这种重入。 */

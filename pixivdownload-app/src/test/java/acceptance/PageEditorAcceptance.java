@@ -73,6 +73,14 @@ public final class PageEditorAcceptance {
             check(login.statusCode() == 200, "login");
             String cookie = login.headers().allValues("set-cookie").stream().filter(value -> value.startsWith("pixiv_session="))
                     .findFirst().orElseThrow().split(";")[0];
+            if (args.length > 2 && args[2].equals("captcha")) {
+                CaptchaAcceptance.verify(context, origin, cookie, fixed);
+                return;
+            }
+            if (args.length > 2 && args[2].equals("publication-recovery")) {
+                browser(args[1], origin, cookie, "publication-recovery", fixed);
+                return;
+            }
             var aiStatus = request(origin, "/api/admin/ai/status", null, cookie);
             check(aiStatus.statusCode() == 200 && JSON.readTree(aiStatus.body()).path("configured").asBoolean(),
                     "isolated AI fixture configured without external requests");
@@ -90,6 +98,8 @@ public final class PageEditorAcceptance {
                     .POST(HttpRequest.BodyPublishers.ofString(declarations)).build();
             check(HttpClient.newHttpClient().send(crossSite, HttpResponse.BodyHandlers.ofString()).statusCode() == 403, "CSS validation enforces CSRF");
             check(request(origin, "/api/web/page-publications/core:login", null, null).statusCode() == 404, "no publication");
+            OperationFormsAcceptance.verify(context, origin, cookie,
+                    Path.of(args[1]).resolveSibling("operation-browser.mjs").toString(), fixed);
             browser(args[1], origin, cookie, "unchanged", fixed);
             check(request(origin, "/api/web/page-publications/core:login", null, null).statusCode() == 404, "unchanged publication uses owner default");
             Path incompleteFile = root.resolve("data/page-editor/pages/core_login.json");
@@ -153,7 +163,14 @@ public final class PageEditorAcceptance {
             ((com.fasterxml.jackson.databind.node.ObjectNode) unsafe.path("project")).put("scripts", "alert(1)");
             var invalid = JSON.createObjectNode().put("revision", state.path("revision").asLong()); invalid.set("document", unsafe);
             check(request(origin, "/api/page-editor/documents/core:login/save", invalid.toString(), cookie).statusCode() == 422, "engine script rejected");
-            check(request(origin, "/api/page-editor/documents/core:login/publish", "{\"revision\":0}", cookie).statusCode() == 409, "concurrent publish rejected");
+            var prepared = request(origin, "/api/page-editor/documents/core:login/prepare",
+                    JSON.createObjectNode().put("revision", state.path("revision").asLong()).put("restoring", false).toString(), cookie);
+            check(prepared.statusCode() == 200, "publication prepared");
+            var plan = JSON.readTree(prepared.body());
+            var stalePublish = JSON.createObjectNode().put("revision", 0);
+            stalePublish.putObject("decision").put("revision", plan.path("revision").asLong())
+                    .put("fingerprint", plan.path("fingerprint").asText()).set("approvals", plan.path("permissions"));
+            check(request(origin, "/api/page-editor/documents/core:login/publish", stalePublish.toString(), cookie).statusCode() == 409, "concurrent publish rejected");
             check(request(origin, "/api/page-editor/documents/core:login", null, cookie).body().equals(original.body()), "failed changes preserve document");
             var componentClass = contexts.contextFor("page-checklist").orElseThrow().getClassLoader()
                     .loadClass("example.pages.plugin.ChecklistPlugin");
@@ -175,18 +192,35 @@ public final class PageEditorAcceptance {
             byte[] savedPage = Files.readAllBytes(pageFile);
             try {
                 Files.writeString(pageFile, "{broken", java.nio.charset.StandardCharsets.UTF_8);
-                check(request(origin, "/api/web/page-publications/core:login", null, null).statusCode() == 503, "corrupt source rejected");
-                browser(args[1], origin, cookie, "corrupt", fixed);
+                check(request(origin, "/api/web/page-publications/core:login", null, null).statusCode() == 200, "corrupt draft cannot change the formal publication");
             } finally { Files.write(pageFile, savedPage); }
+            Path commit = RuntimeFiles.webPublicationDirectory().resolve("current.json");
+            byte[] savedCommit = Files.readAllBytes(commit);
+            try {
+                Files.writeString(commit, "{broken", java.nio.charset.StandardCharsets.UTF_8);
+                check(request(origin, "/api/web/page-publications/core:login", null, null).statusCode() == 503, "corrupt formal publication rejected");
+                browser(args[1], origin, cookie, "corrupt", fixed);
+                check(request(origin, "/api/auth/login", "{\"username\":\"acceptance\",\"password\":\"Isolated-page-password-2026\"}", null).statusCode() != 200,
+                        "unknown publication cannot create a session");
+            } finally { Files.write(commit, savedCommit); }
             verifyDrain(context, coordinator, origin, cookie);
             coordinator.start("page-checklist");
+            coordinator.stop("page-editor");
+            check(request(origin, "/api/web/page-publications/core:login", null, null).statusCode() == 200, "editor absence retains the formal publication");
+            browser(args[1], origin, cookie, "restored", fixed);
+            coordinator.start("page-editor");
             browser(args[1], origin, cookie, "custom", fixed);
             coordinator.stop("page-editor");
             coordinator.start("page-editor");
             browser(args[1], origin, cookie, "custom-restarted", fixed);
+            var store = context.getBean(top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore.class);
+            var published = store.snapshot();
             coordinator.stop("page-editor");
-            check(request(origin, "/api/web/page-publications/core:login", null, null).statusCode() == 404, "editor absence withdraws source");
+            check(store.snapshot().equals(published), "editor withdrawal preserves the complete formal state");
+            check(request(origin, "/api/web/page-publications/core:login", null, null).statusCode() == 503, "withdrawn custom component refuses presentation");
             browser(args[1], origin, cookie, "default", fixed);
+            coordinator.start("page-editor");
+            browser(args[1], origin, cookie, "publication-recovery", fixed);
             System.out.println("PAGE_EDITOR_SIGNED_INSTALL_HTTP_BROWSER_LIFECYCLE_PASSED");
         }
     }
@@ -233,7 +267,7 @@ public final class PageEditorAcceptance {
         }
         check(!child.isActive(), "owner closes after operation exits");
     }
-    private static void browser(String script, String origin, String cookie, String phase, Path fixed) throws Exception {
+    static void browser(String script, String origin, String cookie, String phase, Path fixed) throws Exception {
         check(startBrowser(script, origin, cookie, phase, fixed).waitFor() == 0, "browser " + phase);
     }
     private static Process startBrowser(String script, String origin, String cookie, String phase, Path fixed) throws Exception {
@@ -248,14 +282,14 @@ public final class PageEditorAcceptance {
             Thread.sleep(50);
         }
     }
-    private static HttpResponse<String> request(String origin, String path, String body, String cookie) throws Exception {
+    static HttpResponse<String> request(String origin, String path, String body, String cookie) throws Exception {
         var request = HttpRequest.newBuilder(URI.create(origin + path)).header("Accept-Language", "en-US");
         if (cookie != null) request.header("Cookie", cookie);
         if (body == null) request.GET();
         else request.header("Origin", origin).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body));
         return HttpClient.newHttpClient().send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
-    private static PluginPackageOrigin origin(Path jar, boolean official, String confirmation) throws Exception {
+    static PluginPackageOrigin origin(Path jar, boolean official, String confirmation) throws Exception {
         SignatureMetadata signature = signatures.get(jar);
         if (signature == null) {
             var descriptor = PluginPackageReader.inspect(jar).descriptor(); Path out = root.resolve(descriptor.id() + ".sig");
@@ -274,5 +308,5 @@ public final class PageEditorAcceptance {
         var committed = installer.commitTransaction(pending); installer.verifyCommittedTarget(committed);
         installer.markActivated(committed); installer.completeTransaction(committed);
     }
-    private static void check(boolean condition, String message) { if (!condition) throw new AssertionError(message); }
+    static void check(boolean condition, String message) { if (!condition) throw new AssertionError(message); }
 }

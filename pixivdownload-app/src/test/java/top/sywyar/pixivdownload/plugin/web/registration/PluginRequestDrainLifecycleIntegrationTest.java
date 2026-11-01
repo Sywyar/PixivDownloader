@@ -407,6 +407,8 @@ class PluginRequestDrainLifecycleIntegrationTest {
 
             context = new AnnotationConfigWebApplicationContext();
             context.setServletContext(new MockServletContext());
+            context.addBeanFactoryPostProcessor(beanFactory -> beanFactory.registerSingleton("pagePublications",
+                    mock(top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest.class)));
             context.addBeanFactoryPostProcessor(
                     beanFactory -> beanFactory.registerSingleton("pages", mock(PageContributionRegistry.class)));
             context.addBeanFactoryPostProcessor(

@@ -2,6 +2,11 @@ package top.sywyar.pixivdownload.plugin;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import static org.mockito.Mockito.*;
+import top.sywyar.pixivdownload.plugin.api.web.page.*;
+import top.sywyar.pixivdownload.plugin.api.security.OperationVerification;
+import top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest;
+import org.springframework.mock.web.MockHttpServletRequest;
 import top.sywyar.pixivdownload.plugin.api.plugin.PixivFeaturePlugin;
 import top.sywyar.pixivdownload.plugin.api.plugin.PluginKind;
 import top.sywyar.pixivdownload.plugin.api.web.WebUiSlotContribution;
@@ -28,18 +33,32 @@ class WebUiSlotRegistryTest {
     }
 
     @Test
-    @DisplayName("公开登录清单只包含精确验证目标，不公开相似前缀或业务槽位")
-    void loginManifestIsRestrictedToExactTarget() {
+    @DisplayName("公开槽位只返回 owner 声明的精确目标，拒绝私有页面、旧修订和普通槽位")
+    void publicManifestIsRestrictedToDeclaredTarget() {
         var registry = emptyRegistry();
+        var participation = new PageInteraction.Participant("proof", OperationVerification.INTERACTION);
         registry.register("demo", List.of(
-                new WebUiSlotContribution("login", "login.verification", "/demo/proof.js", 0),
-                new WebUiSlotContribution("private", "login.verification.private", "/demo/private.js", 0),
-                new WebUiSlotContribution("business", "business", "/demo/business.js", 0)));
-        var controller = new WebUiSlotController(registry);
-        assertThat(controller.loginVerificationSlots()).extracting(WebUiSlotController.UiSlotView::slotId)
-                .containsExactly("login");
-        registry.unregister("demo");
-        assertThat(controller.loginVerificationSlots()).isEmpty();
+                new WebUiSlotContribution("proof", "form", "/demo/proof.js", 0, Map.of(), "", participation),
+                new WebUiSlotContribution("private", "form.private", "/demo/private.js", 0, Map.of(), "", participation),
+                new WebUiSlotContribution("ordinary", "form", "/demo/ordinary.js", 0)));
+        var catalog = mock(PageCatalog.class);
+        var publications = mock(PagePublicationRequest.class);
+        var definition = new EditablePage("owner:page", "page", "owner", "/page.html", true,
+                List.of(), "", "", List.of(), List.of(new PageInteraction.Target("form", "form", "owner:submit", "form", "{}", List.of(OperationVerification.INTERACTION), 1)));
+        when(catalog.pages()).thenReturn(List.of(new PageCatalog.AvailablePage(definition, "page-publication")));
+        var request = new MockHttpServletRequest(); request.setParameter("revision", "2");
+        when(publications.revision(request)).thenReturn("2");
+        var controller = new WebUiSlotController(registry, catalog, publications);
+        assertThat(controller.pageSlots("owner:page", "form", request).getBody()).extracting(WebUiSlotController.UiSlotView::slotId)
+                .containsExactly("proof");
+        assertThat(controller.pageSlots("owner:page", "form.private", request).getStatusCode().value()).isEqualTo(404);
+        assertThat(controller.pageSlots("private:page", "form", request).getStatusCode().value()).isEqualTo(404);
+        request.setParameter("revision", "1");
+        assertThat(controller.pageSlots("owner:page", "form", request).getStatusCode().value()).isEqualTo(409);
+        request.setParameter("revision", "2"); registry.unregister("demo");
+        assertThat(controller.pageSlots("owner:page", "form", request).getBody()).isEmpty();
+        when(publications.revision(request)).thenThrow(new IllegalStateException("unavailable"));
+        assertThat(controller.pageSlots("owner:page", "form", request).getStatusCode().value()).isEqualTo(503);
     }
 
     @Test
@@ -228,7 +247,7 @@ class WebUiSlotRegistryTest {
         registry.register("demo", List.of(new WebUiSlotContribution(
                 "demo.a", "anchor-demo.a", "/demo/slot.js", 10, Map.of("kind", "survey"), "demo-copy")));
 
-        WebUiSlotController controller = new WebUiSlotController(registry);
+        WebUiSlotController controller = new WebUiSlotController(registry, mock(PageCatalog.class), mock(PagePublicationRequest.class));
         assertThat(controller.uiSlots(null))
                 .singleElement()
                 .satisfies(view -> {
@@ -240,7 +259,7 @@ class WebUiSlotRegistryTest {
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThat(WebUiSlotController.UiSlotView.class.getRecordComponents())
                 .extracting(component -> component.getName())
-                .containsExactly("slotId", "target", "moduleUrl", "order", "metadata", "i18nNamespace", "publication");
+                .containsExactly("slotId", "target", "moduleUrl", "order", "metadata", "i18nNamespace", "publication", "participation");
         registry.unregister("demo");
         assertThat(controller.uiSlots(null)).isEmpty();
     }

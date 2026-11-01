@@ -68,7 +68,7 @@ public final class ChecklistPlugin extends Plugin implements PixivPluginProvider
                             "/page-checklist/render/component.mjs", "/page-checklist/manage/properties.mjs",
                             schema(), "{\"title\":\"Checklist\",\"items\":[{\"label\":\"First item\",\"checked\":false}]}",
                             true, List.of(new PagePort("selection", "example.pages.checklist-result/v1", resultSchema())),
-                            List.of(new PagePort("result", "example.pages.checklist-result/v1", resultSchema()))));
+                            List.of(new PagePort("result", "example.pages.checklist-result/v1", resultSchema())), null));
                 }
                 public void validate(String type, String json) {
                     try {

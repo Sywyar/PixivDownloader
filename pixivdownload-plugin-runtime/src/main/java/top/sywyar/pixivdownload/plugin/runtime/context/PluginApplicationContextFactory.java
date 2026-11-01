@@ -160,6 +160,8 @@ public final class PluginApplicationContextFactory {
         child.setParent(parent);
         if (services != null) {
             child.getBeanFactory().registerSingleton("pluginServices", services);
+            PluginOperationGuardFactory guardFactory = parent.getBeanProvider(PluginOperationGuardFactory.class).getIfAvailable();
+            if (guardFactory != null) child.getBeanFactory().registerSingleton("pluginOperationGuard", guardFactory.create(services));
             PluginRemoteOperationsFactory remoteFactory = parent.getBeanProvider(PluginRemoteOperationsFactory.class).getIfAvailable();
             if (remoteFactory != null) child.getBeanFactory().registerSingleton("pluginRemoteOperations", remoteFactory.create(module.sourcePluginId(), services));
         }

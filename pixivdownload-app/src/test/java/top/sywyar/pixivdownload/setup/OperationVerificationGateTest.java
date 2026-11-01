@@ -16,7 +16,8 @@ import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.api.security.*;
-import top.sywyar.pixivdownload.plugin.lifecycle.capability.LoginVerificationCapabilityAdapter;
+import top.sywyar.pixivdownload.plugin.security.OperationVerificationGate;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.OperationVerificationCapabilityAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.*;
 import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
 
@@ -35,7 +36,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @DisplayName("真实登录入口在会话副作用之前执行精确代际验证")
-class LoginVerificationGateTest {
+class OperationVerificationGateTest {
     @TempDir Path temporary;
     final ObjectMapper json = new ObjectMapper();
     final ExternalCapabilityInvocationRegistry registry = new ExternalCapabilityInvocationRegistry();
@@ -65,9 +66,15 @@ class LoginVerificationGateTest {
         System.clearProperty(RuntimeFiles.STATE_DIR_PROPERTY);
     }
 
-    private void configure(String policies) {
+    private void configure(String policies) throws java.io.IOException {
         var messages = TestI18nBeans.appMessages();
-        var gate = new LoginVerificationGate(registry, messages, policies, clock);
+        var gate = new OperationVerificationGate(registry, Map.of("core:login",
+                policies.isBlank() ? List.of() : Arrays.asList(policies.split(","))), clock,
+                new top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore(
+                        temporary.resolve("publications"), temporary.resolve("config/enrolled")),
+                new top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry(
+                        List.of(new LoginPageContribution().loginEditablePage()), registry),
+                new top.sywyar.pixivdownload.plugin.security.OperationAdmissions());
         var controller = new SetupController(setup, limits, new MultiModeConfig(), mock(ProxySetupService.class), messages, gate);
         var locale = mock(AppLocaleResolver.class);
         when(locale.resolveLocale(any())).thenReturn(Locale.US);
@@ -77,22 +84,24 @@ class LoginVerificationGateTest {
     }
 
     private ExternalCapabilityPublication install(String owner, String policy,
-            Function<LoginVerificationRequest, LoginVerificationResult> action) {
+            Function<OperationVerificationRequest, OperationVerificationResult> action) {
         var context = new AnnotationConfigApplicationContext();
-        context.registerBean(LoginVerification.class, () -> new LoginVerification() {
+        context.registerBean(OperationVerification.class, () -> new OperationVerification() {
             public String policyId() { return policy; }
-            public LoginVerificationResult verify(LoginVerificationRequest request) { return action.apply(request); }
+            public String generation() { return "test-v1"; }
+            public Policy policy() { return new Policy("p1", "", INTERACTION, java.util.List.of()); }
+            public OperationVerificationResult verify(OperationVerificationRequest request) { return action.apply(request); }
         });
         context.refresh();
         contexts.add(context);
         var preparation = registry.allocatePreparation(owner, owner, 1);
         registry.installPreparation(preparation);
-        new LoginVerificationCapabilityAdapter(registry).prepare(preparation, context);
+        new OperationVerificationCapabilityAdapter(registry).prepare(preparation, context);
         return registry.publish(preparation);
     }
 
-    private static LoginVerificationResult approve() {
-        return new LoginVerificationResult(LoginVerificationResult.Status.APPROVED, "");
+    private static OperationVerificationResult approve() {
+        return new OperationVerificationResult(OperationVerificationResult.Status.APPROVED, "");
     }
 
     private Map<String, Object> request() {
@@ -119,7 +128,7 @@ class LoginVerificationGateTest {
         login(request()).andExpect(status().isServiceUnavailable());
         registry.withdraw(first);
         registry.withdraw(second);
-        install("rejector", "neutral", attempt -> new LoginVerificationResult(LoginVerificationResult.Status.REJECTED, ""));
+        install("rejector", "neutral", attempt -> new OperationVerificationResult(OperationVerificationResult.Status.REJECTED, ""));
         login(request()).andExpect(status().isForbidden());
         assertThat(Files.readAllBytes(state)).isEqualTo(original);
         verify(setup, never()).createSession(anyBoolean());
@@ -153,9 +162,9 @@ class LoginVerificationGateTest {
     @Test
     @DisplayName("挑战绑定请求与精确 publication，响应只消费一次，同 id 替换不接受旧挑战")
     void challengeReplacementAndReplay() throws Exception {
-        Function<LoginVerificationRequest, LoginVerificationResult> challenge = attempt -> attempt.response()
+        Function<OperationVerificationRequest, OperationVerificationResult> challenge = attempt -> attempt.response()
                 && attempt.proof().equals("neutral-answer") ? approve()
-                : new LoginVerificationResult(LoginVerificationResult.Status.CHALLENGE, "neutral-question");
+                : new OperationVerificationResult(OperationVerificationResult.Status.CHALLENGE, "neutral-question");
         var first = install("provider", "neutral", challenge);
         String old = challengeToken();
         var drain = registry.withdraw(first).orElseThrow();
@@ -164,11 +173,11 @@ class LoginVerificationGateTest {
         registry.forgetRetirementAcknowledgement(drain);
         install("provider", "neutral", challenge);
         var answer = request();
-        answer.put("verificationToken", old);
-        answer.put("verificationProofs", Map.of("neutral", "neutral-answer"));
+        answer.put("operationToken", old);
+        answer.put("operationProofs", Map.of("neutral", "neutral-answer"));
         login(answer).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("setup.login.verification.stale"));
         verify(setup, never()).createSession(anyBoolean());
-        answer.put("verificationToken", challengeToken());
+        answer.put("operationToken", challengeToken());
         login(answer).andExpect(status().isOk()).andExpect(cookie().exists("pixiv_session"));
         login(answer).andExpect(status().isConflict()).andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
         verify(setup, times(1)).createSession(true);
@@ -178,7 +187,7 @@ class LoginVerificationGateTest {
         var response = login(request()).andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("setup.login.verification.required"))
                 .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE)).andReturn().getResponse();
-        return json.readTree(response.getContentAsByteArray()).get("verificationToken").asText();
+        return json.readTree(response.getContentAsByteArray()).get("token").asText();
     }
 
     @Test
@@ -194,9 +203,9 @@ class LoginVerificationGateTest {
         configure("neutral,second");
         install("a", "neutral", attempt -> approve());
         login(request()).andExpect(status().isServiceUnavailable());
-        install("b", "second", attempt -> new LoginVerificationResult(LoginVerificationResult.Status.CHALLENGE, "question"));
+        install("b", "second", attempt -> new OperationVerificationResult(OperationVerificationResult.Status.CHALLENGE, "question"));
         var answer = request();
-        answer.put("verificationToken", challengeToken());
+        answer.put("operationToken", challengeToken());
         current.set(now.plusSeconds(301));
         login(answer).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("setup.login.verification.stale"));
         verify(setup, never()).createSession(anyBoolean());

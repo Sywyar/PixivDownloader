@@ -16,7 +16,7 @@ public final class CustomComponentContribution implements PageContribution {
                  "properties":{"componentId":{"type":"string","maxLength":36},
                  "version":{"type":"string","maxLength":64},
                  "properties":{"type":"object","additionalProperties":{"type":"string","maxLength":16384}}}}
-                """, "{\"componentId\":\"\",\"version\":\"\",\"properties\":{}}", true, List.of(), List.of()));
+                """, "{\"componentId\":\"\",\"version\":\"\",\"properties\":{}}", true, List.of(), List.of(), null));
     }
     @Override public void validate(String type, String configuration) {
         library.validateConfiguration(ComponentLibrary.parse(configuration.getBytes(StandardCharsets.UTF_8)), false);

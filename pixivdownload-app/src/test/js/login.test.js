@@ -5,6 +5,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
+const {pathToFileURL} = require('node:url');
+const codecs = pathToFileURL(path.resolve(__dirname, '../../../../pixivdownload-plugin-api/src/main/resources/META-INF/pixivdownload/web/value-codecs.mjs')).href;
+const runtime = fs.readFileSync(path.join(__dirname, '../../main/resources/static/js/pixiv-pages.mjs'), 'utf8').replace("'/sdk/values/value-codecs.mjs'", JSON.stringify(codecs));
+const runtimeModule = import('data:text/javascript;base64,' + Buffer.from(runtime).toString('base64'));
 
 const source = fs.readFileSync(path.join(__dirname, '../../main/resources/static/login/login.js'), 'utf8');
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -15,8 +19,11 @@ async function page(redirect = '', valid = false) {
     const listeners = new Map();
     const posts = [];
     let actions;
-    let slotOptions;
-    const properties = [];
+    const {createOperationTarget} = await runtimeModule;
+    const operation = createOperationTarget('core:login'); operation.configure('0');
+    const channel = operation.connect({instanceId: 'proof', operation: operation.operation, policy: 'neutral-policy',
+        protocol: {stateSchema: '{"type":"string"}', responseSchema: '{"type":"string"}'}});
+    const states = []; channel.onState(state => states.push(state));
     function node(id) {
         if (!nodes.has(id)) {
             const classes = new Set(id === 'inviteCard' ? ['hidden'] : []);
@@ -39,41 +46,39 @@ async function page(redirect = '', valid = false) {
         if (endpoint === '/api/auth/check') return Promise.resolve({json: async () => ({valid})});
         return new Promise((resolve, reject) => posts.push({endpoint, options, resolve, reject}));
     };
-    const PixivUiSlots = {connect(options) { slotOptions = options; return {
-        refresh: async () => [], update: async value => properties.push(JSON.parse(JSON.stringify(value)))
-    }; }};
-    vm.runInNewContext(source, {window: {location, PixivUiSlots}, document, URL, URLSearchParams, fetch,
+    const context = vm.createContext({window: {location}, document, URL, URLSearchParams, fetch, operation,
         PixivActions: {bind: (_, handlers) => { actions = handlers.click; }}});
+    vm.runInContext(source, context);
+    await vm.runInContext('initLoginPage(operation)', context);
     await settle();
     node('username').value = 'test-admin';
     node('password').value = 'test-password';
     node('inviteCodeInput').value = 'test-invite';
-    return {node, listeners, posts, actions, location, slotOptions, properties};
+    return {node, listeners, posts, actions, location, operation, channel, states};
 }
 
 test('挑战槽位只接收挑战纯值，证明绑定当前token，修改凭证后清除', async () => {
     const s = await page();
     const pending = s.actions.doLogin();
     s.posts[0].resolve({ok: false, status: 409, json: async () => ({code: 'setup.login.verification.required',
-        verificationToken: 'attempt', challenges: {'neutral-policy': 'challenge'}, error: 'Verification required'})});
+        token: 'attempt', revision: '0', challenges: {'neutral-policy': 'challenge'}, error: 'Verification required'})});
     await pending;
-    assert.deepEqual(s.properties.at(-1), {verificationToken: 'attempt', challenges: {'neutral-policy': 'challenge'}});
-    s.slotOptions.onEvent('proof', {verificationToken: 'old', policyId: 'neutral-policy', proof: 'stale'});
-    s.slotOptions.onEvent('proof', {verificationToken: 'attempt', policyId: 'unknown', proof: 'wrong'});
-    s.slotOptions.onEvent('proof', {verificationToken: 'attempt', policyId: 'neutral-policy', proof: 'accepted'});
+    assert.deepEqual(s.states.at(-1), {id: 'attempt', revision: '0', value: 'challenge'});
+    assert.equal(s.channel.respond('old', 'stale'), false);
+    assert.equal(s.channel.respond('attempt', 'accepted'), true);
     s.listeners.get('keydown')({key: 'Enter', target: {closest: () => true}});
     assert.equal(s.posts.length, 1, 'proof button Enter does not submit login');
     const response = s.actions.doLogin();
     const body = JSON.parse(s.posts[1].options.body);
-    assert.deepEqual(body.verificationProofs, {'neutral-policy': 'accepted'});
-    assert.equal(body.verificationToken, 'attempt');
+    assert.deepEqual(body.operationProofs, {'neutral-policy': 'accepted'});
+    assert.equal(body.operationToken, 'attempt');
     s.posts[1].resolve({ok: false, status: 409, json: async () => ({code: 'setup.login.verification.required',
-        verificationToken: 'next', challenges: {'neutral-policy': 'challenge'}})});
+        token: 'next', revision: '0', challenges: {'neutral-policy': 'challenge'}})});
     await response;
     s.node('password').input();
-    assert.deepEqual(s.properties.at(-1), {verificationToken: '', challenges: {}});
+    assert.equal(s.states.at(-1), null);
     const cleared = s.actions.doLogin();
-    assert.deepEqual(JSON.parse(s.posts[2].options.body).verificationProofs, {});
+    assert.deepEqual(JSON.parse(s.posts[2].options.body).operationProofs, {});
     s.posts[2].resolve({ok: true, json: async () => ({success: true})});
     await cleared;
 });

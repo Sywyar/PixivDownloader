@@ -5,7 +5,8 @@ export async function checkCssEditor(page, work, zoom) {
     const input = page.locator('#css-code .cm-content'), apply = page.locator('#css-apply');
     const frame = page.frameLocator('iframe.gjs-frame');
     const write = async css => {
-        await input.focus(); await input.press('ControlOrMeta+a'); await page.keyboard.insertText(css);
+        await input.click(); await input.press('ControlOrMeta+a'); await page.keyboard.insertText(css);
+        assert.equal(await input.innerText(), css, 'typing reaches the CSS editor before submitting');
     };
     const open = async () => {
         if (await page.locator('#style-toggle').getAttribute('aria-expanded') !== 'true') await page.locator('#style-toggle').click();

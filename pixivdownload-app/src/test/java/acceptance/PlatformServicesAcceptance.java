@@ -155,14 +155,14 @@ public final class PlatformServicesAcceptance {
         check(!browserProcess.isAlive() && browserProcess.exitValue() == 0, "neutral challenge browser");
         var challenge = login(client, origin, Map.of());
         denied(challenge, 409);
-        var proof = Map.<String, Object>of("verificationToken", JSON.readTree(challenge.body()).path("verificationToken").asText(),
-            "verificationProofs", Map.of("neutral-policy", "neutral-proof"));
+        var proof = Map.<String, Object>of("operationToken", JSON.readTree(challenge.body()).path("token").asText(),
+            "operationProofs", Map.of("neutral-policy", "neutral-proof"));
         var approved = login(client, origin, proof);
         check(approved.statusCode() == 200 && !approved.headers().allValues("set-cookie").isEmpty(), "verified login creates session");
         denied(login(client, origin, proof), 409);
         challenge = login(client, origin, Map.of());
-        var stale = Map.<String, Object>of("verificationToken", JSON.readTree(challenge.body()).path("verificationToken").asText(),
-            "verificationProofs", Map.of("neutral-policy", "neutral-proof"));
+        var stale = Map.<String, Object>of("operationToken", JSON.readTree(challenge.body()).path("token").asText(),
+            "operationProofs", Map.of("neutral-policy", "neutral-proof"));
         stopEventually(coordinator, "neutral-login");
         denied(login(client, origin, Map.of()), 503);
         coordinator.start("neutral-login");

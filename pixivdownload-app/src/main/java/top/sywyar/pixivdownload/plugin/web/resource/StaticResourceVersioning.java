@@ -39,12 +39,15 @@ final class StaticResourceVersioning extends CssLinkResourceTransformer {
     private static final ObjectMapper JSON = new ObjectMapper();
     private final StaticResourceRegistry registry;
     private final PageContributionRegistry pages;
+    private final top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest publications;
     private final PathResourceResolver resolver = new PathResourceResolver();
     private final String runtimeVersion = UUID.randomUUID().toString();
 
-    StaticResourceVersioning(StaticResourceRegistry registry, PageContributionRegistry pages) {
+    StaticResourceVersioning(StaticResourceRegistry registry, PageContributionRegistry pages,
+            top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest publications) {
         this.registry = registry;
         this.pages = pages;
+        this.publications = publications;
     }
 
     static String contentHash(Resource resource) {
@@ -86,6 +89,15 @@ final class StaticResourceVersioning extends CssLinkResourceTransformer {
             }
         }
         List<Replacement> replacements = new ArrayList<>();
+        String requestPath = SafeRequestPath.resolve(request).orElse("");
+        if (pages.pages().stream().filter(page -> page.definition().path().equals(requestPath)).count() == 1
+                && document.head().sourceRange().isTracked()) {
+            String revision;
+            try { revision = publications.revision(request); }
+            catch (IllegalStateException unavailable) { revision = "unavailable"; }
+            int position = document.head().sourceRange().endPos();
+            replacements.add(new Replacement(position, position, "<meta name=\"pixiv-page-revision\" content=\"" + revision + "\">"));
+        }
         Element title = document.head().selectFirst("title");
         if (title != null && title.sourceRange().isTracked()) {
             int contentStart = title.sourceRange().endPos();
@@ -130,13 +142,13 @@ final class StaticResourceVersioning extends CssLinkResourceTransformer {
     private Optional<String> publishedTitle(HttpServletRequest request) {
         String path = SafeRequestPath.resolve(request).orElse("");
         var matches = pages.pages().stream().map(PageCatalog.AvailablePage::definition)
-                .filter(page -> page.publicPage() && page.path().equals(path)).toList();
+                .filter(page -> page.path().equals(path)).toList();
         if (matches.size() != 1) return Optional.empty();
         String pageId = matches.get(0).id();
         try {
-            var publication = pages.published(pageId);
+            var publication = publications.read(pageId, request);
             if (publication.isEmpty()) return Optional.empty();
-            var view = JSON.readTree(publication.orElseThrow());
+            var view = JSON.readTree(publication.orElseThrow().projection());
             if (view == null || !pageId.equals(view.path("pageId").asText())) return Optional.empty();
             var title = view.path("title");
             return title.isTextual() && !title.textValue().isEmpty() && title.textValue().length() <= 256

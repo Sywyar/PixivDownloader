@@ -1,0 +1,284 @@
+package top.sywyar.pixivdownload.plugin.security;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+import top.sywyar.pixivdownload.plugin.api.security.*;
+import top.sywyar.pixivdownload.plugin.api.service.*;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.OperationVerificationCapabilityAdapter;
+import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationRegistry;
+import top.sywyar.pixivdownload.plugin.runtime.context.PluginOperationGuardFactory;
+import top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry;
+import top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore;
+import top.sywyar.pixivdownload.plugin.web.remote.RemoteValues;
+
+import java.io.IOException;
+import static top.sywyar.pixivdownload.i18n.MessageBundles.getForLog;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.util.*;
+import static top.sywyar.pixivdownload.plugin.api.security.OperationGuard.Status.*;
+
+/** 挑战只保留请求摘要及精确 publication；受管动作与验证共用既有注册中心的租约。 */
+@Component
+public final class OperationVerificationGate implements PluginOperationGuardFactory {
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(OperationVerificationGate.class);
+    private static final long VERIFICATION_NANOS = java.time.Duration.ofSeconds(10).toNanos();
+    private final ExternalCapabilityInvocationRegistry registry;
+    private final Map<String, List<String>> requirements;
+    private final Clock clock;
+    private final java.util.function.LongSupplier elapsedTime;
+    private final WebPublicationStore publications;
+    private final PageContributionRegistry pages;
+    private final OperationAdmissions admissions;
+    private final Map<String, OperationVerification.Policy> configuredPlans = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<String, Pending> pending = new LinkedHashMap<>();
+
+    @Autowired
+    public OperationVerificationGate(ExternalCapabilityInvocationRegistry registry,
+            List<OperationRequirement> configuredPolicies,
+            WebPublicationStore publications, PageContributionRegistry pages, OperationAdmissions admissions) {
+        this(registry, OperationRequirement.collect(configuredPolicies), Clock.systemUTC(),
+                publications, pages, admissions);
+    }
+
+    public OperationVerificationGate(ExternalCapabilityInvocationRegistry registry,
+            Map<String, List<String>> requirements, Clock clock, WebPublicationStore publications,
+            PageContributionRegistry pages, OperationAdmissions admissions) {
+        this(registry, requirements, clock, publications, pages, admissions, System::nanoTime);
+    }
+
+    OperationVerificationGate(ExternalCapabilityInvocationRegistry registry,
+            Map<String, List<String>> requirements, Clock clock, WebPublicationStore publications,
+            PageContributionRegistry pages, OperationAdmissions admissions, java.util.function.LongSupplier elapsedTime) {
+        this.registry = Objects.requireNonNull(registry);
+        this.clock = Objects.requireNonNull(clock);
+        this.elapsedTime = Objects.requireNonNull(elapsedTime);
+        this.publications = Objects.requireNonNull(publications);
+        this.pages = Objects.requireNonNull(pages);
+        this.admissions = Objects.requireNonNull(admissions);
+        var copy = new LinkedHashMap<String, List<String>>();
+        requirements.forEach((operation, policies) -> {
+            if (policies.size() > 16 || policies.stream().distinct().count() != policies.size())
+                throw new IllegalArgumentException("OPERATION_POLICY_CONFIGURATION_INVALID");
+            policies.forEach(OperationVerificationCapabilityAdapter::key);
+            copy.put(operation, List.copyOf(policies));
+        });
+        this.requirements = Map.copyOf(copy);
+    }
+
+    private record Identity(ServicePublication publication, OperationVerification.Policy policy, String generation) { }
+    private record Pending(String owner, String operation, String digest, List<String> policies,
+                           List<Identity> identities, String publicationRevision, long expires) { }
+
+    @Override public OperationGuard create(PluginServices services) {
+        return new BoundGuard(registry.serviceOwner(services).pluginId(), services);
+    }
+
+    /** 核心业务使用独立的宿主入口；插件只能取得 child context 中绑定的访问器。 */
+    public OperationGuard host() { return new BoundGuard("core", null); }
+
+    private final class BoundGuard implements OperationGuard {
+        private final String owner;
+        private final PluginServices services;
+        private final String identity;
+        private BoundGuard(String owner, PluginServices services) {
+            this.owner = owner;
+            this.services = services;
+            this.identity = services == null ? owner : registry.serviceOwner(services).toString();
+        }
+
+        @Override public <T> Result<T> execute(String operation, String subject, String context,
+                String token, Map<String, String> input, Action<T> action) throws IOException {
+            if (operation == null || operation.length() > 256 || !operation.startsWith(owner + ":")
+                    || !operation.matches("[a-z0-9-]+:[a-zA-Z0-9._-]+")
+                    || subject == null || subject.length() > 1024 || context == null || context.length() > 16384
+                    || context.getBytes(StandardCharsets.UTF_8).length > 16384)
+                return result(INVALID);
+            long started = elapsedTime.getAsLong();
+            String correlation = UUID.randomUUID().toString();
+            LOG.info(getForLog("operation.log.started", correlation, operation));
+            String outcome = "FAILED";
+            try {
+                OperationAdmissions.Lease lease;
+                try { lease = admissions.enter(operation); }
+                catch (IllegalStateException closed) { outcome = "UNAVAILABLE"; return result(UNAVAILABLE); }
+                try (lease) {
+                    Result<T> result = admitted(operation, subject, context, token, input, action, started, correlation);
+                    outcome = result.status().name();
+                    return result;
+                }
+            } finally {
+                LOG.info(getForLog("operation.log.finished", correlation, operation, outcome,
+                        java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(elapsedTime.getAsLong() - started)));
+            }
+        }
+
+        private <T> Result<T> admitted(String operation, String subject, String context,
+                String token, Map<String, String> input, Action<T> action, long started, String correlation) throws IOException {
+            WebPublicationStore.Snapshot snapshot;
+            try { snapshot = publications.snapshot(); }
+            catch (IllegalStateException unavailable) { return result(UNAVAILABLE); }
+            var published = snapshot.requirements(operation);
+            var declared = pages.pages().stream().flatMap(page -> page.definition().targets().stream())
+                    .filter(target -> target.operation().equals(operation)).toList();
+            if (declared.isEmpty()) return result(UNAVAILABLE);
+            if (declared.stream().map(target -> target.contextSchema()).distinct().count() != 1) return result(UNAVAILABLE);
+            if (published.stream().anyMatch(expected -> !expected.contextSchema().equals(declared.get(0).contextSchema())))
+                return result(UNAVAILABLE);
+            try { RemoteValues.validateConfiguration(declared.get(0).contextSchema(), context); }
+            catch (IllegalArgumentException invalid) { return result(INVALID); }
+            List<String> policies = java.util.stream.Stream.concat(requirements.getOrDefault(operation, List.of()).stream(),
+                    published.stream().map(WebPublicationStore.Requirement::policy)).distinct().sorted().toList();
+            if (policies.size() > 16) return result(UNAVAILABLE);
+            Map<String, String> proofs = validateProofs(input, policies);
+            if (proofs == null) return result(INVALID);
+            boolean response = token != null && !token.isBlank();
+            if (token != null && token.length() > 128 || !response && !proofs.isEmpty()) return result(STALE);
+            String digest = digest(subject, context);
+            Pending previous = response ? consume(token) : null;
+            if (response && (previous == null || !previous.owner().equals(identity)
+                    || !previous.operation().equals(operation) || !previous.digest().equals(digest)
+                    || !previous.publicationRevision().equals(snapshot.identity())
+                    || !previous.policies().equals(policies))) return result(STALE);
+            String attempt = response ? token : UUID.randomUUID().toString();
+            List<ServiceKey<OperationVerification>> keys = policies.stream().map(OperationVerificationCapabilityAdapter::key).toList();
+            boolean[] actionStarted = {false};
+            try {
+                return registry.withServices(services, OperationVerification.IMPORT, keys, List.of(), providers -> {
+                    List<Identity> identities = new ArrayList<>();
+                    for (var provider : providers) {
+                        if (expired(started, correlation)) return result(UNAVAILABLE);
+                        if (!policies.get(identities.size()).equals(provider.service().policyId())) return result(UNAVAILABLE);
+                        OperationVerification.Policy policy = OperationPolicies.validate(provider.service().policy());
+                        String generation = provider.service().generation();
+                        if (!validIdentity(generation)) return result(UNAVAILABLE);
+                        identities.add(new Identity(provider.publication(), policy, generation));
+                    }
+                    if (previous != null && !previous.identities().equals(identities)) return result(STALE);
+                    for (int i = 0; i < providers.size(); i++) {
+                        String policy = policies.get(i);
+                        Identity actual = identities.get(i);
+                        for (var expected : published) if (expected.policy().equals(policy)
+                                && (!expected.provider().equals(actual.publication().pluginId())
+                                || !expected.packageId().equals(actual.publication().packageId())
+                                || !expected.plan().equals(actual.policy()))) return result(UNAVAILABLE);
+                        if (requirements.getOrDefault(operation, List.of()).contains(policy)) {
+                            if (published.stream().anyMatch(expected -> expected.policy().equals(policy))) {
+                                configuredPlans.put(policy, actual.policy());
+                                continue;
+                            }
+                            var configured = configuredPlans.putIfAbsent(policy, actual.policy());
+                            if (configured != null && !configured.equals(actual.policy())) return result(UNAVAILABLE);
+                        }
+                    }
+                    Map<String, String> challenges = new LinkedHashMap<>();
+                    int challengeBytes = 0;
+                    for (int i = 0; i < providers.size(); i++) {
+                        Identity identity = identities.get(i);
+                        if (expired(started, correlation)) return result(UNAVAILABLE);
+                        if (!identity.policy().contextSchema().isEmpty())
+                            top.sywyar.pixivdownload.plugin.web.remote.RemoteValues.validateConfiguration(identity.policy().contextSchema(), context);
+                        var decision = providers.get(i).service().verify(new OperationVerificationRequest(
+                                operation, digest(subject, ""), identity.policy().contextSchema().isEmpty() ? "{}" : context, attempt,
+                                identity.policy().revision(), identity.policy().protocol().id(),
+                                response, proofs.getOrDefault(policies.get(i), "")));
+                        if (expired(started, correlation)) return result(UNAVAILABLE);
+                        if (decision == null || decision.status() == null) return result(UNAVAILABLE);
+                        if (decision.status() == OperationVerificationResult.Status.REJECTED) return result(REJECTED);
+                        if (decision.status() == OperationVerificationResult.Status.CHALLENGE) {
+                            String challenge = decision.challenge();
+                            if (challenge == null || challenge.length() > 16384) return result(UNAVAILABLE);
+                            int bytes = challenge.getBytes(StandardCharsets.UTF_8).length;
+                            challengeBytes += bytes;
+                            if (bytes > 16384 || challengeBytes > 65536) return result(UNAVAILABLE);
+                            challenges.put(policies.get(i), challenge);
+                        }
+                    }
+                    // 配置或凭据在验证期间变化也不能继续执行业务。
+                    for (int i = 0; i < providers.size(); i++) {
+                        if (!policies.get(i).equals(providers.get(i).service().policyId())
+                                || !identities.get(i).policy().equals(providers.get(i).service().policy())
+                                || !identities.get(i).generation().equals(providers.get(i).service().generation()))
+                            return result(STALE);
+                    }
+                    if (expired(started, correlation)) return result(UNAVAILABLE);
+                    if (challenges.isEmpty()) {
+                        actionStarted[0] = true;
+                        LOG.info(getForLog("operation.log.action", correlation, operation));
+                        return new Result<>(APPROVED, action.run(), "", snapshot.identity(), Map.of());
+                    }
+                    if (response) return result(REJECTED);
+                    if (!retain(attempt, new Pending(identity, operation, digest, policies, List.copyOf(identities),
+                            snapshot.identity(), clock.millis() + 300_000))) return result(UNAVAILABLE);
+                    return new Result<>(CHALLENGE, null, attempt, snapshot.identity(), challenges);
+                });
+            } catch (ServiceAccessException unavailable) {
+                // 业务已开始后的异常属于业务 owner，不能伪装成可重试的验证失败。
+                if (actionStarted[0]) throw unavailable;
+                LOG.info(getForLog("operation.log.unavailable", correlation, unavailable.reason()));
+                return result(UNAVAILABLE);
+            } catch (IllegalArgumentException invalidPolicy) {
+                if (actionStarted[0]) throw invalidPolicy;
+                LOG.info(getForLog("operation.log.unavailable", correlation, "INVALID_POLICY"));
+                return result(UNAVAILABLE);
+            }
+        }
+    }
+
+    private boolean expired(long started, String correlation) {
+        // 不取消正在执行的 provider；其实际退出前继续持有租约，超时结果绝不触发业务动作。
+        boolean expired = elapsedTime.getAsLong() - started >= VERIFICATION_NANOS || Thread.currentThread().isInterrupted();
+        if (expired) LOG.info(getForLog("operation.log.timeout", correlation));
+        return expired;
+    }
+
+    private static boolean validIdentity(String value) {
+        return value != null && !value.isBlank() && value.length() <= 128
+                && value.matches("[a-zA-Z0-9:._-]+");
+    }
+
+    private static String digest(String subject, String context) {
+        try {
+            var digest = MessageDigest.getInstance("SHA-256");
+            byte[] subjectBytes = subject.getBytes(StandardCharsets.UTF_8);
+            digest.update(java.nio.ByteBuffer.allocate(Integer.BYTES).putInt(subjectBytes.length).array());
+            digest.update(subjectBytes);
+            return HexFormat.of().formatHex(digest.digest(context.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException unavailable) { throw new IllegalStateException(unavailable); }
+    }
+
+    private static Map<String, String> validateProofs(Map<String, String> input, List<String> policies) {
+        if (input == null || input.size() > 16) return null;
+        int bytes = 0;
+        Map<String, String> safe = new LinkedHashMap<>();
+        for (var entry : input.entrySet()) {
+            String value = entry.getValue();
+            if (!policies.contains(entry.getKey()) || value == null || value.length() > 16384) return null;
+            int size = value.getBytes(StandardCharsets.UTF_8).length;
+            bytes += size;
+            if (size > 16384 || bytes > 65536) return null;
+            safe.put(entry.getKey(), value);
+        }
+        return Map.copyOf(safe);
+    }
+
+    private static <T> OperationGuard.Result<T> result(OperationGuard.Status status) {
+        return new OperationGuard.Result<>(status, null, "", "", Map.of());
+    }
+
+    private synchronized Pending consume(String token) { expire(); return pending.remove(token); }
+
+    private synchronized boolean retain(String token, Pending value) {
+        expire();
+        if (pending.size() >= 256) return false;
+        pending.put(token, value);
+        return true;
+    }
+
+    private void expire() { pending.values().removeIf(item -> item.expires() <= clock.millis()); }
+
+    @jakarta.annotation.PreDestroy
+    void close() { synchronized (this) { pending.clear(); } }
+}

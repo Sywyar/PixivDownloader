@@ -26,6 +26,10 @@ import top.sywyar.pixivdownload.plugin.registry.PluginRegistry;
 import top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry;
 import top.sywyar.pixivdownload.plugin.registry.web.StaticResourceRegistry;
 
+import top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest;
+import top.sywyar.pixivdownload.plugin.api.web.page.PagePublications;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -54,6 +58,7 @@ class StaticResourceVersioningTest {
     @EnableWebMvc
     @Import({StaticResourceConfig.class, ResourcePageAdvice.class, PageController.class})
     static class ServingConfig {
+        @Bean PagePublicationRequest pagePublicationRequest() { return mock(PagePublicationRequest.class); }
         @Bean
         PageContributionRegistry pageContributionRegistry() {
             return mock(PageContributionRegistry.class);
@@ -118,12 +123,15 @@ class StaticResourceVersioningTest {
 
     private PageCatalog.AvailablePage page(String id, String path, boolean publicPage) {
         return new PageCatalog.AvailablePage(new EditablePage(id, "page.title", "example", path,
-                publicPage, List.of(), "", "", List.of()), "publication");
+                publicPage, List.of(), "", "", List.of(), List.of()), "publication");
     }
 
-    private String publication(String pageId, String title) throws Exception {
-        return new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode()
-                .put("pageId", pageId).put("title", title).toString();
+    private PagePublications.Published publication(String pageId, String title) throws Exception {
+        return published(new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode()
+                .put("pageId", pageId).put("title", title).toString());
+    }
+    private PagePublications.Published published(String projection) {
+        return new PagePublications.Published(1, "{}", projection, "");
     }
 
     @Test
@@ -131,11 +139,12 @@ class StaticResourceVersioningTest {
     void publishedTitleParticipatesInContentValidation() throws Exception {
         try (var context = context()) {
             var pages = context.getBean(PageContributionRegistry.class);
+            var publications = context.getBean(PagePublicationRequest.class);
             when(pages.pages()).thenReturn(List.of(page("example:login", "/login.html", true)));
             MockMvc mvc = MockMvcBuilders.webAppContextSetup(context).build();
             var original = mvc.perform(get("/login.html")).andReturn().getResponse();
             String title = "备案 </title><script>alert(1)</script> & \"site\"";
-            when(pages.published("example:login")).thenReturn(Optional.of(publication("example:login", title)));
+            when(publications.read(eq("example:login"), any())).thenReturn(Optional.of(publication("example:login", title)));
             var published = mvc.perform(get("/login.html").header("If-None-Match", original.getHeader("ETag")))
                     .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-cache"))
                     .andReturn().getResponse();
@@ -147,11 +156,11 @@ class StaticResourceVersioningTest {
                     .andExpect(status().isNotModified());
             mvc.perform(head("/login.html")).andExpect(status().isOk())
                     .andExpect(header().string("ETag", published.getHeader("ETag")));
-            when(pages.published("example:login")).thenReturn(Optional.of(publication("example:login", "Updated title")));
+            when(publications.read(eq("example:login"), any())).thenReturn(Optional.of(publication("example:login", "Updated title")));
             var changed = mvc.perform(get("/login.html").header("If-None-Match", published.getHeader("ETag")))
                     .andExpect(status().isOk()).andReturn().getResponse();
             assertThat(Jsoup.parse(changed.getContentAsString(StandardCharsets.UTF_8)).title()).isEqualTo("Updated title");
-            when(pages.published("example:login")).thenReturn(Optional.empty());
+            when(publications.read(eq("example:login"), any())).thenReturn(Optional.empty());
             var withdrawn = mvc.perform(get("/login.html").header("If-None-Match", changed.getHeader("ETag")))
                     .andExpect(status().isOk()).andReturn().getResponse();
             assertThat(withdrawn.getContentAsByteArray()).isEqualTo(original.getContentAsByteArray());
@@ -166,10 +175,11 @@ class StaticResourceVersioningTest {
         try (var context = context()) {
             when(context.getBean(StaticResourceRegistry.class).resources()).thenReturn(List.of(contribution("/demo/", false)));
             var pages = context.getBean(PageContributionRegistry.class);
+            var publications = context.getBean(PagePublicationRequest.class);
             when(pages.pages()).thenReturn(List.of(page("example:custom", "/demo/page.html", true),
-                    page("example:controlled", "/controlled.html", true)));
-            when(pages.published("example:custom")).thenReturn(Optional.of(publication("example:custom", "Custom page")));
-            when(pages.published("example:controlled")).thenReturn(Optional.of(publication("example:controlled", "Controlled page")));
+                    page("example:controlled", "/controlled.html", false)));
+            when(publications.read(eq("example:custom"), any())).thenReturn(Optional.of(publication("example:custom", "Custom page")));
+            when(publications.read(eq("example:controlled"), any())).thenReturn(Optional.of(publication("example:controlled", "Controlled page")));
             var mvc = MockMvcBuilders.webAppContextSetup(context).build();
             var custom = mvc.perform(get("/app/demo/page.html?redirect=/other").contextPath("/app"))
                     .andExpect(status().isOk()).andReturn().getResponse();
@@ -187,37 +197,38 @@ class StaticResourceVersioningTest {
     void unavailableOrInvalidPublicationKeepsDefaultTitle() throws Exception {
         try (var context = context()) {
             var pages = context.getBean(PageContributionRegistry.class);
+            var publications = context.getBean(PagePublicationRequest.class);
             when(pages.pages()).thenReturn(List.of(page("example:login", "/login.html", true)));
             var mvc = MockMvcBuilders.webAppContextSetup(context).build();
             byte[] original = mvc.perform(get("/login.html")).andReturn().getResponse().getContentAsByteArray();
-            for (String value : List.of("null", "{", "{}", publication("other:page", "Private title"),
-                    publication("example:login", ""), publication("example:login", "x".repeat(257)),
+            for (String value : List.of("null", "{", "{}", publication("other:page", "Private title").projection(),
+                    publication("example:login", "").projection(), publication("example:login", "x".repeat(257)).projection(),
                     "{\"pageId\":\"example:login\",\"title\":42}")) {
-                when(pages.published("example:login")).thenReturn(Optional.of(value));
+                when(publications.read(eq("example:login"), any())).thenReturn(Optional.of(published(value)));
                 assertThat(mvc.perform(get("/login.html")).andExpect(status().isOk())
                         .andReturn().getResponse().getContentAsByteArray()).isEqualTo(original);
             }
-            when(pages.published("example:login")).thenThrow(new IllegalStateException("PAGE_STORAGE_FAILED"));
+            when(publications.read(eq("example:login"), any())).thenThrow(new IllegalStateException("PAGE_STORAGE_FAILED"));
             assertThat(mvc.perform(get("/login.html")).andExpect(status().isOk())
                     .andReturn().getResponse().getContentAsByteArray()).isEqualTo(original);
         }
     }
 
     @Test
-    @DisplayName("未声明、非公开与路径歧义不读取发布内容")
-    void onlyUniquePublicPageCanSupplyTitle() throws Exception {
+    @DisplayName("未声明与路径歧义不读取发布内容，私有 HTML 的鉴权由原入口负责")
+    void onlyUniqueDeclaredPageCanSupplyTitle() throws Exception {
         try (var context = context()) {
             var pages = context.getBean(PageContributionRegistry.class);
+            var publications = context.getBean(PagePublicationRequest.class);
             var mvc = MockMvcBuilders.webAppContextSetup(context).build();
             for (var declarations : List.of(List.<PageCatalog.AvailablePage>of(),
-                    List.of(page("example:private", "/login.html", false)),
                     List.of(page("example:first", "/login.html", true), page("example:second", "/login.html", true)))) {
                 when(pages.pages()).thenReturn(declarations);
                 var response = mvc.perform(get("/login.html")).andExpect(status().isOk()).andReturn().getResponse();
                 assertThat(Jsoup.parse(response.getContentAsString(StandardCharsets.UTF_8))
                         .select("title[data-pixiv-page-title]")).isEmpty();
             }
-            verify(pages, never()).published(anyString());
+            verify(publications, never()).read(anyString(), any());
         }
     }
 

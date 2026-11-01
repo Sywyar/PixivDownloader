@@ -312,7 +312,11 @@ try { document.cookie = 'escape=bad'; } catch (_) {}`,
     state = (await api('components/save', {id, revision: state.revision, source: {...source, name: 'Unpublished source'}})).body;
     assert.equal((await api('documents/core:login')).body.draft.project.pages[0].frames[0].component.components.length,
         document.draft.project.pages[0].frames[0].component.components.length);
-    assert.equal((await api('documents/core:login/publish', {revision: document.revision})).status, 200);
+    const preview = await api('documents/core:login/prepare', {revision: document.revision, restoring: false});
+    assert.equal(preview.status, 200);
+    assert.equal((await api('documents/core:login/publish', {revision: document.revision, decision: {
+        revision: preview.body.revision, fingerprint: preview.body.fingerprint, approvals: preview.body.permissions
+    }})).status, 200);
     const publicContext = await context.browser().newContext();
     const published = await publicContext.newPage();
     await published.goto(origin + '/login.html');

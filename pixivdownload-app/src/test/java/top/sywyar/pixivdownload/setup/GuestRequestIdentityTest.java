@@ -92,8 +92,16 @@ class GuestRequestIdentityTest {
                 invites, mock(GuiTokenProvider.class));
         var loginLimits = mock(LoginRateLimitService.class);
         when(loginLimits.isAllowed(anyString())).thenReturn(true);
+        var registry = new top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationRegistry();
         var controller = new SetupController(setup, loginLimits, mock(MultiModeConfig.class),
-                mock(ProxySetupService.class), TestI18nBeans.appMessages());
+                mock(ProxySetupService.class), TestI18nBeans.appMessages(),
+                new top.sywyar.pixivdownload.plugin.security.OperationVerificationGate(
+                        registry, java.util.Map.of("core:login", java.util.List.of()), java.time.Clock.systemUTC(),
+                        new top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore(
+                                tempDir.resolve("publications"), tempDir.resolve("config/enrolled")),
+                        new top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry(
+                                List.of(new LoginPageContribution().loginEditablePage()), registry),
+                        new top.sywyar.pixivdownload.plugin.security.OperationAdmissions()));
         mvc = MockMvcBuilders.standaloneSetup(controller, new AdminInviteController(invites),
                         new NavigationController(new NavigationRegistry(new PluginRegistry(List.of(new CorePlugin()))), setup))
                 .addFilters(auth)

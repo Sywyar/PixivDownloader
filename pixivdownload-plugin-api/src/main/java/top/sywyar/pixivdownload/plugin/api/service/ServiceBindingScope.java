@@ -15,9 +15,7 @@ public interface ServiceBindingScope {
      * @return 固定双方 publication 的受管成员
      * @throws ServiceAccessException 已失效、未声明或宿主不支持
      */
-    default <T> java.util.List<ServiceProvider<T>> findAll(ServiceKey<T> key) {
-        throw new ServiceAccessException(ServiceAccessException.Reason.UNSUPPORTED);
-    }
+    <T> java.util.List<ServiceProvider<T>> findAll(ServiceKey<T> key);
 
     /**
      * @param key 此轮声明的服务依赖

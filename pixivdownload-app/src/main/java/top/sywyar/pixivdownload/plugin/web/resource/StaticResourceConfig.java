@@ -17,8 +17,9 @@ public class StaticResourceConfig implements WebMvcConfigurer {
 
     private final StaticResourceVersioning versioning;
 
-    public StaticResourceConfig(StaticResourceRegistry staticResourceRegistry, PageContributionRegistry pages) {
-        this.versioning = new StaticResourceVersioning(staticResourceRegistry, pages);
+    public StaticResourceConfig(StaticResourceRegistry staticResourceRegistry, PageContributionRegistry pages,
+            top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest publications) {
+        this.versioning = new StaticResourceVersioning(staticResourceRegistry, pages, publications);
     }
 
     @Bean

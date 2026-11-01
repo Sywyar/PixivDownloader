@@ -83,12 +83,12 @@ class PageContributionAdapterTest {
                 return List.of(new EditablePage(owner + ":page", "page", owner, "/" + owner + "/page.html", true,
                         List.of(new PageRegion("card", "card", "", true, false),
                                 new PageRegion("field", "field", "card", false, false)),
-                        "", "/" + owner + "/list.mjs", List.of("/" + owner + "/page.css")));
+                        "", "/" + owner + "/list.mjs", List.of("/" + owner + "/page.css"), List.of()));
             }
             public List<PageComponent> components() {
                 return List.of(new PageComponent(owner + ":list", 1, "label", owner, "/" + owner + "/list.mjs", "",
                         "{\"type\":\"object\",\"properties\":{\"items\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"items\"],\"additionalProperties\":false}",
-                        "{\"items\":[]}", true, List.of(), List.of()));
+                        "{\"items\":[]}", true, List.of(), List.of(), null));
             }
             public void validate(String type, String configuration) { validation.run(); }
         });
@@ -98,7 +98,7 @@ class PageContributionAdapterTest {
     @Test @DisplayName("页面区域声明拒绝循环父级并将核心预览绑定到本进程")
     void rejectsRegionCyclesAndBindsCorePreview() {
         var invocations = new ExternalCapabilityInvocationRegistry();
-        var page = new EditablePage("core:test", "test", "test", "/test.html", true, List.of(), "", "", List.of());
+        var page = new EditablePage("core:test", "test", "test", "/test.html", true, List.of(), "", "", List.of(), List.of());
         var registry = new PageContributionRegistry(List.of(page), invocations);
         String token = registry.pages().get(0).publication();
         assertThat(registry.permits(token, "core", null)).isTrue();
@@ -113,7 +113,7 @@ class PageContributionAdapterTest {
                 public List<EditablePage> pages() {
                     return List.of(new EditablePage("test:page", "test", "test", "/test.html", true,
                             List.of(new PageRegion("a", "a", "b", true, false),
-                                    new PageRegion("b", "b", "a", true, false)), "", "", List.of()));
+                                    new PageRegion("b", "b", "a", true, false)), "", "", List.of(), List.of()));
                 }
             });
             context.refresh();

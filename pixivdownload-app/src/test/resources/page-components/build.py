@@ -19,6 +19,17 @@ classpath = os.pathsep.join(str(p) for p in sdk + libraries)
 def run(*args):
     subprocess.run(args, check=True)
 
+types = work / "types"
+types.mkdir()
+with zipfile.ZipFile(next((root / "sdk").glob("pixivdownload-plugin-api-*.jar"))) as archive:
+    prefix = "META-INF/pixivdownload/web/"
+    for name in archive.namelist():
+        if name.startswith(prefix) and name.endswith((".d.ts", ".d.mts")):
+            (types / pathlib.Path(name).name).write_bytes(archive.read(name))
+shutil.copyfile(sources / "operation-types.mts", types / "operation-types.mts")
+run("node", sys.argv[2], "--noEmit", "--strict", "--module", "nodenext", "--target", "es2023",
+    "--lib", "es2023,dom", str(types / "operation-types.mts"))
+
 def compile_java(source, output, extra=""):
     output.mkdir(parents=True, exist_ok=True)
     run("javac", "-proc:none", "-encoding", "UTF-8", "-cp", classpath + extra, "-d", str(output), str(source))
@@ -92,3 +103,24 @@ jar(work / "page-checklist.jar", classes,
           "pixiv.configuration-classes=example.pages.plugin.ChecklistPlugin$Configuration\n"
           "pixiv.display-namespace=page-checklist\npixiv.display-name-key=plugin.name\npixiv.description-key=plugin.summary\n"))
 print("PAGE_COMPONENT_INDEPENDENT_PLUGIN_BUILT")
+
+for owner, source, entry, resources, messages in [
+    ("operation-form", "OperationFormPlugin.java", "example.operation.OperationFormPlugin",
+     {"web/index.html": "operation-form.html", "web/form.mjs": "operation-form.mjs"},
+     {"name": "Operation forms", "alpha": "Alpha operation", "beta": "Beta operation", "fields": "Form fields",
+      "ambiguous": "Ambiguous operations", "status.CHALLENGE": "Complete verification and submit again",
+      "status.APPROVED": "Completed", "status.REJECTED": "Verification rejected", "status.UNAVAILABLE": "Verification unavailable",
+      "status.STALE": "Verification expired", "status.INVALID": "Invalid request"}),
+    ("operation-proof", "OperationProofPlugin.java", "example.operationproof.OperationProofPlugin",
+     {"web/proof.mjs": "operation-proof.mjs", "web/cleanup-probe.mjs": "cleanup-probe.mjs"},
+     {"name": "Neutral verification", "respond": "Respond to challenge"})
+]:
+    output = work / (owner + "-classes")
+    compile_java(sources / source, output)
+    extras = {name: (sources / file).read_bytes() for name, file in resources.items()}
+    for suffix in ["", "_en", "_ja", "_ko", "_zh-Hant"]:
+        extras["i18n/web/" + owner + suffix + ".properties"] = "\n".join(key + "=" + value for key, value in messages.items()) + "\n"
+    jar(work / (owner + ".jar"), output, props(owner, entry,
+        "pixiv.lifecycle-policy=hot-reload\npixiv.configuration-classes=" + entry + "$Wiring\n"
+        "pixiv.display-namespace=" + owner + "\npixiv.display-name-key=name\npixiv.description-key=name\n"), extras)
+print("OPERATION_FORM_AND_PROOF_INDEPENDENT_PLUGINS_BUILT")

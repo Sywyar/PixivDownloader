@@ -19,6 +19,9 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.setup.request.LoginRequest;
+import top.sywyar.pixivdownload.plugin.api.security.OperationGuard;
+import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
+import top.sywyar.pixivdownload.plugin.security.OperationVerificationGate;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 import top.sywyar.pixivdownload.setup.request.SetupInitRequest;
 import top.sywyar.pixivdownload.setup.response.AuthCheckResponse;
@@ -38,18 +41,12 @@ public class SetupController {
     private final MultiModeConfig multiModeConfig;
     private final ProxySetupService proxySetupService;
     private final AppMessages messages;
-    private final LoginVerificationGate verification;
-
-    public SetupController(SetupService setupService, LoginRateLimitService loginRateLimitService,
-                           MultiModeConfig multiModeConfig, ProxySetupService proxySetupService, AppMessages messages) {
-        this(setupService, loginRateLimitService, multiModeConfig, proxySetupService, messages,
-                new LoginVerificationGate(null, messages, ""));
-    }
+    private final OperationVerificationGate verification;
 
     @org.springframework.beans.factory.annotation.Autowired
     public SetupController(SetupService setupService, LoginRateLimitService loginRateLimitService,
                            MultiModeConfig multiModeConfig, ProxySetupService proxySetupService, AppMessages messages,
-                           LoginVerificationGate verification) {
+                           OperationVerificationGate verification) {
         this.setupService = setupService;
         this.loginRateLimitService = loginRateLimitService;
         this.multiModeConfig = multiModeConfig;
@@ -165,8 +162,29 @@ public class SetupController {
             );
         }
 
-        return verification.verify(request, httpRequest.getRemoteAddr(), () -> createLoginSession(request));
+        // 上下文只包含可信地址与会话时效选择，密码和整个请求不离开登录 owner。
+        String context = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()
+                .put("clientAddress", httpRequest.getRemoteAddr()).put("rememberMe", request.isRememberMe()).toString();
+        var result = verification.host().execute("core:login", request.getUsername(), context,
+                request.getOperationToken(), request.getOperationProofs(), () -> createLoginSession(request));
+        if (result.status() == OperationGuard.Status.APPROVED) return result.value();
+        if (result.status() == OperationGuard.Status.CHALLENGE) {
+            String code = "setup.login.verification.required";
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                    new OperationChallengeResponse(code, messages.get(code), result.token(), result.revision(), result.challenges()));
+        }
+        HttpStatus status = switch (result.status()) {
+            case INVALID -> HttpStatus.BAD_REQUEST;
+            case STALE -> HttpStatus.CONFLICT;
+            case REJECTED -> HttpStatus.FORBIDDEN;
+            default -> HttpStatus.SERVICE_UNAVAILABLE;
+        };
+        throw new LocalizedException(status,
+                "setup.login.verification." + result.status().name().toLowerCase(java.util.Locale.ROOT), null);
     }
+
+    public record OperationChallengeResponse(String code, String error, String token, String revision,
+            java.util.Map<String, String> challenges) implements ApiErrorResponse { }
 
     private ResponseEntity<AuthResponse> createLoginSession(LoginRequest request) throws IOException {
         String token = setupService.createSession(request.isRememberMe());

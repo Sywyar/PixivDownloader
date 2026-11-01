@@ -33,10 +33,17 @@ public final class PageEditorController {
         return ok(store.save(id, revision(command), command.path("document")));
     }
     @PostMapping("/documents/{id}/publish") public ResponseEntity<?> publish(@PathVariable String id, HttpServletRequest request) throws IOException {
-        return ok(store.publish(id, revision(command(request))));
+        JsonNode command = command(request);
+        return ok(store.publish(id, revision(command), PageDocuments.JSON.treeToValue(command.path("decision"), PageStore.Decision.class), false));
     }
     @PostMapping("/documents/{id}/restore") public ResponseEntity<?> restore(@PathVariable String id, HttpServletRequest request) throws IOException {
-        return ok(store.restore(id, revision(command(request))));
+        JsonNode command = command(request);
+        return ok(store.publish(id, revision(command), PageDocuments.JSON.treeToValue(command.path("decision"), PageStore.Decision.class), true));
+    }
+    @PostMapping("/documents/{id}/prepare") public ResponseEntity<?> prepare(@PathVariable String id, HttpServletRequest request) throws IOException {
+        JsonNode command = command(request);
+        if (!command.path("restoring").isBoolean()) throw PageDocuments.invalid("PAGE_DOCUMENT_INVALID");
+        return ok(store.prepare(id, revision(command), command.path("restoring").asBoolean()));
     }
     @PostMapping("/documents/{id}/preview") public ResponseEntity<?> preview(@PathVariable String id, HttpServletRequest request) throws IOException {
         return ok(store.preview(id, command(request).path("document")));

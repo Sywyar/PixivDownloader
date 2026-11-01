@@ -40,7 +40,7 @@ class DynamicStaticResourceHandlerMappingTest {
             context.setServletContext(new MockServletContext());
             context.refresh();
             DynamicStaticResourceHandlerMapping mapping = new DynamicStaticResourceHandlerMapping(
-                    registry, new ContentNegotiationManager(), new StaticResourceVersioning(registry, mock(PageContributionRegistry.class)));
+                    registry, new ContentNegotiationManager(), new StaticResourceVersioning(registry, mock(PageContributionRegistry.class), mock(top.sywyar.pixivdownload.plugin.web.page.PagePublicationRequest.class)));
             mapping.setApplicationContext(context);
             MockHttpServletRequest request = new MockHttpServletRequest("GET", "/latest/example.js");
             ServletRequestPathUtils.parseAndCache(request);
