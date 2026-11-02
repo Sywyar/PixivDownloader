@@ -18,7 +18,7 @@
   "download-workbench": {
     "defaultLocale": "zh-CN",
     "documentationSources": {"readme":null,"changelog":null,"releaseNotes":null},
-    "description": { "zh": "可选下载工作台插件，提供基础插画下载工作流、下载队列、批量状态、Pixiv 代理入口、下载页静态资源、油猴脚本分发与计划下载宿主。停用后保留已有数据，完整重启后生效。", "en": "Optional download workbench plugin providing the basic illustration download workflow, queue, batch state, Pixiv proxy endpoints, workbench static assets, userscript distribution, and scheduled download host. Disabling it preserves existing data and takes effect after a full restart." },
+    "description": { "zh": "可选下载工作台插件，提供主要下载页面、插画下载与状态、Pixiv 计划来源及配套油猴脚本。通用队列控制、计划调度和脚本分发由主程序提供。停用或移除后，第三方下载类型可能没有可用操作入口；其他插件独立提供的已有计划仍可运行，依赖本插件来源或执行器的计划（包括 Pixiv 小说计划）会暂停。停用保留已有数据，完整重启后生效。", "en": "Optional download workbench plugin providing the main download pages, illustration downloads and status, Pixiv schedule sources, and companion userscripts. The main application provides generic queue control, scheduling, and userscript distribution. Disabling or removing this plugin may leave no interface for third-party download types. Existing schedules provided independently by other plugins can continue to run; schedules that depend on this plugin's sources or executors, including Pixiv novel schedules, will be suspended. Disabling it preserves existing data and takes effect after a full restart." },
     "author": "Sywyar",
     "sourceType": "official",
     "category": "download",
