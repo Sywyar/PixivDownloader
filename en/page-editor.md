@@ -4,10 +4,12 @@ The page editor requires SDK 1.4 or later. Install and start the optional `page-
 
 ## Edit, publish and recover
 
-1. Select a page and drag components from Add component into the canvas. Focus a component button and press Enter or Space to add it with the keyboard.
+1. Select a page and drag components from Add component into the canvas. To use the keyboard, focus a component and press Enter or Space to view its details, then choose Add to page.
 2. Select an instance in Layers to edit its properties and styles. Containers support nesting. Move, nest, outdent and delete buttons provide keyboard alternatives. The narrow viewport sets responsive styles.
 3. Save and reload drafts as needed. Preview disables component business operations. Publishing saves the current edit and replaces the live version. Component configuration on public pages becomes public too.
 4. Restore previous publication replaces both the live page and draft with the previous usable publication. Concurrent edits from another window produce a revision conflict; reload before applying your changes again.
+
+If the published page is restored but saving its draft fails, the editor keeps the restored content and marks it unsaved. Resolve the storage problem and choose Save draft; do not restore or publish again, as that would replace the current rollback point.
 
 Reload draft and Restore previous publication are in the More menu at the top. Restore is unavailable until a previous publication exists.
 
@@ -38,7 +40,7 @@ A new draft loads the original layout supplied by the page owner. Select its hea
 
 For registration information, select Footer in Layers, add Text or Link, then enter the text and URL. The default layout uses a vertical flex container with Main content set to Fill remaining space. The footer reaches the bottom on short pages and follows the content on long pages without covering it.
 
-The login card exposes its title, username, password, buttons and other required controls as selectable regions. Drag text or a plugin between controls, or select a control and press Enter on a component button to insert after it. Required controls cannot be deleted, copied or moved outside their declared parent region. Regular containers can group content and styles. Show initially hidden regions reveals the invitation card for editing without changing how the live page switches cards.
+The login card exposes its title, username, password, buttons and other required controls as selectable regions. Drag text or a plugin between controls, or select a control, open a component’s details, and choose Add to page to insert after it. Required controls cannot be deleted, copied or moved outside their declared parent region. Regular containers can group content and styles. Show initially hidden regions reveals the invitation card for editing without changing how the live page switches cards.
 
 More → Restore page default layout replaces only the unsaved canvas; save and publish to change the live page. Use default layout on the live login page restores that browser view without deleting server drafts or publication history. If required regions are missing, the editor shows an explanation and a preview of the default login page, with saving and publishing unavailable. Start from this layout replaces only the unsaved canvas. The original draft remains stored until you explicitly save.
 
@@ -62,6 +64,32 @@ Panel expansion, component movement and action feedback use interruptible transi
 The following properties and valid values are accepted. Each value is limited to 128 characters. Selectors, comments, `@media` / `@import`, external resources, `!important`, `display: none` and custom property definitions are not accepted. Invalid input stays in the editor with an error message.
 
 `display`, `flex-direction`, `flex-wrap`, `justify-content`, `align-items`, `gap`, `padding`, `padding-top`, `padding-right`, `padding-bottom`, `padding-left`, `margin`, `margin-top`, `margin-right`, `margin-bottom`, `margin-left`, `width`, `min-width`, `max-width`, `min-height`, `font-size`, `font-weight`, `line-height`, `text-align`, `color`, `background-color`, `border`, `border-color`, `border-width`, `border-style`, `border-radius`, `box-shadow`, `grid-template-columns`, `flex`, `order`.
+
+## Save your own HTML, CSS and JavaScript components
+
+Add component shows layout, content, plugin-defined categories and custom components. Search matches component and category names. Plugins can supply several categories and descriptions; unassigned components use the plugin display name. The CAPTCHA plugin uses the CAPTCHA category. Drag a component onto the canvas to add it directly. Clicking a component or pressing Enter or Space opens its details without changing the page. Choose Add to page to insert it at the selected position. Details open beside the component while the list stays visible. Click outside, use Close details, or press Escape to dismiss them; the search is preserved. Manage library and New component open a new tab, keeping your page draft in the original tab. The library supports name search and status filters with counts; select a component row to open its editor page.
+
+Enter a component name at the top of the editor. Source contains HTML, CSS and JavaScript; Property definitions contains instance fields; Versions and publishing contains history, version loading and withdrawal. Source and preview appear side by side in wide windows and stack in narrow windows. HTML is an internal fragment. CSS selectors apply inside that instance's sandbox. Leave JavaScript empty for static content. Switching source tabs preserves each tab's undo history.
+
+Components have a transparent background and inherit the page's text color by default. Component CSS can set its own colors. The container grows and shrinks with its content; fully hidden content collapses in previews and published pages. The editing canvas keeps a small selectable placeholder.
+
+1. Run preview shows the current source with default properties. Run it again after editing. Save draft stores the source without changing published pages.
+2. Publish previews and saves the source as a pinned version, then adds it to the component palette. Published source and property defaults are public. Do not include passwords or tokens.
+3. Add the component to a page. Each copy has its own state, properties and outer layout. Save and publish the page to make it live.
+4. Publishing a component update leaves existing pages on their pinned versions. Select a version in the instance properties, use the button to apply it and reset properties, then save and publish the page. The library can also load a historical version into the draft for publication.
+5. Withdraw stops existing instances while retaining source and versions. Re-enable and reload the page to restore access. Conflicts and failed saves preserve your input and the last committed version.
+
+Under Property definitions, choose Add property and fill in its name in code, display label, type and default value. Types are Text, Number and Boolean. For example, use `title`, `Title`, Text and `Hello`. The corresponding definition is:
+
+```json
+{"title":{"type":"string","label":"Title","default":"Hello"}}
+```
+
+Use `<p></p>` as HTML and `root.querySelector('p').textContent = context.properties.title;` as the JavaScript function body. Scripts receive `root` and `context` (`properties` and `mode`), and may return `update(context)` and `destroy()` methods. Stored property values are validated text, converted to their declared types inside the sandbox. Host sessions, business clients and editor objects are not passed to the component.
+
+Each instance runs in an iframe without `allow-same-origin`. CSP blocks fetch/XHR, external scripts and external style resources. HTML scripts, style elements, forms, embedded pages, resource addresses and event attributes report an error. Inline CSS styles and data image backgrounds work inside the component. This sandbox cannot guarantee termination of synchronous infinite loops or enforce CPU and memory quotas. Use trusted code; if a tab freezes, close it and withdraw the component from the editor.
+
+The server stores drafts, availability and immutable versions under `data/page-editor/components/`, outside the plugin JAR. Source JSON and management requests are limited to 1 MiB; the library supports 128 components, 4096 published versions per component and 64 properties. History is retained. Up to eight temporary previews expire after ten minutes; closing the preview or stopping the plugin revokes access.
 
 ## Contribute a component
 

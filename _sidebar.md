@@ -1,10 +1,11 @@
-- [🇨🇳 中文文档](/zh-cn/)
-- [繁體中文](/zh-hant/)
-- [日本語](/ja/)
-- [한국어](/ko/)
-- [🇺🇸 English](/en/)
+- [PixivDownloader](/)
+- **Documentation / 文档**
+  - [简体中文](/zh-cn/)
+  - [繁體中文](/zh-hant/)
+  - [English](/en/)
+  - [日本語](/ja/)
+  - [한국어](/ko/)
 
----
-
-- [GitHub](https://github.com/Sywyar/PixivDownloader)
-- [Releases](https://github.com/Sywyar/PixivDownloader/releases)
+- [Downloads / 下载](https://github.com/Sywyar/PixivDownloader/releases)
+- [Source / 源码](https://github.com/Sywyar/PixivDownloader)
+- [Issues / 问题反馈](https://github.com/Sywyar/PixivDownloader/issues)

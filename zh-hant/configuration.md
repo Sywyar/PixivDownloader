@@ -1,6 +1,6 @@
 # 配置參考
 
-PixivDownloader 的配置按所有權分爲三類，不能混用：
+日常修改優先使用桌面設定頁：修改欄位、儲存，再依提示套用或重新啟動。切換資料庫、調整代理和更改媒體格式各有不同影響。手動編輯前，先確認設定屬於哪一類：
 
 | 配置類型 | 路徑 | 所有者 |
 | --- | --- | --- |
@@ -9,6 +9,26 @@ PixivDownloader 的配置按所有權分爲三類，不能混用：
 | 插件憑據 | `config/credentials/{pluginId}.properties` | 對應插件；由宿主加密存儲 |
 
 推薦在桌面 GUI 的“配置”頁修改。首次啓動時，應用會用當前版本的默認模板創建 `config/config.yaml`；升級後只追加缺失的宿主鍵，不覆蓋已有值。手工編輯時使用 UTF-8，並保留活躍的 `key: value` 行，不要用註釋行代替空值。
+
+## 配置與環境遷移
+
+Swing 與 Compose 設定頁都提供配置與環境遷移。歸檔只讀取已儲存的值；匯出前先儲存要攜帶的設定，匯入前先處理設定頁草稿。
+
+1. 在來源安裝中匯出 `.pdbackup`。預設包含宿主與已註冊插件宣告的配置、插件開關及桌面偏好；可另選憑據、資料庫、已儲存狀態與使用者資源。憑據、狀態或資料庫需要歸檔密碼，匯出期間會暫停後端。
+2. 在目標安裝準備相容插件與資料庫連線，再選擇歸檔預覽。缺少插件的配置與檔案會略過；插件版本與倉庫位址只用於提示補齊，不會自動安裝插件或恢復信任授權。
+3. 選擇欄位、資料庫與檔案群組，核對路徑後確認。資料庫與檔案群組預設不選，資源須連同資料庫匯入。系統先備份目標，完整重新啟動後執行；再次開啟遷移入口確認最終狀態。
+
+配置匯入保留目標資料庫連線、資料庫插件選擇與安裝身分。憑據使用目標金鑰重新加密；選擇管理員憑據會替換登入資料、清除工作階段並保留目標執行模式。排程恢復為停用，手動佇列恢復為暫停；第三方插件自行負責其宣告的私有資料語義。
+
+歸檔不含程式、插件安裝包、作品檔案、快取、信任金鑰或授權。已適配資源包括收藏夾圖示與小說參考音。作品須另行複製；映射只改宣告的路徑欄位與資料庫前綴，`{0}` 固定為確認的絕對目錄，前綴外的絕對路徑保留。改路徑後抽查歷史作品，並另外驗證新下載。
+
+備份與逐庫報告保留在 `data/environment-transfers/<任務 ID>/`，`pending.json` 記錄最後狀態。主庫與私有庫分別提交；需要恢復不代表全部回滾，應用會阻止業務啟動。保留整個任務目錄，核對報告與備份後再處理，勿刪除日誌強行啟動。資料庫仍有檔案恢復操作時，先讓原安裝完成恢復再匯出。
+
+### Windows 安裝目錄遷移
+
+搬移後從新目錄執行程式可查看安裝登記。執行安裝包，明確選擇新目錄並確認遷移，安裝器會更新登錄檔安裝位置、一般捷徑與解除安裝記錄；既有的目前使用者自動啟動捷徑保留啟用狀態及參數，並改指新目錄，不會啟用原先關閉的自動啟動。
+
+修復備份位於新程式目錄的 `state/installation-backups/`。舊目錄與使用者資料保留，確認新位置可啟動及讀取資料後再處理舊副本；勿執行舊目錄的解除安裝程式。複製可攜版不會寫入 Windows 安裝登記，執行安裝包則會登記目標。舊 MSI 安裝須先匯出、透過 Windows 解除安裝，再安裝至新位置並匯入。
 
 ## 宿主配置
 
@@ -21,7 +41,7 @@ PixivDownloader 的配置按所有權分爲三類，不能混用：
 | `download.root-folder` | `pixiv-download` | 作品產物根目錄 |
 | `download.user-flat-folder` | `false` | 畫師目錄是否使用平鋪佈局 |
 | `download.max-concurrent` | `10` | 宿主下載併發上限；最多另排隊 100 個作品，隊列已滿時新任務返回 429 |
-| `database.maximum-pool-size` | `28` | SQLite 連接池上限 |
+| `database.maximum-pool-size` | `28` | 宿主主庫連線池上限，最小 8 |
 
 `download.root-folder` 只存放下載作品。配置、數據庫、插件狀態和緩存不會寫入該目錄。小說、Douyin 等下載類型的私有設置不屬於宿主配置；安裝插件後由插件自己的配置貢獻管理。
 
@@ -133,7 +153,7 @@ FFmpeg 共用並行數預設 2，可在桌面下載設定改為 1–8，儲存�
 | `plugin-catalog.connect-timeout-ms` | `15000` | 全局連接超時 |
 | `plugin-catalog.read-timeout-ms` | `60000` | 全局讀取超時 |
 | `plugin-catalog.max-manifest-bytes` | `1048576` | 單個清單上限 |
-| `plugin-catalog.max-package-bytes` | `104857600` | 單個插件包上限 |
+| `plugin-catalog.max-package-bytes` | `201326592` | 單個插件包上限（192 MiB） |
 | `plugin-catalog.repositories` | 空列表 | 自定義倉庫列表 |
 
 官方倉庫的地址和信任根內嵌於程序。自定義倉庫必須顯式配置自己的 HTTPS 清單和 Ed25519 公鑰，不繼承官方信任根。推薦用 GUI 的倉庫編輯器；手寫示例：
@@ -182,6 +202,8 @@ plugin-catalog.repositories:
 Firefox 的設定入口為 `about:preferences#general`，Windows 的代理設定入口為 `ms-settings:network-proxy`。
 
 ### 多人模式配額和限流
+
+以下 `multi-mode.*` 設定針對多人模式下未登入的遊客，不限制已登入管理員。持邀請碼的訪客使用獨立 `guest-invite.*` 設定，兩種身份不可混用。
 
 | 鍵 | 默認值 |
 | --- | --- |
@@ -262,7 +284,7 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 | `app.language` | 空 | 跟隨系統；也可使用受支持語言代碼 |
 | `app.theme` | `system` | GUI 主題 id |
 | `app.config-menu-expand-all` | `false` | 只控制 Swing 的設定選單展開；Compose 不提供此選項，也不改寫此偏好 |
-| `app.gui-provider` | 空 | 桌面 GUI provider id；只能選擇當前活動插件提供的值 |
+| `app.gui-provider` | 空 | 留白選擇預設桌面介面；也可指定已啟用 provider 的 id |
 
 兩個桌面介面都提供 `system`、`light`、`dark`，額外佈景主題由目前選擇的介面提供。GUI provider 下拉選單來自目前啟用的 `DesktopUiProvider`。發行套件預設包含 Compose 和 Swing，首次未指定時選擇 Compose；切換介面需要完整重新啟動。
 
@@ -313,7 +335,7 @@ example.output-format=json
 
 宿主會拒絕插件配置文件覆蓋宿主默認鍵、`plugins.*.enabled` 或看起來像憑據的鍵。不同插件文件中的鍵也不應重複。插件子 Spring 上下文通過 `Environment`、`@Value` 或 `@ConfigurationProperties` 讀取這些值；第三方插件不應直接讀配置文件，也不應依賴應用殼的配置類。
 
-插件的 `GuiConfigContribution` 是其完整配置 section 的事實來源，可聲明字段、分組、佈局、動作、預設和聯動。應用殼把它與核心配置合併爲一份工具包無關的桌面文檔並負責統一保存；Swing / Compose 只渲染，不各自維護插件頁面。保存後，宿主會刷新插件配置源，並按字段與插件生命週期策略給出即時生效、後端重啓或完整進程重啓結果。手工編輯後不確定時，完整重啓最穩妥。
+桌面設定頁顯示目前外掛聲明的設定欄位，由應用統一儲存。Compose 和 Swing 分別實作自己的介面。儲存後依欄位與外掛生命週期提示立即生效、後端重新啟動或完整程序重新啟動。手動編輯也須遵守相應設定要求。外掛作者使用的聲明與讀取契約見[第三方外掛 SDK](/zh-hant/plugin-development)。
 
 ## 插件憑據
 
@@ -321,12 +343,22 @@ example.output-format=json
 
 不要把憑據放入 `config.yaml` 或 `config/plugins/*.properties`，也不要讓插件讀取、解析或解密憑據文件。備份憑據時必須同時保護憑據主密鑰；缺少原主密鑰時，加密值不能在另一環境中恢復。
 
-## 如何確認當前配置
+## 確認儲存結果與目前設定
+
+儲存後重新開啟對應設定，確認值與生效提示。資料庫切換須核對遷移結果；路徑修改後還應檢查歷史作品和新下載。儲存失敗時保留原檔與錯誤，不要用另一設定檔覆蓋全部設定。
 
 1. 先看 GUI 配置頁；它會合並宿主字段與當前已安裝插件的配置貢獻。
 2. 宿主默認鍵以當前版本的 `DefaultConfigTemplate` 生成結果爲準。
 3. 插件字段以對應插件的 `GuiConfigContribution`、`@ConfigurationProperties` 或設置服務爲準。
 4. 不要從舊版示例複製已經外置的 `mail.*`、`push.*`、`notification.*` 或 `download.novel-*` 到 `config.yaml`；它們由各自插件擁有。
+
+## 翻譯設定
+
+`translation` 提供桌面「翻譯」設定。`translation.engine` 預設為 `ai`，也可選 `youdao` 或 `libretranslate`。一般設定儲存在 `config/plugins/translation.properties`；有道應用 ID、應用金鑰與 LibreTranslate API Key 請在桌面設定輸入，敏感項目由宿主加密儲存到此外掛的憑證檔。
+
+`translation.libretranslate-url` 填服務基礎網址，不含 `/translate`；本機範例為 `http://127.0.0.1:5000`。`translation.use-proxy` 預設 `false`，只控制有道與 LibreTranslate；AI 沿用自己的代理設定。`translation.max-concurrent` 是背景自動翻譯的並行上限，預設 `10`，同一系列仍循序處理。變更儲存後須重新啟動後端。
+
+現有 AI 設定、譯文與術語表會保留。若曾調整 `download.novel-translate-max-concurrent`，請在翻譯設定重新設定並行數；舊鍵不再控制翻譯。準備與限制見[小說指南](/zh-hant/novel)。
 
 ## 登入驗證策略
 

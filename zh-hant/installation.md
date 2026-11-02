@@ -1,5 +1,16 @@
 # 安裝指南
 
+先從 [Releases](https://github.com/Sywyar/PixivDownloader/releases) 選擇套件。下列 `*` 或 `x.x.x` 代表所選版本；命令中的 JAR 名稱必須換成實際檔名，並在完整解壓目錄執行。
+
+| 使用情境 | 選擇 | 額外準備 |
+| --- | --- | --- |
+| Windows x64 桌面 | `*-win-x64-setup.exe` | 依需要安裝 FFmpeg |
+| Windows、Linux、macOS 自行執行 Java | `*-java.zip` | Java 17+，依需要安裝 FFmpeg |
+| 預裝可選資料庫和匯入外掛 | `*-full-offline.zip` | Java 17+，依需要安裝 FFmpeg |
+| Docker 常駐服務 | 使用儲存庫 Dockerfile 與完整 Java 發行目錄建置 | Docker Engine、Compose、可寫入的資料目錄 |
+
+標準套件包含預設官方外掛，離線完整套件另含 `database-postgresql` 和 `pixiv-batch-downloader-import`。兩種 Java 套件都不含 JRE、FFmpeg 或 Douyin；離線完整套件不代表存取 Pixiv、線上 AI 或 TTS 時不需要網路。
+
 ## 環境要求
 
 | 依賴 | 最低版本 | 說明 |
@@ -7,7 +18,7 @@
 | **Java** | 17+ | Java 標準包 / 離線全量包運行必需；Windows 安裝包已內置 JRE |
 | **操作系統** | Windows / macOS / Linux | 跨平臺支持 |
 | **Tampermonkey** | 最新版 | 如需使用油猴腳本 |
-| **ffmpeg** | 任意 | Ugoira 動圖轉 WebP 所需（可選） |
+| **FFmpeg** | 支援所選格式的編碼器 | 媒體轉碼使用；MP4 需要 H.264 編碼器 |
 
 ---
 
@@ -31,7 +42,7 @@ java -version
 從 [Releases](https://github.com/Sywyar/PixivDownloader/releases) 下載：
 
 - `PixivDownload-*-java.zip` — Java 標準包，與 Windows 安裝包的插件集合一致（不含 Douyin）
-- `PixivDownload-*-full-offline.zip` — 離線全量包，與 Java 標準包的插件集合一致（不含 Douyin）
+- `PixivDownload-*-full-offline.zip` — 離線完整套件，額外包含 PostgreSQL 資料庫與 PixivBatchDownloader 匯入外掛（不含 Douyin）
 
 下載後必須**完整解壓**，不要只提取其中的 JAR：啓動腳本與 `plugins/` 目錄缺一不可，程序啓動時會從工作目錄的 `plugins/` 加載官方外置插件。
 
@@ -59,7 +70,7 @@ nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.lo
 ```
 
 > [!IMPORTANT]
-> **無頭/`--no-gui` 模式下首次啓動必須先完成 setup**：服務器上沒有 GUI 引導、`setup.html` 又只允許本機訪問，因此從 v1.10.0 起，未完成首次初始化時 `--no-gui` 啓動會被中止並提示使用 CLI 命令。請先執行：
+> **無頭/`--no-gui` 模式下首次啓動必須先完成 setup**：服務器上沒有 GUI 引導、`setup.html` 又只允許本機訪問，因此未完成首次初始化時 `--no-gui` 啓動會被中止並提示使用 CLI 命令。請先執行：
 >
 > ```bash
 > # 交互式：依次輸入用戶名、密碼、運行模式 (solo|multi)，並配置 HTTP 代理（是否啓用、主機、端口）
@@ -71,7 +82,7 @@ nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.lo
 >     --proxy-enabled=true --proxy-host=127.0.0.1 --proxy-port=7890
 > ```
 >
-> 代理用於按宿主或任務路由選擇代理的後端訪問，例如 Pixiv 下載、在線更新、FFmpeg 下載和部分在線 TTS；瀏覽器請求、SMTP 和顯式直連策略可能繞過它，完整邊界見[網絡訪問與第三方服務](/zh-hant/network-access)。省略 `--proxy-*` 時會交互式詢問，無需代理可加 `--proxy-enabled=false`。後續可用 `--change-password` 修改密碼、`--reset-password` 在忘記密碼時重置密碼。詳見 [使用指南 → 啓動參數](zh-Usage-Guide)。
+> 代理用於按宿主或任務路由選擇代理的後端訪問，例如 Pixiv 下載、在線更新、FFmpeg 下載和部分在線 TTS；瀏覽器請求、SMTP 和顯式直連策略可能繞過它，完整邊界見[網絡訪問與第三方服務](/zh-hant/network-access)。省略 `--proxy-*` 時會交互式詢問，無需代理可加 `--proxy-enabled=false`。後續可用 `--change-password` 修改密碼、`--reset-password` 在忘記密碼時重置密碼。詳見[首次設定](/zh-hant/first-setup)。
 
 ---
 
@@ -81,13 +92,13 @@ nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.lo
 
 從 [Releases](https://github.com/Sywyar/PixivDownloader/releases) 下載 `PixivDownload-x.x.x-win-x64-setup.exe`。
 
-?> Windows 安裝包預置官方插件分發集合，其中包含必需的 `download-workbench`、默認 `gui-compose` 和後備 `gui-swing`。Java 標準包與離線全量包使用同一集合；Douyin 作爲普通第三方插件，需從自定義倉庫或本地包安裝。
+?> Windows 安裝包預置官方插件分發集合，其中包含必需的 `download-workbench`、默認 `gui-compose` 和後備 `gui-swing`。Java 標準套件使用相同預設集合，離線完整套件另含兩項可選外掛；Douyin 作爲普通第三方插件，需從自定義倉庫或本地包安裝。
 
 安裝器寫入應用目錄時會請求 UAC。安裝後的應用和 portable 啓動器也默認請求管理員權限；宿主實際提權運行時，`host-process-full-trust` 插件會繼承同等權限，插件管理頁會持續顯示警告。
 
 ### 2. 安裝過程
 
-1. 選擇安裝語言（中文/English）
+1. 從安裝器提供的語言中選擇
 2. 選擇安裝目錄
 3. **可選安裝任務**：勾選「下載並安裝 FFmpeg」
    - FFmpeg 用於 Ugoira 動圖轉 WebP
@@ -116,7 +127,7 @@ nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.lo
 
 ### 1. 環境要求
 
-- Docker 20.10+ 與 Docker Compose（`docker compose` 命令）。
+- Docker Engine 與 Docker Compose（`docker compose` 命令）。
 
 容器以 UID/GID 10001 執行。Linux 新建實例時，先建立該使用者可寫入的掛載目錄：
 
@@ -214,18 +225,11 @@ proxy.host: host.docker.internal   # 複用宿主機上運行的代理（端口�
 4. 點擊對應腳本的「⬇ 安裝」按鈕
 
 > [!WARNING]
-> 通過 Web 端安裝時，腳本更新檢查會指向當前後端。當後端地址變更時，需要重新安裝或手動修改腳本頭部的 `@connect`。
+> 通過 Web 端安裝時，腳本更新檢查會指向當前後端。後端位址變更時，重新安裝腳本或更新腳本中的服務位址，並確認 `@connect` 允許新主機。只修改 `@connect` 不會改變請求目的地。
 
-### 方式二：從 Release 下載
+### 方式二：從原始碼倉庫安裝獨立腳本
 
-從 [Releases](https://github.com/Sywyar/PixivDownloader/releases) 下載腳本文件，拖入 Tampermonkey 管理面板安裝。
-
-Release 附件中的腳本：
-
-| 腳本文件 | 說明 |
-|----------|------|
-| `Pixiv All-in-One.user.js` | 整合包（推薦），包含頁面批量、User 批量、URL 批量導入、單作品下載（Java 後端版）、體驗增強工具箱 |
-| `Pixiv 單作品圖片下載器(Local Download).user.js` | 瀏覽器本地下載，無需 Java 後端 |
+在 [GitHub 原始碼倉庫](https://github.com/Sywyar/PixivDownloader) 選擇與後端相符的 tag，開啟需要的獨立 `.user.js` 檔案並按 Raw，交由 Tampermonkey 安裝。整合包由後端提供；具體選擇及更新方式見[油猴腳本指南](userscripts.md)。
 
 ### 完整腳本列表
 
@@ -235,7 +239,7 @@ Release 附件中的腳本：
 | User 批量下載器 (User Batch) | 從用戶主頁批量下載 | Web 端 / GitHub 代碼區 |
 | URL 批量導入單作品下載器 (URL Batch) | 批量導入作品 URL | Web 端 / GitHub 代碼區 |
 | 單作品圖片下載器 (Java後端版) | 單作品頁通過後端下載 | Web 端 / GitHub 代碼區 |
-| 單作品圖片下載器 (Local Download) | 瀏覽器本地下載，無需後端 | Release / Web 端 / GitHub 代碼區 |
+| 單作品圖片下載器 (Local Download) | 瀏覽器本地下載，無需後端 | Web 端 / GitHub 代碼區 |
 | 體驗增強工具箱 (Toolbox) | 已下載作品標記、Cookie 導入等 | Web 端 / GitHub 代碼區 |
 
 ### 非 localhost 部署的額外配置
@@ -246,7 +250,7 @@ Release 附件中的腳本：
 Tampermonkey 的 `@connect` 白名單默認只允許連接 `localhost`。如果後端部署在其他機器：
 
 1. 打開 Tampermonkey 管理面板 → 找到對應腳本 → 點擊編輯
-2. 將腳本頭部的 `// @connect      YOUR_SERVER_HOST` 替換爲實際地址
+2. 將腳本的服務位址改成實際後端位址，並在 `@connect` 加入對應主機；權限清單不負責選擇目的地
 3. 保存腳本（Ctrl+S）
 
 如果通過 Web 端 `pixiv-batch.html` 安裝，`@connect` 會自動替換爲當前後端地址。
@@ -276,40 +280,17 @@ FFmpeg 用於 Ugoira 動圖轉換爲 WebP，普通圖片下載不需要。
 
 ## 目錄結構
 
-首次啓動後，程序會在工作目錄生成以下文件：
+發行目錄的 `plugins/` 保存外掛安裝套件。執行後，設定寫入 `config/`、狀態寫入 `state/`、資料庫與使用者資源及快取寫入 `data/`、紀錄寫入 `log/`。作品預設保存在 `pixiv-download/`，實際路徑也受收藏夾與外掛設定影響。
 
-```
-工作目錄/
-├── config/                      # 運行時配置目錄
-│   ├── config.yaml              # 主配置文件
-│   └── image_classifier.properties  # 圖片分類器配置
-├── state/                       # 運行狀態目錄
-│   ├── setup_config.json        # 賬號/初始化配置
-│   ├── batch_state.json         # 批量下載狀態
-│   └── gui/                     # GUI 引導、代理步驟等本地狀態標記
-├── data/                        # 應用數據目錄
-│   ├── pixiv_download.db        # SQLite 數據庫（含 -wal / -shm 伴隨文件）
-│   ├── collection_icons/        # 用戶自定義收藏夾圖標
-│   ├── gallery_thumbs/          # 圖庫二進制縮略圖緩存
-│   ├── tts/                     # TTS 版本號本地緩存
-│   ├── backfill/                # 數據回填工具本地狀態
-│   └── narration-voice/         # 多角色朗讀參考音音頻
-├── plugins/                     # 外置插件原始包
-│   ├── provenance/              # 已安裝插件的 provenance sidecar
-│   └── runtime/                 # JAR-with-lib / ZIP 物化後的運行時緩存
-├── pixiv-download/              # 下載文件存儲（默認根目錄）
-│   ├── artwork-{id}/            # 作品目錄
-│   ├── novel-{id}/              # 小說目錄
-│   ├── novel-series-{id}/       # 小說系列
-│   └── ...
-└── log/                         # 運行日誌
-```
+這些目錄不一定都在首次啟動建立。完整路徑、資料庫伴隨檔案、憑證和備份界線見[儲存原理](/zh-hant/storage)。升級前正常停止程式並備份持久資料；只保留作品檔案會遺失資料庫中的登記。
 
 ---
 
 ## 驗證安裝
 
-啓動後在瀏覽器訪問：
+先完成[首次設定](/zh-hant/first-setup)，登入下載頁並新增一部作品。確認下載成功、檔案存在且畫廊能開啟作品，才完成這條使用路徑。健康檢查 `UP` 不代表外掛、Cookie 與下載流程均可用。
+
+可依需要開啟：
 
 - `http://localhost:6999/` — 自動跳轉到下載頁
 - `http://localhost:6999/setup.html` — 首次配置嚮導（如已完成則重定向）
@@ -324,11 +305,11 @@ FFmpeg 用於 Ugoira 動圖轉換爲 WebP，普通圖片下載不需要。
 
 `download-workbench` 是 required 外置插件，負責下載頁、下載 API、隊列、userscript 入口、Pixiv 插畫代理和計劃任務宿主。缺失、損壞、不兼容或離線複驗失敗時，程序進入恢復路徑，只開放登錄、插件管理和安裝修復入口。
 
-官方插件分發集合包括 `download-workbench`、`gui-compose`、`gui-swing`、`gallery-tools`、`posthog`、`gallery`、`novel`、`notification`、`multi-mode-decision-survey`、`push`、`mail`、`tts` 和 `ai`。`gui-compose` 是默認桌面界面，`gui-swing` 自動後備；Douyin 不再由官方倉庫、簽名或發行包分發。缺失或禁用可選插件只會讓所屬頁面、API、導航、靜態資源、i18n、GUI 配置 section 或能力貢獻缺席，本身不會讓程序進入恢復路徑。
+官方插件分發集合包括 `download-workbench`、`database-sqlite`、`gui-compose`、`gui-swing`、`gallery-tools`、`posthog`、`gallery`、`novel`、`notification`、`multi-mode-decision-survey`、`push`、`mail`、`tts` 和 `ai`。`gui-compose` 是默認桌面界面，`gui-swing` 自動後備；Douyin 不再由官方倉庫、簽名或發行包分發。缺失或禁用可選插件只會讓所屬頁面、API、導航、靜態資源、i18n、GUI 配置 section 或能力貢獻缺席，未選用的可選能力缺席不會觸發修復；目前選定的資料庫提供者不可用時，仍會進入修復模式。
 
 - Windows 安裝包：內置 JRE 和官方插件分發集合；FFmpeg 僅在安裝時勾選後下載，不含 Douyin。
 - Java 標準包（`*-java.zip`）：插件集合相同；不含 JRE、FFmpeg 與 Douyin。
-- 離線全量包（`*-full-offline.zip`）：插件集合相同；不含 JRE、FFmpeg 與 Douyin。
+- 離線完整套件（`*-full-offline.zip`）：預設集合加 `database-postgresql`、`pixiv-batch-downloader-import`，不含 JRE、FFmpeg 與 Douyin。
 - `gallery-tools` 缺失不影響圖片 Hash 寫入和歷史 Hash 數據。
 - `gallery` 缺失不影響下載頁、下載 API、userscript、Pixiv 插畫代理、計劃任務宿主、作品元數據、下載事實、Hash 與本地資源索引。
 - `novel` 缺失會讓小說下載、小說畫廊、正文保存、翻譯狀態、系列合訂和計劃任務小說執行器一併缺席；核心不保留平行實現。

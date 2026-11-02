@@ -1,403 +1,115 @@
 # 网络访问与第三方服务
 
-本文列出 PixivDownloader 当前代码可能访问的外部网络目标，以及负责发起请求的宿主组件或插件、请求用途、触发条件和默认状态。文中的“插件”采用插件管理页显示的插件 ID；“应用宿主”表示请求由核心应用 `pixivdownload-app` 发起，不归属于可选插件。
+本页说明各功能连接的目标地址、发送的数据、代理路由与关闭方式。前半部分为已安装应用的**运行时请求**；构建、测试、CI 与社区投稿的工程请求单列在[开发、构建和发布流程的网络访问](#开发、构建和发布流程的网络访问)，不会因日常运行应用而触发。
 
-?> 本清单涵盖当前代码内固定的默认地址和允许的动态地址范围。第三方服务可能使用 DNS、CDN、重定向或临时下载地址，因此实际连接的 IP 地址和最终子域可能发生变化。管理员配置的自定义 URL 不在可预先穷举的范围内。
+?> 本页列出代码内固定的默认地址及受控动态地址范围。第三方服务可能经 DNS、CDN、重定向或临时下载链接分发资产；管理员自行配置的自定义 URL 取决于实际设置。
 
-## 官方验证码插件的运行时访问
+## 运行时概览与代理路由
 
-官方可选插件 `captcha` 默认不安装。管理员配置 Turnstile 并发布表单绑定后，用户开始验证并取得挑战后，浏览器加载 `https://challenges.cloudflare.com/turnstile/v0/api.js` 及该来源的 iframe，发送站点公钥、操作标记和本次尝试标识，并按厂商协议提供浏览器网络信息。插件仅在验证响应时向同一来源的 `/turnstile/v0/siteverify` POST 验签密钥与票据，不发送登录密码、Cookie 或完整业务请求。浏览器使用自身网络/代理配置；服务端使用受管 HTTP 并继承应用代理，禁止重定向和 Cookie。取消绑定并发布可停止该页面的在线验证；停用插件会拒绝已保护操作，不能用停用绕过验证。ALTCHA 的 SHA-256/PBKDF2 Worker 随插件提供，仅访问当前实例，不请求第三方服务。
+- **触发原则**：AI、翻译、TTS、推送、邮件、验证码和 Douyin 仅在启用且被调用时联网；`notification` 插件启用后会在后台定期拉取签名公告索引；启用在线更新与自动检查时，宿主在启动就绪后检查 GitHub Releases；桌面与无头服务在就绪后按需后台回填缺失的已登记作品元数据。
+- **插件市场**：`plugin-catalog.enabled`、官方仓库与社区仓库默认开启，但应用启动本身不拉取远程清单；仅在管理员页面检查插件更新、打开/刷新市场、预览仓库、安装插件或手动刷新撤销信息时请求对应仓库。
+- **PostHog 调查**：布局调查（`download-workbench`）与多人模式调查（`multi-mode-decision-survey`）的公开参数保存在插件源码的 `posthog-config.js`；普通源码与 fork 构建生成的 `release-activation.js` 默认为 `false`，默认不连接 PostHog。
+- **出站代理路由**：
+  - Pixiv、在线更新、FFmpeg 自动下载、官方/社区插件仓库、服务端验证码校验与公告同步沿用宿主或任务级代理设置。
+  - AI、翻译、TTS 和 Douyin 支持功能级或任务级的直连 / 代理选择；`direct-strict` 自定义插件仓库强制直连。
+  - SMTP 使用 `mail` 插件自有连接与可选 SOCKS 代理；PostgreSQL JDBC 直连目标数据库服务器，不走 HTTP 代理。
+  - 浏览器同源 API、介绍页 Google Fonts、浏览器端 Web Speech API、验证码前端控件、PostHog 与油猴脚本由浏览器直接发起，不经过 Java 后端代理。
 
-reCAPTCHA v2 仅在绑定并发布该组件、用户开始验证后加载 `https://www.google.com/recaptcha/api.js?render=explicit`，其脚本和嵌套资源使用 `www.google.com`、`www.gstatic.com`、`recaptcha.google.com`。浏览器向 Google 发送站点标识及其协议采集的信息；提交时服务端通过受管 HTTP 向 `https://www.google.com/recaptcha/api/siteverify` POST 密钥与票据，不发送登录密码、Cookie、完整表单或额外的 remoteip 参数。服务端继承应用代理，禁用重定向和 Cookie。移除组件并重新发布可停止该页面的 Google 访问。Hutool 字符与 Tianai 滑块均在本实例生成图片，浏览器只请求同源短期图片地址，不向第三方发送答案。
+## 核心宿主与默认请求
 
-## 网络访问概览
+- **同源认证与国际化**：登录页通过同源 `/api/auth/check`、`/api/auth/login`、`/api/auth/invite-redeem` 检查会话与提交认证（回跳地址仅接受同源站内路径）。前端页面通过 `/api/i18n/meta`、`/api/i18n/messages/{namespace}` 与同源 `i18n-static/` 加载词典（单次超时 10 秒，缺失词典最多重试 3 轮：1.5、5、15 秒），不连接外部翻译服务。
+- **本机 GUI 通道**：桌面模式通过 `http://127.0.0.1:{随机端口}/api/gui/**` 轮询状态与提交操作，携带后端生成的 GUI token，强制本机直连并拒绝代理、重定向与转发头；`--no-gui` 模式不创建该端口。
+- **外部链接确认**：在应用 Web 页面点击外部 HTTP(S) 链接时，会先弹出目标地址确认框，确认后才由浏览器打开。
 
-- AI、TTS、推送、邮件和 Douyin 仅在相应功能完成配置并被调用时访问外部服务；`notification` 是例外，它会在启用并启动后自动检查固定公告索引。
-- 在线更新和自动检查均启用时，应用宿主会在启动就绪后检查 GitHub Releases；检查频率受缓存间隔限制。
-- 访问应用介绍页时，浏览器会加载 Google Fonts。该请求不由后端发起，也不经过 PixivDownloader 的出站代理。
-- `plugin-catalog.enabled` 默认为 `true`，内嵌官方仓库也默认启用；启动本身不拉取清单。管理员打开或刷新插件市场、执行安装，或在插件管理中主动刷新撤销信息时会访问仓库。
-- 两个官方 PostHog 调查的四个参数分别由发布调查的插件持有，但源码 / fork 构建的发行激活位默认为 `false`，默认不会连接 PostHog。
-- Pixiv、Douyin、AI、TTS、推送和邮件请求可能包含用户内容或访问凭据，具体范围见后续各节。
-
-## 核心功能及默认网络请求
-
-登录页打开时向应用同源的 `/api/auth/check` 检查会话；用户提交后，向 `/api/auth/login` 发送管理员账号、密码和保持登录选项，或向 `/api/auth/invite-redeem` 发送邀请码，并按同源规则携带会话 Cookie。两个入口共用一个在途提交，失败后可重试，不自动重发。管理员登录回跳仅接受经浏览器解析后仍同源的站内路径，非法地址回到默认下载页。这些请求使用浏览器网络设置，不经过后端出站代理；离开登录页可停止后续操作，已发出的认证请求仍可能完成。
-
-网页打开或切换语言时，浏览器向应用的 `/api/i18n/meta` 和 `/api/i18n/messages/{namespace}?lang=...` 读取语言目录与字典；失败后尝试当前页面相对路径 `i18n-static/` 下的静态资源。请求包含语言和 namespace，以及同源会话 Cookie，不访问外部翻译服务，也不经过后端代理。每次请求超时 10 秒且不使用缓存；字典失败后仅重试缺失部分，最多自动重试三轮，间隔为 1.5、5、15 秒。恢复网络或重新聚焦页面可再次触发恢复；关闭页面或替换语言客户端会停止该客户端的后续重试。
-
-| 请求所有者 | 目标地址 | 用途与主要发送内容 | 触发场景与默认状态 | 代理与关闭方式 |
-| --- | --- | --- | --- | --- |
-| 应用宿主 | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/update.json` 与相邻的 `update.json.sig`；nightly 使用 `/releases/download/nightly/` 下的同名文件；重定向后可能进入 GitHub Release 资产 CDN | 获取正式版或 nightly 更新清单及 Ed25519 detached 签名；只发送 User-Agent、IP 等标准连接元数据，不发送当前版本、平台、Pixiv Cookie 或其它凭据。响应分别受 1 MiB / 16 KiB 上限约束，清单会在解析前使用应用内置官方公钥验签 | 应用就绪后自动检查；`update.enabled=true`、`update.auto-check=true` 时启用，默认均开启；手动检查也会访问。启用每夜版检查后，即使正式版清单下载或验签失败，仍独立请求并验证每夜版清单；正式版失败信息保留，未通过验证的渠道不能下载 | 使用宿主出站代理配置；仅允许 HTTPS 和默认公网地址，最多跟随五跳重定向且每一跳都重新校验。可关闭在线更新或自动检查；自定义 manifest 必须是持有有效官方签名的公网 HTTPS 镜像 |
-| 应用宿主 | 已验签更新清单中当前平台对应的安装包 URL，默认来自 GitHub Release | 下载更新安装包，并强制匹配签名清单中的 SHA-256 和精确大小；请求不携带 Cookie 或其它凭据 | 检查到更新且明确启动下载和安装后触发；更新检查本身不会自动安装 | 目标由已验签清单决定，仍只允许 HTTPS 和默认公网地址，最多跟随五跳重定向且每一跳都重新校验，总响应不超过 500 MiB；关闭在线更新可完全停用该链路 |
-| 应用宿主的介绍页 | `https://fonts.googleapis.com/css2?...`、`https://fonts.gstatic.com/...` | 获取 Noto Sans SC 样式和字体文件；浏览器会正常暴露 IP 地址、User-Agent 等连接元数据 | 访问介绍页时由浏览器触发 | 不经过宿主代理；域名被阻止时使用后备字体，下载功能不受影响 |
-| 应用宿主 | `https://www.pixiv.net/` | Pixiv 连通性探测，不携带 Pixiv Cookie | 首次配置或执行 Pixiv 连通性检查时触发，不是持续心跳 | 使用宿主的 Pixiv 出站路由；未执行探测时不发起该请求 |
-| `notification` 插件 | `https://sywyar.github.io/PixivDownloader-Remote-Content/announcements/index.json`、相邻的 `index.json.sig` 与 `.../announcements/<message-id>/<locale>.html` | 读取公开公告索引及其 detached Ed25519 签名；索引在解析前使用应用内置官方信任根验签，并校验有效期、递增序列和每份正文的 SHA-256。仅为未知稳定 ID 下载已签名索引要求的各语言受控 HTML 正文；请求禁用 Cookie，只发送 IP、User-Agent 等标准连接元数据，不发送账号、作品、本地路径或其它凭据。验证或传输失败时保留既有可信快照。HTML 快照保存在本地，管理员浏览器只读取本地鉴权端点，不再直连外部正文 | 插件每次启动后随机等待 0–30 分钟，之后约每 6 小时并加入 ±15% 随机抖动检查。完整可信导入后保存 `ETag` 与 `Last-Modified`，仅在已签名索引有效期内发送条件请求；收到 `304 Not Modified` 时不再下载签名与正文。HTTP 429 按最长 24 小时的 `Retry-After` 延后，传输失败和 5xx 按 5 分钟、15 分钟、1 小时、6 小时逐级退避。只有首次发现未知 ID 或已签名正文摘要变化时才有界下载对应的各语言 HTML。同一 ID 已保存且元数据未变，或已显式删除时不再请求正文。官方默认插件集合包含 `notification`，启用并成功启动时会自动访问 | 使用宿主继承出站路由，可使用已启用的全局代理；禁用/卸载 `notification` 会停止检查，插件停止或重载时立即取消后续轮询 |
-
-## Pixiv 下载与浏览
-
-缩略图代理仅访问 HTTPS `*.pximg.net` 和 `embed.pixiv.net`，不发送 Pixiv Cookie，也不跟随重定向。单次响应最多 100 MiB（104,857,600 字节），超限时加载失败。宿主共享图片传输按非成功 HTTP 状态返回失败，不将错误正文缓冲为图片或异常详情。
-
-宿主读取 Pixiv JSON 或执行作品收藏时，4xx/5xx 响应仍作为失败处理，但不会读取错误正文供解析或日志记录。收藏主页读取失败后不再发送收藏请求，已完成的下载不受收藏失败影响。
-
-两版下载页的收藏数筛选会复用当前插件查询能力已取得的计数。插件重载或查询能力被替换后，下次筛选重新补查缺失计数；旧请求的迟到结果不会进入新缓存。每次筛选仍最多并行补查 6 个作品，不改变对应插件的目标地址、凭据或代理路由。
-
-两版下载页的一键导入会打开 `https://www.pixiv.net/#__pixiv_cookie_sync__`，让体验增强工具箱回传 Cookie，并通过应用同源的 `GET /api/batch/state` 查询结果。查询携带应用会话，沿用浏览器网络设置，每次读取结束后间隔 1.5 秒重查；读取后超过 25 秒等待期限且没有新同步结果时停止。手动保存或清除 Pixiv Cookie、重新导入和离页会取消旧查询，迟到响应不再更新本页；取消查询不会撤销工具箱已发起的服务端写入。此流程仅由用户在单人模式主动导入时触发，返回页面不会自动重启。
-
-下载工作台向应用同源接口取数时，插件提供的附加请求头只保留 `Accept` 和 `X-Acquisition-Credential`，其它名称被丢弃；应用会话 Cookie 仍由浏览器按同源规则发送。请求由页面操作触发，外站目标和代理继续由相应后端插件处理。
-
-新版下载页重新读取或切换来源、类型后，会丢弃旧预览响应；快捷获取或系列全量取得失效后，停止后续列表与卡片请求，已取得的过期结果不会入队。进入计划编辑也会使原手动预览请求失效，退出编辑不会恢复这些旧请求。已发出的请求仍可能由服务端完成；此处理不改变目标地址、凭据或代理路由。
-
-宿主元数据回填先导入已登记作品目录中的旧 `.meta.json`，再用本地元数据补齐插画缺失字段和小说上传时间；仍有缺项时才分别请求 `https://www.pixiv.net/ajax/illust/{id}` 或 `https://www.pixiv.net/ajax/novel/{id}`。桌面启动按缺失数据判断是否回填，数据库已有相关列也会检查。勾选“始终通过网络访问”后跳过本地取值，直接联网补缺，仍不覆盖已有字段。请求发送作品 ID 和标准 AJAX 请求头，不携带 Pixiv Cookie。单次响应上限为 4 MiB，超限停止本批并保留已完成结果。单次 HTTP 请求不自动重试；网络异常、HTTP 401 / 403 / 407 / 5xx 会停止本批并保留已完成结果和日志。HTTP 429 按限流停止，404 只将对应类型和 ID 的作品记为不可达，后续回填跳过该作品的网络请求。
-
-年龄限制响应会单独记录为暂缓状态，后续桌面启动不会重复请求该作品，也不会将作品标为已删除。工具页手动回填仍会重试；本地优先模式发现新的可用元数据时也可继续恢复。恢复完成或网络返回有效资料后清除暂缓记录。预导入只保存快照，字段补齐受本次处理数量限制，已有值保持不变。
-
-桌面和无头服务器默认在后端就绪后自动后台回填，使用当前数据库连接池、下载目录和代理配置；数据库不可用时跳过回填，保留服务的恢复入口。Swing 和 Compose 工具页可查看进度并停止本次任务，关闭面板不停止回填；无头模式不打开窗口或浏览器，通过正常停止服务取消回填。停止后保留已提交的数据，并等待当前任务释放资源。主程序日志和独立回填 CLI 都输出开始、首次进入的阶段、处理数、更新数、仍缺资料数及结果；重复进度最多每 30 秒汇总一次。独立 CLI 应在后端停止后运行，可用 `--dry-run` 预演、`--limit` 限制本次处理量；代理由 `--proxy` 或 `--no-proxy` 指定。无头自动回填同样暂缓已知受限作品的联网，手动 CLI 可重试，新取得的本地资料也可用于恢复。
-
-桌面启动回填和工具页的数据回填由应用宿主执行，代理默认读取已保存的 `proxy.enabled`、`proxy.host` 和 `proxy.port`。工具页可临时覆盖代理，仅用于该次回填，不回写配置；未手动改动的参数跟随最新保存值。FFmpeg 自动安装同样读取已保存的全局代理。配置读取失败或启用的代理地址、端口无效时操作报错，不自动改用直连；关闭代理后使用直连，不继承进程默认代理，停止或不启动相应工具即可避免这些请求。
-
-两版下载页在收藏数筛选缺少数据时，按作品类型调用相应插件的查询能力，并使用原始作品 ID。插画和小说分别走下表中的元数据接口；无法补齐时不把未知收藏数当作 0。关注新作的全量获取在总页数未知时最多扫描 1000 页；第 1000 页仍有后续数据就报错，不将不完整结果加入队列。
-
-经典下载页下载系列插画时，如果作品信息未提供系列简介和封面，会经本地 `/api/pixiv/series/{id}?page=1` 查询下表中的 Pixiv 系列接口，携带系列 ID 和已配置的 Pixiv Cookie，沿用宿主代理。相同系列的查询在本批下载及当前类型模块内复用；后续批次重新查询，失败不会阻断作品下载，也不会阻止下一批再次查询。已有简介或封面时不发出补充请求；不启动相应下载便不会触发它。
-
-两版下载页清空手动队列时，取消本页旧队列的查询和进度等待，并阻止迟到响应继续提交作品；新队列开始前等待已发起的本地 `/api/download/queue/clear` 请求结算。浏览器取消不能回滚后端已经收到的请求，实际下载终止仍由后端处理。普通批次完成后，小说翻译的后续状态观察继续运行。
-
-新版计划任务列表及展开队列在当前页面可见时每 4 秒刷新一次本地接口，隐藏页面、切换工作区或打开下载列表后暂停，返回时立即刷新。下载引导每 2 秒读取页面已有的示例作品队列状态，不额外请求 Pixiv；等待 5 分钟仍未确认结果时提供继续等待或返回下载页。退出引导不会取消已提交的下载。
-
-Pixiv 业务请求的 HTTP 传输由应用宿主提供，业务触发方则可能是下载工作台、小说插件或油猴脚本。下表按业务请求归属进行区分，不将共享传输层请求统一归类为核心请求。
-
-支持任务提交契约的宿主中，插件调用 SDK `DownloadTasks.submit`，或管理员向 `POST /api/download/tasks` 提交作品类型、ID 和输出选项，也会触发所属插件的下载。官方插画与小说处理器先从 Pixiv 取得元数据或正文，再沿用既有媒体下载与代理路由；取得凭据通过独立参数或 `X-Acquisition-Credential` 请求头传递，不进入公开事件和任务快照。工作台将执行状态合并到现有下载队列；后端终态快照保留 5 分钟，已保存的队列记录不会因此删除。工作台每 2 秒从同源 `GET /api/download/tasks` 刷新任务，页面隐藏或退出时停止轮询；取消按钮向具体任务的 `/cancel` 地址发送 POST，只请求该次执行协作停止。查询与取消本身不向 Pixiv 提交新的下载，刷新页面也不会重新提交任务。新接口以实际安装的宿主和 SDK 版本为准。
-
-| 请求所有者 | 目标地址 | 用途与主要发送内容 | 触发场景 | 代理与关闭方式 |
-| --- | --- | --- | --- | --- |
-| 应用宿主共用 Pixiv 查询 | `https://www.pixiv.net/ajax/user/{id}?lang=zh`；HTTPS `*.pximg.net` 和 `embed.pixiv.net` | 用户元数据使用请求提供的取得凭据；缩略图使用经过地址校验的上游图片 URL 和 Pixiv 请求头 | 仅在客户端请求 `/api/pixiv/user/{id}/meta` 或 `/api/pixiv/thumbnail-proxy` 时触发，无新增后台轮询；`/api/pixiv/me/uid` 只在本机解析凭据 | 沿用宿主 Pixiv API / 图片路由和代理设置；停止相关查询或预览即可避免，停用下载工作台不撤回这些共用接口 |
-| `download-workbench` 插件 | `https://www.pixiv.net/ajax/illust/**`、`/ajax/user/**`、`/ajax/search/artworks/**`、`/ajax/series/**`、`/ajax/collection/**`、`/ajax/follow_latest/illust`、`/rpc/index.php` | 获取插画、动图、画师、系列、搜索、收藏夹、关注动态和约稿等元数据；需要登录的请求会使用已配置的 Pixiv Cookie | 预览、快捷获取、提交下载、执行计划任务、回填作品信息或浏览相关取得模式时触发 | 经宿主提供给插件的 Pixiv HTTP 能力和所选代理路由；`download-workbench` 默认安装但可停用；其缺失或不可用时，由它提供的下载功能和外部请求停止 |
-| `download-workbench` 插件 | `https://www.pixiv.net/ajax/illusts/bookmarks/add` | 下载完成后收藏插画；发送作品 ID、收藏可见性和标签，并使用 Pixiv 登录凭据 | 仅在启用“下载后收藏”等相应选项且作品下载完成后触发；请求失败不会回滚已完成的下载 | 关闭下载后收藏功能可停用该请求 |
-| `novel` 插件 | `https://www.pixiv.net/ajax/novel/**`、`/ajax/novel/series/**`、`/ajax/novel/series_content/**`、`/ajax/user/**/novels`、`/ajax/user/**/novels/bookmarks`、`/ajax/search/novels/**` | 获取小说正文、小说系列、作者小说列表、收藏和搜索结果；需要登录的请求会使用 Pixiv Cookie。下载工作台通过绑定当前 owner、作品与取得凭据的一次性短期票据复用预览时已验证的小说响应，不会在提交下载时再次请求同一小说正文 | 预览小说、系列合订、小说搜索、画师小说和计划任务处理时触发；紧随预览的下载提交会复用响应，不带票据的兼容客户端直接提交仍由后端抓取，无效票据会被拒绝 | 经宿主 Pixiv HTTP 能力；禁用 `novel` 会撤回小说页面和相关能力 |
-| `novel` 插件 | `https://www.pixiv.net/ajax/novels/bookmarks/add` | 下载完成后收藏小说 | 仅在启用相应选项且小说下载完成后触发 | 关闭下载后收藏功能即可停用 |
-| 应用宿主共享图片传输，调用方主要为 `download-workbench`、`novel` | HTTPS `*.pximg.net`；缩略图还允许 `embed.pixiv.net` | 下载 Pixiv 原图、封面、缩略图、动图压缩包和小说内嵌图片；通常发送 Pixiv Referer，图片地址来自 Pixiv API 响应 | 下载作品、生成封面/缩略图、浏览预览或生成小说文件时触发 | 使用 Pixiv 图片下载路由；停止相关下载或预览即可避免 |
-| 根目录油猴脚本，不属于插件 | `https://www.pixiv.net/ajax/**`、HTTPS `*.pximg.net` | 在 Pixiv 网页中直接读取作品/小说信息、收藏作品或下载文件；`GM_xmlhttpRequest` 会使用浏览器/Pixiv 登录态 | 用户在 Pixiv 页面点击脚本功能、抓取页面或执行本地下载时触发 | 由浏览器/脚本管理器直连，不经过宿主代理；禁用或卸载相应脚本即可停用 |
-| 根目录油猴脚本，不属于插件 | 管理员配置的 PixivDownloader 地址，默认 `http://localhost:6999` | 调用下载提交、队列、状态和 SSE 等后端 API；发送所选作品和下载参数。本机单人模式下载小说时，还会把脚本从 Pixiv 取得的有界小说响应发送给本机小说插件，换取短期一次性票据；不发送 Pixiv Cookie | 使用 Java 后端版、批量脚本或工具箱功能时触发 | 默认仅连接本机；配置为远端地址后，请求将发送至相应远端服务器，但小说响应导入会关闭并改由后端自行抓取 |
-| 官方 `pixiv-batch-downloader-import` 插件的采集油猴 | 安装来源的本机主机、协议和端口下的 `/api/pixiv-batch-downloader-import/token` 与 `/api/pixiv-batch-downloader-import`；手动保存的地址优先，直接安装源文件默认 `http://localhost:6999` | 将 PixivBatchDownloader 的成功文件路径、作品元数据和小说正文发送到同一机器的服务，登记原文件引用；不发送 Pixiv Cookie、管理员密码或环境 cookie，也不重新请求 Pixiv 媒体 | 先安装并启用[官方导入插件](/zh-cn/pixiv-batch-downloader-import)，普通包不预装、离线全量包包含；安装脚本并刷新 Pixiv 页面后监听成功事件；完整作品自动发送，页面打开时对离线队列退避重试；离页时取消请求并暂停发送，返回后从待处理记录恢复。仅支持单人模式；尚未配置目录时，服务端只从完整作品的绝对路径提出候选目录，由桌面弹窗请求用户确认或改选，确认保存后才导入 | 由脚本管理器访问本机，不经过宿主出站代理。停用脚本可停止发送；禁用插件可停止接收，清空源目录立即停止导入；候选路径本身不会写入配置。原文件不复制，删除画廊记录保留原文件 |
-| `pixiv-batch-downloader-import` 历史导入油猴 | 与自动导入共用的本机地址下 `/api/pixiv-batch-downloader-import/token`、`/api/pixiv-batch-downloader-import/history`；当前 Pixiv 来源的 `/ajax/illust/{id}`、`/ajax/novel/{id}` | 本机接收历史分片、作品 ID 及原始 AJAX 响应；Pixiv 仅接收作品 ID 和浏览器同源登录凭据。Cookie 不转发至本机，原作品文件不上传 | 用户在油猴菜单主动读取并检查当前浏览器的历史库；确认开始后才逐项获取元数据并登记 | 默认不执行历史导入；仅 solo 回环服务及可信 Pixiv 来源可接收。Pixiv 使用浏览器网络设置，本机传输使用 GM 请求，不经宿主出站代理；禁止重定向。取消、离页或换服向原地址请求停止，无自动续跑或写请求重放 |
-| `pixiv-batch-downloader-import` 油猴更新 | 从服务端安装时使用该安装来源的 `/api/scripts/pixiv-batch-downloader-import.user.js`；直接安装源文件时使用 `raw.githubusercontent.com/Sywyar/PixivDownloader/master/pixivdownload-plugin-pixiv-batch-downloader-import/src/main/resources/userscripts/pixiv-batch-downloader-import.user.js` | 检查并下载脚本更新，不发送下载历史或作品数据 | 由油猴管理器的更新设置和手动更新操作决定 | 使用浏览器或油猴管理器的网络设置；可在管理器中停用自动更新 |
-| `pixiv-batch-downloader-import` 历史导入 | `https://www.pixiv.net/ajax/illust/{id}`、`https://www.pixiv.net/ajax/novel/{id}` | 作品 ID、标准 Pixiv 请求头及用户可选填写的本次 Cookie；不上传历史 JSON、文件路径或原文件内容 | 桌面完成本地预览后点击开始；逐个获取作品元数据 | 通过宿主 `PixivAjaxClient`，沿用 Pixiv 出站代理与响应大小保护；取消后停止后续请求，当前请求退出前保持取消中；Cookie 不持久保存 |
-
-四个后端下载油猴脚本和两版下载工作台的归档状态查询每次最多等待 10 秒，完成后间隔 2 秒再查；离开页面停止查询。油猴从页面缓存返回后继续查询；工作台仍按布局选择规则重新加载页面。卡片重建不延长下载链接的有效期。
-
-批量油猴脚本清空队列时，撤销旧队列的读取和客户端等待，并向点击时的后端地址发送清空请求；连续清空按顺序执行，新启动等待这些请求结束。切换服务器后，旧下载回执和状态查询不会用于新服务器；活动 SSE 的重连与关闭通知仍发送到原地址。小说准备期间换址会停止该次正文导入或票据提交。已发送的下载、正文导入、打包或合订请求仍可能由原后端完成，客户端取消不保证撤回这些写入。后端下载脚本和工具箱向后端发送 POST 时，显式携带该请求目标的 Origin；服务端继续校验后端会话及请求来源。
-
-工具箱打开时、修改服务器地址后及每 60 秒，通过脚本管理器向所选后端的 `/api/setup/status` 和 `/api/auth/check` 检查模式和登录态。切换地址立即停用依赖旧状态的功能，等当前查询结束后再检查新地址，旧结果不会启用功能。用户点击同步 Cookie 或从下载页发起一键导入时，工具箱读取当前 Pixiv Cookie，先 GET 后端 `/api/batch/state`，再 POST 保存同步结果；仅取得非空 PHPSESSID 时替换 Cookie。已有状态无法解析时停止写入。这些请求使用脚本管理器的后端会话和浏览器网络设置，不经过宿主代理；停用脚本可停止后续请求。
-
-后端对普通 Pixiv JSON 使用 4 MiB 响应预算，对小说系列详情与分页内容响应使用 1 MiB 预算；存在 `Content-Length` 时会先校验声明长度，并始终按实际流读取量执行上限，超限时中止处理并返回受控错误。小说元数据最多接受 512 个内嵌图片映射；短期票据只保留移除正文和内嵌图片表后的原始元数据，且不超过 256 KiB。
-
-四个后端下载器脚本在用户刷新或提交已选收藏夹时请求配置后端的 `GET /api/collections`。启用小说自动翻译时，提交前用 `GET /api/auth/check` 检查管理员登录，并在下载参数中发送目标语言、分段大小和合订选项。下载后通过 `GET /api/novel/translate-status/{id}` 观察翻译状态；单作品脚本先用 `GET /api/novel/status/{id}` 等待下载完成。这些请求使用脚本管理器已有的后端会话，不向后端传送 Pixiv Cookie。翻译由后端调用已配置的 AI 服务。关闭脚本页面会停止状态查询，已提交的后端任务仍可继续。
-
-通过后端页面安装的新脚本会获准在该后端地址的两种下载页面运行，只响应页面发起的脚本 ID 和版本查询，不在后端页面执行 Pixiv 下载逻辑。查询在当前页面内通过浏览器消息完成，不向服务器或第三方发送安装清单、Cookie 或脚本设置；未响应时显示“未检测到”。安装、更新或启停后需刷新页面。
-
-插画元数据、分页图片及 Ugoira 代理只接受范围内的正整数作品 ID，规范化后用于 `www.pixiv.net/ajax/illust/{id}` 及其固定子路径。邀请访客只能请求可见作品；非法或不可见 ID 不会触发上游请求。
-
-后端下载油猴脚本和工具箱初始化补充翻译时，先向所选后端读取 `/api/i18n/meta`；只有后端公布 `userscript` 命名空间时才请求各支持语言的词典。每次请求最多等待 3 秒，缺席或失败时使用脚本自带翻译，不自动重试；工具箱切换服务器会重新检查，旧查询结果不再更新翻译。这些 GET 请求由脚本管理器发送，沿用其后端会话及浏览器网络设置，不向翻译服务发送文本；停用脚本可停止后续请求。
-
-## `douyin` 插件
-
-`douyin` 是按需安装插件，默认 Windows 安装包和 Java 标准包不预置。只有安装、启用并使用 Douyin 功能后才会产生下列请求。
-
-| 目标地址 | 用途与主要发送内容 | 触发场景 | 代理与关闭方式 |
+| 所有者 | 目标地址 | 用途与发送内容 | 触发与关闭方式 |
 | --- | --- | --- | --- |
-| `https://www.douyin.com/aweme/v1/web/**` | 获取用户作品、喜欢列表、合集、搜索、音乐作品、收藏夹、账号信息和作品详情；会发送 Douyin Cookie、查询参数及模拟浏览器所需请求头 | 手动取得、预览、下载、计划任务发现、Cookie 探活和 Douyin 画廊刷新时触发 | 使用任务级、来源默认或宿主全局路由；禁用/卸载 `douyin` 即完全停用 |
-| HTTPS `douyin.com` / `*.douyin.com`、`iesdouyin.com` / `*.iesdouyin.com`，常见为 `v.douyin.com` | 解析用户粘贴的短链接，最多跟随受限跳转 | 输入 Douyin 短链接并开始解析时触发 | 与该次 Douyin 任务使用相同路由 |
-| HTTPS `*.douyinvod.com`、`*.douyinpic.com`、`*.douyinstatic.com`、`*.amemv.com`、`*.byteimg.com`、`*.bytedance.com`、`*.bytecdn.cn`、`*.pstatp.com`、`*.snssdk.com`，以及上述 Douyin 域 | 下载视频、图片、封面和实况照片媒体；具体 URL 来自 Douyin API 响应并可能发生受限重定向 | 执行 Douyin 媒体下载时触发 | 与该次 Douyin 任务使用相同路由；停止任务或禁用插件即可终止后续请求 |
+| 应用宿主（更新检查与下载） | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/update.json` 及 `.sig`、nightly 同名清单、已验签清单中的安装包 URL（含 GitHub Release CDN 重定向） | 检查更新并校验内置 Ed25519 签名（清单/签名上限 1 MiB / 16 KiB）；仅在用户确认更新后下载安装包（上限 500 MiB，核对精确大小与 SHA-256）。不发送当前版本、Cookie 或凭据 | `update.enabled` 与 `update.auto-check` 默认开启（启用 nightly 时独立检查两路清单）；沿用宿主代理，最多 5 跳公网 HTTPS 重定向。关闭上述配置即可停用 |
+| 应用宿主（介绍页字体） | `https://fonts.googleapis.com/css2?...`、`https://fonts.gstatic.com/...` | 浏览器加载 Noto Sans SC 字体，仅暴露标准浏览器连接信息 | 打开 `intro.html` 时触发；不经后端代理，屏蔽域名后自动回退本地字体 |
+| 应用宿主（连通性探测） | `https://www.pixiv.net/` | 检测后端到 Pixiv 的连通性，不携带 Pixiv Cookie | 首次配置引导或手动执行探测时触发，无后台心跳 |
+| `notification` 插件 | `https://sywyar.github.io/PixivDownloader-Remote-Content/announcements/index.json`、相邻 `.sig` 及 `.../announcements/<message-id>/<locale>.html` | 校验官方 Ed25519 签名、有效期、递增序号与正文 SHA-256，仅为未知或摘要变化的公告下载多语言受控 HTML 并保存在本地；不发送 Cookie 或应用凭据 | 启动后随机等待 0–30 分钟，之后每 6 小时（±15%）检查（支持 `ETag`/`Last-Modified` 条件请求与退避）。沿用宿主代理；禁用或卸载 `notification` 即停止 |
 
-`www.douyin.com/aweme/v1/web/` 请求会从用户提供的 Cookie 读取 UIFID，并将它作为请求头和查询参数发送；查询还包含时间戳及在本地计算的 `x-secsdk-web-signature`。签名计算不调用第三方服务。Cookie 未包含 UIFID 时不会生成替代身份，受保护端点仍可能拒绝请求。
+## Pixiv 下载、浏览与导入
 
-## `ai` 插件
+| 所有者 | 目标地址 | 用途与发送内容 | 触发与关闭方式 |
+| --- | --- | --- | --- |
+| 应用宿主（共用查询与缩略图） | `https://www.pixiv.net/ajax/user/{id}?lang=zh`；HTTPS `*.pximg.net`、`embed.pixiv.net` | `/api/pixiv/user/{id}/meta` 使用请求提供的取得凭据；`/api/pixiv/thumbnail-proxy` 仅访问上述图片域，不带 Cookie、不跟随重定向，单次上限 100 MiB | 页面请求对应本地接口时触发；停止相关预览即可避免 |
+| 应用宿主（元数据回填） | `https://www.pixiv.net/ajax/illust/{id}`、`/ajax/novel/{id}` | 先导入已登记作品目录的旧 `.meta.json` 并用本地元数据补缺，仍有缺失才无 Cookie 请求上述接口（单次上限 4 MiB；404 记入 `data/backfill/unreachable.json`，年龄限制响应暂缓自动重试） | 桌面与无头服务启动就绪后后台自动回填，或从桌面工具页 / 独立 CLI 手动运行；读取已保存的全局代理（工具页可单次临时覆盖），可在工具页或停止服务取消 |
+| `download-workbench` 插件 | `https://www.pixiv.net/ajax/illust/**`、`/ajax/user/**`、`/ajax/search/artworks/**`、`/ajax/series/**`、`/ajax/collection/**`、`/ajax/follow_latest/illust`、`/rpc/index.php`、`/ajax/illusts/bookmarks/add` | 获取插画/动图/画师/系列/搜索/收藏夹/关注新作/约稿元数据（普通 JSON 上限 4 MiB，关注新作未知总页数最多扫 1,000 页），以及开启「自动收藏」后在下载完成时添加收藏；按需携带 Pixiv Cookie | 预览、快捷获取、下载、计划任务、收藏数筛选补查（每次最多并行 6 件）或系列简介补查时触发；停用插件或关闭自动收藏可停止对应请求 |
+| `novel` 插件 | `https://www.pixiv.net/ajax/novel/**`、`/ajax/novel/series/**`、`/ajax/novel/series_content/**`、`/ajax/user/**/novels`、`/ajax/user/**/novels/bookmarks`、`/ajax/search/novels/**`、`/ajax/novels/bookmarks/add` | 获取小说正文、系列（响应上限 1 MiB）、作者小说、收藏、搜索结果及下载后自动收藏；预览后紧随的下载通过绑定 owner 与凭据的 256 KiB 短期一次性票据复用已验证响应 | 小说预览、合订、搜索、计划任务时触发；禁用 `novel` 插件即停止 |
+| 应用宿主（共享图片传输） | HTTPS `*.pximg.net`（缩略图另允许 `embed.pixiv.net`） | 下载原图、封面、缩略图、Ugoira ZIP 与小说内嵌图（最多 512 个映射），携带 Pixiv Referer；非 2xx 不缓冲错误正文 | 下载作品、生成封面/缩略图或小说文件时触发 |
+| 根目录油猴脚本 | `https://www.pixiv.net/ajax/**`、`*.pximg.net`；配置的后端地址（默认 `http://localhost:6999`） | 在 Pixiv 页面通过浏览器登录态读取作品或本地下载；向后端调用下载、队列、收藏夹、小说状态、`/api/i18n/meta`（3 秒超时）与工具箱会话/Cookie 同步接口（不把 Pixiv Cookie 发给小说票据接口） | 在 Pixiv 页面操作脚本时由浏览器/脚本管理器直连；禁用脚本即可停止 |
+| `pixiv-batch-downloader-import` 插件与脚本 | 本机 `/api/pixiv-batch-downloader-import/token`、`/api/pixiv-batch-downloader-import`、`/api/pixiv-batch-downloader-import/history`；浏览器同源 `/ajax/illust/{id}`、`/ajax/novel/{id}`；桌面历史导入经宿主请求 `https://www.pixiv.net/ajax/{illust,novel}/{id}`；脚本更新源 | 自动导入将本机文件路径与元数据发往 solo 回环服务；浏览器历史导入在浏览器内用同源 Cookie 取回元数据后交本机核验；桌面历史导入使用用户可选填写的单次 Cookie 获取元数据。均不上传原作品文件 | 仅在安装启用该插件及脚本、或主动执行历史导入时触发；停用脚本/插件或取消任务即停止 |
 
-AI 插件使用 OpenAI 兼容协议。连接测试、翻译或其他 AI 功能会向所选基础地址的 `/chat/completions` 发送待处理文本、特定用途提示词、模型名称和 API Key。主动在桌面设置中获取模型列表时，插件使用当前表单中尚未保存的基础地址和代理选项向同一基础地址下的 `/models` 发送 GET 请求，不发送正文或提示词。模型查询先不携带密钥；遇到 HTTP 401/403 且表单已填写密钥时，才带上该密钥重试当前请求，后续分页沿用该鉴权方式。整轮查询最多重试一次，共用原有时间和响应大小预算；其他错误直接显示失败。安装插件或仅打开配置不会发起这些请求。
+此外，通过 SDK `DownloadTasks.submit` 或管理员 `POST /api/download/tasks` 提交任务时，同样调用对应插件获取元数据与媒体，工作台在可见时每 2 秒轮询同源 `GET /api/download/tasks`（终态保留 5 分钟）。
 
-小说翻译会随请求发送名词映射表中的原文、目标语言和译名，每次最多 1,000 项。已有条目优先，本章新词按出现顺序补充剩余容量，后续分段也遵守该上限。未随请求发送的新词仍会在翻译成功后合并到名词映射表；条目上限不代表 token 上限。
+## 第三方与可选功能插件
 
-携带密钥时通常使用 Bearer 鉴权；基础地址为 `https://api.anthropic.com/v1` 时，模型查询按 [Anthropic 官方协议](https://platform.claude.com/docs/en/api/models/list) 使用 `anthropic-version` 请求头，鉴权重试时增加 `x-api-key`，并以 `after_id` 游标继续请求同一端点。不会采用响应中的跳转地址，也不会为其他服务商自动改换主机、地区或工作空间。查询失败、未知分页协议或超限时不返回部分列表；不支持该查询的服务仍可手动填写模型。
+### `douyin` 插件（第三方按需安装）
 
-模型 ID 以纯文本候选显示，选定后只回填当前草稿，保存后才更新配置。列表排除明确标注不支持聊天的模型，能力未知的条目仍保留；目录可见不保证账户权限、计费开通或聊天协议兼容，也不保证列出的都是最新发布模型。选定后可使用连接测试核实实际调用。
+默认发行包不预置，仅在手动安装、启用并执行 Douyin 操作时访问：
 
-| 预设 | 默认基础地址 |
-| --- | --- |
-| OpenAI | `https://api.openai.com/v1` |
-| Anthropic 兼容入口 | `https://api.anthropic.com/v1` |
-| Gemini OpenAI 兼容入口 | `https://generativelanguage.googleapis.com/v1beta/openai` |
-| xAI | `https://api.x.ai/v1` |
-| Mistral | `https://api.mistral.ai/v1` |
-| Groq | `https://api.groq.com/openai/v1` |
-| DeepSeek | `https://api.deepseek.com` |
-| 阿里云百炼/Qwen | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| 智谱 | `https://open.bigmodel.cn/api/paas/v4` |
-| Moonshot | `https://api.moonshot.cn/v1` |
-| 豆包/火山方舟 | `https://ark.cn-beijing.volces.com/api/v3` |
-| 腾讯混元 / TokenHub | `https://tokenhub.tencentmaas.com/v1` |
-| 百度千帆/ERNIE | `https://qianfan.baidubce.com/v2` |
-| 讯飞星火 | `https://spark-api-open.xf-yun.com/v1` |
-| MiniMax | `https://api.minimax.cn/v1` |
-| OpenRouter | `https://openrouter.ai/api/v1` |
-| SiliconFlow | `https://api.siliconflow.cn/v1` |
-| Ollama | `http://localhost:11434/v1` |
-| LM Studio | `http://localhost:1234/v1` |
+- `https://www.douyin.com/aweme/v1/web/**`：获取用户作品、喜欢、合集、搜索、音乐、收藏、账号与作品详情（携带用户配置的 Douyin Cookie、从 Cookie 提取的 UIFID 及本地计算的 `x-secsdk-web-signature`）。
+- HTTPS `*.douyin.com`、`*.iesdouyin.com`（如 `v.douyin.com`）：受限跳转解析短链接。
+- HTTPS `*.douyinvod.com`、`*.douyinpic.com`、`*.douyinstatic.com`、`*.amemv.com`、`*.byteimg.com`、`*.bytedance.com`、`*.bytecdn.cn`、`*.pstatp.com`、`*.snssdk.com`：下载视频、图集、封面与实况照片。
 
-主动选择预设时才会回填建议模型和基础地址；已保存的配置不会自动迁移。腾讯混元预设使用 TokenHub，需要在该平台创建 API Key 并开通模型，旧混元平台的密钥不能沿用。旧配置仍使用原地址，迁移时请重新选择预设、填写新密钥并保存。
+路由按「任务单独代理 → 来源默认路由 → 宿主全局代理」选择；停止任务或禁用插件即停止。
 
-AI 基础地址可配置为其他兼容服务，因此完整目标范围取决于实际配置。自定义目标会收到相应请求参数；聊天请求和模型查询的鉴权重试还会携带已填写的 API Key，聊天请求另含待处理文本。目标也可能是本机或内网，只应使用管理员信任的本地、自建或第三方服务。AI 请求不保存 Cookie，也不跟随 HTTP 重定向，避免把凭据转发到跳转目标；直连或代理同样由当前 AI 配置决定。关闭 AI 会停止业务调用，但仍允许主动测试连接和获取模型列表；删除密钥不会阻止匿名查询。停止这些手动操作或禁用 `ai` 插件可停止相应请求。
+### `ai` 与 `translation` 插件
 
-## `tts` 插件
+AI 插件使用 OpenAI 兼容协议：连接测试、小说翻译和多角色分析向所选基础地址的 `/chat/completions` 发送文本、提示词、模型名与 API Key（小说翻译附带最多 1,000 条名词映射表项）；在桌面设置点击获取模型列表时，向草稿基础地址的 `/models` 发送 GET（先匿名请求，遇 401/403 且已填密钥时携带 Bearer 密钥重试一次；`https://api.anthropic.com/v1` 按 [Anthropic 协议](https://platform.claude.com/docs/en/api/models/list)使用 `anthropic-version`、`x-api-key` 与 `after_id` 分页）。所有请求不保存 Cookie、不跟随重定向。
 
-浏览器引擎直接调用 Web Speech API，朗读文本不经过本程序后端。所选语音可能由本机或远端服务提供；是否联网、请求目标、浏览器侧凭据与代理行为由浏览器和语音提供者决定，不受应用后端代理配置控制。选择远端语音时，提供者会接收待朗读文本。停止播放或关闭听书可停止继续提交文本；需要离线使用时，应在浏览器或系统中确认所选语音可离线工作。
+| AI 预设 | 默认基础地址 | AI 预设 | 默认基础地址 |
+| --- | --- | --- | --- |
+| OpenAI | `https://api.openai.com/v1` | 智谱 | `https://open.bigmodel.cn/api/paas/v4` |
+| Anthropic 兼容 | `https://api.anthropic.com/v1` | Moonshot | `https://api.moonshot.cn/v1` |
+| Gemini 兼容 | `https://generativelanguage.googleapis.com/v1beta/openai` | 豆包 / 火山方舟 | `https://ark.cn-beijing.volces.com/api/v3` |
+| xAI | `https://api.x.ai/v1` | 腾讯混元 / TokenHub | `https://tokenhub.tencentmaas.com/v1` |
+| Mistral | `https://api.mistral.ai/v1` | 百度千帆 / ERNIE | `https://qianfan.baidubce.com/v2` |
+| Groq | `https://api.groq.com/openai/v1` | 讯飞星火 | `https://spark-api-open.xf-yun.com/v1` |
+| DeepSeek | `https://api.deepseek.com` | MiniMax | `https://api.minimax.cn/v1` |
+| 阿里云百炼 / Qwen | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenRouter / SiliconFlow | `https://openrouter.ai/api/v1`、`https://api.siliconflow.cn/v1` |
+| Ollama（本机） | `http://localhost:11434/v1` | LM Studio（本机） | `http://localhost:1234/v1` |
 
-TTS 请求会把需要朗读的文本、音色/模型参数和相应服务凭据发送到所选语音服务。只有试听、生成朗读、刷新音色列表、连接测试或实际小说朗读时才触发。
+`translation` 插件在启动手动或自动翻译时调用所选引擎：AI 复用上表配置；有道请求 `https://openapi.youdao.com/api`（发送文本、应用 ID 与本地计算的 v3 签名，不直接发送应用密钥）；LibreTranslate 请求管理员配置的 `{libretranslate-url}/translate`（可选 `api_key`）。有道与 LibreTranslate 连接超时 30 秒、读取超时 120 秒，单次最多 1,000 Unicode 字符、响应上限 1 MiB，由 `translation.use-proxy` 控制是否走应用代理。
 
-| 引擎 | 目标地址与用途 | 特殊触发说明 |
+### `tts`、`push` 与 `mail` 插件
+
+| 插件 | 服务 / 通道 | 默认目标地址 |
 | --- | --- | --- |
-| Edge TTS | `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1` 合成语音；同主机 `/consumer/speech/synthesize/readaloud/voices/list` 获取音色 | 合成、试听或刷新音色时触发 |
-| Edge TTS 版本探测 | `https://edgeupdates.microsoft.com/api/products?view=enterprise` | Edge TTS 需要刷新客户端版本信息时触发，不是独立遥测 |
-| 小米 MiMo | `https://api.xiaomimimo.com/v1/chat/completions` | 使用 MiMo 引擎合成时触发 |
-| Fish Audio | `https://api.fish.audio/v1/tts` | 使用 Fish 引擎合成时触发 |
-| MiniMax | 默认 `https://api.minimax.io/v1/t2a_v2`；国内站可配置为 `https://api.minimaxi.chat/v1/t2a_v2` | 使用 MiniMax 引擎合成时触发 |
-| ElevenLabs | `https://api.elevenlabs.io/v1/text-to-speech/{voice_id}` | 使用 ElevenLabs 引擎合成时触发 |
-| 阿里云百炼/Qwen | 默认 `https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation`；国际区可配置为 `https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation` | 生成接口返回临时音频 URL 后，插件还会直接下载该 URL；临时 URL 的主机由服务端决定 |
-| 豆包/Seed-TTS | `https://openspeech.bytedance.com/api/v1/tts` | 使用豆包引擎合成时触发 |
-| VoxCPM、CosyVoice | 管理员配置的自建 OpenAI 兼容地址，通常为 `{base-url}/audio/speech`；VoxCPM 还会访问 `{base-url}/models` | 默认基础地址为空；未配置时不发起请求 |
+| `tts` | 浏览器引擎 | 浏览器直接调用系统 / 浏览器 Web Speech API（不经后端） |
+| `tts` | Edge TTS 与版本探测 | `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1`、同主机 `/voices/list`；握手 403 刷新版本时请求 `https://edgeupdates.microsoft.com/api/products?view=enterprise` |
+| `tts` | 云端与自建 TTS | 小米 MiMo `https://api.xiaomimimo.com/v1/chat/completions`；Fish Audio `https://api.fish.audio/v1/tts`；MiniMax `https://api.minimax.io/v1/t2a_v2`（国内 `https://api.minimaxi.chat/v1/t2a_v2`）；ElevenLabs `https://api.elevenlabs.io/v1/text-to-speech/{voice_id}`；阿里云百炼 `https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation`（国际区 `dashscope-intl.aliyuncs.com`）及返回的临时音频 URL；豆包 `https://openspeech.bytedance.com/api/v1/tts`；VoxCPM / CosyVoice `{base-url}/audio/speech`（VoxCPM 另查 `/models`） |
+| `push` | 推送通道 | Bark `https://api.day.app/push`（可改自建）；钉钉 `https://oapi.dingtalk.com/robot/send`；飞书 `https://open.feishu.cn/open-apis/bot/v2/hook/{key}`；企业微信 `https://qyapi.weixin.qq.com/cgi-bin/webhook/send`；Telegram `https://api.telegram.org/bot{token}/sendMessage`；PushPlus `https://www.pushplus.plus/send`；Server 酱 Turbo `https://sctapi.ftqq.com/{key}.send`；Server 酱³ `https://{uid}.push.ft07.com/send/{key}.send`；自定义 Webhook URL |
+| `mail` | SMTP 预设与自定义 | 网易 `smtp.163.com:465` / `126.com` / `yeah.net` / `qiye.163.com`；腾讯 `smtp.qq.com:465` / `exmail.qq.com:465`；新浪 `smtp.sina.com:465`；Gmail `smtp.gmail.com:587`；Outlook `smtp-mail.outlook.com:587`；Microsoft 365 `smtp.office365.com:587`；iCloud `smtp.mail.me.com:587`；Yahoo `smtp.mail.yahoo.com:465`；阿里企业邮 `smtp.qiye.aliyun.com:465`；或自定义 SMTP + 可选 SOCKS 代理 |
 
-具体引擎可配置独立基础地址；自定义目标会收到朗读文本、模型参数和服务凭据，也可能访问本机或内网，只应使用管理员信任的服务。携带凭据的 HTTP 请求不保存 Cookie，也不跟随重定向；不含调用凭据的 Edge 版本元数据探测继续使用普通客户端。代理行为取决于出站路由和引擎配置。禁用 `tts`、停用对应引擎或清空其配置即可停止请求。
+携带凭据的 TTS 与 Push HTTP 请求均不保存 Cookie、不跟随重定向。停用对应插件、关闭通道或清空凭据即可停止连接。
 
-## `push` 插件
+### 插件市场、FFmpeg、数据库、页面编辑器与验证码
 
-Push 插件仅在通知通道启用后，由通知事件或“发送测试消息”操作触发。请求包含通知标题、正文及相应通道凭据；部分服务将 Token 或 Key 置于 URL 中。
-
-| 通道 | 固定或默认目标 |
-| --- | --- |
-| Bark | `https://api.day.app/push`；服务器地址可改为自建 Bark |
-| 钉钉机器人 | `https://oapi.dingtalk.com/robot/send?access_token=...` |
-| 飞书机器人 | `https://open.feishu.cn/open-apis/bot/v2/hook/{key}` |
-| 企业微信机器人 | `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...` |
-| Telegram Bot | `https://api.telegram.org/bot{token}/sendMessage` |
-| PushPlus | `https://www.pushplus.plus/send` |
-| Server 酱 Turbo | `https://sctapi.ftqq.com/{key}.send` |
-| Server 酱³ | `https://{uid}.push.ft07.com/send/{key}.send` |
-| 自定义 Webhook | 管理员配置的任意 `http://` 或 `https://` URL |
-
-关闭通道、删除凭据或禁用 `push` 插件可停止请求。自定义目标会收到通知正文与通道凭据，也可能访问本机或内网；`http://` 还会明文传输这些数据，只应使用管理员信任的目标。推送请求不保存 Cookie，也不跟随 HTTP 重定向，避免把凭据转发到跳转目标。
-
-## `mail` 插件
-
-Mail 插件通过 SMTP 发送配置测试邮件和业务通知。连接会携带 SMTP 用户名/密码，并把收件人、主题和邮件正文交给所选邮件服务。只有测试发送或通知实际投递时才连接。
-
-| 预设服务 | 默认 SMTP 目标 |
-| --- | --- |
-| 网易 | `smtp.163.com:465`、`smtp.126.com:465`、`smtp.yeah.net:465`、`smtp.qiye.163.com:465` |
-| 腾讯 | `smtp.qq.com:465`、`smtp.exmail.qq.com:465` |
-| 新浪 | `smtp.sina.com:465` |
-| Gmail / Google Workspace | `smtp.gmail.com:587` |
-| Outlook | `smtp-mail.outlook.com:587` |
-| Microsoft 365 | `smtp.office365.com:587` |
-| iCloud | `smtp.mail.me.com:587` |
-| Yahoo | `smtp.mail.yahoo.com:465` |
-| 阿里企业邮 | `smtp.qiye.aliyun.com:465` |
-
-管理员可指定任意 SMTP 主机和端口，也可配置独立的 SOCKS 代理地址。关闭邮件通知、删除邮件配置或禁用 `mail` 插件可停止相关连接。
-
-## 插件市场、FFmpeg 与脚本更新
-
-插件管理页打开、手动刷新及从历史缓存返回时，通过应用同源的 `/api/plugins/status` 读取状态，并按当前插件加载 `/api/i18n/**` 词典。生命周期操作或本地上传结束后，页面重新读取状态和 `/api/navigation` 导航；网络失败也会核对实际状态，不自动重发写入。替换查询或离页会取消旧读取，旧结果不覆盖当前页面；已发出的写入仍可能完成。请求携带同源会话 Cookie，使用浏览器网络设置，不经过后端出站代理。关闭页面停止后续页面查询。
-
-市场页还通过同源 `/api/plugin-market/**` 查询仓库、清单、详情与包事实，通过 `/api/plugins/recovery` 和 `/api/plugins/acquisitions` 读取恢复状态和安装记录。替换查询、关闭详情或离页会取消对应旧读取；返回页面重新查询，浏览器取消不能保证服务器已开始的仓库访问停止。离页前尚未提交的安装或恢复确认失效，已发出的写入仍可能完成；写后重新读取当前目录、恢复状态和导航，不自动重发安装。请求使用同源会话 Cookie，浏览器到应用使用浏览器网络设置，宿主到仓库沿用该仓库的代理策略。
-
-管理员打开带插件管理导航的页面，或刷新插件管理状态时，宿主会为已安装且来源已验证的插件检查更新。检查只访问对应的已启用仓库，复用市场的清单、签名和撤销查询；官方签名的本地安装包使用官方仓库。成功结果缓存五分钟，部分失败缓存三十秒，安装状态或仓库配置变化后重新检查。浏览器每页共享一个更新请求，二十秒超时取消；离页中止请求，从历史缓存返回时重新查询。浏览器没有定时轮询，也不自动安装；关闭 `plugin-catalog.enabled` 或相应仓库可停止后续请求。
-
-正式版主清单保留各插件的最新版本、最新稳定版本，以及固定旧 SDK `1.0.0`、`1.1.0` 各自的最新兼容稳定版本。其余版本存放在同目录的 `history/<pluginId>-<sha256>.json`。查看历史、解析指定旧版或寻找兼容及渠道候选时才读取该文件；默认官方地址位于 `raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/history/`。文件按摘要命名，旧文件不覆盖或自动删除。历史文件最多 1 MiB、900 个版本，必须匹配已签名主清单中的大小和 SHA-256。请求沿用所属仓库的代理、HTTPS、公网地址和重定向策略，不携带应用 Cookie 或凭据。
-
-管理员确认安装计划后，创建操作记录只写入本机内存；执行计划和包下载后仍读取并复核目录与撤销状态。首次执行信任确认会暂存已下载的包，用户确认精确 SHA-256 后可继续使用同一包，安装器仍完整复验。每次最多保留一个待确认包，十分钟后自动释放；取消确认、开始另一项安装或关闭服务也会释放。操作记录与进度查询只读取本地状态，不会重新提交安装。
-
-宿主按网络策略复用 HTTP 连接，代理或超时配置变化后更新客户端。分页目录可发送 ETag 条件请求，收到 304 时复用同一仓库、当前代次的已校验页面；拒绝跳转时关闭原响应体。社区认证每次仍读取 `generated/current.json`；其引用的摘要、地址和签名一致时复用已验证的目录根与分片，描述符仅在当前认证摘要匹配时复用。同一次市场查询只认证一次仓库。页面切换仓库、刷新或离开时会取消旧的清单请求；浏览器取消不保证已经发出的服务端外联立即停止。请求目标、代理边界、签名与撤销检查保持原规则，不发送应用 Cookie 或下载凭据。
-
-支持文档展示的市场通过同源 `/api/plugin-market/content/**` 读取受信目录所引用的图标、截图、README、完整日志与本次更新说明。图标和截图随可见内容按需加载，文档仅在展开时请求；宿主使用所属仓库的代理、HTTPS、公网地址及重定向规则，下载后核对大小、SHA-256 和图片格式。默认官方与社区附件位于各自 GitHub 版本 Release，可能进入允许的资产 CDN。请求不携带应用 Cookie 或下载凭据；浏览器只接收校验后的图片和隔离静态正文，不直接加载正文任意外部图片。关闭市场或仓库可停止后续读取，相关链接只在用户点击时打开。
-
-
-浏览市场时，如果最新版不兼容当前 SDK，宿主会自动查询同一仓库的历史版本，并默认选择最高的兼容可安装旧版。页面会同时显示最新版和所选版本；没有兼容版本与查询失败分别提示。分页仓库的查询可能追加详情页请求，每个插件最多读取 10 页、每页最多 100 个版本。同一次页面查询共享 10 秒的追加请求预算，已发出的请求仍按仓库网络超时结束。请求沿用该仓库的地址和网络设置，只读取版本元数据，不下载插件包；安装仍需用户确认。已安装的较高版本不会因此自动降级。
-
-管理员还可在插件管理页主动刷新已配置来源的撤销信息。应用宿主仅向该来源配置的 `revocations.json` 与相邻 `.sig` 发出请求，不接受请求正文提供任意 URL，不发送应用 Cookie、作品或凭据；继续使用该仓库既有代理、HTTPS、来源和大小校验。需要 `plugin-catalog.enabled` 与仓库均启用；不点击刷新便不会触发这项请求。管理状态和安装操作记录查询只读取本地状态，不定时向仓库刷新。
-
-| 请求所有者 | 目标地址 | 用途 | 触发场景与默认状态 |
-| --- | --- | --- | --- |
-| 应用宿主的插件市场 | 正式版使用 `https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json`，每夜构建版使用同仓库的 `nightly-manifest.json`；包地址通常为 GitHub Release，并可能重定向到 `*.githubusercontent.com` | 获取与当前应用发布通道匹配的官方插件清单、下载用户选择的插件包并做签名、SHA-256 和大小校验 | 清单由打包进应用的版本自动选择；`plugin-catalog.enabled` 与内嵌官方仓库默认启用，管理员打开或刷新市场时拉取清单，明确安装插件时下载包；应用启动本身不访问仓库；最多跟随五跳重定向且每一跳都重新校验，关闭主开关可完全停用该链路 |
-| GUI 仓库描述符导入 | 管理员输入的公网 HTTPS `repository.json` | 预览仓库声明的发布者、目录、撤销/更新证明端点、实际联网主机和完整公钥指纹；请求不携带 Cookie、账号、作品、本地路径或其它应用凭据，也不请求 `repository.json.sig` | 在 GUI 预览、确认和统一保存新描述符快照时触发；确认会重新获取并要求描述符 SHA-256 不变。响应最大 64 KiB，所有地址都执行公网 HTTPS 与 SSRF 校验；`DIRECT_STRICT` 不跟随重定向，`GITHUB_RELEASES` 只允许 GitHub 固定主机边界内一跳。取消预览或不确认不会保存/启用仓库 |
-| 应用宿主的插件市场 | 已信任描述符中的 HTTPS catalog endpoint、可选 `revocations.json` / `repository-update.json` 及相邻 `.sig`，以及目录指定的插件 JAR/ZIP URL | `manifest-v1` 读取清单和清单签名；`paged-v2` 分页读取列表、详情和指定版本；完整版本查询发现目录代次变化时重新读取首页，恢复仍受原页数和时间预算约束，持续变化或预算耗尽时报告查询未完成；每次列表、详情和版本事实查询刷新必选撤销文档及签名，同一响应使用同一快照；安装在解析依赖前及下载完成后再次核对。隐藏或撤销的版本不可新装，仍可查看历史诊断；无有效快照或超过 24 小时宽限期时禁止新安装，刷新失败不会清除已知限制。包下载后还校验大小、SHA-256、发布者签名和包内 descriptor。重新导入已信任仓库时可能读取连续性证明 | 浏览/搜索/翻页、查看详情、明确安装/更新或重新导入时触发；启动只读取本地最后有效撤销快照，不自动请求第三方仓库。使用描述符映射后的固定安全网络档位；禁用/删除仓库或关闭 `plugin-catalog.enabled` 可停用后续请求 |
-| 应用宿主的社区目录与插件市场 | `https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/` 下的 `generated/current.json`、`generated/generations/<sequence>/directory.json` 及按需 shard、`generated/repository.json`、清单与撤销文件；审核、投稿和历史发布者记录来自该仓库中的受控相对路径，包地址来自已验签清单 | 独立社区根验证目录与包签名，核对目录序号、描述符与 key 指纹；所选版本详情最多读取一份审核记录，安装还验证原发布者签名与实际包内声明。请求只包含公开路径及标准连接元数据，不携带 Cookie、私钥或应用凭据 | 社区仓库默认启用，管理员浏览社区来源、查看版本、安装或预览/确认第三方仓库认证时触发；启动只做本地复验，不自动安装。沿用宿主代理和 `GITHUB_RELEASES` 的公网 HTTPS、GitHub 主机与一跳重定向边界。关闭 `plugin-catalog.community-repository-enabled` 停止社区市场请求；第三方仓库认证查询随 `plugin-catalog.enabled` 主开关关闭。目录失败保留已验证的最近一个桶，损坏状态拒绝重置防回滚水位 |
-| 应用宿主 FFmpeg 安装器 | `https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/ffmpeg-release.json`、相邻的 `ffmpeg-release.json.sig`、当前系统与架构对应的 `ffmpeg-{windows-x64,linux-x64,linux-arm64,macos-x64,macos-arm64}.zip`，以及 GitHub Release CDN 重定向 | 先使用应用内置官方信任根验证 Ed25519 清单签名，再按清单中的精确资产名、大小和 SHA-256 验证 FFmpeg 官方稳定源码构建，全部通过后才解压。GET 请求只发送 FFmpeg 安装器 User-Agent、IP 等标准连接元数据，不发送 Pixiv Cookie、账号或其它应用凭据 | 仅在 GUI 中明确选择自动安装 FFmpeg 时触发；应用启动本身不会下载；不支持的系统继续使用手动安装。请求沿用宿主代理设置；不执行自动安装即可停用该链路 |
-| Windows Setup 的 FFmpeg 可选任务 | 与上一行相同的签名清单、detached signature 和固定的 `ffmpeg-windows-x64.zip`，以及 GitHub Release CDN 重定向 | 在安装期使用安装包内置的官方信任根验证清单签名和 Windows 资产的精确名称、大小、SHA-256，通过后才解压到应用工具目录。目标站点请求不携带应用账号或 Pixiv 凭据；使用系统代理时，代理连接可以使用当前 Windows 用户的默认代理凭据 | 只有用户在 Setup 中明确勾选 FFmpeg 可选任务才触发。Setup 优先使用已启用的系统 HTTP/HTTPS 代理，未找到时直连；不选择该任务即可完全跳过 |
-| 油猴脚本管理器，不属于插件 | `https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/*.user.js` | 检查和下载六个独立油猴脚本更新 | 由 Tampermonkey 等脚本管理器按其更新策略触发；禁用脚本自动更新或卸载脚本即可停止 |
-| All-in-One 油猴脚本管理器，不属于插件 | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/Pixiv%20All-in-One.user.js` | 检查或下载构建生成的合并脚本 | 仅安装该发行脚本后由脚本管理器触发 |
-
-GUI 预览和确认描述符时会联网；保存包含新描述符快照的设置时，会再次获取描述符并校验同一 SHA-256。确认前不修改配置，确认后的草稿也必须通过设置页统一保存才会写盘。
-
-
-## 官方插件的可选调查（PostHog）
-
-布局反馈调查属于 `download-workbench` 插件；多人模式保留意愿调查属于 `multi-mode-decision-survey` 插件，并且只在管理员站内信中显示。独立的 `posthog` 插件提供 PostHog JavaScript SDK 和调用方配置的隔离客户端。SDK 已随插件静态资源打包，不会从 CDN 加载。
-
-- 每个发布调查的插件都固定持有自己的 Project Token、Survey ID、`apiHost=https://layout-survey.sywyar.top` 与 `uiHost=https://us.posthog.com`；它们是浏览器可见参数，不是 Secret，也不通过 GitHub Actions、脚本或 properties 文件注入。
-- 普通源码 / fork 构建生成的发行激活位为 `false`；官方 Release、Nightly 与官方插件发布使用仓库内的 Maven `official-surveys` profile 把这一位设为 `true`。四个参数不随 profile 改写。
-- 启动时的调查站内信注册与幂等写入只读取本地插件声明，不访问 PostHog。用户打开含有效调查的站内信页面（页面会预热内嵌调查），或下载工作台预加载 / 触发布局调查流程时，浏览器才会直接访问上述 PostHog API/UI 主机；发送范围仍受调查发布插件的 `beforeSend` 允许列表约束，且不经过宿主出站代理。
-- 多人模式保留意愿调查会发送用户选择或填写的答案、调查标识、调查专用匿名标识、用于投递去重的稳定事件标识、完成状态、事件时间、事件名和公开项目令牌。布局调查会发送问卷回答、调查标识、调查专用匿名标识、用于投递去重的稳定事件标识、应用版本、当前布局、调查结构版本、事件时间、事件名和公开项目令牌。两者的提交身份都由安装身份单向派生并限定在当前调查与 campaign 内，不发送原始安装身份、账号、Cookie、作品或本地路径。
-- 多人模式保留意愿调查在等待提交结果时暂停编辑和再次提交；失败后保留回答供重试，收到确认后才记录完成。
-- 调查站内信会在发布插件持续提供时保留；发布插件停止提供后由本地生命周期同步撤下。内嵌页确认 Survey 已从 PostHog 发布列表删除 / 关闭后会留下本地关闭标记，不再显示该站内信；临时网络错误不会误删，之后打开时会重新验证。
-- `posthog` 插件缺失或停用时调查静默关闭。已打开页面中的脚本不会被热撤销，停用后刷新页面才完全生效。
-
-## 不包含固定公网目标的官方插件
-
-以下插件本身不增加固定第三方网络目标：
-
-- `stats`：读取本地数据库并生成统计。
-- `duplicate`：读取本地文件和 Hash 数据进行重复检测。
-- `gallery`：浏览本地下载记录和本地媒体。
-- `gui-swing` 与 `gui-compose`：渲染应用的本地桌面文档，提供窗口、托盘、主题和平台资源，不增加固定第三方运行时目标。
-- `recovery-sentinel`：仅用于恢复模式验证，不包含在常规用户发行包中。
-
-它们的页面仍会调用当前 PixivDownloader 实例的同源 API，但这不是访问第三方公网。
-
-## PostgreSQL 主数据库
-
-默认 SQLite 数据库插件只访问本机文件。管理员安装并选择 PostgreSQL 插件后，连接由该插件的 JDBC 驱动建立，目标是 `database.jdbc-url` 指定的服务器。默认端口为 5432，实际主机、端口、数据库和主库 schema 均由管理员决定。
-
-桌面设置或插件市场的「测试连接」访问未保存的草稿目标，发送草稿认证材料并读取版本、编码、schema 和身份，不建表或替换活动连接池。「检查并继续」还检查源库结构、全部私库，以及目标是否为空或支持安全备份替换；重试时读取已提交目标的实际数据，核对源变化和数据摘要。确认前不迁移数据、不创建私库凭据、角色或 schema。PostgreSQL 连接预检的连接、登录和 socket 等待各最多 10 秒，保留更短的已配置值；这不是整个迁移任务的执行时限。
-
-确认清单后，桌面设置先保存本页其它设置，宿主自动停止业务并通过完整进程重启编排迁移，源和目标数据库提供者负责读写与核验。支持替换的非空目标先保留旧数据备份，迁入核验后再逐库替换。连接会发送认证材料、SQL、作品元数据、通知、计划状态、计划凭据及已声明的插件私库数据。全部主私库核验成功才切换配置；失败保留源配置及已提交目标数据。SQLite 与 PostgreSQL 支持双向迁移，也可单独使用停机工具。日常启动、结构演进、业务读写和维护同样由所选 provider 连接配置目标。私库使用独立 owner schema 和受限登录身份，密码保存在本地加密凭据存储中，普通插件不能取得主库账号。
-
-JDBC 的 TCP / TLS 连接不经过 Pixiv HTTP 代理；TLS 由 `sslmode` 和可选 `sslrootcert` 控制，远程连接建议使用 `verify-full`。密码通过独立配置项或 `DATABASE_PASSWORD` 提供，URL 不接受凭据。连接或 provider 不可用时进入恢复模式，停止依赖数据库的业务及后台操作，不改连其它引擎。确认前可取消迁移；停用远程连接须停止应用，修正数据库选择后完整重启。直接编辑配置不会复制历史数据，使用方式见[配置参考](configuration.md)。
-
-## 本机、同源及管理员配置的目标地址
-
-- 选用的页面编辑器从当前应用同源加载随包分发的 GrapesJS Core，关闭 CDN 图标与遥测；首次展开 CSS 时才加载本地 CodeMirror。ADMIN 目录和草稿请求使用既有会话；匿名页面投影只暴露已发布的渲染数据。打开的编辑器与已挂载组件每两秒检查目录或 publication 是否仍可用，同类检查不重叠；离页或最后一个实例销毁后取消。组件业务调用使用自身生成契约与既有路由权限；外部目标由各业务组件插件另行说明。
-
-- 桌面 GUI 由应用宿主通过 `http://127.0.0.1:{临时端口}/api/gui/**` 轮询状态和提交操作，携带当前后端的 GUI token、语言、操作参数，以及声明式动作的插件 owner。桌面模式默认创建此入口，端口由系统分配并随每次后端启动重新取得，不写入配置。连接明确绕过系统与宿主代理，不跟随重定向，不自动重发写操作，也不使用 `ssl.domain` 或公开 HTTPS 端口。入口仅绑定本机，拒绝非 GUI 路径和转发头，仍校验本机来源、Host / Origin 与 token。使用 `--no-gui` 或无头模式时不创建该入口；没有远端替换选项。
-- Web 页面和插件前端使用浏览器同源地址访问 `/api/**`、静态资源和 SSE。邀请链接、首次配置和桌面网页入口由宿主统一构造，使用实际公开监听协议、端口与管理员配置的 `ssl.domain`（默认 `localhost`）。开发模式自动顺延端口后，链接随当前实例更新，不改写配置端口。公开 HTTP 到 HTTPS 的重定向只作用于配置的重定向入口，不影响 GUI 本机通信。
-- Ollama、LM Studio、VoxCPM、CosyVoice 和油猴脚本后端可配置为本机服务；基础地址指向远端后，该远端即成为新的数据接收方。
-- 图片分类器的 `server.url` 留空时使用上述当前实例地址；填写地址后连接指定的 PixivDownloader 实例，已有设置继续生效。分类器向该目标查询作品信息，并在移动作品后提交新路径；目标为远端时，这些数据也会发送到远端。作品详情只在取得正数作品编号后查询；服务未返回有效编号时尝试目录名。关闭分类器可停止这些请求。
-- 自定义 Webhook、AI/TTS 基础地址、插件仓库、Bark、SMTP、SOCKS 和代理端点都由管理员配置，无法形成封闭的固定域名白名单。更新清单 URL 也可由管理员配置，但只接受带有效官方签名的公网 HTTPS 目标。
-- 根目录 `cors-js-runner.html` 是开发调试工具，会请求操作者输入的任意 URL；它不属于常规用户运行链路。
-
-## 代理适用范围
-
-“配置了宿主代理”不表示所有网络流量都会经过它：
-
-- Pixiv、更新、FFmpeg、官方插件仓库和部分插件请求会按照宿主或任务级路由选择代理。
-- AI、TTS 和 Douyin 可以有功能自身或任务级的直连/代理选择。
-- 自定义插件仓库的直连严格策略会明确绕过全局代理；自定义策略以仓库配置为准。
-- 油猴脚本、Google Fonts 和 PostHog 是浏览器直接发出的请求，不经过 Java 后端代理。
-- SMTP 使用 Mail 插件自己的连接设置，可另配 SOCKS 代理。
-- 如果启用 HTTP/SOCKS 代理，程序首先连接管理员配置的代理主机和端口，再由代理访问最终服务。
+- **插件市场与撤销检查**：
+  - 官方仓库读取 `https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json`（nightly 为 `nightly-manifest.json`）、按需历史分片 `history/<pluginId>-<sha256>.json`、版本 Release 中的市场文档/截图附件及插件包 URL。
+  - 社区仓库读取 `https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/generated/current.json`、世代目录分片、撤销清单、审核记录及已签名 Release 资产。
+  - 自定义仓库读取管理员导入的 `repository.json`（上限 64 KiB）及其声明的 `manifest-v1` / `paged-v2` 端点、`revocations.json` 与 `repository-update.json`。
+  - 已安装插件更新检查结果缓存 5 分钟（部分失败缓存 30 秒）；兼容旧版回退查询单插件最多读取 10 页、共享 10 秒预算。关闭 `plugin-catalog.enabled` 或对应仓库开关即可停用。
+- **FFmpeg 自动安装**：桌面状态页下载或 Windows 安装器勾选 FFmpeg 任务时，请求 `https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/ffmpeg-release.json`、`.sig` 及对应平台 `ffmpeg-*.zip`，校验官方 Ed25519 签名、大小与 SHA-256 后解压（桌面端走宿主代理，Windows 安装器优先使用当前用户系统 HTTP/HTTPS 代理）。
+- **油猴脚本更新**：从仓库安装的独立脚本由 Tampermonkey 访问 `https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/*.user.js`；从后端安装的脚本指向该后端 `/api/scripts/*.user.js`。
+- **官方 PostHog 调查插件**：仅在官方发行构建激活（`release-activation.js` 为 `true`）且管理员打开含有效调查的站内信或触发下载页布局调查时，浏览器才直接访问 `https://layout-survey.sywyar.top` 与 `https://us.posthog.com`（仅发送派生的调查作用域匿名标识与答卷，不发送安装 UUID、账号、Cookie 或路径；停用 `posthog` 插件即关闭）。
+- **PostgreSQL 数据库插件**：通过 JDBC 连接管理员配置的 `database.jdbc-url`（默认端口 5432，连接预检超时 10 秒），发送数据库认证材料、业务与私库数据；直连目标服务器，不经过 HTTP 代理。详见[配置参考](/zh-cn/configuration#主数据库与引擎切换)。
+- **无固定外部公网目标的插件**：`gallery`、`gallery-tools`、`gui-compose`、`gui-swing`、`page-editor`（内置本地 GrapesJS 与 CodeMirror，关闭 CDN 与遥测）本身只访问当前实例同源 API，不发起固定第三方公网请求。
+- **`captcha` 操作验证码插件**：
+  - **ALTCHA（SHA-256 / PBKDF2）、字符验证码（Hutool）、滑块拼图（Tianai）**：均在当前实例与浏览器本地完成，不访问第三方服务。
+  - **Cloudflare Turnstile**：绑定并发布后，浏览器加载 `https://challenges.cloudflare.com/turnstile/v0/api.js` 与 iframe；提交时服务端经受管 HTTP（继承应用代理、禁重定向与 Cookie）向 `/turnstile/v0/siteverify` 发送密钥与票据。
+  - **Google reCAPTCHA v2**：绑定并发布后，浏览器加载 `https://www.google.com/recaptcha/api.js?render=explicit`（及 `www.gstatic.com`、`recaptcha.google.com`）；提交时服务端经受管 HTTP 向 `https://www.google.com/recaptcha/api/siteverify` 发送密钥与票据。移除组件并重新发布页面即可停止外部请求。
 
 ## 开发、构建和发布流程的网络访问
 
-官方模块 `pixivdownload-plugin-captcha` 或独立 SDK 构建工程 `examples/captcha-plugin` 构建时，Maven 按配置的仓库、镜像与代理取得 `org.altcha:altcha`、`org.json:json` 及构建依赖；资源构建自动执行 `npm ci`，按锁文件取得 `altcha` 与传递依赖，当前锁文件使用 `registry.npmmirror.com`。下载只发送包坐标与包管理器配置的认证，不上传项目凭据。构建将官方 Worker 与许可证写入插件。显式运行 `page-editor-acceptance.mjs` 的验证码验收会访问 Cloudflare 官方测试组件和 Siteverify，仅使用公开测试密钥；普通应用启动不执行这些工程请求。取消构建/测试停止后续访问；使用经核验的本地依赖缓存可减少下载。
+以下请求仅在开发者或 CI 执行源码构建、依赖解析、测试、打包、签名、发布或运行社区投稿工具时发生，**已安装的客户端运行时不会发起这些请求**：
 
-新增图片组件的构建依赖为 `cn.hutool:hutool-captcha`（及 `hutool-core`）和 `cloud.tianai.captcha:tianai-captcha`，沿用 Maven 仓库、镜像和代理。显式验证码浏览器验收也会访问 Google 官方测试控件与 Siteverify，仅使用公开测试密钥；这不是正常启动时的访问。
-
-页面编辑器验收命令使用已安装的 Playwright/Chromium，不自动下载。单独安装这些工具时，目标和代理遵循 npm 与 Playwright 的包、浏览器下载配置。维护者更新固定 GrapesJS 文件时获取其 npm 包；重建 CodeMirror 时，在 `pixivdownload-plugin-page-editor/tools/codemirror` 执行 `npm ci --ignore-scripts --no-audit --no-fund` 和 `npm run build`，安装锁文件固定的 CodeMirror、Lezer、esbuild 及传递依赖。当前锁文件的包归档来自 `registry.npmmirror.com`，镜像或代理调整须连同锁文件来源和完整性值一起核对。两种编辑引擎均在 `vendor.json` 记录固定版本、摘要与许可证；普通 Maven 构建直接使用随仓库保存的资源，应用运行期不执行更新。准备请求携带工具或包标识，不发送应用凭据或页面文档；npm 认证与代理凭据遵循本机 npm 配置。已有本地工具及随包 vendor 文件可避免下载。
-
-数据库插件的 JDBC 依赖由 Maven 获取：PostgreSQL 为 `org.postgresql:postgresql`（`org/postgresql/postgresql/<版本>/`），SQLite 为 `org.xerial:sqlite-jdbc`（`org/xerial/sqlite-jdbc/<版本>/`），默认来源为 Maven Central，仓库 / 镜像和代理沿用 Maven 的配置。只在源码构建或依赖预取缺少缓存时下载，不发送应用数据库凭据。真实数据库验收由操作者显式提供隔离服务；使用 Docker `postgres:17` 时，Docker 按自身镜像源、代理和认证设置访问 Docker Hub registry / token 服务及其重定向的镜像层 CDN。测试只连接 `PIXIV_TEST_POSTGRES_URL` 指定的隔离服务并使用测试账号；停止测试和容器可停止这些访问，默认应用运行不会下载数据库镜像。
-
-中性私库的独立第三提供者测试另使用 `com.h2database:h2`（`com/h2database/h2/<版本>/`），同样由 Maven 仓库 / 镜像与代理获取。H2 仅为测试依赖，不随宿主或官方插件分发；测试在进程内使用隔离内存库，不连接用户数据库。
-
-插件版本检查通过 GitHub CLI 分页读取 `api.github.com/repos/Sywyar/PixivDownloader-plugins/releases`，取得已公开版本；请求使用 CI 的 GitHub 认证或本地 CLI 登录态及其代理设置。产物检查使用 Maven 下载插件声明的最低 SDK 对应的固定坐标，仓库与代理由 Maven settings 决定；声明当前源码 SDK 时直接使用本轮构建产物。这些请求由 Quality Gate 或显式检查命令触发，失败会阻止验证通过，停止命令或取消 workflow 可结束后续请求。
-
-目录生成通过 GitHub Contents API 读取已发布的主清单、签名及所引用历史文件，验证后保留旧版本。发行打包在主清单没有兼容包时，也会读取同源历史文件并校验摘要，再下载选定包；使用的 GitHub 认证、代理和包验签规则与对应发布、打包脚本相同。
-
-文档投稿工具读取冻结源码与明确选择的本地文件；只有作者确认后才经社区 Node 下载器抓取文档中的公网 HTTPS 图片，沿用下述代理、TLS、大小、重定向和重试规则。确认投稿后，GitHub CLI / Release 上传入口访问经数字身份核验的来源仓库，将原字节写入 `market-content-<plugin>-<version>` Release；审核和社区发布链把已登记附件复制到同一社区版本 Release，并从公开下载地址逐一回读。GitHub 认证只用于对应平台 API / 上传，公开附件下载不带凭据。附件内容就是作者已预览的文档与图片；取消写入确认不会发布。
-
-官方插件发布和目录生成通过 SDK 工具读取同一插件 Release 的 `market-content.json` 及其中登记的附件。入口由发布任务或显式脚本调用触发，使用 Java 系统代理、GitHub 主机白名单和逐跳 TLS 校验，不发送应用凭据；一次内容下载共用五分钟期限，单次连接和读取最多十五秒。元数据最多 64 KiB，文档合计 4 MiB、文档图片合计 8 MiB、市场图片合计 8 MiB；所有字节需匹配引用摘要，未通过公开回读时不能生成完成结果。
-
-
-社区 Gate 在排队期间遇到 PR head、基线或开闭状态变化时，会通过 GitHub CLI 重新读取当前 PR、文件、审核及所需签名证据，完整校验后才更新检查结果。这些请求访问 `api.github.com` 下社区仓库及经身份校验的投稿 fork，使用受保护 job 的 GitHub 凭据和现有代理、TLS、单请求六十秒 / 32 MiB 预算。每个 PR 每次出队最多重新进行一次完整版本校验；校验期间事实再次变化会阻断。此过程由既有 Gate 事件或维护者手动运行触发，可取消对应 workflow 停止后续请求。平台 API 失败日志只保留受控原因、请求方法、资源类别、HTTP 状态和退出码，不记录完整查询参数、请求正文、凭据或原始命令输出。
-
-社区发布、主线 Gate 和回执迁移复核已合并结果时，通过 `api.github.com/repos/Sywyar/PixivDownloader-community-plugins/git/commits/<SHA>` 与 `git/trees/<SHA>?recursive=1` 读取实际合并父链和完整 Git 树，以合并提交的第一父节点与生成 head 计算文件差异，不再请求该历史 PR 的 `/pulls/<number>/files`。开放 PR 的审核仍读取原生文件列表。请求由既有发布或 Gate workflow、维护者显式执行迁移触发，沿用 GitHub CLI 认证、代理、TLS 和单次六十秒 / 32 MiB 预算，仅向 GitHub 发送仓库路径、提交标识及 GitHub 凭据；取消 workflow 或停止迁移命令可停止后续请求。
-
-向导展示已登记版本时，会通过 GitHub CLI 查询社区仓库的 `GET /repos/Sywyar/PixivDownloader-community-plugins/releases/tags/<tag>` 与 `GET /repos/Sywyar/PixivDownloader-community-plugins/releases/<id>/assets`。tag 来自受保护发布记录中的原发布者、插件 ID 和版本；请求使用当前 GitHub CLI 认证、代理及既有六十秒和 32 MiB 预算。检查仅比较 Release 公开标志及包资产名称、大小和摘要，不下载包、不发布 Draft。查不到对象或读取失败时显示尚无法确认，不据此推断发布失败。恢复旧请求及浏览转移申请时，还会读取当前归属、发布者和紧急封禁状态；过时申请只显示原因与原 PR 链接。
-
-运行中社区主线推进时，向导自动刷新社区状态，每次操作最多恢复三轮，继续沿用原请求字节。恢复会通过 GitHub CLI 读取当前账号、分支、Git 树和原 PR，并在复用原投稿分支前调用 `GET /repos/Sywyar/PixivDownloader-community-plugins/compare/<原基线SHA>...<当前SHA>` 核对祖先关系；SHA 分别来自保存的请求与当前受保护分支。请求使用当前 GitHub CLI 的认证、代理、TLS 校验及每次六十秒、32 MiB 预算。每轮按最新状态重新校验，写入前重新确认；身份、内容或分支冲突仍会停止。达到恢复上限后保留已保存进度，不无限轮询。退出向导会停止这些请求。
-
-以下目标不属于已安装应用的常规运行时请求：
-
-社区 Node 工具下载公开插件包、源码和构建工具时，先匹配 `no_proxy` / `NO_PROXY` 的直连规则，再依次读取 `https_proxy`、`HTTPS_PROXY`、`all_proxy`、`ALL_PROXY`；小写优先。未设置代理变量时，Windows 读取当前用户的系统代理及绕过设置，其它系统直连。显式空代理值或 `NO_PROXY=*` 可选择直连；支持 HTTP / HTTPS 代理，不支持 SOCKS。代理连接失败会停止下载，不自动改走直连。CONNECT 目标仍固定为本次核对的公网 IP，源站 TLS 验证原始主机；显式代理用户名与口令只用于代理认证，不发送到源站，GitHub 凭据和 Cookie 不进入文件下载。系统代理查询在原有六十秒下载期限内完成。以下各行的独立构建容器、GitHub CLI、Git 和 PowerShell 启动器继续使用各自的网络设置。
-
-社区 Node 下载器对连接中断、DNS 与连接失败、超时及 HTTP 408/500/502/503/504 最多尝试三次，退避一秒、两秒；所有尝试、系统代理查询、重定向和响应体共用六十秒期限。重试会重新核对每跳公网地址、源站 TLS、文件大小与摘要，并清理本次创建的半文件。证书、摘要、大小、URL、本地文件错误及其它 HTTP 状态不重试。初次下载、验证投稿内容和最终复核共用此规则。临时故障耗尽自动重试后，向导显示失败子步骤、轮次及累计次数；手动继续只为该请求或文件开启新一轮预算，保留已完成的步骤，也可保存已有进度后退出。PowerShell 启动器同样按文件累计轮次与尝试次数。
-
-向导在准备 SDK、读取社区数据和询问密钥前，通过 GitHub CLI 的 `GET /user` 核验实际登录账号。未登录或凭据失效会显示登录指引，可在另一终端完成登录后重新检查，也可保存退出；环境变量中的凭据变更需要重启向导。权限不足、对象不存在或不可见、限流、代理、DNS、TLS 和连接中断分别显示说明。证书、请求参数、状态冲突及本地工具或文件错误不进入网络重试。诊断只显示受控错误码、状态码、退出码和发生环节，不输出原生命令、令牌或带参数地址。Git 提交身份和远端认证单独核对，GitHub 登录不能代替 Git 凭据配置。
-
-社区投稿 API 读取与候选二进制下载通过 GitHub CLI 访问。GET 的 HTTP 408/500/502/503/504，以及已识别的临时连接、DNS、超时和 EOF 故障，最多尝试三次，退避一秒、两秒，共用六十秒期限；权限、限流、证书及原因不明的传输失败不自动重放。可恢复错误允许仅重试该请求或保存退出，恢复初始化也适用。创建 fork、候选归档、上传附件、发布候选、Git 传输、创建 PR 与取消请求在各自步骤内恢复：写入重试前回读同一对象并核对身份和内容，可恢复故障每轮最多尝试三次，HTTP 客户端不盲目重放写入，已完成的步骤保留。等待源码 CI 时断线，只继续读取已确认的同一次运行，不重新触发 CI 或延长原等待期限。恢复本地投稿记录仍会重新访问 GitHub 并复核源码和签名。社区主线更新时保留已准备的内容，读取开放 PR 及原始 Git 文件，核对作者、目标仓库和全部投稿字节后复用已有请求；没有匹配请求时按最新社区状态重新验证，提交前再次确认。记录本身不授权远端写入。这些请求继续使用 GitHub CLI 和 Git 各自的认证、代理与 TLS 设置。
-
-完成审核和已签名状态操作向原 PR 追加提交后，会通过 GitHub CLI 回读 PR、原生 Git ref 和社区主线，最多五轮，轮间等待一秒，每次 API 仍限六十秒。仅分支已更新而 PR 视图仍显示原父提交时等待；其它变化立即阻断。写入响应丢失也先核对原生 ref，不重复推送。Release 发布和 PR 通知分为独立步骤，通知使用具备 `pull-requests: write` 的 job token；通知失败时保留已发布产物，恢复时先回读已有结果。主线前进后，通知核对原运行、源码祖先关系及受保护代码未变，并回读 PR head 和状态；空通知不发起请求。签名与状态写入仍绑定当前主线。
-
-所有权转移由接收方创建一个申请 PR。原所有者运行向导时通过仓库 `/issues` API 查询开放 PR，默认同时携带 `labels=type:ownership-transfer` 和 `mentioned=<当前账号 login>`。用户可分别取消或同时取消筛选；只展开命中 PR 的固定 head 请求文件，并重新核对当前绑定与个人身份或组织成员资格。标签和提及仅用于检索，不授予处理权限；筛选参数包含公开标签名和当前账号 login，不包含密钥或密码。确认后用自己的 GitHub CLI 凭据向该 PR 的 `/reviews` API 提交同意或拒绝。Review 使用英文正文，隐藏标记包含决定类型、请求摘要，以及用户选择提供的活动密钥签名；私钥和密码不上传，也不需要访问接收方源码仓库。Review 确认后，向导继续用当前 GitHub CLI 凭据向 `/issues/<PR编号>/comments` 写入一条带 Review 链接和通知标记的评论。写入失败先回读相同 Review 或评论，避免重复提交。该评论通过默认分支的 `issue_comment` 事件唤醒受保护流程，无需批准 fork 上的事件工作流；通知本身不授予权限，普通评论和机器人评论不进入处理。原生 Review 事件仍可唤醒同一流程；不同个人账号的双方签名均有效时，在原 PR 追加结果并按保护规则合并。Gate 和最终合并重新读取原生身份、Review、当前密钥及紧急状态；缺少证明、组织和恢复请求仍走人工审核。通知作业通过数字账号查询当前 login，在中文和英文两条请求信息评论中提醒原个人所有者；明确拒绝时，重新核对当前绑定、请求与决定，再关闭原 PR。通知使用既有 `pull-requests: write` job token，自动追加和合并使用既有受保护维护者凭据。所有请求沿用 GitHub CLI 的代理、认证及六十秒和 32 MiB 预算；不运行向导或停用相关 workflow 即可停止相应请求。
-
-| 工具/流程 | 目标或来源 | 用途 |
-| --- | --- | --- |
-| 远程公告索引自动续签 | `github.com/Sywyar/PixivDownloader-Remote-Content` 的 Git HTTPS；`api.github.com/repos/Sywyar/PixivDownloader-Remote-Content/` 下的 Git ref 与 Pages build API；固定 SHA 的主仓库源码、GitHub Actions/JDK 下载服务及 Maven 依赖源 | 远程内容仓库的 `Renew announcement index` 每天 03:37 UTC 或在 `master` 手动运行。距到期不超过七天时验证原签名和内容，仅更新序号与三十天有效期并重新签名，将索引和签名一并快进推送；未临期只检查状态。之后查询当前主线和 Pages 构建，必要时请求构建并等待发布，可恢复已提交但未发布的续签。Git/API 使用本仓库临时 `GITHUB_TOKEN`；签名作业仅 Contents 写，发布作业仅 Contents 读与 Pages 写。官方私钥来自限定 `master` 的 `announcement-signing` Environment，仅在 runner 临时文件中用于本地 CLI 签名并在退出时删除，不发送给 Git/API 或依赖源。请求包含公开源码路径、依赖坐标、Git 对象、签名和提交 SHA。连接遵循官方 Actions、GitHub CLI、Git、Maven 及 runner 的代理、镜像和重定向配置。检查、签名、发布作业分别限五、三十、十五分钟；Pages 最多轮询六十次、间隔十秒。禁用工作流可停止续签与补发；该流程不属于已安装应用的运行时请求 |
-| 投稿请求分支清理 | `api.github.com` 的用户、仓库、PR、branch 与分支 Rules API；当前账号 fork 或社区所有者本仓库的 Git HTTPS 地址 | 向导关闭本人请求后读取分支身份、保护规则及关联开放 PR。用户另行确认删除后，Git 以精确旧 SHA 的 lease 删除该请求 ref；主分支、整个 fork 和 Release 保留。响应丢失只回读，重试删除须再次确认。使用当前 GitHub CLI / Git 认证与各自代理设置，发送目标仓库、分支和 SHA；拒绝清理即可避免删除请求 |
-| 社区审核结果写回 fork | 匿名 Git HTTPS：`https://github.com/<已核验仓库>/`；SSH：`github.com:22`，目标为 `git@github.com:<投稿 fork>.git` | 自动申请、人工审核完成和紧急声明通过 `review-branch.mjs` 拉取固定父提交并构造生成结果，再以维护者账户 SSH 密钥快进推送原 PR 分支；同仓分支仍由 job token 通过 GitHub API 写入。只有通过身份、请求和维护者编辑许可检查才推送；不检出或运行投稿代码。SSH 发送 Git 对象及认证签名，不发送私钥原文；API 合并单独使用只授权本社区仓库的所有者 PAT。专用 SSH 配置固定 GitHub Ed25519 主机公钥、指定私钥及十五秒连接超时，禁用 agent 和交互认证；每个 Git 进程沿用六十秒、32 MiB 输出预算。HTTPS 读取可使用 runner 的 HTTP 代理环境；SSH 直连端口 22，不继承 HTTP 代理或用户 SSH 配置，也不自动改用其它传输。禁用相应 workflow 停止写回；移除 SSH Secret 将明确阻断 fork 写入 |
-| 已授权社区请求自动执行 | 社区仓库的 GitHub PR、用户、环境规则、Git 对象、Release/asset、check-runs、Actions dispatch API，以及官方 Action 的证明与工具下载服务 | `Apply authorized community request` 由静态检查、候选归档、原生 Review 或裁决完成唤醒，以受保护 `master` 工具核验普通版本的当前 head Approve、个人持钥管理请求或纯续签策略。远端独立核对请求签名、当前登记状态和 PR 作者；本地密钥配对结果不作为远端授权。组织的状态变更和换钥、恢复操作及密钥丢失或泄露后的换钥仍需人工审核。专用 `community-status` Environment 的社区根仅传入签名步骤；维护者 SSH 密钥用于快进追加 fork 提交，限定社区仓库 Contents 写权限的所有者 PAT 仅用于合并，job token 用于其它 API；所有者 PAT 合并的 master push 唤醒发布，不再重复 dispatch。最终写入作业直接复用 Gate 签发，并最多等待五秒回读原生检查；合并绑定精确 head 并保留保护规则及人工否决；不重新构建插件；合并后的分支清理由下述仓库设置交给 GitHub 执行。请求包含操作、PR、SHA、签名结果及状态，不发送私钥。代理和下载目标由 GitHub CLI、官方 Action 与 runner 设置决定。禁用该 workflow 可停止自动执行，人工流程仍可使用 |
-| 社区密钥泄露声明 | 社区与投稿 fork 的 Git tree/blob/commit/ref、分支保护、PR、评论、check-runs 和 Actions dispatch API；GitHub 用户、组织及 `/orgs/<org>/memberships/<login>`；官方 Action 工具下载服务 | 作者在向导中选择已登记公钥，经确认创建面向受保护 `emergency-state` 的请求。`Community emergency` 只运行受保护 master 代码；按数字账号核对本人，组织声明还要求可验证的管理员角色。工作流以 job token 读写社区对象，以维护者 SSH 密钥追加 fork 提交，以所有者 PAT 普通合并，以 Gate App 写入检查。分支只保存声明与公钥指纹，不保存私钥；合并后拒绝相关密钥的新操作，既有发布不变。处置成功后，独立通知步骤以 job token 同步更新该 PR 的中文和英文两条请求信息评论，展示账号、keyId 与公钥指纹；评论失败不重复处置。紧急事件会枚举开放的普通请求，撤回受影响的旧成功并重触发检查；master 汇总不枚举开放 PR。作业十五分钟，与普通操作的最终授权和发布共用队列；声明无自动到期或撤销。组织权限不可读时拒绝自动执行。CLI 和 runner 决定代理，API 沿用六十秒预算。停用工作流停止新声明，已生效封禁仍被普通流程读取 |
-| 社区可信作业间数据交接 | 同一 Actions run 的 artifact 上传、下载及 GitHub 存储服务 | Gate 的候选校验，以及普通请求的准备、签名和人工批准，在最终授权队列外执行。后续作业只按同一 run 输出的不可变 artifact ID 下载数据，并重新核对源码、run/attempt、原始字节与当前授权；交接失败不会保留旧成功检查。artifact 保留一天，Gate 的编码后交接数据最多 32 MiB，不含私钥；官方 Action 使用临时 job token 和 runner 网络配置。停用对应 workflow 会停止交接 |
-| 投稿教程的 `irm ... \| iex` | `https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/tools/submit.ps1` | 用户在本地目录手动执行教程命令，发布插件时须进入 SDK 工程，PowerShell 原生 `Invoke-RestMethod` 下载受保护 `master` 当前的 UTF-8 入口，再交 `Invoke-Expression` 执行。入口代码及内置公钥以该主线和 GitHub HTTPS 为信任来源。该次下载遵循 PowerShell 的网络、代理、重定向和超时设置，教程不传入 token、私钥或请求正文；入口执行后检查启动目录并进入下列固定工具下载路径。验签后的向导检查工程标识，缺失时仅提供管理操作。不运行命令即可避免访问 |
-| 社区投稿 PowerShell 入口 | 固定渠道 `https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/tools/submission-channel.json`，以及验签通过的 `<完整commit>/` 下工具清单和文件 | 用户手动运行入口，检查启动目录后，每次匿名下载最多 4 KiB 的签名渠道数据。内置公钥核对签名、有效期和已接受序号，再按完整源码提交及 SHA-256 读取工具；本地或缓存文件通过大小和摘要核对后复用。内部下载遵循平台默认代理，在一次启动中复用连接，不携带 Cookie 或默认凭据，不接受重定向。每个文件一轮最多尝试三次，分别等待一秒、两秒；连接或读取连续十五秒无进展时提前重试，持续收到数据会重置空闲计时。可恢复的传输错误及 HTTP 408/500/502/503/504 也适用重试。每轮全部尝试、等待与响应体读取共用六十秒期限。证书、签名、摘要和大小校验失败不重试。入口显示文件进度；失败时报告文件、阶段、原因、实际尝试次数，并说明停止是因为总时间耗尽、次数耗尽或错误不可重试。可恢复故障耗尽本轮预算后，交互终端允许重新下载当前文件或退出，默认退出；手动继续才开启新一轮预算，已校验缓存保留。非交互运行直接返回失败。执行工具前再次检查渠道签名与有效期。状态和工具缓存在本地应用数据目录；失败停止，不静默运行旧缓存。不运行入口可避免访问。日常工具更新由签名渠道选择；协议或信任根变更通过维护 PR 更新 `master` 上的入口，用户下次执行同一命令取得更新 |
-| 社区向导与 CI 的技术依赖 | `https://api.github.com/graphql`、`https://api.github.com/repos/Sywyar/PixivDownloader/contents/<固定路径>?ref=<完整commit>`；`https://repo.maven.apache.org/maven2/<固定坐标>` | 社区治理工具独立编译，不读取完整 SDK Release。签名渠道绑定源码清单与 `tools/foundation-lock.json`。缓存缺失时，GitHub CLI 批量读取精确 commit 的技术源码；二进制或文本原始摘要不匹配时读取 Base64 原文，最终均核对长度与 SHA-256。CLI 使用当前 GitHub 登录及其代理；普通 PR CI 和渠道构建只在依赖预取步骤提供只读 token，后续测试与编译不接收该 token。固定 GraphQL 查询与 Contents 读取共用 GitHub 请求恢复逻辑：瞬时故障最多自动尝试三次，每轮六十秒含退避；耗尽后可继续当前请求或保存退出，保留已验缓存。权限错误不自动重试，证书、摘要和路径错误直接阻断。第三方 JAR 匿名通过既有 Node 下载器获取，沿用系统/环境代理、公网地址、TLS、单文件六十秒与三次尝试预算，不转发 GitHub token、源码或私钥。源码准备累计四分钟，跨请求、退避及人工等待共享截止时间，继续不能延长；依赖下载子进程四分钟、最多四路；清单累计至多 64 MiB。缓存位于工具目录 `target/foundation/`，命中时只复验字节。停止运行工具即可停止这些请求。兼容测试另行读取固定历史 SDK ZIP；工具渠道作业沿用 GitHub artifact 与原生证明服务 |
-| 社区投稿工具清单签发 | `https://github.com/Sywyar/PixivDownloader-community-plugins` 的 Git 对象、GitHub Actions 工具分发和 artifact 服务 | 维护者手动运行 `Sign submission tool channel`，获取受保护源码并测试入口，经 `release` Environment 批准后签发指定主线祖先的工具清单。checkout 使用只读 job token，工具安装遵循对应 Action 的代理与下载规则；上传的 artifact 仅含签名清单，保留七天，使用当前 job 的 artifact 凭据。专用私钥仅传给签名进程，不写入产物，不执行目标工具，也不推送分支。维护者通过 PR 更新渠道；不运行 workflow 可避免这些请求 |
-| 本地社区投稿向导 | `api.github.com` 的用户、组织、仓库、Git tree/blob/ref、commit、Actions run/attempt/jobs、Release/asset、fork 与 PR API；固定社区仓库或当前账号 fork 的 Git HTTPS 地址；固定提交的公开源码归档与候选包地址；`uploads.github.com` 的 Release asset 上传接口 | 用户主动启动。GitHub CLI 按当前登录核验数字身份、成功 CI、标签提交和附件，再通过资产 ID 和 CLI 认证读取源码仓库 Draft 的二进制附件。GitHub 返回的临时附件地址只在草稿阶段使用，预览与投稿固定为正式 tag 地址，公开后按该地址匿名核验原包。源码核验使用匿名下载。最终预览明确列出源码 Pre-release 发布、fork、push 和 Ready PR，确认并重新核验后执行。滚动草稿中的已核对包与元数据会复制到绑定源码 SHA 的固定 Pre-release，使用当前 GitHub CLI 身份上传；原草稿继续由 CI 覆盖，私钥只留本机。候选缺失时可单独确认重跑默认分支当前提交的 CI；取消最终投稿不撤销此前已确认的恢复。GitHub CLI、Git 和匿名下载器分别使用各自网络、代理与认证设置；发送元数据、公钥、签名和选定图片，不发送私钥或密码。密钥展示也读取受保护 emergency-state 分支，其中已生效的泄露声明优先于主线密钥状态；已声明项显示“声明泄露”，不再列入新的声明选项。最终校验重新读取紧急状态。不运行向导即可避免访问 |
-| SDK 源码候选 CI | GitHub Actions 工具 / artifact 服务、源码仓库 Release/asset、Git ref 与 commit API；Docker Hub 固定摘要的 Temurin 镜像及 registry CDN；Ubuntu 包镜像；Maven / Gradle Wrapper 与 sbt 指定的公共制品源 | SDK 工程 push 或 PR 时，读权限 job 查询实际构建模型、构建测试并以工具离线模式重建；sbt launcher 来自 `repo.maven.apache.org/maven2/org/scala-sbt/sbt-launch/`，按工程固定版本和 SHA-256 获取。网络请求由 CI 工具、Wrapper 和工程依赖配置决定，使用 runner 代理，不继承投稿者本机代理。默认分支构建成功后，独立 job 用本仓库写 token 为每个插件复用一个 Draft Release：核对默认分支当前 SHA，先删除旧元数据和包，再上传新包，最后上传元数据。仓库内归档串行执行，迟到的旧提交不覆盖新候选，不修改已公开 Release 或移动 Git tag；该 job 不执行工程代码；附件随草稿保留，不依赖 Actions artifact 的七天期限。移除候选 workflow 可停止自动请求。社区正式断网重建仍独立执行；向导本地不再运行构建模型查询 |
-| 社区投稿静态检查 | `api.github.com` 的社区仓库 PR、Release/asset、Git tree/blob、源码仓库 commit 与数字账号 API；投稿中的公开 HTTPS 安装包地址；固定 commit 的 GitHub 源码 ZIP 及其重定向；Actions artifact 服务 | PR 事件运行受保护默认分支的固定检查器，使用只读 token 获取身份和原始数据，不执行投稿代码或构建。包和源码下载不携带 GitHub 凭据或 Cookie，代理选择遵循本节的社区 Node 工具规则；每跳验证并固定公网 IP、保持原主机 TLS 验证，最多五次重定向、总计六十秒，并检查实际大小和 SHA-256。API 连接使用 GitHub CLI 配置。静态通过只允许继续进入版本构建；版本构建完成后的交接 artifact 保留七天，上传使用平台当前 job 的运行时凭据。维护者可停用此 workflow，静态结果本身不授予准入或发布权限 撤销基线由独立的受保护 `Prepare reviewed baseline` 作业读取：只为读取技术 Draft 申请 Contents write，核对版本请求和已审核记录，不执行投稿源码。原包交接到同次运行的只读构建作业，artifact 保留一天，消费时重验大小和摘要；准备作业十五分钟，下载沿用 SDK 归档上限和 GitHub CLI 的六十秒预算。 |
-| 社区构建工具与容器准备 | Maven / sbt 的固定版本位于上述 Maven Central；Gradle 位于 `services.gradle.org/distributions/` 及其 GitHub/CDN 重定向；Node.js 位于 `nodejs.org/dist/`；Ubuntu OpenSSL 代理工具位于 `snapshot.ubuntu.com/ubuntu/<固定时间>/pool/universe/s/squid/`；Docker Hub 的 `eclipse-temurin`、`ubuntu/squid` 镜像及其认证/CDN 服务 | 版本投稿或维护者请求重算时，在执行投稿代码前匿名下载工具并核对固定 SHA-256；单个构建工具最多 192 MiB、代理工具最多 32 MiB，总下载六十秒、最多五次重定向，每跳固定公网 IP。Docker 原生客户端按完整镜像摘要拉取，registry 认证、代理、缓存与重定向遵循 runner 配置，不能将其下载目标当作投稿容器白名单。发送公共工具路径、版本、镜像摘要及平台信息；不发送投稿源码或社区私钥。维护者通过受保护技术依赖锁和构建策略更新工具，停用构建 workflow 可避免访问 |
-| 社区构建依赖预取 | 仅 `repo.maven.apache.org`、`repo1.maven.org`、`plugins.gradle.org`、`plugins-artifacts.gradle.org` 的 HTTPS 443 | Maven / Gradle / sbt 在无凭据容器内执行投稿构建配置，通过本次独立 Squid 代理请求批准主机上的制品路径。路径由实际工程及构建工具决定；代理终止客户端 TLS，逐次核对 CONNECT、TLS SNI 和 HTTP 主机，只转发批准主机的 HTTPS GET/HEAD，拒绝非公网地址并保持源站证书校验。构建容器只读本次临时 CA 证书与信任库，私钥仅挂给代理并在结束时移除，不修改系统信任库。容器没有外部 DNS、宿主网桥出口或共享可写缓存。正式重建使用新建的断网容器，不产生外部请求。默认随版本构建执行，单次预取与重建各限时三十分钟；更改批准源须修改受保护构建策略 |
-| 社区代理网络回归 | `self-signed.badssl.com`；以 `www.cloudflare.com` 为非批准目标的伪装请求 | 仓库 CI 或本地显式网络测试使用独立代理配置，临时允许自签名证书测试站点以验证源站 TLS 失败会阻断；域名伪装请求必须在代理处拒绝。只发送无凭据的测试请求，不修改生产批准源或系统信任库；不运行网络测试可避免访问 |
-| 社区候选归档与复用 | `api.github.com` 的同仓库 PR、run/attempt、job/log、artifact、Release/asset API；`uploads.github.com` 及 GitHub 返回的资产下载地址 | 静态检查成功后，只读预检查询该构建 attempt 是否产出候选 artifact；预检限时五分钟，不占用发布队列。有候选才进入受保护归档 job。它用本 job 的内置 token 重新核验原生身份、执行来源及原始字节，按发布者数字账号与类型、发布者 ID、插件 ID 和版本复用待审核 Draft Release，更新包、源码与证据，不执行投稿代码。替换先删除旧证明，再更新不同字节的资产、候选清单和新证明；另一开放或已合并请求不能被覆盖。旧 PR 格式草稿可就地迁移。未合并关闭申请 PR 默认触发后台清理，用仓库内置 Contents write token 查询当前 PR、草稿归属与资产，再删除仍属于该申请的候选 Release 及附件，不依赖向导选择。草稿已公开、被新申请复用或请求重新打开时保留；删除后重新投稿会建立新候选。清理不删除源码仓库 Release。归档、清理、完成审核与正式发布共用队列。自审、Gate 和预检用仅执行主线代码的 Contents write 作业读取 Draft，以 Release API 的实际响应判断可见草稿。未找到完整候选时，审核保持等待并提示检查归档和 Draft 访问；列表请求返回 HTTP 401 或 403 时阻断审核。构建作业仍只读，未找到草稿或明确被拒绝读取时执行隔离重建。人工审核等待和正式发布使用已归档原包，不重新构建。API / 下载使用 GitHub CLI，沿用其认证、代理及平台重定向；Actions artifact ZIP 请求接受 GitHub JSON 媒体类型以获取重定向，Release asset 请求接受原始二进制；单调用六十秒，归档和清理 job 各十五分钟。Draft 不进入公开目录。停用归档会阻断需要新归档的版本审核；关闭事件、定时及手动清理的范围见下行 |
-| 社区草稿与技术归档清理 | 同仓库 Release/asset、PR 列表及文件、run、Git tree/blob/ref API；GitHub 资产 CDN 及上述归档证明服务 | `Community candidate cleanup` 响应未合并关闭事件，每日 04:23 UTC 扫描，并允许手动运行。使用内置 Contents write、Actions read、Pull requests read token，不使用签名私钥。候选按归属和关闭状态清理；历史 operation Draft 只有无开放请求引用、原运行完成且无用满九十天时才删除。已合并证据须先经 `migrate-receipts.mjs` 验证原签名及父链、迁入 Git，再按原长度和摘要重建验签；迁移只生成待提交文件，不修改远端。保留期从迁移提交、PR 关闭、运行及 Release 更新的最晚时间计算。删除前重读引用、主线、请求及资产；查询不完整时保留。API 沿用 GitHub CLI 的认证、代理和六十秒 / 32 MiB 预算，job 十五分钟并与发布共用队列。不删除正式 Release、源码 Release、tag 或仍被引用的撤销包。停用 workflow 会停止清理；平台停用定时时需维护者恢复或手动运行 |
-| 社区归档来源证明 | GitHub Actions OIDC 服务、同仓库 attestation API；公共 Sigstore 的 `fulcio.sigstore.dev`、`rekor.sigstore.dev`；CLI 信任根服务 `tuf-repo.github.com`、`tuf-repo-cdn.sigstore.dev` | 受保护归档完成后，固定 `actions/attest` 使用当前 job 的 OIDC 身份为候选清单摘要生成证明，发送临时公钥、签名、摘要及公开 workflow 身份；仓库内置 token 仅供 GitHub API 使用，不使用社区签名私钥。客户端与官方服务决定证书、透明日志、信任元数据及重定向地址。后续 `gh attestation verify --bundle` 验证本地证明时清除 token / Secret 环境变量并使用空的独立 CLI 配置，匿名更新公共信任根；单次验证最多六十秒。证明随 Draft 保存；停用或验证失败将阻断归档认证，不能将证明视为审核批准 |
-| 社区请求取消 | 同一社区仓库的 PR、文件、账号及组织 API | 开发者在投稿向导中选择取消，读取本人仍未合并的请求并再次确认后，仅将精确 PR 关闭。写入前重读作者数字身份、仓库、base、head 与合并状态；响应丢失时读取同一 PR 确认结果，不重复创建请求或删除资产。使用当前 GitHub CLI 身份及代理设置，不发送私钥；不选择取消即可避免这组写入 |
-| 社区撤销清单续签机器人 | `api.github.com` 的社区仓库 Git tree/blob/commit/ref、专用分支 PR 与 Actions workflow dispatch API | 每日 04:23 UTC 或手动运行；清单临近七天到期时创建续签维护 PR，有开放请求则返回原链接。仅读取主线清单和精确续签分支的 PR 历史；发送整代及清单摘要、Git 对象、PR 说明和目标检查编号，不发送密钥或插件源码。使用临时 job token，默认权限继续只读，该 job 单独申请 Contents、Pull requests、Actions 写入，仓库须允许 Actions 创建 PR。显式启动该 PR 的静态检查和 Gate；受保护执行器按纯续签策略验签，确认业务内容及原人工审核证据未变，通过 Gate 后自动签发、合并并发布；无需逐次 Approve，维护者拒绝仍会阻断。API 沿用 GitHub CLI 的代理和六十秒、32 MiB 边界，job 十五分钟。停用该 workflow 可停止自动创建请求 |
-| 社区完成审核 | 社区及经数字身份核验的投稿 fork 的 PR、Review、协作者、Environment、Actions 批准历史、Git tree/blob/commit/ref、PR merge、check-runs、Actions dispatch、Release/asset API；`/user`、`/user/<accountId>`、`/organizations/<accountId>`；GitHub 上传与资产 CDN；上述 OIDC、attestation 和公共信任根服务 | 维护者在 `master` 手动运行 `Complete community review`，核对开放请求的精确 head 并批准 `release` Environment。固定 SDK 在 runner 内生成清单与签名；工作流将结果文件、只含路径及摘要的回执、受保护签发证明写入原 PR 的追加提交。正文按 Git blob 复用，不再创建 operation 技术 Draft；生成、签名、原分支追加、重新签发准入检查和合并在同一个排队作业内完成。同仓库使用 job token；fork 须开启维护者编辑，追加使用维护者账户的专用 SSH 密钥，合并使用限定社区仓库 Contents 写权限的 PAT；合并前通过 `/user` 核对 PAT 为仓库所有者，缺少凭据时执行失败并给出提示。请求传输审核、恢复及组织代表证据、公钥、签名和包字节；社区签名私钥只经 stdin 进入本地签名进程；SSH 私钥只供下述分支写入步骤使用。API、上传和认证资产下载沿用 GitHub CLI 的代理、重定向及六十秒预算。预检为读取 Draft 显式申请 Contents write，只执行受保护主线代码，不使用维护者分支凭据；预检十五分钟，人工批准在队列外等待；最终集成作业三十分钟，读取当前主线 ref，保留原审核 head，以最新主线、已核验请求和生成结果构造提交。排队期间仅主线数据变化且保护代码未变时可以继续；旧生成结果经完整证明校验后可重新生成并快进分支。严格分支保护与人工拒绝仍生效；结果正文累计、清单和证明各最多 32 MiB；合并后的 Git 审计记录持久保留。停用 workflow 会阻断新的审核完成 |
-| 社区 Release 发布与状态收尾 | 同一社区仓库的 Git、Release/asset、已合并 PR、标签与评论 API，`uploads.github.com`，以及上述归档证明服务；正式包的公开 GitHub Release 地址及重定向 CDN | `master` push 或手动恢复触发。核对原 PR 的真实 merge 父链、生成证明、App 准入与原候选签名，并对尚未公开的候选重新核对紧急分支封禁后，使用 job token 公开既有候选并匿名下载核对，再更新状态和维护者说明。公开下载遵守上述 Node 代理、公网地址、TLS、大小与摘要限制；API 继续使用 GitHub CLI。REVOKED 的安装包先下载并保存到共享 `archive/revoked-packages` Draft，按摘要去重并回读核对大小和摘要，随后复核主线和资产身份再删除公开安装包；正式 tag、撤销说明和历史签名保留。归档失败或平台禁止删除时保持失败。流程不重新构建、不新建 PR，也不扫描开放 PR 列表。job 三十分钟，回读错误保留失败；部分写入不能视为原子完成。维护者可停用 workflow，此时 Release 可能尚未与主线数据同步 |
-| 社区仓库保护与标签维护脚本 | `https://api.github.com/repos/Sywyar/PixivDownloader-community-plugins/` 下的仓库、协作者、Ruleset、Environment、分支与标签 API，以及 `/user` | 维护者显式运行预览、回读或应用命令。通过 GitHub CLI 使用当前登录身份核对数字仓库 ID 和所有者；只有显式 apply 写入保护配置或受管标签，保留其它标签。目标配置开启 GitHub 合并后自动删除本仓库来源分支，涵盖普通投稿、维护及紧急请求；默认分支和紧急状态分支仍受禁止删除规则保护。fork 分支由投稿者仓库设置及权限控制，向导取消未合并请求时仍须确认删除。请求包含设置与标签元数据，不包含插件包或社区签名私钥；连接使用 GitHub CLI 的代理配置。不运行命令即可停用，替换目标须同时修改受保护仓库身份配置 |
-| 社区仓库准入、人工裁决与通知 workflow | 同一社区仓库的 PR、Review、事件、协作者、Actions run/attempt、artifact 和 check-runs API；投稿 head 仓库的 Git tree/blob API；GitHub App 安装/token API；GitHub Actions artifact 服务及其下载重定向 | PR、Review 和相关工作流完成事件只重算关联 PR；维护者也可显式指定 PR。master 代码检查不扫描开放请求。标签变更及管理请求的空归档不重复触发准入检查；构建产出候选时，由归档完成事件唤醒审核。Gate 准备可在共享队列外验签，只在同一 run 内、源码和请求及 workflow attempt 完全一致时复用证据；排队期间主线推进后，最终 Gate 按最新状态重新校验。签名管理请求的最终准备和合并在共享队列内完成；最终作业仍重读原生审核、权限和紧急状态后签发检查。自审与 Gate 的内置 job token 为读取 Draft 显式申请 Contents write，源码构建及通知读取保持各自最小权限；固定 SDK 在本地验证随 SDK 下载的合同，不另行解析 Maven 依赖。人工表单上传有原始字节摘要的裁决 JSON，保留期沿用仓库 artifact 设置。现有 Gate App 的私钥只在官方 App action 中用于换取本社区仓库的短期 `checks:write` token；通知 job 使用单独的标签与评论写权限，更新受管标签、状态评论及中文、英文各一条请求信息评论。请求信息来自固定 head 上经摘要和合同校验的请求文件，按操作展示分类、填写的原因、公开密钥标识与验签情况，并附原文链接；两种语言由同一份已验证请求生成，分别更新原评论；部分写入失败后再次同步可补齐，也不输出签名字节或私钥。版本审核还会读取下列 Draft 归档及其来源证明。请求包含仓库/PR/head、账号数字 ID、审核理由、裁决与检查元数据，不包含社区签名私钥。默认启用已声明的事件订阅；网络和代理遵循 runner、GitHub CLI 与官方 Actions 配置，下载目标由 GitHub 返回。维护者可停用对应 workflow，准入因此保持阻断 |
-| 社区仓库测试与运行环境准备 | GitHub 源码及 Actions 服务、`actions/setup-node` 和 `actions/setup-java` 选择的 Node.js/Temurin 分发与下载服务 | PR 和默认分支 push 自动运行测试，受保护检查与裁决也准备相同工具链。发送固定 Action 引用、工具版本、平台和标准连接元数据；候选测试不取得 App 私钥或写 token。下载、缓存和代理遵循官方 setup Action 与 runner 配置；维护者通过 workflow 修改工具链或停用执行 |
-| Release / Nightly 发行物 E2E | GitHub Actions Artifact 服务，下载、上传地址和重定向由 runner 提供 | Java 标准包和 full-offline 各自验收；Windows installer 按正常启动、故障注入、插件缺失与日志轮转分为三个独立 runner，每组均下载安装器、实际安装并卸载。组内有状态的步骤保持串行。每组下载所需发行物，并在成功或失败后以独立名称上传测试实例的结果、日志、窗口截图和插件状态，保留七天。一组失败不取消其它组，发布须等待全部成功。传输使用 Actions 为当前 job 提供的运行时凭据，不上传发布私钥；目标和代理遵循 runner 与官方 artifact Action 的配置。维护者可修改或停用共享发行验收 Action 中的证据上传步骤 |
-| Git 和发布脚本 | 当前 `origin`、`https://api.github.com`（或 `GITHUB_API_URL`）、GitHub Release | `fetch`、远端引用检查、质量门禁审计、插件和应用发布 |
-| 发行插件目录与 Nightly 顺序检查 | `https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/<本次目录 commit>/manifest.json` 或 `nightly-manifest.json` 及相邻签名；`https://api.github.com/repos/Sywyar/PixivDownloader/releases/tags/nightly` | Release / Nightly 在插件发布作业内按本次提交回读签名目录并暂存已验签插件；同一插件仓库的发布作业串行执行。Nightly 插件发布先通过已有 Git checkout 读取当前目录，应用发布在删除旧附件前用 GitHub CLI 读取当前 Release 名称，拒绝较旧 run 或 attempt 覆盖较新的发布。只有 404 视为尚无应用 Nightly，读取失败或身份不明会阻断写入。新增 API 查询使用内置 job token，限 60 秒、输出 32 MiB，沿用 GitHub CLI 的代理设置；目录下载沿用现有验签、下载和代理规则。这些请求只在发行作业中发生，不由已安装应用执行 |
-| GitHub Actions | GitHub Actions、Artifact、Release 服务以及 workflow 引用的 `actions/*`、`softprops/action-gh-release` | CI、构建、上传产物和发布。完整 Quality Gate 的 Java 测试、SDK 合同与 ProGuard 产物验证在三个独立 job 中并行运行，分别 checkout 同一源码并使用 Maven 依赖缓存；冷缓存可能重复下载依赖。这些检查仅有源码读取权限，不使用发布凭据。发布调用的 ProGuard job 上传未签名插件、验签工具及编译目录，保留一天；完整 QG 成功后，消费方通过 Gate 导出的不可变 Artifact ID 下载同一 run、同一源码 SHA 的产物（重跑失败任务时可复用较早 attempt 中已通过产物门禁的候选），并核对源码 SHA、构建参数和每个文件的 SHA-256，失败即阻断。Release / Nightly 各执行一次同一源码的完整 QG，通过后并行发布所需的新 SDK、构建应用依赖闭包和签名发布已经验证的插件，再通过当前 run 的 Artifact 服务传递核心 JAR、验签工具和已验签插件，供 Java 包与安装器并行组装；发布凭据仍只在 `release` Environment 中使用。下载目标与代理边界由下列构建工具配置决定 |
-| 主仓库 `Gate Checks` workflow | `https://api.github.com/repos/Sywyar/PixivDownloader/` 下的 Actions workflow、run、job、日志、PR、commit 与 check-runs API，GitHub App 安装及 token API，当前 `origin`，以及日志 API 返回的下载重定向 | 自动响应订阅的 CI 事件。通过 run 的 `workflow_id` 读取并核对 workflow 元数据，使用其名称识别工作流，运行标题只用于 PR 关联。PR-only 启用后，用原生 PR 关联或运行名称中的 PR 编号，结合 head 仓库、分支关联执行结果，只为当前投向 `master` 的开放 PR 写检查；开发分支 PR 和已关闭 PR 不取得 App token。使用只读 `GITHUB_TOKEN` 读取证据，以 Git 获取对应提交对象；通过核对后，官方 `actions/create-github-app-token` 用 `release` Environment 中的 App 私钥在 runner 内签发 JWT，再向 GitHub 换取仅有 `checks:write` 的短期安装 token，在 PR head 上关联必需检查（当前六项），同时保留原被测合并提交上的检查供合并后复验。检查详情保留原被测提交和实际执行链接。若 GitHub 重建测试合并提交，则通过 commit API 核对新对象的两个父提交和文件树；全部一致时可复用原执行，无需为重建对象补写检查。每次最多写两组；发布前后重查 PR、双亲、文件树和有效执行，发现变化或写入失败时分别尝试撤销两组检查。私钥不发送给 GitHub，token 在 job 结束时撤销。合并后核对实际 `master` 提交；手动全量 Quality Gate 的恢复证据也必须对应受保护 `master` 历史中的同一提交，可从指向该提交的分支或 tag 触发，这两条核对路径不写 App 检查。发送的数据包括仓库、PR / workflow / run / job 编号、提交 SHA 和检查结论。请求使用 runner 的 Git / GitHub CLI / 代理配置；日志下载目标由 GitHub 返回。停用 workflow 或 App 会阻塞对应 required checks |
-| 主仓库 SDK 发布 workflow | `org.sonatype.central` 官方发布插件按当前 Central Portal 协议选择的 API，以及 `https://repo1.maven.org/maven2/io/github/sywyar/pixivdownloader/` | 主程序 Release 或维护者手动选择发布 / 恢复时运行；普通 master push 与 Nightly 均不发布 SDK，Nightly 只保留同批 SDK 的构建与验证，不进入本流程。发布前查询当前 SDK 的公共发行与 Central POM，已经完整公开时复用原发行，不重复上传；在同一源码 SHA 的 Quality Gate 通过后，新发行用 `release` Environment 中的 Central token 与 PGP 材料发布五个 SDK 坐标（包括统一的 pixivdownload-sdk 入口）。官方插件最多等待 3600 秒，直到状态为 `PUBLISHED`；发布和恢复随后从公共 Maven Central 下载 POM、JAR、sources、Javadoc、签名和 SHA-256 做隔离消费者复验。Portal API 的最终主机 / 路径由官方 Maven 插件和 Central 服务决定，可被构建机代理改写；已安装应用不执行该流程 |
-| SDK 候选产物传递 | GitHub Actions Artifact 服务，传输目标与重定向由 runner 提供 | 新 SDK 发布时，SDK job 上传已经验证的原始宿主、未签名插件、SDK Maven 产物、工具、Javadoc 和摘要，保留 1 天。完整 QG 成功后，发布 job 通过不可变 artifact ID 下载同一 run 的输入，核对源码 SHA、路径、大小与摘要后，使用 release Environment 中的官方插件密钥签名并组装最终 SDK。请求使用 Actions 运行时凭据，传输构建字节和 artifact ID，不含发布私钥、CI 临时密钥或测试信任配置；代理沿用 runner 和官方 artifact action 设置。重试可复用同一 run 较早 attempt 的产物；缺失、过期或错配时失败，需要重跑完整 workflow。已有签名 Release 的恢复不依赖该保留期；普通 QG 调用方不导出 SDK 候选 |
-| 主仓库 SDK 发布 / Pages 构建 workflow 与 SDK 仓库 Pages 调用器 | `https://api.github.com/repos/Sywyar/PixivDownloader-Plugin-SDK/releases`、`https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases/download/`、该仓库 Release 资产 CDN，以及 GitHub Pages / Actions artifact deployment | 主仓库发布 workflow 使用 `release` Environment 中限定到 SDK 仓库的跨仓 token 检查并创建不可变 `sdk-api-v*` Tag / Release、上传签名发行附件，再通过公开 Release 下载复验。主仓库的可复用 Pages 构建 workflow 不接收该 token，而是匿名读取公共 Release API 与资产，校验全部非草稿 SDK Release 的摘要和元数据后生成版本化 Javadoc Pages artifact；SDK 仓库只用固定主仓库 commit SHA 调用它，并由本仓库部署 job 使用 `pages: write` 与 Pages OIDC 发布 artifact。手工 workflow dispatch、Tag / Release、Pages 设置和 deployment 均需对应授权；已安装应用不访问这些目标 |
-| SDK 运行包准备工具 | `https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases/download/<release-id>/<fixed-runtime.zip>`，允许重定向到 `release-assets.githubusercontent.com`、`objects.githubusercontent.com` | 显式 prepare / Run / Debug 且固定缓存不存在时，下载 SDK 清单指定的完整运行包；IDE 导入不触发。请求包含固定附件路径和 GitHub 返回的签名查询参数，不发送项目源码、插件 JAR、应用凭据或发布 token。JDK URLConnection 使用开发机的 JVM 代理设置，不读取宿主代理配置；最多 5 次 HTTPS 重定向。下载、缓存命中与每次运行均核对大小和 SHA-256，错误时不回退其它版本。缓存位于 `~/.cache/pixivdownloader-sdk/`，可用 `pixivdownload.sdk.cache-dir` 改目录；使用已验证缓存可避免下载，不执行 SDK 准备 / 运行则无这组请求 |
-| SDK 完整宿主验收 | 仓库 Maven / Gradle 构建所配置的依赖服务及其重定向 | 每次完整 QG 从同一源码构建宿主和全部官方插件，下载行为遵循下述构建工具代理、镜像及缓存设置。它不再从插件发布仓库下载预先发布的插件包。验收使用运行时生成的临时自定义仓库签名，通过本机配置验证完整宿主；临时私钥随后删除，不传给发布 job。正式 SDK 在完整 QG 成功后对已验证的原始插件字节使用官方密钥签名，再验证最终 SDK。已安装应用不执行此构建流程 |
-| SDK 冻结附件与发布恢复 | 上述 SDK 仓库 Release、Tag 与资产 API | Central 前持久保存已签名 Draft 附件并回读；全部公开坐标可读后，验证冻结附件与完整宿主运行，再公开同一 Release。全部 Central 坐标公开且原始 Release 存在时，普通发布重试和显式恢复均复用原始宿主、工具和 SDK ZIP，不再次上传 Central。已有 Draft 而 Central 为空时，原上传可能仍在处理中，流程停止并提示维护者检查原 deployment ID；部分坐标公开、附件缺失或冲突同样停止，不覆盖公开资产。发布后消费者用空缓存实际下载运行附件。跨仓库 token 只用于发布 workflow 的 GitHub 请求；Pages 匿名下载 SDK / 历史 Javadoc ZIP，校验运行附件元数据，不下载历代宿主 |
-| 手动 FFmpeg 稳定版构建 workflow | `https://ffmpeg.org/download.html`、`https://ffmpeg.org/releases/`、`https://ffmpeg.org/ffmpeg-devel.asc`、`https://chromium.googlesource.com/webm/libwebp`、Linux runner 与 macOS Homebrew 配置的软件源，以及 GitHub Actions / Artifact / API / Release | 仅由维护者在主分支手动触发：解析并验证 FFmpeg 官方最新稳定源码及签名，取得固定提交的 libwebp，构建五个平台资产，生成包含精确大小与 SHA-256 的发行清单并用 `release` Environment 中的官方私钥签名，再使用跨仓库令牌更新 Remote Content 的 `ffmpeg-stable` Release；已安装应用不会访问这些源码与构建依赖地址，私钥不会发送给下载目标 |
-| 本地 Windows 打包脚本 `scripts/package-local.ps1` | `https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/` 下的 `ffmpeg-release.json`、`ffmpeg-release.json.sig`、`ffmpeg-windows-x64.zip`，以及 GitHub Release CDN 重定向 | 默认构建离线 Windows portable 时通过 `curl.exe` 下载公开的签名清单和资产；先用仓库内官方信任根验签，再核对精确资产名、大小和 SHA-256，验证通过后才写入离线包。请求不携带应用账号、Pixiv Cookie 或发布凭据；已缓存文件只有重新验证通过才会复用。运行本地打包且未指定 `-SkipOfflinePortable` 时触发；`-RedownloadFfmpeg` 强制重新下载。使用构建机的 curl / 代理配置；指定 `-SkipOfflinePortable` 可跳过这组请求，已安装应用不会执行该脚本 |
-| Quality Gate 与 SDK 发布前验证 | Maven Wrapper 配置的 Maven 下载地址、Maven / Gradle 依赖仓库及其重定向；本地暂存 SDK 仓库使用 file URL | 每次完整 QG 都运行 Compose 测试、模板、完整 SDK Javadoc 与隔离消费者验证，无需先变更 SDK 版本。SDK 产物暂存、模板、文档和消费者在同一 job 中串行复用构建结果；Compose 测试接在 ProGuard 构建之后。隔离消费者先联网下载构建插件和第三方依赖，再以本次 SDK 的精确字节离线重建并验证第三方插件运行。联网请求包含 artifact 坐标与下载路径，不携带发布凭据；测试签名使用运行时生成的临时第三方密钥。下载目标及代理 / 镜像取决于 Wrapper、构建工具和隔离消费者 settings；缓存可减少请求，QG 无单独跳过开关。正式 SDK 发布消费本次门禁已经验证的候选，并对公开产物再次验证 |
-| Maven / Maven Wrapper | `https://repo.maven.apache.org/maven2`；SDK 公开发行复验还使用 `https://repo1.maven.org/maven2` | 下载 Maven 3.9.11、Java 依赖和构建插件。SDK Central 发布使用仓库 Wrapper，缓存缺失时下载并校验固定的 Maven 发行包；发布后从公共 Central 端点验证可解析性与不可变内容 |
-| Compose Cupertino 与 Web iOS 组件 | Maven Central 的 `io/github/robinpcrd/`；维护 Web 资源时使用 `https://registry.npmjs.org/framework7` | Gradle 构建 Compose 插件时解析固定版本 Cupertino 3.3.1 及其传递依赖，使用构建机的代理和缓存设置。Framework7 9.1.3 的 CSS 与许可证随源码保存，只有维护者主动更新资源时才访问 npm；普通构建不下载该 CSS。请求仅包含公开包名、版本和资源路径，不发送应用凭据。两端组件随插件本地交付，已安装应用不会向这些依赖仓库或 CDN 请求组件 |
-| 应用、Swing 与 SDK 工具依赖构建 | 上述 Maven Central 中的 `com/networknt/json-schema-validator/`、`io/github/erdtman/java-json-canonicalization/`、`com/twelvemonkeys/imageio/imageio-webp/` 及其传递依赖 | 构建应用、Swing 插件或 SDK 工具且缓存缺失时，Maven 下载各模块 POM 固定版本的依赖。应用、Swing、SDK 工具与内部共享 `pixivdownload-community-contract` 使用 WebP 解码器；共享合同还使用 Schema 与 JCS 库。这些依赖不加入五个公共 SDK Maven 组件。请求包含 artifact 路径，不发送投稿内容或应用凭据；遵循 Maven 代理、镜像与缓存设置，依赖备齐后可离线构建。图片解码与合同校验在本地执行，Schema 和目录资源随工具提供，不远程解析 Schema |
-| 社区许可证资源维护 | `https://api.github.com/repos/spdx/license-list-data/` 的 tag、commit 和 contents API，或 `https://raw.githubusercontent.com/spdx/license-list-data/<commit>/` | 维护者显式更新资源时取得 SPDX 目录和许可证文本，固定来源 commit、长度与 SHA-256 后纳入源码；普通构建及已安装应用直接读取这些本地资源，不自动追踪最新版本。请求包含公开资源路径；GitHub CLI 可使用开发机已有 GitHub 认证，原始文件下载不需要发布凭据。连接遵循所用 CLI 的代理设置；保留现有资源可避免访问 |
-| npm | 当前锁文件中的 `https://registry.npmmirror.com` | 安装 Node 构建/检查依赖。PowerShell 编排测试缺少 YAML 解析器时会执行 `npm ci --ignore-scripts --no-audit --no-fund`，包括全新 CI runner；社区工具维护者也安装锁定的 Clack、esbuild 及传递依赖，用于生成随清单交付的交互组件。请求遵循 npm 镜像、代理和认证设置，仅包含依赖路径等安装信息，不发送应用数据。投稿向导使用已校验的打包文件，运行时不访问 npm。预先安装锁定依赖可避免测试自动安装；直接使用社区工具内的打包文件可避免其构建依赖安装 |
-| SDK 跨构建工具验证 | `https://repo.maven.apache.org/maven2`，包括 `org/scala-sbt/sbt-launch/1.10.11/sbt-launch-1.10.11.jar`；仓库 Maven / Gradle Wrapper 指定的发行包地址及重定向 | 完整 QG 与 SDK 发布验证默认运行 Maven、Gradle、sbt 独立消费者，检查单个 SDK 依赖的编译能力、精确字节和运行时作用域。CI 下载固定版本、固定 SHA-256 的 sbt launcher；本地命令接受已有 launcher。各工具使用隔离缓存，Maven 使用空 settings，Gradle 与 sbt 固定第三方依赖到 Central；SDK 来自本地暂存目录。Maven 和 Gradle 在线构建后再离线重建，sbt 执行在线编译。请求只包含工具版本、artifact 坐标和下载路径，无应用数据或发布凭据；连接遵循构建机代理配置，Wrapper 服务可能重定向到发行 CDN。本地可用 `--tool` 只验证一个工具，QG 必须验证三者；替换下载源需修改 Wrapper 或验证脚本 |
-| 应用维护者目录生成器 | `https://api.github.com/repos/Sywyar/PixivDownloader`、`/contributors`、`/users/{login}`，以及 API 返回的 `https://avatars.githubusercontent.com` 头像地址 | 每次构建应用资源时读取仓库所有者、贡献者及本地提交作者/共同作者，与人工维护的真人白名单求交后下载获准头像，并把 JSON 与图片字节打包进程序。CI 构建入口显式传入只读的内置 `GITHUB_TOKEN`；本地优先使用 `GITHUB_TOKEN`，其次 `GH_TOKEN`，两者均缺失时匿名请求。凭据仅发送给 `api.github.com`，API 与头像请求均拒绝重定向，头像请求不携带凭据。生成器要求 Node.js 24.5 或更新版本。API 和头像共用请求入口，每次尝试的 30 秒预算包含代理解析、连接及正文读取。HTTPS 代理按 `https_proxy`、`HTTPS_PROXY`、`all_proxy`、`ALL_PROXY` 的顺序选择，显式空值表示直连；`no_proxy` 优先于 `NO_PROXY`，支持 Node 的主机、域名、地址和端口绕过规则。未显式设置代理时，Windows 按请求地址读取系统代理及其绕过规则，其它平台使用上述环境配置。代理仅支持 HTTP/HTTPS；配置非法、解析失败或连接失败都会报错，不改走直连。代理认证只发送到代理，GitHub 凭据仍仅发送到 API，源站 TLS 校验保持启用。API 遇到明确限流或暂时性故障最多尝试 3 次，累计重试等待最多 180 秒；遵守服务端等待时间，超过预算直接失败，普通权限错误不重试。诊断输出脱敏的 API 消息、请求编号与限流头。发行边界验收直接消费本次构建产物，不重新生成目录。该步骤没有独立关闭开关，生成无法完成时构建失败；已安装应用不会自动访问这些地址 |
-| SDK 发行基线校验 | `https://api.github.com/repos/Sywyar/PixivDownloader-Plugin-SDK/releases`、该仓库公开 Release 的 `sdk-release.json` 附件，以及 `https://repo1.maven.org/maven2/io/github/sywyar/pixivdownloader/` 下的 SDK POM | Release 和手动 SDK 发布先读取当前 SDK 公共发行及五个 Maven POM，确认是否可以复用已发布身份。应用发行比较对应公开源码；新 SDK 发布和日常 PR 比较最新公开常规 SDK 的公共 API 与 Maven 消费合同。API 基准在检查时从已核验的发行源码生成，不需要维护仓库快照。若前驱为预发布版或其它主版本，还会查询不高于候选版本的同主版本最新正式发行，核对元数据、源码身份及五个 POM，再临时构建其 API；正式前驱直接复用本轮构建。Maven 下载依赖时沿用其仓库、镜像和代理设置。查询或构建失败会阻止检查通过，取消命令或 workflow 可停止后续请求。Nightly 不参与常规发行选择，也不执行这些查询或发布。PR 只读取和校验，不发布 SDK。CI 的 GitHub 请求使用 Actions 内置只读令牌，本地命令沿用 GitHub CLI 的认证和网络设置；Central POM 由 Node 请求，不携带 GitHub 令牌，并使用 Node 的网络设置。请求只包含公开发行及 Maven 路径，不上传本地源码。已安装应用不会执行此检查 |
-| Docker | 配置的 OCI 镜像仓库，默认情况下解析 `eclipse-temurin:17-jre`；基础镜像配置的 Debian 软件源 | 拉取基础镜像，以及安装 FFmpeg、curl 等系统包 |
-| Windows CI | Chocolatey 配置的软件源 | 安装 Inno Setup 等打包工具 |
-| SDK 的 Douyin 兼容性检查 | `https://github.com/Sywyar/PixivDownloader-Plugin-Douyin.git` 的固定提交；该工程 POM 声明的 Maven 依赖仓库 | `scripts/ci/sdk-consumer.mjs` 在 SDK 验证时用 Git HTTPS 获取 `scripts/ci/douyin-source.json` 固定的提交，单次 Git 获取和检出最多 300 秒；不跟随 `main`。随后以待验 SDK 在线构建、离线重建并运行 Java、JavaScript、产物和宿主集成测试。Git 获取关闭凭据助手及交互提示，使用 Git 自身的代理配置；发送仓库路径和提交身份，不需要发布凭据。显式传入 `--douyin-source` 可改用本地源码并省去 GitHub 源码请求，依赖解析仍遵循 Maven 配置。此流程不由已安装客户端执行 |
-
-Windows 安装包构建使用 `actions/setup-java` 查询最新可用的 Temurin 17（`check-latest: true`），再使用匹配版本的缓存或下载 JDK。版本查询访问 Adoptium 分发 API，下载由 Action 解析到 GitHub Release 及其资产重定向；请求包含 Java 版本、平台和架构，沿用 Action 与 runner 的代理设置。维护者可在安装包构建 Action 中调整版本选择。`jlink` 裁剪后的证书信任清理及问题链回归均在本地离线执行，不向 CA、OCSP 或事件测试站点请求数据；这些步骤不由已安装应用执行。
-
-构建机、代理、镜像或包管理器配置可以改写最终下载主机，因此这些传递依赖无法仅凭仓库源码列出稳定的完整域名集合。
-
-SDK 原始旧插件和浏览器验收通过 `scripts/ci/sdk-legacy-plugin.mjs` 从 `api.github.com/repos/Sywyar/PixivDownloader-plugins/releases/assets/647429117` 下载已发布的 `gui-swing-v1.0.2` 原始 JAR；GitHub CLI 可跟随到 Release 资产 CDN。脚本固定校验 5,445,262 字节与 SHA-256，单次下载限 60 秒，不合格缓存直接失败。CI 使用只读 `GITHUB_TOKEN`，本地沿用 GitHub CLI 的认证与代理设置，不上传插件或应用数据。`npm ci` 从锁文件所列 npm registry 安装固定 Playwright，`playwright install --with-deps chromium` 再从 Playwright 配置的浏览器下载地址及重定向 CDN（如 `cdn.playwright.dev`、`playwright.download.prss.microsoft.com`）取得 Chromium，Linux 系统依赖由 runner 的包源安装。浏览器下载遵循 Playwright 的代理与下载环境设置。验收仅在开发及 CI 中运行，取消命令或 workflow 会停止后续请求；已安装客户端不执行这些下载。
-
-## 链接及非请求型 URL
-
-应用和文档中还包含指向 GitHub、Releases、在线文档、Tampermonkey 和许可证站点的链接。此类链接仅在被访问或由浏览器实际加载资源时产生请求。XML 命名空间、POM Schema、许可证正文中的 URL 和示例域名不属于自动网络请求目标。
-
-在应用 Web UI 中点击外部 HTTP(S) 链接（包括本地公告/调查 HTML 快照内的链接）时，全站确认弹窗会先展示目标地址；只有明确确认后，浏览器才会直接连接该地址，取消则不会产生请求。该浏览器导航不经过 Java 后端或全局代理，实际目标由所点击的链接决定；站内同源链接保持直接跳转。
+| 工程环节 | 访问目标与用途 |
+| --- | --- |
+| Maven / Gradle / sbt 与 npm 依赖解析 | Maven Wrapper 与 Java 模块从配置的 Maven 仓库/镜像（默认 `https://repo.maven.apache.org/maven2`、`https://repo1.maven.org/maven2`、`https://plugins.gradle.org`）下载构建工具与依赖（如 Tink、PostgreSQL/SQLite/H2 JDBC、Hutool/Tianai/ALTCHA、Cupertino、WebP/JSON Schema/JCS、sbt-launch 等）；前端检查与插件资源构建从锁文件配置的 npm 源（当前为 `https://registry.npmmirror.com`，维护 Web 资源时偶用 `https://registry.npmjs.org`）下载依赖 |
+| 浏览器与数据库集成验收 | Playwright 浏览器安装从 `cdn.playwright.dev` / `playwright.download.prss.microsoft.com` 下载 Chromium；显式运行 `page-editor-acceptance.mjs` 验证码验收时使用官方公开测试密钥访问 Cloudflare Turnstile 与 Google reCAPTCHA 测试端点；PostgreSQL 容器验收拉取 Docker `postgres:17` 并只连接 `PIXIV_TEST_POSTGRES_URL` 隔离库 |
+| 维护者目录、许可证与本地打包脚本 | 构建应用资源时通过 GitHub API（`api.github.com/repos/Sywyar/PixivDownloader`）与 `avatars.githubusercontent.com` 获取白名单贡献者资料与头像（遵循系统/环境 HTTP(S) 代理，30 秒超时，离线构建自动跳过）；许可证维护脚本按需读取 `spdx/license-list-data`；`package-local.ps1` 构建离线包时下载并验签 `ffmpeg-stable` 资产；`package-installer-with-plugins.ps1 -PluginSource Catalog` 从官方插件仓库下载签名清单与插件包 |
+| SDK 验证、发布与跨仓 Pages 构建 | `sdk-legacy-plugin.mjs` 下载固定 `gui-swing-v1.0.2` 资产验证二进制兼容；`sdk-consumer.mjs` 拉取 `Sywyar/PixivDownloader-Plugin-Douyin.git` 固定提交验证隔离消费者；SDK 发布工作流向 Sonatype Central Portal 发布 5 个 SDK Maven 坐标、向 `Sywyar/PixivDownloader-Plugin-SDK` 创建签名 Release 并构建 Javadoc GitHub Pages；开发者在 SDK 工程首次执行 `sdk-prepare` / `sdk-run` 时从 SDK Release 下载固定运行包并缓存到 `~/.cache/pixivdownloader-sdk/` |
+| 主仓库 CI、Gate Checks、Release 与公告续签 | GitHub Actions 运行 Quality Gate、发行包 E2E、签名插件发布与 `Gate Checks`（通过 GitHub API 与 App token 为开放 PR 签发必需检查）；`PixivDownloader-Remote-Content` 的定时工作流检查并续签 `announcements/index.json.sig` 及触发 Pages 部署 |
+| 社区插件投稿向导、隔离构建与审核发布 | 投稿入口 `irm https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/tools/submit.ps1 \| iex` 下载已签名的 `submission-channel.json` 与固定提交工具，按 `no_proxy` → `https_proxy` / `all_proxy` → Windows 系统代理解析网络（单文件 60 秒、最多 3 次尝试），通过 GitHub CLI / Git 访问社区仓库与投稿者 fork、上传候选 Release 资产与文档图片；社区 CI 在受控 Squid 代理容器内仅从批准的 Maven / Gradle 源预取依赖，在断网容器内重建插件，并通过 GitHub Actions OIDC / Sigstore（`fulcio.sigstore.dev`、`rekor.sigstore.dev`、`tuf-repo.github.com`）生成归档证明、执行审核合并与撤销清单续签 |

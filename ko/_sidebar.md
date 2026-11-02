@@ -24,6 +24,7 @@
   - [⚙️ 설정](/ko/configuration)
   - [🌐 네트워크 액세스 및 타사 서비스](/ko/network-access)
   - [💾 저장 원칙](/ko/storage)
+  - [📘 고급 사용 안내](/ko/usage-guide)
   - [🧰 타사 플러그인 SDK](/ko/plugin-development)
   - [❓ FAQ](/ko/faq)
   - [🛠️ 개발](/ko/development)

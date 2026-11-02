@@ -1,5 +1,7 @@
 ﻿# Frequently Asked Questions (FAQ)
 
+Find the matching symptom below. Before changing account, database, or directory state, confirm the working directory and keep a backup. Logs and task results provide stronger evidence than elapsed waiting time. Replace `APP.jar` in commands with the distribution's main JAR filename and run them from its directory.
+
 ## Installation & Startup
 
 ### Q: "Java is not recognized" error on startup
@@ -11,14 +13,14 @@
 **A**: Always add `-Dfile.encoding=UTF-8` to the launch command:
 
 ```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar
+java -Dfile.encoding=UTF-8 -jar APP.jar
 ```
 
 ### Q: Port 6999 is already in use
 
 **A**: Two solutions:
-1. Close the program occupying port 6999
-2. Change `server.port` in `config.yaml` to a different port (requires restart)
+1. Check whether the port belongs to an existing PixivDownloader instance; do not run two instances against the same data directory. Identify any other process before stopping it
+2. Change `server.port` in `config/config.yaml` to a different port (requires restart)
 
 ### Q: Windows installer fails
 
@@ -31,40 +33,36 @@ java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar
 
 **A**:
 - **Installer version**: Run the installer again and select "Uninstall"; or via Windows "Settings → Apps"
-- **JAR version**: Simply delete the program directory
+- **JAR version**: Back up the actual artwork directories, configuration, state, and database as described in [Storage](storage.md), then remove program files. The working directory may also contain your library; do not treat the entire directory as disposable.
 
-### Q: How to reset all settings?
+### Q: How to reinitialize the admin account?
 
-**A**: Stop the service, delete `state/setup_config.json`, then run `--setup` again (or use the GUI "Home" wizard). Note: this does not delete downloaded files or the database.
+**A**: Use `--reset-password` below if you only forgot the password. For reinitialization, stop the service, back up and move aside `state/setup_config.json`, then use `--setup` or the GUI wizard. This recreates initialization state; it does not reset all configuration or migrate or rebuild the database. See [First-Time Setup](first-setup.md).
 
 ### Q: My server / Docker container always exits at startup, asking me to run setup first?
 
-**A**: Starting with v1.10.0, headless / `--no-gui` startup is blocked when first-time setup is not complete — otherwise you would end up with a service that no remote client can configure. Initialize via CLI first:
+**A**: A headless / `--no-gui` launch exits with code `78` if initialization is incomplete. Initialize interactively, then start the service:
 
-```bash
-# Interactive: prompts for username, password, run mode
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --setup
-
-# Automation: one-shot (password is visible in shell history / process list)
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --setup \
-    --username=admin --password='YourPassword123' --mode=solo
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --setup
+java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui
 ```
 
-Then start the service normally with `--no-gui`. See [Usage Guide → CLI Admin Commands](en-Usage-Guide#cli-admin-commands-v1100).
+Then start the service normally with `--no-gui`. See [First-Time Setup](first-setup.md).
 
 ### Q: The admin forgot the password. What now?
 
 **A**: Stop the running PixivDownloader, then reset the password via CLI (the previous password is not required):
 
 ```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --reset-password
+java -Dfile.encoding=UTF-8 -jar APP.jar --reset-password
 ```
 
-The wizard asks for the new password twice (≥ 6 characters). After a successful reset, all existing login sessions are invalidated; log in again with the new password. If you still know the current password and just want to rotate it, use `--change-password` (which verifies the current password).
+The wizard asks for the new password twice (at least 8 characters; 12 or more recommended). After a successful reset, all existing login sessions are invalidated; log in again with the new password. If you still know the current password and just want to rotate it, use `--change-password` (which verifies the current password).
 
 ### Q: Startup says "unrecognized startup argument"?
 
-**A**: From v1.10.0 the launcher validates arguments strictly: typos (`--no-guii`), value flags missing the `=` (`--username admin`), and plain positional tokens are rejected. Run `--help` to see the full option list. Arguments shaped as `--key=value` are still forwarded to Spring Boot as property overrides.
+**A**: The launcher validates arguments strictly: typos (`--no-guii`), value flags missing the `=` (`--username admin`), and plain positional tokens are rejected. Run `--help` to see the full option list. Arguments shaped as `--key=value` are still forwarded to Spring Boot as property overrides.
 
 ---
 
@@ -73,10 +71,10 @@ The wizard asks for the new password twice (≥ 6 characters). After a successfu
 ### Q: Downloads still fail after configuring proxy
 
 **A**:
-1. Confirm proxy settings have been saved (after saving in the GUI or configuring via CLI `--setup`, proxy settings **support hot reload** and take effect immediately, no restart needed; if you hand-edit `config.yaml` directly, restart the service or click Save in the GUI to trigger a hot reload)
-2. Verify the proxy works: visit `https://i.pximg.net/` through the proxy in your browser
+1. Confirm proxy settings have been saved (after saving in the GUI or configuring via CLI `--setup`, proxy settings **support hot reload** and take effect immediately, no restart needed; if you hand-edit `config/config.yaml` directly, restart the service or click Save in the GUI to trigger a hot reload)
+2. Test an actual Pixiv work URL in the browser, then inspect the failed host and error in backend logs; a CDN root response alone does not prove downloads work
 3. Check if the firewall allows the proxy port
-4. Note: the proxy is used for all outbound access (Pixiv, online updates, FFmpeg download, online TTS), so these issues affect those features too
+4. Distinguish the backend global proxy, task proxy, plugin settings, and browser requests. See [Network Access and Third-Party Services](network-access.md) for their separate rules
 
 ### Q: All users rate-limited when deployed behind reverse proxy
 
@@ -94,7 +92,7 @@ The backend then rate-limits by the normalized client address. Never trust publi
 
 **A**:
 1. Allow port 6999 through firewall
-2. Ensure `config.yaml` doesn't restrict binding address
+2. Ensure `config/config.yaml` doesn't restrict binding address
 3. Visit `http://<server IP>:6999/` in browser
 
 ---
@@ -104,22 +102,21 @@ The backend then rate-limits by the normalized client address. Never trust publi
 ### Q: Search mode returns no results
 
 **A**: Search mode requires Pixiv cookies. Please verify:
-1. Netscape-format cookies have been correctly pasted in `pixiv-batch.html`
+1. The selected cookie format (Netscape or Header) matches the pasted content, and the saved cookie provides a recognized login session
 2. Cookies haven't expired (re-login to Pixiv and re-fetch)
 3. Proxy is correctly configured
 
 ### Q: Cookie format error message
 
 **A**: Ensure:
-1. Export in **Netscape** format from Cookie-Editor extension
-2. Switch to the **Netscape** format tab on the page before pasting
-3. Do not manually modify cookie content
+1. Match the exported format to **Netscape** or **Header** on the page
+2. Authentication needs the complete `PHPSESSID`; ordinary page scripts may not be able to read it
+3. Retrieve and save it again using [First Download](first-download.md), and keep credentials out of logs and issues
 
 ### Q: How to clear saved cookies?
 
 **A**:
-- Solo mode: Click the clear cookie button on `pixiv-batch.html`, or log out
-- Logging out also clears server-side saved cookies
+Explicitly clear the cookie on the download page. Scheduled tasks hold separate credential bindings, which must be removed in those tasks. Logging out does not replace checking that each saved credential has been cleared.
 
 ---
 
@@ -127,7 +124,7 @@ The backend then rate-limits by the normalized client address. Never trust publi
 
 ### Q: Ugoira animations won't play after download
 
-**A**: Ugoira requires ffmpeg for WebP conversion. Install ffmpeg and ensure it's available in PATH:
+**A**: Ugoira conversion requires FFmpeg and the encoder for the selected output format. Install ffmpeg and ensure it's available in PATH:
 
 ```bash
 ffmpeg -version
@@ -146,8 +143,8 @@ Windows installer users can click "Download FFmpeg" on the GUI "Status" page.
 
 **A**: The online engine (Edge neural voices) requires network. Check in order:
 1. **Network/proxy**: online synthesis reaches Microsoft via the backend proxy — make sure the proxy works (same `proxy.*` config as downloads)
-2. **Handshake 403**: when the version string is stale, the backend automatically fetches the latest Edge version, corrects clock skew, and retries — this usually self-heals; if it persists, check your machine's system clock
-3. **Switch to the browser engine**: in the playback bar's "Settings", switch to the browser engine — fully offline, no network (provided your OS has voices for that language installed)
+2. **Handshake 403**: when the version string is stale, the backend automatically fetches the latest Edge version, corrects clock skew, and retries; if it persists, check your machine's system clock
+3. **Switch to the browser engine**: in the playback bar's "Settings", switch to the browser engine — using voices from the browser / system; network requirements depend on the selected speech service
 4. **Invited guests rate-limited**: visitors using an invite link are bound by `guest-invite.tts-request-limit-minute` (guest invites work in both solo and multi modes); too-frequent requests return 429 — wait and retry, or have the admin raise the value. Admins themselves are not limited
 
 ### Q: Some artworks fail during batch download
@@ -168,7 +165,7 @@ Windows installer users can click "Download FFmpeg" on the GUI "Status" page.
 
 ### Q: Ugoira downloads consume excessive quota
 
-**A**: In multi-mode, configure `multi-mode.quota.limit-image` in `config.yaml`. When an artwork's image count exceeds this value, it counts as multiple quota units:
+**A**: In multi-mode, configure `multi-mode.quota.limit-image` in `config/config.yaml`. When an artwork's image count exceeds this value, it counts as multiple quota units:
 
 ```yaml
 multi-mode.quota.limit-image: 10  # Artworks with >10 images consume proportional quota
@@ -182,7 +179,7 @@ multi-mode.quota.limit-image: 10  # Artworks with >10 images consume proportiona
 
 **A**: After 10+ seconds, the waited time is displayed; it may be updating the database. If unresponsive for long:
 1. Check `log/latest.log` log file
-2. Try deleting the database (backup first) and restart
+2. Check for migration, port, or plugin errors. Preserve the error and data; do not delete the database to troubleshoot a slow startup
 3. Verify Java version is 17+
 
 ### Q: GUI online update fails
@@ -202,30 +199,19 @@ multi-mode.quota.limit-image: 10  # Artworks with >10 images consume proportiona
 
 ### Q: Where is the database file?
 
-**A**: Default location: `data/pixiv_download.db`. Uses SQLite WAL mode; can be opened with any SQLite tool.
+**A**: The default SQLite path is `data/pixiv_download.db`, possibly with WAL / SHM companion files. With PostgreSQL, the main data resides in the configured server database. Check the selected provider and actual location before operating on it.
 
 ### Q: What if the database is corrupted?
 
-**A**:
-1. Stop the program
-2. Back up `pixiv_download.db`, `pixiv_download.db-wal`, `pixiv_download.db-shm`
-3. Try repair with SQLite: `sqlite3 pixiv_download.db "PRAGMA integrity_check;"`
-4. If irreparable, delete the database files and restart (downloaded files unaffected), but gallery data will be lost
+**A**: Stop the application and preserve the original database and companion files before diagnosing a backup copy. SQLite's `PRAGMA integrity_check;` **checks integrity; it does not repair the database**. It needs the SQLite CLI and should target the copy. Restore a verified backup if corruption is confirmed. Do not delete the original and expect artwork folders to reconstruct the gallery. PostgreSQL requires its own database backup and recovery procedures, not SQLite commands.
 
 ### Q: I lost / migrated the database. Will already-downloaded works be redownloaded?
 
-**A**: No. When redownloading an artwork, if the database has no record for it but `{download-root}/{artworkId}/` already contains image files named with the **default** filename template (`{artwork_id}_p{page}.{ext}`, e.g. `123456_p0.jpg`), a database record will be reconstructed from the actual page count and extensions found on disk, and the redownload will be skipped. The recovered work then shows up in the gallery exactly like a normally-downloaded one.
-
-Caveat: only files matching the **default** filename template are recognized. Files saved under a custom template are not, and will be redownloaded. Metadata (title, author, tags, …) cannot be recovered offline either — the gallery will display the work with missing fields; use the "Database backfill tool" to fill them in later.
+**A**: Skipping redownloads is not guaranteed. Work identity, page count, paths, tags, and collections depend on database records; files in a folder alone do not prove a complete work. Preserve the files and restore the matching database backup first. Use path-prefix migration for directory changes and the checked migration workflow for SQLite / PostgreSQL switches. Backfill fills missing fields in existing records; it does not fully rebuild a library from arbitrary artwork folders.
 
 ### Q: How to back up data?
 
-**A**: Back up the following:
-- `data/` — database files
-- `pixiv-download/` — downloaded files
-- `state/` — runtime state
-- `config/` — configuration files
-- `collection_icons/` — collection icons
+**A**: Stop the application and back up `config/`, `state/`, `data/`, plugins, and all actual artwork directories, including collection-specific paths. Collection icons are under `data/collection_icons/`. PostgreSQL also needs a server database backup; preserve external read-only import sources separately. See [Storage](storage.md) for the full scope and restore checks.
 
 ---
 
@@ -250,7 +236,7 @@ Caveat: only files matching the **default** filename template are recognized. Fi
 **A**:
 1. Confirm backend service is running
 2. In Solo mode, confirm you're logged in
-3. For non-localhost deployments, modify the `@connect` declaration in the script header
+3. For remote backends, check both the configured backend address and `@connect` host permission; see [Userscripts](userscripts.md)
 
 ---
 
@@ -263,17 +249,13 @@ Caveat: only files matching the **default** filename template are recognized. Fi
 - Avoid excessive requests in a short time
 - Comply with Pixiv terms of service
 
-### Q: Can guests see admin data in Multi mode?
+### Q: What can visitors and invited guests see?
 
-**A**: In Multi mode:
-- Guests can only see their own download status
-- Admin and Solo mode retain the global view
-- In guest invite mode, guests can only browse artwork within the allowlist
-- Collections, history, statistics, etc. are filtered by access permissions
+**A**: An unauthenticated user without an invite session in `multi` mode is a **visitor**, whose download state is identity-scoped. Admins have the management view. **Invited guests** use invite sessions in either `solo` or `multi` and can only access allowed pages and works. Collections, history, and statistics also enforce their own access rules. These two identities are different.
 
 ### Q: How to enable HTTPS?
 
-**A**: Configure SSL certificates in `config.yaml`:
+**A**: Configure SSL certificates in `config/config.yaml`:
 
 ```yaml
 server.ssl.enabled: true
@@ -281,7 +263,7 @@ server.ssl.certificate: /path/to/cert.pem
 server.ssl.certificate-private-key: /path/to/key.pem
 ```
 
-PEM format is recommended. PEM takes priority when both PEM and JKS are configured.
+Replace the sample paths with your actual certificate and private-key paths. PEM takes priority when both PEM and JKS are configured. Restart and verify HTTPS; reverse-proxy deployments also need the [Configuration](configuration.md) settings.
 
 ---
 
@@ -289,20 +271,15 @@ PEM format is recommended. PEM takes priority when both PEM and JKS are configur
 
 ### Q: How to migrate to a new computer?
 
-**A**: Copy these to the new computer:
-1. `data/` — database files
-2. `pixiv-download/` — downloaded files
-3. `state/` — runtime state
-4. `config/` — configuration files
-5. `collection_icons/` — collection icons (if any)
+**A**: Follow [Storage](storage.md) to stop, back up, copy, and restore. If paths change, migrate the recorded path prefixes too. Check login, gallery, novel text, collections, and a new download before retiring the old copy.
 
 ### Q: How to upgrade?
 
 **A**:
 - **GUI mode**: Auto-check on startup, or manually check on "Status" page
-- **JAR version**: Download and overwrite the new JAR
+- **Java distribution**: Extract the complete new bundle and update the program and matching plugins according to its release notes, preserving configuration, state, and data. Do not replace only the main JAR
 - **Windows installer**: Run new installer and select "Repair" or overwrite-install
-- Database auto-migrates, no manual action needed
+- Startup can upgrade the schema within the current database. Switching between SQLite and PostgreSQL requires a separate checked migration; changing configuration does not move existing data. Back up before upgrading and verify login and existing works afterwards
 
 ### Q: How to provide feedback or report issues?
 
@@ -310,5 +287,5 @@ PEM format is recommended. PEM takes priority when both PEM and JKS are configur
 - OS and version
 - PixivDownloader version (check GUI "About" page)
 - Issue description and reproduction steps
-- Relevant logs (`log/latest.log`)
+- Relevant logs (`log/latest.log`), with cookies, tokens, passwords, and personal addresses removed
 - Screenshots (if applicable)

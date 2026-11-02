@@ -1,6 +1,6 @@
 # Configuration Reference
 
-PixivDownloader separates configuration by owner. These stores are not interchangeable:
+For routine changes, edit desktop settings, save, then follow the apply or restart prompt. Database switches, proxy changes and media output settings have different effects, described below. Before editing files, identify which store owns the setting:
 
 | Configuration | Path | Owner |
 | --- | --- | --- |
@@ -9,6 +9,26 @@ PixivDownloader separates configuration by owner. These stores are not interchan
 | Plugin credentials | `config/credentials/{pluginId}.properties` | That plugin; encrypted by the host |
 
 Prefer the desktop GUI's Configuration page. On first startup, the current default template creates `config/config.yaml`; upgrades append missing host keys without overwriting existing values. If editing manually, use UTF-8 and keep active `key: value` lines rather than commenting out empty values.
+
+## Transfer configuration and environment
+
+Swing and Compose settings both offer configuration and environment transfer. Archives read saved values only. Save the settings you want to carry before exporting, and resolve settings drafts before importing.
+
+1. Export a `.pdbackup` file from the source installation. It includes declared host and registered-plugin configuration, plugin switches and desktop preferences. Credentials, databases, saved state and user resources are optional. Credentials, state or databases require an archive password; exporting these temporarily stops the backend.
+2. Prepare compatible plugins and the database connection on the destination, then select and preview the archive. Configuration and files for missing plugins are skipped. Plugin versions and repository addresses are reminders to install what is missing; they do not install packages or restore trust grants.
+3. Select fields, databases and file groups, check their paths, then confirm. Databases and file groups start unchecked; resources require their databases. Import backs up the destination and runs after a full restart. Reopen the transfer dialog to check its final status.
+
+Configuration import preserves the destination database connection, database-provider selection and installation identity. Credentials are encrypted again with the destination key. Selecting administrator credentials replaces the administrator login, clears sessions and preserves the destination operating mode. Schedules are restored disabled and manual queues paused. Third-party plugins own the semantics of their declared private data.
+
+Archives exclude application and plugin binaries, downloaded works, caches, trust keys and grants. Supported resources include collection icons and novel reference voices. Copy works separately: mapping changes declared path fields and database prefixes only. The symbolic root `{0}` becomes the confirmed absolute directory; absolute paths outside registered prefixes remain unchanged. Check historical works and a separate new download after changing paths.
+
+Backups and per-database reports remain in `data/environment-transfers/<task ID>/`; `pending.json` records the latest status. Main and private databases commit separately. A recovery-required result does not mean every change was rolled back, and blocks business startup. Preserve the task directory and check each report against its backup; do not delete the journal to force startup. If database file recovery is pending, finish it in the original installation before exporting again.
+
+### Move a Windows installation
+
+After moving the installation directory, run the application at the new location to inspect registration status. Run Setup, explicitly select the new directory and confirm relocation. Setup updates registered installation paths, standard shortcuts and uninstall records. An existing current-user startup shortcut keeps its enabled state and arguments while its target changes; a disabled startup entry is not enabled.
+
+Repair backups remain under `state/installation-backups/` in the new application directory. The old directory and user data are retained. Verify startup and data access at the new location before handling old copies; do not run the old directory's uninstaller. Copying a portable directory does not register a Windows installation; running Setup registers the destination as installed. For a legacy MSI installation, export first, uninstall through Windows, then install at the new location and import.
 
 ## Host configuration
 
@@ -129,7 +149,7 @@ The gallery prefers a retained original, followed by WebP, PNG, and JPG. If the 
 | `plugin-catalog.connect-timeout-ms` | `15000` | Global connection timeout |
 | `plugin-catalog.read-timeout-ms` | `60000` | Global read timeout |
 | `plugin-catalog.max-manifest-bytes` | `1048576` | Manifest size limit |
-| `plugin-catalog.max-package-bytes` | `104857600` | Plugin package size limit |
+| `plugin-catalog.max-package-bytes` | `201326592` | Plugin package size limit |
 | `plugin-catalog.repositories` | empty list | Custom repositories |
 
 The official repository URL and trust root are embedded. A custom repository must declare its own HTTPS manifest and Ed25519 public key; it does not inherit the official trust root. Prefer the GUI repository editor. Manual example:
@@ -183,6 +203,8 @@ changes (including hot reload) are reflected automatically — no more toggling 
 Firefox proxy settings are under `about:preferences#general`; Windows proxy settings open at `ms-settings:network-proxy`.
 
 ### Multi-mode quotas and rate limits
+
+The `multi-mode.*` settings below apply to anonymous visitors in multi mode, not signed-in administrators. Invited guests use the separate `guest-invite.*` settings. These are distinct identities.
 
 | Key | Default |
 | --- | --- |
@@ -263,7 +285,7 @@ The application walks a proxy chain from right to left, selects the first untrus
 | `app.language` | empty | Follow the system, or use a supported language code |
 | `app.theme` | `system` | GUI theme id |
 | `app.config-menu-expand-all` | `false` | Controls configuration menu expansion in Swing only. Compose neither offers this option nor changes the preference |
-| `app.gui-provider` | empty | Desktop GUI provider id; selectable values come only from active provider plugins |
+| `app.gui-provider` | empty | Select the default desktop UI, or specify an enabled provider id |
 
 Both desktop interfaces provide `system`, `light`, and `dark`; additional themes belong to the selected interface. The GUI provider selector lists active `DesktopUiProvider` contributions. Distributions include Compose and Swing, with Compose selected on first launch when no provider is specified. Switching interfaces requires a full restart.
 
@@ -314,7 +336,7 @@ example.output-format=json
 
 The host rejects attempts to override default host keys, `plugins.*.enabled`, or credential-like keys from these files. Keys should not collide across plugin files. A plugin child Spring context reads values through `Environment`, `@Value`, or `@ConfigurationProperties`; a third-party plugin should not read files directly or depend on app-shell configuration classes.
 
-The plugin's `GuiConfigContribution` is the source of truth for its complete configuration section, including fields, groups, layout, actions, presets, and interactions. The application shell merges it with core configuration into one toolkit-neutral desktop document and owns the unified save flow; Swing and Compose only render it and do not maintain separate plugin pages. After save, the host refreshes plugin property sources and reports whether the result is immediate, requires a backend restart, or requires a process restart. After uncertain manual edits, a full restart is safest.
+Desktop settings display the fields declared by active plugins and use the application save flow. Compose and Swing each own their interface implementation. The saved fields and plugin lifecycle policy determine whether a change applies immediately, restarts the backend or needs a full process restart. Follow the same requirements after manual edits. Plugin authors can find the declaration and property contracts in the [third-party SDK guide](/en/plugin-development).
 
 ## Plugin credentials
 
@@ -322,12 +344,23 @@ Passwords, cookies, tokens, API keys, secrets, and webhook keys belong in `confi
 
 Do not place credentials in `config.yaml` or `config/plugins/*.properties`, and do not let plugins read, parse, or decrypt credential files. A credential backup is useful only with the protected credential master key; encrypted values cannot be recovered in a different environment without the original key.
 
-## Confirming the current contract
+## Confirm saved values and the current contract
+
+Reopen the setting after saving and check its value and apply status. For a database switch, inspect migration results. For path changes, check historical works and a new download. On save failure, retain the original files and error rather than replacing the entire configuration.
+
 
 1. Start with the GUI Configuration page; it combines host fields with contributions from currently installed plugins.
 2. Host defaults are defined by the current `DefaultConfigTemplate` output.
 3. Plugin fields are defined by that plugin's `GuiConfigContribution`, `@ConfigurationProperties`, or settings service.
 4. Do not copy old `mail.*`, `push.*`, `notification.*`, or `download.novel-*` examples into `config.yaml`; those settings are now plugin-owned.
+
+## Translation settings
+
+The `translation` plugin provides the desktop Translation settings page. `translation.engine` defaults to `ai`; alternatives are `youdao` and `libretranslate`. Ordinary fields are saved in `config/plugins/translation.properties`. Enter the Youdao application ID and secret, and any LibreTranslate API key, in desktop settings; sensitive fields are encrypted in the plugin's credential file.
+
+Set `translation.libretranslate-url` to the service base URL without `/translate`, for example `http://127.0.0.1:5000` for a local service. `translation.use-proxy` defaults to `false` and controls Youdao and LibreTranslate; AI keeps its own proxy settings. `translation.max-concurrent` limits background automatic translations, defaults to `10`, and preserves sequential processing within a series. Save and restart the backend to apply changes.
+
+Existing AI model settings, translations and glossaries are retained. If you customized `download.novel-translate-max-concurrent`, set the desired concurrency again in Translation settings; the old key no longer controls translation. See the [novel guide](/en/novel) for engine setup and limits.
 
 ## Login verification policies
 

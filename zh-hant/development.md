@@ -1,6 +1,6 @@
 # 開發指南
 
-本頁面向主倉庫貢獻者。第三方插件作者請直接閱讀[第三方插件 SDK](/zh-hant/plugin-development)；插件安裝、啓停和故障處理見[插件管理](/zh-hant/plugin-management)。
+要修改主程序或官方插件，從本頁準備環境、構建源碼並提交 PR。第三方插件作者請直接閱讀[第三方插件 SDK](/zh-hant/plugin-development)；插件安裝、啓停和故障處理見[插件管理](/zh-hant/plugin-management)。
 
 ## 環境準備
 
@@ -9,6 +9,7 @@
 | JDK | 17 | 編譯和運行 |
 | Maven | 3.9+，或倉庫內的 Maven Wrapper | 構建與測試 |
 | Git | 當前受支持版本 | 版本控制 |
+| Node.js / npm | 與當前 CI 使用版本一致 | JavaScript 測試、i18n 與邊界檢查 |
 | PowerShell | 5.1+ | Windows 打包腳本 |
 | Inno Setup | 6.x，可選 | Windows 安裝包 |
 
@@ -39,6 +40,8 @@ Douyin 的原始碼、資源和測試在[獨立外掛倉庫](https://github.com/
 
 ## Fork 與分支
 
+先在 GitHub Fork 倉庫，將 `YOUR_USERNAME` 換成自己的賬號，並把分支名改成具體修改內容。
+
 ```bash
 git clone https://github.com/YOUR_USERNAME/PixivDownloader.git
 cd PixivDownloader
@@ -65,9 +68,13 @@ git switch -c feat/your-change upstream/master
 npm run test:js
 npm run test:web-standards
 
-# 運行打包後的應用
-java -Dfile.encoding=UTF-8 -jar pixivdownload-app/target/PixivDownload-*-boot.jar
+# 運行打包後的應用：先確認恰有一個主 JAR
+$appJars = @(Get-ChildItem -LiteralPath pixivdownload-app/target -Filter 'PixivDownload-*-boot.jar')
+if ($appJars.Count -ne 1) { throw 'Expected exactly one application JAR' }
+java -Dfile.encoding=UTF-8 -jar $appJars[0].FullName
 ```
+
+構建以 Maven `BUILD SUCCESS` 和進程退出碼爲準；跳過測試的打包不代表測試通過。僅運行核心 Boot JAR 不會自動安裝外置插件；開發完整功能使用下方官方插件開發入口，部署則使用完整發行包。
 
 如果使用 `-Dtest=...` 對帶 `-am` 的 Reactor 做聚焦測試，請同時添加 `-Dsurefire.failIfNoSpecifiedTests=false`，避免沒有該測試類的上游模塊誤報失敗。
 
@@ -91,11 +98,11 @@ mvn -pl pixivdownload-app -am -Precovery-mode process-classes -Dexec.skip=true
 
 ## 用戶腳本資源
 
-`pixiv-batch.html` 通過 `/api/scripts` 讀取已經物化的腳本目錄。獨立 `*.user.js` 與 `scripts/build-userscript-bundle.ps1` 生成的整合腳本會在 Maven `generate-resources` 階段複製到應用資源。因此修改用戶腳本後至少運行一次 Maven 生命週期，不能只依賴 IDE 的舊輸出目錄。
+`pixiv-batch.html` 通過 `/api/scripts` 讀取已經物化的腳本目錄。獨立 `*.user.js` 與 `scripts/build-userscript-bundle.ps1` 生成的整合腳本會在 Maven `generate-resources` 階段複製到 `download-workbench` 插件資源。因此修改用戶腳本後至少運行一次 Maven 生命週期，不能只依賴 IDE 的舊輸出目錄。
 
 ## i18n 國際化工作流
 
-`i18n/locales.json` 是語言清單；中文（`zh-CN`）是開發源語言，英文（`en-US`）是全局回退語言。常用命令：
+`pixivdownload-app/src/main/resources/i18n/locales.json` 是語言清單；中文（`zh-CN`）是開發源語言，英文（`en-US`）是全局回退語言。常用命令：
 
 ```bash
 npm run setup:hooks
@@ -105,11 +112,11 @@ npm run i18n:generate-static
 npm run test:i18n
 ```
 
-新增中文文案必須同時提交英文翻譯。靜態資源發生變化時，重新生成並提交 `pixivdownload-app/src/main/resources/static/i18n-static`。基線接受和 hooks 細節見[倉庫 i18n 工作流](https://github.com/Sywyar/PixivDownloader/blob/master/docs/i18n-workflow.md)。
+新增中文文案必須同時提交英文翻譯。靜態資源發生變化時，運行生成命令並檢查各資源 owner 的實際輸出；不要只更新應用模塊而遺漏插件資源。語言還包括繁體中文、日語和韓語；變更需保留語言狀態與回退語義。命令和校驗邏輯以倉庫 `package.json`、`scripts/i18n/` 及當前 CI 爲準。
 
 ## 本地 Windows 打包
 
-`scripts/package-local.ps1` 會構建應用殼、官方插件輸入、在線/離線便攜包及可選的 Inno Setup 安裝包。正式產物要求每個官方插件都有可複驗的簽名：可以傳入已經帶 `.sig` sidecar 的 `-PrebuiltPluginsDir`，或對本地模塊產物傳入 `-OfficialKeyId`、倉庫外的 `-PrivateKeyFile` 和可選的 `-SignatureToolJar`。產物默認寫入 `build/out/`。
+`scripts/package-local.ps1` 會構建應用殼、官方插件輸入、在線/離線便攜包及可選的 Inno Setup 安裝包。用於分發的產物要求每個官方插件都有可複驗的簽名：可以傳入已經帶 `.sig` sidecar 的 `-PrebuiltPluginsDir`，或對本地模塊產物傳入 `-OfficialKeyId`、倉庫外的 `-PrivateKeyFile` 和可選的 `-SignatureToolJar`。產物默認寫入 `build/out/`。
 
 ```powershell
 # 本機運行驗收：從當前源碼構建隔離的 unsigned 測試安裝器

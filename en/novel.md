@@ -1,6 +1,8 @@
 # Novel Download
 
-PixivDownloader supports downloading Pixiv novels in TXT / HTML / EPUB formats, plus novel series compilations.
+To save a novel or a series, enable the `novel` plugin and choose a novel source and TXT / HTML / EPUB format on the download page. This guide also covers reading, compilations, translation, and narration. Translation needs a configured translation plugin; AI narration needs configured AI / TTS plugins.
+
+The IDs below illustrate input syntax. Replace them with actual novels or series you can access.
 
 ---
 
@@ -8,7 +10,7 @@ PixivDownloader supports downloading Pixiv novels in TXT / HTML / EPUB formats, 
 
 ### Method 1: URL Batch Import
 
-1. Open `pixiv-batch.html` → switch to the "**🎨 Batch Import Single Artworks**" tab
+1. Open `pixiv-batch.html` → select "**🎨 Batch Import Single Artworks**" mode
 2. Paste a novel link:
    ```
    https://www.pixiv.net/novel/show.php?id=12345678
@@ -23,13 +25,13 @@ PixivDownloader supports downloading Pixiv novels in TXT / HTML / EPUB formats, 
 
 ### Method 2: Quick Fetch (Your Own Novels / Bookmarks)
 
-Open the "**⚡ Quick Fetch**" tab → click "My Bookmarks (Novels)" or "My Works (Novels)" and add to queue directly.
+Open "**⚡ Quick Fetch**" mode → click "My Bookmarks (Novels)" or "My Works (Novels)" and add to queue directly.
 
 ---
 
 ## Downloading a Novel Series
 
-1. Open `pixiv-batch.html` → switch to the "**📚 Series Mode**" tab
+1. Open `pixiv-batch.html` → select "**📚 Series Mode**"
 2. Paste a series link:
    ```
    https://www.pixiv.net/novel/series/123456
@@ -50,11 +52,11 @@ EPUB compilation features:
 - Embedded series cover image
 - Book metadata (description, tags, source link)
 
-?> EPUB format is recommended for reading — best chapter TOC and layout.
+?> Choose EPUB for a table of contents and cover, or TXT when you only need the text.
 
 ### Download Compilation Anytime from Series Page
 
-On the novel series page (`pixiv-series.html?type=novel&seriesId=...`), the top-right action area has a new "**Download Merged Volume**" button:
+On the novel series page (`pixiv-series.html?type=novel&seriesId=...`), the action area has a "**Download Merged Volume**" button:
 
 - Clicking opens a dialog to select the language: **Original**, or any translation language already available for this series;
 - Choosing a non-original language shows an inline warning: the compilation only uses the selected language for **already-translated** chapters, with **untranslated chapters falling back to original**; to get the full volume in the selected language, run "Translate Whole Series" first, then re-download;
@@ -80,7 +82,7 @@ After downloading, browse in the novel gallery:
 http://localhost:6999/pixiv-novel-gallery.html
 ```
 
-The gallery supports search by title, author, series, and tag, plus **full-text body search** (based on a local FTS5 index — you can search text content within novels).
+The gallery supports search by title, author, series, and tag, plus **full-text body search** (searching the body text of saved novels).
 
 ### Online Reading
 
@@ -98,7 +100,7 @@ Two voice engines:
 
 | Engine | Characteristics |
 |--------|----------------|
-| **Browser engine** (default) | Fully offline, instant, no server resources consumed; voice quality depends on system voice packages |
+| **Browser engine** (default) | Uses voices exposed by the browser; available voices and network requirements depend on the browser and system speech service |
 | **Online engine (Edge neural)** | Microsoft online TTS, natural quality, rich language support; requires network (via backend proxy) |
 
 Playback controls:
@@ -111,27 +113,43 @@ Reading progress is automatically saved — reopening the same novel continues f
 
 ---
 
-## AI Multi-Voice Narration (beta · admin only)
+## AI Multi-Voice Narration (Admin)
 
-> **This feature is currently beta — usable but not yet stable; synthesis failures or inconsistent timbre may occur.**
+Check the text model and TTS engine in AI Model settings first. For analysis failures, inspect the model response; for synthesis failures, check the selected engine and reference-voice settings.
 
-Click "**🎭 Multi-voice narration**" on the novel page to have an LLM attribute every sentence of the chapter to a speaker (narrator / individual characters); each character is synthesized line by line with a fixed voice profile and played continuously — different from the single-voice **Listen** above. Requires an LLM and a narration engine. **If either is not configured, this engine option won't appear under Listen.**
+Click "**🎭 Multi-voice narration**" on the novel page to have an LLM attribute every sentence of the chapter to a speaker (narrator / individual characters); each character is synthesized line by line with a fixed voice profile and played continuously — different from the single-voice **Listen** above. Configure and enable an OpenAI-compatible LLM under Text Model and a narration engine under TTS Model in the GUI AI Model settings. TTS options include local services such as VoxCPM and cloud providers. **If either is not configured, this engine option won't appear under Listen.**
 
 - **Line-by-line playback with follow-along**: sentences are synthesized and played in order with prefetching; the **paragraph of the current sentence is highlighted and auto-scrolled**, and the bar shows a "Speaker: sentence" subtitle.
 - **Narrator voice**: the settings dialog before the first analysis lets you pick a voice for this work's narrator (warm female / calm male / neutral, with preview); once confirmed the narrator voice is **locked** so the AI won't rewrite it, avoiding cross-chapter drift. If you don't pick one, the work's existing / default narrator is used (default is warm female).
 - **Cast & voices**: click "🎭" on the bar to open a panel listing each character's gender / age / English voice profile; you can **edit a character's voice and save** it (saving marks it "Locked" so the AI won't overwrite) and preview individually. Edited voices take effect on subsequent synthesis **immediately** without re-analysis.
 - **Character reference-voice cloning**: in the panel you can **generate a "standard voice" with one click** or **upload a real reference clip** (wav/mp3, with an optional transcript) for any character. Once a reference exists, that character's lines are synthesized by **cloning that reference's timbre** — more consistent across sentences and chapters while per-line emotion still applies; the reference can be previewed and deleted, and changing it automatically recomputes cached audio with the new voice. Cloning can be turned off or capped in the configuration.
 - **Voice conflicts**: when the text clearly contradicts a locked voice, the panel lists the conflict with **Adopt suggestion / Keep current / Rewrite** choices.
-- **Segment size**: same meaning as in AI translation — `0` (default) analyzes the whole chapter in one call (fullest context, most accurate attribution); a number batches by paragraph up to roughly that many characters (fewer tokens per call).
+- **Segment size**: same meaning as in AI translation — `0` (default) analyzes the whole chapter in one call (sharing the chapter context in one request); a number batches by paragraph up to roughly that many characters (limiting the text in each request).
 - The per-sentence attribution is **cached** so replays don't re-analyze; use "Re-analyze" in the settings to recompute. Very long text is rejected for one-shot analysis with a prompt to narrow the scope.
 
 ---
 
+## Translation engines (admin)
+
+Install and enable `translation`, choose an engine on the desktop Translation settings page, save, and restart the backend when prompted. The shared `novel-translation-contract` plugin is installed as a dependency of the novel and translation plugins. Manual and automatic translation use the selected engine.
+
+| Engine | Setup |
+| --- | --- |
+| AI model | Uses the model, base URL and credentials saved by `ai`. Local LLMs with an OpenAI-compatible endpoint use the existing configuration. |
+| Youdao | Requires an application ID and secret for the Youdao text translation API. A Youdao Dictionary login cannot replace these credentials. |
+| LibreTranslate | Enter the base URL of your own service and an API key if required. For offline use, install the service and language models first and check the required languages. The plugin does not download models or start the service. |
+
+Translate on a novel page and Translate Whole Series use this engine. Select body, title and description, and choose whether to overwrite or skip existing translations. Results stay in the novel database alongside the originals. Content-language selection, translated compilations and narration use these saved results.
+
+Youdao and LibreTranslate accept language codes such as `en`, `ja` and `zh-CN`; supported languages depend on the service. Requests split at paragraphs and at most 1,000 Unicode code points. A segment size of `0` uses this limit; a positive value can reduce it. Pixiv image, page and jump markers are preserved. These engines do not use or learn the AI glossary and translate titles separately from the body. The prompt, free-form language-name and glossary instructions below apply only to the AI engine.
+
+AI credentials remain with `ai`, Youdao and LibreTranslate credentials belong to `translation`, and speech credentials remain with `tts`. Ordinary narration does not require the translation plugin. Multi-voice analysis still uses AI, while speech synthesis uses TTS.
+
 ## AI Translation (Admin)
 
-Click "**AI Translation**" to the left of the "Listen" button on the novel reading page to translate the body into a specified language and save locally — view directly afterwards without re-translating.
+Click "**Translate**" to the left of the "Listen" button on the novel reading page to translate the body into a specified language and save locally — view directly afterwards without re-translating.
 
-> Requires configuring and enabling an LLM (OpenAI-compatible protocol) in the GUI "AI Model" config page under the "Text Model" tab. **If not configured, the "AI Translation" button won't appear on novel / series detail pages.**
+> Requires configuring and enabling an LLM (OpenAI-compatible protocol) in the GUI "AI Model" config page under the "Text Model" tab. **If not configured, the "Translate" button won't appear on novel / series detail pages.**
 
 Translation dialog:
 
@@ -141,20 +159,20 @@ Translation dialog:
 
 After confirming, a progress dialog appears: shows real-time elapsed time, with "Hide" and "Cancel" buttons at the bottom. "Hide" only closes the dialog while translation continues in the background — clicking "AI Translation" again while in progress re-shows the current progress; "Cancel" aborts the current request and discards frontend results (the backend may still write to the database and cannot be intercepted). After a chapter is successfully translated, if that novel belongs to a series, the language-variant compilation is automatically regenerated, consistent with the "Translate Whole Series" flow below.
 
-### Glossary (Ensuring Consistent Terminology)
+### Glossary (Reusing Terminology)
 
 To avoid proper nouns being translated differently across paragraphs / chapters, the translation dialog includes a "**Glossary**" option (below "Already translated to that language").
 
 - A glossary is a set of "**source → target language translation**" mappings. The default is the work's glossary: **novels in a series share the same glossary** (default named after the series), **standalone novels each have their own glossary** (default named after the novel name); you can also choose "Don't use", pick another existing glossary, or "+ New glossary."
-- With a glossary selected, its translations are sent along with the translation request for the AI to follow, ensuring consistent terminology.
-- When the AI encounters new proper nouns not yet in the glossary, it reports back the translations and they are **automatically merged into the selected glossary** for reuse by subsequent segments, subsequent chapters, and future retranslations — the glossary grows as you translate, becoming more and more consistent.
+- With a glossary selected, its translations are sent along with the translation request for the AI to follow. Review the output: a model can still depart from the glossary.
+- When the AI encounters new proper nouns not yet in the glossary, it reports back the translations and they are **automatically merged into the selected glossary** for reuse by subsequent segments, subsequent chapters, and future retranslations.
 - Click "**Edit**" next to the option to open three dialogs in sequence: first rename the glossary and select or add target languages, then for each selected language use "**source ↔ translation**" paired input boxes to add / remove entries.
 
-?> When translating an entire series, all chapters share the same glossary, and newly discovered translations accumulate in real time for subsequent chapters, keeping the whole series's terminology consistent.
+?> When translating an entire series, all chapters share the same glossary, and newly discovered translations accumulate in real time for subsequent chapters, so later chapters can reuse the same terms.
 
 ### Switching Content Language
 
-The novel reading page and series page have a new "**Content Language**" dropdown to switch between original and existing translation languages for viewing the body. This switch is **independent of the UI language** (it only changes the body display, not the interface) and is remembered; "Listen" will also read the currently selected language's translation.
+The novel reading page and series page have a "**Content Language**" dropdown to switch between original and existing translation languages for viewing the body. This switch is **independent of the UI language** (it only changes the body display, not the interface) and is remembered; "Listen" will also read the currently selected language's translation.
 
 When switching to a translation language, titles also switch to the translated versions:
 
@@ -166,7 +184,7 @@ Chapters / series names not yet translated fall back to the original title.
 
 **Title translation context strategy:**
 
-- Chapter titles are translated in the **same AI request** as the chapter body (shared context + same glossary), ensuring character names / location names / setting terms in the title use the same translation as the body.
+- Chapter titles are translated in the **same AI request** as the chapter body (shared context + same glossary), giving title names and terms the same translation context as the body.
 - Series name translation is a standalone request (no "body" to attach), but the request carries: the series's already-translated chapter title pairs (original → translated) in the same target language as naming / style samples, plus the currently selected glossary, keeping the series name consistent with chapter title terminology.
 
 ### Translate Whole Series
@@ -191,11 +209,17 @@ Check "**Auto-translate newly downloaded novels**" under the "**Novel Settings**
 
 ## Deleting Novels (Admin)
 
-Like the artwork gallery, admins can delete downloaded novels: click the red "**Delete**" button on the novel reading page, or use "**Batch Management**" in the novel gallery to multi-select and batch-delete via the "Actions" menu. Deletion removes the local body / cover files and derived data; files are **unrecoverable**. Like artworks, deleted novels keep a [deletion mark](/en/gallery?id=deleting-artworks) — invisible to the gallery, but "skip downloaded" will skip them as "downloaded before, but deleted" unless "Allow re-downloading deleted works" is checked in download settings.
+Like the artwork gallery, admins can delete downloaded novels: click the red "**Delete**" button on the novel reading page, or use "**Batch Management**" in the novel gallery to multi-select and batch-delete via the "Actions" menu. For files managed by this application, deletion removes body / cover files and derived data and cannot be undone in the UI. Read-only source files registered through [external download import](pixiv-batch-downloader-import.md) remain on disk. Like artworks, deleted novels keep a [deletion mark](/en/gallery?id=deleting-artworks) — invisible to the gallery, but "skip downloaded" will skip them as "downloaded before, but deleted" unless "Allow re-downloading deleted works" is checked in download settings.
 
 The novel gallery's batch management is identical to the artwork gallery: supports "Select all results" for whole-filter selection, and an "Actions" menu with **Export** (packaging options, archive format, optional delete-after-export; packaged in background with progress tracked in the "Tasks" panel and downloadable), **Add to collection**, and **Delete**. See [Artwork Gallery](gallery.md) for details.
 
 ---
+
+## Check the Download and Reading Results
+
+After the queue completes, open the saved TXT / HTML / EPUB and check its text and chapter order. Then open the same work in the novel gallery. If files exist but the gallery has no record, check that the database and download directory belong to the same instance; deleting the database does not reconstruct the library.
+
+If translation or narration controls are missing, check your admin session, enabled plugins, and model settings. Check download and translation results separately: a failed translation does not invalidate the downloaded original.
 
 ## Related Pages
 

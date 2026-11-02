@@ -1,6 +1,6 @@
 # Search Mode
 
-"Search Mode" has a built-in Pixiv search proxy. Search by keyword, preview thumbnails, then add to the download queue — no need to open the Pixiv website.
+Enter keywords in **Search Mode** to search Pixiv through the backend. Check the results and filters before adding selected works to the queue. This searches Pixiv, not your local gallery.
 
 !> Search Mode **requires a saved Pixiv cookie** (containing `PHPSESSID`). Without one, the search button is unavailable.
 
@@ -39,7 +39,7 @@ In "Batch Fetch" mode, setting the "End page" to `-1` means "keep paging back th
 | **Newest** (date_d) | Sort by publication time, descending | No |
 | **Popular** (popular_d) | Sort by popularity | **Yes** |
 
-!> "Popular" sorting requires a Pixiv Premium member account's cookie; otherwise, the results are identical to "Newest."
+Popular sorting depends on your Pixiv account permissions. Use Newest when your account lacks access; do not assume the returned results form a complete popularity ranking.
 
 ---
 
@@ -59,11 +59,15 @@ In "Batch Fetch" mode, setting the "End page" to `-1` means "keep paging back th
 The "Extra Filters" card **live-filters the preview page** after search results load, so you can quickly find matching works without paging through many results:
 
 - Exclude AI-generated
-- Minimum bookmark count (show only high-quality works)
+- Minimum bookmark count
 - Tag filtering
 - Page count range
 
 ---
+
+## Check search and download results
+
+Start with one keyword and a small page range before expanding the search. For empty results, check the keyword, content rating, account permissions and extra filters. For errors, retain the message and check the cookie and backend proxy. A queue item skipped by a filter does not mean the search failed.
 
 ## Save as Scheduled Task
 

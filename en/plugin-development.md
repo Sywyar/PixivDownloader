@@ -1,6 +1,16 @@
 # Third-party Plugin SDK
 
-This guide is for developers who want to build, debug, and publish external PixivDownloader plugins. The safest starting point is to copy an official template instead of extracting implementation classes from the application shell or an official plugin.
+Start with an independent project in the SDK development package, build and run the example, then add your page, download type, or business logic. You need JDK 17, Node.js, and the build tools and runtime manifest supplied by the selected SDK package.
+
+| Task | Start here |
+| --- | --- |
+| Build a first plugin | [Choose a template](#start-from-a-template), then verify [Run / Debug](#local-development) |
+| Add a download type or gallery | [Download workflow](#complete-workflow-for-adding-a-download-type), [independent gallery](#add-a-plugin-owned-gallery) |
+| Store configuration, credentials, or data | [Ownership and storage](#configuration-credentials-and-files) |
+| Update an existing project | [SDK upgrade](#maintain-an-external-project-and-upgrade-the-sdk) |
+| Distribute a plugin | [Market content](#submit-marketplace-content), [signing](#signing-and-publishing) |
+
+Replace example `SDK_VERSION`, paths, IDs, digests, and signatures. Java and JavaScript fragments illustrate interfaces within the template; add the imports and business implementation before running them. Use the selected release's Javadoc and templates to check API availability.
 
 Relevant source code:
 
@@ -35,12 +45,6 @@ The host still validates structure, size, paths, versions, dependencies, SHA-256
 
 ## SDK boundaries
 
-When delivered plugin content changes, raise `plugin.version` above the published version. The version change may merge before publication, and the same unpublished version may continue to receive changes. Raise `plugin.requires` and the plugin version when the plugin uses new SDK features; an SDK update alone does not require every plugin to change versions. The official PR gate checks delivered-content changes against published versions. Every Quality Gate build checks compiled type references, member references and callback overrides against the declared minimum SDK. Publication reruns do not repeat the source-version decision. Reflection, inlined constants and behavioral contracts still require code review.
-
-Plugin publication does not require the source tree's SDK to be public. A stable application Release can publish a new stable SDK; manual stable SDK publication requires `-f` and still cannot overwrite immutable SDK releases. A Beta application can reuse a public stable SDK but cannot publish a new one. Manual plugin publication keeps `-f` as a repair option for overwriting same-version assets; application Release does not pass it automatically.
-
-Version checks cover plugin sources, resources, descriptors, private dependencies, published documents, shared Maven build configuration and referenced build files. Test-only configuration does not require a version increase. The gate checks that versions increase; choosing major, minor or patch still requires review of the public contract. The official market's legacy-client set is fixed to the stable SDK releases available on 2026-10-07: `1.0.0` and `1.1.0`. It is maintained in `_legacySdkVersions` in `scripts/market-curation.json` and does not expand automatically. See [plugin management](/en/plugin-management#update-notices-and-version-history) for channel and history-retention rules.
-
 The thin `pixivdownload-sdk` entry uses standard POM dependencies to expose the three API modules and host-provided compile dependencies. The API modules and BOM remain available separately. `sdk-info` is the single source of truth for the complete SDK version, prerelease identity, and compatibility rules, independently of the application release version. `plugin-api` provides entry points, contributions, host control surfaces, and owner-scoped storage capabilities. `core-api` provides stable business-semantic ports, value models, and neutral algorithms. Keep dependencies pointing in this direction:
 
 ```text
@@ -67,7 +71,10 @@ Plugins declare capabilities through descriptors and contributions. The host reg
 | `id`, `displayName`, `description`, `displayNamespace` | Plugin identity and i18n display keys |
 | `iconKey`, `colorToken`, `kind` | Controlled icon, color, and category tokens |
 | `start`, `stop` | Lifecycle of resources directly owned by the plugin; `stop` must be idempotent |
-| `schema` | Shared-schema declarations coordinated by the host and official plugins; not a third-party private-persistence entry point |
+| `schema` | Managed tables, additive columns, and path-column declarations for stable host collaboration; not ordinary private storage |
+| `sharedMainStorage` | Requests public host logical storage domains, never another owner's tables |
+| `privateSchema` | Declares all authoritative private tables for the current owner |
+| `privateStorageMigrations` | Ordered private-data conversions used at startup and during offline migration |
 | `routes` | Access policy for pages, APIs, and static paths |
 | `staticResources` | Maps plugin classpath resources to URLs |
 | `i18n` | Plugin-owned Web i18n namespace |
@@ -90,7 +97,7 @@ The application shell exposes business state, configuration semantics, and actio
 
 Feature plugins contribute configuration fields, groups, sections, actions, presets, and other explicit business semantics through pure-data contracts such as `GuiConfigContribution`. The host merges, validates, and persists them under the trusted owner, and each GUI provider presents them using its own UI implementation. Feature plugins must not return Swing or Compose components or directly own host top-level windows; the host must not choose page structure by provider id.
 
-The official `gui-swing` provider is default-installed and is the default. `gui-compose` is installed on demand. Both use `process-restart`, so switching, installing, upgrading, disabling, or removing one requires a full application restart. Gradle Wrapper performs the Compose plugin's Kotlin / Compose compilation and JAR-with-lib production; the Maven reactor invokes Gradle and connects its artifact to the normal official build, signing, and distribution pipeline.
+Official distributions include both `gui-compose` and `gui-swing`, with Compose as the default and Swing as fallback. Both use `process-restart`, so switching, installing, upgrading, disabling, or removing one requires a full application restart. Gradle Wrapper performs the Compose plugin's Kotlin / Compose compilation and JAR-with-lib production; the Maven reactor invokes Gradle and connects its artifact to the normal official build, signing, and distribution pipeline.
 
 ## Start from a template
 
@@ -152,7 +159,7 @@ For the download-type template, replace at least the following values together:
 | `com.example.pixivdownload.downloadtype` | Java package and matching directories |
 | `ExampleDownload` | Java type-name prefix |
 | `0.1.0` | Artifact version and `plugin.version` |
-| `plugin.requires=1.0` | Compatible SDK major.minor |
+| `plugin.requires=1.3` | Compatible SDK major.minor |
 | `plugin.provider=Example Developer` | Publisher name |
 
 Also update routes, static paths, frontend constants, private table names, tests, and both-language i18n text. Changing only `plugin.properties` makes the descriptor, feature, and runtime publication identities disagree, so the host will reject the plugin.
@@ -161,12 +168,12 @@ Also update routes, static paths, frontend constants, private table names, tests
 
 ### `plugin.properties`
 
-The file must be at the root of the JAR. Basic example:
+The file must be at the JAR root. This example matches the current source template's SDK 1.3 requirement. With another development package, align both the compile version and `plugin.requires` with its actual minimum contract; changing only the declaration does not establish compatibility.
 
 ```properties
 plugin.id=example-download
 plugin.version=0.1.0
-plugin.requires=1.0
+plugin.requires=1.3
 plugin.class=com.example.pixivdownload.downloadtype.ExampleDownloadPf4jPlugin
 plugin.provider=Example Developer
 plugin.description=Example download type.
@@ -191,11 +198,12 @@ Field rules:
 | `plugin.dependencies` | Optional PF4J plugin dependency expression |
 | `pixiv.*` display fields | i18n namespace/key and controlled presentation tokens |
 | `pixiv.replaces` | Optional identity of a replaced plugin |
+| `pixiv.execution-mode` | Required: `declarative-process` or `host-process-full-trust`. Missing, blank, or unsupported values reject the package |
 | `pixiv.lifecycle-policy` | Case-sensitive `hot-reload`, `backend-restart`, or `process-restart`; defaults to `hot-reload` |
 
 New SDK prereleases use `alpha.N`, `beta.N`, or `rc.N`, with a positive sequence and no leading zeros. Historical compact suffixes retain their original release identities. SDK ordering compares channels and numeric sequences: for example, `rc2 < rc.10`, while `rc2` and `rc.2` have equal priority and cannot be republished by changing spelling. Dependency coordinates, tags, download paths, and runtime manifests must exactly match the selected Release. Use older SDK tools according to their bundled instructions; support for the new spelling is delivered in a new development package.
 
-SDK RC versions are candidates produced before the first stable baseline. Stable `1.0.0` establishes the major-1 public API baseline from validated SDK artifacts and is published first. Application `v1.14.0` then pins and validates the published SDK `1.0.0` before the host is released. Stable compatibility is `requiredMajor == hostMajor && requiredMinor <= hostMinor`; PATCH does not affect admission. Prerelease development packages require the complete SDK version to match. After that stable baseline, raise MAJOR for breaking contract changes, MINOR for backward-compatible additions, and PATCH for compatible fixes.
+Stable compatibility is `requiredMajor == hostMajor && requiredMinor <= hostMinor`; PATCH does not affect admission. Prerelease development packages require the complete SDK version to match. Raise MAJOR for breaking contract changes, MINOR for backward-compatible additions, and PATCH for compatible fixes.
 
 ### Reusing the PostHog browser client
 
@@ -517,6 +525,8 @@ A dynamic slot module mounts through host `PixivVue.mountUiSlot` and uses only o
 
 Scheduled tasks are optional. The feature contributes only pure-data `ScheduledSourceDescriptor` values; provide `ScheduledSourceExecutor` and `ScheduledWorkExecutor` as Beans in the plugin child context.
 
+The host owns the scheduling tick, persistent state, concurrency controls, management API and shutdown drain. Sources and work executors publish and withdraw with their own plugins, without a download-workbench dependency. Credential management adapters use `plugin.api.schedule.management.ScheduledTaskCredentials`, not the host implementation `ScheduleService`. A schedule management page can contribute a desktop entry through `NavigationPlacements.DESKTOP_SCHEDULE_MANAGE`.
+
 The browser source module is responsible for:
 
 - `capture`: serialize the current acquisition input into a plugin-owned, schema/versioned definition;
@@ -566,6 +576,10 @@ Keep these boundaries explicit:
 
 Douyin's `/pixiv-douyin-gallery.html`, detail page, `/api/douyin/gallery/**`, and `gallery.type-switch` contribution form the complete SDK example for this pattern. Third-party projects should still copy the independent gallery in `download-type-plugin` as their baseline.
 
+## Gallery navigation slots
+
+Plugins declare entries through `NavigationContribution.placements`. `gallery.sidebar` contains main pages such as plugins, downloads and the gallery; `gallery.sidebar.tools` contains utilities such as invitation management, statistics and duplicates. Novel galleries use `novel.sidebar` and `novel.sidebar.tools`. Each group has its own ordering and request-identity filtering. Withdrawing a contribution removes its entry; empty groups are hidden. Pages declare `data-nav-slot` without classifying plugin IDs.
+
 ## Configuration, credentials, and files
 
 ### Three configuration owners
@@ -607,7 +621,24 @@ Path state = runtimePathProvider.stateDirectory();
 Path data = runtimePathProvider.dataDirectory();
 ```
 
-Use `state/{pluginId}` for rebuildable runtime state and `data/{pluginId}` for plugin-managed data and caches. Do not write artwork files into either directory. Inject `PluginDataSource` when persistence is required. It is a host-lifecycle-managed `javax.sql.DataSource` connected only to `data/{pluginId}/plugin.db`. The plugin owns that private SQLite schema and its migrations. It must not close or unwrap the data source or use it to reach the host database.
+Use `state/{pluginId}` for rebuildable runtime state and `data/{pluginId}` for plugin-managed data and caches. Do not place artwork files there. Private databases use the selected provider; a data directory does not imply a fixed database file.
+
+#### Private Databases and Main Storage Domains
+
+For switchable database support, inject owner-bound `PluginDatabase`, declare every authoritative private table with `privateSchema()`, and declare ordered data conversions with `privateStorageMigrations()`. Before starting the child context, the provider creates tables, adds safe columns, and validates structure. Offline migration uses the same declarations; an empty declaration cannot discard an existing private database.
+
+| Entry | Contract |
+| --- | --- |
+| `PluginDatabase.read(work)` | Same-thread read-only callback; rejects writes. The session expires when the callback returns; return materialized results only |
+| `PluginDatabase.transaction(work)` | Atomic writes to the current owner's private database, separate from the host Spring transaction. Any failure leaves rollback as the only outcome |
+| `available()` | Current availability, not proof of an empty database or successful write |
+| `databaseId()` | Diagnostic identity; do not branch on it to select a SQL dialect |
+
+Use neutral relational operations; the provider owns dialect, connections, and credentials. Missing or failed capability throws `SQLException` with SQLState `08003`. Queries must report unavailability, and writes must not continue side effects. A bundled driver or SQLite-specific SQL is not automatically translated.
+
+`PluginMainDatabase` is the restricted collaboration entry for the main database. It exposes only the owner's managed main tables and public host domains explicitly requested through `sharedMainStorage()`. It cannot access another owner's tables or private database; unknown domains reject assembly. Its `read` / `transaction` callbacks are synchronous and same-thread. Writes join the host transaction, allowing a joint commit with file publication. A missing database, closed context, or invalid declaration rejects operations; any failure makes the transaction uncommittable.
+
+Legacy `PluginDataSource` remains SQLite-specific at `data/{owner}/plugin.db`. Selecting another dialect returns SQLState `0A000`; it never creates a separate SQLite fallback. Its consumers own JDBC compatibility and must not close or unwrap it or access the main database. Cross-engine migration also needs complete private-schema and conversion declarations. Check the migration report, not just package-install success.
 
 By default, inherit the host artwork root from `DownloadSettings.getRootFolder()` and let the plugin manage its own subdirectory:
 
@@ -797,7 +828,7 @@ After stopping, delete the project's `.dev/` to reset development data, includin
 
 Offline use requires both runtime preparation and cached build-tool dependencies. Maven uses `-o`; Gradle uses `--offline`. Incomplete caches fail. To update the SDK, use the new development package and matching manifest, then move your sources into it.
 
-On Windows, IntelliJ Application launch and source breakpoints have been tested, along with startup, pages, and normal shutdown for both Maven examples in the host process. The VS Code and Eclipse GUI flows have not been tested. During packaged validation, deep directories can still exceed Windows' working-directory limit when creating a worker; move to a shorter path if error 267 occurs. Other platforms declared by the runtime require verification on their own operating systems.
+IDE import, compilation, and a complete run are separate checks. Verify startup, source breakpoints, and normal shutdown in the IDE you use; Maven success does not validate VS Code or Eclipse GUI operation. During packaged validation, deep directories can still exceed Windows' working-directory limit when creating a worker; move to a shorter path if error 267 occurs. Other platforms declared by the runtime require verification on their own operating systems.
 
 Gradle / sbt examples use `runPlugin` and `debugPlugin` to call the same tools. Gradle stops with `stopPlugin`. An sbt run occupies the build process, so stop it from another terminal in the example directory with `java -jar ../../tools/sdk-tools.jar stop .`.
 
@@ -807,7 +838,7 @@ Official plugins in the repository use a dedicated development mode that compile
 mvn -pl pixivdownload-official-plugins -am -Pdev-mode process-classes -Dexec.skip=true
 ```
 
-Use this entry point when contributing to an official plugin or checking the Douyin example. It is not an auto-discovery mechanism for an external third-party project. IDE users can use the committed IntelliJ IDEA, VS Code, or Eclipse `Developer Mode` shared configuration.
+Use this entry point for official plugins in the main repository. Douyin uses its independent repository and SDK project; this mode does not discover external projects automatically. IDE users can use the committed IntelliJ IDEA, VS Code, or Eclipse `Developer Mode` shared configuration.
 
 While debugging, check that:
 
@@ -846,7 +877,7 @@ The publisher signing CLI is in `pixivdownload-plugin-signature` and requires on
 
 ```text
 ./mvnw -pl pixivdownload-plugin-signature package
-java -cp <signature-tool.jar> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <command>
+java -cp "signature-tool.jar" top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <command>
 ```
 
 - `keygen --directory <new-directory>` creates `private-key.pem` (PKCS#8) and its matching `public-key.pem` (SPKI), with access to the directory and private key restricted to the current user. Choose a location outside source repositories and temporary directories, and back up both files. The command never replaces an existing directory.
@@ -857,31 +888,31 @@ Public key export and community operation signing refuse to overwrite output fil
 
 ### Generate an artifact signature
 
-The private key must be an Ed25519 PKCS#8 PEM stored outside both the repository and build output. Repository configuration uses a Base64-encoded X.509 SubjectPublicKeyInfo public key. After building the signature tool, invoke its CLI main class on the classpath:
+The filenames below are placeholders: replace them with actual paths and retain quoting. The private key must be an Ed25519 PKCS#8 PEM stored outside both the repository and build output. Repository configuration uses a Base64-encoded X.509 SubjectPublicKeyInfo public key. After building the signature tool, invoke its CLI main class on the classpath:
 
 ```powershell
-java -cp <signature-tool.jar> `
+java -cp "signature-tool.jar" `
   top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool `
   artifact `
-  --artifact <plugin.jar> `
+  --artifact "plugin.jar" `
   --plugin-id example-download `
   --version 0.1.0 `
   --key-id example-2026 `
-  --private-key <ed25519-pkcs8.pem> `
-  --out <plugin.jar.sig>
+  --private-key "ed25519-pkcs8.pem" `
+  --out "plugin.jar.sig"
 ```
 
 The output is structured JSON containing `formatVersion`, `algorithm=Ed25519`, `keyId`, and `value`. Also record the exact artifact byte count and SHA-256:
 
 ```powershell
-$artifact = Get-Item -LiteralPath <plugin.jar>
+$artifact = Get-Item -LiteralPath "plugin.jar"
 $artifact.Length
 (Get-FileHash -Algorithm SHA256 -LiteralPath $artifact.FullName).Hash.ToLowerInvariant()
 ```
 
 ### Catalog manifest
 
-Repository manifest schema version 1 has top-level `schemaVersion`, `generatedTime`, and `entries` fields. Minimal publishable entry:
+Manifest schema version 1 has top-level `schemaVersion`, `generatedTime`, and `entries`. This is a structural example: replace domains, size, SHA-256, signature, and timestamps with values for the same actual artifact before publishing:
 
 ```json
 {
@@ -924,7 +955,7 @@ Repository manifest schema version 1 has top-level `schemaVersion`, `generatedTi
             "value": "BASE64_SIGNATURE"
           },
           "signatureUrl": "https://plugins.example.com/example-download-0.1.0.jar.sig",
-          "requiredSdk": "1.0",
+          "requiredSdk": "1.3",
           "dependencies": [],
           "releasedTime": "2026-08-10T00:00:00Z",
           "changeNotes": ["Initial release"],
@@ -942,14 +973,14 @@ Repository manifest schema version 1 has top-level `schemaVersion`, `generatedTi
 Generate a detached signature over the raw manifest bytes:
 
 ```powershell
-java -cp <signature-tool.jar> `
+java -cp "signature-tool.jar" `
   top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool `
   manifest `
-  --manifest <manifest.json> `
+  --manifest "manifest.json" `
   --repository-id example `
   --key-id example-2026 `
-  --private-key <ed25519-pkcs8.pem> `
-  --out <manifest.json.sig>
+  --private-key "ed25519-pkcs8.pem" `
+  --out "manifest.json.sig"
 ```
 
 Publish `manifest.json`, `manifest.json.sig` at the same URL plus `.sig`, the artifact, and optionally the detached artifact signature. Do not format or rewrite the manifest after signing it.
@@ -957,7 +988,7 @@ Publish `manifest.json`, `manifest.json.sig` at the same URL plus `.sig`, the ar
 Verification commands:
 
 ```text
-verify-manifest --manifest <manifest.json> --signature <manifest.json.sig> --repository-id <id> [--policy official|custom]
+verify-manifest --manifest "manifest.json" --signature "manifest.json.sig" --repository-id <id> [--policy official|custom]
 verify-artifact --artifact <jar> --signature <sig.json> --plugin-id <id> --version <version> --expected-size <bytes> --sha256 <hex> [--policy official|custom]
 ```
 
@@ -994,6 +1025,8 @@ Publish a strict UTF-8 JSON `repository.json` no larger than 64 KiB. Enter its p
   }]
 }
 ```
+
+`trustedKeys` must contain 1 to 4 Ed25519 SPKI public-key entries with distinct `keyId` values.
 
 Do not publish or rely on `repository.json.sig` for first import: a new key signing the descriptor that introduces that same key is only self-attestation. The application displays the descriptor digest, publisher text, every network host, and each full `SHA-256(SPKI DER)` fingerprint. Confirmation re-fetches the descriptor and requires byte-for-byte digest equality; the saved configuration becomes active after restart. A custom repository does not inherit the official trust root. `official`, `configured`, and `community` are reserved repository IDs.
 
@@ -1049,6 +1082,14 @@ Before submission:
 4. In the PR, explain motivation, stable boundaries, failure/absence behavior, and the exact validation commands run.
 5. Submit code, templates, and core development documents to `master` through a PR. The online site lives on the independent `gh-pages` branch and is normally committed and pushed directly from its dedicated worktree.
 
+### Version and Release Checks in the Official Repository
+
+When delivered plugin content changes, raise `plugin.version` above the published version. The version change may merge before publication, and the same unpublished version may continue to receive changes. Raise `plugin.requires` and the plugin version when the plugin uses new SDK features; an SDK update alone does not require every plugin to change versions. The official PR gate checks delivered-content changes against published versions. Every Quality Gate build checks compiled type references, member references and callback overrides against the declared minimum SDK. Publication reruns do not repeat the source-version decision. Reflection, inlined constants and behavioral contracts still require code review.
+
+Plugin publication does not require the source tree's SDK to be public. A stable application Release can publish a new stable SDK; manual stable SDK publication requires `-f` and still cannot overwrite immutable SDK releases. A Beta application can reuse a public stable SDK but cannot publish a new one. Manual plugin publication keeps `-f` as a repair option for overwriting same-version assets; application Release does not pass it automatically.
+
+Version checks cover plugin sources, resources, descriptors, private dependencies, published documents, shared Maven build configuration and referenced build files. Test-only configuration does not require a version increase. The gate checks that versions increase; choosing major, minor or patch still requires review of the public contract. The official market's legacy-client set is fixed to the stable SDK releases available on 2026-10-07: `1.0.0` and `1.1.0`. It is maintained in `_legacySdkVersions` in `scripts/market-curation.json` and does not expand automatically. See [plugin management](/en/plugin-management#update-notices-and-version-history) for channel and history-retention rules.
+
 ## Pre-release checklist
 
 - [ ] Declare one provided `pixivdownload-sdk` dependency or a valid existing BOM setup; exclude host-provided classes from the plugin
@@ -1060,11 +1101,7 @@ Before submission:
 - [ ] Owner identity comes from `RequestOwnerIdentityResolver`, and `workKey` remains an opaque string
 - [ ] Asynchronous queues, tasks, clients, executors, and schedulers can genuinely quiesce/drain/close
 - [ ] The plugin owns its gallery page/API/static/i18n and registers only its own switch entry in `gallery.type-switch`
-- [ ] Configuration, credentials, state/data, `PluginDataSource`, and artwork directories follow owner and path boundaries
+- [ ] Configuration, credentials, state/data, `PluginDatabase`, `PluginMainDatabase`, and artwork directories follow owner and path boundaries; any legacy `PluginDataSource` use respects its SQLite-only contract
 - [ ] `mvn clean verify`, frontend behavior tests, and JAR structure checks pass
 - [ ] Published artifact size, SHA-256, signature, and manifest refer to exactly the same bytes
 - [ ] The private key is absent from source, build output, logs, plugin packages, and public repository directories
-
-## Gallery navigation slots
-
-Plugins declare entries through `NavigationContribution.placements`. `gallery.sidebar` contains main pages such as plugins, downloads and the gallery; `gallery.sidebar.tools` contains utilities such as invitation management, statistics and duplicates. Novel galleries use `novel.sidebar` and `novel.sidebar.tools`. Each group has its own ordering and request-identity filtering. Withdrawing a contribution removes its entry; empty groups are hidden. Pages declare `data-nav-slot` without classifying plugin IDs.

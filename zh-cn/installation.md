@@ -1,334 +1,133 @@
-﻿# 安装指南
+﻿# 安装与启动
 
-## 环境要求
+从 [Releases](https://github.com/Sywyar/PixivDownloader/releases) 选择与环境匹配的发行包。下方文件名中的 `*` 或 `x.x.x` 表示版本号；命令中的 `APP.jar` 请替换为实际主程序 JAR 名称，并在完整解压目录内执行。
 
-| 依赖 | 最低版本 | 说明 |
-|------|----------|------|
-| **Java** | 17+ | Java 标准包 / 离线全量包运行必需；Windows 安装包已内置 JRE |
-| **操作系统** | Windows / macOS / Linux | 跨平台支持 |
-| **Tampermonkey** | 最新版 | 如需使用油猴脚本 |
-| **ffmpeg** | 任意 | Ugoira 动图转 WebP 所需（可选） |
+| 使用场景 | 发行包 | 额外准备 |
+| --- | --- | --- |
+| Windows x64 桌面 | `*-win-x64-setup.exe` | 内置 JRE；按需安装 FFmpeg |
+| Windows / Linux / macOS 运行 Java | `*-java.zip` | Java 17+；按需安装 FFmpeg |
+| 预置可选数据库、导入与验证码等官方插件 | `*-full-offline.zip` | Java 17+；按需安装 FFmpeg |
+| Docker 常驻服务 | 使用仓库 `Dockerfile` 与完整 Java 分发目录构建 | Docker Engine、Compose、可写挂载目录 |
 
----
+Java 标准包与 Windows 安装包预置默认官方插件集合；离线全量包额外包含 `database-postgresql`、`pixiv-batch-downloader-import` 等按需官方插件。两种 Java 包均不含 JRE、FFmpeg 或第三方 `douyin` 插件；“离线全量”指预置官方可选插件，访问 Pixiv、在线 AI 或在线 TTS 仍需网络。
 
-## 方式一：Java 标准包 / 离线全量包（跨平台）
+## 方式一：Java 标准包 / 离线全量包
 
-### 1. 安装 Java 17+
+1. 安装 Java 17 或更高版本（Windows 可从 [Adoptium](https://adoptium.net/) 下载，macOS 可用 `brew install openjdk@17`，Debian/Ubuntu 可用 `sudo apt install openjdk-17-jdk`，Fedora 可用 `sudo dnf install java-17-openjdk`），并验证版本：
 
-- **Windows**: 从 [Adoptium](https://adoptium.net/) 下载安装
-- **macOS**: `brew install openjdk@17`
-- **Linux**: `sudo apt install openjdk-17-jdk`（Debian/Ubuntu）或 `sudo dnf install java-17-openjdk`（Fedora）
+   ```bash
+   java -version
+   ```
 
-验证安装：
+2. 下载 `PixivDownload-*-java.zip` 或 `PixivDownload-*-full-offline.zip` 并**完整解压**。必须保留同目录的启动脚本与 `plugins/`，程序启动时从工作目录的 `plugins/` 加载外置插件。
+
+   ?> 单独的 `PixivDownload-*.jar` 是不含外置插件的核心壳构建输入，并非普通用户发行包；直接运行不会预置下载工作台或数据库插件。
+
+3. 启动程序：Windows 执行 `run.bat`，Linux / macOS 在解压目录执行 `sh run.sh`，或手动运行：
+
+   ```text
+   java -Dfile.encoding=UTF-8 -jar APP.jar
+   ```
+
+   启动脚本已内置 `-Dfile.encoding=UTF-8`；手动启动时请保留该参数，避免中文 Windows 控制台乱码。
+
+4. 按[首次配置](/zh-cn/first-setup)创建管理员账号并配置代理。
+
+### 无桌面服务器（`--no-gui`）
+
+服务器上没有桌面引导，且 `setup.html` 仅允许本机访问；未初始化直接以 `--no-gui` 启动会以退出码 `78` 停止。首次启动前先在同目录执行 CLI 初始化：
+
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --setup
+java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui
+```
+
+需要在自动化脚本中非交互初始化时，可显式传入参数（请将密码和代理替换为实际值；命令行密码会留在 Shell 历史或进程列表中，日常操作优先使用交互模式）：
+
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --setup --username=admin --password=REPLACE_WITH_A_UNIQUE_PASSWORD --mode=solo --proxy-enabled=true --proxy-host=127.0.0.1 --proxy-port=7890
+```
+
+无需代理时改传 `--proxy-enabled=false`。Linux / macOS 后台运行示例：
 
 ```bash
-java -version
-# 应输出类似：openjdk version "17.0.x" ...
+nohup java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui > app.log 2>&1 &
 ```
 
-### 2. 下载并解压
+后端代理适用于采用宿主或任务路由的请求（Pixiv 下载、在线更新、FFmpeg 下载和部分在线 TTS）；浏览器直连、SMTP 与数据库连接使用各自路径，详见[网络访问与第三方服务](/zh-cn/network-access)。
 
-从 [Releases](https://github.com/Sywyar/PixivDownloader/releases) 下载：
+## 方式二：Windows 安装包
 
-- `PixivDownload-*-java.zip` — Java 标准包，与 Windows 安装包的插件集合一致（不含 Douyin）
-- `PixivDownload-*-full-offline.zip` — 离线全量包，与 Java 标准包的插件集合一致（不含 Douyin）
+1. 运行 `PixivDownload-x.x.x-win-x64-setup.exe`，选择安装语言（支持简中、繁中、英、日、韩）与安装目录。
+2. 按需勾选「下载并安装 FFmpeg」。普通静态图片无需 FFmpeg，安装后也可在桌面「状态」页下载。
+3. 完成安装后启动程序，或从开始菜单、桌面快捷方式启动。
 
-下载后必须**完整解压**，不要只提取其中的 JAR：启动脚本与 `plugins/` 目录缺一不可，程序启动时会从工作目录的 `plugins/` 加载官方外置插件。
+安装前若检测到 `PixivDownload.exe` 仍在运行，安装器会提示先关闭后重试。再次运行安装器可进入修复、更改组件或卸载。安装器、已安装应用和便携启动器默认请求管理员权限；宿主实际以高权限运行时，`host-process-full-trust` 插件会继承同等权限，插件管理页会持续提示该状态。
 
-?> 单独的 `PixivDownload-*.jar` 是核心壳 JAR，不携带必需的下载工作台插件，只作为内部构建输入、不作为普通用户附件；直接运行它会进入恢复 / 修复模式。
+## 方式三：Docker 部署
 
-### 3. 启动
+仓库 `Dockerfile` 使用已签名的完整 Java 分发目录构建镜像（镜像内含 Java 17、FFmpeg 和 curl）。
 
-Windows 上执行 `run.bat`；Linux / macOS 在解压目录内执行 `sh run.sh`。也可以手动启动：
+1. 将 `*-java.zip` 或 `*-full-offline.zip` 完整解压到仓库 `build/dist/default-downloader/`，确认该目录直接包含主程序 JAR、`plugins/`、`plugins-manifest.json` 和 `SHA256SUMS`，随后构建镜像：
+
+   ```bash
+   docker compose build
+   ```
+
+2. 容器以 UID / GID `10001` 运行。Linux 新建部署时，先在含 `docker-compose.yml` 的目录创建可写挂载目录：
+
+   ```bash
+   sudo install -d -o 10001 -g 10001 config state data pixiv-download log
+   ```
+
+3. 执行首次初始化，再启动常驻容器：
+
+   ```bash
+   docker compose run --rm app --setup --mode=solo
+   docker compose up -d
+   docker compose logs -f app
+   ```
+
+!> 未完成 `--setup` 直接 `docker compose up -d` 会以退出码 `78` 反复重启。
+
+默认端口只绑定宿主机 `127.0.0.1:6999`，在本机浏览器打开 `http://127.0.0.1:6999/`；远程访问请使用 SSH 隧道或反向代理。停止服务执行 `docker compose down`，保留数据时不要附加删除卷的 `-v`。
+
+### 容器内代理与持久化目录
+
+容器内的 `127.0.0.1` 指向容器自身。`docker-compose.yml` 已将 `host.docker.internal` 映射到宿主机网关；复用宿主机代理时，在 `--setup` 或 `config/config.yaml` 中将代理主机设为 `host.docker.internal`（并确认宿主机代理允许来自容器网段的连接）：
 
 ```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar
+docker compose run --rm app --setup --mode=solo --proxy-host=host.docker.internal --proxy-port=7890
 ```
 
-> [!IMPORTANT]
-> 务必添加 `-Dfile.encoding=UTF-8` 参数，否则在中文 Windows 下可能出现乱码（`run.bat` / `run.sh` 已内置该参数）。
+修改挂载的 `config/config.yaml` 后执行 `docker compose restart app` 生效；若修改 `server.port`，需同步调整 `docker-compose.yml` 的端口映射与健康检查地址。
 
-### 4. 后台运行（服务器/Docker）
+| 宿主挂载或卷 | 持久化内容 |
+| --- | --- |
+| `./config/` | `config.yaml`、插件业务配置与加密凭据 |
+| `./state/` | 登录态、`setup_config.json`、队列断点、实例锁与 SQLite 原生库解压目录 |
+| `./data/` | SQLite 数据库、收藏夹图标、缩略图与 TTS 缓存、回填状态、参考音 |
+| `./pixiv-download/` | 下载的插画、漫画、动图、小说与临时归档 `_archives` |
+| `./log/` | 运行日志 |
+| 命名卷 `plugins` | 已安装插件与 provenance |
 
-```bash
-# 无 GUI 模式（适合 headless 服务器）
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui
+`state/` 与 `state/instance/` 必须可写且允许加载 SQLite 原生库；容器根文件系统保持只读，`/tmp` 保持 `noexec,nosuid,nodev`。更新镜像不会自动覆盖已有 `plugins` 卷，重建容器后请在插件管理页核对插件版本与兼容状态。
 
-# 使用 nohup 后台运行
-nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.log 2>&1 &
-```
+## FFmpeg 与油猴脚本（可选）
 
-> [!IMPORTANT]
-> **无头/`--no-gui` 模式下首次启动必须先完成 setup**：服务器上没有 GUI 引导、`setup.html` 又只允许本机访问，因此从 v1.10.0 起，未完成首次初始化时 `--no-gui` 启动会被中止并提示使用 CLI 命令。请先执行：
->
-> ```bash
-> # 交互式：依次输入用户名、密码、运行模式 (solo|multi)，并配置 HTTP 代理（是否启用、主机、端口）
-> java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --setup
->
-> # 或一行非交互（密码会出现在 shell 历史/进程列表，仅用于自动化脚本）
-> java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --setup \
->     --username=admin --password='YourPassword123' --mode=solo \
->     --proxy-enabled=true --proxy-host=127.0.0.1 --proxy-port=7890
-> ```
->
-> 代理用于按宿主或任务路由选择代理的后端访问，例如 Pixiv 下载、在线更新、FFmpeg 下载和部分在线 TTS；浏览器请求、SMTP 和显式直连策略可能绕过它，完整边界见[网络访问与第三方服务](/zh-cn/network-access)。省略 `--proxy-*` 时会交互式询问，无需代理可加 `--proxy-enabled=false`。后续可用 `--change-password` 修改密码、`--reset-password` 在忘记密码时重置密码。详见 [使用指南 → 启动参数](zh-Usage-Guide)。
+- **FFmpeg**：动图（Ugoira）转 WebP / GIF / APNG / MP4 及媒体处理需要 FFmpeg（MP4 需 H.264 编码器）。可在 Windows 安装时勾选，或在桌面 GUI「状态」页点击「下载 FFmpeg」（从项目 `ffmpeg-stable` Release 获取经过签名校验的 Windows x64、Linux x64/arm64、macOS x64/arm64 资产）；也可从 [FFmpeg 官网](https://ffmpeg.org/download.html)安装并加入系统 `PATH`，用 `ffmpeg -version` 验证。
+- **油猴脚本**：不安装脚本也可在 `pixiv-batch.html` 完成批量下载。如需在 Pixiv 页面直接操作，启动后端后从下载页「油猴脚本」入口安装，或从源码仓库安装独立 `.user.js`；非本机部署需同步设置脚本中的后端地址与 `@connect`，详见[油猴脚本](/zh-cn/userscripts)。
 
----
+## 验证安装与插件说明
 
-## 方式二：Windows 安装包（推荐 Windows 用户）
+完成[首次配置](/zh-cn/first-setup)后，登录 `http://localhost:6999/` 并按[第一次下载](/zh-cn/first-download)下载一件作品，确认磁盘文件生成且画廊可打开该作品。`GET /actuator/health` 返回 `{"status":"UP"}` 仅代表 HTTP 服务已启动，不代表插件、数据库、代理和 Pixiv Cookie 均已就绪。
 
-### 1. 下载并运行安装器
+常用入口：
 
-从 [Releases](https://github.com/Sywyar/PixivDownloader/releases) 下载 `PixivDownload-x.x.x-win-x64-setup.exe`。
+- `http://localhost:6999/`：默认跳转到活动下载页
+- `http://localhost:6999/setup.html`：本机首次配置页（初始化后自动重定向）
+- `http://localhost:6999/pixiv-batch.html`：下载工作台（由默认安装的 `download-workbench` 提供）
+- `http://localhost:6999/pixiv-gallery.html`：作品画廊（由默认安装的 `gallery` 提供）
+- `http://localhost:6999/monitor.html`：下载监控页
 
-?> Windows 安装包预置官方插件分发集合，其中包含必需的 `download-workbench`、默认 `gui-compose` 和后备 `gui-swing`。Java 标准包与离线全量包使用同一集合；Douyin 作为普通第三方插件，需从自定义仓库或本地包安装。
-
-安装器写入应用目录时会请求 UAC。安装后的应用和 portable 启动器也默认请求管理员权限；宿主实际提权运行时，`host-process-full-trust` 插件会继承同等权限，插件管理页会持续显示警告。
-
-### 2. 安装过程
-
-1. 选择安装语言（中文/English）
-2. 选择安装目录
-3. **可选安装任务**：勾选「下载并安装 FFmpeg」
-   - FFmpeg 用于 Ugoira 动图转 WebP
-   - 不勾选不影响普通图片下载
-   - 安装后也可在 GUI 状态页重新下载
-
-### 3. 维护模式
-
-安装完成后再次运行安装器可进入维护模式，支持：
-- **修复** — 重新安装程序文件
-- **更改** — 修改安装组件
-- **卸载** — 完整卸载程序
-
-### 4. 启动
-
-安装完成后自动启动，也可从开始菜单或桌面快捷方式启动。
-
-> [!NOTE]
-> 安装器支持语言选择，并在安装前会检测 `PixivDownload.exe` 是否仍在运行，提示关闭后重试。
-
----
-
-## 方式三：Docker（服务器常驻）
-
-仓库的 `Dockerfile` 使用已签名的 Java 分发目录构建镜像，镜像内含 Java 17、FFmpeg 和 curl。先将 Java 标准包或离线全量包完整解压到仓库的 `build/dist/default-downloader/`，确认该目录直接包含主程序 JAR、`plugins/`、`plugins-manifest.json` 和 `SHA256SUMS`，再运行 `docker compose build`。
-
-### 1. 环境要求
-
-- Docker 20.10+ 与 Docker Compose（`docker compose` 命令）。
-
-容器以 UID/GID 10001 运行。Linux 新建实例时，先创建该用户可写的挂载目录：
-
-```bash
-sudo install -d -o 10001 -g 10001 config state data pixiv-download log
-```
-
-### 2. 首次初始化（务必先做）
-
-容器内没有桌面 GUI、`setup.html` 又只允许本机访问，因此首次初始化只能用 CLI `--setup`：
-
-```bash
-# 在仓库根目录（含 Dockerfile / docker-compose.yml）执行
-docker compose run --rm app --setup
-# 交互式依次输入：用户名、密码、运行模式 (solo|multi)，并配置 HTTP 代理（是否启用、主机、端口）
-# 账号写入 state/setup_config.json，代理写入 config/config.yaml
-```
-
-> [!WARNING]
-> **请勿跳过这一步直接 `up`。** 未完成初始化时容器会以退出码 78 反复重启（日志会打印需运行 `--setup` 的提示）。
-
-### 3. 常驻运行
-
-```bash
-docker compose up -d         # 后台常驻
-docker compose logs -f app   # 查看日志
-docker compose down          # 停止
-```
-
-默认端口只绑定宿主机 `127.0.0.1:6999`，在宿主机浏览器打开 `http://127.0.0.1:6999/`。远程访问可使用已有 SSH 隧道或另行配置反向代理；管理员登录后可安装、查询和修复插件。
-
-### 4. 代理配置（关键）
-
-按宿主或任务路由选择代理的后端访问会使用此代理，例如 Pixiv 下载、在线更新、FFmpeg 下载和部分在线 TTS；浏览器请求、SMTP 和显式直连策略可能绕过它，完整边界见[网络访问与第三方服务](/zh-cn/network-access)。`config.yaml` 默认 `proxy.host: 127.0.0.1`，在容器内指向容器自身、不可达。`docker-compose.yml` 已声明 `host.docker.internal -> 宿主网关`。
-
-推荐在上面第 2 步 `--setup` 时直接配置代理（无需事后编辑文件）：
-
-```bash
-# 复用宿主机上运行的代理（端口沿用，如 7890）
-docker compose run --rm app --setup --proxy-host=host.docker.internal --proxy-port=7890
-# 若无需代理（已有其它出网路径），加：
-#   --proxy-enabled=false
-```
-
-也可初始化后编辑挂载出的 `config/config.yaml`：
-
-```yaml
-proxy.host: host.docker.internal   # 复用宿主机上运行的代理（端口沿用，如 7890）
-# 若无需代理（已有其它出网路径）：
-# proxy.enabled: false
-```
-
-改完执行 `docker compose restart app` 生效。
-
-### 5. 数据持久化
-
-`docker-compose.yml` 已将下列目录挂载到宿主，重启/重建容器数据不丢：
-
-| 宿主路径 | 用途 |
-|----------|------|
-| `./config/` | 运行时配置 `config.yaml` |
-| `./state/` | 登录态、`setup_config.json`、批量下载状态、GUI 引导标记 |
-| `./data/` | SQLite 数据库 `pixiv_download.db`、收藏夹图标、缩略图缓存、TTS 缓存、回填状态、朗读参考音 |
-| `./pixiv-download/` | 下载的作品/小说/系列文件（含临时打包 `_archives`） |
-| `./log/` | 运行日志（可选） |
-
-`plugins` 命名卷保存已安装包；`config/`、`state/`、`data/`、`pixiv-download/` 和 `log/` 分别挂载到宿主机。单实例锁位于 `state/instance/`，SQLite 原生库临时解压到 `state/`；这两个路径须可写，原生库须可加载。根文件系统保持只读，`/tmp` 保留 `noexec,nosuid,nodev`。
-
-更新镜像不会自动覆盖已有插件卷。重建后在插件管理页核对版本和禁用状态；不兼容的必需插件会进入恢复模式，应安装匹配宿主的受信包。保留插件卷、配置、数据库与下载目录，停止容器使用 `docker compose down`，不要附加删除卷的 `-v`。
-
-### 6. 健康检查
-
-镜像与 compose 均配置了健康探针，指向公开的 actuator 端点：
-
-- `GET /actuator/health` — 返回 `{"status":"UP"}`（无需登录，不泄露内部明细）。
-- `GET /actuator/info` — 返回应用名称与版本。
-
-`docker compose ps` 的 `STATUS` 列会显示 `healthy`/`unhealthy`。
-
-> [!NOTE]
-> 修改端口、代理、SSL 等需编辑 `config/config.yaml` 后 `docker compose restart app`；若改了 `server.port`，需同步调整 compose 的端口映射与健康检查地址。
-
----
-
-## 安装油猴脚本（可选）
-
-> [!TIP]
-> 推荐优先使用 Web 端 `pixiv-batch.html`，无需安装脚本即可完成批量下载。
-
-### 方式一：通过 Web 管理页一键安装（推荐）
-
-1. 启动 PixivDownloader 后端
-2. 访问 `http://localhost:6999/pixiv-batch.html`
-3. 点击页面顶部 「🧩 油猴脚本」卡片展开
-4. 点击对应脚本的「⬇ 安装」按钮
-
-> [!WARNING]
-> 通过 Web 端安装时，脚本更新检查会指向当前后端。当后端地址变更时，需要重新安装或手动修改脚本头部的 `@connect`。
-
-### 方式二：从 Release 下载
-
-从 [Releases](https://github.com/Sywyar/PixivDownloader/releases) 下载脚本文件，拖入 Tampermonkey 管理面板安装。
-
-Release 附件中的脚本：
-
-| 脚本文件 | 说明 |
-|----------|------|
-| `Pixiv All-in-One.user.js` | 整合包（推荐），包含页面批量、User 批量、URL 批量导入、单作品下载（Java 后端版）、体验增强工具箱 |
-| `Pixiv 单作品图片下载器(Local Download).user.js` | 浏览器本地下载，无需 Java 后端 |
-
-### 完整脚本列表
-
-| 脚本名称 | 功能 | 获取方式 |
-|----------|------|----------|
-| 页面批量下载器 (Page Scrape) | 从 Pixiv 页面 DOM 抓取作品 | Web 端 / GitHub 代码区 |
-| User 批量下载器 (User Batch) | 从用户主页批量下载 | Web 端 / GitHub 代码区 |
-| URL 批量导入单作品下载器 (URL Batch) | 批量导入作品 URL | Web 端 / GitHub 代码区 |
-| 单作品图片下载器 (Java后端版) | 单作品页通过后端下载 | Web 端 / GitHub 代码区 |
-| 单作品图片下载器 (Local Download) | 浏览器本地下载，无需后端 | Release / Web 端 / GitHub 代码区 |
-| 体验增强工具箱 (Toolbox) | 已下载作品标记、Cookie 导入等 | Web 端 / GitHub 代码区 |
-
-### 非 localhost 部署的额外配置
-
-<details>
-<summary><strong>点击展开</strong></summary>
-
-Tampermonkey 的 `@connect` 白名单默认只允许连接 `localhost`。如果后端部署在其他机器：
-
-1. 打开 Tampermonkey 管理面板 → 找到对应脚本 → 点击编辑
-2. 将脚本头部的 `// @connect      YOUR_SERVER_HOST` 替换为实际地址
-3. 保存脚本（Ctrl+S）
-
-如果通过 Web 端 `pixiv-batch.html` 安装，`@connect` 会自动替换为当前后端地址。
-
-</details>
-
----
-
-## 安装 FFmpeg（可选）
-
-FFmpeg 用于 Ugoira 动图转换为 WebP，普通图片下载不需要。
-
-### 自动安装（推荐）
-
-- **Windows 安装包**：安装时勾选「下载并安装 FFmpeg」
-- **GUI 工具**：启动后在 GUI「状态」标签页点击「下载 FFmpeg」按钮
-
-自动安装使用项目维护的 `ffmpeg-stable` Release，内容来自 FFmpeg 官方最新稳定源码，并按 Windows x64、Linux x64/arm64、macOS x64/arm64 自动选择资产。其它平台请使用系统 FFmpeg。
-
-### 手动安装
-
-1. 从 [FFmpeg 官网](https://ffmpeg.org/download.html) 下载
-2. 将 `ffmpeg.exe` 所在目录添加到系统 `PATH` 环境变量
-3. 验证：`ffmpeg -version`
-
----
-
-## 目录结构
-
-首次启动后，程序会在工作目录生成以下文件：
-
-```
-工作目录/
-├── config/                      # 运行时配置目录
-│   ├── config.yaml              # 主配置文件
-│   └── image_classifier.properties  # 图片分类器配置
-├── state/                       # 运行状态目录
-│   ├── setup_config.json        # 账号/初始化配置
-│   ├── batch_state.json         # 批量下载状态
-│   └── gui/                     # GUI 引导、代理步骤等本地状态标记
-├── data/                        # 应用数据目录
-│   ├── pixiv_download.db        # SQLite 数据库（含 -wal / -shm 伴随文件）
-│   ├── collection_icons/        # 用户自定义收藏夹图标
-│   ├── gallery_thumbs/          # 图库二进制缩略图缓存
-│   ├── tts/                     # TTS 版本号本地缓存
-│   ├── backfill/                # 数据回填工具本地状态
-│   └── narration-voice/         # 多角色朗读参考音音频
-├── plugins/                     # 外置插件原始包
-│   ├── provenance/              # 已安装插件的 provenance sidecar
-│   └── runtime/                 # JAR-with-lib / ZIP 物化后的运行时缓存
-├── pixiv-download/              # 下载文件存储（默认根目录）
-│   ├── artwork-{id}/            # 作品目录
-│   ├── novel-{id}/              # 小说目录
-│   ├── novel-series-{id}/       # 小说系列
-│   └── ...
-└── log/                         # 运行日志
-```
-
----
-
-## 验证安装
-
-启动后在浏览器访问：
-
-- `http://localhost:6999/` — 自动跳转到下载页
-- `http://localhost:6999/setup.html` — 首次配置向导（如已完成则重定向）
-- `http://localhost:6999/intro.html` — 产品介绍页
-- `http://localhost:6999/pixiv-batch.html` — 批量下载页（需要 `download-workbench`，Java 标准包、离线全量包和 Windows 默认安装包均已携带）
-- `http://localhost:6999/monitor.html` — 下载监控页
-- `http://localhost:6999/pixiv-gallery.html` — 作品画廊（需要可选 `gallery` 插件）
-
----
-
-## 官方插件与安装包
-
-`download-workbench` 是 required 外置插件，负责下载页、下载 API、队列、userscript 入口、Pixiv 插画代理和计划任务宿主。缺失、损坏、不兼容或离线复验失败时，程序进入恢复路径，只开放登录、插件管理和安装修复入口。
-
-官方插件分发集合包括 `download-workbench`、`gui-compose`、`gui-swing`、`gallery-tools`、`posthog`、`gallery`、`novel`、`notification`、`multi-mode-decision-survey`、`push`、`mail`、`tts` 和 `ai`。`gui-compose` 是默认桌面界面，`gui-swing` 自动后备；Douyin 不再由官方仓库、签名或发行包分发。缺失或禁用可选插件只会让所属页面、API、导航、静态资源、i18n、GUI 配置 section 或能力贡献缺席，本身不会让程序进入恢复路径。
-
-- Windows 安装包：内置 JRE 和官方插件分发集合；FFmpeg 仅在安装时勾选后下载，不含 Douyin。
-- Java 标准包（`*-java.zip`）：插件集合相同；不含 JRE、FFmpeg 与 Douyin。
-- 离线全量包（`*-full-offline.zip`）：插件集合相同；不含 JRE、FFmpeg 与 Douyin。
-- `gallery-tools` 缺失不影响图片 Hash 写入和历史 Hash 数据。
-- `gallery` 缺失不影响下载页、下载 API、userscript、Pixiv 插画代理、计划任务宿主、作品元数据、下载事实、Hash 与本地资源索引。
-- `novel` 缺失会让小说下载、小说画廊、正文保存、翻译状态、系列合订和计划任务小说执行器一并缺席；核心不保留平行实现。
+默认安装的官方插件包括 `download-workbench`、`database-sqlite`、`gui-compose`（默认桌面界面）、`gui-swing`（后备桌面界面）、`gallery`、`gallery-tools`、`novel`、`notification`、`push`、`mail`、`tts`、`ai`、`posthog`、`multi-mode-decision-survey` 等；`database-postgresql`、`pixiv-batch-downloader-import`、`page-editor`、`captcha`、`translation` 等可按需从插件市场或离线全量包获取。当前选定的主数据库插件不可用时会进入恢复模式，只开放登录、插件管理与修复入口；可选插件停用或缺失仅撤回其所属页面与能力，详见[插件管理](/zh-cn/plugin-management)与[存储与备份](/zh-cn/storage)。

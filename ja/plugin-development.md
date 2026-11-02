@@ -1,56 +1,98 @@
 # サードパーティプラグイン SDK
 
-外部 PixivDownloader プラグインの開発、デバッグ、公開を行う開発者向けガイドです。アプリシェルや公式プラグインの実装クラスを抜き出すのではなく、公式テンプレートをコピーして始めてください。
+SDK 開発パッケージの独立プロジェクトで例をビルドして起動し、その後にページ、ダウンロード種別、業務処理を追加します。JDK 17、Node.js、選択したパッケージのビルドツールとランタイムマニフェストを用意してください。
+
+| 作業 | 参照先 |
+| --- | --- |
+| 最初のプラグインを作る | [テンプレート](#テンプレートから開始)、[ローカル開発](#ローカル開発) |
+| ダウンロードとギャラリーを追加する | [種別の追加](#ダウンロード種別を追加する流れ)、[独立ギャラリー](#プラグイン所有ギャラリー) |
+| 設定・認証情報・データを保存する | [所有権と保存先](#設定、認証情報、ファイル) |
+| 既存プロジェクトを更新する | [SDK 更新](#外部工程の保守と-sdk-更新) |
+| 配布する | [マーケット文書](#マーケット文書の提出)、[署名と公開](#署名と公開) |
+
+例の `SDK_VERSION`、パス、ID、ハッシュ、署名を実際の値に置き換えてください。Java / JavaScript の断片はテンプレート内で使うインターフェース例です。import と業務実装を補い、選択したリリースの Javadoc とテンプレートで API の有無を確認します。
 
 - [サードパーティプラグインテンプレート](https://github.com/Sywyar/PixivDownloader/tree/master/plugin-templates)
-- [SDK Info](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-sdk-info)
-- [Plugin API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-api)
-- [Core API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-core-api)
-- [サードパーティ Douyin プラグイン例](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin)
-- [プラグイン署名ツール](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-signature)
+- [SDK Info](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-sdk-info)、[Plugin API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-api)、[Core API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-core-api)
+- [Douyin の実装例](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin)、[署名ツール](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-signature)
+- [SDK ダウンロードとリリース履歴](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)、[バージョン別 Javadoc](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)
 
-Douyin はダウンロード、設定、プロキシ、キュー、スケジュール、永続化、プラグイン所有ギャラリーを含むサードパーティ SDK の実装例です。公開 SDK 契約だけに依存し、公式配布には含まれません。新規プロジェクトは `plugin-templates` から作成してください。
+Douyin はダウンロード、設定、プロキシ、キュー、予約タスク、専用データと独立ギャラリーを含む SDK の実装例です。公開契約だけに依存し、公式配布には含まれません。新規プロジェクトではサイト固有の処理まで引き継がないよう、`plugin-templates` を起点にしてください。
+
+## ライセンスと配布条件
+
+PixivDownloader と公式プラグインは AGPL-3.0 を使います。[Plugin Linking Exception](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt) を同梱するバージョンでは、その追加例外も適用されます。公開 SDK/API または文書化された拡張インターフェースを使う独立したサードパーティプラグインは、例外の条件を満たす場合に MIT License を選べます。
+
+プロジェクト作成のテンプレートを独立プラグイン用にコピー・変更することも例外に含まれます。配布時には該当する著作権表示と例外本文を残してください。ホスト、SDK/API、ランタイム、公式プラグイン実装とその変更には該当する AGPL の義務が続き、外部依存には各ライセンスが適用されます。例外を含む開発パッケージは原文を `licenses/pixivdownloader/` に、Maven SDK/API JAR は `META-INF/` に収録します。自分のライセンスを明示し、コピー元の通知も保持します。文書の更新だけで例外のない旧リリースに許可が追加されることはありません。
+
+[公式コミュニティリポジトリ](https://github.com/Sywyar/PixivDownloader-community-plugins) はオープンソースのみを受け付け、完全な公開 GitHub ソース、オープンソースライセンス、再現可能なビルド、人による審査を要求します。公開バイナリや SPDX 表現だけでは不十分です。ライセンス条件、コミュニティへの登録、パッケージ検証と利用者の信頼確認はそれぞれ必要です。
 
 ## 最初に信頼境界を理解する
 
-外部プラグインはホストと同じ JVM で実行され、プロセスや OS によるセキュリティサンドボックスはありません。プロセスから読めるファイル、ネットワーク、リソースを利用できるため、他のインプロセスコードと同じリスクがあります。Ed25519 署名が証明するのは、信頼鍵から出たこととバイトが改変されていないことだけで、コードの安全性ではありません。
+`declarative-process` は別 worker JVM でリソースとプロトコルを分離し、`host-process-full-trust` はホスト JVM で実行します。どちらにも OS セキュリティサンドボックスはありません。コードは現在のアカウントが読めるファイル、ネットワーク、計算資源を利用できます。
 
-ホストは構造、サイズ、パス、バージョン、依存関係、SHA-256、署名、来歴を検証し、同じ凍結バイトをロードします。これはサプライチェーンの完全性を守るもので、コード隔離ではありません。Cookie、トークン、プロキシ、作品ディレクトリ、プラグインデータの正当な利用は作者の責任です。
+Ed25519 署名が証明するのは信頼鍵からの出所とバイトの完全性で、コードの安全性ではありません。利用者は発行者、ソース、リポジトリ運営者を信頼する必要があります。Cookie、トークン、プロキシ、作品ディレクトリと専用データを適切に使う責任は作者にあります。
+
+ホストは構造、サイズ、パス、バージョン、依存関係、SHA-256、署名、来歴を検証し、同じ固定バイトをロードします。具体的なインストール動作は[プラグイン管理](/ja/plugin-management)を参照してください。
 
 ## SDK の境界
 
-SDK は `pixivdownload-sdk-info`、`pixivdownload-plugin-api`、`pixivdownload-core-api` で構成され、`pixivdownload-sdk-bom` がバージョンを揃えます。`sdk-info` が SDK の版、リビジョン、互換性規則の唯一の情報源です。
+薄い `pixivdownload-sdk` エントリーは標準 POM 依存関係で 3 つの API モジュールとホスト提供のコンパイル依存を公開します。各 API と BOM の個別利用も可能です。`sdk-info` が完全な SDK バージョン、プレリリースの識別、互換性規則の基準で、アプリ版とは独立しています。`plugin-api` は入口、contribution、ホスト制御、owner 単位の保存機能を、`core-api` は安定した業務ポート、値モデル、中立なアルゴリズムを提供します。
 
 ```text
-第三者プラグイン
-  ├─ pixivdownload-sdk-info    必須：SDK 版と互換性
-  ├─ pixivdownload-plugin-api  必須：入口、貢献、パス、私有データ
-  └─ pixivdownload-core-api    任意：安定したダウンロード / プロキシポート
+Third-party plugin
+  └─ pixivdownload-sdk        provided: one compile dependency
+      ├─ pixivdownload-sdk-info    SDK version and compatibility information
+      ├─ pixivdownload-plugin-api  Entry points, contributions, paths, and private data source
+      ├─ pixivdownload-core-api    Stable download and proxy settings ports
+      └─ Host-provided PF4J, Spring, Servlet, Jackson and other compile dependencies
 
-依存禁止：pixivdownload-app、ホスト実装、plugin-runtime / installer / signature 内部、
-公式プラグインの私有サービス・Mapper・Controller、ホスト DataSource、私有フロントエンドグローバル
+Do not depend on: pixivdownload-app, host implementation classes,
+plugin-runtime/installer/signature internals, private services/mappers/controllers
+from official plugins, the host DataSource, or private frontend globals
 ```
 
-プラグインは descriptor と contribution で機能を宣言します。ホストは信頼済みプラグイン ID、パッケージ ID、世代、公開単位で登録します。停止、アンロード、破損、非互換時には、そのプラグインのルート、静的資源、i18n、ナビゲーション、ダウンロード種別、キュー、スケジュール機能が撤回されます。利用側は capability がない場合も空白ページ、null 失敗、途中だけ完了したタスクを作らず、正常に劣化させます。
+ホストは信頼済みプラグイン・パッケージ ID、generation、publication に能力を登録します。特定の外部 ID や作品種別を認識するホスト分岐を追加しません。停止、アンロード、破損、非互換時にはルート、静的資源、i18n、ナビゲーション、ダウンロード種別、キュー、予約機能が撤回されます。利用側は能力の不在を処理し、空白ページ、null エラー、途中だけ完了したタスクを残さないでください。
 
-`PixivFeaturePlugin` の主な入口は `id`、表示情報、`start` / `stop`、`schema`、`routes`、`staticResources`、`i18n`、`navigation`、`startupRoutes`、`landings`、`pageSections`、`uiSlots`、`guiThemes`、`guiConfigContributions`、`guiOnboardingSteps`、`drilldowns`、`userscripts`、`scheduledSourceDescriptors`、`downloadTypes` です。未使用の入口は空リストのままにします。Spring Bean はこのメソッドから返さず、`PixivPluginProvider.configurationClasses()` で設定クラスを宣言し、プラグインごとの子 `ApplicationContext` を使います。
+### 提供できる機能
+
+未使用の `PixivFeaturePlugin` 入口は既定の空リストにします。
+
+| メソッド | 機能 |
+| --- | --- |
+| `id`, `displayName`, `description`, `displayNamespace` | ID と i18n 表示キー |
+| `iconKey`, `colorToken`, `kind` | 許可されたアイコン、色、分類トークン |
+| `start`, `stop` | 直接所有する資源のライフサイクル。`stop` は冪等であること |
+| `schema` | ホスト協業用の管理テーブル、追加列、パス列。通常の専用保存用途ではない |
+| `sharedMainStorage` | 公開されたホスト論理保存領域の要求 |
+| `privateSchema` | 現 owner が管理する正本の専用テーブルすべて |
+| `privateStorageMigrations` | 起動時・オフライン移行の順序付きデータ変換 |
+| `routes`, `staticResources`, `i18n` | アクセス規則、classpath と URL の対応、Web 名前空間 |
+| `navigation`, `startupRoutes`, `landings` | 配置、起動先、利用者種別ごとの業務ページ |
+| `pageSections`, `uiSlots` | ページ section と制御された Web UI 挿入位置 |
+| `guiThemes` | 起動時の GUI テーマ。通常は `process-restart` |
+| `guiConfigContributions`, `guiOnboardingSteps` | 設定項目・グループ・section・action・preset、初期案内 |
+| `drilldowns`, `userscripts` | 意味に基づくリンク、安定したスクリプト ID と正確な classpath 資源 |
+| `scheduledSourceDescriptors`, `downloadTypes` | 純データの予約ソースとダウンロード種別 |
+
+`PixivFeaturePlugin` から Spring Bean を返しません。`PixivPluginProvider.configurationClasses()` で設定クラスを宣言すると、ホストが各有効プラグイン用の子 `ApplicationContext` を作ります。
 
 ### 宣言的デスクトップ UI の境界
 
-Swing と Compose が同じページを別々に保守する構成ではありません。アプリケーションシェルがツールキット非依存の完全な `DesktopUiDocument` を生成し、ページ構造、状態、設定保存、バックエンド連携、型付きイベント処理を所有します。`gui-swing` と `gui-compose` は同じ文書を描画する汎用 `DesktopUiProvider` であり、レンダラー、ウィンドウ、トレイ、テーマ、プラットフォーム連携だけを所有します。ページ ID、プラグイン ID、設定キー、i18n キーによる専用分岐を provider に追加しないでください。
+ホストはツールキット非依存の安定した契約で業務状態、設定の意味、操作を提供します。`gui-swing` と `gui-compose` はそれぞれ完全なページツリー、レイアウト、コンポーネント、対話状態、ウィンドウ、トレイ、テーマ、プラットフォーム連携を所有します。SDK に `DesktopUiDocument` / `DesktopUiNode` などの共通ビュー AST はなく、同じページ実装を共有する要件もありません。
 
-機能プラグインは純データの `GuiConfigContribution` と field / group / section / layout / action / preset で、自分の設定 section の完全な業務構造だけを宣言します。ホストが信頼済み owner ごとに統合、検証、保存します。Swing / Compose コンポーネントやトップレベルウィンドウを返してはいけません。再利用可能な UI 要素が必要なら中立な `DesktopUiNode` 契約を拡張し、すべての provider で汎用実装します。
+機能プラグインは `GuiConfigContribution` などの純データで業務上の意味を宣言し、ホストが信頼済み owner ごとに統合・検証・保存します。GUI provider が各自の UI で表示します。Swing/Compose コンポーネントやホスト最上位ウィンドウを返さず、ホストも provider ID でページ構造を選びません。
 
-公式 `gui-swing` は既定でインストールされる既定 provider、`gui-compose` はオンデマンドです。どちらも `process-restart` のため、切り替え、インストール、更新、無効化、削除にはアプリケーション全体の再起動が必要です。Compose プラグインは Gradle Wrapper が Kotlin / Compose のコンパイルと JAR-with-lib 生成を実行し、Maven reactor がその成果物を通常の公式ビルド、署名、配布へ接続します。
+公式配布は Compose と Swing の両方を含み、既定は Compose、代替は Swing です。両者は `process-restart` のため切り替え、インストール、更新、無効化、削除にアプリ全体の再起動が必要です。Compose の Kotlin/Compose と JAR-with-lib は Gradle Wrapper がビルドし、Maven reactor が公式ビルド・署名・配布へ接続します。
 
 ## テンプレートから開始
 
-SDK 開発パッケージには、単一のコンパイル依存関係 `pixivdownload-sdk`、独立した Maven プロジェクト、Gradle / sbt の例が含まれます。固定ランタイムのマニフェストを含むパッケージでは、付属の Run / Debug から現在のプラグインをビルドし、対応するホストと公式プラグイン一式を自動で準備できます。実行データは各プロジェクトの `.dev/` に保存されます。提供バージョンと使い方は、選択した [SDK Release](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) と同梱の README を確認してください。
+| テンプレート | 用途と内容 |
+| --- | --- |
+| `minimal-feature-plugin` | 宣言型ページ、ナビゲーション、i18n。別 worker、PF4J 入口、feature、ルート・資源・thin-JAR テスト。Spring 子 コンテキスト はない |
+| `download-type-plugin` | 新しいダウンロード種別。5 つの取得モード、キュー、予約ソース、Vue slot、独立ギャラリー、フロント・バックエンドテスト |
 
-| テンプレート | 用途 | 内容 |
-| --- | --- | --- |
-| `minimal-feature-plugin` | ページ、API、ナビゲーション、i18n、設定 | PF4J 入口、provider、feature、子コンテキスト、Controller、ルート / 静的 / i18n、テスト |
-| `download-type-plugin` | 新しいダウンロード種別 | descriptor、5 つの取得モード、キュー、スケジュール、Vue UI slot、独立ギャラリー、テスト |
+リポジトリ内の検証コマンドです。
 
 ```powershell
 mvn -f plugin-templates/pom.xml clean verify
@@ -58,26 +100,60 @@ mvn -f plugin-templates/pom.xml -pl minimal-feature-plugin -am verify
 mvn -f plugin-templates/pom.xml -pl download-type-plugin -am verify
 ```
 
-リポジトリ外へコピーした後は独立 Maven プロジェクトなので、テンプレートのディレクトリで `mvn clean verify` を実行します。SDK の開発版は次でインストールできます。
+外へコピーしたテンプレートはルート parent を継承しない独立 Maven プロジェクトです。そのディレクトリで実行します。
 
 ```powershell
-./mvnw.cmd -pl pixivdownload-sdk-info,pixivdownload-plugin-api,pixivdownload-core-api,pixivdownload-sdk-bom -am install -DskipTests
+mvn clean verify
 ```
 
-SDK は `1.0.0` を初期契約とします。`plugin.requires` はアプリ版ではなく SDK の `major.minor` だけを宣言し、同じ major かつホスト minor が要求以上である必要があります。破壊的変更は MAJOR、互換追加は MINOR、互換修正は PATCH を上げます。PF4J、Spring、Jackson などホストが提供する依存も `provided` にし、共有クラスを JAR にコピーしません。
+### SDK アーティファクトを取得する
+
+開発パッケージは単一の `pixivdownload-sdk` 依存、独立 Maven プロジェクト、Gradle/sbt 例を提供します。固定ランタイムマニフェストを含むパッケージの Run/Debug は現在のプラグインをビルドし、対応ホストと公式プラグイン一式を準備します。実行データは各プロジェクトの `.dev/` に置きます。選択した SDK Release の README で対応機能を確認してください。
+
+```xml
+<dependency>
+    <groupId>io.github.sywyar.pixivdownloader</groupId>
+    <artifactId>pixivdownload-sdk</artifactId>
+    <version>SDK_VERSION</version>
+    <scope>provided</scope>
+</dependency>
+```
+
+名前を省略した `@PathVariable` / `@RequestParam` を使う コントローラー では、コンパイル結果に引数名が必要です。Maven の `<properties>` に `<maven.compiler.parameters>true</maven.compiler.parameters>` を設定するか、コンパイラーに `-parameters` を渡します。既存プロジェクトも確認し、パッケージ化した エンドポイント をホスト経由で呼んで binding を検証してください。メソッドを直接呼ぶテストだけでは確認できません。
+
+Gradle は `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:SDK_VERSION")`、sbt は `"io.github.sywyar.pixivdownloader" % "pixivdownload-sdk" % "SDK_VERSION" % Provided` です。Ivy の コンパイル 設定例は次のとおりです。
+
+```xml
+<dependency org="io.github.sywyar.pixivdownloader" name="pixivdownload-sdk"
+            rev="SDK_VERSION" conf="compile->default"/>
+```
+
+Ivy の ランタイム 設定でこの コンパイル 設定を継承しないでください。公開 API と PF4J、Spring、Servlet、Jackson などはホストが提供します。共有クラスを含めない thin PF4J JAR を作り、テストフレームワークは別途宣言します。
+
+`SDK_VERSION` を統合エントリーのある公開版へ置き換えます。5 座標はエントリー、3 API、BOM です。`developmentRuntime` を持つ版は固定ホストを含み、過去のパッケージは同梱説明に従います。公開 Java API または Maven 利用時の意味が変われば SDK の新しい識別が必要です。公開座標や添付ファイルを上書きしません。
 
 ### コピー後にすべての ID を変更する
 
-`example-download-plugin`（artifactId）、`example-download`（一意のプラグイン ID、キュー種別、URL、i18n 名前空間）、Java パッケージ、`ExampleDownload` 型名、`0.1.0`、`plugin.requires=1.0`、発行者名を一緒に変更します。ルート、静的パス、フロントエンド定数、私有テーブル名、テスト、両言語の i18n も変更してください。`plugin.properties` だけを変更すると公開 ID が不一致になります。
+| テンプレート値 | 変更先 |
+| --- | --- |
+| `example-download-plugin` | Maven `artifactId` |
+| `example-download` | 一意のプラグイン ID、キュー種別、URL prefix、i18n 名前空間 |
+| `com.example.pixivdownload.downloadtype` | Java package と対応ディレクトリ |
+| `ExampleDownload` | Java 型名 prefix |
+| `0.1.0` | アーティファクトと `plugin.version` |
+| `plugin.requires=1.3` | 対応 SDK major.minor |
+| `plugin.provider=Example Developer` | 発行者 |
+
+ルート、静的パス、フロント定数、専用テーブル、テスト、翻訳も揃えます。記述子 だけ変えると feature・publication の ID と一致せず拒否されます。
 
 ## パッケージと入口
 
-JAR ルートの `plugin.properties` には次のような値を置きます。
+`plugin.properties` は JAR ルートに置きます。これは現在のソーステンプレートの SDK 1.3 要件の例です。別パッケージでは実際の最小契約に合わせてコンパイル版と requires を揃えます。宣言だけ変更しても互換性は得られません。
 
 ```properties
 plugin.id=example-download
 plugin.version=0.1.0
-plugin.requires=1.0
+plugin.requires=1.3
 plugin.class=com.example.pixivdownload.downloadtype.ExampleDownloadPf4jPlugin
 plugin.provider=Example Developer
 plugin.description=Example download type.
@@ -86,105 +162,461 @@ pixiv.display-name-key=plugin.name
 pixiv.description-key=plugin.summary
 pixiv.icon-key=download
 pixiv.color-token=green
-pixiv.lifecycle-policy=hot-reload
+pixiv.execution-mode=host-process-full-trust
+pixiv.lifecycle-policy=process-restart
 ```
 
-`plugin.id` は小文字 kebab-case のグローバル一意値で `PixivFeaturePlugin.id()` と一致させます。`plugin.class` は `PixivPluginProvider` を実装する PF4J メインクラスです。ライフサイクルは大文字小文字を区別する `hot-reload`、`backend-restart`、`process-restart` のいずれかです。
+| フィールド | 規則 |
+| --- | --- |
+| `plugin.id` | 一意の小文字 kebab-case。`PixivFeaturePlugin.id()` と一致 |
+| `plugin.version` | プラグインアーティファクト版 |
+| `plugin.requires` | アプリではなく SDK 要件 |
+| `plugin.class` | `PixivPluginProvider` を実装する PF4J メインクラス |
+| `plugin.provider`, `plugin.description` | 発行者と説明 |
+| `plugin.dependencies` | 任意の PF4J 依存式 |
+| `pixiv.*` 表示フィールド | i18n 名前空間・キーと制御された表示トークン |
+| `pixiv.replaces` | 置換するプラグインの任意 ID |
+| `pixiv.execution-mode` | 必須の `declarative-process` または `host-process-full-trust`。未指定・空白・非対応値は拒否 |
+| `pixiv.lifecycle-policy` | 大小文字を区別する `hot-reload`, `backend-restart`, `process-restart`。既定 `hot-reload` |
 
-入口は明示的な子コンテキストで組み立てます。
+新しい SDK プレリリースは `alpha.N`, `beta.N`, `rc.N` を使い、N は先頭ゼロなしの正整数です。過去の compact 表記は元の公開 ID を保ちます。比較は channel と数値順なので `rc2 < rc.10`、`rc2` と `rc.2` は同順位です。表記変更による再公開はできません。座標・タグ・パス・ランタイム マニフェスト を選択した Release と正確に合わせてください。旧ツールは同梱手順に従い、新表記の利用には対応開発パッケージが必要です。
+
+安定 SDK は `requiredMajor == hostMajor && requiredMinor <= hostMinor` で承認し、PATCH は承認判定に影響しません。プレリリースは完全な SDK 版の一致が必要です。破壊的契約変更は MAJOR、互換追加は MINOR、互換修正は PATCH を上げます。
+
+## PostHog ブラウザークライアントの再利用
+
+調査を公開する Web プラグインは公式 `posthog` に依存し、`/pixiv-posthog/pixiv-posthog.js` を自身の script より先にロードできます。調査 ID、質問 スキーマ、トリガー、状態、文言、privacy filter と 4 つのプロジェクト値は公開側が所有します。
+
+```properties
+plugin.dependencies=posthog?@1.0
+```
+
+```js
+const posthog = Object.freeze({
+  projectToken: 'phc_...',
+  surveyId: '...',
+  apiHost: 'https://example.invalid',
+  uiHost: 'https://us.posthog.com'
+});
+
+const client = await window.PixivPostHog?.createSurveyClient({
+  ownerKey: 'example-plugin.feedback',
+  posthog,
+  distinctId: '',
+  beforeSend(event) {
+    return allowedSurveyEvent(event) ? event : null;
+  }
+});
+if (!client) return; // dependency missing, invalid parameters, SDK failure, or conflict
+
+await window.PixivPostHog.captureSurveyWithAck(
+  'example-plugin.feedback',
+  'survey sent',
+  surveyProperties,
+  submissionId
+);
+```
+
+`ownerKey` は全体で安定した値にします。同じページの同じ owner は、4 パラメーター、`distinctId`、`beforeSend` 関数オブジェクトが変わらない場合だけ クライアント を再利用します。違いがあれば拒否し、別 owner は別プロジェクトを使えます。
+
+`submissionId` は調査 ID、キャンペーン 版、調査単位の匿名 ID から作る安定 UUID です。同じ回答の再試行では同じ値を使い、キャンペーン 更新時だけ変えます。アダプター はイベント最上位の `uuid` に設定し、固定 ingestion エンドポイント の 2xx 後にのみ Promise を解決します。UUID の不足・不正は送信前に拒否します。固定された同梱 SDK をロードし、既定収集を無効化して名前付き分離 インスタンス を作りますが、調査、匿名 ID、回答フィールドは決めません。無効化しても開いたページの JavaScript は撤回できません。更新後に資源がなくなった場合は クライアント 不在として処理します。
+
+### 受信箱に調査を表示する
+
+slot モジュール を持たない `notification.inbox` contribution を追加できます。
+
+```java
+new SurveyInboxMessage(
+        "example-plugin.feedback-survey",
+        "campaign-v1",
+        "/example-plugin/survey.html",
+        "example-plugin",
+        "survey.inbox-title",
+        "survey.inbox-body",
+        100
+).toUiSlotContribution()
+```
+
+`messageKey` は安定した一意値、`instanceKey` は キャンペーン 更新時のみ変更します。URL は同じ origin にあるプラグイン所有の絶対パスとし、名前空間 とタイトル・要約の i18n キーも公開します。管理者限定なら ルート も `ADMIN` を宣言します。HTML は自分のページに残し、生 HTML、Bean、ClassLoader を契約で渡しません。不正な調査 contribution は拒否・記録されます。wrapper の代わりに metadata を手作業で組まないでください。
+
+この表示は任意の best-effort 能力です。notification 不在でも調査ページと PostHog 送信は独立しています。ホストは純粋値の active スナップショット を持ち、quiesce 中に発行元を呼びません。起動同期または slot 変更後の次の受信箱要求で冪等保存します。同じ インスタンス は既読状態と unavailable tombstone を再利用し、別 インスタンス は新しい未読になります。contribution 不在、無効化、unload、publication 置換時は表示を隠し、同 インスタンス の復旧用状態を残します。
+
+ホストが URL に `notificationId` と `lang` を追加します。ページは `pixiv-content-height` で高さを通知できます。遠隔調査の恒久終了・削除を確認したときだけ、同 origin の親へ `{type: 'pixiv-survey-unavailable', notificationId}` を送ってください。一時的な接続失敗では送りません。同じ インスタンス を再公開しても閉じたままになるローカル印を作るためです。
+
+### PF4J と Spring 子 コンテキスト
 
 ```java
 public final class ExampleDownloadPf4jPlugin
         extends org.pf4j.Plugin implements PixivPluginProvider {
-    @Override public PixivFeaturePlugin featurePlugin() {
+
+    @Override
+    public PixivFeaturePlugin featurePlugin() {
         return new ExampleDownloadPlugin();
     }
-    @Override public List<Class<?>> configurationClasses() {
+
+    @Override
+    public List<Class<?>> configurationClasses() {
         return List.of(ExampleDownloadConfiguration.class);
     }
 }
 ```
 
-ホストのルートパッケージスキャンやプラグインパッケージ全体のスキャンに頼らず、設定クラスの `@Bean` で必要な Bean を明示します。アプリ実装クラスを子コンテキストへ注入しません。
+外部パッケージは 記述子 と同 ID の null でない feature をちょうど 1 個返します。設定クラスの `@Bean` で明示的に組み立てます。
 
-## PostHog ブラウザークライアントの再利用
+```java
+@Configuration(proxyBeanMethods = false)
+public class ExampleDownloadConfiguration {
 
-調査を公開する Web プラグインは公式 `posthog` に依存し、`/pixiv-posthog/pixiv-posthog.js` を自分のページスクリプトより先に読み込めます。調査 ID、質問スキーマ、トリガー、状態、文言、プライバシーフィルター、4 つの公開パラメーターは公開側プラグインが所有します。依存がない、パラメーター不正、SDK 失敗、競合時はクライアントがなくても画面を壊さず劣化させます。
+    @Bean
+    ExampleDownloadPlugin exampleDownloadPlugin() {
+        return new ExampleDownloadPlugin();
+    }
 
-`ownerKey` はグローバルに安定させ、同じページでパラメーター、匿名 ID、`beforeSend` が変わる場合は失敗を閉じます。再送は同じ安定 UUID を使います。API キーや Cookie、作品、ローカルパス、元のインストール ID を送信しません。
+    @Bean
+    ExampleDownloadController controller(
+            ExampleDownloadQueue queue,
+            RequestOwnerIdentityResolver ownerResolver) {
+        return new ExampleDownloadController(queue, ownerResolver);
+    }
+}
+```
+
+ホスト ルート package の scan やプラグイン内の無制限 scan に頼らないでください。子 コンテキスト に注入できるのは親が明示公開した Plugin API、Core API、JDK、標準依存で、app 実装ではありません。
 
 ## 通知テンプレート
 
-通知テンプレートはメール / プッシュ輸送ではなく、業務シナリオを所有するプラグインが提供します。子コンテキストから `NotificationTemplateContributor` Bean を出し、`scenarioId`、`medium`、`locale`、タイトル、本文を持つ値を返します。重複する `(scenarioId, medium, locale)` は失敗します。ホストは不変スナップショットにコピーし、停止・再読み込み・アンロード時にその公開単位を撤回します。
+業務シナリオを所有するプラグインが、自身の子 コンテキスト で `top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateContributor` Bean を公開します。mail/push 輸送側の責任ではありません。`NotificationTemplateContribution` は `scenarioId`, `medium`, `locale`, `titleTemplate`, `bodyTemplate` の値です。
 
-HTML は同じ JVM の制限付き文字列だけで渡し、タイトル 16 KiB、本文 1 MiB、1 公開あたり 256 テンプレート / 合計 8 MiB の上限を守ります。`InputStream`、`Path`、Spring Resource、ClassLoader、Bean、遅延 callback を契約に渡さないでください。信頼されない値を HTML プレースホルダーに入れる前にエスケープします。
+```java
+@Bean
+NotificationTemplateContributor notificationTemplates() {
+    return () -> List.of(new NotificationTemplateContribution(
+            "example.completed",
+            "mail",
+            Locale.US,
+            "Example completed",
+            """
+            <!doctype html>
+            <html><body><p>{{summary}}</p></body></html>
+            """));
+}
+```
+
+テンプレート公開だけでは新シナリオ登録や送信を行いません。安定した シナリオ/dispatcher 契約が認める ID を使い、他 owner の tuple を上書きしません。輸送側は読み取り専用 `NotificationTemplateCatalog` を使い、設定・render 検査・配信・失敗処理をそれぞれ持ちます。
+
+ホストは publication 準備時に呼び出して不変 スナップショット へコピーし、stop/reload/unload でその publication だけを撤回します。重複 `(scenarioId, medium, locale)` は即時失敗です。検索は正確な locale、次に同言語の決定的 fallback を使います。
+
+HTML は同じ JVM 内の制限付き `String` で渡します。UTF-8 でタイトル 16 KiB、本文 1 MiB、1 publication あたり 256 件・合計 8 MiB です。`InputStream`, `Path`, Spring `Resource`, `ClassLoader`, Bean、遅延 コールバック は寿命や I/O を持つため渡せません。外部値を HTML placeholder に入れる前に escape します。上限を超えるデータや binary が必要なら、寿命と quota を持つ別のホスト所有 streaming/blob-handle 契約を提案し、上限拡大やプラグイン間の一時ファイル交換で代用しません。
 
 ## Web ルート、静的資源、i18n
 
-Controller の mapping、静的ディレクトリ、トップレベル HTML は所有プラグイン自身の `routes()` に宣言します。未宣言の path + HTTP method は 404 であり、フロントエンドを隠すことは認証ではありません。
+全 コントローラー mapping、静的ディレクトリ、最上位 HTML を同じ owner の `routes()` で宣言します。他プラグインの広い prefix では認可されません。未宣言の `path + HTTP method` は 404 です。UI の非表示は認証の代わりになりません。
 
-| ファクトリ | アクセス |
+| factory | アクセス |
 | --- | --- |
-| `publicRoute` | 認証不要。ソロ / マルチ共通 |
-| `visitor` | マルチの訪問者。ソロではセッションが必要、招待ゲスト不可 |
-| `visitorAndInvitedGuest` | マルチ訪問者と招待ゲスト |
-| `invitedGuest` | 管理者と招待ゲスト。監視規則付き |
+| `publicRoute` | 認証不要。solo/multi 共通 |
+| `visitor` | multi の未ログイン訪問者。solo は session 必須、招待 guest は不可 |
+| `visitorAndInvitedGuest` | multi 訪問者と招待 guest の読み取り |
+| `invitedGuest` | 管理者・招待 guest。monitor 保護も適用 |
 | `admin` | 管理者のみ |
-| `local` | ローカルプロセスの例外 |
-| `gui` | 信頼されたローカル要求と GUI トークンの両方 |
+| `local` | ローカルプロセス手順の例外 |
+| `gui` | 信頼済み ローカル リクエスト と GUI トークン の両方 |
 
-独立管理ページの最小例：
+HTTP 制限は `WebRouteContribution` コンストラクターの明示 `HttpMethod` 集合を使います。異なる owner の パス と メソッド が重なる場合は同じ `AccessPolicy` が必要です。異なる規則は両 owner と パターン を示して登録に失敗します。同 ポリシー の 名前空間 共有や、同 owner による広い prefix の具体化は可能です。
+
+独立した管理者ページの完全な宣言例です。
 
 ```java
 @Override
 public List<WebRouteContribution> routes() {
     return List.of(
-        WebRouteContribution.admin("/example-download-gallery.html"),
-        WebRouteContribution.admin("/example-download-gallery/**"),
-        WebRouteContribution.admin("/api/example-download/gallery"));
+            WebRouteContribution.admin("/example-download-gallery.html"),
+            WebRouteContribution.admin("/example-download-gallery/**"),
+            WebRouteContribution.admin("/api/example-download/gallery"));
+}
+
+@Override
+public List<StaticResourceContribution> staticResources() {
+    return List.of(
+            new StaticResourceContribution(
+                    "classpath:/static/", "/example-download-gallery.html", true),
+            new StaticResourceContribution(
+                    "classpath:/static/example-download-gallery/",
+                    "/example-download-gallery/"));
 }
 
 @Override
 public List<I18nContribution> i18n() {
     return List.of(new I18nContribution(
-        "example-download", "i18n.web.example-download"));
+            "example-download", "i18n.web.example-download"));
 }
 ```
 
-異なるプラグインが同じパスを扱う場合、アクセスポリシーは一致しなければなりません。HTTP メソッドを制限する場合は明示的な `HttpMethod` 集合を使います。
+HTML、CSS、JavaScript を分け、表示文言は専用 名前空間 に置きます。外部データは DOM API と `textContent` で描画し、不明な文字列を `innerHTML` に連結しません。
 
 ## ダウンロード種別を追加する流れ
 
-現在のソースにあるダウンロードタスク API では、プラグインが送信ハンドラー、オプションフック、イベントオブザーバーを登録できます。リクエストの重複排除、特定の実行のキャンセル、再接続時のスナップショットを提供し、SDK の基底クラスを継承する必要はありません。[ダウンロード種別テンプレート](https://github.com/Sywyar/PixivDownloader/tree/master/plugin-templates/download-type-plugin)で使用例を確認できます。同じ契約を含む SDK とホストを使用してください。現在のソースにある API が古いリリースにも含まれるとは限りません。
+現在の タスク 契約は送信 handler、option hook、event observer、要求重複排除、特定 attempt の取消、再接続 スナップショット を提供します。SDK base クラス の継承は必須ではありません。対象契約を含む SDK とホストを使い、現在のソース API が旧版にも存在すると仮定しないでください。
 
-`download-type-plugin` を基に、次の順に実装します。
+```text
+plugin.properties + provider
+        ↓
+DownloadTypeDescriptor ──→ the workbench discovers the type and acquisition modes
+        ↓
+same-origin behavior module → import, discovery, queueing, status, filters, and settings
+        ↓
+plugin controller/service ─→ parses requests and performs real domain work
+        ↓
+QueueOperations ─────────→ cancellation, clearing, and lifecycle drain
+        ├─ WebUiSlotContribution (optional)
+        ├─ ScheduledSourceDescriptor + executor (optional)
+        └─ plugin-owned independent gallery (optional)
+```
 
-1. `DownloadTypeDescriptor` で ID、表示名、保存形式、許可された取得モードを宣言
-2. URL / ユーザー / 検索 / シリーズなどのフロントエンド行動モジュールを実装
-3. バックエンドで要求所有者を解決し、他ユーザーのキューを操作できないようにする
-4. `QueueOperations` を実装し、プレビュー、重複、フィルター、ダウンロードの状態を所有
-5. ページ section と UI slot を必要な範囲だけ追加
-6. `ScheduledSourceDescriptor` を純データとして宣言し、スケジュール実行を所有
+### 1. 種別を宣言する
 
-ページ、静的資源、i18n、ルート、認証、ファイル保存をプラグイン境界の内側に置きます。欠落した capability をコアの特例で補わないでください。
+公開 `QueueTypeContribution`、`independentPage`、gallery capability bag、記述子 内 `uiSlots` はありません。種別、キュー、UI slot、予約 ソース、独立ページは個別の契約です。
+
+```java
+@Override
+public List<DownloadTypeDescriptor> downloadTypes() {
+    return List.of(new DownloadTypeDescriptor(
+            DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
+            "example-download",
+            "example-download",
+            "batch.kind",
+            900,
+            "download",
+            "green",
+            "/example-download/example-download-type.js",
+            List.of(
+                    DownloadAcquisitionMode.SINGLE_IMPORT,
+                    DownloadAcquisitionMode.USER_PROFILE,
+                    DownloadAcquisitionMode.SERIES_COLLECTION,
+                    DownloadAcquisitionMode.SEARCH,
+                    DownloadAcquisitionMode.QUICK),
+            true,
+            List.of("example-ready-filter"),
+            List.of("example-output-setting"),
+            "example-download"));
+}
+```
+
+| フィールド | 条件 |
+| --- | --- |
+| `contractVersion` | 現在の `CURRENT_CONTRACT_VERSION`、値は 1 |
+| `type` | 一意値。通常 `QueueOperations.queueType()` と同じだが registry は一対一を仮定しない |
+| `displayNamespace`, `displayI18nKey` | 名前空間と種別名の素のキー |
+| `order` | 安定した表示順 |
+| `iconKey`, `colorToken` | ホスト許可トークンのみ。URL/HTML/任意 CSS は不可 |
+| `moduleUrl` | 同じ owner の静的 contribution に属する同 origin 絶対 `.js` パス、必須 |
+| `acquisitionModes` | `single-import`, `user`, `series`, `search`, `quick` の部分集合 |
+| `cancelSupported` | true なら キュー item 最上位に `cancelWorkKey` が必要 |
+| `filters`, `settings` | 動作 モジュール が実装する許可済み契約 ID |
+| `i18nNamespace` | モジュール の状態・エラー文言用 |
+
+### 2. フロントエンド動作を実装する
+
+ホストの実際の `<script>` 評価期間に `PixivBatch.queueTypes.registerModule(initializer)` を呼びます。Vue の複製やホストの `state`, `saveQueue`, `renderQueue`, `updateStats`、内部 DOM ID の直接操作は禁止です。
+
+管理者ページは `DownloadTasks` スナップショット を既存 キュー に統合します。`process(item, context)` は バックエンド が返した実行 UUID で `context.bindTask(taskId)` を呼びます。作品 ID は実行 ID ではありません。他経路の タスク は「他の経路」と表示し再送信しません。終端 スナップショット は 5 分で失効し、保存済み キュー 記録は残ります。実行を確認できない行は未確認のまま保ち、再読込で送信し直しません。
+
+| 入口 | 役割と省略条件 |
+| --- | --- |
+| `process(item, context)` | 必須。プラグイン API に送り `context.updateItem(patch)` で許可状態を反映 |
+| `import` | URL 判定、単一作品 item と cancelWorkKey。single-import 未宣言なら省略 |
+| `acquisition.user` | ユーザー 入力、ページ探索、表示、キュー metadata |
+| `acquisition.series` | series URL、ページ、順番、metadata |
+| `acquisition.search` | 検索・範囲取得・表示・キュー 同期 |
+| `acquisition.quick` | quick action と `context.publishWorks(payload)` による結果公開 |
+| `filters`, `settings` | 記述子 内 ID のみ。空なら追加機能なし |
+| `slots` | 同 origin モジュール の宣言的断片。独立動的 slot は `WebUiSlotContribution` |
+
+各 acquisition はその モード を未宣言なら省略します。initializer は `AbortSignal`, `isActive()`, `assertActive()`, `onCleanup()` を受け取ります。非同期結果の反映前に publication の有効性を確認し、リスナー・タイマー・コンポーネント を解放します。
+
+### 3. 要求の owner を解決する
+
+コントローラー は親の `RequestOwnerIdentityResolver` で現在の要求から owner を取得します。
+
+```java
+RequestOwnerIdentity identity = ownerResolver.resolve(request);
+queue.submit(command, identity);
+```
+
+JSON、query、独自 ヘッダー の owner UUID は信頼しません。記述子 の `pluginId/packageId/generation/publicationId` は公開単位の現行性だけを表し、認証済み ユーザー ではありません。実ダウンローダーはファイルの永続化と履歴・ソース 関係などの成功事実を commit してから完了を報告します。テンプレートのメモリ上の完了は決定的なテスト fixture です。
+
+### 4. QueueOperations と drain
+
+```java
+public final class ExampleQueue implements QueueOperations {
+    @Override public String queueType() { return "example-download"; }
+    @Override public void cancel(String workKey, String ownerUuid, boolean admin) { /* ... */ }
+    @Override public int clearAll() { /* ... */ }
+    @Override public int clearForOwner(String ownerUuid) { /* ... */ }
+}
+```
+
+`workKey` は当該 キュー 内の安定した不透明文字列で、数値限定ではありません。URL パス segment に入れません。ホストは `POST /api/download/queue/{queueType}/cancel` の JSON で元の 鍵 と publication 識別情報 を送ります。フロントエンド は自身で制御要求を組まず ホスト bridge を使います。
+
+バックグラウンド処理のない完全な同期実装だけが generation-0 の完了 drain を使えます。キュー、executor 引渡し、遅延 コールバック など呼出しより長寿命の処理がある場合は次を実装します。
+
+1. `prepareQuiesce(registeredQueueType)` で新 タスク の受付を原子的に止め、正 generation の実 `QueueDrain` を返します。
+2. ホスト が drain を保存した後に `cancelQuiescedTasks()` で協調取消を送ります。
+3. 全 active タスク の終了後だけ drain を完了します。
+4. prepare 再呼出しでは同じ `queueType + generation`、新 インスタンス では新 generation を返します。
+
+完了 sentinel で非同期終了を装わないでください。executor、scheduler、HTTP/WebSocket クライアント は子 コンテキスト が所有し、閉鎖時に解放します。
+
+### 5. UI slot
+
+slot は ダウンロード 記述子 と独立して公開します。
+
+```java
+@Override
+public List<WebUiSlotContribution> uiSlots() {
+    return List.of(
+            new WebUiSlotContribution(
+                    "example-download.settings-card",
+                    "settings-card",
+                    "/example-download/example-download-type.js",
+                    900),
+            new WebUiSlotContribution(
+                    "example-download.quick-actions",
+                    "quick-actions-mine",
+                    "/example-download/example-download-ui-slot.js",
+                    900));
+}
+```
+
+動的 slot は `PixivVue.mountUiSlot` と owner 範囲の `context.supports(type, mode)`, `context.dispatchQuickAction(action)`, `context.onCleanup(...)` を使い、Vue ランタイム を同梱しません。
+
+### 6. 予約タスク
+
+feature は純データの `ScheduledSourceDescriptor` を返し、`ScheduledSourceExecutor` と `ScheduledWorkExecutor` は子 コンテキスト Bean として提供します。ブラウザー モジュール の `capture` は スキーマ/バージョン 付き定義を保存し、`restore` は editor へ復元、`summary` は制御された表示構造を返します。
+
+ホストは tick、永続状態、並行実行制御、管理 API、終了時の処理完了待ちを担当します。取得元と作品実行機能は各プラグインが公開・撤回し、ダウンロードワークベンチへの依存は不要です。認証情報の管理には `plugin.api.schedule.management.ScheduledTaskCredentials` を使い、ホストの `ScheduleService` は参照しません。管理画面は `NavigationPlacements.DESKTOP_SCHEDULE_MANAGE` でデスクトップの入口を提供できます。
+
+入力へのアクセスは publication 単位の `context.acquisitionInput(mode)` と `context.restoreAcquisition(mode, value)` のみです。現在の中立な第三者 アダプター は `single-import` だけを公開します。ホスト DOM や内部 モード globals で別 モード を模倣しません。
+
+ソース executor は定義 スキーマ、探索、checkpoint、work executor は payload スキーマ と同期処理を所有します。ホスト は claim、lease、認証情報、guard、pending、取消、checkpoint CAS を担当します。`COMPLETED` / `ALREADY_COMPLETED` はファイルと成功事実の永続 commit 後だけ返します。プラグイン/executor 不在時は保存 タスク を停止したまま保ち、削除や checkpoint の先行更新をしません。
 
 ## プラグイン所有ギャラリー
 
-ギャラリーを追加する場合は、独自のページ、静的資源、ルート、検索・表示 API、i18n、ナビゲーションを貢献します。作品データとパスはプラグインの所有者単位で管理し、ホストの私有データベースや内部 Controller を直接利用しません。
+独立ページは `independentPage` という API ではなく、自身の HTML/CSS/JS、ルート/リソース/i18n、コントローラー/API・可視性・モデル、必要な navigation を所有する構成です。管理者ページ例で実装すれば停止時に publication ごと撤回され、ホスト に種別専用分岐は不要です。
+
+上部に空の切替 slot を置きます。
+
+```html
+<nav data-nav-slot="gallery.type-switch"></nav>
+```
+
+`navigation()` には自分の入口だけを登録します。
+
+```java
+new NavigationContribution(
+        "example-gallery-type-switch",
+        Set.of(NavigationPlacements.GALLERY_TYPE_SWITCH),
+        "example-download", "nav.gallery",
+        "/example-download-gallery.html", "images",
+        AccessPolicy.ADMIN, 50)
+```
+
+ページに Pixiv、Douyin など別 プラグイン ID を列挙せず、ホスト が active publication から統合する項目を使います。項目は hot lifecycle に追随します。
+
+- `/pixiv-gallery.html` は公式 Pixiv の主 gallery で、外部種別用の汎用 shell ではありません。
+- 汎用 gallery provider/registry/broker、`/api/gallery/unified/**`、`unifiedGallery` ABI/wire は削除済みで、互換面はありません。
+- gallery/novel の内部実装の複製、ホスト DB や app 実装への直接依存を避けます。
+- asset 配信、削除、可視性、検索、collection、統計は自身の API とデータモデルが担当します。必要な協業が SDK にない場合は中立な公開契約を提案します。
+
+Douyin の `/pixiv-douyin-gallery.html`、詳細ページ、`/api/douyin/gallery/**`、`gallery.type-switch` が全体の実装例です。新規開発は `download-type-plugin` の独立 gallery を基準にします。
+
+## ギャラリーのナビゲーションスロット
+
+`NavigationContribution.placements` の `gallery.sidebar` は プラグイン・ダウンロード・gallery など主ページ、`gallery.sidebar.tools` は招待管理・統計・重複などの道具です。小説は `novel.sidebar` / `novel.sidebar.tools` を使います。各 グループ は独自の順序と要求 識別情報 filter を持ち、撤回で項目が消え、空 グループ は非表示になります。ページは ID 分類なしに `data-nav-slot` を宣言します。
 
 ## 設定、認証情報、ファイル
 
-設定所有者は次の 3 つです。
+| 内容 | パス | アクセス方法 |
+| --- | --- | --- |
+| ホスト 設定と プラグイン 有効化 | `config/config.yaml` | SDK の読取専用 semantic ポート で必要最小限を取得。直接読み書きしない |
+| プラグイン 業務設定 | `config/plugins/{pluginId}.properties` | 子 `Environment`, `@Value`, `@ConfigurationProperties`。直接管理は `RuntimePathProvider` |
+| 認証情報 | `config/credentials/{pluginId}.properties` | ホスト が暗号 envelope を管理し、宣言済みの現 owner 値だけを復号・注入 |
 
-1. ホスト：`config/config.yaml`
-2. プラグイン：`config/plugins/{pluginId}.properties`
-3. 認証情報：`config/credentials/{pluginId}.properties`
+業務キーは プラグイン ID を prefix にします。
 
-認証情報はホストが暗号化・注入します。プラグインは子コンテキストの `Environment` から復号済みの値だけを読みます。パスは `RuntimePathProvider` から取得し、作品は `download.root-folder` 下のプラグイン ID ディレクトリまたはプラグインが選んだ作品ディレクトリに保存します。ホストの秘密ファイルを直接走査しません。
+```properties
+example-download.download.directory=
+example-download.proxy.mode=inherit
+example-download.download.include-cover=false
+```
+
+```java
+@Bean
+ExampleSettings settings(Environment environment) {
+    return new ExampleSettings(
+            environment.getProperty("example-download.download.directory", ""),
+            environment.getProperty("example-download.proxy.mode", "inherit"));
+}
+```
+
+GUI 項目は `GuiConfigContribution` で宣言し ホスト が owner ごとに保存します。機密値や `PASSWORD` は通常 properties に書きません。プラグイン は注入値だけを読み、envelope の読取・復号・書換えをしません。owner 別ディレクトリや暗号化も同 JVM の悪意あるコードを隔離するものではありません。
+
+### 安定したパスとデータベース
+
+注入される `RuntimePathProvider` は owner に束縛済みなので caller が ID を指定しません。
+
+```java
+Path config = runtimePathProvider.configFile("properties");
+Path state = runtimePathProvider.stateDirectory();
+Path data = runtimePathProvider.dataDirectory();
+```
+
+`state/{pluginId}` は再構成可能な状態、`data/{pluginId}` は管理データと キャッシュ に使い、作品を置きません。専用 DB は選択した provider を使うため データ ディレクトリから固定 DB ファイルを仮定できません。
+
+切替可能な DB を使うには owner-bound `PluginDatabase` を注入し、`privateSchema()` に正本となる全専用テーブル、`privateStorageMigrations()` に順序付き変換を宣言します。provider は子 コンテキスト 起動前に表作成、安全な列追加、構造検証を行います。offline 移行も同じ宣言を使います。空宣言で既存 DB を捨てたり無視したりはできません。
+
+| API | 契約 |
+| --- | --- |
+| `PluginDatabase.read(work)` | 同 スレッド の読取専用 コールバック。書込を拒否。返却で session 失効、実体化した結果のみ返す |
+| `PluginDatabase.transaction(work)` | 現 owner の専用 DB への原子的書込。ホスト Spring transaction とは別。失敗後は rollback のみ |
+| `available()` | 現在の利用可否。空 DB や書込成功の証明ではない |
+| `databaseId()` | 診断 ID。SQL 方言の分岐に使わない |
+
+中立な関係演算を使い、方言・接続・認証情報は provider が所有します。能力不在・故障は SQLState `08003` の `SQLException` です。読取失敗を空結果にせず、書込失敗後に副作用を続行しません。同梱 driver や SQLite 固有 SQL は自動変換されません。
+
+`PluginMainDatabase` は自分の管理 main テーブル と `sharedMainStorage()` で明示要求した公開論理領域だけを提供します。他 owner の テーブル・専用 DB は使えず、未知 ドメイン は組立を拒否します。read/transaction は同期・同 スレッド、書込は ホスト transaction に参加してファイル公開と共同 commit できます。DB 不在、閉じた コンテキスト、不正宣言は拒否され、失敗した transaction は commit できません。
+
+既存の `PluginDataSource` は `data/{owner}/plugin.db` の SQLite 専用です。別方言では SQLState `0A000` となり、別 SQLite fallback を作りません。caller が JDBC 互換性を管理し、close、unwrap、main DB アクセスをしません。エンジン間移行には完全な 専用 スキーマ と変換宣言も必要です。インストール成功だけで判断せず移行報告を確認します。
+
+作品の既定保存先は `DownloadSettings.getRootFolder()` を継承して自分のサブディレクトリを使います。
+
+```java
+Path defaultOutput = Path.of(downloadSettings.getRootFolder())
+        .resolve("example-download")
+        .normalize();
+```
+
+Douyin は `{rootFolder}/douyin` の下を owner ごとに整理し、`config/plugins/douyin.properties` に設定された保存先があれば優先します。サブディレクトリ、名前、移行処理は プラグイン 自身の責任です。
+
+app の `RuntimeFiles`, `DownloadConfig`, `ProxyConfig`, mapper, `SqlSessionFactory`, main `DataSource`、executor Bean 名に依存しません。パスと保存は Plugin API、ダウンロード/proxy の意味は `DownloadSettings` / `OutboundProxySettings` を使います。[保存原則](/ja/storage)と[設定参照](/ja/configuration)も確認してください。
 
 ## 外向き HTTP と WebSocket
 
-安定した HTTP / WebSocket SDK または `core-api` のポートを使い、ホストの具体的な HTTP クライアントやプロキシ実装に依存しません。URL、Cookie、API キー、リダイレクト、サイズ上限、タイムアウト、ログへの秘匿情報を明示的に設計します。要求所有者とアクセス権をすべての書き込み API で検証します。
+純粋な JDK 型の安定 factory を使います。
+
+```java
+@Bean(destroyMethod = "close")
+OutboundHttpClient exampleHttpClient(OutboundHttpClientFactory factory) {
+    return factory.open(OutboundHttpClientProfile.standard(
+            Duration.ofSeconds(10),
+            Duration.ofSeconds(30),
+            OutboundHttpRoute.inherit()));
+}
+```
+
+`exchangeStream` の live response は全経路で close します。`exchange` は全体を バッファ に読み自動 close します。non-2xx も response として返るので業務 caller が判断します。
+
+WebSocket は `OutboundWebSocketClientFactory.open(profile)` を使い、クライアント Bean を子 コンテキスト とともに閉じます。プラグイン は timeout、redirect、cookie、pool、中立 ルート profile を指定し、ホスト は transport、global/タスク proxy と `ProxySelector` を管理します。独自 `java.net.http.HttpClient` / `ProxySelector` を作ったり Apache 型や app HTTP 設定に依存したりしません。サイト固有の認証 ヘッダー や プロトコル message は業務処理側に置きます。Douyin が全体の実装例です。
 
 ## 独立サービス契約と組み合わせ
 
@@ -253,57 +685,318 @@ java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-repo
 
 ## 外部工程の保守と SDK 更新
 
-プレリリース SDK は精密な契約を使い、properties では `plugin.requires==7.2.3-rc.4` と記述します（例）。安定版は `major.minor` です。コンパイル依存、記述子、実行パッケージを揃え、異なる RC 間の互換性を仮定しないでください。元の工程と `.dev/` を残し、新 SDK を別の場所に展開してツール、契約資源、実行マニフェストをまとめて更新します。プライベートデータの移行はプラグイン自身が管理し、未知の形式や失敗時は元データを保持して起動を止めます。
+プレリリースは例として properties の `plugin.requires==7.2.3-rc.4` のように完全版を要求します。安定版は `MAJOR.MINOR` です。コンパイル 依存・記述子・ランタイム を揃え、RC 間または RC と安定版間の互換性を仮定しません。過去の major/minor 宣言は コンパイル 時の RC を特定できないため、検証して新 プラグイン 版を公開し、旧添付を上書きしません。
 
-独立工程で `mvnw.cmd clean verify`（Windows）または `./mvnw clean verify` を実行し、同じ Wrapper の `verify exec:exec@sdk-run` で起動します。管理者画面で開始、停止、再開始、許可された reload を試し、ルート撤回、旧 publication の無効化、実タスクの drain とデータ保持を確認します。`process-restart` は全体を終了してから再起動してください。開発環境の停止は `exec:exec@sdk-stop` です。開発ディレクトリの full-trust 実行は正式 worker の検証を代替しません。
+元プロジェクトと `.dev/` を保持し、新 SDK を別途展開します。ソース・Javadoc を比較し、tools、契約資源、ランタイム マニフェスト を一緒に更新して ビルド/IDE 設定を統合します。専用 DB 移行は プラグイン の責任です。未知形式や移行失敗では旧データを残して該当機能を停止します。ホスト パッケージ transaction は業務データを rollback しません。
 
-`DownloadObserver` は同期 best-effort 通知で永続再生を提供しません。`DownloadAdmissionPolicy` は副作用前に許可・拒否し、要求を書き換えません。どちらも宿主管理の任意 full-trust Bean です。`WorkFileImporter` は元ファイルへの読み取り専用参照を登録し、型 owner が不在なら成功を返しません。対象 Release の Javadoc で API の有無を確認してください。
+Windows は `mvnw.cmd clean verify`、他環境は `./mvnw clean verify`、続いて同 wrapper の `verify exec:exec@sdk-run` を使います。管理画面で開始・無効化・再開始・ポリシー が許す reload を検証します。ルート 撤回、旧 publication 無効化、本当の タスク drain、データ・未完 タスク 保持を確認します。`process-restart` の置換は完全終了後に版を確認し、開発 インスタンス は `exec:exec@sdk-stop` で止めます。開発ディレクトリの full-trust 実行だけでは packaged worker を検証できません。
 
-投稿の問題は失敗した手順から調べます。候補がなければ既定ブランチの現在の CI と `tools/candidate-projects.json`、認証・push 失敗なら現在のアカウントと権限を確認します。ダイジェスト不一致では同じ配布物を再取得してください。事実・所有権の変更や応答喪失では元の要求を再照会し、投稿を自動反復しません。報告には ID、バージョン、ソース commit、SDK、エラーコードを含め、認証情報、秘密鍵、個人パスを除いてください。
+`DownloadObserver` は永続 replay のない同期 best-effort 観察です。`DownloadAdmissionPolicy` は副作用前の許可/拒否のみで要求を書き換えません。両方とも任意の full-trust Bean として ホスト が公開・撤回します。`WorkFileImporter` は元ファイルへの読取専用参照を登録し、type owner 不在なら成功にしません。対象 Release の Javadoc を確認してください。
+
+投稿失敗は失敗した手順から調べます。ダイジェスト 不一致は同じ版を再取得、candidate 不在は既定 branch の現 CI と `tools/candidate-projects.json`、認証・push 失敗は現 アカウント・リポジトリ・権限を確認します。審査事実、所有権、リモート 状態が変われば元要求を再読込し、応答喪失で新規投稿を自動作成しません。共有診断には ID・版・ソース SHA・SDK 識別情報・エラー コード を残し、認証情報・秘密鍵・個人パスを除きます。
 
 ## ビルド、テスト、デバッグ、インストール
 
+### 必要なテスト
+
+テンプレートにある 記述子/provider/feature の一致、明示 コンテキスト・コントローラー 組立、ルート/リソース/i18n/スキーマ/ダウンロード 公開、キュー owner・opaque 鍵・clear・drain、フロントエンド `node --check` と動作テスト、JAR ルート 記述子 と thin-JAR 境界を保持します。
+
 ```powershell
-mvn clean verify
+mvn -f plugin-templates/pom.xml clean verify
 ```
 
-少なくとも descriptor / manifest、ルート認証、設定所有、状態分離、ダウンロード・キュー、スケジュール、静的資源、i18n、停止・再読み込み・アンロードのテストを書きます。外部プラグインは子コンテキストを明示的に作成し、開発モードまたは共有のデバッグ設定から起動します。成果物形式は互換性とライフサイクルを明記し、JAR / ZIP の内容と依存を検査します。
+フロントエンド 契約は Java の文字列検索だけで検査せず、Node で実行してください。
+
+### ローカル開発
+
+JDK 17 と Node.js を用意し、`java` と `node` を `PATH` に置きます。IDE import は依存解決だけです。明示 Run/Debug が現在の プラグイン をビルドし、固定 ランタイム を準備して全アプリを起動します。ビルド 失敗時は止まります。Maven Wrapper が固定 Maven を取得するため ホスト checkout や JAR の手動コピーは不要です。最初のアプリ設定は ホスト setup に従います。
+
+| IDE | import | Run | Debug |
+| --- | --- | --- | --- |
+| IntelliJ IDEA | ルート `pom.xml` を開く | `Developer Mode` の Run | 同じ設定の Debug |
+| VS Code | ディレクトリ を開き推奨 Java Extension Pack を入れる | `Tasks: Run Task > Run Plugin` | `Run and Debug > Debug Plugin` |
+| Eclipse | `Import > Existing Maven Projects` | `eclipse/Run Plugin.launch` | `eclipse/Debug Plugin.launch` グループ |
+
+IntelliJ は native Application 設定です。先に Maven `test-compile exec:exec@sdk-prepare` を実行し、IDE が直接 JVM を起動して ホスト、公式 プラグイン と現プロジェクト `target/classes` をロードします。`ExampleMinimalPlugin.java` の `routes()` に breakpoint を置いて Debug してください。リモート 接続や固定 ポート は不要です。`src/test/java/sdk/DevelopmentLauncher.java` は プラグイン JAR に入りません。設定は同梱 tools を classpath に足し、Spring Boot の nested JAR 解決を可能にします。
+
+この設定は開発 モード を明示的に有効にし、現ソースを `host-process-full-trust` で実行して status にも表示します。ソース 記述子 は変えず、Run/Debug ごとに再compileします。`Stop Plugin` または Application session の終了で止めます。
+
+VS Code、Eclipse、CLI は現 JAR を インストール し、宣言された モード を保って package を検証します。既定 debugger `127.0.0.1:5005` は declarative worker または full-trust ホスト に接続します。`Stop Plugin` または グループ 全体を止めてください。debugger の切断だけではアプリは残ります。
+
+Windows:
+
+```powershell
+.\mvnw.cmd verify exec:exec@sdk-run
+.\mvnw.cmd verify exec:exec@sdk-debug
+.\mvnw.cmd exec:exec@sdk-stop
+```
+
+Linux/macOS:
+
+```bash
+./mvnw verify exec:exec@sdk-run
+./mvnw verify exec:exec@sdk-debug
+./mvnw exec:exec@sdk-stop
+```
+
+`sdk-debug` は IDE attach を待ち、debugger を開きません。`clean verify` は検証、`exec:exec@sdk-prepare` は ランタイム 準備だけです。既定 成果物 は `target/example-minimal-plugin-0.1.0.jar`。現 JAR の ビルド 成功後には直接 tools を呼べます。
+
+```text
+java -jar tools/sdk-tools.jar run <absolute-project-path> <absolute-current-plugin-JAR> --no-gui
+java -jar tools/sdk-tools.jar debug <absolute-project-path> <absolute-current-plugin-JAR> --debug-port=5005
+java -jar tools/sdk-tools.jar stop <absolute-project-path>
+```
+
+`--debug-connect` は既に待機する IDE へ接続します。run/debug は プロジェクト 内で `.dev/` 外の 成果物 を受け取り、宣言 モード を保ち、現 SHA-256 を確認して ローカル インストール します。公式 プラグイン の署名・来歴確認は開発時にも package 検証時にも維持されます。公式 プラグイン と重複しない ID にしてください。
+
+### ランタイム、キャッシュ、プロジェクトデータ
+
+`sdk-project.json` と release 側 `sdk-release.json` は同じ SDK、ホスト、公式 マニフェスト、ランタイム ZIP の 識別情報・サイズ・SHA-256 を持ちます。別 Release 添付の ZIP は明示準備で取得し、`~/.cache/pixivdownloader-sdk/` の検証済みバイトを再利用します。キャッシュ を消しても選ぶバイトは同じで、欠落・ハッシュ 不一致は失敗します。
+
+毎起動で専用 ランタイム コピー を作り ホスト と各公式 プラグイン を検証します。キャッシュ にアプリ状態はありません。`.dev/` は 設定、DB、ログ、ダウンロード、run コピー を持ち、ランタイム ZIP ハッシュ ごとに 設定/状態 を分離します。ホスト・公式 プラグイン 自動更新は無効で、通常のインストールデータとは別です。
+
+終了後 `.dev/` を削除すると、そこに保存した ダウンロード も含めて開発データを初期化します。直接呼出しでは JVM `-Dpixivdownload.sdk.cache-dir=<directory>` で キャッシュ を選べますが、プロジェクト ランタイム は分離されたままです。offline には ランタイム 準備と ビルド 依存 キャッシュ の両方が必要です。Maven `-o`、Gradle `--offline` を使い、不足なら失敗します。SDK 更新では対応 マニフェスト を含む新パッケージへソースを移します。
+
+import、コンパイル、完全起動は別の検証です。使う IDE で起動・ソース breakpoint・正常終了を確認してください。Maven 成功は IDE GUI の確認ではありません。Windows の packaged worker 起動で深い パス による エラー 267 が出た場合は短い場所へ移します。他 OS も各環境で検証が必要です。
+
+Gradle/sbt は `runPlugin` / `debugPlugin` を使います。Gradle は `stopPlugin`、sbt は ビルド process を実行が占有するため、別 terminal の example ディレクトリ で `java -jar ../../tools/sdk-tools.jar stop .` を使います。
+
+主 リポジトリ の公式 プラグイン 開発 モード は各 モジュール の現 `target/classes` をロードします。
+
+```powershell
+mvn -pl pixivdownload-official-plugins -am -Pdev-mode process-classes -Dexec.skip=true
+```
+
+Douyin は別 リポジトリ の SDK プロジェクト です。この モード は外部 プロジェクト を自動発見しません。公式開発には commit 済み IntelliJ、VS Code、Eclipse の `Developer Mode` 共有設定も使えます。
+
+確認時は `/plugin-manage.html` の `STARTED` と generation、停止後の ルート 撤回と再開、現 成果物 の JS/CSS/i18n を調べます。`log/` に ルート 競合、重複 ID、コンテキスト、版、署名、drain エラーがないことも確認します。終了した非同期処理が ファイル 書込、ページ コールバック、旧 classloader 保持を続けてはいけません。
+
+### アーティファクト形式
+
+既定は ルート `plugin.properties` を持つ thin PF4J JAR です。`BOOT-INF/`、`lib/*.jar`、プラグイン-api/core-api/PF4J/Spring/Jackson/Servlet/ホスト クラス のコピーは含めません。
+
+専用の外部依存が必要なら PF4J JAR-with-lib を使えます。ルート に 記述子・プラグイン クラス・リソース、`lib/*.jar` に専用依存を置きます。共有契約は shade/bundle しません。構造テストと分離 classloader の ロード テストを追加してください。公式の既定配布形式は ZIP ではなく `.jar` です。
+
+## マーケット文書の提出
+
+文書対応 SDK tools は candidate の固定 ソース commit にある `CHANGELOG.md` を読み、`## [v8.2.6] - 2031.3.2` のような level-2 heading で正確な プラグイン 版を探します。`### Features` / `### Bug Fixes` などの分類を保ちます。一致なし・重複時は別 ファイル、手入力、明示省略を選びます。README は リポジトリ、ローカル ファイル、複数行入力の UTF-8 Markdown/HTML を受け付けます。完全 CHANGELOG と release notes は別添付です。
+
+選択した既定言語を使い、preview 確認後にバイトを固定します。相対画像は選択 ルート 内に限定し、外部画像の ダウンロード は明示確認します。リンク は用途 preset、言語別 ラベル、空状態を持つ編集可能一覧です。[コミュニティ手順](https://github.com/Sywyar/PixivDownloader-community-plugins/blob/master/README_en.md#submissions-and-version-management)で入力と復旧方法を確認できます。
+
+版の任意 `content` は `readme`, `changelog`, `releaseNotes` の locale map です。document は `format`, `asset`, 任意 `sourcePath` / `sourceUrl`、画像 `resources` を記録します。リポジトリ 文書の sourceUrl は固定 commit に束縛して相対 リンク を解決します。ローカル ファイル、直接入力、フィールド のない旧記録では出所を推定しません。安全な HTML anchor と Markdown heading で内部移動し、外部 リンク は新 ウィンドウ です。asset は `name`, `url`, `mediaType`, `size`, `sha256`。market `links` 欠落は homepageUrl fallback、空配列は リンク なしを意味します。完全な契約は同 SDK の community Schema を参照します。
+
+文書・画像・package を同じ バージョン Release に置き、署名 catalog が参照を束縛します。クライアント は必要時に サイズ/ハッシュ を検証し、sanitize した HTML を分離 static document に表示します。JAR 署名は文書を覆わず、審査参照と catalog が結び付けます。community tools の SDK pin 更新は公開バイト検証後に行い、ホスト にも文書対応が必要です。market metadata 追加だけで既存 requires を上げる必要はなく、SDK 1.1 ホスト は `requires=1.0` を受け付けます。
 
 ## 署名と公開
 
 ### 発行者の鍵とコミュニティ操作の署名
 
-署名 CLI は `pixivdownload-plugin-signature` にあり、JDK 17 のみで実行できます。ソースリポジトリのルートでビルドし、生成された JAR から呼び出します。
+CLI は `pixivdownload-plugin-signature` にあり JDK 17 で動きます。ソース ルート で ビルド し、実際の生成 JAR パス に置き換えて呼びます。
 
 ```text
 ./mvnw -pl pixivdownload-plugin-signature package
-java -cp <signature-tool.jar> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <command>
+java -cp "signature-tool.jar" top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <command>
 ```
 
-- `keygen --directory <new-directory>`：`private-key.pem`（PKCS#8）と対応する `public-key.pem`（SPKI）を生成します。ディレクトリと秘密鍵へのアクセスは現在のユーザーに限定されます。ソースリポジトリと一時ディレクトリの外を選び、両方のファイルをバックアップしてください。既存のディレクトリは上書きしません。
-- `public-key --public-key <public-key.pem> --key-id <id> --out <public.json>`：正規化された SPKI Base64 と SHA-256 公開鍵フィンガープリントを出力します。対応する公開鍵ファイルを読み取り、秘密鍵から公開鍵を導出する処理は行いません。
-- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <canonical-body> --request-id <SHA-256> --key-id <id> --private-key <private-key.pem> --out <sig.json>`：固定された SDK が生成した JCS 本文のバイト列に署名します。本文のダイジェストは requestId と一致する必要があります。出力には分離署名のみが含まれ、秘密鍵は含まれません。
+- `keygen --directory <new-directory>` は PKCS#8 `private-key.pem` と SPKI `public-key.pem` を生成します。ディレクトリ/秘密鍵のアクセスは現 ユーザー に限定し、既存 ディレクトリ を置換しません。ソース リポジトリ・temporary ディレクトリ 外を選んで両方を backup します。
+- `public-key --public-key <public-key.pem> --key-id <id> --out <public.json>` は canonical SPKI Base64 と SHA-256 指紋を出力します。対応 公開 ファイル を読み、秘密鍵から公開鍵を導出しません。
+- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <canonical-body> --request-id <SHA-256> --key-id <id> --private-key <private-key.pem> --out <sig.json>` は固定 SDK の JCS body bytes を署名します。ダイジェスト は requestId と一致し、出力は秘密鍵を含まない detached 署名 のみです。
 
-公開鍵の出力とコミュニティ操作の署名では既存の出力ファイルを上書きできません。プラグインパッケージの署名には `artifact` を使います。引数の一覧は `--help` で確認できます。秘密鍵を Git にコミットしたり、提出ファイルに含めたりしないでください。
+公開鍵出力と operation 署名は既存出力を上書きしません。package は `artifact` で署名し、引数は `--help` を確認します。秘密鍵を Git や提出添付に含めないでください。
 
-アーティファクトは署名ツールで Ed25519 署名を作成し、カタログには plugin ID、版、SDK 要件、サイズ、SHA-256、署名、ダウンロード URL、変更履歴を記載します。秘密鍵はリポジトリ、ログ、ビルド出力に置きません。
+### アーティファクト署名
 
-第三者リポジトリは、最大 64 KiB の厳格な UTF-8 JSON `repository.json` を公開します。必須情報は `schemaVersion: 1`、予約値ではない `repositoryId`、表示名、発行者、`catalog.protocol`（`manifest-v1` または `paged-v2`）、公開 HTTPS endpoint、`networkProfile`（`DIRECT_STRICT` または `GITHUB_RELEASES`）、1～4 個の Ed25519 SPKI 公開鍵です。任意で `revocationsUrl` と `updateProofUrl` を指定できます。初回取り込みでは `repository.json.sig` を使いません。利用者が発行者、全接続先ホスト、公開鍵の完全な `SHA-256(SPKI DER)` 指紋を確認し、確認時の再取得で descriptor のダイジェストが一致した場合だけ、再起動後に有効になります。
+以下の filename を実 パス に変え、quote は残します。Ed25519 PKCS#8 PEM 秘密鍵は リポジトリ と ビルド output の外に置きます。リポジトリ 設定は Base64 X.509 SubjectPublicKeyInfo 公開鍵を使います。
 
-`paged-v2` は `{endpoint}/plugins`、`{endpoint}/plugins/{pluginId}`、`{endpoint}/plugins/{pluginId}/versions/{version}` を提供し、既定 24・最大 100 件、`generation` と不透明 cursor を使います。インストール時は版 endpoint を再取得し、凍結したパッケージのサイズ、SHA-256、署名、内部 descriptor と照合します。鍵の更新には旧信頼鍵で署名した単調 `repository-update-v1`、撤回には `revocations-v1` を使います。署名 CLI のコマンドは `repository-update` と `plugin-revocations` です。`YANKED` は新規インストール/更新を止め、`REVOKED` は既存バイトのロードも止めます。プラグインは同一 JVM で実行され、コードサンドボックスはありません。
+```powershell
+java -cp "signature-tool.jar" `
+  top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool `
+  artifact `
+  --artifact "plugin.jar" `
+  --plugin-id example-download `
+  --version 0.1.0 `
+  --key-id example-2026 `
+  --private-key "ed25519-pkcs8.pem" `
+  --out "plugin.jar.sig"
+```
+
+出力 JSON は `formatVersion`, `algorithm=Ed25519`, `keyId`, `value` です。同じ 成果物 の正確な サイズ と SHA-256 も記録します。
+
+```powershell
+$artifact = Get-Item -LiteralPath "plugin.jar"
+$artifact.Length
+(Get-FileHash -Algorithm SHA256 -LiteralPath $artifact.FullName).Hash.ToLowerInvariant()
+```
+
+### カタログマニフェスト
+
+スキーマ 1 の top level は `schemaVersion`, `generatedTime`, `entries` です。構造例の ドメイン・サイズ・ハッシュ・署名・時刻 を同じ実 成果物 の値で置き換えます。
+
+```json
+{
+  "schemaVersion": "1",
+  "generatedTime": "2026-08-10T00:00:00Z",
+  "entries": [
+    {
+      "pluginId": "example-download",
+      "displayNamespace": "example-download",
+      "displayNameKey": "plugin.name",
+      "descriptionKey": "plugin.summary",
+      "market": {
+        "displayName": {"zh": "示例下载", "en": "Example download"},
+        "summary": {"zh": "示例下载类型", "en": "Example download type"},
+        "description": {"zh": "插件详细说明", "en": "Plugin description"},
+        "author": "Example Developer",
+        "sourceType": "community",
+        "category": "download",
+        "tags": ["download"],
+        "homepageUrl": "https://example.com/plugin",
+        "license": "MIT",
+        "latestVersion": "0.1.0",
+        "updatedTime": "2026-08-10T00:00:00Z",
+        "iconToken": "download",
+        "colorToken": "green",
+        "recommended": false,
+        "officialRequired": false,
+        "defaultInstalled": false
+      },
+      "packages": [
+        {
+          "version": "0.1.0",
+          "packageUrl": "https://plugins.example.com/example-download-0.1.0.jar",
+          "expectedSizeBytes": 12345,
+          "sha256": "LOWERCASE_SHA256_HEX",
+          "signature": {
+            "formatVersion": 1,
+            "algorithm": "Ed25519",
+            "keyId": "example-2026",
+            "value": "BASE64_SIGNATURE"
+          },
+          "signatureUrl": "https://plugins.example.com/example-download-0.1.0.jar.sig",
+          "requiredSdk": "1.3",
+          "dependencies": [],
+          "releasedTime": "2026-08-10T00:00:00Z",
+          "changeNotes": ["Initial release"],
+          "channel": "stable",
+          "deprecated": false
+        }
+      ]
+    }
+  ]
+}
+```
+
+`market` は表示・検索・sort 用で、インストール 安全性の判定には使いません。マニフェスト と packageUrl は HTTPS が必要です。インストール の基準は サイズ、SHA-256、structured 署名、内部 記述子 です。マニフェスト の生 bytes を署名します。
+
+```powershell
+java -cp "signature-tool.jar" `
+  top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool `
+  manifest `
+  --manifest "manifest.json" `
+  --repository-id example `
+  --key-id example-2026 `
+  --private-key "ed25519-pkcs8.pem" `
+  --out "manifest.json.sig"
+```
+
+マニフェスト、同 URL に `.sig` を付けた署名、成果物、任意 成果物 署名 を公開します。署名後の JSON 整形や書換えは禁止です。検証 subcommand は次のとおりです。
+
+```text
+verify-manifest --manifest "manifest.json" --signature "manifest.json.sig" --repository-id <id> [--policy official|custom]
+verify-artifact --artifact <jar> --signature <sig.json> --plugin-id <id> --version <version> --expected-size <bytes> --sha256 <hex> [--policy official|custom]
+```
+
+custom ルート は `--trusted-key-id` と `--trusted-public-key` も指定します。任意値は `--trusted-algorithm`, `--trusted-state`, `--trusted-publisher`, `--trusted-label`, `--trusted-official` です。
+
+### カスタムリポジトリを登録できるようにする
+
+64 KiB 以下の strict UTF-8 JSON `repository.json` を公開し、GUI 設定 → プラグインマーケット設定 → 追加 → リポジトリ記述子を使用、で公開 HTTPS URL を指定します。
+
+```json
+{
+  "schemaVersion": 1,
+  "repositoryId": "example.plugins",
+  "displayName": "Example Plugins",
+  "publisher": {
+    "id": "example",
+    "displayName": "Example Publisher",
+    "homepageUrl": "https://example.com/plugins"
+  },
+  "catalog": {
+    "protocol": "manifest-v1",
+    "endpoint": "https://plugins.example.com/manifest.json"
+  },
+  "networkProfile": "DIRECT_STRICT",
+  "revocationsUrl": "https://plugins.example.com/revocations.json",
+  "updateProofUrl": "https://plugins.example.com/repository-update.json",
+  "trustedKeys": [{
+    "keyId": "example-2026",
+    "algorithm": "Ed25519",
+    "publicKeySpkiBase64": "BASE64_X509_SUBJECT_PUBLIC_KEY_INFO",
+    "state": "ACTIVE",
+    "publisher": "Example Publisher",
+    "trustLabel": "Example release key"
+  }]
+}
+```
+
+`trustedKeys` には Ed25519 SPKI 公開鍵を 1 個以上 4 個以下指定し、各 `keyId` は一意にします。
+
+最初の信頼に `repository.json.sig` を使いません。自分を紹介する新しい 鍵 の署名は自己宣言です。アプリは 記述子 ダイジェスト、発行者、全 network ホスト、完全な `SHA-256(SPKI DER)` 指紋を表示します。確認時に再取得して bytes の ダイジェスト 一致を要求し、保存設定は再起動後に有効です。custom リポジトリ は公式 ルート を継承しません。`official`, `configured`, `community` は予約 ID です。
+
+`networkProfile` は `DIRECT_STRICT` / `GITHUB_RELEASES` のみです。前者は宣言された 公開 HTTPS ホスト だけ、redirect なし。後者は固定 GitHub 境界内の 1 redirect を許可します。記述子 から SSRF 検査の停止、専用 address、任意 proxy/redirect allowlist を指定できません。
+
+小規模は `manifest-v1`、大規模は API base を エンドポイント にした `paged-v2` を使えます。
+
+```text
+GET {endpoint}/plugins?cursor=&limit=&query=&category=&publisher=&channel=
+GET {endpoint}/plugins/{pluginId}?cursor=&limit=
+GET {endpoint}/plugins/{pluginId}/versions/{version}
+```
+
+ページ サイズ は既定 24、最大 100。応答は `generation` と opaque cursor、一覧 512 KiB・詳細 256 KiB 制限です。インストール 時の入力は リポジトリ ID、プラグイン ID、バージョン のみです。ホスト が バージョン エンドポイント を再解決し、固定 package 記述子・サイズ・SHA-256・発行者署名と比較します。
+
+初回信頼後の 記述子/鍵 変更は既存信頼鍵の単調 `repository-update-v1` proof、安全上の撤回は大きい sequence の `revocations-v1` を使います。各 JSON URL に `.sig` を付け、別の署名 ドメイン を使います。
+
+```text
+repository-update --document repository-update.json --repository-id example.plugins --sequence 2 --key-id example-2026 --private-key <pem> --out repository-update.json.sig
+plugin-revocations --document revocations.json --repository-id example.plugins --sequence 1 --key-id example-2026 --private-key <pem> --out revocations.json.sig
+```
+
+撤回 範囲 は `PACKAGE_SHA256`, `PLUGIN_VERSION`, `SIGNING_KEY`, `PUBLISHER`。`YANKED` は新規 インストール/更新、`REVOKED` は次の ロード 前に該当する導入済み bytes も止めます。どの execution モード も現 OS アカウント を使い、署名や撤回はコードの安全性を保証しません。
 
 ## コントリビューションと公開前チェック
 
-- 公開 API は `plugin-api` / `core-api` の契約として先に設計
-- テンプレート、公式例、SDK 文書、両言語の i18n を更新
-- plugin ID、パッケージ、ルート、権限、所有者が一致
-- 署名、SHA-256、サイズ、依存、SDK `major.minor` を検証
-- 無効化、停止、アンロード、破損、非互換時に capability がきれいに撤回される
-- 認証情報、Cookie、ローカルパス、秘密鍵をログや成果物に含めない
-- `mvn clean verify` と最小のインストール / リロード / 復旧テストを実行
+通常の外部 プラグイン は ホスト 変更を必要としません。API/ランタイム/テンプレート の実際の不具合、複数 consumer 用の中立 ポート、テンプレート・SDK 文書・boundary テスト・診断、公式 プラグイン、署名・インストール transaction・lifecycle・能力不在処理の改善を提案できます。
 
-## ギャラリーのナビゲーションスロット
+SDK が不足する場合は app-専用 クラス を使う前に、実 consumer、owner、寿命、エラー/absence、テスト を説明した中立契約を提案します。公開契約の変更は SDK 識別情報 を進め、BOM、Javadoc、テンプレート、Douyin、このガイドを揃えます。公開 candidate は上書きしません。
 
-プラグインは `NavigationContribution.placements` でリンク先を宣言します。`gallery.sidebar` はプラグイン、ダウンロード、ギャラリーなどの主要ページ、`gallery.sidebar.tools` は招待管理、統計、重複候補などのツール用です。小説ギャラリーでは `novel.sidebar` と `novel.sidebar.tools` を使います。各グループは独立して並び順とアクセス権を適用します。貢献を撤回するとリンクが消え、空のグループは非表示になります。ページは `data-nav-slot` を宣言し、プラグイン ID で分類しません。
+```bash
+git clone https://github.com/YOUR_USERNAME/PixivDownloader.git
+cd PixivDownloader
+git remote add upstream https://github.com/Sywyar/PixivDownloader.git
+git fetch upstream
+git switch -c feat/plugin-api/your-capability upstream/master
+```
 
-管理者のダウンロードページは、`DownloadTasks` の実行スナップショットを既存のキューに統合します。種類モジュールは `process(item, context)` 内でバックエンドから実際の実行 UUID を受け取り、`context.bindTask(taskId)` を呼び出します。既存の行がその実行に関連付けられ、実行 ID でキャンセルできます。作品 ID を実行 ID の代わりに使わないでください。他の経路で登録されたタスクには「他の経路」と表示され、ページから再送信されません。終了した実行のスナップショットは 5 分後に失効しますが、保存済みのキュー記録は残ります。実行中かどうか確認できない項目は未確認のまま保持され、ページを再読み込みしても自動で再送信されません。
+関連 モジュール、テンプレート、boundary テスト を実行し、ID・ルート・リソース・i18n を一致させます。`target/`, `build/`、ランタイム 設定、認証情報、秘密鍵、ダウンロード データ を commit しません。PR には問題、安定境界、失敗・不在動作と実行済み検証コマンドを書きます。コード、テンプレート、開発文書は PR で `master` へ提出します。オンライン文書は独立した `gh-pages` を専用 worktree から直接 commit/push する運用です。
+
+### 公式リポジトリのバージョンと Release 検査
+
+配布内容が変わる場合は公開版より `plugin.version` を上げます。公開前の同じ版には続けて変更できます。新 SDK 能力を使う場合は requires と プラグイン 版を上げますが、SDK 更新だけで全 プラグイン の増版は不要です。公式 PR gate は配布差分と公開版を照合し、各 Quality Gate は compiled type/member/コールバック override を最小 SDK と比較します。公開 rerun は ソース 版の判断を繰り返しません。reflection、inline constant、動作契約にはコードレビューが必要です。
+
+プラグイン 公開は ソース SDK の公開を前提にしません。安定アプリ Release は新しい安定 SDK を公開できます。手動の安定 SDK 公開は `-f` が必要でも 不変 release を上書きできません。Beta アプリは公開安定 SDK を再利用できますが新 SDK を公開しません。手動 プラグイン 公開の `-f` は同版 asset の修復用で、アプリ Release は自動指定しません。
+
+検査対象には ソース、リソース、記述子、専用 dependency、配布文書、共有 Maven 設定、参照 ビルド ファイル を含みます。テスト 専用変更は増版不要です。gate は増加だけを検査するため major/minor/patch の選択は契約レビューで判断します。公式 market の legacy-クライアント 集合は 2026-10-07 時点の安定 SDK `1.0.0`, `1.1.0` に固定され、`scripts/market-curation.json` の `_legacySdkVersions` で管理し自動拡大しません。channel と履歴保持は[プラグイン管理](/ja/plugin-management)を参照します。
+
+### 公開前に確認すること
+
+- [ ] provided SDK または有効な BOM を使用し、ホスト 提供 クラス を除外
+- [ ] ルート 記述子 の ID・版・requires・クラス・execution モード と実装一致、feature は 1 個、子 Bean は明示組立
+- [ ] コントローラー/ページ/static ディレクトリ の正しい AccessPolicy、i18n・エラー・status に機密値なし
+- [ ] ファイル と成功事実 commit 後の完了、resolver による owner、opaque workKey
+- [ ] 非同期 キュー/タスク/クライアント/executor/scheduler の実 quiesce/drain/close
+- [ ] 自分の gallery/API/リソース/i18n と自身の `gallery.type-switch` のみ
+- [ ] 設定/認証情報/パス/`PluginDatabase`/`PluginMainDatabase` の owner 境界、既存 `PluginDataSource` の SQLite 専用契約
+- [ ] ビルド/フロントエンド 動作/JAR 構造テスト成功、サイズ/ハッシュ/署名/マニフェスト が同じ bytes を参照
+- [ ] 秘密鍵が ソース/ビルド/ログ/package/公開 repository にない

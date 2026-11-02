@@ -1,122 +1,56 @@
 # 第三方插件 SDK
 
-本指南面向要编写、调试和发布 PixivDownloader 外置插件的开发者。最稳妥的起点是复制官方模板，而不是从应用壳或官方插件中摘取实现类。
+第三方插件从 SDK 开发包的独立工程模板起步，只需 JDK 17、Node.js 及包内自带的构建工具与运行清单，无需克隆主仓库。
 
-相关源码：
+| 开发任务 | 对应章节 |
+| --- | --- |
+| 创建并本地调试第一个插件 | [从模板开始](#从模板开始) · [本地开发](#本地开发) |
+| 新增下载作品类型或独立画廊 | [新增下载类型的完整流程](#新增下载类型的完整流程) · [新增插件自有画廊](#新增插件自有画廊) |
+| 管理配置、加密凭据、文件与私有数据库 | [配置、凭据和文件](#配置、凭据和文件) · [不依赖 GUI 的凭据与通用操作验证](#不依赖-gui-的凭据与通用操作验证) |
+| 声明跨插件服务契约或页面编辑器组件 | [独立服务契约与组合](#独立服务契约与组合) · [普通槽位与页面组件](#普通槽位与页面组件) |
+| 升级 SDK、投稿社区市场或自建仓库分发 | [维护外部工程与 SDK 升级](#维护外部工程与-sdk-升级) · [投稿市场资料](#投稿市场资料) · [签名和发布](#签名和发布) |
 
-- [第三方插件模板](https://github.com/Sywyar/PixivDownloader/tree/master/plugin-templates)
-- [SDK Info](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-sdk-info)
-- [Plugin API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-api)
-- [Core API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-core-api)
-- [Douyin 第三方示例插件](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin)
-- [插件签名工具](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-signature)
-- [SDK 下载与版本记录](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
-- [版本化 SDK Javadoc](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)
+下文中的 `SDK_VERSION`、包名、插件 ID、路径、SHA-256 与签名均为占位符，使用时请替换为实际值。代码片段需放入对应模板上下文并补齐 import 与业务实现，接口可用性以所选 [SDK Release](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) 及[版本化 Javadoc](https://sywyar.github.io/PixivDownloader-Plugin-SDK/) 为准。
 
-> Douyin 是完整的第三方 SDK 示例，展示下载、配置、代理、队列、计划任务、私有持久化和插件自有画廊如何组合。它只依赖公开 SDK 契约，不属于官方分发集合。新项目从 `plugin-templates` 开始，可避免带入与目标站点绑定的业务代码。
+参考源码：[插件模板](https://github.com/Sywyar/PixivDownloader/tree/master/plugin-templates) · [SDK Info](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-sdk-info) · [Plugin API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-api) · [Core API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-core-api) · [签名工具](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-signature) · [Douyin 完整示例插件](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin)（展示下载、配置、代理、队列、计划任务、私库与独立画廊，但不属于官方分发集合；新项目请从 `plugin-templates` 开始）。
 
 ## 插件许可证与发布渠道
 
-PixivDownloader 及其官方插件采用 AGPL-3.0，并为随附[插件链接例外](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt)的版本提供额外授权。通过公开 SDK/API 或文档化扩展接口开发、符合例外条件的独立第三方插件，可选择 MIT 许可证。
+PixivDownloader 及官方插件采用 [AGPL-3.0](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE)，并为随附[插件链接例外](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt)的版本提供额外授权：仅通过公开 SDK / API 开发且满足例外条件的独立第三方插件，可选择 MIT 等许可证（复制修改项目模板时须保留上游版权声明与例外文本；宿主、SDK 与官方插件仍适用 AGPL-3.0）。
 
-例外允许复制和修改项目自有插件模板用于独立第三方插件，分发时须保留相关版权声明及例外文本。宿主、SDK/API、运行时和官方插件实现及其修改仍须遵守适用的 AGPL 义务；第三方依赖仍须遵守各自许可证。
+[官方社区插件仓库](https://github.com/Sywyar/PixivDownloader-community-plugins)仅收录开源插件，要求公开完整 GitHub 源码、开源许可证、可复现构建并通过人工审核。
 
-带此例外的 SDK 开发包将上游许可放在 `licenses/pixivdownloader/`，Maven SDK/API JAR 的 `META-INF/` 也包含许可文本。请为自己的插件选择许可证并在工程中声明；复制示例另建工程时保留上游声明。核对实际选用的宿主和 SDK 版本，未随附例外的旧发行不会因文档更新而自动获得额外授权。
+## 信任与 SDK 架构边界
 
-[官方社区仓库](https://github.com/Sywyar/PixivDownloader-community-plugins)只收录开源插件：要求公开 GitHub 完整源码、开源许可证、可复现构建和人工审核。只有公网产物或有效 SPDX 表达式不够。插件许可与社区收录分别适用；安装时仍须通过既有包校验和信任确认。
+- **执行模式与信任边界**：`declarative-process` 运行在独立 worker JVM（隔离资源与协议），`host-process-full-trust` 运行在宿主 JVM；两者均共享当前 OS 账户，不构成操作系统级安全沙箱。Ed25519 签名仅证明发布者身份与字节完整性，安装前仍需信任作者与源码（详见[插件管理](/zh-cn/plugin-management)）。
+- **编译依赖方向**：第三方插件声明单个 `pixivdownload-sdk`（`provided`）依赖，由其传递 `pixivdownload-sdk-info`、`pixivdownload-plugin-api`、`pixivdownload-core-api` 及宿主提供的 PF4J、Spring、Servlet、Jackson 编译依赖（三个 API 模块与 BOM 也可单独使用）。**严禁依赖 `pixivdownload-app`、宿主内部实现类、官方插件私有类、宿主 `DataSource` 或私有前端全局变量**。
+- **能力发布与缺席降级**：插件通过 `PixivFeaturePlugin` 贡献能力，通过 `PixivPluginProvider.configurationClasses()` 声明独立 Spring 子上下文配置类。插件停用、卸载或换代时，宿主按 publication 撤回路由、静态资源、i18n、导航、下载类型、队列与计划能力；调用方必须处理能力缺席，不能产生空指针或半完成任务。
+- **桌面 UI 边界**：宿主通过工具包无关的纯数据契约（`GuiConfigContribution` 等）聚合配置、引导与状态，由 `gui-compose`（默认）和 `gui-swing`（后备）各自渲染界面；功能插件不返回 Swing / Compose 组件。
 
-## 先理解信任边界
+### `PixivFeaturePlugin` 主要贡献入口
 
-`declarative-process` 插件在独立 worker JVM 中执行，具有资源与协议隔离；`host-process-full-trust` 插件在宿主 JVM 中执行。两者都不是 OS 级安全沙箱，插件仍可能访问当前账户可读的文件、发起网络请求或消耗资源。
-
-Ed25519 签名只证明 artifact 来自某个受信密钥且字节未被篡改，不能证明已签名代码没有恶意行为。安装前必须信任发布者、源码和仓库运营者。Cookie、Token、代理、作品目录和插件私有数据的合法使用也由插件作者负责。
-
-宿主仍会执行结构、大小、路径、版本、依赖、SHA-256、签名和 provenance 校验，并用同一份冻结字节完成校验与加载。这些措施保护供应链完整性，不构成代码沙箱。详细安装行为见[插件管理](/zh-cn/plugin-management)。
-
-## SDK 边界
-
-插件交付内容变化时，应将 `plugin.version` 提升到高于已发布版本；升版后可以先合入源码、稍后发布，同一未发布版本可继续修改。只有实际使用 SDK 新增内容时才提高 `plugin.requires`，并同步提升插件版本；SDK 更新本身不要求所有插件联动升版。官方 PR 门禁检查交付内容与已发布版本，所有质量门禁构建检查产物对所声明最低 SDK 的类型、成员引用和回调覆盖。发布重跑不重复判定源码是否需要升版。反射、内联常量及行为契约变化仍需代码评审。
-
-插件发布不要求当前源码 SDK 已公开。新的 SDK 正式版由主程序正式 Release 触发；手动发布需要 `-f`，但仍不能覆盖不可变 SDK 发行物。Beta 主程序可以复用已经公开的 SDK 正式版，不能发布新的 SDK 正式版。插件手动 `-f` 则保留同版本产物覆盖修复功能，主程序 Release 不自动传入该参数。
-
-版本检查覆盖插件源码、资源、描述符、私有依赖、发行文档，以及共享 Maven 构建配置和引用的构建文件；测试专用配置不要求升版。门禁检查版本是否递增，major、minor、patch 的选择仍按公共契约变化评审。官方市场的旧客户端支持集合固定为截至 2026-10-07 已公开的正式 SDK `1.0.0`、`1.1.0`，在 `scripts/market-curation.json` 的 `_legacySdkVersions` 中维护，不随新 SDK 自动扩大。渠道与历史保留规则见[插件管理](/zh-cn/plugin-management#更新提示与历史版本)。
-
-统一薄 JAR 入口 `pixivdownload-sdk` 通过标准 POM 传递三个 API 模块及宿主提供的编译依赖；`pixivdownload-sdk-info`、`pixivdownload-plugin-api`、`pixivdownload-core-api` 和 BOM 仍可独立使用。`sdk-info` 是完整 SDK 版本、预发布身份和兼容规则的唯一事实源；SDK 版本与应用发行版本独立。`plugin-api` 提供插件入口、contribution、宿主控制面和 owner-scoped 存储能力；`core-api` 提供稳定的业务语义端口、值模型和中性算法。依赖方向必须保持为：
-
-```text
-第三方插件
-  └─ pixivdownload-sdk        provided：统一编译入口
-      ├─ pixivdownload-sdk-info    SDK 版本与兼容信息
-      ├─ pixivdownload-plugin-api  插件入口、contribution、路径与私有数据源
-      ├─ pixivdownload-core-api    下载设置、代理设置等稳定语义端口
-      └─ PF4J、Spring、Servlet、Jackson 等宿主编译依赖
-
-禁止依赖：pixivdownload-app、宿主实现类、plugin-runtime/installer/signature internal、
-官方插件私有 service/mapper/controller、宿主 DataSource 或私有前端全局
-```
-
-插件通过描述符和 contribution 声明能力，宿主按可信的插件身份、包身份、generation 和 publication 注册能力。宿主不应出现按第三方插件 id、包名或作品类型写的特判。插件停用、卸载、损坏或不兼容时，它的路由、静态资源、i18n、导航、下载类型、队列和计划能力会撤回；消费者必须按“能力缺席”降级，不能产生白屏、空指针或半完成任务。
-
-### 可以贡献什么
-
-`PixivFeaturePlugin` 当前提供以下入口。未使用的入口保持默认空列表即可：
-
-| 方法 | 能力 |
+| 方法 | 贡献内容 |
 | --- | --- |
-| `id`、`displayName`、`description`、`displayNamespace` | 插件身份和 i18n 展示键 |
-| `iconKey`、`colorToken`、`kind` | 受控图标、颜色和类别 token |
-| `start`、`stop` | 插件直接拥有的本地资源生命周期；`stop` 必须幂等 |
-| `schema` | 宿主与官方插件协作的共享 schema 声明；不是第三方私有持久化入口 |
-| `routes` | 页面、API 和静态路径的访问策略 |
-| `staticResources` | 插件 classpath 静态资源到 URL 的映射 |
-| `i18n` | 插件自有 Web i18n namespace |
-| `navigation` | 导航项和中性 placement |
-| `startupRoutes`、`landings` | 默认启动落点和身份相关业务落点 |
-| `pageSections`、`uiSlots` | 页面区块与受控 Web UI 挂载点 |
-| `guiThemes` | 启动期 GUI 主题；通常需要 `process-restart` |
-| `guiConfigContributions` | GUI 配置字段、分组、section、动作与预设 |
-| `guiOnboardingSteps` | GUI 引导步骤 |
-| `drilldowns` | 按语义 placement 解析的下钻链接 |
-| `userscripts` | 稳定脚本 id 与精确 classpath 资源 |
-| `scheduledSourceDescriptors` | 计划来源的纯数据描述符 |
-| `downloadTypes` | 下载工作台作品类型描述符 |
-
-Spring Bean 不从 `PixivFeaturePlugin` 返回。外置入口通过 `PixivPluginProvider.configurationClasses()` 声明配置类，宿主为活动插件创建独立的子 `ApplicationContext`。
-
-### 桌面 UI 边界
-
-应用壳只通过稳定、工具包无关的宿主契约提供业务状态、配置语义和动作；`gui-swing` 与 `gui-compose` 分别完整拥有自己的页面树、布局、组件、交互状态、窗口、托盘、主题和平台适配。稳定 SDK 不提供 `DesktopUiDocument`、`DesktopUiNode` 或其它跨工具包视图 AST，也不要求两个 provider 共享页面实现。
-
-功能插件只通过 `GuiConfigContribution` 等纯数据契约贡献配置字段、分组、section、动作、预设及其它明确业务语义，由宿主按可信 owner 合并、校验和保存，再由各 GUI provider 按自己的界面实现呈现。功能插件不得返回 Swing / Compose 组件或直接拥有宿主顶层窗口；宿主也不得按 provider id 选择页面结构。
-
-官方 `gui-swing` 默认安装并作为默认 provider；`gui-compose` 按需安装。两者均为 `process-restart` 插件，切换、安装、升级、禁用或卸载后必须完整重启。Compose 插件的 Kotlin / Compose 编译和 JAR-with-lib 产物由 Gradle Wrapper 实际生成，Maven reactor 只负责调用 Gradle 并接入官方构建、签名和分发流程。
+| `id`、`displayName`、`description`、`displayNamespace`、`iconKey`、`colorToken`、`kind` | 插件身份、i18n 展示键与受控图标/颜色/分类 token |
+| `start`、`stop` | 插件自有本地资源生命周期（`stop` 必须幂等） |
+| `privateSchema`、`privateStorageMigrations` | 当前 owner 权威私有表结构与按序数据迁移声明 |
+| `schema`、`sharedMainStorage` | 参与宿主主库协作的受管表与公开存储域申请（不可访问其他 owner 表） |
+| `routes`、`staticResources`、`i18n` | Web 路由访问策略、classpath 静态资源映射、前端 i18n namespace |
+| `navigation`、`startupRoutes`、`landings`、`pageSections`、`uiSlots`、`drilldowns` | 导航项、启动落点、页面区块、Web UI 槽位与下钻链接 |
+| `guiConfigContributions`、`guiOnboardingSteps`、`guiThemes` | 桌面配置字段/分组/动作/预设、引导步骤与启动期主题 |
+| `userscripts`、`scheduledSourceDescriptors`、`downloadTypes` | 油猴脚本资源、计划任务来源描述符、下载工作台作品类型描述符 |
 
 ## 从模板开始
 
-### 选择模板
-
-| 模板 | 适用情况 | 已包含内容 |
+| 模板 | 适用场景 | 已包含内容 |
 | --- | --- | --- |
-| `minimal-feature-plugin` | 声明式页面、导航和 i18n | 独立 worker、PF4J 入口、feature、route/static/i18n、thin JAR 测试；无 Spring 子上下文 |
-| `download-type-plugin` | 新增一种可下载作品类型 | 下载描述符、五类取得模式、队列、计划来源、Vue 槽位、独立画廊、前后端测试 |
+| `minimal-feature-plugin` | 声明式页面、导航与 i18n | `declarative-process` worker、PF4J 入口、route/static/i18n 与 thin JAR 测试（无 Spring 子上下文） |
+| `download-type-plugin` | 新增可下载作品类型与画廊 | `host-process-full-trust`、下载类型描述符、5 种取得模式、队列、计划来源、Vue 槽位、独立画廊与前后端测试 |
+| `typed-service-plugin` | 跨插件类型化服务与远程调用 | 独立 `api` / `contract` / `provider` / `consumer` 多模块工程与 Schema/客户端生成 |
 
-仓库内验证两个模板：
+复制到仓库外后，模板是不继承主仓库 parent 的独立 Maven 工程，直接运行 `mvn clean verify` 即可验证（在主仓库内可用 `mvn -f plugin-templates/pom.xml clean verify` 验证）。
 
-```powershell
-mvn -f plugin-templates/pom.xml clean verify
-mvn -f plugin-templates/pom.xml -pl minimal-feature-plugin -am verify
-mvn -f plugin-templates/pom.xml -pl download-type-plugin -am verify
-```
-
-复制到仓库外后，每个模板都是不继承 PixivDownloader 根 parent 的独立 Maven 项目。在模板目录执行：
-
-```powershell
-mvn clean verify
-```
-
-### 获取 SDK artifact
-
-SDK 开发包提供单个 `pixivdownload-sdk` 编译依赖、独立 Maven 工程及 Gradle / sbt 示例。带固定运行清单的开发包可通过自带 Run / Debug 入口构建当前插件，自动准备配套宿主和完整官方插件；运行数据保存在各工程的 `.dev/`。可下载版本及具体用法以对应 [SDK Release](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) 和包内 README 为准。
+Maven 依赖声明（Java 控制器若使用未显式命名的 `@PathVariable` / `@RequestParam`，须设置 `<maven.compiler.parameters>true</maven.compiler.parameters>` 或 `-parameters`）：
 
 ```xml
 <dependency>
@@ -127,45 +61,16 @@ SDK 开发包提供单个 `pixivdownload-sdk` 编译依赖、独立 Maven 工程
 </dependency>
 ```
 
-Java 控制器使用未显式命名的 `@PathVariable` 或 `@RequestParam` 时，编译必须保留参数名。Maven 工程在 `<properties>` 中设置 `<maven.compiler.parameters>true</maven.compiler.parameters>`；其他构建工具向 Java 编译器传入 `-parameters`。已有工程也需检查此设置，并通过宿主实际调用打包后的接口，不能只测试控制器方法。
+Gradle 使用 `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:SDK_VERSION")`，sbt 使用 `"io.github.sywyar.pixivdownloader" % "pixivdownload-sdk" % "SDK_VERSION" % Provided`。复制模板后，请统一替换 Maven `artifactId`、全局唯一插件 ID、Java 包名与类名前缀、版本号、路由前缀、静态资源目录、私有表名和 i18n namespace。
 
-Gradle 使用 `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:SDK_VERSION")`，sbt 使用 `"io.github.sywyar.pixivdownloader" % "pixivdownload-sdk" % "SDK_VERSION" % Provided`。标准 Ivy 可映射编译配置：
+## 插件包描述符与子上下文装配
 
-```xml
-<dependency org="io.github.sywyar.pixivdownloader" name="pixivdownload-sdk"
-            rev="SDK_VERSION" conf="compile->default"/>
-```
-
-Ivy 的运行配置不要继承此编译配置。标准 Maven 元数据传递公开 API 及 PF4J、Spring、Servlet、Jackson 编译依赖；产物仍是 thin PF4J JAR，不将这些宿主提供类打包。测试框架自行声明，三个 API 模块和 BOM 仍可单独消费。
-
-将 `SDK_VERSION` 替换为 [SDK Releases](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) 中已公开且包含统一入口的版本。五个坐标包括统一入口、三个 API 模块与 BOM。带 `developmentRuntime` 元数据的开发包提供固定运行宿主；历史版本按各自 README 使用。公开 Java 表面或 Maven 消费语义变化要求新 SDK 身份，已发布坐标与附件不得覆盖。
-
-### 复制后必须统一改名
-
-以下载类型模板为例，至少同时替换：
-
-| 模板值 | 替换内容 |
-| --- | --- |
-| `example-download-plugin` | Maven `artifactId` |
-| `example-download` | 全局唯一插件 id、队列类型、URL 前缀和 i18n namespace |
-| `com.example.pixivdownload.downloadtype` | Java 包及对应目录 |
-| `ExampleDownload` | Java 类型名前缀 |
-| `0.1.0` | artifact 和 `plugin.version` |
-| `plugin.requires=1.0` | 兼容的 SDK major.minor |
-| `plugin.provider=Example Developer` | 发布者名称 |
-
-还要同步修改路由、静态路径、前端常量、私有数据表名、测试和两种语言的 i18n 文案。只改 `plugin.properties` 会造成 descriptor、feature 与运行时 publication 身份不一致，宿主会拒绝接入。
-
-## 插件包和入口
-
-### `plugin.properties`
-
-文件必须位于 JAR 根部。基础示例：
+JAR 根目录必须包含 `plugin.properties`：
 
 ```properties
 plugin.id=example-download
 plugin.version=0.1.0
-plugin.requires=1.0
+plugin.requires=1.3
 plugin.class=com.example.pixivdownload.downloadtype.ExampleDownloadPf4jPlugin
 plugin.provider=Example Developer
 plugin.description=Example download type.
@@ -178,91 +83,17 @@ pixiv.execution-mode=host-process-full-trust
 pixiv.lifecycle-policy=process-restart
 ```
 
-字段规则：
-
-| 字段 | 规则 |
-| --- | --- |
-| `plugin.id` | 全局唯一、小写短横线 token；必须与 `PixivFeaturePlugin.id()` 相同 |
-| `plugin.version` | 插件 artifact 版本 |
-| `plugin.requires` | 所需 SDK `major.minor`，不是应用发行版本 |
-| `plugin.class` | PF4J 主类，实现 `PixivPluginProvider` |
-| `plugin.provider`、`plugin.description` | 发布者和 descriptor 说明 |
-| `plugin.dependencies` | 可选 PF4J 插件依赖表达式 |
-| `pixiv.*` 展示字段 | i18n namespace/key 和受控展示 token |
-| `pixiv.replaces` | 可选的被替换插件身份 |
-| `pixiv.lifecycle-policy` | `hot-reload`、`backend-restart` 或 `process-restart`；区分大小写，缺省为 `hot-reload` |
-
-新 SDK 预发布版本采用 `alpha.N`、`beta.N`、`rc.N`，序号从 1 开始且不补零；历史紧连后缀继续按原始发行身份使用。SDK 按渠道和数字序号排序，例如 `rc2 < rc.10`；`rc2` 与 `rc.2` 优先级相同，不能仅换拼写重新发布。依赖坐标、Tag、下载路径及运行清单须与所选 Release 完全一致。已发布的旧 SDK 工具按包内说明使用，新格式支持随新的开发包交付。
-
-SDK 的 RC 是首个稳定基线建立前的候选版本。稳定 `1.0.0` 从经过验收的 SDK 制品建立主版本 1 的公共 API 基线并先行发布；应用 `v1.14.0` 随后固定并验证已公开的 SDK `1.0.0`，再发布宿主。稳定版的兼容判断使用 `requiredMajor == hostMajor && requiredMinor <= hostMinor`，PATCH 不参与准入判断；预发布开发包按完整 SDK 版本匹配。稳定基线建立后，破坏性契约变更升 MAJOR，向后兼容新增升 MINOR，兼容修复升 PATCH。
-
-### 复用 PostHog 浏览器客户端
-
-需要发布 PostHog 调查的 Web 插件可以依赖官方 `posthog` 插件，并在自己的页面先加载 `/pixiv-posthog/pixiv-posthog.js`。这不是中性调查抽象：调查发布插件仍拥有 Survey ID、问题结构、触发、状态、文案、隐私过滤以及全部四个 PostHog 项目参数。
-
-```properties
-plugin.dependencies=posthog?@1.0
-```
-
-```js
-const posthog = Object.freeze({
-  projectToken: 'phc_...',
-  surveyId: '...',
-  apiHost: 'https://example.invalid',
-  uiHost: 'https://us.posthog.com'
-});
-
-const client = await window.PixivPostHog?.createSurveyClient({
-  ownerKey: 'example-plugin.feedback',
-  posthog,
-  distinctId: '',
-  beforeSend(event) {
-    return allowedSurveyEvent(event) ? event : null;
-  }
-});
-if (!client) return; // 依赖缺失、参数非法、SDK 加载失败或配置冲突时静默关闭
-
-await window.PixivPostHog.captureSurveyWithAck(
-  'example-plugin.feedback',
-  'survey sent',
-  surveyProperties,
-  submissionId
-);
-```
-
-`ownerKey` 必须全局稳定；同一页面内同一 owner 以相同四参数、`distinctId` 和同一个 `beforeSend` 函数重复调用会复用客户端，任一项变化则 fail-closed。不同 owner 可以使用不同项目参数。`submissionId` 必须是发布插件根据 Survey ID、campaign 版本和调查作用域匿名身份派生的稳定 UUID；同一答卷的重试必须复用，campaign 版本提升时才生成新值。适配器会把该 UUID 作为事件顶层 `uuid` 发送，并只在固定接收端返回 2xx 后完成 Promise；缺失或非法 UUID 会在发出请求前拒绝。适配器固定并加载 vendored SDK、关闭默认采集并创建隔离的命名实例，但不会替插件选择调查、生成身份或决定回答字段。若运行时停用 `posthog`，已打开页面中已经加载的 JavaScript 不会被撤销；刷新后资源缺席，调用方必须按客户端不可用降级。
-
-若调查需要长期出现在站内信并直接填写，发布插件可以额外贡献一个不加载槽位模块的 `notification.inbox` 槽位：
-
-```java
-new SurveyInboxMessage(
-        "example-plugin.feedback-survey",
-        "campaign-v1",
-        "/example-plugin/survey.html",
-        "example-plugin",
-        "survey.inbox-title",
-        "survey.inbox-body",
-        100
-).toUiSlotContribution()
-```
-
-`messageKey` 必须稳定且全局唯一；`instanceKey` 只在发布新一轮调查时变化。正文 URL 必须是插件自有的同源绝对路径，namespace 与标题、摘要 i18n key 也由该插件发布。该路由仍需声明访问级别；仅从管理员站内信展示的问卷应声明 `ADMIN`。HTML 保留在插件自有页面中，不以原始正文、Bean 或 ClassLoader 通过稳定契约传递。命中问卷目标但字段非法的贡献会被拒绝并记录诊断；不应手工拼装 metadata 代替该封装。
-
-该贡献是可选的 best-effort 展示能力。通知插件缺席不影响问卷页面或 PostHog 提交主流程。宿主保存纯值活动快照，quiesce 不会回调发布插件。宿主在启动同步或槽位变化后的下一次站内信请求中幂等保存消息；同一实例复用既有已读状态和不可用墓碑，实例键变化后创建新的未读消息。贡献缺席、插件停用或卸载、publication 换代只会隐藏活动消息，保留的状态可在同一实例恢复时继续使用。
-
-宿主会给内嵌 URL 附加 `notificationId` 与 `lang` 查询参数；页面可用 `pixiv-content-height` 消息报告高度。只有在已确认远端调查永久关闭 / 删除后，页面才应向同源父页面发送 `{type: 'pixiv-survey-unavailable', notificationId}`；暂时网络失败不能发送，否则会留下关闭标记，并在同一实例再次发布时保持关闭。
-
-### PF4J provider 与 Spring 子上下文
+- `plugin.id` 必须与 `PixivFeaturePlugin.id()` 完全一致；`plugin.requires` 声明所需 SDK 版本（稳定版按 `requiredMajor == hostMajor && requiredMinor <= hostMinor` 匹配，预发布版采用 `alpha.N` / `beta.N` / `rc.N` 并要求精确匹配）。
+- `pixiv.execution-mode` 必填（`declarative-process` 或 `host-process-full-trust`）；`pixiv.lifecycle-policy` 可选 `hot-reload`（默认）、`backend-restart` 或 `process-restart`；`pixiv.risk-signals` 可声明风险信号 token。
+- 外置入口实现 `PixivPluginProvider`，返回唯一 `PixivFeaturePlugin` 与显式 `@Bean` 配置类（禁止依赖宿主包扫描）：
 
 ```java
 public final class ExampleDownloadPf4jPlugin
         extends org.pf4j.Plugin implements PixivPluginProvider {
-
     @Override
     public PixivFeaturePlugin featurePlugin() {
         return new ExampleDownloadPlugin();
     }
-
     @Override
     public List<Class<?>> configurationClasses() {
         return List.of(ExampleDownloadConfiguration.class);
@@ -270,74 +101,9 @@ public final class ExampleDownloadPf4jPlugin
 }
 ```
 
-每个外置包必须返回且只返回一个非空 feature，其 id 与 descriptor 相同。配置类用 `@Bean` 显式装配插件 Bean：
+### Web 路由、静态资源、i18n、通知模板与问卷槽位
 
-```java
-@Configuration(proxyBeanMethods = false)
-public class ExampleDownloadConfiguration {
-
-    @Bean
-    ExampleDownloadPlugin exampleDownloadPlugin() {
-        return new ExampleDownloadPlugin();
-    }
-
-    @Bean
-    ExampleDownloadController controller(
-            ExampleDownloadQueue queue,
-            RequestOwnerIdentityResolver ownerResolver) {
-        return new ExampleDownloadController(queue, ownerResolver);
-    }
-}
-```
-
-不要依赖宿主根包扫描，也不要从插件包扫描任意类。子上下文可以注入父上下文明确提供的 Plugin API、Core API、JDK 类型和规范依赖，但不能注入 app 实现类。
-
-## 贡献通知模板
-
-通知模板归拥有业务场景的插件所有，不归 mail 或 push 传输插件所有。场景所有者应在自己的子上下文中提供 `top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateContributor` Bean；每个 `NotificationTemplateContribution` 都只是包含 `scenarioId`、`medium`、`locale`、`titleTemplate` 和 `bodyTemplate` 的纯值：
-
-```java
-@Bean
-NotificationTemplateContributor notificationTemplates() {
-    return () -> List.of(new NotificationTemplateContribution(
-            "example.completed",
-            "mail",
-            Locale.US,
-            "示例已完成",
-            """
-            <!doctype html>
-            <html><body><p>{{summary}}</p></body></html>
-            """));
-}
-```
-
-发布模板数据不会注册新的通知场景，也不会触发发送。只能使用对应稳定场景 / dispatcher 契约已经接纳的场景 id，且不能覆盖其它插件拥有的 tuple。mail 和 push 插件只消费宿主提供的只读 `NotificationTemplateCatalog`；配置、渲染检查、发送和失败处理仍由各自介质插件拥有。
-
-宿主在准备插件 publication 时调用 contributor，把 record 复制为不可变快照；插件 stop、reload 或 unload 时撤回对应的精确 publication。重复的 `(scenarioId, medium, locale)` 会立即失败。查找先匹配精确 locale，再按确定顺序回退到同语言模板。
-
-HTML 不会通过网络或进程边界在插件间传输。它在同一个 JVM 内作为有界 `String` 纯值传递，并按 UTF-8 字节计量：标题上限 16 KiB，正文上限 1 MiB；单个插件一次 publication 最多 256 份模板、贡献数据合计最多 8 MiB。不要通过本契约传递 `InputStream`、`Path`、Spring `Resource`、`ClassLoader`、Bean 或延迟回调，否则会把插件生命周期或 I/O 状态泄漏到边界外。把不可信值填入 HTML 占位符前必须转义。
-
-如果真实需求超过这些上限或需要二进制数据，应另行提出具有明确生命周期和配额的宿主所有 streaming/blob handle 契约；不要扩大模板契约，也不要让插件通过临时文件互相交换数据。
-
-## Web 路由、静态资源和 i18n
-
-每个 controller 映射、静态目录和顶层 HTML 都必须由所属插件在 `routes()` 中声明。controller 只能由同一插件 owner 的声明覆盖，不能借用其它插件的宽前缀；未声明的 `path + HTTP method` 会返回 404。前端隐藏入口不构成鉴权。
-
-常用命名工厂：
-
-| 工厂 | 实际访问面 |
-| --- | --- |
-| `publicRoute` | 无需鉴权，solo/multi 一致 |
-| `visitor` | multi 游客可达，solo 需要会话，受邀访客不可达 |
-| `visitorAndInvitedGuest` | multi 游客与受邀访客均可读 |
-| `invitedGuest` | 管理员和受邀访客可达，同时受 monitor 保护 |
-| `admin` | 仅管理员 |
-| `local` | 本机流程特例 |
-| `gui` | 本机可信请求和 GUI token 双重校验 |
-
-需要限制 HTTP 方法时使用 `WebRouteContribution` 标准构造器并显式传 `HttpMethod` 集合。HTTP 方法集合重叠时，不同插件的可匹配路径必须使用相同 `AccessPolicy`；不同策略会在注册阶段 fail-fast，并报告双方插件与路径模式。相同策略可以共享命名空间；同一插件仍可用更具体的窄声明覆盖自己的宽前缀。
-
-独立管理页的完整声明示例：
+每个 Controller 路径、静态资源和 HTML 页面均须由同一插件在 `routes()` 中声明 `AccessPolicy`（支持 `publicRoute`、`visitor`、`visitorAndInvitedGuest`、`invitedGuest`、`admin`、`local`、`gui`；未声明的 `path + method` 返回 404）：
 
 ```java
 @Override
@@ -347,203 +113,32 @@ public List<WebRouteContribution> routes() {
             WebRouteContribution.admin("/example-download-gallery/**"),
             WebRouteContribution.admin("/api/example-download/gallery"));
 }
-
-@Override
-public List<StaticResourceContribution> staticResources() {
-    return List.of(
-            new StaticResourceContribution(
-                    "classpath:/static/", "/example-download-gallery.html", true),
-            new StaticResourceContribution(
-                    "classpath:/static/example-download-gallery/",
-                    "/example-download-gallery/"));
-}
-
-@Override
-public List<I18nContribution> i18n() {
-    return List.of(new I18nContribution(
-            "example-download", "i18n.web.example-download"));
-}
 ```
 
-页面、CSS 和 JavaScript 分文件存放；用户可见文案进入插件 namespace。渲染外部数据时使用 DOM API 和 `textContent`，不要把未知文本拼进 `innerHTML`。
+- **业务通知模板**：场景 owner 在子上下文注册 `NotificationTemplateContributor` Bean，返回纯值 `NotificationTemplateContribution(scenarioId, medium, locale, titleTemplate, bodyTemplate)`（单标题上限 16 KiB、正文 1 MiB，单插件最多 256 项 / 8 MiB；填入不可信值前必须做 HTML 转义）。
+- **PostHog 调查与站内信**：Web 插件可声明 `plugin.dependencies=posthog?@1.0`，加载 `/pixiv-posthog/pixiv-posthog.js` 并调用 `window.PixivPostHog.createSurveyClient` 与 `captureSurveyWithAck`；需常驻管理员站内信时，使用 `new SurveyInboxMessage(...).toUiSlotContribution()` 贡献 `notification.inbox` 槽位。
 
 ## 新增下载类型的完整流程
 
-当前源码的下载任务契约支持插件注册提交处理器、选项扩展和事件观察者，提供请求去重、精确取消及重连快照，无需继承 SDK 抽象基类。[下载类型模板](https://github.com/Sywyar/PixivDownloader/tree/master/plugin-templates/download-type-plugin)演示这些接口的用法。请选择包含相同契约的 SDK 与宿主；当前源码中的接口不代表旧发行包也已提供。
+下载类型由同一插件协同贡献：
 
-一个下载类型不是单个 Java 类，而是一组由同一插件拥有、能一起发布和撤回的能力：
-
-```text
-plugin.properties + provider
-        ↓
-DownloadTypeDescriptor ──→ 下载工作台发现类型和取得模式
-        ↓
-同源行为模块 ───────────→ 导入、发现、入队、状态更新、筛选和设置
-        ↓
-插件 controller/service ─→ 解析请求并完成真实领域工作
-        ↓
-QueueOperations ─────────→ 取消、清空和生命周期 drain
-        ├─ WebUiSlotContribution（可选）
-        ├─ ScheduledSourceDescriptor + executor（可选）
-        └─ 插件自有独立画廊（可选）
-```
-
-### 1. 声明 `DownloadTypeDescriptor`
-
-当前没有 `QueueTypeContribution`、`independentPage`、gallery capability bag 或 descriptor 内的 `uiSlots` 字段。下载类型、队列、UI 槽位、计划来源和独立页面各走自己的稳定契约。
-
-```java
-@Override
-public List<DownloadTypeDescriptor> downloadTypes() {
-    return List.of(new DownloadTypeDescriptor(
-            DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
-            "example-download",
-            "example-download",
-            "batch.kind",
-            900,
-            "download",
-            "green",
-            "/example-download/example-download-type.js",
-            List.of(
-                    DownloadAcquisitionMode.SINGLE_IMPORT,
-                    DownloadAcquisitionMode.USER_PROFILE,
-                    DownloadAcquisitionMode.SERIES_COLLECTION,
-                    DownloadAcquisitionMode.SEARCH,
-                    DownloadAcquisitionMode.QUICK),
-            true,
-            List.of("example-ready-filter"),
-            List.of("example-output-setting"),
-            "example-download"));
-}
-```
-
-字段含义：
-
-| 字段 | 要求 |
-| --- | --- |
-| `contractVersion` | 当前必须为 `DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION`，值为 1 |
-| `type` | 全局唯一作品类型；通常与 `QueueOperations.queueType()` 一致，但注册中心不假定二者必然对应 |
-| `displayNamespace`、`displayI18nKey` | 类型名称的 namespace 和纯 key |
-| `order` | 稳定排序值 |
-| `iconKey`、`colorToken` | 宿主白名单内的受控 token，不是 URL、HTML 或任意 CSS |
-| `moduleUrl` | 必填的同源绝对 `.js` 路径，必须由同一插件静态资源贡献拥有 |
-| `acquisitionModes` | `single-import`、`user`、`series`、`search`、`quick` 的声明集合 |
-| `cancelSupported` | 是否提供单项取消；为 `true` 时队列项必须有顶层 `cancelWorkKey` |
-| `filters`、`settings` | 行为模块中对应契约 id 的白名单 |
-| `i18nNamespace` | 行为模块状态和错误文案 namespace |
-
-### 2. 实现前端行为模块
-
-模块在宿主创建的真实 `<script>` 求值窗口中调用 `PixivBatch.queueTypes.registerModule(initializer)`。不要复制 Vue，也不要直接读写宿主的 `state`、`saveQueue`、`renderQueue`、`updateStats` 或私有 DOM id。
-
-contract version 1 的主要入口：
-
-管理员下载页把 `DownloadTasks` 的执行快照合并到现有队列。类型模块在 `process(item, context)` 中取得后端真实执行 UUID 后调用 `context.bindTask(taskId)`，即可关联原条目并按执行编号取消；不要用作品 ID 代替执行编号。其他入口提交的任务标记为“其他入口”，网页不会重新派发它们。终态快照只保留 5 分钟，已保存的队列记录继续保留；无法确认的在途执行显示为待确认，刷新页面不会自动重提。
-
-| 入口 | 职责 | 缺席语义 |
-| --- | --- | --- |
-| `process(item, context)` | 把一个队列项交给插件 API，并用 `context.updateItem(patch)` 提交白名单状态 | 必选；缺失则类型不应激活 |
-| `import` | URL 匹配、构建单作品队列项和 `cancelWorkKey` | 未声明 `single-import` 时省略 |
-| `acquisition.user` | 用户输入、分页发现、渲染和队列元数据 | 未声明 `user` 时省略 |
-| `acquisition.series` | 系列 URL、分页、顺序和队列元数据 | 未声明 `series` 时省略 |
-| `acquisition.search` | 搜索请求、范围请求、渲染和队列同步 | 未声明 `search` 时省略 |
-| `acquisition.quick` | 快捷动作和作品发布；结果通过 `context.publishWorks(payload)` 提交 | 未声明 `quick` 时省略 |
-| `filters` | 只实现 descriptor 已列出的筛选 id | 空列表表示没有额外筛选 |
-| `settings` | 只实现 descriptor 已列出的设置 id | 空列表表示没有额外设置 |
-| `slots` | 类型模块同源的声明式片段 | 没有片段时省略；独立动态槽位走 `WebUiSlotContribution` |
-
-initializer 会收到 `AbortSignal`、`isActive()`、`assertActive()` 和 `onCleanup()`。所有异步结果在写回前必须确认 publication 仍然有效；清理监听器、定时器和已挂载组件。
-
-### 3. 后端解析可信 owner
-
-HTTP controller 只从父上下文注入 `RequestOwnerIdentityResolver`，由当前请求解析管理员/用户 owner：
-
-```java
-RequestOwnerIdentity identity = ownerResolver.resolve(request);
-queue.submit(command, identity);
-```
-
-不能信任 JSON、query 或自定义 header 中的 owner UUID。descriptor 的 `pluginId/packageId/generation/publicationId` 只证明下载类型 publication 的 currentness，也不是用户鉴权身份。
-
-真实下载器必须在文件已经耐久写入、历史或来源关系等成功事实已经落地后，才把任务标记为 completed。模板的内存完成响应只是确定性测试夹具，不能直接用于生产插件。
-
-### 4. 实现 `QueueOperations`
-
-```java
-public final class ExampleQueue implements QueueOperations {
-    @Override public String queueType() { return "example-download"; }
-    @Override public void cancel(String workKey, String ownerUuid, boolean admin) { /* ... */ }
-    @Override public int clearAll() { /* ... */ }
-    @Override public int clearForOwner(String ownerUuid) { /* ... */ }
-}
-```
-
-`workKey` 是该 queue type 内的不透明稳定字符串，不要求是数字，也不能放进 URL path segment。宿主使用 `POST /api/download/queue/{queueType}/cancel`，在 JSON 中传原始 `workKey` 和 descriptor publication 身份；插件前端应调用宿主桥接，不自行构造控制请求。
-
-严格同步且没有后台任务的实现可以使用默认 generation 0 completed drain。只要存在排队、执行器 handoff、延迟回调或任何越过当前调用栈的工作，就必须：
-
-1. `prepareQuiesce(registeredQueueType)` 原子停止接纳新任务，返回正 generation 的真实 `QueueDrain`；
-2. 宿主保存 drain 后，`cancelQuiescedTasks()` 才发送协作式取消；
-3. 所有活动任务归零后 drain 才完成；
-4. 重复 prepare 返回相同的 `queueType + generation`，新插件实例使用新 generation。
-
-不能用 completed 哨兵伪造异步队列已经退出。插件自己的 executor、scheduler、HTTP/WebSocket client 必须由子上下文拥有并在关闭时释放。
-
-### 5. 增加 UI 槽位
-
-槽位独立发布，不放回下载 descriptor：
-
-```java
-@Override
-public List<WebUiSlotContribution> uiSlots() {
-    return List.of(
-            new WebUiSlotContribution(
-                    "example-download.settings-card",
-                    "settings-card",
-                    "/example-download/example-download-type.js",
-                    900),
-            new WebUiSlotContribution(
-                    "example-download.quick-actions",
-                    "quick-actions-mine",
-                    "/example-download/example-download-ui-slot.js",
-                    900));
-}
-```
-
-动态槽位模块通过宿主 `PixivVue.mountUiSlot` 挂载，并且只用 owner-scoped `context.supports(type, mode)`、`context.dispatchQuickAction(action)` 和 `context.onCleanup(...)`。不要随插件打包 Vue runtime。
-
-### 6. 增加计划任务能力
-
-计划任务是可选能力。feature 只贡献纯数据 `ScheduledSourceDescriptor`，`ScheduledSourceExecutor` 和 `ScheduledWorkExecutor` 作为插件子上下文 Bean 提供。
-
-浏览器来源模块负责：
-
-- `capture`：把当前取得输入序列化成插件拥有、带 schema/version 的 definition；
-- `restore`：把保存的 definition 回灌编辑器；
-- `summary`：生成受控的展示结构。
-
-浏览器只通过 publication-scoped `context.acquisitionInput(mode)` 和 `context.restoreAcquisition(mode, value)` 访问宿主允许的输入。当前第三方中性 adapter 只开放 `single-import`，不要读取宿主 DOM 或调用私有 mode global 模拟其它模式。
-
-后端来源执行器拥有 definition schema、发现和 checkpoint；作品执行器拥有 payload schema 和同步作品执行。宿主继续拥有 claim、lease、credential、Guard、pending、取消和 checkpoint CAS。`ScheduledWorkExecutor.execute` 只有在作品文件和成功事实都已耐久提交后才能返回 `COMPLETED` 或 `ALREADY_COMPLETED`。插件或执行器缺席时，任务数据保留并挂起，不应删除或提前推进 checkpoint。
+1. **声明 `DownloadTypeDescriptor`**：在 `PixivFeaturePlugin.downloadTypes()` 中返回 descriptor（`contractVersion = DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION`、全局唯一 `type`、i18n 键、图标与颜色 token、同源行为模块 `moduleUrl`、支持的取得模式 `single-import` / `user` / `series` / `search` / `quick`、`cancelSupported`、筛选与设置白名单）。
+2. **实现前端行为模块**：在 `moduleUrl` 中调用 `PixivBatch.queueTypes.registerModule(initializer)`，实现 `process(item, context)`（必填，通过 `context.updateItem(patch)` 更新状态，使用 `DownloadTasks` 时通过 `context.bindTask(taskId)` 绑定执行 UUID）及已声明的 `import`、`acquisition.*`、`filters`、`settings`。异步回调写回前须检查 `AbortSignal` / `isActive()`，并在 `onCleanup()` 释放资源。
+3. **后端解析可信身份**：Controller 注入父上下文提供的 `RequestOwnerIdentityResolver` 解析当前请求身份（严禁信任请求体或参数自报的 owner UUID），并在文件耐久落盘且记录提交后才标记完成。
+4. **实现 `QueueOperations` 与真实排空（Quiesce / Drain）**：`workKey` 为不透明字符串（由宿主通过 `POST /api/download/queue/{queueType}/cancel` 的 JSON 请求体传递）。凡有异步或后台任务的队列，必须覆写 `prepareQuiesce` 停止新接纳并返回正代际的真实 `QueueDrain`，待在途任务归零后完成 drain。
+5. **UI 槽位与计划任务能力（可选）**：通过 `uiSlots()` 贡献 `WebUiSlotContribution`（使用宿主 `PixivVue.mountUiSlot`，不打包 Vue runtime）；通过 `scheduledSourceDescriptors()` 及子上下文 `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Bean 贡献计划任务支持（宿主负责调度、锁、凭据与水位线提交）。
 
 ## 新增插件自有画廊
 
-“独立页面”是一个设计模式，不是名为 `independentPage` 的 API 或 descriptor 字段。它表示插件完整拥有：
+每个下载类型插件完整拥有自己的画廊 HTML、CSS/JS、路由、i18n 与 Controller（`/pixiv-gallery.html` 与 `/api/gallery/**` 仅归官方 Pixiv 画廊插件所有，不存在通用画廊聚合 API）。
 
-- 顶层 HTML 和页面专属 CSS/JavaScript；
-- 自己的 route、static 和 i18n contribution；
-- 自己的 controller/API、可见性检查和数据模型；
-- 自己的导航或类型切换入口（如需要）。
-
-因此，新增第三方画廊的标准做法是按前文的独立管理页示例新增页面和 API。页面是否存在自然跟随插件 publication；插件停止后路由和资源撤回，不需要宿主按类型写分支。
-
-下载类型插件还应在自己画廊页顶部声明空槽位：
+要接入画廊顶部的跨类型切换栏，在自有画廊 HTML 顶部放入：
 
 ```html
 <nav data-nav-slot="gallery.type-switch"></nav>
 ```
 
-并通过 `navigation()` 注册自己的类型切换入口：
+并在 `navigation()` 中贡献 `NavigationPlacements.GALLERY_TYPE_SWITCH` 导航项（侧边栏入口则使用 `gallery.sidebar`、`gallery.sidebar.tools`、`novel.sidebar`、`novel.sidebar.tools`）：
 
 ```java
 new NavigationContribution(
@@ -554,145 +149,26 @@ new NavigationContribution(
         AccessPolicy.ADMIN, 50)
 ```
 
-每个插件只声明自己的入口；页面不硬编码 Pixiv、Douyin 或其它插件 id。宿主根据当前活动 publication 聚合槽位，热启停时入口同步增减。
-
-边界必须明确：
-
-- `/pixiv-gallery.html` 是长期维护的官方 Pixiv 主画廊，不是第三方下载类型的通用挂载壳；
-- 通用画廊 provider/registry/broker、`/api/gallery/unified/**` 和 `unifiedGallery` ABI/wire 字段已移除，不存在可供插件消费的兼容面；
-- 第三方页面不得复制 gallery/novel 私有实现、直连宿主数据库或导入 app 实现类；
-- 资产 serving、删除、可见性、搜索、收藏和统计由该插件自己的 API 与私有数据模型实现；需要宿主协作能力而 SDK 尚未提供时，应先提出中性公共契约，不要从 app 实现绕过。
-
-Douyin 的 `/pixiv-douyin-gallery.html`、详情页、`/api/douyin/gallery/**` 和 `gallery.type-switch` 贡献是该模式的完整 SDK 案例；第三方项目仍以 `download-type-plugin` 的独立画廊为可复制基线。
-
 ## 配置、凭据和文件
 
-### 三类配置所有权
-
-| 内容 | 路径 | 插件如何取得 |
+| 数据类别 | 磁盘路径 | 插件访问方式 |
 | --- | --- | --- |
-| 宿主设置和启停状态 | `config/config.yaml` | 只经 SDK 的只读语义端口读取需要的最小值；不直接读写文件 |
-| 插件业务配置 | `config/plugins/{pluginId}.properties` | 子上下文 `Environment`、`@Value`、`@ConfigurationProperties`；需要直接管理文件时用 `RuntimePathProvider` |
-| 插件凭据 | `config/credentials/{pluginId}.properties` | 宿主加密维护，只把当前 owner 已声明的解密值注入该插件子上下文 |
+| 宿主配置与插件开关 | `config/config.yaml` | 经 Core API 稳定端口（如 `DownloadSettings`、`OutboundProxySettings`）只读获取 |
+| 插件业务配置 | `config/plugins/{pluginId}.properties` | 子上下文 `Environment`（推荐 `Binder.get(environment).bind(...)`）与 `GuiConfigContribution` |
+| 插件敏感凭据 | `config/credentials/{pluginId}.properties` | 宿主加密存储，仅将本 owner 已声明的敏感键注入子上下文 `Environment` 或 `PluginCredentials` |
+| 插件状态与持久数据 | `state/{pluginId}/`、`data/{pluginId}/` | 注入 `RuntimePathProvider` 调用 `stateDirectory()`、`dataDirectory()` |
+| 下载作品文件 | `{rootFolder}/{pluginId}/` 或插件自定义目录 | 由 `DownloadSettings.getRootFolder()` 派生，不得写入 `state/` 或 `data/` |
 
-插件业务键应使用自己的 id 前缀，例如：
-
-```properties
-example-download.download.directory=
-example-download.proxy.mode=inherit
-example-download.download.include-cover=false
-```
-
-普通读取示例：
-
-```java
-@Bean
-ExampleSettings settings(Environment environment) {
-    return new ExampleSettings(
-            environment.getProperty("example-download.download.directory", ""),
-            environment.getProperty("example-download.proxy.mode", "inherit"));
-}
-```
-
-GUI 字段通过 `GuiConfigContribution` 声明，宿主按可信 owner 保存。敏感字段或 `PASSWORD` 字段不会写入普通 properties；插件只读取注入后的值，不能读取、解密或重写 credential envelope。owner-scoped 目录和加密凭据仍不构成恶意同 JVM 代码的硬隔离。
-
-### 稳定路径和作品目录
-
-宿主在每个插件子上下文注入已绑定 owner 的 Plugin API `RuntimePathProvider`；调用方不传入插件 id：
-
-```java
-Path config = runtimePathProvider.configFile("properties");
-Path state = runtimePathProvider.stateDirectory();
-Path data = runtimePathProvider.dataDirectory();
-```
-
-`state/{pluginId}` 用于可重建运行状态，`data/{pluginId}` 用于插件管理的数据和缓存。作品文件不能写进这两个目录。需要持久化时直接注入 `PluginDataSource`；它是宿主管理生命周期的 `javax.sql.DataSource`，只连接 `data/{pluginId}/plugin.db`。插件自行管理该私有 SQLite 的 schema 和迁移，不得关闭、unwrap 或借它访问宿主主库。
-
-下载作品默认从 `DownloadSettings.getRootFolder()` 继承宿主作品根，并由插件自主管理自己的子目录：
-
-```java
-Path defaultOutput = Path.of(downloadSettings.getRootFolder())
-        .resolve("example-download")
-        .normalize();
-```
-
-Douyin 当前使用同一规则得到 `{rootFolder}/douyin`，再按 owner 管理作品；用户在 `config/plugins/douyin.properties` 设置保存位置后改用插件自己的覆盖目录。第三方插件可以采用相同模式，但具体子目录、文件名和迁移逻辑归插件所有。
-
-不要依赖 app 的 `RuntimeFiles`、`DownloadConfig`、`ProxyConfig`、宿主 mapper、`SqlSessionFactory`、主 `DataSource` 或具体线程池 Bean。路径和私有数据源使用 Plugin API，下载和代理语义使用 Core API 的 `DownloadSettings`、`OutboundProxySettings` 等端口；SDK 没有覆盖的宿主实现不是隐式公共 API。
-
-完整路径说明见[存储原理](/zh-cn/storage)，配置键说明见[配置参考](/zh-cn/configuration)。
-
-## 出站 HTTP 与 WebSocket
-
-插件网络访问使用纯 JDK 稳定工厂：
-
-```java
-@Bean(destroyMethod = "close")
-OutboundHttpClient exampleHttpClient(OutboundHttpClientFactory factory) {
-    return factory.open(OutboundHttpClientProfile.standard(
-            Duration.ofSeconds(10),
-            Duration.ofSeconds(30),
-            OutboundHttpRoute.inherit()));
-}
-```
-
-`OutboundHttpClient.exchangeStream` 返回的 live response 每条路径都必须关闭；`exchange` 会完整缓冲并自动关闭响应。非 2xx 状态仍是普通响应，业务调用方负责解释。
-
-WebSocket 使用 `OutboundWebSocketClientFactory.open(profile)`，客户端同样由插件 Bean 拥有并在子上下文关闭时 `close()`。插件声明超时、redirect、cookie、连接池和中性 route profile；宿主拥有实际传输、全局/任务代理解析和 ProxySelector。
-
-不要自行创建 `java.net.http.HttpClient`、`ProxySelector`，不要依赖 Apache 类型或 app 的 HTTP 配置。鉴权头、站点请求头和协议消息属于插件业务，不能塞进通用传输层。Douyin 已使用 `OutboundHttpClient` 作为完整参考实现。
+- **数据库访问**：新插件注入 `PluginDatabase`，通过 `privateSchema()` 与 `privateStorageMigrations()` 声明结构，使用 `read(work)` / `transaction(work)` 执行方言无关操作（兼容 SQLite 与 PostgreSQL）；参与主库协作时注入 `PluginMainDatabase` 访问本 owner 受管表或已申请的 `sharedMainStorage()`。旧 `PluginDataSource` 仅支持 SQLite。
+- **出站 HTTP / WebSocket**：注入 `OutboundHttpClientFactory` / `OutboundWebSocketClientFactory` 创建由插件 Bean 拥有并在销毁时 `close()` 的客户端（`exchangeStream` 返回的响应流必须在所有分支关闭）；禁止自行创建 `HttpClient`、`ProxySelector` 或依赖宿主 HTTP 配置类。
 
 ## 独立服务契约与组合
 
-以下接口要求 SDK 1.4.0。使用 `typed-service-plugin` 模板建立独立 API、契约载体、提供者和消费者模块；契约包自行管理业务版本，宿主只识别 `ServiceKey` 与声明。契约载体通过 `pixiv.contract-api` 和 `pixiv.contract-sha256` 指定原始 API JAR，采用 `process-restart`；提供者与消费者声明对载体的依赖，不各自打包一份 API 类。
+SDK 1.4+ 支持跨插件类型化服务（参考 `typed-service-plugin` 模板）：
 
-在 `PixivFeaturePlugin.serviceImports()` 声明需要调用的 key，在 `serviceExports()` 声明实现 Bean。子 context 注入 `PluginServices`。构造时可以保存访问器或登记绑定，但自身 publication 激活前不能调用业务。接口与 record/enum 必须来自同一契约类空间和代码来源；契约包不支持依赖其它契约包，跨边界数据应显式转换。
-
-`find(key)` 缺席返回空，`require(key)` 缺席报 `UNAVAILABLE`；两者遇到多个实现都报 `AMBIGUOUS`。`findAll(key)` 返回不可变 `List<ServiceProvider<T>>`，空集合合法，每次最多 128 个成员。成员的 `service()` 是绑定消费者与提供者精确 publication 的代理，`publication()` 是可信纯值身份。顺序按发布序号排列，不代表业务优先级；业务选择与排序由消费者负责。旧代理撤回后失败，不转接替代实例。
-
-需要随依赖变化建立资源时，使用 `bind(keys, activation)` 或 `bindAll(keys, activation)`。前者等待每项唯一实现，后者接受空集合；回调分别从 `scope.require(key)`、`scope.findAll(key)` 取得本轮代理，借 `scope.acquire(...)` 与 `scope.guard(...)` 管理资源和辅助回调。成员变化先关闭旧轮准入，等待在途工作退出并清理，再激活新轮。激活回调不得提交需要重放的业务命令。`FAILED`、`CLOSE_FAILED` 可显式 `retry()`；只有 `CLOSED` 证明关闭完成。
-
-简单广播可由独立接口 `EventSink.onEvent(record)` 实现：发布者遍历 `findAll`，逐个调用，并按业务合同处理 `ServiceAccessException`。只有非权威辅助副作用适合尽力发送；权威验证应在写入前完成，缺少必要实现或验证失败必须拒绝写入。集合接口不提供消息持久化、自动重试、背压或送达保证。
-
-长任务使用业务契约自己的 `start → jobId → query/cancel/result` 纯值协议。提供者通过现有 `PluginRuntimeTaskRegistrar` 登记工作，用 `PluginResources` 管理执行器与资源，并自行响应取消。取消句柄不等于任务退出；宿主等待真实 drain 后才关闭 context。跨重启恢复、checkpoint 和幂等性由数据 owner 通过私库定义，不把 `Future`、线程或回调作为服务值传递。
-
-`binding.diagnostic()` 返回有界纯值原因、状态、依赖及 publication。管理页插件详情的服务关系来自同一运行时事实源，停用影响同时包含声明导入和仍在退出的绑定。诊断区分等待、歧义、激活失败、调度拒绝与关闭失败；`truncated` 表示展示不完整，不代表没有依赖。读取诊断不重试业务，也不改变生命周期。
-
-## 不依赖 GUI 的凭据与通用操作验证
-
-插件通过 `credentialKeys()` 声明自己前缀下的键，例如 `my-plugin.token`，在子 context 注入 `PluginCredentials`。`read(key)` 返回 `Optional<String>`，`update(Map)` 原子合并，省略键保留，空白值删除，`delete(key)` 幂等删除。最多声明及更新 128 项，单值 UTF-8 最多 64 KiB，单批最多 1 MiB。未声明键与旧 generation 句柄会被拒绝；普通插件不能传入其它 owner。
-
-凭据键不能同时声明为普通 GUI 字段：同键必须是敏感字段，否则宿主拒绝该 owner 的凭据与桌面配置快照，并继续遮蔽已发现的敏感键。GUI 保存的凭据快照、写入和失败回滚共用一次 owner 锁；加载和重新加载时，凭据读取与迁移决策也在同一次锁内完成，避免旧快照或旧明文覆盖已成功的程序化轮换。环境导出选择包含凭据时也包含无 GUI 的已声明键，归档必须加密；排除凭据时不会导出这些值，恢复仍核对 owner 和安装代际。
-
-存储复用宿主加密与文件锁，既有 GUI 敏感字段仍并入同一声明和遮罩范围。保存不会自动重绑已有 `@Value` 或配置对象，业务应按需读取或遵守已有重启策略。不得把明文凭据放入服务 DTO、异常、日志或诊断。
-
-策略在自己的子 context 中提供 `OperationVerification` Bean。`policyId()` 是稳定策略键；`policy()` 返回无副作用的规则修订、上下文 schema、交互协议和结构化资源 profile。规则或资源变化须更新修订并重新发布页面；`generation()` 表示凭据代际，使旧挑战失效。`verify()` 只接收必要的纯值事实和不透明 proof，返回 `APPROVED`、`REJECTED` 或 `CHALLENGE`，不得取得密码、Cookie、完整请求或业务回调。
-
-业务 owner 在 `serviceImports()` 声明 `OperationVerification.IMPORT`，注入本 owner 的 `OperationGuard`，对于已有身份的业务 API，完成身份、权限、CSRF、限流与输入检查后调用 `execute(operationId, subject, context, token, proofs, action)`。操作身份必须属于该 owner；普通业务的主体从可信身份解析器取得；登录准备使用格式校验后的用户名，不代表已认证。只有全部必要策略通过，才在 owner 本地执行一次 action；租约持续到动作实际结束。缺席、超时、换代均拒绝，业务失败不自动重试。不要用辅助回调的 `ServiceBindingScope.guard()` 承接用户命令。
-
-准备入口调用 `OperationGuard.prepare(operationId, subject, context)`，不执行业务；提交入口继续使用 `execute` 复核。浏览器 `createOperationTarget` 的第三个参数是表单 owner 的准备请求回调，接收取消信号；只有 `ready()` 为真才能使用 `request()` 获取提交数据。准备与提交须绑定相同主体和上下文。输入变化调用 `reset()`，组件失效调用 `invalidate(id)`，取消准备并清除证明；不自动重放业务。操作步骤见[页面编辑器指南](page-editor.md)。
-
-页面 owner 在 `EditablePage.targets` 中声明 `PageInteraction.Target`，组件通过 `PageComponent` 的参与声明关联策略与协议。唯一兼容目标自动绑定；歧义须选择，无匹配只可存草稿。组件先调用 `context.interaction.prepare()`，再通过 `context.interaction.onState()` 接收自己的挑战，用 `respond(id, proof)` 响应；状态清空或实例销毁时须退出 Worker、请求和监听器。表单 owner 使用 `/js/pixiv-pages.mjs` 的 `createOperationTarget`，经页面挂载传入目标；类型见 SDK 的 `page-interaction.d.ts`、`operation-verification.d.ts` 与 `page-components.d.mts`。普通 `PagePort` 连线仍是 DAG，不用它模拟挑战循环。
-
-登录提交依次执行限流、验证、密码检查和创建会话。`setup.login-verification-policies` 是最多 16 项的静态必要策略，空值只清除静态要求，页面发布不能抹掉非空静态要求。`POST /api/auth/login/prepare` 只提交用户名和 rememberMe，复用登录限流，准备成功以 200 返回 `token`、`revision` 和按策略键索引的 `challenges`。全部证明齐备后，登录请求才提交 `operationToken`、`operationProofs` 和登录凭据；直接提交但缺少证明时仍返回 409 挑战。拒绝为 403，必要能力不可用为 503，旧挑战为 409，失败不创建 Cookie。挑战绑定主体、操作、上下文、规则、凭据、provider 及正式修订，五分钟有效且单次消费；单项挑战/proof 为 16 KiB UTF-8，累计 64 KiB，最多 256 个待响应挑战。
-
-固定 `login.verification` UiSlot 也声明相同参与协议，接收实例交互通道，不使用自报成功事件授予权限。正式页面、绑定、操作要求和资源授权由 `PagePublications` 持有同一修订；预检不调用厂商，提交重新核验并排空受影响操作。资源来源须经管理员明确批准；未绑定页面和自定义组件沙箱不会继承这些权限。用 [页面编辑器指南](page-editor.md) 配置绑定与恢复；[独立验证码示例](https://github.com/Sywyar/PixivDownloader/tree/master/examples/captcha-plugin) 包含 Turnstile、ALTCHA SHA-256 和 PBKDF2 适配。
-
-## 普通槽位与页面组件
-
-普通页面加载 `/js/pixiv-ui-slots.js`，创建 `data-ui-slot` 挂载点，调用 `PixivUiSlots.connect({targetPrefix, properties, regions, onEvent, i18n})` 后 `refresh()`。默认清单仍受原路由权限保护；公开页面须使用限定目标的公开清单。模块在自身脚本求值时调用 `registerModule(moduleUrl, mount)`，返回可选 `update(properties)` 与 `destroy()`。
-
-`mount(root, context)` 使用上下文的纯值属性、事件和显式 region，不读取其它页面私有全局。`context.fetch` 绑定来源 publication，目标 API 继续鉴权；`signal`、`on`、`interval`、`onCleanup`、`loadScript` 与 `loadStyle` 随实例撤回清理。活动清单两秒刷新，隐藏页面暂停新刷新；同一模块可供多个实例共享，单个实例退出不撤销其它实例。异步返回后应检查 signal，迟到结果不得重建旧 DOM。页面离开时释放实例、监听器、定时器和请求。接口见 `META-INF/pixivdownload/web/ui-slots.d.ts`。
-
-同一 target 内按清单的 `order` 排列，重新启用或加入贡献时，新节点直接插到正确位置，保留未变实例及其焦点与选区。已有节点需要重排时，运行时检测 `moveBefore` 支持，并保留输入框与可编辑文本的焦点、选区；不支持该 API 的浏览器使用兼容路径。迟到清单不得撤销较新实例。模块在 `root` 外创建节点后，须立即用 `onCleanup` 登记对该节点引用的清理；控制器创建后另行登记销毁，确保脚本加载失败或期间撤回也能释放资源。
-
-下载工作台已有的队列槽位继续使用其专用 Vue/队列协议。普通槽位不是跨 Swing/Compose 的桌面视图协议。小说与系列页面通过 properties、regions 和事件向 AI/TTS 槽位提供上下文，业务模型由调用双方约定。
-
-页面编辑器组件用 `PagePort(name, contractId, schema)` 声明端口。连线两端必须具有相同的版本化契约身份及解析后的 Schema；Schema 使用 SDK 生成器的受控子集。未知端口、重复边和有向循环拒绝保存，运行时再次校验载荷。实例全部挂载后按队列转发挂载期间事件，支持 A→B→C；不向后来加入的实例重放历史。单页队列最多 256 项、16 MiB，连续链最多 4096 次交付。超限明确失败。组件只持久化项目数据、纯值与受控样式；业务请求仍经生成客户端和实例 fetch。
-
-## 多服务生成、值编码与契约演进
-
-先在独立 API 模块生成 Schema，再为消费模块一次列出完整服务集合。下面参数中的模块目录、classpath 与类名需替换为自己的值；Windows classpath 用分号，Unix 用冒号。
+- 契约载体插件通过 `pixiv.contract-api` 与 `pixiv.contract-sha256` 声明原始纯 JDK API JAR（采用 `process-restart`）；提供者在 `serviceExports()` 导出实现，消费者在 `serviceImports()` 声明依赖并注入 `PluginServices`。
+- 调用 `find(key)`、`require(key)`、`findAll(key)` 或生命周期绑定 `bind(keys, activation)` / `bindAll(keys, activation)` 获取绑定精确 publication 的代理。
+- 使用 `sdk-tools.jar` 生成 JSON Schema、远程调用适配器与检查二进制兼容性：
 
 ```text
 java -jar sdk-tools.jar schema <api-module> <classpath>
@@ -700,65 +176,22 @@ java -jar sdk-tools.jar remote <consumer-module> <classpath> example.one.Service
 java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-report.json>
 ```
 
-同简单名的接口按完整包名生成 Java 适配器和 `web/generated/<全限定名>.mjs`、`.d.mts`。每次 `remote` 接收最多 128 个服务，空列表撤回全部生成物；删掉服务会清理其旧 class、JS 和声明。失败会撤回受管产物及完成标记，打包必须检查 `target/remote-generation.complete`。完整批次编译成功后才发布完成标记；文件写入不是多文件系统事务。输出累计最多 16 MiB，单文件最多 1 MiB。
+大整数在 record 字段标注 `@ValueProperty(encoding = ValueEncoding.DECIMAL_STRING)`；`UUID`、`Instant`、`Duration`、`float`、`double` 使用 SDK 固定无损字符串编码。
 
-普通 JSON 整数仍受 Java 范围与 JS 安全整数范围交集约束。完整 long 在 record 属性上显式使用 `@ValueProperty(encoding = ValueEncoding.DECIMAL_STRING)`。UUID、Instant、Duration、float、double 使用固定无损字符串编码：小写 UUID、`秒:九位纳秒`、IEEE 754 小写定长十六进制。拒绝非规范文本、越界与非有限浮点，保留负零与纳秒；不用 JS Date 截断精度。生成客户端的 `wireValues.int64/uuid/instant/duration/float32/float64` 构造对应带类型值。其它类型应在独立契约中显式转换为受支持 DTO，不注册任意 serializer。
+## 不依赖 GUI 的凭据与通用操作验证
 
-`contract-evolution` 只读两个 JAR 的 classfile，报告源码、二进制链接、新宿主调用旧实现三个维度；业务行为始终为 `NOT_ASSESSED`。新增接口抽象方法可能保留旧二进制链接，却使新调用遇到未实现方法。报告不能替代重编、原字节旧插件装载及真实调用测试；退出码 0 也不代表行为兼容。输出文件必须不存在。`verify-sdk-usage` 继续核对插件声明的最低中央 SDK，不能代替独立契约演进或旧 JAR 运行验收。
+- **`PluginCredentials`**：插件可在 `credentialKeys()` 声明本 owner 前缀下的敏感键（最多 128 项，单值 64 KiB、单批 1 MiB；同名 GUI 字段必须标为敏感），注入 `PluginCredentials` 执行原子 `read`、`update`、`delete`。
+- **`OperationVerification` 与 `OperationGuard`**：验证插件提供 `OperationVerification` Bean；业务插件在 `serviceImports()` 声明 `OperationVerification.IMPORT` 并注入 `OperationGuard`，在准备阶段调用 `prepare(operationId, subject, context)`，在提交阶段完成鉴权与限流后调用 `execute(operationId, subject, context, token, proofs, action)`。详见[页面编辑器](/zh-cn/page-editor#表单验证与资源授权)与[操作验证码](/zh-cn/captcha)（完整实现见 [`examples/captcha-plugin`](https://github.com/Sywyar/PixivDownloader/tree/master/examples/captcha-plugin)）。
 
+## 普通槽位与页面组件
+
+普通页面通过 `/js/pixiv-ui-slots.js` 的 `PixivUiSlots.connect(...)` 挂载 `data-ui-slot`，插件模块调用 `registerModule(moduleUrl, mount)` 并在 `onCleanup` 中释放 DOM、监听器与请求。页面编辑器组件与可编辑页面的接入方式见[页面编辑器与插件组件](/zh-cn/page-editor#开发第三方插件组件与接入页面)。
 
 ## 维护外部工程与 SDK 升级
 
-预发布 SDK 使用精确合同，properties 写为 `plugin.requires==7.2.3-rc.4`（示例版本）；稳定 SDK 使用 `major.minor`。编译依赖、描述符和配套运行包必须一致，不同 RC 及 RC 与稳定版不默认兼容。旧包只声明主次版本时，无法据此推断其编译 RC，应验证后发布新插件版本，不覆盖旧附件。
-
-升级时保留原工程和 `.dev/` 数据，将新开发包解压到另一目录。对比源码与 Javadoc，成套更新工具、合同资源和运行清单，再逐项合并构建与 IDE 配置。插件私有数据库迁移由本 owner 负责；未知格式或失败须保留旧数据并阻止功能启动，宿主的包事务不回滚业务数据。
-
-在独立工程运行 `mvnw.cmd clean verify`（Windows）或 `./mvnw clean verify`，再用同一 Wrapper 执行 `verify exec:exec@sdk-run`。通过管理员插件管理页验证启动、停用、再次启动和策略允许的 reload；核对路由撤回、旧 publication 失效、真实任务排空、数据与未完成任务保留。`process-restart` 换包必须完整退出后核对新版本。停止开发实例使用 `exec:exec@sdk-stop`。开发目录的 full-trust 执行不能代替正式 worker 包验收。
-
-`DownloadObserver` 是同步尽力观察，不提供持久重放；`DownloadAdmissionPolicy` 在副作用前允许或拒绝，不改写请求。两者是由宿主按 publication 发布和撤回的可选 full-trust Bean。`WorkFileImporter` 登记只读原文件引用，类型 owner 缺席时返回不可用，不能伪报成功。请以所选发行包的 Javadoc 判断 API 是否存在，不能用当前源码推断旧 SDK 的能力。
-
-投稿失败先定位步骤：SDK 摘要不符时重新取得同一发行物；没有候选时核对默认分支当前提交的 CI 和 `tools/candidate-projects.json`；身份或推送失败时检查当前账号、目标仓库和权限。审核事实、所有权或远端状态变化时回读原请求再确认；响应丢失不自动重复投稿。保留插件 ID、版本、源码提交、SDK 身份与错误码，分享诊断前移除凭据、私钥和个人路径。
-
-## 构建、测试、调试和安装
-
-### 必要测试
-
-至少保留模板已有的检查：
-
-- descriptor、provider、feature id 和 contribution 一致性；
-- 子上下文显式装配及 controller 注册；
-- route/static/i18n/schema 或下载 publication；
-- Queue owner、opaque work key、清空和 drain；
-- 前端模块 `node --check` 及实际行为测试；
-- JAR 根 `plugin.properties` 与 thin JAR 边界。
-
-从仓库根验证模板的标准命令是：
-
-```powershell
-mvn -f plugin-templates/pom.xml clean verify
-```
-
-若插件同时贡献后端和前端，不要只用 Java 测试搜索脚本文本；前端 contract 应由 Node 实际执行。
-
 ### 本地开发
 
-安装 JDK 17 和 Node.js，让 `java`、`node` 可从命令行调用。IDE 导入只解析工程。显式 Run / Debug 才编译当前插件、准备固定运行包并启动完整应用；构建失败会中止启动。Maven Wrapper 会取得固定版本的 Maven，无需克隆宿主仓库或手工复制宿主和官方插件。首次应用配置使用宿主自己的 setup 流程。
-
-| IDE | 导入 | 运行 | 调试 |
-| --- | --- | --- | --- |
-| IntelliJ IDEA | 打开根 `pom.xml` | 选择 `Developer Mode`，点击 Run | 选择同一个 `Developer Mode`，点击 Debug |
-| VS Code | 打开本目录，安装推荐的 Java Extension Pack | `Tasks: Run Task > Run Plugin` | `Run and Debug > Debug Plugin` |
-| Eclipse | `Import > Existing Maven Projects` | `eclipse/Run Plugin.launch` | `eclipse/Debug Plugin.launch` 启动组 |
-
-IntelliJ 的 `Developer Mode` 是原生 Application 配置，启动前由 Maven 执行 `test-compile exec:exec@sdk-prepare`。IDE 直接启动 JVM，在同一进程中运行宿主、配套官方插件和当前工程的 `target/classes`。在 `ExampleMinimalPlugin.java` 的 `routes()` 内设置断点，再点击 Debug 即可，无需远程连接或固定调试端口。入口 `src/test/java/sdk/DevelopmentLauncher.java` 不进入插件 JAR；运行配置把随包工具加入启动 classpath，以便解析 Spring Boot 嵌套 JAR。
-
-此配置显式启用插件开发模式：当前源码按 `host-process-full-trust` 执行，运行状态如实显示该模式，源描述符保持原样。重新 Run / Debug 会重新编译并加载源码。结束时使用 `Stop Plugin`，或停止 Application 会话。
-
-VS Code、Eclipse 和下述命令行任务使用打包验证流程，安装当前 JAR 并保留其声明的执行模式。它们的远程调试地址默认为 `127.0.0.1:5005`；`declarative-process` 连接插件 worker，`host-process-full-trust` 连接宿主。使用 `Stop Plugin` 或停止整个组合来结束应用，单独断开远程调试连接不会停止应用。
-
-#### 命令行
-
-Windows：
+SDK 开发包支持在 IntelliJ IDEA（运行 `Developer Mode`）、VS Code（`Run Plugin` / `Debug Plugin`）、Eclipse（`eclipse/Run Plugin.launch`）或命令行中直接构建并启动配套宿主与完整官方插件，运行数据隔离在工程 `.dev/` 目录（首次运行自动下载并校验固定运行包到 `~/.cache/pixivdownloader-sdk/`）：
 
 ```powershell
 .\mvnw.cmd verify exec:exec@sdk-run
@@ -766,304 +199,26 @@ Windows：
 .\mvnw.cmd exec:exec@sdk-stop
 ```
 
-Linux / macOS：
-
-```bash
-./mvnw verify exec:exec@sdk-run
-./mvnw verify exec:exec@sdk-debug
-./mvnw exec:exec@sdk-stop
-```
-
-`sdk-debug` 等待 IDE 附加，不自行打开调试器。只验证插件使用 `clean verify`，只准备运行包使用 `exec:exec@sdk-prepare`。默认产物为 `target/example-minimal-plugin-0.1.0.jar`。
-
-已成功构建本次产物后，也可直接调用随包工具：
-
-```text
-java -jar tools/sdk-tools.jar run <工程绝对路径> <本次插件JAR绝对路径> --no-gui
-java -jar tools/sdk-tools.jar debug <工程绝对路径> <本次插件JAR绝对路径> --debug-port=5005
-java -jar tools/sdk-tools.jar stop <工程绝对路径>
-```
-
-`--debug-connect` 用于连接已监听的 IDE。`run` / `debug` 只接受工程内、`.dev/` 外的产物，并保留描述符中的执行模式，使用本次 JAR 的 SHA-256 完成本地安装确认。官方插件在开发和打包验证时均验证原签名及 provenance。请使用唯一插件 ID，避免与配套插件冲突。
-
-#### 运行包、缓存和工程数据
-
-`sdk-project.json` 与发行附件 `sdk-release.json` 记录同一套 SDK、宿主、官方插件清单及完整运行 ZIP 的固定身份、大小与 SHA-256。运行 ZIP 是 SDK Release 的独立附件，首次显式准备时下载，后续复用 `~/.cache/pixivdownloader-sdk/` 中的已校验缓存。清空缓存后仍取得相同字节；资源不可用或摘要不符会失败。
-
-每次启动创建独立运行副本，并核对宿主及逐个官方插件。缓存不承载应用状态。工程 `.dev/` 保存配置、数据库、日志、下载和运行副本；配置及状态按运行包摘要隔离。此环境关闭宿主与官方插件自动更新，日常安装的应用数据不参与这条启动链。
-
-停止应用后，可删除本工程的 `.dev/` 重置开发数据，这也会删除其中的下载文件。直接调用工具时，可通过 JVM 属性 `-Dpixivdownload.sdk.cache-dir=<目录>` 指定缓存位置；工程运行目录仍独立。
-
-离线使用需要提前完成运行包准备和构建工具依赖缓存，两者互不替代。Maven 使用 `-o`，Gradle 使用 `--offline`；缓存不完整会失败。更新 SDK 时使用新版本开发包及配套清单，再迁入自己的源码。
-
-Windows 下已实测 IntelliJ Application 一键 Debug 和当前源码断点，以及两个 Maven 示例的同进程启动、页面与正常停止。VS Code 和 Eclipse 的图形操作尚未实测。打包验证时，目录过深仍可能触及 Windows 创建 worker 时的工作目录长度限制，遇到错误 267 时请移到较短路径。运行包声明的其它平台需在对应操作系统上验收，不能以 Windows 结果代替。
-
-Gradle / sbt 示例通过 `runPlugin`、`debugPlugin` 调用相同工具。Gradle 用 `stopPlugin` 停止；sbt 运行期间会占用构建进程，请从另一终端在示例目录执行 `java -jar ../../tools/sdk-tools.jar stop .`。
-
-仓库中的官方插件使用专用开发模式，它先编译官方插件并从各模块当前 `target/classes` 加载：
-
-```powershell
-mvn -pl pixivdownload-official-plugins -am -Pdev-mode process-classes -Dexec.skip=true
-```
-
-该入口适合贡献官方插件或核对 Douyin 示例，不是仓库外第三方项目的自动发现器。IDE 可使用仓库提交的 IntelliJ IDEA、VS Code 或 Eclipse `Developer Mode` 共享配置。
-
-调试时检查：
-
-- `/plugin-manage.html` 中状态为 `STARTED`，generation 与本次替换一致；
-- 插件页面/API 能访问，stop 后变为未声明，start/reload 后恢复；
-- 页面脚本、CSS 和 i18n 的改动确实来自新 artifact，而不是浏览器缓存或旧 `plugins/` 包；
-- `log/` 没有 route 冲突、重复 id、子上下文装配、版本、签名或 drain 诊断；
-- 异步任务停止后不再写文件、回调页面或持有旧 classloader。
-
-### artifact 形态
-
-模板默认生成 thin PF4J JAR：
-
-- JAR 根有 `plugin.properties`；
-- 没有 Spring Boot `BOOT-INF/`；
-- 没有 `lib/*.jar`；
-- 不包含 plugin-api、core-api、PF4J、Spring、Jackson、Servlet API 或宿主类副本。
-
-宿主也支持 PF4J JAR-with-lib，用于插件私有第三方库：根部仍是 descriptor、插件类和资源，私有依赖放 `lib/*.jar`。不要 shade 或私带共享契约。选择 JAR-with-lib 时应增加包结构和独立 classloader 加载测试；官方默认交付格式仍是 `.jar`，不是 ZIP。
+打包形态默认为根部含 `plugin.properties`、不含宿主共享类的 thin PF4J `.jar`；含插件私有第三方依赖时可使用 PF4J JAR-with-lib（私有依赖置于 `lib/*.jar`）。升级 SDK 时请将新开发包解压到独立目录，对照 Javadoc 更新契约与运行清单，并在插件管理页验证启停、reload 与任务排空。
 
 ## 投稿市场资料
 
-支持文档投稿的 SDK 工具可从候选绑定的源码提交读取 `CHANGELOG.md`，按插件版本精确提取 `## [v8.2.6] - 2031.3.2` 这样的二级标题，保留 `### Features`、`### Bug Fixes` 等分类。找不到唯一版本时，向导要求重选、手工输入或明确跳过。可选 README 支持 UTF-8 Markdown、HTML、仓库内文件、本地文件或多行输入；完整 CHANGELOG 与本次说明分别发布。
-
-文档按默认语言收录，预览确认后冻结字节。相对图片只能取自选定目录；外部图片须明确确认下载。链接是可增减列表，支持预设用途、自定义本地化标题及显式空列表。具体输入与恢复方式见[社区投稿说明](https://github.com/Sywyar/PixivDownloader-community-plugins#投稿与版本管理)。
-
-版本投稿的可选 `content` 包含 `readme`、`changelog`、`releaseNotes` 语言映射；文档记录 `format`、`asset`、可选 `sourcePath`、`sourceUrl` 与图片 `resources`。仓库文档的 `sourceUrl` 绑定冻结源码提交，相对链接按它解析；本地文件、直接输入和缺少该字段的旧记录不会猜测来源。安全 HTML 锚点和 Markdown 标题支持页内导航，外部链接在新窗口打开。附件记录 `name`、`url`、`mediaType`、`size`、`sha256`。市场元数据的 `links` 缺失时兼容 `homepageUrl`，空列表表示不提供链接。完整字段与约束以同一 SDK 开发包的社区 Schema 为准。
-
-社区把文档、图片和插件包放在同一个版本 Release，目录保存受签名保护的引用。客户端按需读取并复核大小与摘要，HTML 以净化后的隔离静态文档显示。文档签名边界属于审核引用和目录，不能把 JAR 签名当作文档证明。社区须先验证新 SDK 的公开发行字节再升级固定工具；宿主也须包含对应的展示支持。只增加市场资料不要求旧插件提高 `plugin.requires`，SDK 1.1 宿主仍兼容 `requires=1.0`。
+社区投稿向导支持附加插件图标、截图、外链列表以及多语言 `README`、本次更新说明和 `CHANGELOG.md`（可按版本标题如 `## [v1.2.0]` 自动提取）。所有文档与图片随同一版本 Release 签名锁定，客户端以净化后的静态隔离文档展示，详见[社区仓库投稿说明](https://github.com/Sywyar/PixivDownloader-community-plugins#投稿与版本管理)。
 
 ## 签名和发布
 
-### 发布者密钥与社区操作签名
-
-发布者签名 CLI 位于 `pixivdownload-plugin-signature`，运行只需 JDK 17。在源码仓库根构建工具，再通过模块生成的 JAR 调用：
-
-```text
-./mvnw -pl pixivdownload-plugin-signature package
-java -cp <signature-tool.jar> top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <command>
-```
-
-- `keygen --directory <new-directory>`：生成 `private-key.pem`（PKCS#8）和配套 `public-key.pem`（SPKI），目录及私钥仅允许当前用户访问。请选择源码仓库和临时目录之外的位置，备份这两个文件；命令不覆盖已有目录。
-- `public-key --public-key <public-key.pem> --key-id <id> --out <public.json>`：导出规范 SPKI Base64 和 SHA-256 公钥指纹。此命令读取配套公钥文件，不从私钥推导公钥。
-- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <canonical-body> --request-id <SHA-256> --key-id <id> --private-key <private-key.pem> --out <sig.json>`：签署固定版本 SDK 生成的 JCS 正文字节。正文摘要必须与 requestId 一致；输出只含 detached 签名，不包含私钥。
-
-公钥导出和社区操作签名均拒绝覆盖已有输出。插件包使用 `artifact` 命令签名，`--help` 列出完整参数。私钥不得提交到 Git 或放入投稿附件。
-
-### 生成 artifact 签名
-
-私钥必须是 Ed25519 PKCS#8 PEM，保存在仓库和构建输出之外；仓库配置使用 Base64 编码的 X.509 SubjectPublicKeyInfo 公钥。构建签名工具后，CLI 通过 classpath 主类调用：
+在主仓库构建 `pixivdownload-plugin-signature` 后，使用 `PluginSignatureTool` 管理 Ed25519 密钥与签名（私钥须保存在仓库与构建目录之外）：
 
 ```powershell
-java -cp <signature-tool.jar> `
-  top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool `
-  artifact `
-  --artifact <plugin.jar> `
-  --plugin-id example-download `
-  --version 0.1.0 `
-  --key-id example-2026 `
-  --private-key <ed25519-pkcs8.pem> `
-  --out <plugin.jar.sig>
+# 1. 生成密钥对与导出公钥指纹
+java -cp "signature-tool.jar" top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool keygen --directory "C:\secure\keys"
+java -cp "signature-tool.jar" top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool public-key --public-key "C:\secure\keys\public-key.pem" --key-id example-2026 --out "public.json"
+
+# 2. 签署插件包与仓库 manifest.json
+java -cp "signature-tool.jar" top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool artifact --artifact "plugin.jar" --plugin-id example-download --version 0.1.0 --key-id example-2026 --private-key "C:\secure\keys\private-key.pem" --out "plugin.jar.sig"
+java -cp "signature-tool.jar" top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool manifest --manifest "manifest.json" --repository-id example.plugins --key-id example-2026 --private-key "C:\secure\keys\private-key.pem" --out "manifest.json.sig"
 ```
 
-输出是结构化 JSON：`formatVersion`、`algorithm=Ed25519`、`keyId` 和 `value`。同时记录 artifact 的精确字节数和 SHA-256：
+自建插件仓库可发布 `manifest.json` + `manifest.json.sig`（`manifest-v1` 协议）或实现 `paged-v2` 分页端点，并提供最大 64 KiB 的公网 HTTPS `repository.json` 描述符供用户在桌面设置中一键导入（支持 `DIRECT_STRICT` 或 `GITHUB_RELEASES` 网络策略，以及 `repository-update` 轮换证明和 `plugin-revocations` 撤销清单）。
 
-```powershell
-$artifact = Get-Item -LiteralPath <plugin.jar>
-$artifact.Length
-(Get-FileHash -Algorithm SHA256 -LiteralPath $artifact.FullName).Hash.ToLowerInvariant()
-```
-
-### catalog manifest
-
-仓库清单 schema version 1 的顶层字段为 `schemaVersion`、`generatedTime` 和 `entries`。最小可发布条目：
-
-```json
-{
-  "schemaVersion": "1",
-  "generatedTime": "2026-08-10T00:00:00Z",
-  "entries": [
-    {
-      "pluginId": "example-download",
-      "displayNamespace": "example-download",
-      "displayNameKey": "plugin.name",
-      "descriptionKey": "plugin.summary",
-      "market": {
-        "displayName": {"zh": "示例下载", "en": "Example download"},
-        "summary": {"zh": "示例下载类型", "en": "Example download type"},
-        "description": {"zh": "插件详细说明", "en": "Plugin description"},
-        "author": "Example Developer",
-        "sourceType": "community",
-        "category": "download",
-        "tags": ["download"],
-        "homepageUrl": "https://example.com/plugin",
-        "license": "MIT",
-        "latestVersion": "0.1.0",
-        "updatedTime": "2026-08-10T00:00:00Z",
-        "iconToken": "download",
-        "colorToken": "green",
-        "recommended": false,
-        "officialRequired": false,
-        "defaultInstalled": false
-      },
-      "packages": [
-        {
-          "version": "0.1.0",
-          "packageUrl": "https://plugins.example.com/example-download-0.1.0.jar",
-          "expectedSizeBytes": 12345,
-          "sha256": "LOWERCASE_SHA256_HEX",
-          "signature": {
-            "formatVersion": 1,
-            "algorithm": "Ed25519",
-            "keyId": "example-2026",
-            "value": "BASE64_SIGNATURE"
-          },
-          "signatureUrl": "https://plugins.example.com/example-download-0.1.0.jar.sig",
-          "requiredSdk": "1.0",
-          "dependencies": [],
-          "releasedTime": "2026-08-10T00:00:00Z",
-          "changeNotes": ["Initial release"],
-          "channel": "stable",
-          "deprecated": false
-        }
-      ]
-    }
-  ]
-}
-```
-
-`market` 只用于展示、搜索和排序，不参与安装安全决策。`packageUrl` 和 manifest URL 必须是 HTTPS；安装仍以 artifact 的大小、SHA-256、结构化签名和内部 descriptor 为权威。
-
-对 manifest 原始字节生成 detached 签名：
-
-```powershell
-java -cp <signature-tool.jar> `
-  top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool `
-  manifest `
-  --manifest <manifest.json> `
-  --repository-id example `
-  --key-id example-2026 `
-  --private-key <ed25519-pkcs8.pem> `
-  --out <manifest.json.sig>
-```
-
-发布 `manifest.json`、同地址追加 `.sig` 的 `manifest.json.sig`、artifact 和可选的 artifact detached signature。不要在签名后格式化或重写 manifest。
-
-验签命令：
-
-```text
-verify-manifest --manifest <manifest.json> --signature <manifest.json.sig> --repository-id <id> [--policy official|custom]
-verify-artifact --artifact <jar> --signature <sig.json> --plugin-id <id> --version <version> --expected-size <bytes> --sha256 <hex> [--policy official|custom]
-```
-
-验证自定义 root 时再传 `--trusted-key-id`、`--trusted-public-key`；可选字段有 `--trusted-algorithm`、`--trusted-state`、`--trusted-publisher`、`--trusted-label` 和 `--trusted-official`。
-
-### 让用户添加自定义仓库
-
-发布一个最大 64 KiB、严格 UTF-8 JSON 的 `repository.json`，用户在 GUI 的「设置 → 插件市场设置 → 添加 → 使用仓库描述符」中填写它的公网 HTTPS 地址：
-
-```json
-{
-  "schemaVersion": 1,
-  "repositoryId": "example.plugins",
-  "displayName": "Example Plugins",
-  "publisher": {
-    "id": "example",
-    "displayName": "Example Publisher",
-    "homepageUrl": "https://example.com/plugins"
-  },
-  "catalog": {
-    "protocol": "manifest-v1",
-    "endpoint": "https://plugins.example.com/manifest.json"
-  },
-  "networkProfile": "DIRECT_STRICT",
-  "revocationsUrl": "https://plugins.example.com/revocations.json",
-  "updateProofUrl": "https://plugins.example.com/repository-update.json",
-  "trustedKeys": [{
-    "keyId": "example-2026",
-    "algorithm": "Ed25519",
-    "publicKeySpkiBase64": "BASE64_X509_SUBJECT_PUBLIC_KEY_INFO",
-    "state": "ACTIVE",
-    "publisher": "Example Publisher",
-    "trustLabel": "Example release key"
-  }]
-}
-```
-
-首次导入不发布也不校验 `repository.json.sig`：用描述符里的新公钥给描述符自身签名只能形成自证循环。软件会展示描述符摘要、发布者文本、全部联网主机和每把公钥的完整 `SHA-256(SPKI DER)` 指纹；用户确认时会重新下载并要求摘要逐字节一致，保存的配置在重启后生效。自定义仓库不继承官方 trust root，`official`、`configured`、`community` 是保留仓库 ID。
-
-`networkProfile` 只允许 `DIRECT_STRICT` 和 `GITHUB_RELEASES`。前者只访问描述符声明的公网 HTTPS 主机且不跟随重定向；后者只允许 GitHub 固定主机边界内的一次重定向。描述符不能关闭 SSRF 检查、允许私网或提供任意代理/重定向白名单。
-
-小仓库继续使用上文的 `manifest-v1` 和 `manifest.json.sig`。大型仓库可把 `catalog.protocol` 改为 `paged-v2`，并把 endpoint 指向 API 基地址，实现：
-
-```text
-GET {endpoint}/plugins?cursor=&limit=&query=&category=&publisher=&channel=
-GET {endpoint}/plugins/{pluginId}?cursor=&limit=
-GET {endpoint}/plugins/{pluginId}/versions/{version}
-```
-
-列表默认每页 24、最多 100 项，响应必须包含 `generation`，cursor 不透明；列表和详情响应分别不得超过 512 KiB 与 256 KiB。安装请求仍只提交 repository ID、plugin ID 和 version，宿主会重新读取版本端点，并把远端元数据与冻结后的包内 descriptor、大小、SHA-256 和发布者签名逐项核对。
-
-已信任仓库轮换描述符或密钥时，可用旧受信 key 签署 `repository-update-v1`；安全撤销使用更高 sequence 的 `revocations-v1`。两个文件的签名都放在原 URL 后追加 `.sig`，并用现有 CLI 的独立签名域生成：
-
-```text
-repository-update --document repository-update.json --repository-id example.plugins --sequence 2 --key-id example-2026 --private-key <pem> --out repository-update.json.sig
-plugin-revocations --document revocations.json --repository-id example.plugins --sequence 1 --key-id example-2026 --private-key <pem> --out revocations.json.sig
-```
-
-撤销范围支持 `PACKAGE_SHA256`、`PLUGIN_VERSION`、`SIGNING_KEY`、`PUBLISHER`；`YANKED` 只阻止新安装/更新，`REVOKED` 还会在下次启动加载前阻断已安装的匹配字节。`host-process-full-trust` 与宿主共用 JVM，`declarative-process` 使用独立 worker；两者都使用当前操作系统账户，不构成 OS 沙箱。签名和撤销不能证明代码无恶意。
-
-## 向项目贡献
-
-编写私有或社区插件通常不需要修改宿主。以下内容适合向主仓库贡献：
-
-- 修复 Plugin API、Core API、插件运行时或模板中的真实缺陷；
-- 为多个插件都需要的中性语义新增稳定端口；
-- 完善模板、SDK 文档、边界测试和失败诊断；
-- 贡献或修复官方外置插件；
-- 改进签名、安装事务、生命周期和能力缺席降级；
-- 修正文档与当前实现的偏移。
-
-如果现有 SDK 缺少能力，不要先依赖 app 私有类。先提出一个不认识具体站点或插件 id 的中性契约，并同时说明真实消费者、所有权、生命周期、错误/缺席语义和测试。公共契约变更需要同步提升 SDK 身份，并更新 BOM、Javadoc、模板、Douyin 示例和本文；已发布候选不可覆盖。
-
-基本流程：
-
-```bash
-git clone https://github.com/YOUR_USERNAME/PixivDownloader.git
-cd PixivDownloader
-git remote add upstream https://github.com/Sywyar/PixivDownloader.git
-git fetch upstream
-git switch -c feat/plugin-api/your-capability upstream/master
-```
-
-提交前：
-
-1. 运行直接相关的模块测试，再运行受影响的模板和边界测试；
-2. 保持插件 id、descriptor、feature、route、静态资源、i18n 和测试一致；
-3. 不提交 `target/`、`build/`、运行配置、凭据、私钥或下载数据；
-4. PR 说明动机、稳定边界、失败/缺席行为以及实际执行的验证命令；
-5. 代码、模板和核心开发文档向 `master` 提交 PR；在线站点内容位于独立 `gh-pages` 分支，通常从其专用 worktree 直接提交并推送。
-
-## 发布前检查表
-
-- [ ] 声明单个 `pixivdownload-sdk` provided 依赖或正确的旧 BOM 组合，插件不包含宿主提供类
-- [ ] `plugin.properties` 位于 JAR 根，id/version/requires/class 与代码一致
-- [ ] feature 只返回一个，子上下文只显式装配自己的 Bean
-- [ ] 每个 controller、页面和静态目录都有正确 `AccessPolicy` 路由声明
-- [ ] i18n、错误码和状态不会泄露凭据或异常细节
-- [ ] 下载完成只在文件和成功事实耐久落地后报告
-- [ ] owner 来自 `RequestOwnerIdentityResolver`，`workKey` 保持不透明字符串
-- [ ] 异步队列、任务、客户端、executor 和 scheduler 可真实 quiesce/drain/close
-- [ ] 插件自持画廊页面/API/static/i18n，只向 `gallery.type-switch` 注册自己的切换入口
-- [ ] 配置、凭据、state/data、`PluginDataSource` 和作品目录符合 owner 与目录边界
-- [ ] `mvn clean verify`、前端行为测试和 JAR 结构检查通过
-- [ ] 发布 artifact 的大小、SHA-256、签名和 manifest 完全对应同一份字节
-- [ ] 私钥不在源码、构建输出、日志、插件包或仓库服务器公开目录中
-
-## 画廊导航槽位
-
-插件通过 `NavigationContribution.placements` 声明入口。`gallery.sidebar` 承载插件、下载、画廊等主页面，`gallery.sidebar.tools` 承载邀请码管理、统计、疑似重复等工具页面；小说画廊对应 `novel.sidebar` 和 `novel.sidebar.tools`。两组独立排序，按请求身份过滤；贡献撤回后入口消失，空组隐藏。页面只声明 `data-nav-slot`，不按插件 ID 分类。
+需要向主仓库贡献 SDK 契约或官方插件修复时，请先阅读[主仓库开发](/zh-cn/development)。

@@ -1,138 +1,104 @@
 # 配置参考
 
-PixivDownloader 的配置按所有权分为三类，不能混用：
+日常配置优先在桌面 GUI「配置 / 设置」页修改并保存，再按界面提示即时应用或重启。手动编辑配置文件前，先确认配置项所属文件与所有者：
 
 | 配置类型 | 路径 | 所有者 |
 | --- | --- | --- |
-| 宿主配置和插件启用状态 | `config/config.yaml` | 应用壳 |
+| 宿主配置与插件启停状态 | `config/config.yaml` | 应用宿主 |
 | 插件业务配置 | `config/plugins/{pluginId}.properties` | 对应插件 |
-| 插件凭据 | `config/credentials/{pluginId}.properties` | 对应插件；由宿主加密存储 |
+| 插件敏感凭据 | `config/credentials/{pluginId}.properties` | 对应插件（由宿主加密维护） |
 
-推荐在桌面 GUI 的“配置”页修改。首次启动时，应用会用当前版本的默认模板创建 `config/config.yaml`；升级后只追加缺失的宿主键，不覆盖已有值。手工编辑时使用 UTF-8，并保留活跃的 `key: value` 行，不要用注释行代替空值。
+首次启动时生成默认 `config/config.yaml`，升级时只追加缺失宿主键、不覆盖已有值。手动编辑必须使用 UTF-8 扁平 `key: value` 行，不要把配置项注释掉代替空值，也不要把已外置插件的键（如 `mail.*`、`push.*`、`notification.*`、`download.novel-*`）写回 `config.yaml`。
 
-## 宿主配置
+## 配置与环境迁移
 
-### 服务、调试和下载
+Swing 与 Compose 设置页均提供「配置与环境迁移」，仅读取已保存的配置（导出前请先保存更改，导入前先处理未保存草稿）：
+
+1. **导出 `.pdbackup`**：默认包含宿主与已注册插件配置、插件开关及桌面偏好；可按需勾选凭据、数据库、已保存状态和用户资源（收藏夹图标、小说参考音）。包含凭据、状态或数据库时必须设置归档密码，导出期间暂时停止后端。
+2. **预览与导入**：在目标环境准备好兼容插件与数据库连接后选择归档预览（未安装插件的配置与文件不会写入，归档不自动安装插件或恢复信任授权）。勾选要导入的字段、数据库和文件组（资源须与数据库一同导入），确认后先备份目标并在完整进程重启后执行迁移。
+
+导入保留目标环境的数据库连接、数据库 provider 选择与安装身份，凭据使用目标主密钥重加密；导入管理员凭据会替换登录账号并注销旧会话；计划任务恢复为停用，手动队列恢复为暂停。程序本体、插件包、作品文件与缓存不在归档内，作品目录需另行复制（路径映射仅更新声明路径字段与数据库前缀，`{0}` 固定为确认的绝对目录）。任务备份与逐库报告保存在 `data/environment-transfers/<任务 ID>/`（最新状态见 `pending.json`）；出现「需要恢复」时应用会阻止启动，请核对报告与备份，勿删除日志强行启动。
+
+### Windows 安装目录搬迁
+
+移动 Windows 安装目录后，运行安装包并选择新目录确认迁移，安装器会更新注册表安装路径、快捷方式、卸载记录及已有当前用户自启动项（不会开启原本关闭的自启动）。修复备份保存在新目录 `state/installation-backups/`；确认新位置启动与数据正常后再清理旧目录，切勿运行旧目录的卸载程序。旧 MSI 版本需先导出备份、卸载 MSI，再安装新版并导入。
+
+## 宿主配置（`config/config.yaml`）
+
+### 服务、下载与并发上限
 
 | 键 | 默认值 | 说明 |
 | --- | --- | --- |
-| `server.port` | `6999` | HTTP/HTTPS 服务端口 |
+| `server.port` | `6999` | HTTP / HTTPS 监听端口 |
 | `debug.enabled` | `false` | 调试模式 |
-| `download.root-folder` | `pixiv-download` | 作品产物根目录 |
-| `download.user-flat-folder` | `false` | 画师目录是否使用平铺布局 |
-| `download.max-concurrent` | `10` | 宿主下载并发上限；最多另排队 100 个作品，队列已满时新任务返回 429 |
-| `database.maximum-pool-size` | `28` | 宿主主库连接池上限，最小 8 |
+| `download.root-folder` | `pixiv-download` | 作品产物根目录（仅存放下载作品） |
+| `download.user-flat-folder` | `false` | 画师批量下载是否省略画师子目录 |
+| `download.max-concurrent` | `10` | 下载并发上限；另最多排队 100 件作品，满额返回 429 |
+| `database.maximum-pool-size` | `28` | 主数据库连接池上限（最小 `8`） |
+| `ffmpeg.max-concurrent` | `2` | FFmpeg 转码与媒体探测共享并发数（范围 `1–8`，重启后端生效） |
 
-`download.root-folder` 只存放下载作品。配置、数据库、插件状态和缓存不会写入该目录。小说、Douyin 等下载类型的私有设置不属于宿主配置；安装插件后由插件自己的配置贡献管理。
+固定安全上限（不可通过配置调高）：单张作品图片 / 封面 / 内嵌图上限 100 MiB，单次插画或小说下载任务累计上限 1 GiB；Ugoira ZIP 上限 100 MiB、最多 500 帧/条目、单条目解压 32 MiB、总解压 200 MiB、单帧 25,000,000 像素，单次转码最长 10 分钟、输出 100 MiB。服务同时校验 `Content-Length`、实际解码流与图片文件头白名单，超限中止并清理半文件。
 
-Pixiv 作品图片、小说封面和内嵌图的固定安全上限为每张 100 MiB；单个普通插画或小说下载任务内的这些响应累计最多 1 GiB。服务同时检查 `Content-Length` 和实际解码后的响应流，超过上限会中止传输并清理部分文件。最终扩展名根据 URL 路径、响应 `Content-Type` 与已验证的文件头从图片白名单中选择，查询参数不会进入文件名。这些上限不能通过配置提高。
+### 主数据库与引擎切换
 
-Ugoira 的 ZIP 上限为 100 MiB、最多 500 个条目和帧；单条目展开最多 32 MiB、总展开量最多 200 MiB，单帧最多 25,000,000 像素。每个转码进程最多运行 10 分钟、输出 100 MiB。超限会终止处理并清理临时文件；已选择保留的 ZIP 和帧时序文件仍保留。
+默认使用 `database-sqlite`（`data/pixiv_download.db`）。如需切换至 PostgreSQL 17 / 18（UTF8），先从插件市场安装 `database-postgresql` 并完整重启；主库与已适配插件私库共用所选引擎（SQLite 私库位于 `data/{pluginId}/plugin.db`，PostgreSQL 私库按 owner 隔离 schema 与受限角色）。
 
-### 主数据库与历史迁移
+在桌面「设置 → 运行与网络 → 主数据库」或插件市场数据库设置中切换：
 
-默认安装独立的 SQLite 数据库插件，保留 `data/pixiv_download.db` 与旧目录定位规则。需要 PostgreSQL 17 或 18（UTF8）时，从插件市场安装 PostgreSQL 数据库插件并完整重启，再选择连接目标。主库和已适配的插件私有存储使用同一选定引擎；SQLite 私库仍位于 `data/{pluginId}/plugin.db`，PostgreSQL 私库按 owner 使用独立 schema 和受限账号。
+1. 选择已加载的数据库插件并填写连接信息（密码留空保持已保存值），点击「测试连接」。
+2. 点击「检查并继续」预检主库与全部插件私库的源、目标及处理方式（非空目标仅在 provider 支持安全备份替换时允许继续）。
+3. 确认清单后，应用保存本页设置并自动完整重启，在新进程中完成备份、迁入、逐库校验（类型化 SHA-256、行数、生成键水位与 NUL 字符清洗）及原子替换，全部通过后才切换连接配置。仅修正同一数据库的连接参数时使用「应用连接并重启」。
 
-#### 在设置中切换数据库
+迁移记录与备份保存在 `data/database-migrations/`（可能含计划凭据，请妥善保管并保留供启动复核与重试使用）。所选数据库插件缺失、禁用或连接失败时会进入恢复模式（业务 API 返回 503，后台数据库任务停止），不会自动改连其他引擎或新建空 SQLite。
 
-在 Swing 或 Compose 的「设置 → 运行与网络 → 主数据库」，或插件市场的数据库设置中操作：
+#### PostgreSQL 准备与配置示例
 
-1. 选择已加载的数据库插件并填写连接信息。密码留空保留已存值；需要删除时，勾选清除密码并完成保存。
-2. 点击「测试连接」检查地址和账号。检查通过只表示连接可用，不会保存设置、创建数据库或迁移数据。修改数据库设置后，点击「检查并继续」，检查应用数据及全部插件数据的来源、目标和处理方式。
-3. 核对确认清单。目标已有数据且提供者支持安全替换时，清单会说明先备份再替换；不支持安全替换的目标会被拒绝。点击「取消」可返回修改，已填内容保留，数据库连接设置尚未保存。
-4. 确认后，应用先保存本页其它设置，再自动停止业务并完整重启。新进程迁移并核验清单中的数据，所有数据库通过核验后才切换连接设置并继续启动。只修正同一数据库的连接信息时，使用「应用连接并重启」，不复制数据。
-
-连接详情显示正在使用的数据库与重启后将使用的数据库。环境变量或启动参数覆盖了连接设置时，先修正这些覆盖项，再继续切换。
-
-替换目标前会保留旧目标的备份；迁入的数据先经过核验，再逐库替换。备份及迁移记录保存在 `data/database-migrations/` 下对应的任务目录。备份可能包含计划凭据，应按敏感文件保管。作品、参考音和凭据文件仍保留原位。
-
-失败时保留原数据库连接设置，并显示各项数据的实际结果。已经迁入并保存的数据不会因其它项失败而自动撤销；「结果不确定」表示尚不能确认该项是否已保存，不能当作已回滚。保留原数据库和备份，修正提示的问题后重新检查。重试会核对源数据是否变化、目标内容是否仍匹配，只有核验通过的已迁入数据才会复用。
-
-没有数据库插件、选中插件缺失 / 禁用 / 不兼容 / 加载失败，或启动时无法建立数据库连接，都会进入恢复模式：业务页面跳转市场，业务 API 返回 503；直接语义查询返回空并标明数据库不可用，写入与依赖数据库的后台操作停止。恢复原插件或修正连接后，可通过上述检查和确认流程重启；应用不会自动改投其它引擎或新建空 SQLite。原连接无法解析时，确认清单会明确说明仅修正连接，不迁移原数据库的数据。
-
-#### PostgreSQL 连接准备
-
-请先创建专用数据库和主库 schema，授予应用账号相应的建表、索引、序列、函数、触发器及数据读写权限。使用插件私库还需要 `CREATEROLE` 和数据库上的 `CREATE` 权限，以建立独立登录角色与 schema；不能向 `PUBLIC` 开放主库或其它 owner 的数据权限，否则隔离检查会拒绝私库连接。`currentSchema` 只能指定一个小写字母、数字或下划线组成的名称（首字符不能是数字，最多 63 字符）；省略时使用 `public`。远程连接建议使用 `sslmode=verify-full`，需要自定义 CA 时添加 `sslrootcert`。JDBC 直接连接管理员指定的服务器，不使用 Pixiv HTTP 代理。
-
-以下是连接配置的扁平键示例。已有数据需要迁移时，优先使用设置页的确认流程；直接编辑 `config/config.yaml` 只会改变下次启动的连接，不会复制历史数据。密码放在独立配置项或 `DATABASE_PASSWORD` 环境变量中，不能写入 JDBC URL。
+预先创建专用数据库与主库 schema，授予建表、索引、序列、函数、触发器及读写权限；使用插件私库还需 `CREATEROLE` 与数据库 `CREATE` 权限，且不得向 `PUBLIC` 开放主库或其他 owner 权限。`currentSchema` 仅支持单个小写字母、数字或下划线名称（非数字开头，最长 63 字符，默认 `public`）。远程连接建议使用 `sslmode=verify-full`；密码放在独立配置项或环境变量 `DATABASE_PASSWORD`，禁止写入 JDBC URL（直接改 `config.yaml` 不会迁移旧数据）：
 
 ```yaml
 database.provider: database-postgresql
 database.engine: postgresql
 database.jdbc-url: "jdbc:postgresql://db.example.com:5432/pixiv?currentSchema=pixiv&sslmode=verify-full"
 database.username: pixiv_app
-database.password: "替换为数据库密码"
+database.password: "REPLACE_WITH_DATABASE_PASSWORD"
 ```
 
-#### 管理员可选：停机迁移工具
+#### 停机 CLI 迁移工具（可选）
 
-需要独立安排停机或检查报告时，可以使用 CLI。它不会自动切换应用配置，也不提供设置页的非空目标备份替换流程。安装源和目标数据库插件，停止所有使用源库的应用、插件和离线写入工具；保持作品文件、插件私有库、参考音、配置及凭据文件可用。分别把源和目标连接配置保存为 `source.yaml`、`target.yaml`，保持当前生效配置不变。在完整解压目录运行下列命令，将 `<boot.jar>` 替换为实际应用 boot JAR 文件名：
-
-`source.yaml` 和 `target.yaml` 都必须明确填写 `database.provider`。SQLite 源可配置 `database.provider: database-sqlite` 和 `database.jdbc-url: "jdbc:sqlite:data/pixiv_download.db"`。保留两份配置，迁移后不要覆盖 `source.yaml`，私库检查仍需用它定位原库。
+需要独立安排停机并向**空目标库**迁移时，停止所有使用源库的进程，准备显式包含 `database.provider` 的 `source.yaml` 与 `target.yaml`（SQLite 源可配 `database.provider: database-sqlite` 与 `database.jdbc-url: "jdbc:sqlite:data/pixiv_download.db"`），在完整解压目录执行：
 
 ```powershell
 java '-Dloader.main=top.sywyar.pixivdownload.migration.DatabaseMigration' -cp '<boot.jar>' org.springframework.boot.loader.launch.PropertiesLauncher --source-config source.yaml --target-config target.yaml --backup migration/source.backup --report migration/report.json
 ```
 
-工具取得实例锁，由源提供者保留一致备份、准备结构和数据，目标提供者向空目标导入并核验。SQLite 源备份包含已提交的 WAL 数据，旧结构在工作副本上升级。SQLite 与 PostgreSQL 支持双向迁移；迁移保留 ID、毫秒时间、NULL、软删除、元数据、媒体和文件引用，并核对每表行数、摘要及生成键序列。目标非空、源表没有所属声明或类型不兼容时会停止，不会清空目标或略过未知表。
+- 源库含小说可重建对象时显式附加 `--rebuild-objects novels_fts,novel_soft_delete_cleanup`（仅填实际存在的对象）。
+- 准备卸载但保留数据库数据的插件，可在卸载前用 `--export-schema schema.json` 导出声明，迁移时用 `--retained-schema schema.json` 补入。
+- 仅当 `report.json` 状态为 `DATA_VERIFIED`（且全部 `stores` 为 `COMMITTED`）时才表示复制核验完成，随后再切换生效配置并启动应用。
 
-小说的可再生 SQLite 对象需显式确认：源库存在时添加 `--rebuild-objects novels_fts,novel_soft_delete_cleanup`，列表中只填实际存在的对象。PostgreSQL 启动后由数据库提供者按小说插件的声明恢复软删除触发器，正文搜索直接读取迁移后的正文。其它插件的辅助对象须先确认所选提供者支持重建；普通历史表不能用此参数排除。
+### 图片与 Ugoira 保存格式
 
-已安装但禁用的插件仍提供迁移声明。准备卸载保留数据库数据的插件前，可用同一入口的 `--export-schema schema.json` 保存声明；迁移时用 `--retained-schema schema.json` 补入缺席 owner，文件必须匹配当前 SDK。需要执行私有存储结构升级的插件仍须安装，不能仅靠导出的声明代替。缺少声明时先恢复相应插件或补齐经核对的声明，不要删除历史表。
+在桌面「设置 → 下载」或网页下载设置中多选保存格式（至少保留一项，默认值保存在 `config/plugins/download-workbench.properties` 的 `download-workbench.media.*`）：
 
-工具同时迁移声明了兼容私有 schema 的 owner 数据；未知 owner 或缺少私有声明会在复制前拒绝。主库与各私库分别提交，部分失败不会自动回滚已提交库。保存数据库选择和启动前会复核私库迁移收据与源数据变化；第三方自带 JDBC 或 SQLite 专用 SQL 不会自动兼容另一种数据库，需先由作者适配。
+- **图片**：原始格式（默认）、PNG、JPG、WebP。取消原始格式时，仅当所有所选派生格式生成成功后才删除原图。
+- **Ugoira**：WebP（默认）、GIF、APNG、MP4（需 FFmpeg H.264 编码器）、原始 ZIP（同时保存 `.frames.properties` 帧时序供离线补转）。
+- **转码参数**：`quality` 默认 `90`（`1–100`），`webp-lossless` 默认 `false`，`maximum-edge` 默认 `0`（不缩放，可设 `1–16383`）；仅作用于新编码副本。
 
-只有报告为 `DATA_VERIFIED` 才表示数据库复制核验完成。检查报告、待重建对象及每项数据的结果后，再修改生效配置并启动应用，核验画廊、小说搜索、通知、计划及文件访问。`IN_PROGRESS` 或 `FAILED_TARGET_NOT_VERIFIED` 都不能视为成功；保留备份并核对目标事务结果，CLI 重试使用新备份和经确认的空目标，不提供断点续传。切换后若目标已接受新写入，直接恢复旧连接会遗漏这些增量；应通过设置页重新检查并迁回，或由管理员在停机后处理。
-
-#### 迁移备份与核验细节
-
-连接字段及类型由数据库插件声明：SQLite 不显示连接字段，PostgreSQL 显示地址、用户名和密码。只修复无法解析的原连接时，应用保留原配置快照，私库迁移核验仍然有效。
-
-设置页替换 SQLite 目标时，提供者锁定旧库，保留包含已提交 WAL 的一致备份，再迁入暂存库。全部库核验后，各库在原位置分别通过事务替换内容；替换提交前失败保留旧内容，已提交库不会撤销。检查后目标发生变化或含有未知表时拒绝替换。每个任务的 `target-*.backup` 分别保存主库和各私库的旧内容。请关闭连接两端的其它应用和离线写入工具，并保留 `data/database-migrations/` 中的记录、配置快照和备份；启动检查和重试仍会使用它们，配置与备份可能含凭据。
-
-PostgreSQL 源须符合当前支持的结构。其备份是包含数据、序列及受支持对象定义的格式 1 逻辑 XML，不是 `pg_dump` 文件；当前工具没有直接恢复该归档的入口。源提供者缺席或禁用会阻止迁移，不能借用其它驱动。符合 SDK 迁移合同的提供者自行实现迁出和迁入，不需要宿主为其增加专用迁移分支。
-
-迁移也保留二进制内容，使用类型化 SHA-256 摘要和生成键历史高水位核对数据，并报告引用警告；不会删除孤儿记录。通过中性存储接口写入的文本参数由提供者移除 NUL（U+0000），保留换行、制表符、其它有效 Unicode、空串和 NULL；二进制不变，非法编码仍拒绝。迁移已有文本时只处理临时工作副本，再核对目标实际内容，源库与原始备份保持不变。清洗造成唯一键冲突或违反约束时失败，不会自动合并或删除记录。
-
-PostgreSQL 源的 `--rebuild-objects` 应列出实际存在的触发器和函数名，并先确认所属插件能在目标重建它们。提供者负责私库发现、隔离、物理映射、SQL 方言和迁移；业务插件声明结构和业务转换，通过中性存储契约读写。工具不会自动翻译第三方插件的任意 SQL。
-
-所有库复制并核验后才开始逐库提交。切换和启动检查通过可信源提供者复核私库源变化凭据及精确目标身份；源配置、源数据或目标改变时拒绝切换。报告和私库收据使用 `formatVersion: 1`，交换模型与收据拒绝未知格式。
-
-报告的 `stores` 逐库记录 `COMMITTED`、`ROLLED_BACK` 或 `UNKNOWN`。取消或失败中止尚未尝试提交的会话，不能把部分提交报告为整体回滚。提交时断连、进程被强制终止或报告落盘失败可能留下 `COMMITTING`、`UNKNOWN` 或旧进度，须人工核对目标。失败后可能留下空数据库文件、私库 schema 或角色，工具不会自动删除。
-
-`DATA_VERIFIED` 还要求全部提交、收据和资源释放均已完成。切换前检查引用警告；保留源数据与原配置。目标尚无新写入时，可停机恢复原配置；已有增量时不能直接回切。
-
-### 图片与 Ugoira 保存
-
-在桌面“设置 / 配置 → 下载”中设置默认保存格式、质量、WebP 无损和最长边，保存后重启后端生效。格式下拉框支持多选，至少保留一项：
-
-- 图片：原始格式（默认）、PNG、JPG、WebP。可取消原始格式；只有所有所选产物生成成功后才移除原图，失败或取消时保留原图。选择与原图相同的格式会复用原文件。
-- Ugoira：WebP（默认）、GIF、APNG、MP4、原始 ZIP。MP4 需要当前 FFmpeg 提供 H.264 编码器；保留 ZIP 时同时保存帧时序，供离线补转。
-- 转码质量默认 90，可设 1–100；WebP 无损默认关闭；最长边默认 0（保留尺寸），可设 1–16,383。质量、无损和缩放只影响新编码的副本，不重编码复用的原文件。
-
-两版网页下载设置都有相同的格式多选，可用于本次下载和新建计划。默认值保存在 `config/plugins/download-workbench.properties`，键为 `download-workbench.media.image-formats`、`ugoira-formats`、`quality`、`webp-lossless`、`maximum-edge`（后四项也使用相同前缀）。
-
-FFmpeg 共享并发数默认 2，可在桌面下载设置中改为 1–8，保存后重启后端生效。对应宿主键为 `config/config.yaml` 中的 `ffmpeg.max-concurrent`；转码与媒体探测共用此额度。
-
-已有作品在 Compose 桌面“工具 → FFmpeg 及其工具 → 历史媒体处理”中选择目标格式并检测缺失项目，无需填写作品 ID。查看结果后点击开始，只补缺失格式和缩略图，保留已有文件；返回不取消任务。Swing 在工具页提供同样的检测与处理。Ugoira 补转需要保留的 ZIP 和帧时序；FFmpeg 管理中可检查实际编解码能力，MP4 需要 H.264 编码器。
-
-每批最多处理 500 个命中作品、10,000 个候选文件，同时只运行一个任务；达到上限会提示处理后再次检测。检测不生成文件，修改选项后须重新检测，修改下载设置不会自动开始历史处理。
-
-画廊优先显示仍保留的原图，其次为 WebP、PNG、JPG；原图已移除时使用实际存在的副本，MP4 使用视频播放器。
+已有作品可在桌面「工具 → 历史媒体处理」按目标格式检测并补齐缺失格式与缩略图（单批最多 500 件作品、10,000 个候选文件）。画廊按「保留原图 → WebP → PNG → JPG」顺序优先展示，MP4 使用视频播放器。
 
 ### 插件市场
 
 | 键 | 默认值 | 说明 |
 | --- | --- | --- |
-| `plugin-catalog.enabled` | `true` | 插件市场主开关；打开 / 刷新市场或安装插件时访问仓库，关闭后不访问任何仓库 |
+| `plugin-catalog.enabled` | `true` | 插件市场总开关；关闭后不访问任何插件仓库 |
 | `plugin-catalog.official-repository-enabled` | `true` | 是否启用内嵌官方仓库 |
-| `plugin-catalog.connect-timeout-ms` | `15000` | 全局连接超时 |
-| `plugin-catalog.read-timeout-ms` | `60000` | 全局读取超时 |
-| `plugin-catalog.max-manifest-bytes` | `1048576` | 单个清单上限 |
-| `plugin-catalog.max-package-bytes` | `104857600` | 单个插件包上限 |
-| `plugin-catalog.repositories` | 空列表 | 自定义仓库列表 |
+| `plugin-catalog.community-repository-enabled` | `true` | 是否启用内嵌社区仓库 |
+| `plugin-catalog.connect-timeout-ms` | `15000` | 仓库连接超时（毫秒） |
+| `plugin-catalog.read-timeout-ms` | `60000` | 仓库读取超时（毫秒） |
+| `plugin-catalog.max-manifest-bytes` | `1048576` | 单个清单大小上限（1 MiB） |
+| `plugin-catalog.max-package-bytes` | `201326592` | 单个插件包大小上限（192 MiB） |
+| `plugin-catalog.repositories` | 空列表 | 自定义插件仓库列表 |
 
-官方仓库的地址和信任根内嵌于程序。自定义仓库必须显式配置自己的 HTTPS 清单和 Ed25519 公钥，不继承官方信任根。推荐用 GUI 的仓库编辑器；手写示例：
+推荐通过桌面「设置 → 插件市场设置」导入 `repository.json` 描述符或填写自定义仓库；手动配置示例：
 
 ```yaml
 plugin-catalog.enabled: true
@@ -151,15 +117,9 @@ plugin-catalog.repositories:
         trust-label: Example repository release key
 ```
 
-仓库 id 必须唯一，且不能使用保留值 `official` 或 `configured`。代理策略为：
+仓库 `id` 必须唯一，不可使用保留值 `official`、`community` 或 `configured`。`proxy-policy` 支持 `direct-strict`（直连、仅公网 HTTPS、禁重定向）、`proxy-trusted`（走应用代理、仅对内置信任主机允许最多 5 跳重定向并逐跳复核）和 `custom`。
 
-- `direct-strict`：直连、仅 HTTPS、拒绝非公网地址和重定向。
-- `proxy-trusted`：使用应用代理，只对内置信任主机允许最多五次重定向；每一跳都会重新校验。
-- `custom`：使用条目中的 `allow-redirects`、`strict-https`、`allow-non-public-addresses` 和 `use-proxy`。
-
-仓库条目还可覆盖 `connect-timeout-ms`、`read-timeout-ms`、`max-manifest-bytes`、`max-package-bytes`；省略或设为 `0` 表示继承全局值。
-
-### 出站代理
+### 出站代理与浏览器 PAC
 
 | 键 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -167,165 +127,60 @@ plugin-catalog.repositories:
 | `proxy.host` | `127.0.0.1` | 代理主机 |
 | `proxy.port` | `7890` | 代理端口 |
 
-插件需要代理时应使用稳定 HTTP/WebSocket SDK 或 `core-api` 的代理语义端口，不应读取宿主 `ProxyConfig` 实现类。
+若希望浏览器访问 `pixiv.net`（如配合油猴脚本）也走后端配置的同一代理、但不想开启全局系统代理，可将系统或浏览器的「自动代理配置脚本（PAC）URL」设为 `http://localhost:6999/proxy.pac`（仅本机可访问，随代理配置热重载自动更新，仅对 Pixiv 相关域名走代理）。
 
-#### 让网页版 Pixiv 走后端配置的代理（无需开启系统代理）
+### 多人模式配额与访客限流
 
-后端访问 Pixiv 走配置里指定的代理（默认 `127.0.0.1:7890`），不依赖系统代理。如果你还希望在浏览器里直接打开 `pixiv.net`（例如配合油猴脚本），又不想为此开启 Clash 的「系统代理 / system proxy」，可以使用内置的代理自动配置（PAC）：
+`multi-mode.*` 仅约束多人模式下未登录且无邀请码的**游客**；持邀请码的**访客**在 `solo` / `multi` 模式下均使用独立的 `guest-invite.*` 限流：
 
-在系统或浏览器的「自动代理配置脚本（PAC）URL」处填入 `http://localhost:6999/proxy.pac`（端口与你的配置一致；启用 HTTPS 时为 `https://<域名>:<端口>/proxy.pac`），即可让仅 Pixiv 相关域名走后端配置的同一个代理、其余流量直连。该地址仅本机可访问，代理变更（含热重载）会自动反映到 PAC 内容；不再需要来回切换系统代理。
-
-Firefox 的设置入口为 `about:preferences#general`，Windows 的代理设置入口为 `ms-settings:network-proxy`。
-
-### 多人模式配额和限流
-
-| 键 | 默认值 |
-| --- | --- |
-| `multi-mode.quota.enabled` | `true` |
-| `multi-mode.quota.max-artworks` | `50` |
-| `multi-mode.quota.reset-period-hours` | `24` |
-| `multi-mode.quota.archive-expire-minutes` | `60` |
-| `multi-mode.quota.limit-image` | `0` |
-| `multi-mode.quota.max-proxy-requests` | `200` |
-| `multi-mode.quota.archive-max-concurrent` | `10` |
-| `multi-mode.post-download-mode` | `pack-and-delete` |
-| `multi-mode.delete-after-hours` | `72` |
-| `multi-mode.request-limit-minute` | `300` |
-| `multi-mode.static-resource-request-limit-minute` | `1200` |
-
-`multi-mode.post-download-mode` 支持 `pack-and-delete`、`never-delete`、`timed-delete`。`multi-mode.limit-page=0` 表示不限制页数；当前默认值为 `3`。
-
-邀请访客在 solo 与 multi 模式都使用独立限流：
-
-| 键 | 默认值 |
-| --- | --- |
-| `guest-invite.request-limit-minute` | `300` |
-| `guest-invite.static-resource-request-limit-minute` | `1200` |
-| `guest-invite.tts-request-limit-minute` | `30` |
-| `setup.login-rate-limit-minute` | `10` |
-
-### 维护窗口
-
-`maintenance.enabled` 默认 `true`。每日默认值如下：
-
-| 星期 | 启用键/默认值 | 时间键/默认值 |
+| 键 | 默认值 | 说明 |
 | --- | --- | --- |
-| 星期一 | `maintenance.monday.enabled=true` | `maintenance.monday.time=10:00` |
-| 星期二 | `maintenance.tuesday.enabled=false` | `maintenance.tuesday.time=10:00` |
-| 星期三 | `maintenance.wednesday.enabled=false` | `maintenance.wednesday.time=10:00` |
-| 星期四 | `maintenance.thursday.enabled=false` | `maintenance.thursday.time=10:00` |
-| 星期五 | `maintenance.friday.enabled=false` | `maintenance.friday.time=10:00` |
-| 星期六 | `maintenance.saturday.enabled=false` | `maintenance.saturday.time=10:00` |
-| 星期日 | `maintenance.sunday.enabled=false` | `maintenance.sunday.time=10:00` |
+| `multi-mode.quota.enabled` | `true` | 游客配额开关 |
+| `multi-mode.quota.max-artworks` | `50` | 周期内最大作品配额 |
+| `multi-mode.quota.reset-period-hours` | `24` | 配额重置周期（小时） |
+| `multi-mode.quota.archive-expire-minutes` | `60` | 打包归档过期分钟数 |
+| `multi-mode.quota.limit-image` | `0` | 单作品超过多少张图折算多份配额（`0` 不折算） |
+| `multi-mode.quota.max-proxy-requests` | `200` | 代理请求配额 |
+| `multi-mode.quota.archive-max-concurrent` | `10` | 归档并发上限 |
+| `multi-mode.post-download-mode` | `pack-and-delete` | 可选 `pack-and-delete`、`never-delete`、`timed-delete` |
+| `multi-mode.delete-after-hours` | `72` | `timed-delete` 保留小时数 |
+| `multi-mode.limit-page` | `3` | 页数限制（`0` 不限制） |
+| `multi-mode.request-limit-minute` | `300` | 游客每分钟请求上限 |
+| `multi-mode.static-resource-request-limit-minute` | `1200` | 游客每分钟静态资源请求上限 |
+| `guest-invite.request-limit-minute` | `300` | 邀请访客每分钟请求上限 |
+| `guest-invite.static-resource-request-limit-minute` | `1200` | 邀请访客每分钟静态资源上限 |
+| `guest-invite.tts-request-limit-minute` | `30` | 邀请访客每分钟 TTS 请求上限 |
+| `setup.login-rate-limit-minute` | `10` | 登录与邀请码兑换每分钟尝试上限 |
+
+### 维护窗口、界面、更新与计划任务
+
+- **维护窗口**：`maintenance.enabled` 默认 `true`；`maintenance.monday.enabled=true`，其余星期默认 `false`，各星期时间键 `maintenance.<day>.time` 默认 `10:00`。
+- **语言与桌面界面**：`app.language` 默认空（跟随系统，只影响界面，运行日志固定使用英文）；`app.theme` 默认 `system`（可选 `light`、`dark` 及当前界面扩展主题）；`app.gui-provider` 默认空（默认选 Compose，切换需完整重启）；`app.config-menu-expand-all`（默认 `false`）仅作用于 Swing。
+- **在线更新**：`update.enabled=true`、`update.auto-check=true`；`update.manifest-url` 与 `update.nightly-manifest-url` 指向官方签名清单；`update.check-nightly` 在正式版默认 `false`、nightly 版默认 `true`。
+- **计划任务宿主**：`schedule.*` 键见[计划任务相关配置](/zh-cn/scheduled-tasks#排障与相关配置)。
+- **插件开关**：`plugins.{pluginId}.enabled` 由宿主管理，生效方式取决于插件的生命周期策略（见[插件管理](/zh-cn/plugin-management)）。
 
 ### HTTPS 与反向代理
 
-| 键 | 默认值 |
-| --- | --- |
-| `ssl.domain` | `localhost` |
-| `ssl.type` | `pem` |
-| `server.ssl.enabled` | `false` |
-| `server.ssl.certificate` | 空 |
-| `server.ssl.certificate-private-key` | 空 |
-| `server.ssl.key-store-type` | `JKS` |
-| `server.ssl.key-store` | 空 |
-| `server.ssl.key-store-password` | 空 |
-| `server.trusted-proxy-cidrs` | 空 |
-| `ssl.http-redirect` | `false` |
-| `ssl.http-redirect-port` | `80` |
-
-`ssl.type=pem` 使用证书和私钥路径；`ssl.type=jks` 使用 key store。不要把证书私钥或 key store 密码提交到仓库。
-
-`server.trusted-proxy-cidrs` 是使用反向代理时的信任边界。它只接受逗号分隔的数字 IPv4/IPv6 CIDR，例如：
+| 键 | 默认值 | 说明 |
+| --- | --- | --- |
+| `ssl.domain` | `localhost` | 外部访问域名 |
+| `ssl.type` | `pem` | `pem` 或 `jks`（同时配置时 PEM 优先） |
+| `server.ssl.enabled` | `false` | 是否启用内置 HTTPS |
+| `server.ssl.certificate` / `server.ssl.certificate-private-key` | 空 | PEM 证书与私钥路径 |
+| `server.ssl.key-store-type` / `key-store` / `key-store-password` | `JKS` / 空 / 空 | JKS 证书库配置 |
+| `ssl.http-redirect` / `ssl.http-redirect-port` | `false` / `80` | HTTP 自动跳转 HTTPS |
+| `server.trusted-proxy-cidrs` | 空 | 受信反向代理出口 IPv4 / IPv6 CIDR（逗号分隔） |
 
 ```yaml
 server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 ```
 
-只填写实际连接后端的反向代理出口地址或容器网段，不要填写客户端网段，也不要信任 `0.0.0.0/0` 或 `::/0`。留空时应用按直连模式运行，并拒绝任何 `Forwarded`、`X-Forwarded-*` 或 `X-Real-IP` 请求头。
+`server.trusted-proxy-cidrs` 留空时按直连模式运行，拒绝任何包含 `Forwarded`、`X-Forwarded-*` 或 `X-Real-IP` 的请求。配置后，只填写实际连接后端的反代出口或容器网段（严禁填 `0.0.0.0/0`、`::/0` 或客户端网段）；受信反代必须为每个请求提供完整且单一格式的转发头（含 `for`/`proto`/`host` 的 RFC `Forwarded`，或成套 `X-Forwarded-For` + `X-Forwarded-Proto` + `X-Forwarded-Host`），缺失、混用或由受信 CIDR 无头直连均会返回 HTTP 400。
 
-受信代理必须为每个请求提供以下一种完整格式，不能混用：
+## 插件配置、凭据与扩展设置
 
-- RFC `Forwarded`：所选代理边界必须同时包含 `for`、`proto` 和 `host`；
-- 传统格式：`X-Forwarded-For`、`X-Forwarded-Proto`、`X-Forwarded-Host`，可选 `X-Forwarded-Port`。
-
-应用从代理链右侧向左查找首个非受信地址作为客户端地址，并在鉴权、限流和 CSRF 同源判断前统一规范化客户端地址、外部协议、主机与端口。未受信来源提供转发头，代理链没有非受信客户端地址，或受信代理缺少、混用、错位、伪造格式的代理元数据时，请求会返回 400。代理必须覆盖所有到后端的请求；如果把 `127.0.0.1/32` 设为受信代理，同一地址发起但没有代理头的直连请求也会被拒绝。
-
-### 语言与桌面界面
-
-| 键 | 默认值 | 说明 |
-| --- | --- | --- |
-| `app.language` | 空 | 跟随系统；也可使用受支持语言代码 |
-| `app.theme` | `system` | GUI 主题 id |
-| `app.config-menu-expand-all` | `false` | 仅控制 Swing 的配置菜单展开；Compose 不提供此选项，也不改写此偏好 |
-| `app.gui-provider` | 空 | 桌面 GUI provider id；只能选择当前活动插件提供的值 |
-
-两个桌面界面都提供 `system`、`light`、`dark`，额外主题由当前选择的界面提供。GUI provider 下拉项来自当前活动的 `DesktopUiProvider`。发行包默认包含 Compose 和 Swing，首次未指定时选择 Compose；切换界面需要完整重启。
-
-语言和主题可立即预览，点击设置页的统一保存按钮后才会记住选择。语言设置只影响界面，日志使用英文。
-
-### 在线更新
-
-| 键 | 默认值 |
-| --- | --- |
-| `update.enabled` | `true` |
-| `update.manifest-url` | 官方最新正式版 `update.json` |
-| `update.nightly-manifest-url` | 官方 nightly `update.json` |
-| `update.auto-check` | `true` |
-| `update.check-nightly` | nightly 构建为 `true`，正式版为 `false` |
-
-### 计划任务宿主
-
-| 键 | 默认值 |
-| --- | --- |
-| `schedule.enabled` | `true` |
-| `schedule.tick-interval-ms` | `60000` |
-| `schedule.max-tasks` | `100` |
-| `schedule.inbox-check-every` | `500` |
-| `schedule.auth-failure-circuit-breaker` | `5` |
-| `schedule.pending-max-attempts` | `5` |
-| `schedule.overuse-defer-default-minutes` | `60` |
-
-这些键配置中性的计划任务宿主。具体下载来源、认证信息和下载参数由相应插件贡献并拥有。
-
-### 插件启用状态
-
-`plugins.{pluginId}.enabled` 由宿主管理，例如：
-
-```yaml
-plugins.douyin.enabled: true
-```
-
-required 插件不能通过该键禁用。是否能即时生效由插件的 `pixiv.lifecycle-policy` 与当前生命周期操作决定，详见[插件管理](/zh-cn/plugin-management)。
-
-## 插件业务配置
-
-每个插件只写 `config/plugins/{pluginId}.properties`。文件使用 UTF-8 Java properties 语法：
-
-```properties
-example.timeout-ms=15000
-example.output-format=json
-```
-
-宿主会拒绝插件配置文件覆盖宿主默认键、`plugins.*.enabled` 或看起来像凭据的键。不同插件文件中的键也不应重复。插件子 Spring 上下文通过 `Environment`、`@Value` 或 `@ConfigurationProperties` 读取这些值；第三方插件不应直接读配置文件，也不应依赖应用壳的配置类。
-
-插件的 `GuiConfigContribution` 是其完整配置 section 的事实来源，可声明字段、分组、布局、动作、预设和联动。应用壳把它与核心配置合并为一份工具包无关的桌面文档并负责统一保存；Swing / Compose 只渲染，不各自维护插件页面。保存后，宿主会刷新插件配置源，并按字段与插件生命周期策略给出即时生效、后端重启或完整进程重启结果。手工编辑后不确定时，完整重启最稳妥。
-
-## 插件凭据
-
-密码、Cookie、Token、API key、secret 和 webhook key 等敏感值写入 `config/credentials/{pluginId}.properties`。宿主负责加密、权限、迁移和按 owner 注入。插件可从自己的子上下文 `Environment` 读取已解密的属性，或通过 `PluginCredentials` 读写已声明的自身凭据；凭据声明不要求提供 GUI 字段。
-
-不要把凭据放入 `config.yaml` 或 `config/plugins/*.properties`，也不要让插件读取、解析或解密凭据文件。备份凭据时必须同时保护凭据主密钥；缺少原主密钥时，加密值不能在另一环境中恢复。
-
-## 如何确认当前配置
-
-1. 先看 GUI 配置页；它会合并宿主字段与当前已安装插件的配置贡献。
-2. 宿主默认键以当前版本的 `DefaultConfigTemplate` 生成结果为准。
-3. 插件字段以对应插件的 `GuiConfigContribution`、`@ConfigurationProperties` 或设置服务为准。
-4. 不要从旧版示例复制已经外置的 `mail.*`、`push.*`、`notification.*` 或 `download.novel-*` 到 `config.yaml`；它们由各自插件拥有。
-
-## 登录验证策略
-
-`setup.login-verification-policies` 默认为空字符串，表示不要求额外验证。配置为插件 `LoginVerification.policyId()` 声明的策略键，以逗号分隔，最多 16 项；后端重启后生效。必要策略缺席、存在多个实现或执行失败时拒绝登录，保留原密码与限流检查。安装插件不会自动启用策略。挑战通过登录页提交，失败不创建会话。
-
-配置前先确认对应插件可用；移除仍被要求的策略插件会阻止新登录。详见[插件开发](plugin-development.md)中的登录验证契约。
+- **插件业务配置（`config/plugins/{pluginId}.properties`）**：使用 UTF-8 Java properties 格式，由桌面设置页聚合展示并统一保存；禁止覆盖宿主键或写入明文凭据。
+- **插件凭据（`config/credentials/{pluginId}.properties`）**：存储密码、Cookie、API Key、Secret 与 Webhook 密钥，由宿主加密并按 owner 注入插件上下文。跨环境恢复加密凭据需同时保留凭据主密钥。
+- **翻译设置（`translation` 插件）**：普通项位于 `config/plugins/translation.properties`（`translation.engine` 默认 `ai`，可选 `youdao`、`libretranslate`；`translation.libretranslate-url` 不含 `/translate`；`translation.use-proxy` 默认 `false`，仅控制有道与 LibreTranslate；`translation.max-concurrent` 默认 `10`），保存后重启后端生效。详见[小说与朗读](/zh-cn/novel#翻译引擎（管理员）)。
+- **登录验证策略**：`setup.login-verification-policies` 默认为空；可配置最多 16 个逗号分隔的 `LoginVerification.policyId()` 策略键，重启后端生效。配置前请确认对应验证插件已启用，详见[操作验证码](/zh-cn/captcha)与[第三方插件 SDK](/zh-cn/plugin-development#不依赖-gui-的凭据与通用操作验证)。

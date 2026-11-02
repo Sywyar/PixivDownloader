@@ -1,70 +1,46 @@
-# PixivDownloader Wiki
+# PixivDownloader ドキュメント
 
-PixivDownloader は、Pixiv の作品をローカルに一括ダウンロードするツールです。Spring Boot 3.5.7 / Java 17 を基盤とし、交換可能なデスクトップ GUI provider（既定の Swing + FlatLaf、任意の Compose Multiplatform + Material 3）、Web インターフェース、Tampermonkey ユーザースクリプトの 3 つの操作方法に対応しています。
+PixivDownloader は、Pixiv のイラスト、漫画、うごイラ、小説をパソコンやサーバーに保存するアプリです。デスクトップ画面、ブラウザー、Tampermonkey スクリプトから操作できます。ログインが必要な作品には、自分の Pixiv アカウントの Cookie を使用します。
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE)
-[![GitHub Release](https://img.shields.io/github/v/release/Sywyar/PixivDownloader)](https://github.com/Sywyar/PixivDownloader/releases)
+## はじめて使う
 
-?> このドキュメントでいう「作品」には、イラスト、マンガ、うごイラ、 小説が含まれます。
+1. [インストール](/ja/installation)で環境に合う配布パッケージを選び、全体を展開します。
+2. [初回セットアップ](/ja/first-setup)でアプリの管理者アカウントと必要なプロキシを設定します。
+3. [初回ダウンロード](/ja/first-download)で作品を 1 件保存し、保存先を確認します。
 
----
+デスクトップ画面は Compose が既定で、Swing も選べます。簡体字中国語、繁体字中国語、英語、日本語、韓国語に対応しています。データベースは SQLite が既定です。PostgreSQL を使う場合は、対応プラグインとデータ移行が必要です。
 
-## 主な機能
+## やりたいことから探す
 
-| 機能 | 説明 |
-|----|------|
-| ⚡ **クイック取得** | Pixiv のブックマーク、フォロー、コレクションをワンクリックで取得 |
-| 🎨 **一括インポート** | 作品 URL / ID の一覧を貼り付け。イラストと小説の混在にも対応 |
-| 👤 **ユーザーダウンロード** | 作者 ID またはリンクを入力して、その作者の作品を一括取得 |
-| 🔍 **検索ダウンロード** | 内蔵検索プロキシで検索、プレビューして一括ダウンロード |
-| 📚 **シリーズダウンロード** | マンガ / 小説シリーズ全体をワンクリックで取得し、新作も自動追跡 |
-| ⏰ **スケジュールタスク** | バックグラウンドで新作を定期的に検出・ダウンロード |
-| 📖 **小説ダウンロード** | TXT / HTML / EPUB とシリーズ結合に対応 |
-| 🎬 **アニメーション変換** | うごイラを ffmpeg で WebP に自動変換 |
-| 🖼️ **作品ギャラリー** | 検索、絞り込み、並べ替え、コレクション管理に対応したローカルギャラリー |
-| 🧩 **ユーザースクリプト** | Pixiv のページ上で直接操作。専用スクリプト 6 種類と統合版を提供 |
-| 🌐 **多言語 / ダークモード** | 日本語、簡体字中国語、繁体字中国語、英語。全ページでダークモードに対応 |
-| 👥 **マルチモード** | クォータとレート制限付きの複数ユーザー共有サーバー |
-| 🔗 **ゲスト招待** | コンテンツレーティング、タグ、作者の許可リストを指定してギャラリーを共有 |
+| 操作 | ガイド |
+|---|---|
+| ブックマーク、フォロー中の新作、自分の作品を取得する | [クイック取得](/ja/quick-access) |
+| 複数の作品 URL をまとめてダウンロードする | [URL 一括ダウンロード](/ja/batch-download) |
+| 特定の作者の作品を取得する | [ユーザー一括ダウンロード](/ja/user-download) |
+| Pixiv をキーワードで検索する | [検索ダウンロード](/ja/search) |
+| 小説を保存・合本・翻訳・読み上げする | [小説](/ja/novel) |
+| 保存した作品を閲覧・整理する | [作品ギャラリー](/ja/gallery) |
+| 新作を定期的に取得する | [スケジュールタスク](/ja/scheduled-tasks) |
+| Pixiv のページから操作する | [ユーザースクリプト](/ja/userscripts) |
+| PixivBatchDownloader の今後のダウンロードを登録する | [PixivBatchDownloader インポート](/ja/pixiv-batch-downloader-import) |
+| 保存先、同時実行数、プロキシなどを設定する | [設定リファレンス](/ja/configuration) |
+| プラグインを追加・更新する | [プラグイン管理](/ja/plugin-management) |
+| 外部通信や送信データを確認する | [ネットワークアクセス](/ja/network-access) |
+| バックアップやデータ移行を行う | [ストレージ](/ja/storage) |
+| ファイル名の変数や操作を確認する | [操作リファレンス](/ja/usage-guide) |
+| 起動・接続・保存の問題を調べる | [よくある質問](/ja/faq) |
 
-?> Windows インストーラーと Java 標準パッケージには、必須の `download-workbench` と既定の `gui-swing` provider を含む標準インストール対象の公式プラグインが入ります。オンデマンドの `douyin` と `gui-compose` は含まれず、完全オフラインパッケージには両方が追加されます。ギャラリー、小説、統計、重複候補、TTS、AI、通知、プッシュ、メール、デスクトップ GUI provider は独立した公式プラグインです。
+## 開発者向け
 
-## 初めて使う場合
+- プラグインを作る：[サードパーティプラグイン SDK](/ja/plugin-development)
+- 本体をビルドする：[開発ガイド](/ja/development)
+- バージョン別 API：[SDK ドキュメント](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)
+- 開発パッケージ：[SDK Releases](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
 
-初回は次の順に進めてください。
+## バージョンと問い合わせ
 
-1. **[📥 インストール](/ja/installation)** — ダウンロード、インストール、動作要件
-2. **[⚙️ 初回セットアップ](/ja/first-setup)** — 管理者アカウント、動作モード、プロキシの設定
-3. **[⬇️ 初回ダウンロード](/ja/first-download)** — 初心者向けのダウンロード手順
+[Releases](https://github.com/Sywyar/PixivDownloader/releases) で配布物を、[変更履歴](https://github.com/Sywyar/PixivDownloader/blob/master/CHANGELOG.md)で変更内容を確認できます。[Issue](https://github.com/Sywyar/PixivDownloader/issues) には、使用バージョン、OS、起動方法、再現手順、エラーを記載してください。Cookie、パスワード、トークンは公開しないでください。
 
-## 目的別リンク
+ガイド中の `http://localhost:6999` は既定のローカルアドレスです。ポートや接続先を変更した場合は読み替えてください。各機能の画面は対応プラグインが有効な場合に利用できます。必須プラグインやデータベースの復旧が必要な場合は、起動時の案内を先に解決してください。
 
-| したいこと | 参照先 |
-|------------|-----|
-| Pixiv のブックマークをダウンロードする | [クイック取得](/ja/quick-access) |
-| リンクを貼り付けて一括ダウンロードする | [URL 一括ダウンロード](/ja/batch-download) |
-| 作者の作品をすべてダウンロードする | [ユーザー一括ダウンロード](/ja/user-download) |
-| キーワードで検索してダウンロードする | [検索ダウンロード](/ja/search) |
-| 小説をダウンロード / EPUB にまとめる | [小説ダウンロード](/ja/novel) |
-| ダウンロード済みの作品を整理・閲覧する | [作品ギャラリー](/ja/gallery) |
-| 新作を自動的に定期取得する | [スケジュールタスク](/ja/scheduled-tasks) |
-| Pixiv のページ上から直接ダウンロードする | [ユーザースクリプト](/ja/userscripts) |
-| すべての設定項目を確認する | [設定リファレンス](/ja/configuration) |
-| ファイルの保存先、バックアップ、移行を確認する | [ストレージの仕組み](/ja/storage) |
-| よくある問題を解決する | [よくある質問](/ja/faq) |
-
-## プロジェクト情報
-
-| 項目 | 内容 |
-|------|------|
-| **作者** | [Sywyar](https://github.com/Sywyar) |
-| **ライセンス** | [GNU AGPL v3](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE) |
-| **言語** | 日本語 / 简体中文 / 繁體中文 / English |
-| **Java バージョン** | 17 |
-| **フレームワーク** | Spring Boot 3.5.7 |
-| **データベース** | SQLite（WAL モード） |
-| **既定ポート** | 6999 |
-
-## 免責事項
-
-このプロジェクトは個人的な学習・研究のみを目的としています。商用利用はしないでください。ダウンロードしたコンテンツの著作権は原作者に帰属します。権利を尊重して利用してください。本ツールはユーザーが提供した Cookie で Pixiv にアクセスするため、アカウントに関するリスクはユーザー自身が負担します。本プロジェクトは Pixiv とは一切関係ありません。Pixiv のサーバーに過度な負荷をかけないよう、適切なダウンロード間隔を設定してください。
+本プロジェクトは [Sywyar](https://github.com/Sywyar) が管理しています。ライセンスは [AGPL-3.0](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE) と[プラグイン向けリンク例外](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt)です。Pixiv の公式アプリではありません。作品の著作権とサービスの利用条件を守り、過剰なリクエストを避けてください。

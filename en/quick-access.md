@@ -1,6 +1,6 @@
 # Quick Fetch
 
-"Quick Fetch" is the first tab shown by default when opening `pixiv-batch.html`. Using your saved Pixiv cookie it auto-detects the current account and one-clicks your account-related data into the download queue.
+Use Quick Fetch on the download page to retrieve bookmarks, submissions, follows and collections for the account identified by your saved Pixiv cookie. Preview works, add them to the queue, then start downloading. Fetching a list alone does not download files.
 
 ?> This feature requires a saved cookie containing `PHPSESSID`. Without one the buttons show as disabled with a hint.
 
@@ -22,7 +22,7 @@
 ## Usage Steps
 
 1. Open `http://localhost:6999/pixiv-batch.html`
-2. Confirm the page opens on the "**⚡ Quick Fetch**" tab by default
+2. Open **Quick Fetch**
 3. Click the corresponding button ("My Bookmarks", "My Works", etc.)
 4. Wait for data to load; the work list appears below
 5. Click "**Add All to Queue**" or check individual works then "**Add Selected to Queue**"
@@ -30,7 +30,7 @@
 
 ---
 
-## Followed Users — Second-Level Expansion
+## Choose works from followed users
 
 Click a followed user in the list to expand their work preview below (illustrations/novels toggleable).
 
@@ -76,6 +76,10 @@ After expanding a source, the "**⏰ Save as Scheduled Task**" card at the botto
 ?> Bookmarks / followed users' new works / collections are account-private content; the corresponding tasks must have a cookie containing `PHPSESSID` authorized to run (in Solo mode new tasks are auto-bound). When editing these types of tasks, the source is read-only — to change the source, delete and recreate.
 
 ---
+
+## Check results and recover
+
+After downloading, check completed, skipped and failed queue entries, then open the gallery. For an empty list, check the account, public/private scope and filters first. For disabled controls or an expired session, save a valid cookie again. For fetch failures, retain the error and check the backend connection to Pixiv. An empty preview does not by itself mean synchronization succeeded.
 
 ## Related Features
 

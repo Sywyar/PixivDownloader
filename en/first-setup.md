@@ -1,153 +1,81 @@
-# First-Time Setup
+# First-time setup
 
-?> This step is only required on the first startup. Once configured, subsequent launches go straight to the main interface.
+Setup creates the PixivDownloader administrator account and configures the HTTP proxy used by the backend. This account signs you into this app. You save your Pixiv cookie separately on the download page.
 
-## Setup Entry Points at a Glance
+After [installation](/en/installation), choose the entry that matches how you run the app:
 
-| Launch Method | Setup Entry Point |
-|--------------|-------------------|
-| Desktop GUI (default) | GUI "Home" wizard |
-| Local browser + `--no-gui` | Auto-opens `http://localhost:6999/setup.html` |
-| Server / Docker (headless) | CLI `--setup` command |
+| Environment | Initialize with | Then |
+| --- | --- | --- |
+| Local desktop | The desktop setup guide | Open the download page and sign in |
+| Headless server or `--no-gui` | Run `--setup` first | Start with `--no-gui` |
+| Docker | Run `docker compose run --rm app --setup` first | Run `docker compose up -d` |
 
----
+## Set up on the desktop
 
-## Method 1: GUI Wizard (Recommended for Desktop Users)
+1. Start the app and wait for the backend. If a required plugin is missing or the database is unavailable, follow [plugin management](/en/plugin-management) to restore it. Creating another account does not fix either condition.
+2. Enter an administrator username and password in the guide. Passwords require at least 8 characters. The app recommends 12 or more and asks for confirmation for a shorter password.
+3. Enter your HTTP proxy host and port. For example, use `127.0.0.1` and `7890` only if your local proxy actually listens there. Disable the proxy if you can reach the required services directly.
+4. Save, open `http://localhost:6999/pixiv-batch.html`, and sign in with the account you just created.
 
-After installing and launching PixivDownloader, the GUI main window stays on the "Home" tab with a 7-step wizard. Follow the prompts.
+Desktop and browser setup use solo mode (`solo`); they do not offer a multi-mode selector. Tabs and guide steps differ between desktop interfaces, so follow the prompts in your window.
 
-### Step 1: Wait for Service Readiness
+The local browser page at `http://localhost:6999/setup.html` also accepts account and proxy settings, then redirects to login. It accepts only local access. A headless launch exits before initialization, so use the CLI below first.
 
-The first screen shows the backend startup status (real-time breathing indicator).
+The proxy applies to requests that use the host or task proxy route. Browser requests, SMTP, database connections and explicitly direct requests have separate routes. See [network access and third-party services](/en/network-access). For later changes, save through desktop settings and follow its apply or restart instruction.
 
-Wait until the status changes to "**Running**" (typically 5-15 seconds), then click "Next" to continue.
+## Set up from the command line
 
-### Step 2: Set Admin Credentials and Run Mode
+Enter the fully extracted distribution directory and stop any running instance using it. These commands work in PowerShell or Bash. Replace `APP.jar` with the actual application JAR filename and retain the adjacent `plugins/` directory.
 
-On the same page, enter the admin **username** and **password** (password must be at least 6 characters), and select a run mode:
-
-| Mode | Use Case | Characteristics |
-|------|----------|----------------|
-| **Solo Mode** | Personal use | Login required, download settings stored on server |
-| **Multi Mode** | Sharing server with others | Guests don't need login, supports quota and rate limiting |
-
-?> This is for logging into the PixivDownloader web interface, **unrelated to your Pixiv account** — you can name it anything. Individual users should almost always choose "**Solo Mode**."
-
-Click "Complete Setup" to proceed to the next step.
-
-### Step 3: Configure HTTP Proxy
-
-Pixiv downloads, update checks, FFmpeg downloads, and some plugin requests use this proxy according to the host or task route. Browser requests, SMTP, and requests explicitly configured for direct access may bypass it; see [Network Access and Third-Party Services](/en/network-access) for the complete boundary.
-
-- **With a proxy tool** (Clash, V2Ray, etc.): enter the proxy address. Common config:
-  - Host: `127.0.0.1`
-  - Port: `7890` (Clash default)
-- **Direct Pixiv access** (very rare): disable the proxy
-
-?> Proxy settings support hot reload — you can change them anytime in the GUI "Configuration" page without restarting.
-
-### Steps 4-7: Guided Walkthrough
-
-The wizard guides you in turn to open the browser download page (step 4), browse the gallery (step 5), learn about advanced features (step 6), and finally reach the completion page (step 7). Follow along as needed.
-
-Once you reach the final "Done" page, the GUI "Home" tab is automatically hidden, and subsequent launches go straight to the "Status" page — the wizard won't run again.
-
-?> To re-run the wizard, delete the progress and completion marker files under `state/gui/`.
-
----
-
-## Method 2: Browser Setup Wizard
-
-For scenarios where you start with `--no-gui` but have a browser on the same machine (e.g., just wanting to save memory by avoiding the GUI window).
-
-1. Start the service: `java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui`
-2. The browser automatically opens `http://localhost:6999/setup.html`
-3. Follow the page prompts to enter credentials, select mode, configure proxy, and click "Complete Setup"
-
-!> `setup.html` **only accepts local browser** connections. It cannot be opened from a remote browser.
-
----
-
-## Method 3: CLI Command (Server / Docker)
-
-For server or Docker environments without a graphical interface or desktop browser.
-
-### Interactive Initialization (Recommended)
-
-```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --setup
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --setup --mode=solo
 ```
 
-Enter in sequence (password input is hidden):
-1. Admin username
-2. Password (at least 6 characters)
-3. Confirm password
-4. Run mode (enter `solo` or `multi`)
-5. Whether to enable HTTP proxy (`y`/`n`)
-6. Proxy host and port (when choosing `y`)
+Follow the username, password and proxy prompts. The minimum password length is 8 characters; below the recommended 12 characters, the command asks you to reconsider or confirm. The CLI still accepts `--mode=solo` or `--mode=multi`; this guide uses `solo`. To invite other people to browse, see the [advanced usage guide](/en/usage-guide).
 
-After initialization, start the service normally:
+Successful setup writes the account state to `state/setup_config.json` and submitted proxy settings to `config/config.yaml`. Start the service:
 
-```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui
 ```
 
-### Non-Interactive (Automation Scripts)
+For automated input, provide all parameters explicitly:
 
-```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --setup \
-    --username=admin \
-    --password='YourPassword' \
-    --mode=solo \
-    --proxy-enabled=true \
-    --proxy-host=127.0.0.1 \
-    --proxy-port=7890
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --setup --username=admin --password=REPLACE_WITH_A_UNIQUE_PASSWORD --mode=solo --proxy-enabled=true --proxy-host=127.0.0.1 --proxy-port=7890
 ```
 
-!> The password appears in shell history and the process list — only recommended for automation environments.
+Replace the password, host and port with your values. Use `--proxy-enabled=false` when no proxy is needed. A command-line password may appear in shell history and process listings; prefer interactive input for routine setup.
 
-### Docker Scenario
+## Set up in Docker
+
+Prepare the image and writable mounts using the [Docker installation instructions](/en/installation). From the directory containing `docker-compose.yml`, run:
 
 ```bash
-# Initialize first
-docker compose run --rm app --setup
-
-# Then run persistently
+docker compose run --rm app --setup --mode=solo
 docker compose up -d
+docker compose logs -f app
 ```
 
-Do not run `docker compose up` before initialization is complete, otherwise the container will keep restarting with exit code 78 because it detects no initialization.
+Inside a container, `127.0.0.1` refers to that container. To use a host proxy, enter `host.docker.internal` as configured in compose and the actual proxy port. The host proxy must accept the connection.
 
----
+A headless service started before setup exits with code `78`. A container with an automatic restart policy may restart repeatedly. Stop it, complete `--setup`, then start it again.
 
-## After Setup
+## Confirm setup succeeded
 
-Visit `http://localhost:6999/pixiv-batch.html` to start using.
+Sign in to the download page and check that the workbench opens. Continue with [first download](/en/first-download). Signing in proves that your local account works; Pixiv connectivity and cookie validity are separate checks.
 
-Next, read [First Download](/en/first-download) to learn the basic download flow.
+If saving or startup fails, retain the error and matching logs under `log/`. Check for another running instance, an unwritable configuration directory, missing required plugins or an unavailable database. Repeatedly deleting setup state does not diagnose these problems.
 
----
+## Change or reset the password
 
-## Follow-up Management
+Stop the instance and run one of these commands from its distribution directory. Changing requires the old password; resetting locally does not:
 
-### Change Password
-
-```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --change-password
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --change-password
+java -Dfile.encoding=UTF-8 -jar APP.jar --reset-password
 ```
 
-### Forgot Password
+Choose one command. Success invalidates existing sessions. Restart and sign in with the new password. Neither command deletes works or the database.
 
-First stop the running service, then run (the old password is not required):
-
-```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --reset-password
-```
-
-After a successful reset all existing sessions are invalidated. Log in again with the new password.
-
-### Re-initialize
-
-Stop the service, delete `state/setup_config.json`, then re-run `--setup` or go through the GUI wizard.
-
-?> Re-initialization does **not** delete downloaded files or the database — only the account and run mode are reset.
+If you need to recreate setup state, stop the app, back up `state/setup_config.json`, move that file aside, and initialize again. This resets the account, run mode and login state. Prefer `--reset-password` when password recovery is all you need.

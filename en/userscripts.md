@@ -2,6 +2,8 @@
 
 Userscripts let you operate directly on Pixiv pages — while browsing, when you see a work you want to download, one click adds it to the queue without switching to the PixivDownloader page.
 
+The host serves the script list and installation API independently of the download workbench. Only scripts declared by active plugins are available. Disabling the workbench removes its download helpers from the catalog while other plugins retain their scripts. Solo mode still requires sign-in; a backend `@updateURL` does not guarantee that Tampermonkey background requests carry a session.
+
 ?> Userscripts are optional. Most download operations can be done through `pixiv-batch.html` without installing any scripts.
 
 ---
@@ -9,8 +11,8 @@ Userscripts let you operate directly on Pixiv pages — while browsing, when you
 ## Prerequisites
 
 1. [Tampermonkey](https://www.tampermonkey.net/) extension installed in the browser
-2. PixivDownloader backend is running
-3. Logged in (in Solo mode)
+2. For Java-backend downloaders or the toolbox, keep the backend running and sign in in solo mode
+3. Local Download needs no backend and does not create gallery records
 
 ---
 
@@ -37,16 +39,20 @@ Userscripts let you operate directly on Pixiv pages — while browsing, when you
 ### Method 1: Install via Web Management Page (Recommended)
 
 1. Start PixivDownloader, open `http://localhost:6999/pixiv-batch.html`
-2. Find the "**🧩 Userscripts**" card at the top, click to expand
+2. Open "**🧩 Userscripts**" on the download page
 3. Click the "**⬇ Install**" button for the desired script
 4. Tampermonkey shows an install confirmation page — click "Install"
+5. Refresh both the download page and Pixiv page, then check script detection and the actual floating panel
 
 ?> When installed this way, the script's `@connect` is automatically configured for the current backend address.
 
-### Method 2: Download from Release
+### Method 2: Install a Standalone Script from the Repository
 
-1. Go to [Releases](https://github.com/Sywyar/PixivDownloader/releases) and download the script file (`.user.js`)
-2. Drag the file into the Tampermonkey dashboard and click "Install"
+1. Select a committed standalone `.user.js` file in the [source repository](https://github.com/Sywyar/PixivDownloader) and open its Raw content.
+2. Let Tampermonkey install it, or download and import it into the dashboard.
+3. Configure the backend address and host permission, then refresh Pixiv to verify.
+
+All-in-One is generated during the build; install it from the current backend. The current release workflow does not upload standalone userscript attachments, so do not rely on the Release asset list.
 
 ---
 
@@ -111,10 +117,11 @@ Each download script's settings panel has a "**Skip downloaded history**" toggle
 
 Scripts default to connecting to `http://localhost:6999`. If your backend is deployed on a different machine or port:
 
-1. Tampermonkey dashboard → find the script → click "Edit"
-2. Modify the `@connect` line at the top of the script, replacing `localhost` with the actual server address
+1. Set the actual backend protocol, host, and port in the script settings.
+2. Reinstall from that backend's web page so the installation response configures `@connect` permission for the current host. For manually installed scripts, check the host permissions in the header.
+3. Refresh Pixiv, submit one work, and confirm that the intended backend receives it.
 
-Scripts installed via the web management page already have the current backend address configured automatically.
+`@connect` grants access; it does not set the backend address. Changing it alone does not redirect requests to another server.
 
 ---
 
@@ -131,6 +138,10 @@ Scripts installed via the web management page already have the current backend a
 
 Disable the standalone versions and keep only All-in-One, or vice versa. The two versions have independent storage — it's recommended to use only one.
 
+### The Download Page Says "Not Detected"
+
+The current page received no response from the script. This alone cannot distinguish a missing script from a disabled script, site permissions, or a different installation origin. Install from the current backend and refresh. The available version and the version reported by the running script are separate facts; clicking Install does not prove it runs.
+
 ### Script shows "Backend Unavailable" or "Connection Failed"
 
-Confirm the PixivDownloader backend service is running, and the address and port configured in the script are correct.
+Confirm the backend is running and the script uses the correct address and port. For backend downloads, check queue completion and open the file; for Local Download, check the browser download. To import cookies, follow [First Download](first-download.md) for HttpOnly permissions. Ordinary `document.cookie` is not a complete login credential.

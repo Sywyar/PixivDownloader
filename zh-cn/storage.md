@@ -1,142 +1,91 @@
-# 存储原理
+# 存储与备份
 
-PixivDownloader 把下载作品、宿主运行期文件和外置插件安装包分开管理。路径都相对于程序的**当前工作目录**，不是相对于 JAR 所在目录；发行包的启动脚本和 Windows 快捷方式会把工作目录设为发行目录。
+PixivDownloader 将下载作品、宿主运行期文件与外置插件包分目录管理。所有相对路径均基于程序的**当前工作目录**（而非 JAR 所在目录）；发行包启动脚本与 Windows 快捷方式会将工作目录设为程序根目录。
 
-## 顶层目录
+## 顶层目录结构
 
-| 类别 | 默认路径 | 内容 |
+| 类别 | 默认路径 | 用途 |
 | --- | --- | --- |
-| 配置 | `config/` | 宿主配置、插件业务配置和加密凭据 |
-| 状态 | `state/` | 安装状态、队列断点、GUI 标记和插件可恢复状态 |
-| 数据 | `data/` | SQLite、用户资源、缓存和插件持久数据 |
-| 插件 | `plugins/` | 外置插件原始 artifact、provenance 和运行期冻结副本 |
-| 日志 | `log/` | GUI 与后端日志 |
-| 下载作品 | `{rootFolder}/` | `download.root-folder` 指定的作品产物 |
+| 配置 | `config/` | 宿主 `config.yaml`、插件业务配置与加密凭据 |
+| 状态 | `state/` | 初始化状态、登录会话、队列断点、GUI 引导标记与插件状态 |
+| 数据 | `data/` | SQLite 主库、插件私库、收藏夹图标、缩略图/TTS 缓存与迁移/恢复记录 |
+| 插件 | `plugins/` | 外置插件安装包、provenance 与运行期私有冻结工作区 |
+| 日志 | `log/` | GUI 与后端运行日志 |
+| 作品 | `{rootFolder}/` | `download.root-folder`（默认 `pixiv-download`）指定的作品文件 |
 
-`download.root-folder` 默认是相对路径 `pixiv-download`。它只存作品本身、作品元数据 sidecar 和临时导出归档；配置、数据库、插件包、状态和缓存不应写入这里。
+作品元数据与逐页媒体记录集中保存在所选数据库中，新下载不再在作品目录生成 `.meta.json` 或 `.media.properties`（Ugoira 保留原始 ZIP 时仍附带 `.frames.properties` 帧时序）。请勿将配置、数据库、插件包、状态或缓存放入作品下载根目录。
 
-## 工作目录布局
+## 运行期文件明细
 
-### 配置
+### 配置、状态与数据
 
-| 路径 | 用途 |
+| 路径 | 内容与注意事项 |
 | --- | --- |
-| `config/config.yaml` | 宿主配置和 `plugins.{id}.enabled` 状态 |
+| `config/config.yaml` | 宿主配置与 `plugins.{id}.enabled` 启停状态 |
 | `config/plugins/{pluginId}.properties` | 对应插件的非敏感业务配置 |
-| `config/credentials/{pluginId}.properties` | 宿主加密维护、只注入对应插件的凭据信封 |
-| `config/image_classifier.properties` | 图片分类工具的目标目录设置 |
+| `config/credentials/{pluginId}.properties` | 宿主加密维护、按 owner 注入的敏感凭据信封 |
+| `config/image_classifier.properties` | 图片分类工具目录配置 |
+| `config/web-publications.enrolled` | 页面编辑器正式发布登记文件（不可当作缓存清理） |
+| `state/setup_config.json` | 首次初始化账号、运行模式与登录状态（删除会导致需要重新初始化） |
+| `state/download-workbench/` | 下载工作台批量队列断点与布局反馈状态 |
+| `state/gui/`、`state/download_root_marker.txt` | GUI 引导标记、上次解析的下载根绝对路径 |
+| `state/{pluginId}/` | 插件通过 `RuntimePathProvider` 取得的 owner 状态目录 |
+| `data/pixiv_download.db` | 默认 SQLite 主库（运行期可能伴随 `-wal` / `-shm`，备份前须正常停止程序） |
+| `data/collection_icons/`、`data/novel/narration-voice/` | 收藏夹自定义图标、小说多角色朗读参考音 |
+| `data/gallery_thumbs/`、`data/tts/`、`data/backfill/` | 可重建的画廊缩略图缓存、Edge TTS 版本缓存、回填不可达记录 |
+| `data/install_identity.txt` | 首次运行生成的持久安装标识 UUID |
+| `data/delete-staging/`、`data/database-migrations/`、`data/environment-transfers/`、`data/web-publications/` | 删除/发布恢复暂存、数据库切换与环境迁移备份报告、已发布页面状态（勿当作缓存删除） |
+| `data/{pluginId}/` | 插件持久数据与 SQLite 私库 `plugin.db` |
 
-插件配置和凭据的所有权规则见[配置参考](/zh-cn/configuration)。不要手工交换、合并或重命名不同 owner 的文件。
-
-### 状态
-
-| 路径 | 用途 |
-| --- | --- |
-| `state/setup_config.json` | 首次安装、运行模式和登录状态 |
-| `state/download-workbench/batch_state.json` | 下载工作台的批量队列断点 |
-| `state/download-workbench/layout-feedback-state.json` | 下载工作台布局反馈去重状态 |
-| `state/gui/` | GUI 引导与代理步骤标记 |
-| `state/download_root_marker.txt` | 上次解析出的下载根绝对路径 |
-| `state/{pluginId}/` | 插件通过 `RuntimePathProvider` 取得的 owner 状态根；按需创建 |
-
-删除状态不一定只会“重新生成”：可能导致重新安装、重新登录、队列断点或插件状态丢失。清理前先确认具体文件的 owner。
-
-### 数据
+### 外置插件目录（`plugins/`）
 
 | 路径 | 用途 |
 | --- | --- |
-| `data/pixiv_download.db` | SQLite 主库；运行时还可能有 `-wal` / `-shm` 文件 |
-| `data/collection_icons/{id}.{ext}` | 收藏夹自定义图标 |
-| `data/gallery_thumbs/{artworkId}/p{n}.{ext}` | 可重建的画廊缩略图缓存 |
-| `data/tts/chromium-version.txt` | TTS 插件的 Edge TTS Chromium 版本缓存 |
-| `data/novel/narration-voice/{castId}/{characterId}.{ext}` | 小说插件的角色参考音 |
-| `data/backfill/unreachable.json` | 回填工具的不可达作品记录 |
-| `data/install_identity.txt` | 首次运行生成并永久复用的安装 UUID |
-| `data/delete-staging/{operationId}/` | 删除作品时用于失败回滚的原子暂存区 |
-| `data/{pluginId}/` | 插件通过 `RuntimePathProvider` 取得的 owner 数据根；按需创建 |
+| `plugins/*.jar`、`plugins/*.zip` | 已安装的原始插件包（离线复验与身份信任源） |
+| `plugins/provenance/*.pixiv-plugin-provenance` | 插件来源、摘要、签名与复验记录 |
+| `plugins/runtime/` | 各运行代际（generation）独占的私有冻结工作区（非共享缓存或安装源） |
+| `plugins/.preparing/`、`.staging/`、`.transaction-cleanup/`、`.pixivdownload-runtime.lock` | 安装事务、崩溃恢复与运行期目录锁 |
 
-主库保存作品事实、路径引用、历史和已安装功能写入的领域数据。插件私有表仍由对应插件负责 schema 与生命周期。不要只复制 `.db` 而遗漏活跃的 WAL 文件；备份前应正常关闭程序。
+可通过 JVM 属性 `pixivdownload.plugins-dir` 指定插件根目录。切勿在程序运行时手动覆盖、移动或删除 `plugins/` 下的文件；安装、更新与卸载统一通过[插件管理](/zh-cn/plugin-management)事务执行。
 
-### 外置插件
+## 下载作品目录布局
 
-| 路径 | 用途 |
+| 默认路径 | 内容 |
 | --- | --- |
-| `plugins/*.jar`、`plugins/*.zip` | 已安装的原始插件 artifact；管理身份和离线复验的信任源 |
-| `plugins/provenance/<artifact>.pixiv-plugin-provenance` | 来源、摘要、签名和最后验证结果 |
-| `plugins/runtime/` | 每个存活 generation 的随机私有冻结工作区，不是共享缓存或安装源 |
-| `plugins/.preparing/`、`plugins/.staging/`、`plugins/.transaction-cleanup/` | 安装事务与崩溃恢复的受管目录 |
-| `plugins/.pixivdownload-runtime.lock` | 运行期目录 lease |
+| `{root}/{artworkId}/` | 单作品、URL 批量、搜索等插画 / 漫画 / 动图（含合成的 `_p0.webp` 与 `_p0_thumb.jpg`） |
+| `{root}/{artist}/{artworkId}/` | 画师批量下载（`download.user-flat-folder=true` 时省略 `{artist}/` 层） |
+| `{root}/artwork-series-{seriesId}/cover.{ext}` | 漫画系列封面 |
+| `{root}/novel-{novelId}/` | 单篇小说的 TXT / HTML / EPUB 与内嵌图片 |
+| `{root}/novel-series-{seriesId}/` | 小说系列封面与合订本 |
+| `{root}/douyin/{owner}/...` | Douyin 插件默认下载目录（或该插件配置的自定义目录） |
+| `{root}/_archives/{token}.zip` | 批量导出与多人模式配额的短期压缩包 |
 
-可以用系统属性 `pixivdownload.plugins-dir` 覆盖插件根。运行时不会因为目录缺失而自动创建它；缺失会形成诊断，核心壳仍可进入恢复流程。
+第三方下载类型插件同样应将作品保存在 `{root}/{pluginId}/` 或用户在插件设置中指定的作品目录。工具页「旧数据与元数据导入」可从已登记作品目录导入历史 `<作品 ID>.meta.json` 快照，但数据库缺失时无法仅凭目录中的图片文件重建作品登记。
 
-不要在程序运行时覆盖、移动或删除 `plugins/` 下的文件。安装、升级、移除和回滚必须走插件管理生命周期，使 artifact 与 provenance 一起事务化处理。`plugins/runtime/` 可由已验证的安装 artifact 重建，但不是可以被其它进程复用的下载缓存。
+## 数据库路径前缀与目录搬迁
 
-## 下载作品布局
+数据库将文件路径保存为 `{N}/relative/path`：
 
-常见路径如下；插件可以在自身作品目录内定义更细的结构。
+- **`{0}` 符号根**：当 `download.root-folder` 为相对路径（如默认的 `pixiv-download`）时，下载根内的文件记录为 `{0}/...`，每次启动动态解析为「当前工作目录 + 相对下载根」。**整体搬迁整个程序目录（含 `pixiv-download/`）时无需手动修改数据库路径。**
+- **普通 `{N}` 前缀**：当下载根或收藏夹使用绝对路径时，记录引用 `path_prefixes` 表中的绝对路径前缀。
 
-| 路径 | 内容 |
-| --- | --- |
-| `{root}/{artworkId}/` | 单作品、URL 批量、搜索等 Pixiv 插画下载 |
-| `{root}/{artist}/{artworkId}/` | 画师批量下载；`download.user-flat-folder=true` 时省略画师层 |
-| `{root}/{artworkId}/{filename}_p0.webp` + `..._p0_thumb.jpg` | 动图合成后的 WebP 与首帧缩略图 |
-| `{root}/artwork-series-{seriesId}/cover.{ext}` | Pixiv 漫画系列封面 |
-| `{root}/novel-{novelId}/` | 单本小说的 TXT/HTML/EPUB 与相关作品文件 |
-| `{root}/novel-series-{seriesId}/` | 小说系列封面和可选合订文件 |
-| `{root}/douyin/{owner}/...` | Douyin 插件的默认下载位置 |
-| `{root}/_archives/{token}.zip` | 多人模式配额和画廊导出的短期归档 |
+只搬移作品下载根目录时：
 
-Pixiv 作品元数据和逐页媒体格式记录保存在 `data/pixiv_download.db`，新下载不生成 `.meta.json` / `.media.properties`。元数据来自已有响应，保留分页、原图地址、发布时间和翻译等资料，不额外请求 Pixiv。备份或迁移时须同时保留数据库和媒体文件；数据库丢失后，画廊不能仅凭目录文件恢复作品登记。现存附属文件不会自动批量删除；保存 Ugoira ZIP 时仍保留配套的 `.frames.properties` 帧时序文件。
+1. 正常停止程序。
+2. 在文件系统中将作品目录移动到新位置。
+3. 启动程序，在桌面 GUI「状态」页打开「迁移下载目录」，选择实际新位置并确认同步更新 `config.yaml` 与数据库路径前缀（迁移工具只更新路径引用，不会替你移动磁盘文件）。
+4. 重启后抽查历史作品、画廊预览与一次新下载。
 
-Douyin 的默认根由 `DownloadSettings.getRootFolder()` 加上 `douyin` 得到，然后按请求 owner 隔离；插件配置 `douyin.download.directory` 非空时改用该目录。它不会使用旧的 `data/douyin/downloads`。收藏夹也可以配置独立的作品下载根，该路径可能位于默认下载根之外。
-
-第三方下载类型同样应把作品写入 `download.root-folder` 下以插件 id 命名的目录，或写入用户在该插件配置中明确选择的作品目录。`state/{pluginId}` 和 `data/{pluginId}` 只放辅助状态与数据，不能替代作品目录。
-
-工具页的“旧数据与元数据导入”会识别 `download_history.json` / `statistics.json`，并从数据库已登记的图片和小说目录导入 `<作品 ID>.meta.json`。已有快照不覆盖，原文件保留；无登记、文件损坏或身份不符时不能据此恢复作品。画作数据回填会先执行快照导入，再优先使用本地内容补齐上传时间等缺失字段，仍有缺项才联网。勾选“始终通过网络访问”可跳过本地取值，已有字段仍保持不变；试运行只报告候选结果，不写入快照或字段。
-
-## 数据库路径编码
-
-数据库不会为每条记录重复保存长绝对路径，而是使用前缀引用：
-
-```text
-{N}/relative/path
-```
-
-`N>0` 指向 `path_prefixes` 中的一条绝对路径。修改这条前缀即可让所有引用同时指向新的根。
-
-### `{0}` 符号根
-
-当 `download.root-folder` 是相对路径时，下载根内的记录可写为 `{0}/...`。`{0}` 每次启动都解析为“当前工作目录 + 当前相对下载根”，因此将整个发行目录连同 `pixiv-download/` 一起搬迁后，历史记录仍能定位作品。
-
-当下载根是绝对路径时，记录使用普通 `{N}` 前缀。此时移动作品目录后，应使用 GUI 状态页的“迁移下载目录”更新记录。
-
-`state/download_root_marker.txt` 保存上次解析结果，用于发现“只改配置、没有搬文件”的情况。迁移工具只更新配置和数据库路径引用，**不会移动磁盘文件**。
-
-## 搬迁
-
-### 整体搬迁
-
-保持 `download.root-folder` 为相对路径，关闭程序后移动整个发行目录。启动脚本应从新目录运行，使工作目录、运行期数据和 `{0}` 一起迁移。
-
-### 只移动下载根
-
-1. 正常关闭程序。
-2. 在文件系统中移动作品目录。
-3. 从 GUI 状态页打开“迁移下载目录”，选择实际新位置并决定是否同步修改 `config.yaml`。
-4. 按提示重启并抽查历史作品、画廊和新下载。
-
-不要先手工改 `download.root-folder` 再期待程序移动文件；它不会这样做。
+SQLite 与 PostgreSQL 之间的数据库引擎切换属于独立流程，见[配置参考中的数据库切换](/zh-cn/configuration#主数据库与引擎切换)。
 
 ## 备份与恢复
 
-完整备份建议包含：
+停止程序后，完整备份应包含：
 
-- `config/`：包括插件业务配置和加密凭据；
-- `state/`：保留安装、登录、队列和插件状态；
-- `data/`：程序关闭后连同数据库一起复制；
-- `plugins/`：保留第三方/按需插件、签名和 provenance；
-- `download.root-folder` 以及收藏夹或插件配置的其它作品目录。
+1. `config/`、`state/`、`data/`、`plugins/`；
+2. `download.root-folder`、收藏夹自定义下载目录及第三方插件自定义作品目录；
+3. 若使用 PostgreSQL，还须备份服务器上的主库与全部插件私有 schema；
+4. 若使用了[导入外部下载](/zh-cn/pixiv-batch-downloader-import)，还须保留被只读引用的外部源目录；
+5. 若需跨机器/跨部署恢复 `config/credentials/` 中的加密凭据，须同时保留对应的凭据主密钥（否则需在目标环境重新录入凭据）。
 
-`log/` 通常只在排障时需要。`data/gallery_thumbs/` 和 `plugins/runtime/` 可以从其它持久数据重建，但为了简化恢复可以随完整目录一起备份。
-
-恢复时保持相同的相对布局或通过迁移工具更新绝对路径。加密凭据还依赖生成这些信封的凭据主密钥；跨不同构建/部署恢复前确认密钥兼容，否则应在目标环境重新录入凭据。
+恢复后请依次验证管理员登录、画廊与小说正文读取、计划任务状态及一次新下载。

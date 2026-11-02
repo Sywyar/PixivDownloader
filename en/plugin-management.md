@@ -1,14 +1,31 @@
 # Plugin Management
 
-The **Plugin Management** page (top nav → **Plugins**) lets an admin see all of the app's **plugins** in one place, check their runtime status, and run lifecycle actions on **external plugins**.
+Use `/plugin-market.html` to find and install plugins and `/plugin-manage.html` to check installed versions, runtime status, and restart requirements. Upload local packages from Plugin Management. An installed version may not be loaded until a full restart.
+
+## Install a Plugin
+
+1. Choose a trusted repository in the market, or select a local package in Plugin Management.
+2. Review its purpose, SDK requirement, source, dependencies, and execution mode.
+3. Confirm the installation plan. If execution trust needs confirmation, review the publisher fingerprint or exact package digest.
+4. Perform the restart required by the result, then check the loaded version and plugin page. On failure, inspect the existing operation before starting another install.
 
 ?> This page is admin-only. Non-admin users don't see the entry and are denied direct access.
 
-> To enable or disable **optional plugins**, see `plugins.<plugin id>.enabled` in [Configuration](/en/configuration). `download-workbench` is required and cannot be disabled. The official distribution set is `download-workbench`, `gui-compose`, `gui-swing`, `gallery-tools`, `posthog`, `gallery`, `novel`, `notification`, `multi-mode-decision-survey`, `push`, `mail`, `tts`, and `ai`. Douyin is a regular third-party plugin installed from a custom repository or local package.
+> To enable or disable **optional plugins**, see `plugins.<plugin id>.enabled` in [Configuration](/en/configuration). `download-workbench` is required and cannot be disabled. The standard distribution includes `download-workbench`, `database-sqlite`, `gui-compose`, `gui-swing`, `gallery-tools`, `posthog`, `gallery`, `novel`, `notification`, `multi-mode-decision-survey`, `push`, `mail`, `tts`, and `ai`. Douyin is a regular third-party plugin installed from a custom repository or local package.
 
 ---
 
 Add or edit custom repositories in GUI Settings → Plugin market settings. The dialog offers “Use repository descriptor” and “Enter manually”. The descriptor option previews the publisher, network hosts and full public-key fingerprints, then adds the confirmed repository to the settings draft. Manual entry provides repository, network policy and trusted-key fields. Save settings and restart to apply the changes. The web marketplace browses and installs plugins.
+
+## Confirm changes and find installation results
+
+The market detail dialog puts the plugin’s purpose, installation status and install action at the top. Installed, activated and pending-restart states also provide a link to Plugin Management. The full description and version requirements follow; expand source declarations, verification details or the changelog when needed. Installation shows separate states for checking the plan, waiting for confirmation and installing. Waiting for confirmation does not mean installation has started; cancelling the plan confirmation leaves that plan unexecuted. Cancelling a later execution-trust confirmation retains dependencies already installed.
+
+Before a marketplace install, review the target package, dependency sources and versions, consumers of shared dependencies, conflicts, and restart impact together. Execution checks these facts again. If they changed, preview and confirm again. When the catalog lacks the new package's lifecycle policy, the preview can only warn that a restart may be needed; follow the actual installation result.
+
+Each dependency uses its own transaction. If the parent fails, successfully installed dependencies remain. The result lists their versions and transaction IDs. Check Plugin Management before deciding what to do next.
+
+Operation records cover download preparation through installation. Closing the page does not cancel a request already running on the backend. Reopen the market to query it; repeating the same operation ID returns its existing state. Records live only in the current process: at most 64 records, with inactive records retained for up to 24 hours. After restart, expiry, or eviction, the outcome is unknown. Check installed versions, diagnostics, and transaction state before explicitly starting another operation. A failed query never automatically repeats installation.
 
 ## Update notices and version history
 
@@ -16,7 +33,7 @@ The number badge in download-page navigation indicates compatible updates for in
 
 Stable plugins receive stable recommendations by default. Manually installing a prerelease opts that plugin into its channel, including upgrades to newer stable versions. Running a Beta application does not switch plugin channels. Other versions remain available for manual selection in the details view. A maintainer's same-version `-f` repair does not trigger an ordinary update badge; follow the repair instructions to reinstall.
 
-The official main manifest retains the latest version, the latest stable version, and the latest compatible stable version for each of SDK `1.0.0` and `1.1.0`. This legacy-client support set is fixed as of 2026-10-07 and does not grow automatically with new SDK releases.
+The official main manifest retains the latest version, latest stable version, and latest compatible stable version for a fixed legacy-client SDK set. Market curation configuration maintains that set, currently SDK `1.0.0` and `1.1.0`; new SDK releases do not automatically expand it.
 
 Other versions load on demand when viewing history or finding compatible candidates in the selected channel. The market distinguishes a failed history lookup from having no candidate. Selecting an older version retains the same source, signature and installation checks. History filenames contain their content digest; old files remain available and are not automatically deleted. Publication stops for maintainer action if a history manifest exceeds 900 versions or 1 MiB.
 
@@ -69,10 +86,10 @@ Invalid values fail plugin-runtime initialization instead of silently falling ba
 ## Where plugins come from
 
 - **Built-in**: compiled and shipped with the app (core, plugin market, etc.). They are usually read-only here; whether they can be disabled through `config.yaml` depends on whether the plugin is optional.
-- **Required external**: `download-workbench` provides the download page, download APIs, queue, userscript entry, Pixiv artwork proxy, and scheduled-task host. The default downloader package and default Windows installer bundle it. If it is missing, corrupted, incompatible, or fails verification, the app enters the recovery path.
-- **Official optional external plugins**: `gui-compose`, `gui-swing`, `gallery-tools`, `posthog`, `gallery`, `novel`, `notification`, `multi-mode-decision-survey`, `push`, `mail`, `tts`, and `ai` remain separate packages under the working directory's `plugins/` folder. Missing or disabling one withdraws only its own contributions and does not by itself trigger recovery.
+- **Required external**: `download-workbench` provides the download page, download APIs, queue, userscript entry, Pixiv artwork proxy, and scheduled-task host. The standard Java bundle and Windows installer include it. If it is missing, corrupted, incompatible, or fails verification, the app enters the recovery path.
+- **Official optional external plugins**: `database-sqlite`, `gui-compose`, `gui-swing`, `gallery-tools`, `posthog`, `gallery`, `novel`, `notification`, `multi-mode-decision-survey`, `push`, `mail`, `tts`, and `ai` remain separate packages under the working directory's `plugins/` folder. Missing or disabling one withdraws its contributions. An unavailable selected main-database provider also blocks main application readiness.
 - **Required but not installed**: a plugin declared required but currently missing shows up as a "Not installed" placeholder so you can add it.
-- **Official plugins installed on demand**: [PixivBatchDownloader import support](/en/pixiv-batch-downloader-import) is available from the plugin market. Standard Windows and Java distributions do not preinstall it; the full offline bundle includes it.
+- **Official plugins installed on demand**: [PixivBatchDownloader import support](/en/pixiv-batch-downloader-import) is available from the plugin market. Standard Windows and Java distributions do not preinstall it; the full offline bundle includes it together with `database-postgresql`.
 
 ---
 
@@ -94,12 +111,16 @@ For **managed external plugins**, the action menu beside the plugin name lists t
 
 | Action | Meaning |
 | --- | --- |
-| Load | Re-attach a previously unloaded external plugin |
-| Start | Start / rebuild its services |
-| Quiesce | Stop taking new requests / task dispatch and drain in-flight work |
-| Stop | Tear down its services |
-| Unload | Stop, then remove it from the registry |
-| Reload | Stop, then start again |
+| `load` | Create the classloader and load the installed artifact without publishing runtime capabilities |
+| `start` | Start the plugin, create its child context, and publish contributions |
+| `quiesce` | Stop admitting new work and drain calls and tasks for the current publication |
+| `stop` | Withdraw contributions and stop the instance; retain the installed package |
+| `unload` | After stopping, release PF4J state and the classloader; retain the package |
+| `remove` | Safely retire the plugin and remove its installed artifact and provenance |
+| `restart` | Stop/start the current instance, preserving generation and classloader |
+| `reload` | Quiesce, stop, unload, then load/start a new generation and classloader |
+
+There is no `purge` action. Removal does not implicitly erase owner configuration or data. Asynchronous plugins must report a real positive-generation drain and release their tasks and clients; a completed sentinel cannot stand in for running background work.
 
 The switch in the card header enables or disables the plugin. For `hot-reload` plugins it starts or stops the instance; other policies save the setting and prompt for the required restart.
 
@@ -144,7 +165,7 @@ If the latest version is incompatible with the current SDK, the market automatic
 
 The marketplace itself is provided by the built-in `plugin-market` plugin. With `plugins.plugin-market.enabled=false`, the market page, APIs, static resources, i18n, navigation entry, and the "Market" entry on the Plugin Management page are withdrawn and direct access returns 404.
 
-The network master switch `plugin-catalog.enabled` and the built-in official repository default to enabled. Startup itself does not access repositories; network access starts only when an administrator opens or refreshes the Plugin Market or installs a plugin. The master switch or official repository can be disabled separately. Custom repositories, proxy policies, timeouts, and size limits can be maintained in `config.yaml` or in the desktop GUI "Config -> Plugins" page. See [Configuration](/en/configuration).
+The network master switch `plugin-catalog.enabled` and the built-in official repository default to enabled. Startup itself does not access repositories; network access can start with admin-page plugin update checks, market browsing or refresh, and installation. The master switch or official repository can be disabled separately. Custom repositories, proxy policies, timeouts, and size limits can be maintained in `config.yaml` or in the desktop GUI "Config -> Plugins" page. See [Configuration](/en/configuration).
 
 ### Install security boundary
 
@@ -161,7 +182,7 @@ The marketplace does not provide arbitrary URL install, auto update, delete, or 
 
 ## Recovery path
 
-A required plugin such as `download-workbench` being missing, corrupted, incompatible, failing verification, or failing to start puts the app into recovery mode. Optional plugin failures isolate their own capabilities. The Plugin Marketplace banner identifies unavailable required plugins and their diagnostics, and shows default-installed plugins for repair. Management and repair entries remain accessible.
+A required plugin such as `download-workbench` being missing, corrupted, incompatible, failing verification, or failing to start puts the app into recovery mode. Optional plugin failures normally isolate their capabilities; an unavailable selected main-database provider also blocks main application readiness. The Plugin Marketplace banner identifies unavailable required plugins and their diagnostics, and shows default-installed plugins for repair. Management and repair entries remain accessible.
 
 Missing or disabling an official optional plugin such as `gallery-tools`, `gallery`, `novel`, `notification`, `tts`, `ai`, `push`, `mail`, or a desktop GUI provider does not trigger recovery by itself:
 
@@ -181,6 +202,18 @@ If you use the desktop app, the selected GUI provider owns its **Plugins** page 
 - The GUI reads status from the backend (same as this page); it never scans the plugin folder itself and does not relax any permission checks.
 - `gui-compose` is the default desktop provider and `gui-swing` is the automatic fallback. Both are included in the official distribution and use `process-restart`; install, update, enable/disable, remove, or provider selection changes require a full application restart.
 
+## Lifecycle Policies
+
+`pixiv.lifecycle-policy` accepts these case-sensitive tokens; omission means `hot-reload`.
+
+| Policy | Install / update | Enable / disable |
+| --- | --- | --- |
+| `hot-reload` | Transactional replacement and activation in the current process | Start / stop immediately |
+| `backend-restart` | Transactional replacement and activation in the current process | Save state and request backend restart |
+| `process-restart` | Store the package safely; activate after full process restart | Save state and request full application restart |
+
+Backend restart only rebuilds the Spring context and cannot activate a `process-restart` package. If desktop lifecycle management is unavailable, the web manager cannot restart the operating-system process for you.
+
 ## Filesystem boundary
 
 The original artifact under `plugins/` and its `plugins/provenance/` sidecar define installation identity. `plugins/runtime/` is only a private frozen workspace for a generation. A portable installation may make the `plugins/` root itself a symbolic link or Windows junction; the runtime resolves and pins the real root first, while linked artifact candidates inside it are still rejected individually.
@@ -192,16 +225,6 @@ The host tightens POSIX permissions or Windows ACLs on managed `plugins/runtime/
 ## See also
 
 - [Configuration](/en/configuration): `plugins.<plugin id>.enabled` plugin enablement switches
-
-## Confirm changes and find installation results
-
-The market detail dialog puts the plugin’s purpose, installation status and install action at the top. Installed, activated and pending-restart states also provide a link to Plugin Management. The full description and version requirements follow; expand source declarations, verification details or the changelog when needed. Installation shows separate states for checking the plan, waiting for confirmation and installing. Waiting for confirmation does not mean installation has started; cancelling the plan confirmation leaves that plan unexecuted. Cancelling a later execution-trust confirmation retains dependencies already installed.
-
-Before a marketplace install, review the target package, dependency sources and versions, consumers of shared dependencies, conflicts, and restart impact together. Execution checks these facts again. If they changed, preview and confirm again. When the catalog lacks the new package's lifecycle policy, the preview can only warn that a restart may be needed; follow the actual installation result.
-
-Each dependency uses its own transaction. If the parent fails, successfully installed dependencies remain. The result lists their versions and transaction IDs. Check Plugin Management before deciding what to do next.
-
-Operation records cover download preparation through installation. Closing the page does not cancel a request already running on the backend. Reopen the market to query it; repeating the same operation ID returns its existing state. Records live only in the current process: at most 64 records, with inactive records retained for up to 24 hours. After restart, expiry, or eviction, the outcome is unknown. Check installed versions, diagnostics, and transaction state before explicitly starting another operation. A failed query never automatically repeats installation.
 
 ## Repair a failed startup
 

@@ -1,6 +1,6 @@
 # URL Batch Download
 
-The "Batch Import Single Artworks" tab is the most flexible download method: paste a list of artwork URLs or IDs for batch download, supporting illustrations and novels mixed together.
+Paste existing work links into **Batch Import Single Artworks** on the download page. Illustrations and novels can share one list; novels require the enabled `novel` plugin. Works restricted to signed-in Pixiv users also require a valid Pixiv cookie.
 
 ---
 
@@ -10,13 +10,14 @@ The "Batch Import Single Artworks" tab is the most flexible download method: pas
 2. Switch to the "**🎨 Batch Import Single Artworks**" tab
 3. Paste the URL list in the text box
 4. Click "**Fetch Info**"
-5. After preview confirmation, click "**Start Download**"
+5. Check the detected work types and count, add the works to the queue as required by the current layout, then click **Start Download**
+6. Review the queue after completion: completed, already present, filtered out and failed are different results
 
 ---
 
 ## Input Format
 
-One entry per line, supporting multiple formats mixed:
+Enter one item per line; formats can be mixed. The IDs below illustrate syntax. Replace them with real works you want to download:
 
 ```
 # Full URL (most common)
@@ -71,7 +72,7 @@ Filters are applied **per-work at download time**. Non-matching works show the s
 
 Expand the "**Download Settings**" card to adjust:
 
-- **Filename template**: supports variables like `{artwork_id}`, `{author_name}`, `{page}`, etc. See [Configuration Reference](/en/configuration)
+- **Filename template**: supports variables like `{artwork_id}`, `{author_name}`, `{page}`, etc. See [filename template variables](/en/usage-guide?id=filename-template-variables)
 - **Download directory (collection)**: download to a specific local collection
 - **Skip downloaded works**: when processing the queue, checks download history and skips already-downloaded works directly. When checked, further expands to:
   - **Actual folder detection**: besides checking history, also checks if files actually exist on disk; missing files trigger re-download
@@ -88,6 +89,13 @@ After exporting a tab list from the OneTab or N-Tab browser extension, you can p
 Lines that are not Pixiv artwork links (e.g., other websites) are automatically skipped.
 
 ---
+
+## When input produces unexpected results
+
+- A numeric ID is treated as an illustration: use a full novel URL or put `novel:` on its own line before novel IDs.
+- Fewer works appear than input lines: check for section headers, blank lines, invalid links or links to other websites. Review the preview before downloading.
+- A queue item is skipped: read the reason before changing filters or download-history detection. A deletion mark is not automatically treated as a new work.
+- Access or download fails: check that you can still view the work on Pixiv, then check the cookie and backend network. See [FAQ](/en/faq).
 
 ## Related Pages
 

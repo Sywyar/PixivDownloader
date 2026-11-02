@@ -1,5 +1,16 @@
 ﻿# Installation Guide
 
+Choose a distribution from [Releases](https://github.com/Sywyar/PixivDownloader/releases). In filenames below, `*` or `x.x.x` stands for the selected version. Replace example JAR names with the actual filename and run commands from the fully extracted directory.
+
+| Environment | Package | Prepare separately |
+| --- | --- | --- |
+| Windows x64 desktop | `*-win-x64-setup.exe` | FFmpeg when needed |
+| Run Java on Windows, Linux or macOS | `*-java.zip` | Java 17+ and FFmpeg when needed |
+| Include optional database and import plugins | `*-full-offline.zip` | Java 17+ and FFmpeg when needed |
+| Docker service | Build with the repository Dockerfile and a full Java distribution | Docker Engine, Compose and writable data directories |
+
+The standard package contains the default official plugins. Full-offline adds `database-postgresql` and `pixiv-batch-downloader-import`. Neither Java package includes a JRE, FFmpeg or Douyin. Full-offline does not eliminate network access to Pixiv, online AI or TTS services.
+
 ## Requirements
 
 | Dependency | Minimum Version | Notes |
@@ -7,7 +18,7 @@
 | **Java** | 17+ | Required for the Java standard / full-offline package; Windows installer bundles JRE |
 | **OS** | Windows / macOS / Linux | Cross-platform |
 | **Tampermonkey** | Latest | Required for userscripts |
-| **ffmpeg** | Any | Required for Ugoira-to-WebP conversion (optional) |
+| **FFmpeg** | Encoders for your selected formats | Used for media conversion; MP4 requires an H.264 encoder |
 
 ---
 
@@ -31,7 +42,7 @@ java -version
 Download from [Releases](https://github.com/Sywyar/PixivDownloader/releases):
 
 - `PixivDownload-*-java.zip` — Java standard package, with the same plugin set as the Windows installer (no Douyin)
-- `PixivDownload-*-full-offline.zip` — full-offline package, with the same plugin set as the Java standard package (no Douyin)
+- `PixivDownload-*-full-offline.zip` — full-offline package, adding the PostgreSQL database and PixivBatchDownloader import plugins (no Douyin)
 
 You must **fully extract** the archive — do not take out only the JAR: both the launcher scripts and the `plugins/` directory are required, because official external plugins are loaded from the working directory's `plugins/` folder at startup.
 
@@ -59,7 +70,7 @@ nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.lo
 ```
 
 > [!IMPORTANT]
-> **Headless / `--no-gui` mode requires setup to be completed first.** There is no GUI wizard on a server, and `setup.html` only accepts local connections. Starting with v1.10.0, attempting `--no-gui` before first-time setup aborts startup and prints a CLI hint. Run setup first:
+> **Headless / `--no-gui` mode requires setup to be completed first.** There is no GUI wizard on a server, and `setup.html` only accepts local connections. Attempting `--no-gui` before first-time setup aborts startup and prints a CLI hint. Run setup first:
 >
 > ```bash
 > # Interactive: prompts for username, password, run mode (solo|multi), and HTTP proxy (enable, host, port)
@@ -72,7 +83,7 @@ nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.lo
 >     --proxy-enabled=true --proxy-host=127.0.0.1 --proxy-port=7890
 > ```
 >
-> The proxy is used for backend access whose host or task route selects it, such as Pixiv downloads, online updates, FFmpeg downloads, and some online TTS. Browser requests, SMTP, and explicitly direct routes may bypass it; see [Network Access and Third-Party Services](/en/network-access) for the complete boundary. When the `--proxy-*` flags are omitted it prompts interactively, and you can pass `--proxy-enabled=false` if no proxy is needed. Use `--change-password` to change the password later, or `--reset-password` if it was forgotten. See [Usage Guide → Launch Parameters](en-Usage-Guide).
+> The proxy is used for backend access whose host or task route selects it, such as Pixiv downloads, online updates, FFmpeg downloads, and some online TTS. Browser requests, SMTP, and explicitly direct routes may bypass it; see [Network Access and Third-Party Services](/en/network-access) for the complete boundary. When the `--proxy-*` flags are omitted it prompts interactively, and you can pass `--proxy-enabled=false` if no proxy is needed. Use `--change-password` to change the password later, or `--reset-password` if it was forgotten. See [first-time setup](/en/first-setup).
 
 ---
 
@@ -82,7 +93,7 @@ nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.lo
 
 Download `PixivDownload-x.x.x-win-x64-setup.exe` from [Releases](https://github.com/Sywyar/PixivDownloader/releases).
 
-?> The Windows installer includes the official plugin distribution set, including required `download-workbench`, default `gui-compose`, and fallback `gui-swing`. The Java standard and full-offline packages use the same set. Douyin is a regular third-party plugin and must be installed from a custom repository or local package.
+?> The Windows installer includes the official plugin distribution set, including required `download-workbench`, default `gui-compose`, and fallback `gui-swing`. The Java standard package uses the same default set; full-offline adds two optional plugins. Douyin is a regular third-party plugin and must be installed from a custom repository or local package.
 
 The installer requests UAC when it writes the application directory. The installed application and portable launcher also request administrator privileges by default. When the host is actually elevated, `host-process-full-trust` plugins inherit those privileges and the Plugin Management page keeps a warning visible.
 
@@ -117,7 +128,7 @@ The repository's `Dockerfile` builds an image from a signed Java distribution an
 
 ### 1. Requirements
 
-- Docker 20.10+ with Docker Compose (the `docker compose` command).
+- Docker Engine with Docker Compose (the `docker compose` command).
 
 The container runs as UID/GID 10001. For a new Linux installation, create writable mount directories first:
 
@@ -211,22 +222,15 @@ The `STATUS` column of `docker compose ps` shows `healthy`/`unhealthy`.
 
 1. Start the PixivDownloader backend
 2. Visit `http://localhost:6999/pixiv-batch.html`
-3. Expand the "🧩 Userscripts" card at the top
+3. Find and expand the Userscripts entry on the download page
 4. Click the "⬇ Install" button for the desired script
 
 > [!WARNING]
-> When installed via the web UI, the script's update check points to the current backend. If the backend address changes, you'll need to reinstall or manually edit the `@connect` declaration.
+> When installed via the web UI, the script's update check points to the current backend. If the address changes, reinstall from the new backend and check the target address in the script settings. `@connect` only grants host access.
 
-### Method 2: Download from Release
+### Method 2: Install an individual script from source
 
-Download script files from [Releases](https://github.com/Sywyar/PixivDownloader/releases) and drag them into Tampermonkey's dashboard.
-
-Scripts available in Release:
-
-| Script File | Description |
-|-------------|-------------|
-| `Pixiv All-in-One.user.js` | Bundle (recommended): Page Scrape, User Batch, URL Batch, Single Artwork (Java backend), Toolbox |
-| `Pixiv Single Artwork Downloader (Local Download).user.js` | Browser-side local download, no Java backend needed |
+Individual scripts are available as committed `.user.js` files in the repository. See [Userscripts](/en/userscripts) for installation links and updates. The current release workflow does not upload userscript attachments; install the combined script from the running backend.
 
 ### Complete Script List
 
@@ -236,7 +240,7 @@ Scripts available in Release:
 | User Batch Downloader | Batch download from user profile | Web UI / GitHub |
 | URL Batch Importer | Batch import artwork URLs | Web UI / GitHub |
 | Single Artwork Downloader (Java Backend) | Single artwork via backend | Web UI / GitHub |
-| Single Artwork Downloader (Local Download) | Browser local download, no backend needed | Release / Web UI / GitHub |
+| Single Artwork Downloader (Local Download) | Browser local download, no backend needed | Web UI / GitHub |
 | Enhancement Toolbox | Downloaded artwork markers, cookie import, etc. | Web UI / GitHub |
 
 ### Extra Configuration for non-localhost Deployments
@@ -244,13 +248,9 @@ Scripts available in Release:
 <details>
 <summary><strong>Click to expand</strong></summary>
 
-Tampermonkey's `@connect` allowlist only permits `localhost` by default. If the backend is deployed on another machine:
+For a backend on another machine, first set its actual protocol, host, and port in the script settings. Install from that backend's download page to configure `@connect` permission. For a manual installation, also check the allowed hosts in the header. Changing `@connect` alone does not change the request target.
 
-1. Open Tampermonkey Dashboard → find the script → click Edit
-2. Replace `// @connect      YOUR_SERVER_HOST` in the script header with the actual address
-3. Save the script (Ctrl+S)
-
-When installed via the web UI (`pixiv-batch.html`), `@connect` will be automatically set to the current backend address.
+Refresh Pixiv, submit one work, and check that the intended backend receives it. See [Userscripts](userscripts.md) for troubleshooting.
 
 </details>
 
@@ -277,40 +277,17 @@ Automatic installation uses the project-maintained `ffmpeg-stable` Release, buil
 
 ## Directory Structure
 
-After the first launch, the following files will be generated in the working directory:
+The distribution's `plugins/` directory stores installed plugin packages. Runtime configuration goes in `config/`, state in `state/`, databases, user resources and caches in `data/`, and logs in `log/`. Works default to `pixiv-download/`; collections and plugins can select other locations.
 
-```
-Working Directory/
-├── config/                      # Runtime configuration directory
-│   ├── config.yaml              # Main configuration file
-│   └── image_classifier.properties  # Image classifier settings
-├── state/                       # Runtime state directory
-│   ├── setup_config.json        # Account/setup configuration
-│   ├── batch_state.json         # Batch download state
-│   └── gui/                     # GUI onboarding and proxy step state markers
-├── data/                        # Application data directory
-│   ├── pixiv_download.db        # SQLite database (+ -wal / -shm companions)
-│   ├── collection_icons/        # Custom collection icons
-│   ├── gallery_thumbs/          # Gallery binary thumbnail cache
-│   ├── tts/                     # TTS version cache
-│   ├── backfill/                # Data backfill tool state
-│   └── narration-voice/         # Multi-character narration reference audio
-├── plugins/                     # External plugin artifacts
-│   ├── provenance/              # Provenance sidecars for installed plugins
-│   └── runtime/                 # Runtime materialization cache for JAR-with-lib / ZIP packages
-├── pixiv-download/              # Downloaded files (default root)
-│   ├── artwork-{id}/            # Artwork directories
-│   ├── novel-{id}/              # Novel directories
-│   ├── novel-series-{id}/       # Novel series
-│   └── ...
-└── log/                         # Runtime logs
-```
+Directories are created as needed. See [storage](/en/storage) for exact paths, database companion files, credentials and backup boundaries. Before upgrading, stop the app normally and back up persistent data. Keeping work files alone does not preserve gallery records.
 
 ---
 
 ## Verifying Installation
 
-After startup, visit in your browser:
+Complete [setup](/en/first-setup), sign in to the download page and add one work. Check that the download succeeds, its file exists and the gallery opens it. A health response of `UP` alone does not validate plugins, cookies or the download path.
+
+Useful addresses:
 
 - `http://localhost:6999/` — Redirects to download page
 - `http://localhost:6999/setup.html` — First-time setup wizard (redirects if completed)
@@ -325,11 +302,11 @@ After startup, visit in your browser:
 
 `download-workbench` is the required external plugin. It owns the download page, download APIs, queue, userscript entry, Pixiv artwork proxy, and scheduled-task host. If it is missing, corrupted, incompatible, or fails offline verification, the app enters the recovery path and only exposes login, plugin management, and repair/install entry points.
 
-The official plugin distribution set is `download-workbench`, `gui-compose`, `gui-swing`, `gallery-tools`, `posthog`, `gallery`, `novel`, `notification`, `multi-mode-decision-survey`, `push`, `mail`, `tts`, and `ai`. `gui-compose` is the default desktop UI and `gui-swing` is the automatic fallback. Douyin is no longer distributed by the official repository, signature, or release packages. Missing or disabling an optional plugin only removes its own pages, APIs, navigation, resources, i18n, GUI settings, or capability contributions; it does not by itself trigger recovery.
+The official plugin distribution set is `download-workbench`, `database-sqlite`, `gui-compose`, `gui-swing`, `gallery-tools`, `posthog`, `gallery`, `novel`, `notification`, `multi-mode-decision-survey`, `push`, `mail`, `tts`, and `ai`. `gui-compose` is the default desktop UI and `gui-swing` is the automatic fallback. Douyin is no longer distributed by the official repository, signature, or release packages. Missing or disabling an optional plugin only removes its own pages, APIs, navigation, resources, i18n, GUI settings, or capability contributions; an unused optional capability does not trigger recovery. An unavailable selected database provider still does.
 
 - Windows installer: bundles the JRE and official plugin distribution set; FFmpeg is downloaded only when selected during setup, and Douyin is not included.
 - Java standard package (`*-java.zip`): the same plugin set; no JRE, FFmpeg, or Douyin.
-- Full-offline package (`*-full-offline.zip`): the same plugin set; no JRE, FFmpeg, or Douyin.
+- Full-offline package (`*-full-offline.zip`): the default set plus `database-postgresql` and `pixiv-batch-downloader-import`; no JRE, FFmpeg or Douyin.
 - Missing `gallery-tools` does not affect image Hash writes or historical Hash data.
 - Missing `gallery` does not affect the download page, download APIs, userscripts, Pixiv artwork proxy, scheduled-task host, work metadata, download facts, Hash data, or local resource index.
 - Missing `novel` withdraws novel downloading, its gallery, body storage, translation state, series compilation, and scheduled novel runner together; the core does not retain a parallel implementation.

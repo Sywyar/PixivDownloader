@@ -13,7 +13,7 @@ PixivDownloader 把下載作品、宿主運行期文件和外置插件安裝包�
 | 日誌 | `log/` | GUI 與後端日誌 |
 | 下載作品 | `{rootFolder}/` | `download.root-folder` 指定的作品產物 |
 
-`download.root-folder` 默認是相對路徑 `pixiv-download`。它只存作品本身、作品元數據 sidecar 和臨時導出歸檔；配置、數據庫、插件包、狀態和緩存不應寫入這裏。
+`download.root-folder` 預設是相對路徑 `pixiv-download`，保存作品檔案；作品登記與逐頁媒體紀錄保存在選定資料庫。不要把設定、資料庫、外掛套件、狀態或快取放進作品目錄。
 
 ## 工作目錄佈局
 
@@ -47,12 +47,13 @@ PixivDownloader 把下載作品、宿主運行期文件和外置插件安裝包�
 | --- | --- |
 | `data/pixiv_download.db` | SQLite 主庫；運行時還可能有 `-wal` / `-shm` 文件 |
 | `data/collection_icons/{id}.{ext}` | 收藏夾自定義圖標 |
-| `data/gallery_thumbs/{artworkId}/p{n}.{ext}` | 可重建的畫廊縮略圖緩存 |
+| `data/gallery_thumbs/{artworkId}/p{n}-{edge}.{ext}` | 可重建的畫廊縮略圖緩存 |
 | `data/tts/chromium-version.txt` | TTS 插件的 Edge TTS Chromium 版本緩存 |
 | `data/novel/narration-voice/{castId}/{characterId}.{ext}` | 小說插件的角色參考音 |
 | `data/backfill/unreachable.json` | 回填工具的不可達作品記錄 |
 | `data/install_identity.txt` | 首次運行生成並永久複用的安裝 UUID |
-| `data/delete-staging/{operationId}/` | 刪除作品時用於失敗回滾的原子暫存區 |
+| `data/delete-staging/` | 檔案刪除與發佈的持久還原備份，不能當作快取清理 |
+| `data/database-migrations/` | 資料庫切換報告、設定快照與來源／目標備份 |
 | `data/{pluginId}/` | 插件通過 `RuntimePathProvider` 取得的 owner 數據根；按需創建 |
 
 主庫保存作品事實、路徑引用、歷史和已安裝功能寫入的領域數據。插件私有表仍由對應插件負責 schema 與生命週期。不要只複製 `.db` 而遺漏活躍的 WAL 文件；備份前應正常關閉程序。
@@ -86,7 +87,7 @@ PixivDownloader 把下載作品、宿主運行期文件和外置插件安裝包�
 | `{root}/douyin/{owner}/...` | Douyin 插件的默認下載位置 |
 | `{root}/_archives/{token}.zip` | 多人模式配額和畫廊導出的短期歸檔 |
 
-Pixiv 作品中繼資料與逐頁媒體格式記錄保存在 `data/pixiv_download.db`，新下載不產生 `.meta.json` / `.media.properties`。中繼資料來自既有回應，保留分頁、原圖網址、發布時間及翻譯等資料，不額外請求 Pixiv。備份或遷移時須同時保留資料庫和媒體檔案；資料庫遺失後，畫廊無法僅憑目錄檔案恢復作品登記。既有附屬檔案不會自動批量刪除；儲存 Ugoira ZIP 時仍保留配套的 `.frames.properties` 影格時序檔案。
+Pixiv 作品中繼資料與逐頁媒體格式紀錄保存在選定資料庫（預設 SQLite 的 `data/pixiv_download.db`），新下載不產生 `.meta.json` / `.media.properties`。中繼資料來自既有回應，保留分頁、原圖網址、發布時間及翻譯等資料，不額外請求 Pixiv。備份或遷移時須同時保留資料庫和媒體檔案；資料庫遺失後，畫廊無法僅憑目錄檔案恢復作品登記。既有附屬檔案不會自動批量刪除；儲存 Ugoira ZIP 時仍保留配套的 `.frames.properties` 影格時序檔案。
 
 Douyin 的默認根由 `DownloadSettings.getRootFolder()` 加上 `douyin` 得到，然後按請求 owner 隔離；插件配置 `douyin.download.directory` 非空時改用該目錄。它不會使用舊的 `data/douyin/downloads`。收藏夾也可以配置獨立的作品下載根，該路徑可能位於默認下載根之外。
 
@@ -112,6 +113,8 @@ Douyin 的默認根由 `DownloadSettings.getRootFolder()` 加上 `douyin` 得到
 
 ## 搬遷
 
+以下說明作品目錄搬移。SQLite 與 PostgreSQL 之間切換引擎需要另行檢查和遷移，見[設定參考](/zh-hant/configuration)。移動目錄或直接更改連線設定不會複製資料庫內容。
+
 ### 整體搬遷
 
 保持 `download.root-folder` 爲相對路徑，關閉程序後移動整個發行目錄。啓動腳本應從新目錄運行，使工作目錄、運行期數據和 `{0}` 一起遷移。
@@ -135,6 +138,8 @@ Douyin 的默認根由 `DownloadSettings.getRootFolder()` 加上 `douyin` 得到
 - `plugins/`：保留第三方/按需插件、簽名和 provenance；
 - `download.root-folder` 以及收藏夾或插件配置的其它作品目錄。
 
+使用 PostgreSQL 時，還需備份伺服器上的主庫與外掛私有 schema；複製本地 `data/` 不能代替伺服器資料庫備份。`data/database-migrations/` 與 `data/delete-staging/` 的還原資料應保留至對應交易狀態查明。
+
 `log/` 通常只在排障時需要。`data/gallery_thumbs/` 和 `plugins/runtime/` 可以從其它持久數據重建，但爲了簡化恢復可以隨完整目錄一起備份。
 
-恢復時保持相同的相對佈局或通過遷移工具更新絕對路徑。加密憑據還依賴生成這些信封的憑據主密鑰；跨不同構建/部署恢復前確認密鑰兼容，否則應在目標環境重新錄入憑據。
+還原後抽查管理員登入、畫廊與小說紀錄、檔案開啟、排程設定和一次新下載。外部匯入作品參照原始檔案，備份也須保留來源目錄。恢復時保持相同的相對佈局或通過遷移工具更新絕對路徑。加密憑據還依賴生成這些信封的憑據主密鑰；跨不同構建/部署恢復前確認密鑰兼容，否則應在目標環境重新錄入憑據。

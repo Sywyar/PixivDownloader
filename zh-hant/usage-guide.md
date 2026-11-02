@@ -19,20 +19,20 @@
 
 ## 啓動參數
 
-```bash
-# JAR 啓動
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar
+在發行包完整解壓後的目錄執行命令。以下 `APP.jar` 代表包內實際的主程序 JAR 文件名；請替換後執行。單行命令可用於 PowerShell 或 Bash。
 
-# Windows EXE 啓動
-PixivDownload.exe
-
-# 常用參數
---no-gui    # 禁用桌面 GUI（適合服務器/Docker）
---intro     # 啓動時打開產品介紹頁
---help, -h  # 打印幫助並退出
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --help
+java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui
 ```
 
-?> 默認啓動預置的 `gui-swing` provider。若要使用 Compose，請從受信插件倉庫安裝 `gui-compose`，在“配置 → 界面”選擇後完整重啓軟件。只有服務器場景才建議 `--no-gui`。
+| 參數 | 用途 |
+|------|------|
+| `--no-gui` | 不啓動桌面 GUI，適用於服務器或 Docker |
+| `--intro` | 啓動時打開產品介紹頁 |
+| `--help`、`-h` | 顯示幫助並退出 |
+
+Windows 安裝版可運行 `PixivDownload.exe`。發行包同時提供 Compose 和 Swing；`app.gui-provider` 爲空時選擇默認的 Compose。切換 provider 後完整重啓。首次無頭啓動前先完成初始化，否則程序以退出碼 `78` 結束。
 
 ### CLI 管理命令
 
@@ -42,7 +42,7 @@ PixivDownload.exe
 | `--change-password` | 修改管理員密碼 |
 | `--reset-password` | 忘記密碼時強制重置 |
 
-詳見[首次配置](/zh-hant/first-setup)。
+這些命令會修改管理狀態，執行前停止同一數據目錄的其它實例。修改或重置密碼會使舊會話失效；重啓後用新密碼驗證登錄。具體交互、密碼要求與失敗處理見[首次配置](/zh-hant/first-setup)。
 
 ---
 
@@ -70,7 +70,7 @@ PixivDownload.exe
 
 ## 自動收藏
 
-下載設置裏勾選「**自動收藏**」，下載完成後後端會通過 Cookie 調用 Pixiv API 自動收藏該作品。
+在下載網頁中勾選「**自動收藏**」，下載完成後後端使用已保存的 Cookie 收藏作品。油猴腳本則使用瀏覽器的 Pixiv 登錄態執行收藏，不向後端透傳 `document.cookie`。
 
 !> 需要已保存含 `PHPSESSID` 的有效 Cookie。收藏是 best-effort，收藏失敗不會讓下載任務失敗。
 
@@ -82,7 +82,7 @@ PixivDownload.exe
 
 1. 下載 ZIP 幀包
 2. 提取幀並按文件名排序
-3. 調用 `ffmpeg` 合成爲 WebP 動圖
+3. 調用 `ffmpeg` 按所選格式生成動圖或視頻；可選格式見[配置參考](configuration.md)
 4. 同時保存第一幀爲縮略圖（`_p0_thumb.jpg`）
 
 要求 `ffmpeg` 在系統 PATH 中可用。Windows 安裝包用戶可在 GUI → 狀態頁點「下載 FFmpeg」自動安裝。
@@ -106,7 +106,7 @@ PixivDownload.exe
 | **數據庫目錄檢查** | 檢查數據庫記錄的文件路徑是否仍然有效 |
 | **數據回填工具** | 補全因版本更新缺失的數據字段 |
 
-!> 數據庫檢查和回填工具需要獨佔 SQLite，GUI 會自動託管後端的暫停與恢復，無需手動停服務。
+!> 數據庫工具需要獨佔維護會話，GUI 託管後端停止與恢復。操作前備份所選數據庫，不要另開同一數據目錄的實例。所選數據庫 provider 必須可用；PostgreSQL 數據還需單獨備份服務器數據庫。工具結束後檢查報告、後端狀態和畫廊訪問，不要把「工具窗口關閉」當作成功。
 
 ---
 

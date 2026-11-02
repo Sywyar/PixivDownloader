@@ -1,6 +1,6 @@
 # Artwork Gallery
 
-The artwork gallery is the central page for viewing, organizing, and managing downloaded works.
+Use the gallery to find registered illustrations, manga, and ugoira, organize collections, or export works in batches. Enable the `gallery` plugin; management, export, and deletion require an admin session. The gallery reads database records and does not register arbitrary image folders automatically.
 
 URL: `http://localhost:6999/pixiv-gallery.html`
 
@@ -51,7 +51,7 @@ Click the "**Filter**" button on the toolbar to expand the filter panel:
 
 ### Tag / Author Tri-State Filter
 
-This is the gallery's most powerful filter feature. Each tag or author can be individually set to one of three states:
+Choose a state for each tag or author you want to combine:
 
 | State | Meaning |
 |-------|---------|
@@ -109,7 +109,7 @@ The "Actions" menu provides three operations:
 
 ### Deleting Artworks
 
-> ⚠️ Deletion removes the artwork's local image files and derived data (tags, collection links, and thumbnail cache); files are **unrecoverable**. Admin only.
+> Deletion requires an admin session. For application-managed works, it removes local images and derived data (tags, collection links, and thumbnails) and cannot be undone in the UI. Read-only source files registered through [external download import](pixiv-batch-downloader-import.md) remain on disk.
 
 - **Delete a single artwork**: on the detail page, click the red "**Delete**" button and confirm in the dialog.
 - **Batch delete**: use batch management to multi-select, then choose "**Delete**" from the "Actions" menu and confirm.
@@ -144,13 +144,13 @@ Hover over a gallery thumbnail and click the "❤️" icon that appears; or ente
 
 ## Artwork Showcase
 
-Click the "**Artwork Showcase**" button on the detail page to enter `pixiv-showcase.html` — immersive fullscreen browsing of the current work, distraction-free.
+Click the "**Artwork Showcase**" button on the detail page to enter `pixiv-showcase.html` — to browse the current work in fullscreen.
 
 ---
 
 ## Guest Invite
 
-Admins can create invite codes to share gallery viewing access with others (view only — cannot download or modify):
+Admins can create invite codes to share a restricted view of the gallery. Invited guests do not receive admin editing or batch-management permissions. A browser can still save displayed images; invite codes do not prevent copying.
 
 1. Click "**Invite Guests**" at the top-right of the gallery page
 2. Set expiration time, content rating (can restrict to SFW range), tag / author allowlist
@@ -161,6 +161,12 @@ Guests access via `http://host:port/invite?code=xxx` and can only see works with
 For detailed invite management, see `http://localhost:6999/pixiv-invite-manage.html`.
 
 ---
+
+## When a Work Is Missing
+
+Clear search and filters first, and check the invite code's visible scope. Admins should also check the selected database, download directory, queue result, and deletion marks. Moving files does not transfer their records to another database; see [Storage](storage.md) for restore and relocation instructions.
+
+For exports, wait for a successful task status, download the archive, and inspect its contents. If delete-after-export is enabled, deletion follows successful server-side archive creation; it does not wait for you to inspect the browser download.
 
 ## Statistics Dashboard
 

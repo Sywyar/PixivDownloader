@@ -1,6 +1,6 @@
 # 設定リファレンス
 
-PixivDownloader の設定は所有者ごとに分かれています。これらの保存先は互換ではありません。
+日常の変更はデスクトップの設定画面で保存し、表示された適用・再起動の案内に従ってください。データベース、プロキシ、保存形式では影響が異なります。手動編集する場合は、次の所有者と保存先を確認します。
 
 | 設定 | パス | 所有者 |
 | --- | --- | --- |
@@ -9,6 +9,26 @@ PixivDownloader の設定は所有者ごとに分かれています。これら�
 | プラグインの認証情報 | `config/credentials/{pluginId}.properties` | そのプラグイン。ホストが暗号化 |
 
 まず GUI の設定ページを使ってください。初回起動時は `config/config.yaml` が生成され、アップグレード時は既存値を上書きせず不足しているホストキーだけが追加されます。手動編集時は UTF-8 を使い、空の値をコメントアウトせず有効な `key: value` として残します。
+
+## 設定と環境の移行
+
+Swing と Compose の設定画面から環境を移行できます。アーカイブが読むのは保存済みの値です。エクスポート前に必要な設定を保存し、インポート前に未保存の編集を処理してください。
+
+1. 移行元で `.pdbackup` をエクスポートします。ホストと登録済みプラグインが宣言する設定、有効状態、デスクトップの設定が対象です。認証情報、データベース、保存状態、ユーザーリソースは選択式です。認証情報・状態・データベースにはパスワードが必要で、エクスポート中はバックエンドが一時停止します。
+2. 移行先に互換プラグインとデータベース接続を用意し、アーカイブをプレビューします。未導入プラグインの設定やファイルは書き込みません。バージョン一覧とリポジトリアドレスは不足分を補う参考情報で、パッケージの導入や信頼許可の復元は行いません。
+3. フィールド、データベース、ファイルグループを選び、パスを確認して実行します。データベースとファイルは初期状態では未選択で、リソースには対応するデータベースも必要です。移行先をバックアップし、プロセス全体の再起動後に復元します。移行画面を開き直して結果を確認してください。
+
+移行先のデータベース接続、プロバイダー選択、インストール識別子は維持します。認証情報は移行先の鍵で再暗号化します。管理者認証情報を選ぶとログイン情報を置き換え、セッションを消去しますが、移行先の動作モードは維持します。スケジュールは無効、手動キューは一時停止で復元します。第三者プラグインの私有データの意味は、そのプラグインの宣言に従います。
+
+プログラム、プラグイン本体、作品ファイル、キャッシュ、信頼鍵、許可は含みません。対応リソースにはコレクションアイコンと小説の参照音声があります。作品は別途コピーしてください。パス変換は宣言されたフィールドとデータベースのプレフィックスだけが対象で、`{0}` は確認した絶対ディレクトリに固定します。登録プレフィックス外の絶対パスは変えません。既存作品と新しいダウンロードを別々に確認してください。
+
+バックアップとデータベース別の報告は `data/environment-transfers/<タスク ID>/`、最新状態は `pending.json` に残ります。主データベースと私有データベースは個別にコミットします。復旧が必要な結果は全体のロールバックを意味せず、業務処理の起動を止めます。タスクディレクトリを保存して報告とバックアップを照合し、起動のためにログを削除しないでください。未完了のファイル復旧がある場合は、元のインストールで完了させてから再エクスポートします。
+
+### Windows のインストール先を移す
+
+移動後のディレクトリからアプリを起動すると登録状態を確認できます。インストーラーで新しいディレクトリを明示し、移行を確認すると、レジストリのインストール先、通常のショートカット、アンインストール記録を更新します。既存の現在ユーザーの自動起動ショートカットは状態と引数を保ち、リンク先を更新します。無効な自動起動は有効にしません。
+
+修復バックアップは新しいプログラムディレクトリの `state/installation-backups/` に残ります。旧ディレクトリとユーザーデータは保持するため、新しい場所で起動とデータを確認してから旧コピーを処理してください。旧ディレクトリのアンインストーラーは実行しないでください。ポータブル版のコピーは Windows に登録せず、インストーラーの実行は移行先を登録します。旧 MSI 版は先にエクスポートし、Windows からアンインストールしてから、新しい場所へインストールして復元します。
 
 ## ホスト設定
 
@@ -21,11 +41,13 @@ PixivDownloader の設定は所有者ごとに分かれています。これら�
 | `download.root-folder` | `pixiv-download` | ダウンロード作品のルート |
 | `download.user-flat-folder` | `false` | 作者ディレクトリを省略する構成 |
 | `download.max-concurrent` | `10` | 同時ダウンロード数。追加で最大 100 件をキューに保持し、それを超えると 429 |
-| `database.maximum-pool-size` | `28` | SQLite 接続プールの上限 |
+| `database.maximum-pool-size` | `28` | 主データベースの接続プール上限。最小 8 |
 
 `download.root-folder` には作品だけが保存され、設定、データベース、プラグイン状態、キャッシュは別の場所に置かれます。小説、Douyin などの固有設定は各プラグインが所有します。
 
 画像、表紙、埋め込み画像は 1 件 100 MiB、通常の作品 / 小説 1 タスク全体で 1 GiB が上限です。Ugoira は ZIP 100 MiB、500 エントリ / フレーム、展開後 1 件 32 MiB / 合計 200 MiB、1 フレーム 25,000,000 ピクセルまでです。各変換プロセスは最長 10 分、出力 100 MiB までです。超過時は処理を止めて一時ファイルを削除しますが、保存対象の ZIP とフレーム時刻ファイルは保持します。
+
+応答は `Content-Length` と実際にデコードしたストリームの両方で検査し、画像の上限超過では転送を中断して部分ファイルを削除します。拡張子は URL のパス、`Content-Type`、確認済みファイルヘッダーから画像の許可リストで選び、クエリ文字列は含めません。これらの安全上限は設定で引き上げられません。
 
 ### 主データベースと既存データの移行
 
@@ -126,12 +148,12 @@ FFmpeg の共有同時実行数は既定 2、デスクトップのダウンロ�
 
 | キー | 既定値 | 説明 |
 | --- | --- | --- |
-| `plugin-catalog.enabled` | `true` | マーケットのマスター切り替え |
+| `plugin-catalog.enabled` | `true` | マーケットの全体スイッチ。開く・更新・インストール時に接続し、無効ならリポジトリへ接続しない |
 | `plugin-catalog.official-repository-enabled` | `true` | 組み込み公式リポジトリ |
 | `plugin-catalog.connect-timeout-ms` | `15000` | 接続タイムアウト |
 | `plugin-catalog.read-timeout-ms` | `60000` | 読み取りタイムアウト |
 | `plugin-catalog.max-manifest-bytes` | `1048576` | マニフェストサイズ上限 |
-| `plugin-catalog.max-package-bytes` | `104857600` | パッケージサイズ上限 |
+| `plugin-catalog.max-package-bytes` | `201326592` | パッケージサイズ上限（192 MiB） |
 | `plugin-catalog.repositories` | 空リスト | カスタムリポジトリ |
 
 公式リポジトリ URL と信頼ルートは組み込まれています。カスタムリポジトリは HTTPS マニフェストと Ed25519 公開鍵を自分で宣言し、公式の信頼ルートを継承しません。手動例：
@@ -153,7 +175,7 @@ plugin-catalog.repositories:
         trust-label: Example repository release key
 ```
 
-リポジトリ ID は一意で、`official` と `configured` は使えません。`direct-strict` は直接 HTTPS のみ、`proxy-trusted` はアプリプロキシと組み込み信頼ホストへの最大 5 回のリダイレクト、`custom` はエントリのフラグに従います。個別エントリではタイムアウトとサイズ上限を上書きできます。
+リポジトリ ID は一意で、`official` と `configured` は使えません。`direct-strict` は直接 HTTPS のみで、非公開アドレスとリダイレクトを拒否します。`proxy-trusted` はアプリプロキシを使い、組み込みの信頼ホストに最大 5 回リダイレクトし、毎回再検証します。`custom` は `allow-redirects`、`strict-https`、`allow-non-public-addresses`、`use-proxy` に従います。個別の `connect-timeout-ms`、`read-timeout-ms`、`max-manifest-bytes`、`max-package-bytes` は省略または `0` で全体値を継承します。
 
 ### 外向きプロキシ
 
@@ -175,12 +197,15 @@ Firefox の設定は `about:preferences#general`、Windows のプロキシ設定
 
 ### マルチモードのクォータと制限
 
+`multi-mode.*` は multi モードの未ログイン利用者に適用し、管理者を制限しません。招待コードで入るゲストには、solo / multi 共通の `guest-invite.*` を使います。
+
 | キー | 既定値 |
 | --- | --- |
 | `multi-mode.quota.enabled` | `true` |
 | `multi-mode.quota.max-artworks` | `50` |
 | `multi-mode.quota.reset-period-hours` | `24` |
 | `multi-mode.quota.archive-expire-minutes` | `60` |
+| `multi-mode.quota.limit-image` | `0` |
 | `multi-mode.quota.max-proxy-requests` | `200` |
 | `multi-mode.quota.archive-max-concurrent` | `10` |
 | `multi-mode.post-download-mode` | `pack-and-delete` |
@@ -188,7 +213,7 @@ Firefox の設定は `about:preferences#general`、Windows のプロキシ設定
 | `multi-mode.request-limit-minute` | `300` |
 | `multi-mode.static-resource-request-limit-minute` | `1200` |
 
-`multi-mode.post-download-mode` は `pack-and-delete`、`never-delete`、`timed-delete` のいずれかです。ゲストには `guest-invite.request-limit-minute=300`、`guest-invite.static-resource-request-limit-minute=1200`、`guest-invite.tts-request-limit-minute=30`、`setup.login-rate-limit-minute=10` が適用されます。
+`multi-mode.post-download-mode` は `pack-and-delete`、`never-delete`、`timed-delete` のいずれかです。`multi-mode.limit-page` の既定値は `3`、`0` はページ数無制限です。招待ゲストには `guest-invite.request-limit-minute=300`、`guest-invite.static-resource-request-limit-minute=1200`、`guest-invite.tts-request-limit-minute=30`、`setup.login-rate-limit-minute=10` が適用されます。
 
 ### メンテナンス時間
 
@@ -204,6 +229,8 @@ Firefox の設定は `about:preferences#general`、Windows のプロキシ設定
 | `server.ssl.certificate` | 空 |
 | `server.ssl.certificate-private-key` | 空 |
 | `server.ssl.key-store-type` | `JKS` |
+| `server.ssl.key-store` | 空 |
+| `server.ssl.key-store-password` | 空 |
 | `server.trusted-proxy-cidrs` | 空 |
 | `ssl.http-redirect` | `false` |
 | `ssl.http-redirect-port` | `80` |
@@ -218,6 +245,8 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 
 `0.0.0.0/0` や `::/0` を信頼しないでください。空の場合は直接モードとなり、転送ヘッダーを拒否します。信頼プロキシは毎回、`Forwarded` の `for` / `proto` / `host`、または `X-Forwarded-For` / `X-Forwarded-Proto` / `X-Forwarded-Host`（任意で Port）の完全な一組を送る必要があります。欠落、混在、形式不正、信頼されない送信元では HTTP 400 になります。
 
+転送ヘッダーは `Forwarded` と `X-Forwarded-*` を混在させられません。直接モードでは `X-Real-IP` も拒否します。チェーンの右側から最初の非信頼アドレスをクライアントとして採用し、認証・レート制限・CSRF 判定前に外部プロトコル、ホスト、ポートを正規化します。非信頼クライアントがないチェーンや位置の不整合も 400 です。信頼 CIDR にはクライアント側のネットワークを入れないでください。`127.0.0.1/32` を信頼する場合、同じアドレスから転送ヘッダーなしで直接アクセスしても拒否します。
+
 ### 言語とデスクトップ UI
 
 | キー | 既定値 | 説明 |
@@ -225,7 +254,7 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 | `app.language` | 空 | システムに従うか、対応言語コードを指定 |
 | `app.theme` | `system` | GUI テーマ ID |
 | `app.config-menu-expand-all` | `false` | Swing の設定メニューの展開だけを制御。Compose はこの項目を表示せず、保存済みの値も変更しません |
-| `app.gui-provider` | 空 | デスクトップ GUI provider ID。選択肢は有効な provider プラグインから取得 |
+| `app.gui-provider` | 空 | 空なら既定の provider。有効な provider の ID も指定可能 |
 
 どちらのデスクトップ UI でも `system`、`light`、`dark` を選べます。追加テーマは、選択した UI が提供します。GUI provider の選択肢は有効な `DesktopUiProvider` から取得します。配布物には Compose と Swing が含まれ、初回起動で未指定の場合は Compose を選択します。UI の切り替えにはアプリケーション全体の再起動が必要です。
 
@@ -233,7 +262,7 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 
 ### 更新とスケジュールホスト
 
-更新は `update.enabled=true`、`update.auto-check=true` が既定です。`update.manifest-url` と `update.nightly-manifest-url` でマニフェストを指定できます。
+更新は `update.enabled=true`、`update.auto-check=true` が既定です。`update.manifest-url` は公式正式版、`update.nightly-manifest-url` は公式 nightly の `update.json` です。`update.check-nightly` は nightly ビルドで `true`、正式版で `false` です。
 
 スケジュール関連の主な設定は `schedule.enabled=true`、`schedule.tick-interval-ms=60000`、`schedule.max-tasks=100`、`schedule.inbox-check-every=500`、`schedule.auth-failure-circuit-breaker=5`、`schedule.pending-max-attempts=5`、`schedule.overuse-defer-default-minutes=60` です。ダウンロード元や認証情報はプラグインが所有します。
 
@@ -245,7 +274,7 @@ server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 plugins.douyin.enabled: true
 ```
 
-必須プラグインは無効化できません。変更が即時反映されるかはプラグインのライフサイクルポリシーによります。詳しくは [プラグイン管理](/ja/plugin-management) を参照してください。
+必須プラグインは無効化できません。変更が即時反映されるかは `pixiv.lifecycle-policy` と実行する操作によります。詳しくは [プラグイン管理](/ja/plugin-management) を参照してください。
 
 ## プラグイン業務設定
 
@@ -256,7 +285,7 @@ example.timeout-ms=15000
 example.output-format=json
 ```
 
-ホストキー、`plugins.*.enabled`、認証情報らしいキーの上書きは拒否されます。プラグインは子 Spring コンテキストの `Environment`、`@Value`、`@ConfigurationProperties` から値を読み取り、ファイルを直接読まないでください。`GuiConfigContribution` は field、group、layout、action、preset を含むプラグイン設定 section 全体の事実源です。アプリケーションシェルがコア設定と統合して保存し、Swing / Compose は同じ文書を描画するだけです。保存後、ホストは即時反映、バックエンド再起動、プロセス再起動のどれが必要かを示します。
+ホストキー、`plugins.*.enabled`、認証情報らしいキーの上書きは拒否されます。プラグインは子 Spring コンテキストの `Environment`、`@Value`、`@ConfigurationProperties` から値を読み取り、ファイルを直接読まないでください。異なるプラグイン間でもキーを重複させないでください。デスクトップ設定はプラグインが宣言した項目を表示し、アプリがまとめて保存します。Compose と Swing はそれぞれ独自の画面を実装します。宣言・読み取りの契約は[プラグイン SDK](/ja/plugin-development)を参照してください。保存後、ホストは即時反映、バックエンド再起動、プロセス再起動のどれが必要かを示します。
 
 ## プラグイン認証情報
 
@@ -264,12 +293,23 @@ example.output-format=json
 
 暗号化バックアップを別環境で復元するには、元の認証情報マスターキーも必要です。
 
-## 現在の契約を確認する
+## 保存結果と現在の設定を確認する
+
+保存後に設定を開き直し、値と適用条件を確認します。データベースの変更では移行結果、ファイルパスの変更では既存作品と新規取得も確認してください。失敗したら元ファイルとエラーを保管し、別ファイルで設定全体を上書きしないでください。
+
 
 1. GUI の設定ページを開く
 2. ホストの既定値は現在の `DefaultConfigTemplate` を確認する
 3. プラグイン項目は `GuiConfigContribution`、`@ConfigurationProperties`、設定サービスを確認する
 4. 旧来の `mail.*`、`push.*`、`notification.*`、`download.novel-*` を `config.yaml` にコピーしない
+
+## 翻訳設定
+
+`translation` がデスクトップの「翻訳」設定を提供します。`translation.engine` は既定で `ai`、ほかに `youdao` と `libretranslate` を選べます。通常の設定は `config/plugins/translation.properties`、機密情報は同プラグインの暗号化された認証情報ファイルに保存します。Youdao のアプリケーション ID・シークレットや LibreTranslate API キーはデスクトップ設定で入力してください。
+
+`translation.libretranslate-url` は `/translate` を含まないサービスのベース URL です。ローカルの例は `http://127.0.0.1:5000`。`translation.use-proxy` は既定 `false` で、Youdao と LibreTranslate に適用されます。AI は AI 側のプロキシ設定を使います。`translation.max-concurrent` は自動翻訳の同時実行数で既定 `10`、同一シリーズは順次処理します。保存後はバックエンドを再起動します。
+
+既存の AI 設定・訳文・用語表は保持されます。旧 `download.novel-translate-max-concurrent` を変更していた場合は、翻訳設定で同時実行数を再設定してください。準備と制限は[小説ガイド](/ja/novel)を参照してください。
 
 ## ログイン検証ポリシー
 

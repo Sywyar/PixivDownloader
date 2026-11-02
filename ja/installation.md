@@ -1,132 +1,161 @@
-# インストールガイド
+# インストール
 
-## 動作要件
+[Releases](https://github.com/Sywyar/PixivDownloader/releases) から環境に合う配布物を選びます。ファイル名の `*` / `x.x.x` はバージョンです。コマンドの `APP.jar` は実際の主 JAR 名に置き換え、パッケージ全体を展開したディレクトリで実行してください。
 
-| 依存関係 | 最低バージョン | 備考 |
-|------------|----------------|-------|
-| **Java** | 17 以上 | Java 標準 / 完全オフラインパッケージに必要。Windows インストーラーには JRE を同梱 |
-| **OS** | Windows / macOS / Linux | クロスプラットフォーム |
-| **Tampermonkey** | 最新版 | ユーザースクリプトに必要 |
-| **ffmpeg** | 任意 | うごイラを WebP に変換する場合に必要 |
+| 環境 | 配布物 | 別途必要なもの |
+|---|---|---|
+| Windows x64 | `*-win-x64-setup.exe` | 必要に応じて FFmpeg |
+| Windows / Linux / macOS で Java を使う | `*-java.zip` | Java 17 以降、必要に応じて FFmpeg |
+| 任意のデータベース・インポート機能も同梱したい | `*-full-offline.zip` | Java 17 以降、必要に応じて FFmpeg |
+| Docker で常駐する | リポジトリの Dockerfile と完全な Java 配布物からビルド | Docker Engine、Compose、書き込み可能なデータディレクトリ |
 
-## 方法 1：Java 標準 / 完全オフラインパッケージ
+標準パッケージは既定の公式プラグインを含み、オフライン完全版はさらに `database-postgresql` と `pixiv-batch-downloader-import` を含みます。Java 版のどちらにも JRE、FFmpeg、Douyin は入りません。「オフライン完全版」でも Pixiv、オンライン AI、TTS への接続にはネットワークが必要です。
 
-### 1. Java 17 以上をインストール
+## Java 版を使う
 
-- **Windows**：[Adoptium](https://adoptium.net/) からダウンロード
-- **macOS**：`brew install openjdk@17`
-- **Linux**：Debian / Ubuntu は `sudo apt install openjdk-17-jdk`、Fedora は `sudo dnf install java-17-openjdk`
+1. Java 17 以降を用意します。Windows は [Adoptium](https://adoptium.net/)、macOS は `brew install openjdk@17`、Debian / Ubuntu は `sudo apt install openjdk-17-jdk`、Fedora は `sudo dnf install java-17-openjdk` などを使えます。
+2. `java -version` でバージョンを確認します。
+3. `PixivDownload-*-java.zip` または `PixivDownload-*-full-offline.zip` をダウンロードし、すべて展開します。起動スクリプトと `plugins/` も必要です。
+4. Windows は `run.bat`、Linux / macOS は展開先で `sh run.sh` を実行します。
+5. [初回セットアップ](/ja/first-setup)を完了します。
 
-```bash
-java -version
-# openjdk version "17.0.x" のように表示されます
+手動起動は PowerShell / Bash 共通で次のとおりです。
+
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar
 ```
 
-### 2. ダウンロードと展開
+起動スクリプトには UTF-8 指定が含まれます。手動でも付けてください。単独のシェル JAR は必須のダウンロードプラグインを含まない内部ビルド入力で、通常のユーザー向け配布物ではありません。これだけを起動すると復旧モードに進みます。
 
-[Releases](https://github.com/Sywyar/PixivDownloader/releases) から次を選びます。
+### GUI のないサーバー
 
-- `PixivDownload-*-java.zip` — Windows インストーラーと同じ公式プラグイン構成（Douyin は含みません）
-- `PixivDownload-*-full-offline.zip` — Java 標準パッケージと同じプラグイン構成（Douyin は含みません）
+最初に `--setup` を実行し、管理者、モード、HTTP プロキシを設定します。GUI の案内はなく、`setup.html` はローカル接続のみです。未初期化の `--no-gui` は終了コード `78` で止まります。
 
-アーカイブは**すべて展開**してください。JAR だけを取り出してはいけません。起動スクリプトと `plugins/` ディレクトリが必要です。公式外部プラグインは起動時に作業ディレクトリの `plugins/` から読み込まれます。
-
-?> 単体の `PixivDownload-*.jar` は `download-workbench` を含まないコアシェルです。通常の利用者向け添付物ではなく、直接起動するとリカバリーモードになります。
-
-### 3. 起動
-
-Windows は `run.bat`、Linux / macOS は展開先で `sh run.sh` を実行します。
-
-```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --setup
+java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui
 ```
 
-Windows で文字化けしないよう、常に `-Dfile.encoding=UTF-8` を付けてください。`run.bat` / `run.sh` にはあらかじめ含まれています。
-
-### 4. サーバー / Docker でバックグラウンド起動
+Bash でバックグラウンド起動する例：
 
 ```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui
-nohup java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui > app.log 2>&1 &
+nohup java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui > app.log 2>&1 &
 ```
 
-`--no-gui` は初回セットアップ完了後にだけ使用できます。未設定の場合は先に次を実行してください。
+自動化では `--username=admin --password=REPLACE_WITH_A_UNIQUE_PASSWORD --mode=solo`、必要なら `--proxy-enabled=true --proxy-host=127.0.0.1 --proxy-port=7890` を `--setup` に追加できます。値は実環境に合わせてください。パスワードは履歴・プロセス一覧に残り得るため、通常は対話入力を使います。プロキシ引数を省略すると質問し、不要なら `--proxy-enabled=false` を指定できます。
+
+プロキシが適用されるのは、ホストやタスクがその経路を選ぶ Pixiv、更新、FFmpeg、一部の TTS などです。ブラウザー、SMTP、明示的な直接接続は別です。[ネットワークアクセス](/ja/network-access)を参照してください。
+
+## Windows インストーラー
+
+Windows 版には JRE と公式プラグインが含まれます。
+
+1. `PixivDownload-x.x.x-win-x64-setup.exe` を取得し、起動します。
+2. 言語（中国語 / English）とインストール先を選びます。
+3. 必要なら FFmpeg のダウンロード・インストールを選びます。普通の画像だけなら不要で、後から GUI の状態画面で追加できます。
+4. 完了後に起動し、初期設定を行います。以後はスタートメニューやショートカットから開けます。
+
+インストール前に動作中の `PixivDownload.exe` を検出すると、終了して再試行する案内を表示します。再度インストーラーを実行すると、修復、コンポーネント変更、アンインストールを選べます。
+
+インストーラーは UAC を要求します。インストール済みアプリと portable ランチャーも既定で管理者権限を要求します。ホストが実際に昇格している場合、`host-process-full-trust` プラグインも同じ権限を持ち、管理画面に警告を表示します。
+
+## Docker
+
+Dockerfile は署名済み Java 配布ディレクトリを入力にし、Java 17、FFmpeg、curl を含むイメージを作ります。
+
+1. リポジトリの `build/dist/default-downloader/` に標準版またはオフライン完全版を全展開します。その直下に主 JAR、`plugins/`、`plugins-manifest.json`、`SHA256SUMS` があることを確認します。
+2. `docker compose build` を実行します。
+3. Linux の新規環境では、コンテナーの UID / GID `10001` が書き込めるディレクトリを用意します。
+
+   ```bash
+   sudo install -d -o 10001 -g 10001 config state data pixiv-download log
+   ```
+
+4. `Dockerfile` と `docker-compose.yml` のある場所で初期化します。
+
+   ```bash
+   docker compose run --rm app --setup
+   ```
+
+5. 起動し、ログを確認します。
+
+   ```bash
+   docker compose up -d
+   docker compose logs -f app
+   ```
+
+初期化を飛ばすと終了コード `78` で再起動を繰り返す場合があります。アカウントは `state/setup_config.json`、プロキシは `config/config.yaml` に保存します。
+
+既定の公開ポートはホストの `127.0.0.1:6999` だけにバインドします。同じホストで `http://127.0.0.1:6999/` を開いてください。リモートからは既存の SSH トンネルや、別途設定したリバースプロキシを使います。管理者ログイン後にプラグインの照会・インストール・修復ができます。
+
+### Docker のプロキシ
+
+コンテナー内の `127.0.0.1` はコンテナー自身です。Compose は `host.docker.internal` をホストゲートウェイへ割り当てています。ホストのプロキシがコンテナーからの接続を許可していることを確認し、例のポートを実際のものに変更してください。
 
 ```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --setup
+docker compose run --rm app --setup --proxy-host=host.docker.internal --proxy-port=7890
 ```
 
-プロキシは、Pixiv のダウンロード、オンライン更新、FFmpeg の取得、一部のオンライン TTS など、ホストまたはタスクの経路が選択したバックエンドアクセスに使用されます。ブラウザー、SMTP、明示的な直接接続は別の経路です。詳しくは [ネットワークアクセスとサードパーティサービス](/ja/network-access) を参照してください。
+不要なら `--proxy-enabled=false` を指定します。後から設定する場合は、マウントされた `config/config.yaml` を編集し、`docker compose restart app` を実行します。
 
-## 方法 2：Windows インストーラー（Windows 推奨）
-
-1. [Releases](https://github.com/Sywyar/PixivDownloader/releases) から `PixivDownload-x.x.x-win-x64-setup.exe` を取得して実行する
-2. インストール言語、日本語を含む言語を選ぶ
-3. インストール先を選ぶ
-4. 必要なら「FFmpeg をダウンロードしてインストール」を選ぶ
-
-通常の画像取得に FFmpeg は不要です。後から GUI のステータスページで追加できます。
-
-インストーラーをもう一度実行すると、修復、コンポーネント変更、アンインストールを選べます。インストール時は `PixivDownload.exe` が実行中なら終了を求められます。
-
-?> Windows インストーラーには、必須 `download-workbench`、既定 `gui-compose`、代替 `gui-swing` を含む公式プラグイン配布セットが入ります。Java 標準パッケージと完全オフラインパッケージも同じ構成です。Douyin は一般のサードパーティプラグインとして、カスタムリポジトリまたはローカルパッケージからインストールします。
-
-インストーラーがアプリケーションディレクトリへ書き込む際は UAC を要求します。インストール済みアプリと portable ランチャーも既定で管理者権限を要求します。ホストが実際に昇格している場合、`host-process-full-trust` プラグインも同じ権限を継承し、プラグイン管理ページに警告が表示され続けます。
-
-## 方法 3：Docker
-
-`Dockerfile` は署名済み Java 配布ディレクトリから、Java 17、FFmpeg、curl を含むイメージを作成します。Java 標準または完全オフラインパッケージをリポジトリの `build/dist/default-downloader/` に完全展開してください。直下にアプリの JAR、`plugins/`、`plugins-manifest.json`、`SHA256SUMS` があることを確認し、`docker compose build` を実行します。
-
-コンテナは UID/GID 10001 で動作します。Linux の新規インストールでは、書き込み可能なマウント先を作成します。
-
-```bash
-sudo install -d -o 10001 -g 10001 config state data pixiv-download log
+```yaml
+proxy.host: host.docker.internal
+proxy.port: 7890
+proxy.enabled: true
 ```
 
-CLI の初期設定を完了してから常駐起動します。
+ポート、SSL などの変更後も再起動します。`server.port` を変えたら Compose のポート割り当てとヘルスチェックも合わせてください。
 
-```bash
-docker compose run --rm app --setup
-docker compose up -d
-docker compose logs -f app
-```
+### 永続データと更新
 
-未設定のコンテナは終了コード 78 で終了します。コンテナにデスクトップ GUI はなく、`setup.html` も CLI 初期設定の代わりにはなりません。既定の公開先はホストの `127.0.0.1:6999` のみです。ホスト上で `http://127.0.0.1:6999/` を開いてください。遠隔接続には既存の SSH トンネル、または別途設定したリバースプロキシを利用できます。管理者ログイン後、プラグイン管理ページでインストール、状態確認、修復を行います。
+| ホスト側の場所 | 内容 |
+|---|---|
+| `./config/` | ホスト・プラグイン設定と認証情報 |
+| `./state/` | 初期化、ログイン、キュー、GUI の状態 |
+| `./data/` | SQLite、アイコン、サムネイル、TTS、補完状態、参照音声など |
+| `./pixiv-download/` | 作品、小説、シリーズ、短期アーカイブ |
+| `./log/` | ログ |
+| 名前付き volume `plugins` | インストール済みプラグイン |
 
-コンテナ内の `127.0.0.1` はコンテナ自身を指します。ホストのプロキシを使う場合は setup に `--proxy-host=host.docker.internal --proxy-port=7890` を追加し、不要なら `--proxy-enabled=false` を追加します。イメージ取得やビルド中の APT ダウンロードには Docker 自身のプロキシ・ミラー設定が使われます。`config/config.yaml` の変更後は `docker compose restart app` を実行します。
+インスタンスロックの `state/instance/` と SQLite ネイティブライブラリーの展開先 `state/` は書き込み可能で、ライブラリーをロードできる必要があります。ルートファイルシステムは読み取り専用、`/tmp` は `noexec,nosuid,nodev` のままです。
 
-インストール済みパッケージは名前付きボリューム `plugins` に保存されます。`config/`、`state/`、`data/`、`pixiv-download/`、`log/` はホストからマウントされます。インスタンスロックは `state/instance/`、SQLite ネイティブライブラリの一時展開先は `state/` です。書き込みとライブラリ読み込みを許可してください。ルートファイルシステムは読み取り専用、`/tmp` は `noexec,nosuid,nodev` のままです。
+イメージを更新しても既存のプラグイン volume は自動で上書きしません。再作成後は管理画面でバージョンと無効状態を確認します。必須プラグインが非互換なら復旧モードとなるため、ホストに合う信頼済みパッケージをインストールします。
 
-イメージ更新は既存のプラグインボリュームを上書きしません。再作成後はプラグインのバージョンと無効状態を確認してください。必須プラグインに互換性がなければリカバリーモードに入り、ホストに対応する信頼済みパッケージが必要です。ボリューム、設定、データベース、ダウンロードを保持し、停止には `docker compose down` を使います。ボリュームを削除する `-v` は付けないでください。
+停止は `docker compose down` を使い、データを残す場合は volume を消す `-v` を付けないでください。
 
-`docker compose ps` でヘルス状態を確認できます。プローブは認証不要の `/actuator/health` を使います。成功後もプラグインの状態を確認してください。ポート変更時はマッピングとプローブも更新します。
+### ヘルスチェック
 
-## ユーザースクリプト（任意）
+`GET /actuator/health` はログインなしで `{"status":"UP"}` を返し、内部の詳細は公開しません。`GET /actuator/info` は名前とバージョンです。`docker compose ps` では `healthy` / `unhealthy` を確認できます。`UP` だけでは、プラグイン、Cookie、ダウンロード全体の動作は確認できません。
 
-まず Web UI の `http://localhost:6999/pixiv-batch.html` を開き、「🧩 ユーザースクリプト」カードから「⬇ インストール」をクリックする方法を推奨します。リリースから `.user.js` を取得し、Tampermonkey のダッシュボードへドラッグすることもできます。
+## FFmpeg とユーザースクリプト
 
-Web UI からのインストールでは、現在のバックエンドアドレスに合わせて `@connect` が設定されます。別ホストで使う場合はスクリプトを編集して接続先を変更してください。
+FFmpeg はメディア変換に使います。MP4 には H.264 エンコーダーが必要です。Windows のインストール時、または GUI の状態画面から自動導入できます。自動導入はプロジェクトの `ffmpeg-stable` Release を使い、公式の最新安定ソースを元にした Windows x64、Linux x64 / arm64、macOS x64 / arm64 の成果物を選びます。その他の環境はシステムの FFmpeg を使います。
 
-## FFmpeg のインストール（任意）
+手動では [FFmpeg](https://ffmpeg.org/download.html) を取得し、実行ファイルのディレクトリを PATH に追加して `ffmpeg -version` で確認します。
 
-FFmpeg はうごイラを WebP に変換するために使います。
+ユーザースクリプトは任意です。ダウンロード画面のスクリプト一覧からインストールするか、リポジトリのコミット済み個別スクリプトを使います。All-in-One はバックエンドから導入します。接続先が変わった場合は、新しいバックエンドから再インストールし、スクリプト設定の送信先も確認します。`@connect` はホスト許可だけで、送信先を変更しません。[ユーザースクリプト](/ja/userscripts)を参照してください。
 
-- Windows インストーラーで「FFmpeg をダウンロードしてインストール」を選ぶ
-- GUI の「ステータス」ページで「FFmpeg をダウンロード」をクリックする
+## 保存先と動作確認
 
-自動インストールは、FFmpeg の公式最新安定版ソースから構築したプロジェクト管理の `ffmpeg-stable` Release を使います。Windows x64、Linux x64/arm64、macOS x64/arm64 は対応するアセットが自動選択されます。その他の環境では [FFmpeg 公式サイト](https://ffmpeg.org/download.html)から取得し、システムの FFmpeg を使ってください。
+プラグインは `plugins/`、設定は `config/`、状態は `state/`、データ・キャッシュは `data/`、ログは `log/`、既定の作品保存先は `pixiv-download/` です。必要になってから作るディレクトリもあります。バックアップや更新では、作品だけでなくデータベースも保持します。[ストレージ](/ja/storage)で詳しい範囲を確認してください。
 
-確認：`ffmpeg -version`
+初期化・ログイン後に 1 件ダウンロードし、キューの完了、ファイル、ギャラリー表示を確認します。
 
-## 起動後の確認
+| 既定の URL | 用途 |
+|---|---|
+| `http://localhost:6999/` | ダウンロード画面へ移動 |
+| `http://localhost:6999/setup.html` | 初回設定。完了済みなら移動 |
+| `http://localhost:6999/intro.html` | 紹介ページ |
+| `http://localhost:6999/pixiv-batch.html` | `download-workbench` のダウンロード画面 |
+| `http://localhost:6999/monitor.html` | ダウンロード監視 |
+| `http://localhost:6999/pixiv-gallery.html` | `gallery` が提供するギャラリー |
 
-- `http://localhost:6999/` — ダウンロードページへリダイレクト
-- `http://localhost:6999/setup.html` — 初回セットアップ（完了後はリダイレクト）
-- `http://localhost:6999/intro.html` — 製品紹介
-- `http://localhost:6999/pixiv-batch.html` — 一括ダウンロード
-- `http://localhost:6999/monitor.html` — ダウンロード監視
-- `http://localhost:6999/pixiv-gallery.html` — 作品ギャラリー（`gallery` プラグインが必要）
+## 同梱プラグインと復旧
 
-`download-workbench` は必須の外部プラグインで、ダウンロードページ、API、キュー、ユーザースクリプト入口、Pixiv プロキシ、スケジュールタスクホストを提供します。不足・破損・検証失敗時はリカバリーページになります。その他の任意プラグインがない場合は、そのプラグインのページや機能だけがなくなり、リカバリーには入りません。
+既定の集合は `download-workbench`、`database-sqlite`、`gui-compose`、`gui-swing`、`gallery-tools`、`posthog`、`gallery`、`novel`、`notification`、`multi-mode-decision-survey`、`push`、`mail`、`tts`、`ai` です。Compose が既定、Swing が代替です。Douyin は第三者プラグインとしてカスタムリポジトリまたはローカルパッケージから導入します。
 
-公式プラグイン配布セットは `download-workbench`、`gui-compose`、`gui-swing`、`gallery-tools`、`posthog`、`gallery`、`novel`、`notification`、`multi-mode-decision-survey`、`push`、`mail`、`tts`、`ai` です。`gui-compose` が既定のデスクトップ UI、`gui-swing` が自動代替です。Douyin は公式リポジトリ、署名、Release パッケージでは配布されません。カスタムリポジトリまたはローカルパッケージからインストールしてください。
+`download-workbench` は必須で、ダウンロード画面・API・キュー・スクリプト入口・Pixiv イラストプロキシ・スケジュールホストを提供します。欠落、破損、非互換、オフライン再検証失敗では、ログイン、プラグイン管理、修復を提供する復旧状態になります。
+
+任意のプラグインがない場合は、その画面、API、ナビゲーション、リソース、翻訳、設定、能力がなくなります。未選択の任意機能の欠落は復旧モードを起こしませんが、現在選択しているデータベース provider の欠落は業務開始を妨げます。
+
+`gallery-tools` がなくても画像ハッシュと履歴は保持します。`gallery` がなくてもダウンロード、スクリプト、プロキシ、スケジュールホスト、作品メタデータ、取得記録、ハッシュ、ローカル資源索引は保持します。`novel` がない場合は小説取得、画廊、本文保存、翻訳状態、合本、小説用スケジュール実行がなくなり、コアに代替実装はありません。

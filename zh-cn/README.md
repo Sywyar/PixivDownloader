@@ -1,76 +1,47 @@
-# PixivDownloader Wiki
+# PixivDownloader 使用文档
 
-PixivDownloader 是一款**本地 Pixiv 作品批量下载工具**，基于 Spring Boot 3.5.7 / Java 17 构建，支持可替换桌面 GUI provider（默认 Swing + FlatLaf，可选 Compose Multiplatform + Material 3）、Web 界面和 Tampermonkey 油猴脚本三种交互方式。
+PixivDownloader 将 Pixiv 插画、漫画、动图和小说下载到本地电脑或服务器，并通过本地画廊管理作品。支持桌面界面、浏览器下载页和 Tampermonkey 脚本操作；下载受限内容需配置你自己的 Pixiv Cookie。
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE)
-[![GitHub Release](https://img.shields.io/github/v/release/Sywyar/PixivDownloader)](https://github.com/Sywyar/PixivDownloader/releases)
+## 首次使用
 
-?> 本文档中「作品」涵盖插画、漫画、动图（Ugoira）和小说。
+1. [安装与启动](/zh-cn/installation)：选择 Windows 安装包、Java 分发包或 Docker 部署并完整解压。
+2. [首次配置](/zh-cn/first-setup)：创建本程序的管理员账号并配置后端代理。
+3. [第一次下载](/zh-cn/first-download)：保存 Cookie、下载单件作品，并在本地目录与画廊核对结果。
 
----
+默认桌面界面为 Compose，发行包同时包含 Swing；支持简体中文、繁体中文、英文、日文和韩文。默认数据库为 SQLite；使用 PostgreSQL 时需先安装对应数据库插件，并在设置页检查与迁移数据。
 
-## 核心功能
+## 按任务查找
 
-| 功能 | 说明 |
-|----|------|
-| ⚡ **快捷获取** | 一键拉取你在 Pixiv 的收藏、关注、珍藏集 |
-| 🎨 **批量导入** | 粘贴作品 URL / ID 列表，支持插画小说混合 |
-| 👤 **画师下载** | 输入画师 ID 或链接，下载其全部作品 |
-| 🔍 **搜索下载** | 内置搜索代理，关键词搜索预览后批量下载 |
-| 📚 **系列下载** | 整个漫画/小说系列一键下载，自动跟进更新 |
-| ⏰ **计划任务** | 后台定时自动发现并补充新作品，无需手动操作 |
-| 📖 **小说下载** | TXT / HTML / EPUB 三种格式，支持系列合订 |
-| 🎬 **动图转换** | Ugoira 自动通过 ffmpeg 转为 WebP |
-| 🖼️ **作品画廊** | 本地画廊，支持搜索、筛选、收藏夹管理 |
-| 🧩 **油猴脚本** | 在 Pixiv 页面直接操作，6 个专用脚本 + All-in-One 整合包 |
-| 🌐 **多语言/暗色模式** | 中英双语，所有页面支持暗色模式 |
-| 👥 **多人模式** | 多用户共享服务器，配额与限流控制 |
-| 🔗 **访客邀请** | 邀请码分享画廊，支持内容分级/标签/作者白名单 |
+| 任务 | 文档 |
+| --- | --- |
+| 下载自己的收藏、作品、关注新作或珍藏集 | [快捷获取](/zh-cn/quick-access) |
+| 粘贴一组作品链接或 ID 下载 | [URL 批量下载](/zh-cn/batch-download) |
+| 下载指定画师的作品 | [画师批量下载](/zh-cn/user-download) |
+| 按关键词搜索 Pixiv 并下载 | [搜索下载](/zh-cn/search) |
+| 保存小说、合订 EPUB、阅读、翻译或朗读 | [小说与朗读](/zh-cn/novel) |
+| 定期自动发现并下载新作 | [计划任务](/zh-cn/scheduled-tasks) |
+| 在 Pixiv 网页直接调用下载辅助 | [油猴脚本](/zh-cn/userscripts) |
+| 将 PixivBatchDownloader 的下载登记到画廊 | [导入外部下载](/zh-cn/pixiv-batch-downloader-import) |
+| 浏览、筛选、导出与删除已登记作品 | [作品画廊](/zh-cn/gallery) |
+| 修改配置、代理、数据库与媒体格式 | [配置参考](/zh-cn/configuration) |
+| 备份、恢复或搬迁作品与数据目录 | [存储与备份](/zh-cn/storage) |
+| 查询启动参数、文件名模板、维护工具与访客邀请 | [CLI 与进阶参考](/zh-cn/usage-guide) |
+| 核对外部请求目标、发送数据与关闭方式 | [网络访问与第三方服务](/zh-cn/network-access) |
+| 排查启动、连接、Cookie 或下载故障 | [常见问题](/zh-cn/faq) |
+| 安装、更新、启停或修复插件 | [插件管理](/zh-cn/plugin-management) |
+| 编辑页面布局、样式与自定义组件 | [页面编辑器](/zh-cn/page-editor) |
+| 为登录等表单配置在线或离线验证码 | [操作验证码](/zh-cn/captcha) |
 
-?> Windows 安装包与 Java 标准包预置默认安装的官方插件集合，其中包含必需的 `download-workbench` 和默认 `gui-swing` provider，不含按需安装的 `douyin` 与 `gui-compose`；离线全量包会额外携带二者。画廊、小说、统计、疑似重复、TTS、AI、通知、推送、邮件和桌面 GUI provider 均保持为独立官方插件。
+## 开发与参与
 
----
+- [第三方插件 SDK](/zh-cn/plugin-development)：使用模板创建工程、接入扩展契约、签名与投稿。
+- [主仓库开发](/zh-cn/development)：准备环境、构建、测试与提交 PR。
+- [SDK 下载](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) · [版本化 API 参考](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)
 
-## 新手入门
+## 版本与求助
 
-第一次使用？按以下顺序阅读：
+从 [GitHub Releases](https://github.com/Sywyar/PixivDownloader/releases) 下载发行包，在 [CHANGELOG](https://github.com/Sywyar/PixivDownloader/blob/master/CHANGELOG.md) 查看变更记录。排障后仍未解决时，在 [Issues](https://github.com/Sywyar/PixivDownloader/issues) 提交版本、复现步骤、实际结果与脱敏日志（勿包含 Cookie、密码或令牌）。
 
-1. **[📥 安装与启动](/zh-cn/installation)** — 下载安装，环境要求
-2. **[⚙️ 首次配置](/zh-cn/first-setup)** — 设置管理员账号、运行模式、代理
-3. **[⬇️ 第一次下载](/zh-cn/first-download)** — 完整的入门下载教程
+默认 Web 地址为 `http://localhost:6999/`。可用页面取决于已启用插件；出现恢复页时，先检查必需插件与所选数据库状态。
 
----
-
-## 按需查看
-
-| 我想要… | 查看 |
-|---------|------|
-| 下载我的 Pixiv 收藏 | [快捷获取](/zh-cn/quick-access) |
-| 粘贴链接批量下载 | [URL 批量下载](/zh-cn/batch-download) |
-| 下载某位画师的全部作品 | [画师批量下载](/zh-cn/user-download) |
-| 按关键词搜索下载 | [搜索下载](/zh-cn/search) |
-| 下载小说/合订 EPUB | [小说下载](/zh-cn/novel) |
-| 整理和浏览已下载作品 | [作品画廊](/zh-cn/gallery) |
-| 定时自动下载新作品 | [计划任务](/zh-cn/scheduled-tasks) |
-| 在 Pixiv 网页上直接下载 | [油猴脚本](/zh-cn/userscripts) |
-| 查看所有配置项说明 | [配置参考](/zh-cn/configuration) |
-| 了解文件存在哪里、如何搬迁备份 | [存储原理](/zh-cn/storage) |
-| 解决常见问题 | [常见问题](/zh-cn/faq) |
-
----
-
-## 项目信息
-
-| 项目 | 详情 |
-|------|------|
-| **作者** | [Sywyar](https://github.com/Sywyar) |
-| **许可证** | [GNU AGPL v3](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE) |
-| **语言** | 中文 / English |
-| **Java 版本** | 17 |
-| **框架** | Spring Boot 3.5.7 |
-| **数据库** | SQLite (WAL 模式) |
-| **默认端口** | 6999 |
-
-## 免责声明
-
-本项目仅供个人学习和研究使用，请勿用于商业用途。使用本工具下载的内容版权归原作者所有，请尊重创作者权益。本工具通过用户自行提供的 Cookie 访问 Pixiv，使用者需自行承担账号风险。本项目与 Pixiv 官方无任何关联。请合理设置下载间隔，避免对 Pixiv 服务器造成过大压力。
+本项目由 [Sywyar](https://github.com/Sywyar) 维护，采用 [AGPL-3.0](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE) 及随附的[插件链接例外](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt)。下载作品的著作权归原作者所有，项目与 Pixiv 无隶属关系；请遵守服务条款并合理控制请求频率。

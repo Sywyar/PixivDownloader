@@ -2,6 +2,8 @@
 
 The official `pixiv-batch-downloader-import` plugin and its companion userscript automatically add new PixivBatchDownloader downloads to the local gallery: illustrations, manga, animations and novels. Configure the download directory once; subsequent downloads need no manual import. Original files are referenced in place and retained when gallery records are deleted.
 
+The browser and server must run on the same machine, with the server in solo mode. The script connects only to the local server and uses userscript storage for pending observations. **Allow access to file URLs** is not required. Downloads completed before installation are not scanned.
+
 ## Setup
 
 Standard distributions do not preinstall this plugin. The full offline bundle includes it.
@@ -13,19 +15,23 @@ Standard distributions do not preinstall this plugin. The full offline bundle in
 5. Refresh any open Pixiv pages. The script uses the local host, protocol and port of its installation source. A manually saved address takes priority; change it through **Set local server address** in the userscript menu. Direct source-file installations default to `http://localhost:6999`.
 6. Keep the local backend running, then crawl and download with PixivBatchDownloader. Once every file in a work finishes downloading, the work is added to its gallery automatically. No JSON copying or pasting is needed.
 
-The browser and server must run on the same machine, with the server in solo mode. The script connects only to the local server and uses userscript storage for pending observations. **Allow access to file URLs** is not required. Downloads completed before installation are not scanned.
+When no directory is configured, the first complete success report with absolute paths prompts desktop confirmation. The app requests focus and opens a directory dialog in settings. Confirm the candidate or choose a root that will contain future downloads. **Save directory** writes the setting and allows automatic retries to import pending works. Cancel saves nothing and the same report does not repeatedly open the dialog; you can choose a directory later in settings. Relative paths, operation without a GUI, or unsafe candidates require manual configuration. Paths are validated before display, at confirmation and during import; symbolic links and junctions are rejected.
 
-When no directory is configured, the first complete success report with absolute paths prompts desktop confirmation. The app requests focus and opens a directory dialog in settings. Confirm the candidate or choose a root that will contain future downloads. **Confirm and save** writes the setting and allows automatic retries to import pending works. Cancel saves nothing and the same report does not repeatedly open the dialog; you can choose a directory later in settings. Relative paths, operation without a GUI, or unsafe candidates require manual configuration. Paths are validated before display, at confirmation and during import; symbolic links and junctions are rejected.
+The suggested folder is the common parent of this work’s downloaded files, so it may be a folder for one work. The external download root is the actual save folder with the relative download path configured in PixivBatchDownloader removed. For example, if the file is `D:/Downloads/pixiv/artist/123_p0.png` and the download path is `pixiv/artist`, choose `D:/Downloads`.
+
+## When a completed download is missing
 
 After installing, enabling or disabling the script, check its status in Tampermonkey and refresh both the download page and Pixiv. If a completed download is missing from the gallery, open **Automatic import status** in the userscript menu on Pixiv. `SOURCE_ROOT_REQUIRED` means you need to confirm the candidate or choose a download directory in settings. For `SERVER_UNAVAILABLE`, check that the backend is running and the server address is correct.
 
 Pending observations survive page reloads in userscript storage. They retry while a Pixiv page is open; the status menu shows pending, incomplete and blocked work. Missing metadata, skipped pages and conflicting paths are not treated as successful works. Crawl again to collect complete evidence. The script neither scans historical download folders nor changes the downloader's state.
 
-## Files and limits
+## Import statistics and backup
 
 The desktop home overview shows **Imported works**, the cumulative number of unique works successfully imported by this plugin. A multi-page manga counts as one work; illustrations and novels with the same ID count separately. The total survives restarts and gallery deletion. Existing records, failed imports and skipped downloads do not add to it. Works registered before statistics were enabled are not counted retroactively. Include the plugin's `data/pixiv-batch-downloader-import/plugin.db` in backups to retain this history.
 
 If a statistics write fails temporarily, the overview reports it as unavailable. The next userscript retry saves the pending count before acknowledging success. Gallery registration and statistics use separate transactions; forcibly terminating the process between them can leave an import uncounted.
+
+## File formats, read-only references and limits
 
 Files must be ordinary files under the configured root; custom names and subdirectories are supported. Links, junctions and paths outside that root are rejected. Supported formats are JPEG, PNG, WebP and GIF images; WebP, GIF, APNG, WebM, MP4 and ZIP animations; and TXT or EPUB novels. Novel text comes from the same crawl. ZIP thumbnails read only the first image entry.
 
@@ -60,6 +66,8 @@ The same format and read-only reference rules above apply. Matching file content
 1. Keep the local backend running and save the original files root as **External download directory** in the plugin settings. Install or update the companion script, refresh Pixiv, and sign in to an account that can access the works.
 2. Open the original Pixiv site in the same browser and profile used by PixivBatchDownloader. Pause external downloads. In the Tampermonkey menu choose **Read browser download history**, then **Read and check**, and wait for the local preview. No history export or file selection is needed.
 3. Check candidate, existing, missing and conflicting counts, then choose **Start import**. The browser retrieves work metadata one item at a time; the local server verifies and registers the files. Pixiv cookies stay in the browser.
+
+During import, the status, percentage ring and action buttons remain visible while check details scroll separately. The percentage is processed works divided by the task total. Imported, skipped and failed counts stay separate; 100% means processing has finished, not that every work was imported.
 
 The preview shows check results for up to 100 works. With zero candidates, checking is complete and **Start import** stays disabled; there is nothing to wait for. Missing or conflicting results do not necessarily mean files were moved. Check that the configured root plus each record's relative path `n` matches the actual file, and check filenames and page completeness. Once the session is released, **Read and check** is available again. If release fails, the result is shown as unconfirmed.
 

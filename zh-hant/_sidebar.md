@@ -25,6 +25,7 @@
   - [🌐 網絡訪問與第三方服務](/zh-hant/network-access)
   - [🧰 第三方插件 SDK](/zh-hant/plugin-development)
   - [💾 存儲原理](/zh-hant/storage)
+  - [進階使用指南](/zh-hant/usage-guide)
   - [❓ 常見問題](/zh-hant/faq)
   - [🛠️ 開發指南](/zh-hant/development)
 
@@ -32,6 +33,8 @@
 
 - [簡體中文](/zh-cn/)
 - [🇺🇸 English](/en/)
+- [繁體中文](/zh-hant/)
+- [日本語](/ja/)
 - [한국어](/ko/)
 - [GitHub](https://github.com/Sywyar/PixivDownloader)
 - [Releases](https://github.com/Sywyar/PixivDownloader/releases)

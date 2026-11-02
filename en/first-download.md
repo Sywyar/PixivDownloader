@@ -1,6 +1,6 @@
 # First Download
 
-This tutorial walks through your first complete download using the most common scenario.
+Start with one Pixiv illustration, enter its link, download it, and confirm it in the gallery. Example IDs illustrate the format; replace them with a work you can access. Links to novel, artist and batch downloads follow below.
 
 ## Prerequisites
 
@@ -22,7 +22,7 @@ You can **skip** the guide at any time, or replay it via the "**Guide**" button 
 
 ?> The **name** you enter in the guide is saved and used for the user card at the bottom of the gallery / novel gallery sidebar and for the greeting in system emails (scheduled-task notifications, mail tests); when left empty it falls back to "administrator."
 
-The steps below are the manual version of the same flow — whether you follow the guide or do it yourself, you'll complete your first download.
+You can also skip onboarding and follow the steps below manually.
 
 ---
 
@@ -36,7 +36,7 @@ http://localhost:6999/pixiv-batch.html
 
 The new workbench, `pixiv-batch-alt.html`, opens by default on first use. Your saved choice of classic or new layout is preserved and can be changed on the download page. Both page addresses follow that saved preference.
 
-In **Solo mode** a login dialog will appear. Enter the admin credentials you set during first-time setup.
+When asked to sign in, use the local administrator account created during [setup](/en/first-setup).
 
 ?> If you don't remember the address, open GUI → Status page → click the "Batch Download" shortcut button.
 
@@ -58,7 +58,7 @@ Pick any method below — all of them yield a usable result. Just choose whichev
 
 ?> The backend only actually needs `PHPSESSID` (a normal logged-in Pixiv `PHPSESSID` looks like `12345678_xxxxxxxx`). A full cookie works too, but `PHPSESSID` alone is enough.
 
-#### Method 1: Cookie-Editor Extension (Simplest)
+#### Method 1: Cookie-Editor extension
 
 1. Install the [Cookie-Editor](https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm) browser extension (Chrome/Edge)
 2. Click the Cookie-Editor extension icon
@@ -99,12 +99,12 @@ Requires the "**Enhancement Toolbox**" userscript:
 
 > The manual paste steps below apply to Methods 1/2/3; Method 4 (One-Click Import) sends it back automatically.
 
-1. On `pixiv-batch.html`, locate the "**Cookie**" card (gray collapsible card) at the top, click to expand
+1. Find and expand **Cookie** settings on the download page; its position differs between layouts
 2. Set the format to match how you obtained it: Method 1 (Cookie-Editor export) → **Netscape**; Methods 2, 3 (DevTools) → **Header String**
 3. Paste the copied content
 4. Click "**Save Cookie**"
 
-?> Cookies are long-lived — typically only need re-fetching every few months. Logging out of Pixiv or changing your password invalidates the cookie immediately.
+Pixiv determines whether a cookie remains valid. If the app reports an expired session, confirm that you can sign in through the browser, then obtain and save a new cookie. Keep cookies out of screenshots, logs and issue reports.
 
 ---
 
@@ -122,10 +122,10 @@ Or just copy the numeric ID part (`12345678`).
 
 ### Paste and Download
 
-1. On `pixiv-batch.html`, switch to the "**🎨 Batch Import Single Artworks**" tab at the top
+1. Select **Batch Import Single Artworks** on the download page
 2. Paste the URL in the text box (one per line, can paste multiple at once)
 3. Click "**Fetch Info**" — wait a few seconds, the artwork preview will appear
-4. After confirming the info is correct, click "**Start Download**"
+4. Confirm the work, add it to the queue as required by the current layout, then click **Start Download**
 
 ---
 
@@ -145,7 +145,7 @@ Once the download starts, task entries appear in the "**Download Queue**" area b
 
 ## Step 5: Find the Downloaded Files
 
-After the download finishes, files are saved in the `pixiv-download/` folder under the **program working directory**:
+Check the actual download directory on the desktop status page. The default configuration uses `pixiv-download/` under the process working directory. The example below shows that default layout; collection or plugin settings may select another location:
 
 ```
 (program directory)/
@@ -158,17 +158,17 @@ After the download finishes, files are saved in the `pixiv-download/` folder und
 
 **Where is the program directory?**
 
-- **Windows installer**: the directory chosen during installation, default `C:\Users\<Username>\PixivDownload\`
+- **Windows installer**: the directory selected during installation; use the actual working and download directories shown in the desktop app
 - **JAR package**: the folder where you ran the `java -jar` command
 - **GUI mode**: displayed in GUI → Status page → "Download Directory" field
 
-?> You can change the save location by modifying `download.root-folder` in `config.yaml`; absolute paths are supported.
+The download root is `download.root-folder` in `config/config.yaml`; a collection may select its own directory. To relocate existing files, follow [storage](/en/storage). Changing configuration alone does not move files.
 
 ---
 
 ## Step 6: Browse in the Gallery
 
-Open the gallery page to view all downloaded artworks (supports search, filter, collections, etc.):
+With the `gallery` plugin enabled, open the gallery to check the work you just downloaded:
 
 ```
 http://localhost:6999/pixiv-gallery.html

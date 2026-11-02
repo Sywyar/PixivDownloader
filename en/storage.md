@@ -13,7 +13,7 @@ PixivDownloader separates downloaded works, host runtime files, and installed ex
 | Logs | `log/` | GUI and backend logs |
 | Downloaded works | `{rootFolder}/` | Artifacts selected by `download.root-folder` |
 
-`download.root-folder` defaults to the relative path `pixiv-download`. It contains works, work metadata sidecars, and temporary export archives only. Configuration, databases, plugin packages, state, and caches do not belong there.
+`download.root-folder` defaults to the relative path `pixiv-download` and stores work files. Work registration and per-page media records live in the selected database. Configuration, databases, plugin packages, state and caches do not belong in the work directory.
 
 ## Working-directory layout
 
@@ -47,12 +47,13 @@ Deleting state does not always mean harmless regeneration. It can require setup 
 | --- | --- |
 | `data/pixiv_download.db` | Main SQLite database; `-wal` / `-shm` files may exist while running |
 | `data/collection_icons/{id}.{ext}` | Custom collection icons |
-| `data/gallery_thumbs/{artworkId}/p{n}.{ext}` | Rebuildable gallery thumbnail cache |
+| `data/gallery_thumbs/{artworkId}/p{n}-{edge}.{ext}` | Rebuildable gallery thumbnail cache |
 | `data/tts/chromium-version.txt` | TTS plugin Edge TTS Chromium-version cache |
 | `data/novel/narration-voice/{castId}/{characterId}.{ext}` | Novel-plugin character reference audio |
 | `data/backfill/unreachable.json` | Backfill tool's unreachable-work record |
 | `data/install_identity.txt` | Installation UUID generated once and permanently reused |
-| `data/delete-staging/{operationId}/` | Atomic rollback staging for work deletion |
+| `data/delete-staging/` | Persistent recovery backups for file deletion and publication; not disposable cache |
+| `data/database-migrations/` | Database-switch reports, configuration snapshots, and source/destination backups |
 | `data/{pluginId}/` | Owner data root obtained through `RuntimePathProvider`; created on demand |
 
 The main database stores work facts, path references, history, and domain data written by installed features. Plugin-private tables remain owned by their plugin's schema and lifecycle. Do not copy only the `.db` file while leaving an active WAL behind; shut the application down normally before backup.
@@ -86,7 +87,7 @@ Common paths are below. A plugin may define a more detailed layout inside its ow
 | `{root}/douyin/{owner}/...` | Douyin plugin's default output |
 | `{root}/_archives/{token}.zip` | Short-lived multi-mode quota and gallery export archives |
 
-Pixiv work metadata and per-page media format records are stored in `data/pixiv_download.db`. New downloads do not create `.meta.json` or `.media.properties`. Metadata comes from responses already fetched and preserves page details, original URLs, upload times, and translations without extra Pixiv requests. Back up or move the database together with the media files; the gallery cannot rebuild work records from files alone. Existing sidecars are not automatically deleted in bulk. Saving a Ugoira ZIP still includes its `.frames.properties` frame timing file.
+Pixiv work metadata and per-page media format records are stored in the selected database (by default, SQLite at `data/pixiv_download.db`). New downloads do not create `.meta.json` or `.media.properties`. Metadata comes from responses already fetched and preserves page details, original URLs, upload times, and translations without extra Pixiv requests. Back up or move the database together with the media files; the gallery cannot rebuild work records from files alone. Existing sidecars are not automatically deleted in bulk. Saving a Ugoira ZIP still includes its `.frames.properties` frame timing file.
 
 Douyin derives its default root from `DownloadSettings.getRootFolder()` plus `douyin`, then isolates output by request owner. A non-empty `douyin.download.directory` plugin setting replaces that root. The obsolete `data/douyin/downloads` path is not used. A collection may also select a work root outside the default download root.
 
@@ -114,6 +115,8 @@ When the download root is absolute, records use regular `{N}` prefixes. After mo
 
 ## Relocation
 
+This section covers work-directory relocation. Switching between SQLite and PostgreSQL requires a separate database check and migration; see [configuration](/en/configuration). Moving directories or directly editing connection settings does not copy database contents.
+
 ### Move the whole distribution
 
 Keep `download.root-folder` relative, shut down the application, and move the entire distribution directory. Start it through the launch script in the new location so the working directory, runtime files, and `{0}` move together.
@@ -137,6 +140,8 @@ A complete backup should include:
 - `plugins/`, preserving third-party/on-demand artifacts, signatures, and provenance;
 - `download.root-folder` and any other work directories selected by collections or plugin settings.
 
+With PostgreSQL, also back up the server database and plugin-private schemas. Copying local `data/` is not a substitute for a server database backup. Retain recovery material in `data/database-migrations/` and `data/delete-staging/` until the corresponding transaction state is understood.
+
 `log/` is usually needed only for troubleshooting. `data/gallery_thumbs/` and `plugins/runtime/` are rebuildable, but including them in a whole-directory backup is harmless.
 
-On restore, preserve the relative layout or use the migration tool for absolute roots. Encrypted credentials also depend on the credential master key that produced their envelopes. Confirm key compatibility before restoring across builds or deployments; otherwise re-enter credentials in the target environment.
+After restoring, check administrator login, gallery and novel records, file access, schedule settings and a new download. Imported works reference external source files, so retain those source directories too. Preserve the relative layout or use the migration tool for absolute roots. Encrypted credentials also depend on the credential master key that produced their envelopes. Confirm key compatibility before restoring across builds or deployments; otherwise re-enter credentials in the target environment.

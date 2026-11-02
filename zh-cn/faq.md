@@ -1,314 +1,126 @@
 ﻿# 常见问题 (FAQ)
 
+按故障症状查找诊断与处理步骤。涉及数据库、账号或目录的操作前，请先确认实际工作目录并保留备份。下文命令中的 `APP.jar` 请替换为发行包内的实际主程序 JAR 名称，并在完整解压目录中执行。
+
 ## 安装与启动
 
-### Q: 启动提示「Java 不是内部或外部命令」
+### 提示「Java 不是内部或外部命令」
 
-**A**: 需要安装 Java 17+。从 [Adoptium](https://adoptium.net/) 下载安装后，重启终端或手动配置 `JAVA_HOME` 和 `PATH` 环境变量。
+未安装 Java 17+ 或未加入环境变量。从 [Adoptium](https://adoptium.net/) 安装 Java 17+ 后重新打开终端，或检查 `JAVA_HOME` 与 `PATH`。
 
-### Q: 启动后中文乱码
+### 启动后控制台中文乱码
 
-**A**: 启动命令必须添加 `-Dfile.encoding=UTF-8` 参数：
-
-```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar
-```
-
-### Q: 提示端口 6999 已被占用
-
-**A**: 有两种方式解决：
-1. 关闭占用 6999 端口的程序
-2. 修改 `config.yaml` 中的 `server.port` 为其他端口（需重启生效）
-
-### Q: Windows 安装包安装失败
-
-**A**:
-1. 确保安装前已关闭正在运行的 `PixivDownload.exe`
-2. 检查是否有旧版 MSI 残留（安装器会自动处理迁移）
-3. 以管理员身份运行安装器
-
-### Q: 如何卸载？
-
-**A**: 
-- **安装包版本**：再次运行安装器，选择「卸载」；或通过 Windows「设置 → 应用」卸载
-- **JAR 版本**：直接删除程序目录即可
-
-### Q: 如何重新初始化（重置所有设置）？
-
-**A**: 停止服务后删除 `state/setup_config.json`，再以 `--setup` 重新初始化（或在 GUI 模式下走「首页」引导）。注意：这不会删除已下载的文件和数据库。
-
-### Q: 服务器 / Docker 上首次启动总是退出，提示要先 setup？
-
-**A**: 从 v1.10.0 起，无头 / `--no-gui` 模式下若未完成首次初始化会拒绝启动，避免起一个没有任何配置入口的服务。请先用 CLI 完成初始化再启动服务：
+手动启动时加上 `-Dfile.encoding=UTF-8`（发行包自带的 `run.bat` / `run.sh` 已包含该参数）：
 
 ```bash
-# 交互式：依次输入用户名、密码、运行模式
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --setup
-
-# 自动化脚本：一次性传入（密码会出现在 shell 历史/进程列表）
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --setup \
-    --username=admin --password='YourPassword123' --mode=solo
+java -Dfile.encoding=UTF-8 -jar APP.jar
 ```
 
-完成后再正常 `--no-gui` 启动即可。详见 [使用指南 → CLI 管理命令](zh-Usage-Guide#cli-管理命令-v1100)。
+### 提示端口 6999 已被占用
 
-### Q: 管理员忘记密码了怎么办？
+先检查是否已有同一数据目录的 PixivDownloader 实例在运行（请勿对同一数据目录重复启动多个实例）。若被其他程序占用，停止该程序，或修改 `config/config.yaml` 中的 `server.port` 后重启。
 
-**A**: 先停止正在运行的 PixivDownloader，然后用 CLI 重置密码（不需要原密码）：
+### Windows 安装包安装失败
 
-```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --reset-password
+先关闭正在运行的 `PixivDownload.exe`，再以管理员身份重新运行安装器。
+
+### 如何卸载或重新初始化管理员账号
+
+- **卸载**：Windows 安装版通过安装器或系统「设置 → 应用」卸载；Java 解压版先按[存储与备份](/zh-cn/storage)备份作品目录、`config/`、`state/` 和 `data/`，再删除程序文件（切勿直接删除包含作品和数据库的整个工作目录）。
+- **忘记密码或重新初始化**：仅忘记密码时停止服务并执行 `--reset-password`。确需重建初始化状态时，停止服务并备份后移走 `state/setup_config.json`，再运行 `--setup` 或桌面引导（不会清空业务配置或重建数据库，详见[首次配置](/zh-cn/first-setup)）。
+
+### 服务器 / Docker 启动后立即以退出码 78 退出
+
+无头模式（`--no-gui`）未完成首次初始化时会以退出码 `78` 中止。先运行交互式初始化，再启动服务：
+
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --setup
+java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui
 ```
 
-向导会要求确认新密码（至少 6 位）。重置成功后所有现存的登录会话都会被注销，需要使用新密码重新登录。如果还记得当前密码、只是想换一个新的，用 `--change-password`（会校验当前密码）。
+### 管理员忘记密码
 
-### Q: 启动时提示「无法识别的启动参数」？
+停止正在运行的实例后，在本机运行重置命令（无需原密码，密码至少 8 位、建议 12 位以上，重置后旧会话全部失效；记得原密码时可用 `--change-password`）：
 
-**A**: 从 v1.10.0 起启动参数会做严格校验，拼错的 flag（如 `--no-guii`）、漏写 `=` 的参数（如 `--username admin`）或纯位置参数都会被拒绝。运行 `--help` 查看完整选项；`--key=value` 形式的参数仍然会作为 Spring 属性覆盖原样转发。
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --reset-password
+```
 
----
+### 提示「无法识别的启动参数」
+
+启动参数执行严格校验：拼写错误的开关（如 `--no-guii`）、漏写 `=` 的参数（如 `--username admin`）或孤立位置参数均会被拒绝。运行 `--help` 查看受支持选项。
 
 ## 代理与网络
 
-### Q: 代理配置后仍无法下载
+### 配置代理后仍无法下载
 
-**A**:
-1. 确认代理配置已保存（GUI 保存或 CLI `--setup` 配置后，代理**支持热重载**，立即生效，无需重启；直接手动编辑 `config.yaml` 则需重启或在 GUI 点保存触发热重载）
-2. 验证代理是否可用：在浏览器中通过代理访问 `https://i.pximg.net/`
-3. 检查防火墙是否放行代理端口
-4. 提醒：代理用于全部对外访问（Pixiv、在线更新、下载 FFmpeg、在线 TTS），上述问题也会同样影响这些功能
+1. 确认代理已保存（桌面 GUI 保存或 CLI `--setup` 支持热重载；手动编辑 `config/config.yaml` 需重启或在 GUI 点击保存触发重载）。
+2. 在浏览器验证实际 Pixiv 作品页可访问，并查看 `log/latest.log` 中的失败主机与错误码。
+3. 检查防火墙是否放行代理端口，容器部署确认使用了 `host.docker.internal` 而非 `127.0.0.1`。
+4. 区分全局代理、计划任务独立代理、插件自有代理和浏览器直连请求，详见[网络访问与第三方服务](/zh-cn/network-access)。
 
-### Q: 多人模式部署在反向代理后，所有用户被限流
+### 多人模式在反向代理后所有用户共享同一限流
 
-**A**: 未配置可信代理时，后端只使用 TCP 源 IP。所有请求都来自同一个反代节点时，会共享同一限流身份。
+未配置可信代理时，后端按 TCP 源 IP 限流。在 `config/config.yaml` 的 `server.trusted-proxy-cidrs` 中填入实际反代出口或容器网段（如 `172.18.0.0/16`），并让反代传递完整的 `Forwarded` 或 `X-Forwarded-For` + `X-Forwarded-Proto` + `X-Forwarded-Host`，详见[配置参考中的 HTTPS 与反向代理](/zh-cn/configuration#https-与反向代理)。
 
-**解决方案**：把实际反代出口地址或容器网段加入 `server.trusted-proxy-cidrs`，并让反代为每个请求发送完整的 `Forwarded`，或 `X-Forwarded-For` + `X-Forwarded-Proto` + `X-Forwarded-Host`：
+### 局域网其他设备无法访问
 
-```yaml
-server.trusted-proxy-cidrs: 172.18.0.0/16
-```
+确认防火墙已放行 `server.port`（默认 `6999`）、服务未仅绑定 `127.0.0.1`（Docker 默认仅绑定宿主机回环，需通过反向代理或调整映射开放），并在局域网设备访问 `http://<服务器IP>:6999/`。
 
-后端会使用规范化后的真实客户端地址限流。不要信任公网或客户端网段；转发头缺失或来源不受信时请求会返回 400。完整安全边界见[配置参考](/zh-cn/configuration#https-与反向代理)。
+## Cookie 与下载
 
-### Q: 局域网内其他设备无法访问
+### 搜索无结果或提示 Cookie 格式错误
 
-**A**:
-1. 确认防火墙放行 6999 端口
-2. 确认 `config.yaml` 中未限制绑定地址
-3. 浏览器访问 `http://<服务器IP>:6999/`
+- 搜索下载、快捷获取与 R-18 作品必须配置含有效 `PHPSESSID` 的 Cookie。
+- 粘贴时的格式选择（**Netscape** 或 **Header String**）必须与导出内容一致；普通前端脚本读出的 `document.cookie` 不含 HttpOnly 的 `PHPSESSID`，请按[第一次下载](/zh-cn/first-download#_2-保存-pixiv-cookie（按需）)重新获取。
+- 清除 Cookie 时需在下载页明确点击清除；计划任务持有独立的 Cookie 绑定，还需在对应任务中解绑。
 
----
+### 动图（Ugoira）无法转换或小说 EPUB 无封面
 
-## Cookie 相关
+- **动图**：确认 `ffmpeg -version` 可用（或从桌面 GUI「状态」页点击「下载 FFmpeg」），选 MP4 时还需 H.264 编码器。
+- **小说封面**：封面来自 `.pximg.net`，需确保后端代理可正常访问图片域，修复代理后重新下载该小说。
 
-### Q: Search 模式搜索不到结果
+### 听书的「在线引擎」没有声音或合成失败
 
-**A**: Search 模式需要 Pixiv Cookie。请确认：
-1. 已在 `pixiv-batch.html` 中正确粘贴 Netscape 格式的 Cookie
-2. Cookie 未过期（重新登录 Pixiv 后重新获取）
-3. 代理配置正确
+1. 在线引擎（Edge 神经语音）经后端代理连接微软服务，先确认 `proxy.*` 配置可用。
+2. 握手返回 403 时，后端会自动刷新 Edge 版本并校正时钟偏差重试；若持续失败，请校准本机系统时间。
+3. 可在播放栏切换为「浏览器引擎」。
+4. 邀请访客受 `guest-invite.tts-request-limit-minute`（默认每分钟 30 次）限流，超限返回 429；管理员不受此限制。
 
-### Q: Cookie 格式错误提示
+### 批量下载部分失败、文件名模板不生效或配额消耗快
 
-**A**: 请确保：
-1. 使用 Cookie-Editor 扩展的 **Netscape** 格式导出
-2. 在页面上切换到 **Netscape** 格式标签后再粘贴
-3. 不要手动修改 Cookie 内容
+- **部分失败**：检查作品是否已被作者删除/设为私有、Cookie 是否过期；遇到上游限流时降低并发数并增大作品间隔。
+- **文件名模板**：变量须加花括号（如 `{artwork_id}`），且仅对修改后的新下载生效（支持变量见[文件名模板变量](/zh-cn/usage-guide#文件名模板变量)）。
+- **多人模式多图配额**：`multi-mode.quota.limit-image` 大于 `0` 时，超过该页数的多图作品会按比例折算多个配额。
 
-### Q: 如何清除已保存的 Cookie？
+## 桌面 GUI 与数据库
 
-**A**: 
-- Solo 模式：在 `pixiv-batch.html` 点击清除 Cookie 按钮，或退出登录
-- 退出登录时会同步清除服务端保存的 Cookie
+### GUI 一直显示「启动中」、更新失败或报错弹窗
 
----
+- **启动缓慢**：超过 10 秒会显示等待秒数，可能正在执行数据库迁移或加载插件。请查看 `log/latest.log`，保留数据与日志，**切勿通过删除数据库来排查启动慢**。
+- **在线更新失败**：检查后端代理连接，或直接从 [Releases](https://github.com/Sywyar/PixivDownloader/releases) 下载新版安装包覆盖安装。
+- **错误详情**：点击弹窗中的「打开日志文件」查看 `log/latest.log` 中的完整英文诊断日志。
 
-## 下载相关
+### 数据库位置、损坏处理与备份恢复
 
-### Q: 动图 (Ugoira) 下载后无法播放
+- **位置**：默认 SQLite 位于 `data/pixiv_download.db`（伴随 `-wal` / `-shm`）；PostgreSQL 位于所配置的数据库服务器。
+- **数据库损坏**：先停止程序并完整备份原数据库与伴随文件，仅对**备份副本**执行 `PRAGMA integrity_check;`（该命令只检查不修复）。确认损坏后优先恢复已验证备份；作品识别、页数、路径与关联均以数据库为准，**丢失数据库后不能仅凭作品文件夹恢复画廊或保证跳过重下**。
+- **备份、迁机与升级**：完整备份范围与目录搬迁见[存储与备份](/zh-cn/storage)。Java 发行包升级时必须完整解压并同步替换主程序与 `plugins/`，保留 `config/`、`state/` 和 `data/`，切勿只替换单个主 JAR。
 
-**A**: 动图需要 ffmpeg 转换为 WebP 格式。请安装 ffmpeg 并确保在系统 PATH 中可用：
+## 油猴脚本与安全
 
-```bash
-ffmpeg -version
-```
+### 油猴脚本不显示、双面板或连不上后端
 
-Windows 安装包用户可在 GUI「状态」页点击「下载 FFmpeg」按钮。
+- 确认 Tampermonkey 与脚本已启用、当前页面匹配 `@match`（如 User Batch 仅在 `/users/` 生效），并刷新页面。
+- **双面板**：All-in-One 与独立下载脚本不要同时启用，保留其一即可。
+- **连不上后端**：确认后端已启动、单人模式已登录；非 `localhost:6999` 部署时须同时修改脚本内的后端地址并更新 `@connect` 许可，详见[油猴脚本](/zh-cn/userscripts)。
 
-### Q: 下载的小说 EPUB 封面不显示
+### 账号安全、身份隔离与 HTTPS
 
-**A**: 封面下载可能需要代理。确保：
-1. 代理配置正确
-2. 封面 URL 的 host 以 `.pximg.net` 结尾（SSRF 安全限制）
-3. 重新下载该小说
+- 本工具使用你提供的 Cookie 请求 Pixiv，请合理设置并发与间隔并遵守平台规则。
+- **身份区分**：`multi` 模式下未登录且无邀请码的用户为**游客**（按 UUID 与 `multi-mode.*` 隔离）；持邀请码的用户为**访客**（在 `solo` / `multi` 下均只读访问白名单内容，受 `guest-invite.*` 限流）。
+- **启用 HTTPS**：在 `config/config.yaml` 中设置 `server.ssl.enabled: true`、`server.ssl.certificate` 与 `server.ssl.certificate-private-key`（详见[配置参考](/zh-cn/configuration#https-与反向代理)）。
 
-### Q: 听书的「在线引擎」没有声音 / 提示合成失败
+## 提交问题反馈
 
-**A**: 在线引擎（Edge 神经语音）需要联网，请依次排查：
-1. **网络/代理**：在线合成经后端代理访问微软服务，确保代理可用（与下载共用 `proxy.*` 配置）
-2. **握手 403**：版本号过期时后端会自动联网拉取最新 Edge 版本、校正时钟偏差后重试，通常会自愈；若持续失败，检查本机系统时钟是否准确
-3. **改用浏览器引擎**：在播放栏「设置」里切换到「浏览器引擎」，完全离线、无需联网（前提是操作系统装了对应语言的语音包）
-4. **邀请访客被限流**：通过邀请链接访问的访客受 `guest-invite.tts-request-limit-minute` 约束（访客邀请在 solo/multi 下都可用），过于频繁会返回 429，稍后再试或让管理员调高该值；管理员本人不受限
-
-### Q: 批量下载时部分作品失败
-
-**A**: 常见原因：
-1. Cookie 过期 — 重新获取并保存 Cookie
-2. Pixiv 服务器限流 — 适当降低下载并发和频率
-3. 代理不稳定 — 检查代理服务
-4. 作品已被删除或设为私有 — 跳过错过的作品
-
-### Q: 自定义文件名模板不生效
-
-**A**: 检查模板语法：
-- 变量使用花括号 `{artwork_id}`
-- 不要使用不支持的变量名
-- 模板结果不能包含非法文件名字符（会自动 sanitize）
-- 修改模板后，新下载的作品才会使用新模板，已有作品文件名不会改变
-
-### Q: 动图下载占用大量配额
-
-**A**: 多人模式下，可在 `config.yaml` 配置 `multi-mode.quota.limit-image`。当一个作品的总图片数超过此值时，按多个配额计算：
-
-```yaml
-multi-mode.quota.limit-image: 10  # 超过10张图片的作品按比例消耗配额
-```
-
----
-
-## GUI 相关
-
-### Q: GUI 启动后服务一直显示「启动中」
-
-**A**: 启动超过 10 秒时会显示已等待秒数，可能正在更新数据库。如果长时间无响应：
-1. 查看 `log/latest.log` 日志文件
-2. 尝试删除数据库（如有备份）后重启
-3. 确认 Java 版本为 17+
-
-### Q: GUI 在线更新失败
-
-**A**:
-1. 检查网络连接
-2. 检查代理配置（更新下载复用代理配置）
-3. 可手动从 [Releases](https://github.com/Sywyar/PixivDownloader/releases) 下载安装包覆盖安装
-
-### Q: GUI 错误弹窗显示乱码
-
-**A**: GUI 错误弹窗已改为统一提示，详细错误信息记录在日志文件中。点击弹窗中的「打开日志文件」查看详细错误。
-
----
-
-## 数据库相关
-
-### Q: 数据库文件在哪里？
-
-**A**: 默认位于 `data/pixiv_download.db`。使用 SQLite WAL 模式，可用任意 SQLite 工具打开。
-
-### Q: 数据库损坏怎么办？
-
-**A**: 
-1. 停止程序
-2. 备份 `pixiv_download.db`、`pixiv_download.db-wal`、`pixiv_download.db-shm`
-3. 尝试用 SQLite 工具修复：`sqlite3 pixiv_download.db "PRAGMA integrity_check;"`
-4. 如无法修复，删除数据库文件并重启（已下载文件不受影响），但画廊数据会丢失
-
-### Q: 数据库丢了 / 迁移了，已经下载过的作品会被当作未下载重新拉取吗？
-
-**A**: 不会。重新下载某个作品时，若数据库无该作品的记录，但 `{下载根目录}/{作品ID}/` 下已存在按默认文件名模板（`{作品ID}_p{页号}.{扩展名}`，如 `123456_p0.jpg`）命名的图片文件，会按实际页数与扩展名反向恢复一条数据库记录、跳过重新下载，恢复后的作品在画廊中可像正常下载的作品一样浏览。
-
-注意：仅识别默认文件名模板命名的文件。如果你用过自定义文件名模板下载，那些文件不会被识别，仍会被当作未下载重新拉取；元数据（标题、作者、标签等）也无法离线恢复，画廊会按缺字段降级显示，可用「数据库数据回填工具」补全。
-
-### Q: 如何备份数据？
-
-**A**: 备份以下目录：
-- `data/` — 数据库文件
-- `pixiv-download/` — 下载的文件
-- `state/` — 运行状态
-- `config/` — 配置文件
-- `collection_icons/` — 收藏夹图标
-
----
-
-## 油猴脚本
-
-### Q: 脚本安装后不生效
-
-**A**:
-1. 确认 Tampermonkey 已启用
-2. 检查脚本是否在目标页面启用（`@match` 规则）
-3. 检查 Tampermonkey 管理面板中脚本是否显示为「已启用」
-4. 刷新 Pixiv 页面
-
-### Q: All-in-One 和独立脚本同时启用出现双面板
-
-**A**: 这是 Tampermonkey 平台的固有行为 — All-in-One 和独立脚本是不同脚本，存储互不相通。建议：
-- 只启用 **All-in-One 整合包**（推荐）
-- 或者只启用需要的独立脚本，禁用 All-in-One
-
-### Q: 脚本提示「后端不可用」或「未登录」
-
-**A**:
-1. 确认后端服务正在运行
-2. Solo 模式下确认已登录
-3. 非 localhost 部署时需修改脚本头部的 `@connect` 声明
-
----
-
-## 安全相关
-
-### Q: 使用此工具会导致 Pixiv 账号被封吗？
-
-**A**: 本项目通过用户自行提供的 Cookie 访问 Pixiv，使用者需自行承担账号风险。建议：
-- 合理设置下载频率和并发数
-- 避免短时间内大量请求
-- 遵守 Pixiv 使用条款
-
-### Q: 多人模式下访客能看到管理员的数据吗？
-
-**A**: 多人模式下：
-- 访客只能看到自己的下载状态
-- 管理员和 Solo 模式保留全局视图
-- 访客邀请模式下，访客只能浏览白名单范围内的作品
-- 收藏夹、历史、统计等数据按访问权限过滤
-
-### Q: 如何启用 HTTPS？
-
-**A**: 在 `config.yaml` 配置 SSL 证书：
-
-```yaml
-server.ssl.enabled: true
-server.ssl.certificate: /path/to/cert.pem
-server.ssl.certificate-private-key: /path/to/key.pem
-```
-
-推荐使用 PEM 格式。同时配置 PEM 和 JKS 时 PEM 优先。
-
----
-
-## 其他
-
-### Q: 如何迁移到新电脑？
-
-**A**: 复制以下目录到新电脑：
-1. `data/` — 数据库文件
-2. `pixiv-download/` — 下载的文件
-3. `state/` — 运行状态
-4. `config/` — 配置文件
-5. `collection_icons/` — 收藏夹图标（如有）
-
-### Q: 如何升级版本？
-
-**A**: 
-- **GUI 模式**：启动后自动检查更新，或在「状态」页手动检查
-- **JAR 版本**：下载新版本 JAR 覆盖替换
-- **Windows 安装包**：运行新版本安装器选择「修复」或直接覆盖安装
-- 数据库会自动迁移，无需手动操作
-
-### Q: 项目如何提供反馈和报告问题？
-
-**A**: 在 [GitHub Issues](https://github.com/Sywyar/PixivDownloader/issues) 提交 issue，请包含：
-- 操作系统和版本
-- PixivDownloader 版本（GUI「关于」页查看）
-- 问题描述和复现步骤
-- 相关日志（`log/latest.log`）
-- 截图（如有）
+在 [GitHub Issues](https://github.com/Sywyar/PixivDownloader/issues) 反馈问题时，请附上操作系统、程序版本、复现步骤、相关截图以及去除 Cookie、密码、令牌和私人地址后的 `log/latest.log`。

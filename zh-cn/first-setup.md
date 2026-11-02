@@ -1,153 +1,67 @@
 # 首次配置
 
-?> 仅首次启动时需要完成此步骤。配置保存后，之后启动会直接进入主界面。
+首次配置用于创建 PixivDownloader 本程序的管理员账号，并设置后端访问外部服务时使用的 HTTP 代理。Pixiv 登录 Cookie 在进入下载页后另行保存。
 
-## 配置入口速查
+完成[安装与启动](/zh-cn/installation)后，按运行环境选择初始化方式：
 
-| 启动方式 | 配置入口 |
-|---------|---------|
-| 桌面 GUI（默认） | GUI「首页」引导向导 |
-| 本机浏览器 + `--no-gui` 启动 | 自动打开 `http://localhost:6999/setup.html` |
-| 服务器 / Docker（无桌面） | 命令行 `--setup` 参数 |
+| 运行环境 | 初始化入口 | 初始化后操作 |
+| --- | --- | --- |
+| 本机桌面 | 桌面首次引导，或本机浏览器访问 `http://localhost:6999/setup.html` | 打开下载页并登录 |
+| 无桌面服务器（`--no-gui`） | 先运行 `--setup` | 再以 `--no-gui` 启动 |
+| Docker | 先运行 `docker compose run --rm app --setup` | 再运行 `docker compose up -d` |
 
----
+## 桌面或本机浏览器初始化
 
-## 方式一：GUI 引导向导（推荐桌面用户）
+1. 启动程序并等待后端就绪。若提示缺少必需插件或数据库不可用，先按[插件管理](/zh-cn/plugin-management)修复，重新初始化账号不会解决插件或数据库故障。
+2. 设置管理员用户名与密码。密码至少 8 位，建议 12 位以上；使用 8–11 位密码时需二次确认。
+3. 按实际网络填写 HTTP 代理主机与端口（如本机代理 `127.0.0.1` 与 `7890`）；可直连目标服务时可关闭代理。
+4. 保存后访问 `http://localhost:6999/pixiv-batch.html`，使用刚创建的管理员账号登录。
 
-安装并启动 PixivDownloader 后，GUI 主窗口会停留在「首页」标签，引导向导共 7 步，按提示操作即可。
+桌面与浏览器初始化界面固定使用自用模式（`solo`）。`setup.html` 仅允许本机回环访问；远程服务器或容器请使用下方 CLI 初始化。后续修改常规配置请在桌面「设置」页保存，代理与各插件网络路径的适用范围见[网络访问与第三方服务](/zh-cn/network-access)。
 
-### 第 1 步：等待服务就绪
+## 命令行初始化（服务器 / 无头模式）
 
-首页第一屏显示后端启动状态（实时呼吸灯指示）。
+进入完整解压后的发行目录，确认同一数据目录没有正在运行的实例。将下方 `APP.jar` 替换为实际主程序 JAR 名称：
 
-等待状态变为「**运行中**」（通常 5–15 秒）后，点「下一步」继续。
-
-### 第 2 步：设置管理员账号与运行模式
-
-在同一页中填写管理员**用户名**和**密码**（密码至少 6 位），并选择运行模式：
-
-| 模式 | 适用场景 | 特点 |
-|------|---------|------|
-| **自用模式 (Solo)** | 自己一人使用 | 需登录，下载设置保存在服务器 |
-| **多人模式 (Multi)** | 与他人共用一台服务器 | 访客无需登录，支持配额和限流 |
-
-?> 这是登录 PixivDownloader 网页界面用的账号，**与 Pixiv 账号无关**，可以随便起名。个人用户几乎都应该选「**自用模式 (Solo)**」。
-
-点「完成配置」后进入下一步。
-
-### 第 3 步：配置 HTTP 代理
-
-PixivDownloader 后端的 Pixiv 下载、更新检查、FFmpeg 下载以及部分插件请求会按宿主或任务级路由使用这个代理。浏览器直连、SMTP 和明确选择直连策略的请求不一定经过它；完整边界见[网络访问与第三方服务](/zh-cn/network-access)。
-
-- **有代理工具**（Clash、V2Ray 等）：填入代理地址，常见配置：
-  - 主机：`127.0.0.1`
-  - 端口：`7890`（Clash 默认）
-- **网络可直连 Pixiv**（非常少见）：关闭代理即可
-
-?> 代理配置支持热重载，之后可以随时在 GUI「配置」页修改，无需重启。
-
-### 第 4–7 步：引导说明
-
-向导依次引导你打开浏览器下载页（第 4 步）、浏览画廊（第 5 步）、了解高级功能（第 6 步），最后到达完成页（第 7 步），按需操作即可。
-
-走到最后「完成」页后，GUI「首页」标签会自动隐藏，下次启动直接进入「状态」页，引导不再重复运行。
-
-?> 如需重新走一遍向导，删除 `state/gui/` 下的进度与完成标记文件即可。
-
----
-
-## 方式二：浏览器 Setup 向导
-
-适用于以 `--no-gui` 启动、但本机有浏览器的场景（例如只是想省内存、不想打开 GUI 窗口）。
-
-1. 启动服务：`java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui`
-2. 浏览器会自动打开 `http://localhost:6999/setup.html`
-3. 按页面提示填写账号、选择模式、配置代理，点「完成配置」
-
-!> `setup.html` **只允许本机浏览器**访问，在远程电脑的浏览器里无法打开。
-
----
-
-## 方式三：CLI 命令（服务器 / Docker）
-
-适用于没有图形界面或桌面浏览器的服务器 / Docker 环境。
-
-### 交互式初始化（推荐）
-
-```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --setup
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --setup --mode=solo
 ```
 
-依次输入（密码输入时不显示字符）：
-1. 管理员用户名
-2. 密码（至少 6 位）
-3. 确认密码
-4. 运行模式（输入 `solo` 或 `multi`）
-5. 是否启用 HTTP 代理（`y`/`n`）
-6. 代理主机和端口（选 `y` 时填写）
+按提示输入管理员用户名、密码和代理设置。账号状态写入 `state/setup_config.json`，代理设置写入 `config/config.yaml`。完成后启动无头服务：
 
-初始化完成后正常启动服务：
-
-```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --no-gui
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui
 ```
 
-### 非交互式（自动化脚本）
+自动化脚本可一次性传入全部参数（请将密码与代理替换为实际值；命令行参数会出现在 Shell 历史和进程列表中）：
 
-```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --setup \
-    --username=admin \
-    --password='YourPassword' \
-    --mode=solo \
-    --proxy-enabled=true \
-    --proxy-host=127.0.0.1 \
-    --proxy-port=7890
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --setup --username=admin --password=REPLACE_WITH_A_UNIQUE_PASSWORD --mode=solo --proxy-enabled=true --proxy-host=127.0.0.1 --proxy-port=7890
 ```
 
-!> 密码会出现在 shell 历史和进程列表，只建议用于自动化环境。
+无需代理时使用 `--proxy-enabled=false`。CLI 仍支持 `--mode=solo` 或 `--mode=multi`；访客只读分享优先使用[进阶参考中的访客邀请](/zh-cn/usage-guide#访客邀请)。
 
-### Docker 场景
+## Docker 初始化
+
+按[Docker 安装说明](/zh-cn/installation#方式三：docker-部署)准备好镜像与挂载目录后，在 `docker-compose.yml` 所在目录执行：
 
 ```bash
-# 先初始化
-docker compose run --rm app --setup
-
-# 再常驻运行
+docker compose run --rm app --setup --mode=solo
 docker compose up -d
+docker compose logs -f app
 ```
 
-初始化完成前不要直接 `docker compose up`，否则容器会因检测到未初始化而以退出码 78 反复重启。
+容器内 `127.0.0.1` 指向容器自身；复用宿主机代理时，将代理主机填写为 `host.docker.internal` 并确认宿主代理允许该连接。未完成 `--setup` 就启动无头服务会以退出码 `78` 退出。
 
----
+## 确认结果与修改密码
 
-## 配置完成后
+用管理员账号登录下载页，确认工作台正常加载，再按[第一次下载](/zh-cn/first-download)测试下载。若保存或启动失败，保留报错并检查 `log/latest.log`、目录写权限、端口占用与数据库状态，不要靠反复删除初始化文件排障。
 
-访问 `http://localhost:6999/pixiv-batch.html` 即可开始使用。
+停止正在运行的实例后，可在发行目录修改或重置管理员密码：
 
-接下来推荐阅读 [第一次下载](/zh-cn/first-download) 了解基本下载流程。
-
----
-
-## 后续管理
-
-### 修改密码
-
-```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --change-password
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --change-password
+java -Dfile.encoding=UTF-8 -jar APP.jar --reset-password
 ```
 
-### 忘记密码
-
-先停止正在运行的服务，再执行（不需要旧密码）：
-
-```bash
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar --reset-password
-```
-
-重置成功后所有现存会话都会失效，用新密码重新登录即可。
-
-### 重新初始化
-
-停止服务后删除 `state/setup_config.json`，再重新运行 `--setup` 或在 GUI 走引导向导。
-
-?> 重新初始化**不会**删除已下载的文件和数据库，只重置账号和运行模式。
+`--change-password` 需验证原密码，`--reset-password` 用于忘记密码时本机强制重置。执行成功后现有登录会话全部失效，作品文件与数据库不受影响。仅在确实需要重建初始化状态时，才在停止程序并备份后移走 `state/setup_config.json` 重新执行 `--setup`。

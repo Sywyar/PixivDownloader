@@ -1,6 +1,8 @@
 # Scheduled Tasks
 
-Scheduled tasks let the backend **automatically discover and download** new works on a set interval — no manual operation needed each time.
+Scheduled tasks **discover and download** works at fixed intervals or Cron times while the backend is running. Each task saves a snapshot of its source, filters, and download settings; later changes on the download page do not update that snapshot. The browser may be closed, but the backend must remain running.
+
+The application host owns the scheduler and management API. Disabling the download workbench removes its pages, Pixiv sources and artwork executor. Tasks that need those capabilities suspend and retain their data and progress; tasks fully supported by other plugins continue. The scheduler rechecks and resumes tasks suspended because a source or executor was unavailable or quiesced once all required capabilities return. Manual, credential and policy suspensions still require explicit action.
 
 **Typical use cases:**
 - Following an artist and wanting to auto-download all their future new works
@@ -15,9 +17,10 @@ Scheduled tasks let the backend **automatically discover and download** new work
 ## Prerequisites
 
 1. **Logged in as admin**
-2. **A cookie containing `PHPSESSID` is configured** (some content requires login state)
+2. **The backend stays running and scheduling is enabled**
+3. Account-private sources and restricted content need a valid cookie containing `PHPSESSID` bound to the task
 
-!> Tasks without a bound cookie run in "restricted mode", downloading only all-ages public content and unable to access your private follows / bookmarks. To download R-18 content or your full follows list, configure a cookie first.
+!> Public sources can run anonymously where supported. Account-private sources suspend without valid credentials instead of running anonymously. Restricted content such as R-18 also requires an authorized session.
 
 ---
 
@@ -29,7 +32,7 @@ Scheduled tasks are **not created from a standalone form** — they snapshot you
 
 **Step 1: Enter Artist Download Mode**
 
-In `pixiv-batch.html`, switch to the "**👤 User Mode**" tab.
+Select "**👤 User Mode**" on the download page. Both page layouts use the same task settings.
 
 **Step 2: Enter the Artist Source**
 
@@ -37,7 +40,7 @@ Paste an artist profile URL in the input, e.g.:
 ```
 https://www.pixiv.net/users/123456
 ```
-Or just the numeric ID (`123456`).
+Or enter a numeric ID. `123456` only illustrates the format; use the actual artist ID.
 
 **Step 3: Configure Download Settings (Optional)**
 
@@ -45,7 +48,7 @@ Expand the "Download Settings" card and adjust as needed:
 - **Filename template**: default `{artwork_id}_p{page}`
 - **Collection**: which collection to download into
 - **Max concurrent**: how many works to download in parallel (default follows global setting)
-- **Artwork interval**: milliseconds to wait between works (suggested 500–2000, to avoid excessive requests to Pixiv)
+- **Artwork interval**: milliseconds to wait between works (for example, `1000` is one second; an interval does not guarantee avoiding upstream limits)
 - **Allow re-downloading deleted works**: works deleted through the gallery keep a [deletion mark](/en/gallery?id=deleting-artworks); by default (unchecked) scheduled tasks treat them as downloaded and skip; check to treat as not-downloaded and auto re-download each round. This setting is snapshotted with "Save as scheduled task"; tasks created by older versions get it backfilled as unchecked on first startup after upgrading
 
 **Step 4: Configure Extra Filters (Optional)**
@@ -67,7 +70,7 @@ Scroll to the bottom of the page and find the "**⏰ Save as Scheduled Task**" c
 4. (Optional) Check "**Use a dedicated proxy**" / "**Use a dedicated cookie**": assign this task its own HTTP proxy (`host:port`, e.g. `127.0.0.1:7890`) and cookie — the cookie input has a "**Use currently saved cookie**" shortcut button on the right; unchecked means using global proxy settings / auto-bound cookie respectively (see "[Dedicated Proxy/Cookie](#dedicated-proxycookie)" below)
 5. Click "**Create Task**"
 
-?> After successful creation, the page shows a notification. Switch to the "⏰ Scheduled" tab to see the newly created task.
+?> After creation, find the task under "⏰ Scheduled" and inspect its snapshot. Use "Run Now" once, review successful, skipped, and failed items, then check the next trigger time. If the task was created but proxy or cookie saving failed, finish configuring that task instead of creating a duplicate.
 
 ---
 
@@ -141,11 +144,11 @@ For sources that could pull a huge backlog at once, you can fill in a **first-ru
 Behavior splits by whether the source has a reliable "newest" ordering (the on-page hint auto-shows only the one matching the current source):
 
 - **First-run cap** (artist new works / followed users' latest / "newest sort + end page -1" search): **only the first run** fetches at most the newest N works; the watermark then advances to the newest, and later rounds only pick up newly posted works incrementally — older backlog is not back-filled. Use when you only want the most recent N and then keep tracking new posts.
-- **Per-run cap** (my bookmarks / collections / artist commission works / non-newest "end page -1" search): these sources have no reliable "newest" ordering, so the limit acts as a **per-run cap** — each run fetches at most N new works, draining the backlog over successive runs. **Set the limit to `0` if you want it to eventually fetch every work in full** (no per-run cap).
+- **Per-run cap** (my bookmarks / collections / artist commission works / non-newest "end page -1" search): these sources have no reliable "newest" ordering, so the limit acts as a **per-run cap** — each run fetches at most N new works, draining the backlog over successive runs. `0` removes the per-run quantity cap; source boundaries and filters still apply.
 
-Series and fixed-page search are inherently bounded, so the field is hidden for them.
+Fixed-page searches apply the quantity limit per run. `0` removes that limit but does not expand the selected page range; a first-page search never starts paging automatically. Series remain bounded by their membership. The UI shows the limits and explanations supported by each source.
 
-!> Setting the limit to `0` (full) means the first run may pull the source's entire backlog at once; for large sources this can still trigger an over-access warning, so the page asks you to confirm on save.
+!> Unlimited-page and multi-page sources can request a large backlog with `0`, so saving requires confirmation. A first-page search already has a page boundary and does not require that full-fetch confirmation. Already-downloaded works do not consume the admission limit; works skipped by filters do.
 
 ---
 
@@ -169,7 +172,7 @@ Each task card has a **status light** in the top-right corner:
 | **Run Now** | Execute once immediately without waiting for the timer |
 | **Dedicated Proxy/Cookie** | Open a dialog to bind / replace / clear the task's independent HTTP proxy and cookie |
 | **Enable / Disable** | Temporarily stop a task's timed trigger |
-| **Manual Pause / Resume** | Similar to "Disable", but visually differentiated on the status light |
+| **Manual Pause / Resume** | Cooperatively pause a task; resolve its suspension reason before explicitly resuming |
 | **View Snapshot** | View the source and filter configuration captured when the task was created |
 | **Edit** | Modify the task configuration (re-runs the creation flow) |
 | **Pending Retries** | View works in this task that have failed and are awaiting retry |
@@ -183,7 +186,7 @@ Each task card has a **status light** in the top-right corner:
 
 The "**Dedicated Proxy/Cookie**" button on each task card opens a dialog with two checkboxes:
 
-- **Use a dedicated proxy**: enter `host:port` (e.g. `127.0.0.1:7890`). When set, **all** of this task's Pixiv access during each run (work discovery, metadata, image / novel downloads, inbox overuse check) goes through this HTTP proxy; unchecked uses the global proxy settings. Useful for routing different tasks through different exits to spread the request sources.
+- **Use a dedicated proxy**: enter `host:port` (e.g. `127.0.0.1:7890`). When set, **all** of this task's Pixiv access during each run (work discovery, metadata, image / novel downloads, inbox overuse check) goes through this HTTP proxy; unchecked uses the global proxy settings. Use this to select the required network route; it does not remove Pixiv access limits.
 - **Use a dedicated cookie**: paste a cookie containing `PHPSESSID`, or click "**Use currently saved cookie**" on the right of the input to quickly fill in the one from the top Cookie card. Useful for running a task under a different Pixiv account. For security, a bound cookie is never echoed back — leaving it empty when already bound means keep unchanged, filling it in means replace.
 
 Unchecking an active checkbox and saving **clears** the corresponding setting (a confirmation dialog first explains the consequences): proxy falls back to global; unbinding the cookie switches the task to "restricted mode" (anonymous run, R-18 and other restricted content not visible; tasks like "My Bookmarks / Followed Users' New Works / Collections" cannot run).
@@ -192,7 +195,7 @@ The "**⏰ Save as Scheduled Task**" card has the same two checkboxes, so you ca
 
 If a task shows "restricted mode", it means no cookie is bound yet: click "**Dedicated Proxy/Cookie**" on the task card, check "Use a dedicated cookie", fill in (or quick-fill the currently saved) cookie, and save.
 
-When a cookie expires (Pixiv re-login or password change):
+When the task determines that its cookie has expired:
 - The task automatically stops and is marked "login expired" (red light)
 - A notification (email / push, requires the corresponding channel configured) is sent
 - After obtaining a valid cookie, re-bind it in the "Dedicated Proxy/Cookie" dialog to resume (submitting the exact same expired cookie is rejected)
@@ -201,7 +204,7 @@ When a cookie expires (Pixiv re-login or password change):
 
 ## Overuse Pause
 
-When Pixiv detects your account has been making too many requests, it sends an "overuse" inbox warning. PixivDownloader automatically detects this and pauses **all scheduled tasks for that account** to avoid getting banned.
+When Pixiv detects your account has been making too many requests, it sends an "overuse" inbox warning. PixivDownloader automatically detects this and pauses **all scheduled tasks for that account** to reduce further requests. This protection cannot guarantee avoiding account restrictions.
 
 At that point, a banner appears at the top of the task management tab with two recovery options:
 
@@ -231,9 +234,15 @@ Notification bodies never contain cookies / passwords or any credentials.
 
 ---
 
+## When a Task Does Not Run as Expected
+
+Check that the backend, task, and scheduling master switch are enabled, then read the status reason. Bind a valid cookie for credential suspension; use the banner for overuse suspension; restore the relevant plugin for unavailable capabilities; resolve individual works when user action is required. Replacing a cookie only clears credential suspension, not unrelated reasons.
+
+Editing a source or filter definition clears its incremental checkpoint. The next run discovers works again and deduplicates against local download facts. Each task holds its own cookie binding: clearing the download page cookie does not revoke all task credentials. Unbind credentials in the task explicitly.
+
 ## Related Configuration
 
-Scheduled task-related settings are under GUI "Config → Scheduled Tasks" or `schedule.*` in `config.yaml`:
+Scheduled task-related settings are under GUI "Config → Scheduled Tasks" or `schedule.*` in `config/config.yaml`:
 
 | Config Item | Description | Default |
 |-------------|-------------|---------|

@@ -21,6 +21,7 @@
   - [操作認証](/ja/captcha)
 
 - **リファレンス**
+  - [操作リファレンス](/ja/usage-guide)
   - [⚙️ 設定リファレンス](/ja/configuration)
   - [🌐 ネットワークアクセスとサードパーティサービス](/ja/network-access)
   - [💾 ストレージの仕組み](/ja/storage)

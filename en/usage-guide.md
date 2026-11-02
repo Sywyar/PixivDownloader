@@ -19,20 +19,20 @@ For detailed tutorials on common features, see the corresponding pages:
 
 ## Launch Parameters
 
-```bash
-# JAR launch
-java -Dfile.encoding=UTF-8 -jar PixivDownload-vX.X.X.jar
+Run commands from the fully extracted distribution directory. Replace `APP.jar` with the actual main application JAR filename. These single-line commands work in PowerShell and Bash.
 
-# Windows EXE launch
-PixivDownload.exe
-
-# Common parameters
---no-gui    # Disable desktop GUI (suitable for server/Docker)
---intro     # Open product intro page on startup
---help, -h  # Print help and exit
+```text
+java -Dfile.encoding=UTF-8 -jar APP.jar --help
+java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui
 ```
 
-?> The default-installed `gui-swing` provider launches unless `app.gui-provider` selects another active provider. Install `gui-compose` from a trusted plugin repository, select it under **Configuration → Interface**, then fully restart the application. `--no-gui` is recommended only for server scenarios.
+| Parameter | Purpose |
+|-----------|---------|
+| `--no-gui` | Do not start the desktop GUI; for servers or Docker |
+| `--intro` | Open the product introduction at startup |
+| `--help`, `-h` | Show help and exit |
+
+The Windows installation provides `PixivDownload.exe`. Distributions include both Compose and Swing; an empty `app.gui-provider` selects the default Compose provider. Fully restart after switching providers. Complete initialization before the first headless launch, or the process exits with code `78`.
 
 ### CLI Admin Commands
 
@@ -42,7 +42,7 @@ PixivDownload.exe
 | `--change-password` | Change admin password |
 | `--reset-password` | Force reset when password is forgotten |
 
-See [First-Time Setup](/en/first-setup) for details.
+These commands change admin state. Stop other instances using the same data directory first. Password changes and resets invalidate old sessions; verify login with the new password after restarting. See [First-Time Setup](/en/first-setup) for prompts, password requirements, and recovery.
 
 ---
 
@@ -70,7 +70,7 @@ Example: `{author_name}/{artwork_id}_p{page}` → saves files in subfolders by a
 
 ## Auto-Bookmark
 
-Check "**Auto-bookmark**" in download settings — after download completes, the backend automatically bookmarks the artwork via the Pixiv API using cookies.
+On the download web page, enable "**Auto-bookmark**" to bookmark completed works using the saved cookie. Userscripts perform bookmarking with the browser's Pixiv session instead; they do not forward `document.cookie` to the backend.
 
 !> Requires a saved valid cookie containing `PHPSESSID`. Bookmarking is best-effort — a bookmark failure will not cause the download task to fail.
 
@@ -82,7 +82,7 @@ Ugoira artworks are automatically detected and processed:
 
 1. Download ZIP frame package
 2. Extract frames and sort by filename
-3. Call `ffmpeg` to synthesize into a WebP animation
+3. Use `ffmpeg` to generate the selected animation or video format; see [Configuration](configuration.md) for supported choices
 4. Also save the first frame as a thumbnail (`_p0_thumb.jpg`)
 
 Requires `ffmpeg` available in the system PATH. Windows installer users can click "Download FFmpeg" on the GUI → Status page for automatic installation.
@@ -107,7 +107,7 @@ Visit `http://localhost:6999/monitor.html` for real-time monitoring:
 | **Database Directory Validator** | Check whether file paths in database records are still valid |
 | **Database Backfill Tool** | Fill in missing data fields from version upgrades |
 
-!> Database validator and backfill tools require exclusive SQLite access. The GUI automatically handles backend pause & resume — no manual service stop needed.
+!> Database tools need an exclusive maintenance session; the GUI manages backend stop and restart. Back up the selected database first and do not open another instance against the same data directory. The selected database provider must be available; PostgreSQL also requires a server database backup. Afterwards, check the report, backend status, and gallery access. Closing the tool window does not itself prove success.
 
 ---
 

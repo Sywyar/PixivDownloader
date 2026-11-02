@@ -1,76 +1,45 @@
-﻿# PixivDownloader Wiki
+# PixivDownloader documentation
 
-PixivDownloader is a **local batch download tool for Pixiv artwork**, built on Spring Boot 3.5.7 / Java 17, supporting three interaction modes: replaceable desktop GUI providers (default Swing + FlatLaf or optional Compose Multiplatform + Material 3), web interface, and Tampermonkey userscripts.
+PixivDownloader saves Pixiv illustrations, manga, animations and novels to your computer or server and organizes them in a local gallery. Use the desktop interface, browser download page or Tampermonkey scripts. For restricted works, supply your own Pixiv cookie.
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE)
-[![GitHub Release](https://img.shields.io/github/v/release/Sywyar/PixivDownloader)](https://github.com/Sywyar/PixivDownloader/releases)
+## First use
 
-?> Throughout this documentation, "artwork" includes illustrations, manga, animations (Ugoira), and novels.
+1. [Install and start](/en/installation): choose the Windows installer, a Java distribution or Docker deployment.
+2. [Complete setup](/en/first-setup): create this app's administrator account and configure the backend proxy.
+3. [Download your first work](/en/first-download): save a cookie, add a work, and check its files and gallery record.
 
----
+Compose is the default desktop interface; distributions also include Swing. Supported interface languages are Simplified Chinese, Traditional Chinese, English, Japanese and Korean. SQLite is the default database. To use PostgreSQL, install its database plugin, then check and migrate data through settings.
 
-## Core Features
+## Find your task
 
-| Feature | Description |
-|----|------|
-| ⚡ **Quick Fetch** | One-click pull your Pixiv bookmarks, follows, and collections |
-| 🎨 **Batch Import** | Paste artwork URLs / ID lists, supports mixing illustrations and novels |
-| 👤 **User Download** | Enter an artist ID or link to download all their works |
-| 🔍 **Search Download** | Built-in search proxy — keyword search, preview, then batch download |
-| 📚 **Series Download** | One-click download an entire manga / novel series, auto-follow updates |
-| ⏰ **Scheduled Tasks** | Background auto-discovery and download of new works on a schedule, fully hands-off |
-| 📖 **Novel Download** | TXT / HTML / EPUB formats, series compilation support |
-| 🎬 **Animation Conversion** | Ugoira auto-converted to WebP via ffmpeg |
-| 🖼️ **Artwork Gallery** | Local gallery with search, filter, sorting, and collection management |
-| 🧩 **Userscripts** | Operate directly on Pixiv pages — 6 dedicated scripts + All-in-One bundle |
-| 🌐 **Multi-language / Dark Mode** | Chinese & English, dark mode on all pages |
-| 👥 **Multi Mode** | Multi-user shared server with quota and rate limiting |
-| 🔗 **Guest Invite** | Share galleries via invite codes with content rating / tag / author allowlist control |
+| Task | Guide |
+| --- | --- |
+| Download your bookmarks, followed users' new works or collections | [Quick Fetch](/en/quick-access) |
+| Download a list of work links or IDs | [URL batch download](/en/batch-download) |
+| Get works by an artist | [Artist batch download](/en/user-download) |
+| Search Pixiv and select works to download | [Search](/en/search) |
+| Save novels, compile EPUBs, read, translate or listen | [Novels](/en/novel) |
+| Browse, filter, export or delete local works | [Gallery](/en/gallery) |
+| Follow artists, search results or series on a schedule | [Scheduled tasks](/en/scheduled-tasks) |
+| Use download helpers on Pixiv pages | [Userscripts](/en/userscripts) |
+| Add new PixivBatchDownloader downloads to the gallery | [Import support](/en/pixiv-batch-downloader-import) |
+| Change configuration, proxy, database or media formats | [Configuration reference](/en/configuration) |
+| Install, enable, disable or repair plugins | [Plugin management](/en/plugin-management) |
+| Understand network requests, sent data and disable controls | [Network access and third-party services](/en/network-access) |
+| Back up, restore or move work directories | [Storage](/en/storage) |
+| Use launch arguments, filename templates, maintenance tools or guest invitations | [Advanced usage](/en/usage-guide) |
+| Diagnose startup, connection or download failures | [FAQ](/en/faq) |
 
-?> The Windows installer and Java standard package contain the default-installed official plugin set, including required `download-workbench` and the default `gui-swing` provider. On-demand `douyin` and `gui-compose` are omitted; the full-offline package carries both. Gallery, novel, stats, suspected-duplicate detection, TTS, AI, notifications, push, mail, and desktop GUI providers remain separate official plugins.
+## Develop a plugin or contribute code
 
----
+- [Third-party plugin SDK](/en/plugin-development): choose an SDK, create a project, use extension contracts, sign packages and submit them.
+- [Main repository development](/en/development): prepare the environment, build, test and submit a pull request.
+- [SDK downloads](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) and [versioned API reference](https://sywyar.github.io/PixivDownloader-Plugin-SDK/).
 
-## New to PixivDownloader?
+## Releases and help
 
-First time? Read in this order:
+Get the app from [GitHub Releases](https://github.com/Sywyar/PixivDownloader/releases) and read release changes in the [CHANGELOG](https://github.com/Sywyar/PixivDownloader/blob/master/CHANGELOG.md). If troubleshooting does not resolve an issue, report it through [Issues](https://github.com/Sywyar/PixivDownloader/issues), including the version, steps, actual result and logs with credentials removed.
 
-1. **[📥 Installation](/en/installation)** — Download, install, system requirements
-2. **[⚙️ First-Time Setup](/en/first-setup)** — Set admin account, run mode, proxy
-3. **[⬇️ First Download](/en/first-download)** — Complete beginner download tutorial
+The default Web address is `http://localhost:6999/`. Available pages depend on enabled plugins. If a recovery page appears, check required plugins and database availability first.
 
----
-
-## Find by Need
-
-| I want to… | See |
-|------------|-----|
-| Download my Pixiv bookmarks | [Quick Fetch](/en/quick-access) |
-| Paste links for batch download | [URL Batch Download](/en/batch-download) |
-| Download all works by an artist | [Artist Batch Download](/en/user-download) |
-| Search by keyword and download | [Search Download](/en/search) |
-| Download novels / compile EPUB | [Novel Download](/en/novel) |
-| Organize and browse downloaded works | [Artwork Gallery](/en/gallery) |
-| Auto-download new works on a schedule | [Scheduled Tasks](/en/scheduled-tasks) |
-| Download directly on Pixiv pages | [Userscripts](/en/userscripts) |
-| See all configuration options | [Configuration Reference](/en/configuration) |
-| Understand where files go / backup & relocation | [Storage Principles](/en/storage) |
-| Solve common issues | [FAQ](/en/faq) |
-
----
-
-## Project Information
-
-| Item | Details |
-|------|------|
-| **Author** | [Sywyar](https://github.com/Sywyar) |
-| **License** | [GNU AGPL v3](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE) |
-| **Language** | 中文 / English |
-| **Java Version** | 17 |
-| **Framework** | Spring Boot 3.5.7 |
-| **Database** | SQLite (WAL mode) |
-| **Default Port** | 6999 |
-
-## Disclaimer
-
-This project is for personal learning and research only. Do not use for commercial purposes. Copyright of downloaded content belongs to the original creators — please respect their rights. This tool accesses Pixiv using cookies provided by the user; users bear their own account risks. This project is not affiliated with Pixiv in any way. Please set reasonable download intervals to avoid excessive load on Pixiv's servers.
+The project is maintained by [Sywyar](https://github.com/Sywyar). Software licensing is described in [AGPL-3.0](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE) and the accompanying [Plugin Linking Exception](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt). Downloaded content remains subject to its rights holders' permissions. The project is not affiliated with Pixiv. Follow content licenses and service rules, limit request frequency, and protect your cookies.
