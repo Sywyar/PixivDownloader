@@ -4,154 +4,49 @@
 
 [简体中文](./README.md) | [繁體中文](./README_zh-Hant.md) | [日本語](./README_ja.md) | 한국어 | [English](./README_en.md)
 
-> [!NOTE]
-> 이 문서에서 "작품"은 일러스트, 만화, 우고이라 및 소설을 포함합니다.
-
-### 소설, 만화 및 기타 작품 유형을 지원하는 Pixiv 로컬 일괄 다운로드 도구
-
-- 작품 링크로 작품 일괄 다운로드
-- 사용자 ID로 작품 일괄 다운로드
-- 내장 검색 프록시를 통한 작품 일괄 다운로드
-- 시리즈 링크 또는 해당 시리즈의 작품 링크를 입력하여 시리즈 전체 다운로드
-- Tampermonkey 사용자 스크립트로 Pixiv 페이지에서 일러스트, 만화, 우고이라 및 소설을 수집하거나 단일 작품 페이지에서 직접 다운로드
-- 강력한 작품 및 소설 갤러리
-
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![GitHub Repo stars](https://img.shields.io/github/stars/Sywyar/PixivDownloader)](https://github.com/Sywyar/PixivDownloader/stargazers)
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Sywyar/PixivDownloader)](../../releases)
 
-## 기능
+PixivDownloader는 Pixiv 일러스트, 만화, 우고이라(Ugoira), 소설을 로컬 컴퓨터나 서버에 일괄 다운로드하고 갤러리에서 관리하는 도구입니다. 데스크톱 UI(Compose / Swing), 브라우저 다운로드 작업대, Tampermonkey 사용자 스크립트를 지원합니다.
 
-- 원스톱 다운로드 웹 페이지: 빠른 가져오기, 단일 작품 일괄 가져오기, 사용자 모드, 검색 모드, 시리즈 모드
-- 빠른 가져오기: 저장된 Cookie로 내 북마크(일러스트/소설 및 비공개 항목 포함), 내 작품(비공개 항목 포함), 팔로잉 목록 및 컬렉션을 한 번에 불러오고 다운로드 대기열에 추가
-- 페이지 일괄 다운로드 사용자 스크립트 — 검색 결과, 팔로잉 피드, 랭킹 등에서 작품 수집
-- 사용 환경 향상 도구 상자(다운로드 작품 표시, Cookie 원클릭 가져오기)
-- 검색 범위 선택, 필터링, 정렬 및 컬렉션을 지원하는 강력한 작품 및 소설 갤러리
-- 소설 갤러리의 전문 "본문" 검색(로컬 전문 색인 기반, 연령 등급/태그/작가 필터와 함께 사용 가능)
-- 통계 대시보드: 개요 카드, 월별 다운로드 선 그래프, 다운로드 수 기준 상위 작가, 인기 태그 클라우드; 작가와 태그를 클릭하여 필터링된 갤러리 보기로 이동
-- 중복 의심 작품 감지: 지각 해시(dHash)로 실질적으로 중복된 다운로드 이미지를 식별하며, 임계값 조정, 작품 간/전체 범위 전환 및 수동 스캔 보충을 지원
-- 플러그인 관리 페이지: 모든 플러그인의 상태, 출처, 버전 및 의존성을 보여 주는 카드 목록; 외부 플러그인의 수명 주기 작업 지원
-- 플러그인 마켓: 신뢰한 저장소의 플러그인을 탐색·검색·설치하고 버전 안내와 스크린샷 확인.
-- [페이지 편집기](https://sywyar.github.io/PixivDownloader/#/ko/page-editor): 플러그인 구성 요소를 끌어 놓고 레이아웃과 스타일을 편집합니다. 미리 보기, 초안 저장, 게시와 복원을 지원합니다.
-- 예약 작업: 고정 주기 또는 cron 일정으로 백그라운드에서 새 작품을 자동으로 검색하고 다운로드합니다. 작가의 새 작품, 저장한 검색, 시리즈 등을 지원하며 플러그인으로 소스를 추가할 수 있습니다
-- 이메일/푸시 알림: 수동 확인이 필요한 이벤트를 이메일 및 푸시 채널로 전달하고 알림 유형별로 활성화 여부 설정
-- 소설 다운로드 및 시리즈 통합(TXT/HTML/EPUB, 다단계 목차 및 삽입 이미지 지원)
-- 소설 AI 번역(LLM 설정 필요): 소설 또는 전체 시리즈를 선택한 언어로 번역하여 로컬에 저장하고, 원문과 번역문을 전환하여 보기
-- 소설 AI 다중 화자 내레이션(베타): LLM이 문장의 화자를 식별하고 각 인물을 고정 음성으로 합성하여 재생하며, 따라 읽기 강조 표시를 제공; 분석 결과는 캐시되어 다시 재생 가능
+## 주요 기능
 
-- 이미지는 원본 형식·PNG·JPG·WebP, Ugoira는 WebP·GIF·APNG·MP4·원본 ZIP 중 여러 형식을 선택하여 저장
-- 사용자 지정 파일 이름 템플릿(11개 변수)
-- 다운로드 상태 검증: 오래된 DB 기록 자동 정리; 디스크에서 누락된 기록을 복원하여 재다운로드를 건너뜀
-- 다중 사용자 시나리오를 위한 할당량 및 속도 제한
-- 게스트 초대 시스템(연령 등급/태그/작가 허용 목록)
-- 다국어/다크 모드
-- 온라인 업데이트를 지원하는 데스크톱 GUI(Swing + FlatLaf)
+- **다양한 수집 및 일괄 다운로드**: [빠른 가져오기](https://sywyar.github.io/PixivDownloader/#/ko/quick-access)(북마크, 내 작품, 리퀘스트, 팔로우 신작, 컬렉션), [URL 일괄 다운로드](https://sywyar.github.io/PixivDownloader/#/ko/batch-download), [작가 일괄 다운로드](https://sywyar.github.io/PixivDownloader/#/ko/user-download), [검색 다운로드](https://sywyar.github.io/PixivDownloader/#/ko/search), 만화/소설 시리즈 다운로드 및 [Tampermonkey 사용자 스크립트](https://sywyar.github.io/PixivDownloader/#/ko/userscripts)를 지원합니다.
+- **미디어 변환 및 소설 기능**: 이미지는 원본·PNG·JPG·WebP, 우고이라는 WebP·GIF·APNG·MP4·원본 ZIP 다중 선택 저장을 지원합니다. [소설](https://sywyar.github.io/PixivDownloader/#/ko/novel)은 TXT / HTML / EPUB(시리즈 합본 포함) 저장, 본문 전체 검색, AI / Youdao / LibreTranslate 번역 및 AI 다중 화자 낭독을 지원합니다.
+- **로컬 갤러리 및 정리 도구**: [작품 갤러리](https://sywyar.github.io/PixivDownloader/#/ko/gallery)와 소설 갤러리에서 다중 조건 필터, 3상태 태그/작가 조합, 로컬 컬렉션, 일괄 ZIP 내보내기, 통계 대시보드, 지각 해시(dHash) 중복 이미지 감지 및 읽기 전용 게스트 초대 링크를 제공합니다.
+- **예약 작업 및 알림**: [예약 작업](https://sywyar.github.io/PixivDownloader/#/ko/scheduled-tasks)으로 고정 주기 또는 6필드 Cron 일정에 따라 신작을 증분 다운로드하고, 인증 만료·과도한 접근 경고·연속 실패 시 이메일과 푸시 채널로 알림을 보냅니다.
+- **플러그인 아키텍처 및 확장 UI**: Compose / Swing 데스크톱 UI, SQLite 및 선택적 PostgreSQL 데이터베이스, [플러그인 관리 및 마켓](https://sywyar.github.io/PixivDownloader/#/ko/plugin-management), [페이지 편집기](https://sywyar.github.io/PixivDownloader/#/ko/page-editor), [작업 인증(CAPTCHA)](https://sywyar.github.io/PixivDownloader/#/ko/captcha), [PixivBatchDownloader 가져오기 지원](https://sywyar.github.io/PixivDownloader/#/ko/pixiv-batch-downloader-import) 및 공개 [타사 플러그인 SDK](https://sywyar.github.io/PixivDownloader/#/ko/plugin-development)를 제공합니다.
 
-## 스크린샷
+## 화면 미리보기
 
-> [!NOTE]
-> 일부 스크린샷 기기는 HDR이 활성화되어 있어 색상 효과가 다르게 보일 수 있습니다.
->
-> 앱은 한국어를 지원합니다. 앱 화면은 영어로, 유저스크립트 화면은 중국어 간체로 표시되어 있습니다.
+> 일부 캡처 기기에서 HDR이 켜져 있어 색상이 다르게 보일 수 있습니다. 애니메이션을 클릭하면 전체 정적 스크린샷을 볼 수 있습니다.
 
 [![PixivDownloader 라이트 모드 미리보기](./readme/image/en-US/en-US-overview.webp)](./readme/ko-KR/md/light-screenshot.md)
 
-움직이는 이미지를 클릭하면 원본 스크린샷을 볼 수 있습니다.
-
-### [라이트 모드 스크린샷](./readme/ko-KR/md/light-screenshot.md)
-
-### [다크 모드 스크린샷](./readme/ko-KR/md/dark-screenshot.md)
+- [라이트 모드 스크린샷](./readme/ko-KR/md/light-screenshot.md) · [다크 모드 스크린샷](./readme/ko-KR/md/dark-screenshot.md)
 
 ## 빠른 시작
 
-### 다운로드
+### 1. 패키지 다운로드
 
-[릴리스](../../releases)에서 최신 버전을 다운로드하세요.
+[Releases](../../releases)에서 최신 버전을 다운로드하세요. 해당 버전의 릴리스 설명에 있는 표에서 환경에 맞는 패키지를 선택하세요.
 
-| 유형 | 설명 |
-|---|---|
-| `PixivDownload-*-win-x64-setup.exe` | JRE가 포함된 Windows 설치 프로그램. 복구/변경/제거와 선택적 FFmpeg 설치를 지원하며 공식 플러그인 배포 세트를 포함하지만 Douyin은 포함하지 않습니다. |
-| `PixivDownload-*-java.zip` | Java 표준 패키지(크로스 플랫폼). Java 17이 필요하며 Windows 설치 프로그램과 동일한 플러그인 구성을 사용하고 Douyin은 포함하지 않습니다. |
-| `PixivDownload-*-full-offline.zip` | 전체 오프라인 패키지(크로스 플랫폼). Java 17이 필요하며 Java 표준 패키지에 PostgreSQL 데이터베이스 및 Pixiv Batch Downloader 가져오기 플러그인을 추가하고 Douyin은 포함하지 않습니다. |
+### 2. 실행 및 초기 설정
 
-Java 표준 패키지와 전체 오프라인 패키지는 사용 전에 **전체 압축을 해제**해야 합니다. JAR 파일만 꺼내지 마세요. 시작 시 외부 공식 플러그인이 작업 디렉터리의 `plugins/` 폴더에서 로드되므로 실행 스크립트와 `plugins/` 디렉터리가 모두 필요합니다.
-
-### 실행
-
-```bash
-# Windows 설치 프로그램
-PixivDownload.exe
-
-# Java 표준/전체 오프라인 패키지(Windows)
-run.bat
-
-# Java 표준/전체 오프라인 패키지(Linux/macOS, Java 17 필요)
-sh run.sh
-
-# 선택적 인수
---no-gui    # GUI를 비활성화하고 CLI 전용 모드로 실행(서버/Docker)
---intro     # 시작 시 제품 소개 페이지 열기
-```
-
-처음 시작한 후 마법사를 따라 설정을 완료하고 `http://localhost:6999/pixiv-batch.html`에 접속하여 다운로드를 시작하세요.
+[설치 및 실행](https://sywyar.github.io/PixivDownloader/#/ko/installation)에 따라 프로그램을 실행한 뒤 [최초 설정](https://sywyar.github.io/PixivDownloader/#/ko/first-setup)을 완료하세요.
 
 ## 온라인 문서
 
-자세한 설치 절차, 사용 가이드, 설정 참고 자료 및 개발 가이드는 [온라인 문서](https://sywyar.github.io/PixivDownloader/#/ko/)를 참고하세요. 각 섹션으로 바로 이동할 수 있습니다.
+자세한 설정, 마이그레이션, 문제 해결 및 개발 안내는 [온라인 문서](https://sywyar.github.io/PixivDownloader/#/ko/)를 참고하세요:
 
-**빠른 시작**
+- **빠른 시작**: [설치 및 실행](https://sywyar.github.io/PixivDownloader/#/ko/installation) · [최초 설정](https://sywyar.github.io/PixivDownloader/#/ko/first-setup) · [첫 다운로드](https://sywyar.github.io/PixivDownloader/#/ko/first-download)
+- **수집 및 다운로드**: [빠른 가져오기](https://sywyar.github.io/PixivDownloader/#/ko/quick-access) · [URL 일괄 다운로드](https://sywyar.github.io/PixivDownloader/#/ko/batch-download) · [작가 일괄 다운로드](https://sywyar.github.io/PixivDownloader/#/ko/user-download) · [검색 다운로드](https://sywyar.github.io/PixivDownloader/#/ko/search) · [소설 다운로드](https://sywyar.github.io/PixivDownloader/#/ko/novel) · [예약 작업](https://sywyar.github.io/PixivDownloader/#/ko/scheduled-tasks) · [사용자 스크립트](https://sywyar.github.io/PixivDownloader/#/ko/userscripts) · [외부 다운로드 가져오기](https://sywyar.github.io/PixivDownloader/#/ko/pixiv-batch-downloader-import)
+- **관리 및 참조**: [작품 갤러리](https://sywyar.github.io/PixivDownloader/#/ko/gallery) · [설정](https://sywyar.github.io/PixivDownloader/#/ko/configuration) · [저장 원칙](https://sywyar.github.io/PixivDownloader/#/ko/storage) · [고급 사용 안내](https://sywyar.github.io/PixivDownloader/#/ko/usage-guide) · [네트워크 액세스 및 타사 서비스](https://sywyar.github.io/PixivDownloader/#/ko/network-access) · [FAQ](https://sywyar.github.io/PixivDownloader/#/ko/faq)
+- **플러그인 및 개발**: [플러그인 관리](https://sywyar.github.io/PixivDownloader/#/ko/plugin-management) · [페이지 편집기](https://sywyar.github.io/PixivDownloader/#/ko/page-editor) · [작업 인증](https://sywyar.github.io/PixivDownloader/#/ko/captcha) · [타사 플러그인 SDK](https://sywyar.github.io/PixivDownloader/#/ko/plugin-development) · [주 저장소 개발](https://sywyar.github.io/PixivDownloader/#/ko/development) · [SDK Releases](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
 
-- [📥 설치 및 시작](https://sywyar.github.io/PixivDownloader/#/ko/installation)
-- [⚙️ 최초 설정](https://sywyar.github.io/PixivDownloader/#/ko/first-setup)
-- [⬇️ 첫 다운로드](https://sywyar.github.io/PixivDownloader/#/ko/first-download)
+## 라이선스, 관련 도구 및 면책 조항
 
-**기능 가이드**
-
-- [⚡ 빠른 가져오기](https://sywyar.github.io/PixivDownloader/#/ko/quick-access)
-- [📋 URL 일괄 다운로드](https://sywyar.github.io/PixivDownloader/#/ko/batch-download)
-- [👤 작가 일괄 다운로드](https://sywyar.github.io/PixivDownloader/#/ko/user-download)
-- [🔍 검색 다운로드](https://sywyar.github.io/PixivDownloader/#/ko/search)
-- [📖 소설 다운로드](https://sywyar.github.io/PixivDownloader/#/ko/novel)
-- [🖼️ 작품 갤러리](https://sywyar.github.io/PixivDownloader/#/ko/gallery)
-- [⏰ 예약 작업](https://sywyar.github.io/PixivDownloader/#/ko/scheduled-tasks)
-- [🧩 사용자 스크립트](https://sywyar.github.io/PixivDownloader/#/ko/userscripts)
-
-**참고 자료**
-
-- [⚙️ 설정](https://sywyar.github.io/PixivDownloader/#/ko/configuration)
-- [🔌 플러그인 관리](https://sywyar.github.io/PixivDownloader/#/ko/plugin-management)
-- [🧩 타사 플러그인 SDK](https://sywyar.github.io/PixivDownloader/#/ko/plugin-development)
-- [📦 플러그인 SDK 다운로드 및 릴리스 기록](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
-- [💾 저장 원칙](https://sywyar.github.io/PixivDownloader/#/ko/storage)
-- [❓ FAQ](https://sywyar.github.io/PixivDownloader/#/ko/faq)
-- [🛠️ 개발](https://sywyar.github.io/PixivDownloader/#/ko/development)
-
----
-
-## 면책 조항
-
-- 이 프로젝트는 개인 학습 및 연구용이며 상업적 용도로 사용하지 마세요.
-- 이 도구로 다운로드한 콘텐츠의 저작권은 원작자에게 있습니다. 원작자의 권리를 존중하고 재배포하거나 상업적으로 사용하지 마세요.
-- 이 도구는 사용자가 제공한 Cookie를 사용하거나, 사용자의 허가를 받아 Tampermonkey 사용자 스크립트로 Cookie를 추출하여 Pixiv에 접속합니다. 계정과 관련된 위험은 사용자 본인이 부담합니다.
-- 이 프로젝트는 Pixiv와 아무런 관련이 없으며, 이 도구 사용으로 발생하는 모든 결과는 사용자의 책임입니다.
-- Pixiv 서버에 과도한 부하를 주지 않도록 적절한 다운로드 간격을 설정하세요.
-
----
-
-## 추가 참고
-
-솔직히 말해 이 도구의 다중 모드는 모든 요청이 서버의 네트워크 IP를 통해 전송되므로 권장하지 않습니다. Cookie가 달라도 많은 요청으로 인해 IP가 차단될 수 있습니다. 다중 모드에 로그인 기능을 추가하는 방안을 고려하고 있지만, 이는 프로젝트의 단순성이라는 본래 의도와 맞지 않습니다. 당분간은 계속 프로젝트를 개선해 나가겠습니다.
-
-## 추천 링크
-
-**[PixivBatchDownloader](https://github.com/xuejianxianzun/PixivBatchDownloader)**
-백엔드 없이 브라우저에서 직접 다운로드하고 싶다면 이 확장 프로그램을 사용해 보세요.
-
-이 소프트웨어의 **PixivBatchDownloader 가져오기 지원** 플러그인과 사용자 스크립트로 이후 다운로드가 완료된 일러스트, 만화, 애니메이션, 소설을 원본 파일을 유지하면서 로컬 갤러리에 자동으로 추가할 수 있습니다. [사용 안내(영어)](https://sywyar.github.io/PixivDownloader/#/en/pixiv-batch-downloader-import)를 참고하세요.
-
-기능:
-
-- 다양한 필터링 옵션
-- 광고 제거, 빠른 북마크, 이미지 뷰어 모드 등 유용한 보조 기능(픽시브 도우미 플러그인으로도 사용할 수 있습니다.)
-- 타사 도구에 의존하지 않는 다운로드(이 프로젝트와 가장 큰 차이점이며 설치가 쉽습니다.)
-- 다국어 지원
+- **라이선스**: 이 프로젝트와 공식 플러그인은 [AGPL-3.0](LICENSE)을 따르며, [플러그인 링크 예외](PLUGIN-LINKING-EXCEPTION.txt) 조건을 충족하는 독립 타사 플러그인은 MIT License 등을 선택할 수 있습니다.
+- **브라우저 확장 연동**: 백엔드 없이 브라우저에서 직접 다운로드하려면 [PixivBatchDownloader](https://github.com/xuejianxianzun/PixivBatchDownloader)를 사용할 수 있습니다. 본 프로그램의 공식 [PixivBatchDownloader 가져오기 지원](https://sywyar.github.io/PixivDownloader/#/ko/pixiv-batch-downloader-import) 플러그인을 사용하면 다운로드한 원본 파일을 유지한 채 로컬 갤러리에 자동 등록할 수 있습니다.
+- **면책 조항**: 이 프로젝트는 개인 학습 및 연구 목적으로만 제공되며 상업적 사용을 금지합니다. 다운로드한 콘텐츠의 저작권은 원작자에게 있습니다. 해당 콘텐츠를 재배포하거나 상업적으로 사용하지 마세요. 이 도구는 사용자가 직접 등록한 Cookie로 Pixiv에 접근하며 Pixiv 공식과 무관합니다. 적절한 다운로드 간격을 유지하고 계정 사용에 따른 책임을 유의하세요.

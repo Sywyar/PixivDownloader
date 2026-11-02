@@ -2,191 +2,55 @@
 
 [简体中文](README.md)
 
-The extracted root is a standalone Maven project with sources in `src/`. Its SDK identity is `@SDK_RELEASE_ID@`, built from main-repository commit `@SOURCE_SHA@`. Open `docs/javadocs/index.html` for the API reference.
+The extracted root is a standalone Maven plugin project (sources in `src/`) for SDK release `@SDK_RELEASE_ID@`, built from main-repository commit `@SOURCE_SHA@`. Open `docs/javadocs/index.html` for offline Javadocs, or see the [online plugin development guide](https://sywyar.github.io/PixivDownloader/#/en/plugin-development).
 
-New SDK prereleases use `alpha.N`, `beta.N`, or `rc.N`, with a positive sequence and no leading zeros. The tools also read historical compact suffixes. Keep the selected Release's exact spelling in Maven / Gradle / sbt dependencies and runtime manifests; do not rename `rcN` to `rc.N`. Plugins maintain their own versions. Set `plugin.requires` to `=FULL_SDK_VERSION` for a prerelease SDK, or `MAJOR.MINOR` for a stable SDK.
+## 1. Quick Start: Run and Debug
 
-An exact requirement is written as `plugin.requires==7.2.3-rc.4` in a properties file (example version). The first equals sign separates the property name and value; the second requests an exact contract. Compatibility is not promised across RCs or between an RC and a stable release. Older hosts reject this syntax before executing the plugin. A historical package declaring only `1.0` does not identify its build-time RC; its author must verify it and publish a new package. Nightly plugins remain bound to their matching host build.
-
-The package includes `.git/` with an initial commit on `main` containing all delivered files. Use `git status` and `git diff` to review your changes. Configure your Git name and email before committing your work, and add a remote when you need one. The `.gitignore` excludes build output, local IDE settings, and `.dev/` runtime data.
-
-## Licensing and distribution
-
-The SDK uses [AGPL-3.0](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE). Independent third-party plugins may choose the MIT License when they meet the included [Plugin Linking Exception](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt).
-
-Place your plugin's license in `LICENSE` at the project root. Retain the upstream license texts in `licenses/pixivdownloader/` and applicable copyright notices, including when copying an example into a separate project.
-
-## Upgrade the SDK
-
-1. Keep your existing project, sources and `.dev/` data. Extract the target SDK development package into a separate directory. Review its release notes and Javadoc for removed or changed APIs before updating your code.
-2. Update both the Maven / Gradle / sbt SDK dependency and `plugin.requires` in your project. Use an exact requirement for a prerelease; changing only the compile dependency is insufficient.
-3. Compare the two projects. Update the target package's tools, contract resources and pinned runtime manifests together, and merge build and IDE configuration changes while preserving your plugin IDs, sources and data. Do not overwrite the project or replace only `sdk-tools.jar`.
-4. Run your project's `clean verify`, then check loading, startup, absent capabilities, stopping and restart against the target runtime. Asynchronous plugins must also stop accepting work, drain existing tasks and release resources. A successful build does not prove those lifecycle behaviors.
-5. Build and submit a candidate with a new plugin version. Published SDK and plugin attachments are immutable. Unsupported combinations must fail before plugin execution. Forward data migration does not imply downgrade support; preserve the plugin's format constraints.
-
-## Data migration and startup failures
-
-Declare the current owner's tables, columns, types, primary keys, indexes and constraints through `PixivFeaturePlugin.privateSchema()`, then use the injected `PluginDatabase`. Before creating business beans in the child context, the host asks the selected provider to create, safely extend and validate this private schema. The host binds the owner to the trusted plugin identity; plugins do not select physical paths, server schemas or other owners. `PluginDatabase` does not extend `DataSource`. Business code does not branch on `databaseId()`.
-
-Use `read` and `transaction` callbacks with a synchronous, thread-confined `DatabaseSession` that expires when the callback returns. Any failed operation makes the transaction rollback-only, even when its exception is caught. Reads reject writes; nested callbacks are unsupported. Private transactions do not join the host's main database or default Spring transaction. Check `available()` and still handle database loss during execution. Semantic query entry points return empty results with an unavailable status; writes fail explicitly and stop dependent downloads, file deletion or task progress. Unavailability never creates a replacement database. Host services expose availability through `DatabaseAvailability`. Legacy `PluginDataSource` supports SQLite only and rejects other dialects with SQLState `0A000`. Existing plugins must adopt the new contract and be rebuilt; installing a provider does not translate third-party SQL.
-
-Use `Query` / `Expression` for projections, filters, grouped aggregates, ordering, pagination, aliases, inner / left joins, derived queries, UNION and correlated subqueries. Writes support insert / update / delete, generated keys, insertion from queries and returning rows after a conditional update for claims and CAS. Conflicts can fail, ignore only uniqueness violations, or merge stored and `Incoming` values using a declared unique key. LIKE uses `%` / `_` wildcards, `!` escape and ASCII case folding. Specify null ordering and include a unique key for stable pagination. `scan` consumes results row by row and allows early termination. Arbitrary SQL, foreign-key declarations and arbitrary table rebuilds are unsupported. Unknown operations, structures and lossy conversions fail explicitly.
-
-Business callers construct LIKE patterns using SDK semantics: encode a literal `!` as `!!`, and literal `%` / `_` as `!%` / `!_`; leave `%` / `_` unchanged when wildcards are intended. Providers render the SQL dialect and escape declaration without escaping the completed pattern again.
-
-Plugins participating in an existing host main-database contract use `PluginMainDatabase`. It joins the current Spring transaction and exposes only the owner's registered main tables and core domains requested through `sharedMainStorage()`. The core declaration determines read and write permissions. Unknown domains, access across owners and writes to read-only domains fail; closing the child context permanently invalidates the handle. Ordinary private plugin data still belongs in `PluginDatabase`. Both interfaces use the same neutral operation model.
-
-Declare a rebuildable content index through `StorageFeatures.TextIndex`, specifying its source, identity and visibility condition. Declare related-row cleanup after soft deletion through `StorageFeatures.Cleanup`. The provider creates and validates auxiliary objects and reports index mode as `MATERIALIZED` or `SOURCE_QUERY`. Use a main-database `NESTED` savepoint to isolate an auxiliary index failure from an authoritative write; the interface does not silently ignore failures. Unsupported features fail explicitly.
-
-Declare required business conversions through `privateStorageMigrations()`, using ordered stable IDs and callbacks that use only their session. Startup commits schema changes, conversions and `_storage_migrations` completion records in one transaction. Applied IDs must be an exact prefix of the declaration; never reorder, rename or reuse an ID with new meaning. Callbacks must not perform file, network or other irreversible side effects, or depend on business beans that have not been created. Failure stops the affected capability and preserves data. Reinstalling an older package cannot undo a committed upgrade. Automatic evolution supports validated table creation, index addition and safe column addition; deletion, renaming, type changes and incompatible constraints are rejected.
-
-Offline migration uses the same declaration. SQLite upgrades and converts only a working copy. PostgreSQL export requires the source schema and conversion history to match the current declaration; pending conversions fail explicitly and require a successful plugin startup on the source provider first. Migration preserves source business data and never switches configuration. Existing private databases without declarations block migration. Retained stores with conversion history require the trusted plugin callbacks. Switch and startup checks require valid receipts and use the trusted source provider to verify source revisions. Each database commits separately; there is no transaction spanning all databases.
-
-For a declared table with the composite primary key `(work_type, work_id)`:
-
-```java
-database.transaction(session -> {
-    session.insert("imported_works", Map.of("work_type", "artwork",
-            "work_id", workId, "imported_at", System.currentTimeMillis()),
-            DatabaseSession.Conflict.ignore("work_type", "work_id"));
-    return null;
-});
-long count = database.read(session ->
-        (Long) session.query(Query.count("imported_works", null)).get(0).get("count"));
-```
-
-Providers implement schema application, inspection, physical type mapping, maintenance and sessions through `DatabaseConnectionTarget`. `applySchema` / `initializeStorage` must preserve the caller's transaction and never implicitly commit. Reject unsupported transactional DDL before any change; DDL must not commit business conversions early. The optional `storage.relational.jdbc.JdbcDatabaseSession` shares validation and parameter binding. Providers may override complete statements or implement their own sessions. Adding a provider requires no engine branch in the host or business plugin, but still requires real database tests for behavior, isolation, failures and migration.
-
-`DatabaseConnectionSettings` carries the application data root and legacy directories. Providers map file names, companions such as WAL, and server schemas. `resolve` only locates the target; `prepareStorage` prepares its location after the instance lock and provider selection are fixed. `localFileSettings` interprets an administrator's explicit file selection; non-file providers should reject it. Private storage uses host-bound `DatabasePrivateStorageSettings`. Business plugins do not receive these administrative entry points.
-
-Every provider must implement the required `DatabaseMigrationProvider` methods without reporting false success. Nonempty destination replacement through `inspectReplacement` / `replaceDatabase` is optional; both methods default to throwing `TARGET_REPLACEMENT_UNSUPPORTED`. The host must not clear a destination to substitute for this capability.
-
-Required methods include read-only inspection through `inspectMigration`, full read-back verification through `verifyImported`, and the following export, import and private storage discovery methods:
-
-- `privateDatabaseOwners` discovers existing private stores for the installation, including owners whose declarations are absent. `retainedLocalPrivateDatabases` discovers only local stores owned by this provider without changing them; a remote provider with no local stores returns an empty map.
-- `exportDatabase` locks the source, rejects unknown objects, writes a durable consistent backup and returns a `DatabaseExportSession`. Schema normalization and seed insertion affect only a copy. Closing releases source locks and preserves the backup. `verifySource` checks the provider's versioned source revision without assuming a local file.
-- `importDatabase` first validates an empty destination and supported format, then returns an uncommitted `DatabaseImportSession`. `write` consumes typed rows. `verify` reads back structures, row counts, digests, reference warnings and sequence high-water marks. `commit` requires successful verification; `abort` and closing an uncommitted session abort the transaction. Session creation failures must also release acquired resources.
-
-Exchange format 1 uses `MigrationSchema` declarations, `MigrationSnapshot` verification facts and one `MigrationRows` cursor per table. It does not transfer source engine dumps or SQL. Values are signed 64-bit INTEGER, finite double-precision REAL, Unicode TEXT, BLOB or NULL. Preserve time units and reject lossy conversions. Providers emit rows in ascending composite primary-key order, with NULL first, numbers compared by value, TEXT by Unicode scalar value and BLOB by unsigned bytes. Text order must not depend on database encoding or locale. Fields follow declaration order. A cursor exposes only its current row, valid until the next `next` or close. Digests encode type tags, four-byte lengths and contents. Sequence values are historical high-water marks that must not be reused. Defaults use restricted literals. Declare new CHECK constraints through `TableSpec.withCheck(Expression)` using same-table comparisons, length, membership and boolean conditions. `LOWER_HEX` means ASCII lowercase hexadecimal; constrain length separately. The published string CHECK API remains available within each provider's supported range, without a promise of cross-engine translation. Reject unsupported semantics before writing, and reject unknown format versions.
-
-Call `MigrationControl.checkpoint` during row copying and verification for cooperative cancellation and progress reporting. Propagate cancellation and report failures so the host can abort targets that have not attempted commit and close both endpoints. An exception from `commit` means an unknown outcome, never a proven rollback. The host persists `COMMITTING` before each commit, records individual outcomes, then records overall success. Report persistence and resource release failures also prevent overall success. Providers own engine transactions, catalogs, backup formats and isolation; the host coordinates through these contracts. The optional `database.migration.jdbc` helpers contain shared JDBC operations. Providers may implement sessions without them.
-
-| Data | Maintenance contract |
-| --- | --- |
-| Private database | Use only your owner's `PluginDatabase`. Declare schema and conversions, and perform dependent side effects only after the transaction succeeds. |
-| Configuration, state and files | Resolve paths through the owner-bound `RuntimePathProvider`. Write a temporary file in the same directory, verify it, then replace the destination. Read back the result before removing the old source; preserve originals on conflict. |
-| Credentials | Use host-managed credential contributions and storage for your owner. Keep secrets out of ordinary configuration, logs, task definitions and checkpoints. |
-| Schedule definitions, pending work and checkpoints | Migrate only schemas and versions owned by your plugin. Preserve unknown input and report failure without advancing completed progress. |
-| Shared host data | Use public semantic ports. Private migrations must not change host tables or another plugin's tables. |
-
-Test with populated old-format data, inject a migration failure, then start twice. Verify that records, credentials and checkpoints survive and migration is not duplicated. Also check that unsupported formats prevent the feature from starting while management still reports diagnostics. Installation, pending restart and a started feature are separate states. Record the plugin version, host SDK, execution mode and safe error codes when troubleshooting. Removing a plugin preserves its data by default.
-
-## Verify the lifecycle
-
-In the standalone project, run `mvnw.cmd clean verify` on Windows or `./mvnw clean verify` elsewhere, then `verify exec:exec@sdk-run` with the same wrapper to start the matching host. Sign in as administrator and record the package version, generation, policy, and diagnostics in Plugin Management. Use `exec:exec@sdk-stop` to stop the development instance.
-
-| Action | Expected result |
-| --- | --- |
-| Install and start | Routes, resources, and capabilities work under the reported execution mode. A development directory running as full-trust does not validate the packaged worker mode. |
-| Stop a plugin that supports stopping at runtime | New work is rejected, existing work drains, and routes and capabilities are withdrawn. Data and unfinished tasks remain. |
-| Disable a process-restart plugin | The current instance keeps running. After a full exit and restart, it no longer loads; management should show when the change takes effect. |
-| Start again | Capabilities return, while old publication tokens and handles remain invalid and cannot reach the replacement. |
-| Reload | For a policy supporting hot reload, the physical generation and classloader change and old resources are released. |
-| Replace a process-restart package | Installation reports a pending restart. Fully exit, restart, and check the version actually loaded. |
-| Deliberately fail startup | Optional failures isolate that plugin; management still permits repair or eligible removal. The host decides required status. |
-
-`DownloadObserver`, `DownloadAdmissionPolicy`, `DownloadOptionsHook` and `DownloadSubmissionHandler` are optional full-trust beans. Register them explicitly in the plugin configuration; the host publishes and withdraws each exact publication. Implement the interfaces without inheriting a downloader base class. Check the selected release's Javadoc: interfaces in current source may be absent from an older public SDK.
-
-`DownloadTasks.submit` accepts a work type, opaque work key, output options and a caller-generated `requestId`, and returns a host-generated `attemptId`. Within the current process's retention window, identical requests return the original task. Changed options or credentials produce `CONFLICT`. Use a new request ID to start a new attempt after a failure. Submission requires a trusted administrator identity; HTTP consumers must use `RequestOwnerIdentityResolver`. Pass credentials separately, never in options, events or logs.
-
-The type plugin validates and resolves its command through `DownloadSubmissionHandler`, registers the same attempt with `DownloadLifecycle.track` and `QueueTaskTracker.Task`, and submits it to its execution lane. Report `STARTED`, then `COMPLETED` after files and authoritative records have committed, or `FAILED` on failure. Queued cancellation and actual execution exit supply missing terminal states. A cancellation request does not mean a running thread has exited. Synchronous local imports register their identity through `register`.
-
-Use `find` and `snapshot` to read current state. `cancel` targets only the captured queue task. The snapshot `epoch` changes after a host restart; its `revision` increases with state changes. The store holds at most 4096 records and retains terminal states for at least five minutes. A full store rejects new tasks without dropping active ones. Deduplication ends when a record expires. Snapshots and live events provide neither recovery across process restarts nor durable replay.
-
-Event phases are `ACCEPTED`, `QUEUED`, `STARTED`, `COMPLETED`, `FAILED` and `CANCELLED`. `ACCEPTED` means admission has begun and later validation may still reject it. Synchronous execution may omit `QUEUED`. Observer callbacks run synchronously on the publishing thread and may run concurrently, so keep them short and thread safe. Ordinary observer failures do not roll back committed facts. Notifications from concurrent publishers have no cross-thread ordering guarantee; resynchronize from task snapshots after reconnecting.
-
-Admission policies allow or reject execution. Option hooks run in `order`, plugin ID and bean-name order. Their input and output are immutable string maps containing only options explicitly opened by the type executor, which validates the final result. Each map accepts at most 32 entries and 16 KiB of combined UTF-8 keys and values. A rule or hook failure, invalid result or publication withdrawn before invocation rejects the attempt. Observers are for auxiliary actions such as completion notifications, not file commits or required post-processing.
-
-`WorkFileImporter` registers read-only source-file references and reports failure when the type owner is unavailable. Deleting a gallery record retains the original files.
-
-## Troubleshoot submissions
-
-| Symptom | Next action |
-| --- | --- |
-| Compilation succeeds but loading fails | Compare the compile SDK, `plugin.requires`, pinned runtime manifest, and actual host SDK. Do not edit a signed package's descriptor. |
-| `SDK_ARTIFACT_MISMATCH` | Preserve diagnostics, obtain the same release again, and verify its digest. Keep tools, resources, and runtime attachments from one release together. |
-| No current CI candidate | Check the default branch's current commit, its `Plugin candidate` run, and project selection in `tools/candidate-projects.json`. An older successful run is insufficient. |
-| Login, permission, or Git push failure | Check the active GitHub identity, target repository, and specific permission. Preserve the submission record instead of creating another request to hide an unknown outcome. |
-| Review facts or ownership changed | Reload the current binding and original request in the wizard. Check source, version, signatures, and changes before confirming again. A historical signature does not prove current ownership. |
-| Download or write response lost | Reopen the original project and submission record, then check the remote object and the wizard's available recovery options. Preserve uncertain results instead of automatically repeating publication, pushes, or submissions. |
-
-Include the plugin ID, version, source commit, SDK identity, failing step, and error code in a diagnostic report. Remove credentials, private keys, signed download URL query parameters, and personal paths before sharing.
-
-## Start developing
-
-The root Maven project and each of the three `examples/` projects contain a Git-tracked `.pixivdownloader-plugin-project`. It identifies the selected project's format and proves neither identity nor safety; `sdk-project.json` separately pins the development environment. Plugin JARs, `.dev/`, and runtime archives do not contain the project marker.
-
-Declare capabilities with comma-separated tokens in the package's `plugin.properties` field `pixiv.risk-signals`. The root, Gradle, and sbt examples use an explicit empty declaration. The download example declares `HOST_DATA_ACCESS` for its host-provided identity and task contexts. Update the declaration when adding behavior. Missing or empty declarations and scans with no findings are not safety guarantees or permission grants.
-
-Install JDK 17 and Node.js, with `java` and `node` on `PATH`. IDE import only resolves the project. Explicit Run / Debug compiles the current plugin, prepares the pinned runtime, and starts the full application. Build failure stops this sequence. Maven Wrapper obtains the pinned Maven version; no host checkout or manually copied host and plugin JARs are needed. Initial application configuration uses the host's setup flow.
-
-On Linux / macOS, Maven Wrapper downloads the configured ZIP and verifies its SHA-256. If `unzip` is unavailable, it extracts the ZIP with `JAVA_HOME/bin/jar` or the JDK `jar` on `PATH`. If neither is available, it fails before downloading.
+Install JDK 17+ and Node.js (`java` and `node` on `PATH`; on Linux / macOS without `unzip`, the Wrapper extracts archives via JDK `jar`). Importing the project into an IDE only resolves dependencies; running an explicit Run / Debug configuration compiles the plugin, downloads the pinned runtime bundle on demand into `~/.cache/pixivdownloader-sdk/`, and starts an isolated host (runtime data under `.dev/`):
 
 | IDE | Import | Run | Debug |
 | --- | --- | --- | --- |
-| IntelliJ IDEA | Open the root `pom.xml` | Select `Developer Mode` and click Run | Select the same `Developer Mode` and click Debug |
-| VS Code | Open this directory and install the recommended Java Extension Pack | `Tasks: Run Task > Run Plugin` | `Run and Debug > Debug Plugin` |
+| IntelliJ IDEA | Open root `pom.xml` | Run `Developer Mode` | Debug `Developer Mode` (loads `target/classes` in-process) |
+| VS Code | Open this folder (with Java Extension Pack) | `Tasks: Run Task > Run Plugin` | `Run and Debug > Debug Plugin` (installs packaged JAR, attaches to `127.0.0.1:5005`) |
 | Eclipse | `Import > Existing Maven Projects` | `eclipse/Run Plugin.launch` | `eclipse/Debug Plugin.launch` group |
 
-IntelliJ's `Developer Mode` is a native Application configuration. Before launch, Maven runs `test-compile exec:exec@sdk-prepare`. The IDE starts the JVM directly, running the host, bundled official plugins, and the current project's `target/classes` in that process. Set a breakpoint inside `ExampleMinimalPlugin.java`'s `routes()` and click Debug. No remote connection or fixed debug port is needed. The entry point in `src/test/java/sdk/DevelopmentLauncher.java` stays out of the plugin JAR. The run configuration adds the bundled tool to the launch classpath so Spring Boot can resolve nested JARs.
-
-This configuration explicitly enables plugin development mode. Current sources execute as `host-process-full-trust`, which the runtime status reports; the source descriptor stays unchanged. Each Run / Debug recompiles and loads the sources. Use `Stop Plugin` or stop the Application session to finish.
-
-VS Code, Eclipse, and the command-line tasks below validate the packaged artifact: they install the current JAR and preserve its declared execution mode. Their remote debugger uses `127.0.0.1:5005` by default, connecting to the worker for `declarative-process` or the host for `host-process-full-trust`. Use `Stop Plugin` or stop the entire group to finish; disconnecting only the remote debugger leaves the application running.
-
-## Command line
-
-Windows:
+Command-line build and run (on Linux / macOS, replace `.\mvnw.cmd` with `./mvnw`):
 
 ```powershell
+# Build and run unit and thin-JAR boundary tests
+.\mvnw.cmd clean verify
+
+# Build, prepare runtime, and start the development host (use sdk-debug to debug)
 .\mvnw.cmd verify exec:exec@sdk-run
-.\mvnw.cmd verify exec:exec@sdk-debug
+
+# Stop the development host for this project
 .\mvnw.cmd exec:exec@sdk-stop
 ```
 
-Linux / macOS:
-
-```bash
-./mvnw verify exec:exec@sdk-run
-./mvnw verify exec:exec@sdk-debug
-./mvnw exec:exec@sdk-stop
-```
-
-`sdk-debug` waits for an IDE to attach; it does not open a debugger. Use `clean verify` to validate the plugin, or `exec:exec@sdk-prepare` to prepare only the runtime. The default artifact is `target/example-minimal-plugin-0.1.0.jar`.
-
-After successfully building the current artifact, you can call the bundled tool directly:
+After building the JAR, you can also invoke `tools/sdk-tools.jar` directly:
 
 ```text
-java -jar tools/sdk-tools.jar run <absolute-project-path> <absolute-current-plugin-JAR> --no-gui
-java -jar tools/sdk-tools.jar debug <absolute-project-path> <absolute-current-plugin-JAR> --debug-port=5005
+java -jar tools/sdk-tools.jar run <absolute-project-path> <absolute-plugin-jar-path> --no-gui
+java -jar tools/sdk-tools.jar debug <absolute-project-path> <absolute-plugin-jar-path> --debug-port=5005
 java -jar tools/sdk-tools.jar stop <absolute-project-path>
 ```
 
-`--debug-connect` connects to an IDE already listening. `run` / `debug` accept artifacts inside the project and outside `.dev/`, preserving their declared execution mode and confirming the current JAR's SHA-256 for local installation. Official plugins retain signature and provenance checks during both development and packaged validation. Choose a unique plugin ID to avoid conflicts with bundled plugins.
+On first launch, complete administrator setup, verify the plugin is `STARTED` in `/plugin-manage.html`, and open `/example-minimal.html`. Stop the host with `Stop Plugin` (or `sdk-stop`) when finished; delete `.dev/` while stopped to reset development data. If a deep path on Windows triggers worker launch error `267`, move the project to a shorter path.
 
-## Independent examples
+## 2. Included Standalone Examples
 
-`examples/typed-service-plugin/README_en.md` contains an independent API, contract wrapper, provider, and consumer. From the SDK root, run `mvnw -f examples/typed-service-plugin/pom.xml package`, then sign and install the three plugins through the normal installer. Restart the host process after installing the contract. This Maven reactor uses its own build rather than the single-plugin run tasks listed below.
+The download-type, Gradle, and sbt examples have their own `.pixivdownloader-plugin-project`, `sdk-project.json`, and `.dev/` runtime data directory while sharing the root `tools/sdk-tools.jar`. Build and install the typed-service example as described in its README; it does not use these standalone host launch configurations.
 
-| Directory | Purpose | Run / debug / stop |
+The commands below use PowerShell. On Linux / macOS, replace `.\mvnw.cmd` with `./mvnw` and `.\gradlew.bat` with `./gradlew`. For the typed-service example, replace the tools path with the absolute path to `tools/sdk-tools.jar` in this SDK package.
+
+| Directory | Purpose | Build and Run |
 | --- | --- | --- |
-| `examples/download-type-plugin/` | Download types, queues, scheduled sources, and a plugin-owned gallery | From the SDK root: `mvnw -f examples/download-type-plugin/pom.xml verify exec:exec@sdk-run`; use `sdk-debug` to debug, or only `exec:exec@sdk-stop` to stop |
-| `examples/gradle-plugin/` | Build the basic feature plugin with Gradle | In that directory: `gradlew runPlugin`, `gradlew debugPlugin`, `gradlew stopPlugin` |
-| `examples/sbt-plugin/` | Build the same feature plugin with sbt | Install sbt, then run `sbt runPlugin` or `sbt debugPlugin` in that directory; stop from another terminal with `java -jar ../../tools/sdk-tools.jar stop .` |
+| `examples/download-type-plugin/` | Download type, five acquisition modes, queue, scheduled source, and dedicated gallery (see its `README_en.md`) | From SDK root: `.\mvnw.cmd -f examples/download-type-plugin/pom.xml verify exec:exec@sdk-run` (stop with `exec:exec@sdk-stop`) |
+| `examples/typed-service-plugin/` | Cross-plugin contract API, carrier, provider, and remote HTTP consumer (see its `README_en.md`) | From SDK root: `.\mvnw.cmd -f examples/typed-service-plugin/pom.xml package "-Dpixivdownload.sdk.tools=/absolute/path/to/tools/sdk-tools.jar"`; sign, install `contract` and restart first, then install `provider` and `consumer` |
+| `examples/gradle-plugin/` | Declarative feature plugin built with Gradle (Wrapper 9.5.0) | In that directory: `.\gradlew.bat runPlugin`; replace the task with `debugPlugin` or `stopPlugin` to debug or stop |
+| `examples/sbt-plugin/` | Declarative feature plugin built with sbt (1.10.11) | In that directory: `sbt runPlugin` or `sbt debugPlugin`; stop from another terminal with `java -jar ../../tools/sdk-tools.jar stop .` |
 
-Use `mvnw.cmd` / `gradlew.bat` on Windows, or `./mvnw` / `./gradlew` on Linux / macOS. Import each example separately. Each owns its `sdk-project.json` and `.dev/`, and uses the root `tools/sdk-tools.jar`. Gradle Wrapper pins 9.5.0; the sbt project pins 1.10.11. Gradle / sbt examples compile, package, and check JavaScript syntax. Maven projects also include JUnit and thin JAR checks.
-
-## One SDK dependency
+## 3. Dependency, Compatibility, and Architecture Rules
 
 ```xml
 <dependency>
@@ -197,79 +61,23 @@ Use `mvnw.cmd` / `gradlew.bat` on Windows, or `./mvnw` / `./gradlew` on Linux / 
 </dependency>
 ```
 
-Gradle uses `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:@SDK_VERSION@")`. sbt uses `"io.github.sywyar.pixivdownloader" % "pixivdownload-sdk" % "@SDK_VERSION@" % Provided`. Standard Ivy can map its compile configuration:
+Use `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:@SDK_VERSION@")` in Gradle, `"io.github.sywyar.pixivdownloader" % "pixivdownload-sdk" % "@SDK_VERSION@" % Provided` in sbt, or `<dependency org="io.github.sywyar.pixivdownloader" name="pixivdownload-sdk" rev="@SDK_VERSION@" conf="compile->default"/>` in Ivy (do not extend `compile` in your runtime configuration).
 
-```xml
-<dependency org="io.github.sywyar.pixivdownloader" name="pixivdownload-sdk"
-            rev="@SDK_VERSION@" conf="compile->default"/>
-```
+- **Versioning and `plugin.requires`**: Use `plugin.requires=major.minor` for a stable SDK, or `plugin.requires==FULL_SDK_VERSION` (e.g., `plugin.requires==7.2.3-rc.4`) for an exact prerelease SDK contract. When upgrading the SDK, extract the new SDK package into a separate folder and update the compile dependency, `plugin.requires`, `tools/`, `contracts/community/v1/`, and `sdk-project.json` together.
+- **Customizing identity**: Update `src/main/resources/plugin.properties`, Java packages, routes, i18n namespaces, `plugin.version`, `plugin.provider`, and `pixiv.risk-signals` (see `contracts/community/v1/catalogs.json`) consistently.
+- **Core contract boundaries**:
+  - **Paths, credentials, and network**: Declare settings with `GuiConfigContribution`, resolve owner paths via `RuntimePathProvider`, manage secrets via `credentialKeys()` and `PluginCredentials`, and create outbound HTTP / WebSocket clients via `OutboundHttpClientFactory` / `OutboundWebSocketClientFactory`.
+  - **Databases and migration**: Declare private schemas and ordered conversions via `PixivFeaturePlugin.privateSchema()` and `privateStorageMigrations()`, and query/mutate via `PluginDatabase` (`read` / `transaction` with `Query` / `Expression`, supporting SQLite, PostgreSQL, and offline migration via `DatabaseMigrationProvider`). Use `PluginMainDatabase` only for host-registered tables or `sharedMainStorage()` domains. Legacy `PluginDataSource` supports SQLite only.
+  - **Download tasks and file import**: Optionally register `DownloadSubmissionHandler`, `DownloadOptionsHook`, `DownloadAdmissionPolicy`, and `DownloadObserver` beans (using `RequestOwnerIdentityResolver` for HTTP callers), and register read-only local files via `WorkFileImporter`.
+  - **Lifecycle verification**: Before publishing, verify installation, `stop` (rejecting new work, draining in-flight tasks, withdrawing routes/capabilities), `reload` (replacing generation and ClassLoader), and full-restart boundaries for `process-restart` plugins.
 
-Do not make Ivy's runtime configuration extend this compile configuration. Standard Maven metadata supplies public APIs and PF4J, Spring, Servlet, and Jackson compile dependencies. Produce a thin PF4J JAR without bundling these host-provided classes. Declare test frameworks separately. The three API modules and BOM remain individually available.
+## 4. Candidate CI and Community Submission
 
-## Community formats and resources
+The SDK package includes an initialized Git tree with `.pixivdownloader-plugin-project` and `.github/workflows/candidate.yml`:
 
-`contracts/community/v1/` contains the community JSON Schema, capability tokens, market categories and tags, license templates, and signature and data validation vectors. Consult `catalogs.json` when filling in `pixiv.risk-signals`. Choose a license template that fits your project; license declarations are not restricted to the template list.
+1. Add your `LICENSE` and Git remote, push to your public GitHub repository's default branch, and wait for all `Plugin candidate` jobs to pass (to select a subproject or build profile, configure `projectDir` and `profileId`—`maven-java17-v1`, `gradle-java17-v1`, or `sbt-java17-v1`—in `tools/candidate-projects.json`).
+2. Follow the [community submission guide](https://github.com/Sywyar/PixivDownloader-community-plugins/blob/master/README_en.md#submissions-and-version-management) to run the PowerShell wizard, verify metadata and licenses, and optionally attach a `README`, links, and versioned release notes extracted from `CHANGELOG.md` (`## [vX.Y.Z]`).
 
-`bundle-manifest.json` records each resource's size and SHA-256, along with tool versions. `tools/community-contract.json` records the SDK, source commit, contract version, resource manifest hash, and the size and hash of this `sdk-tools.jar`. Pin the complete release and its hashes when consuming these resources. Update tools and resources from the same release instead of replacing individual catalog files. These files belong to the development package's initial Git commit and stay out of plugin JARs and public Maven compile dependencies.
+## 5. Licensing
 
-## Marketplace documents and links
-
-The submission wizard accepts an optional README, a full CHANGELOG, and release notes for the current plugin version. Repository files come from the candidate's fixed source commit. You can also explicitly select a local file or enter multiline text. README supports UTF-8 Markdown and HTML. Relative images stay inside the selected directory; downloading external images requires confirmation.
-
-Use level-two version headings and level-three categories in the plugin's `CHANGELOG.md`, for example:
-
-```markdown
-## [v8.2.6] - 2031.3.2
-
-### Features
-
-- Add export support.
-
-### Bug Fixes
-
-- Fix duplicate exports.
-```
-
-The wizard extracts the exact plugin version for preview. A missing or duplicate heading requires another file, manual notes, or explicit omission. Unreleased and other versions never substitute for the requested version. In multiline input, Enter adds a line; Tab then Enter submits. Ctrl+B goes back and Ctrl+S saves.
-
-Links support repository, documentation, issue reporting and custom purposes. Edit, delete or omit every link. The wizard stores documents and custom labels in the selected default language, which also controls fallback in the marketplace.
-
-Documents and images are frozen by size and SHA-256. After submission confirmation, they are staged in a market content release in the source repository. Reviewed content joins the plugin package in the same community version release. The source candidate keeps its existing two-asset protocol. HTML is displayed as a static document; scripts, forms, event handlers and custom styles do not run.
-
-This requires matching SDK submission tools, community deployment and host support. A development package alone does not prove that the community has upgraded its pinned tools. Adding market metadata to an existing plugin does not require raising `plugin.requires`: an SDK 1.1 host still accepts `requires=1.0`. New templates declare the selected SDK's major.minor; choose the runtime requirement according to the APIs your plugin uses.
-
-## CI candidates and submission
-
-Push the project to a public GitHub repository's default branch, wait for all `Plugin candidate` jobs to pass, then follow the [community submission guide](https://github.com/Sywyar/PixivDownloader-community-plugins/blob/master/README_en.md#submissions-and-version-management). CI tests the plugin, compares the offline rebuild, and reuses one Draft Release per plugin, replacing its candidate assets. You do not need to download artifacts or create a Release manually. After submission confirmation, the wizard saves the verified package in a pre-release tied to the source commit, awaiting community review.
-
-CI builds the root project by default and detects Maven, Gradle or sbt. The build model supplies the actual version and installation artifact path. To submit an example, select multiple projects, or choose between build tools in one project, add `tools/candidate-projects.json`, for example:
-
-```json
-[
-  { "projectDir": "examples/gradle-plugin", "profileId": "gradle-java17-v1" }
-]
-```
-
-Supported profiles are `maven-java17-v1`, `gradle-java17-v1` and `sbt-java17-v1`. If the model has multiple installation artifacts, add `artifactPath`, relative to the selected project and matching an actual model output. Select one candidate project per plugin ID. Commit and push configuration changes, then wait for the new CI results.
-
-The Draft uses `candidate-<plugin-id>`. Its `source-candidate.json` records the source commit, CI run, project, build profile and package digest. New default-branch builds replace the package and metadata; a late run for an older commit cannot overwrite a newer candidate. The Draft remains available after Actions artifacts expire. Archive recovery requires the current default-branch commit. The fixed pre-release created after submission confirmation is preserved across later builds, keeping the package under review unchanged. Passing source CI does not grant community approval.
-
-## Runtime, cache, and project data
-
-`sdk-project.json` and the release-side `sdk-release.json` record the same SDK, host, official plugin manifest, and runtime ZIP identities, sizes, and SHA-256 hashes. The runtime ZIP is a separate SDK Release attachment. Explicit preparation downloads it once and reuses verified bytes in `~/.cache/pixivdownloader-sdk/`. Clearing the cache still selects the same bytes. Unavailable resources and hash mismatches fail.
-
-Every launch creates a private runtime copy and checks the host and each official plugin. The cache holds no application state. Project `.dev/` contains configuration, databases, logs, downloads, and run copies. Configuration and state are separated by runtime ZIP hash. Host and official plugin automatic updates are disabled in this environment; your regular installation's data is separate.
-
-After stopping, delete the project's `.dev/` to reset development data, including downloads stored there. Direct tool calls can select a cache with the JVM property `-Dpixivdownload.sdk.cache-dir=<directory>`; project runtime directories remain separate.
-
-Offline use requires both runtime preparation and cached build-tool dependencies. Maven uses `-o`; Gradle uses `--offline`. Incomplete caches fail. To update the SDK, use the new development package and matching manifest, then move your sources into it.
-
-On Windows, IntelliJ Application launch and source breakpoints have been tested, along with startup, pages, and normal shutdown for both Maven examples in the host process. The VS Code and Eclipse GUI flows have not been tested. During packaged validation, deep directories can still exceed Windows' working-directory limit when creating a worker; move to a shorter path if error 267 occurs. Other platforms declared by the runtime require verification on their own operating systems.
-
-## Customize the plugin
-
-The descriptor is `src/main/resources/plugin.properties`. Keep the plugin ID, Java package, routes, i18n namespace, version, and provider consistent. Maven runtime tasks use the actual `finalName`. Update the Eclipse configurations' project name if you rename the imported project.
-
-Stable contracts cover routes, static assets, i18n, navigation, Web UI slots, GUI configuration, download types, queues, scheduled sources, and notification templates. `examples/download-type-plugin/README_en.md` explains the five acquisition modes, cancellation and drain, credential policy, guards, and `gallery.type-switch`. Each plugin owns its gallery pages, APIs, assets, and data operations.
-
-Declare configuration through `GuiConfigContribution`. Use owner-bound `RuntimePathProvider` paths, `PluginDatabase` for private databases, and stable HTTP / WebSocket factories and route contracts. Do not depend on the app, plugin-runtime, installer, signature internals, host database, or concrete GUI provider. Verify contribution withdrawal on disable, unload, and reload in a real host.
+The SDK is licensed under [AGPL-3.0](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE). Independent third-party plugins meeting `licenses/pixivdownloader/PLUGIN-LINKING-EXCEPTION.txt` may choose the MIT License (retain the upstream notices under `licenses/pixivdownloader/` when distributing or copying example projects).

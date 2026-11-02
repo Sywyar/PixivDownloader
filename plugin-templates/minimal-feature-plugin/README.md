@@ -1,29 +1,31 @@
-# Minimal feature plugin template
+# Minimal Feature Plugin Template
 
-For template reuse and licensing, see the [Plugin Linking Exception](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt).
+This standalone Maven project is a template for a thin external PF4J plugin running in an isolated worker (`declarative-process` + `hot-reload`). It demonstrates a root `plugin.properties`, a PF4J entry point, `PixivPluginProvider`, `PixivFeaturePlugin`, and declarative route, static-resource, and i18n contributions without a Spring child context. For template reuse and licensing, see the [Plugin Linking Exception](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt).
 
-This directory is a standalone Maven project for a thin external PF4J plugin. It demonstrates a root `plugin.properties`, a PF4J entry point, `PixivPluginProvider`, `PixivFeaturePlugin`, and route/static/i18n contributions that can be admitted through an isolated plugin worker.
+## 1. Build and Run
 
-Build with JDK 17, Maven and Node.js using `mvn clean verify`. The POM declares only `pixivdownload-sdk` with `provided` scope for compilation, plus JUnit for tests. The SDK brings the public contracts and host-provided framework libraries transitively; do not copy them into the output JAR. The configured candidate SDK version must be available in your Maven repository.
+1. Install JDK 17+, Maven, and Node.js (`java`, `mvn`, and `node` on `PATH`).
+2. Run `mvn clean verify` in this directory and confirm `target/example-minimal-plugin-0.1.0.jar` is produced.
+3. Upload the JAR through Plugin Management in a compatible host, confirm the plugin starts under `declarative-process`, and open `/example-minimal.html` as an administrator.
 
-Keep `.pixivdownloader-plugin-project` in the selected project directory and track it with Git. Generated markers contain `pixivdownloader-plugin-project-v1` followed by LF; readers also accept a UTF-8 BOM and no line ending or CRLF. The marker identifies the project format and proves neither publisher identity nor code safety. It stays out of the plugin JAR.
+The POM declares a single `provided` dependency on `pixivdownload-sdk` (plus JUnit for tests); never bundle SDK or host-provided libraries into the output JAR. Keep the Git-tracked `.pixivdownloader-plugin-project` marker (`pixivdownloader-plugin-project-v1` + LF) in the project root (excluded from the JAR).
 
-The package's `pixiv.risk-signals` field records developer-declared capabilities. This declarative template has an explicit empty declaration. Review it when adding behavior; an empty declaration is not a safety guarantee. Missing declarations remain distinct from empty declarations, and unknown tokens are preserved as metadata.
+## 2. Customize the Template
 
-Replace these values consistently before using the template:
+Replace these identifiers consistently across code, resources, descriptors, and tests:
 
 | Template value | Replace with |
-|---|---|
-| `example-minimal-plugin` | Your Maven artifact id |
-| `example-minimal` | Your globally unique lowercase plugin id, URL prefix, and i18n namespace |
-| `com.example.pixivdownload.minimal` | Your Java package, including matching source directories |
+| --- | --- |
+| `example-minimal-plugin` | Your Maven `artifactId` |
+| `example-minimal` | Globally unique lowercase plugin ID, URL prefix, and i18n namespace |
+| `com.example.pixivdownload.minimal` | Your Java package and matching directory structure |
 | `ExampleMinimal*` | Your Java class prefix |
-| `0.1.0` | Your artifact and `plugin.version` value |
-| `plugin.requires` | `=FULL_SDK_VERSION` for a prerelease SDK; `MAJOR.MINOR` for a stable SDK |
-| `plugin.provider=Example Developer` | Your provider name |
+| `0.1.0` | Your artifact and `plugin.version` |
+| `plugin.requires` | `MAJOR.MINOR` for a stable SDK, or `=FULL_SDK_VERSION` (e.g., `plugin.requires==7.2.3-rc.4`) for a prerelease SDK |
+| `plugin.provider=Example Developer` | Your publisher name |
 
-After replacement, update every formal-locale i18n bundle and run `mvn clean verify` again. Keep feature id, routes, static paths, namespace, and tests aligned. Do not add dependencies on the host app/core/runtime, signature internals, installer code, official-plugin services, or root-context component scanning.
+## 3. Execution Mode and Compatibility
 
-Update the compile dependency and `plugin.requires` together. In a properties file an exact requirement has two equals signs, for example `plugin.requires==7.2.3-rc.4`: the first separates the property name from its value. Prerelease APIs may change between candidates, so use the matching SDK runtime. Hosts without exact-requirement support reject this declaration before executing the plugin. A historical package declaring only `1.0` does not identify the RC used to build it; its author must verify compatibility and publish a new package. See the SDK development package's upgrade instructions before changing versions.
-
-The verified descriptor declares `declarative-process`, `hot-reload`, and no `pixiv.configuration-classes`. Keep it declarative: configuration classes, controllers, queue behavior, schedules, and other in-process callbacks are not supported by this execution mode. If a plugin needs private persistence or behavioral capabilities, use only an execution mode and host capability surface that explicitly supports them; do not relabel unsupported code as isolated.
+- Keep the compile dependency and `plugin.requires` synchronized.
+- This template declares `declarative-process`, `hot-reload`, `pixiv.risk-signals=` (empty), and no `pixiv.configuration-classes`. In-process Spring configuration classes, controllers, queues, and scheduled executors are not supported in `declarative-process`.
+- The worker runs in a separate JVM under the same operating-system account; process separation is not an OS security sandbox.

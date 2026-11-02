@@ -430,6 +430,16 @@ jobs:
           printf '**Commit:** [%s](https://github.com/%s/commit/%s)\n\n' \
             "$COMMIT_SHA" "$GH_REPOSITORY" "$COMMIT_SHA" >> RELEASE_BODY.md
           cat >> RELEASE_BODY.md <<'EOF'
+          ## 下载发行包 / Downloads
+
+          | 发行包 | 运行要求与预置内容 |
+          | --- | --- |
+          | `PixivDownload-*-win-x64-setup.exe` | Windows x64 安装包（内置 JRE，可选自动下载 FFmpeg，预置默认官方插件集合，不含 Douyin） |
+          | `PixivDownload-*-java.zip` | 跨平台 Java 标准包（需 Java 17+，与 Windows 安装包预置相同的默认官方插件集合，不含 Douyin） |
+          | `PixivDownload-*-full-offline.zip` | 跨平台离线全量包（需 Java 17+，在标准包基础上额外预置 PostgreSQL 数据库、PixivBatchDownloader 导入等官方可选插件，不含 Douyin） |
+
+          安装与初始化请按在线文档的[安装与启动](https://sywyar.github.io/PixivDownloader/#/zh-cn/installation)和[首次配置](https://sywyar.github.io/PixivDownloader/#/zh-cn/first-setup)操作。
+
           ## 使用说明 / Usage
 
           ### Windows 安装包

@@ -1,21 +1,24 @@
 # PixivBatchDownloader 导入支持
 
-官方 `pixiv-batch-downloader-import` 插件配合油猴脚本，将 PixivBatchDownloader 此后下载完成的插画、漫画、动图和小说自动加入本机画廊。首次使用配置一次下载目录，之后无需手动导入。源文件不复制、不移动；删除画廊记录也保留原文件。
+官方 `pixiv-batch-downloader-import` 插件配合专用油猴脚本，将 PixivBatchDownloader 下载完成的插画、漫画、动图和小说以**只读引用**方式登记到本机画廊（源文件不复制、不移动，删除画廊记录也保留原文件），并提供历史记录批量导入。完整配置、限制与历史导入说明见[在线文档](https://sywyar.github.io/PixivDownloader/#/zh-cn/pixiv-batch-downloader-import)。
 
-[安装、配置与故障排查](https://sywyar.github.io/PixivDownloader/#/zh-cn/pixiv-batch-downloader-import)。
+## 1. 快速启用自动导入
 
-尚未配置目录时，首次收到完整成功记录中的绝对路径会唤起桌面设置和确认弹窗。可以改选下载根目录，点击“确认并保存”后才允许导入，无需重启。取消不写配置，也不会因同一记录重试而反复弹窗；之后可在设置中手动选择。相对路径无法推断根目录，需要手动配置。
+浏览器与本程序须运行在同一台机器上，且本程序使用单人模式（`solo`）：
 
-桌面首页的数据概览显示“已导入的作品”：累计统计此插件成功导入的唯一作品，多页漫画算一部，插画与小说的相同 ID 分别计数。计数在重启后保留，删除画廊记录不会减少；已有作品、失败和跳过不计数，历史导入不自动回填。
+1. 在插件市场安装并启用「PixivBatchDownloader 导入支持」（离线全量包已包含，标准包按需安装），完整退出并重启程序。
+2. 在浏览器启用 PixivBatchDownloader 与 Tampermonkey，从本程序下载页「油猴脚本」入口（或 `/api/scripts/pixiv-batch-downloader-import.user.js`）安装并启用导入脚本。
+3. 在桌面设置中选择浏览器下载根目录，或在首次下载完成后通过桌面弹窗点击「保存目录」确认候选根目录，随后刷新 Pixiv 页面。
+4. 正常使用 PixivBatchDownloader 下载作品，完成后在画廊核对作品记录。已有历史下载可通过 Pixiv 页面油猴菜单「读取浏览器下载历史」或桌面「工具 → PixivBatchDownloader 历史导入」补录。
 
-## SDK
+## 2. 排障与统计
 
-插件通过 `DesktopDirectorySuggestionSource` 提供一个 `DesktopDirectorySuggestion` 候选，目标为自己的非敏感、无条件 `PATH_DIR` 字段，生效方式为 `HOT_RELOAD`。宿主按当前 publication 校验目录并在用户确认后保存；来源撤回后拒绝旧确认。插件从 owner-bound `RuntimePathProvider` 读取已保存配置，观察本身不授予目录访问权限。
+- **下载完成却未显示**：在 Pixiv 页面油猴菜单查看「自动导入状态」：`SOURCE_ROOT_REQUIRED` 表示需确认或配置下载根目录；`SERVER_UNAVAILABLE` 表示需检查本机服务与端口。缺页、未知元数据或跳过下载的作品不会作为完整作品入库。
+- **导入统计**：桌面首页「已导入的作品」按 `(作品类型, 作品 ID)` 去重统计本插件成功导入的作品数（保存在 `data/pixiv-batch-downloader-import/plugin.db`），重启或删除画廊记录不扣减计数。
 
-`WorkFileImporter.importFiles(WorkFileImportRequest)` 核验完整本地作品并原子登记文件引用。调用方负责授权允许目录；浏览器不能改变该目录。宿主提供插画处理，小说 owner 通过 `WorkFileImportHandler` 贡献登记能力；缺席时导入失败且不产生记录。处理器按精确 publication 代理调用，撤回拒绝新调用并等待在途调用。
+## 3. 所用公开 SDK 契约
 
-`WorkAssetService.isReadOnly` 表明资产来自外部原文件。读取与删除使用同一登记事实；删除仅移除画廊记录，媒体维护不得改写这些文件。
-
-`WebRouteContribution.trustedWriteOrigins` 可为精确 ADMIN / LOCAL POST 路由声明 HTTPS 来源。它只允许无环境 cookie 的脚本通过 CSRF 来源检查，不取消路由鉴权。该插件还检查单人模式、loopback 地址和短期单次令牌。
-
-`UserscriptContribution(id, classpathResource, i18nNamespace)` 支持插件自持脚本翻译。下载观察与准入规则使用 `DownloadObserver` / `DownloadAdmissionPolicy`；宿主 `DownloadLifecycle` 已连接插画执行和本地导入。观察是同步尽力通知，不保证重放、崩溃终态或全局顺序；准入规则在副作用前执行，错误按拒绝处理。它们不替换私有方法，也不提供 WebView。
+- **`DesktopDirectorySuggestionSource`**：为插件自身的非敏感 `PATH_DIR` 字段提供 `HOT_RELOAD` 目录候选，经桌面用户确认后保存。
+- **`WorkFileImporter` 与 `WorkFileImportHandler`**：校验本地完整文件并原子登记只读路径引用（`WorkAssetService.isReadOnly` 标记外部源文件，删除画廊记录与媒体维护均保留原文件）。
+- **`WebRouteContribution.trustedWriteOrigins`**：为受控 `LOCAL` POST 路由声明可信 HTTPS Origin，配合单人模式、回环地址、单次令牌（及浏览器历史导入会话 ID）完成无环境 Cookie 的安全写入。
+- **`UserscriptContribution`、`DownloadObserver` 与 `DownloadAdmissionPolicy`**：提供插件自带脚本的本地化词典，以及通过宿主 `DownloadLifecycle` 连接的同步尽力观察与前置准入校验。
