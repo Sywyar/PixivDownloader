@@ -61,9 +61,7 @@ final class OperationFormsAcceptance {
         check(call(origin, cookie, "alpha", failedAction).statusCode() == 500, "business action failure is not approved");
         check(call(origin, cookie, "alpha", failedAction).statusCode() == 409, "failed business action cannot reuse consumed proof");
         check(call(origin, cookie, "alpha", command("__fail")).statusCode() == 428, "business retry starts a fresh challenge");
-        proof.getField("revision").set(null, "two");
-        check(call(origin, cookie, "alpha", command("bound")).statusCode() == 503, "unpublished policy changes fail closed");
-        proof.getField("revision").set(null, "one");
+        verifySharedPublications(context, origin, cookie, browser, fixed, proof);
         proof.getField("mode").set(null, "fail");
         check(call(origin, cookie, "alpha", command("bound")).statusCode() == 503, "provider exception fails closed");
         proof.getField("mode").set(null, "normal");
@@ -98,6 +96,179 @@ final class OperationFormsAcceptance {
         coordinator.start("operation-proof");
         check(call(origin, cookie, "alpha", stale).statusCode() == 409, "replacement rejects old challenge");
         System.out.println("OPERATION_FORMS_REAL_HTTP_BROWSER_REPLAY_GENERATION_EDITOR_ABSENCE_AND_ACTION_DRAIN_PASSED");
+    }
+
+    private static void verifySharedPublications(ConfigurableApplicationContext context, String origin, String cookie,
+            String browser, Path fixed, Class<?> proof) throws Exception {
+        var primary = document(origin, cookie, "page", null);
+        ObjectNode source = primary.path("published").deepCopy();
+        source.put("pageId", "operation-form:other").put("title", "First published title");
+        var other = document(origin, cookie, "other/save", JSON.createObjectNode().put("revision", 0).set("document", source));
+        publish(origin, cookie, "other", other);
+        source.put("title", "Second published title");
+        other = document(origin, cookie, "other/save", JSON.createObjectNode().put("revision", other.path("revision").asLong()).set("document", source));
+        publish(origin, cookie, "other", other);
+        source.put("title", "Unfinished draft");
+        other = document(origin, cookie, "other/save", JSON.createObjectNode().put("revision", other.path("revision").asLong()).set("document", source));
+        proof.getField("revision").set(null, "two");
+        check(call(origin, cookie, "alpha", command("bound")).statusCode() == 503, "unpublished policy changes fail closed");
+        var before = context.getBean(WebPublicationStore.class).snapshot();
+        var request = JSON.createObjectNode().put("revision", primary.path("revision").asLong()).put("restoring", false);
+        var plan = document(origin, cookie, "page/prepare", request);
+        check(plan.path("pages").toString().equals("[\"operation-form:page\",\"operation-form:other\"]"), "editor plans both related pages");
+        request.set("decision", JSON.createObjectNode().put("revision", plan.path("revision").asLong())
+                .put("fingerprint", plan.path("fingerprint").asText()).set("approvals", plan.path("permissions")));
+        proof.getField("revision").set(null, "three");
+        check(request(origin, "/api/page-editor/documents/operation-form:page/publish", request.toString(), cookie).statusCode() == 422,
+                "policy change invalidates confirmed plan");
+        check(context.getBean(WebPublicationStore.class).snapshot().equals(before), "stale batch leaves every page unchanged");
+        proof.getField("revision").set(null, "two");
+        browser(browser, origin, cookie, "operation-policy-update", fixed);
+        check(call(origin, cookie, "alpha", command("bound")).statusCode() == 428, "editor publication restores shared operation availability");
+        var after = document(origin, cookie, "other", null);
+        for (String field : List.of("draft", "published", "previous", "revision"))
+            check(after.path(field).equals(other.path(field)), "related page preserves " + field);
+        check(context.getBean(WebPublicationStore.class).snapshot().revision() == before.revision() + 1, "both pages commit in one revision");
+        System.out.println("SHARED_OPERATION_EDITOR_POLICY_UPDATE_PRESERVES_DRAFT_AND_HISTORY_PASSED");
+        var primaryBound = document(origin, cookie, "page", null).path("published").deepCopy();
+        var otherBound = after.path("published").deepCopy();
+        browser(browser, origin, cookie, "operation-draft-batch", fixed);
+        check(call(origin, cookie, "alpha", command("unbound")).statusCode() == 200, "selected drafts remove shared protection atomically");
+        var a = document(origin, cookie, "page", null);
+        var b = document(origin, cookie, "other", null);
+        check(a.path("previous").equals(primaryBound) && b.path("previous").equals(otherBound), "batch retains each recovery point");
+        verifySharedRestoration(context, origin, cookie, browser, fixed, proof);
+        a = document(origin, cookie, "page", null); b = document(origin, cookie, "other", null);
+        a = document(origin, cookie, "page/save", JSON.createObjectNode().put("revision", a.path("revision").asLong()).set("document", primaryBound));
+        b = document(origin, cookie, "other/save", JSON.createObjectNode().put("revision", b.path("revision").asLong()).set("document", otherBound));
+        var batch = JSON.createObjectNode().put("revision", a.path("revision").asLong()).put("restoring", false);
+        batch.putArray("drafts").addObject().put("page", "operation-form:other").put("revision", b.path("revision").asLong());
+        var batchPlan = document(origin, cookie, "page/prepare", batch);
+        check(!batchPlan.path("permissions").isEmpty(), "resource permissions are shown for the selected batch");
+        batch.set("decision", JSON.createObjectNode().put("revision", batchPlan.path("revision").asLong())
+                .put("fingerprint", batchPlan.path("fingerprint").asText()).set("approvals", JSON.createArrayNode()));
+        var unbound = context.getBean(WebPublicationStore.class).snapshot();
+        check(request(origin, "/api/page-editor/documents/operation-form:page/publish", batch.toString(), cookie).statusCode() == 422,
+                "selected batch requires explicit resource approval");
+        ((ObjectNode) batch.get("decision")).set("approvals", batchPlan.path("permissions"));
+        proof.getField("revision").set(null, "three");
+        check(request(origin, "/api/page-editor/documents/operation-form:page/publish", batch.toString(), cookie).statusCode() == 422,
+                "selected batch rejects changed provider policy");
+        proof.getField("revision").set(null, "two");
+        b = document(origin, cookie, "other/save", JSON.createObjectNode().put("revision", b.path("revision").asLong()).set("document", otherBound));
+        check(request(origin, "/api/page-editor/documents/operation-form:page/publish", batch.toString(), cookie).statusCode() == 409,
+                "selected batch rejects a concurrent draft save even when content is unchanged");
+        ((ObjectNode) batch.path("drafts").get(0)).put("revision", b.path("revision").asLong());
+        check(request(origin, "/api/page-editor/documents/operation-form:page/publish", batch.toString(), cookie).statusCode() == 422,
+                "updated draft revision requires a new confirmation");
+        check(context.getBean(WebPublicationStore.class).snapshot().equals(unbound), "rejected batches have no partial publication");
+        batchPlan = document(origin, cookie, "page/prepare", batch);
+        batch.set("decision", JSON.createObjectNode().put("revision", batchPlan.path("revision").asLong())
+                .put("fingerprint", batchPlan.path("fingerprint").asText()).set("approvals", batchPlan.path("permissions")));
+        document(origin, cookie, "page/publish", batch);
+        check(call(origin, cookie, "alpha", command("bound")).statusCode() == 428, "confirmed draft batch restores protection");
+        System.out.println("SHARED_OPERATION_SELECTED_DRAFTS_PERMISSIONS_POLICY_CAS_AND_RECOVERY_PASSED");
+        a = document(origin, cookie, "page", null);
+        ObjectNode changedTitle = a.path("draft").deepCopy(); changedTitle.put("title", "Changed after batch");
+        a = document(origin, cookie, "page/save", JSON.createObjectNode().put("revision", a.path("revision").asLong()).set("document", changedTitle));
+        publish(origin, cookie, "page", a);
+        var incompatible = JSON.createObjectNode().put("revision", a.path("revision").asLong()).put("restoring", true);
+        incompatible.putArray("drafts").addObject().put("page", "operation-form:other")
+                .put("revision", document(origin, cookie, "other", null).path("revision").asLong());
+        var unchanged = context.getBean(WebPublicationStore.class).snapshot();
+        check(request(origin, "/api/page-editor/documents/operation-form:page/prepare", incompatible.toString(), cookie).statusCode() == 422,
+                "incompatible historical requirements still reject the complete restore");
+        check(context.getBean(WebPublicationStore.class).snapshot().equals(unchanged), "incompatible restore has no partial writes");
+
+        proof.getField("revision").set(null, "one");
+        publish(origin, cookie, "page", document(origin, cookie, "page", null));
+    }
+
+    private static void verifySharedRestoration(ConfigurableApplicationContext context, String origin, String cookie,
+            String browser, Path fixed, Class<?> proof) throws Exception {
+        var a = document(origin, cookie, "page", null);
+        var b = document(origin, cookie, "other", null);
+        for (String page : List.of("page", "other")) {
+            var state = document(origin, cookie, page, null);
+            check(request(origin, "/api/page-editor/documents/operation-form:" + page + "/prepare", JSON.createObjectNode()
+                    .put("revision", state.path("revision").asLong()).put("restoring", true).toString(), cookie).statusCode() == 422,
+                    "single historical restore cannot contradict the other published page");
+        }
+        var batch = JSON.createObjectNode().put("revision", a.path("revision").asLong()).put("restoring", true);
+        batch.putArray("drafts").addObject().put("page", "operation-form:other").put("revision", b.path("revision").asLong());
+        var plan = document(origin, cookie, "page/prepare", batch);
+        check(!plan.path("permissions").isEmpty(), "historical bindings require resource approval");
+        batch.set("decision", JSON.createObjectNode().put("revision", plan.path("revision").asLong())
+                .put("fingerprint", plan.path("fingerprint").asText()).set("approvals", JSON.createArrayNode()));
+        var before = context.getBean(WebPublicationStore.class).snapshot();
+        String endpoint = "/api/page-editor/documents/operation-form:page/restore";
+        check(request(origin, endpoint, batch.toString(), cookie).statusCode() == 422, "history restore rejects missing permissions");
+        ((ObjectNode) batch.get("decision")).set("approvals", plan.path("permissions"));
+        proof.getField("revision").set(null, "three");
+        check(request(origin, endpoint, batch.toString(), cookie).statusCode() == 422, "policy changes invalidate restore confirmation");
+        proof.getField("revision").set(null, "two");
+        var coordinator = context.getBean(ExternalPluginLifecycleCoordinator.class);
+        coordinator.stop("operation-proof"); coordinator.start("operation-proof");
+        check(request(origin, endpoint, batch.toString(), cookie).statusCode() == 422, "catalog replacement invalidates restore confirmation");
+        plan = document(origin, cookie, "page/prepare", batch);
+        batch.set("decision", JSON.createObjectNode().put("revision", plan.path("revision").asLong())
+                .put("fingerprint", plan.path("fingerprint").asText()).set("approvals", plan.path("permissions")));
+        b = document(origin, cookie, "other/save", JSON.createObjectNode().put("revision", b.path("revision").asLong()).set("document", b.path("draft")));
+        check(request(origin, endpoint, batch.toString(), cookie).statusCode() == 409, "draft changes invalidate restore confirmation");
+        ((ObjectNode) batch.path("drafts").get(0)).put("revision", b.path("revision").asLong());
+        check(request(origin, endpoint, batch.toString(), cookie).statusCode() == 422, "updated draft revision still needs a new restore confirmation");
+        check(context.getBean(WebPublicationStore.class).snapshot().equals(before), "rejected history batches leave all publications unchanged");
+        check(document(origin, cookie, "page", null).equals(a), "rejected history batches preserve the primary draft");
+        browser(browser, origin, cookie, "operation-history-batch", fixed);
+        check(call(origin, cookie, "alpha", command("bound")).statusCode() == 428, "real editor history restore reinstates verification");
+        browser(browser, origin, cookie, "operation-history-batch", fixed);
+        check(call(origin, cookie, "alpha", command("unbound")).statusCode() == 200, "the inverse historical restore also completes atomically");
+        System.out.println("SHARED_OPERATION_HISTORY_RESTORE_REAL_EDITOR_PERMISSIONS_POLICY_CATALOG_CAS_AND_ROUND_TRIP_PASSED");
+    }
+
+    static void verifyPresentationWithdrawal(ConfigurableApplicationContext context, String origin, String cookie) throws Exception {
+        var coordinator = context.getBean(ExternalPluginLifecycleCoordinator.class);
+        var other = document(origin, cookie, "other", null);
+        ObjectNode source = other.path("published").deepCopy();
+        var root = (com.fasterxml.jackson.databind.node.ArrayNode) source.path("project").path("pages").get(0)
+                .path("frames").get(0).path("component").path("components");
+        var decoration = root.addObject().put("type", "page-component").put("componentType", "page-checklist:list")
+                .put("configVersion", 1).put("instanceId", "decoration");
+        decoration.set("configuration", JSON.readTree("{\"title\":\"Decoration\",\"items\":[{\"label\":\"Item\",\"checked\":false}]}"));
+        other = document(origin, cookie, "other/save", JSON.createObjectNode().put("revision", other.path("revision").asLong()).set("document", source));
+        publish(origin, cookie, "other", other);
+        var retained = document(origin, cookie, "other", null);
+        coordinator.stop("page-checklist");
+        try {
+            check(call(origin, cookie, "alpha", command("bound")).statusCode() == 428, "ordinary decoration withdrawal does not affect operation availability");
+            var primary = document(origin, cookie, "page", null);
+            ObjectNode changed = primary.path("draft").deepCopy(); changed.put("title", "Title without changed requirements");
+            primary = document(origin, cookie, "page/save", JSON.createObjectNode().put("revision", primary.path("revision").asLong()).set("document", changed));
+            var plan = document(origin, cookie, "page/prepare", JSON.createObjectNode().put("revision", primary.path("revision").asLong()).put("restoring", false));
+            check(plan.path("pages").toString().equals("[\"operation-form:page\"]"), "unchanged operation requirements do not recompile the unrelated page");
+            publish(origin, cookie, "page", primary);
+            var preserved = document(origin, cookie, "other", null);
+            for (String field : List.of("draft", "published", "previous", "revision"))
+                check(preserved.path(field).equals(retained.path(field)), "unavailable related page preserves " + field);
+            check(request(origin, "/api/page-editor/documents/operation-form:other/prepare", JSON.createObjectNode()
+                    .put("revision", preserved.path("revision").asLong()).put("restoring", false).toString(), cookie).statusCode() == 422,
+                    "the unavailable component still prevents publishing its own page");
+        } finally { coordinator.start("page-checklist"); }
+        System.out.println("SHARED_OPERATION_UNRELATED_DECORATION_WITHDRAWAL_PASSED");
+    }
+
+    private static JsonNode document(String origin, String cookie, String path, ObjectNode body) throws Exception {
+        var response = request(origin, "/api/page-editor/documents/operation-form:" + path, body == null ? null : body.toString(), cookie);
+        check(response.statusCode() == 200, "editor document " + path + ": " + response.statusCode() + " " + response.body());
+        return JSON.readTree(response.body());
+    }
+
+    private static void publish(String origin, String cookie, String page, JsonNode state) throws Exception {
+        var command = JSON.createObjectNode().put("revision", state.path("revision").asLong()).put("restoring", false);
+        var plan = document(origin, cookie, page + "/prepare", command);
+        command.set("decision", JSON.createObjectNode().put("revision", plan.path("revision").asLong())
+                .put("fingerprint", plan.path("fingerprint").asText()).set("approvals", plan.path("permissions")));
+        document(origin, cookie, page + "/publish", command);
     }
     private static ObjectNode command(String value) {
         var result = JSON.createObjectNode().put("value", value).put("token", ""); result.putObject("proofs"); return result;

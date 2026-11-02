@@ -8,7 +8,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
-import java.util.List;
+import java.util.*;
 
 /** 编辑器只持有草稿，正式页面与回滚通过宿主的同一发布事务处理。 */
 public final class PageStore {
@@ -63,41 +63,122 @@ public final class PageStore {
     }
 
     public record Preview(long revision, String fingerprint, List<PagePublications.Impact> impacts,
-            List<PagePublications.Permission> permissions) { }
+            List<PagePublications.Permission> permissions, List<String> pages, List<Draft> drafts) { }
+    /** 所选页面的草稿修订；恢复内容由正式历史提供，不由此记录指定。 */
+    public record Draft(String page, long revision) { }
     public record Decision(long revision, String fingerprint, List<PagePublications.Permission> approvals) { }
 
     public synchronized Preview prepare(String id, long revision, boolean restoring) {
-        var plan = plan(id, expected(id, revision), restoring);
-        return new Preview(plan.revision(), plan.fingerprint(), plan.impacts(), plan.permissions());
+        return prepare(id, revision, restoring, List.of());
     }
 
-    private PagePublications.Plan plan(String id, ObjectNode state, boolean restoring) {
+    public synchronized Preview prepare(String id, long revision, boolean restoring, List<Draft> drafts) {
+        var selected = selected(id, revision, drafts);
+        var plan = plan(candidates(id, revision, selected, restoring), restoring);
+        return new Preview(plan.revision(), fingerprint(plan, selected, restoring), plan.impacts(), plan.permissions(),
+                plan.changes().stream().map(PagePublications.Change::page).toList(), selected);
+    }
+
+    private static List<Draft> selected(String id, long revision, List<Draft> drafts) {
+        if (drafts == null || drafts.size() >= 128) throw PageDocuments.invalid("PAGE_DOCUMENT_BUDGET");
+        var selected = new TreeMap<String, Draft>();
+        selected.put(id, new Draft(id, revision));
+        for (Draft draft : drafts) {
+            if (draft == null || draft.page() == null || draft.revision() < 0) throw PageDocuments.invalid("PAGE_DOCUMENT_INVALID");
+            if (selected.putIfAbsent(draft.page(), draft) != null) throw PageDocuments.invalid("PAGE_ID_CONFLICT");
+        }
+        return List.copyOf(selected.values());
+    }
+
+    private static String fingerprint(PagePublications.Plan plan, List<Draft> drafts, boolean restoring) {
+        try {
+            byte[] input = PageDocuments.JSON.writeValueAsBytes(List.of(plan.fingerprint(), drafts, restoring));
+            return HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(input));
+        } catch (IOException | java.security.NoSuchAlgorithmException failure) { throw new IllegalStateException(failure); }
+    }
+
+    private Map<String, ObjectNode> candidates(String id, long revision, List<Draft> selected, boolean restoring) {
+        var states = new LinkedHashMap<String, ObjectNode>();
+        states.put(id, expected(id, revision));
+        for (Draft draft : selected) if (!draft.page().equals(id)) states.put(draft.page(), expected(draft.page(), draft.revision()));
+        // 只保留候选内容和提交后的草稿写入状态，避免批量恢复同时持有无关草稿副本。
+        states.forEach((page, state) -> {
+            if (restoring) state.remove("draft");
+            if (!page.equals(id)) {
+                state.remove("published");
+                if (!restoring) state.remove("previous");
+            }
+        });
+        return states;
+    }
+
+    private static JsonNode source(ObjectNode state, boolean restoring) {
         JsonNode source = restoring ? state.get("previous") : state.path("draft");
         if (source == null) throw PageDocuments.invalid("PAGE_PREVIOUS_UNAVAILABLE");
+        return source;
+    }
+
+    private PagePublications.Plan plan(Map<String, ObjectNode> states, boolean restoring) {
+        long revision = states.values().iterator().next().path("publicationRevision").asLong();
+        var changes = new ArrayList<PagePublications.Change>();
+        states.forEach((page, state) -> changes.add(change(page, source(state, restoring))));
+        var included = new HashSet<>(states.keySet());
+        while (true) {
+            try { return publications.prepare(revision, changes); }
+            catch (PagePublications.Conflict conflict) {
+                int before = changes.size();
+                for (String page : conflict.pages()) {
+                    if (!included.add(page)) continue;
+                    if (changes.size() >= 128) throw PageDocuments.invalid("PAGE_DOCUMENT_BUDGET");
+                    var published = publications.read(page).orElseThrow(() -> PageDocuments.invalid("PAGE_REVISION_CONFLICT"));
+                    if (published.revision() != revision) throw PageDocuments.invalid("PAGE_REVISION_CONFLICT");
+                    // 只刷新真正冲突的正式内容；未选择的草稿始终不参与发布。
+                    changes.add(change(page, PageDocuments.parse(published.document())));
+                }
+                if (changes.size() == before) throw conflict;
+            }
+        }
+    }
+
+    private PagePublications.Change change(String id, JsonNode source) {
         ObjectNode view = documents.validate(id, source, source, true);
         view.put("defaultLayout", documents.usesDefaultLayout(view));
-        return publications.prepare(state.path("publicationRevision").asLong(),
-                List.of(new PagePublications.Change(id, source.toString(), view.toString())));
+        return new PagePublications.Change(id, source.toString(), view.toString());
     }
 
     public synchronized ObjectNode publish(String id, long revision, Decision decision, boolean restoring) {
+        return publish(id, revision, decision, restoring, List.of());
+    }
+
+    public synchronized ObjectNode publish(String id, long revision, Decision decision, boolean restoring, List<Draft> drafts) {
         if (decision == null || decision.fingerprint() == null || decision.approvals() == null)
             throw PageDocuments.invalid("PAGE_PUBLICATION_STALE");
-        ObjectNode state = expected(id, revision);
-        var plan = plan(id, state, restoring);
-        if (decision.revision() != plan.revision() || !decision.fingerprint().equals(plan.fingerprint()))
+        var selected = selected(id, revision, drafts);
+        var states = candidates(id, revision, selected, restoring);
+        ObjectNode state = states.get(id);
+        var plan = plan(states, restoring);
+        if (decision.revision() != plan.revision() || !decision.fingerprint().equals(fingerprint(plan, selected, restoring)))
             throw PageDocuments.invalid("PAGE_PUBLICATION_STALE");
-        JsonNode source = (restoring ? state.get("previous") : state.get("draft")).deepCopy();
-        JsonNode previous = state.get("published");
+        JsonNode source = source(state, restoring).deepCopy();
+        JsonNode previous = source.equals(state.get("published")) ? state.get("previous") : state.get("published");
         long committed = publications.publish(plan, decision.approvals());
         if (restoring) {
-            state.set("draft", source);
-            try { state = write(id, state.deepCopy()); }
-            catch (RuntimeException failure) {
-                state.put("draftSaveFailed", true);
-                LOG.warn("Page restoration committed; draft save failed: page={}, publicationRevision={}, reason=PAGE_STORAGE_FAILED, failureType={}",
-                        id, committed, failure.getClass().getSimpleName());
+            var failures = new ArrayList<String>();
+            for (var entry : states.entrySet()) {
+                String page = entry.getKey();
+                ObjectNode restored = entry.getValue();
+                restored.set("draft", source(restored, true).deepCopy());
+                try {
+                    ObjectNode saved = write(page, restored.deepCopy());
+                    if (page.equals(id)) state = saved;
+                } catch (RuntimeException failure) {
+                    failures.add(page);
+                    if (page.equals(id)) state.put("draftSaveFailed", true);
+                    LOG.warn("Page restoration committed; draft save failed: page={}, publicationRevision={}, reason=PAGE_STORAGE_FAILED, failureType={}",
+                            page, committed, failure.getClass().getSimpleName());
+                }
             }
+            if (!failures.isEmpty()) state.set("draftSaveFailures", PageDocuments.JSON.valueToTree(failures));
         }
         // 已提交结果直接由本次提交构造，辅助存储或回读故障不能使客户端重放发布。
         state.put("publicationRevision", committed);

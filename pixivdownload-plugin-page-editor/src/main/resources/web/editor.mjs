@@ -4,6 +4,7 @@ import {installEditorMotion} from './editor-motion.mjs';
 import {icon, decorateIcons} from './editor-icons.mjs';
 import {createEditorFeedback} from './editor-feedback.mjs';
 import {resolveBinding, publicationSections} from './editor-bindings.mjs';
+import {selectPages} from './editor-publication.mjs';
 
 const $ = id => document.getElementById(id);
 let i18n;
@@ -21,8 +22,10 @@ let savedSource = '';
 let loading = false;
 let busy = false;
 let inspector;
+let inspectorAbort;
 let inspectorGeneration = 0;
 let refreshBinding;
+let refreshProperties;
 let connections = [];
 let preview;
 let previewAbort;
@@ -40,7 +43,7 @@ const status = (key, detail = '') => {
     if (key === 'unsaved' && (busy || state?.draftSaveFailed)) return;
     const feedback = $('document-feedback');
     const kind = ['saved', 'published', 'restored', 'css-applied'].includes(key) ? 'success'
-        : ['failed', 'conflict', 'required-region', 'css-pending', 'repair-title', 'unavailable', 'restored-unsaved'].includes(key) ? 'error'
+        : ['failed', 'conflict', 'required-region', 'css-pending', 'repair-title', 'unavailable', 'restored-unsaved', 'restored-unsaved-pages'].includes(key) ? 'error'
         : ['working', 'saving', 'publishing', 'restoring'].includes(key) ? 'busy' : 'idle';
     feedback.dataset.state = kind;
     $('status').textContent = t(key);
@@ -107,8 +110,10 @@ function syncActions() {
     for (const button of document.querySelectorAll('.editor-actions button')) button.disabled = busy || !state;
     $('page').disabled = busy;
     $('restore').disabled = busy || !state?.previous;
+    $('restore-batch').disabled = busy || !state?.previous;
     $('save').disabled = busy || !state || needsRepair;
     $('publish').disabled = busy || !state || needsRepair;
+    $('publish-batch').disabled = busy || !state || needsRepair;
     $('preview').disabled = busy || !state || needsRepair;
     $('repair').disabled = busy;
     $('undo').disabled = !editor?.UndoManager.hasUndo();
@@ -277,12 +282,14 @@ function changed() {
         dirty = JSON.stringify(documentSource()) !== savedSource;
         if (dirty) status('unsaved');
     }
-    syncSelection(); syncConnections(); refreshBinding?.();
+    syncSelection(); syncConnections(); refreshBinding?.(); refreshProperties?.();
 }
 
 async function properties(model) {
     const generation = ++inspectorGeneration;
+    inspectorAbort?.abort();
     refreshBinding = undefined;
+    refreshProperties = undefined;
     await inspector?.destroy(); inspector = null;
     if (generation !== inspectorGeneration) return;
     const root = $('properties'); root.replaceChildren();
@@ -348,12 +355,26 @@ async function properties(model) {
     }
     if (definition.propertiesModuleUrl) {
         const mount = document.createElement('div'); root.append(mount);
+        inspectorAbort = new AbortController();
+        let configuration = model.get('configuration');
         const instance = await mountComponent(mount, {...definition, publication: entry.publication},
-            model.get('configuration'), {mode: 'edit', properties: true, instanceId: model.get('instanceId'),
+            configuration, {mode: 'edit', properties: true, signal: inspectorAbort.signal, instanceId: model.get('instanceId'),
                 t: (key, fallback) => componentI18n.t(definition.namespace + ':' + key, fallback || key),
                 onChange: value => { if (generation === inspectorGeneration) model.set('configuration', value); },
                 onUnavailable: () => { mount.textContent = t('unavailable'); }});
-        if (generation !== inspectorGeneration) await instance.destroy(); else inspector = instance;
+        if (generation !== inspectorGeneration) await instance.destroy();
+        else {
+            inspector = instance;
+            refreshProperties = () => {
+                const current = model.get('configuration');
+                if (current === configuration) return;
+                configuration = current;
+                instance.update(current).catch(error => {
+                    if (generation === inspectorGeneration && error.name !== 'AbortError') status('failed');
+                });
+            };
+            refreshProperties();
+        }
         return;
     }
     const schema = JSON.parse(definition.schema);
@@ -693,21 +714,22 @@ async function saveDraft() {
     savedSource = JSON.stringify(source); changed();
 }
 
-async function publishDraft(restoring) {
+async function publishDraft(restoring, drafts = []) {
     const path = 'documents/' + encodeURIComponent(pageId);
-    const plan = await api(path + '/prepare', {revision: state.revision, restoring});
+    const plan = await api(path + '/prepare', {revision: state.revision, restoring, drafts});
     const confirmed = await window.PixivFeedback.confirm({message: t(restoring ? 'restore-confirm' : 'publish-confirm'),
-        sections: publicationSections(plan, t), confirmLabel: t('confirm'), cancelLabel: t('cancel')});
+        sections: publicationSections(plan, t, restoring), confirmLabel: t('confirm'), cancelLabel: t('cancel'), signal: lifetime.signal});
     if (!confirmed) return;
     status(restoring ? 'restoring' : 'publishing');
-    state = await api(path + (restoring ? '/restore' : '/publish'), {revision: state.revision,
+    state = await api(path + (restoring ? '/restore' : '/publish'), {revision: state.revision, drafts,
         decision: {revision: plan.revision, fingerprint: plan.fingerprint, approvals: plan.permissions}});
     if (restoring) {
         await loadProject(state.draft);
         savedSource = state.draftSaveFailed ? '' : JSON.stringify(documentSource());
         dirty = Boolean(state.draftSaveFailed);
     }
-    status(state.draftSaveFailed ? 'restored-unsaved' : restoring ? 'restored' : 'published');
+    if (state.draftSaveFailures?.some(id => id !== pageId)) status('restored-unsaved-pages', state.draftSaveFailures.join(', '));
+    else status(state.draftSaveFailed ? 'restored-unsaved' : restoring ? 'restored' : 'published');
 }
 function manipulate(action) {
     const selected = editor.getSelected();
@@ -841,11 +863,17 @@ async function start() {
     let selectionFrame;
     editor.on('component:selected component:deselected', () => {
         inspectorGeneration++;
+        inspectorAbort?.abort();
         refreshBinding = undefined;
+        refreshProperties = undefined;
         $('properties').replaceChildren();
         cancelAnimationFrame(selectionFrame);
         selectionFrame = requestAnimationFrame(() => {
-            syncSelection(); properties(editor.getSelected()).catch(() => status('failed'));
+            syncSelection();
+            const opening = properties(editor.getSelected()), generation = inspectorGeneration;
+            opening.catch(error => {
+                if (generation === inspectorGeneration && error.name !== 'AbortError') status('failed');
+            });
         });
     });
     editor.on('block:drag:stop', model => { if (model) editor.select(model); });
@@ -861,7 +889,7 @@ async function start() {
         }
     });
     editor.on('update', changed);
-    editor.on('undo redo', syncActions);
+    editor.on('undo redo', () => { syncActions(); refreshProperties?.(); });
     document.addEventListener('click', event => {
         if (!$('document-more').contains(event.target)) closeActions();
     });
@@ -906,6 +934,20 @@ async function start() {
     $('restore').addEventListener('click', () => action(async () => {
         await publishDraft(true);
     }));
+    for (const [id, restoring] of [['publish-batch', false], ['restore-batch', true]]) $(id).addEventListener('click', () => action(async () => {
+        if (!restoring) {
+            if (!await cssEditor.ready()) { status('css-pending'); return; }
+            await saveDraft();
+        }
+        const selected = await selectPages(catalog.pages.map(entry => entry.definition), pageId, label, t, lifetime.signal, restoring);
+        if (selected === null) return;
+        const drafts = [];
+        for (const id of selected) {
+            const candidate = await api('documents/' + encodeURIComponent(id));
+            drafts.push({page: id, revision: candidate.revision});
+        }
+        await publishDraft(restoring, drafts);
+    }));
     $('preview').addEventListener('click', () => action(async () => {
         if (!await cssEditor.ready()) { status('css-pending'); return; }
         return $('preview-panel').hidden ? showPreview(documentSource()) : closePreview();
@@ -932,7 +974,8 @@ async function start() {
     window.addEventListener('beforeunload', event => { if (dirty || cssEditor.pending()) { event.preventDefault(); event.returnValue = ''; } });
     window.addEventListener('pagehide', () => {
         refreshBinding = undefined;
-        inspectorGeneration++; inspector?.destroy(); previewAbort?.abort(); preview?.destroy();
+        refreshProperties = undefined;
+        inspectorGeneration++; inspectorAbort?.abort(); inspector?.destroy(); previewAbort?.abort(); preview?.destroy();
         for (const view of componentViews) view.removed();
         lifetime.abort(); editor.destroy(); themes.disconnect(); i18n.dispose(); componentI18n?.dispose();
         cancelAnimationFrame(selectionFrame);

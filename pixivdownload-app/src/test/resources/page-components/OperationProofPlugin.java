@@ -33,7 +33,10 @@ public final class OperationProofPlugin extends Plugin implements PixivPluginPro
             return new OperationVerification() {
                 public String policyId() { return "fixture-proof"; }
                 public String generation() { return generation; }
-                public Policy policy() { return new Policy(revision, "", INTERACTION, List.of()); }
+                public Policy policy() {
+                    return new Policy(revision, "", INTERACTION, List.of(new PageResourceProfile("worker", "one",
+                            List.of(new PageResourceProfile.Source(PageResourceProfile.Kind.WORKER, "self")))));
+                }
                 public OperationVerificationResult verify(OperationVerificationRequest request) {
                     if (mode.equals("fail")) throw new IllegalStateException("fixture-provider-failed");
                     if (!request.response()) {

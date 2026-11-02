@@ -8,6 +8,10 @@ import static org.assertj.core.api.Assertions.*;
 
 class ComponentLibraryTest {
     @TempDir Path directory;
+    @AfterEach
+    void cleanup() throws java.io.IOException {
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(directory);
+    }
 
     private ObjectNode source(String text) {
         var source = ComponentLibrary.JSON.createObjectNode();
@@ -96,6 +100,11 @@ class ComponentLibraryTest {
         var config = ComponentLibrary.JSON.createObjectNode().put("componentId", state.path("id").asText()).put("version", state.path("latest").asText());
         config.putObject("properties").put("active", "false").put("amount", "2.75");
         library.validateConfiguration(config, true);
+        for (String invalid : java.util.List.of(".5", "00", "", "NaN", "Infinity", "1e309")) {
+            config.withObject("/properties").put("amount", invalid);
+            assertThatThrownBy(() -> library.validateConfiguration(config, true)).hasMessage("PAGE_COMPONENT_PROPERTIES_INVALID");
+        }
+        config.withObject("/properties").put("amount", "2.75");
         config.withObject("/properties").put("active", "1");
         assertThatThrownBy(() -> library.validateConfiguration(config, true)).hasMessage("PAGE_COMPONENT_PROPERTIES_INVALID");
     }

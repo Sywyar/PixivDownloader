@@ -132,17 +132,18 @@
                 if (kind === 'choice') {
                     const group = document.createElement('div');
                     group.className = 'pixiv-feedback-choices';
-                    group.setAttribute('role', 'radiogroup');
+                    group.setAttribute('role', options.multiple ? 'group' : 'radiogroup');
                     group.setAttribute('aria-labelledby', messageId);
                     (options.choices || []).forEach(function (choice) {
                         const label = document.createElement('label');
                         label.className = 'pixiv-feedback-choice';
                         const radio = document.createElement('input');
-                        radio.type = 'radio';
+                        radio.type = options.multiple ? 'checkbox' : 'radio';
                         radio.name = 'pixiv-feedback-choice-' + dialogId;
                         radio.value = requiredText(choice.value, 'choice value');
                         radio.disabled = !!choice.disabled;
-                        radio.checked = !radio.disabled && !choices.some(function (item) { return item.checked; });
+                        radio.checked = options.multiple ? !!choice.checked
+                            : !radio.disabled && !choices.some(function (item) { return item.checked; });
                         choices.push(radio);
                         label.appendChild(radio);
                         const caption = document.createElement('span');
@@ -197,7 +198,7 @@
                     options.danger ? 'pixiv-feedback-button--danger' : 'pixiv-feedback-button--primary',
                     'accept'
                 );
-                if (kind === 'choice') acceptButton.disabled = !choices.some(function (item) { return !item.disabled; });
+                if (kind === 'choice' && !options.multiple) acceptButton.disabled = !choices.some(function (item) { return !item.disabled; });
                 actions.appendChild(acceptButton);
                 panel.appendChild(actions);
                 backdrop.appendChild(panel);
@@ -248,6 +249,10 @@
                     if (kind === 'confirm') finish(true);
                     else if (kind === 'prompt') finish(input.value);
                     else if (kind === 'choice') {
+                        if (options.multiple) {
+                            finish(choices.filter(function (item) { return item.checked; }).map(function (item) { return item.value; }));
+                            return;
+                        }
                         const selected = choices.find(function (item) { return item.checked && !item.disabled; });
                         if (selected) finish({value: selected.value, remember: !!(remember && remember.checked)});
                     }

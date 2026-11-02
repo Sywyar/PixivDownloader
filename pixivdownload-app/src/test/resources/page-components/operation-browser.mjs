@@ -6,8 +6,9 @@ const {chromium} = await import(process.env.PAGE_EDITOR_PLAYWRIGHT ? pathToFileU
 const [phase, work] = process.argv.slice(2), origin = process.env.PAGE_ORIGIN;
 const browser = await chromium.launch({headless: true, ...(process.env.PAGE_EDITOR_CHROMIUM ? {executablePath: process.env.PAGE_EDITOR_CHROMIUM} : {})});
 let currentPage;
+const errors = [], violations = [];
 try {
-    const context = await browser.newContext({locale: 'en-US'}), page = await context.newPage(), errors = [], violations = [];
+    const context = await browser.newContext({locale: 'en-US'}), page = await context.newPage();
     currentPage = page;
     const [name, ...value] = process.env.PAGE_COOKIE.split('=');
     await context.addCookies([{name, value: value.join('='), url: origin}, {name: 'pixiv_lang', value: 'en-US', url: origin}]);
@@ -19,6 +20,165 @@ try {
         .map(model => ({id: model.get('instanceId'), region: model.parent().get('region')})));
     const ready = () => page.waitForFunction(() => window.pageEditorReady);
     await page.goto(origin + '/page-editor/index.html'); await ready();
+    if (phase === 'operation-draft-batch') {
+        const read = id => page.evaluate(async id => (await fetch('/api/page-editor/documents/' + id)).json(), id);
+        const before = await read('operation-form:page');
+        const unselected = await read('operation-form:ambiguous');
+        for (const id of ['operation-form:page', 'operation-form:other']) {
+            await page.locator('#page').selectOption(id);
+            await page.waitForFunction(id => window.grapesjs.editors[0].getWrapper().findType('page-component').length === 2
+                && document.querySelector('#page').value === id && !document.querySelector('#publish').disabled, id);
+            await page.evaluate(() => window.grapesjs.editors[0].getWrapper().findType('page-component').forEach(model => model.remove()));
+            await page.locator('#save').click();
+            await page.waitForFunction(() => document.querySelector('#status').textContent === 'Draft saved');
+            const conflict = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/' + id + '/prepare'));
+            await page.locator('#publish').click();
+            assert.equal((await conflict).status(), 422, 'one draft cannot remove shared protection');
+        }
+        await page.locator('#page').selectOption('operation-form:page');
+        await page.waitForFunction(() => !document.querySelector('#publish').disabled);
+        const openPicker = async () => {
+            await page.locator('#document-more summary').click(); await page.locator('#publish-batch').click();
+        };
+        await openPicker();
+        const picker = page.locator('.pixiv-feedback-backdrop[open]:has(.pixiv-feedback-choices)');
+        await picker.waitFor();
+        assert.equal(await picker.locator('input:checked').count(), 1, 'other drafts are opt-in');
+        for (const [theme, width, height, font] of [['light', 1280, 800, 16], ['dark', 600, 420, 32]]) {
+            await page.setViewportSize({width, height});
+            await page.evaluate(({theme, font}) => {
+                document.documentElement.dataset.theme = theme;
+                document.documentElement.style.fontSize = font + 'px';
+            }, {theme, font});
+            await picker.locator('[data-feedback-action="accept"]').scrollIntoViewIfNeeded();
+            assert.ok(await picker.evaluate(element => {
+                const panel = element.querySelector('.pixiv-feedback-dialog'), rect = panel.getBoundingClientRect();
+                return rect.left >= 0 && rect.right <= innerWidth && panel.scrollWidth <= panel.clientWidth + 1;
+            }), 'picker remains inside the viewport without horizontal clipping');
+            await page.screenshot({path: path.join(work, 'draft-picker-' + theme + '.png'), fullPage: true});
+        }
+        await page.setViewportSize({width: 1280, height: 800});
+        await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
+        await page.keyboard.press('Escape');
+        assert.equal(await page.locator('#document-more summary').evaluate(element => element === document.activeElement), true, 'cancel restores focus');
+        assert.equal((await read('operation-form:page')).publicationRevision, before.publicationRevision);
+        await openPicker();
+        const other = picker.locator('input[value="operation-form:other"]');
+        await other.locator('..').click(); assert.equal(await other.isChecked(), true, 'caption toggles once');
+        await other.focus(); await page.keyboard.press('Space'); assert.equal(await other.isChecked(), false);
+        await page.keyboard.press('Space'); assert.equal(await other.isChecked(), true);
+        const prepared = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/operation-form:page/prepare'));
+        await picker.locator('[data-feedback-action="accept"]').click();
+        const preparedResponse = await prepared;
+        assert.equal(preparedResponse.status(), 200, await preparedResponse.text());
+        const plan = await preparedResponse.json();
+        assert.deepEqual(plan.pages, ['operation-form:page', 'operation-form:other']);
+        assert.equal(plan.drafts.length, 2);
+        assert.ok(plan.impacts.every(impact => impact.before.includes('fixture-proof') && impact.after.length === 0));
+        const confirm = page.locator('.pixiv-feedback-backdrop[open]');
+        await confirm.locator('.pixiv-feedback-button--secondary').click();
+        assert.equal((await read('operation-form:page')).publicationRevision, before.publicationRevision, 'cancel has no formal writes');
+        await openPicker(); await picker.locator('input[value="operation-form:other"]').check();
+        await picker.locator('[data-feedback-action="accept"]').click();
+        const published = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/operation-form:page/publish'));
+        await confirm.locator('.pixiv-feedback-button--primary').click(); assert.equal((await published).status(), 200);
+        const primary = await read('operation-form:page'), secondary = await read('operation-form:other');
+        assert.equal(primary.publicationRevision, before.publicationRevision + 1);
+        assert.equal(secondary.publicationRevision, primary.publicationRevision);
+        assert.deepEqual(await read('operation-form:ambiguous'), {...unselected, publicationRevision: primary.publicationRevision});
+        assert.deepEqual(errors, []);
+        assert.deepEqual(violations.filter(value => !value.blocked.includes('.kaspersky-labs.com/')), [], 'product CSP violations');
+        console.log('PASS explicit draft batch: both single-page conflicts, opt-in selection, keyboard, cancel, atomic revision and unselected draft');
+    } else if (phase === 'operation-history-batch') {
+        const read = id => page.evaluate(async id => (await fetch('/api/page-editor/documents/' + id)).json(), id);
+        const ids = ['operation-form:page', 'operation-form:other'];
+        const before = await Promise.all(ids.map(read)), unselected = await read('operation-form:ambiguous');
+        assert.ok(before.every(state => state.previous), 'history exists independently of restoration');
+        await page.locator('#page').selectOption(ids[0]);
+        await page.waitForFunction(() => !document.querySelector('#restore-batch').disabled);
+        const openPicker = async () => {
+            await page.locator('#document-more summary').click(); await page.locator('#restore-batch').click();
+        };
+        const picker = page.locator('.pixiv-feedback-backdrop[open]:has(.pixiv-feedback-choices)');
+        await openPicker(); await picker.waitFor();
+        assert.equal(await picker.locator('input:checked').count(), 1, 'history restoration is opt-in');
+        await page.keyboard.press('Escape');
+        assert.equal(await page.locator('#document-more summary').evaluate(element => element === document.activeElement), true);
+        assert.deepEqual(await Promise.all(ids.map(read)), before, 'picker cancellation preserves drafts and publications');
+        const choose = async () => {
+            await openPicker(); await picker.locator('input[value="operation-form:other"]').check();
+            const prepared = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/operation-form:page/prepare'));
+            await picker.locator('[data-feedback-action="accept"]').click();
+            const response = await prepared; assert.equal(response.status(), 200, await response.text());
+            const plan = await response.json();
+            assert.equal(response.request().postDataJSON().restoring, true);
+            assert.deepEqual(plan.pages, ids);
+            assert.deepEqual(plan.drafts.map(value => value.page).sort(), [...ids].sort());
+            return plan;
+        };
+        await choose();
+        const confirmation = page.locator('.pixiv-feedback-backdrop[open]');
+        for (const id of ids) await confirmation.getByText(id, {exact: true}).first().waitFor();
+        await page.screenshot({path: path.join(work, 'history-confirmation.png'), fullPage: true, animations: 'disabled'});
+        await confirmation.locator('.pixiv-feedback-button--secondary').click();
+        assert.deepEqual(await Promise.all(ids.map(read)), before, 'confirmation cancellation has no writes');
+        const plan = await choose();
+        const completed = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/operation-form:page/restore'));
+        await confirmation.locator('.pixiv-feedback-button--primary').click();
+        const response = await completed; assert.equal(response.status(), 200, await response.text());
+        assert.equal(response.request().postDataJSON().decision.fingerprint, plan.fingerprint);
+        const restored = await Promise.all(ids.map(read));
+        restored.forEach((state, index) => {
+            assert.deepEqual(state.published, before[index].previous, 'each page uses its own history');
+            assert.deepEqual(state.draft, state.published, 'selected draft reflects the restored publication');
+            assert.deepEqual(state.previous, before[index].published, 'the publication replaced by restore remains recoverable');
+            assert.equal(state.revision, before[index].revision + 1);
+            assert.equal(state.publicationRevision, before[0].publicationRevision + 1);
+        });
+        assert.deepEqual(await read('operation-form:ambiguous'), {...unselected, publicationRevision: restored[0].publicationRevision});
+        await page.waitForFunction(title => document.querySelector('#page-title').value === title && !document.querySelector('#restore-batch').disabled,
+            restored[0].draft.title || '');
+        await page.locator('#page').selectOption(ids[1]);
+        await page.waitForFunction(title => document.querySelector('#page-title').value === title && !document.querySelector('#restore-batch').disabled,
+            restored[1].draft.title || '');
+        assert.deepEqual(errors, []);
+        assert.deepEqual(violations.filter(value => !value.blocked.includes('.kaspersky-labs.com/')), []);
+        console.log('PASS explicit history batch: source identity, opt-in, cancellation, atomic recovery, per-page draft synchronization and retained rollback');
+    } else if (phase === 'operation-policy-update') {
+        await page.locator('#page').selectOption('operation-form:page');
+        await page.frameLocator('iframe.gjs-frame').locator('[data-page-region="alpha-fields"]').waitFor();
+        const dialog = page.locator('.pixiv-feedback-backdrop[open]');
+        const prepare = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/operation-form:page/prepare'));
+        await page.locator('#publish').click();
+        const plan = await (await prepare).json();
+        assert.deepEqual(plan.pages, ['operation-form:page', 'operation-form:other']);
+        for (const id of plan.pages) await dialog.getByText(id, {exact: true}).first().waitFor();
+        await dialog.evaluate(async element => Promise.all(element.getAnimations({subtree: true})
+            .filter(animation => Number.isFinite(animation.effect.getComputedTiming().endTime))
+            .map(animation => animation.finished.catch(() => {}))));
+        await page.screenshot({path: path.join(work, 'shared-policy-confirmation.png'), fullPage: true});
+        await dialog.locator('.pixiv-feedback-button--secondary').click();
+        const result = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/operation-form:page/publish'));
+        await page.locator('#publish').click();
+        await dialog.locator('.pixiv-feedback-button--primary').click();
+        assert.equal((await result).status(), 200);
+        await page.evaluate(() => {
+            const editor = window.grapesjs.editors[0];
+            editor.getWrapper().findType('page-component').find(model => model.get('target') === 'alpha').remove();
+        });
+        await page.locator('#save').click();
+        await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Draft saved');
+        const conflict = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/operation-form:page/prepare'));
+        await page.locator('#publish').click();
+        const rejected = await conflict;
+        assert.equal(rejected.status(), 422);
+        assert.match(await rejected.text(), /PAGE_OPERATION_CONFLICT/);
+        await page.locator('#undo').click();
+        await page.locator('#save').click();
+        await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Draft saved');
+        assert.deepEqual(errors, []);
+        console.log('PASS shared-operation policy update through editor confirmation');
+    } else {
     const cleanupDiagnostics = await page.evaluate(async () => {
         const {mountComponent} = await import('/js/pixiv-pages.mjs');
         const catalog = await (await fetch('/api/page-editor/catalog')).json();
@@ -101,6 +261,7 @@ try {
     await page.locator('.pixiv-feedback-backdrop[open] .pixiv-feedback-button--primary').click();
     assert.equal((await publish).status(), 200);
     await page.goto(origin + '/operation-form/index.html');
+    await page.locator('#native').waitFor({state: 'hidden'});
     const businessRequests = [];
     page.on('request', request => {
         const path = new URL(request.url()).pathname;
@@ -138,10 +299,13 @@ try {
     assert.deepEqual(violations.filter(value => !value.blocked.includes('.kaspersky-labs.com/')), [], 'product CSP violations');
     fs.writeFileSync(path.join(work, 'operation-browser.json'), JSON.stringify({phase, instances, errors, violations}, null, 2));
     console.log('PASS independent forms: actual drag, unique and ambiguous binding, clone/move/delete/undo/redo/save/reload, unmatched draft rejection, isolated challenges and changed-input reset');
+    }
 } catch (error) {
     if (currentPage) {
         await currentPage.screenshot({path: path.join(work, 'operation-failure.png'), fullPage: true});
-        console.error('OPERATION_BROWSER_FAILURE', await currentPage.evaluate(() => ({
+        console.error('OPERATION_BROWSER_FAILURE', {errors, violations}, await currentPage.evaluate(() => ({
+            url: location.href,
+            forms: [...document.querySelectorAll('form')].map(form => ({target: form.dataset.target, status: form.querySelector('output')?.dataset.status})),
             status: document.querySelector('#status')?.textContent,
             spots: window.grapesjs?.editors[0]?.Canvas.getSpots().map(spot => ({
                 type: spot.get('type'), region: spot.get('component')?.get('region'),

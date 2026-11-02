@@ -172,7 +172,8 @@ public final class WebPublications implements PagePublications {
                     resources = resources.stream().distinct().toList(); permissions.addAll(resources);
                     Page old = before.pages().get(change.page());
                     next.put(change.page(), new Page(change.document(), projections.get(change.page()).toString(),
-                            old == null ? "" : old.document(), requirements, resources));
+                            old == null ? "" : old.document().equals(change.document()) ? old.previousDocument() : old.document(),
+                            requirements, resources));
                 }
                 List<Impact> impacts = impacts(before.pages(), next, changed);
                 Snapshot candidate = new Snapshot(Math.addExact(expected, 1), before.epoch(), next);
@@ -241,16 +242,25 @@ public final class WebPublications implements PagePublications {
     private static List<Impact> impacts(Map<String, Page> before, Map<String, Page> after, Set<String> changed) {
         Map<String, List<Requirement>> requirements = new TreeMap<>();
         Map<String, List<String>> references = new TreeMap<>();
+        Map<String, Map<String, List<Requirement>>> byOperation = new TreeMap<>();
         for (var page : after.entrySet()) {
             var grouped = new TreeMap<String, List<Requirement>>();
             object(page.getValue().projection()).path("targets").forEach(target -> grouped.put(target.path("operation").asText(), new ArrayList<>()));
             page.getValue().requirements().forEach(value -> grouped.computeIfAbsent(value.operation(), ignored -> new ArrayList<>()).add(value));
             grouped.forEach((operation, values) -> {
-                List<Requirement> previous = requirements.putIfAbsent(operation, values);
-                if (previous != null && !previous.equals(values)) throw invalid("PAGE_OPERATION_CONFLICT");
+                byOperation.computeIfAbsent(operation, ignored -> new TreeMap<>()).put(page.getKey(), values);
                 references.computeIfAbsent(operation, ignored -> new ArrayList<>()).add(page.getKey());
             });
         }
+        Set<String> conflicts = new TreeSet<>();
+        byOperation.forEach((operation, pages) -> {
+            var selected = pages.entrySet().stream().filter(page -> changed.contains(page.getKey())).toList();
+            List<Requirement> expected = (selected.isEmpty() ? pages.entrySet().iterator().next() : selected.get(0)).getValue();
+            if (selected.stream().anyMatch(page -> !expected.equals(page.getValue()))) throw invalid("PAGE_OPERATION_CONFLICT");
+            pages.forEach((page, values) -> { if (!expected.equals(values)) conflicts.add(page); });
+            requirements.put(operation, expected);
+        });
+        if (!conflicts.isEmpty()) throw new PagePublications.Conflict(List.copyOf(conflicts));
         Set<String> affected = new TreeSet<>();
         for (String page : changed) {
             if (before.containsKey(page)) object(before.get(page).projection()).path("targets").forEach(target -> affected.add(target.path("operation").asText()));

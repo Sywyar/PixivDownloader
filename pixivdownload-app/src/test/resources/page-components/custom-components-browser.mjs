@@ -5,6 +5,7 @@ import {checkComponentFrameLayout} from './component-frame-browser.mjs';
 import {checkComponentMotion} from './motion-browser.mjs';
 import {checkPageControlsAndPalette} from './palette-browser.mjs';
 import {checkEditorFeedback, checkLibraryFeedback, checkToastPosition} from './feedback-browser.mjs';
+import {checkCustomProperties} from './custom-properties-browser.mjs';
 
 export async function checkCustomComponents({page, context, origin, phase, work, clickConfirm}) {
     const api = (route, body) => page.evaluate(async ({route, body}) => {
@@ -201,15 +202,17 @@ export async function checkCustomComponents({page, context, origin, phase, work,
     let state = (await api('components/' + id)).body;
     assert.match(state.latest, /^[0-9a-f]{64}$/);
     const first = state.latest;
-    const source = {name: 'Counter', html: '<button type="button">0</button><output></output>',
+    const source = {name: 'Counter', html: '<button type="button">0</button><output></output><span data-number></span>',
         css: 'button { color: rgb(125, 30, 90); } body { background: transparent; }',
         javascript: `let n = 0;
 const button = root.querySelector('button');
 button.addEventListener('click', () => button.textContent = String(++n));
 root.querySelector('output').textContent = context.properties.title;
+root.querySelector('[data-number]').textContent = typeof context.properties.count + ':' + context.properties.count;
 try { parent.document.body.dataset.customEscape = 'bad'; } catch (_) {}
 try { document.cookie = 'escape=bad'; } catch (_) {}`,
-        properties: {title: {type: 'string', label: 'Title', default: 'Instance'}}};
+        properties: {title: {type: 'string', label: 'Title', default: 'Instance'},
+            count: {type: 'number', label: 'Count', default: 1}, enabled: {type: 'boolean', label: 'Enabled', default: true}}};
     state = (await api('components/save', {id, revision: state.revision, source})).body;
     assert.equal((await api('components/save', {id, revision: state.revision - 1, source})).status, 409);
     state = (await api('components/' + id + '/publish', {revision: state.revision})).body;
@@ -270,9 +273,10 @@ try { document.cookie = 'escape=bad'; } catch (_) {}`,
     const secondFrame = canvas.frameLocator('iframe[sandbox]').nth(1);
     await firstFrame.locator('button').waitFor(); await secondFrame.locator('button').waitFor();
     assert.equal(await firstFrame.locator('output').textContent(), 'Instance');
-    await page.locator('#properties input').fill('Second instance');
-    await page.locator('#properties input').press('Tab');
+    await page.getByLabel('Title', {exact: true}).fill('Second instance');
+    await page.getByLabel('Title', {exact: true}).press('Tab');
     await secondFrame.getByText('Second instance', {exact: true}).waitFor();
+    await checkCustomProperties({page, id, version, first});
     assert.equal(await firstFrame.locator('output').textContent(), 'Instance');
     assert.equal(await firstFrame.locator('button').evaluate(button => getComputedStyle(button).color), 'rgb(125, 30, 90)');
     await page.evaluate(async () => {
@@ -322,7 +326,7 @@ try { document.cookie = 'escape=bad'; } catch (_) {}`,
     await published.goto(origin + '/login.html');
     await published.frameLocator('#custom-page iframe').first().locator('button').waitFor();
     await checkComponentFrameLayout({page: published, api});
-    await page.bringToFront(); await block.press('Enter');
+    await page.bringToFront(); await page.locator('#add-tab').click(); await block.press('Enter');
     state = (await api('components/' + id + '/availability', {revision: state.revision, enabled: false})).body;
     await published.waitForFunction(() => !document.querySelector('#custom-page iframe'), undefined, {timeout: 10000});
     await page.waitForFunction(() => document.querySelector('#component-add').disabled);

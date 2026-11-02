@@ -36,7 +36,10 @@ class PageStoreTest {
         Runnable afterCommit = () -> { };
         boolean rejectCommit;
         public long revision() { return revision; }
-        public Optional<Published> read(String page) { return Optional.ofNullable(values.get(page)); }
+        public Optional<Published> read(String page) {
+            return Optional.ofNullable(values.get(page)).map(value ->
+                    new Published(revision, value.document(), value.projection(), value.previousDocument()));
+        }
         public Plan prepare(long expected, List<Change> changes) {
             if (expected != revision) throw new IllegalStateException("PAGE_REVISION_CONFLICT");
             return new Plan(expected, Integer.toString(changes.hashCode()), changes, List.of(), List.of());
@@ -48,7 +51,7 @@ class PageStoreTest {
             for (var change : plan.changes()) {
                 Published previous = values.get(change.page());
                 values.put(change.page(), new Published(revision, change.document(), change.projection(),
-                        previous == null ? "" : previous.document()));
+                        previous == null ? "" : previous.document().equals(change.document()) ? previous.previousDocument() : previous.document()));
             }
             afterCommit.run();
             return revision;
@@ -57,11 +60,233 @@ class PageStoreTest {
 
     private PageStore store() { return new PageStore(directory, new PageDocuments(catalog), publications); }
 
+    @Test @DisplayName("关联页的展示组件缺席或版本不兼容不阻断当前页的标题发布")
+    void unrelatedPresentationFailureDoesNotBlockPublication() {
+        var shared = new Catalog() {
+            @Override public List<AvailablePage> pages() {
+                return List.of("owner:page", "owner:other").stream().map(id -> new AvailablePage(
+                        new EditablePage(id, "page", "owner", "/" + id.substring(6), true, regions, "", "", List.of(),
+                                List.of(new PageInteraction.Target("submit", "submit", "owner:submit", "required", "{}",
+                                        List.of(top.sywyar.pixivdownload.plugin.api.security.OperationVerification.INTERACTION), 1))), "pages")).toList();
+            }
+        };
+        var documents = new PageDocuments(shared);
+        var store = new PageStore(directory, documents, publications);
+        store.save("owner:page", 0, documents.initial("owner:page")); publish(store, "owner:page", 1);
+        var other = documents.initial("owner:other"); component(other, "decoration");
+        store.save("owner:other", 0, other); publish(store, "owner:other", 1);
+        var original = store.read("owner:other");
+        for (boolean missing : List.of(true, false)) {
+            shared.available = !missing; shared.version = missing ? 1 : 2;
+            long revision = store.read("owner:page").path("revision").asLong();
+            store.save("owner:page", revision, documents.initial("owner:page").put("title", "title " + missing));
+            var plan = store.prepare("owner:page", revision + 1, false);
+            assertThat(plan.pages()).containsExactly("owner:page");
+            publish(store, "owner:page", revision + 1);
+            assertThat(store.read("owner:other").path("published")).isEqualTo(original.path("published"));
+            assertThatThrownBy(() -> store.prepare("owner:other", 1, false)).hasMessage("PAGE_COMPONENT_UNAVAILABLE");
+        }
+    }
+
+    @Test @DisplayName("操作要求未变化时只发布当前页，保留其它草稿和恢复点")
+    void preparesRelatedPublicationsWithoutPublishingOtherDrafts() {
+        var shared = new Catalog() {
+            @Override public List<AvailablePage> pages() {
+                return List.of(sharedPage("owner:a", List.of("first")),
+                        sharedPage("owner:b", List.of("first", "second")),
+                        sharedPage("owner:c", List.of("second")), sharedPage("owner:d", List.of("independent")));
+            }
+            private AvailablePage sharedPage(String id, List<String> operations) {
+                var targets = operations.stream().map(operation -> new PageInteraction.Target(operation, operation,
+                        "owner:" + operation, "required", "{}", List.of(top.sywyar.pixivdownload.plugin.api.security.OperationVerification.INTERACTION), 1)).toList();
+                return new AvailablePage(new EditablePage(id, "page", "owner", "/" + id.substring(6), true,
+                        regions, "", "", List.of(), targets), "shared-publication");
+            }
+        };
+        var documents = new PageDocuments(shared);
+        var store = new PageStore(directory, documents, publications);
+        for (String id : List.of("owner:a", "owner:b", "owner:c", "owner:d")) {
+            store.save(id, 0, documents.initial(id).put("title", "published"));
+            publish(store, id, 1);
+        }
+        store.save("owner:b", 1, documents.initial("owner:b").put("title", "second publication"));
+        publish(store, "owner:b", 2);
+        var otherDraft = store.save("owner:b", 2, documents.initial("owner:b").put("title", "unfinished draft"));
+        var before = Map.copyOf(publications.values);
+        store.save("owner:a", 1, documents.initial("owner:a").put("title", "new title"));
+        var plan = store.prepare("owner:a", 2, false);
+        assertThat(plan.pages()).containsExactly("owner:a");
+        var decision = new PageStore.Decision(plan.revision(), plan.fingerprint(), plan.permissions());
+        publications.rejectCommit = true;
+        assertThatThrownBy(() -> store.publish("owner:a", 2, decision, false)).hasMessage("PAGE_PUBLICATION_STALE");
+        assertThat(publications.values).isEqualTo(before);
+        publications.rejectCommit = false;
+        store.publish("owner:a", 2, decision, false);
+        assertThat(publications.values.get("owner:d")).isEqualTo(before.get("owner:d"));
+        var after = store.read("owner:b");
+        for (String field : List.of("revision", "draft", "published", "previous"))
+            assertThat(after.get(field)).isEqualTo(otherDraft.get(field));
+        assertThatThrownBy(() -> store.publish("owner:a", 2, decision, false)).hasMessage("PAGE_PUBLICATION_STALE");
+        var restore = store.prepare("owner:a", 2, true);
+        assertThat(restore.pages()).containsExactly("owner:a");
+        store.publish("owner:a", 2, new PageStore.Decision(restore.revision(), restore.fingerprint(), restore.permissions()), true);
+        assertThat(store.read("owner:a").path("published").path("title").asText()).isEqualTo("published");
+    }
+
     private void blockDraftDirectory(Path pages) {
         try {
             Files.move(pages, directory.resolve("saved-pages"));
             Files.writeString(pages, "blocked");
         } catch (java.io.IOException failure) { throw new AssertionError(failure); }
+    }
+
+    @Test @DisplayName("批量发布只使用显式草稿，任一草稿修订变化均使确认失效且保留历史")
+    void selectedDraftsAreAtomicAndRevisionBound() {
+        var multiple = new Catalog() {
+            @Override public List<AvailablePage> pages() {
+                return List.of("owner:page", "owner:other", "owner:unselected").stream().map(id -> new AvailablePage(
+                        new EditablePage(id, "page", "owner", "/" + id.substring(6), true, regions, "", "", List.of(), List.of()), "pages")).toList();
+            }
+        };
+        var documents = new PageDocuments(multiple);
+        var store = new PageStore(directory, documents, publications);
+        for (String id : List.of("owner:page", "owner:other", "owner:unselected")) {
+            store.save(id, 0, documents.initial(id).put("title", "original")); publish(store, id, 1);
+            store.save(id, 1, documents.initial(id).put("title", "edited"));
+        }
+        var before = Map.copyOf(publications.values);
+        var choices = List.of(new PageStore.Draft("owner:other", 2));
+        var plan = store.prepare("owner:page", 2, false, choices);
+        assertThat(publications.values).isEqualTo(before);
+        assertThat(plan.pages()).containsExactly("owner:page", "owner:other");
+        var decision = new PageStore.Decision(plan.revision(), plan.fingerprint(), plan.permissions());
+        publications.rejectCommit = true;
+        assertThatThrownBy(() -> store.publish("owner:page", 2, decision, false, choices)).hasMessage("PAGE_PUBLICATION_STALE");
+        assertThat(publications.values).isEqualTo(before);
+        publications.rejectCommit = false;
+        store.save("owner:other", 2, documents.initial("owner:other").put("title", "edited"));
+        assertThatThrownBy(() -> store.publish("owner:page", 2, decision, false, choices)).hasMessage("PAGE_REVISION_CONFLICT");
+        var changed = List.of(new PageStore.Draft("owner:other", 3));
+        assertThatThrownBy(() -> store.publish("owner:page", 2, decision, false, changed)).hasMessage("PAGE_PUBLICATION_STALE");
+        assertThat(publications.values).isEqualTo(before);
+        var current = store.prepare("owner:page", 2, false, changed);
+        store.publish("owner:page", 2, new PageStore.Decision(current.revision(), current.fingerprint(), current.permissions()), false, changed);
+        assertThat(publications.revision()).isEqualTo(plan.revision() + 1);
+        for (String id : List.of("owner:page", "owner:other")) {
+            assertThat(store.read(id).path("published").path("title").asText()).isEqualTo("edited");
+            assertThat(store.read(id).path("previous").path("title").asText()).isEqualTo("original");
+        }
+        assertThat(store.read("owner:other").path("revision").asLong()).isEqualTo(3);
+        assertThat(store.read("owner:unselected").path("draft").path("title").asText()).isEqualTo("edited");
+        assertThat(publications.values.get("owner:unselected")).isEqualTo(before.get("owner:unselected"));
+        assertThatThrownBy(() -> store.prepare("owner:page", 2, false, List.of(new PageStore.Draft("owner:page", 2))))
+                .hasMessage("PAGE_ID_CONFLICT");
+    }
+
+    @Test @DisplayName("显式恢复各页历史而非草稿，确认绑定所有草稿修订且失败不部分写入")
+    void selectedHistoryRestoresAtomically() {
+        var store = restorableStore();
+        var selected = List.of(new PageStore.Draft("owner:other", 3));
+        var before = Map.copyOf(publications.values);
+        var untouched = store.read("owner:unselected");
+        var original = store.read("owner:page");
+        var other = store.read("owner:other");
+        assertThat(original.path("previous").path("title").asText()).isEqualTo("original");
+        assertThat(other.path("previous").path("title").asText()).isEqualTo("original");
+        var plan = store.prepare("owner:page", 3, true, selected);
+        assertThat(plan.pages()).containsExactly("owner:page", "owner:other");
+        assertThatThrownBy(() -> store.prepare("owner:page", 3, true,
+                List.of(new PageStore.Draft("owner:unselected", 1)))).hasMessage("PAGE_PREVIOUS_UNAVAILABLE");
+        var decision = new PageStore.Decision(plan.revision(), plan.fingerprint(), plan.permissions());
+        publications.rejectCommit = true;
+        assertThatThrownBy(() -> store.publish("owner:page", 3, decision, true, selected)).hasMessage("PAGE_PUBLICATION_STALE");
+        assertThat(publications.values).isEqualTo(before);
+        assertThat(store.read("owner:page")).isEqualTo(original);
+        assertThat(store.read("owner:other")).isEqualTo(other);
+        publications.rejectCommit = false;
+        store.save("owner:other", 3, other.path("draft"));
+        assertThatThrownBy(() -> store.publish("owner:page", 3, decision, true, selected)).hasMessage("PAGE_REVISION_CONFLICT");
+        var changed = List.of(new PageStore.Draft("owner:other", 4));
+        assertThatThrownBy(() -> store.publish("owner:page", 3, decision, true, changed)).hasMessage("PAGE_PUBLICATION_STALE");
+        assertThat(publications.values).isEqualTo(before);
+        plan = store.prepare("owner:page", 3, true, changed);
+        var restored = store.publish("owner:page", 3,
+                new PageStore.Decision(plan.revision(), plan.fingerprint(), plan.permissions()), true, changed);
+        assertThat(restored.path("publicationRevision").asLong()).isEqualTo(plan.revision() + 1);
+        for (String id : List.of("owner:page", "owner:other")) {
+            var state = store.read(id);
+            assertThat(state.path("draft").path("title").asText()).isEqualTo("original");
+            assertThat(state.path("published")).isEqualTo(state.path("draft"));
+            assertThat(state.path("previous").path("title").asText()).isEqualTo("current");
+        }
+        assertThat(store.read("owner:page").path("revision").asLong()).isEqualTo(4);
+        assertThat(store.read("owner:other").path("revision").asLong()).isEqualTo(5);
+        untouched.put("publicationRevision", restored.path("publicationRevision").asLong());
+        assertThat(store.read("owner:unselected")).isEqualTo(untouched);
+    }
+
+    @Test @DisplayName("相同文档的发布确认不能用于恢复，正式修订变化也必须重新确认")
+    void historyConfirmationBindsModeAndPublication() {
+        var store = restorableStore();
+        for (String id : List.of("owner:page", "owner:other")) store.save(id, 3, store.read(id).path("previous"));
+        var selected = List.of(new PageStore.Draft("owner:other", 4));
+        var publishing = store.prepare("owner:page", 4, false, selected);
+        var decision = new PageStore.Decision(publishing.revision(), publishing.fingerprint(), publishing.permissions());
+        assertThatThrownBy(() -> store.publish("owner:page", 4, decision, true, selected)).hasMessage("PAGE_PUBLICATION_STALE");
+        var restoring = store.prepare("owner:page", 4, true, selected);
+        publish(store, "owner:unselected", 1);
+        var before = Map.copyOf(publications.values);
+        assertThatThrownBy(() -> store.publish("owner:page", 4,
+                new PageStore.Decision(restoring.revision(), restoring.fingerprint(), restoring.permissions()), true, selected))
+                .hasMessage("PAGE_PUBLICATION_STALE");
+        assertThat(publications.values).isEqualTo(before);
+        assertThat(store.read("owner:page").path("revision").asLong()).isEqualTo(4);
+        assertThat(store.read("owner:other").path("revision").asLong()).isEqualTo(4);
+    }
+
+    @Test @DisplayName("批量正式恢复后关联页草稿失败不改变已提交结果或阻断其它草稿保存")
+    void selectedHistoryReportsAuxiliaryFailures() throws Exception {
+        var store = restorableStore();
+        var selected = List.of(new PageStore.Draft("owner:other", 3));
+        var plan = store.prepare("owner:page", 3, true, selected);
+        Path blocked = directory.resolve("pages/owner_other.json"), retained = directory.resolve("other-draft.json");
+        publications.afterCommit = () -> {
+            try { Files.move(blocked, retained); Files.createDirectory(blocked); }
+            catch (java.io.IOException failure) { throw new AssertionError(failure); }
+        };
+        var restored = store.publish("owner:page", 3,
+                new PageStore.Decision(plan.revision(), plan.fingerprint(), plan.permissions()), true, selected);
+        assertThat(restored.path("draftSaveFailed").asBoolean()).isFalse();
+        assertThat(restored.path("draftSaveFailures")).isEqualTo(PageDocuments.JSON.readTree("[\"owner:other\"]"));
+        assertThat(restored.path("revision").asLong()).isEqualTo(4);
+        assertThat(restored.path("publicationRevision").asLong()).isEqualTo(plan.revision() + 1);
+        Files.delete(blocked); Files.move(retained, blocked);
+        assertThat(store.read("owner:page").path("draft").path("title").asText()).isEqualTo("original");
+        var other = store.read("owner:other");
+        assertThat(other.path("published").path("title").asText()).isEqualTo("original");
+        assertThat(other.path("draft").path("title").asText()).isEqualTo("unfinished");
+        assertThat(other.path("previous").path("title").asText()).isEqualTo("current");
+        assertThat(other.path("revision").asLong()).isEqualTo(3);
+        store.save("owner:other", 3, other.path("published"));
+        assertThat(publications.revision()).isEqualTo(plan.revision() + 1);
+    }
+
+    private PageStore restorableStore() {
+        var multiple = new Catalog() {
+            @Override public List<AvailablePage> pages() {
+                return List.of("owner:page", "owner:other", "owner:unselected").stream().map(id -> new AvailablePage(
+                        new EditablePage(id, "page", "owner", "/" + id.substring(6), true, regions, "", "", List.of(), List.of()), "pages")).toList();
+            }
+        };
+        var documents = new PageDocuments(multiple);
+        var store = new PageStore(directory.resolve("pages"), documents, publications);
+        for (String id : List.of("owner:page", "owner:other")) {
+            store.save(id, 0, documents.initial(id).put("title", "original")); publish(store, id, 1);
+            store.save(id, 1, documents.initial(id).put("title", "current")); publish(store, id, 2);
+            store.save(id, 2, documents.initial(id).put("title", "unfinished"));
+        }
+        store.save("owner:unselected", 0, documents.initial("owner:unselected").put("title", "untouched"));
+        return store;
     }
 
     @Test @DisplayName("正式发布提交后不再依赖草稿写盘或回读，原回滚点保持可用")

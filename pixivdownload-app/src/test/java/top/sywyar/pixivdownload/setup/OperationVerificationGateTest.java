@@ -60,10 +60,11 @@ class OperationVerificationGateTest {
     }
 
     @AfterEach
-    void close() {
+    void close() throws java.io.IOException {
         contexts.forEach(AnnotationConfigApplicationContext::close);
         System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
         System.clearProperty(RuntimeFiles.STATE_DIR_PROPERTY);
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(temporary);
     }
 
     private void configure(String policies) throws java.io.IOException {

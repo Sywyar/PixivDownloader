@@ -20,6 +20,7 @@ public interface PagePublications {
      * @param revision 当前正式修订
      * @param changes 本次一起提交的页面
      * @return 固定输入及依赖身份的候选计划
+     * @throws Conflict 未提交的关联页仍持有不同操作要求；可读取其正式内容后显式重建计划
      */
     Plan prepare(long revision, List<Change> changes);
     /**
@@ -29,6 +30,19 @@ public interface PagePublications {
      * @return 提交后的正式修订
      */
     long publish(Plan plan, List<Permission> approvals);
+
+    /** 操作要求冲突的未提交页面；只提供重建候选的线索，不授予发布或跳过校验的权限。 */
+    final class Conflict extends IllegalArgumentException {
+        /** 正式快照中与本次候选要求不同的页面。 */
+        private final List<String> pages;
+        /** @param pages 要求不同的未提交页面身份，来自正式快照 */
+        public Conflict(List<String> pages) {
+            super("PAGE_OPERATION_CONFLICT");
+            this.pages = List.copyOf(pages);
+        }
+        /** @return 需要重新选择内容并预检的页面 */
+        public List<String> pages() { return pages; }
+    }
 
     /** 编辑器文档只用于恢复编辑；宿主从投影和可信目录重建安全关系。 */
     record Change(String page, String document, String projection) { }

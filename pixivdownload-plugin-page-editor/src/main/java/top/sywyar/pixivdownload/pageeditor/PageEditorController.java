@@ -34,16 +34,16 @@ public final class PageEditorController {
     }
     @PostMapping("/documents/{id}/publish") public ResponseEntity<?> publish(@PathVariable String id, HttpServletRequest request) throws IOException {
         JsonNode command = command(request);
-        return ok(store.publish(id, revision(command), PageDocuments.JSON.treeToValue(command.path("decision"), PageStore.Decision.class), false));
+        return ok(store.publish(id, revision(command), PageDocuments.JSON.treeToValue(command.path("decision"), PageStore.Decision.class), false, drafts(command)));
     }
     @PostMapping("/documents/{id}/restore") public ResponseEntity<?> restore(@PathVariable String id, HttpServletRequest request) throws IOException {
         JsonNode command = command(request);
-        return ok(store.publish(id, revision(command), PageDocuments.JSON.treeToValue(command.path("decision"), PageStore.Decision.class), true));
+        return ok(store.publish(id, revision(command), PageDocuments.JSON.treeToValue(command.path("decision"), PageStore.Decision.class), true, drafts(command)));
     }
     @PostMapping("/documents/{id}/prepare") public ResponseEntity<?> prepare(@PathVariable String id, HttpServletRequest request) throws IOException {
         JsonNode command = command(request);
         if (!command.path("restoring").isBoolean()) throw PageDocuments.invalid("PAGE_DOCUMENT_INVALID");
-        return ok(store.prepare(id, revision(command), command.path("restoring").asBoolean()));
+        return ok(store.prepare(id, revision(command), command.path("restoring").asBoolean(), drafts(command)));
     }
     @PostMapping("/documents/{id}/preview") public ResponseEntity<?> preview(@PathVariable String id, HttpServletRequest request) throws IOException {
         return ok(store.preview(id, command(request).path("document")));
@@ -67,6 +67,17 @@ public final class PageEditorController {
         if (!command.path("revision").isIntegralNumber() || !command.path("revision").canConvertToLong())
             throw PageDocuments.invalid("PAGE_REVISION_INVALID");
         return command.path("revision").longValue();
+    }
+    private static java.util.List<PageStore.Draft> drafts(JsonNode command) {
+        if (!command.has("drafts")) return java.util.List.of();
+        JsonNode candidates = command.path("drafts");
+        if (!candidates.isArray() || candidates.size() >= 128) throw PageDocuments.invalid("PAGE_DOCUMENT_BUDGET");
+        var drafts = new java.util.ArrayList<PageStore.Draft>();
+        for (JsonNode candidate : candidates) {
+            if (!candidate.path("page").isTextual()) throw PageDocuments.invalid("PAGE_DOCUMENT_INVALID");
+            drafts.add(new PageStore.Draft(candidate.path("page").textValue(), revision(candidate)));
+        }
+        return java.util.List.copyOf(drafts);
     }
     private static ResponseEntity<?> ok(Object body) { return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(body); }
     @ExceptionHandler({IllegalArgumentException.class, IllegalStateException.class})

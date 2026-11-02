@@ -45,10 +45,13 @@ public final class OperationFormPlugin extends Plugin implements PixivPluginProv
             return new PageContribution() {
                 public void validate(String type, String configuration) { throw new IllegalArgumentException("PAGE_COMPONENT_UNAVAILABLE"); }
                 public List<EditablePage> pages() {
-                    return List.of(new EditablePage("operation-form:page", "name", "operation-form", "/operation-form/index.html", false,
+                    var page = new EditablePage("operation-form:page", "name", "operation-form", "/operation-form/index.html", false,
                             List.of(new PageRegion("alpha", "alpha", "", true, false), new PageRegion("alpha-fields", "fields", "alpha", false, false),
                                     new PageRegion("beta", "beta", "", true, false), new PageRegion("beta-fields", "fields", "beta", false, false)),
-                            "", "", List.of(), List.of(target("alpha", "alpha"), target("beta", "beta"))),
+                            "", "", List.of(), List.of(target("alpha", "alpha"), target("beta", "beta")));
+                    return List.of(page,
+                            new EditablePage("operation-form:other", "name", "operation-form", "/operation-form/other.html", false,
+                                    page.regions(), "", "", List.of(), page.targets()),
                             new EditablePage("operation-form:ambiguous", "ambiguous", "operation-form", "/operation-form/ambiguous.html", false,
                                     List.of(new PageRegion("shared", "fields", "", true, false)), "", "", List.of(),
                                     List.of(target("alpha", "shared"), target("beta", "shared"))));

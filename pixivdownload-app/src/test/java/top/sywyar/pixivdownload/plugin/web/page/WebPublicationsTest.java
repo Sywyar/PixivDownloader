@@ -136,6 +136,25 @@ class WebPublicationsTest {
         assertThat(plan.impacts().get(0).pages()).containsExactlyInAnyOrder("form:page", "form:other-page");
     }
 
+    @Test @DisplayName("冲突只报告操作要求不同的未选页面，所选页面自身矛盾仍拒绝")
+    void conflictsIdentifyOnlyUnchangedPages() throws Exception {
+        var fixture = fixture();
+        var other = new PagePublications.Change("form:other-page", change().document(),
+                change().projection().replace("form:page", "form:other-page"));
+        var first = fixture.publications().prepare(0, List.of(change(), other));
+        fixture.publications().publish(first, first.permissions());
+        var empty = withoutComponent("form:page");
+        var conflict = catchThrowableOfType(() -> fixture.publications().prepare(1, List.of(empty)), PagePublications.Conflict.class);
+        assertThat(conflict.pages()).containsExactly("form:other-page");
+        assertThatThrownBy(() -> fixture.publications().prepare(1, List.of(empty, other)))
+                .isNotInstanceOf(PagePublications.Conflict.class).hasMessage("PAGE_OPERATION_CONFLICT");
+        var all = fixture.publications().prepare(1, List.of(empty, withoutComponent("form:other-page")));
+        assertThat(all.impacts().get(0).before()).containsExactly("neutral");
+        assertThat(all.impacts().get(0).after()).isEmpty();
+        fixture.publications().publish(all, all.permissions());
+        assertThat(fixture.guard().prepare("form:submit", "user", "{}").status()).isEqualTo(APPROVED);
+    }
+
     @Test @DisplayName("正式发布独立拒绝执行性布局、缺失区域、重复区域和普通端口环")
     void validatesProjectionWithoutEditor() throws Exception {
         var fixture = fixture();
@@ -233,6 +252,55 @@ class WebPublicationsTest {
         fixture.publications().publish(updated, updated.permissions());
         assertThat(fixture.guard().execute("form:submit", "account", "{}", "", Map.of(), actions::incrementAndGet).status()).isEqualTo(CHALLENGE);
         assertThat(actions).hasValue(0);
+    }
+
+    @Test @DisplayName("共享操作只能一致更新，批量授权、过期计划和存储失败均不产生部分发布")
+    void updatesSharedPolicyAtomically() throws Exception {
+        var fixture = fixture();
+        var first = change();
+        var other = new PagePublications.Change("form:other-page", "{\"title\":\"first\"}",
+                first.projection().replace("form:page", "form:other-page"));
+        var initial = fixture.publications().prepare(0, List.of(first, other));
+        fixture.publications().publish(initial, initial.permissions());
+        var next = new PagePublications.Change(other.page(), "{\"title\":\"second\"}", other.projection());
+        var edited = fixture.publications().prepare(1, List.of(next));
+        fixture.publications().publish(edited, edited.permissions());
+        var before = fixture.store().snapshot();
+        revision.set("rules2");
+        assertThat(fixture.guard().prepare("form:submit", "account", "{}").status()).isEqualTo(UNAVAILABLE);
+        for (var page : List.of(first, next))
+            assertThatThrownBy(() -> fixture.publications().prepare(2, List.of(page))).hasMessage("PAGE_OPERATION_CONFLICT");
+        var plan = fixture.publications().prepare(2, List.of(first, next));
+        assertThatThrownBy(() -> fixture.publications().publish(plan, List.of())).hasMessage("PAGE_RESOURCE_APPROVAL_REQUIRED");
+        revision.set("rules3");
+        assertThatThrownBy(() -> fixture.publications().publish(plan, plan.permissions())).hasMessage("PAGE_PUBLICATION_STALE");
+        revision.set("rules2");
+        var proofOwner = fixture.catalog().owners(Set.of("proof-token")).get(0);
+        var proofComponent = fixture.catalog().components().get(0).definition();
+        fixture.catalog().withdraw(proofOwner);
+        fixture.catalog().publish(new PageContributionRegistry.Entry(proofOwner, "replacement-token", List.of(proofComponent), List.of(), List.of(), null));
+        assertThatThrownBy(() -> fixture.publications().publish(plan, plan.permissions())).hasMessage("PAGE_PUBLICATION_STALE");
+        assertThat(fixture.store().snapshot()).isEqualTo(before);
+        fixture.catalog().withdraw(proofOwner);
+        fixture.catalog().publish(new PageContributionRegistry.Entry(proofOwner, "proof-token", List.of(proofComponent), List.of(), List.of(), null));
+        var faults = new AtomicInteger();
+        var failedStore = new WebPublicationStore(root.resolve("data"), root.resolve("config/enrolled"), point -> {
+            if (point.equals("replace")) { faults.incrementAndGet(); throw new IllegalStateException("injected-storage-failure"); }
+        });
+        var failed = new WebPublications(failedStore, fixture.catalog(), registry, admissions, List.of());
+        assertThatThrownBy(() -> failed.publish(plan, plan.permissions())).isInstanceOf(IllegalStateException.class);
+        assertThat(faults).hasValue(1);
+        assertThat(fixture.store().snapshot()).isEqualTo(before);
+        assertThat(fixture.guard().prepare("form:submit", "account", "{}").status()).isEqualTo(UNAVAILABLE);
+        assertThat(fixture.publications().publish(plan, plan.permissions())).isEqualTo(3);
+        assertThat(fixture.guard().prepare("form:submit", "account", "{}").status()).isEqualTo(CHALLENGE);
+        var published = fixture.publications().read(next.page()).orElseThrow();
+        assertThat(published.document()).isEqualTo(next.document());
+        assertThat(published.previousDocument()).isEqualTo(other.document());
+        var committed = fixture.store().snapshot();
+        assertThatThrownBy(() -> fixture.publications().publish(plan, plan.permissions())).hasMessage("PAGE_REVISION_CONFLICT");
+        assertThatThrownBy(() -> fixture.publications().prepare(3, List.of(withoutComponent(first.page())))).hasMessage("PAGE_OPERATION_CONFLICT");
+        assertThat(fixture.store().snapshot()).isEqualTo(committed);
     }
 
     @Test @DisplayName("预检后的配置变化、伪造绑定和发布记录缺失均不放行")

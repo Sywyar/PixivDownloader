@@ -130,6 +130,7 @@ public final class PageEditorAcceptance {
             awaitFile(fixed.resolve("live-withdrawn"), live);
             coordinator.start("page-checklist");
             check(live.waitFor() == 0, "live discovery and withdrawal");
+            OperationFormsAcceptance.verifyPresentationWithdrawal(context, origin, cookie);
             Process slots = startBrowser(Path.of(args[1]).resolveSibling("ui-slot-browser.mjs").toString(), origin, cookie, "slots", fixed);
             awaitFile(fixed.resolve("slots-ready"), slots);
             coordinator.stop("page-checklist");

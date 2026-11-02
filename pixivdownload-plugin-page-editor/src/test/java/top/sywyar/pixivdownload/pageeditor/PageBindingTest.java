@@ -13,6 +13,10 @@ import static org.assertj.core.api.Assertions.*;
 @DisplayName("页面绑定依据 owner 作用域和协议，不推测 DOM 表单")
 class PageBindingTest {
     @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory;
+    @org.junit.jupiter.api.AfterEach
+    void cleanup() throws java.io.IOException {
+        top.sywyar.pixivdownload.testsupport.TestDirectoryCleanup.delete(directory);
+    }
     final String schema = "{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}";
     PageInteraction.Target target(String id, String region) {
         return new PageInteraction.Target(id, id, "form:submit", region, schema, List.of(OperationVerification.INTERACTION), 1);

@@ -316,6 +316,20 @@ function clickEvent(target, values) {
 
     {
         const {document, feedback} = loadFeedback();
+        const pending = feedback.choose({message: 'Select drafts', confirmLabel: 'Review', cancelLabel: 'Cancel', multiple: true,
+            choices: [{value: 'current', label: 'Current', checked: true, disabled: true},
+                {value: 'other', label: 'Other'}, {value: 'unfinished', label: 'Unfinished'}]});
+        await nextTurn();
+        const other = find(document.body, node => node.type === 'checkbox' && node.value === 'other');
+        ok(!other.checked, 'additional choices are not implicitly selected');
+        other.checked = true;
+        const accept = actionButton(document, 'accept');
+        actionContainer(accept).emit('click', {target: accept});
+        assert.deepStrictEqual(Array.from(await pending), ['current', 'other'], 'multiple selection preserves explicit choices');
+    }
+
+    {
+        const {document, feedback} = loadFeedback();
         const pending = feedback.confirm({
             title: 'Confirm title',
             message: 'Confirm message',
