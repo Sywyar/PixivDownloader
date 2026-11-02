@@ -1,104 +1,62 @@
-# URL Batch Download
+# URL batch download
 
-Paste existing work links into **Batch Import Single Artworks** on the download page. Illustrations and novels can share one list; novels require the enabled `novel` plugin. Works restricted to signed-in Pixiv users also require a valid Pixiv cookie.
+If you have a list of work links or IDs, paste them into Batch import individual works on the download page to download them together. Input can mix illustrations, manga, animations and novels. Novels require the `novel` plugin; restricted works require a saved Pixiv cookie containing `PHPSESSID`.
 
----
+## Steps
 
-## Quick Start
+1. Open `http://localhost:6999/pixiv-batch.html` and switch to Batch import individual works.
+2. Paste the URL or ID list into the text box, one entry per line, and click Fetch information.
+3. Check the recognized work types and count.
+4. Set Additional filters and Download settings as needed, add the works to the queue and click Start download.
+5. When downloading finishes, check the queue results. Completed works, existing-work skips, filter skips and failures are counted separately.
 
-1. Open `http://localhost:6999/pixiv-batch.html`
-2. Switch to the "**🎨 Batch Import Single Artworks**" tab
-3. Paste the URL list in the text box
-4. Click "**Fetch Info**"
-5. Check the detected work types and count, add the works to the queue as required by the current layout, then click **Start Download**
-6. Review the queue after completion: completed, already present, filtered out and failed are different results
+## Input format
 
----
+Enter one record per line. The work IDs below are format examples; replace them with actual works:
 
-## Input Format
-
-Enter one item per line; formats can be mixed. The IDs below illustrate syntax. Replace them with real works you want to download:
-
-```
-# Full URL (most common)
+```text
+# Full URLs
 https://www.pixiv.net/artworks/12345678
 https://www.pixiv.net/novel/show.php?id=87654321
 
-# Bare numeric ID only (treated as illustration by default)
+# Numeric IDs (treated as illustrations by default; an optional title may follow)
 12345678
-12345679 | Artwork Title (title optional; auto-fetched if blank)
+12345679 | 作品标题
 
-# Section header: specify type for subsequent IDs
+# Section headers: specify the work type for subsequent numeric IDs
 artwork:
 11111
 22222
 novel:
 33333
-44444 | This is a novel title
+44444 | 小说标题
 
-# Compatible with OneTab / N-Tab export formats
-https://www.pixiv.net/artworks/55555 | Tab Title
+# OneTab / N-Tab export format
+https://www.pixiv.net/artworks/55555 | 标签页标题
 ```
 
-### Section Headers
+- Put `artwork:` or `novel:` on its own line. Headers are case-insensitive and accept half-width or full-width colons. Subsequent numeric IDs, including `id | title` entries, are parsed as that type until the next header or the end of input.
+- Full links beginning with `https://` are always parsed according to their own link type, regardless of section headers.
+- You can paste a `URL | title` list exported from OneTab / N-Tab directly. Links that are not Pixiv work links are skipped automatically.
 
-`artwork:` and `novel:` stand on their own line, case-insensitive, half-width or full-width colon accepted.
+## Additional filters and download settings
 
-Bare numeric IDs (`id | title` format) placed below a section header are parsed as that type until the next section header or end of input.
+Additional filters supports content rating (All / All ages / R18+ / R-18 / R-18G), AI works (All / Exclude AI / AI only), tags (comma-separated, exact or fuzzy matching, with all tags required), minimum bookmark count, illustration page count, novel word count and work type (Illustration / Manga / Animation). Each work is checked when downloading; works that do not match show a specific skip reason in the queue.
 
-Full URLs (starting with `https://`) are **always parsed by their own URL type**, regardless of which section they fall under.
+| Download setting | Effect |
+| --- | --- |
+| Filename template | Use variables such as `{artwork_id}`, `{author_name}` and `{page}`; see [filename template variables](/en/usage-guide#filename-template-variables) |
+| Download directory (collection) | Select the local collection to save into |
+| Skip downloaded works | Skip immediately when the work is found in download history |
+| Check actual directory | Check whether files exist on disk as well as checking history; download again if they are missing |
+| Allow deleted works to be downloaded again | Works deleted from the gallery retain a [deletion marker](/en/gallery#delete-works) and are skipped by default; enable this to download them again and clear the marker |
+| Auto-bookmark | Bookmark the work through the Pixiv API after downloading; requires a valid cookie |
+| Novel format | Save as TXT, HTML or EPUB |
 
----
+## Troubleshooting and related guides
 
-## Extra Filters
+- **A numeric novel ID is treated as an illustration**: use the full novel URL, or add `novel:` on a separate line above the numeric IDs.
+- **Fewer works are recognized than the number of input lines**: check for blank lines, section headers, non-Pixiv links or malformed URLs. Use the preview list as the result.
+- **Works are skipped or downloads fail**: inspect the specific reason on the queue entry, confirm that the work is accessible on Pixiv itself, and check the cookie and proxy settings (see [FAQ](/en/faq)).
 
-Expand the "**Extra Filters**" card to filter the queue before downloading:
-
-| Filter | Description |
-|--------|-------------|
-| **Content Rating** | All / All Ages / R18+ / R-18 / R-18G |
-| **AI Works** | All / Exclude AI / AI only |
-| **Tags** | Exact match / Fuzzy match (comma-separated, all must match) |
-| **Bookmark Count** | Minimum bookmark count |
-| **Page Count** | Illustration page count range |
-| **Word Count** | Novel word count range |
-| **Work Type** | Illustration / Manga / Ugoira |
-
-Filters are applied **per-work at download time**. Non-matching works show the skip reason in the queue (e.g. "content rating mismatch", "tags do not match").
-
----
-
-## Download Settings
-
-Expand the "**Download Settings**" card to adjust:
-
-- **Filename template**: supports variables like `{artwork_id}`, `{author_name}`, `{page}`, etc. See [filename template variables](/en/usage-guide?id=filename-template-variables)
-- **Download directory (collection)**: download to a specific local collection
-- **Skip downloaded works**: when processing the queue, checks download history and skips already-downloaded works directly. When checked, further expands to:
-  - **Actual folder detection**: besides checking history, also checks if files actually exist on disk; missing files trigger re-download
-  - **Allow re-downloading deleted works**: works deleted through the gallery keep a [deletion mark](/en/gallery?id=deleting-artworks) and are treated as downloaded & skipped by default (reason: "downloaded before, but deleted"); check this to treat them as not downloaded and re-download; the deletion mark is cleared on success
-- **Auto-bookmark**: after download, automatically bookmark the artwork via Pixiv API (needs cookie)
-- **Novel format**: TXT / HTML / EPUB
-
----
-
-## OneTab / N-Tab Export Compatibility
-
-After exporting a tab list from the OneTab or N-Tab browser extension, you can paste it directly — the format is `URL | title`. PixivDownloader auto-parses it.
-
-Lines that are not Pixiv artwork links (e.g., other websites) are automatically skipped.
-
----
-
-## When input produces unexpected results
-
-- A numeric ID is treated as an illustration: use a full novel URL or put `novel:` on its own line before novel IDs.
-- Fewer works appear than input lines: check for section headers, blank lines, invalid links or links to other websites. Review the preview before downloading.
-- A queue item is skipped: read the reason before changing filters or download-history detection. A deletion mark is not automatically treated as a new work.
-- Access or download fails: check that you can still view the work on Pixiv, then check the cookie and backend network. See [FAQ](/en/faq).
-
-## Related Pages
-
-- Download all works by an artist → [User Download](/en/user-download)
-- Search and download → [Search](/en/search)
-- Set up scheduled tasks for automatic fetching → [Scheduled Tasks](/en/scheduled-tasks)
+See [artist batch download](/en/user-download) for a particular artist, [search download](/en/search) for keywords, or [scheduled tasks](/en/scheduled-tasks) for automatic downloads on a schedule.

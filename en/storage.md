@@ -1,147 +1,91 @@
-# Storage Principles
+# Storage and backup
 
-PixivDownloader separates downloaded works, host runtime files, and installed external plugins. Paths are relative to the process **working directory**, not necessarily the JAR's directory. Distribution launch scripts and Windows shortcuts set the working directory to the distribution directory.
+PixivDownloader keeps downloaded works, host runtime files and external plugin packages in separate directories. All relative paths are based on the application's **current working directory**, not the JAR's directory. Distribution startup scripts and Windows shortcuts set the working directory to the application root.
 
 ## Top-level directories
 
-| Category | Default path | Contents |
+| Category | Default path | Purpose |
 | --- | --- | --- |
-| Configuration | `config/` | Host settings, plugin business settings, and encrypted credentials |
-| State | `state/` | Setup state, queue checkpoints, GUI markers, and recoverable plugin state |
-| Data | `data/` | SQLite, user resources, caches, and persistent plugin data |
-| Plugins | `plugins/` | External plugin artifacts, provenance, and frozen runtime copies |
-| Logs | `log/` | GUI and backend logs |
-| Downloaded works | `{rootFolder}/` | Artifacts selected by `download.root-folder` |
+| Configuration | `config/` | Host `config.yaml`, plugin business configuration and encrypted credentials |
+| State | `state/` | Initialization state, login sessions, queue checkpoints, GUI onboarding markers and plugin state |
+| Data | `data/` | SQLite main database, private plugin databases, collection icons, thumbnail / TTS caches and migration / recovery records |
+| Plugins | `plugins/` | External plugin packages, provenance and private frozen runtime workspaces |
+| Logs | `log/` | GUI and backend runtime logs |
+| Works | `{rootFolder}/` | Work files under `download.root-folder`, defaulting to `pixiv-download` |
 
-`download.root-folder` defaults to the relative path `pixiv-download` and stores work files. Work registration and per-page media records live in the selected database. Configuration, databases, plugin packages, state and caches do not belong in the work directory.
+Work metadata and per-page media records are stored centrally in the selected database. New downloads no longer create `.meta.json` or `.media.properties` in work directories. When an original Ugoira ZIP is retained, its `.frames.properties` frame timings are still included. Do not put configuration, databases, plugin packages, state or caches in the work download root.
 
-## Working-directory layout
+## Runtime file details
 
-### Configuration
+### Configuration, state and data
+
+| Path | Content and notes |
+| --- | --- |
+| `config/config.yaml` | Host configuration and `plugins.{id}.enabled` enablement state |
+| `config/plugins/{pluginId}.properties` | Nonsensitive business configuration for the plugin |
+| `config/credentials/{pluginId}.properties` | Sensitive credential envelopes, encrypted and maintained by the host and injected per owner |
+| `config/image_classifier.properties` | Directory configuration for the image-classification tool |
+| `config/web-publications.enrolled` | Page editor live-publication enrollment file; do not remove it as cache |
+| `state/setup_config.json` | First-time account initialization, operating mode and login state; deleting it requires initialization again |
+| `state/download-workbench/` | Download workbench batch-queue checkpoints and layout-feedback state |
+| `state/gui/`, `state/download_root_marker.txt` | GUI onboarding markers and the last resolved absolute download-root path |
+| `state/{pluginId}/` | Owner state directory obtained by a plugin through `RuntimePathProvider` |
+| `data/pixiv_download.db` | Default SQLite main database; runtime may also create `-wal` / `-shm`, so stop the app normally before backing up |
+| `data/collection_icons/`, `data/novel/narration-voice/` | Custom collection icons and reference voices for novel multi-character narration |
+| `data/gallery_thumbs/`, `data/tts/`, `data/backfill/` | Rebuildable gallery thumbnail cache, Edge TTS version cache and backfill unreachable records |
+| `data/install_identity.txt` | Persistent installation UUID generated on first run |
+| `data/delete-staging/`, `data/database-migrations/`, `data/environment-transfers/`, `data/web-publications/` | Deletion / publication recovery staging, database-switch and environment-transfer backups and reports, and published-page state; do not delete as cache |
+| `data/{pluginId}/` | Persistent plugin data and private SQLite `plugin.db` |
+
+### External plugin directory (`plugins/`)
 
 | Path | Purpose |
 | --- | --- |
-| `config/config.yaml` | Host configuration and `plugins.{id}.enabled` state |
-| `config/plugins/{pluginId}.properties` | Non-sensitive business settings owned by that plugin |
-| `config/credentials/{pluginId}.properties` | Credential envelopes encrypted by the host and injected only into that plugin |
-| `config/image_classifier.properties` | Image-classifier target directories |
+| `plugins/*.jar`, `plugins/*.zip` | Original installed plugin packages, used for offline reverification and identity trust |
+| `plugins/provenance/*.pixiv-plugin-provenance` | Plugin source, digest, signature and reverification records |
+| `plugins/runtime/` | Private frozen workspace owned exclusively by each runtime generation; not a shared cache or installation source |
+| `plugins/.preparing/`, `.staging/`, `.transaction-cleanup/`, `.pixivdownload-runtime.lock` | Installation transactions, crash recovery and runtime directory locking |
 
-See [Configuration Reference](/en/configuration) for ownership rules. Do not exchange, merge, or rename files between owners.
+Set the plugin root through the JVM property `pixivdownload.plugins-dir`. Never manually overwrite, move or delete files under `plugins/` while the app is running. Installations, updates and uninstalls all use [plugin management](/en/plugin-management) transactions.
 
-### State
+## Downloaded-work directory layout
 
-| Path | Purpose |
+| Default path | Content |
 | --- | --- |
-| `state/setup_config.json` | Initial setup, runtime mode, and login state |
-| `state/download-workbench/batch_state.json` | Download-workbench batch queue checkpoint |
-| `state/download-workbench/layout-feedback-state.json` | Download-workbench layout-feedback deduplication state |
-| `state/gui/` | GUI onboarding and proxy-step markers |
-| `state/download_root_marker.txt` | Previously resolved absolute download root |
-| `state/{pluginId}/` | Owner state root obtained through `RuntimePathProvider`; created on demand |
+| `{root}/{artworkId}/` | Illustrations / manga / animations from individual-work, URL-batch, search and similar downloads, including generated `_p0.webp` and `_p0_thumb.jpg` |
+| `{root}/{artist}/{artworkId}/` | Artist batch downloads; `download.user-flat-folder=true` omits the `{artist}/` level |
+| `{root}/artwork-series-{seriesId}/cover.{ext}` | Manga-series cover |
+| `{root}/novel-{novelId}/` | A single novel's TXT / HTML / EPUB and embedded images |
+| `{root}/novel-series-{seriesId}/` | Novel-series cover and compiled book |
+| `{root}/douyin/{owner}/...` | Douyin plugin's default download directory, or its configured custom directory |
+| `{root}/_archives/{token}.zip` | Short-lived archives for batch export and multi-mode quotas |
 
-Deleting state does not always mean harmless regeneration. It can require setup or login again, or lose queue checkpoints and plugin state. Identify the owner before cleanup.
+Third-party download-type plugins should likewise save works under `{root}/{pluginId}/` or the work directory specified in their settings. Legacy data and metadata import on the Tools page can import historical `<work ID>.meta.json` snapshots from registered work directories. If the database is missing, image files in those directories alone cannot rebuild work registration.
 
-### Data
+## Database path prefixes and relocation
 
-| Path | Purpose |
-| --- | --- |
-| `data/pixiv_download.db` | Main SQLite database; `-wal` / `-shm` files may exist while running |
-| `data/collection_icons/{id}.{ext}` | Custom collection icons |
-| `data/gallery_thumbs/{artworkId}/p{n}-{edge}.{ext}` | Rebuildable gallery thumbnail cache |
-| `data/tts/chromium-version.txt` | TTS plugin Edge TTS Chromium-version cache |
-| `data/novel/narration-voice/{castId}/{characterId}.{ext}` | Novel-plugin character reference audio |
-| `data/backfill/unreachable.json` | Backfill tool's unreachable-work record |
-| `data/install_identity.txt` | Installation UUID generated once and permanently reused |
-| `data/delete-staging/` | Persistent recovery backups for file deletion and publication; not disposable cache |
-| `data/database-migrations/` | Database-switch reports, configuration snapshots, and source/destination backups |
-| `data/{pluginId}/` | Owner data root obtained through `RuntimePathProvider`; created on demand |
+The database stores file paths as `{N}/relative/path`:
 
-The main database stores work facts, path references, history, and domain data written by installed features. Plugin-private tables remain owned by their plugin's schema and lifecycle. Do not copy only the `.db` file while leaving an active WAL behind; shut the application down normally before backup.
+- **`{0}` symbolic root**: when `download.root-folder` is relative, such as the default `pixiv-download`, files inside that root are recorded as `{0}/...`. Each startup resolves this dynamically to the current working directory plus the relative download root. **Moving the entire application directory, including `pixiv-download/`, requires no manual database-path changes.**
+- **Ordinary `{N}` prefixes**: when the download root or a collection uses an absolute path, records refer to an absolute prefix in the `path_prefixes` table.
 
-### External plugins
+To move only the work download root:
 
-| Path | Purpose |
-| --- | --- |
-| `plugins/*.jar`, `plugins/*.zip` | Installed original artifacts; management identity and offline-verification trust source |
-| `plugins/provenance/<artifact>.pixiv-plugin-provenance` | Origin, digest, signature, and last verification result |
-| `plugins/runtime/` | Random private frozen workspace for each live generation; not a shared cache or install source |
-| `plugins/.preparing/`, `plugins/.staging/`, `plugins/.transaction-cleanup/` | Managed install-transaction and crash-recovery directories |
-| `plugins/.pixivdownload-runtime.lock` | Runtime directory lease |
+1. Stop the app normally.
+2. Move the work directory to its new location in the filesystem.
+3. Start the app, open Migrate download directory on the desktop GUI's Status page, select the actual new location, and confirm updating both `config.yaml` and database path prefixes. The migration tool updates path references only; it does not move disk files for you.
+4. After restarting, spot-check historical works, gallery previews and one new download.
 
-The system property `pixivdownload.plugins-dir` can override the plugin root. The runtime does not create a missing directory automatically; it reports a diagnostic and lets the core shell enter recovery.
+Switching database engines between SQLite and PostgreSQL is a separate process; see [main database and engine switching in the configuration reference](/en/configuration#main-database-and-engine-switching).
 
-Do not overwrite, move, or delete files under `plugins/` while the application is running. Installation, upgrade, removal, and rollback must use plugin management so the artifact and provenance move transactionally. `plugins/runtime/` can be rebuilt from a verified installed artifact, but it is not a download cache for another process to reuse.
+## Backup and recovery
 
-## Downloaded-work layout
+After stopping the app, a complete backup should include:
 
-Common paths are below. A plugin may define a more detailed layout inside its own work directory.
+1. `config/`, `state/`, `data/` and `plugins/`;
+2. `download.root-folder`, custom collection download directories and custom work directories used by third-party plugins;
+3. If using PostgreSQL, the server's main database and all private plugin schemas;
+4. If using [import external downloads](/en/pixiv-batch-downloader-import), the external source directories referenced read-only;
+5. If restoring encrypted credentials in `config/credentials/` across machines or deployments, the corresponding credential master key too; otherwise, re-enter credentials in the destination environment.
 
-| Path | Contents |
-| --- | --- |
-| `{root}/{artworkId}/` | Pixiv single-work, URL batch, and search downloads |
-| `{root}/{artist}/{artworkId}/` | Artist downloads; omit the artist level when `download.user-flat-folder=true` |
-| `{root}/{artworkId}/{filename}_p0.webp` + `..._p0_thumb.jpg` | Ugoira animated WebP and first-frame thumbnail |
-| `{root}/artwork-series-{seriesId}/cover.{ext}` | Pixiv manga-series cover |
-| `{root}/novel-{novelId}/` | Single-novel TXT/HTML/EPUB and related work files |
-| `{root}/novel-series-{seriesId}/` | Novel-series cover and optional compilation |
-| `{root}/douyin/{owner}/...` | Douyin plugin's default output |
-| `{root}/_archives/{token}.zip` | Short-lived multi-mode quota and gallery export archives |
-
-Pixiv work metadata and per-page media format records are stored in the selected database (by default, SQLite at `data/pixiv_download.db`). New downloads do not create `.meta.json` or `.media.properties`. Metadata comes from responses already fetched and preserves page details, original URLs, upload times, and translations without extra Pixiv requests. Back up or move the database together with the media files; the gallery cannot rebuild work records from files alone. Existing sidecars are not automatically deleted in bulk. Saving a Ugoira ZIP still includes its `.frames.properties` frame timing file.
-
-Douyin derives its default root from `DownloadSettings.getRootFolder()` plus `douyin`, then isolates output by request owner. A non-empty `douyin.download.directory` plugin setting replaces that root. The obsolete `data/douyin/downloads` path is not used. A collection may also select a work root outside the default download root.
-
-A third-party download type should likewise write works below a plugin-id directory under `download.root-folder`, or to a work directory explicitly chosen in that plugin's settings. `state/{pluginId}` and `data/{pluginId}` are for auxiliary state and data, not downloaded works.
-
-The tools page's “Legacy data and metadata import” detects `download_history.json` / `statistics.json` and imports `<work ID>.meta.json` from registered artwork and novel folders. Existing snapshots and source files are kept. Unregistered, damaged, or mismatched files cannot restore work records. Artwork backfill imports snapshots first, fills missing fields such as upload time from local metadata, and fetches remaining fields from the network. “Always fetch from the network” skips local values while keeping existing fields. A dry run reports candidates without saving snapshots or fields.
-
-## Database path encoding
-
-The database avoids repeating long absolute paths by storing prefix references:
-
-```text
-{N}/relative/path
-```
-
-For `N>0`, `N` identifies an absolute prefix in `path_prefixes`. Updating that prefix redirects every reference that uses it.
-
-### `{0}` symbolic root
-
-When `download.root-folder` is relative, records under it can use `{0}/...`. `{0}` resolves on every startup to “current working directory + current relative download root.” Moving the whole distribution together with `pixiv-download/` therefore keeps history references valid.
-
-When the download root is absolute, records use regular `{N}` prefixes. After moving that directory, use “Migrate Download Directory” on the GUI Status page to update references.
-
-`state/download_root_marker.txt` records the previous resolution and detects a configuration change made without moving files. The migration tool updates configuration and database references; it **does not move files on disk**.
-
-## Relocation
-
-This section covers work-directory relocation. Switching between SQLite and PostgreSQL requires a separate database check and migration; see [configuration](/en/configuration). Moving directories or directly editing connection settings does not copy database contents.
-
-### Move the whole distribution
-
-Keep `download.root-folder` relative, shut down the application, and move the entire distribution directory. Start it through the launch script in the new location so the working directory, runtime files, and `{0}` move together.
-
-### Move only the download root
-
-1. Shut the application down normally.
-2. Move the work directory in the filesystem.
-3. Open “Migrate Download Directory” from the GUI Status page, select the actual new location, and choose whether to update `config.yaml` too.
-4. Restart when prompted and spot-check history, gallery entries, and a new download.
-
-Do not edit `download.root-folder` first and expect the application to move files; it does not.
-
-## Backup and restore
-
-A complete backup should include:
-
-- `config/`, including plugin business settings and encrypted credentials;
-- `state/`, preserving setup, login, queue, and plugin state;
-- `data/`, copied after the application has stopped;
-- `plugins/`, preserving third-party/on-demand artifacts, signatures, and provenance;
-- `download.root-folder` and any other work directories selected by collections or plugin settings.
-
-With PostgreSQL, also back up the server database and plugin-private schemas. Copying local `data/` is not a substitute for a server database backup. Retain recovery material in `data/database-migrations/` and `data/delete-staging/` until the corresponding transaction state is understood.
-
-`log/` is usually needed only for troubleshooting. `data/gallery_thumbs/` and `plugins/runtime/` are rebuildable, but including them in a whole-directory backup is harmless.
-
-After restoring, check administrator login, gallery and novel records, file access, schedule settings and a new download. Imported works reference external source files, so retain those source directories too. Preserve the relative layout or use the migration tool for absolute roots. Encrypted credentials also depend on the credential master key that produced their envelopes. Confirm key compatibility before restoring across builds or deployments; otherwise re-enter credentials in the target environment.
+After recovery, verify administrator login, gallery and novel-body reading, scheduled-task state and one new download, in that order.

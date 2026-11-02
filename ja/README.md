@@ -1,46 +1,47 @@
-# PixivDownloader ドキュメント
+# PixivDownloader 利用ガイド
 
-PixivDownloader は、Pixiv のイラスト、漫画、うごイラ、小説をパソコンやサーバーに保存するアプリです。デスクトップ画面、ブラウザー、Tampermonkey スクリプトから操作できます。ログインが必要な作品には、自分の Pixiv アカウントの Cookie を使用します。
+PixivDownloader は、Pixiv のイラスト、漫画、うごイラ、小説をローカルのパソコンやサーバーにダウンロードし、ローカルギャラリーで管理するアプリです。デスクトップ画面、ブラウザーのダウンロードページ、Tampermonkey スクリプトから操作できます。閲覧制限のある作品をダウンロードするには、自分の Pixiv Cookie を設定する必要があります。
 
 ## はじめて使う
 
-1. [インストール](/ja/installation)で環境に合う配布パッケージを選び、全体を展開します。
-2. [初回セットアップ](/ja/first-setup)でアプリの管理者アカウントと必要なプロキシを設定します。
-3. [初回ダウンロード](/ja/first-download)で作品を 1 件保存し、保存先を確認します。
+1. [インストールと起動](/ja/installation)：Windows インストーラー、Java 配布パッケージ、Docker から方法を選び、パッケージ全体を展開します。
+2. [初回セットアップ](/ja/first-setup)：本アプリの管理者アカウントを作成し、バックエンドのプロキシを設定します。
+3. [初回ダウンロード](/ja/first-download)：Cookie を保存し、作品を 1 件ダウンロードして、ローカルディレクトリとギャラリーで結果を確認します。
 
-デスクトップ画面は Compose が既定で、Swing も選べます。簡体字中国語、繁体字中国語、英語、日本語、韓国語に対応しています。データベースは SQLite が既定です。PostgreSQL を使う場合は、対応プラグインとデータ移行が必要です。
+デスクトップ画面の既定は Compose で、配布パッケージには Swing も含まれます。簡体字中国語、繁体字中国語、英語、日本語、韓国語に対応しています。既定のデータベースは SQLite です。PostgreSQL を使う場合は、対応するデータベースプラグインを先にインストールし、設定ページでデータの確認と移行を行ってください。
 
-## やりたいことから探す
+## 操作から探す
 
-| 操作 | ガイド |
-|---|---|
-| ブックマーク、フォロー中の新作、自分の作品を取得する | [クイック取得](/ja/quick-access) |
-| 複数の作品 URL をまとめてダウンロードする | [URL 一括ダウンロード](/ja/batch-download) |
-| 特定の作者の作品を取得する | [ユーザー一括ダウンロード](/ja/user-download) |
-| Pixiv をキーワードで検索する | [検索ダウンロード](/ja/search) |
-| 小説を保存・合本・翻訳・読み上げする | [小説](/ja/novel) |
-| 保存した作品を閲覧・整理する | [作品ギャラリー](/ja/gallery) |
-| 新作を定期的に取得する | [スケジュールタスク](/ja/scheduled-tasks) |
-| Pixiv のページから操作する | [ユーザースクリプト](/ja/userscripts) |
-| PixivBatchDownloader の今後のダウンロードを登録する | [PixivBatchDownloader インポート](/ja/pixiv-batch-downloader-import) |
-| 保存先、同時実行数、プロキシなどを設定する | [設定リファレンス](/ja/configuration) |
-| プラグインを追加・更新する | [プラグイン管理](/ja/plugin-management) |
-| 外部通信や送信データを確認する | [ネットワークアクセス](/ja/network-access) |
-| バックアップやデータ移行を行う | [ストレージ](/ja/storage) |
-| ファイル名の変数や操作を確認する | [操作リファレンス](/ja/usage-guide) |
-| 起動・接続・保存の問題を調べる | [よくある質問](/ja/faq) |
+| 操作 | ドキュメント |
+| --- | --- |
+| 自分のブックマーク、作品、フォロー中の新作、Pixiv コレクションをダウンロードする | [クイック取得](/ja/quick-access) |
+| 作品リンクや ID をまとめて貼り付けてダウンロードする | [URL 一括ダウンロード](/ja/batch-download) |
+| 指定した作者の作品をダウンロードする | [作者別一括ダウンロード](/ja/user-download) |
+| Pixiv をキーワードで検索してダウンロードする | [検索ダウンロード](/ja/search) |
+| 小説を保存、EPUB に合本、閲覧、翻訳、読み上げする | [小説と読み上げ](/ja/novel) |
+| 新作を定期的に検出してダウンロードする | [スケジュールタスク](/ja/scheduled-tasks) |
+| Pixiv のページからダウンロード支援機能を呼び出す | [ユーザースクリプト](/ja/userscripts) |
+| PixivBatchDownloader のダウンロードをギャラリーに登録する | [外部ダウンロードのインポート](/ja/pixiv-batch-downloader-import) |
+| 登録済み作品の閲覧、絞り込み、エクスポート、削除を行う | [作品ギャラリー](/ja/gallery) |
+| 設定、プロキシ、データベース、メディア形式を変更する | [設定リファレンス](/ja/configuration) |
+| 作品とデータディレクトリをバックアップ、復元、移動する | [ストレージとバックアップ](/ja/storage) |
+| 起動引数、ファイル名テンプレート、保守ツール、招待ゲストを確認する | [CLI と詳細リファレンス](/ja/usage-guide) |
+| 外部リクエストの宛先、送信データ、無効化方法を確認する | [ネットワークアクセスと外部サービス](/ja/network-access) |
+| 起動、接続、Cookie、ダウンロードの問題を調べる | [よくある質問](/ja/faq) |
+| プラグインのインストール、更新、有効化、無効化、修復を行う | [プラグイン管理](/ja/plugin-management) |
+| ページのレイアウト、スタイル、カスタムコンポーネントを編集する | [ページエディター](/ja/page-editor) |
+| ログインなどのフォームにオンラインまたはオフラインの CAPTCHA を設定する | [操作 CAPTCHA](/ja/captcha) |
 
-## 開発者向け
+## 開発と参加
 
-- プラグインを作る：[サードパーティプラグイン SDK](/ja/plugin-development)
-- 本体をビルドする：[開発ガイド](/ja/development)
-- バージョン別 API：[SDK ドキュメント](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)
-- 開発パッケージ：[SDK Releases](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
+- [サードパーティープラグイン SDK](/ja/plugin-development)：テンプレートからのプロジェクト作成、拡張契約の利用、署名、投稿を説明します。
+- [主リポジトリの開発](/ja/development)：環境の準備、ビルド、テスト、PR の提出を説明します。
+- [SDK ダウンロード](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) · [バージョン別 API リファレンス](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)
 
 ## バージョンと問い合わせ
 
-[Releases](https://github.com/Sywyar/PixivDownloader/releases) で配布物を、[変更履歴](https://github.com/Sywyar/PixivDownloader/blob/master/CHANGELOG.md)で変更内容を確認できます。[Issue](https://github.com/Sywyar/PixivDownloader/issues) には、使用バージョン、OS、起動方法、再現手順、エラーを記載してください。Cookie、パスワード、トークンは公開しないでください。
+配布パッケージは [GitHub Releases](https://github.com/Sywyar/PixivDownloader/releases) からダウンロードでき、変更履歴は [CHANGELOG](https://github.com/Sywyar/PixivDownloader/blob/master/CHANGELOG.md) で確認できます。問題を調べても解決しない場合は、[Issues](https://github.com/Sywyar/PixivDownloader/issues) にバージョン、再現手順、実際の結果、機密情報を除いたログを添えて報告してください。Cookie、パスワード、トークンは含めないでください。
 
-ガイド中の `http://localhost:6999` は既定のローカルアドレスです。ポートや接続先を変更した場合は読み替えてください。各機能の画面は対応プラグインが有効な場合に利用できます。必須プラグインやデータベースの復旧が必要な場合は、起動時の案内を先に解決してください。
+既定の Web アドレスは `http://localhost:6999/` です。利用できるページは有効なプラグインによって変わります。復旧ページが表示された場合は、まず必須プラグインと選択中のデータベースの状態を確認してください。
 
-本プロジェクトは [Sywyar](https://github.com/Sywyar) が管理しています。ライセンスは [AGPL-3.0](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE) と[プラグイン向けリンク例外](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt)です。Pixiv の公式アプリではありません。作品の著作権とサービスの利用条件を守り、過剰なリクエストを避けてください。
+本プロジェクトは [Sywyar](https://github.com/Sywyar) が管理し、[AGPL-3.0](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE) と付属の[プラグインリンク例外](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt)を採用しています。ダウンロードした作品の著作権は原作者に帰属し、本プロジェクトは Pixiv と提携関係にありません。サービスの利用規約を守り、リクエスト頻度を適切に制御してください。

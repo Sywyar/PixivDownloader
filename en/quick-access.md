@@ -1,90 +1,42 @@
 # Quick Fetch
 
-Use Quick Fetch on the download page to retrieve bookmarks, submissions, follows and collections for the account identified by your saved Pixiv cookie. Preview works, add them to the queue, then start downloading. Fetching a list alone does not download files.
+Quick Fetch on the download page uses your saved Pixiv cookie to retrieve the current account's bookmarks, posts, commission results, followed artists, new works by followed artists and collections. Load a preview first, then queue the works and start downloading; fetching a list alone does not save files.
 
-?> This feature requires a saved cookie containing `PHPSESSID`. Without one the buttons show as disabled with a hint.
+!> Quick Fetch requires a saved cookie containing a valid `PHPSESSID`. All entry buttons stay disabled until one is saved.
 
----
+## Supported sources and steps
 
-## Available Data Sources
+| Source | Fetch scope |
+| --- | --- |
+| My bookmarks | Illustration / manga and novel bookmarks, both public and private |
+| My works | Illustrations / manga and novels posted by the current account, including private works |
+| My request works | Completed, public commission (リクエスト) results for the current account, handled through the illustration flow |
+| My following | Followed artists, including private follows, with live filtering by username or ID |
+| New works by followed users | The latest illustrations / manga / animations by followed artists (フォロー新着作品), browsable by page |
+| My collections | Mixed lists of illustrations and novels in Pixiv collections (コレクション) |
 
-| Data Source | Description |
-|-------------|-------------|
-| **My Bookmarks** | Illustrations/manga + novels, including private bookmarks |
-| **My Works** | Your own submitted illustrations/manga + novels, including private ones |
-| **My Commission Works** | Your completed, public commission (リクエスト) deliverables (handled as illustrations) |
-| **My Follows** | All artists you follow, including private follows; supports live filtering by username / user ID |
-| **New Works by Followed Users** | Latest illustrations/manga/ugoira from all artists you follow (Pixiv "フォロー新着"); paginated |
-| **My Collections** | Works in your Pixiv collections (コレクション) |
+1. Open `http://localhost:6999/pixiv-batch.html` and switch to Quick Fetch.
+2. Click the desired source button and wait for its work list to appear below.
+3. In My following or My collections, click an artist or collection to expand its work preview. For a followed artist, you can switch between illustrations and novels.
+4. Queue individual works, choose Queue page or Queue all, then click Start download.
 
----
+## Additional filters
 
-## Usage Steps
+After expanding a specific work list, use Additional filters to filter the current preview page live by content rating, AI works, tags, work type, page count, word count and minimum bookmark count:
 
-1. Open `http://localhost:6999/pixiv-batch.html`
-2. Open **Quick Fetch**
-3. Click the corresponding button ("My Bookmarks", "My Works", etc.)
-4. Wait for data to load; the work list appears below
-5. Click "**Add All to Queue**" or check individual works then "**Add Selected to Queue**"
-6. Once the queue appears, click "**Start Download**"
+- **Queue page**: queue only works visible on the current page after filtering.
+- **Queue all**: queue every work in the source, then check each work against the filters during download. Nonmatching works show a skip reason in the queue.
 
----
+While viewing the followed-artist list or collection list, open a specific artist or collection before filtering or queuing works.
 
-## Choose works from followed users
+## Save as a scheduled task (administrator)
 
-Click a followed user in the list to expand their work preview below (illustrations/novels toggleable).
+After expanding a specific source (bookmarks, your works, your request works, new works by followed users, or a particular followed artist or collection), enter a name and trigger in the Save as scheduled task card at the bottom of the page to save it as an automatic background download task.
 
-You can:
-- Click the "Add to Queue" button next to a single image to add one work
-- Click "Add Page to Queue" to add all works on the current page
-- Navigate pages and continue adding
+?> Bookmarks, new works by followed users and collections are private account sources. Their tasks must have a valid cookie bound to them; new tasks in solo mode bind the current cookie automatically. The source type is read-only after creation. To change it, delete and recreate the task; see [scheduled tasks](/en/scheduled-tasks).
 
----
+## Check results and troubleshoot
 
-## Collections
+After downloading, check completed, skipped and failed queue entries separately, then confirm the works in the gallery. If the preview is empty, check the account, public / private scope and additional filters first. If buttons are disabled or authentication errors appear, save a valid cookie again. For network errors, check the backend proxy connection; do not treat an empty list as proof that synchronization is complete.
 
-Click a collection to expand its mixed illustrations + novels list, operated the same way as the followed users list.
-
----
-
-## Extra Filters (Real-Time Preview Filtering)
-
-After expanding any work list, the "**Extra Filters**" card above allows real-time filtering of the current preview page by content rating / AI / tags / work type / page count / word count / bookmark count:
-
-- "Add Page to Queue" adds only the **filtered** works;
-- "Add All to Queue" will still add everything — non-matching works are individually skipped during the actual download with the reason noted.
-
-When no specific work list is expanded (e.g., staying on the followed user / collection selection page), the card prompts you to expand a work list first.
-
----
-
-## Save as Scheduled Task (Admin)
-
-**Every source** in Quick Fetch can be saved as a background [Scheduled Task](/en/scheduled-tasks) for automatic download:
-
-| Source | Scheduled Task Effect |
-|--------|----------------------|
-| My Bookmarks (illustrations/novels × public/private) | Periodically download newly added bookmarks |
-| My Works | Periodically download your own new submissions |
-| My Commission Works | Periodically download your own newly completed commission deliverables |
-| New Works by Followed Users | Periodically download new works from followed artists (フォロー新着) |
-| Click into a followed user | Periodically download that artist's new works |
-| Click into a collection | Periodically download newly added illustrations and novels in that collection |
-
-After expanding a source, the "**⏰ Save as Scheduled Task**" card at the bottom of the page shows the source description. Fill in the name and trigger method to create the task; if no source is expanded, it will prompt you to expand one first.
-
-?> Bookmarks / followed users' new works / collections are account-private content; the corresponding tasks must have a cookie containing `PHPSESSID` authorized to run (in Solo mode new tasks are auto-bound). When editing these types of tasks, the source is read-only — to change the source, delete and recreate.
-
----
-
-## Check results and recover
-
-After downloading, check completed, skipped and failed queue entries, then open the gallery. For an empty list, check the account, public/private scope and filters first. For disabled controls or an expired session, save a valid cookie again. For fetch failures, retain the error and check the backend connection to Pixiv. An empty preview does not by itself mean synchronization succeeded.
-
-## Related Features
-
-| Need | Recommended Entry |
-|------|------------------|
-| Download works by specific URLs | [Batch Download](/en/batch-download) |
-| Download all works by an artist | [User Download](/en/user-download) |
-| Search by keyword then download | [Search](/en/search) |
+See [URL batch download](/en/batch-download) for specific links, [artist batch download](/en/user-download) for artist IDs, or [search download](/en/search) for keywords.

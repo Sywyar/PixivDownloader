@@ -1,35 +1,35 @@
-- **Get Started**
+- **Get started**
   - [Home](/en/)
-  - [Installation](/en/installation)
-  - [First-Time Setup](/en/first-setup)
-  - [First Download](/en/first-download)
+  - [Installation and startup](/en/installation)
+  - [First-time setup](/en/first-setup)
+  - [Your first download](/en/first-download)
 
-- **Find and Download**
+- **Fetch and download**
   - [Quick Fetch](/en/quick-access)
-  - [URL Batch Download](/en/batch-download)
-  - [Artist Downloads](/en/user-download)
-  - [Search](/en/search)
-  - [Novels and Narration](/en/novel)
-  - [Scheduled Tasks](/en/scheduled-tasks)
+  - [URL batch download](/en/batch-download)
+  - [Artist batch download](/en/user-download)
+  - [Search download](/en/search)
+  - [Novels and narration](/en/novel)
+  - [Scheduled tasks](/en/scheduled-tasks)
   - [Userscripts](/en/userscripts)
-  - [Import External Downloads](/en/pixiv-batch-downloader-import)
+  - [Import external downloads](/en/pixiv-batch-downloader-import)
 
-- **Manage and Troubleshoot**
-  - [Artwork Gallery](/en/gallery)
-  - [Configuration](/en/configuration)
-  - [Storage and Backup](/en/storage)
-  - [CLI and Advanced Reference](/en/usage-guide)
-  - [Network Access](/en/network-access)
+- **Manage and troubleshoot**
+  - [Artwork gallery](/en/gallery)
+  - [Configuration reference](/en/configuration)
+  - [Storage and backup](/en/storage)
+  - [CLI and advanced reference](/en/usage-guide)
+  - [Network access and third-party services](/en/network-access)
   - [FAQ](/en/faq)
 
 - **Plugins**
-  - [Plugin Management](/en/plugin-management)
+  - [Plugin management](/en/plugin-management)
   - [Page editor](/en/page-editor)
   - [Operation CAPTCHA](/en/captcha)
 
-- **Develop**
-  - [Third-party Plugin SDK](/en/plugin-development)
-  - [Main Repository Development](/en/development)
+- **Contribute**
+  - [Third-party plugin SDK](/en/plugin-development)
+  - [Main repository development](/en/development)
 
 ---
 

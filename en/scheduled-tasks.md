@@ -1,257 +1,116 @@
-# Scheduled Tasks
+# Scheduled tasks
 
-Scheduled tasks **discover and download** works at fixed intervals or Cron times while the backend is running. Each task saves a snapshot of its source, filters, and download settings; later changes on the download page do not update that snapshot. The browser may be closed, but the backend must remain running.
+Scheduled tasks automatically **discover and download** new works at fixed intervals or Cron times while the backend is running. Each task saves a snapshot of its source, filters and download settings when created; later changes on the download page do not affect existing tasks. Closing the browser does not stop execution, but stopping the backend does.
 
-The application host owns the scheduler and management API. Disabling the download workbench removes its pages, Pixiv sources and artwork executor. Tasks that need those capabilities suspend and retain their data and progress; tasks fully supported by other plugins continue. The scheduler rechecks and resumes tasks suspended because a source or executor was unavailable or quiesced once all required capabilities return. Manual, credential and policy suspensions still require explicit action.
-
-**Typical use cases:**
-- Following an artist and wanting to auto-download all their future new works
-- Periodically fetching the latest search results for a keyword
-- Automatically tracking updates to a manga / novel series
-- Regularly syncing your bookmarks / collections / followed users' new works (created from "[Quick Fetch](/en/quick-access)")
-
-?> Scheduled tasks are admin-only. If you're a guest, ask the admin to set them up.
-
----
+The application host provides the scheduler and management API. Disabling `download-workbench` removes its download pages, Pixiv sources and illustration executor. Tasks that depend on these capabilities retain their data and progress and are suspended; tasks fully supported by other plugins continue running. Once the required capabilities return, the scheduler automatically rechecks and resumes tasks suspended because a capability was missing. Manual pauses, invalid credentials and policy suspensions still require explicit action.
 
 ## Prerequisites
 
-1. **Logged in as admin**
-2. **The backend stays running and scheduling is enabled**
-3. Account-private sources and restricted content need a valid cookie containing `PHPSESSID` bound to the task
+1. Sign in with an administrator account (unavailable to guests).
+2. Keep the backend running with the global `schedule.enabled` switch enabled.
+3. Account-private sources (bookmarks, your works, new works from followed users and collections) and restricted content such as R-18 require a cookie containing a valid `PHPSESSID` bound to the task. Without a valid cookie, private sources are suspended rather than running anonymously without results.
 
-!> Public sources can run anonymously where supported. Account-private sources suspend without valid credentials instead of running anonymously. Restricted content such as R-18 also requires an authorized session.
+## Create your first scheduled task
 
----
+Create a scheduled task by saving the current download-page configuration as a snapshot (available in both download-page layouts). This example tracks an artist's new works regularly:
 
-## Creating Your First Scheduled Task
+1. Open the download page, switch to "User mode", and enter an artist's profile URL or numeric ID (for example, `https://www.pixiv.net/users/123456`; replace it with the actual artist ID).
+2. Expand "Download settings" and configure as needed:
+   - **Filename template**: defaults to `{artwork_id}_p{page}`.
+   - **Collection**, **maximum concurrency** and **interval between works** (milliseconds, such as `1000`; an interval does not guarantee avoiding upstream restrictions).
+   - **Allow deleted works to be downloaded again**: works deleted from the gallery retain [deletion markers](/en/gallery#delete-works) and are skipped by default. Selecting this option automatically downloads them again on each run (the setting is saved in the snapshot; tasks upgraded from older versions default to unchecked).
+3. Expand "Extra filters" to set content ratings, exclude AI works or add tag conditions as needed.
+4. Scroll to the "Save as scheduled task" card at the bottom:
+   - Enter a **task name**;
+   - Choose a **trigger**: a fixed interval (such as every `60` minutes) or a six-field Cron expression (such as `0 0 3 * * *` for 03:00 daily);
+   - Set the [initial fetch limit](#initial-fetch-limit) and [separate proxy / cookie](#set-a-separate-proxy-cookie) as needed;
+   - Click "Create task".
+5. Switch to the "Scheduled tasks" list and inspect the snapshot. Click "Run now" once, check success, skip and failure reasons in the queue, then confirm the next trigger time. If the task was created but saving its proxy or cookie failed, continue configuring that task instead of creating a duplicate.
 
-Scheduled tasks are **not created from a standalone form** — they snapshot your current download configuration as a task. Here's how:
+## Cron expression format
 
-### Example: Following an Artist
+Use Spring's six-field Cron format (the first field is **seconds**):
 
-**Step 1: Enter Artist Download Mode**
-
-Select "**👤 User Mode**" on the download page. Both page layouts use the same task settings.
-
-**Step 2: Enter the Artist Source**
-
-Paste an artist profile URL in the input, e.g.:
-```
-https://www.pixiv.net/users/123456
-```
-Or enter a numeric ID. `123456` only illustrates the format; use the actual artist ID.
-
-**Step 3: Configure Download Settings (Optional)**
-
-Expand the "Download Settings" card and adjust as needed:
-- **Filename template**: default `{artwork_id}_p{page}`
-- **Collection**: which collection to download into
-- **Max concurrent**: how many works to download in parallel (default follows global setting)
-- **Artwork interval**: milliseconds to wait between works (for example, `1000` is one second; an interval does not guarantee avoiding upstream limits)
-- **Allow re-downloading deleted works**: works deleted through the gallery keep a [deletion mark](/en/gallery?id=deleting-artworks); by default (unchecked) scheduled tasks treat them as downloaded and skip; check to treat as not-downloaded and auto re-download each round. This setting is snapshotted with "Save as scheduled task"; tasks created by older versions get it backfilled as unchecked on first startup after upgrading
-
-**Step 4: Configure Extra Filters (Optional)**
-
-Expand the "**Extra Filters**" card and set as needed:
-- Content rating: all-ages only, or include R-18?
-- Exclude AI-generated works?
-- Limit to specific tags?
-
-**Step 5: Save as Scheduled Task**
-
-Scroll to the bottom of the page and find the "**⏰ Save as Scheduled Task**" card:
-
-1. Enter a **task name** (to tell tasks apart, e.g. "Artist Sywyar Daily Update")
-2. Choose a **trigger**:
-   - **Fixed interval**: e.g. every `60` minutes
-   - **Cron expression**: precise schedule, e.g. daily at 3 AM → `0 0 3 * * *`
-3. (Optional) Set a **first-run fetch limit**: cap how many works the first run fetches to avoid downloading the entire history at once (see "[First-Run Fetch Limit](#first-run-fetch-limit)" below); default `0` = full
-4. (Optional) Check "**Use a dedicated proxy**" / "**Use a dedicated cookie**": assign this task its own HTTP proxy (`host:port`, e.g. `127.0.0.1:7890`) and cookie — the cookie input has a "**Use currently saved cookie**" shortcut button on the right; unchecked means using global proxy settings / auto-bound cookie respectively (see "[Dedicated Proxy/Cookie](#dedicated-proxycookie)" below)
-5. Click "**Create Task**"
-
-?> After creation, find the task under "⏰ Scheduled" and inspect its snapshot. Use "Run Now" once, review successful, skipped, and failed items, then check the next trigger time. If the task was created but proxy or cookie saving failed, finish configuring that task instead of creating a duplicate.
-
----
-
-## Cron Expression Format
-
-PixivDownloader uses Spring's **6-field Cron format** (one more "seconds" field than the common 5-field Unix cron):
-
-```
-sec  min  hour  day  month  weekday
-0    0    3     *    *      *   → daily at 03:00:00
-0    30   8     *    *      1   → every Monday 08:30:00
-0    0    */6   *    *      *   → every 6 hours
-0    0    9     1    *      *   → 1st of each month 09:00
+```text
+sec min hour day month weekday
+0   0   3   *   *   *   Every day at 03:00:00
+0   30  8   *   *   1   Every Monday at 08:30:00
+0   0   */6 *   *   *   Every 6 hours
+0   0   9   1   *   *   On the 1st of each month at 09:00:00
 ```
 
-| Field | Range | Special Values |
-|-------|-------|---------------|
-| sec   | 0–59 | `*`=every second, `/n`=every n seconds |
-| min   | 0–59 | `*`=every minute, `/n`=every n minutes |
-| hour  | 0–23 | `*`=every hour, `/n`=every n hours |
-| day   | 1–31 | `*`=every day |
-| month | 1–12 | `*`=every month |
-| weekday | 0–7 | 0/7=Sunday, `*`=every day |
+| Field | Range | Common symbols |
+| --- | --- | --- |
+| Seconds / minutes | `0–59` | `*` every second/minute; `/n` every n seconds/minutes |
+| Hours | `0–23` | `*` every hour; `/n` every n hours |
+| Day of month | `1–31` | `*` every day |
+| Month | `1–12` | `*` every month |
+| Day of week | `0–7` | `0` or `7` means Sunday; `*` every day |
 
----
+## How source types work
 
-## How Source Types Work
+| Source type | Execution |
+| --- | --- |
+| Artist's new works (User mode) / Your works | The first run fetches eligible works not yet downloaded; subsequent runs use an **incremental watermark**, scanning only as far as the newest work handled on the previous run |
+| Artist commissions (User "Commissions" / Quick access "My commissions") | Each run lists completed, publicly available commissions, downloads them through the normal illustration pipeline and skips downloaded works. No watermark is used because the order is not guaranteed to be monotonic |
+| Search keywords (Search mode) | Fetches the selected page range; "Newest" ordering with an end page of `-1` also uses an incremental watermark |
+| Manga / novel series (Series mode) | Checks the chapter list each run, skips downloaded chapters and downloads new ones |
+| My bookmarks / New works from followed users / Collections | Expand the corresponding source in [Quick access](/en/quick-access) before creating the task. Collections download both illustrations and novels. The source is read-only when editing a task; delete and recreate the task to change it |
 
-> Beyond User / Search / Series, sources like "Bookmarks / My Works / Followed Users' New Works / Collections" are created directly from the "⏰ Save as Scheduled Task" card at the bottom after expanding the corresponding source in the "[Quick Fetch](/en/quick-access)" tab.
+## Initial fetch limit
 
-### Artist New Works (User Mode)
+For sources with many older works, set an "First-run fetch limit" (`0` means no count limit):
 
-- **First round**: downloads all of the artist's works matching filter criteria that haven't been downloaded yet (potentially many)
-- **Subsequent rounds**: uses "watermark-based incremental discovery" — each round only scans down to the newest work processed in the previous round and stops there, picking up only the newly posted works without rescanning the entire history
-- Effect: the first round may download hundreds, but subsequent rounds only download the few new ones
+- **First-run cap** (artist's new works, new works from followed users, and searches with "Newest + end page `-1`"): only the first run fetches at most the latest N works and advances the watermark. Later runs track works published after that point and do not backfill older history.
+- **Per-run cap** (my bookmarks, collections, commissions, and searches with non-newest ordering and end page `-1`): without a monotonic newest-first order, each run accepts at most N new works, gradually processing the backlog over multiple runs.
+- **Fixed-page searches**: the cap applies per run. `0` removes only the count limit; it does not expand the selected page range (selecting page 1 alone does not automatically fetch later pages).
 
-### Artist Commission Works (User Mode "Commission" scope / Quick Fetch "My Commission Works")
+!> Skipping already downloaded works does not consume the acceptance quota; skips caused by additional filters do. Setting `0` for unlimited-page or multi-page sources may fetch a large history, so confirmation is required before saving.
 
-- Each round lists the artist's **completed, public commissions (リクエスト)** and downloads the not-yet-downloaded ones
-- Deliverables are ordinary illustrations, handled through the illustration download / dedup / naming pipeline
-- **No watermark used** (commission ordering is not reliably monotonic) — performs full discovery + skip-already-downloaded; the first-run fetch limit acts as a **per-run cap**
+## Manage existing tasks
 
-### Search Keywords (Search Mode)
+In the "Scheduled tasks" list, the indicator at the top right of each task card shows its state:
 
-- Fetches the latest N pages of search results per configuration
-- With "Newest" sort and page count `-1`, also uses watermark-based incremental discovery — each round only picks up the newest
-- Effect: periodically pulls new works under that keyword
+| Indicator | Meaning |
+| --- | --- |
+| Gray | Waiting for the next trigger, disabled or manually paused |
+| Green | Running or the previous run succeeded |
+| Yellow | Multiple tasks are due at once; queued for execution |
+| Red | Execution failed, the cookie is invalid, execution was interrupted, or an excessive-access pause was triggered (click the card for the reason) |
 
-### Manga / Novel Series (Series Mode)
+Cards support **Run now**, **Dedicated proxy/cookie**, **Enable / disable** scheduled triggers, **Pause / resume manually**, **View task snapshot**, **Edit**, **Pending retries** (view failed works awaiting retry) and **Delete** (does not affect downloaded files).
 
-- Each round lists all chapters in the series, skips already-downloaded ones, and fills in new chapters
-- Ideal for tracking ongoing manga or novel series
+## Set a separate proxy / cookie
 
-### My Bookmarks / My Works / Followed Users' New Works / Collections (created from "Quick Fetch")
+When creating a task in solo mode, a currently saved valid cookie is bound automatically if separate settings are not selected. You can also configure these independently during creation or in the task card's "Dedicated proxy/cookie" dialog:
 
-After expanding the corresponding source in the "⚡ Quick Fetch" tab (bookmarks / my works / followed users' new works, or clicking into a followed user / collection), the "⏰ Save as Scheduled Task" card at the bottom of the page can create the task:
+- **Set a separate proxy**: enter `host:port` (such as `127.0.0.1:7890`) to route all of the task's Pixiv requests (discovery, metadata, image/novel downloads and inbox checks for excessive access) through that HTTP proxy. Leave it unchecked to use the global proxy.
+- **Set a separate cookie**: paste a cookie containing `PHPSESSID`, or click "Use currently saved cookie" to fill it in. A bound cookie is not displayed; saving an empty field preserves it, while entering a new value replaces it.
 
-- **My Bookmarks**: periodically discovers undownloaded works in bookmarks (public / private, illustrations / novels) and fills them in
-- **My Works**: equivalent to "Artist New Works" for your own account
-- **New Works by Followed Users**: periodically downloads the latest illustrations / manga / ugoira from followed artists
-- **Collections**: lists illustrations and novels in the collection, skips already-downloaded ones and fills in (**both illustrations and novels are downloaded**)
+Clearing a previously applied checkbox and saving removes that setting: the proxy falls back to the global configuration, and unbinding the cookie puts the task into anonymous "Restricted mode" (no R-18 access, and account-private sources cannot run). When a task detects an invalid cookie, it pauses automatically and shows "Login session expired". Obtain and bind a new cookie to resume (resubmitting the same invalid cookie is rejected).
 
-!> These source types are **account-private**; their tasks must have a cookie containing `PHPSESSID` bound (see "[Dedicated Proxy/Cookie](#dedicated-proxycookie)" below), otherwise they'll be marked as "login expired" and suspended (won't run empty in restricted mode). They have no standalone mode tab page, and the **source is read-only when editing** — to change the source, delete and recreate.
+## Excessive-access pauses and notifications
 
----
+When the system detects a Pixiv inbox warning about "excessive access", it automatically pauses **all scheduled tasks under the same account**. The banner above the list offers "Ignore the risk and resume now" and "Continue after N minutes" (the minimum and default are 60 minutes; a cooldown is recommended).
 
-## First-Run Fetch Limit
+After configuring desktop "Configuration → Mail / SMTP" or "Configuration → Push" (supports Bark, DingTalk, Telegram, Feishu, WeCom, PushPlus, ServerChan and Webhook), the following events send notifications in parallel (notification bodies never contain cookies or passwords):
 
-For sources that could pull a huge backlog at once, you can fill in a **first-run fetch limit** in the "⏰ Save as Scheduled Task" card to cap how many works are fetched, reducing the risk of triggering Pixiv's "over-access" warning. `0` means full fetch (no cap).
+- **Excessive-access pause**: lists affected task names, IDs, count and the warning time.
+- **Expired login session / consecutive-failure circuit breaker**: lists the task name, ID, type, trigger rule and next run time.
+- **Failed work reaches its retry limit**: also includes the work's Pixiv URL.
 
-Behavior splits by whether the source has a reliable "newest" ordering (the on-page hint auto-shows only the one matching the current source):
+## Troubleshooting and related settings
 
-- **First-run cap** (artist new works / followed users' latest / "newest sort + end page -1" search): **only the first run** fetches at most the newest N works; the watermark then advances to the newest, and later rounds only pick up newly posted works incrementally — older backlog is not back-filled. Use when you only want the most recent N and then keep tracking new posts.
-- **Per-run cap** (my bookmarks / collections / artist commission works / non-newest "end page -1" search): these sources have no reliable "newest" ordering, so the limit acts as a **per-run cap** — each run fetches at most N new works, draining the backlog over successive runs. `0` removes the per-run quantity cap; source boundaries and filters still apply.
+If a task does not run, check the backend process, global switch, task enabled state and suspension reason on the card, in that order. Replacing a cookie with a valid one clears only credential suspension, not suspensions for other reasons. Clearing the global cookie on the download page does not automatically unbind credentials already assigned to tasks. Editing a task's source or filters resets the incremental watermark; the next run rescans and deduplicates against local download records.
 
-Fixed-page searches apply the quantity limit per run. `0` removes that limit but does not expand the selected page range; a first-page search never starts paging automatically. Series remain bounded by their membership. The UI shows the limits and explanations supported by each source.
+| Setting (`config/config.yaml`) | Default | Description |
+| --- | --- | --- |
+| `schedule.enabled` | `true` | Global switch for scheduled tasks |
+| `schedule.tick-interval-ms` | `60000` | Interval between checks for due tasks, in milliseconds; requires a restart |
+| `schedule.max-tasks` | `100` | Maximum number of tasks that can be created |
+| `schedule.inbox-check-every` | `500` | Number of successfully downloaded works between inbox checks for excessive access |
+| `schedule.auth-failure-circuit-breaker` | `5` | Number of consecutive discovery failures that trigger circuit-breaker suspension |
+| `schedule.pending-max-attempts` | `5` | Maximum automatic retry count for failed works |
+| `schedule.overuse-defer-default-minutes` | `60` | Default cooldown in minutes after an excessive-access pause (minimum 60) |
 
-!> Unlimited-page and multi-page sources can request a large backlog with `0`, so saving requires confirmation. A first-page search already has a page boundary and does not require that full-fetch confirmation. Already-downloaded works do not consume the admission limit; works skipped by filters do.
-
----
-
-## Managing Existing Tasks
-
-Switch to the "**⏰ Scheduled**" tab to see all tasks.
-
-Each task card has a **status light** in the top-right corner:
-
-| Color | Status | Meaning |
-|-------|--------|---------|
-| 🔘 Gray | Waiting / Disabled / Paused | Task is normally idle, or manually paused |
-| 🟢 Green | Running / Last success | Task is normal |
-| 🟡 Yellow | Queued | Multiple tasks due at once, queued serially |
-| 🔴 Red | Failed / Cookie expired / Interrupted / Overuse paused | Task needs attention; click the card for details |
-
-### Common Actions
-
-| Action | Description |
-|--------|-------------|
-| **Run Now** | Execute once immediately without waiting for the timer |
-| **Dedicated Proxy/Cookie** | Open a dialog to bind / replace / clear the task's independent HTTP proxy and cookie |
-| **Enable / Disable** | Temporarily stop a task's timed trigger |
-| **Manual Pause / Resume** | Cooperatively pause a task; resolve its suspension reason before explicitly resuming |
-| **View Snapshot** | View the source and filter configuration captured when the task was created |
-| **Edit** | Modify the task configuration (re-runs the creation flow) |
-| **Pending Retries** | View works in this task that have failed and are awaiting retry |
-| **Delete** | Completely delete the task (already-downloaded files are unaffected) |
-
----
-
-## Dedicated Proxy/Cookie
-
-?> If you had a usable cookie when **creating** a task in Solo mode and didn't check "Use a dedicated cookie," the task is automatically bound to the current cookie — no manual action needed.
-
-The "**Dedicated Proxy/Cookie**" button on each task card opens a dialog with two checkboxes:
-
-- **Use a dedicated proxy**: enter `host:port` (e.g. `127.0.0.1:7890`). When set, **all** of this task's Pixiv access during each run (work discovery, metadata, image / novel downloads, inbox overuse check) goes through this HTTP proxy; unchecked uses the global proxy settings. Use this to select the required network route; it does not remove Pixiv access limits.
-- **Use a dedicated cookie**: paste a cookie containing `PHPSESSID`, or click "**Use currently saved cookie**" on the right of the input to quickly fill in the one from the top Cookie card. Useful for running a task under a different Pixiv account. For security, a bound cookie is never echoed back — leaving it empty when already bound means keep unchanged, filling it in means replace.
-
-Unchecking an active checkbox and saving **clears** the corresponding setting (a confirmation dialog first explains the consequences): proxy falls back to global; unbinding the cookie switches the task to "restricted mode" (anonymous run, R-18 and other restricted content not visible; tasks like "My Bookmarks / Followed Users' New Works / Collections" cannot run).
-
-The "**⏰ Save as Scheduled Task**" card has the same two checkboxes, so you can set them when creating / editing the task.
-
-If a task shows "restricted mode", it means no cookie is bound yet: click "**Dedicated Proxy/Cookie**" on the task card, check "Use a dedicated cookie", fill in (or quick-fill the currently saved) cookie, and save.
-
-When the task determines that its cookie has expired:
-- The task automatically stops and is marked "login expired" (red light)
-- A notification (email / push, requires the corresponding channel configured) is sent
-- After obtaining a valid cookie, re-bind it in the "Dedicated Proxy/Cookie" dialog to resume (submitting the exact same expired cookie is rejected)
-
----
-
-## Overuse Pause
-
-When Pixiv detects your account has been making too many requests, it sends an "overuse" inbox warning. PixivDownloader automatically detects this and pauses **all scheduled tasks for that account** to reduce further requests. This protection cannot guarantee avoiding account restrictions.
-
-At that point, a banner appears at the top of the task management tab with two recovery options:
-
-1. **"Ignore the risk, resume immediately"** — mark this warning as explicitly acknowledged and continue (still risky)
-2. **"Continue after N minutes"** — cool down for a while before resuming (minimum 60 minutes, default 60 minutes)
-
-Option 2 is recommended — wait some time before continuing.
-
----
-
-## Notifications (Email / Push)
-
-Scheduled tasks send notifications in the following situations, with email and any configured push channels (Bark / DingTalk / Telegram / Feishu / WeCom / PushPlus / ServerChan / Webhook) delivered **in parallel**:
-- Cookie expired (login expired)
-- Overuse warning detected
-- Circuit-breaker suspension (consecutive failures reached threshold)
-- Failed work retries exhausted
-
-Notifications include key details for quick identification:
-- **Overuse pause**: lists each suspended task's name and ID, affected task count, warning time
-- **Auth expired / Circuit-breaker**: task name and ID, task type, trigger method (every N minutes / Cron), next scheduled run time
-- **Failed work retries exhausted**: includes the above plus the work's direct Pixiv link for easy checking
-
-Notification bodies never contain cookies / passwords or any credentials.
-
-!> Email notifications require SMTP account configuration in GUI "Config → Mail / SMTP" first; push notifications require the corresponding channel configured in "Config → Push." Otherwise, notifications for that channel are silently skipped. Both config pages provide test buttons to preview each scenario's actual appearance.
-
----
-
-## When a Task Does Not Run as Expected
-
-Check that the backend, task, and scheduling master switch are enabled, then read the status reason. Bind a valid cookie for credential suspension; use the banner for overuse suspension; restore the relevant plugin for unavailable capabilities; resolve individual works when user action is required. Replacing a cookie only clears credential suspension, not unrelated reasons.
-
-Editing a source or filter definition clears its incremental checkpoint. The next run discovers works again and deduplicates against local download facts. Each task holds its own cookie binding: clearing the download page cookie does not revoke all task credentials. Unbind credentials in the task explicitly.
-
-## Related Configuration
-
-Scheduled task-related settings are under GUI "Config → Scheduled Tasks" or `schedule.*` in `config/config.yaml`:
-
-| Config Item | Description | Default |
-|-------------|-------------|---------|
-| `schedule.enabled` | Master toggle | `true` |
-| `schedule.tick-interval-ms` | Interval for checking due tasks (ms), **requires restart** to change | `60000` |
-| `schedule.max-tasks` | Maximum number of tasks that can be created | `100` |
-| `schedule.inbox-check-every` | Check the overuse inbox every N successfully downloaded works | `500` |
-| `schedule.auth-failure-circuit-breaker` | Consecutive fetch failures triggering circuit-breaker suspension | `5` |
-| `schedule.pending-max-attempts` | Maximum automatic retry attempts for failed works | `5` |
-| `schedule.overuse-defer-default-minutes` | Default minutes for "continue later" after overuse pause (min 60) | `60` |
-
-See [Configuration Reference](/en/configuration) for detailed config descriptions.
+See [Configuration reference](/en/configuration) for the complete settings.

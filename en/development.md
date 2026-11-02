@@ -1,46 +1,43 @@
-# Development Guide
+# Main repository development
 
-Use this page to prepare a main-repository change, build the application or official plugins, and submit a PR. For an independent plugin, start with [Third-party Plugin SDK](/en/plugin-development); for installation and runtime operations, use [Plugin Management](/en/plugin-management).
+This page covers environment setup, module boundaries, builds and tests, development-mode debugging, local packaging and PR conventions for the main application and official external plugins. For independent third-party plugins, see [Third-party plugin SDK](/en/plugin-development). For installation and troubleshooting, see [Plugin management](/en/plugin-management).
 
-## Prerequisites
+## Environment requirements
 
-| Tool | Requirement | Purpose |
+| Tool | Version requirement | Purpose |
 | --- | --- | --- |
-| JDK | 17 | Build and runtime |
-| Maven | 3.9+, or the repository Maven Wrapper | Build and test |
-| Git | A currently supported version | Version control |
-| Node.js / npm | Match the current CI version | JavaScript, i18n, and boundary checks |
-| PowerShell | 5.1+ | Windows packaging scripts |
-| Inno Setup | 6.x, optional | Windows installer |
+| JDK | 17 | Compile and run Java modules |
+| Maven | 3.9+ or the repository's `mvnw` | Reactor builds and tests |
+| Git | A currently supported version | Version control and branch management |
+| Node.js / npm | Match current CI | Frontend tests, i18n checks and boundary guards |
+| PowerShell | 5.1+ | Local Windows packaging scripts |
+| Inno Setup | 6.x (optional) | Build Windows `setup.exe` installers |
 
-Run Java commands with UTF-8 explicitly. In Windows PowerShell:
+All Java commands must explicitly use UTF-8. In Windows PowerShell, set:
 
 ```powershell
 $env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
 ```
 
-## Multi-module layout
+## Module structure and dependency direction
 
-The root `pom.xml` is the Maven Reactor aggregator.
+The root `pom.xml` is the Maven Reactor aggregator:
 
-| Directory | Responsibility |
+| Module or directory | Responsibility |
 | --- | --- |
-| `pixivdownload-plugin-api/` | Stable third-party extension contracts |
-| `pixivdownload-core-api/` | Stable host semantic ports and value models |
-| `pixivdownload-plugin-signature/` | Artifact and repository-manifest signing tools |
-| `pixivdownload-plugin-runtime/` | PF4J, Spring child contexts, and install lifecycle |
-| `pixivdownload-plugin-*/` | Official external plugins |
-| `pixivdownload-app/` | Host adapters and executable Spring Boot JAR |
-| `pixivdownload-official-plugins/` | Official-plugin aggregator and development entry point |
-| `plugin-templates/` | Copyable third-party plugin templates |
+| `pixivdownload-sdk-info/`, `pixivdownload-plugin-api/`, `pixivdownload-core-api/`, `pixivdownload-sdk/` | SDK version source of truth, plugin extension contracts, stable host semantic ports and unified compilation entry point |
+| `pixivdownload-plugin-signature/` | Ed25519 signing and verification tools for plugin packages, repository manifests and community operations |
+| `pixivdownload-plugin-runtime/` | PF4J loading, Spring child contexts, worker processes and installation transaction lifecycle |
+| `pixivdownload-plugin-*/` | Official external plugin modules |
+| `pixivdownload-app/` | Application host, adapters and executable Spring Boot JAR |
+| `pixivdownload-official-plugins/` | Official external plugin development aggregator and `dev-mode` entry point |
+| `plugin-templates/` | Copyable project templates for independent third-party plugins |
 
-Dependencies must point toward the contracts: plugins depend on `plugin-api`, and may add `core-api` only for stable host capabilities. Third-party plugins must not depend on `pixivdownload-app` or host implementation classes.
+Dependency direction: plugins depend on `plugin-api` (and optionally `core-api`). They must not depend on `pixivdownload-app` or internal host implementation classes. The `douyin` plugin source is maintained in a [separate repository](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin) and participates in isolated SDK consumer compatibility acceptance at a pinned commit.
 
-Douyin source, resources and tests live in the [separate plugin repository](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin) and are outside the main Maven reactor. SDK compatibility checks use a pinned commit from that repository, build it against the SDK under test, and verify cross-plugin interactions plus installation and lifecycle behavior for signed and unsigned packages.
+## Fork, build and test
 
-## Fork and branch
-
-Fork the repository on GitHub, replace `YOUR_USERNAME` with your account, and choose a branch name that describes your change.
+After forking, create a feature branch from `upstream/master` (replace `YOUR_USERNAME` and the branch name):
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/PixivDownloader.git
@@ -50,59 +47,45 @@ git fetch upstream
 git switch -c feat/your-change upstream/master
 ```
 
-Update the branch from `upstream/master` before submitting a pull request to the upstream `master` branch.
-
-## Build, test, and run
+Common build and validation commands:
 
 ```powershell
-# Build every module without tests
+# Package all modules without running tests
 .\mvnw.cmd package -DskipTests
 
 # Run the full Maven test suite
 .\mvnw.cmd test
 
-# Test a module and its Reactor dependencies
+# Test one module and its upstream Reactor dependencies (add -Dsurefire.failIfNoSpecifiedTests=false when using -Dtest=...)
 .\mvnw.cmd -pl pixivdownload-plugin-api -am test
 
-# Run JavaScript tests and the web-standards guard
+# Run frontend tests and Web standards guards
 npm run test:js
 npm run test:web-standards
-
-# Run the packaged application after checking the main JAR selection
-$appJars = @(Get-ChildItem -LiteralPath pixivdownload-app/target -Filter 'PixivDownload-*-boot.jar')
-if ($appJars.Count -ne 1) { throw 'Expected exactly one application JAR' }
-java -Dfile.encoding=UTF-8 -jar $appJars[0].FullName
 ```
 
-Check Maven's `BUILD SUCCESS` and the process exit code. Packaging with tests skipped is not test evidence. Starting the core Boot JAR does not install external plugins; use official-plugin development mode below for full development functionality, or a complete distribution for deployment.
+A successful build reports `BUILD SUCCESS` and exit code `0`. Packaging with tests skipped does not prove that tests pass. Running `pixivdownload-app/target/PixivDownload-*-boot.jar` alone starts only the core shell without external plugins. Use development mode below to test the complete application.
 
-When using `-Dtest=...` with a Reactor build that includes `-am`, add `-Dsurefire.failIfNoSpecifiedTests=false` so upstream modules without that class do not fail spuriously.
+## Official external plugin development mode and recovery mode
 
-## Official external-plugin development mode
-
-Run from the repository root:
+From the repository root, start the full development environment with an explicit `dev-mode` profile (do not enable this profile globally in the IDE's Maven panel):
 
 ```powershell
 mvn -pl pixivdownload-official-plugins -am -Pdev-mode process-classes -Dexec.skip=true
 ```
 
-With `dev-mode` explicitly enabled, the application loads source outputs from the current development build alongside verified packages in `plugins/`. Dependencies are checked across both sources. If multiple locations provide the same plugin ID, none of the conflicting copies are loaded; the recovery interface lists the sources and suggested actions. Move the duplicate installed package out when debugging source, or exclude the matching source module from the development build when using the package, then restart.
+`dev-mode` discovers both official plugin modules' `target/classes` and verified installed packages in `plugins/`. If the same plugin ID exists in both locations, loading is rejected with `plugin-conflict`; the recovery page asks you to remove the conflicting copy and restart. For IDE debugging, use the repository's shared configurations directly (IntelliJ IDEA `.run/Developer Mode.run.xml`, VS Code `.vscode/launch.json`, Eclipse `eclipse/Developer Mode.launch`).
 
-For debugging, use the committed shared configuration for IntelliJ IDEA (`.run/Developer Mode.run.xml`), VS Code (`.vscode/launch.json`), or Eclipse (`eclipse/Developer Mode.launch`). Each configuration compiles the required Reactor modules before starting `GuiLauncher`.
-
-For the missing-required-plugin recovery scenario, use the matching `Missing Required Plugin` shared configuration or run:
+To test a missing required plugin or recovery mode, use the `Missing Required Plugin` shared configuration or run:
 
 ```powershell
 mvn -pl pixivdownload-app -am -Precovery-mode process-classes -Dexec.skip=true
 ```
 
-## Userscript resources
+## Userscript synchronization and i18n workflow
 
-`pixiv-batch.html` reads the materialized userscript catalog through `/api/scripts`. Standalone `*.user.js` files and the bundle generated by `scripts/build-userscript-bundle.ps1` are copied into `download-workbench` plugin resources during Maven's `generate-resources` phase. Run at least one Maven lifecycle after changing a userscript; an IDE's old output directory is not sufficient.
-
-## i18n localization workflow
-
-`pixivdownload-app/src/main/resources/i18n/locales.json` is the language catalog; Chinese (`zh-CN`) is the source language and English (`en-US`) is the global fallback. Common commands:
+- **Userscripts**: root `*.user.js` files and the All-in-One generated by `scripts/build-userscript-bundle.ps1` are copied to `download-workbench` resources during Maven's `generate-resources` phase. After changing shared snippets or scripts, run `./scripts/sync-shared-snippets.ps1`, `./scripts/build-userscript-bundle.ps1`, then a Maven build.
+- **Internationalization**: the sole language catalog is `pixivdownload-app/src/main/resources/i18n/locales.json` (source language `zh-CN`, global fallback `en-US`, also includes `zh-Hant`, `ja-JP` and `ko-KR`). After adding or changing text, run these commands in order:
 
 ```bash
 npm run setup:hooks
@@ -112,51 +95,28 @@ npm run i18n:generate-static
 npm run test:i18n
 ```
 
-Ship new Chinese copy and its English translation together. When static resources change, run the generator and inspect the outputs for each resource owner, including plugins. Traditional Chinese, Japanese, and Korean are also supported; preserve language status and fallback behavior. Current commands and checks are defined by `package.json`, `scripts/i18n/`, and CI.
-
 ## Local Windows packaging
 
-`scripts/package-installer-with-plugins.ps1` defaults to `-PluginSource Local` and builds plugins from the current source. Pass `-PluginSource Catalog` explicitly to fetch the signed plugin catalog and packages. Local signing requirements still apply; unsigned local testing requires `-AllowUnsignedLocalPlugins`. Local selects the plugin source only: missing Maven, Gradle, and other dependencies must still be prepared.
+- **Local unsigned installer acceptance** (builds plugins from current source, outputs to isolated `build/out-local-unsigned/`; must not be distributed externally):
 
-`scripts/package-local.ps1` builds the app shell, official plugin inputs, online/offline portable archives, and an optional Inno Setup installer. Formal artifacts require a verifiable signature for every official plugin: provide a `-PrebuiltPluginsDir` whose artifacts already have `.sig` sidecars, or supply `-OfficialKeyId`, a repository-external `-PrivateKeyFile`, and an optional `-SignatureToolJar` for locally built artifacts. Output is written to `build/out/` by default.
+  ```powershell
+  .\scripts\package-installer-with-plugins.ps1 -Version 0.0.1-local -PluginSource Local -AllowUnsignedLocalPlugins
+  ```
 
-```powershell
-# Local runtime acceptance: isolated unsigned test installer from current sources
-.\scripts\package-installer-with-plugins.ps1 -Version 0.0.1-local -PluginSource Local -AllowUnsignedLocalPlugins
+- **Core-shell portable package without plugins** (only for recovery-mode/development validation):
 
-# Recovery/development core-shell-only portable archives, with no plugins
-powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -SkipPlugins -SkipInstaller
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -SkipPlugins -SkipInstaller
+  ```
 
-# Formal artifacts from already signed and verified official-plugin inputs
-powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -PrebuiltPluginsDir C:\path\to\signed-plugin-inputs -SignatureToolJar C:\path\to\signature-tool.jar
-```
+- **Build a formal package from signed plugin inputs** (outputs to `build/out/`; never put private keys in the repository, build directories or logs):
 
-Common options include `-PrebuiltJar`, `-PrebuiltPluginsDir`, `-SkipPlugins`, `-RunTests`, `-SkipPortable`, `-SkipOfflinePortable`, `-SkipInstaller`, and `-RedownloadFfmpeg`. A `-SkipPlugins` artifact is recovery-only. The unsigned test installer is isolated under `build/out-local-unsigned/` and must not be distributed; private keys must never enter the repository, build output, or logs.
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -PrebuiltPluginsDir C:\path\to\signed-plugin-inputs -SignatureToolJar C:\path\to\signature-tool.jar
+  ```
 
-## Commits and pull requests
+## Commit and PR conventions
 
-Run focused checks first, then expand validation in proportion to the affected boundary. At minimum, inspect:
-
-```bash
-git diff --check
-git diff --staged
-```
-
-The PR description should state motivation, scope, exact validation commands, and actual results. Include screenshots for UI work and identify verified artifacts for packaging work. Do not commit `target/`, `build/`, runtime configuration, credentials, or downloads.
-
-## CI and releases
-
-- Quality-gate workflows check Java, JavaScript, i18n, dependencies, and distribution boundaries.
-- A `v*` tag publishes official plugins, builds the app shell, Java distributions, the Windows installer, and a GitHub Release.
-- `workflow_dispatch` creates a draft Release for the requested tag only after its quality gate succeeds.
-- The documentation site is maintained on the independent `gh-pages` branch; it is not a tag-deployed preview of application static resources.
-
-Workflows evolve. Before release operations, treat the current `.github/workflows/` and `scripts/` files as authoritative.
-
-## Code boundaries
-
-- Route user-visible strings through i18n. Follow the existing dark-mode, CSS-variable, and separated HTML/CSS/JavaScript conventions.
-- Use explicit DTOs for public HTTP APIs and reuse existing authentication and exception mapping.
-- When changing database DDL, update the managed schema specification and migration tests together.
-- Plugin-private configuration, credentials, state, data, and dependencies remain owned by that plugin and must not move back into the app shell.
-- For third-party contract changes, update the `plugin-api`/`core-api` contract and guards first, then the templates, examples, and SDK documentation.
+1. Run focused tests, module regressions and frontend/i18n checks according to the change's risk. Before committing, inspect `git diff --check` and `git diff --staged`. Do not commit `target/`, `build/`, runtime configuration, credentials or test data.
+2. Keep user-visible strings in i18n, runtime logs in English, HTTP APIs on explicit DTOs with existing authentication and exception mapping, and private plugin configuration/credentials/data owned by their respective plugins.
+3. Synchronize the branch with the latest `upstream/master`, then open a PR targeting `master`. Describe the reason, boundaries, and validation commands and results actually obtained. Online documentation is maintained on the separate `gh-pages` branch.

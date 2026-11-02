@@ -1,130 +1,56 @@
-# Third-party Plugin SDK
+# Third-party plugin SDK
 
-Start with an independent project in the SDK development package, build and run the example, then add your page, download type, or business logic. You need JDK 17, Node.js, and the build tools and runtime manifest supplied by the selected SDK package.
+Start a third-party plugin from an independent project template in the SDK development package. You need only JDK 17, Node.js, and the build tools and runtime manifest included in the package; cloning the main repository is unnecessary.
 
-| Task | Start here |
+| Development task | Sections |
 | --- | --- |
-| Build a first plugin | [Choose a template](#start-from-a-template), then verify [Run / Debug](#local-development) |
-| Add a download type or gallery | [Download workflow](#complete-workflow-for-adding-a-download-type), [independent gallery](#add-a-plugin-owned-gallery) |
-| Store configuration, credentials, or data | [Ownership and storage](#configuration-credentials-and-files) |
-| Update an existing project | [SDK upgrade](#maintain-an-external-project-and-upgrade-the-sdk) |
-| Distribute a plugin | [Market content](#submit-marketplace-content), [signing](#signing-and-publishing) |
+| Create and debug your first plugin locally | [Start from a template](#start-from-a-template) · [Local development](#local-development) |
+| Add a downloadable work type or independent gallery | [Complete workflow for a new download type](#complete-workflow-for-a-new-download-type) · [Add a plugin-owned gallery](#add-a-plugin-owned-gallery) |
+| Manage settings, encrypted credentials, files and private databases | [Configuration, credentials and files](#configuration-credentials-and-files) · [Credentials and general operation verification without a GUI dependency](#credentials-and-general-operation-verification-without-a-gui-dependency) |
+| Declare cross-plugin service contracts or page editor components | [Independent service contracts and composition](#independent-service-contracts-and-composition) · [Ordinary slots and page components](#ordinary-slots-and-page-components) |
+| Upgrade the SDK, submit to the community market or distribute from your own repository | [Maintain external projects and upgrade the SDK](#maintain-external-projects-and-upgrade-the-sdk) · [Submit market materials](#submit-market-materials) · [Signing and distribution](#signing-and-distribution) |
 
-Replace example `SDK_VERSION`, paths, IDs, digests, and signatures. Java and JavaScript fragments illustrate interfaces within the template; add the imports and business implementation before running them. Use the selected release's Javadoc and templates to check API availability.
+`SDK_VERSION`, package names, plugin IDs, paths, SHA-256 values and signatures below are placeholders. Replace them with actual values. Put code snippets into the corresponding template context and add imports and business implementations. Interface availability depends on your selected [SDK Release](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) and [versioned Javadoc](https://sywyar.github.io/PixivDownloader-Plugin-SDK/).
 
-Relevant source code:
+Source references: [Plugin templates](https://github.com/Sywyar/PixivDownloader/tree/master/plugin-templates) · [SDK Info](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-sdk-info) · [Plugin API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-api) · [Core API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-core-api) · [Signature tools](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-signature) · [Complete Douyin example plugin](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin) (demonstrates downloads, configuration, proxies, queues, scheduled tasks, a private database and an independent gallery, but is not part of official distributions; start new projects from `plugin-templates`).
 
-- [Third-party plugin templates](https://github.com/Sywyar/PixivDownloader/tree/master/plugin-templates)
-- [SDK Info](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-sdk-info)
-- [Plugin API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-api)
-- [Core API](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-core-api)
-- [Third-party Douyin example plugin](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin)
-- [Plugin signature tool](https://github.com/Sywyar/PixivDownloader/tree/master/pixivdownload-plugin-signature)
-- [SDK downloads and release history](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
-- [Versioned SDK Javadocs](https://sywyar.github.io/PixivDownloader-Plugin-SDK/)
+## Plugin licenses and distribution channels
 
-> Douyin is a complete third-party SDK example. It shows how downloads, configuration, proxies, queues, scheduled tasks, private persistence, and a plugin-owned gallery fit together. It depends only on public SDK contracts and is outside the official distribution set. Start new projects from `plugin-templates` to avoid carrying over site-specific business code.
+PixivDownloader and official plugins use [AGPL-3.0](https://github.com/Sywyar/PixivDownloader/blob/master/LICENSE). Versions accompanied by the [plugin linking exception](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt) grant additional permission: independent third-party plugins developed solely through public SDK / APIs and meeting the exception's conditions may choose licenses such as MIT (retain upstream copyright notices and the exception text when copying and modifying project templates; the host, SDK and official plugins remain under AGPL-3.0).
 
-## Plugin licensing and distribution
+The [official community plugin repository](https://github.com/Sywyar/PixivDownloader-community-plugins) accepts only open-source plugins, requiring complete public GitHub source, an open-source license, reproducible builds and manual review.
 
-PixivDownloader and its official plugins use AGPL-3.0 with an additional [Plugin Linking Exception](https://github.com/Sywyar/PixivDownloader/blob/master/PLUGIN-LINKING-EXCEPTION.txt) for versions distributed with it. Independent third-party plugins using the public SDK/API or documented extension interfaces may choose the MIT License when they meet the exception's conditions.
+## Trust and SDK architectural boundaries
 
-The exception permits copying and adapting project-authored plugin templates for independent third-party plugins, with the applicable copyright notices and exception text retained on distribution. Host, SDK/API, runtime and official plugin implementations and their modifications remain subject to the applicable AGPL obligations. Third-party dependencies retain their own licenses.
+- **Execution modes and trust boundaries**: `declarative-process` runs in a separate worker JVM (resource and protocol isolation), while `host-process-full-trust` runs in the host JVM. Both share the current OS account and are not OS-level security sandboxes. Ed25519 signatures prove only publisher identity and byte integrity; you must still trust the author and source before installation (see [Plugin management](/en/plugin-management)).
+- **Compile-time dependency direction**: third-party plugins declare a single `pixivdownload-sdk` dependency (`provided`), which transitively supplies `pixivdownload-sdk-info`, `pixivdownload-plugin-api`, `pixivdownload-core-api`, and host-provided PF4J, Spring, Servlet and Jackson compile dependencies (the three API modules and BOM may also be used separately). **Do not depend on `pixivdownload-app`, internal host implementation classes, private official-plugin classes, the host `DataSource` or private frontend globals**.
+- **Capability publication and absence handling**: plugins contribute capabilities through `PixivFeaturePlugin` and declare independent Spring child-context configuration classes through `PixivPluginProvider.configurationClasses()`. When a plugin is disabled, unloaded or replaced by a new generation, the host withdraws routes, static resources, i18n, navigation, download types, queues and scheduling capabilities by publication. Callers must handle absent capabilities without null-pointer errors or partially completed tasks.
+- **Desktop UI boundaries**: the host aggregates configuration, onboarding and status through toolkit-independent pure-data contracts such as `GuiConfigContribution`. `gui-compose` (default) and `gui-swing` (fallback) render their own interfaces; feature plugins do not return Swing / Compose components.
 
-SDK development packages with this exception keep upstream license texts in `licenses/pixivdownloader/`; Maven SDK/API JARs include them in `META-INF/`. Choose and declare your own plugin license, and retain upstream notices when copying an example into a separate project. Check the actual host and SDK versions you use: documentation updates do not add permissions to older releases that lack the exception.
+### Main `PixivFeaturePlugin` contribution methods
 
-The [official community repository](https://github.com/Sywyar/PixivDownloader-community-plugins) accepts only open-source plugins, requiring complete public GitHub source, an open-source license, a reproducible build and human review. A public artifact or a valid SPDX expression alone is insufficient. Plugin licensing and community admission are separate requirements. Package validation and trust confirmation still apply.
-
-## Understand the trust boundary first
-
-A `declarative-process` plugin executes in a separate worker JVM with resource and protocol isolation. A `host-process-full-trust` plugin executes in the host JVM. Neither provides an OS security sandbox; plugin code may access files readable by the current account, make network requests or consume resources.
-
-An Ed25519 signature proves only that an artifact came from a trusted key and that its bytes were not modified. It does not prove that the signed code is safe. Before installation, users must trust the publisher, source code, and repository operator. Plugin authors are responsible for legitimate use of cookies, tokens, proxies, artwork directories, and plugin-private data.
-
-The host still validates structure, size, paths, versions, dependencies, SHA-256, signatures, and provenance, then verifies and loads the same frozen bytes. These controls protect supply-chain integrity; they do not create a code sandbox. See [plugin management](/en/plugin-management) for installation behavior.
-
-## SDK boundaries
-
-The thin `pixivdownload-sdk` entry uses standard POM dependencies to expose the three API modules and host-provided compile dependencies. The API modules and BOM remain available separately. `sdk-info` is the single source of truth for the complete SDK version, prerelease identity, and compatibility rules, independently of the application release version. `plugin-api` provides entry points, contributions, host control surfaces, and owner-scoped storage capabilities. `core-api` provides stable business-semantic ports, value models, and neutral algorithms. Keep dependencies pointing in this direction:
-
-```text
-Third-party plugin
-  └─ pixivdownload-sdk        provided: one compile dependency
-      ├─ pixivdownload-sdk-info    SDK version and compatibility information
-      ├─ pixivdownload-plugin-api  Entry points, contributions, paths, and private data source
-      ├─ pixivdownload-core-api    Stable download and proxy settings ports
-      └─ Host-provided PF4J, Spring, Servlet, Jackson and other compile dependencies
-
-Do not depend on: pixivdownload-app, host implementation classes,
-plugin-runtime/installer/signature internals, private services/mappers/controllers
-from official plugins, the host DataSource, or private frontend globals
-```
-
-Plugins declare capabilities through descriptors and contributions. The host registers them under a trusted plugin identity, package identity, generation, and publication. The host must not add special cases for a third-party plugin id, package, or work type. When a plugin is stopped, unloaded, damaged, or incompatible, its routes, static resources, i18n, navigation, download types, queues, and scheduling capabilities are withdrawn. Consumers must degrade cleanly when a capability is absent instead of producing a blank page, null failure, or half-completed task.
-
-### What a plugin can contribute
-
-`PixivFeaturePlugin` currently exposes the following entry points. Leave unused entry points at their default empty lists:
-
-| Method | Capability |
+| Method | Contribution |
 | --- | --- |
-| `id`, `displayName`, `description`, `displayNamespace` | Plugin identity and i18n display keys |
-| `iconKey`, `colorToken`, `kind` | Controlled icon, color, and category tokens |
-| `start`, `stop` | Lifecycle of resources directly owned by the plugin; `stop` must be idempotent |
-| `schema` | Managed tables, additive columns, and path-column declarations for stable host collaboration; not ordinary private storage |
-| `sharedMainStorage` | Requests public host logical storage domains, never another owner's tables |
-| `privateSchema` | Declares all authoritative private tables for the current owner |
-| `privateStorageMigrations` | Ordered private-data conversions used at startup and during offline migration |
-| `routes` | Access policy for pages, APIs, and static paths |
-| `staticResources` | Maps plugin classpath resources to URLs |
-| `i18n` | Plugin-owned Web i18n namespace |
-| `navigation` | Navigation items and neutral placements |
-| `startupRoutes`, `landings` | Default startup destinations and audience-specific business destinations |
-| `pageSections`, `uiSlots` | Page sections and controlled Web UI mount points |
-| `guiThemes` | Startup-time GUI themes; usually require `process-restart` |
-| `guiConfigContributions` | GUI configuration fields, groups, sections, actions, and presets |
-| `guiOnboardingSteps` | GUI onboarding steps |
-| `drilldowns` | Drill-down links resolved by semantic placement |
-| `userscripts` | Stable script ids and exact classpath resources |
-| `scheduledSourceDescriptors` | Pure-data descriptors for scheduled sources |
-| `downloadTypes` | Download-workbench work-type descriptors |
-
-Spring Beans are not returned from `PixivFeaturePlugin`. An external entry point declares configuration classes through `PixivPluginProvider.configurationClasses()`, and the host creates a separate child `ApplicationContext` for each active plugin.
-
-### Desktop UI boundary
-
-The application shell exposes business state, configuration semantics, and actions through stable toolkit-neutral host contracts. `gui-swing` and `gui-compose` each own their complete page tree, layout, components, interaction state, windows, tray, theme, and platform integration. The stable SDK does not define `DesktopUiDocument`, `DesktopUiNode`, or another cross-toolkit view AST, and it does not require both providers to share page implementations.
-
-Feature plugins contribute configuration fields, groups, sections, actions, presets, and other explicit business semantics through pure-data contracts such as `GuiConfigContribution`. The host merges, validates, and persists them under the trusted owner, and each GUI provider presents them using its own UI implementation. Feature plugins must not return Swing or Compose components or directly own host top-level windows; the host must not choose page structure by provider id.
-
-Official distributions include both `gui-compose` and `gui-swing`, with Compose as the default and Swing as fallback. Both use `process-restart`, so switching, installing, upgrading, disabling, or removing one requires a full application restart. Gradle Wrapper performs the Compose plugin's Kotlin / Compose compilation and JAR-with-lib production; the Maven reactor invokes Gradle and connects its artifact to the normal official build, signing, and distribution pipeline.
+| `id`, `displayName`, `description`, `displayNamespace`, `iconKey`, `colorToken`, `kind` | Plugin identity, i18n display keys and controlled icon/color/category tokens |
+| `start`, `stop` | Lifecycle of plugin-owned local resources (`stop` must be idempotent) |
+| `privateSchema`, `privateStorageMigrations` | Authoritative private schema for the current owner and ordered data migration declarations |
+| `schema`, `sharedMainStorage` | Managed tables participating in host main-database collaboration and requests for public storage domains (no access to other owners' tables) |
+| `routes`, `staticResources`, `i18n` | Web route access policies, classpath static-resource mappings and frontend i18n namespaces |
+| `navigation`, `startupRoutes`, `landings`, `pageSections`, `uiSlots`, `drilldowns` | Navigation items, startup landing points, page sections, Web UI slots and drilldown links |
+| `guiConfigContributions`, `guiOnboardingSteps`, `guiThemes` | Desktop configuration fields/groups/actions/presets, onboarding steps and startup themes |
+| `userscripts`, `scheduledSourceDescriptors`, `downloadTypes` | Userscript resources, scheduled-task source descriptors and download-workbench work-type descriptors |
 
 ## Start from a template
 
-### Choose a template
-
-| Template | Use it for | Included |
+| Template | Use case | Included |
 | --- | --- | --- |
-| `minimal-feature-plugin` | Declarative pages, navigation and i18n | Separate worker, PF4J entry, feature, route/static/i18n and thin-JAR tests; no Spring child context |
-| `download-type-plugin` | A new downloadable work type | Download descriptor, five acquisition modes, queue, scheduled source, Vue UI slot, independent gallery, and frontend/backend tests |
+| `minimal-feature-plugin` | Declarative pages, navigation and i18n | `declarative-process` worker, PF4J entry point, route/static/i18n and thin JAR tests (no Spring child context) |
+| `download-type-plugin` | Add a downloadable work type and gallery | `host-process-full-trust`, download type descriptor, 5 acquisition modes, queue, scheduled source, Vue slots, independent gallery and frontend/backend tests |
+| `typed-service-plugin` | Cross-plugin typed services and remote calls | Independent `api` / `contract` / `provider` / `consumer` multi-module project and Schema/client generation |
 
-Validate both templates inside the repository:
+Once copied outside the repository, a template is an independent Maven project that does not inherit the main repository's parent. Run `mvn clean verify` to validate it (inside the main repository, use `mvn -f plugin-templates/pom.xml clean verify`).
 
-```powershell
-mvn -f plugin-templates/pom.xml clean verify
-mvn -f plugin-templates/pom.xml -pl minimal-feature-plugin -am verify
-mvn -f plugin-templates/pom.xml -pl download-type-plugin -am verify
-```
-
-After copying a template outside the repository, it is a standalone Maven project that does not inherit the PixivDownloader root parent. Run this in the template directory:
-
-```powershell
-mvn clean verify
-```
-
-### Obtain the SDK artifacts
-
-The SDK development package provides one `pixivdownload-sdk` compile dependency, an independent Maven project, and Gradle / sbt examples. Packages with a fixed runtime manifest include Run / Debug entries that build the current plugin and prepare its matching host and complete official plugin set. Each project keeps runtime data in `.dev/`. Check the selected [SDK Release](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) and its README for availability and instructions.
+Maven dependency declaration (if Java controllers use `@PathVariable` / `@RequestParam` without explicit names, set `<maven.compiler.parameters>true</maven.compiler.parameters>` or `-parameters`):
 
 ```xml
 <dependency>
@@ -135,40 +61,11 @@ The SDK development package provides one `pixivdownload-sdk` compile dependency,
 </dependency>
 ```
 
-Java controllers that use `@PathVariable` or `@RequestParam` without an explicit name need parameter names in the compiled classes. In Maven, add `<maven.compiler.parameters>true</maven.compiler.parameters>` to `<properties>`; with other build tools, pass `-parameters` to the Java compiler. Check this setting in existing projects too, and call the packaged endpoints through the host to verify request binding. Calling controller methods directly does not exercise it.
+For Gradle, use `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:SDK_VERSION")`; for sbt, use `"io.github.sywyar.pixivdownloader" % "pixivdownload-sdk" % "SDK_VERSION" % Provided`. After copying the template, replace the Maven `artifactId`, globally unique plugin ID, Java package name and class prefix, version, route prefix, static-resource directory, private table names and i18n namespace consistently.
 
-Gradle uses `compileOnly("io.github.sywyar.pixivdownloader:pixivdownload-sdk:SDK_VERSION")`. sbt uses `"io.github.sywyar.pixivdownloader" % "pixivdownload-sdk" % "SDK_VERSION" % Provided`. Standard Ivy can map its compile configuration:
+## Package descriptor and child-context wiring
 
-```xml
-<dependency org="io.github.sywyar.pixivdownloader" name="pixivdownload-sdk"
-            rev="SDK_VERSION" conf="compile->default"/>
-```
-
-Do not make Ivy's runtime configuration extend this compile configuration. Standard Maven metadata supplies public APIs and PF4J, Spring, Servlet, and Jackson compile dependencies. Produce a thin PF4J JAR without bundling these host-provided classes. Declare test frameworks separately. The three API modules and BOM remain individually available.
-
-Replace `SDK_VERSION` with a published version on [SDK Releases](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases) that includes the unified entry. Its five coordinates comprise the entry, three API modules and BOM. Packages with `developmentRuntime` metadata include a fixed host; follow each historical package's README. Public Java surface or Maven consumer semantics require a new SDK identity. Published coordinates and assets must not be overwritten.
-
-### Rename every identity after copying
-
-For the download-type template, replace at least the following values together:
-
-| Template value | Replace in |
-| --- | --- |
-| `example-download-plugin` | Maven `artifactId` |
-| `example-download` | Globally unique plugin id, queue type, URL prefix, and i18n namespace |
-| `com.example.pixivdownload.downloadtype` | Java package and matching directories |
-| `ExampleDownload` | Java type-name prefix |
-| `0.1.0` | Artifact version and `plugin.version` |
-| `plugin.requires=1.3` | Compatible SDK major.minor |
-| `plugin.provider=Example Developer` | Publisher name |
-
-Also update routes, static paths, frontend constants, private table names, tests, and both-language i18n text. Changing only `plugin.properties` makes the descriptor, feature, and runtime publication identities disagree, so the host will reject the plugin.
-
-## Plugin package and entry points
-
-### `plugin.properties`
-
-The file must be at the JAR root. This example matches the current source template's SDK 1.3 requirement. With another development package, align both the compile version and `plugin.requires` with its actual minimum contract; changing only the declaration does not establish compatibility.
+The JAR root must contain `plugin.properties`:
 
 ```properties
 plugin.id=example-download
@@ -186,92 +83,17 @@ pixiv.execution-mode=host-process-full-trust
 pixiv.lifecycle-policy=process-restart
 ```
 
-Field rules:
-
-| Field | Rule |
-| --- | --- |
-| `plugin.id` | Globally unique lowercase kebab-case token; must equal `PixivFeaturePlugin.id()` |
-| `plugin.version` | Plugin artifact version |
-| `plugin.requires` | Required SDK `major.minor`, not the application release version |
-| `plugin.class` | PF4J main class implementing `PixivPluginProvider` |
-| `plugin.provider`, `plugin.description` | Publisher and descriptor text |
-| `plugin.dependencies` | Optional PF4J plugin dependency expression |
-| `pixiv.*` display fields | i18n namespace/key and controlled presentation tokens |
-| `pixiv.replaces` | Optional identity of a replaced plugin |
-| `pixiv.execution-mode` | Required: `declarative-process` or `host-process-full-trust`. Missing, blank, or unsupported values reject the package |
-| `pixiv.lifecycle-policy` | Case-sensitive `hot-reload`, `backend-restart`, or `process-restart`; defaults to `hot-reload` |
-
-New SDK prereleases use `alpha.N`, `beta.N`, or `rc.N`, with a positive sequence and no leading zeros. Historical compact suffixes retain their original release identities. SDK ordering compares channels and numeric sequences: for example, `rc2 < rc.10`, while `rc2` and `rc.2` have equal priority and cannot be republished by changing spelling. Dependency coordinates, tags, download paths, and runtime manifests must exactly match the selected Release. Use older SDK tools according to their bundled instructions; support for the new spelling is delivered in a new development package.
-
-Stable compatibility is `requiredMajor == hostMajor && requiredMinor <= hostMinor`; PATCH does not affect admission. Prerelease development packages require the complete SDK version to match. Raise MAJOR for breaking contract changes, MINOR for backward-compatible additions, and PATCH for compatible fixes.
-
-### Reusing the PostHog browser client
-
-A Web plugin that publishes a PostHog survey can depend on the official `posthog` plugin and load `/pixiv-posthog/pixiv-posthog.js` before its own page script. This is not a neutral survey abstraction: the publishing plugin still owns the survey ID, question schema, trigger, state, copy, privacy filter, and all four PostHog project parameters.
-
-```properties
-plugin.dependencies=posthog?@1.0
-```
-
-```js
-const posthog = Object.freeze({
-  projectToken: 'phc_...',
-  surveyId: '...',
-  apiHost: 'https://example.invalid',
-  uiHost: 'https://us.posthog.com'
-});
-
-const client = await window.PixivPostHog?.createSurveyClient({
-  ownerKey: 'example-plugin.feedback',
-  posthog,
-  distinctId: '',
-  beforeSend(event) {
-    return allowedSurveyEvent(event) ? event : null;
-  }
-});
-if (!client) return; // dependency missing, invalid parameters, SDK failure, or conflict
-
-await window.PixivPostHog.captureSurveyWithAck(
-  'example-plugin.feedback',
-  'survey sent',
-  surveyProperties,
-  submissionId
-);
-```
-
-`ownerKey` must be globally stable. Repeating a call for the same owner on one page reuses the client only when the four parameters, `distinctId`, and the `beforeSend` function object are unchanged; any mismatch fails closed. Different owners may use different project parameters. `submissionId` must be a stable UUID derived by the publishing plugin from the survey ID, campaign version, and survey-scoped anonymous identity. Retries of the same response must reuse it; only a campaign-version change should produce a new value. The adapter sends this value as the event's top-level `uuid` and resolves the Promise only after the fixed ingestion endpoint returns 2xx; a missing or invalid UUID is rejected before any request is sent. The adapter pins and loads the vendored SDK, disables default collection, and creates isolated named instances, but it does not select surveys, generate identities, or decide response fields for a plugin. If `posthog` is disabled at runtime, JavaScript already loaded in an open page cannot be withdrawn; after refresh the resource is absent and the caller must degrade as if the client were unavailable.
-
-To keep a survey in the inbox and let users complete it there, the publishing plugin may additionally contribute a `notification.inbox` slot with no slot module:
-
-```java
-new SurveyInboxMessage(
-        "example-plugin.feedback-survey",
-        "campaign-v1",
-        "/example-plugin/survey.html",
-        "example-plugin",
-        "survey.inbox-title",
-        "survey.inbox-body",
-        100
-).toUiSlotContribution()
-```
-
-`messageKey` must be stable and globally unique; change `instanceKey` only for a new survey campaign. The content URL must be an absolute same-origin path owned by the plugin, and the plugin must publish the namespace and the title and summary i18n keys. The route still requires an access declaration; use `ADMIN` when the survey is exposed only through the administrator inbox. HTML remains on the plugin-owned page and does not cross the stable contract as raw content, a Bean, or a ClassLoader. A targeted survey contribution with invalid fields is rejected and logged; do not handcraft its metadata instead of using this wrapper.
-
-This contribution is an optional, best-effort display capability. Absence of the notification plugin does not affect the survey page or the PostHog submission path. The host retains a pure-value active snapshot and does not call the publisher during quiesce. It stores the message idempotently during startup synchronization or on the next inbox request after a slot change. The same instance reuses existing read state and unavailable tombstones; a changed instance key creates a new unread message. Contribution absence, plugin disablement or unload, and publication replacement hide the active message while retaining state for the same instance to recover later.
-
-The host appends `notificationId` and `lang` query parameters to the content URL, and the page may report its height with a `pixiv-content-height` message. Only after confirming that the remote survey is permanently closed or deleted should the page send `{type: 'pixiv-survey-unavailable', notificationId}` to its same-origin parent. Do not send it for a temporary network failure: it creates a local dismissal marker that remains closed when the same instance is published again.
-
-### PF4J provider and Spring child context
+- `plugin.id` must exactly match `PixivFeaturePlugin.id()`. `plugin.requires` declares the required SDK version (stable versions match by `requiredMajor == hostMajor && requiredMinor <= hostMinor`; prereleases use `alpha.N` / `beta.N` / `rc.N` and require an exact match).
+- `pixiv.execution-mode` is required (`declarative-process` or `host-process-full-trust`). `pixiv.lifecycle-policy` can be `hot-reload` (default), `backend-restart` or `process-restart`; `pixiv.risk-signals` may declare risk-signal tokens.
+- The external entry point implements `PixivPluginProvider`, returning one `PixivFeaturePlugin` and explicit `@Bean` configuration classes (do not rely on host package scanning):
 
 ```java
 public final class ExampleDownloadPf4jPlugin
         extends org.pf4j.Plugin implements PixivPluginProvider {
-
     @Override
     public PixivFeaturePlugin featurePlugin() {
         return new ExampleDownloadPlugin();
     }
-
     @Override
     public List<Class<?>> configurationClasses() {
         return List.of(ExampleDownloadConfiguration.class);
@@ -279,74 +101,9 @@ public final class ExampleDownloadPf4jPlugin
 }
 ```
 
-Each external package must return exactly one non-null feature, whose id matches the descriptor. Use `@Bean` methods in the configuration class to assemble plugin Beans explicitly:
+### Web routes, static resources, i18n, notification templates and survey slots
 
-```java
-@Configuration(proxyBeanMethods = false)
-public class ExampleDownloadConfiguration {
-
-    @Bean
-    ExampleDownloadPlugin exampleDownloadPlugin() {
-        return new ExampleDownloadPlugin();
-    }
-
-    @Bean
-    ExampleDownloadController controller(
-            ExampleDownloadQueue queue,
-            RequestOwnerIdentityResolver ownerResolver) {
-        return new ExampleDownloadController(queue, ownerResolver);
-    }
-}
-```
-
-Do not rely on host root-package scanning, and do not scan arbitrary classes from the plugin package. A child context may inject Plugin API, Core API, JDK types, and specification dependencies explicitly exposed by the parent context, but it must not inject app implementation classes.
-
-## Contribute notification templates
-
-Notification templates belong to the plugin that owns the business scenario, not to the mail or push transport plugin. Expose a `top.sywyar.pixivdownload.plugin.api.notification.NotificationTemplateContributor` Bean from that owner's child context. Each returned `NotificationTemplateContribution` is a pure value containing `scenarioId`, `medium`, `locale`, `titleTemplate`, and `bodyTemplate`:
-
-```java
-@Bean
-NotificationTemplateContributor notificationTemplates() {
-    return () -> List.of(new NotificationTemplateContribution(
-            "example.completed",
-            "mail",
-            Locale.US,
-            "Example completed",
-            """
-            <!doctype html>
-            <html><body><p>{{summary}}</p></body></html>
-            """));
-}
-```
-
-Publishing template data does not register a new notification scenario or trigger delivery. Use only scenario ids admitted by the corresponding stable scenario/dispatcher contract, and do not override another plugin's tuple. The mail and push plugins consume the host's read-only `NotificationTemplateCatalog`; each transport still owns its own configuration, render checks, delivery, and failure handling.
-
-The host calls contributors while preparing the plugin publication, copies the records into an immutable snapshot, and removes that exact publication on stop, reload, or unload. Duplicate `(scenarioId, medium, locale)` tuples fail fast. Lookup uses an exact locale first, then a deterministic same-language fallback.
-
-HTML does not cross a network or process boundary between plugins. It is passed in the same JVM as a bounded `String` value and measured in UTF-8 bytes: titles are limited to 16 KiB, bodies to 1 MiB, and one plugin publication to 256 templates and 8 MiB total contribution data. Do not pass an `InputStream`, `Path`, Spring `Resource`, `ClassLoader`, Bean, or deferred callback through this contract; those would retain plugin-owned lifetime or I/O state. Escape untrusted values before inserting them into an HTML placeholder.
-
-If a real use case exceeds these bounds or needs binary data, propose a separate host-owned streaming/blob-handle contract with explicit lifetime and quotas. Do not enlarge this template contract or exchange temporary files between plugins.
-
-## Web routes, static resources, and i18n
-
-Every controller mapping, static directory, and top-level HTML file must be declared by its owning plugin in `routes()`. A controller can be covered only by a declaration from the same plugin owner, not by another plugin's broad prefix. An undeclared `path + HTTP method` returns 404; hiding a frontend entry point is not authorization.
-
-Common named factories:
-
-| Factory | Actual access surface |
-| --- | --- |
-| `publicRoute` | No authentication; identical in solo and multi modes |
-| `visitor` | Available to multi-mode visitors; requires a session in solo mode; not available to invited guests |
-| `visitorAndInvitedGuest` | Readable by multi-mode visitors and invited guests |
-| `invitedGuest` | Available to administrators and invited guests, and protected by monitor rules |
-| `admin` | Administrators only |
-| `local` | Local-process flow exception |
-| `gui` | Both a trusted local request and GUI token are required |
-
-To restrict HTTP methods, use the standard `WebRouteContribution` constructor with an explicit `HttpMethod` set. When HTTP method sets overlap, matching paths owned by different plugins must use the same `AccessPolicy`; different policies fail fast during registration and report both plugins and path patterns. Plugins may share a namespace under the same policy, and one plugin may still refine its own broad prefix with a more specific declaration.
-
-Complete declaration for an independent administration page:
+Every Controller path, static resource and HTML page must have an `AccessPolicy` declared by the same plugin in `routes()` (supports `publicRoute`, `visitor`, `visitorAndInvitedGuest`, `invitedGuest`, `admin`, `local`, `gui`; undeclared `path + method` combinations return 404):
 
 ```java
 @Override
@@ -356,205 +113,32 @@ public List<WebRouteContribution> routes() {
             WebRouteContribution.admin("/example-download-gallery/**"),
             WebRouteContribution.admin("/api/example-download/gallery"));
 }
-
-@Override
-public List<StaticResourceContribution> staticResources() {
-    return List.of(
-            new StaticResourceContribution(
-                    "classpath:/static/", "/example-download-gallery.html", true),
-            new StaticResourceContribution(
-                    "classpath:/static/example-download-gallery/",
-                    "/example-download-gallery/"));
-}
-
-@Override
-public List<I18nContribution> i18n() {
-    return List.of(new I18nContribution(
-            "example-download", "i18n.web.example-download"));
-}
 ```
 
-Keep page HTML, CSS, and JavaScript in separate files. Put user-visible text in the plugin namespace. Render external data with DOM APIs and `textContent`; do not concatenate unknown text into `innerHTML`.
+- **Business notification templates**: the scenario owner registers a `NotificationTemplateContributor` Bean in its child context, returning pure-value `NotificationTemplateContribution(scenarioId, medium, locale, titleTemplate, bodyTemplate)` (at most 16 KiB per title, 1 MiB per body, and 256 entries / 8 MiB per plugin; HTML-escape untrusted values before substitution).
+- **PostHog surveys and inbox messages**: Web plugins can declare `plugin.dependencies=posthog?@1.0`, load `/pixiv-posthog/pixiv-posthog.js` and call `window.PixivPostHog.createSurveyClient` and `captureSurveyWithAck`. For a persistent administrator inbox message, contribute a `notification.inbox` slot using `new SurveyInboxMessage(...).toUiSlotContribution()`.
 
-## Complete workflow for adding a download type
+## Complete workflow for a new download type
 
-The task contracts in the current source let plugins register submission handlers, option hooks and event observers, with request deduplication, cancellation of a specific attempt and reconnect snapshots. No SDK base class is required. The [download type template](https://github.com/Sywyar/PixivDownloader/tree/master/plugin-templates/download-type-plugin) demonstrates these interfaces. Use an SDK and host that include the same contracts; an interface in the current source may be absent from an older release.
+The same plugin contributes the parts of a download type together:
 
-A download type is not one Java class. It is a set of capabilities owned by one plugin and published or withdrawn together:
-
-```text
-plugin.properties + provider
-        ↓
-DownloadTypeDescriptor ──→ the workbench discovers the type and acquisition modes
-        ↓
-same-origin behavior module → import, discovery, queueing, status, filters, and settings
-        ↓
-plugin controller/service ─→ parses requests and performs real domain work
-        ↓
-QueueOperations ─────────→ cancellation, clearing, and lifecycle drain
-        ├─ WebUiSlotContribution (optional)
-        ├─ ScheduledSourceDescriptor + executor (optional)
-        └─ plugin-owned independent gallery (optional)
-```
-
-### 1. Declare `DownloadTypeDescriptor`
-
-There is no public `QueueTypeContribution`, `independentPage`, gallery capability bag, or descriptor-level `uiSlots` field. Download types, queues, UI slots, scheduled sources, and independent pages each use their own stable contract.
-
-```java
-@Override
-public List<DownloadTypeDescriptor> downloadTypes() {
-    return List.of(new DownloadTypeDescriptor(
-            DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION,
-            "example-download",
-            "example-download",
-            "batch.kind",
-            900,
-            "download",
-            "green",
-            "/example-download/example-download-type.js",
-            List.of(
-                    DownloadAcquisitionMode.SINGLE_IMPORT,
-                    DownloadAcquisitionMode.USER_PROFILE,
-                    DownloadAcquisitionMode.SERIES_COLLECTION,
-                    DownloadAcquisitionMode.SEARCH,
-                    DownloadAcquisitionMode.QUICK),
-            true,
-            List.of("example-ready-filter"),
-            List.of("example-output-setting"),
-            "example-download"));
-}
-```
-
-Field meanings:
-
-| Field | Requirement |
-| --- | --- |
-| `contractVersion` | Must currently equal `DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION`, which is 1 |
-| `type` | Globally unique work type; usually equals `QueueOperations.queueType()`, but registries do not assume a one-to-one mapping |
-| `displayNamespace`, `displayI18nKey` | Namespace and plain key for the type name |
-| `order` | Stable ordering value |
-| `iconKey`, `colorToken` | Controlled host-allowlisted tokens, never URLs, HTML, or arbitrary CSS |
-| `moduleUrl` | Required same-origin absolute `.js` path owned by the same plugin's static-resource contribution |
-| `acquisitionModes` | Declared subset of `single-import`, `user`, `series`, `search`, and `quick` |
-| `cancelSupported` | Whether single-item cancellation is available; when `true`, queue items must contain a top-level `cancelWorkKey` |
-| `filters`, `settings` | Allowlisted contract ids implemented by the behavior module |
-| `i18nNamespace` | Namespace for behavior-module status and error text |
-
-### 2. Implement the frontend behavior module
-
-The module calls `PixivBatch.queueTypes.registerModule(initializer)` inside the real `<script>` evaluation window created by the host. Do not copy Vue and do not directly read or write host `state`, `saveQueue`, `renderQueue`, `updateStats`, or private DOM ids.
-
-Primary contract-version-1 entry points:
-
-The administrator download page merges `DownloadTasks` snapshots into its existing queue. In `process(item, context)`, a type module calls `context.bindTask(taskId)` with the actual execution UUID returned by its backend. This associates the existing row with that execution and enables cancellation by execution ID; a work ID is not an execution ID. Tasks submitted elsewhere are labelled “Other sources” and are not dispatched again by the page. Terminal snapshots expire after 5 minutes; saved queue records remain. An active execution that cannot be confirmed stays unconfirmed, and refreshing the page does not resubmit it.
-
-| Entry point | Responsibility | Meaning when absent |
-| --- | --- | --- |
-| `process(item, context)` | Send one queue item to the plugin API and submit allowlisted state through `context.updateItem(patch)` | Required; the type should not activate without it |
-| `import` | Match URLs and construct a single-work queue item and `cancelWorkKey` | Omit when `single-import` is not declared |
-| `acquisition.user` | User input, paged discovery, rendering, and queue metadata | Omit when `user` is not declared |
-| `acquisition.series` | Series URL, pagination, ordering, and queue metadata | Omit when `series` is not declared |
-| `acquisition.search` | Search requests, range requests, rendering, and queue synchronization | Omit when `search` is not declared |
-| `acquisition.quick` | Quick actions and work publication; submit results through `context.publishWorks(payload)` | Omit when `quick` is not declared |
-| `filters` | Implement only filter ids listed by the descriptor | An empty list means no additional filters |
-| `settings` | Implement only setting ids listed by the descriptor | An empty list means no additional settings |
-| `slots` | Declarative fragments from the same-origin type module | Omit when unused; independent dynamic slots use `WebUiSlotContribution` |
-
-The initializer receives an `AbortSignal`, `isActive()`, `assertActive()`, and `onCleanup()`. Before writing back any asynchronous result, confirm that the publication is still active. Clean up listeners, timers, and mounted components.
-
-### 3. Resolve the trusted owner on the backend
-
-An HTTP controller injects only `RequestOwnerIdentityResolver` from the parent context and resolves the administrator/user owner from the current request:
-
-```java
-RequestOwnerIdentity identity = ownerResolver.resolve(request);
-queue.submit(command, identity);
-```
-
-Never trust an owner UUID supplied through JSON, query parameters, or custom headers. Descriptor `pluginId/packageId/generation/publicationId` values prove only download-type publication currentness; they are not the authenticated user identity.
-
-A real downloader must report a task as completed only after files are durably written and successful facts such as history or source relationships are committed. The template's in-memory completed response is a deterministic test fixture, not a production implementation.
-
-### 4. Implement `QueueOperations`
-
-```java
-public final class ExampleQueue implements QueueOperations {
-    @Override public String queueType() { return "example-download"; }
-    @Override public void cancel(String workKey, String ownerUuid, boolean admin) { /* ... */ }
-    @Override public int clearAll() { /* ... */ }
-    @Override public int clearForOwner(String ownerUuid) { /* ... */ }
-}
-```
-
-`workKey` is an opaque stable string inside that queue type. It need not be numeric and must not be placed in a URL path segment. The host uses `POST /api/download/queue/{queueType}/cancel`, passing the original `workKey` and descriptor publication identity in JSON. Plugin frontend code should call the host bridge instead of constructing a control request itself.
-
-A strictly synchronous implementation with no background work may use the default generation-0 completed drain. If there is queueing, executor handoff, a delayed callback, or any work that outlives the current call stack, it must:
-
-1. Atomically stop accepting new tasks in `prepareQuiesce(registeredQueueType)` and return a real `QueueDrain` with a positive generation.
-2. Send cooperative cancellation from `cancelQuiescedTasks()` only after the host has stored that drain.
-3. Complete the drain only after every active task has exited.
-4. Return the same `queueType + generation` from repeated prepare calls, and use a new generation for a new plugin instance.
-
-Do not use a completed sentinel to pretend that an asynchronous queue has exited. Plugin-owned executors, schedulers, and HTTP/WebSocket clients must belong to the child context and be released when it closes.
-
-### 5. Add UI slots
-
-Slots are published independently and do not belong in the download descriptor:
-
-```java
-@Override
-public List<WebUiSlotContribution> uiSlots() {
-    return List.of(
-            new WebUiSlotContribution(
-                    "example-download.settings-card",
-                    "settings-card",
-                    "/example-download/example-download-type.js",
-                    900),
-            new WebUiSlotContribution(
-                    "example-download.quick-actions",
-                    "quick-actions-mine",
-                    "/example-download/example-download-ui-slot.js",
-                    900));
-}
-```
-
-A dynamic slot module mounts through host `PixivVue.mountUiSlot` and uses only owner-scoped `context.supports(type, mode)`, `context.dispatchQuickAction(action)`, and `context.onCleanup(...)`. Do not bundle the Vue runtime with the plugin.
-
-### 6. Add scheduled-task capabilities
-
-Scheduled tasks are optional. The feature contributes only pure-data `ScheduledSourceDescriptor` values; provide `ScheduledSourceExecutor` and `ScheduledWorkExecutor` as Beans in the plugin child context.
-
-The host owns the scheduling tick, persistent state, concurrency controls, management API and shutdown drain. Sources and work executors publish and withdraw with their own plugins, without a download-workbench dependency. Credential management adapters use `plugin.api.schedule.management.ScheduledTaskCredentials`, not the host implementation `ScheduleService`. A schedule management page can contribute a desktop entry through `NavigationPlacements.DESKTOP_SCHEDULE_MANAGE`.
-
-The browser source module is responsible for:
-
-- `capture`: serialize the current acquisition input into a plugin-owned, schema/versioned definition;
-- `restore`: restore a saved definition into the editor;
-- `summary`: produce a controlled presentation structure.
-
-The browser accesses host-approved input only through publication-scoped `context.acquisitionInput(mode)` and `context.restoreAcquisition(mode, value)`. The current neutral third-party adapter exposes only `single-import`. Do not read host DOM or call private mode globals to imitate other modes.
-
-The backend source executor owns the definition schema, discovery, and checkpoint. The work executor owns its payload schema and synchronous work execution. The host continues to own claim, lease, credentials, guards, pending state, cancellation, and checkpoint CAS. `ScheduledWorkExecutor.execute` may return `COMPLETED` or `ALREADY_COMPLETED` only after work files and success facts are durably committed. If a plugin or executor is absent, task data remains stored and suspended; it must not be deleted or have its checkpoint advanced early.
+1. **Declare `DownloadTypeDescriptor`**: return a descriptor from `PixivFeaturePlugin.downloadTypes()` (`contractVersion = DownloadTypeDescriptor.CURRENT_CONTRACT_VERSION`, globally unique `type`, i18n keys, icon and color tokens, same-origin behavior-module `moduleUrl`, supported acquisition modes `single-import` / `user` / `series` / `search` / `quick`, `cancelSupported`, and filter/settings allowlists).
+2. **Implement the frontend behavior module**: call `PixivBatch.queueTypes.registerModule(initializer)` from `moduleUrl`. Implement `process(item, context)` (required; update state through `context.updateItem(patch)` and bind the execution UUID through `context.bindTask(taskId)` when using `DownloadTasks`), plus declared `import`, `acquisition.*`, `filters` and `settings`. Check `AbortSignal` / `isActive()` before writing back from async callbacks, and release resources in `onCleanup()`.
+3. **Resolve trusted identity in the backend**: inject the parent context's `RequestOwnerIdentityResolver` into the Controller to resolve the current request identity (never trust an owner UUID self-reported in a request body or parameter). Mark completion only after files are durably written and records committed.
+4. **Implement `QueueOperations` and real Quiesce / Drain**: `workKey` is an opaque string (passed by the host in the JSON body of `POST /api/download/queue/{queueType}/cancel`). Any queue with async or background tasks must override `prepareQuiesce`, stop new admissions and return a real `QueueDrain` with a positive generation. Complete the drain only once in-flight tasks reach zero.
+5. **UI slots and scheduled-task capabilities (optional)**: contribute `WebUiSlotContribution` through `uiSlots()` (use host `PixivVue.mountUiSlot`; do not bundle the Vue runtime). Contribute scheduling support through `scheduledSourceDescriptors()` and child-context `ScheduledSourceExecutor` / `ScheduledWorkExecutor` Beans (the host manages scheduling, locks, credentials and watermark commits).
 
 ## Add a plugin-owned gallery
 
-An "independent page" is a design pattern, not an API or descriptor field named `independentPage`. It means the plugin fully owns:
+Each download-type plugin fully owns its gallery HTML, CSS/JS, routes, i18n and Controller (`/pixiv-gallery.html` and `/api/gallery/**` belong only to the official Pixiv gallery plugin; there is no generic gallery aggregation API).
 
-- the top-level HTML and page-specific CSS/JavaScript;
-- its route, static-resource, and i18n contributions;
-- its controller/API, visibility checks, and data model;
-- its own navigation or type-switch entry, when needed.
-
-The standard way to add a third-party gallery is therefore to add a page and API using the independent administration-page example above. The page naturally follows the plugin publication: when the plugin stops, its routes and resources are withdrawn, and the host needs no type-specific branch.
-
-A download-type plugin should also declare an empty slot at the top of its gallery page:
+To join the cross-type switcher at the top of galleries, put this at the top of your gallery HTML:
 
 ```html
 <nav data-nav-slot="gallery.type-switch"></nav>
 ```
 
-Register only that plugin's type-switch entry through `navigation()`:
+Contribute a `NavigationPlacements.GALLERY_TYPE_SWITCH` item through `navigation()` (use `gallery.sidebar`, `gallery.sidebar.tools`, `novel.sidebar`, `novel.sidebar.tools` for sidebar entries):
 
 ```java
 new NavigationContribution(
@@ -565,166 +149,26 @@ new NavigationContribution(
         AccessPolicy.ADMIN, 50)
 ```
 
-Each plugin declares only its own entry. A page must not hard-code Pixiv, Douyin, or another plugin id. The host aggregates the slot from active publications, so entries appear and disappear with hot lifecycle changes.
+## Configuration, credentials and files
 
-Keep these boundaries explicit:
-
-- `/pixiv-gallery.html` is the maintained official Pixiv main gallery, not a generic mount shell for third-party download types.
-- The generic gallery provider/registry/broker, `/api/gallery/unified/**`, and the `unifiedGallery` ABI/wire fields have been removed. There is no compatibility surface for plugins to consume.
-- A third-party page must not copy private gallery/novel implementations, connect directly to the host database, or import app implementation classes.
-- Asset serving, deletion, visibility, search, collections, and statistics belong to the plugin's own APIs and private data model. If host cooperation is required and the SDK has no suitable capability, propose a neutral public contract instead of bypassing the SDK through an app implementation.
-
-Douyin's `/pixiv-douyin-gallery.html`, detail page, `/api/douyin/gallery/**`, and `gallery.type-switch` contribution form the complete SDK example for this pattern. Third-party projects should still copy the independent gallery in `download-type-plugin` as their baseline.
-
-## Gallery navigation slots
-
-Plugins declare entries through `NavigationContribution.placements`. `gallery.sidebar` contains main pages such as plugins, downloads and the gallery; `gallery.sidebar.tools` contains utilities such as invitation management, statistics and duplicates. Novel galleries use `novel.sidebar` and `novel.sidebar.tools`. Each group has its own ordering and request-identity filtering. Withdrawing a contribution removes its entry; empty groups are hidden. Pages declare `data-nav-slot` without classifying plugin IDs.
-
-## Configuration, credentials, and files
-
-### Three configuration owners
-
-| Content | Path | How the plugin obtains it |
+| Data category | Disk path | Plugin access |
 | --- | --- | --- |
-| Host settings and plugin enablement | `config/config.yaml` | Read only the minimum needed value through an SDK read-only semantic port; do not read or write the file directly |
-| Plugin business configuration | `config/plugins/{pluginId}.properties` | Child-context `Environment`, `@Value`, or `@ConfigurationProperties`; use `RuntimePathProvider` when directly managing the file |
-| Plugin credentials | `config/credentials/{pluginId}.properties` | The host maintains encrypted envelopes and injects only declared decrypted values for the current owner into that plugin child context |
+| Host settings and plugin switches | `config/config.yaml` | Read-only through stable Core API ports such as `DownloadSettings` and `OutboundProxySettings` |
+| Plugin business settings | `config/plugins/{pluginId}.properties` | Child-context `Environment` (prefer `Binder.get(environment).bind(...)`) and `GuiConfigContribution` |
+| Sensitive plugin credentials | `config/credentials/{pluginId}.properties` | Encrypted by the host; only sensitive keys declared by this owner are injected into its child-context `Environment` or `PluginCredentials` |
+| Plugin state and persistent data | `state/{pluginId}/`, `data/{pluginId}/` | Inject `RuntimePathProvider` and call `stateDirectory()`, `dataDirectory()` |
+| Downloaded work files | `{rootFolder}/{pluginId}/` or a plugin-defined directory | Derive from `DownloadSettings.getRootFolder()`; do not write them to `state/` or `data/` |
 
-Prefix business keys with the plugin id, for example:
-
-```properties
-example-download.download.directory=
-example-download.proxy.mode=inherit
-example-download.download.include-cover=false
-```
-
-Ordinary read example:
-
-```java
-@Bean
-ExampleSettings settings(Environment environment) {
-    return new ExampleSettings(
-            environment.getProperty("example-download.download.directory", ""),
-            environment.getProperty("example-download.proxy.mode", "inherit"));
-}
-```
-
-Declare GUI fields through `GuiConfigContribution`; the host saves them under the trusted owner. Sensitive or `PASSWORD` fields are not written to ordinary properties. A plugin reads only injected values and must not read, decrypt, or rewrite credential envelopes. Owner-scoped directories and encrypted credentials still do not hard-isolate malicious code running in the same JVM.
-
-### Stable paths and artwork directories
-
-The host injects an owner-bound Plugin API `RuntimePathProvider` into each plugin child context. The caller does not supply a plugin id:
-
-```java
-Path config = runtimePathProvider.configFile("properties");
-Path state = runtimePathProvider.stateDirectory();
-Path data = runtimePathProvider.dataDirectory();
-```
-
-Use `state/{pluginId}` for rebuildable runtime state and `data/{pluginId}` for plugin-managed data and caches. Do not place artwork files there. Private databases use the selected provider; a data directory does not imply a fixed database file.
-
-#### Private Databases and Main Storage Domains
-
-For switchable database support, inject owner-bound `PluginDatabase`, declare every authoritative private table with `privateSchema()`, and declare ordered data conversions with `privateStorageMigrations()`. Before starting the child context, the provider creates tables, adds safe columns, and validates structure. Offline migration uses the same declarations; an empty declaration cannot discard an existing private database.
-
-| Entry | Contract |
-| --- | --- |
-| `PluginDatabase.read(work)` | Same-thread read-only callback; rejects writes. The session expires when the callback returns; return materialized results only |
-| `PluginDatabase.transaction(work)` | Atomic writes to the current owner's private database, separate from the host Spring transaction. Any failure leaves rollback as the only outcome |
-| `available()` | Current availability, not proof of an empty database or successful write |
-| `databaseId()` | Diagnostic identity; do not branch on it to select a SQL dialect |
-
-Use neutral relational operations; the provider owns dialect, connections, and credentials. Missing or failed capability throws `SQLException` with SQLState `08003`. Queries must report unavailability, and writes must not continue side effects. A bundled driver or SQLite-specific SQL is not automatically translated.
-
-`PluginMainDatabase` is the restricted collaboration entry for the main database. It exposes only the owner's managed main tables and public host domains explicitly requested through `sharedMainStorage()`. It cannot access another owner's tables or private database; unknown domains reject assembly. Its `read` / `transaction` callbacks are synchronous and same-thread. Writes join the host transaction, allowing a joint commit with file publication. A missing database, closed context, or invalid declaration rejects operations; any failure makes the transaction uncommittable.
-
-Legacy `PluginDataSource` remains SQLite-specific at `data/{owner}/plugin.db`. Selecting another dialect returns SQLState `0A000`; it never creates a separate SQLite fallback. Its consumers own JDBC compatibility and must not close or unwrap it or access the main database. Cross-engine migration also needs complete private-schema and conversion declarations. Check the migration report, not just package-install success.
-
-By default, inherit the host artwork root from `DownloadSettings.getRootFolder()` and let the plugin manage its own subdirectory:
-
-```java
-Path defaultOutput = Path.of(downloadSettings.getRootFolder())
-        .resolve("example-download")
-        .normalize();
-```
-
-Douyin follows the same rule to obtain `{rootFolder}/douyin`, then organizes works by owner. When the user configures a save location in `config/plugins/douyin.properties`, the plugin uses that override instead. Third-party plugins may use the same pattern, but the plugin owns its exact subdirectories, filenames, and migration logic.
-
-Do not depend on app `RuntimeFiles`, `DownloadConfig`, `ProxyConfig`, host mappers, `SqlSessionFactory`, the main `DataSource`, or concrete executor Bean names. Use Plugin API for owner-scoped paths and private data sources, and Core API ports such as `DownloadSettings` and `OutboundProxySettings` for download and proxy semantics. A host implementation that is not covered by the SDK is not an implicit public API.
-
-See [storage principles](/en/storage) for complete path rules and [configuration reference](/en/configuration) for configuration keys.
-
-## Outbound HTTP and WebSocket
-
-Use the stable pure-JDK factory for plugin network access:
-
-```java
-@Bean(destroyMethod = "close")
-OutboundHttpClient exampleHttpClient(OutboundHttpClientFactory factory) {
-    return factory.open(OutboundHttpClientProfile.standard(
-            Duration.ofSeconds(10),
-            Duration.ofSeconds(30),
-            OutboundHttpRoute.inherit()));
-}
-```
-
-Every path that uses a live response from `OutboundHttpClient.exchangeStream` must close it. `exchange` buffers the complete response and closes it automatically. A non-2xx status is still a normal response; the business caller interprets it.
-
-For WebSocket, call `OutboundWebSocketClientFactory.open(profile)`. The resulting client is likewise owned by a plugin Bean and closed with the child context. The plugin declares timeouts, redirect behavior, cookies, connection-pool settings, and a neutral route profile; the host owns the transport, global/task proxy resolution, and `ProxySelector`.
-
-Do not construct `java.net.http.HttpClient` or `ProxySelector` yourself, and do not depend on Apache types or app HTTP configuration. Authentication headers, site-specific headers, and protocol messages belong to plugin business logic, not the generic transport. Douyin uses `OutboundHttpClient` as the complete reference implementation.
+- **Database access**: new plugins inject `PluginDatabase`, declare structure through `privateSchema()` and `privateStorageMigrations()`, and use `read(work)` / `transaction(work)` for dialect-independent operations (compatible with SQLite and PostgreSQL). For main-database collaboration, inject `PluginMainDatabase` to access this owner's managed tables or requested `sharedMainStorage()`. The older `PluginDataSource` supports only SQLite.
+- **Outbound HTTP / WebSocket**: inject `OutboundHttpClientFactory` / `OutboundWebSocketClientFactory` to create clients owned by plugin Beans and `close()` them on destruction (response streams returned by `exchangeStream` must be closed on every branch). Do not create your own `HttpClient` or `ProxySelector`, or depend on host HTTP configuration classes.
 
 ## Independent service contracts and composition
 
-These APIs require SDK 1.4.0. Start with the `typed-service-plugin` template: separate the API, contract carrier, provider and consumer modules. The contract owns its business version; the host only understands service keys and declarations. The carrier uses `pixiv.contract-api` and `pixiv.contract-sha256` to identify the original API JAR and uses `process-restart`. Providers and consumers depend on that carrier instead of bundling duplicate API classes.
+SDK 1.4+ supports cross-plugin typed services (see the `typed-service-plugin` template):
 
-Declare keys in `PixivFeaturePlugin.serviceImports()` and implementation beans in `serviceExports()`, then inject `PluginServices` into the child context. Constructors may retain the accessor or register a binding; business calls require an active consumer publication. Interfaces and record/enum values must share the contract classloader and code source. Contract packages cannot depend on other contract packages; convert boundary DTOs explicitly.
-
-`find(key)` returns empty when absent; `require(key)` reports `UNAVAILABLE`. Both report `AMBIGUOUS` for multiple implementations. `findAll(key)` returns an immutable `List<ServiceProvider<T>>`, including an empty list, with at most 128 members. Each `service()` proxy binds the exact consumer and provider publication; `publication()` contains trusted identity values. Publication order is deterministic but does not express business priority. The consumer owns selection and sorting. Withdrawn proxies fail instead of switching to a replacement.
-
-Use `bind(keys, activation)` for unique dependencies or `bindAll(keys, activation)` for complete collections, including empty collections. Obtain the round's proxies through `scope.require(key)` or `scope.findAll(key)` and manage resources and auxiliary callbacks through `scope.acquire(...)` and `scope.guard(...)`. Membership changes close admission to the old round, wait for actual exit and cleanup, then activate a new round. Activation must not replay business commands. Explicit `retry()` handles `FAILED` or `CLOSE_FAILED`; only `CLOSED` confirms completed cleanup.
-
-For a simple broadcast, define an independent `EventSink.onEvent(record)` contract, iterate `findAll`, and handle each `ServiceAccessException` according to that contract. Best effort is suitable only for non-authoritative side effects. Required validation must finish before writing; missing required implementations or failed validation reject the write. Collections do not provide durable messages, automatic retries, backpressure or delivery guarantees.
-
-Long tasks use a business-owned pure-value protocol such as `start → jobId → query/cancel/result`. Register work with `PluginRuntimeTaskRegistrar`, own executors and resources through `PluginResources`, and implement cooperative cancellation in the provider. Cancelling a handle does not prove that work has exited. The host waits for actual drain before closing the context. The data owner defines restart recovery, checkpoints and idempotency through its private database; services cannot exchange futures, threads or callbacks.
-
-`binding.diagnostic()` exposes bounded value-only reasons, state, dependencies and publications. Service relationships in plugin details use the same runtime source; stop previews include declared imports and bindings still draining. Diagnostics distinguish waiting, ambiguity, activation failure, executor rejection and cleanup failure. `truncated` means the display is incomplete, not that dependencies are absent. Reading diagnostics neither retries business calls nor changes lifecycle state.
-
-## Credentials and operation verification without GUI fields
-
-Declare owner-prefixed keys such as `my-plugin.token` through `credentialKeys()` and inject `PluginCredentials`. `read(key)` returns `Optional<String>`; `update(Map)` atomically merges values, preserves omitted keys and deletes blank values; `delete(key)` is idempotent. At most 128 keys may be declared or updated, with 64 KiB UTF-8 per value and 1 MiB per update. Undeclared keys and stale generation handles are rejected. Callers cannot select another owner.
-
-A credential key must not also be an ordinary GUI field. A matching field must be sensitive; otherwise the host rejects that owner's credential and desktop configuration snapshots while retaining masks for discovered sensitive keys. GUI credential snapshots, writes and failure rollback share one owner lock. Loading and reloading also read credentials and decide migrations within that same lock, so stale snapshots or plaintext values cannot overwrite a successful programmatic rotation. Environment export with credentials includes declared keys without GUI fields and requires encryption. Export without credentials omits those values; restoration still checks owner and installation generation.
-
-Storage reuses host encryption and file locks. Existing sensitive GUI fields remain part of the same declarations and masking rules. Saving does not automatically rebind existing `@Value` fields or configuration objects; read on demand or follow the existing restart policy. Never place plaintext credentials in service DTOs, exceptions, logs or diagnostics.
-
-Provide an `OperationVerification` bean in the plugin's child context. `policyId()` is the stable policy key; the side-effect-free `policy()` returns the rule revision, context schema, interaction protocol and structured resource profiles. Change the revision and republish pages when rules or resources change. `generation()` identifies credential changes and invalidates old challenges. `verify()` receives only necessary pure values and an opaque proof, and returns `APPROVED`, `REJECTED` or `CHALLENGE`. It receives no password, cookie, complete request or business callback.
-
-The business owner declares `OperationVerification.IMPORT` in `serviceImports()` and injects its own `OperationGuard`. For business APIs with an existing identity, perform identity, permission, CSRF, rate and input checks before calling `execute(operationId, subject, context, token, proofs, action)`. The operation must belong to that owner; derive ordinary business subjects from trusted identity resolution. Login preparation uses a format-validated username, which does not establish authentication. The guard runs action once, locally, only after all required policies pass. Leases last until the action actually ends. Missing, timed-out or replaced capabilities reject the operation; business failures are not retried. `ServiceBindingScope.guard()` is for auxiliary callbacks, not user commands.
-
-The preparation endpoint calls `OperationGuard.prepare(operationId, subject, context)` without executing business actions; submission still uses `execute` to revalidate. The third argument to browser `createOperationTarget` is the form owner's preparation callback, which receives a cancellation signal. `request()` returns submission data only when `ready()` is true. Bind preparation and submission to the same subject and context. Input changes call `reset()`; invalid components call `invalidate(id)`. Both cancel preparation and clear proofs without replaying business actions. See the [page editor guide](page-editor.md) for usage.
-
-Page owners declare `PageInteraction.Target` entries in `EditablePage.targets`; each `PageComponent` participant declares its policy and protocol. A unique compatible target binds automatically. Ambiguity requires a choice; an unmatched component can only be saved as a draft. Components first call `context.interaction.prepare()`, then receive their own challenge through `context.interaction.onState()` and respond with `respond(id, proof)`. Clear workers, requests and listeners when state clears or the instance is destroyed. Form owners use `createOperationTarget` from `/js/pixiv-pages.mjs` and pass targets to page mounting. SDK types are in `page-interaction.d.ts`, `operation-verification.d.ts` and `page-components.d.mts`. Ordinary `PagePort` connections remain a DAG.
-
-Login submission runs rate checks, verification, password validation and session creation in that order. `setup.login-verification-policies` defines up to 16 static required policies. Empty removes only static requirements; page publication cannot remove configured static requirements. `POST /api/auth/login/prepare` sends only the username and rememberMe, shares the login rate limit, and returns successful preparation with status 200, `token`, `revision` and policy-keyed `challenges`. Once all proofs are ready, login sends `operationToken`, `operationProofs` and credentials. A direct submission without required proofs still returns a 409 challenge. Rejection returns 403, unavailable required capabilities 503 and stale challenges 409; failures create no cookie. Challenges bind subject, operation, context, rules, credentials, provider and formal revision, expire after five minutes and are consumed once. Each challenge/proof allows 16 KiB UTF-8, 64 KiB combined, with at most 256 pending challenges.
-
-The fixed `login.verification` UiSlot declares the same participation protocol and receives an instance interaction channel. Client success events grant no authority. `PagePublications` owns one revision for pages, bindings, operation requirements and resource approvals. Preflight makes no vendor calls; commit revalidates and drains affected operations. Administrators explicitly approve resource origins. Unbound pages and custom-component sandboxes do not inherit those permissions. See the [page editor guide](page-editor.md) for binding and recovery, and the [independent CAPTCHA example](https://github.com/Sywyar/PixivDownloader/tree/master/examples/captcha-plugin) for Turnstile, ALTCHA SHA-256 and PBKDF2 adapters.
-
-## Ordinary slots and page components
-
-Load `/js/pixiv-ui-slots.js`, add a `data-ui-slot` anchor, call `PixivUiSlots.connect({targetPrefix, properties, regions, onEvent, i18n})`, then `refresh()`. The default manifest retains its existing route permissions; public pages need a manifest restricted to their intended target. During script evaluation, a module calls `registerModule(moduleUrl, mount)` and returns optional `update(properties)` and `destroy()` methods.
-
-`mount(root, context)` receives pure properties, events and explicit regions rather than another page's private globals. `context.fetch` binds the source publication while the target API retains authorization. `signal`, `on`, `interval`, `onCleanup`, `loadScript` and `loadStyle` follow instance cleanup. Discovery refreshes every two seconds and pauses new refreshes while hidden. Multiple instances share module loading; closing one does not revoke another. Check the signal after asynchronous work and never let late results recreate old DOM. Leaving the page releases instances, listeners, timers and requests. See `META-INF/pixivdownload/web/ui-slots.d.ts`.
-
-Contributions sharing a target follow manifest `order`; new nodes are inserted in place when a contribution is re-enabled or added, preserving unchanged instances, focus and selection. When existing nodes need to move, the runtime detects `moveBefore` support and preserves focus and selection in inputs and editable text, with a fallback for browsers without that API. Late manifests cannot revoke newer instances. After creating a node outside `root`, immediately register cleanup for that exact node reference with `onCleanup`. Register controller destruction separately when the controller is created, so script failure or withdrawal during loading also releases resources.
-
-Download-workbench queue slots retain their specialized Vue/queue protocol. Ordinary slots are not a Swing/Compose desktop view protocol. Novel and series pages pass properties, regions and events to AI/TTS slots; the participants own their business data contract.
-
-Editor components declare `PagePort(name, contractId, schema)`. Both ends need identical versioned contract identities and parsed schemas from the SDK generator's supported subset. Unknown ports, duplicate edges and directed cycles are rejected on save; payloads are validated again at runtime. Events emitted during mount are queued until instances finish mounting, then forwarded through chains such as A→B→C. History is not replayed to later instances. A page allows 256 queued deliveries, 16 MiB of queued values and 4096 deliveries in a continuous chain; exceeding these limits fails explicitly. Components persist project data, pure values and controlled styles; business calls still use generated clients with instance fetch.
-
-## Multiple remote services, value encoding and evolution
-
-Generate schemas in the independent API module, then supply the complete service set for a consumer module in one invocation. Replace the module, classpath and class names below. Classpaths use semicolons on Windows and colons on Unix.
+- Contract-carrier plugins declare an original pure-JDK API JAR through `pixiv.contract-api` and `pixiv.contract-sha256` (using `process-restart`). Providers export implementations through `serviceExports()`, while consumers declare dependencies in `serviceImports()` and inject `PluginServices`.
+- Call `find(key)`, `require(key)`, `findAll(key)`, or lifecycle bindings `bind(keys, activation)` / `bindAll(keys, activation)` to obtain proxies bound to an exact publication.
+- Use `sdk-tools.jar` to generate JSON Schema and remote-call adapters, and check binary compatibility:
 
 ```text
 java -jar sdk-tools.jar schema <api-module> <classpath>
@@ -732,65 +176,22 @@ java -jar sdk-tools.jar remote <consumer-module> <classpath> example.one.Service
 java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-report.json>
 ```
 
-Fully qualified names distinguish Java adapters and `web/generated/<qualified-name>.mjs`/`.d.mts`, including services with identical simple names. Each `remote` call accepts at most 128 services; an empty list removes all generated output. Removing a service cleans its old classes, JavaScript and declarations. Failure removes owned output and the completion marker; packaging must check `target/remote-generation.complete`. The marker is published after the complete batch compiles; file publication is not a multi-file filesystem transaction. Output is limited to 16 MiB combined and 1 MiB per file.
+Annotate large-integer record fields with `@ValueProperty(encoding = ValueEncoding.DECIMAL_STRING)`. `UUID`, `Instant`, `Duration`, `float` and `double` use the SDK's fixed lossless string encoding.
 
-Ordinary JSON integers retain the intersection of Java ranges and JavaScript's safe integer range. For a full-range long record property, explicitly use `@ValueProperty(encoding = ValueEncoding.DECIMAL_STRING)`. UUID, Instant, Duration, float and double use fixed lossless strings: lowercase UUID, `seconds:nine-digit-nanoseconds`, and fixed-width lowercase IEEE 754 hexadecimal. Noncanonical text, overflow and non-finite floats are rejected; negative zero and nanoseconds survive. Do not truncate through JS Date. Generated clients expose typed constructors `wireValues.int64/uuid/instant/duration/float32/float64`. Convert other types into supported DTOs in the independent contract instead of registering arbitrary serializers.
+## Credentials and general operation verification without a GUI dependency
 
-`contract-evolution` reads classfiles without loading classes and separately reports source compatibility, binary linkage and a new host calling an old implementation. Behavior is always `NOT_ASSESSED`. Adding an abstract interface method may preserve old binary linkage while new calls encounter an unimplemented method. The report cannot replace recompilation, loading unchanged old plugin bytes and actual invocation tests; exit code 0 does not prove behavioral compatibility. The report path must not exist. `verify-sdk-usage` still checks the declared minimum central SDK, a separate check from independent contract evolution and old-JAR execution.
+- **`PluginCredentials`**: plugins can declare sensitive keys under their owner prefix in `credentialKeys()` (at most 128 keys, 64 KiB per value, 1 MiB per batch; same-named GUI fields must be marked sensitive), then inject `PluginCredentials` for atomic `read`, `update` and `delete`.
+- **`OperationVerification` and `OperationGuard`**: verification plugins provide an `OperationVerification` Bean. Business plugins declare `OperationVerification.IMPORT` in `serviceImports()` and inject `OperationGuard`, call `prepare(operationId, subject, context)` during preparation, and call `execute(operationId, subject, context, token, proofs, action)` after authentication and rate limiting during submission. See [Page editor](/en/page-editor#form-verification-and-resource-authorization) and [Operation CAPTCHA](/en/captcha) (complete implementation in [`examples/captcha-plugin`](https://github.com/Sywyar/PixivDownloader/tree/master/examples/captcha-plugin)).
 
+## Ordinary slots and page components
 
-## Maintain an external project and upgrade the SDK
+Ordinary pages mount `data-ui-slot` through `PixivUiSlots.connect(...)` from `/js/pixiv-ui-slots.js`. Plugin modules call `registerModule(moduleUrl, mount)` and release DOM nodes, listeners and requests in `onCleanup`. For page editor components and editable pages, see [Page editor and plugin components](/en/page-editor#develop-third-party-plugin-components-and-integrate-pages).
 
-A prerelease SDK uses an exact contract, written as `plugin.requires==7.2.3-rc.4` in properties (example version). Stable SDKs use `MAJOR.MINOR`. Keep the compile dependency, descriptor, and runtime package consistent. Compatibility is not assumed across RCs or between an RC and a stable release. A historical major/minor declaration cannot identify its compile-time RC; validate it and publish a new plugin version without replacing old attachments.
-
-Keep the original project and `.dev/` data, and extract the new SDK separately. Compare source and Javadoc, update tools, contract resources, and runtime manifests together, then merge build and IDE configuration changes. The plugin owns its private database migration. Unknown formats or failed migrations must preserve old data and stop the affected capability; host package transactions do not roll back business data.
-
-Run `mvnw.cmd clean verify` on Windows or `./mvnw clean verify` elsewhere. With the same wrapper, run `verify exec:exec@sdk-run`. In administrator Plugin Management, verify start, disable, start again, and reload where the policy permits it. Check route withdrawal, invalid old publications, real task drain, and retained data and unfinished tasks. Replacing a `process-restart` package requires a full exit before checking the loaded version. Use `exec:exec@sdk-stop` to stop the development instance. Full-trust execution of a development directory does not validate a packaged worker.
-
-`DownloadObserver` provides synchronous best-effort observations without durable replay. `DownloadAdmissionPolicy` allows or rejects before side effects and cannot rewrite requests. Both are optional full-trust beans published and withdrawn by the host. `WorkFileImporter` registers read-only source-file references; an unavailable type owner must not report success. Check the selected release's Javadoc rather than assuming an older SDK contains interfaces found in current source.
-
-Identify the failing submission step first. For a digest mismatch, obtain the same release again. For a missing candidate, check the default branch's current CI and `tools/candidate-projects.json`. For identity or push failures, check the active account, repository, and permissions. Reload the original request after review facts, ownership, or remote state change; a lost response must not automatically create another submission. Preserve plugin ID, version, source commit, SDK identity, and error code, and remove credentials, private keys, and personal paths before sharing diagnostics.
-
-## Build, test, debug, and install
-
-### Required tests
-
-At minimum, retain the checks included by the template:
-
-- descriptor, provider, feature id, and contribution consistency;
-- explicit child-context assembly and controller registration;
-- route/static/i18n/schema or download publication;
-- queue owner, opaque work keys, clearing, and drain behavior;
-- frontend-module `node --check` and executable behavior tests;
-- root `plugin.properties` and thin-JAR boundaries.
-
-The standard command for validating templates from the repository root is:
-
-```powershell
-mvn -f plugin-templates/pom.xml clean verify
-```
-
-When a plugin contributes both backend and frontend code, do not test the frontend contract only by searching script text from Java. Execute it with Node.
+## Maintain external projects and upgrade the SDK
 
 ### Local development
 
-Install JDK 17 and Node.js, with `java` and `node` on `PATH`. IDE import only resolves the project. Explicit Run / Debug compiles the current plugin, prepares the pinned runtime, and starts the full application. Build failure stops this sequence. Maven Wrapper obtains the pinned Maven version; no host checkout or manually copied host and plugin JARs are needed. Initial application configuration uses the host's setup flow.
-
-| IDE | Import | Run | Debug |
-| --- | --- | --- | --- |
-| IntelliJ IDEA | Open the root `pom.xml` | Select `Developer Mode` and click Run | Select the same `Developer Mode` and click Debug |
-| VS Code | Open this directory and install the recommended Java Extension Pack | `Tasks: Run Task > Run Plugin` | `Run and Debug > Debug Plugin` |
-| Eclipse | `Import > Existing Maven Projects` | `eclipse/Run Plugin.launch` | `eclipse/Debug Plugin.launch` group |
-
-IntelliJ's `Developer Mode` is a native Application configuration. Before launch, Maven runs `test-compile exec:exec@sdk-prepare`. The IDE starts the JVM directly, running the host, bundled official plugins, and the current project's `target/classes` in that process. Set a breakpoint inside `ExampleMinimalPlugin.java`'s `routes()` and click Debug. No remote connection or fixed debug port is needed. The entry point in `src/test/java/sdk/DevelopmentLauncher.java` stays out of the plugin JAR. The run configuration adds the bundled tool to the launch classpath so Spring Boot can resolve nested JARs.
-
-This configuration explicitly enables plugin development mode. Current sources execute as `host-process-full-trust`, which the runtime status reports; the source descriptor stays unchanged. Each Run / Debug recompiles and loads the sources. Use `Stop Plugin` or stop the Application session to finish.
-
-VS Code, Eclipse, and the command-line tasks below validate the packaged artifact: they install the current JAR and preserve its declared execution mode. Their remote debugger uses `127.0.0.1:5005` by default, connecting to the worker for `declarative-process` or the host for `host-process-full-trust`. Use `Stop Plugin` or stop the entire group to finish; disconnecting only the remote debugger leaves the application running.
-
-#### Command line
-
-Windows:
+The SDK development package can build and start its matching host and complete official plugin set directly from IntelliJ IDEA (`Developer Mode`), VS Code (`Run Plugin` / `Debug Plugin`), Eclipse (`eclipse/Run Plugin.launch`) or the command line. Runtime data is isolated under the project's `.dev/` directory (the first run automatically downloads and verifies pinned runtime packages into `~/.cache/pixivdownloader-sdk/`):
 
 ```powershell
 .\mvnw.cmd verify exec:exec@sdk-run
@@ -798,310 +199,26 @@ Windows:
 .\mvnw.cmd exec:exec@sdk-stop
 ```
 
-Linux / macOS:
+The default package is a thin PF4J `.jar` with `plugin.properties` at the root and no host-shared classes. For plugin-private third-party dependencies, use PF4J JAR-with-lib (private dependencies go in `lib/*.jar`). To upgrade the SDK, extract the new development package into a separate directory, update contracts and runtime manifests against the Javadoc, and verify start/stop, reload and task draining on the plugin management page.
 
-```bash
-./mvnw verify exec:exec@sdk-run
-./mvnw verify exec:exec@sdk-debug
-./mvnw exec:exec@sdk-stop
-```
+## Submit market materials
 
-`sdk-debug` waits for an IDE to attach; it does not open a debugger. Use `clean verify` to validate the plugin, or `exec:exec@sdk-prepare` to prepare only the runtime. The default artifact is `target/example-minimal-plugin-0.1.0.jar`.
+The community submission wizard accepts plugin icons, screenshots, external links, and multilingual `README`, release notes for the update and `CHANGELOG.md` (which can be extracted automatically by version headings such as `## [v1.2.0]`). All documents and images are signature-bound to the same version's Release. Clients display sanitized, statically isolated documents. See [Community repository submission instructions](https://github.com/Sywyar/PixivDownloader-community-plugins#投稿与版本管理).
 
-After successfully building the current artifact, you can call the bundled tool directly:
+## Signing and distribution
 
-```text
-java -jar tools/sdk-tools.jar run <absolute-project-path> <absolute-current-plugin-JAR> --no-gui
-java -jar tools/sdk-tools.jar debug <absolute-project-path> <absolute-current-plugin-JAR> --debug-port=5005
-java -jar tools/sdk-tools.jar stop <absolute-project-path>
-```
-
-`--debug-connect` connects to an IDE already listening. `run` / `debug` accept artifacts inside the project and outside `.dev/`, preserving their declared execution mode and confirming the current JAR's SHA-256 for local installation. Official plugins retain signature and provenance checks during both development and packaged validation. Choose a unique plugin ID to avoid conflicts with bundled plugins.
-
-#### Runtime, cache, and project data
-
-`sdk-project.json` and the release-side `sdk-release.json` record the same SDK, host, official plugin manifest, and runtime ZIP identities, sizes, and SHA-256 hashes. The runtime ZIP is a separate SDK Release attachment. Explicit preparation downloads it once and reuses verified bytes in `~/.cache/pixivdownloader-sdk/`. Clearing the cache still selects the same bytes. Unavailable resources and hash mismatches fail.
-
-Every launch creates a private runtime copy and checks the host and each official plugin. The cache holds no application state. Project `.dev/` contains configuration, databases, logs, downloads, and run copies. Configuration and state are separated by runtime ZIP hash. Host and official plugin automatic updates are disabled in this environment; your regular installation's data is separate.
-
-After stopping, delete the project's `.dev/` to reset development data, including downloads stored there. Direct tool calls can select a cache with the JVM property `-Dpixivdownload.sdk.cache-dir=<directory>`; project runtime directories remain separate.
-
-Offline use requires both runtime preparation and cached build-tool dependencies. Maven uses `-o`; Gradle uses `--offline`. Incomplete caches fail. To update the SDK, use the new development package and matching manifest, then move your sources into it.
-
-IDE import, compilation, and a complete run are separate checks. Verify startup, source breakpoints, and normal shutdown in the IDE you use; Maven success does not validate VS Code or Eclipse GUI operation. During packaged validation, deep directories can still exceed Windows' working-directory limit when creating a worker; move to a shorter path if error 267 occurs. Other platforms declared by the runtime require verification on their own operating systems.
-
-Gradle / sbt examples use `runPlugin` and `debugPlugin` to call the same tools. Gradle stops with `stopPlugin`. An sbt run occupies the build process, so stop it from another terminal in the example directory with `java -jar ../../tools/sdk-tools.jar stop .`.
-
-Official plugins in the repository use a dedicated development mode that compiles them and loads the current `target/classes` from each module:
+After building `pixivdownload-plugin-signature` in the main repository, use `PluginSignatureTool` to manage Ed25519 keys and signatures (keep private keys outside the repository and build directories):
 
 ```powershell
-mvn -pl pixivdownload-official-plugins -am -Pdev-mode process-classes -Dexec.skip=true
+# 1. Generate a key pair and export the public-key fingerprint
+java -cp "signature-tool.jar" top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool keygen --directory "C:\secure\keys"
+java -cp "signature-tool.jar" top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool public-key --public-key "C:\secure\keys\public-key.pem" --key-id example-2026 --out "public.json"
+
+# 2. Sign the plugin package and repository manifest.json
+java -cp "signature-tool.jar" top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool artifact --artifact "plugin.jar" --plugin-id example-download --version 0.1.0 --key-id example-2026 --private-key "C:\secure\keys\private-key.pem" --out "plugin.jar.sig"
+java -cp "signature-tool.jar" top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool manifest --manifest "manifest.json" --repository-id example.plugins --key-id example-2026 --private-key "C:\secure\keys\private-key.pem" --out "manifest.json.sig"
 ```
 
-Use this entry point for official plugins in the main repository. Douyin uses its independent repository and SDK project; this mode does not discover external projects automatically. IDE users can use the committed IntelliJ IDEA, VS Code, or Eclipse `Developer Mode` shared configuration.
+A self-hosted plugin repository can publish `manifest.json` + `manifest.json.sig` (the `manifest-v1` protocol) or implement `paged-v2` endpoints. Provide a public HTTPS `repository.json` descriptor of at most 64 KiB for one-click import in desktop settings (supports `DIRECT_STRICT` or `GITHUB_RELEASES` network policies, `repository-update` rotation proofs and `plugin-revocations` revocation manifests).
 
-While debugging, check that:
-
-- `/plugin-manage.html` reports `STARTED`, and the generation matches this replacement;
-- plugin pages/APIs work, become undeclared after stop, and return after start/reload;
-- page scripts, CSS, and i18n changes come from the new artifact rather than browser cache or an old package in `plugins/`;
-- `log/` has no route conflict, duplicate id, child-context assembly, version, signature, or drain diagnostics;
-- asynchronous work no longer writes files, calls back into pages, or retains an old classloader after stop.
-
-### Artifact formats
-
-Templates build a thin PF4J JAR by default:
-
-- `plugin.properties` is at the JAR root;
-- there is no Spring Boot `BOOT-INF/`;
-- there is no `lib/*.jar`;
-- there are no copies of plugin-api, core-api, PF4J, Spring, Jackson, Servlet API, or host classes.
-
-The host also supports a PF4J JAR-with-lib for private third-party dependencies. Its root still contains the descriptor, plugin classes, and resources; private dependencies go in `lib/*.jar`. Do not shade or bundle shared contracts. Add package-structure and isolated-classloader loading tests when choosing JAR-with-lib. The official default delivery format remains `.jar`, not ZIP.
-
-## Submit marketplace content
-
-SDK tools with document support read `CHANGELOG.md` from the candidate's fixed source commit. They match the exact plugin version in a level-two heading such as `## [v8.2.6] - 2031.3.2`, preserving categories such as `### Features` and `### Bug Fixes`. A missing or duplicate match requires another file, manual notes or explicit omission. Optional README accepts UTF-8 Markdown or HTML from the repository, a local file or multiline input. Full CHANGELOG and release notes remain separate attachments.
-
-Documents use the selected default language and freeze their bytes after preview confirmation. Relative images stay within the selected root; external images require explicit download confirmation. Links are editable lists with preset purposes, custom localized labels and an explicit empty state. See the [community submission guide](https://github.com/Sywyar/PixivDownloader-community-plugins/blob/master/README_en.md#submissions-and-version-management) for input and recovery controls.
-
-Optional version `content` contains locale maps for `readme`, `changelog` and `releaseNotes`. Each document records `format`, `asset`, optional `sourcePath` and `sourceUrl`, and image `resources`. Repository documents bind `sourceUrl` to the frozen source commit to resolve relative links. Local files, direct input and older records without this field do not infer a source. Safe HTML anchors and Markdown headings support navigation within the document; external links open in a new window. Assets record `name`, `url`, `mediaType`, `size` and `sha256`. Missing market `links` retains the `homepageUrl` fallback; an empty list means no links. Use the community Schema from the same SDK development package for the complete contract.
-
-Community publication places documents, images and the plugin package in the same version release. The signed catalog binds their references. The client fetches them on demand, verifies size and digest, and displays sanitized HTML in an isolated static document. The JAR signature does not cover these documents; review references and the catalog bind them. Community tools must verify the new SDK's public bytes before updating their pin, and the host must include document support. Adding market metadata alone does not require increasing an existing plugin's `plugin.requires`; SDK 1.1 hosts still accept `requires=1.0`.
-
-## Signing and publishing
-
-### Publisher keys and community operation signatures
-
-The publisher signing CLI is in `pixivdownload-plugin-signature` and requires only JDK 17 to run. Build it from the source repository root, then invoke it through the JAR produced by that module:
-
-```text
-./mvnw -pl pixivdownload-plugin-signature package
-java -cp "signature-tool.jar" top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool <command>
-```
-
-- `keygen --directory <new-directory>` creates `private-key.pem` (PKCS#8) and its matching `public-key.pem` (SPKI), with access to the directory and private key restricted to the current user. Choose a location outside source repositories and temporary directories, and back up both files. The command never replaces an existing directory.
-- `public-key --public-key <public-key.pem> --key-id <id> --out <public.json>` exports canonical SPKI Base64 and the SHA-256 public key fingerprint. It reads the matching public key file; it does not derive a public key from a private key.
-- `community-operation --operation <PUBLISHER_KEY_ROTATION|VERSION_STATUS_REQUEST|OWNERSHIP_TRANSFER> --canonical-body <canonical-body> --request-id <SHA-256> --key-id <id> --private-key <private-key.pem> --out <sig.json>` signs the JCS body bytes produced by the pinned SDK. The body digest must match requestId. The output contains only the detached signature, with no private key material.
-
-Public key export and community operation signing refuse to overwrite output files. Use `artifact` to sign plugin packages; `--help` lists all arguments. Never commit private keys to Git or include them in submission attachments.
-
-### Generate an artifact signature
-
-The filenames below are placeholders: replace them with actual paths and retain quoting. The private key must be an Ed25519 PKCS#8 PEM stored outside both the repository and build output. Repository configuration uses a Base64-encoded X.509 SubjectPublicKeyInfo public key. After building the signature tool, invoke its CLI main class on the classpath:
-
-```powershell
-java -cp "signature-tool.jar" `
-  top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool `
-  artifact `
-  --artifact "plugin.jar" `
-  --plugin-id example-download `
-  --version 0.1.0 `
-  --key-id example-2026 `
-  --private-key "ed25519-pkcs8.pem" `
-  --out "plugin.jar.sig"
-```
-
-The output is structured JSON containing `formatVersion`, `algorithm=Ed25519`, `keyId`, and `value`. Also record the exact artifact byte count and SHA-256:
-
-```powershell
-$artifact = Get-Item -LiteralPath "plugin.jar"
-$artifact.Length
-(Get-FileHash -Algorithm SHA256 -LiteralPath $artifact.FullName).Hash.ToLowerInvariant()
-```
-
-### Catalog manifest
-
-Manifest schema version 1 has top-level `schemaVersion`, `generatedTime`, and `entries`. This is a structural example: replace domains, size, SHA-256, signature, and timestamps with values for the same actual artifact before publishing:
-
-```json
-{
-  "schemaVersion": "1",
-  "generatedTime": "2026-08-10T00:00:00Z",
-  "entries": [
-    {
-      "pluginId": "example-download",
-      "displayNamespace": "example-download",
-      "displayNameKey": "plugin.name",
-      "descriptionKey": "plugin.summary",
-      "market": {
-        "displayName": {"zh": "示例下载", "en": "Example download"},
-        "summary": {"zh": "示例下载类型", "en": "Example download type"},
-        "description": {"zh": "插件详细说明", "en": "Plugin description"},
-        "author": "Example Developer",
-        "sourceType": "community",
-        "category": "download",
-        "tags": ["download"],
-        "homepageUrl": "https://example.com/plugin",
-        "license": "MIT",
-        "latestVersion": "0.1.0",
-        "updatedTime": "2026-08-10T00:00:00Z",
-        "iconToken": "download",
-        "colorToken": "green",
-        "recommended": false,
-        "officialRequired": false,
-        "defaultInstalled": false
-      },
-      "packages": [
-        {
-          "version": "0.1.0",
-          "packageUrl": "https://plugins.example.com/example-download-0.1.0.jar",
-          "expectedSizeBytes": 12345,
-          "sha256": "LOWERCASE_SHA256_HEX",
-          "signature": {
-            "formatVersion": 1,
-            "algorithm": "Ed25519",
-            "keyId": "example-2026",
-            "value": "BASE64_SIGNATURE"
-          },
-          "signatureUrl": "https://plugins.example.com/example-download-0.1.0.jar.sig",
-          "requiredSdk": "1.3",
-          "dependencies": [],
-          "releasedTime": "2026-08-10T00:00:00Z",
-          "changeNotes": ["Initial release"],
-          "channel": "stable",
-          "deprecated": false
-        }
-      ]
-    }
-  ]
-}
-```
-
-`market` affects presentation, search, and sorting only; it does not make installation security decisions. `packageUrl` and the manifest URL must use HTTPS. Artifact size, SHA-256, structured signature, and the internal descriptor remain authoritative during installation.
-
-Generate a detached signature over the raw manifest bytes:
-
-```powershell
-java -cp "signature-tool.jar" `
-  top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool `
-  manifest `
-  --manifest "manifest.json" `
-  --repository-id example `
-  --key-id example-2026 `
-  --private-key "ed25519-pkcs8.pem" `
-  --out "manifest.json.sig"
-```
-
-Publish `manifest.json`, `manifest.json.sig` at the same URL plus `.sig`, the artifact, and optionally the detached artifact signature. Do not format or rewrite the manifest after signing it.
-
-Verification commands:
-
-```text
-verify-manifest --manifest "manifest.json" --signature "manifest.json.sig" --repository-id <id> [--policy official|custom]
-verify-artifact --artifact <jar> --signature <sig.json> --plugin-id <id> --version <version> --expected-size <bytes> --sha256 <hex> [--policy official|custom]
-```
-
-When verifying a custom root, also pass `--trusted-key-id` and `--trusted-public-key`. Optional fields are `--trusted-algorithm`, `--trusted-state`, `--trusted-publisher`, `--trusted-label`, and `--trusted-official`.
-
-### Let users add a custom repository
-
-Publish a strict UTF-8 JSON `repository.json` no larger than 64 KiB. Enter its public HTTPS URL in GUI Settings → Plugin market settings → Add → Use repository descriptor:
-
-```json
-{
-  "schemaVersion": 1,
-  "repositoryId": "example.plugins",
-  "displayName": "Example Plugins",
-  "publisher": {
-    "id": "example",
-    "displayName": "Example Publisher",
-    "homepageUrl": "https://example.com/plugins"
-  },
-  "catalog": {
-    "protocol": "manifest-v1",
-    "endpoint": "https://plugins.example.com/manifest.json"
-  },
-  "networkProfile": "DIRECT_STRICT",
-  "revocationsUrl": "https://plugins.example.com/revocations.json",
-  "updateProofUrl": "https://plugins.example.com/repository-update.json",
-  "trustedKeys": [{
-    "keyId": "example-2026",
-    "algorithm": "Ed25519",
-    "publicKeySpkiBase64": "BASE64_X509_SUBJECT_PUBLIC_KEY_INFO",
-    "state": "ACTIVE",
-    "publisher": "Example Publisher",
-    "trustLabel": "Example release key"
-  }]
-}
-```
-
-`trustedKeys` must contain 1 to 4 Ed25519 SPKI public-key entries with distinct `keyId` values.
-
-Do not publish or rely on `repository.json.sig` for first import: a new key signing the descriptor that introduces that same key is only self-attestation. The application displays the descriptor digest, publisher text, every network host, and each full `SHA-256(SPKI DER)` fingerprint. Confirmation re-fetches the descriptor and requires byte-for-byte digest equality; the saved configuration becomes active after restart. A custom repository does not inherit the official trust root. `official`, `configured`, and `community` are reserved repository IDs.
-
-`networkProfile` accepts only `DIRECT_STRICT` and `GITHUB_RELEASES`. The first uses only declared public HTTPS hosts and no redirects. The second permits one redirect inside the fixed GitHub host boundary. A descriptor cannot disable SSRF checks, admit private addresses, or supply an arbitrary proxy or redirect allowlist.
-
-Small repositories can keep the signed `manifest-v1` format above. A large repository can set `catalog.protocol` to `paged-v2`, point the endpoint at an API base URL, and implement:
-
-```text
-GET {endpoint}/plugins?cursor=&limit=&query=&category=&publisher=&channel=
-GET {endpoint}/plugins/{pluginId}?cursor=&limit=
-GET {endpoint}/plugins/{pluginId}/versions/{version}
-```
-
-The default page size is 24 and the maximum is 100. Responses carry a `generation`; cursors are opaque. List and detail responses are limited to 512 KiB and 256 KiB. Installation still submits only repository ID, plugin ID, and version. The host resolves the version endpoint again and compares remote metadata with the frozen package descriptor, size, SHA-256, and publisher signature.
-
-After first trust, an old trusted key may sign a monotonic `repository-update-v1` proof for descriptor or key rotation. Security revocations use a higher-sequence `revocations-v1` document. Append `.sig` to each JSON URL and use the existing CLI's separate signing domains:
-
-```text
-repository-update --document repository-update.json --repository-id example.plugins --sequence 2 --key-id example-2026 --private-key <pem> --out repository-update.json.sig
-plugin-revocations --document revocations.json --repository-id example.plugins --sequence 1 --key-id example-2026 --private-key <pem> --out revocations.json.sig
-```
-
-Revocation scopes include `PACKAGE_SHA256`, `PLUGIN_VERSION`, `SIGNING_KEY`, and `PUBLISHER`. `YANKED` blocks new installation and update; `REVOKED` also blocks matching installed bytes before the next load. `host-process-full-trust` shares the host JVM, while `declarative-process` runs in a separate worker. Both use the current OS account and provide no OS sandbox. Signatures and revocations do not prove that code is safe.
-
-## Contributing to the project
-
-Private or community plugins normally require no host changes. Good contributions to the main repository include:
-
-- fixes for real defects in Plugin API, Core API, plugin runtime, or templates;
-- a stable neutral port for semantics needed by multiple plugins;
-- improvements to templates, SDK documentation, boundary tests, and failure diagnostics;
-- additions or fixes to official external plugins;
-- improvements to signing, installation transactions, lifecycle, and absent-capability degradation;
-- corrections where documentation has drifted from the current implementation.
-
-If the SDK lacks a capability, do not depend on an app-private class first. Propose a neutral contract that does not recognize a specific site or plugin id, and describe its real consumers, owner, lifecycle, error/absence semantics, and tests. A public-contract change must advance the SDK identity and update the BOM, Javadocs, templates, the Douyin example, and this guide together; a published candidate must never be overwritten.
-
-Basic flow:
-
-```bash
-git clone https://github.com/YOUR_USERNAME/PixivDownloader.git
-cd PixivDownloader
-git remote add upstream https://github.com/Sywyar/PixivDownloader.git
-git fetch upstream
-git switch -c feat/plugin-api/your-capability upstream/master
-```
-
-Before submission:
-
-1. Run directly related module tests, then the affected template and boundary tests.
-2. Keep plugin id, descriptor, feature, routes, static resources, i18n, and tests consistent.
-3. Do not commit `target/`, `build/`, runtime configuration, credentials, private keys, or downloaded data.
-4. In the PR, explain motivation, stable boundaries, failure/absence behavior, and the exact validation commands run.
-5. Submit code, templates, and core development documents to `master` through a PR. The online site lives on the independent `gh-pages` branch and is normally committed and pushed directly from its dedicated worktree.
-
-### Version and Release Checks in the Official Repository
-
-When delivered plugin content changes, raise `plugin.version` above the published version. The version change may merge before publication, and the same unpublished version may continue to receive changes. Raise `plugin.requires` and the plugin version when the plugin uses new SDK features; an SDK update alone does not require every plugin to change versions. The official PR gate checks delivered-content changes against published versions. Every Quality Gate build checks compiled type references, member references and callback overrides against the declared minimum SDK. Publication reruns do not repeat the source-version decision. Reflection, inlined constants and behavioral contracts still require code review.
-
-Plugin publication does not require the source tree's SDK to be public. A stable application Release can publish a new stable SDK; manual stable SDK publication requires `-f` and still cannot overwrite immutable SDK releases. A Beta application can reuse a public stable SDK but cannot publish a new one. Manual plugin publication keeps `-f` as a repair option for overwriting same-version assets; application Release does not pass it automatically.
-
-Version checks cover plugin sources, resources, descriptors, private dependencies, published documents, shared Maven build configuration and referenced build files. Test-only configuration does not require a version increase. The gate checks that versions increase; choosing major, minor or patch still requires review of the public contract. The official market's legacy-client set is fixed to the stable SDK releases available on 2026-10-07: `1.0.0` and `1.1.0`. It is maintained in `_legacySdkVersions` in `scripts/market-curation.json` and does not expand automatically. See [plugin management](/en/plugin-management#update-notices-and-version-history) for channel and history-retention rules.
-
-## Pre-release checklist
-
-- [ ] Declare one provided `pixivdownload-sdk` dependency or a valid existing BOM setup; exclude host-provided classes from the plugin
-- [ ] `plugin.properties` is at the JAR root, and id/version/requires/class match the code
-- [ ] The provider returns exactly one feature, and the child context explicitly assembles only its own Beans
-- [ ] Every controller, page, and static directory has the correct `AccessPolicy` route declaration
-- [ ] i18n, error codes, and status output do not leak credentials or exception details
-- [ ] A download reports success only after files and success facts are durably committed
-- [ ] Owner identity comes from `RequestOwnerIdentityResolver`, and `workKey` remains an opaque string
-- [ ] Asynchronous queues, tasks, clients, executors, and schedulers can genuinely quiesce/drain/close
-- [ ] The plugin owns its gallery page/API/static/i18n and registers only its own switch entry in `gallery.type-switch`
-- [ ] Configuration, credentials, state/data, `PluginDatabase`, `PluginMainDatabase`, and artwork directories follow owner and path boundaries; any legacy `PluginDataSource` use respects its SQLite-only contract
-- [ ] `mvn clean verify`, frontend behavior tests, and JAR structure checks pass
-- [ ] Published artifact size, SHA-256, signature, and manifest refer to exactly the same bytes
-- [ ] The private key is absent from source, build output, logs, plugin packages, and public repository directories
+To contribute SDK contracts or official-plugin fixes to the main repository, read [Main repository development](/en/development) first.

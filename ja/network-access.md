@@ -1,424 +1,115 @@
-# ネットワークアクセスとサードパーティサービス
+# ネットワークアクセスと外部サービス
 
-操作がどこへ接続し、何を送り、以後の要求をどう止められるかを確認するページです。前半はアプリ・プラグイン・ユーザースクリプトの実行時アクセス、[後半](#開発・ビルド・リリース時)は開発・ビルド・投稿・公開処理です。後半の通信がインストール済みアプリから一斉に発生するわけではありません。
+各機能の接続先、送信するデータ、プロキシ経路、停止方法を説明します。前半はインストール済みアプリケーションの**実行時リクエスト**です。ビルド、テスト、CI、コミュニティ投稿の通信は[開発・ビルド・公開処理のネットワークアクセス](#開発・ビルド・公開処理のネットワークアクセス)に分けて記載しており、日常的なアプリケーションの実行では発生しません。
 
-プラグイン名は管理画面の ID、アプリケーションホストは `pixivdownload-app` を指します。宛先だけでなく、発動条件、送信情報、プロキシ規則を合わせて確認してください。既定ドメインの遮断だけでは任意設定の宛先をすべて無効化できません。
+?> コードに固定されたデフォルトアドレスと、制御された動的アドレスの範囲を記載しています。外部サービスは DNS、CDN、リダイレクト、一時ダウンロードリンクを経由してファイルを配信する場合があります。管理者が指定するカスタム URL は実際の設定に依存します。
 
-?> 現在のコードにある固定の既定 URL と動的宛先の許容範囲を掲載しています。DNS、CDN、リダイレクト、一時 URL によって実際の IP や最終サブドメインは変わります。管理者が設定する URL は事前に列挙できません。
+## 実行時の概要とプロキシ経路
 
-## ネットワークアクセスの概要
+- **接続の条件**：AI、翻訳、TTS、プッシュ通知、メール、CAPTCHA、Douyin は、有効かつ呼び出された場合だけ通信します。`notification` プラグインは有効にすると署名付きのお知らせ索引をバックグラウンドで定期取得します。オンライン更新と自動確認が有効なら、ホストは起動準備完了後に GitHub Releases を確認します。デスクトップとヘッドレスサービスは、準備完了後、登録済み作品の不足メタデータを必要に応じてバックグラウンドで補完します。
+- **プラグインマーケット**：`plugin-catalog.enabled`、公式・コミュニティリポジトリはデフォルトで有効ですが、アプリケーションの起動だけではリモートのマニフェストを取得しません。管理者ページでのプラグイン更新確認、マーケットの表示・更新、リポジトリのプレビュー、インストール、撤回情報の手動更新時にだけ、対応するリポジトリへ接続します。
+- **PostHog アンケート**：レイアウト調査（`download-workbench`）とマルチユーザーモード調査（`multi-mode-decision-survey`）の公開パラメーターは、プラグインのソースの `posthog-config.js` にあります。通常のソースや fork のビルドで生成する `release-activation.js` はデフォルト `false` で、PostHog に接続しません。
+- **外向きプロキシの経路**：
+  - Pixiv、オンライン更新、FFmpeg の自動ダウンロード、公式・コミュニティプラグインリポジトリ、サーバー側 CAPTCHA 検証、お知らせの同期は、ホストまたはタスク単位のプロキシ設定を使います。
+  - AI、翻訳、TTS、Douyin は機能単位またはタスク単位で直接接続・プロキシを選べます。`direct-strict` のカスタムプラグインリポジトリは直接接続を強制します。
+  - SMTP は `mail` プラグイン独自の接続と任意の SOCKS プロキシを使います。PostgreSQL JDBC は対象データベースサーバーに直接接続し、HTTP プロキシを経由しません。
+  - ブラウザーの同一オリジン API、紹介ページの Google Fonts、ブラウザー側 Web Speech API、CAPTCHA のフロントエンドウィジェット、PostHog、ユーザースクリプトはブラウザーから直接通信し、Java バックエンドのプロキシを経由しません。
 
-- AI、TTS、プッシュ、メール、Douyin は設定した機能を呼び出すと接続します。`notification` は例外で、有効化して起動するとお知らせインデックスを自動確認します。
-- オンライン更新と自動確認が有効なら、起動準備後に GitHub Releases を確認します。頻度にはキャッシュ間隔の制限があります。
-- 紹介ページの Google Fonts はブラウザー通信です。Java バックエンドやそのプロキシを経由しません。
-- `plugin-catalog.enabled` と組み込み公式提供元は既定で有効です。起動だけでは取得せず、管理ページの更新確認、マーケット閲覧・更新、インストール、明示的な失効情報更新で接続します。
-- 公式 PostHog 調査の公開 4 パラメーターは各プラグインの `posthog-config.js` にあります。別の `release-activation.js` はビルド生成で、通常のソース・fork ビルドでは `false` のため調査は既定で接続しません。
-- Pixiv、Douyin、AI、TTS、プッシュ、メールの通信には本文や認証情報が含まれる場合があります。以下で機能ごとに示します。
+## コアホストとデフォルトのリクエスト
 
-## プロキシの適用範囲
+- **同一オリジンの認証と国際化**：ログインページは `/api/auth/check`、`/api/auth/login`、`/api/auth/invite-redeem` でセッション確認と認証送信を行います。戻り先は同一オリジン内のパスだけを受け付けます。フロントエンドは `/api/i18n/meta`、`/api/i18n/messages/{namespace}`、同一オリジンの `i18n-static/` から辞書を読み込みます。1 回のタイムアウトは 10 秒で、不足する辞書は最大 3 回、1.5、5、15 秒後に再試行します。外部の翻訳サービスには接続しません。
+- **ローカル GUI チャネル**：デスクトップモードは `http://127.0.0.1:{ランダムポート}/api/gui/**` で状態をポーリングして操作を送信し、バックエンド生成の GUI token を付けます。ローカルへの直接接続を強制し、プロキシ、リダイレクト、転送ヘッダーを拒否します。`--no-gui` ではこのポートを作成しません。
+- **外部リンクの確認**：アプリケーションの Web ページで外部 HTTP(S) リンクをクリックすると、まず接続先の確認ダイアログが表示され、確認後にブラウザーで開きます。
 
-通信するコンポーネントごとに経路が異なります。
+| 所有者 | 接続先 | 用途と送信内容 | 接続条件と停止方法 |
+| --- | --- | --- | --- |
+| アプリケーションホスト（更新確認とダウンロード） | `https://github.com/Sywyar/PixivDownloader/releases/latest/download/update.json` と `.sig`、nightly の同名マニフェスト、検証済みマニフェストのインストーラー URL（GitHub Release CDN のリダイレクトを含む） | 更新確認と組み込み Ed25519 署名の検証。マニフェスト・署名の上限は 1 MiB / 16 KiB。利用者が更新を確認してからインストーラーを取得し、上限 500 MiB、正確なサイズと SHA-256 を検証。現在のバージョン、Cookie、認証情報は送信しない | `update.enabled` と `update.auto-check` はデフォルトで有効。nightly が有効なら 2 系統を独立確認。ホストのプロキシを使い、公開ネットワークの HTTPS リダイレクトを最大 5 回許可。上記設定の無効化で停止 |
+| アプリケーションホスト（紹介ページのフォント） | `https://fonts.googleapis.com/css2?...`、`https://fonts.gstatic.com/...` | ブラウザーで Noto Sans SC を読み込み、標準的なブラウザー接続情報だけを公開 | `intro.html` を開くと発生。バックエンドのプロキシは経由せず、ドメインをブロックするとローカルフォントに自動切り替え |
+| アプリケーションホスト（疎通確認） | `https://www.pixiv.net/` | バックエンドから Pixiv への接続を確認。Pixiv Cookie は付けない | 初期設定ガイドまたは手動の接続確認時。バックグラウンドの定期疎通は行わない |
+| `notification` プラグイン | `https://sywyar.github.io/PixivDownloader-Remote-Content/announcements/index.json`、隣接する `.sig`、`.../announcements/<message-id>/<locale>.html` | 公式 Ed25519 署名、有効期限、増加する連番、本文 SHA-256 を検証。未取得またはダイジェストが変化したお知らせだけ、多言語の制限付き HTML を取得してローカル保存。Cookie やアプリケーション認証情報は送信しない | 起動後に 0–30 分のランダム待機を経て、以降 6 時間ごと（±15%）に確認。`ETag`/`Last-Modified` の条件付きリクエストとバックオフに対応。ホストのプロキシを使い、`notification` の無効化・アンインストールで停止 |
 
-- Pixiv、更新、FFmpeg、公式プラグイン提供元と一部プラグインはホストまたはタスクの経路を使います。
-- AI、TTS、Douyin には機能・タスク単位の直接接続またはプロキシ設定があります。
-- `direct-strict` のカスタム提供元はグローバルプロキシを使いません。他の方針は提供元設定に従います。
-- ユーザースクリプト、Google Fonts、PostHog はブラウザー通信で、Java のプロキシを使いません。
-- SMTP は Mail 固有の接続設定と任意の SOCKS プロキシを使います。
-- HTTP/SOCKS プロキシ使用時、アプリはまず設定されたプロキシのホスト・ポートへ接続し、そこから目的地へ転送されます。
+## Pixiv のダウンロード、閲覧、インポート
 
-## コアと既定のリクエスト
+| 所有者 | 接続先 | 用途と送信内容 | 接続条件と停止方法 |
+| --- | --- | --- | --- |
+| アプリケーションホスト（共通クエリーとサムネイル） | `https://www.pixiv.net/ajax/user/{id}?lang=zh`、HTTPS `*.pximg.net`、`embed.pixiv.net` | `/api/pixiv/user/{id}/meta` はリクエストで渡された取得用認証情報を使用。`/api/pixiv/thumbnail-proxy` は上記画像ドメインだけに接続し、Cookie なし、リダイレクトなし、1 回最大 100 MiB | ページが対応するローカル API を呼ぶと発生。該当プレビューの停止で回避可能 |
+| アプリケーションホスト（メタデータ補完） | `https://www.pixiv.net/ajax/illust/{id}`、`/ajax/novel/{id}` | 登録済み作品ディレクトリの旧 `.meta.json` とローカルメタデータで先に補完し、なお不足する場合だけ Cookie なしで取得。1 回最大 4 MiB。404 は `data/backfill/unreachable.json` に記録し、年齢制限の応答は自動再試行を保留 | デスクトップ・ヘッドレスの起動準備完了後にバックグラウンドで自動補完、またはデスクトップツール・独立 CLI から手動実行。保存済みの全体プロキシを使い、ツールではその回だけ上書き可能。ツールページまたはサービス停止でキャンセル |
+| `download-workbench` プラグイン | `https://www.pixiv.net/ajax/illust/**`、`/ajax/user/**`、`/ajax/search/artworks/**`、`/ajax/series/**`、`/ajax/collection/**`、`/ajax/follow_latest/illust`、`/rpc/index.php`、`/ajax/illusts/bookmarks/add` | イラスト・うごイラ・作者・シリーズ・検索・ブックマーク・フォロー新着・リクエストのメタデータ取得。通常 JSON は最大 4 MiB、総ページ数不明のフォロー新着は最大 1,000 ページ。自動ブックマーク有効時はダウンロード完了後に登録。必要に応じて Pixiv Cookie を使用 | プレビュー、クイック取得、ダウンロード、スケジュールタスク、ブックマーク数絞り込みの追加照会（同時最大 6 件）、シリーズ紹介文の追加照会で発生。プラグインまたは自動ブックマークの無効化で対応する通信を停止 |
+| `novel` プラグイン | `https://www.pixiv.net/ajax/novel/**`、`/ajax/novel/series/**`、`/ajax/novel/series_content/**`、`/ajax/user/**/novels`、`/ajax/user/**/novels/bookmarks`、`/ajax/search/novels/**`、`/ajax/novels/bookmarks/add` | 小説本文、シリーズ（応答最大 1 MiB）、作者の小説、ブックマーク、検索結果、ダウンロード後の自動ブックマーク。プレビュー直後のダウンロードは、owner と認証情報に紐付く 256 KiB の短期・一回限りのチケットで検証済み応答を再利用 | 小説プレビュー、合本、検索、スケジュールタスクで発生。`novel` の無効化で停止 |
+| アプリケーションホスト（共通画像転送） | HTTPS `*.pximg.net`（サムネイルは `embed.pixiv.net` も許可） | 元画像、表紙、サムネイル、うごイラ ZIP、小説の埋め込み画像（最大 512 マッピング）を取得し、Pixiv Referer を付与。非 2xx のエラー本文はバッファーしない | 作品のダウンロード、表紙・サムネイル・小説ファイルの生成時 |
+| ルートのユーザースクリプト | `https://www.pixiv.net/ajax/**`、`*.pximg.net`、設定したバックエンドアドレス（デフォルト `http://localhost:6999`） | Pixiv ページのブラウザーログイン状態で作品取得・ローカルダウンロード。バックエンドのダウンロード、キュー、コレクション、小説状態、`/api/i18n/meta`（3 秒タイムアウト）、ツールボックスのセッション・Cookie 同期 API を呼ぶ。小説チケット API には Pixiv Cookie を送らない | Pixiv ページでの操作時にブラウザー・スクリプト管理拡張から直接接続。スクリプトの無効化で停止 |
+| `pixiv-batch-downloader-import` プラグインとスクリプト | ローカルの `/api/pixiv-batch-downloader-import/token`、`/api/pixiv-batch-downloader-import`、`/api/pixiv-batch-downloader-import/history`、ブラウザー同一オリジンの `/ajax/illust/{id}`、`/ajax/novel/{id}`。デスクトップ履歴インポートはホスト経由で `https://www.pixiv.net/ajax/{illust,novel}/{id}`、ほかにスクリプト更新元 | 自動インポートはローカルファイルのパスとメタデータを solo のループバックサービスへ送信。ブラウザー履歴インポートは同一オリジン Cookie でブラウザー内からメタデータを取得し、ローカルで検証。デスクトップ履歴インポートは任意入力のその回限りの Cookie で取得。いずれも元の作品ファイルはアップロードしない | プラグインとスクリプトをインストール・有効化した場合、または履歴インポートを明示実行した場合だけ発生。スクリプト・プラグインの無効化、タスクのキャンセルで停止 |
 
-ログインページを開くと、アプリと同一オリジンの `/api/auth/check` でセッションを確認します。送信時は管理者のユーザー名、パスワード、ログイン保持の選択を `/api/auth/login` へ、または招待コードを `/api/auth/invite-redeem` へ送り、同一オリジンのセッション Cookie を使用します。二つの方法で処理中の送信を一つに制限し、失敗後は再試行できますが自動再送はしません。管理者ログイン後の戻り先はブラウザーで URL を解析した後も同一オリジンとなるサイト内パスに限り、不正な宛先は既定のダウンロードページに戻ります。通信はブラウザーのネットワーク設定を使い、バックエンドの送信プロキシは使いません。ページを離れると以後の操作は止まりますが、送信済みの認証要求は完了する場合があります。
+SDK の `DownloadTasks.submit` や管理者の `POST /api/download/tasks` で送信したタスクも、対応するプラグインでメタデータとメディアを取得します。ワークベンチは表示中、同一オリジンの `GET /api/download/tasks` を 2 秒ごとにポーリングします。終了状態は 5 分間保持します。
 
-ページを開く、言語を変える、または言語取得を復旧すると、ブラウザーは同一オリジンの `/api/i18n/meta`、`/api/i18n/messages/{namespace}?lang=...` を読み、必要に応じてページ相対の `i18n-static/` を使います。言語・名前空間と同一オリジンのセッション Cookie を送り、外部翻訳サービスやバックエンドプロキシには接続しません。各要求は 10 秒、キャッシュを迂回します。取得できなかった辞書は 1.5、5、15 秒後の最大 3 回の復旧を試み、成功済み辞書は保持します。再接続やページへの復帰も復旧の契機です。ページを閉じるか言語クライアントを置き換えると、そのクライアントの後続試行は止まります。
+## サードパーティー・オプション機能プラグイン
 
-| 所有者・宛先 | 用途、情報、発動と停止 |
-| --- | --- |
-| ホスト：`https://github.com/Sywyar/PixivDownloader/releases/latest/download/update.json` と隣接 `update.json.sig`。Nightly は `/releases/download/nightly/` の同名ファイル | `update.enabled=true` と `update.auto-check=true` は既定で有効。準備完了後または手動確認で更新情報を取得します。User-Agent、IP など通常の接続情報だけを送り、現在版、OS、Pixiv Cookie、他の認証情報は送りません。最大 1 MiB / 16 KiB、解析前に埋め込み Ed25519 公開鍵で生バイトを検証します。Nightly 有効時は安定版が失敗しても独立取得・検証し、安定版の失敗は記録します。未検証チャンネルからはダウンロードできません。ホストプロキシ、公開 HTTPS、各段階を再検証する最大 5 リダイレクトを使用します。更新または自動確認を無効化できます。カスタムミラーにも有効な公式署名が必要です |
-| ホスト：検証済みマニフェストが指定する現プラットフォーム用インストーラー。既定は GitHub Releases と添付ファイル CDN | 更新を見つけた後、インストールを明示開始した場合だけ取得します。確認だけでは導入しません。Cookie・認証情報なし、署名内のサイズ・SHA-256 と完全一致が必要です。各段階の公開 HTTPS 検査、最大 5 リダイレクト、合計 500 MiB 制限があります。オンライン更新を無効化すると止まります |
-| 紹介ページ：`https://fonts.googleapis.com/css2?...`、`https://fonts.gstatic.com/...` | ページ表示時に Noto Sans SC の CSS/フォントをブラウザーが取得します。IP・User-Agent などが相手に伝わります。ホストプロキシ対象外で、ドメインを遮断すると代替フォントになります |
-| ホスト：`https://www.pixiv.net/` | 初回設定または明示的な接続確認の疎通検査です。Pixiv Cookie は送らず、定期的には実行しません。ホストの Pixiv 接続経路を使い、検査を実行しなければ要求しません |
-| `notification`：`https://sywyar.github.io/PixivDownloader-Remote-Content/announcements/index.json`、隣接 `.sig`、`.../announcements/<message-id>/<locale>.html` | 公開お知らせの署名付きインデックスを取得し、解析前の生バイト署名、有効期間、連番の単調増加、文書 SHA-256 を検証します。Cookie、アカウント、作品、ローカルパス、他の認証情報は送りません。署名済みインデックスが指定する必要な言語の HTML を、未知 ID または文書ダイジェスト変更時だけ取得し、変更のない既存 ID や明示削除 ID は再取得しません。失敗時は最後の信頼済みスナップショットを保持します。HTML はローカル保存し、管理者ブラウザーは認証されたローカルエンドポイントのみを読みます |
+### `douyin` プラグイン（必要に応じてインストールするサードパーティー製）
 
-`notification` は公式既定集合に含まれます。有効で正常起動した場合、起動ごとにランダムな 0～30 分の後、約 6 時間ごと（±15%）に確認します。完全な信頼済み取り込み後に `ETag` / `Last-Modified` を保存し、署名が有効な間だけ条件付き要求を送ります。304 では署名・文書を省略します。429 の `Retry-After` は最大 24 時間、通信・5xx 失敗は 5 分、15 分、1 時間、6 時間の間隔で再試行します。継承したホスト経路・有効なグローバルプロキシを使います。無効化・削除で確認を止め、停止・再読み込みは以後の定期処理を直ちに取り消します。
+デフォルトの配布パッケージには含まれず、手動でインストール・有効化し、Douyin の操作を実行した場合だけ接続します。
 
-## Pixiv の取得と閲覧
+- `https://www.douyin.com/aweme/v1/web/**`：ユーザー作品、いいね、コレクション、検索、音楽、ブックマーク、アカウント、作品詳細を取得します。設定した Douyin Cookie、Cookie から抽出した UIFID、ローカル計算の `x-secsdk-web-signature` を付けます。
+- HTTPS `*.douyin.com`、`*.iesdouyin.com`（`v.douyin.com` など）：制限付きのリダイレクトで短縮リンクを解決します。
+- HTTPS `*.douyinvod.com`、`*.douyinpic.com`、`*.douyinstatic.com`、`*.amemv.com`、`*.byteimg.com`、`*.bytedance.com`、`*.bytecdn.cn`、`*.pstatp.com`、`*.snssdk.com`：動画、画像集、表紙、ライブフォトを取得します。
 
-サムネイルプロキシは HTTPS の `*.pximg.net` と `embed.pixiv.net` にのみアクセスし、Pixiv Cookie の送信やリダイレクトの追跡は行いません。応答は 1 件あたり 100 MiB（104,857,600 バイト）までで、超過すると読み込みに失敗します。ホスト共通の画像転送は、成功以外の HTTP ステータスを失敗として扱い、エラー本文を画像や例外の詳細として全体バッファに保持しません。
+経路は「タスク専用プロキシ → 取得元のデフォルト経路 → ホスト全体のプロキシ」の順で選びます。タスクの停止またはプラグインの無効化で停止します。
 
-ホストによる Pixiv JSON の取得や作品のブックマークで 4xx/5xx 応答を受けた場合、失敗として扱い、エラー本文の解析やログ記録のための読み取りは行いません。ホームページの取得に失敗すると、ブックマーク要求を送信しません。ブックマークの失敗は、完了済みのダウンロードに影響しません。
+### `ai` と `translation` プラグイン
 
-ホストのメタデータ補完は、登録済み作品のフォルダーから旧 `.meta.json` を取り込み、ローカルの情報でイラストの欠損項目と小説のアップロード日時を補います。情報が不足する場合は `https://www.pixiv.net/ajax/illust/{id}` または `https://www.pixiv.net/ajax/novel/{id}` にアクセスします。デスクトップ起動時は、必要な列がすでにあっても情報の欠損を確認します。「常にネットワークから取得」を選ぶとローカル値を使わずに不足項目を取得しますが、既存の値は上書きしません。要求には作品 ID と通常の AJAX ヘッダーを含め、Pixiv Cookie は送りません。応答は 4 MiB までで、超過すると完了済みの結果を保持して中止します。個々の HTTP 要求は自動再試行しません。通信障害と 401/403/407/5xx は完了済みの結果とログを保持してバッチを中止します。429 はレート制限として中止し、404 は該当する作品種別と ID を取得不能として記録し、以後の補完ではその作品への通信を省略します。
+AI プラグインは OpenAI 互換プロトコルを使います。接続テスト、小説翻訳、複数キャラクター分析では、選択したベースアドレスの `/chat/completions` にテキスト、プロンプト、モデル名、API Key を送信します。小説翻訳には最大 1,000 件の用語対応表を添えます。デスクトップ設定でモデル一覧を取得すると、編集中のベースアドレスの `/models` に GET を送ります。最初は匿名で、401/403 かつキーが入力済みの場合は Bearer キーを付けて 1 回再試行します。`https://api.anthropic.com/v1` では [Anthropic のプロトコル](https://platform.claude.com/docs/en/api/models/list)に従い、`anthropic-version`、`x-api-key` と `after_id` によるページ分割を使います。すべてのリクエストで Cookie を保存せず、リダイレクトを追跡しません。
 
-年齢制限の応答は保留状態として別に記録します。次回以降のデスクトップ起動では再要求せず、作品を削除済みにもしません。ツール画面の手動補完では再試行でき、ローカル優先の場合は新たに得たメタデータから復元できます。復元が完了するか有効なネットワーク応答を取得すると、保留記録を解除します。事前取り込みはスナップショットの保存のみを行い、各項目の補完は指定した処理件数の範囲で実行します。既存の値は保持します。
+| AI プリセット | デフォルトのベースアドレス | AI プリセット | デフォルトのベースアドレス |
+| --- | --- | --- | --- |
+| OpenAI | `https://api.openai.com/v1` | 智譜 | `https://open.bigmodel.cn/api/paas/v4` |
+| Anthropic 互換 | `https://api.anthropic.com/v1` | Moonshot | `https://api.moonshot.cn/v1` |
+| Gemini 互換 | `https://generativelanguage.googleapis.com/v1beta/openai` | 豆包 / 火山方舟 | `https://ark.cn-beijing.volces.com/api/v3` |
+| xAI | `https://api.x.ai/v1` | Tencent Hunyuan / TokenHub | `https://tokenhub.tencentmaas.com/v1` |
+| Mistral | `https://api.mistral.ai/v1` | Baidu Qianfan / ERNIE | `https://qianfan.baidubce.com/v2` |
+| Groq | `https://api.groq.com/openai/v1` | iFlytek Spark | `https://spark-api-open.xf-yun.com/v1` |
+| DeepSeek | `https://api.deepseek.com` | MiniMax | `https://api.minimax.cn/v1` |
+| Alibaba Cloud Bailian / Qwen | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenRouter / SiliconFlow | `https://openrouter.ai/api/v1`、`https://api.siliconflow.cn/v1` |
+| Ollama（ローカル） | `http://localhost:11434/v1` | LM Studio（ローカル） | `http://localhost:1234/v1` |
 
-デスクトップとヘッドレスサーバーでは、バックエンドの準備完了後に自動補完がバックグラウンドで始まります。現在のデータベース接続プール、ダウンロード先、プロキシ設定を使用します。データベースが利用できない場合は補完をスキップし、復旧用のサービスを維持します。Swing と Compose のツール画面で進捗を確認して停止できます。パネルを閉じても補完は続きます。ヘッドレスモードはウィンドウやブラウザーを開かず、サービスの正常終了時に補完を中止します。停止時は保存済みデータを保持し、リソース解放を待ちます。メインログと独立した補完 CLI は、開始、各段階への初回到達、処理数、更新数、情報不足の件数、結果を出力します。繰り返しの進捗出力は最大 30 秒に 1 回です。独立 CLI はバックエンドを停止してから実行し、`--dry-run` で事前確認、`--limit` で処理数の指定、`--proxy` または `--no-proxy` でプロキシの指定ができます。自動補完は既知の閲覧制限作品への通信を保留しますが、手動補完で再試行でき、新しいローカル情報からも復元できます。
+`translation` プラグインは手動・自動翻訳の開始時に選択したエンジンを呼び出します。AI は上表の設定を使います。有道は `https://openapi.youdao.com/api` にテキスト、アプリケーション ID、ローカル計算の v3 署名を送り、アプリケーション秘密キーそのものは送りません。LibreTranslate は管理者設定の `{libretranslate-url}/translate` に接続し、任意の `api_key` を付けます。有道と LibreTranslate は接続タイムアウト 30 秒、読み取りタイムアウト 120 秒、1 回最大 1,000 Unicode 文字、応答上限 1 MiB で、`translation.use-proxy` によりアプリケーションのプロキシを使うか選びます。
 
-補完はデスクトップ起動時とツールから実行されます。保存済み `proxy.enabled`、`proxy.host`、`proxy.port` を読み、ツール画面の一時指定はその実行だけに使って設定を書き換えません。未変更欄は新しく保存した値に追随します。FFmpeg 自動導入も保存済みプロキシを読みます。設定読取失敗や有効なプロキシの不正値では停止し、直接接続へ切り替えません。プロキシ無効時はプロセス既定プロキシも継承せず、直接接続します。対象ツールを開始しない、または停止すると後続要求を止められます。
+### `tts`、`push`、`mail` プラグイン
 
-ブックマーク数フィルターで値が不足した場合は、両ダウンロードページが元の作品 ID で各種別のメタデータを取得します。取得不能をゼロ扱いしません。フォロー作品全件取得で総件数不明なら最大 1,000 ページまでで、1,000 ページ目に続きがある場合は失敗し、不完全な一覧をキューへ送りません。
-
-新版ページは対象ワークスペースが見えている間、予約一覧と展開したキューを 4 秒ごとにローカル API で更新します。非表示、別ワークスペース、ダウンロード一覧表示中は止まり、復帰時に再開します。案内は既存の例題キュー状態を 2 秒ごとに読むだけで Pixiv 要求を増やしません。5 分間結果を確認できなければ待機継続またはページへ戻る選択を出し、案内を離れても送信済みダウンロードは取り消しません。
-
-対応版では SDK `DownloadTasks.submit` または管理者の `POST /api/download/tasks` が種別・ID・出力設定を受けます。公式イラスト・小説ハンドラーが Pixiv メタデータ/本文を取得し、既存のメディア/プロキシ経路へ渡します。取得用認証情報は別渡しまたは `X-Acquisition-Credential` ヘッダーに入り、公開イベント/スナップショットには入りません。ページは既存キューへ実行状態を統合し、同一オリジンの `GET /api/download/tasks` を 2 秒ごとに確認します。非表示・退出で確認を止めます。終端スナップショットは 5 分で失効しても保存キューは残ります。取消はそのタスクの `/cancel` への POST で協調取消を要求します。照会・取消・ページ更新は Pixiv への新しいダウンロード送信ではありません。実際の対応はインストールしたホストと SDK に依存します。
-
-| 所有者・宛先 | 送信内容と発動条件 | 経路と停止 |
+| プラグイン | サービス / チャネル | デフォルトの接続先 |
 | --- | --- | --- |
-| `download-workbench`：`https://www.pixiv.net/ajax/illust/**`、`/ajax/user/**`、`/ajax/search/artworks/**`、`/ajax/series/**`、`/ajax/collection/**`、`/ajax/follow_latest/illust`、`/rpc/index.php` | 作品・うごイラ・作者・シリーズ・検索・コレクション・フォロー新着・依頼のメタデータ。プレビュー、クイック取得、送信、予約、補完と各取得モードで呼び、認証が必要なら設定した Pixiv Cookie を送ります | ホストの Pixiv HTTP と選択経路。必須プラグインなので不在・利用不能時は主ダウンロード機能を使えません |
-| `download-workbench`：`https://www.pixiv.net/ajax/illusts/bookmarks/add` | 完了後ブックマークを有効にした場合のみ、完了した作品 ID、公開範囲、タグ、Pixiv 認証情報を送ります | 完了後ブックマークを無効化 |
-| `novel`：`https://www.pixiv.net/ajax/novel/**`、`/ajax/novel/series/**`、`/ajax/novel/series_content/**`、`/ajax/user/**/novels`、`/ajax/user/**/novels/bookmarks`、`/ajax/search/novels/**` | プレビュー、合本、検索、作者ページ、予約で本文・シリーズ等を取得。認証時は Cookie。プレビュー直後は所有者・作品・取得認証情報に束縛した短命 1 回チケットで検証済み応答を再利用します。チケットなし対応クライアントの直接送信はバックエンド取得、不正チケットは拒否 | ホスト Pixiv HTTP。`novel` 無効化でページ・能力を撤回 |
-| `novel`：`https://www.pixiv.net/ajax/novels/bookmarks/add` | 有効にした場合のみ小説完了後にブックマーク | 該当設定を無効化 |
-| ホスト共通画像転送処理：HTTPS `*.pximg.net`、サムネイルには `embed.pixiv.net` も使用 | API 応答の URL から原画、表紙、サムネイル、うごイラ ZIP、挿絵を取得。通常 Pixiv Referer 付き。主な呼出元はダウンロードワークベンチと小説機能 | Pixiv 画像経路。ダウンロード、プレビュー、表紙生成、小説ファイル生成を止める |
-| ルートのユーザースクリプト：`https://www.pixiv.net/ajax/**`、HTTPS `*.pximg.net` | 操作・ページ収集・ローカルダウンロードにより作品/小説情報、ブックマーク、直接ファイル取得。`GM_xmlhttpRequest` はブラウザー/Pixiv ログイン状態を使います | ブラウザーとスクリプト管理ツールの接続でホストプロキシ外。スクリプトを無効化・削除 |
-| ルートのユーザースクリプト：設定したバックエンド、既定 `http://localhost:6999` | Java バックエンド用、一括取得用、Toolbox のスクリプトが、作品・設定を送信・キュー・状態・SSE の API に送ります。ローカルの `solo` モードでは、サイズ制限を満たす小説の Pixiv 応答を `novel` プラグインへ送り、短命チケットを取得します。Pixiv Cookie は送りません | リモート URL では相手サーバーへ送信します。ただし小説応答の取り込みは無効になり、バックエンド側が取得します |
-| `pixiv-batch-downloader-import` 収集スクリプト：`http://localhost:6999/api/pixiv-batch-downloader-import/token` と `/api/pixiv-batch-downloader-import`。ループバックホスト・ポート・HTTP(S) は設定可能 | 完了済み PBD のパス、作品メタデータ、小説本文を同じ PC に送り、元ファイルへの参照を登録します。Pixiv Cookie、管理者パスワード、既存セッションの Cookie は送らず、メディアも再取得しません。標準パッケージに含まれない[取り込みプラグイン](/ja/pixiv-batch-downloader-import)を先に有効化します（full-offline には同梱）。スクリプト導入後に Pixiv を再読み込みすると完了作品を自動送信し、ページが開いている間は待機間隔を延ばしながら保留分を再送します。`solo` 専用です | ホストの外向きプロキシを使いません。ルート未設定では全ファイルがそろった作品の絶対パスから候補を示すだけで、デスクトップで確認・保存するまで取り込みません。スクリプト無効化で送信、プラグイン無効化で受信、ルート消去で取り込みを停止します。候補の観測だけでは設定を保存せず、ファイルをコピーしません。ギャラリーから削除しても元ファイルは残します |
-| `pixiv-batch-downloader-import` 履歴スクリプト | 設定したループバックサーバーの `/api/pixiv-batch-downloader-import/token`、`/api/pixiv-batch-downloader-import/history` と、現在の Pixiv オリジンの `/ajax/illust/{id}`、`/ajax/novel/{id}` | ローカルには履歴分割ファイル、作品 ID、元の AJAX 応答を送信。Pixiv には ID とブラウザーの同一オリジン認証情報を送信。Cookie はローカルへ転送せず、元作品ファイルも送信しない | メニューから現在のブラウザーの履歴データベースを読み込んで確認し、明示的な開始操作で情報を取得し登録 | 手動実行のみ。solo のループバックと信頼する Pixiv オリジンに限定。Pixiv はブラウザーのネットワーク設定、ローカルは GM を使用し、ホストの送信プロキシは使わない。リダイレクト拒否。キャンセル・離脱・サーバー変更は元サーバーに停止を要求し、自動再開・書き込み再送はしない |
+| `tts` | ブラウザーエンジン | ブラウザーからシステム・ブラウザーの Web Speech API を直接呼び出す。バックエンドは経由しない |
+| `tts` | Edge TTS とバージョン検出 | `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1` と同ホストの `/voices/list`。ハンドシェイク 403 によるバージョン更新時は `https://edgeupdates.microsoft.com/api/products?view=enterprise` |
+| `tts` | クラウド・自前の TTS | Xiaomi MiMo `https://api.xiaomimimo.com/v1/chat/completions`、Fish Audio `https://api.fish.audio/v1/tts`、MiniMax `https://api.minimax.io/v1/t2a_v2`（中国国内は `https://api.minimaxi.chat/v1/t2a_v2`）、ElevenLabs `https://api.elevenlabs.io/v1/text-to-speech/{voice_id}`、Alibaba Cloud Bailian `https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation`（国際リージョンは `dashscope-intl.aliyuncs.com`）と応答の一時音声 URL、豆包 `https://openspeech.bytedance.com/api/v1/tts`、VoxCPM / CosyVoice `{base-url}/audio/speech`（VoxCPM は `/models` も照会） |
+| `push` | プッシュ通知チャネル | Bark `https://api.day.app/push`（自前にも変更可能）、DingTalk `https://oapi.dingtalk.com/robot/send`、Feishu `https://open.feishu.cn/open-apis/bot/v2/hook/{key}`、WeCom `https://qyapi.weixin.qq.com/cgi-bin/webhook/send`、Telegram `https://api.telegram.org/bot{token}/sendMessage`、PushPlus `https://www.pushplus.plus/send`、Server 酱 Turbo `https://sctapi.ftqq.com/{key}.send`、Server 酱³ `https://{uid}.push.ft07.com/send/{key}.send`、カスタム Webhook URL |
+| `mail` | SMTP プリセットとカスタム設定 | NetEase `smtp.163.com:465` / `126.com` / `yeah.net` / `qiye.163.com`、Tencent `smtp.qq.com:465` / `exmail.qq.com:465`、Sina `smtp.sina.com:465`、Gmail `smtp.gmail.com:587`、Outlook `smtp-mail.outlook.com:587`、Microsoft 365 `smtp.office365.com:587`、iCloud `smtp.mail.me.com:587`、Yahoo `smtp.mail.yahoo.com:465`、Alibaba Mail `smtp.qiye.aliyun.com:465`、またはカスタム SMTP と任意の SOCKS プロキシ |
 
-通常の Pixiv JSON は 4 MiB、小説シリーズ詳細とページ応答は 1 MiB です。`Content-Length` があれば先に検査し、常に実読取バイトも制限して超過を制御されたエラーにします。小説メタデータの挿絵対応は最大 512 件。短命チケットは本文と挿絵表を除いた生のメタデータのみを最大 256 KiB 保持します。
+認証情報付きの TTS・Push HTTP リクエストは Cookie を保存せず、リダイレクトを追跡しません。対応プラグインの無効化、チャネルの無効化、認証情報の消去で接続を停止できます。
 
-バックエンド対応の 4 スクリプトはコレクション更新またはコレクション付き送信時に `GET /api/collections` を呼びます。小説自動翻訳が有効なら `GET /api/auth/check` で管理者セッションを確認し、言語・区切りサイズ・合本設定を送ります。単作品スクリプトは `GET /api/novel/status/{id}` で完了を待ち、`GET /api/novel/translate-status/{id}` で翻訳を確認します。既存バックエンドセッションを使い、Pixiv Cookie は転送しません。AI 呼出しはバックエンド側です。ページを閉じると状態確認は止まっても、送信済みタスクは続く場合があります。
+### プラグインマーケット、FFmpeg、データベース、ページエディター、CAPTCHA
 
-バックエンドから導入したスクリプトは、そのバックエンドの両ダウンロードページで ID/版の検出に応答します。そこで Pixiv ダウンロード処理はしません。検出は同じページ内のメッセージだけで、導入一覧、Cookie、スクリプト設定をサーバーや第三者へ送信しません。無応答は「未検出」です。導入・更新・有効化変更後は再読込します。
+- **プラグインマーケットと撤回確認**：
+  - 公式リポジトリは `https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json`（nightly は `nightly-manifest.json`）、必要に応じた履歴分割ファイル `history/<pluginId>-<sha256>.json`、バージョンの Release にあるマーケット文書・スクリーンショットの添付ファイル、パッケージ URL を読み込みます。
+  - コミュニティリポジトリは `https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/generated/current.json`、世代ディレクトリの分割ファイル、撤回リスト、審査記録、署名済み Release ファイルを読み込みます。
+  - カスタムリポジトリは、管理者が取り込んだ `repository.json`（最大 64 KiB）と、それが宣言する `manifest-v1` / `paged-v2` エンドポイント、`revocations.json`、`repository-update.json` を読み込みます。
+  - インストール済みプラグインの更新結果は 5 分、一部失敗時は 30 秒キャッシュします。互換性のある旧版の検索はプラグインごとに最大 10 ページ、共有の時間枠は 10 秒です。`plugin-catalog.enabled` または対象リポジトリのスイッチを無効にすると停止します。
+- **FFmpeg の自動インストール**：デスクトップの状態ページからのダウンロード、または Windows インストーラーで FFmpeg タスクを選択すると、`https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/ffmpeg-release.json`、`.sig`、対象プラットフォームの `ffmpeg-*.zip` を取得し、公式 Ed25519 署名、サイズ、SHA-256 を検証して展開します。デスクトップはホストのプロキシ、Windows インストーラーは現在のユーザーのシステム HTTP/HTTPS プロキシを優先します。
+- **ユーザースクリプトの更新**：リポジトリからインストールした個別スクリプトは Tampermonkey が `https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/*.user.js` にアクセスします。バックエンドからインストールしたものは、そのバックエンドの `/api/scripts/*.user.js` を指します。
+- **公式 PostHog 調査プラグイン**：公式配布ビルドで有効化され（`release-activation.js` が `true`）、管理者が有効な調査を含むサイト内メッセージを開くか、ダウンロードページのレイアウト調査を起動した場合だけ、ブラウザーが `https://layout-survey.sywyar.top` と `https://us.posthog.com` に直接接続します。調査の範囲に限定して導出した匿名識別子と回答だけを送り、インストール UUID、アカウント、Cookie、パスは送りません。`posthog` プラグインの無効化で停止します。
+- **PostgreSQL データベースプラグイン**：管理者設定の `database.jdbc-url` に JDBC で接続し、データベースの認証情報、業務データ、専用データベースのデータを送信します。デフォルトポートは 5432、接続事前確認のタイムアウトは 10 秒です。対象サーバーへ直接接続し、HTTP プロキシは経由しません。[設定リファレンス](/ja/configuration#主データベースとエンジンの切り替え)を参照してください。
+- **固定の外部公開ネットワーク接続先を持たないプラグイン**：`gallery`、`gallery-tools`、`gui-compose`、`gui-swing`、`page-editor`（GrapesJS と CodeMirror をローカル同梱し、CDN とテレメトリーは無効）自体は、現在のインスタンスの同一オリジン API だけにアクセスし、固定の外部公開サービスへはリクエストしません。
+- **`captcha` 操作 CAPTCHA プラグイン**：
+  - **ALTCHA（SHA-256 / PBKDF2）、文字 CAPTCHA（Hutool）、スライドパズル（Tianai）**：現在のインスタンスとブラウザー内で完結し、外部サービスには接続しません。
+  - **Cloudflare Turnstile**：関連付けて公開すると、ブラウザーが `https://challenges.cloudflare.com/turnstile/v0/api.js` と iframe を読み込みます。送信時はサーバーが管理された HTTP 経由で `/turnstile/v0/siteverify` に秘密キーとチケットを送信します。アプリケーションのプロキシを引き継ぎ、リダイレクトと Cookie は禁止します。
+  - **Google reCAPTCHA v2**：関連付けて公開すると、ブラウザーが `https://www.google.com/recaptcha/api.js?render=explicit` と `www.gstatic.com`、`recaptcha.google.com` を読み込みます。送信時はサーバーが管理された HTTP 経由で `https://www.google.com/recaptcha/api/siteverify` に秘密キーとチケットを送信します。コンポーネントを除去してページを再公開すると、外部リクエストが停止します。
 
-作品メタデータ、ページ画像、うごイラプロキシは対応範囲の正整数 ID だけを受け、正規化した ID を `www.pixiv.net/ajax/illust/{id}` と固定下位パスに使います。招待ゲストは閲覧可能な作品のみ取得でき、不正または非表示の ID では Pixiv に要求しません。
+## 開発・ビルド・公開処理のネットワークアクセス
 
-## `douyin` プラグイン
+以下は開発者や CI がソースのビルド、依存関係の解決、テスト、パッケージ作成、署名、公開、コミュニティ投稿ツールを実行したときだけ発生します。**インストール済みクライアントの実行時には、これらのリクエストは発生しません。**
 
-オンデマンドの独立プラグインで、既定 Windows/Java 標準パッケージにはありません。導入・有効化後に使用したときだけ接続します。
-
-| 宛先 | 用途と発動 |
+| 工程 | 接続先と用途 |
 | --- | --- |
-| `https://www.douyin.com/aweme/v1/web/**` | 投稿、いいね、合集、検索、音楽、コレクション、アカウント、詳細を取得。手動取得、プレビュー、ダウンロード、予約探索、Cookie 検査、ギャラリー更新で Cookie・クエリー・ブラウザー型ヘッダーを送信 |
-| HTTPS `douyin.com` / `*.douyin.com`、`iesdouyin.com` / `*.iesdouyin.com`、通常 `v.douyin.com` | 貼り付けた短縮 URL を有界リダイレクトで解決 |
-| HTTPS `*.douyinvod.com`、`*.douyinpic.com`、`*.douyinstatic.com`、`*.amemv.com`、`*.byteimg.com`、`*.bytedance.com`、`*.bytecdn.cn`、`*.pstatp.com`、`*.snssdk.com` と上記 Douyin ホスト | API 応答由来 URL から動画・画像・表紙・ライブフォトを取得。有界リダイレクトの場合あり |
-
-タスク、ソース既定、ホストグローバルの順に選んだ経路を使います。タスク停止またはプラグイン無効化・削除で後続要求を止めます。
-
-`www.douyin.com/aweme/v1/web/` へのリクエストでは、ユーザーが指定した Cookie から UIFID を読み取り、ヘッダーとクエリパラメーターで送信します。クエリにはタイムスタンプと、ローカルで計算した `x-secsdk-web-signature` も含まれます。署名計算に外部サービスは使用しません。Cookie に UIFID がない場合は代わりの識別子を生成せず、保護されたエンドポイントに拒否される場合があります。
-
-## `ai` プラグイン
-
-接続テスト、翻訳、AI 処理は選択したベース URL の `/chat/completions` に本文、用途別プロンプト、モデル、API キーを送ります。デスクトップのモデル一覧取得は未保存の URL・プロキシ指定で `/models` へ GET し、本文・プロンプトを送りません。まず API キーなしで照会し、401/403 かつフォームに API キーがある場合のみ 1 回認証再試行し、以後のページにも同じ認証を使います。既存の時間・サイズ予算を共有し、他のエラーは直接報告します。導入や設定画面を開くだけでは要求しません。
-
-小説の翻訳要求には、用語集の原語、対象言語、訳語を最大 1,000 件含めます。既存の項目を優先し、章内の新しい用語を出現順に空き枠へ追加します。後続の分割部分にも同じ上限を適用します。要求に含めなかった新しい用語も、翻訳成功後に用語集へ統合します。項目数の上限はトークン数の上限ではありません。
-
-通常は Bearer 認証です。`https://api.anthropic.com/v1` のモデル取得は [Anthropic API](https://platform.claude.com/docs/en/api/models/list) に従い、`anthropic-version`、認証再試行時の `x-api-key`、同じエンドポイントの `after_id` を使います。応答内 URL を追わず、別ホスト・リージョン・ワークスペースへ自動切替しません。失敗、非対応ページ送り、上限超過は部分一覧を返しません。照会非対応プロバイダーではモデルを手入力できます。
-
-ID はプレーンテキストの選択肢です。選択は下書きのみを変更し、保存して適用します。明示的にチャット非対応の項目は除き、不明なものは残します。掲載だけでは権限・課金・チャット互換性・最新版を保証しないため、選んだモデルの接続テストを行います。
-
-| プリセット | 既定ベース URL |
-| --- | --- |
-| OpenAI | `https://api.openai.com/v1` |
-| Anthropic 互換 | `https://api.anthropic.com/v1` |
-| Gemini OpenAI 互換 | `https://generativelanguage.googleapis.com/v1beta/openai` |
-| xAI | `https://api.x.ai/v1` |
-| Mistral | `https://api.mistral.ai/v1` |
-| Groq | `https://api.groq.com/openai/v1` |
-| DeepSeek | `https://api.deepseek.com` |
-| Qwen | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| Zhipu | `https://open.bigmodel.cn/api/paas/v4` |
-| Moonshot | `https://api.moonshot.cn/v1` |
-| Doubao / Volcengine Ark | `https://ark.cn-beijing.volces.com/api/v3` |
-| Tencent Hunyuan / TokenHub | `https://tokenhub.tencentmaas.com/v1` |
-| Baidu Qianfan / ERNIE | `https://qianfan.baidubce.com/v2` |
-| iFlytek Spark | `https://spark-api-open.xf-yun.com/v1` |
-| MiniMax | `https://api.minimax.cn/v1` |
-| OpenRouter | `https://openrouter.ai/api/v1` |
-| SiliconFlow | `https://api.siliconflow.cn/v1` |
-| Ollama | `http://localhost:11434/v1` |
-| LM Studio | `http://localhost:1234/v1` |
-
-プリセットは推奨モデル/URL を入力し、保存済み設定を自動移行しません。Hunyuan の TokenHub には新しい API キーとモデル権限が必要で、旧 Hunyuan キーは使えません。既存設定は保存済み URL を使い続けるため、移行はプリセット再選択、新しいキーの入力、保存で行います。
-
-管理者は任意の互換 URL を設定でき、ローカル/イントラネットも含みます。その宛先がパラメーターと、チャットまたは認証再試行時の API キー、チャット本文を受けます。信頼できる宛先を使ってください。Cookie を保存せずリダイレクトに従わないので認証情報を転送先へ渡しません。経路は AI 設定に従います。AI 機能をオフにしても明示テスト・モデル照会は可能で、API キーの消去も匿名照会を止めません。手動操作をやめるか `ai` 自体を無効化します。
-
-## `translation` プラグイン
-
-管理者が翻訳を開始したとき、またはダウンロード後の自動翻訳が有効なときに接続します。AI は `ai` の設定済み接続先と認証情報を使います。Youdao は固定の `https://openapi.youdao.com/api`、LibreTranslate は設定した `translation.libretranslate-url` 配下の `/translate` に POST フォームを送ります。選択した本文・タイトル・紹介文、原語の自動判定、対象言語を送信します。Youdao はアプリ ID・時刻・ランダム値・v3 署名を送り、シークレット自体は送信しません。LibreTranslate は必要に応じて `api_key` を送ります。
-
-`translation.use-proxy` の既定は `false`（直接接続）で、`true` はアプリのプロキシを使用します。AI は独自の設定に従います。接続は 30 秒、読み取りは 120 秒でタイムアウトし、リダイレクト、自動再試行、Cookie 保存を行いません。通常翻訳は一度に最大 1,000 Unicode コードポイント、応答は最大 1 MiB、結合後の各フィールドは最大 64 Mi UTF-16 コード単位です。
-
-LibreTranslate は信頼できるローカル・イントラネットの URL も指定できます。サービスとモデルは事前に自分で用意してください。プラグインはモデルをダウンロードせず、ローカル環境の準備後はオフラインで利用できます。自動翻訳を無効にして手動操作を止めるか、プラグインを無効にすると後続のリクエストを止められます。ブラウザーでのキャンセルは、受理済み処理の即時停止を保証しません。インストールや設定画面を開くだけでは接続しません。
-
-## `tts` プラグイン
-
-プレビュー、生成、音声一覧更新、接続テスト、小説朗読で、本文・音声/モデル指定・サービス認証情報を送ります。
-
-| エンジン | 宛先と追加動作 |
-| --- | --- |
-| Edge TTS | 合成は `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1`、音声は同ホストの `/consumer/speech/synthesize/readaloud/voices/list` |
-| Edge 版検査 | 新しいクライアント版が必要なとき `https://edgeupdates.microsoft.com/api/products?view=enterprise`。別テレメトリーではありません |
-| Xiaomi MiMo | `https://api.xiaomimimo.com/v1/chat/completions` |
-| Fish Audio | `https://api.fish.audio/v1/tts` |
-| MiniMax | 既定 `https://api.minimax.io/v1/t2a_v2`、中国向けは `https://api.minimaxi.chat/v1/t2a_v2` に設定可 |
-| ElevenLabs | `https://api.elevenlabs.io/v1/text-to-speech/{voice_id}` |
-| Qwen | 既定 `https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation`、国際版 `https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation`。生成後はサービス管理の一時音声 URL も取得 |
-| Doubao / Seed-TTS | `https://openspeech.bytedance.com/api/v1/tts` |
-| VoxCPM / CosyVoice | 設定した `{base-url}/audio/speech`。VoxCPM は `{base-url}/models` も検査。既定 URL は空で未設定なら要求なし |
-
-各エンジンは独自ベース URL を持ち、ローカル/イントラネットも指定できます。本文・認証情報を渡す相手を確認してください。認証付き HTTP は Cookie 保存・リダイレクトを行わず、認証なしの Edge 版検査は標準クライアントを使います。経路とエンジン設定がプロキシを決めます。`tts`・エンジンの無効化、または設定消去で止めます。
-
-## `push` プラグイン
-
-チャンネル有効化後、通知イベントまたはテスト送信でタイトル・本文・認証情報を送ります。一部の鍵/トークンは URL に入ります。
-
-| チャンネル | 固定または既定の宛先 |
-| --- | --- |
-| Bark | `https://api.day.app/push`。自己ホストへ変更可 |
-| DingTalk | `https://oapi.dingtalk.com/robot/send?access_token=...` |
-| Feishu | `https://open.feishu.cn/open-apis/bot/v2/hook/{key}` |
-| WeCom | `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...` |
-| Telegram | `https://api.telegram.org/bot{token}/sendMessage` |
-| PushPlus | `https://www.pushplus.plus/send` |
-| ServerChan Turbo | `https://sctapi.ftqq.com/{key}.send` |
-| ServerChan 3 | `https://{uid}.push.ft07.com/send/{key}.send` |
-| カスタム Webhook | 管理者指定の任意 HTTP(S) URL |
-
-チャンネル無効化、認証情報消去、`push` 無効化で止まります。ローカル/イントラネットも可能で、HTTP は本文・認証情報を暗号化しないため信頼した宛先だけを使います。Cookie 保存やリダイレクトは行いません。
-
-## `mail` プラグイン
-
-テストまたは業務通知の送信時だけ SMTP に接続し、認証情報、宛先、件名、本文を渡します。
-
-| 提供元 | 既定 SMTP |
-| --- | --- |
-| NetEase | `smtp.163.com:465`、`smtp.126.com:465`、`smtp.yeah.net:465`、`smtp.qiye.163.com:465` |
-| Tencent | `smtp.qq.com:465`、`smtp.exmail.qq.com:465` |
-| Sina | `smtp.sina.com:465` |
-| Gmail / Workspace | `smtp.gmail.com:587` |
-| Outlook | `smtp-mail.outlook.com:587` |
-| Microsoft 365 | `smtp.office365.com:587` |
-| iCloud | `smtp.mail.me.com:587` |
-| Yahoo | `smtp.mail.yahoo.com:465` |
-| Alibaba enterprise | `smtp.qiye.aliyun.com:465` |
-
-任意ホスト/ポートと独立 SOCKS プロキシを設定できます。メール通知・`mail` の無効化、設定消去で止まります。
-
-## プラグインマーケット、FFmpeg、スクリプト更新
-
-プラグイン管理ページを開く、手動で更新する、履歴キャッシュから戻ると、アプリと同一オリジンの `/api/plugins/status` から状態を読み取り、現在のプラグインに必要な `/api/i18n/**` の辞書を読み込みます。ライフサイクル操作やローカルアップロードの終了後は、状態と `/api/navigation` のナビゲーションを再取得します。通信に失敗した場合も実際の状態を確認し、書き込みを自動再送しません。クエリの置き換えやページ離脱で古い読み取りを取り消し、遅れた結果による上書きを防ぎますが、送信済みの書き込みは完了する場合があります。同一オリジンのセッション Cookie とブラウザーのネットワーク設定を使用し、バックエンドの送信プロキシは使いません。ページを閉じると以後のページからの問い合わせは止まります。
-
-マーケットは同一オリジンの `/api/plugin-market/**` で提供元、カタログ、詳細、パッケージ情報を取得し、`/api/plugins/recovery` と `/api/plugins/acquisitions` で復旧状態とインストール記録を読み取ります。クエリの置き換え、詳細の閉鎖、ページ離脱で該当する古い読み取りを取り消し、戻ると再取得します。ブラウザーでの取消は、サーバーが開始済みの提供元アクセスの停止を保証しません。離脱すると未送信のインストール・復旧確認は無効になりますが、送信済みの書き込みは完了する場合があります。書き込み後は現在のカタログ、復旧状態、ナビゲーションを再取得し、インストールを自動再送しません。同一オリジンのセッション Cookie を使用し、ブラウザーからアプリへはブラウザーのネットワーク設定、ホストから提供元へはその提供元のプロキシ設定を使います。
-
-管理者がプラグイン管理へのナビゲーションのあるページを開く、または管理画面を更新すると、検証済み出所を持つ導入済みプラグインの更新を確認します。対応する有効な提供元のカタログ・署名・失効情報のみを読みます。公式鍵で確認したローカルパッケージは公式提供元を使います。成功は 5 分、部分失敗は 30 秒キャッシュし、導入や提供元変更で失効します。ブラウザーの自動ポーリング・自動インストールはありません。全体スイッチまたは対象提供元を無効にすると後続要求を止めます。
-
-公式安定チャンネルの主マニフェストには、各プラグインの最新版、最新安定版、旧 SDK `1.0.0` / `1.1.0` に合う最新安定版を記録します。他の版は同じ場所の `history/<pluginId>-<sha256>.json` にあり、既定の場所は `raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/history/` です。履歴表示、特定の旧版解決、選択チャンネルでの互換版探索時だけ取得します。各ファイルは 1 MiB・900 版以内で、署名済み主マニフェストのサイズと SHA-256 に一致する必要があります。名前にダイジェストを含む旧ファイルは上書き・自動削除しません。提供元のプロキシ、公開 HTTPS、リダイレクト規則を使い、アプリ Cookie・認証情報は送りません。
-
-管理者が導入計画を確認した後、操作記録の作成はローカルメモリーだけを更新します。実行時とダウンロード後の検査では、カタログと失効情報を再確認します。初回実行の信頼確認を待つパッケージは、同じ SHA-256 に対する確認後に取得済みバイトを使えるよう、最大 1 件を 10 分保持します。この場合も完全な検証を行います。確認取消、別のインストール開始、サービス終了でも解放します。操作・進捗照会はローカル状態を読むだけで、インストールを再送信しません。
-
-HTTP 接続は通信ポリシーごとに再利用し、プロキシ・タイムアウト設定を変えた場合にクライアントを更新します。コミュニティ認証では毎回 `generated/current.json` を読み、ダイジェスト・場所・署名が一致すれば検証済みディレクトリのルートと分割ファイルを再利用します。記述子も現在の認証内容とダイジェストが一致する場合だけ再利用します。各マーケット照会は提供元を 1 回認証します。提供元切替、再取得、ページ退出で前のカタログ要求を取り消しますが、サーバーが既に開始した外向き要求の即時停止までは保証しません。署名・失効・経路の規則を維持し、アプリ Cookie やダウンロード認証情報は送りません。
-
-アイコン、スクリーンショット、README、完全な CHANGELOG、リリースノートは同一オリジンの `/api/plugin-market/content/**` から取得します。表示画像は必要時、文書は展開時に読みます。ホストは提供元のプロキシ・公開 HTTPS・公開アドレス・リダイレクト規則を適用し、サイズ、SHA-256、画像形式を検証してから、画像と隔離した静的文書をブラウザーへ返します。ブラウザーが任意の文書画像 URL を直接取得することはありません。通常は公式・コミュニティそれぞれの版 Release と許可された添付 CDN を使い、アプリ Cookie やダウンロード認証情報は送りません。全体または提供元の無効化で後続読取を止め、文書内リンクはクリック時だけ開きます。
-
-最新版が SDK 非対応なら同じ提供元の旧版を調べ、導入可能な最高対応版を初期選択します。最新版と選択版を別表示し、対応版なしと探索不完全を区別します。ページ分割方式の提供元はプラグインごとに最大 10 ページ・各 100 版。1 ページ要求全体で新しい互換照会の開始予算は 10 秒、既に進行中の要求は提供元タイムアウトを守ります。メタデータの照会のみで、パッケージ取得には導入確認が必要です。導入済みの新しい版を自動ダウングレードしません。
-
-管理画面の明示的な失効更新は、設定済み提供元の `revocations.json` と隣接 `.sig` のみを取得し、任意 URL は受けません。アプリ情報は送らず、既存のプロキシ/HTTPS/ソース/サイズ検査を保ちます。`plugin-catalog.enabled` と対象提供元の両方が有効である必要があります。状態・操作照会はローカルだけで、提供元の背景更新を予約しません。
-
-| 所有者・宛先 | 用途、条件、制限 |
-| --- | --- |
-| ホスト公式市場：`https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/master/manifest.json`。Nightly は同じ場所の `nightly-manifest.json`、パッケージは通常 GitHub Releases と `*.githubusercontent.com` | アプリの配布チャンネルがカタログを選び、閲覧・再取得で取得、明示インストールでパッケージ取得。起動だけでは接続しません。署名・SHA-256・サイズを確認し、最大 5 リダイレクトを各段階再検証します。既定有効、全体無効で停止 |
-| GUI 記述子取り込み：管理者指定の公開 HTTPS `repository.json` | プレビュー、確認、新スナップショット保存時に取得。発行者、カタログ、失効情報/更新、全ホスト、完全鍵指紋を表示します。Cookie・アカウント・作品・パス・認証情報なし、`repository.json.sig` は要求しません。最大 64 KiB、公開 HTTPS と SSRF 検査。`DIRECT_STRICT` はリダイレクトなし、`GITHUB_RELEASES` は固定 GitHub 境界の 1 段階。確認・保存時の再取得ダイジェスト一致が必要。プレビューは設定変更せず、確認下書きも設定保存まで書きません |
-| ホストのカスタムマーケット：信頼済み記述子の HTTPS カタログ、任意の `revocations.json` / `repository-update.json` と `.sig`、カタログ指定の JAR/ZIP | `manifest-v1` は署名マニフェスト、`paged-v2` は上限付きの一覧・詳細・特定版を取得します。各照会で必要な失効情報を更新し、1 応答内では同じスナップショットを使います。依存解決前とダウンロード後にも確認し、パッケージのサイズ、SHA-256、発行者署名、記述子を検証します。YANKED / REVOKED は新規導入できませんが履歴診断には残します。検証済みスナップショットがない場合や 24 時間の猶予後は新規導入を止め、更新失敗でも既知の制限を保持します。閲覧・検索・ページ送り・詳細表示・明示した導入や更新・再取り込みで発動し、再取り込みでは継続性証明も取得できます。信頼済み記述子に対応する固定の安全な通信プロファイルを使います。起動時は最後に検証済みのローカル状態だけを読み、提供元へ接続しません。提供元の削除・無効化、または全体の無効化で後続要求を止めます |
-| コミュニティ：`https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/` 配下の `generated/current.json`、`generated/generations/<sequence>/directory.json` と必要な分割ファイル、`generated/repository.json`、カタログ/失効情報 | 独立コミュニティルートで署名、連番、記述子、鍵指紋を確認。レビュー/送信/過去発行者は同リポジトリの制御された相対パス、パッケージは署名カタログ。版詳細は最大 1 レビュー、インストールは元発行者署名と実記述子も検証。公開パス・通常接続情報のみで Cookie・秘密鍵・アプリ認証情報なし。既定有効、コミュニティ閲覧・版表示・インストール・第三者認証プレビュー/確認で発動。起動はローカル検査のみで自動インストールなし。ホストプロキシ、公開 HTTPS、固定 GitHub・1 リダイレクト。`plugin-catalog.community-repository-enabled` はコミュニティ市場を止め、`plugin-catalog.enabled` は第三者認証の照会も止めます。失敗時は最後の検証保存領域、壊れた状態でも巻き戻し防止基準をリセットしません |
-| ホスト FFmpeg インストーラー：`https://github.com/Sywyar/PixivDownloader-Remote-Content/releases/download/ffmpeg-stable/ffmpeg-release.json`、隣接 `.sig`、`ffmpeg-{windows-x64,linux-x64,linux-arm64,macos-x64,macos-arm64}.zip` と Release CDN | GUI の明示自動導入だけで発動し、起動時には取得しません。公式安定ソースビルドのマニフェストを埋め込み公式ルートで検証し、正確な添付ファイル名・サイズ・ハッシュを展開前に確認します。インストーラー User-Agent と通常情報のみ。ホストプロキシ、非対応 OS は手動。開始しなければ接続なし |
-| Windows Setup の任意 FFmpeg タスク：上記マニフェスト/署名、`ffmpeg-windows-x64.zip`、CDN | 利用者が選択した場合だけ、同梱ルートと正確な Windows 添付ファイルの名前/サイズ/ハッシュを検証しツール用ディレクトリに展開。宛先へアプリアカウント/Pixiv 認証情報は送りませんが、システムプロキシ接続には現 Windows ユーザーの既定プロキシ認証情報を使う場合があります。有効な HTTP/HTTPS システムプロキシを優先し、なければ直接。未選択なら接続なし |
-| スクリプト管理ツール：`https://raw.githubusercontent.com/Sywyar/PixivDownloader/master/*.user.js` | 6 独立スクリプトの更新を管理ツールポリシーで取得。自動更新無効またはスクリプト削除で停止 |
-| All-in-One 管理ツール：`https://github.com/Sywyar/PixivDownloader/releases/latest/download/Pixiv%20All-in-One.user.js` | 生成メタデータには残るため管理ツールが要求し得ますが、現リリース処理はスクリプト添付ファイルをアップロードせず成功は添付の有無次第です。バックエンド導入は更新 URL をそのバックエンドに書換えます |
-
-## 公式プラグインの任意調査（PostHog）
-
-レイアウト調査は `download-workbench`、多人モード継続調査は管理者受信箱だけに出る `multi-mode-decision-survey` が所有します。独立した `posthog` は同梱 JavaScript SDK と呼び出し元設定の分離クライアントを提供し、CDN から SDK を取りません。
-
-各発行元は公開プロジェクトトークン、調査 ID、`apiHost=https://layout-survey.sywyar.top`、`uiHost=https://us.posthog.com` を静的に保持します。秘密値や Actions/スクリプト/プロパティー注入ではありません。通常ソース/fork の独立有効化フラグは `false`、公式 Release・Nightly・プラグイン公開は Maven `official-surveys` で `true` にします。プロファイルは 4 パラメーターを書き換えません。
-
-起動時の受信箱登録はローカル宣言だけです。有効調査を含む受信箱を開くと埋め込みを先読みし、ダウンロードワークベンチのレイアウト調査の先読み・トリガーでもブラウザーが API/UI ホストへ接続します。ホストプロキシは通らず、発行元の `beforeSend` 許可規則に従います。
-
-多人モード調査は回答、調査 ID、調査単位匿名 ID、重複配信防止の安定イベント ID、完了状態、時刻、イベント名、公開トークンを送ります。レイアウト調査は回答、調査 ID、匿名 ID、安定イベント ID、アプリ版、現在レイアウト、調査スキーマ版、時刻、イベント名、公開トークンです。両者の送信識別はインストール識別情報から一方向導出し、調査・キャンペーンに限定します。元のインストール ID、アカウント、Cookie、作品、ローカルパスは送りません。
-
-公開登録内容がある間は受信箱に残り、なくなるとローカルライフサイクルで撤回します。遠隔の終了・削除を確認した場合はローカル非表示記録を残して非表示にし、一時接続失敗では消さず次に開くと再試行します。`posthog` 不在/無効時は調査だけが利用不能になります。開いているページの JS は回収できないため、無効化は再読込後に完全適用されます。
-
-## 固定された公開先を追加しない公式プラグイン
-
-`gallery-tools` はローカル DB・ファイル・ハッシュで統計と重複検査を行います。`stats` / `duplicate` は別途導入する公式パッケージ名ではありません。`gallery` はローカル記録とメディア、`gui-swing` / `gui-compose` は各自の UI・ウィンドウ・トレイ・テーマ・プラットフォーム資源を扱います。`recovery-sentinel` は通常配布にない復旧検証専用の実装です。同じ PixivDownloader の API は呼ぶ場合があっても固定の第三者公開先は追加しません。
-
-## PostgreSQL 主データベース
-
-既定 SQLite はローカルファイルを使います。管理者が PostgreSQL を導入・選択した後はその JDBC ドライバーが `database.jdbc-url` のサーバーに接続します。既定ポートは 5432、ホスト・ポート・DB・主スキーマは管理者指定です。
-
-「接続テスト」は未保存の入力内容にある認証情報を送り、バージョン、文字コード、スキーマ、接続先の識別情報を読みます。テーブル作成や稼働中の接続プールの置換はしません。「確認して続行」では移行元、全専用 DB、空の移行先またはバックアップ付き置換への対応を検査します。再試行時はコミット済み移行先と移行元のリビジョン・ダイジェストも照合します。確認前には移行や専用認証情報・ロール・スキーマの作成を行いません。接続、ログイン、ソケット待機は各最大 10 秒で、設定値が短ければそちらを使います。移行全体を 10 秒に制限するものではありません。
-
-確認後は設定ページの他の変更を保存し、業務を停止してプロセス全体を再起動し、移行します。各プロバイダーが読み書きと検証を担当します。空でない移行先の置換に対応する場合は先にバックアップを作り、取り込みを検証してから DB ごとに置き換えます。送信内容は認証情報、SQL、作品メタデータ、通知、予約状態・認証情報、宣言済み専用 DB のデータです。主 DB と全専用 DB の検証後だけ設定を切り替え、失敗時は移行元設定とコミット済み移行先を保持します。SQLite / PostgreSQL の双方向移行と、アプリ停止時に使う独立ツールにも対応します。通常起動、スキーマ更新、業務、保守でも選択したプロバイダーが接続します。専用 DB は所有者ごとのスキーマと制限付きログインを使い、パスワードはローカルで暗号化して保存します。通常プラグインに主 DB アカウントは渡しません。
-
-JDBC TCP/TLS は Pixiv HTTP プロキシ外です。TLS は `sslmode` と任意 `sslrootcert`、遠隔には `verify-full` を使います。パスワードは別設定または `DATABASE_PASSWORD` に渡し、URL 認証情報は拒否します。接続/プロバイダー不在は復旧モードに入り、DB 依存の業務・背景操作を止め、他エンジンに切替えません。確認前なら取消可能です。遠隔接続を止めるにはアプリ停止、DB 選択修正、完全再起動が必要です。設定の直接編集では履歴はコピーされません。[設定参照](configuration.md)を確認してください。
-
-## ローカル、同一オリジン、管理者定義の宛先
-
-画像分類ツールは正の作品 ID を取得した場合にだけ詳細を照会し、サービスから有効な ID が返らない場合はフォルダー名を試します。
-
-- デスクトップ GUI は `http://127.0.0.1:{ephemeral-port}/api/gui/**` へ状態・操作を送り、現在のバックエンドの GUI トークン、言語、引数、宣言済みアクションのプラグイン所有者を含みます。OS が起動ごとにポートを選び設定には保存しません。システム/ホストプロキシとリダイレクトを使わず、書込を自動再送しません。`ssl.domain` や公開 HTTPS ポートは使いません。ループバック限定で非 GUI パス・転送元を示すヘッダーを拒否し、ローカルソース、Host/Origin、トークンを検査します。`--no-gui`・ヘッドレス環境では作らず、リモート代替設定もありません。
-- Web/プラグインフロントエンドは現在のブラウザーオリジンの `/api/**`、静的資源、SSE を使います。招待・setup・デスクトップ Web リンクは実際の公開プロトコル/ポートと `ssl.domain`（既定 localhost）で生成し、開発時のポート変更にも追随して設定を変えません。HTTP→HTTPS は設定された公開リダイレクトリスナーだけでローカル GUI に影響しません。
-- Ollama、LM Studio、VoxCPM、CosyVoice、スクリプトバックエンドはローカルでもリモートでも設定でき、リモートにするとそのサービスが受信者になります。
-- Image Classifier の `server.url` が空なら現インスタンス、指定ありならその PixivDownloader へ作品情報照会と移動後の新パスを送ります。既存値を保持し、分類ツールを閉じると止まります。
-- Webhook、AI/TTS、プラグインリポジトリ、Bark、SMTP、SOCKS、プロキシは任意設定で固定完全許可規則にはできません。更新マニフェストも変更できますが、公開 HTTPS と有効な公式署名が必要です。
-- ルートの `cors-js-runner.html` は操作者入力の任意 URL を要求する開発用で、通常ランタイムではありません。
-
-## 公式 CAPTCHA プラグインの実行時アクセス
-
-任意の公式プラグイン `captcha` は既定ではインストールされません。管理者が Turnstile を設定してフォームへの関連付けを公開すると、チャレンジ時にブラウザーが `https://challenges.cloudflare.com/turnstile/v0/api.js` と同じオリジンの iframe を読み込みます。サイトキー、操作、試行 ID と、サービスのプロトコルが使用するブラウザーのネットワーク情報を送ります。応答の検証時のみ、プラグインが同じオリジンの `/turnstile/v0/siteverify` にシークレットキーと票を POST します。ログインパスワード、Cookie、業務リクエスト全体は送りません。ブラウザーは自身のネットワーク設定、サーバーはアプリのプロキシを継承する受管 HTTP を使い、リダイレクトと Cookie を無効にします。関連付けを削除して公開すると、そのページのオンライン検証を停止できます。プラグイン停止時は保護対象操作を拒否します。ALTCHA SHA-256/PBKDF2 Worker は同梱され、現在のインスタンス以外へ接続しません。
-
-reCAPTCHA v2 を配置・公開して認証を開始すると、`https://www.google.com/recaptcha/api.js?render=explicit` を読み込みます。スクリプトと埋め込みリソースは `www.google.com`、`www.gstatic.com`、`recaptcha.google.com` を使用します。ブラウザーはサイト識別子と Google のプロトコルが収集する情報を送信します。送信時のサーバー通信は受管 HTTP で `https://www.google.com/recaptcha/api/siteverify` に秘密キーとトークンだけを POST し、ログインパスワード、Cookie、フォーム全体、追加の remoteip は送りません。アプリのプロキシを継承し、リダイレクトと Cookie は無効です。コンポーネントを削除して再公開すると、そのページの Google 接続が止まります。Hutool の文字と Tianai のパズルはローカル生成で、ブラウザーは同一オリジンの短期画像だけを取得し、答えを外部へ送りません。
-
-## 開発・ビルド・リリース時
-
-公式モジュール `pixivdownload-plugin-captcha` または独立 SDK 工程 `examples/captcha-plugin` のビルドでは Maven の設定済みリポジトリ、ミラー、プロキシから `org.altcha:altcha`、`org.json:json` とビルド依存を取得します。リソース生成は `npm ci` を実行し、ロックファイルに従って `altcha` と推移依存を取得し、現在の取得先は `registry.npmmirror.com` です。要求にはパッケージ座標と設定済みのパッケージ管理認証を使い、プロジェクトの認証情報はアップロードしません。公式 Worker とライセンスをプラグインに同梱します。`page-editor-acceptance.mjs` の CAPTCHA 検証を明示実行した場合は公開テストキーで Cloudflare の公式テストコンポーネントと Siteverify に接続します。通常起動では実行しません。ビルドや検証の中止で以後の接続を止められ、検証済みローカルキャッシュでダウンロードを減らせます。
-
-画像コンポーネントは Maven の `cn.hutool:hutool-captcha`（および `hutool-core`）、`cloud.tianai.captcha:tianai-captcha` に依存し、設定済みリポジトリ、ミラー、プロキシを使います。CAPTCHA ブラウザー検証を明示実行すると、公開テストキーで Google 公式テストウィジェットと Siteverify にも接続します。通常起動では実行しません。
-
-以下は開発用コマンド、投稿ツール、CI、公開ワークフローが行う通信です。インストール済みアプリの通常起動では実行しません。ビルドマシンのミラー、パッケージ管理設定、プロキシ、CDN によって最終宛先は変わるため、表にあるドメインだけを完全な許可リストとして使うことはできません。
-
-### 工程ツールのプロキシと再試行
-
-コミュニティの Node ダウンローダーは、公開パッケージ、ソースアーカイブ、ビルドツールを取得します。まず `no_proxy` / `NO_PROXY` の除外規則を適用し、続いて `https_proxy`、`HTTPS_PROXY`、`all_proxy`、`ALL_PROXY` の順に調べます。小文字の変数を優先します。プロキシ変数がなければ Windows は現在の利用者のシステムプロキシと除外設定を読み、その他の OS は直接接続します。明示的な空値、または `NO_PROXY=*` も直接接続を選びます。
-
-HTTP / HTTPS プロキシに対応し、SOCKS には対応しません。プロキシの失敗時は停止し、直接接続へ切り替えません。CONNECT の宛先には検証済み公開 IP を使い、接続先の TLS は元のホスト名で検証します。明示したプロキシ認証情報はプロキシにだけ送り、公開ファイルには GitHub 認証情報や Cookie を付けません。システムプロキシの取得もダウンロードの 60 秒制限に含みます。隔離ビルドコンテナー、GitHub CLI、Git、PowerShell ランチャーは、それぞれのネットワーク設定を使います。
-
-Node ダウンローダーが自動再試行するのは、接続切断、DNS・接続失敗、タイムアウト、HTTP 408 / 500 / 502 / 503 / 504 です。最大 3 回、待機は 1 秒、2 秒で、全試行・プロキシ取得・リダイレクト・本文取得を合わせて 60 秒です。各段階で公開アドレス、接続先 TLS、サイズ、ダイジェストを確認し、失敗時は自分が作った不完全なファイルを削除します。証明書、ダイジェスト、サイズ、URL、ローカルファイルの問題と、それ以外の HTTP 状態は自動再試行しません。初回取得、投稿検証、最後の再検査で同じ規則を使います。
-
-自動復旧を使い切ると、ウィザードは失敗した処理、試行ラウンド、累計試行数を示します。手動再試行はその要求またはファイルに新しい制限時間を与え、成功済みの処理を保持します。「保存して終了」では進捗を残します。PowerShell ランチャーもファイルごとにラウンドと累計試行数を表示します。
-
-GitHub CLI を使う API の GET と候補バイナリー取得も、上記の HTTP 状態と、認識できる一時的な接続・DNS・タイムアウト・EOF 失敗に対して、60 秒以内に最大 3 回、1 秒、2 秒の待機で再試行します。権限、レート制限、証明書、分類できない通信障害は自動再試行しません。通常の API 呼び出しには 60 秒・32 MiB 制限があり、GitHub CLI の認証、プロキシ、TLS 設定を維持します。以降で別の制限を示す処理はその値を使います。
-
-fork 作成、候補作成、添付アップロード、公開、Git 転送、PR 作成・撤回は、処理ごとに同じリモートオブジェクトを読み戻して、所有者と内容を確認してから再試行します。HTTP クライアントが書き込みを無条件に繰り返すことはありません。認識済みの一時障害は 1 ラウンド最大 3 回で、完了した処理を保ちます。中断したソース CI の監視は同じ承認済み実行を再開し、CI の再起動や元の期限延長はしません。再開時もソース・署名検証のため GitHub に接続します。保存記録だけでリモート書き込みが許可されることはありません。
-
-### 投稿の開始・復旧・所有者確認
-
-ウィザードは SDK の準備、コミュニティ状態の取得、鍵入力より先に、GitHub CLI の `GET /user` で現在のログインを確認します。認証情報がないか拒否された場合は、別端末でログインして再確認するか、保存して終了できます。認証用環境変数を変えた場合はウィザードを再起動します。権限、非存在・参照不可のオブジェクト、レート制限、プロキシ、DNS、TLS、切断は別々に説明します。証明書、要求検証、状態競合、ローカルツール・ファイルの問題はネットワーク再試行に入りません。診断には制御されたエラーコード、HTTP 状態、終了コード、処理名だけを示し、生のコマンド、トークン、パラメーター付き URL は出しません。Git のコミット名義とリモート認証は別途確認し、GitHub ログインで Git 認証まで設定したことにはしません。
-
-コミュニティリポジトリ `https://github.com/Sywyar/PixivDownloader-community-plugins` のブランチが進んだ場合、1 操作につき最大 3 ラウンドで状態を読み直し、元の要求バイトを保持します。現在のアカウント、ブランチ、Git tree、元の PR を GitHub CLI で読み、投稿ブランチを再利用する前に `GET /repos/Sywyar/PixivDownloader-community-plugins/compare/<original-base-SHA>...<current-SHA>` で祖先関係を確認します。SHA は保存した要求と現在の保護ブランチから取ります。既存の PR を再利用するには、投稿者、対象リポジトリ、提出した全バイトの一致が必要です。一致する PR がなければ最新状態で検証し、書き込み前に再確認します。各ラウンドにこの確認があり、名義・内容・ブランチ競合では停止します。上限後は進捗を保存し、無期限にポーリングしません。ウィザードを終了すると後続要求も止まります。
-
-登録版の表示では、保護された公開記録にある元の発行者、プラグイン ID、バージョンからタグを決め、`GET /repos/Sywyar/PixivDownloader-community-plugins/releases/tags/<tag>` と `/releases/<id>/assets` を読みます。公開フラグとパッケージ名・サイズ・ダイジェストを比較するだけで、パッケージを取得したり Draft を公開したりしません。オブジェクト不在や取得失敗は「公開状況を確認できない」状態であり、公開失敗の証明にはなりません。古い要求の復元や移管要求の閲覧では、現在の所有者、発行者、緊急鍵停止も確認し、古くなった理由と元の PR を示します。
-
-所有権移管では、受領者が 1 件の要求 PR を作ります。現在の所有者のウィザードは `/issues` API で、既定では `labels=type:ownership-transfer` と `mentioned=<current account login>` の両方を指定して開いている PR を絞ります。どちらか、または両方のフィルターを解除できます。一致した PR の固定 head にある要求ファイルだけを読み、現在の所有権、個人の本人性または組織メンバー資格を確認します。ラベルと mention は検索条件であり、承認権限を与えません。クエリーには公開ラベル名とログイン名を含み、秘密鍵やパスワードは含みません。
-
-所有者が確認すると、自分の GitHub CLI 認証で PR の `/reviews` に承認または拒否を送ります。英語のレビュー本文の非表示マーカーに、判断種別、要求ダイジェスト、任意の有効鍵署名を入れます。秘密鍵・パスワードは送らず、受領者のソースリポジトリへのアクセスも不要です。レビューを確認した後、同じ認証で `/issues/<PR-number>/comments` にレビューリンクと通知マーカーを投稿します。書き込み失敗時は同じレビューまたはコメントを読み戻してから再試行します。
-
-このコメントは既定ブランチの保護された `issue_comment` ワークフローを起動し、fork イベントのワークフロー実行承認を必要としません。通知自体は権限証明にならず、通常コメントと bot コメントは処理対象外です。ネイティブ Review イベントでも同じ処理を起動できます。別々の個人アカウントによる有効な双方署名がそろえば、保護規則下で同じ PR に結果を追記してマージできます。Gate と最後のマージで本人性、レビュー、現在鍵、緊急状態を再確認します。証拠不足、組織、復旧要求は人手のレビューが必要です。通知は数値アカウント ID から現在のログインを解決し、中英の要求情報コメントで元の個人所有者に mention します。拒否時も所有権・要求・判断を再検査してから PR を閉じます。通知には `pull-requests: write` のジョブトークン、自動追記・マージには保護された保守者認証を使います。ウィザードを実行しない、または該当ワークフローを無効化すると後続要求を止められます。
-
-### 投稿ツールと固定 SDK の取得
-
-| 所有者・宛先 | 発動、送信情報、制限と停止 |
-| --- | --- |
-| PowerShell 起動例：`https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/tools/submit.ps1` | 利用者が `irm ... \| iex` を実行すると、PowerShell の通信設定で保護された `master` の UTF-8 スクリプトを取得して実行します。最初の取得はブランチ上の HTTPS 内容を信頼する入口です。本文へトークン・秘密鍵は送りません。開始ディレクトリを確認し、SDK プロジェクトがなければ検証済みウィザードのマーカーを経て管理操作だけを開きます。公開操作には SDK プロジェクトが必要です。実行しなければ通信しません |
-| ランチャー：`https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/tools/submission-channel.json` と、検証済み `<full-commit>/` 配下のツールマニフェスト・ファイル | 匿名で最大 4 KiB のチャンネルを取得し、埋め込み鍵、期限、受理済み sequence を検証して完全 commit SHA とハッシュを決めます。キャッシュもサイズ・ハッシュを検証して再利用します。プラットフォームのプロキシを使い接続を再利用しますが、Cookie、既定認証情報、リダイレクトは使いません。1 ラウンド最大 3 回、待機 1 秒・2 秒、全体 60 秒です。15 秒進捗がなければ早期再試行し、受信が進むと無進捗タイマーを戻します。対象は通信障害と HTTP 408 / 500 / 502 / 503 / 504、証明書・署名・ハッシュ・サイズ違反は即失敗です。ファイル、段階、理由、実試行数、期限切れか試行上限かを表示します。対話時は失敗ファイルだけを手動再試行するか終了でき、既定は終了、非対話時は失敗です。ツール使用直前にもチャンネル期限・署名を確認し、古いキャッシュで失敗を回避しません。保存先はローカル appdata。チャンネル・マニフェストは PR で更新し、信頼の起点であるランチャーの更新は次回起動時に取り込みます |
-| 投稿ウィザード・CI：`https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases/download/sdk-api-v<pinned-version>/PixivDownloader-Plugin-SDK-<pinned-version>.zip` と添付 CDN | マニフェストに固定した 1 版の SDK、ZIP、資源ハッシュを使います。キャッシュがなければ匿名取得し、ハッシュと展開後のツール契約を確認します。ビルドスクリプトと署名 CLI も同じ SDK にそろえます。上記 Node の公開 HTTPS、60 秒、最大 3 試行を使い、認証情報、投稿ソース、鍵は送りません。`target/sdk/` を毎回検証し、正常なキャッシュがあれば Release API に問い合わせません。保守者の明示的な `sdk-release.mjs --version` だけが現在の CLI ログインで指定済み公開 Release / tag API を読み、固定情報を更新します。通常動作は latest を選びません。更新は保守 PR と署名済みチャンネルを経由し、起動しなければ要求しません |
-| `Sign submission tool channel`：コミュニティ Git、Actions のツール取得・Artifact | 保守者が手動起動し、保護ソースでランチャーをテストした後、release Environment の承認を受けて選択した `master` の祖先を署名します。checkout は読み取り専用、通信は Actions の設定です。秘密鍵は署名プロセス内だけで使用し、ジョブ認証で署名済みチャンネルだけを 7 日保持の Artifact に出します。選択対象のツールを実行したり、ブランチへ push したりしません。保守者が PR で反映します。起動しなければ通信しません |
-
-### 文書・候補パッケージの投稿
-
-投稿文書は固定したソースと明示的に選んだローカルファイルから読みます。文書中の外部公開 HTTPS 画像は、著者が確認した後にだけ Node ダウンローダーで取得します。最後の投稿確認後、数値 ID を照合したソースリポジトリの `market-content-<plugin>-<version>` Release に、GitHub CLI と Release upload API で審査対象バイトを保存します。審査とコミュニティ公開では登録済み添付を同じコミュニティ版 Release にコピーし、各公開ダウンロードを検証します。GitHub 認証は API / upload エンドポイントだけに送り、公開ファイルは匿名で取得します。書き込み確認を取り消せば公開しません。
-
-公式プラグイン公開・カタログ生成の SDK ツールも、同じプラグイン Release の `market-content.json` と登録済み添付を読みます。公開ジョブまたは明示コマンドが契機で、Java システムプロキシ、GitHub ホスト許可規則、全リダイレクトの TLS 検証を使います。アプリ認証情報は送りません。1 回のコンテンツ取得全体で 5 分、接続・読み取りは最大 15 秒、メタデータ 64 KiB、文書合計 4 MiB、文書画像 8 MiB、マーケット画像 8 MiB です。各ファイルのダイジェスト一致が必要で、公開後の取得検証が失敗すれば完了にしません。
-
-| 所有者・宛先 | 発動、送信情報、制限と停止 |
-| --- | --- |
-| ローカル投稿ウィザード：`https://api.github.com` の user、organization、repository、Git tree/blob/ref/commit、Actions run/attempt/jobs、Release asset、fork、PR API。コミュニティ・確認済み fork の Git HTTPS、固定ソース ZIP・候補 URL、`uploads.github.com` | 開発者の起動で、GitHub CLI が数値 ID、成功した CI、tag/commit、添付を確認します。Draft の一時 URL は asset ID による認証付き取得に限り、プレビュー・最終タグの公開バイトとソースは匿名検証します。最終プレビュー後、ソースの prerelease、fork への push、Ready PR は確認と直前の再検査を経ます。検証済み rolling Draft のバイト・メタデータをソース SHA に結び付けた固定 prerelease へコピーし、CLI でアップロードします。CI は rolling Draft の更新を続けられます。候補不足時は、現在の既定ブランチ SHA に対する CI 再実行を別途確認し、投稿を取り消しても承認済み CI 復旧は取り消しません。送るものはメタデータ、公開鍵、署名、画像で、秘密鍵・パスワードは送りません。緊急状態を優先表示し、漏えい済み鍵の再宣言を拒否して最後にも再確認します。起動しなければ要求しません |
-| SDK ソースプロジェクト CI：Actions Artifact、ソース Release asset/ref/commit API、固定 digest の Temurin・Docker Hub registry/token/CDN、Ubuntu ミラー、設定済み Maven / Gradle / sbt リポジトリ | push / PR 時に、読み取り権限で実際のビルドモデルを問い合わせ、ビルド・テスト・オフライン再ビルドを行います。sbt ランチャーは Central の `org/scala-sbt/` 配下で版とハッシュを固定します。CI runner のプロキシを使い、投稿者端末の設定は引き継ぎません。既定ブランチ成功後だけ別の書き込みジョブがプラグインごとの rolling Draft を更新します。現在の既定 SHA を再確認し、古いメタデータ・パッケージを除き、パッケージを先に、メタデータを後にアップロードします。保存ジョブは直列で、古い実行は新しい候補を上書きできません。公開 Release 作成、tag 移動、プロジェクトコード実行は行いません。Draft は 7 日の Artifact より長く残ります。コミュニティの通信禁止再ビルドとは別処理で、ローカル投稿ウィザード自体はビルドモデルを問い合わせません。ワークフロー無効化で止められます |
-| コミュニティ静的検査：PR、Release、Git tree/blob、ソース commit、数値アカウントの API、固定公開パッケージ・ソース ZIP とリダイレクト、Actions Artifact | PR イベントで保護された既定ブランチの検査コードを使い、読み取り専用トークンで本人性と生データを確認します。投稿コードは実行しません。パッケージ・ソースは匿名 Node 取得で、最大 5 リダイレクト、各段階の公開 IP と TLS、60 秒、サイズ・ハッシュ検証を適用します。API は CLI の設定です。成功は版ビルドへの進行を許可するだけで、収録・公開承認ではありません。結果 Artifact は 7 日保持です。取り消すと後続要求を止めます |
-| `Prepare reviewed baseline`：審査済み基準の技術用 Draft / GitHub API と同一実行の Artifact | 失効済み基準を使う場合だけ、別の保護ジョブが `contents: write` で元の要求と審査記録を照合し、元パッケージを取得します。投稿コードは実行せず、1 日保持の Artifact を同一実行の読み取り専用ビルドへ渡し、再度ハッシュを検証します。準備は 15 分、SDK のアーカイブ制限と CLI の 60 秒制限を使います。準備失敗では先へ進みません |
-| ビルドツール準備：Maven / sbt の Maven Central、Gradle の `https://services.gradle.org/distributions/` と GitHub CDN、Node の `https://nodejs.org/dist/`、Squid の `archive.ubuntu.com/ubuntu/pool/universe/s/squid/`、Docker Hub の `eclipse-temurin` / `ubuntu/squid` と認証・layer CDN | 要求または再計算した版に従い、プロジェクトを実行する前に匿名取得・ハッシュ検証します。ツールは各 192 MiB、プロキシパッケージは 32 MiB、60 秒・最大 5 リダイレクト・各段階の公開アドレス検査を使います。Docker は完全な image digest、独自の registry 認証・プロキシ・キャッシュを使い、リダイレクトはコンテナーの依存取得許可ホストと別管理です。公開パス、版、digest、プラットフォーム情報を送り、投稿ソースや秘密鍵は送りません。保護された SDK lock / policy の更新で対象を変更し、ワークフローを止めれば取得も止まります |
-| 依存の事前取得コンテナー：HTTPS 443 の `repo.maven.apache.org`、`repo1.maven.org`、`plugins.gradle.org`、`plugins-artifacts.gradle.org` | 認証情報のないコンテナーで投稿ビルド設定を実行し、Squid が CONNECT / SNI / HTTP Host の一致を検査して、この範囲の GET / HEAD のみを通します。公開 IP と接続先 TLS も検証します。コンテナーには一時 CA / truststore のみを渡し、秘密鍵はプロキシ側だけで保持して後で削除します。システム trust、外部 DNS、host bridge、共有書き込みキャッシュは使いません。最後の再ビルドは新しいコンテナーで通信を禁止します。事前取得と再ビルドは各 30 分で、既定の版ビルドで実行します。許可先変更は保護されたポリシーで行います |
-| プロキシ回帰試験：`self-signed.badssl.com`、未許可ホストを装った `www.cloudflare.com` | CI または明示したネットワーク試験で、隔離試験用にだけ前者を対象に追加し、接続先の不正証明書が拒否されることを確認します。後者の偽装も拒否されます。認証情報は使わず、本番許可ホストとシステム trust は変えません。試験を実行しなければ通信しません |
-
-### コミュニティの候補保存・審査・公開
-
-待機中に PR の head、base、開閉状態が変わった Gate は、`api.github.com` のコミュニティリポジトリと検証済み投稿 fork に対して、PR、ファイル、レビュー、必要な署名証拠を読み直します。保護ジョブの GitHub 認証と CLI のプロキシ・TLS、1 要求 60 秒・32 MiB 制限を使います。1 待機ジョブ・1 PR につき版の完全再検証は最大 1 回で、その最中にさらに変われば収録を止めます。通常の Gate イベントまたは保守者の手動起動が契機です。API 失敗のログは分類済み原因、メソッド、資源分類、HTTP 状態、終了コードだけを残し、完全なクエリー、本文、認証情報、生のコマンド出力を残しません。
-
-マージ済み結果を調べる公開処理、主線 Gate、受領記録の移行は、`api.github.com/repos/Sywyar/PixivDownloader-community-plugins/git/commits/<SHA>` と `git/trees/<SHA>?recursive=1` で実際の親と完全な Git tree を読みます。マージの第 1 親と生成結果の head を比較して変更を求め、過去 PR の `/pulls/<number>/files` は要求しません。開いている PR の審査はネイティブファイル一覧を使います。通常の公開・Gate、明示的な移行コマンドが契機で、CLI 認証と同じ 60 秒・32 MiB 制限です。GitHub へ送るのはリポジトリパス、commit ID、GitHub 認証情報です。ワークフローまたはコマンドを停止すると後続要求が止まります。
-
-| 所有者・宛先 | 発動、送信情報、制限と停止 |
-| --- | --- |
-| 候補保存：同じ PR の Actions run/attempt/job/log/Artifact、Release asset API、`uploads.github.com`、GitHub が返す添付 CDN | 静的検査成功後、読み取り専用の事前確認が正しいビルド実行回の候補 Artifact を待機列外で確認します。事前確認は 5 分です。候補がある場合だけ保護された保存ジョブを起動し、ジョブトークンで本人性、来歴、バイトを再検証します。rolling Draft は発行者アカウント種別・数値 ID、publisher ID、plugin ID、版で識別します。保存時に投稿コードは実行せず、古い証明を先に外し、変わった添付、マニフェスト、新しい証明の順に置き換えます。他の開いている要求・マージ済み要求は上書きせず、古い PR 専用 Draft はその場で移行します |
-| 候補保存の制御と失敗時の扱い | 保存・清掃・レビュー・公開は同じ待機列を使います。自己レビュー Gate の事前確認は Draft 参照のため `contents: write` を持ちますが、保護コードだけを実行します。Draft の可視性は実際の API 応答で決まり、不完全な候補はレビュー待ち、401 / 403 を無視してレビュー可能にはしません。読み取り専用ビルド側は Draft がない場合、または一覧取得を明示拒否された場合に隔離再ビルドできます。レビュー・公開は保存した候補を再利用し、再ビルドしません。CLI 認証・プロキシ・リダイレクト、呼び出しごと 60 秒、保存と清掃は各 15 分です。Artifact ZIP はリダイレクト用の GitHub JSON を受理しますが、Release asset は生バイナリーを要求します。Draft は公開カタログではありません。保存を無効化すると新しいレビューが止まります |
-| 候補 PR の未マージ終了時の清掃：PR、Draft、所有者、asset API | 組み込み `contents: write` トークンが、候補がまだ当該要求のものであることを確認して候補 Release / 添付を削除します。公開済み、他要求による再利用、再オープン済みは保持します。再投稿は新候補を作ります。ソース側の Release は消しません |
-| `Community candidate cleanup`：Release/asset、PR/files、Actions run、Git tree/blob/ref、添付 CDN の証明 | 未マージ終了、毎日 UTC 04:23、手動実行で起動します。組み込み Contents 書き込み・Actions 読み取り・PR 読み取り権限を使い、秘密鍵は不要です。候補の所有元と終了を確認し、古い操作用 Draft は開いている要求から参照されず、実行完了かつ 90 日間未使用の場合だけ対象にします。マージ済み証拠は先に `migrate-receipts.mjs` で元署名、マージ親、Git 上の内容を検証して生バイト・サイズ・ハッシュを再構成します。この移行コマンド自体はローカルファイルを作り、リモートを書きません。保持期間は移行 commit、PR 終了、実行更新、Release 更新の最新時刻から計算します。削除直前にも現在の主線、要求、添付を再確認し、不完全な証拠は残します。各要求 60 秒・32 MiB、ジョブ 15 分、同じ待機列を使います。正式公開、ソース Release / tag、参照中の失効パッケージは保持します。ワークフロー無効化やプラットフォームの定期実行停止時は、必要に応じ手動再開します |
-| 候補の来歴証明：Actions OIDC、リポジトリ attestation API、`fulcio.sigstore.dev`、`rekor.sigstore.dev`、`tuf-repo.github.com`、`tuf-repo-cdn.sigstore.dev` | 保護された候補保存後、固定した `actions/attest` が一時公開鍵、署名、パッケージ digest、公開ワークフロー名義を送ります。GitHub API にはリポジトリトークンを使い、コミュニティ署名鍵は送りません。証明書・ログ・信頼メタデータのリダイレクトは各サービスが決めます。`gh attestation verify --bundle` は秘密情報を除いた環境と空の CLI 設定で匿名の公開信頼情報を更新し、60 秒制限を使います。証明は Draft に保持します。無効化・失敗は候補の正当性確認を止めますが、この証明だけで人のレビューを承認したことにはなりません |
-| 信頼済みジョブ間の受け渡し：同一 Actions run の Artifact | 候補検証、準備、署名、人の承認は待機列外で実行できます。後続ジョブは同一実行の不変 Artifact ID で取得し、ソース実行回、バイト、現在の権限を再検査します。失敗時に古い成功結果を保持して先へ進みません。保持は 1 日、符号化した Gate データは最大 32 MiB、秘密鍵は含めません。ジョブトークンと runner のプロキシを使い、ワークフロー停止で後続取得も止まります |
-| レビュー結果の fork 追記：`https://github.com/<verified-repository>/`、`github.com:22` の `git@github.com:<submission-fork>.git`、GitHub API | `review-branch.mjs` は正確な親と生成結果を確認し、元 PR のブランチへ fast-forward で追記します。fork には保守者専用 SSH、同一リポジトリにはジョブトークン API を使います。名義・要求・保守者編集許可を確認し、投稿コードを checkout / 実行しません。Git オブジェクトと署名を送り、秘密鍵本体は送りません。マージ用 owner PAT はコミュニティだけに限定します。SSH は固定 GitHub Ed25519 ホスト鍵と 1 本の専用鍵、agent / 対話なし、接続 15 秒、Git 操作 60 秒・32 MiB。HTTPS は runner のプロキシ、SSH は直接 22 番で HTTP プロキシや利用者 SSH 設定を使わず、別経路へ切り替えません。ワークフロー無効化や SSH Secret 削除で fork 書き込みを止められます |
-| `Apply signed owner request`：PR/review、登録・所有権記録、Git refs、チェック・マージ API | 保護された `master` の静的検査後、個人所有者の状態操作と通常の鍵交換を扱います。通常交換には新旧双方の証明が必要で、リモート要求署名、登録、PR 投稿者を確認します。ローカルに鍵ペアがあるだけでは権限になりません。組織、紛失・漏えい鍵の復旧交換は人手審査です。community-status root は署名だけ、SSH は fork 追記だけ、owner PAT はマージだけ、他 API はジョブトークンを使い、Gate と公開を起動します。最後の書き込みでも現在の head、保護規則、人の拒否を確認し、ネイティブ読戻しを最大 5 秒行います。再ビルドはせず、GitHub のブランチ清掃設定に従います。PR、SHA、署名状態を送り、秘密鍵は送りません。各ツールの設定を使い、自動処理無効化後も人手の経路は残ります |
-| `Community emergency`：コミュニティ PR、数値アカウント・組織管理者、Git、チェック API | ウィザードで保護された emergency-state と選択した登録公開鍵を確認して起動します。保護 `master` で個人の数値 ID または組織管理者資格を再検証します。コミュニティにはジョブトークン、fork には SSH、マージには owner PAT、チェックには Gate App を使います。宣言と公開指紋を送り、秘密鍵は送りません。マージ後は今後の該当操作を止め、既存の公開物は取り消しません。別の通知が中英でアカウントと鍵指紋を示し、通知失敗で停止宣言を再適用しません。開いている通常要求を列挙して古いチェックを無効化し、新しい確認を要求します。主線集約処理は全 PR を列挙しません。15 分、同じ待機列、API 60 秒です。期限切れによる自動解除はなく、組織状態を読めなければ停止します。無効化は以後の実行を止めますが、登録済み停止は残ります |
-| 手動のコミュニティレビュー完了：PR/review/collaborator、Environment/Actions 承認履歴、Git/ref/merge/check/dispatch、Release/asset、`/user/<accountId>`、`/organizations/<accountId>`、マージ時の `/user`、upload/CDN/OIDC/attestation/trust API | `master` で開いている PR の正確な head を指定し、release Environment の人の承認を受けます。SDK がメタデータ・署名を処理し、結果ファイル、受領記録パス・ダイジェスト、保護された証明を元 PR に追記します。内容は Git blob に保持し、操作用 Draft へ移しません。準備・署名・ブランチ更新・最新チェック・マージを同じ待機列で行います。同一リポジトリはジョブトークン、fork は編集許可と専用 SSH、マージは `/user` でリポジトリ所有者を確認した Contents 書き込み PAT が必要で、不足すれば停止します。レビュー、復旧・組織証明、公開鍵、署名、パッケージを送り、コミュニティ鍵は署名 stdin、SSH 鍵はブランチ更新段階だけで使用します |
-| 手動レビューの制限と競合処理 | 事前確認は保護 `master` の Contents 書き込みで Draft を参照し、SSH は使わず 15 分、人の承認待ちは待機列外です。統合は 30 分で、元のレビュー head を保ち、最新主線と検証済み要求・生成物を組み合わせます。主線の進行がデータだけで保護コード不変なら継続し、古くなった生成結果は再検証後に作り直して fast-forward します。ブランチ保護と人の拒否は維持します。組み合わせた結果内容、マニフェスト、証明はそれぞれ 32 MiB、API は 60 秒、CLI プロキシ・リダイレクト規則を使います。Git の審査記録は保持します。無効化するとレビュー完了を止められます |
-| コミュニティ公開：GitHub の実マージ親、準備証明、App チェック、候補 Release / asset、公開ファイル URL | `master` push または手動復旧で、実マージ、候補署名、緊急状態を公開直前にも確認します。ジョブトークンで既存候補を公開し、匿名ダウンロードを検証してから保守者向け状態を更新します。公開ファイルには Node 共通規則、API には CLI 規則を使います。`REVOKED` パッケージは digest で重複除外して `archive/revoked-packages` Draft に保存し、サイズ・ハッシュを読み戻し確認した後、主線を再確認して公開コピーを削除します。tag、失効通知、履歴、署名は残します。保存・プラットフォーム削除の失敗は失敗として扱います。再ビルド、PR 作成、開いている PR の全件列挙はしません。ジョブは 30 分で、部分書き込みは一括完了を意味せず、読戻し失敗も失敗です。無効化すると Release が主線より古いまま残る場合があります |
-
-結果追記後は、GitHub CLI が PR、ネイティブ Git ref、コミュニティブランチを最大 5 ラウンド、1 秒間隔で読みます。各 API は 60 秒制限です。ブランチが新 commit に到達し、PR 表示だけがその正確な親を示す場合に限って待機し、それ以外の変更は停止します。書き込み応答を失った場合もネイティブ ref を確認し、push を重ねません。
-
-Release 公開と PR 通知は別処理です。通知は `pull-requests: write` のジョブトークンを使い、失敗しても公開済み添付を保持して再開時に既存結果を読みます。主線が進んだ場合は元の実行、ソースの祖先関係、保護コード不変を確認し、PR の head と状態を読み戻します。通知内容が空なら要求しません。署名と状態書き込みには現在の `master` が必要です。
-
-### コミュニティの撤回・保守・チェック通知
-
-| 所有者・宛先 | 発動、送信情報、制限と停止 |
-| --- | --- |
-| 投稿撤回：PR/files、アカウント・組織 API | ウィザードが投稿者の未マージ要求を表示し、確認した 1 件だけを閉じます。数値投稿者 ID、リポジトリ、base、head、マージ状態を再確認し、応答を失ったら同じ PR を読みます。追加要求や添付削除は行いません。CLI 認証・プロキシを使い、秘密鍵は送りません。撤回を選ばなければ要求しません |
-| 投稿ブランチ清掃：user/repository/PR/branch/rules API、投稿者 fork の Git HTTPS | 投稿者が要求を閉じた後、名義、保護、他 PR の参照を確認します。別の削除確認を経て、旧 SHA を lease として当該要求 ref だけを削除します。既定ブランチ、fork、Release は残します。応答不明時は読戻し、別の削除には新しい確認が必要です。CLI / Git の認証・プロキシでリポジトリ、ブランチ、SHA を送り、断れば削除通信を行いません |
-| 失効情報更新 bot：Git オブジェクト、PR、dispatch、check API | 毎週月曜 UTC 04:23 または手動で、有効期限まで 7 日以内の場合に更新 PR を作成または再利用します。保護主線と正確な更新ブランチ履歴だけを読み、世代、ダイジェスト、Git オブジェクト、PR 本文、check ID を送ります。秘密鍵・投稿ソースは送りません。既定は読み取りトークン、対象ジョブだけ Contents / PR / Actions 書き込みを使い、リポジトリが Actions による PR 作成を許可している必要があります。静的 Gate を起動しますが、署名にはレビューと release Environment 承認を経る完了処理が必要です。各 API 60 秒・32 MiB、ジョブ 15 分。ワークフロー無効化で止められます |
-| 保護・ラベル設定スクリプト：repository/collaborator/ruleset/environment/branch/label API と `/user` | 保守者が明示的に preview / readback / apply を実行します。現在の CLI ログインと対象リポジトリの数値名義を照合し、apply だけが保護規則・管理対象ラベルを書きます。他ラベルは保持します。同一リポジトリのマージ済み投稿・保守・緊急要求の head ブランチ自動削除を GitHub に設定し、既定・緊急用ブランチは削除保護します。fork は投稿者側の設定・権限に従い、未マージ清掃のウィザード確認とは別です。設定とラベルを送り、パッケージ・鍵は送りません。CLI のプロキシを使い、起動しなければ要求しません。対象変更は保護された名義設定で行います |
-| 収録 Gate・レビュー・通知：PR/review/event/collaborator、Actions run/attempt/Artifact/check API、投稿 head の Git tree/blob、App installation token、Artifact のリダイレクト | イベントに関連する PR または手動指定の PR だけを扱い、主線コード検査は開いている PR を全件列挙しません。ラベル変更と空の管理用アーカイブは余計な収録検査を起動せず、候補保存完了はレビューを起動します。待機列外の署名検証・準備結果は同じ要求・同じソース実行回・同じ run にだけ再利用し、主線進行時は最後に再検証します。署名要求の最終準備・マージは待機列内で、ネイティブレビュー、権限、緊急状態を読み直します。自己レビュー Gate の Contents 書き込みは保護コードによる Draft 確認だけ、ソースビルドは読み取り専用、通知は必要最小権限です。SDK のローカル契約を使い、ここで Maven を解決しません |
-| Gate の認証・送信内容・通知保持 | 人の判断 JSON と生データのダイジェストはリポジトリ設定の保持期間を持つ Artifact にします。App 秘密鍵は公式 App action 内で短命のコミュニティ checks 書き込みトークンに交換します。通知は別のラベル・コメント書き込み権限で、管理対象ラベル、状態コメント、中英 2 件の要求情報コメントを同じ位置で更新します。コメントは固定 head の検証済み要求と digest 契約に基づき、操作、理由、公開鍵 ID、検証結果、リンクをそろえます。部分失敗から復旧でき、秘密鍵・署名バイトは載せません。送信内容はリポジトリ、PR/head、数値 ID、判断理由、check メタデータで、コミュニティ署名鍵は送りません。runner / CLI / Actions の GitHub 通信設定を使い、無効化すると収録判定が止まります |
-| コミュニティ試験ツール：GitHub ソース・Actions、`setup-node` / `setup-java` が使う Node / Temurin 配布サービス | PR、既定ブランチ push、保護チェックで起動します。固定した Action ref とバージョン、プラットフォームの通常メタデータを使い、候補 App 鍵や書き込み権限は渡しません。setup Action のプロキシとキャッシュ規則を使います。ワークフロー変更・無効化で対象または発動を変更できます |
-
-### お知らせインデックスの公開と更新
-
-`Renew announcement index` は毎日 UTC 03:37、または `master` での手動起動で実行します。接続先は `github.com/Sywyar/PixivDownloader-Remote-Content` の Git HTTPS と、`api.github.com/repos/Sywyar/PixivDownloader-Remote-Content/` 配下の ref / Pages build API です。固定した主リポジトリソース、Actions、JDK、Maven 依存も取得します。
-
-期限まで 7 日以内なら元の署名と内容を確認し、sequence と 30 日の有効期間だけを更新して再署名し、インデックスと署名を fast-forward で反映します。まだ余裕があれば確認だけで終わります。主線と Pages 状態を読み、必要なら Pages build を要求して公開を待ちます。commit 済み・未公開の状態も回復対象です。
-
-署名側は Contents 書き込みの `GITHUB_TOKEN`、公開側は Contents 読み取りと Pages 書き込みを使います。公式鍵は `master` 限定の `announcement-signing` Environment から読み、ローカル一時ファイルを処理後に削除し、ネットワークへ送りません。送るのは公開パス、依存座標、Git オブジェクト、署名、SHA です。各ツールのプロキシ設定に従い、確認 5 分、署名 30 分、公開 15 分、Pages 状態確認は 10 秒間隔で最大 60 回です。ワークフロー無効化で以後の実行を止められます。
-
-### アプリ・公式プラグイン・SDK の公開
-
-公式プラグインの版確認は GitHub CLI で `api.github.com/repos/Sywyar/PixivDownloader-plugins/releases` をページごとに読み、CI の GitHub 認証またはローカル CLI ログイン・プロキシを使います。成果物検査はプラグインが宣言した最小 SDK の固定 Maven 座標を取得し、現在ソースに一致する SDK なら今回ビルドしたものを使います。Quality Gate または明示コマンドで起動し、照会・解決失敗では完了を認めません。キャンセルすると以後の要求を止められます。
-
-カタログ生成は GitHub Contents API から公開済み主マニフェスト、署名、参照する履歴を読み、検証した旧版を保持します。Release のパッケージ組み立てでも、主マニフェストに適合版がなければ同一オリジンの履歴を検証し、選んだパッケージを取得します。公開・組み立てスクリプトの GitHub 認証、プロキシ、パッケージ署名検証に従います。
-
-| 所有者・宛先 | 発動、送信情報、制限と停止 |
-| --- | --- |
-| パッケージ受入 E2E：GitHub Actions Artifact と runner に返されるダウンロード URL / リダイレクト | Java の標準 ZIP と full-offline ZIP は別 runner、Windows installer は通常、障害注入、プラグイン不足・ログローテーションの 3 群に分けて取得します。各群内の導入・削除は順番に実行します。ログ、スクリーンショット、プラグイン状態などは失敗時も識別可能な Artifact として 7 日保持します。1 群の失敗で他をキャンセルせず、公開には全群の成功が必要です。Artifact 用認証を使い、完全な公開用秘密鍵は渡しません。共有受入・アップロード処理の変更またはワークフロー停止で対象を変えられます |
-| Git と Release スクリプト：現在の origin、`api.github.com` または `GITHUB_API_URL` の Release API | リモート ref 取得、Quality Gate の照合、公開で使用します。Git と CLI の認証・プロキシ設定に従い、該当コマンドを止めれば後続要求を止められます |
-| Release / Nightly のカタログ取得：`https://raw.githubusercontent.com/Sywyar/PixivDownloader-plugins/<published-catalog-commit>/manifest.json` または Nightly マニフェストと署名。Nightly 状態は `https://api.github.com/repos/Sywyar/PixivDownloader/releases/tags/nightly` | 共有プラグイン公開を直列化し、公開済み固定 commit のカタログを使います。Nightly のプラグイン検査はそのカタログを checkout します。アプリ公開は添付削除前に現在の Release 名を読み、古い run / attempt を拒否します。404 だけを不存在と扱い、不明・読取失敗では止めます。ジョブトークンと CLI の 60 秒・32 MiB、プロキシ、既存のカタログ署名規則を使います |
-| Quality Gate / Actions：GitHub Actions、Artifact、Release、`actions/*`、`softprops/*` などのサービス | Java、SDK、ProGuard の 3 ジョブは同じソースで並列実行し、Maven キャッシュは読み取りで再利用します。キャッシュがなければ依存取得が重複する場合があります。この段階では公開しません。ProGuard の未署名プラグイン検査用コンパイルクラスは 1 日保持の Artifact です。完全 QG 成功後は同じ run / SHA の不変 Artifact ID を使い、成功済み producer なら以前の attempt も再利用できます。ソース、ビルド設定、全ハッシュを照合します。Release / Nightly は同じ SHA で完全 QG を 1 回行い、その後 SDK、アプリ本体、検証済み公式プラグインの処理を並列化します。新しい SDK の公開は下記の Release 条件だけです。core とプラグイン検査用 Artifact は Java 配布・installer 組み立てに渡します。公開秘密鍵は release Environment の処理だけで使います |
-| Gate Checks：`https://api.github.com/repos/Sywyar/PixivDownloader/` 配下の購読した CI の workflow/run/job/log、PR/commit/check、および App/token API、現在 origin の Git、ログのリダイレクト | `workflow_id` のメタデータでワークフローを識別し、run 名と PR 関連付けを確認します。開いている `master` 向け PR の正しい head リポジトリ・ブランチだけに App トークンを発行し、閉じた PR や開発ブランチ向け PR には発行しません。読み取りトークンで Git 取得し、release Environment の App 鍵でローカル JWT を作って短命の checks 書き込みトークンに交換します。秘密鍵本体は送らず、終了時にトークンを失効させます。現在は 6 チェックを PR head とテスト済み merge に記録し、詳細リンクは元の実行を指します |
-| Gate Checks の再利用と失敗時の扱い | テスト merge が再生成された場合、両親と tree の一致を確認して結果を再利用できますが、再生成された commit にチェックを書きません。記録先は最大 2 組で、書き込み前後に PR、両親、tree、有効な実行を再読取し、変更や書き込み失敗では両組を無効化します。マージ後の主線検証と手動完全 QG 復旧は、同じ保護 `master` commit のブランチ・tag 条件を満たす必要があり、App チェックは書きません。送信内容はリポジトリ、PR、workflow/run/job、SHA、結果です。runner、Git、CLI のプロキシを使い、App ワークフローを止めるとチェック発行が止まります |
-| SDK の Central 公開：Central Portal の `org.sonatype.central` プラグインが選ぶサービス、`https://repo1.maven.org/maven2/io/github/sywyar/pixivdownloader/` | アプリ Release または明示した公開復旧だけで発動し、通常の主線 push / Nightly は公開しません。Nightly は同じビルド検査を行います。公開済み SDK / POM が完全に存在すれば再利用します。新 SDK は同じ SHA の完全 QG 後、release Environment の Central Token / PGP で 5 座標を公開します。`PUBLISHED` まで最大 3600 秒待ち、公開 POM、JAR、sources、Javadoc、署名、SHA-256 をダウンロードして隔離 consumer で検証します。実ホストとプロキシは Central プラグインが決め、インストール済みアプリは接続しません |
-| SDK 候補 Artifact：Actions の不変 Artifact ID | 検証済みホスト、未署名プラグイン、Maven 成果物、ツール、Javadoc、ダイジェストを 1 日保持します。完全 QG と同じ run のソース SHA、パス、サイズ、digest を確認してから公式鍵で署名・組み立てます。アプリ認証情報、公開秘密鍵、試験鍵・設定は入れません。同一 run の成功済み前 attempt は再利用できますが、欠落・期限切れ・不一致なら完全再実行が必要です。既存 Release の復旧は Artifact 保持期間に依存しません。通常 QG はこの公開候補を出力しません |
-| SDK Release / Pages：`https://api.github.com/repos/Sywyar/PixivDownloader-Plugin-SDK/releases`、`https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases/download/` と CDN、Pages Artifact / deployment | release Environment の SDK 限定公開トークンで不変 `sdk-api-v*` tag / Release / 添付を作り、公開取得を検証します。主リポジトリの Pages reusable workflow は匿名 API で全非 Draft Release のメタデータ・Javadoc を読み、Pages Artifact を作ります。SDK 側の薄い入口は固定した主リポジトリ SHA を呼び、自身の Pages 書き込み・OIDC で deploy します。Pages 処理にクロスリポジトリトークンは渡しません。外部書き込みには各操作の認証が必要で、アプリはここへ接続しません |
-| SDK runtime preparer：`https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases/download/<release-id>/<fixed-runtime.zip>`、`release-assets.githubusercontent.com`、`objects.githubusercontent.com` | 明示的な prepare / Run / Debug のキャッシュ不足時だけ取得し、IDE への import だけでは取得しません。公開 asset パスと GitHub 署名付きクエリーを使い、プロジェクトソース、プラグイン JAR、アプリ認証情報、トークンは送りません。開発 JVM の URLConnection / プロキシ設定はアプリとは独立し、HTTPS リダイレクトは最大 5 回です。取得・キャッシュ・実行ごとにサイズとハッシュを検証し、失敗時に別配布へ切り替えません。既定キャッシュは `~/.cache/pixivdownloader-sdk/`、`pixivdownload.sdk.cache-dir` で変更できます。正常なキャッシュか未実行なら取得しません |
-| SDK 完全ホスト検証：ソースビルドの Maven / Gradle 依存先 | QG は同じソースからホストと全公式プラグインをビルドし、公開済みプラグインを取得して代用しません。一時的なカスタム提供元、試験鍵、試験設定はローカル検証だけに使い、後で削除します。発行者名義にはしません。QG 後に同じバイトを公式署名し、最後の検証を行います |
-| SDK 公開凍結と復旧：SDK Draft / 公開 Release、Central 公開座標 | Central へ送る前に署名済み内容を Draft に固定し、読み戻します。全 Central 座標が公開取得可能になった後、固定内容と完全ホストを確認して同じ Release を公開します。Central と元 Release が完了済みならホスト・ツール ZIP を再利用し、Central を再アップロードしません。Draft はあるが Central が空の場合は処理中の可能性があるため止め、deployment ID を確認します。Central の部分公開、添付不足・衝突は停止し、上書きしません。公開後は空キャッシュの consumer で取得検証します。クロスリポジトリトークンは GitHub 公開専用で、Pages は匿名です。SDK / Javadoc 検査はメタデータを読み、全旧ホストを一括取得しません |
-| 手動 FFmpeg ビルド：`https://ffmpeg.org/download.html`、`https://ffmpeg.org/releases/`、`https://ffmpeg.org/ffmpeg-devel.asc`、`https://chromium.googlesource.com/webm/libwebp`、Linux / Homebrew 配布元、GitHub Actions Artifact / API / Release | 既定ブランチでの手動実行だけが契機です。最新安定版のソース署名と固定 libwebp を検証し、5 プラットフォーム用添付、サイズ・ハッシュ付きマニフェストを作ります。release Environment の公式鍵で署名し、クロスリポジトリトークンで Remote Content の `ffmpeg-stable` に公開します。秘密鍵は取得先へ送りません。インストール済みアプリがソースビルド用 URL を読むことはありません |
-| `package-local.ps1`：Remote Content の署名済み FFmpeg マニフェスト・署名・Windows ZIP と CDN | 既定のオフライン Windows portable 組み立てで curl が取得します。埋め込み公式 root、正確な名前、サイズ、ハッシュを確認し、キャッシュも再検証します。アプリ / Pixiv / Release 認証情報は送らず、ビルド時 curl のプロキシを使います。`-SkipOfflinePortable` ならこの組み立てを省略し、`-RedownloadFfmpeg` は再取得を強制します。通常実行時の自動取得ではありません |
-| 公開前 QG：Wrapper URL、Maven / Gradle の依存・リダイレクト、ステージング SDK の file URL | 完全 QG ごとに Compose、テンプレート、完全 Javadoc、隔離 consumer を検査し、SDK が同じ版でも行います。ステージング SDK、テンプレート、文書 consumer は同じジョブで順番に再利用し、Compose は ProGuard 後に確認します。先に依存・プラグインをオンライン取得し、次に対象 SDK の consumer をオフラインで実行します。一時第三者鍵は試験だけに使い、公開しません。キャッシュは取得を減らしますが独立 QG を省略する理由にはなりません。公開処理はこの検証済み内容を使い、公開後も再取得確認します |
-
-### ビルド依存・資源・互換性検査
-
-| 所有者・宛先 | 発動、送信情報、制限と停止 |
-| --- | --- |
-| Maven の JDBC 依存：Central の `org/postgresql/postgresql/<version>/`、`org/xerial/sqlite-jdbc/<version>/` | ソースビルドや依存準備でキャッシュ不足時に `org.postgresql:postgresql` と `org.xerial:sqlite-jdbc` を取得します。実経路は Maven の repository / mirror / proxy 設定で決まり、アプリ DB 認証情報は送りません |
-| 実 DB 受入試験：`PIXIV_TEST_POSTGRES_URL` に明示した隔離サービス。Docker 使用時は `postgres:17` の Docker Hub registry/token/layer CDN | 試験用認証情報だけで隔離 DB に接続します。Docker は自身の registry・プロキシ・認証設定で image を取得します。試験・コンテナー停止で通信も止まり、アプリ通常起動が DB image をダウンロードすることはありません |
-| 第 3 の DB provider 契約試験：Maven の `com/h2database/h2/<version>/` | `com.h2database:h2` は試験依存だけで、ホスト・公式プラグインへ配布しません。同じ Maven repository / mirror / proxy を使い、試験は隔離したプロセス内メモリー DB で、利用者 DB には接続しません |
-| Maven Wrapper：`https://repo.maven.apache.org/maven2`、公開 SDK の `https://repo1.maven.org/maven2/` | Maven 3.9.11 と依存・プラグインを取得します。SDK 公開も固定 Wrapper を使い、キャッシュ不足時に検証取得し、公開 Central の不変内容を確認します。Maven 設定で経路を変えられます |
-| Cupertino / Framework7：Central の `io/github/robinpcrd/`、`https://registry.npmjs.org/framework7` | Gradle の Cupertino は 3.3.1 固定です。Framework7 は保守者の明示更新だけで取得し、9.1.3 の CSS とライセンスをリポジトリに保存します。通常ビルドは Framework7 を再取得しません。ビルドのプロキシ・キャッシュで公開座標を送り、アプリ認証情報は送りません。同梱資源を使うため、実行時に CDN へ接続しません |
-| アプリ / Swing / SDK 内部ツールの Maven 依存：`com/networknt/json-schema-validator/`、`io/github/erdtman/java-json-canonicalization/`、`com/twelvemonkeys/imageio/imageio-webp/` と推移依存 | POM で固定した依存が不足すると Central から取得します。アプリ・Swing・内部 community-contract ツールの WebP、Schema、JCS 用で、公開 SDK の 5 座標には含めません。公開パスだけを送り、アプリ・投稿データは送りません。Maven のプロキシ・ミラー・キャッシュを使い、準備済みならオフライン解決できます。ローカル画像 decode / schema 検証が外部資源を解決することはありません |
-| SPDX 資源更新：`https://api.github.com/repos/spdx/license-list-data/` の tag/commit/contents、`https://raw.githubusercontent.com/spdx/license-list-data/<commit>/` | 保守者の明示コマンドで固定 commit、サイズ、ハッシュを更新します。通常ビルド・実行は同梱資源を使い、latest を取得しません。CLI は既存 GitHub 認証、Raw は公開用認証なしで取得し、選択したツールのプロキシを使います。資源を更新しなければ通信しません |
-| npm：現在の lock が指す `https://registry.npmmirror.com` | PowerShell 編成テストで YAML parser が不足すると、新規 CI を含め `npm ci --ignore-scripts --no-audit --no-fund` を実行します。コミュニティ保守では固定した Clack / esbuild 依存で対話ツールを束ね、ツールマニフェストを作ります。npm の registry・プロキシ・認証設定を使い、公開パッケージパスを送り、アプリデータは送りません。ウィザードは検証済み bundle を使うため実行時に npm を呼びません。事前導入または保存済み bundle で追加取得を避けられます |
-| 複数ビルド方式の SDK consumer：Maven / Gradle / sbt の隔離キャッシュ、ローカル staging SDK、Central、Wrapper と CDN | QG・公開時に 1 依存の SDK バイトと runtime scope を検査します。sbt は `https://repo.maven.apache.org/maven2/org/scala-sbt/sbt-launch/1.10.11/sbt-launch-1.10.11.jar` の固定ハッシュを使い、ローカルでは既存ランチャーも使えます。Maven は空設定、Gradle / sbt は Central を使用します。Maven / Gradle はオンライン準備後オフライン、sbt はオンライン compile です。公開座標だけを送り、公開トークンやアプリデータは送りません。ビルドのプロキシを使い、ローカル `--tool` で対象を選べますが QG は 3 方式すべてを確認します。取得先は Wrapper / 検査スクリプトで変更します |
-| 保守者一覧の資源生成：`https://api.github.com/repos/Sywyar/PixivDownloader` の `/contributors`、`/users/{login}`、返された `https://avatars.githubusercontent.com` の画像 | アプリ資源ビルドごとに、リポジトリ所有者・貢献者・ローカル Git author / co-author と人間アカウント許可集合を照合し、認めた画像と JSON を埋め込みます。CI は読み取り `GITHUB_TOKEN`、ローカルは `GITHUB_TOKEN`、`GH_TOKEN`、匿名の順です。認証情報は `api.github.com` にだけ送り、API / 画像はリダイレクトせず、画像は匿名です。API は 30 秒、明示的レート制限・一時障害に最大 3 試行、合計再試行待機 180 秒で `Retry-After` を尊重し、超える指定は失敗にします。通常の権限失敗は再試行しません。制御したメッセージ、request ID、レート制限ヘッダーを記録します。Release は今回のビルド結果を使い、再生成しません。独立した省略スイッチはなく、失敗はビルド失敗です。アプリ通常実行では取得しません |
-| SDK 互換性基準：SDK Release API の `sdk-release.json` と Central の `repo1.maven.org/.../io/github/sywyar/pixivdownloader/` 配下の 5 POM | アプリ Release / 手動公開では現在の公開 SDK を照合して再利用可否を決めます。新 SDK と通常 PR は最新の正式 SDK 公開 API・Maven 契約を基準にし、検証済みソースから生成します。基準をリポジトリ内の固定コピーで代用しません。前身が prerelease または別 major なら、候補以下の同一 major の最新安定版を探し、メタデータ SHA と 5 POM を照合して一時ビルドします。安定した前身なら現在のビルドを再利用します。照会・ビルド失敗では止め、取り消せば後続要求も止まります。通常の Nightly は正式基準照会・公開を行わず、PR は読み取りです。CI は読み取り GitHub 認証、ローカルは CLI、Node の Central 取得は GitHub トークンを使わず独自の通信設定、Maven は自身の設定です。公開パスを送り、ローカルソースをアップロードしません |
-| Docker / OCI ビルド：`eclipse-temurin:17-jre` の registry とベース OS の Debian パッケージ配布先 | image ビルドで FFmpeg、curl、システム依存を取得します。Docker と OS パッケージ管理の認証・ミラー・プロキシ・キャッシュ設定に従い、ビルドを止めれば後続取得も止まります |
-| Windows CI：Chocolatey に設定した Inno Setup 配布元 | installer ビルド用のツール導入で取得します。Chocolatey と runner の設定を使い、該当ジョブを実行しなければ通信しません |
-| Douyin consumer 互換性：`https://github.com/Sywyar/PixivDownloader-Plugin-Douyin.git` と Maven 依存先 | `scripts/ci/sdk-consumer.mjs` が `scripts/ci/douyin-source.json` の固定 commit を取得し、可変 main は使いません。fetch / checkout はそれぞれ 300 秒、認証 helper と対話を無効にした Git のプロキシ設定で、リポジトリ・SHA を送り、公開トークンは送りません。候補 SDK でビルドした後、オフラインで Java / JavaScript とホスト成果物を検査します。`--douyin-source` でローカルソースを指定するとソース取得は避けられますが、Maven 依存取得は別です |
-
-## リンクがあるだけでは発生しない通信
-
-GitHub Releases、オンライン文書、Tampermonkey、ライセンスなどへのリンクは、利用者が開くか、その先の資源を読み込む時点で通信します。XML namespace、POM schema、ライセンス識別子、説明用 URL がファイル内にあるだけで自動要求することはありません。
-
-Web UI は、同梱お知らせ・調査 HTML 内を含む外部 HTTP(S) リンクを開く前に宛先を確認します。確認後はブラウザーが直接接続し、Java バックエンドやそのプロキシを通りません。取り消した場合は接続せず、同一オリジンの通常リンクはそのまま移動します。
+| Maven / Gradle / sbt と npm の依存関係解決 | Maven Wrapper と Java モジュールは、設定された Maven リポジトリ・ミラー（デフォルト `https://repo.maven.apache.org/maven2`、`https://repo1.maven.org/maven2`、`https://plugins.gradle.org`）からビルドツールと依存関係（Tink、PostgreSQL/SQLite/H2 JDBC、Hutool/Tianai/ALTCHA、Cupertino、WebP/JSON Schema/JCS、sbt-launch など）を取得。フロントエンドの検証とプラグインリソースのビルドでは、ロックファイルの npm レジストリ（現在は `https://registry.npmmirror.com`、Web リソース保守時に `https://registry.npmjs.org` を使う場合あり）から依存関係を取得 |
+| ブラウザーとデータベースの結合検証 | Playwright のブラウザーインストールは `cdn.playwright.dev` / `playwright.download.prss.microsoft.com` から Chromium を取得。`page-editor-acceptance.mjs` の CAPTCHA 検証を明示実行すると、公式の公開テストキーで Cloudflare Turnstile と Google reCAPTCHA のテストエンドポイントに接続。PostgreSQL コンテナー検証は Docker の `postgres:17` を取得し、`PIXIV_TEST_POSTGRES_URL` の隔離データベースだけに接続 |
+| メンテナー一覧、ライセンス、ローカルパッケージ作成スクリプト | アプリケーションリソースのビルド時に、GitHub API（`api.github.com/repos/Sywyar/PixivDownloader`）と `avatars.githubusercontent.com` から許可リスト内の貢献者情報とアバターを取得。システム・環境の HTTP(S) プロキシに従い、タイムアウトは 30 秒、オフラインビルドでは自動スキップ。ライセンス保守スクリプトは必要に応じて `spdx/license-list-data` を参照。`package-local.ps1` のオフラインパッケージ作成は `ffmpeg-stable` のファイルを取得して署名検証。`package-installer-with-plugins.ps1 -PluginSource Catalog` は公式プラグインリポジトリから署名付きマニフェストとパッケージを取得 |
+| SDK の検証、公開、リポジトリ間の Pages ビルド | `sdk-legacy-plugin.mjs` は固定の `gui-swing-v1.0.2` ファイルを取得してバイナリー互換性を検証。`sdk-consumer.mjs` は `Sywyar/PixivDownloader-Plugin-Douyin.git` の固定コミットを取得して隔離した利用側を検証。SDK 公開ワークフローは Sonatype Central Portal に 5 つの SDK Maven 座標を公開し、`Sywyar/PixivDownloader-Plugin-SDK` に署名付き Release を作成して Javadoc GitHub Pages をビルド。開発者が SDK プロジェクトで初めて `sdk-prepare` / `sdk-run` を実行すると、SDK Release から固定の実行パッケージを取得して `~/.cache/pixivdownloader-sdk/` にキャッシュ |
+| 主リポジトリの CI、Gate Checks、Release、お知らせの署名更新 | GitHub Actions が Quality Gate、配布パッケージ E2E、署名付きプラグイン公開、`Gate Checks` を実行。GitHub API と App token により開いている PR に必須チェックを発行。`PixivDownloader-Remote-Content` の定期ワークフローは `announcements/index.json.sig` を確認して署名を更新し、Pages デプロイを起動 |
+| コミュニティプラグイン投稿ウィザード、隔離ビルド、審査と公開 | 投稿入口 `irm https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/tools/submit.ps1 \| iex` が署名済みの `submission-channel.json` と固定コミットのツールを取得。`no_proxy` → `https_proxy` / `all_proxy` → Windows システムプロキシの順で経路を解決し、1 ファイル 60 秒、最大 3 回試行。GitHub CLI / Git でコミュニティリポジトリと投稿者の fork にアクセスし、候補 Release のファイルと文書画像をアップロード。コミュニティ CI は管理された Squid プロキシコンテナーで承認済み Maven / Gradle ソースからだけ依存関係を事前取得し、ネットワークを切断したコンテナーでプラグインを再ビルド。GitHub Actions OIDC / Sigstore（`fulcio.sigstore.dev`、`rekor.sigstore.dev`、`tuf-repo.github.com`）でアーカイブ証明を生成し、審査・マージ・撤回リストの署名更新を実行 |

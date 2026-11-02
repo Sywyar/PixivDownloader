@@ -1,82 +1,44 @@
-# Artist Batch Download
+# Artist batch download
 
-Enter an artist profile URL or ID in **User Mode** to preview illustrations, manga, animations, novels or completed public commissions. Download all listed works or a selection. Account access, filters and download-history checks still determine which works can be downloaded.
+Enter an artist profile link or numeric ID in User mode on the download page to preview their illustrations, manga, animations, novels or published commission results, then download all or selected works. What can actually be fetched depends on the current account's permissions, additional filters and downloaded-work checks.
 
----
+## Steps
 
-## Usage Steps
+1. Open `http://localhost:6999/pixiv-batch.html` and switch to User mode.
+2. Paste an artist profile link or numeric user ID.
+3. Select the download scope: Illustrations + Manga + Animations, Novels or Requests. Novels require the `novel` plugin.
+4. Click Parse and preview, then configure additional filters as needed.
+5. Click Queue all, or select particular works to queue, then click Start download.
+6. After downloading, inspect successful, skipped and failed entries in the queue.
 
-1. Open `http://localhost:6999/pixiv-batch.html`
-2. Switch to the "**👤 User Mode**" tab
-3. Paste an artist profile URL or numeric ID
-4. Select images, novels or commissions; novels require the enabled `novel` plugin
-5. Click "**Parse & Preview**"
-6. Configure extra filters (optional)
-7. Click "**Add All to Queue**" or manually select some works to add
-8. Start downloading, then check successful, skipped and failed entries
+The following formats are supported. `123456` is an example; replace it with the actual artist ID:
 
----
-
-## Supported Link Formats
-
-Paste any of the following — the system auto-extracts the numeric ID:
-
-```
+```text
 https://www.pixiv.net/users/123456
 https://www.pixiv.net/users/123456/artworks
 https://www.pixiv.net/users/123456/illustrations
 https://www.pixiv.net/users/123456/novels
-https://www.pixiv.net/users/123456/request/artworks   ← commission page link (auto-switches to "Commission" scope)
+https://www.pixiv.net/users/123456/request/artworks
 https://www.pixiv.net/en/users/123456
-123456                                               ← bare numeric ID works too
+123456
 ```
 
----
+## Download scope and additional filters
 
-## Download Scope
+| Scope | Content |
+| --- | --- |
+| Illustrations + Manga + Animations | Image works posted by the artist |
+| Novels | Novels posted by the artist |
+| Requests | Completed, publicly available commission (リクエスト) results, previewed, queued, downloaded and checked for duplicates through the ordinary illustration flow |
 
-| Scope | Includes |
-|-------|---------|
-| **Illustrations + Manga + Ugoira** | All of the artist's image-type works |
-| **Novels** | All of the artist's novels |
-| **Commission Works** | The artist's **completed, public commissions (リクエスト)** — deliverables are ordinary illustrations, handled through the illustration preview / queue / download / dedup pipeline |
+Pasting a request-page link (`/users/{id}/request/artworks`) automatically selects Requests. The preview displays one scope at a time. Switching scopes clears the current preview list but leaves the download queue intact; you can queue illustrations, switch to novels and queue them, then download both together.
 
-The preview area **fetches only one type at a time** — switching types clears the old preview results. But the download queue is unaffected: you can add illustrations to the queue first, then switch to novels, fetch again, and add them — then download everything together.
+Additional filters supports content rating, excluding AI, minimum bookmark count, tags and page count, and checks each work during both preview and actual download. For artists with many works, combine these filters with a lower Maximum concurrency and a Work interval in milliseconds to reduce the risk of triggering upstream limits.
 
-> Pasting a commission page link (`https://www.pixiv.net/users/{id}/request/artworks`) **auto-switches to the "Commission" scope**, no manual selection needed.
+## Save as a scheduled task
 
----
+Enter a task name and trigger in the Save as scheduled task card at the bottom of the page to discover and download the artist's new works periodically. Bind a valid cookie to the task for content that requires login. See [scheduled tasks](/en/scheduled-tasks) for configuration and incremental watermark rules.
 
-## Extra Filters
+## Expected works are missing
 
-Expand the "Extra Filters" card to narrow the scope, for example:
-- Only download the artist's R-18 works
-- Exclude AI-generated works
-- Only download works with 100+ bookmarks
-
-Filters apply during both preview and the **actual download**, where each work is filtered individually — non-matching works are automatically skipped.
-
----
-
-## Save as Scheduled Task
-
-If you want to **automatically pick up new works** from this artist on a recurring basis, save the current configuration as a scheduled task:
-
-Scroll down to the "⏰ Save as Scheduled Task" card → enter a task name → set trigger frequency → click "Create Task."
-
-While the backend is running, the task discovers and downloads new works on its schedule. Bind a valid cookie for content that requires login, and check the task status when authentication or access fails.
-
-See [Scheduled Tasks](/en/scheduled-tasks) for details.
-
----
-
-## When expected works are missing
-
-Check that the ID belongs to an artist profile rather than an individual work. Then check the image/novel/commission scope, filters and cookie. Changing scope clears the preview, but keeps works already queued. **Add All to Queue** cannot make deleted or inaccessible works downloadable.
-
-## Data Volume Tips
-
-An artist may have hundreds or even thousands of works, so the first download may take a long time. You can:
-- Use extra filters to narrow the scope
-- Lower "Max concurrent" to reduce pressure on Pixiv's servers
-- Set "Artwork interval" (milliseconds) to wait between works
+First confirm that you entered the artist's user ID rather than an individual work ID, then check the selected scope (Images / Novels / Requests), additional filters and cookie login state. Clicking Queue all does not make deleted or inaccessible works downloadable.

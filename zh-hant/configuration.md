@@ -1,162 +1,104 @@
-# 配置參考
+# 設定參考
 
-日常修改優先使用桌面設定頁：修改欄位、儲存，再依提示套用或重新啟動。切換資料庫、調整代理和更改媒體格式各有不同影響。手動編輯前，先確認設定屬於哪一類：
+日常設定優先在桌面 GUI「組態 / 設定」頁修改並儲存，再依介面提示立即套用或重新啟動。手動編輯設定檔前，先確認設定項目所屬檔案與擁有者：
 
-| 配置類型 | 路徑 | 所有者 |
+| 設定類型 | 路徑 | 擁有者 |
 | --- | --- | --- |
-| 宿主配置和插件啓用狀態 | `config/config.yaml` | 應用殼 |
-| 插件業務配置 | `config/plugins/{pluginId}.properties` | 對應插件 |
-| 插件憑據 | `config/credentials/{pluginId}.properties` | 對應插件；由宿主加密存儲 |
+| 宿主設定與外掛啟停狀態 | `config/config.yaml` | 應用程式宿主 |
+| 外掛業務設定 | `config/plugins/{pluginId}.properties` | 對應外掛 |
+| 外掛敏感憑證 | `config/credentials/{pluginId}.properties` | 對應外掛（由宿主加密維護） |
 
-推薦在桌面 GUI 的“配置”頁修改。首次啓動時，應用會用當前版本的默認模板創建 `config/config.yaml`；升級後只追加缺失的宿主鍵，不覆蓋已有值。手工編輯時使用 UTF-8，並保留活躍的 `key: value` 行，不要用註釋行代替空值。
+首次啟動時會產生預設 `config/config.yaml`，升級時只新增缺少的宿主鍵，不覆寫既有值。手動編輯必須使用 UTF-8 扁平 `key: value` 行，不要將設定項目註解掉以取代空值，也不要將已移至外部外掛的鍵（如 `mail.*`、`push.*`、`notification.*`、`download.novel-*`）寫回 `config.yaml`。
 
-## 配置與環境遷移
+## 設定與環境遷移
 
-Swing 與 Compose 設定頁都提供配置與環境遷移。歸檔只讀取已儲存的值；匯出前先儲存要攜帶的設定，匯入前先處理設定頁草稿。
+Swing 與 Compose 設定頁均提供「設定與環境遷移」，僅讀取已儲存的設定（匯出前請先儲存變更，匯入前先處理未儲存草稿）：
 
-1. 在來源安裝中匯出 `.pdbackup`。預設包含宿主與已註冊插件宣告的配置、插件開關及桌面偏好；可另選憑據、資料庫、已儲存狀態與使用者資源。憑據、狀態或資料庫需要歸檔密碼，匯出期間會暫停後端。
-2. 在目標安裝準備相容插件與資料庫連線，再選擇歸檔預覽。缺少插件的配置與檔案會略過；插件版本與倉庫位址只用於提示補齊，不會自動安裝插件或恢復信任授權。
-3. 選擇欄位、資料庫與檔案群組，核對路徑後確認。資料庫與檔案群組預設不選，資源須連同資料庫匯入。系統先備份目標，完整重新啟動後執行；再次開啟遷移入口確認最終狀態。
+1. **匯出 `.pdbackup`**：預設包含宿主與已註冊外掛設定、外掛開關及桌面偏好設定；可依需求勾選憑證、資料庫、已儲存狀態和使用者資源（收藏夾圖示、小說參考音）。包含憑證、狀態或資料庫時，必須設定封存密碼，匯出期間會暫時停止後端。
+2. **預覽與匯入**：在目標環境準備好相容外掛與資料庫連線後，選擇封存檔預覽（未安裝外掛的設定與檔案不會寫入，封存檔不會自動安裝外掛或還原信任授權）。勾選要匯入的欄位、資料庫和檔案群組（資源須與資料庫一同匯入），確認後先備份目標，並在完整處理程序重新啟動後執行遷移。
 
-配置匯入保留目標資料庫連線、資料庫插件選擇與安裝身分。憑據使用目標金鑰重新加密；選擇管理員憑據會替換登入資料、清除工作階段並保留目標執行模式。排程恢復為停用，手動佇列恢復為暫停；第三方插件自行負責其宣告的私有資料語義。
+匯入會保留目標環境的資料庫連線、資料庫 provider 選擇與安裝身分，憑證使用目標主金鑰重新加密；匯入管理員憑證會替換登入帳號並登出舊工作階段；排程工作還原為停用，手動佇列還原為暫停。程式本體、外掛套件、作品檔案與快取不在封存檔內，作品目錄需另行複製（路徑對應僅更新已宣告路徑欄位與資料庫前綴，`{0}` 固定為確認的絕對目錄）。任務備份與各資料庫報告儲存在 `data/environment-transfers/<任務 ID>/`（最新狀態見 `pending.json`）；出現「需要還原」時，應用程式會阻止啟動，請核對報告與備份，勿刪除日誌以強制啟動。
 
-歸檔不含程式、插件安裝包、作品檔案、快取、信任金鑰或授權。已適配資源包括收藏夾圖示與小說參考音。作品須另行複製；映射只改宣告的路徑欄位與資料庫前綴，`{0}` 固定為確認的絕對目錄，前綴外的絕對路徑保留。改路徑後抽查歷史作品，並另外驗證新下載。
+### Windows 安裝目錄搬遷
 
-備份與逐庫報告保留在 `data/environment-transfers/<任務 ID>/`，`pending.json` 記錄最後狀態。主庫與私有庫分別提交；需要恢復不代表全部回滾，應用會阻止業務啟動。保留整個任務目錄，核對報告與備份後再處理，勿刪除日誌強行啟動。資料庫仍有檔案恢復操作時，先讓原安裝完成恢復再匯出。
+移動 Windows 安裝目錄後，執行安裝包並選擇新目錄確認遷移，安裝程式會更新登錄中的安裝路徑、捷徑、解除安裝紀錄及既有目前使用者自動啟動項目（不會開啟原本關閉的自動啟動）。修復備份儲存在新目錄 `state/installation-backups/`；確認新位置啟動與資料正常後再清理舊目錄，切勿執行舊目錄的解除安裝程式。舊 MSI 版本需先匯出備份、解除安裝 MSI，再安裝新版並匯入。
 
-### Windows 安裝目錄遷移
+## 宿主設定（`config/config.yaml`）
 
-搬移後從新目錄執行程式可查看安裝登記。執行安裝包，明確選擇新目錄並確認遷移，安裝器會更新登錄檔安裝位置、一般捷徑與解除安裝記錄；既有的目前使用者自動啟動捷徑保留啟用狀態及參數，並改指新目錄，不會啟用原先關閉的自動啟動。
+### 服務、下載與並行上限
 
-修復備份位於新程式目錄的 `state/installation-backups/`。舊目錄與使用者資料保留，確認新位置可啟動及讀取資料後再處理舊副本；勿執行舊目錄的解除安裝程式。複製可攜版不會寫入 Windows 安裝登記，執行安裝包則會登記目標。舊 MSI 安裝須先匯出、透過 Windows 解除安裝，再安裝至新位置並匯入。
-
-## 宿主配置
-
-### 服務、調試和下載
-
-| 鍵 | 默認值 | 說明 |
+| 鍵 | 預設值 | 說明 |
 | --- | --- | --- |
-| `server.port` | `6999` | HTTP/HTTPS 服務端口 |
-| `debug.enabled` | `false` | 調試模式 |
-| `download.root-folder` | `pixiv-download` | 作品產物根目錄 |
-| `download.user-flat-folder` | `false` | 畫師目錄是否使用平鋪佈局 |
-| `download.max-concurrent` | `10` | 宿主下載併發上限；最多另排隊 100 個作品，隊列已滿時新任務返回 429 |
-| `database.maximum-pool-size` | `28` | 宿主主庫連線池上限，最小 8 |
+| `server.port` | `6999` | HTTP / HTTPS 監聽連接埠 |
+| `debug.enabled` | `false` | 偵錯模式 |
+| `download.root-folder` | `pixiv-download` | 作品產物根目錄（僅存放下載作品） |
+| `download.user-flat-folder` | `false` | 畫師批次下載是否省略畫師子目錄 |
+| `download.max-concurrent` | `10` | 下載並行上限；另最多排隊 100 件作品，額滿回傳 429 |
+| `database.maximum-pool-size` | `28` | 主資料庫連線池上限（最小 `8`） |
+| `ffmpeg.max-concurrent` | `2` | FFmpeg 轉碼與媒體探測共用並行數（範圍 `1–8`，重新啟動後端生效） |
 
-`download.root-folder` 只存放下載作品。配置、數據庫、插件狀態和緩存不會寫入該目錄。小說、Douyin 等下載類型的私有設置不屬於宿主配置；安裝插件後由插件自己的配置貢獻管理。
+固定安全上限（不可透過設定調高）：單張作品圖片 / 封面 / 內嵌圖上限 100 MiB，單次插畫或小說下載任務累計上限 1 GiB；Ugoira ZIP 上限 100 MiB、最多 500 個影格/項目、單項目解壓縮 32 MiB、總解壓縮 200 MiB、單影格 25,000,000 像素，單次轉碼最長 10 分鐘、輸出 100 MiB。服務同時核驗 `Content-Length`、實際解碼串流與圖片檔頭白名單，超限時中止並清理未完成檔案。
 
-Pixiv 作品圖片、小說封面和內嵌圖的固定安全上限爲每張 100 MiB；單個普通插畫或小說下載任務內的這些響應累計最多 1 GiB。服務同時檢查 `Content-Length` 和實際解碼後的響應流，超過上限會中止傳輸並清理部分文件。最終擴展名根據 URL 路徑、響應 `Content-Type` 與已驗證的文件頭從圖片白名單中選擇，查詢參數不會進入文件名。這些上限不能通過配置提高。
+### 主資料庫與引擎切換
 
-Ugoira 的 ZIP 上限為 100 MiB、最多 500 個項目和影格；單項目解壓最多 32 MiB、總解壓量最多 200 MiB，單影格最多 25,000,000 像素。每個轉碼程序最多執行 10 分鐘、輸出 100 MiB。超限會停止處理並清理暫存檔；已選擇保留的 ZIP 和影格時序檔仍保留。
+預設使用 `database-sqlite`（`data/pixiv_download.db`）。如需切換至 PostgreSQL 17 / 18（UTF8），先從外掛市場安裝 `database-postgresql` 並完整重新啟動；主資料庫與已適配外掛私有資料庫共用所選引擎（SQLite 私有資料庫位於 `data/{pluginId}/plugin.db`，PostgreSQL 私有資料庫依 owner 隔離 schema 與受限角色）。
 
-### 主資料庫與歷史遷移
+在桌面「設定 → 執行與網路 → 主資料庫」或外掛市場資料庫設定中切換：
 
-預設安裝獨立的 SQLite 資料庫外掛，保留 `data/pixiv_download.db` 與舊目錄定位規則。需要 PostgreSQL 17 或 18（UTF8）時，從外掛市場安裝 PostgreSQL 資料庫外掛並完整重新啟動，再選擇連線目標。主庫和已適配的外掛私有儲存使用同一選定引擎；SQLite 私庫位於 `data/{pluginId}/plugin.db`，PostgreSQL 私庫依 owner 使用獨立 schema 和受限帳號。
+1. 選擇已載入的資料庫外掛並填寫連線資訊（密碼留空會保持已儲存值），點擊「測試連線」。
+2. 點擊「檢查並繼續」，預先檢查主資料庫與全部外掛私有資料庫的來源、目標及處理方式（非空目標僅在 provider 支援安全備份替換時才允許繼續）。
+3. 確認清單後，應用程式會儲存本頁設定並自動完整重新啟動，在新處理程序中完成備份、遷入、逐庫核驗（型別化 SHA-256、列數、生成鍵進度水位與 NUL 字元清理）及原子替換，全部通過後才切換連線設定。僅修正同一資料庫的連線參數時，使用「套用連線並重新啟動」。
 
-#### 在設定中切換資料庫
+遷移紀錄與備份儲存在 `data/database-migrations/`（可能含排程憑證，請妥善保管並保留供啟動複核與重試使用）。所選資料庫外掛缺少、停用或連線失敗時，會進入復原模式（業務 API 回傳 503，背景資料庫任務停止），不會自動改連其他引擎或建立空白 SQLite。
 
-在 Swing 或 Compose 的「設定 → 執行與網路 → 主資料庫」，或外掛市場的資料庫設定中操作：
+#### PostgreSQL 準備與設定範例
 
-1. 選擇已載入的資料庫外掛並填寫連線資訊。密碼留白會保留已存值；需要刪除時，勾選清除密碼並儲存。
-2. 點擊「測試連線」檢查位址和帳號。通過只表示連線可用，不會儲存設定、建立資料庫或遷移資料。修改後點擊「檢查並繼續」，查看應用資料及全部外掛資料的來源、目標與處理方式。
-3. 核對確認清單。目標已有資料且提供者支援安全替換時，清單會說明先備份再替換；不支援的目標會被拒絕。取消可返回修改，保留輸入，且連線設定尚未儲存。
-4. 確認後，程式先儲存本頁其他設定，再自動停止業務並完整重新啟動。新程序遷移並核驗清單中的資料，所有資料庫通過後才切換連線設定並繼續啟動。僅修正同一資料庫連線時，使用「套用連線並重新啟動」，不複製資料。
-
-連線詳細資訊顯示正在使用及重新啟動後將使用的資料庫。環境變數或啟動參數覆寫連線設定時，先修正覆寫項目再切換。
-
-替換前會備份舊目標；遷入資料先核驗，再逐庫替換。備份和紀錄位於 `data/database-migrations/` 的對應任務目錄，可能包含排程憑證，應按敏感檔案保管。作品、參考音與憑證檔案保留原位。
-
-失敗時保留原資料庫連線設定，並顯示各項資料的實際結果。已遷入並儲存的資料不會因其他項目失敗而自動撤銷；「結果不確定」不能當作已回復。保留原資料庫和備份，修正提示的問題後重新檢查。重試會核對來源是否改變、目標是否仍匹配，僅重用核驗通過的已遷入資料。
-
-未安裝資料庫外掛、選定外掛缺失／停用／不相容／載入失敗，或啟動時無法連線，都會進入修復模式：業務頁面前往市場，業務 API 回傳 503；直接語義查詢回傳空值並標明資料庫不可用，寫入及依賴資料庫的背景操作停止。恢復外掛或修正連線後，可經檢查和確認流程重新啟動。程式不會自動換用其他引擎或新建空 SQLite。原連線無法解析時，確認清單會明確說明只修正連線、不遷移原資料。
-
-#### PostgreSQL 連線準備
-
-先建立專用資料庫和主庫 schema，授予應用帳號建表、索引、序列、函式、觸發器及資料讀寫權限。使用外掛私庫還需要 `CREATEROLE` 和資料庫上的 `CREATE` 權限，以建立獨立登入角色和 schema。不得向 `PUBLIC` 開放主庫或其他 owner 的資料權限，否則隔離檢查會拒絕私庫連線。
-
-`currentSchema` 只能指定一個由小寫字母、數字或底線組成的名稱，首字元不能是數字，最多 63 字元；省略時使用 `public`。遠端連線建議使用 `sslmode=verify-full`，自訂 CA 使用 `sslrootcert`。JDBC 直接連線至管理員指定的伺服器，不使用 Pixiv HTTP 代理。
-
-以下是扁平鍵範例。有歷史資料時優先使用設定頁的遷移確認流程；直接修改連線不會複製資料。密碼放在獨立設定或 `DATABASE_PASSWORD` 環境變數，不能放入 JDBC URL。
+預先建立專用資料庫與主資料庫 schema，授予建表、索引、序列、函式、觸發程序及讀寫權限；使用外掛私有資料庫還需 `CREATEROLE` 與資料庫 `CREATE` 權限，且不得向 `PUBLIC` 開放主資料庫或其他 owner 權限。`currentSchema` 僅支援單一由小寫字母、數字或底線組成的名稱（非數字開頭，最長 63 個字元，預設 `public`）。遠端連線建議使用 `sslmode=verify-full`；密碼放在獨立設定項目或環境變數 `DATABASE_PASSWORD`，禁止寫入 JDBC URL（直接改 `config.yaml` 不會遷移舊資料）：
 
 ```yaml
 database.provider: database-postgresql
 database.engine: postgresql
 database.jdbc-url: "jdbc:postgresql://db.example.com:5432/pixiv?currentSchema=pixiv&sslmode=verify-full"
 database.username: pixiv_app
-database.password: "替換為資料庫密碼"
+database.password: "REPLACE_WITH_DATABASE_PASSWORD"
 ```
 
-#### 管理員選用：停機遷移工具
+#### 停機 CLI 遷移工具（選用）
 
-需要自行安排停機或檢查報告時，可使用 CLI。它不會自動切換應用設定，也不提供設定頁的非空目標備份替換流程。
-
-安裝來源及目標資料庫外掛，停止所有使用來源庫的應用、外掛和離線寫入工具；保留作品、私有庫、參考音、設定和憑證。分別將來源與目標連線設定存成 `source.yaml`、`target.yaml`，保持現行設定不變。在完整解壓目錄執行，將 `<boot.jar>` 換成實際應用 boot JAR 檔名：
-
-`source.yaml` 和 `target.yaml` 都必須明確填寫 `database.provider`。SQLite 來源可設定 `database.provider: database-sqlite` 和 `database.jdbc-url: "jdbc:sqlite:data/pixiv_download.db"`。保留兩份設定，遷移後不要覆寫 `source.yaml`，私庫檢查仍需用它定位原庫。
+需要獨立安排停機並遷移至**空白目標資料庫**時，停止所有使用來源資料庫的處理程序，準備明確包含 `database.provider` 的 `source.yaml` 與 `target.yaml`（SQLite 來源可設定 `database.provider: database-sqlite` 與 `database.jdbc-url: "jdbc:sqlite:data/pixiv_download.db"`），在完整解壓縮目錄執行：
 
 ```powershell
 java '-Dloader.main=top.sywyar.pixivdownload.migration.DatabaseMigration' -cp '<boot.jar>' org.springframework.boot.loader.launch.PropertiesLauncher --source-config source.yaml --target-config target.yaml --backup migration/source.backup --report migration/report.json
 ```
 
-工具取得執行個體鎖，由來源提供者保存一致備份、準備結構與資料，再由目標提供者匯入空目標並核驗。SQLite 備份包含已提交的 WAL 資料，舊結構在工作副本升級。SQLite 與 PostgreSQL 支援雙向遷移，保留 ID、毫秒時間、NULL、軟刪除、中繼資料、媒體和檔案參照，核對逐表筆數、摘要及產生鍵序列。非空目標、未聲明的來源表或不相容型別會使流程停止，不會清空目標或略過未知表。
+- 來源資料庫含小說可重建物件時，明確附加 `--rebuild-objects novels_fts,novel_soft_delete_cleanup`（僅填實際存在的物件）。
+- 準備解除安裝但保留資料庫資料的外掛，可在解除安裝前用 `--export-schema schema.json` 匯出宣告，遷移時用 `--retained-schema schema.json` 補入。
+- 僅當 `report.json` 狀態為 `DATA_VERIFIED`（且全部 `stores` 為 `COMMITTED`）時，才表示複製核驗完成，隨後再切換生效設定並啟動應用程式。
 
-來源小說庫含可再生 SQLite 物件時，明確加入 `--rebuild-objects novels_fts,novel_soft_delete_cleanup`，只列出實際存在的物件。PostgreSQL 啟動後由提供者依小說外掛聲明重建軟刪除觸發器，正文搜尋讀取遷移後的內容。其他輔助物件須先確認目標可重建；普通歷史表不能用此參數排除。
+### 圖片與 Ugoira 儲存格式
 
-已安裝但停用的外掛仍提供遷移聲明。準備卸載且保留資料時，可用同一入口的 `--export-schema schema.json` 匯出聲明；遷移時用 `--retained-schema schema.json` 補入缺席 owner，檔案必須匹配目前 SDK。需要執行私有結構升級的外掛仍須安裝。缺少聲明時恢復外掛或補入核對過的聲明，不要刪除歷史表。
+在桌面「設定 → 下載」或網頁下載設定中多選儲存格式（至少保留一項，預設值儲存在 `config/plugins/download-workbench.properties` 的 `download-workbench.media.*`）：
 
-工具也會遷移已聲明相容私有 schema 的 owner 資料，未知 owner 或缺少私有聲明會在複製前拒絕。主庫與私庫分別提交，部分失敗不會自動回復已提交庫。儲存資料庫選擇和啟動前，會核對私庫遷移收據及來源變化。第三方自帶 JDBC 或 SQLite 專用 SQL 不會自動相容另一引擎，須由作者適配。
+- **圖片**：原始格式（預設）、PNG、JPG、WebP。取消原始格式時，僅當所有所選衍生格式產生成功後，才會刪除原圖。
+- **Ugoira**：WebP（預設）、GIF、APNG、MP4（需 FFmpeg H.264 編碼器）、原始 ZIP（同時儲存 `.frames.properties` 影格時序，供離線補轉）。
+- **轉碼參數**：`quality` 預設 `90`（`1–100`），`webp-lossless` 預設 `false`，`maximum-edge` 預設 `0`（不縮放，可設 `1–16383`）；僅作用於新編碼副本。
 
-只有 `DATA_VERIFIED` 表示複製與核驗完成。核對報告、待重建物件和各項結果後，才修改生效設定並啟動，驗證畫廊、小說搜尋、通知、排程與檔案存取。`IN_PROGRESS` 或 `FAILED_TARGET_NOT_VERIFIED` 不是成功；保留備份並確認目標交易結果。CLI 重試使用新備份和經確認的空目標，不提供續傳。切換後若目標已有新寫入，直接恢復舊連線會遺漏增量；應透過設定頁重新檢查並遷回，或由管理員停機處理。
+既有作品可在桌面「工具 → 歷史媒體處理」依目標格式偵測並補齊缺少的格式與縮圖（單批最多 500 件作品、10,000 個候選檔案）。畫廊依「保留原圖 → WebP → PNG → JPG」順序優先顯示，MP4 使用影片播放器。
 
-#### 遷移備份與核驗細節
+### 外掛市場
 
-連線欄位及類型由資料庫插件宣告：SQLite 不顯示連線欄位，PostgreSQL 顯示位址、使用者名稱和密碼。僅修復無法解析的原連線時，應用會保留原設定快照，私庫遷移核驗仍然有效。
-
-設定頁替換 SQLite 目標時，提供者鎖定舊庫，保留包含已提交 WAL 的一致備份，再遷入暫存庫。全部庫核驗後，各庫在原位置分別透過交易替換內容；替換提交前失敗會保留舊內容，已提交庫不會撤銷。檢查後目標發生變化或含有未知表時拒絕替換。每個任務的 `target-*.backup` 分別保存主庫和各私庫的舊內容。請關閉連線兩端的其它應用及離線寫入工具，保留 `data/database-migrations/` 中的記錄、設定快照和備份；啟動檢查及重試仍會使用它們，設定與備份可能含憑據。
-
-PostgreSQL 來源須符合目前支援的結構。備份是包含資料、序列及受支援物件定義的格式 1 邏輯 XML，不是 `pg_dump` 檔案；目前工具沒有直接還原該封存檔的入口。來源提供者缺席或停用會阻止遷移，不能借用其它驅動。符合 SDK 遷移契約的提供者自行實作匯出及匯入，不需要宿主新增專用遷移分支。
-
-遷移也保留二進位內容，使用類型化 SHA-256 摘要和產生鍵歷史高水位核對資料，並回報參照警告；不會刪除孤立記錄。透過中性儲存介面寫入的文字參數由提供者移除 NUL（U+0000），保留換行、定位字元、其它有效 Unicode、空字串及 NULL；二進位不變，非法編碼仍拒絕。遷移既有文字時只處理暫存工作副本，再核對目標實際內容，來源庫與原始備份保持不變。清理造成唯一鍵衝突或違反約束時失敗，不會自動合併或刪除記錄。
-
-PostgreSQL 來源的 `--rebuild-objects` 應列出實際存在的觸發器及函式名稱，並先確認所屬插件能在目標重建它們。提供者負責私庫探索、隔離、實體映射、SQL 方言及遷移；業務插件宣告結構和業務轉換，透過中性儲存契約讀寫。工具不會自動翻譯第三方插件的任意 SQL。
-
-所有庫複製並核驗後才開始逐庫提交。切換及啟動檢查透過可信來源提供者複核私庫來源變化憑據與精確目標身分；來源設定、來源資料或目標改變時拒絕切換。報告和私庫收據使用 `formatVersion: 1`，交換模型與收據拒絕未知格式。
-
-報告的 `stores` 逐庫記錄 `COMMITTED`、`ROLLED_BACK` 或 `UNKNOWN`。取消或失敗會中止尚未嘗試提交的工作階段，不能將部分提交回報為整體回滾。提交時斷線、程序被強制終止或報告寫入失敗可能留下 `COMMITTING`、`UNKNOWN` 或舊進度，須人工核對目標。失敗後可能留下空資料庫檔案、私庫 schema 或角色，工具不會自動刪除。
-
-`DATA_VERIFIED` 還要求全部提交、收據及資源釋放均已完成。切換前檢查參照警告，保留來源資料及原設定。目標尚無新寫入時，可停機恢復原設定；已有增量時不能直接切回。
-
-### 圖片與 Ugoira 儲存
-
-在桌面「設定 / 配置 → 下載」選擇預設格式、品質、WebP 無損和最長邊，儲存後重新啟動後端生效。格式下拉選單可多選，至少保留一項：
-
-- 圖片：原始格式（預設）、PNG、JPG、WebP。可取消原始格式；所有選定產物成功後才移除原圖，失敗或取消時保留。選擇與原圖相同的格式會直接使用原檔。
-- Ugoira：WebP（預設）、GIF、APNG、MP4、原始 ZIP。MP4 需要目前 FFmpeg 提供 H.264 編碼器；保留 ZIP 時同時儲存影格時序，供離線補轉。
-- 品質預設 90，可設 1–100；WebP 無損預設關閉；最長邊預設 0（保留尺寸），可設 1–16,383。這些設定只影響新編碼的副本，不重新編碼直接使用的原檔。
-
-兩版網頁下載設定都有格式多選，可用於本次下載及新建排程。預設值儲存在 `config/plugins/download-workbench.properties`，鍵為 `download-workbench.media.image-formats`、`ugoira-formats`、`quality`、`webp-lossless`、`maximum-edge`（後四項也使用相同前綴）。
-
-FFmpeg 共用並行數預設 2，可在桌面下載設定改為 1–8，儲存後重新啟動後端生效。宿主鍵為 `config/config.yaml` 中的 `ffmpeg.max-concurrent`；轉碼與媒體探測共用額度。
-
-既有作品在 Compose 桌面「工具 → FFmpeg 及其工具 → 歷史媒體處理」中選擇目標格式並偵測缺失項目，無須填寫作品 ID。檢視結果後點擊開始，只補缺失格式和縮圖，保留既有檔案；返回不會取消工作。Swing 在工具頁提供相同的偵測與處理。Ugoira 補轉需要保留的 ZIP 與影格時序；FFmpeg 管理中可檢查實際編解碼能力，MP4 需要 H.264 編碼器。
-
-每批最多處理 500 個符合條件的作品、10,000 個候選檔案，同時只執行一項工作；達到上限會提示處理後再次偵測。偵測不產生檔案，修改選項後須重新偵測，修改下載設定不會自動開始歷史處理。
-
-畫廊優先顯示仍保留的原圖，其次為 WebP、PNG、JPG；原圖已移除時使用實際存在的副本，MP4 使用影片播放器。
-
-### 插件市場
-
-| 鍵 | 默認值 | 說明 |
+| 鍵 | 預設值 | 說明 |
 | --- | --- | --- |
-| `plugin-catalog.enabled` | `true` | 插件市場主開關；打開 / 刷新市場或安裝插件時訪問倉庫，關閉後不訪問任何倉庫 |
-| `plugin-catalog.official-repository-enabled` | `true` | 是否啓用內嵌官方倉庫 |
-| `plugin-catalog.connect-timeout-ms` | `15000` | 全局連接超時 |
-| `plugin-catalog.read-timeout-ms` | `60000` | 全局讀取超時 |
-| `plugin-catalog.max-manifest-bytes` | `1048576` | 單個清單上限 |
-| `plugin-catalog.max-package-bytes` | `201326592` | 單個插件包上限（192 MiB） |
-| `plugin-catalog.repositories` | 空列表 | 自定義倉庫列表 |
+| `plugin-catalog.enabled` | `true` | 外掛市場總開關；關閉後不存取任何外掛儲存庫 |
+| `plugin-catalog.official-repository-enabled` | `true` | 是否啟用內建官方儲存庫 |
+| `plugin-catalog.community-repository-enabled` | `true` | 是否啟用內建社群儲存庫 |
+| `plugin-catalog.connect-timeout-ms` | `15000` | 儲存庫連線逾時（毫秒） |
+| `plugin-catalog.read-timeout-ms` | `60000` | 儲存庫讀取逾時（毫秒） |
+| `plugin-catalog.max-manifest-bytes` | `1048576` | 單一清單大小上限（1 MiB） |
+| `plugin-catalog.max-package-bytes` | `201326592` | 單一外掛套件大小上限（192 MiB） |
+| `plugin-catalog.repositories` | 空清單 | 自訂外掛儲存庫清單 |
 
-官方倉庫的地址和信任根內嵌於程序。自定義倉庫必須顯式配置自己的 HTTPS 清單和 Ed25519 公鑰，不繼承官方信任根。推薦用 GUI 的倉庫編輯器；手寫示例：
+建議透過桌面「設定 → 外掛市場設定」匯入 `repository.json` 描述檔或填寫自訂儲存庫；手動設定範例：
 
 ```yaml
 plugin-catalog.enabled: true
@@ -175,193 +117,70 @@ plugin-catalog.repositories:
         trust-label: Example repository release key
 ```
 
-倉庫 id 必須唯一，且不能使用保留值 `official` 或 `configured`。代理策略爲：
+儲存庫 `id` 必須唯一，不可使用保留值 `official`、`community` 或 `configured`。`proxy-policy` 支援 `direct-strict`（直接連線、僅限公網 HTTPS、禁止重新導向）、`proxy-trusted`（經由應用程式代理、僅對內建信任主機允許最多 5 跳重新導向並逐跳複核）和 `custom`。
 
-- `direct-strict`：直連、僅 HTTPS、拒絕非公網地址和重定向。
-- `proxy-trusted`：使用應用代理，只對內置信任主機允許最多五次重定向；每一跳都會重新校驗。
-- `custom`：使用條目中的 `allow-redirects`、`strict-https`、`allow-non-public-addresses` 和 `use-proxy`。
+### 出站代理與瀏覽器 PAC
 
-倉庫條目還可覆蓋 `connect-timeout-ms`、`read-timeout-ms`、`max-manifest-bytes`、`max-package-bytes`；省略或設爲 `0` 表示繼承全局值。
-
-### 出站代理
-
-| 鍵 | 默認值 | 說明 |
+| 鍵 | 預設值 | 說明 |
 | --- | --- | --- |
-| `proxy.enabled` | `true` | 啓用宿主出站 HTTP 代理 |
+| `proxy.enabled` | `true` | 啟用宿主出站 HTTP 代理 |
 | `proxy.host` | `127.0.0.1` | 代理主機 |
-| `proxy.port` | `7890` | 代理端口 |
+| `proxy.port` | `7890` | 代理連接埠 |
 
-插件需要代理時應使用穩定 HTTP/WebSocket SDK 或 `core-api` 的代理語義端口，不應讀取宿主 `ProxyConfig` 實現類。
+若希望瀏覽器存取 `pixiv.net`（如搭配使用者腳本）也經由後端設定的同一代理，但不想開啟全域系統代理，可將系統或瀏覽器的「自動代理設定腳本（PAC）URL」設為 `http://localhost:6999/proxy.pac`（僅本機可存取，隨代理設定熱重載自動更新，僅對 Pixiv 相關網域使用代理）。
 
-#### 讓網頁版 Pixiv 走後端配置的代理（無需開啓系統代理）
+### 多人模式配額與訪客限流
 
-後端訪問 Pixiv 走配置裏指定的代理（默認 `127.0.0.1:7890`），不依賴系統代理。如果你還希望在瀏覽器裏直接打開 `pixiv.net`（例如配合油猴腳本），又不想爲此開啓 Clash 的「系統代理 / system proxy」，可以使用內置的代理自動配置（PAC）：
+`multi-mode.*` 僅限制多人模式下未登入且無邀請碼的**遊客**；持邀請碼的**訪客**在 `solo` / `multi` 模式下皆使用獨立的 `guest-invite.*` 限流：
 
-在系統或瀏覽器的「自動代理配置腳本（PAC）URL」處填入 `http://localhost:6999/proxy.pac`（端口與你的配置一致；啓用 HTTPS 時爲 `https://<域名>:<端口>/proxy.pac`），即可讓僅 Pixiv 相關域名走後端配置的同一個代理、其餘流量直連。該地址僅本機可訪問，代理變更（含熱重載）會自動反映到 PAC 內容；不再需要來回切換系統代理。
-
-Firefox 的設定入口為 `about:preferences#general`，Windows 的代理設定入口為 `ms-settings:network-proxy`。
-
-### 多人模式配額和限流
-
-以下 `multi-mode.*` 設定針對多人模式下未登入的遊客，不限制已登入管理員。持邀請碼的訪客使用獨立 `guest-invite.*` 設定，兩種身份不可混用。
-
-| 鍵 | 默認值 |
-| --- | --- |
-| `multi-mode.quota.enabled` | `true` |
-| `multi-mode.quota.max-artworks` | `50` |
-| `multi-mode.quota.reset-period-hours` | `24` |
-| `multi-mode.quota.archive-expire-minutes` | `60` |
-| `multi-mode.quota.limit-image` | `0` |
-| `multi-mode.quota.max-proxy-requests` | `200` |
-| `multi-mode.quota.archive-max-concurrent` | `10` |
-| `multi-mode.post-download-mode` | `pack-and-delete` |
-| `multi-mode.delete-after-hours` | `72` |
-| `multi-mode.request-limit-minute` | `300` |
-| `multi-mode.static-resource-request-limit-minute` | `1200` |
-
-`multi-mode.post-download-mode` 支持 `pack-and-delete`、`never-delete`、`timed-delete`。`multi-mode.limit-page=0` 表示不限制頁數；當前默認值爲 `3`。
-
-邀請訪客在 solo 與 multi 模式都使用獨立限流：
-
-| 鍵 | 默認值 |
-| --- | --- |
-| `guest-invite.request-limit-minute` | `300` |
-| `guest-invite.static-resource-request-limit-minute` | `1200` |
-| `guest-invite.tts-request-limit-minute` | `30` |
-| `setup.login-rate-limit-minute` | `10` |
-
-### 維護窗口
-
-`maintenance.enabled` 默認 `true`。每日默認值如下：
-
-| 星期 | 啓用鍵/默認值 | 時間鍵/默認值 |
+| 鍵 | 預設值 | 說明 |
 | --- | --- | --- |
-| 星期一 | `maintenance.monday.enabled=true` | `maintenance.monday.time=10:00` |
-| 星期二 | `maintenance.tuesday.enabled=false` | `maintenance.tuesday.time=10:00` |
-| 星期三 | `maintenance.wednesday.enabled=false` | `maintenance.wednesday.time=10:00` |
-| 星期四 | `maintenance.thursday.enabled=false` | `maintenance.thursday.time=10:00` |
-| 星期五 | `maintenance.friday.enabled=false` | `maintenance.friday.time=10:00` |
-| 星期六 | `maintenance.saturday.enabled=false` | `maintenance.saturday.time=10:00` |
-| 星期日 | `maintenance.sunday.enabled=false` | `maintenance.sunday.time=10:00` |
+| `multi-mode.quota.enabled` | `true` | 遊客配額開關 |
+| `multi-mode.quota.max-artworks` | `50` | 週期內最大作品配額 |
+| `multi-mode.quota.reset-period-hours` | `24` | 配額重設週期（小時） |
+| `multi-mode.quota.archive-expire-minutes` | `60` | 打包封存檔到期分鐘數 |
+| `multi-mode.quota.limit-image` | `0` | 單件作品超過多少張圖時折算多份配額（`0` 不折算） |
+| `multi-mode.quota.max-proxy-requests` | `200` | 代理請求配額 |
+| `multi-mode.quota.archive-max-concurrent` | `10` | 封存並行上限 |
+| `multi-mode.post-download-mode` | `pack-and-delete` | 可選 `pack-and-delete`、`never-delete`、`timed-delete` |
+| `multi-mode.delete-after-hours` | `72` | `timed-delete` 保留小時數 |
+| `multi-mode.limit-page` | `3` | 頁數限制（`0` 不限制） |
+| `multi-mode.request-limit-minute` | `300` | 遊客每分鐘請求上限 |
+| `multi-mode.static-resource-request-limit-minute` | `1200` | 遊客每分鐘靜態資源請求上限 |
+| `guest-invite.request-limit-minute` | `300` | 受邀訪客每分鐘請求上限 |
+| `guest-invite.static-resource-request-limit-minute` | `1200` | 受邀訪客每分鐘靜態資源上限 |
+| `guest-invite.tts-request-limit-minute` | `30` | 受邀訪客每分鐘 TTS 請求上限 |
+| `setup.login-rate-limit-minute` | `10` | 登入與邀請碼兌換每分鐘嘗試上限 |
+
+### 維護時段、介面、更新與排程工作
+
+- **維護時段**：`maintenance.enabled` 預設 `true`；`maintenance.monday.enabled=true`，其餘星期預設 `false`，各星期時間鍵 `maintenance.<day>.time` 預設 `10:00`。
+- **語言與桌面介面**：`app.language` 預設為空（跟隨系統，僅影響介面，執行日誌固定使用英文）；`app.theme` 預設 `system`（可選 `light`、`dark` 及目前介面的擴充主題）；`app.gui-provider` 預設為空（預設選 Compose，切換需完整重新啟動）；`app.config-menu-expand-all`（預設 `false`）僅作用於 Swing。
+- **線上更新**：`update.enabled=true`、`update.auto-check=true`；`update.manifest-url` 與 `update.nightly-manifest-url` 指向官方簽署清單；`update.check-nightly` 在正式版預設 `false`、nightly 版預設 `true`。
+- **排程工作宿主**：`schedule.*` 鍵見[排程工作相關設定](/zh-hant/scheduled-tasks#疑難排解與相關設定)。
+- **外掛開關**：`plugins.{pluginId}.enabled` 由宿主管理，生效方式取決於外掛的生命週期策略（見[外掛管理](/zh-hant/plugin-management)）。
 
 ### HTTPS 與反向代理
 
-| 鍵 | 默認值 |
-| --- | --- |
-| `ssl.domain` | `localhost` |
-| `ssl.type` | `pem` |
-| `server.ssl.enabled` | `false` |
-| `server.ssl.certificate` | 空 |
-| `server.ssl.certificate-private-key` | 空 |
-| `server.ssl.key-store-type` | `JKS` |
-| `server.ssl.key-store` | 空 |
-| `server.ssl.key-store-password` | 空 |
-| `server.trusted-proxy-cidrs` | 空 |
-| `ssl.http-redirect` | `false` |
-| `ssl.http-redirect-port` | `80` |
-
-`ssl.type=pem` 使用證書和私鑰路徑；`ssl.type=jks` 使用 key store。不要把證書私鑰或 key store 密碼提交到倉庫。
-
-`server.trusted-proxy-cidrs` 是使用反向代理時的信任邊界。它只接受逗號分隔的數字 IPv4/IPv6 CIDR，例如：
+| 鍵 | 預設值 | 說明 |
+| --- | --- | --- |
+| `ssl.domain` | `localhost` | 外部存取網域 |
+| `ssl.type` | `pem` | `pem` 或 `jks`（同時設定時 PEM 優先） |
+| `server.ssl.enabled` | `false` | 是否啟用內建 HTTPS |
+| `server.ssl.certificate` / `server.ssl.certificate-private-key` | 空 | PEM 憑證與私鑰路徑 |
+| `server.ssl.key-store-type` / `key-store` / `key-store-password` | `JKS` / 空 / 空 | JKS 憑證庫設定 |
+| `ssl.http-redirect` / `ssl.http-redirect-port` | `false` / `80` | HTTP 自動跳轉 HTTPS |
+| `server.trusted-proxy-cidrs` | 空 | 受信任反向代理出口 IPv4 / IPv6 CIDR（逗號分隔） |
 
 ```yaml
 server.trusted-proxy-cidrs: 127.0.0.1/32,172.18.0.0/16
 ```
 
-只填寫實際連接後端的反向代理出口地址或容器網段，不要填寫客戶端網段，也不要信任 `0.0.0.0/0` 或 `::/0`。留空時應用按直連模式運行，並拒絕任何 `Forwarded`、`X-Forwarded-*` 或 `X-Real-IP` 請求頭。
+`server.trusted-proxy-cidrs` 留空時會以直接連線模式執行，拒絕任何包含 `Forwarded`、`X-Forwarded-*` 或 `X-Real-IP` 的請求。設定後，只填寫實際連線至後端的反向代理出口或容器網段（嚴禁填 `0.0.0.0/0`、`::/0` 或用戶端網段）；受信任反向代理必須為每個請求提供完整且單一格式的轉送標頭（含 `for`/`proto`/`host` 的 RFC `Forwarded`，或成套 `X-Forwarded-For` + `X-Forwarded-Proto` + `X-Forwarded-Host`），缺少、混用或從受信任 CIDR 不帶標頭直接連線，均會回傳 HTTP 400。
 
-受信代理必須爲每個請求提供以下一種完整格式，不能混用：
+## 外掛設定、憑證與擴充設定
 
-- RFC `Forwarded`：所選代理邊界必須同時包含 `for`、`proto` 和 `host`；
-- 傳統格式：`X-Forwarded-For`、`X-Forwarded-Proto`、`X-Forwarded-Host`，可選 `X-Forwarded-Port`。
-
-應用從代理鏈右側向左查找首個非受信地址作爲客戶端地址，並在鑑權、限流和 CSRF 同源判斷前統一規範化客戶端地址、外部協議、主機與端口。未受信來源提供轉發頭，代理鏈沒有非受信客戶端地址，或受信代理缺少、混用、錯位、僞造格式的代理元數據時，請求會返回 400。代理必須覆蓋所有到後端的請求；如果把 `127.0.0.1/32` 設爲受信代理，同一地址發起但沒有代理頭的直連請求也會被拒絕。
-
-### 語言與桌面界面
-
-| 鍵 | 默認值 | 說明 |
-| --- | --- | --- |
-| `app.language` | 空 | 跟隨系統；也可使用受支持語言代碼 |
-| `app.theme` | `system` | GUI 主題 id |
-| `app.config-menu-expand-all` | `false` | 只控制 Swing 的設定選單展開；Compose 不提供此選項，也不改寫此偏好 |
-| `app.gui-provider` | 空 | 留白選擇預設桌面介面；也可指定已啟用 provider 的 id |
-
-兩個桌面介面都提供 `system`、`light`、`dark`，額外佈景主題由目前選擇的介面提供。GUI provider 下拉選單來自目前啟用的 `DesktopUiProvider`。發行套件預設包含 Compose 和 Swing，首次未指定時選擇 Compose；切換介面需要完整重新啟動。
-
-語言和佈景主題可立即預覽，按下設定頁共用的儲存按鈕後才會記住選擇。語言設定只影響介面，日誌使用英文。
-
-### 在線更新
-
-| 鍵 | 默認值 |
-| --- | --- |
-| `update.enabled` | `true` |
-| `update.manifest-url` | 官方最新正式版 `update.json` |
-| `update.nightly-manifest-url` | 官方 nightly `update.json` |
-| `update.auto-check` | `true` |
-| `update.check-nightly` | nightly 構建爲 `true`，正式版爲 `false` |
-
-### 計劃任務宿主
-
-| 鍵 | 默認值 |
-| --- | --- |
-| `schedule.enabled` | `true` |
-| `schedule.tick-interval-ms` | `60000` |
-| `schedule.max-tasks` | `100` |
-| `schedule.inbox-check-every` | `500` |
-| `schedule.auth-failure-circuit-breaker` | `5` |
-| `schedule.pending-max-attempts` | `5` |
-| `schedule.overuse-defer-default-minutes` | `60` |
-
-這些鍵配置中性的計劃任務宿主。具體下載來源、認證信息和下載參數由相應插件貢獻並擁有。
-
-### 插件啓用狀態
-
-`plugins.{pluginId}.enabled` 由宿主管理，例如：
-
-```yaml
-plugins.douyin.enabled: true
-```
-
-required 插件不能通過該鍵禁用。是否能即時生效由插件的 `pixiv.lifecycle-policy` 與當前生命週期操作決定，詳見[插件管理](/zh-hant/plugin-management)。
-
-## 插件業務配置
-
-每個插件只寫 `config/plugins/{pluginId}.properties`。文件使用 UTF-8 Java properties 語法：
-
-```properties
-example.timeout-ms=15000
-example.output-format=json
-```
-
-宿主會拒絕插件配置文件覆蓋宿主默認鍵、`plugins.*.enabled` 或看起來像憑據的鍵。不同插件文件中的鍵也不應重複。插件子 Spring 上下文通過 `Environment`、`@Value` 或 `@ConfigurationProperties` 讀取這些值；第三方插件不應直接讀配置文件，也不應依賴應用殼的配置類。
-
-桌面設定頁顯示目前外掛聲明的設定欄位，由應用統一儲存。Compose 和 Swing 分別實作自己的介面。儲存後依欄位與外掛生命週期提示立即生效、後端重新啟動或完整程序重新啟動。手動編輯也須遵守相應設定要求。外掛作者使用的聲明與讀取契約見[第三方外掛 SDK](/zh-hant/plugin-development)。
-
-## 插件憑據
-
-密碼、Cookie、Token、API key、secret 和 webhook key 等敏感值寫入 `config/credentials/{pluginId}.properties`。宿主負責加密、權限、遷移和按 owner 注入。插件可從自己的子上下文 `Environment` 讀取已解密的屬性，或透過 `PluginCredentials` 讀寫已宣告的自身憑據；憑據宣告不要求提供 GUI 欄位。
-
-不要把憑據放入 `config.yaml` 或 `config/plugins/*.properties`，也不要讓插件讀取、解析或解密憑據文件。備份憑據時必須同時保護憑據主密鑰；缺少原主密鑰時，加密值不能在另一環境中恢復。
-
-## 確認儲存結果與目前設定
-
-儲存後重新開啟對應設定，確認值與生效提示。資料庫切換須核對遷移結果；路徑修改後還應檢查歷史作品和新下載。儲存失敗時保留原檔與錯誤，不要用另一設定檔覆蓋全部設定。
-
-1. 先看 GUI 配置頁；它會合並宿主字段與當前已安裝插件的配置貢獻。
-2. 宿主默認鍵以當前版本的 `DefaultConfigTemplate` 生成結果爲準。
-3. 插件字段以對應插件的 `GuiConfigContribution`、`@ConfigurationProperties` 或設置服務爲準。
-4. 不要從舊版示例複製已經外置的 `mail.*`、`push.*`、`notification.*` 或 `download.novel-*` 到 `config.yaml`；它們由各自插件擁有。
-
-## 翻譯設定
-
-`translation` 提供桌面「翻譯」設定。`translation.engine` 預設為 `ai`，也可選 `youdao` 或 `libretranslate`。一般設定儲存在 `config/plugins/translation.properties`；有道應用 ID、應用金鑰與 LibreTranslate API Key 請在桌面設定輸入，敏感項目由宿主加密儲存到此外掛的憑證檔。
-
-`translation.libretranslate-url` 填服務基礎網址，不含 `/translate`；本機範例為 `http://127.0.0.1:5000`。`translation.use-proxy` 預設 `false`，只控制有道與 LibreTranslate；AI 沿用自己的代理設定。`translation.max-concurrent` 是背景自動翻譯的並行上限，預設 `10`，同一系列仍循序處理。變更儲存後須重新啟動後端。
-
-現有 AI 設定、譯文與術語表會保留。若曾調整 `download.novel-translate-max-concurrent`，請在翻譯設定重新設定並行數；舊鍵不再控制翻譯。準備與限制見[小說指南](/zh-hant/novel)。
-
-## 登入驗證策略
-
-`setup.login-verification-policies` 預設為空字串，表示不要求額外驗證。設定為外掛 `LoginVerification.policyId()` 宣告的策略鍵，以逗號分隔，最多 16 項；後端重啟後生效。必要策略缺席、有多個實作或執行失敗時拒絕登入，保留原密碼及限流檢查。安裝外掛不會自動啟用策略。挑戰透過登入頁提交，失敗不建立工作階段。
-
-設定前先確認對應外掛可用；移除仍被要求的策略提供者會阻止新登入。詳見[外掛開發](plugin-development.md)的登入驗證契約。
+- **外掛業務設定（`config/plugins/{pluginId}.properties`）**：使用 UTF-8 Java properties 格式，由桌面設定頁彙整顯示並統一儲存；禁止覆寫宿主鍵或寫入明文憑證。
+- **外掛憑證（`config/credentials/{pluginId}.properties`）**：儲存密碼、Cookie、API Key、Secret 與 Webhook 密鑰，由宿主加密並依 owner 注入外掛上下文。跨環境還原加密憑證需同時保留憑證主金鑰。
+- **翻譯設定（`translation` 外掛）**：一般項目位於 `config/plugins/translation.properties`（`translation.engine` 預設 `ai`，可選 `youdao`、`libretranslate`；`translation.libretranslate-url` 不含 `/translate`；`translation.use-proxy` 預設 `false`，僅控制有道與 LibreTranslate；`translation.max-concurrent` 預設 `10`），儲存後重新啟動後端生效。詳見[小說與朗讀](/zh-hant/novel#翻譯引擎（管理員）)。
+- **登入驗證策略**：`setup.login-verification-policies` 預設為空；可設定最多 16 個逗號分隔的 `LoginVerification.policyId()` 策略鍵，重新啟動後端生效。設定前請確認對應驗證外掛已啟用，詳見[操作驗證碼](/zh-hant/captcha)與[第三方外掛 SDK](/zh-hant/plugin-development#不依賴-gui-的憑證與通用操作驗證)。

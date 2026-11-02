@@ -1,55 +1,49 @@
 # First-time setup
 
-Setup creates the PixivDownloader administrator account and configures the HTTP proxy used by the backend. This account signs you into this app. You save your Pixiv cookie separately on the download page.
+First-time setup creates an administrator account for PixivDownloader itself and configures the HTTP proxy that the backend uses to access external services. Save your Pixiv login cookie separately after opening the download page.
 
-After [installation](/en/installation), choose the entry that matches how you run the app:
+After [installation and startup](/en/installation), choose the initialization method for your environment:
 
-| Environment | Initialize with | Then |
+| Environment | Initialization entry | After initialization |
 | --- | --- | --- |
-| Local desktop | The desktop setup guide | Open the download page and sign in |
-| Headless server or `--no-gui` | Run `--setup` first | Start with `--no-gui` |
-| Docker | Run `docker compose run --rm app --setup` first | Run `docker compose up -d` |
+| Local desktop | Desktop onboarding, or `http://localhost:6999/setup.html` in a local browser | Open the download page and sign in |
+| Headless server (`--no-gui`) | Run `--setup` first | Then start with `--no-gui` |
+| Docker | Run `docker compose run --rm app --setup` first | Then run `docker compose up -d` |
 
-## Set up on the desktop
+## Initialize from the desktop or a local browser
 
-1. Start the app and wait for the backend. If a required plugin is missing or the database is unavailable, follow [plugin management](/en/plugin-management) to restore it. Creating another account does not fix either condition.
-2. Enter an administrator username and password in the guide. Passwords require at least 8 characters. The app recommends 12 or more and asks for confirmation for a shorter password.
-3. Enter your HTTP proxy host and port. For example, use `127.0.0.1` and `7890` only if your local proxy actually listens there. Disable the proxy if you can reach the required services directly.
-4. Save, open `http://localhost:6999/pixiv-batch.html`, and sign in with the account you just created.
+1. Start the app and wait for the backend to become ready. If a required plugin is missing or the database is unavailable, follow [plugin management](/en/plugin-management) to repair it first. Reinitializing the account will not fix a plugin or database failure.
+2. Set an administrator username and password. Passwords require at least 8 characters; 12 or more are recommended. A password of 8–11 characters requires a second confirmation.
+3. Enter the HTTP proxy host and port for your network, such as `127.0.0.1` and `7890` for a local proxy. You can disable the proxy if the target services are directly reachable.
+4. Save, then open `http://localhost:6999/pixiv-batch.html` and sign in with the administrator account you just created.
 
-Desktop and browser setup use solo mode (`solo`); they do not offer a multi-mode selector. Tabs and guide steps differ between desktop interfaces, so follow the prompts in your window.
+Desktop and browser setup always use solo mode (`solo`). `setup.html` allows local loopback access only; use the CLI below for a remote server or container. Save later changes to ordinary configuration on the desktop Settings page. See [network access and third-party services](/en/network-access) for the scope of proxy settings and each plugin's network route.
 
-The local browser page at `http://localhost:6999/setup.html` also accepts account and proxy settings, then redirects to login. It accepts only local access. A headless launch exits before initialization, so use the CLI below first.
+## Initialize from the command line (server / headless mode)
 
-The proxy applies to requests that use the host or task proxy route. Browser requests, SMTP, database connections and explicitly direct requests have separate routes. See [network access and third-party services](/en/network-access). For later changes, save through desktop settings and follow its apply or restart instruction.
-
-## Set up from the command line
-
-Enter the fully extracted distribution directory and stop any running instance using it. These commands work in PowerShell or Bash. Replace `APP.jar` with the actual application JAR filename and retain the adjacent `plugins/` directory.
+Open the fully extracted distribution directory and make sure no instance is running against the same data directory. Replace `APP.jar` below with the actual application JAR filename:
 
 ```text
 java -Dfile.encoding=UTF-8 -jar APP.jar --setup --mode=solo
 ```
 
-Follow the username, password and proxy prompts. The minimum password length is 8 characters; below the recommended 12 characters, the command asks you to reconsider or confirm. The CLI still accepts `--mode=solo` or `--mode=multi`; this guide uses `solo`. To invite other people to browse, see the [advanced usage guide](/en/usage-guide).
-
-Successful setup writes the account state to `state/setup_config.json` and submitted proxy settings to `config/config.yaml`. Start the service:
+Follow the prompts for the administrator username, password and proxy settings. Account state is written to `state/setup_config.json`, and proxy settings to `config/config.yaml`. Once setup is complete, start the headless service:
 
 ```text
 java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui
 ```
 
-For automated input, provide all parameters explicitly:
+Automation scripts can supply all parameters at once. Replace the password and proxy with actual values; command-line arguments appear in shell history and process listings:
 
 ```text
 java -Dfile.encoding=UTF-8 -jar APP.jar --setup --username=admin --password=REPLACE_WITH_A_UNIQUE_PASSWORD --mode=solo --proxy-enabled=true --proxy-host=127.0.0.1 --proxy-port=7890
 ```
 
-Replace the password, host and port with your values. Use `--proxy-enabled=false` when no proxy is needed. A command-line password may appear in shell history and process listings; prefer interactive input for routine setup.
+Use `--proxy-enabled=false` if no proxy is needed. The CLI still supports `--mode=solo` and `--mode=multi`; for read-only sharing with guests, prefer [guest invitations in the advanced reference](/en/usage-guide#guest-invitations).
 
-## Set up in Docker
+## Initialize Docker
 
-Prepare the image and writable mounts using the [Docker installation instructions](/en/installation). From the directory containing `docker-compose.yml`, run:
+Prepare the image and mounted directories using the [Docker installation instructions](/en/installation#method-3-docker-deployment), then run these commands in the directory containing `docker-compose.yml`:
 
 ```bash
 docker compose run --rm app --setup --mode=solo
@@ -57,25 +51,17 @@ docker compose up -d
 docker compose logs -f app
 ```
 
-Inside a container, `127.0.0.1` refers to that container. To use a host proxy, enter `host.docker.internal` as configured in compose and the actual proxy port. The host proxy must accept the connection.
+Inside a container, `127.0.0.1` refers to the container itself. To use the host's proxy, enter `host.docker.internal` as the proxy host and make sure the host proxy accepts that connection. Starting the headless service before completing `--setup` exits with code `78`.
 
-A headless service started before setup exits with code `78`. A container with an automatic restart policy may restart repeatedly. Stop it, complete `--setup`, then start it again.
+## Confirm the result and change the password
 
-## Confirm setup succeeded
+Sign in to the download page as the administrator, confirm that the workbench loads normally, then test a download using [your first download](/en/first-download). If saving or startup fails, retain the error and check `log/latest.log`, directory write permissions, port usage and database status. Do not troubleshoot by repeatedly deleting initialization files.
 
-Sign in to the download page and check that the workbench opens. Continue with [first download](/en/first-download). Signing in proves that your local account works; Pixiv connectivity and cookie validity are separate checks.
-
-If saving or startup fails, retain the error and matching logs under `log/`. Check for another running instance, an unwritable configuration directory, missing required plugins or an unavailable database. Repeatedly deleting setup state does not diagnose these problems.
-
-## Change or reset the password
-
-Stop the instance and run one of these commands from its distribution directory. Changing requires the old password; resetting locally does not:
+After stopping the running instance, you can change or reset the administrator password from the distribution directory:
 
 ```text
 java -Dfile.encoding=UTF-8 -jar APP.jar --change-password
 java -Dfile.encoding=UTF-8 -jar APP.jar --reset-password
 ```
 
-Choose one command. Success invalidates existing sessions. Restart and sign in with the new password. Neither command deletes works or the database.
-
-If you need to recreate setup state, stop the app, back up `state/setup_config.json`, move that file aside, and initialize again. This resets the account, run mode and login state. Prefer `--reset-password` when password recovery is all you need.
+`--change-password` verifies the current password; `--reset-password` performs a forced local reset if you have forgotten it. Success invalidates all existing login sessions without affecting work files or the database. Only if you actually need to rebuild initialization state should you stop the app, back up the data, move `state/setup_config.json` aside and run `--setup` again.

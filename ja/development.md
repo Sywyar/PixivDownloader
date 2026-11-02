@@ -1,46 +1,43 @@
-# 開発ガイド
+# 主リポジトリの開発
 
-本体や公式プラグインを変更する場合は、環境を準備してビルド・検証し、PR を作成します。サードパーティプラグインの作者は[プラグイン SDK](/ja/plugin-development)、インストールや障害対応は[プラグイン管理](/ja/plugin-management)を参照してください。
+メインプログラムと公式外部プラグインの開発環境、モジュールの境界、ビルドとテスト、開発モードのデバッグ、ローカルパッケージ作成、PR のルールを説明します。独立したサードパーティープラグインの開発は[サードパーティープラグイン SDK](/ja/plugin-development)、インストールとトラブルシューティングは[プラグイン管理](/ja/plugin-management)を参照してください。
 
 ## 必要な環境
 
-| ツール | 条件 | 用途 |
-|---|---|---|
-| JDK | 17 | コンパイルと実行 |
-| Maven | 3.9 以降、または同梱 Wrapper | ビルド・テスト |
-| Git | サポート中の版 | バージョン管理 |
-| Node.js / npm | 現在の CI に合わせる | JavaScript、i18n、境界検査 |
-| PowerShell | 5.1 以降 | Windows パッケージ作成 |
-| Inno Setup | 6.x、任意 | Windows インストーラー |
+| ツール | 必要なバージョン | 用途 |
+| --- | --- | --- |
+| JDK | 17 | Java モジュールのコンパイルと実行 |
+| Maven | 3.9+ またはリポジトリ内の `mvnw` | Reactor のビルドとテスト |
+| Git | 現在サポートされているバージョン | バージョン管理とブランチ管理 |
+| Node.js / npm | 現在の CI と同じ | フロントエンドテスト、i18n ゲート、境界検証 |
+| PowerShell | 5.1+ | Windows のローカルパッケージ作成スクリプト |
+| Inno Setup | 6.x（任意） | Windows `setup.exe` インストーラーの作成 |
 
-Java は UTF-8 を明示します。Windows PowerShell の設定例：
+すべての Java コマンドで UTF-8 を明示してください。Windows PowerShell では次のように設定できます。
 
 ```powershell
 $env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
 ```
 
-## モジュールと依存方向
+## マルチモジュール構成と依存方向
 
-ルートの `pom.xml` は Maven Reactor の集約です。
+ルートの `pom.xml` は Maven Reactor の集約器です。
 
-| ディレクトリ | 責務 |
-|---|---|
-| `pixivdownload-plugin-api/` | プラグインの安定した拡張契約 |
-| `pixivdownload-core-api/` | 安定したホスト機能のポートと値モデル |
-| `pixivdownload-plugin-signature/` | プラグイン・マニフェストの署名と検証 |
-| `pixivdownload-plugin-runtime/` | PF4J、Spring 子コンテキスト、インストールのライフサイクル |
-| `pixivdownload-plugin-*/` | 公式の外部プラグイン |
-| `pixivdownload-app/` | ホスト、アダプター、実行可能な Spring Boot JAR |
-| `pixivdownload-official-plugins/` | 公式プラグインの集約と開発起動 |
-| `plugin-templates/` | 複製して使うサードパーティ向けテンプレート |
+| モジュール・ディレクトリ | 役割 |
+| --- | --- |
+| `pixivdownload-sdk-info/`、`pixivdownload-plugin-api/`、`pixivdownload-core-api/`、`pixivdownload-sdk/` | SDK バージョンの唯一の定義元、プラグイン拡張契約、ホストの安定した意味的ポート、統一コンパイル入口 |
+| `pixivdownload-plugin-signature/` | パッケージ、リポジトリマニフェスト、コミュニティ操作の Ed25519 署名・検証ツール |
+| `pixivdownload-plugin-runtime/` | PF4J の読み込み、Spring 子コンテキスト、worker プロセス、インストールトランザクションのライフサイクル |
+| `pixivdownload-plugin-*/` | 各公式外部プラグインのモジュール |
+| `pixivdownload-app/` | アプリケーションホスト、adapter、実行可能 Spring Boot JAR |
+| `pixivdownload-official-plugins/` | 公式外部プラグインの開発用集約と `dev-mode` の起動入口 |
+| `plugin-templates/` | コピーして使える独立したサードパーティープラグインのプロジェクトテンプレート |
 
-プラグインは `plugin-api` に依存し、安定したホスト機能が必要なら `core-api` を追加します。サードパーティプラグインは `pixivdownload-app` やホスト実装クラスに依存してはいけません。
+プラグインは `plugin-api` と、必要に応じて `core-api` に依存します。`pixivdownload-app` やホストの内部実装クラスへの逆方向の依存は禁止です。`douyin` のソースは[独立リポジトリ](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin)で管理し、固定コミットを使って SDK の隔離された利用側として互換性を検証します。
 
-Douyin のコード・リソース・テストは[独立リポジトリ](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin)にあり、主 Reactor に含まれません。SDK 互換性検査はその固定コミットを取得し、検査対象 SDK でビルドして、連携、署名あり・なしのインストール、ライフサイクルを確認します。
+## Fork、ビルド、テスト
 
-## Fork と作業ブランチ
-
-GitHub で Fork し、`YOUR_USERNAME` と変更内容を表すブランチ名を置き換えて実行します。
+Fork した後、`upstream/master` を基準に機能ブランチを作成します。`YOUR_USERNAME` とブランチ名は置き換えてください。
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/PixivDownloader.git
@@ -50,57 +47,45 @@ git fetch upstream
 git switch -c feat/your-change upstream/master
 ```
 
-PR 前に `upstream/master` の変更を反映し、上流の `master` を宛先にします。
-
-## ビルドと検証
+よく使うビルド・検証コマンド：
 
 ```powershell
-# テストを省略して全モジュールをビルド
+# テストをスキップして全モジュールをパッケージ化
 .\mvnw.cmd package -DskipTests
 
-# Maven の全テスト
+# Maven の全テストを実行
 .\mvnw.cmd test
 
-# 1 モジュールと Reactor 内の依存を検証
+# 単一モジュールと Reactor の上流依存をテスト（-Dtest=... の併用時は -Dsurefire.failIfNoSpecifiedTests=false を追加）
 .\mvnw.cmd -pl pixivdownload-plugin-api -am test
 
-# JavaScript と Web 標準
+# フロントエンドテストと Web 標準の検証を実行
 npm run test:js
 npm run test:web-standards
-
-# 主 JAR が 1 個であることを確認して起動
-$appJars = @(Get-ChildItem -LiteralPath pixivdownload-app/target -Filter 'PixivDownload-*-boot.jar')
-if ($appJars.Count -ne 1) { throw 'Expected exactly one application JAR' }
-java -Dfile.encoding=UTF-8 -jar $appJars[0].FullName
 ```
 
-`BUILD SUCCESS` と終了コードを確認します。テストを省略したパッケージ作成は、テスト成功を意味しません。Boot JAR の実行だけでは外部プラグインをインストールしません。全機能の開発には次の入口、配置には完全な配布パッケージを使います。
+ビルドの成功は `BUILD SUCCESS` と終了コード `0` で確認します。テストをスキップしたパッケージ作成は、テスト成功を意味しません。`pixivdownload-app/target/PixivDownload-*-boot.jar` だけを実行すると、外部プラグインを含まないコアシェルが起動します。全機能の結合確認には以下の開発モードを使ってください。
 
-`-am` と `-Dtest=...` を組み合わせる場合は、対象クラスを持たない依存モジュールが誤って失敗しないよう、`-Dsurefire.failIfNoSpecifiedTests=false` も指定してください。
+## 公式外部プラグインの開発モードと復旧モード
 
-## 公式プラグインの開発起動
-
-ルートで実行します。
+リポジトリのルートから、明示的な `dev-mode` profile で完全な開発環境を起動します。IDE の Maven パネルでこの profile を常時有効にしないでください。
 
 ```powershell
 mvn -pl pixivdownload-official-plugins -am -Pdev-mode process-classes -Dexec.skip=true
 ```
 
-`dev-mode` を明示的に有効にすると、現在の開発ビルドのソース出力と、`plugins/` 内の検証済みパッケージを同時に読み込みます。依存関係は両方を合わせて検査します。同じプラグイン ID が複数の場所にある場合、競合するコピーはすべて読み込まず、復旧画面に場所と対処方法を表示します。ソースをデバッグするときは同名のインストール済みパッケージを移動し、パッケージを使うときは対応するソースモジュールを開発ビルドから外して、再起動してください。
+`dev-mode` は公式プラグイン各モジュールの `target/classes` と、`plugins/` 内の署名検証済みパッケージの両方を検出します。同じプラグイン ID が両方にある場合は `plugin-conflict` で読み込みを拒否し、復旧ページで競合コピーの除去と再起動を案内します。IDE のデバッグにはリポジトリ付属の共有設定（IntelliJ IDEA `.run/Developer Mode.run.xml`、VS Code `.vscode/launch.json`、Eclipse `eclipse/Developer Mode.launch`）を使ってください。
 
-IDE はコミット済みの共有構成を使います。IntelliJ IDEA の `.run/Developer Mode.run.xml`、VS Code の `.vscode/launch.json`、Eclipse の `eclipse/Developer Mode.launch` は、必要なモジュールをコンパイルして `GuiLauncher` を起動します。
-
-必須プラグイン欠落の復旧モードは `Missing Required Plugin` の共有構成、または次のコマンドで確認します。
+必須プラグインがない場合や復旧モードを検証するには、`Missing Required Plugin` の共有設定、または次のコマンドを使用します。
 
 ```powershell
 mvn -pl pixivdownload-app -am -Precovery-mode process-classes -Dexec.skip=true
 ```
 
-## ユーザースクリプトと翻訳リソース
+## ユーザースクリプトの同期と i18n の手順
 
-`pixiv-batch.html` は `/api/scripts` から生成済みのスクリプト一覧を読みます。個別の `*.user.js` と `scripts/build-userscript-bundle.ps1` の All-in-One は、Maven の `generate-resources` で `download-workbench` のリソースへコピーします。変更後は Maven のライフサイクルを実行し、IDE に残った古い出力だけで確認しないでください。
-
-言語一覧は `pixivdownload-app/src/main/resources/i18n/locales.json` です。`zh-CN` が開発元、`en-US` が全体のフォールバックです。
+- **ユーザースクリプト**：ルートの `*.user.js` と `scripts/build-userscript-bundle.ps1` が生成する All-in-One は、Maven の `generate-resources` 段階で `download-workbench` のリソースにコピーされます。共有フラグメントやスクリプトを変更したら、`./scripts/sync-shared-snippets.ps1`、`./scripts/build-userscript-bundle.ps1` を実行し、Maven ビルドを 1 回行ってください。
+- **i18n 国際化**：唯一の言語カタログは `pixivdownload-app/src/main/resources/i18n/locales.json` です。ソース言語は `zh-CN`、全体のフォールバックは `en-US` で、`zh-Hant`、`ja-JP`、`ko-KR` を含みます。文言の追加・変更後は次を順に実行します。
 
 ```bash
 npm run setup:hooks
@@ -110,42 +95,28 @@ npm run i18n:generate-static
 npm run test:i18n
 ```
 
-新しい中国語文言には英訳も含めます。静的リソースを生成したら、アプリだけでなくプラグインを含む実際の owner の出力を確認します。繁体字中国語、日本語、韓国語もあり、言語の状態とフォールバックを保ってください。コマンドの定義は現在の `package.json`、`scripts/i18n/`、CI を確認します。
+## Windows でのローカルパッケージ作成
 
-## Windows パッケージの作成
+- **このマシンでの署名なしインストーラー検証**：現在のソースからプラグインをビルドし、隔離された `build/out-local-unsigned/` に出力します。外部への配布は禁止です。
 
-`scripts/package-local.ps1` はアプリシェル、公式プラグイン、オンライン・オフラインの portable 版、任意の Inno Setup インストーラーを作ります。配布物には全公式プラグインの再検証可能な署名が必要です。`.sig` を含む検証済み入力を `-PrebuiltPluginsDir` に指定するか、ローカルの成果物に `-OfficialKeyId`、リポジトリ外の `-PrivateKeyFile`、任意の `-SignatureToolJar` を指定します。既定の出力は `build/out/` です。
+  ```powershell
+  .\scripts\package-installer-with-plugins.ps1 -Version 0.0.1-local -PluginSource Local -AllowUnsignedLocalPlugins
+  ```
 
-```powershell
-# ローカル動作確認専用の未署名インストーラー
-.\scripts\package-installer-with-plugins.ps1 -Version 0.0.1-local -PluginSource Local -AllowUnsignedLocalPlugins
+- **プラグインを含まないコアシェルのポータブルパッケージ**：復旧モード・開発の検証専用です。
 
-# プラグインなしの開発・復旧用シェル
-powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -SkipPlugins -SkipInstaller
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -SkipPlugins -SkipInstaller
+  ```
 
-# 署名と再検証が済んだ公式入力を使う
-powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -PrebuiltPluginsDir C:\path\to\signed-plugin-inputs -SignatureToolJar C:\path\to\signature-tool.jar
-```
+- **署名済みプラグインを入力して正式パッケージを作成**：`build/out/` に出力します。秘密キーをリポジトリ、ビルドディレクトリ、ログに置くことは禁止です。
 
-主な引数は `-PrebuiltJar`、`-PrebuiltPluginsDir`、`-SkipPlugins`、`-RunTests`、`-SkipPortable`、`-SkipOfflinePortable`、`-SkipInstaller`、`-RedownloadFfmpeg` です。`-SkipPlugins` の成果物は復旧・補充用です。未署名テスト版は隔離した `build/out-local-unsigned/` に出力し、配布してはいけません。秘密鍵をリポジトリ、出力、ログに入れないでください。
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -PrebuiltPluginsDir C:\path\to\signed-plugin-inputs -SignatureToolJar C:\path\to\signature-tool.jar
+  ```
 
-## PR とリリース
+## コミットと PR のルール
 
-変更のリスクに合うテストから始め、影響範囲のモジュールや全体検査に広げます。少なくとも差分を確認します。
-
-```bash
-git diff --check
-git diff --staged
-```
-
-PR には目的、境界、実行した検証と結果を書きます。UI は画像、パッケージは検証した成果物を示してください。`target/`、`build/`、実行設定、認証情報、ダウンロードデータは含めません。
-
-品質検査は Java、JavaScript、i18n、依存と配布境界を確認します。`v*` タグは公式プラグイン、アプリ、Java 配布物、Windows インストーラー、GitHub Release の作成を開始します。`workflow_dispatch` は品質検査後に指定タグのドラフト Release を作ります。ドキュメントは独立した `gh-pages` ブランチで管理します。実際の公開作業前には、現在の `.github/workflows/` と `scripts/` を確認してください。
-
-## 変更時に守る境界
-
-- ユーザー向け文字列は i18n を使い、Web は既存のダークモード、CSS 変数、HTML・CSS・JavaScript の分離に従います。
-- HTTP API は明示的な DTO と既存の認証・例外マッピングを使います。
-- データベースの作成 SQL を変える場合は、管理対象 schema と移行テストも更新します。
-- プラグインの設定、認証、状態、データ、依存をアプリシェルへ戻さないでください。
-- 公開拡張契約は `plugin-api` / `core-api` とガードを先に更新し、テンプレート、例、SDK 文書を合わせます。
+1. 変更のリスクに応じて、対象を絞ったテスト、モジュールの回帰テスト、フロントエンド・i18n ゲートを実行します。コミット前に `git diff --check` と `git diff --staged` を確認し、`target/`、`build/`、実行時設定、認証情報、テストデータを含めないでください。
+2. 利用者向け文字列は i18n に接続し、実行ログは英語に固定します。HTTP API は明示的な DTO と既存の認可・例外マッピングを使い、プラグイン専用の設定、認証情報、データは各プラグインが所有します。
+3. ブランチを最新の `upstream/master` に同期してから `master` 向けの PR を作成し、変更理由、範囲、実際に実行した検証コマンドと結果を記載します。オンライン文書は独立した `gh-pages` ブランチで管理します。

@@ -1,291 +1,126 @@
-﻿# Frequently Asked Questions (FAQ)
+# Frequently asked questions (FAQ)
 
-Find the matching symptom below. Before changing account, database, or directory state, confirm the working directory and keep a backup. Logs and task results provide stronger evidence than elapsed waiting time. Replace `APP.jar` in commands with the distribution's main JAR filename and run them from its directory.
+Find diagnosis and resolution steps by symptom. Before operations involving databases, accounts or directories, confirm the actual working directory and keep a backup. Replace `APP.jar` in the commands below with the actual main application JAR filename from the distribution, and run commands from the fully extracted directory.
 
-## Installation & Startup
+## Installation and startup
 
-### Q: "Java is not recognized" error on startup
+### Java is not recognized as an internal or external command
 
-**A**: You need to install Java 17+. Download from [Adoptium](https://adoptium.net/), then restart your terminal or manually configure `JAVA_HOME` and `PATH`.
+Java 17+ is not installed or is not on the environment path. Install Java 17+ from [Adoptium](https://adoptium.net/) and reopen the terminal, or check `JAVA_HOME` and `PATH`.
 
-### Q: Garbled Chinese text after startup
+### Chinese text is garbled in the console after startup
 
-**A**: Always add `-Dfile.encoding=UTF-8` to the launch command:
+Add `-Dfile.encoding=UTF-8` when starting manually (the distribution's `run.bat` / `run.sh` already includes it):
 
 ```bash
 java -Dfile.encoding=UTF-8 -jar APP.jar
 ```
 
-### Q: Port 6999 is already in use
+### Port 6999 is already in use
 
-**A**: Two solutions:
-1. Check whether the port belongs to an existing PixivDownloader instance; do not run two instances against the same data directory. Identify any other process before stopping it
-2. Change `server.port` in `config/config.yaml` to a different port (requires restart)
+First check whether a PixivDownloader instance using the same data directory is already running (do not run multiple instances against one data directory). If another program occupies the port, stop it or change `server.port` in `config/config.yaml` and restart.
 
-### Q: Windows installer fails
+### Windows installer fails
 
-**A**:
-1. Ensure `PixivDownload.exe` is closed before installing
-2. Check for leftover MSI from previous versions (installer handles migration automatically)
-3. Run the installer as Administrator
+Close any running `PixivDownload.exe`, then run the installer again as an administrator.
 
-### Q: How to uninstall?
+### How to uninstall or reinitialize the administrator account
 
-**A**:
-- **Installer version**: Run the installer again and select "Uninstall"; or via Windows "Settings → Apps"
-- **JAR version**: Back up the actual artwork directories, configuration, state, and database as described in [Storage](storage.md), then remove program files. The working directory may also contain your library; do not treat the entire directory as disposable.
+- **Uninstall**: use the installer or system "Settings → Apps" for the Windows installer edition. For the Java archive edition, back up the work directory, `config/`, `state/` and `data/` as described in [Storage and backup](/en/storage), then delete program files (do not simply delete the entire working directory containing works and databases).
+- **Forgotten password or reinitialization**: if you only forgot the password, stop the service and run `--reset-password`. If you really need to recreate initialization state, stop the service, back up, move `state/setup_config.json` aside, then run `--setup` or the desktop wizard (this does not clear business configuration or rebuild the database; see [First-time setup](/en/first-setup)).
 
-### Q: How to reinitialize the admin account?
+### Server / Docker exits immediately with code 78
 
-**A**: Use `--reset-password` below if you only forgot the password. For reinitialization, stop the service, back up and move aside `state/setup_config.json`, then use `--setup` or the GUI wizard. This recreates initialization state; it does not reset all configuration or migrate or rebuild the database. See [First-Time Setup](first-setup.md).
-
-### Q: My server / Docker container always exits at startup, asking me to run setup first?
-
-**A**: A headless / `--no-gui` launch exits with code `78` if initialization is incomplete. Initialize interactively, then start the service:
+Headless mode (`--no-gui`) aborts with exit code `78` if initial setup is incomplete. Run interactive setup first, then start the service:
 
 ```text
 java -Dfile.encoding=UTF-8 -jar APP.jar --setup
 java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui
 ```
 
-Then start the service normally with `--no-gui`. See [First-Time Setup](first-setup.md).
+### Forgotten administrator password
 
-### Q: The admin forgot the password. What now?
+Stop the running instance, then run the reset command locally (the old password is not required; use at least 8 characters, preferably 12 or more. Resetting invalidates all old sessions. Use `--change-password` if you remember the old password):
 
-**A**: Stop the running PixivDownloader, then reset the password via CLI (the previous password is not required):
-
-```bash
+```text
 java -Dfile.encoding=UTF-8 -jar APP.jar --reset-password
 ```
 
-The wizard asks for the new password twice (at least 8 characters; 12 or more recommended). After a successful reset, all existing login sessions are invalidated; log in again with the new password. If you still know the current password and just want to rotate it, use `--change-password` (which verifies the current password).
+### Unrecognized startup option
 
-### Q: Startup says "unrecognized startup argument"?
+Startup arguments are validated strictly. Misspelled switches (such as `--no-guii`), arguments missing `=` (such as `--username admin`) and stray positional arguments are rejected. Run `--help` for supported options.
 
-**A**: The launcher validates arguments strictly: typos (`--no-guii`), value flags missing the `=` (`--username admin`), and plain positional tokens are rejected. Run `--help` to see the full option list. Arguments shaped as `--key=value` are still forwarded to Spring Boot as property overrides.
+## Proxy and network
 
----
+### Downloads still fail after configuring a proxy
 
-## Proxy & Network
+1. Confirm that the proxy settings were saved (saving in the desktop GUI or using CLI `--setup` supports hot reload; manually editing `config/config.yaml` requires a restart or clicking Save in the GUI to trigger a reload).
+2. Verify that the actual Pixiv work page is accessible in your browser, and inspect the failing host and error code in `log/latest.log`.
+3. Check that the firewall allows the proxy port. For containers, confirm that you use `host.docker.internal` rather than `127.0.0.1`.
+4. Distinguish the global proxy, task-specific proxies, plugin-owned proxies and direct browser requests; see [Network access and third-party services](/en/network-access).
 
-### Q: Downloads still fail after configuring proxy
+### All users behind a reverse proxy share one rate limit in multi mode
 
-**A**:
-1. Confirm proxy settings have been saved (after saving in the GUI or configuring via CLI `--setup`, proxy settings **support hot reload** and take effect immediately, no restart needed; if you hand-edit `config/config.yaml` directly, restart the service or click Save in the GUI to trigger a hot reload)
-2. Test an actual Pixiv work URL in the browser, then inspect the failed host and error in backend logs; a CDN root response alone does not prove downloads work
-3. Check if the firewall allows the proxy port
-4. Distinguish the backend global proxy, task proxy, plugin settings, and browser requests. See [Network Access and Third-Party Services](network-access.md) for their separate rules
+Without trusted proxy configuration, the backend rate-limits by TCP source IP. Set `server.trusted-proxy-cidrs` in `config/config.yaml` to the actual reverse proxy egress or container subnet (such as `172.18.0.0/16`), and have the reverse proxy send complete `Forwarded` or `X-Forwarded-For` + `X-Forwarded-Proto` + `X-Forwarded-Host` headers. See [HTTPS and reverse proxies in Configuration reference](/en/configuration#https-and-reverse-proxies).
 
-### Q: All users rate-limited when deployed behind reverse proxy
+### Other devices on the LAN cannot connect
 
-**A**: Without a trusted-proxy configuration, the backend uses only the TCP source address. Requests from one reverse-proxy node therefore share the same rate-limit identity.
+Confirm that the firewall allows `server.port` (default `6999`) and the service is not bound only to `127.0.0.1` (Docker defaults to binding only the host loopback address; expose access through a reverse proxy or change the mapping). From the LAN device, visit `http://<server IP>:6999/`.
 
-**Solution**: Add the actual proxy egress address or container subnet to `server.trusted-proxy-cidrs`, and make the proxy send either a complete `Forwarded` header or `X-Forwarded-For` + `X-Forwarded-Proto` + `X-Forwarded-Host` on every request:
+## Cookies and downloads
 
-```yaml
-server.trusted-proxy-cidrs: 172.18.0.0/16
-```
+### Search returns no results or reports an invalid cookie format
 
-The backend then rate-limits by the normalized client address. Never trust public or client networks; requests receive HTTP 400 when forwarding metadata is missing or comes from an untrusted peer. See the full boundary in the [configuration reference](/en/configuration#https-and-reverse-proxies).
+- Search downloads, Quick access and R-18 works require a cookie containing a valid `PHPSESSID`.
+- The selected paste format (**Netscape** or **Header String**) must match the exported content. `document.cookie` read by ordinary frontend scripts does not include the HttpOnly `PHPSESSID`; obtain it again as described in [Your first download](/en/first-download#_2-save-a-pixiv-cookie-if-needed).
+- To clear a cookie, explicitly click Clear on the download page. Scheduled tasks hold separate cookie bindings, which must also be removed from the corresponding tasks.
 
-### Q: Cannot access from other devices on LAN
+### Ugoira conversion fails or a novel EPUB has no cover
 
-**A**:
-1. Allow port 6999 through firewall
-2. Ensure `config/config.yaml` doesn't restrict binding address
-3. Visit `http://<server IP>:6999/` in browser
+- **Ugoira**: confirm that `ffmpeg -version` works (or click "Download FFmpeg" on the desktop GUI's "Status" page). MP4 also requires an H.264 encoder.
+- **Novel covers**: covers come from `.pximg.net`; make sure the backend proxy can reach that image domain, then download the novel again after fixing the proxy.
 
----
+### The online listening engine is silent or synthesis fails
 
-## Cookie Related
+1. The online engine (Edge neural voices) connects to Microsoft services through the backend proxy. First confirm that `proxy.*` works.
+2. On an HTTP 403 handshake response, the backend automatically refreshes the Edge version and corrects clock skew before retrying. If failures continue, correct the local system time.
+3. You can switch to "Browser engine" in the playback bar.
+4. Invited guests are rate-limited by `guest-invite.tts-request-limit-minute` (default 30 requests per minute); exceeding it returns 429. Administrators are not subject to this limit.
 
-### Q: Search mode returns no results
+### Some batch downloads fail, filename templates do not apply, or quota is used quickly
 
-**A**: Search mode requires Pixiv cookies. Please verify:
-1. The selected cookie format (Netscape or Header) matches the pasted content, and the saved cookie provides a recognized login session
-2. Cookies haven't expired (re-login to Pixiv and re-fetch)
-3. Proxy is correctly configured
+- **Partial failure**: check whether the author deleted the work or made it private, and whether the cookie expired. For upstream rate limits, reduce concurrency and increase the interval between works.
+- **Filename templates**: enclose variables in braces (such as `{artwork_id}`). Changes apply only to new downloads afterward (see [Filename template variables](/en/usage-guide#filename-template-variables) for supported variables).
+- **Multi-page quota in multi mode**: when `multi-mode.quota.limit-image` is greater than `0`, works with more pages than that threshold consume a proportionally larger number of quota units.
 
-### Q: Cookie format error message
+## Desktop GUI and database
 
-**A**: Ensure:
-1. Match the exported format to **Netscape** or **Header** on the page
-2. Authentication needs the complete `PHPSESSID`; ordinary page scripts may not be able to read it
-3. Retrieve and save it again using [First Download](first-download.md), and keep credentials out of logs and issues
+### GUI remains at Starting, updates fail, or an error dialog appears
 
-### Q: How to clear saved cookies?
+- **Slow startup**: after 10 seconds, the waiting time is displayed. Database migrations or plugin loading may be in progress. Check `log/latest.log` and retain the data and logs. **Do not delete the database to troubleshoot slow startup**.
+- **Online update failure**: check the backend proxy connection, or download a newer installer directly from [Releases](https://github.com/Sywyar/PixivDownloader/releases) and install over the existing version.
+- **Error details**: click "Open log file" in the dialog to view complete English diagnostic logs in `log/latest.log`.
 
-**A**:
-Explicitly clear the cookie on the download page. Scheduled tasks hold separate credential bindings, which must be removed in those tasks. Logging out does not replace checking that each saved credential has been cleared.
+### Database location, corruption and backup recovery
 
----
+- **Location**: SQLite defaults to `data/pixiv_download.db` (with `-wal` / `-shm` companion files); PostgreSQL resides on the configured database server.
+- **Database corruption**: first stop the application and fully back up the original database and companion files. Run `PRAGMA integrity_check;` only on a **backup copy** (it checks but does not repair). If corruption is confirmed, prefer restoring a verified backup. Work identification, page counts, paths and relationships all rely on the database. **After losing the database, work folders alone cannot restore the gallery or guarantee that redownloads will be skipped**.
+- **Backup, relocation and upgrades**: see [Storage and backup](/en/storage) for full backup scope and directory relocation. When upgrading a Java distribution, fully extract it and replace the main application and `plugins/` together, retaining `config/`, `state/` and `data/`. Do not replace only the main JAR.
 
-## Download Related
+## Userscripts and security
 
-### Q: Ugoira animations won't play after download
+### Userscripts do not appear, show duplicate panels, or cannot connect to the backend
 
-**A**: Ugoira conversion requires FFmpeg and the encoder for the selected output format. Install ffmpeg and ensure it's available in PATH:
+- Confirm that Tampermonkey and the script are enabled, that the current page matches `@match` (for example, User Batch runs only on `/users/`), and refresh the page.
+- **Duplicate panels**: do not enable All-in-One and individual download scripts together; keep only one option enabled.
+- **Cannot connect to the backend**: confirm that the backend is running and that you are signed in for solo mode. For deployments other than `localhost:6999`, change both the backend address inside the script and its `@connect` permission; see [Userscripts](/en/userscripts).
 
-```bash
-ffmpeg -version
-```
+### Account security, identity isolation and HTTPS
 
-Windows installer users can click "Download FFmpeg" on the GUI "Status" page.
+- This tool requests Pixiv using the cookie you provide. Set reasonable concurrency and intervals, and follow the platform's rules.
+- **Identity distinction**: users in `multi` mode who are not signed in and have no invitation code are **visitors** (isolated by UUID and `multi-mode.*`). Users with invitation codes are **invited guests** (read-only access to allowlisted content in both `solo` / `multi`, rate-limited by `guest-invite.*`).
+- **Enable HTTPS**: set `server.ssl.enabled: true`, `server.ssl.certificate` and `server.ssl.certificate-private-key` in `config/config.yaml` (see [Configuration reference](/en/configuration#https-and-reverse-proxies)).
 
-### Q: EPUB covers for downloaded novels don't show
+## Report an issue
 
-**A**: Cover download may require proxy. Ensure:
-1. Proxy is correctly configured
-2. Cover URL host ends with `.pximg.net` (SSRF security restriction)
-3. Re-download the novel
-
-### Q: The "Online engine" for Listen has no sound / synthesis fails
-
-**A**: The online engine (Edge neural voices) requires network. Check in order:
-1. **Network/proxy**: online synthesis reaches Microsoft via the backend proxy — make sure the proxy works (same `proxy.*` config as downloads)
-2. **Handshake 403**: when the version string is stale, the backend automatically fetches the latest Edge version, corrects clock skew, and retries; if it persists, check your machine's system clock
-3. **Switch to the browser engine**: in the playback bar's "Settings", switch to the browser engine — using voices from the browser / system; network requirements depend on the selected speech service
-4. **Invited guests rate-limited**: visitors using an invite link are bound by `guest-invite.tts-request-limit-minute` (guest invites work in both solo and multi modes); too-frequent requests return 429 — wait and retry, or have the admin raise the value. Admins themselves are not limited
-
-### Q: Some artworks fail during batch download
-
-**A**: Common causes:
-1. Cookies expired — re-fetch and save cookies
-2. Pixiv server rate limiting — reduce download concurrency and frequency
-3. Unstable proxy — check proxy service
-4. Artwork deleted or set to private — skip missed items
-
-### Q: Custom filename template not working
-
-**A**: Check template syntax:
-- Use curly braces for variables: `{artwork_id}`
-- Don't use unsupported variable names
-- Template results cannot contain illegal filename characters (auto-sanitized)
-- After template changes, only new downloads use the new template; existing file names won't change
-
-### Q: Ugoira downloads consume excessive quota
-
-**A**: In multi-mode, configure `multi-mode.quota.limit-image` in `config/config.yaml`. When an artwork's image count exceeds this value, it counts as multiple quota units:
-
-```yaml
-multi-mode.quota.limit-image: 10  # Artworks with >10 images consume proportional quota
-```
-
----
-
-## GUI Related
-
-### Q: GUI shows "Starting..." indefinitely
-
-**A**: After 10+ seconds, the waited time is displayed; it may be updating the database. If unresponsive for long:
-1. Check `log/latest.log` log file
-2. Check for migration, port, or plugin errors. Preserve the error and data; do not delete the database to troubleshoot a slow startup
-3. Verify Java version is 17+
-
-### Q: GUI online update fails
-
-**A**:
-1. Check network connection
-2. Check proxy configuration (updates reuse proxy settings)
-3. Manually download the installer from [Releases](https://github.com/Sywyar/PixivDownloader/releases) and overwrite-install
-
-### Q: GUI error dialog shows garbled text
-
-**A**: GUI error dialogs now show a unified message; detailed error info is logged. Click "Open Log File" in the dialog to view details.
-
----
-
-## Database Related
-
-### Q: Where is the database file?
-
-**A**: The default SQLite path is `data/pixiv_download.db`, possibly with WAL / SHM companion files. With PostgreSQL, the main data resides in the configured server database. Check the selected provider and actual location before operating on it.
-
-### Q: What if the database is corrupted?
-
-**A**: Stop the application and preserve the original database and companion files before diagnosing a backup copy. SQLite's `PRAGMA integrity_check;` **checks integrity; it does not repair the database**. It needs the SQLite CLI and should target the copy. Restore a verified backup if corruption is confirmed. Do not delete the original and expect artwork folders to reconstruct the gallery. PostgreSQL requires its own database backup and recovery procedures, not SQLite commands.
-
-### Q: I lost / migrated the database. Will already-downloaded works be redownloaded?
-
-**A**: Skipping redownloads is not guaranteed. Work identity, page count, paths, tags, and collections depend on database records; files in a folder alone do not prove a complete work. Preserve the files and restore the matching database backup first. Use path-prefix migration for directory changes and the checked migration workflow for SQLite / PostgreSQL switches. Backfill fills missing fields in existing records; it does not fully rebuild a library from arbitrary artwork folders.
-
-### Q: How to back up data?
-
-**A**: Stop the application and back up `config/`, `state/`, `data/`, plugins, and all actual artwork directories, including collection-specific paths. Collection icons are under `data/collection_icons/`. PostgreSQL also needs a server database backup; preserve external read-only import sources separately. See [Storage](storage.md) for the full scope and restore checks.
-
----
-
-## Userscripts
-
-### Q: Scripts don't work after installation
-
-**A**:
-1. Confirm Tampermonkey is enabled
-2. Check if the script is enabled for the target page (`@match` rules)
-3. Check Tampermonkey dashboard to see if the script shows "Enabled"
-4. Refresh the Pixiv page
-
-### Q: All-in-One and standalone scripts both enabled, showing duplicate panels
-
-**A**: This is inherent to Tampermonkey — All-in-One and standalone scripts are separate scripts with independent storage. Recommendations:
-- Enable only the **All-in-One bundle** (recommended)
-- Or enable only the standalone scripts you need, disable All-in-One
-
-### Q: Script shows "Backend Unavailable" or "Not Logged In"
-
-**A**:
-1. Confirm backend service is running
-2. In Solo mode, confirm you're logged in
-3. For remote backends, check both the configured backend address and `@connect` host permission; see [Userscripts](userscripts.md)
-
----
-
-## Security
-
-### Q: Will using this tool get my Pixiv account banned?
-
-**A**: This project accesses Pixiv using user-provided cookies. Users bear their own account risks. Recommendations:
-- Set reasonable download frequency and concurrency
-- Avoid excessive requests in a short time
-- Comply with Pixiv terms of service
-
-### Q: What can visitors and invited guests see?
-
-**A**: An unauthenticated user without an invite session in `multi` mode is a **visitor**, whose download state is identity-scoped. Admins have the management view. **Invited guests** use invite sessions in either `solo` or `multi` and can only access allowed pages and works. Collections, history, and statistics also enforce their own access rules. These two identities are different.
-
-### Q: How to enable HTTPS?
-
-**A**: Configure SSL certificates in `config/config.yaml`:
-
-```yaml
-server.ssl.enabled: true
-server.ssl.certificate: /path/to/cert.pem
-server.ssl.certificate-private-key: /path/to/key.pem
-```
-
-Replace the sample paths with your actual certificate and private-key paths. PEM takes priority when both PEM and JKS are configured. Restart and verify HTTPS; reverse-proxy deployments also need the [Configuration](configuration.md) settings.
-
----
-
-## Other
-
-### Q: How to migrate to a new computer?
-
-**A**: Follow [Storage](storage.md) to stop, back up, copy, and restore. If paths change, migrate the recorded path prefixes too. Check login, gallery, novel text, collections, and a new download before retiring the old copy.
-
-### Q: How to upgrade?
-
-**A**:
-- **GUI mode**: Auto-check on startup, or manually check on "Status" page
-- **Java distribution**: Extract the complete new bundle and update the program and matching plugins according to its release notes, preserving configuration, state, and data. Do not replace only the main JAR
-- **Windows installer**: Run new installer and select "Repair" or overwrite-install
-- Startup can upgrade the schema within the current database. Switching between SQLite and PostgreSQL requires a separate checked migration; changing configuration does not move existing data. Back up before upgrading and verify login and existing works afterwards
-
-### Q: How to provide feedback or report issues?
-
-**A**: Submit an issue on [GitHub Issues](https://github.com/Sywyar/PixivDownloader/issues). Please include:
-- OS and version
-- PixivDownloader version (check GUI "About" page)
-- Issue description and reproduction steps
-- Relevant logs (`log/latest.log`), with cookies, tokens, passwords, and personal addresses removed
-- Screenshots (if applicable)
+When reporting an issue on [GitHub Issues](https://github.com/Sywyar/PixivDownloader/issues), include your operating system, application version, reproduction steps, relevant screenshots and `log/latest.log` with cookies, passwords, tokens and private addresses removed.

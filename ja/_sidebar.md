@@ -1,41 +1,44 @@
-- **クイックスタート**
-  - [🏠 ホーム](/ja/)
-  - [📥 インストール](/ja/installation)
-  - [⚙️ 初回セットアップ](/ja/first-setup)
-  - [⬇️ 初回ダウンロード](/ja/first-download)
+- **使いはじめる**
+  - [ホーム](/ja/)
+  - [インストールと起動](/ja/installation)
+  - [初回セットアップ](/ja/first-setup)
+  - [初回ダウンロード](/ja/first-download)
 
-- **機能ガイド**
-  - [⚡ クイック取得](/ja/quick-access)
-  - [📋 URL 一括ダウンロード](/ja/batch-download)
-  - [👤 ユーザー一括ダウンロード](/ja/user-download)
-  - [🔍 検索ダウンロード](/ja/search)
-  - [📖 小説ダウンロード](/ja/novel)
-  - [🖼️ 作品ギャラリー](/ja/gallery)
-  - [⏰ スケジュールタスク](/ja/scheduled-tasks)
-  - [🧩 ユーザースクリプト](/ja/userscripts)
-  - [PixivBatchDownloader インポート](/ja/pixiv-batch-downloader-import)
+- **取得とダウンロード**
+  - [クイック取得](/ja/quick-access)
+  - [URL 一括ダウンロード](/ja/batch-download)
+  - [作者別一括ダウンロード](/ja/user-download)
+  - [検索ダウンロード](/ja/search)
+  - [小説と読み上げ](/ja/novel)
+  - [スケジュールタスク](/ja/scheduled-tasks)
+  - [ユーザースクリプト](/ja/userscripts)
+  - [外部ダウンロードのインポート](/ja/pixiv-batch-downloader-import)
+
+- **管理とトラブルシューティング**
+  - [作品ギャラリー](/ja/gallery)
+  - [設定リファレンス](/ja/configuration)
+  - [ストレージとバックアップ](/ja/storage)
+  - [CLI と詳細リファレンス](/ja/usage-guide)
+  - [ネットワークアクセスと外部サービス](/ja/network-access)
+  - [よくある質問](/ja/faq)
 
 - **プラグイン**
-  - [🔌 プラグイン管理](/ja/plugin-management)
+  - [プラグイン管理](/ja/plugin-management)
   - [ページエディター](/ja/page-editor)
-  - [操作認証](/ja/captcha)
+  - [操作 CAPTCHA](/ja/captcha)
 
-- **リファレンス**
-  - [操作リファレンス](/ja/usage-guide)
-  - [⚙️ 設定リファレンス](/ja/configuration)
-  - [🌐 ネットワークアクセスとサードパーティサービス](/ja/network-access)
-  - [💾 ストレージの仕組み](/ja/storage)
-  - [🧰 サードパーティプラグイン SDK](/ja/plugin-development)
-  - [❓ よくある質問](/ja/faq)
-  - [🛠️ 開発ガイド](/ja/development)
+- **開発への参加**
+  - [サードパーティープラグイン SDK](/ja/plugin-development)
+  - [主リポジトリの開発](/ja/development)
 
 ---
 
-- [🇨🇳 简体中文](/zh-cn/)
+- [简体中文](/zh-cn/)
 - [繁體中文](/zh-hant/)
-- [🇺🇸 English](/en/)
+- [English](/en/)
+- [日本語](/ja/)
 - [한국어](/ko/)
 - [GitHub](https://github.com/Sywyar/PixivDownloader)
 - [Releases](https://github.com/Sywyar/PixivDownloader/releases)
 - [Issues](https://github.com/Sywyar/PixivDownloader/issues)
-- [変更履歴](https://github.com/Sywyar/PixivDownloader/blob/master/CHANGELOG.md)
+- [Changelog](https://github.com/Sywyar/PixivDownloader/blob/master/CHANGELOG.md)

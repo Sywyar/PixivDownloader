@@ -1,46 +1,43 @@
-# 開發指南
+# 主儲存庫開發
 
-要修改主程序或官方插件，從本頁準備環境、構建源碼並提交 PR。第三方插件作者請直接閱讀[第三方插件 SDK](/zh-hant/plugin-development)；插件安裝、啓停和故障處理見[插件管理](/zh-hant/plugin-management)。
+本頁說明主程式與官方外部外掛的開發環境準備、模組邊界、建置測試、開發模式偵錯、本地打包與 PR 規範。開發獨立第三方外掛請閱讀[第三方外掛 SDK](/zh-hant/plugin-development)；外掛安裝與疑難排解見[外掛管理](/zh-hant/plugin-management)。
 
-## 環境準備
+## 環境要求
 
-| 工具 | 要求 | 用途 |
+| 工具 | 版本要求 | 用途 |
 | --- | --- | --- |
-| JDK | 17 | 編譯和運行 |
-| Maven | 3.9+，或倉庫內的 Maven Wrapper | 構建與測試 |
-| Git | 當前受支持版本 | 版本控制 |
-| Node.js / npm | 與當前 CI 使用版本一致 | JavaScript 測試、i18n 與邊界檢查 |
-| PowerShell | 5.1+ | Windows 打包腳本 |
-| Inno Setup | 6.x，可選 | Windows 安裝包 |
+| JDK | 17 | 編譯與執行 Java 模組 |
+| Maven | 3.9+ 或儲存庫內建 `mvnw` | Reactor 建置與測試 |
+| Git | 目前受支援版本 | 版本控制與分支管理 |
+| Node.js / npm | 與目前 CI 一致 | 前端測試、i18n 門禁與邊界守衛 |
+| PowerShell | 5.1+ | Windows 本地打包腳本 |
+| Inno Setup | 6.x（選用） | 建置 Windows `setup.exe` 安裝包 |
 
-所有 Java 命令都應顯式使用 UTF-8。在 Windows PowerShell 中：
+所有 Java 命令均須明確使用 UTF-8。Windows PowerShell 可設定：
 
 ```powershell
 $env:JAVA_TOOL_OPTIONS='-Dfile.encoding=UTF-8'
 ```
 
-## 多模塊結構
+## 多模組結構與依賴方向
 
-倉庫根 `pom.xml` 是 Maven Reactor 聚合器。主要邊界如下：
+根目錄 `pom.xml` 是 Maven Reactor 聚合器：
 
-| 目錄 | 職責 |
+| 模組或目錄 | 職責 |
 | --- | --- |
-| `pixivdownload-plugin-api/` | 第三方插件的穩定擴展契約 |
-| `pixivdownload-core-api/` | 穩定的宿主語義端口和值模型 |
-| `pixivdownload-plugin-signature/` | 插件和倉庫清單的簽名、驗籤工具 |
-| `pixivdownload-plugin-runtime/` | PF4J、Spring 子上下文和安裝生命週期 |
-| `pixivdownload-plugin-*/` | 各官方外置插件 |
-| `pixivdownload-app/` | 宿主應用、適配器和可執行 Spring Boot JAR |
-| `pixivdownload-official-plugins/` | 官方插件聚合與開發模式入口 |
-| `plugin-templates/` | 可複製的第三方插件模板 |
+| `pixivdownload-sdk-info/`、`pixivdownload-plugin-api/`、`pixivdownload-core-api/`、`pixivdownload-sdk/` | SDK 版本事實來源、外掛擴充契約、宿主穩定語意連接埠與統一編譯入口 |
+| `pixivdownload-plugin-signature/` | 外掛套件、儲存庫清單與社群操作的 Ed25519 簽署與驗證工具 |
+| `pixivdownload-plugin-runtime/` | PF4J 載入、Spring 子上下文、worker 處理程序與安裝交易生命週期 |
+| `pixivdownload-plugin-*/` | 各官方外部外掛模組 |
+| `pixivdownload-app/` | 應用程式宿主、配接器與可執行 Spring Boot JAR |
+| `pixivdownload-official-plugins/` | 官方外部外掛開發聚合與 `dev-mode` 啟動入口 |
+| `plugin-templates/` | 可複製的獨立第三方外掛專案範本 |
 
-插件 API 與宿主實現之間必須保持依賴方向：插件依賴 `plugin-api`，需要穩定宿主能力時再依賴 `core-api`；第三方插件不得依賴 `pixivdownload-app` 或宿主實現類。
+依賴方向：外掛依賴 `plugin-api`（及依需求依賴 `core-api`），嚴禁反向依賴 `pixivdownload-app` 或宿主內部實作類別。`douyin` 外掛原始碼在[獨立儲存庫](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin)維護，透過固定提交參與 SDK 隔離消費者相容性驗收。
 
-Douyin 的原始碼、資源和測試在[獨立外掛倉庫](https://github.com/Sywyar/PixivDownloader-Plugin-Douyin)維護，不屬於主倉庫的 Maven Reactor。SDK 相容性檢查讀取獨立倉庫的固定提交，使用待驗 SDK 建置外掛，再驗證跨外掛互動與簽署、未簽署套件的安裝和生命週期。
+## Fork、建置與測試
 
-## Fork 與分支
-
-先在 GitHub Fork 倉庫，將 `YOUR_USERNAME` 換成自己的賬號，並把分支名改成具體修改內容。
+Fork 儲存庫後，以 `upstream/master` 為基礎建立功能分支（請替換 `YOUR_USERNAME` 與分支名稱）：
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/PixivDownloader.git
@@ -50,59 +47,45 @@ git fetch upstream
 git switch -c feat/your-change upstream/master
 ```
 
-提交 PR 前，將分支更新到 `upstream/master`，並向上遊 `master` 分支發起 PR。
-
-## 構建、測試與運行
+常用建置與驗證命令：
 
 ```powershell
-# 構建全部模塊但跳過測試
+# 略過測試，打包全部模組
 .\mvnw.cmd package -DskipTests
 
-# 運行完整 Maven 測試
+# 執行完整 Maven 測試
 .\mvnw.cmd test
 
-# 運行一個模塊及它在 Reactor 中依賴的模塊
+# 測試單一模組及其 Reactor 上游相依模組（搭配 -Dtest=... 時請加 -Dsurefire.failIfNoSpecifiedTests=false）
 .\mvnw.cmd -pl pixivdownload-plugin-api -am test
 
-# 運行全部 JavaScript 測試和 Web 標準檢查
+# 執行前端測試與 Web 標準守衛
 npm run test:js
 npm run test:web-standards
-
-# 運行打包後的應用：先確認恰有一個主 JAR
-$appJars = @(Get-ChildItem -LiteralPath pixivdownload-app/target -Filter 'PixivDownload-*-boot.jar')
-if ($appJars.Count -ne 1) { throw 'Expected exactly one application JAR' }
-java -Dfile.encoding=UTF-8 -jar $appJars[0].FullName
 ```
 
-構建以 Maven `BUILD SUCCESS` 和進程退出碼爲準；跳過測試的打包不代表測試通過。僅運行核心 Boot JAR 不會自動安裝外置插件；開發完整功能使用下方官方插件開發入口，部署則使用完整發行包。
+建置結果以 `BUILD SUCCESS` 和結束代碼 `0` 為準；略過測試的打包不代表測試通過。單獨執行 `pixivdownload-app/target/PixivDownload-*-boot.jar` 僅啟動不含外部外掛的核心殼，完整功能整合偵錯請使用下方開發模式。
 
-如果使用 `-Dtest=...` 對帶 `-am` 的 Reactor 做聚焦測試，請同時添加 `-Dsurefire.failIfNoSpecifiedTests=false`，避免沒有該測試類的上游模塊誤報失敗。
+## 官方外部外掛開發模式與復原模式
 
-## 官方外置插件開發模式
-
-從倉庫根目錄運行：
+在儲存庫根目錄透過明確的 `dev-mode` profile 啟動完整開發環境（不要在 IDE Maven 面板中全域勾選此 profile）：
 
 ```powershell
 mvn -pl pixivdownload-official-plugins -am -Pdev-mode process-classes -Dexec.skip=true
 ```
 
-明確啟用 `dev-mode` 時，程式同時載入目前開發建置的原始碼輸出與 `plugins/` 中通過驗證的安裝套件。兩種來源共同檢查相依性；同一插件 ID 來自多個位置時，衝突的副本均不會載入，復原介面會列出來源及處理建議。偵錯原始碼時移出同名安裝套件；使用安裝套件時從開發建置排除同名原始碼模組，處理後重新啟動。
+`dev-mode` 會同時探索各官方外掛模組的 `target/classes` 與 `plugins/` 目錄中已核驗簽章的安裝包；若同一外掛 ID 在兩處同時存在，將觸發 `plugin-conflict` 拒絕載入，並在復原頁提示移除衝突副本後重新啟動。IDE 偵錯請直接使用儲存庫附帶的共用設定（IntelliJ IDEA `.run/Developer Mode.run.xml`、VS Code `.vscode/launch.json`、Eclipse `eclipse/Developer Mode.launch`）。
 
-IDE 調試請使用倉庫提交的共享配置：IntelliJ IDEA 的 `.run/Developer Mode.run.xml`、VS Code 的 `.vscode/launch.json` 或 Eclipse 的 `eclipse/Developer Mode.launch`。這些入口會先編譯所需 Reactor 模塊，再啓動 `GuiLauncher`。
-
-缺失必裝插件的恢復模式可使用相應的 `Missing Required Plugin` 共享配置，或運行：
+驗證缺少必要外掛或復原模式時，使用 `Missing Required Plugin` 共用設定或執行：
 
 ```powershell
 mvn -pl pixivdownload-app -am -Precovery-mode process-classes -Dexec.skip=true
 ```
 
-## 用戶腳本資源
+## 使用者腳本同步與 i18n 工作流程
 
-`pixiv-batch.html` 通過 `/api/scripts` 讀取已經物化的腳本目錄。獨立 `*.user.js` 與 `scripts/build-userscript-bundle.ps1` 生成的整合腳本會在 Maven `generate-resources` 階段複製到 `download-workbench` 插件資源。因此修改用戶腳本後至少運行一次 Maven 生命週期，不能只依賴 IDE 的舊輸出目錄。
-
-## i18n 國際化工作流
-
-`pixivdownload-app/src/main/resources/i18n/locales.json` 是語言清單；中文（`zh-CN`）是開發源語言，英文（`en-US`）是全局回退語言。常用命令：
+- **使用者腳本**：根目錄 `*.user.js` 與 `scripts/build-userscript-bundle.ps1` 產生的 All-in-One，會在 Maven `generate-resources` 階段複製至 `download-workbench` 資源目錄。修改共用片段或腳本後，請執行 `./scripts/sync-shared-snippets.ps1`、`./scripts/build-userscript-bundle.ps1` 並執行一次 Maven 建置。
+- **i18n 國際化**：唯一語言目錄為 `pixivdownload-app/src/main/resources/i18n/locales.json`（來源語言 `zh-CN`，全域回退 `en-US`，包含 `zh-Hant`、`ja-JP`、`ko-KR`）。新增或修改文案後，依序執行：
 
 ```bash
 npm run setup:hooks
@@ -112,49 +95,28 @@ npm run i18n:generate-static
 npm run test:i18n
 ```
 
-新增中文文案必須同時提交英文翻譯。靜態資源發生變化時，運行生成命令並檢查各資源 owner 的實際輸出；不要只更新應用模塊而遺漏插件資源。語言還包括繁體中文、日語和韓語；變更需保留語言狀態與回退語義。命令和校驗邏輯以倉庫 `package.json`、`scripts/i18n/` 及當前 CI 爲準。
-
 ## 本地 Windows 打包
 
-`scripts/package-local.ps1` 會構建應用殼、官方插件輸入、在線/離線便攜包及可選的 Inno Setup 安裝包。用於分發的產物要求每個官方插件都有可複驗的簽名：可以傳入已經帶 `.sig` sidecar 的 `-PrebuiltPluginsDir`，或對本地模塊產物傳入 `-OfficialKeyId`、倉庫外的 `-PrivateKeyFile` 和可選的 `-SignatureToolJar`。產物默認寫入 `build/out/`。
+- **本機未簽署安裝程式驗收**（從目前原始碼建置外掛，輸出至隔離的 `build/out-local-unsigned/`，嚴禁對外散布）：
 
-```powershell
-# 本機運行驗收：從當前源碼構建隔離的 unsigned 測試安裝器
-.\scripts\package-installer-with-plugins.ps1 -Version 0.0.1-local -PluginSource Local -AllowUnsignedLocalPlugins
+  ```powershell
+  .\scripts\package-installer-with-plugins.ps1 -Version 0.0.1-local -PluginSource Local -AllowUnsignedLocalPlugins
+  ```
 
-# 恢復/開發用 core-shell-only 便攜包，不含任何插件
-powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -SkipPlugins -SkipInstaller
+- **不含外掛的核心殼可攜式套件**（僅用於復原模式/開發驗證）：
 
-# 使用已經簽名並複驗過的官方插件輸入構建正式產物
-powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -PrebuiltPluginsDir C:\path\to\signed-plugin-inputs -SignatureToolJar C:\path\to\signature-tool.jar
-```
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -SkipPlugins -SkipInstaller
+  ```
 
-常用參數包括 `-PrebuiltJar`、`-PrebuiltPluginsDir`、`-SkipPlugins`、`-RunTests`、`-SkipPortable`、`-SkipOfflinePortable`、`-SkipInstaller` 和 `-RedownloadFfmpeg`。`-SkipPlugins` 產物只能進入恢復/補齊流程。unsigned 測試安裝器寫入隔離的 `build/out-local-unsigned/`，不得分發；私鑰也不得放入倉庫、構建輸出或日誌。
+- **使用已簽署外掛輸入建置正式套件**（輸出至 `build/out/`，嚴禁將私鑰放入儲存庫、建置目錄或日誌）：
 
-## 提交與 PR
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\scripts\package-local.ps1 -Version 0.0.1-local -PrebuiltPluginsDir C:\path\to\signed-plugin-inputs -SignatureToolJar C:\path\to\signature-tool.jar
+  ```
 
-提交前應按改動風險運行聚焦測試，再擴大到受影響模塊或完整門禁。至少檢查：
+## 提交與 PR 規範
 
-```bash
-git diff --check
-git diff --staged
-```
-
-PR 描述應說明動機、邊界、驗證命令和實際結果。涉及 UI 時附截圖；涉及打包時說明驗證過的產物。不要提交 `target/`、`build/`、運行期配置、憑據或下載數據。
-
-## CI 與發佈
-
-- 普通變更由質量門禁工作流檢查 Java、JavaScript、i18n、依賴和分發邊界。
-- `v*` 標籤觸發官方插件發佈、應用殼構建、Java 分發包、Windows 安裝器和 GitHub Release。
-- `workflow_dispatch` 用於在質量門禁通過後創建指定標籤的草稿 Release。
-- 文檔站點由獨立的 `gh-pages` 分支維護，不是應用靜態資源的標籤預覽。
-
-工作流會持續演進；執行發佈操作前，以倉庫當前 `.github/workflows/` 與 `scripts/` 爲準。
-
-## 代碼邊界
-
-- 公共字符串進入 i18n 流水線；網頁遵循現有暗色模式、CSS 變量和 HTML/CSS/JavaScript 分離規則。
-- 公共 HTTP API 使用顯式 DTO，並複用項目既有鑑權和異常映射。
-- 修改數據庫建表語句時同步更新受管 schema 規格和遷移測試。
-- 插件私有配置、憑據、狀態、數據和依賴只歸對應插件所有；不得重新耦合進應用殼。
-- 新增或修改第三方擴展契約時，先更新 `plugin-api`/`core-api` 的契約與守衛，再更新模板、示例和 SDK 文檔。
+1. 依改動風險執行聚焦測試、模組回歸與前端/i18n 門禁，提交前檢查 `git diff --check` 與 `git diff --staged`，不提交 `target/`、`build/`、執行期設定、憑證或測試資料。
+2. 保持使用者可見字串接入 i18n、執行日誌固定使用英文、HTTP API 使用明確 DTO 並沿用既有驗證授權與例外對應、外掛私有設定/憑證/資料歸各自外掛所有。
+3. 將分支同步至最新 `upstream/master` 後，向 `master` 發起 PR，在描述中說明改動原因、邊界及實際執行的驗證命令與結果。線上文件由獨立 `gh-pages` 分支維護。

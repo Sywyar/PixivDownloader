@@ -1,113 +1,91 @@
-# ストレージの仕組み
+# ストレージとバックアップ
 
-PixivDownloader は、ダウンロード作品、ホストの実行時ファイル、インストール済み外部プラグインを分けて管理します。パスは JAR の場所ではなく、プロセスの**作業ディレクトリ**を基準にします。配布物の起動スクリプトと Windows ショートカットは通常、配布ディレクトリを作業ディレクトリにします。
+PixivDownloader は、ダウンロードした作品、ホストの実行時ファイル、外部プラグインのパッケージを別々のディレクトリで管理します。すべての相対パスは、JAR の場所ではなく、プログラムの**現在の作業ディレクトリ**を基準にします。配布パッケージの起動スクリプトと Windows のショートカットは、作業ディレクトリをプログラムのルートに設定します。
 
-## 主要ディレクトリ
+## 最上位ディレクトリの構成
 
-| 分類 | 既定パス | 内容 |
+| 種類 | デフォルトのパス | 用途 |
 | --- | --- | --- |
-| 設定 | `config/` | ホスト設定、プラグイン設定、暗号化された認証情報 |
-| 状態 | `state/` | セットアップ、キューのチェックポイント、GUI マーカー、復旧可能なプラグイン状態 |
-| データ | `data/` | SQLite、ユーザーリソース、キャッシュ、永続プラグインデータ |
-| プラグイン | `plugins/` | 外部プラグイン、来歴情報、実行時コピー |
-| ログ | `log/` | GUI とバックエンドのログ |
-| ダウンロード作品 | `{rootFolder}/` | `download.root-folder` が選ぶ保存先 |
+| 設定 | `config/` | ホストの `config.yaml`、プラグインの業務設定と暗号化された認証情報 |
+| 状態 | `state/` | 初期化状態、ログインセッション、キューの再開位置、GUI のガイド表示記録、プラグインの状態 |
+| データ | `data/` | SQLite の主データベース、プラグイン専用データベース、コレクションのアイコン、サムネイル・TTS キャッシュ、移行・復旧記録 |
+| プラグイン | `plugins/` | 外部プラグインのインストールパッケージ、provenance、実行時の専用固定作業領域 |
+| ログ | `log/` | GUI とバックエンドの実行ログ |
+| 作品 | `{rootFolder}/` | `download.root-folder`（デフォルトは `pixiv-download`）で指定した作品ファイル |
 
-`download.root-folder` の既定値は相対パス `pixiv-download` です。ここには作品ファイルを保存します。作品の登録とページごとのメディア記録は、選択したデータベースに保存します。設定、データベース、プラグイン、状態、キャッシュは含めません。
+作品のメタデータとページごとのメディア記録は、選択したデータベースにまとめて保存されます。新規ダウンロードでは作品ディレクトリに `.meta.json` や `.media.properties` を生成しません。うごイラの元 ZIP を保持する場合は、フレームの時間情報 `.frames.properties` が引き続き付属します。設定、データベース、プラグインパッケージ、状態、キャッシュを作品のダウンロードルートに置かないでください。
 
-## 作業ディレクトリ内の構成
+## 実行時ファイルの詳細
 
-### 設定
+### 設定、状態、データ
+
+| パス | 内容と注意点 |
+| --- | --- |
+| `config/config.yaml` | ホストの設定と `plugins.{id}.enabled` による有効・無効の状態 |
+| `config/plugins/{pluginId}.properties` | 各プラグインの機密情報を含まない業務設定 |
+| `config/credentials/{pluginId}.properties` | ホストが暗号化して管理し、owner ごとに注入する機密認証情報のエンベロープ |
+| `config/image_classifier.properties` | 画像分類ツールのディレクトリ設定 |
+| `config/web-publications.enrolled` | ページエディターの正式公開登録ファイル（キャッシュとして削除しないこと） |
+| `state/setup_config.json` | 初期化時のアカウント、動作モード、ログイン状態（削除すると再初期化が必要） |
+| `state/download-workbench/` | ダウンロードワークベンチの一括キューの再開位置とレイアウトフィードバックの状態 |
+| `state/gui/`、`state/download_root_marker.txt` | GUI のガイド表示記録、最後に解決したダウンロードルートの絶対パス |
+| `state/{pluginId}/` | プラグインが `RuntimePathProvider` で取得する owner の状態ディレクトリ |
+| `data/pixiv_download.db` | デフォルトの SQLite 主データベース（実行中は `-wal` / `-shm` が伴う場合があるため、バックアップ前に正常終了させること） |
+| `data/collection_icons/`、`data/novel/narration-voice/` | コレクションのカスタムアイコン、小説の複数キャラクター読み上げ用の参照音声 |
+| `data/gallery_thumbs/`、`data/tts/`、`data/backfill/` | 再生成可能なギャラリーのサムネイルキャッシュ、Edge TTS のバージョンキャッシュ、補完時にアクセスできなかった記録 |
+| `data/install_identity.txt` | 初回起動時に生成する永続的なインストール識別 UUID |
+| `data/delete-staging/`、`data/database-migrations/`、`data/environment-transfers/`、`data/web-publications/` | 削除・公開の復旧用一時領域、データベース切り替え・環境移行のバックアップとレポート、公開済みページの状態（キャッシュとして削除しないこと） |
+| `data/{pluginId}/` | プラグインの永続データと SQLite 専用データベース `plugin.db` |
+
+### 外部プラグインのディレクトリ（`plugins/`）
 
 | パス | 用途 |
 | --- | --- |
-| `config/config.yaml` | ホスト設定と `plugins.{id}.enabled` |
-| `config/plugins/{pluginId}.properties` | プラグイン所有の非機密設定 |
-| `config/credentials/{pluginId}.properties` | ホストが暗号化し、そのプラグインだけに注入する認証情報 |
-| `config/image_classifier.properties` | 画像分類の対象ディレクトリ |
+| `plugins/*.jar`、`plugins/*.zip` | インストール済みの元のプラグインパッケージ（オフライン再検証と識別情報の信頼元） |
+| `plugins/provenance/*.pixiv-plugin-provenance` | プラグインの入手元、ダイジェスト、署名、再検証記録 |
+| `plugins/runtime/` | 実行世代（generation）ごとに専有する固定された作業領域（共有キャッシュやインストール元ではない） |
+| `plugins/.preparing/`、`.staging/`、`.transaction-cleanup/`、`.pixivdownload-runtime.lock` | インストールトランザクション、クラッシュからの復旧、実行時のディレクトリロック |
 
-所有者の違うファイルを交換、統合、改名しないでください。[設定リファレンス](/ja/configuration) も参照してください。
+JVM プロパティ `pixivdownload.plugins-dir` でプラグインのルートディレクトリを指定できます。実行中に `plugins/` 内のファイルを手動で上書き、移動、削除しないでください。インストール、更新、アンインストールは[プラグイン管理](/ja/plugin-management)のトランザクションで行います。
 
-### 状態とデータ
+## ダウンロード作品のディレクトリ構成
 
-| パス | 用途 |
+| デフォルトのパス | 内容 |
 | --- | --- |
-| `state/setup_config.json` | 初回設定、動作モード、ログイン状態 |
-| `state/download-workbench/batch_state.json` | 一括キューのチェックポイント |
-| `state/download-workbench/layout-feedback-state.json` | レイアウトへのフィードバックの重複防止 |
-| `state/{pluginId}/` | `RuntimePathProvider` が提供する owner の状態。必要に応じて作成 |
-| `state/gui/` | GUI の案内・プロキシ手順マーカー |
-| `state/download_root_marker.txt` | 以前に解決された絶対ダウンロード先 |
-| `data/pixiv_download.db` | メイン SQLite データベース（実行中は `-wal` / `-shm` も存在） |
-| `data/collection_icons/{id}.{ext}` | コレクションアイコン |
-| `data/gallery_thumbs/{artworkId}/p{n}-{edge}.{ext}` | 再構築可能なギャラリーサムネイルキャッシュ |
-| `data/tts/chromium-version.txt` | Edge TTS の Chromium バージョンキャッシュ |
-| `data/novel/narration-voice/{castId}/{characterId}.{ext}` | 登場人物の参照音声 |
-| `data/backfill/unreachable.json` | 補完処理で到達できなかった作品 |
-| `data/install_identity.txt` | 初回に生成し、以後再利用するインストール UUID |
-| `data/delete-staging/` | 削除・公開処理の永続復旧用バックアップ。キャッシュとして消さない |
-| `data/database-migrations/` | データベース移行の報告、設定コピー、移行元・先のバックアップ |
-| `data/{pluginId}/` | `RuntimePathProvider` が提供するプラグイン所有データ |
+| `{root}/{artworkId}/` | 単一作品、URL 一括、検索などで取得したイラスト・漫画・うごイラ（生成した `_p0.webp` と `_p0_thumb.jpg` を含む） |
+| `{root}/{artist}/{artworkId}/` | 作者別一括ダウンロード（`download.user-flat-folder=true` の場合は `{artist}/` の階層を省略） |
+| `{root}/artwork-series-{seriesId}/cover.{ext}` | 漫画シリーズの表紙 |
+| `{root}/novel-{novelId}/` | 単一小説の TXT / HTML / EPUB と埋め込み画像 |
+| `{root}/novel-series-{seriesId}/` | 小説シリーズの表紙と合本 |
+| `{root}/douyin/{owner}/...` | Douyin プラグインのデフォルト保存先、または同プラグインで指定した保存先 |
+| `{root}/_archives/{token}.zip` | 一括エクスポートとマルチユーザーモードのクォータ処理用の短期アーカイブ |
 
-状態を削除すると、再セットアップや再ログインが必要になったり、キューのチェックポイントやプラグイン状態が失われたりします。削除前に所有者を確認してください。バックアップ時は実行中の SQLite の `.db` だけをコピーせず、通常どおり終了して WAL も反映させます。
+サードパーティー製のダウンロードプラグインも、作品は `{root}/{pluginId}/` またはプラグイン設定で利用者が指定した作品ディレクトリに保存する必要があります。ツールページの「旧データとメタデータのインポート」では、登録済みの作品ディレクトリから過去の `<作品 ID>.meta.json` スナップショットを取り込めます。ただし、データベースが失われた場合、ディレクトリ内の画像ファイルだけでは作品の登録情報を再構築できません。
 
-主庫は作品、パス、履歴、インストール済み機能のデータを保存します。プラグインの私有テーブルの schema とライフサイクルは、そのプラグインが管理します。
+## データベースのパスプレフィックスとディレクトリの移転
 
-### 外部プラグイン
+データベースにはファイルパスが `{N}/relative/path` の形式で保存されます。
 
-`plugins/*.jar` / `plugins/*.zip` はインストール済みの元アーティファクト、`plugins/provenance/` は署名・ダイジェスト・検証結果、`plugins/runtime/` は実行世代ごとの凍結作業領域です。`.preparing/`、`.staging/`、`.transaction-cleanup/` はインストール取引とクラッシュ復旧用です。
+- **`{0}` シンボリックルート**：`download.root-folder` が相対パス（デフォルトの `pixiv-download` など）の場合、ダウンロードルート内のファイルは `{0}/...` として記録され、起動のたびに「現在の作業ディレクトリ + 相対ダウンロードルート」として解決されます。**プログラムのディレクトリ全体を `pixiv-download/` とともに移転する場合、データベース内のパスを手動で変更する必要はありません。**
+- **通常の `{N}` プレフィックス**：ダウンロードルートやコレクションが絶対パスを使用する場合、記録は `path_prefixes` テーブルの絶対パスプレフィックスを参照します。
 
-来歴ファイルは `plugins/provenance/<artifact>.pixiv-plugin-provenance`、実行時ディレクトリの lease は `plugins/.pixivdownload-runtime.lock` です。システムプロパティ `pixivdownload.plugins-dir` でルートを変更できます。ディレクトリがない場合は自動生成せず、診断を表示してシェルの復旧処理へ進めます。`plugins/runtime/` は生存する generation ごとのランダムな私有領域で、インストール元ではありません。
+作品のダウンロードルートだけを移転する場合：
 
-実行中に `plugins/` 配下を手動で上書き、移動、削除しないでください。インストール、更新、削除、ロールバックはプラグイン管理から行います。`plugins/runtime/` は検証済みアーティファクトから再構築できますが、別プロセス用のダウンロードキャッシュではありません。
+1. プログラムを正常終了します。
+2. ファイルシステム上で作品ディレクトリを新しい場所に移動します。
+3. プログラムを起動し、デスクトップ GUI の「状態」ページから「ダウンロード先の移行」を開き、実際の移動先を選択して `config.yaml` とデータベースのパスプレフィックスの更新を確認します。移行ツールはパスの参照だけを更新し、ディスク上のファイルを移動することはありません。
+4. 再起動後、過去の作品とギャラリーのプレビューをいくつか確認し、新規ダウンロードを 1 件試します。
 
-## ダウンロード作品の構成
-
-| パス | 内容 |
-| --- | --- |
-| `{root}/{artworkId}/` | 単作品、URL 一括、検索のダウンロード |
-| `{root}/{artist}/{artworkId}/` | 作者単位のダウンロード（`download.user-flat-folder=true` なら作者階層を省略） |
-| `{root}/{artworkId}/{filename}_p0.webp` + `..._p0_thumb.jpg` | うごイラの WebP と先頭フレーム |
-| `{root}/artwork-series-{seriesId}/cover.{ext}` | マンガシリーズのカバー |
-| `{root}/novel-{novelId}/` | 小説の TXT / HTML / EPUB と関連ファイル |
-| `{root}/novel-series-{seriesId}/` | 小説シリーズのカバーと任意の結合物 |
-| `{root}/douyin/{owner}/...` | Douyin プラグインの既定出力 |
-| `{root}/_archives/{token}.zip` | 一時的なクォータ・ギャラリーのエクスポート |
-
-Pixiv 作品のメタデータとページ別の保存形式は選択したデータベース（既定の SQLite では `data/pixiv_download.db`）に保存され、新しいダウンロードでは `.meta.json` や `.media.properties` を作成しません。取得済みの応答からページ情報、元画像の URL、投稿日時や翻訳を保存するため、Pixiv への追加リクエストは発生しません。バックアップや移行では、データベースとメディアファイルを一緒に保管してください。ギャラリーはファイルだけから作品の登録情報を復元できません。既存の付随ファイルは自動で一括削除されません。Ugoira ZIP を保存する場合は、フレーム時間の `.frames.properties` も保存されます。
-
-Douyin の既定ルートは `DownloadSettings.getRootFolder()` に `douyin` を加え、リクエストの owner ごとに分けます。`douyin.download.directory` が空でなければその場所を使い、旧パス `data/douyin/downloads` は使いません。コレクションも既定ルート以外の保存先を選べます。
-
-サードパーティのダウンロード種別も、通常は `download.root-folder` 下のプラグイン ID ディレクトリか、ユーザーがプラグイン設定で明示した作品ディレクトリに保存します。`state/{pluginId}` と `data/{pluginId}` は補助状態・データ用で、作品の保存先ではありません。
-
-## データベースのパス表現
-
-データベースは長い絶対パスを繰り返さず、次の形式で接頭辞を参照します。
-
-```text
-{N}/relative/path
-```
-
-`N>0` では `path_prefixes` の絶対パスを示します。`download.root-folder` が相対パスなら `{0}/...` を使い、`{0}` は起動ごとに「現在の作業ディレクトリ + 相対ダウンロード先」として解決されます。配布ディレクトリを `pixiv-download/` と一緒に移動すれば履歴を保てます。
-
-絶対パスの保存先は通常の `{N}` プレフィックスを使います。`state/download_root_marker.txt` は前回解決した場所を保存し、設定だけを変えてファイルを移していない状態の検出に使います。
-
-絶対パスのダウンロード先を移動した場合は、GUI のステータスページから「ダウンロードディレクトリを移行」を使います。この操作は設定とデータベースの参照を更新しますが、ディスク上のファイルは移動しません。
-
-## 移行
-
-以下は作品ディレクトリの移動です。SQLite と PostgreSQL の切り替えは[設定リファレンス](/ja/configuration)の検査・移行が必要です。ディレクトリ移動や接続設定の直接編集ではデータベースをコピーしません。
-
-配布物全体を移動する場合は、相対 `download.root-folder` を保ち、アプリを終了して配布ディレクトリ全体を移動し、新しい場所の起動スクリプトから起動します。
-
-ダウンロード先だけを移動する場合は、アプリを通常終了し、ファイルを移動し、GUI の「ダウンロードディレクトリを移行」で新しい場所を選び、必要なら `config.yaml` も更新します。再起動後に履歴、ギャラリー、新しいダウンロードを確認してください。設定を先に書き換えてもファイルは自動移動されません。
+SQLite と PostgreSQL 間のデータベースエンジンの切り替えは別の手順です。[設定リファレンスのデータベース切り替え](/ja/configuration#主データベースとエンジンの切り替え)を参照してください。
 
 ## バックアップと復元
 
-完全なバックアップには `config/`、`state/`、アプリ停止後にコピーした `data/`、署名と来歴を含む `plugins/`、`download.root-folder` とコレクションやプラグインが選んだ追加の作品ディレクトリを含めます。`log/` は通常トラブルシューティング用です。
+プログラムを停止してから、次を含む完全なバックアップを作成します。
 
-PostgreSQL では、サーバーの主庫とプラグイン私有 schema もバックアップします。ローカルの `data/` のコピーでは代用できません。`data/database-migrations/` と `data/delete-staging/` の復旧データは、対象トランザクションの状態が判明するまで残してください。`data/gallery_thumbs/` と `plugins/runtime/` は他の永続データから再生成できますが、復元を簡単にするため全体バックアップに含めても構いません。
+1. `config/`、`state/`、`data/`、`plugins/`。
+2. `download.root-folder`、コレクションの独自ダウンロード先、サードパーティープラグインの独自作品ディレクトリ。
+3. PostgreSQL を使用する場合は、サーバー上の主データベースとすべてのプラグイン専用 schema。
+4. [外部ダウンロードのインポート](/ja/pixiv-batch-downloader-import)を使用した場合は、読み取り専用で参照している外部の元ディレクトリ。
+5. 別のマシンやデプロイ環境で `config/credentials/` の暗号化済み認証情報を復元する場合は、対応する認証情報のマスターキー。保持していない場合、移転先で認証情報の再入力が必要です。
 
-復元後は管理者ログイン、画像・小説の記録、ファイル、スケジュール設定、新しい作品の取得を確認します。外部インポートは元ファイルを参照するため、そのディレクトリもバックアップしてください。
-
-復元時は相対構成を保つか、絶対パスには移行ツールを使います。暗号化された認証情報は元の認証情報マスターキーにも依存するため、別環境へ移す前にキーの互換性を確認してください。互換性がない場合は対象環境で認証情報を再入力します。
+復元後は、管理者ログイン、ギャラリーと小説本文の読み込み、スケジュールタスクの状態、新規ダウンロードの順に確認してください。

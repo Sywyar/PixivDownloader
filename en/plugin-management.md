@@ -1,237 +1,80 @@
-# Plugin Management
+# Plugin management
 
-Use `/plugin-market.html` to find and install plugins and `/plugin-manage.html` to check installed versions, runtime status, and restart requirements. Upload local packages from Plugin Management. An installed version may not be loaded until a full restart.
+Administrators browse and install plugins at `/plugin-market.html`, and use `/plugin-manage.html` to check installed versions, what the current process has loaded and restart requirements, or to upload local packages. Successful installation on disk does not mean the current process has loaded the plugin. Some plugins require a backend restart or a complete application exit and restart.
 
-## Install a Plugin
+## Install plugins and add custom repositories
 
-1. Choose a trusted repository in the market, or select a local package in Plugin Management.
-2. Review its purpose, SDK requirement, source, dependencies, and execution mode.
-3. Confirm the installation plan. If execution trust needs confirmation, review the publisher fingerprint or exact package digest.
-4. Perform the restart required by the result, then check the loaded version and plugin page. On failure, inspect the existing operation before starting another install.
+1. Select a plugin from a trusted repository in the market, or upload a local `.jar` / `.zip` on the management page (optionally with a `.sig`).
+2. Review its purpose, required SDK version, source, dependencies and execution mode.
+3. Review and confirm the installation plan (target package, dependency sources and versions, reverse consumers, conflicts and restart impact). If an execution-trust confirmation appears, check the publisher's public-key fingerprint or the package SHA-256.
+4. Perform the required restart shown in the receipt, then return to the management page to confirm the loaded version and feature entry points. On failure, check the original operation record before attempting another installation.
 
-?> This page is admin-only. Non-admin users don't see the entry and are denied direct access.
+Add or edit custom repositories under desktop GUI "Settings → Plugin market settings". Choose "Use repository descriptor" (preview the publisher, network hosts and full public-key fingerprint before adding it to the draft) or "Enter manually" (provide an HTTPS manifest URL, proxy policy and Ed25519 public key). Save the settings together and restart for them to take effect.
 
-> To enable or disable **optional plugins**, see `plugins.<plugin id>.enabled` in [Configuration](/en/configuration). `download-workbench` is required and cannot be disabled. The standard distribution includes `download-workbench`, `database-sqlite`, `gui-compose`, `gui-swing`, `gallery-tools`, `posthog`, `gallery`, `novel`, `notification`, `multi-mode-decision-survey`, `push`, `mail`, `tts`, and `ai`. Douyin is a regular third-party plugin installed from a custom repository or local package.
+Dependencies are installed in order through separate transactions. If the parent package fails, successfully installed dependencies remain, with their versions and `transactionId` listed in the result. Market operation records are kept in current-process memory (at most 64 records; inactive records remain for 24 hours). Closing the page does not cancel a backend installation that has started. After a process restart or record expiry, check the actual installation state on the management page first.
 
----
+## Update notices and historical versions
 
-Add or edit custom repositories in GUI Settings → Plugin market settings. The dialog offers “Use repository descriptor” and “Enter manually”. The descriptor option previews the publisher, network hosts and full public-key fingerprints, then adds the confirmed repository to the settings draft. Manual entry provides repository, network policy and trusted-key fields. Save settings and restart to apply the changes. The web marketplace browses and installs plugins.
+A numeric badge in download-page navigation means installed plugins have compatible updates; an exclamation mark means a newer version requires a higher SDK. The management-page banner lists these separately. Stable plugins recommend stable updates by default. Only after manually installing a prerelease does the plugin follow that prerelease channel (it can also upgrade to a higher stable version). Manual repair packages with the same version (`-f`) do not trigger the normal update badge; reinstall them as directed by the repair instructions.
 
-## Confirm changes and find installation results
+The official main manifest retains the latest version, latest stable version, and latest compatible stable versions for a fixed set of older SDKs (`1.0.0`, `1.1.0`). Other historical versions are stored in digest-named `history/` manifests (at most 900 versions or 1 MiB per file), loaded on demand when viewing history or automatically searching for a compatible older version.
 
-The market detail dialog puts the plugin’s purpose, installation status and install action at the top. Installed, activated and pending-restart states also provide a link to Plugin Management. The full description and version requirements follow; expand source declarations, verification details or the changelog when needed. Installation shows separate states for checking the plan, waiting for confirmation and installing. Waiting for confirmation does not mean installation has started; cancelling the plan confirmation leaves that plan unexecuted. Cancelling a later execution-trust confirmation retains dependencies already installed.
+If the latest plugin version is incompatible with the current SDK, the market automatically finds the highest compatible, installable older version in the same repository and shows the default selection on the card and detail page. In the details, you can also expand a statically isolated README, release notes for the update or CHANGELOG, or manually select a historical version. For plugin licenses and community inclusion rules, see [Third-party plugin SDK](/en/plugin-development#plugin-licenses-and-distribution-channels).
 
-Before a marketplace install, review the target package, dependency sources and versions, consumers of shared dependencies, conflicts, and restart impact together. Execution checks these facts again. If they changed, preview and confirm again. When the catalog lacks the new package's lifecycle policy, the preview can only warn that a restart may be needed; follow the actual installation result.
+## Security model and package admission limits
 
-Each dependency uses its own transaction. If the parent fails, successfully installed dependencies remain. The result lists their versions and transaction IDs. Check Plugin Management before deciding what to do next.
+An Ed25519 signature proves publisher origin and byte integrity, not a code security review or OS sandbox isolation. Install only publishers and repositories you trust. Before loading a plugin, the host freezes its package into a private workspace within resource limits, then checks package structure, `plugin.properties`, SHA-256, signatures, provenance, SDK compatibility and dependencies against the same frozen bytes.
 
-Operation records cover download preparation through installation. Closing the page does not cancel a request already running on the backend. Reopen the market to query it; repeating the same operation ID returns its existing state. Records live only in the current process: at most 64 records, with inactive records retained for up to 24 hours. After restart, expiry, or eviction, the outcome is unknown. Check installed versions, diagnostics, and transaction state before explicitly starting another operation. A failed query never automatically repeats installation.
+### Execution modes
 
-## Update notices and version history
+Every external plugin must explicitly declare `pixiv.execution-mode` in `plugin.properties` (missing or unknown values are rejected before any code executes):
 
-The number badge in download-page navigation indicates compatible updates for installed plugins. This means the candidate meets SDK requirements and current market policy; plugin dependencies and other installation conditions are still checked during installation. An exclamation mark indicates newer versions that require a newer SDK. The plugin-management banner shows these separately; a plugin can have both a compatible update and a latest version that requires upgrading the application. Check failures appear separately. Updates are never downloaded or installed automatically.
-
-Stable plugins receive stable recommendations by default. Manually installing a prerelease opts that plugin into its channel, including upgrades to newer stable versions. Running a Beta application does not switch plugin channels. Other versions remain available for manual selection in the details view. A maintainer's same-version `-f` repair does not trigger an ordinary update badge; follow the repair instructions to reinstall.
-
-The official main manifest retains the latest version, latest stable version, and latest compatible stable version for a fixed legacy-client SDK set. Market curation configuration maintains that set, currently SDK `1.0.0` and `1.1.0`; new SDK releases do not automatically expand it.
-
-Other versions load on demand when viewing history or finding compatible candidates in the selected channel. The market distinguishes a failed history lookup from having no candidate. Selecting an older version retains the same source, signature and installation checks. History filenames contain their content digest; old files remain available and are not automatically deleted. Publication stops for maintainer action if a history manifest exceeds 900 versions or 1 MiB.
-
-## Marketplace documents
-
-Hosts with document support show icons, screenshots and author-provided links in plugin details. Select a version, then expand README, release notes or the full CHANGELOG. Documents load on demand, with a retry action after failures. Historical catalogs retain their homepage and plain-text release notes.
-
-HTML and Markdown are static reading views. Document scripts, forms, event handlers and custom styles do not run. Images come from digest-verified version attachments; document bodies do not cause the browser to fetch arbitrary author-specified image URLs. Links open when clicked. Content prefers the current language, then the author's default language and available fallback.
-
-These documents help explain a plugin's use. Source verification, compatibility and revocation checks still apply. Availability depends on the submitted content, deployed community tools and installed host.
-
-For plugin licensing and community admission requirements, see the [plugin development guide](/en/plugin-development#plugin-licensing-and-distribution).
-
-## Execution security
-
-A signature proves publisher identity and artifact integrity. It does not certify harmless behavior or grant runtime capabilities.
-
-Every external plugin must explicitly set `pixiv.execution-mode` in `plugin.properties`:
-
-| Value | Runs in | Boundary |
+| Value | Runs in | Isolation and permission boundaries |
 | --- | --- | --- |
-| `host-process-full-trust` | Host JVM | Inherits the host process's file, network, and OS privileges |
-| `declarative-process` | Separate worker JVM | Publishes declarative routes and capabilities through a bounded protocol |
+| `host-process-full-trust` | Host JVM | Inherits the host process's filesystem, network and OS permissions (the management page shows a persistent warning when the host runs elevated) |
+| `declarative-process` | Separate worker JVM | Shares the host OS account and publishes declarative routes and capabilities only through a bounded protocol (no full OS sandbox; directory-form plugins are rejected in production, while development mode temporarily falls back to full-trust and displays this accurately) |
 
-Missing, blank, or unknown values are rejected before any plugin code runs. The worker still uses the host's OS account, so it provides limited process, protocol, and resource isolation, not a complete OS sandbox. This release has no OS sandbox provider or JVM switch that requires one. Production rejects directory-form `declarative-process` plugins; explicit development mode downgrades them to `host-process-full-trust` and reports the effective mode in status and logs.
+An administrator must confirm trust again when upgrading from `declarative-process` to `host-process-full-trust`, changing the SDK major version, or after trust is revoked. Workers default to 128 MiB heap, 128 MiB metaspace and 64 MiB direct memory (exit on OOM, at most 3 automatic restarts, with `500–10000` ms backoff). Initialization / command / shutdown timeouts are `10000` / `5000` / `2000` ms, with only 1 in-flight and 1 queued request at a time (adjustable through `pixivdownload.plugin-worker.*` JVM properties).
 
-Trust cannot silently expand across execution boundaries. An upgrade from `declarative-process` to `host-process-full-trust` requires administrator confirmation again even if the publisher is unchanged. The same applies after an SDK major-version change or trust revocation. If the host is actually elevated, full-trust plugins inherit those privileges and the management page keeps a warning visible.
+### Default plugin package resource limits
 
-Workers default to 128 MiB heap, 128 MiB metaspace, and 64 MiB direct memory, with exit on OOM. Initialization, command, and shutdown timeouts are 10,000 / 5,000 / 2,000 ms. An unexpected exit gets at most 3 restarts, with backoff from 500 ms to 10,000 ms. The host reads at most 1 MiB of stderr and retains the last 16 KiB. Each worker allows 1 in-flight and 1 queued request. When a worker exits, the host withdraws its routes and capabilities before attempting recovery.
-
-Override the configurable values before JVM startup under `pixivdownload.plugin-worker.*`: `initialize-timeout-ms`, `command-timeout-ms`, `shutdown-timeout-ms`, `restart-attempts`, `restart-initial-delay-ms`, `restart-max-delay-ms`, and `stderr-max-bytes`.
-
-### Package admission limits
-
-Defaults are a 192 MiB archive, 48,000 entries, 672 MiB of actual total decompressed data, a 64 MiB single entry, a 1 MiB descriptor, compression ratio 200 for entries of at least 64 KiB, a 1,024-character entry name, and 64 path segments. Override them with positive integers using:
-
-- `pixivdownload.plugin.package.max-archive-bytes`
-- `pixivdownload.plugin.package.max-entries`
-- `pixivdownload.plugin.package.max-total-uncompressed-bytes`
-- `pixivdownload.plugin.package.max-entry-uncompressed-bytes`
-- `pixivdownload.plugin.package.max-descriptor-bytes`
-- `pixivdownload.plugin.package.max-compression-ratio`
-- `pixivdownload.plugin.package.max-entry-name-length`
-- `pixivdownload.plugin.package.max-entry-depth`
-
-Invalid values fail plugin-runtime initialization instead of silently falling back.
-
----
-
-## Where plugins come from
-
-- **Built-in**: compiled and shipped with the app (core, plugin market, etc.). They are usually read-only here; whether they can be disabled through `config.yaml` depends on whether the plugin is optional.
-- **Required external**: `download-workbench` provides the download page, download APIs, queue, userscript entry, Pixiv artwork proxy, and scheduled-task host. The standard Java bundle and Windows installer include it. If it is missing, corrupted, incompatible, or fails verification, the app enters the recovery path.
-- **Official optional external plugins**: `database-sqlite`, `gui-compose`, `gui-swing`, `gallery-tools`, `posthog`, `gallery`, `novel`, `notification`, `multi-mode-decision-survey`, `push`, `mail`, `tts`, and `ai` remain separate packages under the working directory's `plugins/` folder. Missing or disabling one withdraws its contributions. An unavailable selected main-database provider also blocks main application readiness.
-- **Required but not installed**: a plugin declared required but currently missing shows up as a "Not installed" placeholder so you can add it.
-- **Official plugins installed on demand**: [PixivBatchDownloader import support](/en/pixiv-batch-downloader-import) is available from the plugin market. Standard Windows and Java distributions do not preinstall it; the full offline bundle includes it together with `database-postgresql`.
-
----
-
-## What you see
-
-Plugins appear in a grid that uses multiple columns in wide windows and one column in narrow windows. Each card shows its name, purpose, runtime status, enabled setting and available actions. Select **View details** to open a separate dialog and check installed and loaded versions, SDK requirements, dependencies and source verification. Checksums and revocation timestamps are available in expandable sections.
-
-The installed version describes the package on disk; the loaded version describes the instance held by the current process. They may differ after an update or removal. Follow the restart notice to apply the change.
-
-“Not loaded in this process”, “No plugins depend on this plugin” and “Information unavailable” describe different facts. The confirmation dialog lists the target state and dependent plugins before removal or a change to enablement.
-
-The top of the page also shows overview stats (installed / enabled / external / required), filter tabs and a search box.
-
----
-
-## What you can do
-
-For **managed external plugins**, the action menu beside the plugin name lists the currently **available verbs**:
-
-| Action | Meaning |
+| JVM property (prefix `pixivdownload.plugin.package.`) | Default limit |
 | --- | --- |
-| `load` | Create the classloader and load the installed artifact without publishing runtime capabilities |
-| `start` | Start the plugin, create its child context, and publish contributions |
-| `quiesce` | Stop admitting new work and drain calls and tasks for the current publication |
-| `stop` | Withdraw contributions and stop the instance; retain the installed package |
-| `unload` | After stopping, release PF4J state and the classloader; retain the package |
-| `remove` | Safely retire the plugin and remove its installed artifact and provenance |
-| `restart` | Stop/start the current instance, preserving generation and classloader |
-| `reload` | Quiesce, stop, unload, then load/start a new generation and classloader |
+| `max-archive-bytes` | 192 MiB |
+| `max-entries` | 48,000 entries |
+| `max-total-uncompressed-bytes` | 672 MiB |
+| `max-entry-uncompressed-bytes` | 64 MiB |
+| `max-descriptor-bytes` | 1 MiB |
+| `max-compression-ratio` | 200 (checked only for entries ≥ 64 KiB) |
+| `max-entry-name-length` / `max-entry-depth` | 1,024 characters / 64 directory levels |
 
-There is no `purge` action. Removal does not implicitly erase owner configuration or data. Asynchronous plugins must report a real positive-generation drain and release their tasks and clients; a completed sentinel cannot stand in for running background work.
+These properties accept only positive integers. Invalid values prevent plugin runtime initialization.
 
-The switch in the card header enables or disables the plugin. For `hot-reload` plugins it starts or stops the instance; other policies save the setting and prompt for the required restart.
+## Installation sources and market states
 
-Optional `process-restart` plugins also offer Remove. It deletes the installed package and its provenance while retaining configuration, credentials, databases, state and downloaded files. If the current process has loaded the plugin, that instance keeps running until you fully exit and restart the application. Removal is blocked for required plugins and plugins with active dependents.
+- **Bundled distributions**: Windows installers and standard Java packages include default official plugins in `plugins/` (`download-workbench`, `database-sqlite`, `gui-compose`, `gui-swing`, `gallery`, `novel`, etc.). Full offline packages also include official optional plugins such as `database-postgresql` and [PixivBatchDownloader import support](/en/pixiv-batch-downloader-import). `douyin` is an independent third-party plugin installed only from a custom repository or local package.
+- **Local upload**: does not establish a custom trust root. Signed packages must validate against an existing trust root (approved by publisher fingerprint); unsigned packages are marked `LOCAL_UPLOAD / UNSIGNED_ALLOWED` (approval applies only to the current exact SHA-256). Remote repository packages require manifest signatures and never fall back to local unsigned treatment. In development mode, if an installed package conflicts with a same-named source module, the package is saved but not enabled. Move the conflicting package out or exclude the source module, then restart.
+- **Market status codes**: `NOT_INSTALLED` (a compatible installable version exists), `INSTALLED` (installed with no higher compatible version), `UPDATE_AVAILABLE` (a higher compatible version exists), `INCOMPATIBLE` (no version supports the current SDK), `UNAVAILABLE` (no installable artifact, or compatibility lookup is incomplete).
 
-After an update or removal, the page reports the installed state separately from the version still loaded in the current process and shows that a restart is needed. The new package is verified against its own bytes and provenance; verification of the old instance cannot validate the replacement. Reinstalling the plugin can reuse the retained data.
+## Transactional replacement and lifecycle policies
 
-!> **Built-in plugins** don't show these buttons — they're compiled in and can't be hot-toggled. **Required plugins** cannot be disabled.
+Installation and updates use atomic transactions: freeze candidate bytes → validate descriptor/signature/dependencies → stop the old generation accepting new requests and wait for it to drain → atomically replace the artifact and provenance → activate according to policy (fully roll back the old generation on failure).
 
-After a successful action the page refreshes plugin status and the top navigation (enabling / disabling a plugin makes its entry appear / disappear). This page is **primarily for runtime management**; it also gives admins an **Install local plugin package** entry (see below).
+| `pixiv.lifecycle-policy` | Install / update | Enable / disable | Suitable plugins |
+| --- | --- | --- | --- |
+| `hot-reload` (default) | Replace and activate immediately in the current process | Direct start / stop | Plugins that can fully withdraw contributions and release background tasks and clients |
+| `backend-restart` | Replace and activate immediately in the current process | Save state, then request a backend restart | Plugins that need to rebuild the Spring backend context |
+| `process-restart` | Save to disk; activate after a full application exit and restart | Save state, then request a full application restart | Process-level plugins such as `gui-compose`, `gui-swing`, database providers, contract carriers and themes |
 
----
+Manageable `hot-reload` plugins support 8 actions: `load`, `start`, `quiesce` (stop new admissions and wait for drain), `stop`, `unload`, `remove` (delete the installed package and provenance, retaining business data in `config/`, `state/` and `data/`), `restart` (restart the same generation) and `reload` (create a new generation and classloader). There is no `purge` action.
 
-## Install a local plugin package
+## Recovery mode, revocations and troubleshooting
 
-Besides runtime-managing already-installed plugins, this page also gives admins an **Install local plugin** entry to bring a local **external plugin package** into the app:
+- **Enabled state and recovery mode**: switches are stored as `plugins.{pluginId}.enabled` in `config/config.yaml`. If a required plugin or the selected main database provider is missing, damaged, incompatible or fails to start, the application enters recovery mode (retaining login, plugin management and "Repair with another package"). Failure of an ordinary optional plugin isolates only its own capabilities.
+- **Revocations (`YANKED` / `REVOKED`)**: `YANKED` blocks new installations and updates; `REVOKED` also blocks subsequent loading and startup. New installations are prohibited without a valid revocation snapshot or beyond the 24-hour grace period. Refreshing revocations does not forcibly terminate full-trust code already running in the current process. Fully exit the application, repair it and then restart.
+- **Common problems**:
+  - **Page missing after installation**: check `effectiveAfterRestart` in the receipt. A `process-restart` plugin requires a full application exit and restart; refreshing the web page or restarting only the backend is insufficient.
+  - **Incompatibility or signature verification failure**: check `plugin.requires` (the required SDK version, not the application version) and dependency versions. Obtain the complete package again from its original repository; do not manually alter `plugin.properties`.
+  - **`stop` / `reload` waits a long time**: check `log/latest.log` for queue tasks, HTTP/WebSocket clients or scheduler threads that have not exited.
 
-- **Local files only**: select a local `.jar` or compatible `.zip`; a detached `.sig` is optional. This entry accepts no arbitrary install URL. Online repository installation belongs to the separate [Web Plugin Marketplace](#web-plugin-marketplace).
-- **No custom trust root**: when a signature is supplied, it must bind the exact artifact and verify under the applicable trust root. An unsigned package is recorded as `LOCAL_UPLOAD / UNSIGNED_ALLOWED`. Remote repository packages always require the signature declared by their manifest and cannot fall back to local unsigned handling.
-- **Execution confirmation**: non-official local packages can be installed in production, but they require risk confirmation before code runs. Signed packages are approved by publisher fingerprint; unsigned packages are approved only for the exact SHA-256. Updates, key changes, revocation, or an execution-privilege increase can require confirmation again. Use a custom repository when a third party needs durable trust in its own key.
-- **Transactional activation**: installation uses the same validation, atomic replacement, rollback, and lifecycle policy as marketplace installation. `hot-reload` and `backend-restart` packages activate in the current process; `process-restart` packages take effect after a full process restart. Use the `remove` lifecycle action to remove an installed artifact; there is no data-purging action.
-
-!> The install entry is admin-only and never goes online. Check the declared execution mode and the confirmation summary before approving a package.
-
----
-
-Development mode also loads plugins from the installation directory. A package that conflicts with a running source plugin is saved without activation. To keep using the source build, move the conflicting package out of the installation directory. To use the package, exclude the corresponding source module from the development build. Then restart the application.
-
-## Web plugin marketplace
-
-The **Plugin Marketplace** is a separate admin-only page for browsing and installing plugins from **trusted repositories**. It does not replace the runtime status and lifecycle operations on this Plugin Management page.
-
-The page supports:
-
-- Switching official / custom repositories and viewing repository enabled state and proxy policy
-- Filtering by category, keyword, official source, and current-version compatibility, then sorting by recommendation, update time, downloads, rating, or name
-- Viewing plugin details, version history, dependencies, required core API, package size, SHA-256, signature status, change notes, and homepage
-- Showing local install state as not installed / installed / update available / incompatible / no installable version
-- Installing a version from the repository and reporting whether its lifecycle policy activates it immediately or requires a process restart
-
-If the latest version is incompatible with the current SDK, the market automatically selects the highest compatible, installable older version from the same repository. Cards and details explain the default selection. The compatibility filter keeps these plugins visible, and the detail view still lets you select versions manually. An incomplete search is shown separately from no compatible version and can be retried by refreshing. Installation still requires confirmation; installed newer versions are not automatically downgraded.
-
-The marketplace itself is provided by the built-in `plugin-market` plugin. With `plugins.plugin-market.enabled=false`, the market page, APIs, static resources, i18n, navigation entry, and the "Market" entry on the Plugin Management page are withdrawn and direct access returns 404.
-
-The network master switch `plugin-catalog.enabled` and the built-in official repository default to enabled. Startup itself does not access repositories; network access can start with admin-page plugin update checks, market browsing or refresh, and installation. The master switch or official repository can be disabled separately. Custom repositories, proxy policies, timeouts, and size limits can be maintained in `config.yaml` or in the desktop GUI "Config -> Plugins" page. See [Configuration](/en/configuration).
-
-### Install security boundary
-
-- Requests submit only **repository id + plugin id + version**. Repositories must come from server config or the built-in official repository; download URLs can only come from that repository's manifest and never from request input.
-- `direct-strict`: HTTPS only, private addresses rejected, no redirects, no app proxy.
-- `proxy-trusted`: uses the core outbound proxy and follows at most five redirects only within the built-in GitHub Release asset host allowlist. Every hop is revalidated. The official repository uses this policy.
-- Manifest and package downloads are bound to the same repository and use that repository's proxy policy, timeouts, and manifest / package size limits.
-- Downloaded packages are verified by declared size, SHA-256, and signature before staging. If a signature is declared but no verifier is available, installation fails closed.
-- Installation validates and transactionally replaces the package in `plugins/`, then activates it according to its lifecycle policy. Failures clean up temporary files and restore the old plugin when replacement has begun.
-
-The marketplace does not provide arbitrary URL install, auto update, delete, or purge. The old `/api/plugins/catalog/**` route has been removed; the market uses the separate admin route `/api/plugin-market/**`.
-
----
-
-## Recovery path
-
-A required plugin such as `download-workbench` being missing, corrupted, incompatible, failing verification, or failing to start puts the app into recovery mode. Optional plugin failures normally isolate their capabilities; an unavailable selected main-database provider also blocks main application readiness. The Plugin Marketplace banner identifies unavailable required plugins and their diagnostics, and shows default-installed plugins for repair. Management and repair entries remain accessible.
-
-Missing or disabling an official optional plugin such as `gallery-tools`, `gallery`, `novel`, `notification`, `tts`, `ai`, `push`, `mail`, or a desktop GUI provider does not trigger recovery by itself:
-
-- Missing `gallery-tools` does not affect image Hash writes or historical Hash data.
-- Missing `gallery` does not affect the download page, download APIs, userscripts, Pixiv artwork proxy, scheduled-task host, work metadata, download facts, Hash data, or local resource index.
-- Missing `novel` withdraws novel downloading, its gallery, body storage, translation state, series compilation, and scheduled novel runner together; the core does not retain a parallel novel implementation.
-- Missing TTS / AI / push / mail makes the corresponding capability unavailable or skipped; there is no fallback implementation inside the core.
-
----
-
-## Desktop GUI entry
-
-If you use the desktop app, the selected GUI provider owns its **Plugins** page and reads the same backend status as this page (name / source / status / runtime phase / required / version), with **Refresh** and **Open web plugin manager** actions. Compose and Swing own their interfaces separately while sharing application semantics.
-
-- Enabling / disabling / installing / uninstalling plugins is **not done in the GUI** — click **Open web plugin manager** to come here and do it.
-- Once the external `gallery-tools` plugin is installed you can see its install and runtime status in the GUI; when the core enters recovery mode for a missing required download plugin, the GUI shows a clear notice too.
-- The GUI reads status from the backend (same as this page); it never scans the plugin folder itself and does not relax any permission checks.
-- `gui-compose` is the default desktop provider and `gui-swing` is the automatic fallback. Both are included in the official distribution and use `process-restart`; install, update, enable/disable, remove, or provider selection changes require a full application restart.
-
-## Lifecycle Policies
-
-`pixiv.lifecycle-policy` accepts these case-sensitive tokens; omission means `hot-reload`.
-
-| Policy | Install / update | Enable / disable |
-| --- | --- | --- |
-| `hot-reload` | Transactional replacement and activation in the current process | Start / stop immediately |
-| `backend-restart` | Transactional replacement and activation in the current process | Save state and request backend restart |
-| `process-restart` | Store the package safely; activate after full process restart | Save state and request full application restart |
-
-Backend restart only rebuilds the Spring context and cannot activate a `process-restart` package. If desktop lifecycle management is unavailable, the web manager cannot restart the operating-system process for you.
-
-## Filesystem boundary
-
-The original artifact under `plugins/` and its `plugins/provenance/` sidecar define installation identity. `plugins/runtime/` is only a private frozen workspace for a generation. A portable installation may make the `plugins/` root itself a symbolic link or Windows junction; the runtime resolves and pins the real root first, while linked artifact candidates inside it are still rejected individually.
-
-The host tightens POSIX permissions or Windows ACLs on managed `plugins/runtime/` and `plugins/provenance/` paths when supported. FAT32, exFAT, SMB, and similar filesystems that expose neither capability produce a diagnostic and continue with regular-file, `NOFOLLOW`, frozen-snapshot, and hash checks.
-
----
-
-## See also
-
-- [Configuration](/en/configuration): `plugins.<plugin id>.enabled` plugin enablement switches
-
-## Repair a failed startup
-
-A failed external plugin card offers Replace package to repair, using the existing local upload dialog. Select a compatible repair package with the same plugin ID and complete verification and risk confirmation. Required plugins can be replaced but cannot be removed. Optional failed packages can be removed subject to dependency and lifecycle checks. Configuration, data, and unfinished tasks remain; the plugin owns any business-data migration. Optional failures isolate that plugin's capabilities; unavailable required capabilities trigger global recovery.
-
-## Revocation information and running instances
-
-Plugin Management shows the last successful refresh, document expiry, grace deadline, and restriction reasons. An administrator can refresh a configured, enabled source explicitly. Marketplace browsing and installation retain their existing refresh behavior. Management status queries stay offline and there is no background refresh timer. Offline or failed refreshes retain the last verified snapshot.
-
-`YANKED` blocks new installation and updates. `REVOKED` also blocks subsequent loading or starting. New installations fail closed when no verified snapshot is available or the 24-hour grace period has elapsed. The current process may still hold an older instance. Refreshing revocations does not forcibly stop full-trust code; fully exit the application to stop it, check the repair, then restart.
+See [Storage and backup](/en/storage) for plugin file layout, and [Third-party plugin SDK](/en/plugin-development) for plugin development.

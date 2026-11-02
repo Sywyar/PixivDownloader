@@ -1,135 +1,61 @@
-# 使用指南（進階參考）
+# CLI 與進階參考
 
-本頁彙總各專題頁面未單獨成文的進階操作和參數說明。
+本頁彙整命令列啟動參數、檔名範本變數、媒體與維護工具及訪客邀請說明。一般下載與管理操作請直接查閱[快速取得](/zh-hant/quick-access)、[URL 批次下載](/zh-hant/batch-download)、[畫師批次下載](/zh-hant/user-download)、[搜尋下載](/zh-hant/search)、[小說與朗讀](/zh-hant/novel)、[作品畫廊](/zh-hant/gallery)、[排程工作](/zh-hant/scheduled-tasks)和[使用者腳本](/zh-hant/userscripts)。
 
-常見功能的詳細教程請直接查看對應頁面：
+## 啟動與管理參數
 
-| 功能 | 文檔 |
-|------|------|
-| 快捷獲取 | [快捷獲取](/zh-hant/quick-access) |
-| URL 批量下載 | [URL 批量下載](/zh-hant/batch-download) |
-| 畫師批量下載 | [畫師批量下載](/zh-hant/user-download) |
-| 搜索下載 | [搜索下載](/zh-hant/search) |
-| 小說下載 | [小說下載](/zh-hant/novel) |
-| 作品畫廊 | [作品畫廊](/zh-hant/gallery) |
-| 計劃任務 | [計劃任務](/zh-hant/scheduled-tasks) |
-| 油猴腳本 | [油猴腳本](/zh-hant/userscripts) |
-
----
-
-## 啓動參數
-
-在發行包完整解壓後的目錄執行命令。以下 `APP.jar` 代表包內實際的主程序 JAR 文件名；請替換後執行。單行命令可用於 PowerShell 或 Bash。
+在完整解壓縮的發行包目錄內執行（將 `APP.jar` 替換為實際主程式 JAR 名稱；單行命令在 PowerShell 與 Bash 中通用）：
 
 ```text
 java -Dfile.encoding=UTF-8 -jar APP.jar --help
 java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui
 ```
 
-| 參數 | 用途 |
-|------|------|
-| `--no-gui` | 不啓動桌面 GUI，適用於服務器或 Docker |
-| `--intro` | 啓動時打開產品介紹頁 |
-| `--help`、`-h` | 顯示幫助並退出 |
+| 參數 | 作用 |
+| --- | --- |
+| `--no-gui` | 不啟動桌面 GUI，適用於無頭伺服器或 Docker（首次啟動前必須先完成 `--setup`，否則以結束代碼 `78` 結束） |
+| `--intro` | 啟動時在瀏覽器開啟產品介紹頁 |
+| `--help`、`-h` | 印出命令列說明並結束 |
+| `--setup` | 首次初始化管理員帳號、執行模式與 HTTP 代理 |
+| `--change-password` | 驗證原密碼後修改管理員密碼 |
+| `--reset-password` | 忘記密碼時在本機強制重設管理員密碼 |
+| `--web-publications` | 離線查詢或還原頁面編輯器的已發布頁面狀態（詳見[頁面編輯器](/zh-hant/page-editor#表單驗證與資源授權)） |
 
-Windows 安裝版可運行 `PixivDownload.exe`。發行包同時提供 Compose 和 Swing；`app.gui-provider` 爲空時選擇默認的 Compose。切換 provider 後完整重啓。首次無頭啓動前先完成初始化，否則程序以退出碼 `78` 結束。
+執行 `--setup`、`--change-password`、`--reset-password` 等管理命令前，必須先停止使用同一資料目錄的執行個體。密碼修改或重設會使現有工作階段失效，重新啟動後請用新密碼驗證登入（詳見[首次設定](/zh-hant/first-setup)）。Windows 安裝版可直接執行 `PixivDownload.exe`；發行包同時包含 Compose（預設）和 Swing 桌面介面，切換 `app.gui-provider` 後需完整重新啟動。
 
-### CLI 管理命令
+## 檔名範本變數
 
-| 命令 | 用途 |
-|------|------|
-| `--setup` | 首次初始化（賬號 + 模式 + 代理） |
-| `--change-password` | 修改管理員密碼 |
-| `--reset-password` | 忘記密碼時強制重置 |
+在下載頁「下載設定 → 檔名範本」中可使用以下 11 個變數（檔名中的非法字元會自動過濾，新範本僅對後續新下載生效）：
 
-這些命令會修改管理狀態，執行前停止同一數據目錄的其它實例。修改或重置密碼會使舊會話失效；重啓後用新密碼驗證登錄。具體交互、密碼要求與失敗處理見[首次配置](/zh-hant/first-setup)。
-
----
-
-## 文件名模板變量
-
-在「下載設置 → 文件名模板」中可使用以下變量：
-
-| 變量 | 說明 |
-|------|------|
+| 變數 | 含義 |
+| --- | --- |
 | `{artwork_id}` | 作品 ID |
-| `{artwork_title}` | 作品標題（自動去除非法字符） |
+| `{artwork_title}` | 作品標題 |
 | `{author_id}` | 作者 ID |
-| `{author_name}` | 作者名（自動去除非法字符） |
-| `{timestamp}` | Unix 時間戳（毫秒） |
-| `{page}` | 當前頁索引（從 0 開始） |
-| `{count}` | 總頁數 |
-| `{ai}` | AI 生成時爲 `AI`，否則爲空 |
+| `{author_name}` | 作者名稱 |
+| `{timestamp}` | 下載時的 Unix 時間戳記（毫秒） |
+| `{page}` | 目前頁面索引（從 `0` 開始） |
+| `{count}` | 作品總頁數 |
+| `{ai}` | AI 生成作品為 `AI`，否則為空字串 |
 | `{ai+}` | `AI` 或 `Human` |
-| `{R18}` | `R18` / `R18G` / 空 |
-| `{R18+}` | `SFW` / `R18` / `R18G` |
+| `{R18}` | `R18`、`R18G` 或空字串 |
+| `{R18+}` | `SFW`、`R18` 或 `R18G` |
 
-示例：`{author_name}/{artwork_id}_p{page}` → 按作者名分文件夾保存。
+範例：`{author_name}/{artwork_id}_p{page}` 會依作者名稱建立子資料夾儲存圖片。
 
----
+## 自動收藏與動圖（Ugoira）處理
 
-## 自動收藏
+- **自動收藏**：在下載頁勾選「自動收藏」後，後端在作品下載完成時，使用已儲存的 Cookie（需含 `PHPSESSID`）呼叫 Pixiv API 收藏作品；使用者腳本則使用瀏覽器目前的 Pixiv 登入狀態收藏，不向後端轉送 `document.cookie`。收藏會盡力執行（best-effort），收藏失敗不會使已完成的下載變為失敗。
+- **動圖（Ugoira）**：下載 ZIP 影格包並依影格順序解壓縮後，呼叫系統 `PATH` 或自動安裝的 `ffmpeg` 轉碼為所選格式（預設 WebP，可選 GIF、APNG、MP4 或保留原始 ZIP，詳見[設定參考](/zh-hant/configuration#圖片與-ugoira-儲存格式)），同時將首個影格儲存為 `_p0_thumb.jpg` 縮圖。
 
-在下載網頁中勾選「**自動收藏**」，下載完成後後端使用已保存的 Cookie 收藏作品。油猴腳本則使用瀏覽器的 Pixiv 登錄態執行收藏，不向後端透傳 `document.cookie`。
+## 下載監控、疑似重複偵測與桌面工具
 
-!> 需要已保存含 `PHPSESSID` 的有效 Cookie。收藏是 best-effort，收藏失敗不會讓下載任務失敗。
+- **下載監控（`http://localhost:6999/monitor.html`）**：查看目前作用中的下載進度、依作者 / 標籤 / AI 狀態篩選或模糊搜尋歷史紀錄，以及下載趨勢圖。
+- **疑似重複偵測（`http://localhost:6999/pixiv-duplicates.html`，僅管理員，需啟用 `gallery-tools`）**：依感知雜湊（dHash）查找視覺相似圖片（即使檔名或解析度不同），可調整漢明距離閾值（預設 `10`，越小越嚴格）、切換「跨作品模式 / 全庫模式」，並點擊縮圖進入詳細資料頁處理。
+- **桌面 GUI 工具頁**：提供**圖片分類工具**、**資料庫目錄檢查**、**資料回填工具**、**舊資料與中繼資料匯入**、**歷史媒體處理**和 **PixivBatchDownloader 歷史匯入**。
 
----
+!> 涉及資料庫的桌面維護工具會使用獨占維護工作階段，由 GUI 自動停止並恢復後端。執行前請先備份所選資料庫（PostgreSQL 還需備份伺服器端資料庫），切勿同時啟動使用同一資料目錄的另一執行個體。操作結束後請核對工具報告、後端狀態與畫廊存取，不要將「關閉工具視窗」視為執行成功。
 
-## 動圖（Ugoira）下載
+## 訪客邀請
 
-動圖作品會自動檢測並走以下流程：
-
-1. 下載 ZIP 幀包
-2. 提取幀並按文件名排序
-3. 調用 `ffmpeg` 按所選格式生成動圖或視頻；可選格式見[配置參考](configuration.md)
-4. 同時保存第一幀爲縮略圖（`_p0_thumb.jpg`）
-
-要求 `ffmpeg` 在系統 PATH 中可用。Windows 安裝包用戶可在 GUI → 狀態頁點「下載 FFmpeg」自動安裝。
-
----
-
-## 下載監控
-
-訪問 `http://localhost:6999/monitor.html`，實時查看：
-- 當前活躍下載進度
-- 歷史記錄（按作者/標籤/AI 篩選，支持模糊搜索）
-- 下載趨勢統計圖
-
----
-
-## GUI 工具頁
-
-| 工具 | 說明 |
-|------|------|
-| **圖片分類工具** | 對已下載圖片進行分類整理 |
-| **數據庫目錄檢查** | 檢查數據庫記錄的文件路徑是否仍然有效 |
-| **數據回填工具** | 補全因版本更新缺失的數據字段 |
-
-!> 數據庫工具需要獨佔維護會話，GUI 託管後端停止與恢復。操作前備份所選數據庫，不要另開同一數據目錄的實例。所選數據庫 provider 必須可用；PostgreSQL 數據還需單獨備份服務器數據庫。工具結束後檢查報告、後端狀態和畫廊訪問，不要把「工具窗口關閉」當作成功。
-
----
-
-## 疑似重複檢測
-
-訪問 `http://localhost:6999/pixiv-duplicates.html`（管理員專屬）：
-
-使用感知哈希（dHash）識別視覺上相似的已下載圖片，即便文件名、尺寸不同也能檢出。
-
-- 可調漢明距離閾值（越小越嚴格，dHash 默認 10）
-- 跨作品模式（找分佈在不同作品裏的重複圖）/ 全庫模式
-- 點擊縮略圖跳轉到詳情頁手動處理
-
----
-
-## 訪客邀請系統
-
-?> 訪客邀請在 solo / multi 兩種模式下都可用。
-
-管理員可創建邀請碼，讓外部用戶只讀訪問畫廊：
-
-1. 畫廊頁面 → 點「**邀請訪客**」
-2. 設置過期時間、內容分級（SFW / R18 / R18G）、標籤/作者白名單
-3. 複製邀請鏈接 `http://host:port/invite?code=xxx` 分享
-
-邀請管理頁：`http://localhost:6999/pixiv-invite-manage.html`
+訪客邀請在 `solo` 與 `multi` 模式下皆可使用。管理員在畫廊右上角點擊「邀請訪客」，設定到期時間、允許的內容分級（SFW / R18 / R18G）及標籤 / 作者白名單後，即可複製 `http://host:port/invite?code=xxx`，分享給外部訪客唯讀瀏覽。所有邀請碼可在 `http://localhost:6999/pixiv-invite-manage.html` 集中查看、停用或刪除。

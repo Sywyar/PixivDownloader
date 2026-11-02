@@ -1,80 +1,33 @@
-# Search Mode
+# Search download
 
-Enter keywords in **Search Mode** to search Pixiv through the backend. Check the results and filters before adding selected works to the queue. This searches Pixiv, not your local gallery.
+Enter keywords in Search mode on the download page. The backend calls Pixiv's search API, and you can filter the results before adding them to the download queue. This searches online Pixiv works, not the local gallery.
 
-!> Search Mode **requires a saved Pixiv cookie** (containing `PHPSESSID`). Without one, the search button is unavailable.
+!> Search mode requires a saved, valid Pixiv cookie containing `PHPSESSID`; the search button is unavailable without it.
 
----
+## Steps
 
-## Usage Steps
+1. Open `http://localhost:6999/pixiv-batch.html` and switch to Search mode.
+2. Enter search keywords in Chinese, Japanese or English.
+3. Choose a submode, sort order and content rating, then click Search.
+4. Select works in the preview grid and click Queue selected, or click Queue current page.
+5. Click Start download and check the results in the queue.
 
-1. Open `http://localhost:6999/pixiv-batch.html`
-2. Switch to the "**🔍 Search Mode**" tab
-3. Enter keywords in the search box (Chinese / Japanese / English all work)
-4. Choose sort order and content rating
-5. Click "**Search**"
-6. Browse thumbnail previews, check the works you want to download
-7. Click "**Add Selected to Queue**" or "**Add Current Page All to Queue**"
-8. Start download
+## Search scope, sorting and filters
 
----
+| Submode | Fetch scope |
+| --- | --- |
+| Search mode | Fetch only page 1, suitable for a quick keyword check |
+| Batch work fetch mode | Fetch through the specified last page, defaulting to 3 pages. Set the last page to `-1` to keep paging through all results, about 10 seconds between pages, up to 1,000 pages |
 
-## Search Submodes
+| Sort order | Description |
+| --- | --- |
+| Newest (`date_d`) | Descending publication time; available to all signed-in accounts |
+| Popular (`popular_d`) | Sort by popularity; requires Pixiv Premium. Without permission, use Newest instead and do not treat the returned results as a complete popularity ranking |
 
-Two submodes at the top:
+Content rating can be All ages, R-18, R-18G or All, subject to the corresponding age settings on your Pixiv account. Once results load, Additional filters can filter the preview page live by excluding AI, minimum bookmark count, tags and page-count range.
 
-| Submode | Description |
-|---------|-------------|
-| **🔍 Search** | Only shows the first page of results; good for quick browsing |
-| **📦 Batch Fetch** | Set an end page (default 3 pages); fetches multiple pages at once |
+## Check results and schedule tasks
 
-In "Batch Fetch" mode, setting the "End page" to `-1` means "keep paging back through all results, fetching everything" (with about 10 seconds between pages to avoid excessive requests).
+Start with one keyword and a small number of pages to check the result, then expand the page range. If results are empty, check keywords, rating, account permissions and additional filters. If searching fails, check whether the cookie has expired and whether the backend proxy connects. A filter skip in the queue does not mean the search request failed.
 
----
-
-## Sort Options
-
-| Sort | Description | Premium Required |
-|------|-------------|:---:|
-| **Newest** (date_d) | Sort by publication time, descending | No |
-| **Popular** (popular_d) | Sort by popularity | **Yes** |
-
-Popular sorting depends on your Pixiv account permissions. Use Newest when your account lacks access; do not assume the returned results form a complete popularity ranking.
-
----
-
-## Content Rating
-
-| Rating | Description |
-|--------|-------------|
-| **All Ages** | Only non-R-18 content |
-| **R-18** | R-18 only |
-| **R-18G** | R-18G only |
-| **All** | Mixed display (requires Pixiv account age verification) |
-
----
-
-## Extra Filters
-
-The "Extra Filters" card **live-filters the preview page** after search results load, so you can quickly find matching works without paging through many results:
-
-- Exclude AI-generated
-- Minimum bookmark count
-- Tag filtering
-- Page count range
-
----
-
-## Check search and download results
-
-Start with one keyword and a small page range before expanding the search. For empty results, check the keyword, content rating, account permissions and extra filters. For errors, retain the message and check the cookie and backend proxy. A queue item skipped by a filter does not mean the search failed.
-
-## Save as Scheduled Task
-
-If you want to periodically download new works under a certain keyword, save the current search configuration as a scheduled task:
-
-Scroll down to the "⏰ Save as Scheduled Task" card → set trigger frequency → create.
-
-The task will search and download newly published works on the set schedule. Tasks using "Newest" sort + page count `-1` also use watermark-based incremental discovery to avoid re-downloading historical content each time.
-
-See [Scheduled Tasks](/en/scheduled-tasks) for details.
+To save the current search as a scheduled task, set the trigger frequency in the Save as scheduled task card at the bottom of the page. Tasks using Newest sorting with the last page set to `-1` support incremental fetching with a watermark. See [scheduled tasks](/en/scheduled-tasks) for other combinations and limits.
