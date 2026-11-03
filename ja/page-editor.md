@@ -103,4 +103,6 @@ node scripts/ci/page-editor-acceptance.mjs target/page-editor-acceptance
 
 公式の `captcha` プラグインは、Turnstile、reCAPTCHA v2、ALTCHA SHA-256、ALTCHA PBKDF2、文字入力、スライドパズルの 6 種類の検証コンポーネントを提供します。インストール、フォームへの関連付け、キー設定、公式テストキー、トラブルシューティングは[操作 CAPTCHA](/ja/captcha)を参照してください。
 
-フォームの開発者は `OperationGuard.prepare(operation, subject, context)` でチャレンジを生成します。この時点では業務処理を実行しません。フロントエンドは `createOperationTarget(operation, onChange, prepareRequest)` で準備リクエストを登録し、関連付けられたすべてのコンポーネントが完了してから `target.request()` で証明を取得します。バックエンドの業務入口では、同じ owner の `OperationGuard.execute(...)` を呼んで署名を検証し、実行します。
+管理対象ページは `attachPage` で共通の送信ランタイムを読み込みます。宣言済みの操作を選ぶか、操作コールバックでフォーム ID、送信ボタン ID、コンポーネント領域、対象 endpoint を設定します。ネイティブの action/method と submitter の上書き属性から候補を作り、サーバーディレクトリで照合します。JavaScript リクエストは実際の endpoint を明示的に選択し、複数操作は別々に設定してください。コンポーネントを配置して保護対象を確認し、関連付け元、対象、権限を確認して公開します。
+
+共通ランタイムは管理対象のネイティブ送信、fetch（Request を含む）、非同期 XHR を扱い、業務の本文と応答を保持します。コントローラーが未実行の場合に限り、対話完了後に送信します。同期 XHR、安全に抽出・再利用できない本文は明示的に拒否し、未設定のクロスオリジン通信は対象外です。ページのフォールバック、コンポーネント不在、エディター停止でもサーバーの保護は残ります。共有操作の公開・復元には関連する下書きまたは各ページの previous を明示的に選択します。未選択の下書きは保持し、リビジョンや権限が変わると古い確認は無効になります。

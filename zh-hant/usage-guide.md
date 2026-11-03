@@ -59,3 +59,5 @@ java -Dfile.encoding=UTF-8 -jar APP.jar --no-gui
 ## 訪客邀請
 
 訪客邀請在 `solo` 與 `multi` 模式下皆可使用。管理員在畫廊右上角點擊「邀請訪客」，設定到期時間、允許的內容分級（SFW / R18 / R18G）及標籤 / 作者白名單後，即可複製 `http://host:port/invite?code=xxx`，分享給外部訪客唯讀瀏覽。所有邀請碼可在 `http://localhost:6999/pixiv-invite-manage.html` 集中查看、停用或刪除。
+
+邀請連結只開啟預填的兌換頁面，GET 不建立工作階段。訪客提交邀請碼並完成已發布的驗證後，宿主簽發與邀請碼不同的工作階段憑證。舊的原始邀請碼 Cookie 無法登入，須重新兌換。暫停、刪除或到期的邀請仍依既有權限規則拒絕存取，登出會撤銷當次憑證。

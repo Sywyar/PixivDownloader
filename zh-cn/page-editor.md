@@ -103,4 +103,6 @@ node scripts/ci/page-editor-acceptance.mjs target/page-editor-acceptance
 
 官方 `captcha` 插件提供 Turnstile、reCAPTCHA v2、ALTCHA SHA-256、ALTCHA PBKDF2、字符输入和滑块拼图六种验证组件。安装、表单绑定、密钥配置、官方测试密钥与排障见[操作验证码](/zh-cn/captcha)。
 
-表单开发者通过 `OperationGuard.prepare(operation, subject, context)` 生成挑战（不执行业务），前端通过 `createOperationTarget(operation, onChange, prepareRequest)` 注册准备请求，待全部绑定组件完成后通过 `target.request()` 取得证明，并在后端业务入口调用同一 owner 的 `OperationGuard.execute(...)` 验签执行。
+受管页面通过 `attachPage` 加载统一提交运行时。已有声明动作直接选择；未声明动作可在「操作回调」中配置表单 ID、提交按钮 ID、组件区域和目标接口。原生 form 的 action/method 与 submitter 覆盖属性用于生成候选，最终由服务端目录核对；JavaScript 请求请显式选择实际接口。一个表单有多个动作时分别配置，不自动选第一个。将组件拖入相应区域后确认「保护操作」，预览来源、目标及权限，再正式发布。
+
+共享运行时处理受管目标的原生提交、fetch（含 Request）和异步 XHR，保持业务正文与响应契约；仅在确认尚未进入 controller 时等待交互后发送。同步 XHR、无法安全提取或复用的请求体会明确拒绝，未配置的跨域请求不进入适配。服务端独立强制执行，页面回退、组件缺席和编辑器停用不会删除正式要求。共享操作需明确选中关联草稿或各页 previous 后原子发布/恢复；未选草稿不被覆盖，修订或权限变化使旧确认失效。

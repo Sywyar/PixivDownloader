@@ -181,7 +181,11 @@ java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-repo
 ## 不依赖 GUI 的凭据与通用操作验证
 
 - **`PluginCredentials`**：插件可在 `credentialKeys()` 声明本 owner 前缀下的敏感键（最多 128 项，单值 64 KiB、单批 1 MiB；同名 GUI 字段必须标为敏感），注入 `PluginCredentials` 执行原子 `read`、`update`、`delete`。
-- **`OperationVerification` 与 `OperationGuard`**：验证插件提供 `OperationVerification` Bean；业务插件在 `serviceImports()` 声明 `OperationVerification.IMPORT` 并注入 `OperationGuard`，在准备阶段调用 `prepare(operationId, subject, context)`，在提交阶段完成鉴权与限流后调用 `execute(operationId, subject, context, token, proofs, action)`。详见[页面编辑器](/zh-cn/page-editor#表单验证与资源授权)与[操作验证码](/zh-cn/captcha)（完整实现见 [`examples/captcha-plugin`](https://github.com/Sywyar/PixivDownloader/tree/master/examples/captcha-plugin)）。
+- **HTTP Hooks**：提供 `OperationHook` Bean，实现 `id()`、`definition()`、`generation()` 和 `invoke(...)`。宿主从 Spring 的真实映射发现接口，包含 owner、方法、路径模板和匹配条件；普通控制器与动态外置控制器都无需 Hook 注解或 Guard 包装。正式绑定可选择单个 endpoint 或显式配置的接口组，`OperationEndpoint` 只用于可选的操作分组。
+- **绑定与查询**：管理员读取 `/api/web/operation-hooks/catalog`、`definitions`、`configuration`；保留当前配置后，将 `{revision, settings}` 提交到同前缀的 `prepare`，审阅目标、受影响页面和权限，再以 `{plan, approvals}` 提交到 `publish`。配置含 `groups` 和 `bindings`；绑定指定 `id/hook/operation/endpoint/phase/order/completion/configuration/fields`，`operation` 与 `endpoint` 二选一。`resolveTargets` 与 `getFormEndpoints(pageId, formId, actionId)` 共用解析器；未声明、歧义、越权或不可用必须处理，发现接口不授予调用或绑定权限。
+- **执行与数据**：`BEFORE_INVOKE` 在宿主鉴权、CSRF 和准入之后、controller 之前返回 `CONTINUE/REJECT/CHALLENGE`。默认只传元数据；正文、查询参数和结果字段按正式绑定的 `fields` 白名单有界提取，禁止凭据字段。提供者只拿纯值，不能取得请求对象或业务 action。`AFTER_COMPLETION` 可筛选 `SUCCEEDED/FAILED/BLOCKED/TIMED_OUT/CANCELLED` 或 `ALL`；成功表示 HTTP 状态小于 400，不推断正文中的业务成功、事务提交或后台任务完成。SSE、下载和异步请求观察完成元数据，不缓存整条流。
+- **挑战与生命周期**：宿主 `POST /api/operation-hooks/prepare` 与统一证明头 `X-Pixiv-Hook-Ticket` 负责挑战准备、正式修订核对和一次消费，业务 DTO 不增加证明字段；框架不会盲目重放请求。必需前置提供者缺席、故障或超时会拒绝执行。后置失败保留原 HTTP 结果，不保证持久送达；超时不代表 Java 工作已停止，精确代际租约在实际退出后释放。每页最多 16 个绑定、128 个表单关系，每个绑定最多 16 个获批字段；HTTP 执行最多 64 个在途请求、8 个工作线程、64 个排队任务，前置累计等待及后置等待各 10 秒。
+- **诊断与本地调用**：默认英文日志记录 correlationId、单次调用、可信插件及 generation/publication、注册回调入口、绑定来源、目标 handler/方法/路由模板、阶段和结果，不记录证明或请求正文。`OperationVerification` 适配可交互前置 Hook；`OperationGuard` 保留给显式的本地同步操作，不在同一 HTTP 入口重复调用。验证组件见[操作验证码](/zh-cn/captcha)。
 
 ## 普通槽位与页面组件
 

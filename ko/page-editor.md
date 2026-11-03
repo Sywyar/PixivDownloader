@@ -103,4 +103,6 @@ node scripts/ci/page-editor-acceptance.mjs target/page-editor-acceptance
 
 공식 `captcha` 플러그인은 Turnstile, reCAPTCHA v2, ALTCHA SHA-256, ALTCHA PBKDF2, 문자 입력과 슬라이더 퍼즐의 여섯 가지 검증 컴포넌트를 제공합니다. 설치, 양식 연결, 키 설정, 공식 테스트 키와 문제 해결은 [작업 CAPTCHA](/ko/captcha)를 참고하세요.
 
-양식 개발자는 `OperationGuard.prepare(operation, subject, context)`로 업무를 실행하지 않고 챌린지를 생성합니다. 프런트엔드는 `createOperationTarget(operation, onChange, prepareRequest)`로 준비 요청을 등록하고 연결된 모든 컴포넌트가 완료되면 `target.request()`로 증명을 얻습니다. 백엔드 업무 진입점에서는 같은 owner의 `OperationGuard.execute(...)`를 호출하여 서명을 검증하고 실행합니다.
+관리 대상 페이지는 `attachPage`로 공통 제출 런타임을 로드합니다. 선언된 작업을 선택하거나 작업 콜백에서 양식 ID, 제출 버튼 ID, 컴포넌트 영역과 대상 endpoint를 설정합니다. 기본 action/method와 submitter 재정의 속성으로 후보를 만들고 서버 디렉터리와 대조합니다. JavaScript 요청은 실제 endpoint를 명시적으로 선택하고, 한 양식의 여러 작업을 각각 설정하세요. 컴포넌트를 배치하고 보호 대상을 확인한 뒤 출처, 대상과 권한을 검토하여 게시합니다.
+
+공통 런타임은 관리 대상의 기본 제출, fetch(Request 포함), 비동기 XHR을 처리하면서 업무 본문과 응답을 보존합니다. 컨트롤러가 실행되지 않은 경우에만 상호작용을 마친 뒤 전송합니다. 동기 XHR과 안전하게 추출·재사용할 수 없는 본문은 명시적으로 거부하고, 설정되지 않은 교차 출처 요청은 처리 대상에서 제외합니다. 페이지 폴백, 컴포넌트 부재나 편집기 중지에도 서버 보호는 유지됩니다. 공유 작업의 원자적 게시·복원은 관련 초안 또는 각 페이지의 previous를 명시적으로 선택해야 합니다. 선택하지 않은 초안은 보존되며 리비전이나 권한이 바뀌면 이전 확인은 무효가 됩니다.

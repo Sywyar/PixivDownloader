@@ -59,3 +59,5 @@ For example, `{author_name}/{artwork_id}_p{page}` creates author-named subfolder
 ## Guest invitations
 
 Guest invitations are available in both `solo` and `multi` modes. In the gallery's upper-right corner, an administrator can click "Invite Guests", set an expiry time, allowed content ratings (SFW / R18 / R18G) and tag / author allowlists, then copy `http://host:port/invite?code=xxx` to share read-only access with external guests. All invitation codes can be viewed, disabled or deleted centrally at `http://localhost:6999/pixiv-invite-manage.html`.
+
+Invitation links open a prefilled redemption page; GET requests do not establish sessions. Submitting the code and completing any published verification issues a session credential distinct from the code. Old raw-code cookies cannot sign in and must be redeemed again. Paused, deleted or expired invitations retain their existing access restrictions, and logout revokes the current credential.

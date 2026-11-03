@@ -103,4 +103,6 @@ node scripts/ci/page-editor-acceptance.mjs target/page-editor-acceptance
 
 官方 `captcha` 外掛提供 Turnstile、reCAPTCHA v2、ALTCHA SHA-256、ALTCHA PBKDF2、字元輸入和滑塊拼圖六種驗證元件。安裝、表單綁定、金鑰設定、官方測試金鑰與疑難排解見[操作驗證碼](/zh-hant/captcha)。
 
-表單開發者透過 `OperationGuard.prepare(operation, subject, context)` 產生挑戰（不執行業務），前端透過 `createOperationTarget(operation, onChange, prepareRequest)` 註冊準備請求，待全部綁定元件完成後，透過 `target.request()` 取得證明，並在後端業務入口呼叫同一 owner 的 `OperationGuard.execute(...)` 驗證簽章並執行。
+受管頁面透過 `attachPage` 載入統一提交執行環境。可選擇已宣告動作，或在「操作回呼」設定表單 ID、提交按鈕 ID、元件區域與目標介面。原生 action/method 及 submitter 覆寫屬性產生候選，再由伺服器目錄核對；JavaScript 請求請明確選擇實際介面。多動作表單須分別設定。拖入元件後確認「保護操作」，審閱來源、目標與權限，再正式發布。
+
+共用執行環境處理受管目標的原生提交、fetch（含 Request）及非同步 XHR，保留業務正文與回應；僅在 controller 尚未執行時，才於互動完成後送出。同步 XHR 與無法安全擷取或重用的正文會明確拒絕，未設定的跨來源請求不進入適配。伺服器保護不因頁面回退、元件缺席或編輯器停用而移除。共享操作須明確選取相關草稿或各頁 previous，原子發布或還原；未選草稿不受覆蓋，修訂或權限變化使舊確認失效。

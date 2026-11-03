@@ -181,7 +181,11 @@ java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-repo
 ## 不依賴 GUI 的憑證與通用操作驗證
 
 - **`PluginCredentials`**：外掛可在 `credentialKeys()` 宣告本 owner 前綴下的敏感鍵（最多 128 項，單值 64 KiB、單批 1 MiB；同名 GUI 欄位必須標為敏感），注入 `PluginCredentials` 執行原子 `read`、`update`、`delete`。
-- **`OperationVerification` 與 `OperationGuard`**：驗證外掛提供 `OperationVerification` Bean；業務外掛在 `serviceImports()` 宣告 `OperationVerification.IMPORT` 並注入 `OperationGuard`，在準備階段呼叫 `prepare(operationId, subject, context)`，在提交階段完成驗證授權與限流後，呼叫 `execute(operationId, subject, context, token, proofs, action)`。詳見[頁面編輯器](/zh-hant/page-editor#表單驗證與資源授權)與[操作驗證碼](/zh-hant/captcha)（完整實作見 [`examples/captcha-plugin`](https://github.com/Sywyar/PixivDownloader/tree/master/examples/captcha-plugin)）。
+- **HTTP Hooks**：提供 `OperationHook` Bean，實作 `id()`、`definition()`、`generation()` 與 `invoke(...)`。宿主從 Spring 的實際映射探索介面，包括 owner、方法、路由範本與匹配條件。一般控制器及動態外置控制器均不需 Hook 註解或 Guard 包裝。正式綁定選擇 endpoint 或明確設定的介面群組；`OperationEndpoint` 僅為可選的操作分組資訊。
+- **綁定與查詢**：管理員讀取 `/api/web/operation-hooks/catalog`、`definitions`、`configuration`；保留原設定，以 `{revision, settings}` 呼叫同前綴的 `prepare`，審閱目標、受影響頁面與權限，再將 `{plan, approvals}` 提交至 `publish`。設定含 `groups` 與 `bindings`；綁定指定 `id/hook/operation/endpoint/phase/order/completion/configuration/fields`，`operation` 與 `endpoint` 二選一。`resolveTargets` 與 `getFormEndpoints(pageId, formId, actionId)` 共用解析器；須處理未宣告、歧義、越權與不可用，探索不授予呼叫或綁定權限。
+- **執行與資料**：`BEFORE_INVOKE` 在宿主驗證授權、CSRF 與准入之後、controller 之前回傳 `CONTINUE/REJECT/CHALLENGE`。預設僅傳中繼資料；正文、查詢參數與結果欄位經正式 `fields` 白名單有界擷取，禁止憑證欄位。提供者不會取得 servlet 物件或業務 action。`AFTER_COMPLETION` 可篩選 `SUCCEEDED/FAILED/BLOCKED/TIMED_OUT/CANCELLED` 或 `ALL`；成功僅表示 HTTP 狀態小於 400，不推斷正文業務結果、交易提交或背景任務完成。SSE、下載與非同步請求僅觀察完成中繼資料，不快取整條串流。
+- **挑戰與生命週期**：`POST /api/operation-hooks/prepare` 與 `X-Pixiv-Hook-Ticket` 處理挑戰準備、正式修訂核對和單次消費，業務 DTO 不增加證明欄位，框架不盲目重放請求。必需前置提供者缺席、故障或逾時時拒絕執行；後置失敗保留原 HTTP 結果，不保證持久送達。Java 工作逾時不代表已停止，精確代際租約保留至實際退出。每頁上限 16 個綁定、128 個表單關係，每個綁定 16 個獲批欄位；HTTP 上限為 64 個在途請求、8 個執行緒、64 個排隊任務，前置累計等待與後置等待各 10 秒。
+- **診斷與本地呼叫**：預設英文日誌記錄關聯與單次呼叫 ID、可信外掛 generation/publication、回呼入口、綁定來源、handler/方法/路由範本、階段及結果，不記錄證明或正文。`OperationVerification` 適配互動式前置 Hook；`OperationGuard` 保留給明確的本地同步操作，不在同一 HTTP 入口重複呼叫。元件見[操作驗證碼](/zh-hant/captcha)。
 
 ## 一般插槽與頁面元件
 
