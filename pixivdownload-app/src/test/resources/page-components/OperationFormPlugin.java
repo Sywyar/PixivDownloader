@@ -1,14 +1,11 @@
 package example.operation;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.servlet.http.HttpServletRequest;
 import org.pf4j.*;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.plugin.api.plugin.*;
 import top.sywyar.pixivdownload.plugin.api.security.*;
-import top.sywyar.pixivdownload.plugin.api.service.ServiceKey;
 import top.sywyar.pixivdownload.plugin.api.web.*;
 import top.sywyar.pixivdownload.plugin.api.web.page.*;
 import java.io.IOException;
@@ -28,7 +25,6 @@ public final class OperationFormPlugin extends Plugin implements PixivPluginProv
             public String displayName() { return "name"; }
             public String description() { return "name"; }
             public PluginKind kind() { return PluginKind.FEATURE; }
-            public List<ServiceKey<?>> serviceImports() { return List.of(OperationVerification.IMPORT); }
             public List<WebRouteContribution> routes() {
                 return List.of(WebRouteContribution.admin("/operation-form/**"), WebRouteContribution.admin("/api/operation-form/**"));
             }
@@ -40,7 +36,7 @@ public final class OperationFormPlugin extends Plugin implements PixivPluginProv
     }
     @org.springframework.context.annotation.Configuration(proxyBeanMethods=false)
     public static class Wiring {
-        @Bean FormController controller(OperationGuard guard, RequestOwnerIdentityResolver identities) { return new FormController(guard, identities); }
+        @Bean FormController controller() { return new FormController(); }
         @Bean PageContribution pages() {
             return new PageContribution() {
                 public void validate(String type, String configuration) { throw new IllegalArgumentException("PAGE_COMPONENT_UNAVAILABLE"); }
@@ -50,6 +46,8 @@ public final class OperationFormPlugin extends Plugin implements PixivPluginProv
                                     new PageRegion("beta", "beta", "", true, false), new PageRegion("beta-fields", "fields", "beta", false, false)),
                             "", "", List.of(), List.of(target("alpha", "alpha"), target("beta", "beta")));
                     return List.of(page,
+                            new EditablePage("operation-form:configured", "name", "operation-form", "/operation-form/configured.html", false,
+                                    page.regions(), "", "/operation-form/preview.mjs", List.of(), List.of()),
                             new EditablePage("operation-form:other", "name", "operation-form", "/operation-form/other.html", false,
                                     page.regions(), "", "", List.of(), page.targets()),
                             new EditablePage("operation-form:ambiguous", "ambiguous", "operation-form", "/operation-form/ambiguous.html", false,
@@ -64,41 +62,22 @@ public final class OperationFormPlugin extends Plugin implements PixivPluginProv
     }
     @RestController
     public static final class FormController {
-        private final OperationGuard guard;
-        private final RequestOwnerIdentityResolver identities;
-        private final ObjectMapper json = new ObjectMapper();
-        FormController(OperationGuard guard, RequestOwnerIdentityResolver identities) { this.guard = guard; this.identities = identities; }
-        public record Command(String value, String token, Map<String, String> proofs) { }
-        @PostMapping("/api/operation-form/{target}")
-        public ResponseEntity<?> submit(@PathVariable("target") String target, HttpServletRequest request) throws IOException {
-            return run(target, request, false);
-        }
-        @PostMapping("/api/operation-form/{target}/prepare")
-        public ResponseEntity<?> prepare(@PathVariable("target") String target, HttpServletRequest request) throws IOException {
-            return run(target, request, true);
-        }
-        private ResponseEntity<?> run(String target, HttpServletRequest request, boolean preparing) throws IOException {
-            if (!Set.of("alpha", "beta").contains(target)) return ResponseEntity.notFound().build();
-            if (!identities.isAdminAuthenticated(request)) return ResponseEntity.status(401).build();
-            byte[] bytes = request.getInputStream().readNBytes(71681);
-            if (bytes.length > 71680) return ResponseEntity.status(413).build();
-            Command command = json.readValue(bytes, Command.class);
+        public record Command(String value) { }
+        @PostMapping({"/api/operation-form/alpha", "/api/operation-form/alpha-alias"})
+        public ResponseEntity<?> alpha(@RequestBody Command command) throws IOException { return run(command); }
+        @PostMapping("/api/operation-form/alpha-secondary")
+        public ResponseEntity<?> secondary(@RequestBody Command command) throws IOException { return run(command); }
+        @PostMapping("/api/operation-form/beta")
+        public ResponseEntity<?> beta(@RequestBody Command command) throws IOException { return run(command); }
+        private ResponseEntity<?> run(Command command) throws IOException {
             if (command.value() == null || command.value().length() > 64) return ResponseEntity.badRequest().build();
-            var result = preparing ? guard.prepare("operation-form:" + target, "authenticated-administrator",
-                    json.writeValueAsString(Map.of("value", command.value()))) : guard.execute("operation-form:" + target, "authenticated-administrator",
-                    json.writeValueAsString(Map.of("value", command.value())), command.token(), command.proofs(), () -> {
-                        if (command.value().equals("__fail")) throw new IOException("fixture-action-failed");
-                        if (command.value().equals("__block")) {
-                            entered.countDown();
-                            boolean done = false;
-                            while (!done) try { release.await(); done = true; } catch (InterruptedException ignored) { }
-                        }
-                        return calls.incrementAndGet();
-                    });
-            return ResponseEntity.status(switch (result.status()) {
-                case APPROVED -> 200; case CHALLENGE -> 428; case REJECTED -> 403;
-                case UNAVAILABLE -> 503; case STALE -> 409; case INVALID -> 400;
-            }).body(result);
+            if (command.value().equals("__fail")) throw new IOException("fixture-action-failed");
+            if (command.value().equals("__block")) {
+                entered.countDown();
+                boolean done = false;
+                while (!done) try { release.await(); done = true; } catch (InterruptedException ignored) { }
+            }
+            return ResponseEntity.ok(Map.of("value", calls.incrementAndGet()));
         }
     }
 }

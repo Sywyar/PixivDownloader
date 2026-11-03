@@ -1,73 +1,49 @@
 package top.sywyar.pixivdownload.setup.guest.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseCookie;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.*;
+import org.springframework.web.bind.annotation.*;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.plugin.registry.web.LandingRegistry;
 import top.sywyar.pixivdownload.plugin.api.web.Audience;
-import top.sywyar.pixivdownload.setup.AuthFilter;
-import top.sywyar.pixivdownload.setup.LoginRateLimitService;
+import top.sywyar.pixivdownload.plugin.api.operation.*;
+import top.sywyar.pixivdownload.setup.*;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteService;
-import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
+import java.io.IOException;
 
-import java.util.Optional;
-
-/**
- * 公开的邀请码兑换端点。每次提交无论成败都计入登录限流，防止暴力枚举 code。
- *
- * <p>下发的 {@code pixiv_invite_token} cookie 与 {@code AuthFilter} 的清除 / GET {@code /invite} 兑换路径
- * 保持一致的安全属性：HttpOnly + SameSite=Strict + 当 {@code server.ssl.enabled} 为 true 时附加 Secure。</p>
- */
+/** 宿主限流和有界输入校验先于 Hook；凭据只在受控业务动作提交后签发。 */
 @RestController
 @RequiredArgsConstructor
 public class InviteRedeemController {
-
     private final GuestInviteService guestInviteService;
-    private final LoginRateLimitService loginRateLimitService;
     private final LandingRegistry landingRegistry;
 
     @Value("${server.ssl.enabled:false}")
     private boolean sslEnabled;
 
     @PostMapping("/api/auth/invite-redeem")
-    public ResponseEntity<RedeemResponse> redeem(
-            @RequestBody RedeemRequest body,
-            HttpServletRequest request) {
-        if (!loginRateLimitService.isAllowed(request.getRemoteAddr())) {
-            throw new LocalizedException(HttpStatus.TOO_MANY_REQUESTS,
-                    "setup.login.rate-limit.exceeded",
-                    "登录尝试过于频繁，请稍后再试");
-        }
-        String code = body == null ? null : body.code();
-        if (code == null || code.isBlank()) {
-            throw new LocalizedException(HttpStatus.BAD_REQUEST,
-                    "guest.invite.code.required", "请输入邀请码");
-        }
-        Optional<GuestInviteSession> session = guestInviteService.resolveByCode(code);
-        if (session.isEmpty()) {
-            throw new LocalizedException(HttpStatus.UNAUTHORIZED,
-                    "guest.invite.code.invalid", "邀请码无效或已失效");
-        }
-        ResponseCookie cookie = ResponseCookie.from(AuthFilter.INVITE_COOKIE, session.get().code())
+    @OperationEndpoint(operation = "core:invite-redeem")
+    public ResponseEntity<?> redeem(@Valid @RequestBody RedeemRequest body, HttpServletRequest request) throws IOException {
+        String code = validate(body.code());
+        String token = guestInviteService.redeem(code).orElseThrow(() -> new LocalizedException(
+                HttpStatus.UNAUTHORIZED, "guest.invite.code.invalid", null));
+        ResponseCookie cookie = ResponseCookie.from(AuthFilter.INVITE_COOKIE, token)
                 .path("/").httpOnly(true).secure(sslEnabled).sameSite("Strict").build();
-        // 落点经独立的 LandingRegistry 按受邀访客的落点优先级解析（画廊 priority 20 优先，禁用则回退小说 30），
-        // 都禁用则回登录页提示。与导航排序解耦：第三方插件无法借更小的导航 order 改变邀请落点。
-        String redirect = landingRegistry.resolve(Audience.INVITED_GUEST)
-                .orElse("/login.html?inviteError=1");
-        return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, cookie.toString())
-                .body(new RedeemResponse(true, redirect));
+        String redirect = landingRegistry.resolve(Audience.INVITED_GUEST).orElse("/login.html?inviteError=1");
+        return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, cookie.toString()).body(new RedeemResponse(true, redirect));
     }
 
-    public record RedeemRequest(String code) {}
+    private String validate(String code) {
+        String normalized = code == null ? "" : code.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!normalized.matches("[A-HJ-NP-Z2-9]{24}"))
+            throw new LocalizedException(HttpStatus.BAD_REQUEST, "guest.invite.code.invalid", null);
+        return normalized;
+    }
 
-    public record RedeemResponse(boolean success, String redirect) {}
+    public record RedeemRequest(@NotBlank @Size(max = 64) String code) { }
+    public record RedeemResponse(boolean success, String redirect) { }
 }

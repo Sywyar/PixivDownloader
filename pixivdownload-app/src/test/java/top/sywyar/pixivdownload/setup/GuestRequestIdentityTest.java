@@ -79,7 +79,7 @@ class GuestRequestIdentityTest {
         adminToken = setup.createSession(false);
         otherBrowserToken = setup.createSession(true);
         invites = mock(GuestInviteService.class);
-        when(invites.resolveByCode(guest.code())).thenReturn(Optional.of(guest));
+        when(invites.resolveSession(guest.code())).thenReturn(Optional.of(guest));
         var staticLimits = mock(StaticResourceRateLimitService.class);
         when(staticLimits.isAllowed(anyString())).thenReturn(true);
         when(staticLimits.isAllowedForInvite(anyString())).thenReturn(true);
@@ -92,16 +92,8 @@ class GuestRequestIdentityTest {
                 invites, mock(GuiTokenProvider.class));
         var loginLimits = mock(LoginRateLimitService.class);
         when(loginLimits.isAllowed(anyString())).thenReturn(true);
-        var registry = new top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationRegistry();
-        var controller = new SetupController(setup, loginLimits, mock(MultiModeConfig.class),
-                mock(ProxySetupService.class), TestI18nBeans.appMessages(),
-                new top.sywyar.pixivdownload.plugin.security.OperationVerificationGate(
-                        registry, java.util.Map.of("core:login", java.util.List.of()), java.time.Clock.systemUTC(),
-                        new top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore(
-                                tempDir.resolve("publications"), tempDir.resolve("config/enrolled")),
-                        new top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry(
-                                List.of(new LoginPageContribution().loginEditablePage()), registry),
-                        new top.sywyar.pixivdownload.plugin.security.OperationAdmissions()));
+        var controller = new SetupController(setup, mock(MultiModeConfig.class),
+                mock(ProxySetupService.class), TestI18nBeans.appMessages(), invites);
         mvc = MockMvcBuilders.standaloneSetup(controller, new AdminInviteController(invites),
                         new NavigationController(new NavigationRegistry(new PluginRegistry(List.of(new CorePlugin()))), setup))
                 .addFilters(auth)
@@ -162,7 +154,7 @@ class GuestRequestIdentityTest {
     @DisplayName("邀请过期暂停撤销或查询失败均不恢复管理员，后续请求继续拒绝")
     void invalidInviteNeverFallsBack(String mode) throws Exception {
         start(mode);
-        when(invites.resolveByCode("unavailable")).thenThrow(new IllegalStateException("fixture unavailable"));
+        when(invites.resolveSession("unavailable")).thenThrow(new IllegalStateException("fixture unavailable"));
         for (String code : List.of("expired", "paused", "revoked", "unavailable")) {
             for (int attempt = 0; attempt < 2; attempt++) {
                 mvc.perform(get("/api/auth/check").cookie(admin(), invite(code)))

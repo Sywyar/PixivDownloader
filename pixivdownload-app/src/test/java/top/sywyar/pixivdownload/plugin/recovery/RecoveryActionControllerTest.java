@@ -71,7 +71,7 @@ class RecoveryActionControllerTest {
         var staticLimits = mock(StaticResourceRateLimitService.class);
         when(staticLimits.isAllowed(anyString())).thenReturn(true);
         var invites = mock(GuestInviteService.class);
-        when(invites.resolveByCode("guest")).thenReturn(Optional.of(new GuestInviteSession(
+        when(invites.resolveSession("guest")).thenReturn(Optional.of(new GuestInviteSession(
                 1L, "guest", true, false, false, true, Set.of(), true, Set.of(), true, Set.of(), true, Set.of())));
         var auth = new AuthFilter(setup, staticLimits, limits, locales, messages,
                 new StaticListableBeanFactory().getBeanProvider(MaintenanceCoordinator.class),

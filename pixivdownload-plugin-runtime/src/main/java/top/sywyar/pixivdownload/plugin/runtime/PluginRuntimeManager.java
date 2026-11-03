@@ -1437,6 +1437,7 @@ public class PluginRuntimeManager {
             ServiceKey<?> key) {
         Entry consumer = requireEntry(packageId);
         if (top.sywyar.pixivdownload.plugin.api.security.OperationVerification.IMPORT.equals(key)) return;
+        if (top.sywyar.pixivdownload.plugin.api.operation.OperationHook.IMPORT.equals(key)) return;
         boolean required = consumer.descriptor().dependencies().stream()
                 .anyMatch(dependency -> dependency.pluginId().equals(key.contractId()) && !dependency.optional());
         Entry contract = packageIndex.get(key.contractId());

@@ -121,6 +121,19 @@ for owner, source, entry, resources, messages in [
     output = work / (owner + "-classes")
     compile_java(sources / source, output)
     extras = {name: (sources / file).read_bytes() for name, file in resources.items()}
+    if owner == "operation-form":
+        configured = (sources / "operation-form.html").read_text(encoding="utf-8").replace(
+            "<body>", '<body data-page-id="operation-form:configured">')
+        for action in ("alpha", "beta"):
+            configured = configured.replace('<form data-page-region="' + action + '-fields"',
+                '<form id="' + action + '-form" method="post" action="/api/operation-form/' + action + '" data-page-region="' + action + '-fields"')
+        extras["web/configured.html"] = configured
+        extras["web/preview.mjs"] = '''export async function mount(root, context) {
+    const html = await (await fetch('/operation-form/configured.html', {signal: context.signal})).text();
+    const node = new DOMParser().parseFromString(html, 'text/html').querySelector('[data-page-region="' + context.properties.region + '"]');
+    if (node) root.append(node.cloneNode(true));
+    return {destroy() { root.replaceChildren(); }};
+}'''
     for suffix in ["", "_en", "_ja", "_ko", "_zh-Hant"]:
         extras["i18n/web/" + owner + suffix + ".properties"] = "\n".join(key + "=" + value for key, value in messages.items()) + "\n"
     jar(work / (owner + ".jar"), output, props(owner, entry,

@@ -8,7 +8,7 @@ import java.util.Map;
  * 必要能力缺席或换代时拒绝；租约持续到动作实际返回，不将回调传给 provider。
  * 此入口不重试命令，也不代替 owner 的身份、权限、CSRF 与限流检查。
  */
-public interface OperationGuard {
+public interface OperationGuard extends top.sywyar.pixivdownload.plugin.api.operation.OperationTargets {
     /** 仅在调用方本地执行的同步动作，不是跨插件服务参数。 */
     @FunctionalInterface
     interface Action<T> {
@@ -67,4 +67,5 @@ public interface OperationGuard {
      * @throws IOException 准备流程失败
      */
     Result<Void> prepare(String operationId, String subject, String context) throws IOException;
+
 }

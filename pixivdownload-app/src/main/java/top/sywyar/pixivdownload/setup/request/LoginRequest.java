@@ -14,10 +14,4 @@ public class LoginRequest {
     @lombok.ToString.Exclude
     private String password;
     private boolean rememberMe;
-    @Size(max = 128)
-    @lombok.ToString.Exclude
-    private String operationToken;
-    @Size(max = 16)
-    @lombok.ToString.Exclude
-    private java.util.Map<String, String> operationProofs = java.util.Map.of();
 }

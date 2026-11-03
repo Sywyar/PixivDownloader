@@ -89,7 +89,7 @@ class AuthFilterRegistrySnapshotTest {
     void guestWhitelistFollowsRegistrySnapshot() throws Exception {
         when(setupService.isSetupComplete()).thenReturn(true);
         when(setupService.getMode()).thenReturn("solo");
-        when(guestInviteService.resolveByCode("demo-code")).thenReturn(Optional.of(guestSession()));
+        when(guestInviteService.resolveSession("demo-code")).thenReturn(Optional.of(guestSession()));
         when(rateLimitService.isAllowedForInvite("invite:demo-code")).thenReturn(true);
 
         RouteAccessRegistry registry = new RouteAccessRegistry(new PluginRegistry(List.of()));
@@ -180,7 +180,7 @@ class AuthFilterRegistrySnapshotTest {
     void invitedGuestPostRequiresExplicitMethodOnResolvedRoute() throws Exception {
         when(setupService.isSetupComplete()).thenReturn(true);
         when(setupService.getMode()).thenReturn("solo");
-        when(guestInviteService.resolveByCode("demo-code")).thenReturn(Optional.of(guestSession()));
+        when(guestInviteService.resolveSession("demo-code")).thenReturn(Optional.of(guestSession()));
         when(rateLimitService.isAllowedForInvite("invite:demo-code")).thenReturn(true);
 
         RouteAccessRegistry registry = new RouteAccessRegistry(new PluginRegistry(List.of()));

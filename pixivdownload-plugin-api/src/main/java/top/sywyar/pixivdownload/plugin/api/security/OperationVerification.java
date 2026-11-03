@@ -10,7 +10,25 @@ import top.sywyar.pixivdownload.plugin.api.web.page.PageResourceProfile;
  * 策略可以通过独立契约组合验证器，宿主不解释 proof 或 challenge 的业务字段。
  * 本接口不接收业务回调，也不替代业务 owner 的身份、权限及输入校验。
  */
-public interface OperationVerification {
+public interface OperationVerification extends top.sywyar.pixivdownload.plugin.api.operation.OperationHook {
+    /** 验证策略作为通用前置回调，保持原有 proof/challenge 信封。 */
+    @Override default String id() { return policyId(); }
+    @Override default Definition definition() {
+        Policy policy = policy();
+        return new Definition(policy.revision(), java.util.Set.of(Phase.BEFORE_INVOKE),
+                "{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}",
+                policy.contextSchema(), "", policy.protocol(), policy.resources());
+    }
+    @Override default Decision invoke(Invocation invocation) {
+        if (invocation.phase() != Phase.BEFORE_INVOKE) throw new IllegalArgumentException("OPERATION_HOOK_PHASE_INVALID");
+        var result = verify(new OperationVerificationRequest(invocation.operation(), invocation.subject(), invocation.input(),
+                invocation.attempt(), invocation.revision(), policy().protocol().id(), invocation.response(), invocation.proof()));
+        return new Decision(switch (result.status()) {
+            case APPROVED -> Verdict.CONTINUE;
+            case REJECTED -> Verdict.REJECT;
+            case CHALLENGE -> Verdict.CHALLENGE;
+        }, result.challenge());
+    }
     /**
      * 业务 owner 在 serviceImports 显式声明此接缝，不依赖任何具体策略或 provider。
      * 只授予 owner-bound OperationGuard；不能以此键导出或直接取得全局验证服务。

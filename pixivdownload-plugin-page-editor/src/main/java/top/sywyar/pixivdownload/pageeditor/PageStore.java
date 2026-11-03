@@ -16,6 +16,7 @@ public final class PageStore {
     private final Path directory;
     private final PageDocuments documents;
     private final PagePublications publications;
+    private boolean publishing;
     public PageStore(Path directory, PageDocuments documents, PagePublications publications) {
         this.directory = directory.toAbsolutePath().normalize(); this.documents = documents; this.publications = publications;
     }
@@ -27,6 +28,7 @@ public final class PageStore {
     }
 
     public synchronized ObjectNode read(String id) {
+        if (publishing) throw new IllegalStateException("PAGE_REVISION_CONFLICT");
         ObjectNode state = draft(id);
         state.remove(List.of("published", "previous"));
         state.put("publicationRevision", publications.revision());
@@ -146,45 +148,53 @@ public final class PageStore {
         return new PagePublications.Change(id, source.toString(), view.toString());
     }
 
-    public synchronized ObjectNode publish(String id, long revision, Decision decision, boolean restoring) {
+    public ObjectNode publish(String id, long revision, Decision decision, boolean restoring) {
         return publish(id, revision, decision, restoring, List.of());
     }
 
-    public synchronized ObjectNode publish(String id, long revision, Decision decision, boolean restoring, List<Draft> drafts) {
+    public ObjectNode publish(String id, long revision, Decision decision, boolean restoring, List<Draft> drafts) {
         if (decision == null || decision.fingerprint() == null || decision.approvals() == null)
             throw PageDocuments.invalid("PAGE_PUBLICATION_STALE");
-        var selected = selected(id, revision, drafts);
-        var states = candidates(id, revision, selected, restoring);
-        ObjectNode state = states.get(id);
-        var plan = plan(states, restoring);
-        if (decision.revision() != plan.revision() || !decision.fingerprint().equals(fingerprint(plan, selected, restoring)))
-            throw PageDocuments.invalid("PAGE_PUBLICATION_STALE");
-        JsonNode source = source(state, restoring).deepCopy();
-        JsonNode previous = source.equals(state.get("published")) ? state.get("previous") : state.get("published");
-        long committed = publications.publish(plan, decision.approvals());
-        if (restoring) {
-            var failures = new ArrayList<String>();
-            for (var entry : states.entrySet()) {
-                String page = entry.getKey();
-                ObjectNode restored = entry.getValue();
-                restored.set("draft", source(restored, true).deepCopy());
-                try {
-                    ObjectNode saved = write(page, restored.deepCopy());
-                    if (page.equals(id)) state = saved;
-                } catch (RuntimeException failure) {
-                    failures.add(page);
-                    if (page.equals(id)) state.put("draftSaveFailed", true);
-                    LOG.warn("Page restoration committed; draft save failed: page={}, publicationRevision={}, reason=PAGE_STORAGE_FAILED, failureType={}",
-                            page, committed, failure.getClass().getSimpleName());
-                }
-            }
-            if (!failures.isEmpty()) state.set("draftSaveFailures", PageDocuments.JSON.valueToTree(failures));
+        Map<String, ObjectNode> states;
+        PagePublications.Plan plan;
+        synchronized (this) {
+            var selected = selected(id, revision, drafts);
+            states = candidates(id, revision, selected, restoring);
+            plan = plan(states, restoring);
+            if (decision.revision() != plan.revision() || !decision.fingerprint().equals(fingerprint(plan, selected, restoring)))
+                throw PageDocuments.invalid("PAGE_PUBLICATION_STALE");
+            // 冻结草稿事务但不持锁等待宿主排空，其它已准入请求须能拒绝退出。
+            publishing = true;
         }
-        // 已提交结果直接由本次提交构造，辅助存储或回读故障不能使客户端重放发布。
-        state.put("publicationRevision", committed);
-        state.set("published", source);
-        if (previous == null) state.remove("previous"); else state.set("previous", previous);
-        return state;
+        try {
+            ObjectNode state = states.get(id);
+            JsonNode source = source(state, restoring).deepCopy();
+            JsonNode previous = source.equals(state.get("published")) ? state.get("previous") : state.get("published");
+            long committed = publications.publish(plan, decision.approvals());
+            if (restoring) {
+                var failures = new ArrayList<String>();
+                for (var entry : states.entrySet()) {
+                    String page = entry.getKey();
+                    ObjectNode restored = entry.getValue();
+                    restored.set("draft", source(restored, true).deepCopy());
+                    try {
+                        ObjectNode saved = write(page, restored.deepCopy());
+                        if (page.equals(id)) state = saved;
+                    } catch (RuntimeException failure) {
+                        failures.add(page);
+                        if (page.equals(id)) state.put("draftSaveFailed", true);
+                        LOG.warn("Page restoration committed; draft save failed: page={}, publicationRevision={}, reason=PAGE_STORAGE_FAILED, failureType={}",
+                                page, committed, failure.getClass().getSimpleName());
+                    }
+                }
+                if (!failures.isEmpty()) state.set("draftSaveFailures", PageDocuments.JSON.valueToTree(failures));
+            }
+            // 已提交结果直接由本次提交构造，辅助存储或回读故障不能使客户端重放发布。
+            state.put("publicationRevision", committed);
+            state.set("published", source);
+            if (previous == null) state.remove("previous"); else state.set("previous", previous);
+            return state;
+        } finally { synchronized (this) { publishing = false; } }
     }
 
     public synchronized ObjectNode preview(String id, JsonNode draft) {

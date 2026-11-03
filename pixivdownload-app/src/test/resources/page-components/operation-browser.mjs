@@ -19,8 +19,97 @@ try {
     const models = () => page.evaluate(() => window.grapesjs.editors[0].getWrapper().findType('page-component')
         .map(model => ({id: model.get('instanceId'), region: model.parent().get('region')})));
     const ready = () => page.waitForFunction(() => window.pageEditorReady);
+    let preparations = 0;
+    page.on('request', request => { if (new URL(request.url()).pathname === '/api/operation-hooks/prepare') preparations++; });
     await page.goto(origin + '/page-editor/index.html'); await ready();
-    if (phase === 'operation-draft-batch') {
+    if (phase === 'configured-actions') {
+        const id = 'operation-form:configured';
+        await page.locator('#page').selectOption(id);
+        const frame = page.frameLocator('iframe.gjs-frame');
+        await frame.locator('#alpha-form').waitFor();
+        await page.locator('#hooks-section').evaluate(node => { node.open = true; });
+        for (const [index, region] of ['alpha', 'beta'].entries()) {
+            const relations = page.locator('#hooks > details');
+            await relations.evaluate(node => { node.open = true; });
+            await relations.locator('select').nth(0).selectOption(String(index));
+            await relations.locator('select').nth(1).selectOption(region);
+            const endpoint = relations.locator('select').nth(2);
+            assert.equal(await endpoint.locator('option').count(), 2, 'native action resolves to one actual mapping');
+            await endpoint.selectOption({index: 1});
+            await relations.locator('button[type="submit"]').click();
+            await page.waitForFunction(count => document.querySelectorAll('#hooks > details > p').length === count, index + 1);
+        }
+        await page.locator('#hooks-section').evaluate(node => { node.open = false; });
+        await page.evaluate(() => {
+            const editor = window.grapesjs.editors[0];
+            for (const region of ['alpha', 'beta']) editor.getWrapper().findType('page-region')
+                .find(model => model.get('region') === region).append(editor.BlockManager.get('operation-proof:verify').get('content'));
+        });
+        await page.locator('#save').click();
+        await page.waitForFunction(() => document.querySelector('#status').textContent === 'Draft saved');
+        const document = await page.evaluate(async id => (await fetch('/api/page-editor/documents/' + id)).json(), id);
+        assert.equal(document.draft.actions.length, 2);
+        assert.ok(document.draft.actions.every(action => action.endpoint && !action.operation));
+        const published = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/' + id + '/publish'));
+        await page.locator('#publish').click();
+        await page.locator('.pixiv-feedback-backdrop[open] .pixiv-feedback-button--primary').click();
+        assert.equal((await published).status(), 200);
+        await page.goto(origin + '/operation-form/configured.html');
+        await page.locator('#native').waitFor({state: 'hidden'});
+        const requests = [];
+        page.on('request', request => { if (/\/api\/operation-form\/(alpha|beta)$/.test(request.url())) requests.push(request); });
+        for (const region of ['alpha', 'beta']) {
+            const form = page.locator('#' + region + '-form');
+            const proof = page.locator('[data-page-region="' + region + '"]').getByRole('button', {name: 'Respond to challenge'});
+            await form.locator('button').click();
+            await proof.click();
+            const response = page.waitForResponse(response => response.url().endsWith('/api/operation-form/' + region));
+            await form.locator('button').click();
+            assert.equal((await response).status(), 200);
+        }
+        assert.equal(requests.length, 2, 'each unchanged AJAX handler executes only after verification');
+        assert.ok(requests.every(request => Object.keys(request.postDataJSON()).join() === 'value'), 'business DTO stays unchanged');
+        await page.goto(origin + '/page-editor/index.html'); await ready();
+        await page.locator('#page').selectOption(id);
+        await page.locator('#document-more summary').click(); await page.locator('#defaults').click();
+        await page.waitForFunction(() => window.grapesjs.editors[0].getWrapper().findType('page-component').length === 0);
+        const cleared = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/' + id + '/publish'));
+        await page.locator('#publish').click();
+        await page.locator('.pixiv-feedback-backdrop[open] .pixiv-feedback-button--primary').click();
+        assert.equal((await cleared).status(), 200);
+        console.log('CONFIGURED_FORM_ACTIONS_REAL_EDITOR_AUTOMATIC_ENDPOINTS_UNCHANGED_AJAX_DTO_PASSED');
+    } else if (phase === 'operation-hooks') {
+        for (const id of ['operation-form:page', 'operation-form:other']) {
+            await page.locator('#page').selectOption(id);
+            await page.waitForFunction(() => !document.querySelector('#publish').disabled);
+            await page.locator('#hooks-section').evaluate(element => { element.open = true; });
+            const form = page.locator('#hooks > form'); await form.waitFor();
+            const selections = form.locator('select');
+            await selections.nth(0).selectOption('alpha');
+            await page.waitForFunction(() => document.querySelectorAll('#hooks > form select')[1]?.options.length === 3);
+            assert.match(await selections.nth(1).innerText(), /alpha-alias/);
+            assert.match(await selections.nth(1).innerText(), /alpha-secondary/);
+            await selections.nth(2).selectOption('fixture-generic');
+            for (const stage of ['BEFORE_INVOKE', 'AFTER_COMPLETION']) {
+                await selections.nth(3).selectOption(stage);
+                await form.locator('input[type="number"]').fill('10');
+                await form.locator('button[type="submit"]').click();
+            }
+            await page.locator('#save').click();
+            await page.waitForFunction(() => document.querySelector('#status').textContent === 'Draft saved');
+            const state = await page.evaluate(async id => (await fetch('/api/page-editor/documents/' + id)).json(), id);
+            assert.equal(state.draft.hooks.filter(binding => binding.hook === 'fixture-generic').length, 2);
+            assert.ok(state.draft.hooks.filter(binding => binding.hook === 'fixture-generic').every(binding => binding.operation === 'operation-form:alpha' && binding.endpoint === ''));
+            await page.locator('#hooks-section').evaluate(element => { element.open = false; });
+        }
+        await page.reload(); await ready();
+        await page.locator('#page').selectOption('operation-form:page');
+        await page.locator('#hooks-section').evaluate(element => { element.open = true; });
+        await page.locator('#hooks > form').waitFor();
+        assert.equal(await page.locator('#hooks > div > p').filter({hasText: 'fixture-generic'}).count(), 2, 'saved generic bindings survive reload');
+        assert.deepEqual(errors, []);
+        console.log('PASS generic Hook editor: explicit action, all endpoint aliases, both phases, saved configuration and reload');
+    } else if (phase === 'operation-draft-batch') {
         const read = id => page.evaluate(async id => (await fetch('/api/page-editor/documents/' + id)).json(), id);
         const before = await read('operation-form:page');
         const unselected = await read('operation-form:ambiguous');
@@ -29,6 +118,11 @@ try {
             await page.waitForFunction(id => window.grapesjs.editors[0].getWrapper().findType('page-component').length === 2
                 && document.querySelector('#page').value === id && !document.querySelector('#publish').disabled, id);
             await page.evaluate(() => window.grapesjs.editors[0].getWrapper().findType('page-component').forEach(model => model.remove()));
+            await page.locator('#hooks-section').evaluate(element => { element.open = true; });
+            await page.locator('#hooks > form').waitFor();
+            const proofBindings = page.locator('#hooks > div > p').filter({hasText: 'fixture-proof'});
+            while (await proofBindings.count()) await proofBindings.first().getByRole('button').click();
+            await page.locator('#hooks-section').evaluate(element => { element.open = false; });
             await page.locator('#save').click();
             await page.waitForFunction(() => document.querySelector('#status').textContent === 'Draft saved');
             const conflict = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/' + id + '/prepare'));
@@ -74,7 +168,7 @@ try {
         const plan = await preparedResponse.json();
         assert.deepEqual(plan.pages, ['operation-form:page', 'operation-form:other']);
         assert.equal(plan.drafts.length, 2);
-        assert.ok(plan.impacts.every(impact => impact.before.includes('fixture-proof') && impact.after.length === 0));
+        assert.ok(plan.impacts.every(impact => impact.before.some(value => value.startsWith('fixture-proof@')) && impact.after.length === 0));
         const confirm = page.locator('.pixiv-feedback-backdrop[open]');
         await confirm.locator('.pixiv-feedback-button--secondary').click();
         assert.equal((await read('operation-form:page')).publicationRevision, before.publicationRevision, 'cancel has no formal writes');
@@ -166,6 +260,9 @@ try {
             const editor = window.grapesjs.editors[0];
             editor.getWrapper().findType('page-component').find(model => model.get('target') === 'alpha').remove();
         });
+        await page.locator('#hooks-section').evaluate(element => { element.open = true; });
+        await page.locator('#hooks > form').waitFor();
+        await page.locator('#hooks > div > p').filter({hasText: 'fixture-proof'}).filter({hasText: 'operation-form:alpha'}).getByRole('button').click();
         await page.locator('#save').click();
         await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Draft saved');
         const conflict = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/operation-form:page/prepare'));
@@ -174,6 +271,12 @@ try {
         assert.equal(rejected.status(), 422);
         assert.match(await rejected.text(), /PAGE_OPERATION_CONFLICT/);
         await page.locator('#undo').click();
+        const hooks = page.locator('#hooks > form');
+        await hooks.locator('select').nth(0).selectOption('alpha');
+        await hooks.locator('select').nth(1).locator('option').first().waitFor({state: 'attached'});
+        await hooks.locator('select').nth(2).selectOption('fixture-proof');
+        await hooks.getByLabel('Allowed fields (JSON)').fill('[{"source":"JSON","path":"/value","name":"value"}]');
+        await hooks.locator('button[type="submit"]').click();
         await page.locator('#save').click();
         await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Draft saved');
         assert.deepEqual(errors, []);
@@ -256,10 +359,22 @@ try {
     assert.deepEqual((await models()).sort((a,b) => a.id.localeCompare(b.id)), instances.sort((a,b) => a.id.localeCompare(b.id)), 'saved instances retain their distinct targets');
     assert.deepEqual(await page.evaluate(() => window.grapesjs.editors[0].getWrapper().findType('page-component').map(model => model.get('target')).sort()),
         ['alpha', 'beta'], 'server persists both explicit bindings');
+    await page.locator('#hooks-section').evaluate(element => { element.open = true; });
+    const hooks = page.locator('#hooks > form'); await hooks.waitFor();
+    for (const action of ['alpha', 'beta']) {
+        await hooks.locator('select').nth(0).selectOption(action);
+        await hooks.locator('select').nth(1).locator('option').first().waitFor({state: 'attached'});
+        await hooks.locator('select').nth(2).selectOption('fixture-proof');
+        await hooks.getByLabel('Allowed fields (JSON)').fill('[{"source":"JSON","path":"/value","name":"value"}]');
+        await hooks.locator('button[type="submit"]').click();
+    }
+    await page.locator('#save').click();
+    await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Draft saved');
     const publish = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/operation-form:page/publish'));
     await page.locator('#publish').click();
     await page.locator('.pixiv-feedback-backdrop[open] .pixiv-feedback-button--primary').click();
     assert.equal((await publish).status(), 200);
+    assert.equal(preparations, 0, 'editor preview and publication do not prepare challenges');
     await page.goto(origin + '/operation-form/index.html');
     await page.locator('#native').waitFor({state: 'hidden'});
     const businessRequests = [];
@@ -271,15 +386,15 @@ try {
     const alphaProof = page.locator('[data-page-region="alpha"]').getByRole('button', {name: 'Respond to challenge'});
     const betaProof = page.locator('[data-page-region="beta"]').getByRole('button', {name: 'Respond to challenge'});
     await alpha.locator('button').click();
-    await alpha.locator('output[data-status="CHALLENGE"]').waitFor();
+    await alpha.locator('output[data-status="ERROR"]').waitFor();
     assert.equal(await alphaProof.isEnabled(), true); assert.equal(await betaProof.isEnabled(), true);
     assert.deepEqual(businessRequests, [], 'preparation must not submit either business form');
     await alphaProof.click(); await alpha.locator('button').click(); await alpha.locator('output[data-status="APPROVED"]').waitFor();
     assert.deepEqual(businessRequests, ['/api/operation-form/alpha']);
-    await beta.locator('button').click(); await beta.locator('output[data-status="CHALLENGE"]').waitFor();
+    await beta.locator('button').click(); await beta.locator('output[data-status="ERROR"]').waitFor();
     assert.deepEqual(businessRequests, ['/api/operation-form/alpha'], 'changed inputs require fresh proof before submission');
     await betaProof.click(); await beta.locator('input').fill('changed');
-    await beta.locator('button').click(); await beta.locator('output[data-status="CHALLENGE"]').waitFor();
+    await beta.locator('button').click(); await beta.locator('output[data-status="ERROR"]').waitFor();
     await betaProof.click(); await beta.locator('button').click(); await beta.locator('output[data-status="APPROVED"]').waitFor();
     assert.deepEqual(businessRequests, ['/api/operation-form/alpha', '/api/operation-form/beta']);
     await page.goto(origin + '/page-editor/index.html'); await ready();

@@ -101,7 +101,7 @@ class AuthFilterServletTest {
         when(limits.isAllowed(anyString())).thenReturn(true);
         when(limits.isAllowedForInvite(anyString())).thenReturn(true);
         var invites = mock(GuestInviteService.class);
-        when(invites.resolveByCode("invited")).thenReturn(Optional.of(new GuestInviteSession(
+        when(invites.resolveSession("invited")).thenReturn(Optional.of(new GuestInviteSession(
                 1L, "invited", true, false, false, true, Set.of(), true, Set.of(),
                 true, Set.of(), true, Set.of())));
         routes.register("core", new CorePlugin().routes());

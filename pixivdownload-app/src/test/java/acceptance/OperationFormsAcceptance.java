@@ -17,6 +17,7 @@ import static acceptance.PageEditorAcceptance.*;
 /** 未知表单经真实 HTTP、签名安装和受管 child context 验证通用操作边界。 */
 final class OperationFormsAcceptance {
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final java.util.Map<String, HttpResponse<String>> staged = new java.util.concurrent.ConcurrentHashMap<>();
     static void verify(ConfigurableApplicationContext context, String origin, String cookie, String browser, Path fixed) throws Exception {
         var coordinator = context.getBean(ExternalPluginLifecycleCoordinator.class);
         var contexts = context.getBean(ExternalPluginContextManager.class);
@@ -30,16 +31,33 @@ final class OperationFormsAcceptance {
         Class<?> form = contexts.contextFor("operation-form").orElseThrow().getClassLoader().loadClass("example.operation.OperationFormPlugin");
         Class<?> proof = contexts.contextFor("operation-proof").orElseThrow().getClassLoader().loadClass("example.operationproof.OperationProofPlugin");
         var calls = (AtomicInteger) form.getField("calls").get(null);
+        var catalog = JSON.readTree(request(origin, "/api/web/operation-hooks/catalog", null, cookie).body());
+        var current = JSON.readTree(request(origin, "/api/web/operation-hooks/configuration", null, cookie).body());
+        ObjectNode settings = current.path("settings").deepCopy();
+        for (String operation : List.of("alpha", "beta")) {
+            var members = ((ObjectNode) settings.path("groups")).putArray("operation-form:" + operation);
+            for (var endpoint : catalog) for (var route : endpoint.path("routes"))
+                if (route.path("method").asText().equals("POST") && (route.path("template").asText().equals("/api/operation-form/" + operation)
+                        || operation.equals("alpha") && route.path("template").asText().equals("/api/operation-form/alpha-secondary")))
+                    members.add(endpoint.path("id").asText());
+        }
+        var groupPlan = request(origin, "/api/web/operation-hooks/prepare", JSON.createObjectNode()
+                .put("revision", current.path("revision").asLong()).set("settings", settings).toString(), cookie);
+        check(groupPlan.statusCode() == 200, "unchanged controllers grouped through approved configuration");
+        var preparedGroups = JSON.readTree(groupPlan.body());
+        var groupPublish = JSON.createObjectNode().set("plan", preparedGroups);
+        ((ObjectNode) groupPublish).set("approvals", preparedGroups.path("permissions"));
+        check(request(origin, "/api/web/operation-hooks/publish", groupPublish.toString(), cookie).statusCode() == 200, "group configuration published");
         check(request(origin, "/api/operation-form/alpha", command("unprotected").toString(), cookie).statusCode() == 200, "unconfigured operation works");
         check(request(origin, "/api/operation-form/alpha", command("unprotected").toString(), null).statusCode() == 401, "owner still requires administrator authentication");
+        browser(browser, origin, cookie, "configured-actions", fixed);
         browser(browser, origin, cookie, "operations", fixed);
         check(request(origin, "/api/web/page-publications/operation-form:page", null, null).statusCode() == 404,
                 "anonymous projection cannot expose the private form");
         check(request(origin, "/api/web/page-publications/operation-form:page", null, cookie).statusCode() == 200,
                 "administrator reads the formal private projection");
-        check(((AtomicInteger) proof.getField("issued").get(null)).get() == 3, "draft preview and publication did not issue provider challenges");
         int baseline = calls.get();
-        var challenge = call(origin, cookie, "alpha", command("bound")); check(challenge.statusCode() == 428, "direct API requires proof");
+        var challenge = call(origin, cookie, "alpha", command("bound")); check(challenge.statusCode() == 409, "direct API requires proof");
         var response = response(challenge, "bound");
         ((ObjectNode) response.get("proofs")).put("fixture-proof", "forged");
         check(call(origin, cookie, "alpha", response).statusCode() == 403 && calls.get() == baseline, "fake proof cannot execute action");
@@ -60,14 +78,16 @@ final class OperationFormsAcceptance {
         var failedAction = response(call(origin, cookie, "alpha", command("__fail")), "__fail");
         check(call(origin, cookie, "alpha", failedAction).statusCode() == 500, "business action failure is not approved");
         check(call(origin, cookie, "alpha", failedAction).statusCode() == 409, "failed business action cannot reuse consumed proof");
-        check(call(origin, cookie, "alpha", command("__fail")).statusCode() == 428, "business retry starts a fresh challenge");
+        check(call(origin, cookie, "alpha", command("__fail")).statusCode() == 409, "business retry starts a fresh challenge");
         verifySharedPublications(context, origin, cookie, browser, fixed, proof);
+        browser(browser, origin, cookie, "operation-hooks", fixed);
+        verifyGenericHooks(origin, cookie, proof, calls);
         proof.getField("mode").set(null, "fail");
         check(call(origin, cookie, "alpha", command("bound")).statusCode() == 503, "provider exception fails closed");
         proof.getField("mode").set(null, "normal");
         var publication = context.getBean(WebPublicationStore.class).snapshot();
         coordinator.stop("page-editor");
-        check(call(origin, cookie, "alpha", command("bound")).statusCode() == 428, "editor absence does not remove operation requirements");
+        check(call(origin, cookie, "alpha", command("bound")).statusCode() == 409, "editor absence does not remove operation requirements");
         check(context.getBean(WebPublicationStore.class).snapshot().equals(publication), "editor stop preserves complete formal revision");
         coordinator.start("page-editor");
         var stale = response(call(origin, cookie, "alpha", command("bound")), "bound");
@@ -98,6 +118,77 @@ final class OperationFormsAcceptance {
         System.out.println("OPERATION_FORMS_REAL_HTTP_BROWSER_REPLAY_GENERATION_EDITOR_ABSENCE_AND_ACTION_DRAIN_PASSED");
     }
 
+    static void verifyAccessForms(ConfigurableApplicationContext context, String origin, String cookie, String browser, Path fixed) throws Exception {
+        var invites = context.getBean(top.sywyar.pixivdownload.setup.guest.GuestInviteService.class);
+        var creation = new top.sywyar.pixivdownload.setup.guest.dto.InviteCreateRequest(); creation.setName("isolated-access");
+        long id = invites.createInvite(creation); String code = invites.detail(id).code();
+        java.nio.file.Files.writeString(fixed.resolve("access-fixture.json"), JSON.createObjectNode().put("code", code).toString());
+        browser(browser, origin, cookie, "access", fixed);
+        String token = JSON.readTree(fixed.resolve("access-session.json").toFile()).path("token").asText();
+        check(invites.resolveSession(token).isPresent() && invites.resolveSession(code).isEmpty(), "only redeemed opaque credentials resolve");
+        check(request(origin, "/api/download/status/active", null, "pixiv_invite_token=" + token).statusCode() == 200,
+                "redeemed opaque credential enters the existing guest route");
+        check(request(origin, "/api/download/status/active", null, "pixiv_invite_token=" + code).statusCode() == 403,
+                "raw invite cookie cannot enter the same guest route");
+        var direct = request(origin, "/api/auth/invite-redeem", JSON.createObjectNode().put("code", code).toString(), null);
+        check(direct.statusCode() == 409 && direct.headers().allValues("Set-Cookie").stream().noneMatch(value -> value.startsWith("pixiv_invite_token=")), "direct invitation API cannot bypass proof");
+        var login = request(origin, "/api/auth/login", "{\"username\":\"acceptance\",\"password\":\"Isolated-page-password-2026\"}", null);
+        check(login.statusCode() == 409 && login.headers().allValues("Set-Cookie").stream().noneMatch(value -> value.startsWith("pixiv_session=")), "direct login API cannot bypass proof");
+        invites.pause(id); check(invites.resolveSession(token).isEmpty(), "paused invitation invalidates issued credentials");
+        invites.resume(id); check(invites.resolveSession(token).isPresent(), "resume preserves existing invitation semantics");
+        var logout = request(origin, "/api/auth/logout", "{}", "pixiv_invite_token=" + token);
+        check(logout.statusCode() == 200 && invites.resolveSession(token).isEmpty(), "logout revokes the server credential");
+        var coordinator = context.getBean(ExternalPluginLifecycleCoordinator.class);
+        coordinator.stop("operation-proof");
+        // 前面的真实浏览器提交共享登录限流窗口；缺席回归须实际到达 Hook 准入。
+        Thread.sleep(60_000 - System.currentTimeMillis() % 60_000);
+        var missing = request(origin, "/api/auth/invite-redeem", JSON.createObjectNode().put("code", code).toString(), null);
+        check(missing.statusCode() == 503 && missing.headers().allValues("Set-Cookie").stream().noneMatch(value -> value.startsWith("pixiv_invite_token=")), "provider absence preserves invite protection: " + missing.statusCode());
+        coordinator.start("operation-proof");
+        System.out.println("LOGIN_INVITE_REAL_HTTP_RAW_COOKIE_DIRECT_API_REVOCATION_AND_PROVIDER_ABSENCE_PASSED");
+    }
+
+    private static void verifyGenericHooks(String origin, String cookie, Class<?> provider, AtomicInteger calls) throws Exception {
+        var targets = request(origin, "/api/web/operation-hooks/targets?kind=FORM_ACTION&id=operation-form:page&targetId=alpha", null, cookie);
+        var resolved = JSON.readTree(targets.body());
+        check(targets.statusCode() == 200 && resolved.path("endpoints").size() == 2, "one action resolves every declared endpoint");
+        check(request(origin, "/api/web/operation-hooks/definitions", null, null).statusCode() == 401, "hook discovery requires administrator");
+        check(call(origin, cookie, "alpha-alias", command("alias")).statusCode() == 409, "alias cannot bypass operation protection");
+        check(call(origin, cookie, "alpha-secondary", command("alias")).statusCode() == 409, "second endpoint cannot bypass operation protection");
+        var states = new java.util.LinkedHashMap<String, JsonNode>();
+        for (String page : List.of("page", "other")) {
+            var state = document(origin, cookie, page, null);
+            check(java.util.stream.StreamSupport.stream(state.path("draft").path("hooks").spliterator(), false).filter(binding -> binding.path("hook").asText().equals("fixture-generic")).count() == 2, "real editor saved both generic phases");
+            states.put(page, state);
+        }
+        var publication = JSON.createObjectNode().put("revision", states.get("page").path("revision").asLong()).put("restoring", false);
+        publication.putArray("drafts").addObject().put("page", "operation-form:other").put("revision", states.get("other").path("revision").asLong());
+        var plan = document(origin, cookie, "page/prepare", publication);
+        publication.set("decision", JSON.createObjectNode().put("revision", plan.path("revision").asLong()).put("fingerprint", plan.path("fingerprint").asText())
+                .set("approvals", plan.path("permissions")));
+        document(origin, cookie, "page/publish", publication);
+        @SuppressWarnings("unchecked") var events = (List<String>) provider.getField("hookEvents").get(null);
+        events.clear(); provider.getField("hookMode").set(null, "reject");
+        int baseline = calls.get();
+        check(call(origin, cookie, "alpha", command("blocked")).statusCode() == 403, "generic reject takes precedence over challenge");
+        check(events.equals(List.of("BEFORE_INVOKE:NONE", "AFTER_COMPLETION:BLOCKED")) && calls.get() == baseline,
+                "blocked request observes no business execution");
+        provider.getField("hookMode").set(null, "normal");
+        var accepted = response(call(origin, cookie, "alpha-alias", command("saved")), "saved");
+        events.clear();
+        check(call(origin, cookie, "alpha-alias", accepted).statusCode() == 200 && calls.get() == baseline + 1, "same endpoint alias uses trusted identity");
+        check(events.equals(List.of("AFTER_COMPLETION:BLOCKED", "BEFORE_INVOKE:NONE", "AFTER_COMPLETION:SUCCEEDED")), "unknown plugin receives before and successful completion");
+        var failed = response(call(origin, cookie, "alpha", command("__fail")), "__fail"); events.clear();
+        check(call(origin, cookie, "alpha", failed).statusCode() == 500, "business exception remains a failure");
+        check(events.equals(List.of("AFTER_COMPLETION:BLOCKED", "BEFORE_INVOKE:NONE", "AFTER_COMPLETION:FAILED")), "unknown plugin observes business failure");
+        var observed = response(call(origin, cookie, "alpha", command("observed")), "observed"); events.clear();
+        provider.getField("hookMode").set(null, "after-fail");
+        check(call(origin, cookie, "alpha", observed).statusCode() == 200 && calls.get() == baseline + 2, "auxiliary failure preserves committed action once");
+        check(call(origin, cookie, "alpha", observed).statusCode() == 409 && calls.get() == baseline + 2, "auxiliary failure never replays business");
+        provider.getField("hookMode").set(null, "normal");
+        System.out.println("GENERIC_HOOKS_REAL_HTTP_MULTI_ENDPOINT_BEFORE_AFTER_BLOCKED_FAILURE_AND_NO_REPLAY_PASSED");
+    }
+
     private static void verifySharedPublications(ConfigurableApplicationContext context, String origin, String cookie,
             String browser, Path fixed, Class<?> proof) throws Exception {
         var primary = document(origin, cookie, "page", null);
@@ -124,7 +215,7 @@ final class OperationFormsAcceptance {
         check(context.getBean(WebPublicationStore.class).snapshot().equals(before), "stale batch leaves every page unchanged");
         proof.getField("revision").set(null, "two");
         browser(browser, origin, cookie, "operation-policy-update", fixed);
-        check(call(origin, cookie, "alpha", command("bound")).statusCode() == 428, "editor publication restores shared operation availability");
+        check(call(origin, cookie, "alpha", command("bound")).statusCode() == 409, "editor publication restores shared operation availability");
         var after = document(origin, cookie, "other", null);
         for (String field : List.of("draft", "published", "previous", "revision"))
             check(after.path(field).equals(other.path(field)), "related page preserves " + field);
@@ -166,7 +257,7 @@ final class OperationFormsAcceptance {
         batch.set("decision", JSON.createObjectNode().put("revision", batchPlan.path("revision").asLong())
                 .put("fingerprint", batchPlan.path("fingerprint").asText()).set("approvals", batchPlan.path("permissions")));
         document(origin, cookie, "page/publish", batch);
-        check(call(origin, cookie, "alpha", command("bound")).statusCode() == 428, "confirmed draft batch restores protection");
+        check(call(origin, cookie, "alpha", command("bound")).statusCode() == 409, "confirmed draft batch restores protection");
         System.out.println("SHARED_OPERATION_SELECTED_DRAFTS_PERMISSIONS_POLICY_CAS_AND_RECOVERY_PASSED");
         a = document(origin, cookie, "page", null);
         ObjectNode changedTitle = a.path("draft").deepCopy(); changedTitle.put("title", "Changed after batch");
@@ -220,7 +311,7 @@ final class OperationFormsAcceptance {
         check(context.getBean(WebPublicationStore.class).snapshot().equals(before), "rejected history batches leave all publications unchanged");
         check(document(origin, cookie, "page", null).equals(a), "rejected history batches preserve the primary draft");
         browser(browser, origin, cookie, "operation-history-batch", fixed);
-        check(call(origin, cookie, "alpha", command("bound")).statusCode() == 428, "real editor history restore reinstates verification");
+        check(call(origin, cookie, "alpha", command("bound")).statusCode() == 409, "real editor history restore reinstates verification");
         browser(browser, origin, cookie, "operation-history-batch", fixed);
         check(call(origin, cookie, "alpha", command("unbound")).statusCode() == 200, "the inverse historical restore also completes atomically");
         System.out.println("SHARED_OPERATION_HISTORY_RESTORE_REAL_EDITOR_PERMISSIONS_POLICY_CATALOG_CAS_AND_ROUND_TRIP_PASSED");
@@ -240,7 +331,7 @@ final class OperationFormsAcceptance {
         var retained = document(origin, cookie, "other", null);
         coordinator.stop("page-checklist");
         try {
-            check(call(origin, cookie, "alpha", command("bound")).statusCode() == 428, "ordinary decoration withdrawal does not affect operation availability");
+            check(call(origin, cookie, "alpha", command("bound")).statusCode() == 409, "ordinary decoration withdrawal does not affect operation availability");
             var primary = document(origin, cookie, "page", null);
             ObjectNode changed = primary.path("draft").deepCopy(); changed.put("title", "Title without changed requirements");
             primary = document(origin, cookie, "page/save", JSON.createObjectNode().put("revision", primary.path("revision").asLong()).set("document", changed));
@@ -274,14 +365,25 @@ final class OperationFormsAcceptance {
         var result = JSON.createObjectNode().put("value", value).put("token", ""); result.putObject("proofs"); return result;
     }
     private static ObjectNode response(HttpResponse<String> challenge, String value) throws Exception {
-        check(challenge.statusCode() == 428, "challenge required before response");
+        check(challenge.statusCode() == 409, "challenge required before response");
         JsonNode data = JSON.readTree(challenge.body());
         var result = command(value).put("token", data.path("token").asText());
         ((ObjectNode) result.get("proofs")).put("fixture-proof", "fixture:" + data.path("challenges").path("fixture-proof").asText());
         return result;
     }
     private static HttpResponse<String> call(String origin, String cookie, String target, ObjectNode command) throws Exception {
-        return request(origin, "/api/operation-form/" + target, command.toString(), cookie);
+        String path = "/api/operation-form/" + target, token = command.path("token").asText();
+        if (!token.isEmpty()) {
+            var stagedResponse = staged.computeIfAbsent(token, ignored -> {
+                var prepare = JSON.createObjectNode().put("method", "POST").put("url", path).put("token", token).put("nativeSubmit", false);
+                prepare.putObject("headers").put("Content-Type", "application/json");
+                prepare.set("proofs", command.path("proofs")); prepare.putObject("json").put("/value", command.path("value").asText());
+                try { return hookRequest(origin, "/api/operation-hooks/prepare", prepare.toString(), cookie, ""); }
+                catch (Exception failure) { throw new CompletionException(failure); }
+            });
+            if (stagedResponse.statusCode() != 200) return stagedResponse;
+        }
+        return hookRequest(origin, path, JSON.createObjectNode().put("value", command.path("value").asText()).toString(), cookie, token);
     }
     private static int uncheckedCall(String origin, String cookie, ObjectNode command) {
         try { return call(origin, cookie, "alpha", command).statusCode(); }

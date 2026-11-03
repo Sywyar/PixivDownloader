@@ -5,9 +5,6 @@ let pageI18n = null;
 let activeLoginError = null;
 let activeInviteError = null;
 let themeToggleMounted = false;
-let loginOperation;
-
-function resetVerification() { loginOperation?.reset(); }
 
 function interpolate(template, vars) {
   if (!vars) return String(template);
@@ -117,28 +114,8 @@ function setAuthButtonsDisabled(disabled) {
   document.getElementById('invite-btn').disabled = disabled;
 }
 
-async function prepareLoginVerification(signal) {
-  const username = document.getElementById('username').value.trim();
-  if (!username) {
-    showLoginErrorKey('validation.credentials-required', '请输入用户名和密码');
-    throw new Error('LOGIN_USERNAME_REQUIRED');
-  }
-  const res = await fetch('/api/auth/login/prepare', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({username, rememberMe: document.getElementById('remember').checked}),
-    credentials: 'same-origin', signal
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    if (!signal.aborted) showLoginErrorText(data.error || lt('error.login-failed', '登录失败'));
-    throw new Error('LOGIN_PREPARATION_FAILED');
-  }
-  return data;
-}
-
 async function doLogin() {
-  if (document.getElementById('login-btn').disabled || !loginOperation) return;
+  if (document.getElementById('login-btn').disabled) return;
   const username  = document.getElementById('username').value.trim();
   const password  = document.getElementById('password').value;
   const rememberMe = document.getElementById('remember').checked;
@@ -152,29 +129,14 @@ async function doLogin() {
   showLoginErrorText('');
 
   try {
-    if (!loginOperation.ready()) await loginOperation.prepare();
-    if (!loginOperation.ready()) {
-      showLoginErrorKey('validation.verification-required', '请先完成验证码验证');
-      setAuthButtonsDisabled(false);
-      return;
-    }
-    const verification = loginOperation.request();
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({username, password, rememberMe, operationToken: verification.token, operationProofs: verification.proofs}),
+      body: JSON.stringify({username, password, rememberMe}),
       credentials: 'same-origin'
     });
     const data = await res.json();
     if (!res.ok) {
-      resetVerification();
-      if (res.status === 409 && data.code === 'setup.login.verification.required') {
-        try { loginOperation.challenge(data); }
-        catch (error) {
-          if (error.message === 'PAGE_REVISION_CHANGED') window.location.reload();
-          throw error;
-        }
-      }
       if (data.error) {
         showLoginErrorText(data.error);
       } else {
@@ -186,9 +148,6 @@ async function doLogin() {
     window.location.href = getRedirect();
   } catch (e) {
     if (e.name === 'AbortError') { setAuthButtonsDisabled(false); return; }
-    if (e.message === 'PAGE_REVISION_CHANGED') { window.location.reload(); return; }
-    if (e.message === 'LOGIN_PREPARATION_FAILED') { setAuthButtonsDisabled(false); return; }
-    resetVerification();
     showLoginErrorKey('error.network', 'error.network', {message: e.message});
     setAuthButtonsDisabled(false);
   }
@@ -207,7 +166,7 @@ async function doInviteRedeem() {
     const res = await fetch('/api/auth/invite-redeem', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code }),
+      body: JSON.stringify({code}),
       credentials: 'same-origin',
     });
     const data = await res.json();
@@ -223,6 +182,7 @@ async function doInviteRedeem() {
     // 后端按受邀访客可见落点贡献解析 redirect；仅当响应异常缺失 redirect 时才用公开首页兜底。
     window.location.href = data.redirect || '/';
   } catch (e) {
+    if (e.name === 'AbortError') { setAuthButtonsDisabled(false); return; }
     showInviteErrorKey('error.network', 'error.network', {message: e.message});
     setAuthButtonsDisabled(false);
   }
@@ -260,9 +220,7 @@ async function redirectIfLoggedIn() {
   } catch {}
 }
 
-async function initLoginPage(operation) {
-  loginOperation = operation;
-  for (const id of ['username', 'password', 'remember']) document.getElementById(id).addEventListener('input', resetVerification);
+async function initLoginPage() {
   PixivActions.bind(document, {click: {doLogin, doInviteRedeem}});
   await initPageI18n();
   mountThemeToggle();
@@ -271,5 +229,10 @@ async function initLoginPage(operation) {
     showInvitePanel();
     showInviteErrorKey('error.invite-expired', '邀请码无效或已失效');
   }
-  await redirectIfLoggedIn();
+  const invitation = new URLSearchParams(window.location.hash.slice(1)).get('invite');
+  if (invitation && /^[A-HJ-NP-Z2-9]{24}$/i.test(invitation)) {
+    document.getElementById('inviteCodeInput').value = invitation.toUpperCase();
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+    showInvitePanel();
+  } else await redirectIfLoggedIn();
 }

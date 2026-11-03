@@ -273,3 +273,7 @@ Windows 下已实测 IntelliJ Application 一键 Debug 和当前源码断点，�
 稳定契约覆盖 route、static、i18n、navigation、Web UI slot、GUI 配置、下载类型、队列、计划来源和通知模板。`examples/download-type-plugin/README.md` 说明五类取得模式、取消与 drain、凭证策略、Guard 和 `gallery.type-switch`。各插件独立拥有画廊页面、API、静态资源和数据操作。
 
 配置使用 `GuiConfigContribution`；私有路径使用 owner-bound `RuntimePathProvider`，数据库使用 `PluginDatabase`，出站 HTTP / WebSocket 使用稳定 factory 与 route 契约。不要依赖 app、plugin-runtime、installer、签名内部实现、宿主数据库或具体 GUI provider。禁用、卸载及 reload 的贡献撤回需在真实宿主中验证。
+
+HTTP 回调使用 `OperationHook` Bean 声明身份、代际、数据合同、阶段和 `invoke`。宿主自动发现实际 Spring 控制器；管理员正式绑定后执行 `BEFORE_INVOKE` / `AFTER_COMPLETION`，业务方法和 DTO 无需调用 Guard 或加入证明字段。`OperationVerification` 是可交互前置 Hook 的适配合同。页面使用 `attachPage` 加载统一提交运行时；表单动作与接口的关系可以由编辑器配置。完整配置、权限、异步完成和资源边界见[插件开发文档](https://sywyar.github.io/PixivDownloader/#/zh-cn/plugin-development)。
+
+回调默认只接收接口和调用元数据；JSON、参数及结果字段须经过独立白名单授权。HTTP 完成不代表后台任务或数据库事务成功，后置回调失败不会重放业务。`OperationGuard` 保留给显式的本地同步操作，不能在同一个 HTTP 入口再次验证或消费证明。

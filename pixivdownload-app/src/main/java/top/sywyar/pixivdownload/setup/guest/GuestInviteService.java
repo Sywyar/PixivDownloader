@@ -267,10 +267,43 @@ public class GuestInviteService {
     @Transactional
     public Optional<GuestInviteSession> resolveByCode(String code) {
         if (code == null) return Optional.empty();
-        String normalized = code.trim().toUpperCase();
-        if (normalized.isEmpty()) return Optional.empty();
+        String normalized = code.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!normalized.matches("[A-HJ-NP-Z2-9]{24}")) return Optional.empty();
+        return resolve(mapper.findByCode(normalized));
+    }
 
-        GuestInviteRow row = mapper.findByCode(normalized);
+    /** 只有经过受控兑换才签发会话，数据库仅保存随机凭据的摘要。 */
+    @Transactional
+    public Optional<String> redeem(String code) {
+        var session = resolveByCode(code);
+        if (session.isEmpty()) return Optional.empty();
+        byte[] bytes = new byte[32]; random.nextBytes(bytes);
+        String token = "v1." + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        long now = System.currentTimeMillis();
+        mapper.createSession(session.get().id(), sessionHash(token), now, now + java.time.Duration.ofDays(30).toMillis());
+        log.info("Guest invite session issued: invite={}", session.get().id());
+        return Optional.of(token);
+    }
+
+    @Transactional
+    public Optional<GuestInviteSession> resolveSession(String token) {
+        if (!validSession(token)) return Optional.empty();
+        return resolve(mapper.findBySession(sessionHash(token), System.currentTimeMillis()));
+    }
+
+    @Transactional
+    public void revokeSession(String token) {
+        if (validSession(token)) mapper.removeSession(sessionHash(token));
+    }
+
+    private static boolean validSession(String token) { return token != null && token.matches("v1\\.[A-Za-z0-9_-]{43}"); }
+    private static String sessionHash(String token) {
+        try { return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(token.getBytes(java.nio.charset.StandardCharsets.US_ASCII))); }
+        catch (java.security.NoSuchAlgorithmException unavailable) { throw new IllegalStateException(unavailable); }
+    }
+
+    private Optional<GuestInviteSession> resolve(GuestInviteRow row) {
         if (row == null) return Optional.empty();
 
         long now = System.currentTimeMillis();
@@ -373,6 +406,7 @@ public class GuestInviteService {
     /** 删除超过 30 天（720 小时）的访问统计桶。 */
     @Transactional
     public int trimOldAccessStats() {
+        mapper.removeExpiredSessions(System.currentTimeMillis());
         long minBucket = System.currentTimeMillis() / HOUR_MILLIS - 720;
         return mapper.deleteAccessStatsOlderThan(minBucket);
     }
@@ -380,6 +414,7 @@ public class GuestInviteService {
     // ── 内部 ────────────────────────────────────────────────────────────────
 
     private void purgeInviteAssociations(long id) {
+        mapper.removeSessions(id);
         mapper.deleteInviteCollections(id);
         mapper.deleteInviteTags(id);
         mapper.deleteInviteAuthors(id);

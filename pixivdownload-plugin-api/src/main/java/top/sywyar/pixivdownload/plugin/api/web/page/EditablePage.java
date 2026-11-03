@@ -34,4 +34,31 @@ public record EditablePage(String id, String labelKey, String namespace, String 
     public EditablePage {
         regions = List.copyOf(regions); stylesheets = List.copyOf(stylesheets); targets = List.copyOf(targets);
     }
+
+    /** 合并已校验的关系；不能用页面配置重定向 owner 已声明的安全目标。
+     * @param actions 管理员配置的动作关系
+     * @param protocols 活动组件提供的交互协议
+     * @return 保留 owner 声明并加入配置目标的纯值页面
+     */
+    public EditablePage withActions(List<PageInteraction.Action> actions, List<PageInteraction> protocols) {
+        if (actions.size() > 128) throw new IllegalArgumentException("PAGE_ACTION_CAPACITY");
+        var effective = new java.util.LinkedHashMap<String, PageInteraction.Target>();
+        targets.forEach(target -> effective.put(target.id(), target));
+        var ids = new java.util.HashSet<String>();
+        var selectors = new java.util.HashSet<String>();
+        for (var action : actions) {
+            if (!ids.add(action.id()) || !selectors.add(action.formId() + "#" + action.actionId())
+                    || regions.stream().noneMatch(region -> region.id().equals(action.region()) && region.container()))
+                throw new IllegalArgumentException("PAGE_ACTION_INVALID");
+            var existing = effective.get(action.id());
+            if (existing != null) {
+                if (!action.endpoint().isEmpty() || !existing.operation().equals(action.operation()) || !existing.region().equals(action.region()))
+                    throw new IllegalArgumentException("PAGE_ACTION_FORBIDDEN");
+            } else {
+                effective.put(action.id(), new PageInteraction.Target(action.id(), "", action.operation().isEmpty() ? action.endpoint() : action.operation(),
+                        action.region(), "{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}", protocols, 16));
+            }
+        }
+        return new EditablePage(id, labelKey, namespace, path, publicPage, regions, defaultProject, previewModuleUrl, stylesheets, List.copyOf(effective.values()));
+    }
 }

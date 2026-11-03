@@ -99,8 +99,12 @@ try {
     const deniedScripts = remoteOrigin + '/**';
     if (!offline) await anonymous.route(deniedScripts, route => route.abort());
     page = await anonymous.newPage();
-    const loginRequests = [];
-    page.on('request', request => { if (new URL(request.url()).pathname === '/api/auth/login') loginRequests.push(request); });
+    const loginRequests = [], preparations = [];
+    page.on('request', request => {
+        const path = new URL(request.url()).pathname;
+        if (path === '/api/auth/login') loginRequests.push(request);
+        if (path === '/api/operation-hooks/prepare') preparations.push(request.postDataJSON());
+    });
     page.on('pageerror', error => errors.push(error.message));
     await page.exposeFunction('recordCsp', value => violations.push(value));
     await page.addInitScript(() => document.addEventListener('securitypolicyviolation', event =>
@@ -141,10 +145,13 @@ try {
         await page.emulateMedia({forcedColors: 'none', reducedMotion: 'no-preference'});
         await page.setViewportSize({width: 390, height: 844});
     }
-    const challenge = page.waitForResponse(response => response.url().endsWith('/api/auth/login/prepare') && response.status() === 200);
+    const challenge = page.waitForResponse(response => response.url().endsWith('/api/operation-hooks/prepare') && response.status() === 409);
     await page.getByRole('button', {name: 'Start verification', exact: true}).press('Enter');
     const preparation = (await challenge).request().postDataJSON();
-    assert.deepEqual(Object.keys(preparation).sort(), ['rememberMe', 'username'], 'preparation never sends the password or proofs');
+    assert.equal(preparation.url, '/api/auth/login');
+    assert.deepEqual(preparation.json, {});
+    assert.deepEqual(preparation.proofs, {});
+    assert.ok(!JSON.stringify(preparation).includes('Isolated-page-password-2026'));
     assert.equal(loginRequests.length, 0, 'verification starts without submitting login');
     assert.equal((await (await page.request.get(origin + '/api/auth/check')).json()).valid, false);
     if (!offline) {
@@ -156,7 +163,7 @@ try {
         await page.reload();
         await page.locator('#username').fill('acceptance');
         await page.locator('#password').fill('Isolated-page-password-2026');
-        const retry = page.waitForResponse(response => response.url().endsWith('/api/auth/login/prepare') && response.status() === 200);
+        const retry = page.waitForResponse(response => response.url().endsWith('/api/operation-hooks/prepare') && response.status() === 409);
         await page.getByRole('button', {name: 'Start verification', exact: true}).click(); await retry;
     }
     if (localImage) {
@@ -209,7 +216,9 @@ try {
         const response = await context.request.get(origin + endpoint);
         assert.equal(response.status(), 200);
         const body = await response.text();
-        for (const secret of [submitted.password, submitted.operationToken, ...Object.values(submitted.operationProofs)]) {
+        const staged = preparations.findLast(value => value.token);
+        assert.deepEqual(Object.keys(submitted).sort(), ['password', 'rememberMe', 'username']);
+        for (const secret of [submitted.password, staged.token, ...Object.values(staged.proofs)]) {
             assert.ok(secret && !body.includes(secret), 'public projection and editor values omit actual challenge tokens and proofs');
         }
     }
@@ -225,7 +234,7 @@ try {
         await stalePage.locator('#password').fill('Isolated-page-password-2026');
         // 延迟真实 Worker 的结果交付，复现发布发生时仍在等待的实例。
         await stalePage.evaluate(() => { window.deferCaptchaResult = true; });
-        const challengeResponse = stalePage.waitForResponse(response => response.url().endsWith('/api/auth/login/prepare') && response.status() === 200);
+        const challengeResponse = stalePage.waitForResponse(response => response.url().endsWith('/api/operation-hooks/prepare') && response.status() === 409);
         await stalePage.getByRole('button', {name: 'Start verification', exact: true}).click();
         const oldChallenge = await (await challengeResponse).json();
         await stalePage.waitForFunction(() => window.deferredCaptchaSolution);
@@ -248,17 +257,17 @@ try {
         assert.ok(newDocument.headers()['content-security-policy'].includes('https://challenges.cloudflare.com'));
         assert.notEqual(newDocument.headers()['x-pixiv-page-revision'], oldDocument.headers()['x-pixiv-page-revision']);
         const proof = Buffer.from(JSON.stringify({challenge: JSON.parse(oldChallenge.challenges['captcha-altcha']), solution})).toString('base64');
-        const rejected = await stalePage.request.post(origin + '/api/auth/login', {data: {
-            username: 'acceptance', password: 'Isolated-page-password-2026', operationToken: oldChallenge.token,
-            operationProofs: {'captcha-altcha': proof}
-        }});
-        assert.equal(rejected.status(), 400, 'withdrawn policy is not accepted by the current request contract');
-        const stale = await stalePage.request.post(origin + '/api/auth/login', {data: {
-            username: 'acceptance', password: 'Isolated-page-password-2026', operationToken: oldChallenge.token,
-            operationProofs: {'captcha-turnstile': proof}
-        }});
-        assert.equal(stale.status(), 409, 'old token cannot cross the formal revision even with current policy keys');
-        assert.equal(stale.headers()['set-cookie'], undefined);
+        for (const policy of ['captcha-altcha', 'captcha-turnstile']) {
+            const stale = await stalePage.request.post(origin + '/api/operation-hooks/prepare', {headers: {Origin: origin}, data: {
+                method: 'POST', url: '/api/auth/login', headers: {'Content-Type': 'application/json'}, token: oldChallenge.token,
+                proofs: {[policy]: proof}, json: {}, parameters: {}
+            }});
+            assert.equal(stale.status(), 409, 'old token cannot cross the formal revision with either old or current policy keys');
+            assert.ok(!(stale.headers()['set-cookie'] || '').includes('pixiv_session='));
+        }
+        const replay = await stalePage.request.post(origin + '/api/auth/login', {headers: {Origin: origin, 'X-Pixiv-Hook-Ticket': oldChallenge.token},
+            data: {username: 'acceptance', password: 'Isolated-page-password-2026'}});
+        assert.equal(replay.status(), 409);
         assert.equal((await (await stalePage.request.get(origin + '/api/auth/check')).json()).valid, false);
         await staleContext.close();
         console.log('CAPTCHA_REVISION_CSP_NAVIGATION_AND_WORKER_CLEANUP_PASSED');

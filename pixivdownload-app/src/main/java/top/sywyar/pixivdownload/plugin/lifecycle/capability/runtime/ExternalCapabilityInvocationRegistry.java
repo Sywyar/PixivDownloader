@@ -47,6 +47,7 @@ public final class ExternalCapabilityInvocationRegistry {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ExternalCapabilityInvocationRegistry.class);
     private static final int MAX_SERVICE_CALLS = 64;
     private int serviceCalls;
+    private int retainedServices;
     private final ThreadLocal<Integer> serviceDepth = new ThreadLocal<>();
     private top.sywyar.pixivdownload.plugin.runtime.lifecycle.PluginLifecycleAdmission serviceAdmission = ignored -> true;
 
@@ -114,11 +115,15 @@ public final class ExternalCapabilityInvocationRegistry {
         private final Class<?> capabilityType;
         private Object target;
         private ServiceKey<?> serviceKey;
+        private final String source;
         private final java.util.concurrent.atomic.AtomicBoolean failureReported = new java.util.concurrent.atomic.AtomicBoolean();
 
         private TargetEntry(Class<?> capabilityType, Object target) {
             this.capabilityType = capabilityType;
             this.target = target;
+            String type = org.springframework.aop.support.AopUtils.getTargetClass(target).getName();
+            if (type.length() > 512) throw new IllegalArgumentException("SERVICE_SOURCE_LIMIT");
+            this.source = type;
         }
 
         private void clear() {
@@ -574,9 +579,99 @@ public final class ExternalCapabilityInvocationRegistry {
         return new ServicePublication(owner.pluginId(), owner.packageId(), owner.pluginGeneration(), owner.publicationId());
     }
 
+    /** 宿主管理面只发现活动键；随后仍须取得精确受管租约，不返回实现对象。 */
+    public <T> List<ServiceKey<T>> serviceKeys(Class<T> type) {
+        synchronized (lock) {
+            var keys = new java.util.TreeMap<String, ServiceKey<T>>();
+            for (var state : states.values()) {
+                if (state.phase != Phase.PUBLISHED || !serviceAdmission.acceptsNewRequests(state.owner.pluginId())) continue;
+                for (var target : state.targets.values()) if (target.serviceKey != null && target.serviceKey.type() == type) {
+                    keys.put(target.serviceKey.contractId(), new ServiceKey<>(target.serviceKey.contractId(), type));
+                    if (keys.size() > 128) throw serviceFailure(ServiceAccessException.Reason.CAPACITY);
+                }
+            }
+            return List.copyOf(keys.values());
+        }
+    }
+
     @FunctionalInterface
     public interface ManagedServiceOperation<T, R> {
         R run(List<ServiceProvider<T>> providers) throws java.io.IOException;
+    }
+
+    /** HTTP 异步请求持有精确代际；每次回调只在当前线程临时进入 owner 作用域。 */
+    public final class RetainedService<T> implements AutoCloseable {
+        private OwnerState state;
+        private final ExternalCapabilityLeaseState.LeaseToken token;
+        private ServiceProvider<T> provider;
+        private final String source;
+
+        private RetainedService(OwnerState state, ExternalCapabilityHandle handle, ServiceKey<T> key,
+                ExternalCapabilityLeaseState.LeaseToken token) {
+            this.state = state; this.token = token;
+            this.source = state.targets.get(handle.capabilityToken()).source;
+            T proxy = bindingProxy(null, key, handle);
+            T managed = key.type().cast(Proxy.newProxyInstance(key.type().getClassLoader(), new Class<?>[]{key.type()},
+                    (ignored, method, arguments) -> call(proxy, method, arguments)));
+            this.provider = new ServiceProvider<>(publication(state.owner), managed);
+        }
+
+        public synchronized ServiceProvider<T> provider() {
+            if (state == null) throw serviceFailure(ServiceAccessException.Reason.UNAVAILABLE);
+            return provider;
+        }
+        public String source() { return source; }
+        private synchronized Object call(T proxy, Method method, Object[] arguments) throws Throwable {
+            if (state == null) throw serviceFailure(ServiceAccessException.Reason.UNAVAILABLE);
+            var scope = new ActiveOwnerScope(state);
+            var cleanup = new CleanupTracker();
+            scope.enter();
+            try { return method.invoke(proxy, arguments); }
+            catch (InvocationTargetException failure) { throw failure.getCause(); }
+            finally {
+                closeOwnerScopeFully(scope, cleanup);
+                if (cleanup.firstFatal() != null) rethrowFatal(cleanup.firstFatal());
+            }
+        }
+        @Override public synchronized void close() {
+            if (state == null) return;
+            var cleanup = new CleanupTracker();
+            provider = null;
+            releaseLeaseFully(state.leaseState, token, cleanup);
+            state = null;
+            synchronized (lock) { retainedServices--; }
+            if (cleanup.firstFatal() != null) rethrowFatal(cleanup.firstFatal());
+        }
+    }
+
+    /** 仅供宿主请求编排，不向插件暴露全局服务选择或可持久化句柄。 */
+    public <T> RetainedService<T> retainService(ServiceKey<T> key) {
+        synchronized (lock) {
+            if (retainedServices >= 1024) throw serviceFailure(ServiceAccessException.Reason.CAPACITY);
+            var selected = serviceCandidates(key, 2);
+            if (selected.size() != 1) throw serviceFailure(selected.isEmpty()
+                    ? ServiceAccessException.Reason.UNAVAILABLE : ServiceAccessException.Reason.AMBIGUOUS);
+            var handle = selected.get(0);
+            var state = states.get(handle.owner().publicationId());
+            var token = new ExternalCapabilityLeaseState.LeaseToken();
+            if (!state.leaseState.tryAcquire(token)) throw serviceFailure(ServiceAccessException.Reason.UNAVAILABLE);
+            try {
+                var retained = new RetainedService<>(state, handle, key, token);
+                retainedServices++;
+                return retained;
+            } catch (RuntimeException | Error failure) {
+                state.leaseState.release(token);
+                throw failure;
+            }
+        }
+    }
+
+    public String serviceSource(ServicePublication publication, ServiceKey<?> key) {
+        synchronized (lock) {
+            for (var state : states.values()) if (publication(state.owner).equals(publication))
+                for (var entry : state.targets.values()) if (key.equals(entry.serviceKey)) return entry.source;
+            return "unavailable";
+        }
     }
 
     /**
@@ -603,7 +698,15 @@ public final class ExternalCapabilityInvocationRegistry {
                 if (consumerOwner != null) {
                     if (imported == null || keys.stream().anyMatch(key -> key.type() != imported.type()))
                         throw serviceFailure(ServiceAccessException.Reason.UNDECLARED);
-                    validateBindingImports(consumerOwner, List.of(imported));
+                    // 两个导入键只授权同一个 owner-bound 操作入口，不开放具体 provider 的直接发现。
+                    ServiceKey<?> permitted = imported;
+                    var hookImport = top.sywyar.pixivdownload.plugin.api.operation.OperationHook.IMPORT;
+                    var verificationImport = top.sywyar.pixivdownload.plugin.api.security.OperationVerification.IMPORT;
+                    if (!bindingOwnerGone(consumerOwner) && !states.get(consumerOwner.publicationId()).serviceImports.contains(imported)) {
+                        if (hookImport.equals(imported)) permitted = verificationImport;
+                        else if (verificationImport.equals(imported)) permitted = hookImport;
+                    }
+                    validateBindingImports(consumerOwner, List.of(permitted));
                     if (states.get(consumerOwner.publicationId()).phase != Phase.PUBLISHED
                             || !serviceAdmission.acceptsNewRequests(consumerOwner.pluginId())) {
                         throw serviceFailure(ServiceAccessException.Reason.NOT_ACTIVE);
@@ -1352,6 +1455,9 @@ public final class ExternalCapabilityInvocationRegistry {
 
     private static void reportServiceFailure(TargetEntry entry, ExternalCapabilityHandle handle,
                                              Method method, Throwable failure) {
+        // Hook 编排记录每次调用的终态；此处只为没有该结果边界的服务补诊断。
+        if (method.getDeclaringClass() == top.sywyar.pixivdownload.plugin.api.operation.OperationHook.class
+                && method.getName().equals("invoke") && org.slf4j.MDC.get("operationVerificationId") != null) return;
         if (!entry.failureReported.compareAndSet(false, true)) return;
         var owner = handle.owner();
         log.warn("PLUGIN_SERVICE_INVOCATION_FAILED plugin={} package={} generation={} publication={} service={} method={} failureType={}",

@@ -233,7 +233,7 @@ try {
         await checkEditorLayout();
         const defaultLogin = async () => {
             const projection = page.waitForResponse(response => response.request().method() === 'GET'
-                && response.url().includes('/api/web/page-publications/'));
+                && decodeURIComponent(new URL(response.url()).pathname) === '/api/web/page-publications/core:login');
             await login();
             assert.equal((await projection).status(), 404);
             assert.equal(await page.locator('#default-page').isVisible(), false);
@@ -628,11 +628,13 @@ try {
         await page.locator('#password').fill('wrong');
         const submissions = [];
         page.on('request', request => { if (new URL(request.url()).pathname === '/api/auth/login') submissions.push(request); });
-        const prepared = page.waitForResponse(response => response.url().endsWith('/api/auth/login/prepare'));
-        await page.locator('#login-btn').click();
-        assert.equal((await prepared).status(), phase === 'corrupt' ? 503 : 200);
+        const prepared = page.waitForResponse(response => response.url().endsWith(phase === 'corrupt'
+            ? '/api/auth/login' : '/api/operation-hooks/prepare')).catch(error => error);
+        await page.locator('#login-btn').click({timeout: 10000});
+        const result = await prepared; if (result instanceof Error) throw result;
+        assert.equal(result.status(), phase === 'corrupt' ? 503 : 200);
         await page.waitForFunction(() => document.getElementById('error-msg').textContent.length > 0);
-        assert.equal(submissions.length, phase === 'corrupt' ? 0 : 1);
+        assert.equal(submissions.length, 1, 'unavailable publication remains rejected by the host before the controller');
     } else throw new Error('unknown phase');
     assert.deepEqual(violations.filter(value => !value.blocked.includes('.kaspersky-labs.com/')), [], 'product CSP violations');
     assert.deepEqual(errors, [], 'browser errors');

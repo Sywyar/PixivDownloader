@@ -19,6 +19,7 @@ export async function checkPublishedTitle(browser, origin, expected) {
             }).observe(document, {subtree: true, childList: true, characterData: true});
         });
         await page.route('**/api/web/page-publications/**', async route => {
+            if (decodeURIComponent(new URL(route.request().url()).pathname) !== '/api/web/page-publications/core:login') return route.continue();
             if (route.request().method() === 'HEAD') {
                 return outcome === 'withdrawn' ? route.fulfill({status: 404}) : route.continue();
             }
@@ -33,7 +34,7 @@ export async function checkPublishedTitle(browser, origin, expected) {
         });
         try {
             const publication = page.waitForRequest(request => request.method() === 'GET'
-                && request.url().includes('/api/web/page-publications/'));
+                && decodeURIComponent(new URL(request.url()).pathname) === '/api/web/page-publications/core:login');
             await page.goto(origin + '/login.html', {waitUntil: 'domcontentloaded'});
             await publication;
             await page.locator('.pixiv-lang-switcher__select').waitFor();

@@ -125,7 +125,7 @@ public class PluginControllerRegistrar {
             List<RequestMappingInfo> registered = new ArrayList<>();
             for (HandlerMethodMapping mapping : detected) {
                 try {
-                    handlerMapping.registerMapping(mapping.info(), mapping.handler(), mapping.method());
+                    handlerMapping.registerPluginMapping(pluginId, mapping.info(), mapping.handler(), mapping.method());
                 } catch (Throwable failure) {
                     // registerMapping 过程也按插件原子：本次已成功注册的映射全部回滚（逐条 unregister），再抛出带
                     // pluginId + 失败映射诊断的异常。否则前几条已注册、后续某条冲突失败时，registeredByPlugin 不会记录

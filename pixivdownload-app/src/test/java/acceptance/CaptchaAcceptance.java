@@ -78,6 +78,7 @@ final class CaptchaAcceptance {
                 }
                 int baseline = denied.get();
                 browser(script, origin, cookie, "altcha", fixed);
+                waitForLoginWindow();
                 browser(script, origin, cookie, "altcha-pbkdf2", fixed);
                 verifyRotation(origin, "captcha-altcha-pbkdf2", "captcha.altcha-secret", privateKey, sensitive);
                 verifyImages(context, script, origin, cookie, fixed);
@@ -99,33 +100,34 @@ final class CaptchaAcceptance {
                 for (String secret : List.of("2x0000000000000000000000000000000AA", "3x0000000000000000000000000000000AA")) {
                     new PluginCredentialStore().update("captcha", Map.of("captcha.turnstile-secret", secret));
                     var login = JSON.createObjectNode().put("username", "acceptance").put("password", "Isolated-page-password-2026");
-                    var challenge = request(origin, "/api/auth/login", login.toString(), null);
+                    var challenge = login(origin, login);
                     check(challenge.statusCode() == 409, "official rejection configuration issues a challenge");
-                    login.put("operationToken", JSON.readTree(challenge.body()).path("token").asText());
-                    sensitive.add(login.path("operationToken").asText());
+                    login.put("token", JSON.readTree(challenge.body()).path("token").asText());
+                    sensitive.add(login.path("token").asText());
                     sensitive.add(secret);
-                    login.putObject("operationProofs").put("captcha-turnstile", "XXXX.DUMMY.TOKEN.XXXX");
-                    var rejected = request(origin, "/api/auth/login", login.toString(), null);
-                    check(rejected.statusCode() == 403 && rejected.headers().firstValue("Set-Cookie").isEmpty(),
+                    login.putObject("proofs").put("captcha-turnstile", "XXXX.DUMMY.TOKEN.XXXX");
+                    var rejected = login(origin, login);
+                    check(rejected.statusCode() == 403 && rejected.headers().allValues("Set-Cookie").stream().noneMatch(value -> value.startsWith("pixiv_session=")),
                             "official failed/spent response cannot create a session");
-                    check(request(origin, "/api/auth/login", login.toString(), null).statusCode() == 409,
+                    check(login(origin, login).statusCode() == 409,
                             "failed official proof is consumed and cannot be retried");
                 }
                 new PluginCredentialStore().update("captcha", Map.of("captcha.turnstile-secret", ""));
                 var login = JSON.createObjectNode().put("username", "acceptance").put("password", "Isolated-page-password-2026");
-                var missing = request(origin, "/api/auth/login", login.toString(), null);
-                check(missing.statusCode() == 503 && missing.headers().firstValue("Set-Cookie").isEmpty(),
+                var missing = login(origin, login);
+                check(missing.statusCode() == 503 && missing.headers().allValues("Set-Cookie").stream().noneMatch(value -> value.startsWith("pixiv_session=")),
                         "missing credentials cannot create a session");
                 new PluginCredentialStore().update("captcha", Map.of("captcha.turnstile-secret", "1x0000000000000000000000000000000AA"));
-                var challenge = request(origin, "/api/auth/login", login.toString(), null);
+                waitForLoginWindow();
+                var challenge = login(origin, login);
                 check(challenge.statusCode() == 409, "direct login still requires the published CAPTCHA");
-                login.put("operationToken", JSON.readTree(challenge.body()).path("token").asText());
-                sensitive.add(login.path("operationToken").asText());
-                login.putObject("operationProofs").put("captcha-turnstile", "XXXX.DUMMY.TOKEN.XXXX");
+                login.put("token", JSON.readTree(challenge.body()).path("token").asText());
+                sensitive.add(login.path("token").asText());
+                login.putObject("proofs").put("captcha-turnstile", "XXXX.DUMMY.TOKEN.XXXX");
                 proxy.setHost("127.0.0.1"); proxy.setPort(server.getLocalPort()); proxy.setEnabled(true);
                 int beforeFailure = denied.get();
-                var unavailable = request(origin, "/api/auth/login", login.toString(), null);
-                check(unavailable.statusCode() == 503 && unavailable.headers().firstValue("Set-Cookie").isEmpty()
+                var unavailable = login(origin, login);
+                check(unavailable.statusCode() == 503 && unavailable.headers().allValues("Set-Cookie").stream().noneMatch(value -> value.startsWith("pixiv_session="))
                         && denied.get() > beforeFailure, "real Siteverify transport failure cannot create a session");
                 proxy.setHost(host); proxy.setPort(port); proxy.setEnabled(enabled);
                 for (String path : List.of("/api/web/page-publications/core:login", "/api/page-editor/catalog",
@@ -157,7 +159,7 @@ final class CaptchaAcceptance {
             check(databaseFailed, "actual main database pool rejects connections");
             var protectedLogin = request(origin, "/api/auth/login",
                     "{\"username\":\"acceptance\",\"password\":\"Isolated-page-password-2026\"}", null);
-            check(protectedLogin.statusCode() == 409 && protectedLogin.headers().firstValue("Set-Cookie").isEmpty(),
+            check(protectedLogin.statusCode() == 409 && protectedLogin.headers().allValues("Set-Cookie").stream().noneMatch(value -> value.startsWith("pixiv_session=")),
                     "main database failure cannot erase mandatory verification");
             check(publications.snapshot().equals(committed), "main database failure preserves the complete formal revision");
             check(request(origin, "/api/web/page-publications/core:login", null, null).statusCode() == 200,
@@ -249,22 +251,35 @@ final class CaptchaAcceptance {
     private static void verifyRotation(String origin, String policy, String key, String original, List<String> sensitive) throws Exception {
         waitForLoginWindow();
         var login = JSON.createObjectNode().put("username", "acceptance").put("password", "Isolated-page-password-2026");
-        var challenge = request(origin, "/api/auth/login", login.toString(), null);
+        var challenge = login(origin, login);
         check(challenge.statusCode() == 409, "configured scheme issues a challenge without credentials for other schemes");
-        login.put("operationToken", JSON.readTree(challenge.body()).path("token").asText());
-        sensitive.add(login.path("operationToken").asText());
-        login.putObject("operationProofs").put(policy, "stale-proof");
+        login.put("token", JSON.readTree(challenge.body()).path("token").asText());
+        sensitive.add(login.path("token").asText());
+        login.putObject("proofs").put(policy, "stale-proof");
         var credentials = new PluginCredentialStore();
         try {
             credentials.update("captcha", Map.of(key, original + "-rotated"));
-            var stale = request(origin, "/api/auth/login", login.toString(), null);
-            check(stale.statusCode() == 409 && stale.headers().firstValue("Set-Cookie").isEmpty(), "credential rotation rejects the old challenge");
+            var stale = login(origin, login);
+            check(stale.statusCode() == 409 && stale.headers().allValues("Set-Cookie").stream().noneMatch(value -> value.startsWith("pixiv_session=")), "credential rotation rejects the old challenge");
             credentials.update("captcha", Map.of(key, ""));
-            login.remove(List.of("operationToken", "operationProofs"));
-            var missing = request(origin, "/api/auth/login", login.toString(), null);
-            check(missing.statusCode() == 503 && missing.headers().firstValue("Set-Cookie").isEmpty(), "required unconfigured scheme cannot create a session");
+            login.remove(List.of("token", "proofs"));
+            var missing = login(origin, login);
+            check(missing.statusCode() == 503 && missing.headers().allValues("Set-Cookie").stream().noneMatch(value -> value.startsWith("pixiv_session=")), "required unconfigured scheme cannot create a session");
         } finally { credentials.update("captcha", Map.of(key, original)); }
         System.out.println("CAPTCHA_CREDENTIAL_ROTATION_AND_ABSENCE_PASSED " + policy);
+    }
+
+    private static java.net.http.HttpResponse<String> login(String origin, com.fasterxml.jackson.databind.node.ObjectNode command) throws Exception {
+        String token = command.path("token").asText();
+        if (!token.isEmpty()) {
+            var envelope = JSON.createObjectNode().put("method", "POST").put("url", "/api/auth/login").put("token", token);
+            envelope.putObject("headers").put("Content-Type", "application/json");
+            envelope.set("proofs", command.path("proofs"));
+            var staged = request(origin, "/api/operation-hooks/prepare", envelope.toString(), null);
+            if (staged.statusCode() != 200) return staged;
+        }
+        var body = command.deepCopy(); body.remove(List.of("token", "proofs"));
+        return hookRequest(origin, "/api/auth/login", body.toString(), null, token);
     }
 
     private static void waitForLoginWindow() throws InterruptedException {

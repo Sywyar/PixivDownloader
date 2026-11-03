@@ -9,6 +9,7 @@ function ensurePageRecovery() {
         if (event.persisted) window.addEventListener('pageshow', () => location.reload(), {once: true});
     }, {once: true});
 }
+ensurePageRecovery();
 const publications = new Map();
 function watchPublication(token, url, withdrawn) {
     let entry = publications.get(token);
@@ -99,7 +100,6 @@ export function portValue(port, input) {
 
 /** 表单 owner 持有目标，组件只取得自己实例的有界挑战通道。 */
 export function createOperationTarget(operation, onChange = () => {}, prepareRequest) {
-    ensurePageRecovery();
     const participants = new Map();
     let revision = '', token = '', challenges = {}, proofs = {}, closed = false, prepared = false, preparation;
     const ready = () => !closed && prepared && Object.keys(challenges).every(policy => Object.hasOwn(proofs, policy));
@@ -511,9 +511,10 @@ export async function renderPage(root, view, options = {}) {
 }
 
 /** 页面 owner 提供受控区域及默认回退；共享渲染器不认识具体页面身份。 */
-export async function attachPage({pageId, root, regions, targets = {}, title, t, onMounted, onFallback}) {
-    ensurePageRecovery();
+export async function attachPage({pageId, root, regions, targets, title, t, onMounted, onFallback}) {
     const revision = document.querySelector('meta[name="pixiv-page-revision"]')?.content || 'unavailable';
+    const suppliedTargets = targets !== undefined;
+    targets ??= {};
     for (const target of Object.values(targets)) target.configure(revision);
     let mounted, timer, closed = false, unavailable = false;
     const controller = new AbortController();
@@ -528,7 +529,7 @@ export async function attachPage({pageId, root, regions, targets = {}, title, t,
         unavailable = true;
         for (const target of Object.values(targets)) target.reset();
         await mounted?.destroy(); mounted = undefined;
-        root.replaceChildren(); await onFallback?.(false);
+        root.replaceChildren(); await onFallback?.(false, targets);
     };
     const reload = async () => {
         let deadline;
@@ -541,6 +542,17 @@ export async function attachPage({pageId, root, regions, targets = {}, title, t,
     const request = method => fetch(endpoint, {method, cache: 'no-store', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)])});
     const changed = response => response.status === 409 || response.headers.get('X-Pixiv-Page-Revision') !== revision;
     try {
+        if (!suppliedTargets) {
+            const response = await fetch('/api/web/page-publications/' + encodeURIComponent(pageId) + '/targets?revision=' + encodeURIComponent(revision),
+                {cache: 'no-store', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)])});
+            if (closed) return;
+            if (response.status === 409) return reload();
+            if (!response.ok || changed(response)) throw new Error('HOOK_TARGETS_UNAVAILABLE');
+            const manifest = await response.json();
+            const {createHttpTargets} = await import('./pixiv-http-hooks.mjs');
+            if (closed) return;
+            targets = createHttpTargets(manifest.targets, {revision, signal: controller.signal}).targets;
+        }
         const response = await request('GET');
         if (closed) return;
         if ((response.ok || response.status === 404 || response.status === 409) && changed(response)) {
@@ -553,9 +565,9 @@ export async function attachPage({pageId, root, regions, targets = {}, title, t,
             const result = await renderPage(root, view, {mode: 'display', regions, targets, t,
                 signal: controller.signal, onUnavailable: withdraw});
             if (closed || unavailable) await result.destroy();
-            else { mounted = result; await onMounted?.(view); }
+            else { mounted = result; await onMounted?.(view, targets); }
         } else if (response.status === 404 && response.headers.get('X-Pixiv-Page-Revision') === revision) {
-            await onFallback?.(true);
+            await onFallback?.(true, targets);
         } else await withdraw();
     } catch (_) { if (!closed) await withdraw(); }
     const verifySource = async () => {

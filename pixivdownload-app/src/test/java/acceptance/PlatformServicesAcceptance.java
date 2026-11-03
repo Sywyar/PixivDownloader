@@ -131,18 +131,28 @@ public final class PlatformServicesAcceptance {
     private static HttpResponse<String> login(HttpClient client, String origin, Map<String, Object> extra) throws Exception {
         var body = new LinkedHashMap<String, Object>();
         body.put("username", "acceptance"); body.put("password", "Isolated-acceptance-password-2026");
-        body.putAll(extra);
-        return post(client, origin, "/api/auth/login", JSON.writeValueAsString(body), null);
+        if (extra.isEmpty()) return post(client, origin, "/api/auth/login", JSON.writeValueAsString(body), null);
+        var preparation = new LinkedHashMap<String, Object>(extra);
+        preparation.put("method", "POST"); preparation.put("url", "/api/auth/login");
+        preparation.put("headers", Map.of("Content-Type", "application/json"));
+        preparation.put("json", Map.of()); preparation.put("parameters", Map.of());
+        var staged = post(client, origin, "/api/operation-hooks/prepare", JSON.writeValueAsString(preparation), null);
+        if (staged.statusCode() != 200) return staged;
+        return client.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create(origin + "/api/auth/login"))
+                .header("Content-Type", "application/json").header("Origin", origin)
+                .header("X-Pixiv-Hook-Ticket", extra.get("token").toString())
+                .POST(java.net.http.HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body))).build(),
+                HttpResponse.BodyHandlers.ofString());
     }
     private static void denied(HttpResponse<String> response, int status) {
-        check(response.statusCode() == status && response.headers().allValues("set-cookie").isEmpty(),
+        check(response.statusCode() == status && response.headers().allValues("set-cookie").stream().noneMatch(value -> value.startsWith("pixiv_session=")),
             "login refusal has no session cookie: " + response.statusCode());
         check(!response.body().contains("private-verification-details"), "verification internals sanitized");
     }
     static void verifyLogin(ConfigurableApplicationContext context, Path fixtures, String origin) throws Exception {
         var coordinator = context.getBean(ExternalPluginLifecycleCoordinator.class);
         var contexts = context.getBean(ExternalPluginContextManager.class);
-        var client = HttpClient.newHttpClient();
+        var client = HttpClient.newBuilder().cookieHandler(new java.net.CookieManager(null, java.net.CookiePolicy.ACCEPT_ALL)).build();
         var mode = contexts.contextFor("neutral-login").orElseThrow().getClassLoader()
             .loadClass("acceptance.login.LoginParticipant").getField("mode");
         mode.set(null, "reject"); denied(login(client, origin, Map.of()), 403);
@@ -155,14 +165,14 @@ public final class PlatformServicesAcceptance {
         check(!browserProcess.isAlive() && browserProcess.exitValue() == 0, "neutral challenge browser");
         var challenge = login(client, origin, Map.of());
         denied(challenge, 409);
-        var proof = Map.<String, Object>of("operationToken", JSON.readTree(challenge.body()).path("token").asText(),
-            "operationProofs", Map.of("neutral-policy", "neutral-proof"));
+        var proof = Map.<String, Object>of("token", JSON.readTree(challenge.body()).path("token").asText(),
+            "proofs", Map.of("neutral-policy", "neutral-proof"));
         var approved = login(client, origin, proof);
         check(approved.statusCode() == 200 && !approved.headers().allValues("set-cookie").isEmpty(), "verified login creates session");
         denied(login(client, origin, proof), 409);
         challenge = login(client, origin, Map.of());
-        var stale = Map.<String, Object>of("operationToken", JSON.readTree(challenge.body()).path("token").asText(),
-            "operationProofs", Map.of("neutral-policy", "neutral-proof"));
+        var stale = Map.<String, Object>of("token", JSON.readTree(challenge.body()).path("token").asText(),
+            "proofs", Map.of("neutral-policy", "neutral-proof"));
         stopEventually(coordinator, "neutral-login");
         denied(login(client, origin, Map.of()), 503);
         coordinator.start("neutral-login");

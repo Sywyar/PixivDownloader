@@ -13,22 +13,17 @@ const runtimeModule = import('data:text/javascript;base64,' + Buffer.from(runtim
 const source = fs.readFileSync(path.join(__dirname, '../../main/resources/static/login/login.js'), 'utf8');
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-async function page(redirect = '', valid = false, manualPreparation = false) {
+async function page(redirect = '', valid = false) {
     let url = new URL('https://app.example.test/login.html?redirect=' + encodeURIComponent(redirect));
     const nodes = new Map();
     const listeners = new Map();
     const posts = [];
     let actions, context;
-    const {createOperationTarget} = await runtimeModule;
-    const operation = createOperationTarget('core:login', undefined, signal => context.prepareLoginVerification(signal)); operation.configure('0');
-    const channel = operation.connect({instanceId: 'proof', operation: operation.operation, policy: 'neutral-policy',
-        protocol: {stateSchema: '{"type":"string"}', responseSchema: '{"type":"string"}'}});
-    const states = []; channel.onState(state => states.push(state));
     function node(id) {
         if (!nodes.has(id)) {
             const classes = new Set(id === 'inviteCard' ? ['hidden'] : []);
             nodes.set(id, {
-                value: '', checked: false, disabled: false, textContent: '',
+                value: '', checked: false, disabled: false, hidden: id === 'inviteCard', textContent: '',
                 classList: {add: value => classes.add(value), remove: value => classes.delete(value),
                     contains: value => classes.has(value)},
                 addEventListener(type, handler) { this[type] = handler; }, focus() {}
@@ -38,59 +33,41 @@ async function page(redirect = '', valid = false, manualPreparation = false) {
     }
     const location = {
         get href() { return url.href; }, set href(value) { url = new URL(value, url); },
-        get search() { return url.search; }, get origin() { return url.origin; }
+        get search() { return url.search; }, get origin() { return url.origin; }, get hash() { return url.hash; }, get pathname() { return url.pathname; }
     };
     const document = {body: {}, getElementById: node, querySelector: () => null,
         addEventListener: (type, handler) => listeners.set(type, handler)};
     const fetch = (endpoint, options) => {
         if (endpoint === '/api/auth/check') return Promise.resolve({json: async () => ({valid})});
-        if (endpoint === '/api/auth/login/prepare' && !manualPreparation)
-            return Promise.resolve({ok: true, json: async () => ({token: '', revision: '0', challenges: {}})});
         return new Promise((resolve, reject) => posts.push({endpoint, options, resolve, reject}));
     };
-    context = vm.createContext({window: {location}, document, URL, URLSearchParams, fetch, operation,
+    context = vm.createContext({window: {location}, document, URL, URLSearchParams, fetch,
         PixivActions: {bind: (_, handlers) => { actions = handlers.click; }}});
     vm.runInContext(source, context);
-    await vm.runInContext('initLoginPage(operation)', context);
+    await vm.runInContext('initLoginPage()', context);
     await settle();
     node('username').value = 'test-admin';
     node('password').value = 'test-password';
     node('inviteCodeInput').value = 'test-invite';
-    return {node, listeners, posts, actions, location, operation, channel, states};
+    return {node, listeners, posts, actions, location};
 }
 
-test('验证码完成前只发送无密码准备请求，证明绑定当前token，修改凭证后清除', async () => {
-    const s = await page('', false, true);
+test('业务提交保持原 DTO，统一拦截响应沿用普通失败反馈且允许重新提交', async () => {
+    const s = await page();
     const pending = s.actions.doLogin();
     await settle();
-    assert.equal(s.posts[0].endpoint, '/api/auth/login/prepare');
-    assert.deepEqual(JSON.parse(s.posts[0].options.body), {username: 'test-admin', rememberMe: false});
-    s.posts[0].resolve({ok: true, json: async () => ({
-        token: 'attempt', revision: '0', challenges: {'neutral-policy': 'challenge'}, error: 'Verification required'})});
+    assert.equal(s.posts[0].endpoint, '/api/auth/login');
+    assert.deepEqual(JSON.parse(s.posts[0].options.body), {username: 'test-admin', password: 'test-password', rememberMe: false});
+    s.posts[0].resolve({ok: false, status: 409, json: async () => ({code: 'HOOK_VERIFICATION_REQUIRED', error: 'Verification required'})});
     await pending;
-    assert.equal(s.posts.length, 1, 'no login request before proof');
-    await s.actions.doLogin();
-    assert.equal(s.posts.length, 1, 'repeated submit cannot send an incomplete proof');
-    assert.deepEqual(s.states.at(-1), {id: 'attempt', revision: '0', value: 'challenge'});
-    assert.equal(s.channel.respond('old', 'stale'), false);
-    assert.equal(s.channel.respond('attempt', 'accepted'), true);
+    assert.equal(s.node('error-msg').textContent, 'Verification required');
     s.listeners.get('keydown')({key: 'Enter', target: {closest: () => true}});
-    assert.equal(s.posts.length, 1, 'proof button Enter does not submit login');
-    const response = s.actions.doLogin();
-    const body = JSON.parse(s.posts[1].options.body);
-    assert.deepEqual(body.operationProofs, {'neutral-policy': 'accepted'});
-    assert.equal(body.operationToken, 'attempt');
-    s.posts[1].resolve({ok: false, status: 409, json: async () => ({code: 'setup.login.verification.required',
-        token: 'next', revision: '0', challenges: {'neutral-policy': 'challenge'}})});
-    await response;
-    s.node('password').input();
-    assert.equal(s.states.at(-1), null);
-    const cleared = s.actions.doLogin();
-    await settle();
-    assert.equal(s.posts[2].endpoint, '/api/auth/login/prepare');
-    assert.equal(Object.hasOwn(JSON.parse(s.posts[2].options.body), 'password'), false);
-    s.posts[2].resolve({ok: true, json: async () => ({token: 'third', revision: '0', challenges: {'neutral-policy': 'challenge'}})});
-    await cleared;
+    assert.equal(s.posts.length, 1, 'component Enter does not submit login');
+    const invite = s.actions.doInviteRedeem();
+    assert.equal(s.posts[1].endpoint, '/api/auth/invite-redeem');
+    assert.deepEqual(JSON.parse(s.posts[1].options.body), {code: 'test-invite'});
+    s.posts[1].resolve({ok: true, json: async () => ({success: true, redirect: '/guest-landing'})});
+    await invite;
 });
 
 test('登录后的回跳按浏览器URL语义限制在当前来源', async () => {
@@ -117,7 +94,7 @@ for (const first of ['doLogin', 'doInviteRedeem']) {
     test(first + ' 在请求完成前拒绝Enter重复提交和切换身份提交，失败后允许重试', async () => {
         for (const failure of ['http', 'network']) {
             const s = await page();
-            if (first === 'doInviteRedeem') s.node('inviteCard').classList.remove('hidden');
+            if (first === 'doInviteRedeem') s.node('inviteCard').hidden = false;
             const request = s.actions[first]();
             s.actions[first]();
             s.listeners.get('keydown')({key: 'Enter'});
@@ -177,28 +154,4 @@ test('准备合并并发，取消拒绝迟到响应，多策略齐备后才能�
     assert.equal(target.ready(), false);
     target.destroy();
     await assert.rejects(first.prepare(), /PAGE_INTERACTION_CLOSED/);
-});
-
-test('准备失败显示服务端原因并允许重试，不提交登录', async () => {
-    const s = await page('', false, true);
-    const pending = s.actions.doLogin();
-    await settle();
-    s.posts[0].resolve({ok: false, json: async () => ({error: 'Verification unavailable'})});
-    await pending;
-    assert.equal(s.posts.length, 1);
-    assert.equal(s.node('error-msg').textContent, 'Verification unavailable');
-    assert.equal(s.node('login-btn').disabled, false);
-    assert.equal(s.operation.ready(), false);
-});
-
-test('准备期间修改密码会取消请求，迟到结果不能触发登录', async () => {
-    const s = await page('', false, true);
-    const pending = s.actions.doLogin();
-    await settle();
-    s.node('password').input();
-    assert.equal(s.posts[0].options.signal.aborted, true);
-    s.posts[0].resolve({ok: true, json: async () => ({token: '', revision: '0', challenges: {}})});
-    await pending;
-    assert.equal(s.posts.length, 1);
-    assert.equal(s.operation.ready(), false);
 });

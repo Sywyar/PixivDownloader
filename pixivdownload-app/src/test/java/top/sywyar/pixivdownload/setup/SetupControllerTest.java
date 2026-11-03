@@ -52,19 +52,13 @@ class SetupControllerTest {
         LocaleContextHolder.setLocale(Locale.US);
         MessageSource messageSource = TestI18nBeans.messageSource();
         AppMessages appMessages = TestI18nBeans.appMessages(messageSource);
-        var registry = new top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.ExternalCapabilityInvocationRegistry();
         SetupController controller = new SetupController(
-                setupService, loginRateLimitService, multiModeConfig, proxySetupService, appMessages,
-                new top.sywyar.pixivdownload.plugin.security.OperationVerificationGate(
-                        registry, java.util.Map.of("core:login", java.util.List.of()), java.time.Clock.systemUTC(),
-                        new top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore(
-                                temporary.resolve("publications"), temporary.resolve("config/enrolled")),
-                        new top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry(
-                                java.util.List.of(new LoginPageContribution().loginEditablePage()), registry),
-                        new top.sywyar.pixivdownload.plugin.security.OperationAdmissions()));
+                setupService, multiModeConfig, proxySetupService, appMessages, mock(top.sywyar.pixivdownload.setup.guest.GuestInviteService.class));
+        var locales = new top.sywyar.pixivdownload.i18n.AppLocaleResolver(top.sywyar.pixivdownload.i18n.LocaleCatalog.defaultCatalog());
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(appMessages))
                 .setValidator(TestI18nBeans.validator(messageSource))
+                .addFilters(new LoginAdmissionFilter(loginRateLimitService, locales, appMessages))
                 .defaultRequest(get("/").header("Accept-Language", "en-US"))
                 .build();
     }
@@ -366,6 +360,9 @@ class SetupControllerTest {
                     .andExpect(jsonPath("$.code").value("error.request.validation"))
                     .andExpect(jsonPath("$.error").value(not(emptyOrNullString())));
 
+            mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(Map.of("username", "admin", "password", "x".repeat(16384)))))
+                    .andExpect(status().isPayloadTooLarge());
             verify(setupService, never()).checkLogin(any(), any());
         }
 

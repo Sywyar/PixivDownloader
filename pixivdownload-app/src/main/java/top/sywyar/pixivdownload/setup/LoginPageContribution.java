@@ -8,6 +8,11 @@ import java.util.List;
 /** 认证页面自己声明不可删除区域，编辑器与正式渲染器不认识认证业务。 */
 @Configuration(proxyBeanMethods = false)
 public class LoginPageContribution {
+    public static final String LOGIN_CONTEXT = "{\"type\":\"object\",\"properties\":{\"clientAddress\":{\"type\":\"string\",\"maxLength\":128},"
+            + "\"rememberMe\":{\"type\":\"boolean\"}},\"required\":[\"clientAddress\",\"rememberMe\"],\"additionalProperties\":false}";
+    public static final String INVITE_CONTEXT = "{\"type\":\"object\",\"properties\":{\"clientAddress\":{\"type\":\"string\",\"maxLength\":128}},"
+            + "\"required\":[\"clientAddress\"],\"additionalProperties\":false}";
+    public static final String RESULT = "{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}";
     @Bean top.sywyar.pixivdownload.plugin.security.OperationRequirement loginRequirement(
             @org.springframework.beans.factory.annotation.Value("${setup.login-verification-policies:}") String policies) {
         return new top.sywyar.pixivdownload.plugin.security.OperationRequirement("core:login", policies.isBlank() ? List.of()
@@ -32,9 +37,9 @@ public class LoginPageContribution {
                     new String(resource.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8),
                     "/login/login-preview.mjs", List.of("/css/pixiv-layout.css", "/login/login.css"),
                     List.of(new PageInteraction.Target("login.verification", "button.login", "core:login", "admin-card",
-                            "{\"type\":\"object\",\"properties\":{\"clientAddress\":{\"type\":\"string\",\"maxLength\":128},"
-                                    + "\"rememberMe\":{\"type\":\"boolean\"}},\"required\":[\"clientAddress\",\"rememberMe\"],\"additionalProperties\":false}",
-                            List.of(top.sywyar.pixivdownload.plugin.api.security.OperationVerification.INTERACTION), 16)));
+                            LOGIN_CONTEXT, List.of(top.sywyar.pixivdownload.plugin.api.security.OperationVerification.INTERACTION), 16),
+                            new PageInteraction.Target("invite.verification", "invite.submit", "core:invite-redeem", "invite-card",
+                                    INVITE_CONTEXT, List.of(top.sywyar.pixivdownload.plugin.api.security.OperationVerification.INTERACTION), 16)));
         }
     }
 }

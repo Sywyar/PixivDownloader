@@ -1,17 +1,14 @@
-import {attachPage, createOperationTarget} from '/js/pixiv-pages.mjs';
-
-const operation = createOperationTarget('core:login', state => {
-    if (state.ready) showLoginErrorText('');
-}, prepareLoginVerification);
+import {attachPage} from '/js/pixiv-pages.mjs';
 const revision = document.querySelector('meta[name="pixiv-page-revision"]')?.content || 'unavailable';
-operation.configure(revision);
 let slots, i18n, closed = false;
 window.addEventListener('pagehide', () => {
-    closed = true; slots?.destroy(); operation.destroy(); i18n?.dispose();
+    closed = true; slots?.destroy(); i18n?.dispose();
 }, {once: true});
 const anchor = document.querySelector('[data-ui-slot="login.verification"]');
-async function presentFixed(view) {
+async function presentFixed(view, targets) {
     await slots?.destroy(); slots = undefined;
+    const operation = targets['login.verification'];
+    if (!operation) return;
     const displayed = new Set();
     function visit(node) {
         if (node.target === 'login.verification' && node.policy) displayed.add(node.policy);
@@ -34,17 +31,17 @@ const root = document.getElementById('custom-page');
 i18n = await window.PixivI18n.create({namespaces: ['login', 'common']});
 if (closed) i18n.dispose();
 else {
-    await initLoginPage(operation);
+    await initLoginPage();
     if (!closed) await attachPage({
-        pageId: 'core:login', root, regions, targets: {'login.verification': operation},
+        pageId: 'core:login', root, regions,
         t: key => i18n.t('common:' + key, key),
         title: value => { window.loginPageTitle = value; document.title = value || lt('page.title', i18n.t('login:page.title')); },
-        onMounted: async view => { document.getElementById('native-page').hidden = true; await presentFixed(view); },
-        onFallback: async available => {
+        onMounted: async (view, targets) => { document.getElementById('native-page').hidden = true; await presentFixed(view, targets); },
+        onFallback: async (available, targets) => {
             await slots?.destroy(); slots = undefined;
             document.getElementById('native-page').hidden = false;
             window.loginPageTitle = ''; document.title = lt('page.title', i18n.t('login:page.title'));
-            if (available) await presentFixed();
+            if (available) await presentFixed(undefined, targets);
         }
     });
     if (!closed) setAuthButtonsDisabled(false);

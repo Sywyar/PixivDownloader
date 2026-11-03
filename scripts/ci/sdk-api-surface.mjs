@@ -87,8 +87,11 @@ export function collectApiSurface(artifacts) {
         if (classes.length === 0) {
             throw new Error(`SDK artifact contains no classes: ${artifact.path}`);
         }
-        const output = command('javap', ['-classpath', artifact.path, '-protected', '-s', '-constants', ...classes]);
-        surface.push(...normalizeJavap(artifact.name, output));
+        // Windows 的进程命令行有长度上限；分批读取仍保留全部公开成员。
+        for (let index = 0; index < classes.length; index += 64) {
+            const output = command('javap', ['-classpath', artifact.path, '-protected', '-s', '-constants', ...classes.slice(index, index + 64)]);
+            surface.push(...normalizeJavap(artifact.name, output));
+        }
     }
     return `${surface.sort(compareText).join('\n')}\n`;
 }

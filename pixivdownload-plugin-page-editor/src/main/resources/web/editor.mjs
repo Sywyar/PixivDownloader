@@ -5,6 +5,7 @@ import {icon, decorateIcons} from './editor-icons.mjs';
 import {createEditorFeedback} from './editor-feedback.mjs';
 import {resolveBinding, publicationSections} from './editor-bindings.mjs';
 import {selectPages} from './editor-publication.mjs';
+import {mountHooks} from './editor-hooks.mjs';
 
 const $ = id => document.getElementById(id);
 let i18n;
@@ -27,6 +28,9 @@ let inspectorGeneration = 0;
 let refreshBinding;
 let refreshProperties;
 let connections = [];
+let hooks = [];
+let actions = [];
+let hooksAbort;
 let preview;
 let previewAbort;
 let previewWork;
@@ -36,7 +40,16 @@ const t = (key, fallback, values) => i18n?.t('page-editor:' + key, fallback || k
 const notify = createEditorFeedback(lifetime.signal, t);
 const componentDefinition = type => catalog.components.find(entry => entry.definition.type === type);
 const label = definition => componentI18n.t(definition.namespace + ':' + definition.labelKey, definition.type || definition.id);
-const activePage = () => catalog.pages.find(entry => entry.definition.id === pageId);
+const activePage = () => {
+    const entry = catalog.pages.find(entry => entry.definition.id === pageId);
+    if (!entry || !actions.length) return entry;
+    const protocols = catalog.components.flatMap(component => component.definition.participation ? [component.definition.participation.protocol] : []);
+    return {...entry, definition: {...entry.definition, targets: [...entry.definition.targets,
+        ...actions.filter(action => !entry.definition.targets.some(target => target.id === action.id)).map(action => ({
+            id: action.id, labelKey: '', region: action.region, operation: action.operation || action.endpoint,
+            protocols, maximumParticipants: 16
+        }))]}};
+};
 const regionDefinition = id => activePage()?.definition.regions.find(region => region.id === id);
 const pageT = (key, fallback) => componentI18n.t(activePage().definition.namespace + ':' + key, fallback || key);
 const status = (key, detail = '') => {
@@ -246,7 +259,8 @@ function documentSource() {
     const styles = (project.styles || []).map(rule => ({
         selectors: rule.selectors, style: rule.style, mediaText: rule.mediaText || ''
     }));
-    return {format: 1, pageId, title: $('page-title').value, connections: pureValue(connections),
+    return {format: 1, pageId, title: $('page-title').value, connections: pureValue(connections), ...(hooks.length ? {hooks: pureValue(hooks)} : {}),
+        ...(actions.length ? {actions: pureValue(actions)} : {}),
         project: {pages: [{frames: [{component: modelSource(editor.getWrapper())}]}], styles}};
 }
 function allModels(model = editor.getWrapper()) {
@@ -637,10 +651,23 @@ async function loadProject(source) {
         editor.Layers.setLayerData(editor.getWrapper(), {open: true});
         $('page-title').value = source.title;
         connections = pureValue(source.connections);
+        hooks = pureValue(source.hooks || []);
+        actions = pureValue(source.actions || []);
+        hooksAbort?.abort(); hooksAbort = new AbortController();
         editor.UndoManager.clear();
     } finally { loading = false; }
     canvasStyles();
     syncSelection(); syncConnections(); await properties(null);
+    if ($('hooks-section').open) await showHooks();
+}
+
+async function showHooks() {
+    if (!pageId || !hooksAbort || !activePage()) return;
+    hooksAbort.abort(); hooksAbort = new AbortController();
+    const signal = hooksAbort.signal;
+    try { await mountHooks($('hooks'), activePage().definition, hooks, value => { hooks = value; changed(); }, t, signal,
+        {actions, canvas: editor.Canvas.getDocument(), update: value => { actions = value; changed(); refreshBinding?.(); void showHooks(); }}); }
+    catch (error) { if (!signal.aborted) $('hooks').textContent = t('hook.unavailable'); }
 }
 
 function sidebar(name) {
@@ -762,6 +789,8 @@ async function loadComponentTranslations(next) {
 }
 
 async function start() {
+    lifetime.signal.addEventListener('abort', () => hooksAbort?.abort(), {once: true});
+    $('hooks-section').addEventListener('toggle', () => { if ($('hooks-section').open) showHooks(); }, {signal: lifetime.signal});
     i18n = await window.PixivI18n.create({namespaces: ['page-editor', 'common']});
     catalog = await api('catalog');
     await loadComponentTranslations(catalog);

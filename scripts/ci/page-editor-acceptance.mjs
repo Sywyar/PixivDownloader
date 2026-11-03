@@ -78,7 +78,17 @@ function verifyRecoveryCli() {
     invoke(['--publication-restore=' + committed.file, '--publication-sha256=' + committed.digest]);
     const afterCommit = JSON.parse(fs.readFileSync(path.join(store, 'current.json'), 'utf8'));
     const after = JSON.parse(fs.readFileSync(path.join(store, afterCommit.file), 'utf8'));
+    // Java Set 跨 JVM 不保证序列化顺序；仍逐项核对成员与全部其它持久化字段。
+    for (const snapshot of [before, after]) {
+        const hooks = [...Object.values(snapshot.pages).flatMap(page => page.hooks || []),
+            ...(snapshot.configuration?.requirements || [])];
+        for (const hook of hooks) {
+            hook.definition.phases.sort();
+            hook.targetAnchors.sort();
+        }
+    }
     assert.deepEqual(after.pages, before.pages, 'recovery preserves page, operation and resource facts');
+    assert.deepEqual(after.configuration, before.configuration, 'recovery preserves standalone Hook bindings');
     assert.notEqual(after.epoch, before.epoch, 'recovery invalidates old documents and proofs');
     assert.match(invoke(), /Current publication:/);
     console.log('PAGE_PUBLICATION_REAL_CLI_RECOVERY_WITHOUT_DATABASE_PASSED');

@@ -1029,7 +1029,8 @@ public class PluginLifecycleService {
                     }
                     for (var key : imports) pluginRuntimeManager.requireServiceContract(record.registered.packageId(), key);
                     for (var export : exports) {
-                        if (top.sywyar.pixivdownload.plugin.api.security.OperationVerification.IMPORT.equals(export.key()))
+                        if (top.sywyar.pixivdownload.plugin.api.security.OperationVerification.IMPORT.equals(export.key())
+                                || top.sywyar.pixivdownload.plugin.api.operation.OperationHook.IMPORT.equals(export.key()))
                             throw new IllegalArgumentException("OPERATION_VERIFICATION_IMPORT_ONLY");
                         pluginRuntimeManager.requireServiceContract(record.registered.packageId(), export.key());
                     }

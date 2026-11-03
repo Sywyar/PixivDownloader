@@ -59,6 +59,32 @@ class PageBindingTest {
         assertThatThrownBy(() -> documents.validate("form:page", normalized, source, true)).hasMessage("PAGE_BINDING_INVALID");
     }
 
+    @Test @DisplayName("未声明动作的表单通过关系配置绑定，多个提交动作必须选择且不能重定向 owner 目标")
+    void configuredActions() {
+        var documents = documents(List.of());
+        var source = documents.initial("form:page");
+        var relations = source.putArray("actions");
+        relations.addObject().put("id", "save").put("formId", "editor").put("actionId", "save-button")
+                .put("region", "first").put("operation", "").put("endpoint", "other:http-save");
+        relations.addObject().put("id", "publish").put("formId", "editor").put("actionId", "publish-button")
+                .put("region", "first").put("operation", "").put("endpoint", "other:http-publish");
+        relations.addObject().put("id", "secondary").put("formId", "second-form").put("actionId", "")
+                .put("region", "second").put("operation", "other:shared").put("endpoint", "");
+        var component = add(source, 0, "proof");
+        assertThatThrownBy(() -> documents.validate("form:page", source, source, true)).hasMessage("PAGE_BINDING_AMBIGUOUS");
+        component.put("target", "publish");
+        add(source, 1, "second-proof");
+        var normalized = documents.normalize("form:page", source, source);
+        assertThat(regions(normalized).get(1).at("/components/0/target").asText()).isEqualTo("secondary");
+        var view = documents.validate("form:page", normalized, normalized, true);
+        assertThat(view.path("targets")).hasSize(3);
+        assertThat(view.path("actions")).isEqualTo(relations);
+        var declared = documents(List.of(target("save", "first")));
+        assertThatThrownBy(() -> declared.validate("form:page", source, source, false)).hasMessage("PAGE_ACTION_FORBIDDEN");
+        ((ObjectNode) relations.get(1)).put("actionId", "save-button");
+        assertThatThrownBy(() -> documents.validate("form:page", source, source, false)).hasMessage("PAGE_ACTION_INVALID");
+    }
+
     @Test @DisplayName("歧义需要选择，无匹配可保留草稿但不能发布保护")
     void ambiguityAndNoMatch() {
         var documents = documents(List.of(target("a", "first"), target("b", "first")));

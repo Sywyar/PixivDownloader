@@ -28,6 +28,9 @@ public final class WebPublications implements PagePublications {
     private final ExternalCapabilityInvocationRegistry registry;
     private final OperationAdmissions admissions;
     private final Map<String, List<String>> required;
+    private HookPublications hooks;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void hooks(HookPublications hooks) { this.hooks = hooks; }
     public WebPublications(WebPublicationStore store, PageContributionRegistry catalog,
             ExternalCapabilityInvocationRegistry registry, OperationAdmissions admissions, List<OperationRequirement> required) {
         this.store = store; this.catalog = catalog; this.registry = registry; this.admissions = admissions;
@@ -80,7 +83,7 @@ public final class WebPublications implements PagePublications {
         return compile(revision, changes, (plan, ignored) -> plan);
     }
 
-    @Override public synchronized long publish(Plan requested, List<Permission> approvals) {
+    @Override public long publish(Plan requested, List<Permission> approvals) {
         if (registry.serviceInvocationOnCurrentThread()) throw invalid("PAGE_PUBLICATION_REENTRANT");
         return compile(requested.revision(), requested.changes(), (plan, next) -> {
             if (!plan.equals(requested)) throw invalid("PAGE_PUBLICATION_STALE");
@@ -89,7 +92,8 @@ public final class WebPublications implements PagePublications {
                 throw invalid("PAGE_RESOURCE_APPROVAL_REQUIRED");
             Set<String> affected = new HashSet<>();
             plan.impacts().forEach(impact -> affected.add(impact.operation()));
-            admissions.closeAndDrain(affected, Duration.ofSeconds(10));
+            admissions.closeAndDrain(affected, Duration.ofSeconds(10),
+                    top.sywyar.pixivdownload.plugin.security.HttpOperationHooks.publicationAdmission());
             try {
                 if (!prepare(plan.revision(), plan.changes()).equals(plan)) throw invalid("PAGE_PUBLICATION_STALE");
                 store.commit(plan.revision(), next);
@@ -106,6 +110,13 @@ public final class WebPublications implements PagePublications {
 
     @FunctionalInterface private interface Compiled<T> { T run(Plan plan, Snapshot next); }
     private <T> T compile(long expected, List<Change> changes, Compiled<T> action) {
+        if (changes == null || changes.isEmpty() || changes.size() > 128) throw invalid("PAGE_DOCUMENT_BUDGET");
+        changes.forEach(change -> object(change.document()));
+        if (hooks == null) return compile(expected, changes, action, new HookPublications.Prepared(Map.of(), List.of(), List.of()));
+        try { return hooks.compile(changes, prepared -> compile(expected, changes, action, prepared)); }
+        catch (IOException failure) { throw new IllegalStateException("PAGE_PUBLICATION_FAILED", failure); }
+    }
+    private <T> T compile(long expected, List<Change> changes, Compiled<T> action, HookPublications.Prepared hooks) {
         Snapshot before = store.snapshot();
         if (before.revision() != expected) throw invalid("PAGE_REVISION_CONFLICT");
         if (changes.isEmpty() || changes.size() > 128) throw invalid("PAGE_DOCUMENT_BUDGET");
@@ -122,23 +133,30 @@ public final class WebPublications implements PagePublications {
             var page = pages.get(change.page());
             if (page == null) throw invalid("PAGE_OWNER_UNAVAILABLE");
             publications.add(page.publication());
-            object(change.document());
+            var document = object(change.document());
+            var definition = PageActions.apply(page.definition(), document, catalog);
             ObjectNode view = object(change.projection());
             if (!view.path("pageId").asText().equals(change.page()) || view.path("title").asText().length() > 256)
                 throw invalid("PAGE_DOCUMENT_INVALID");
             List<Binding> found = new ArrayList<>();
             var regions = new HashSet<String>();
-            inspect(view.path("body"), page.definition(), components, "", regions, new HashSet<>(), new HashMap<>(), found, publications, new int[1], 0);
+            inspect(view.path("body"), definition, components, "", regions, new HashSet<>(), new HashMap<>(), found, publications, new int[1], 0);
             if (!regions.equals(page.definition().regions().stream().map(PageRegion::id).collect(java.util.stream.Collectors.toSet())))
                 throw invalid("PAGE_REQUIRED_REGION");
             PageProjection.validate(view);
             for (var target : page.definition().targets()) for (String policy : required.getOrDefault(target.operation(), List.of()))
                 found.add(new Binding(policy, null, target));
+            found.removeIf(binding -> hooks.requirements().getOrDefault(change.page(), List.of()).stream()
+                    .anyMatch(hook -> (hook.binding().endpoint().isEmpty() && hook.operation().equals(binding.target().operation())
+                            || hook.binding().endpoint().equals(binding.target().operation())) && hook.binding().hook().equals(binding.policy())
+                            && hook.binding().phase() == top.sywyar.pixivdownload.plugin.api.operation.OperationHook.Phase.BEFORE_INVOKE));
             found.forEach(binding -> policies.add(binding.policy()));
             view.remove(List.of("publication", "previewModuleUrl", "revision"));
             view.put("namespace", page.definition().namespace());
             view.put("ownerContract", contract(page.definition()));
-            view.set("targets", JSON.valueToTree(page.definition().targets()));
+            view.set("targets", JSON.valueToTree(definition.targets()));
+            view.remove("actions");
+            if (document.has("actions")) view.set("actions", JSON.valueToTree(PageActions.read(document)));
             view.set("stylesheets", JSON.valueToTree(page.definition().stylesheets()));
             projections.put(change.page(), view); bindings.put(change.page(), found);
         }
@@ -148,12 +166,15 @@ public final class WebPublications implements PagePublications {
                 Map<String, ServiceProvider<OperationVerification>> selected = new HashMap<>();
                 for (int i = 0; i < keys.size(); i++) selected.put(new ArrayList<>(policies).get(i), providers.get(i));
                 Map<String, Page> next = new TreeMap<>(before.pages());
-                List<Permission> permissions = new ArrayList<>();
+                List<Permission> permissions = new ArrayList<>(hooks.permissions());
                 List<String> identities = new ArrayList<>(publications.stream().sorted().toList());
+                identities.addAll(hooks.identities());
                 providers.forEach(provider -> identities.add(provider.publication().toString()));
                 for (Change change : changes) {
                     List<Requirement> requirements = new ArrayList<>();
                     List<Permission> resources = new ArrayList<>();
+                    for (var hook : hooks.requirements().getOrDefault(change.page(), List.of()))
+                        for (var profile : hook.definition().resources()) resources.add(new Permission(hook.provider(), hook.binding().hook(), profile));
                     identities.add(pages.get(change.page()).publication());
                     for (Binding binding : bindings.get(change.page())) {
                         var provider = selected.get(binding.policy());
@@ -173,10 +194,15 @@ public final class WebPublications implements PagePublications {
                     Page old = before.pages().get(change.page());
                     next.put(change.page(), new Page(change.document(), projections.get(change.page()).toString(),
                             old == null ? "" : old.document().equals(change.document()) ? old.previousDocument() : old.document(),
-                            requirements, resources));
+                            requirements, resources, hooks.requirements().getOrDefault(change.page(), List.of())));
                 }
                 List<Impact> impacts = impacts(before.pages(), next, changed);
-                Snapshot candidate = new Snapshot(Math.addExact(expected, 1), before.epoch(), next);
+                validateHookConflicts(next, changed, before.configuration().settings().groups());
+                impacts = impacts.stream().map(impact -> new Impact(impact.operation(),
+                        hookImpacts(impact.before(), before.pages(), impact.operation()),
+                        hookImpacts(impact.after(), next, impact.operation()), impact.pages())).toList();
+                Snapshot candidate = new Snapshot(Math.addExact(expected, 1), before.epoch(), next, before.configuration());
+                if (this.hooks != null) this.hooks.validate(candidate);
                 String fingerprint = hash(JSON.writeValueAsBytes(List.of(candidate, identities)));
                 Plan plan = new Plan(expected, fingerprint, changes, impacts, permissions.stream().distinct().toList());
                 return action.run(plan, candidate);
@@ -185,6 +211,55 @@ public final class WebPublications implements PagePublications {
     }
 
     private record Binding(String policy, PageInteraction protocol, PageInteraction.Target target) { }
+    private static boolean targets(HookRequirement hook, String reference) {
+        return hook.operation().equals(reference) || hook.binding().endpoint().equals(reference);
+    }
+    private static List<String> hookImpacts(List<String> verification, Map<String, Page> pages, String operation) {
+        return java.util.stream.Stream.concat(verification.stream(), pages.values().stream().flatMap(page -> page.hooks().stream())
+                .filter(hook -> targets(hook, operation)).map(hook -> hook.binding().hook() + "@" + hook.binding().phase()
+                        + ":" + (hook.binding().endpoint().isEmpty() ? operation : hook.binding().endpoint()))).distinct().sorted().toList();
+    }
+    private void validateHookConflicts(Map<String, Page> pages, Set<String> changed, Map<String, List<String>> groups) {
+        var endpoints = new HashMap<String, top.sywyar.pixivdownload.plugin.api.operation.OperationTargets.Endpoint>();
+        if (hooks != null) hooks.targets().forEach(endpoint -> endpoints.put(endpoint.id(), endpoint));
+        var expected = new TreeMap<String, List<HookRequirement>>();
+        var conflicts = new TreeSet<String>();
+        for (String id : changed) for (String target : coveredTargets(pages.get(id), endpoints.values(), groups)) {
+            var requirements = effectiveHooks(pages.get(id), target, endpoints.get(target), groups);
+            var previous = expected.putIfAbsent(target, requirements);
+            if (previous != null && !previous.equals(requirements)) throw invalid("PAGE_OPERATION_CONFLICT");
+        }
+        pages.forEach((id, page) -> {
+            if (changed.contains(id)) return;
+            for (String target : coveredTargets(page, endpoints.values(), groups))
+                if (expected.containsKey(target) && !expected.get(target).equals(effectiveHooks(page, target, endpoints.get(target), groups))) conflicts.add(id);
+        });
+        if (!conflicts.isEmpty()) throw new PagePublications.Conflict(List.copyOf(conflicts));
+    }
+
+    private static Set<String> coveredTargets(Page page, Collection<top.sywyar.pixivdownload.plugin.api.operation.OperationTargets.Endpoint> endpoints,
+            Map<String, List<String>> groups) {
+        var covered = new HashSet<String>();
+        var actions = PageActions.read(page.document());
+        for (var target : object(page.projection()).path("targets")) {
+            String reference = target.path("operation").asText();
+            boolean single = actions.stream().anyMatch(action -> action.id().equals(target.path("id").asText()) && !action.endpoint().isEmpty());
+            boolean resolved = false;
+            for (var endpoint : endpoints) if (single ? endpoint.id().equals(reference)
+                    : endpoint.operation().equals(reference) || groups.getOrDefault(reference, List.of()).contains(endpoint.id())) {
+                covered.add(endpoint.id()); resolved = true;
+            }
+            // 无 HTTP 映射的操作仍按原身份检查，不因提供者缺席丢失正式要求。
+            if (!resolved) covered.add(reference);
+        }
+        return covered;
+    }
+
+    private static List<HookRequirement> effectiveHooks(Page page, String reference,
+            top.sywyar.pixivdownload.plugin.api.operation.OperationTargets.Endpoint endpoint, Map<String, List<String>> groups) {
+        return page.hooks().stream().filter(hook -> endpoint == null ? targets(hook, reference) : hook.matches(endpoint.operation(), endpoint.id(), groups))
+                .sorted(Comparator.comparing(hook -> hook.binding().id())).toList();
+    }
     private static void inspect(JsonNode node, EditablePage page, Map<String, PageCatalog.AvailableComponent> components,
             String region, Set<String> regions, Set<String> instances, Map<String, Integer> counts, List<Binding> bindings,
             Set<String> publications, int[] budget, int depth) {
@@ -265,6 +340,10 @@ public final class WebPublications implements PagePublications {
         for (String page : changed) {
             if (before.containsKey(page)) object(before.get(page).projection()).path("targets").forEach(target -> affected.add(target.path("operation").asText()));
             object(after.get(page).projection()).path("targets").forEach(target -> affected.add(target.path("operation").asText()));
+            for (var state : List.of(before, after)) if (state.containsKey(page)) state.get(page).hooks().forEach(hook -> {
+                affected.add(hook.operation());
+                if (!hook.binding().endpoint().isEmpty()) affected.add(hook.binding().endpoint());
+            });
         }
         return affected.stream().map(operation -> new Impact(operation,
                 before.values().stream().flatMap(page -> page.requirements().stream()).filter(value -> value.operation().equals(operation))

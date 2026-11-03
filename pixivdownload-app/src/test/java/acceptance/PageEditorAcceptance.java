@@ -222,6 +222,7 @@ public final class PageEditorAcceptance {
             browser(args[1], origin, cookie, "default", fixed);
             coordinator.start("page-editor");
             browser(args[1], origin, cookie, "publication-recovery", fixed);
+            OperationFormsAcceptance.verifyAccessForms(context, origin, cookie, Path.of(args[1]).resolveSibling("access-browser.mjs").toString(), fixed);
             System.out.println("PAGE_EDITOR_SIGNED_INSTALL_HTTP_BROWSER_LIFECYCLE_PASSED");
         }
     }
@@ -283,12 +284,23 @@ public final class PageEditorAcceptance {
             Thread.sleep(50);
         }
     }
+    private static final HttpClient HTTP = HttpClient.newHttpClient();
+    private static volatile String hookCookie = "";
     static HttpResponse<String> request(String origin, String path, String body, String cookie) throws Exception {
+        return hookRequest(origin, path, body, cookie, "");
+    }
+    static HttpResponse<String> hookRequest(String origin, String path, String body, String cookie, String ticket) throws Exception {
         var request = HttpRequest.newBuilder(URI.create(origin + path)).header("Accept-Language", "en-US");
-        if (cookie != null) request.header("Cookie", cookie);
+        String cookies = java.util.stream.Stream.of(cookie, hookCookie).filter(value -> value != null && !value.isEmpty())
+                .collect(java.util.stream.Collectors.joining("; "));
+        if (!cookies.isEmpty()) request.header("Cookie", cookies);
+        if (!ticket.isEmpty()) request.header("X-Pixiv-Hook-Ticket", ticket);
         if (body == null) request.GET();
         else request.header("Origin", origin).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body));
-        return HttpClient.newHttpClient().send(request.build(), HttpResponse.BodyHandlers.ofString());
+        var result = HTTP.send(request.build(), HttpResponse.BodyHandlers.ofString());
+        result.headers().allValues("Set-Cookie").stream().filter(value -> value.startsWith("pixiv_hook_client="))
+                .findFirst().ifPresent(value -> hookCookie = value.split(";", 2)[0]);
+        return result;
     }
     static PluginPackageOrigin origin(Path jar, boolean official, String confirmation) throws Exception {
         SignatureMetadata signature = signatures.get(jar);

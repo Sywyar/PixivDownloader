@@ -34,6 +34,7 @@ public final class OperationVerificationCapabilityAdapter implements ExternalRun
             OperationPolicies.validate(registry.captureMetadata(preparation, OperationVerification.class, "policy", bean::policy));
             OperationPolicies.identity(registry.captureMetadata(preparation, OperationVerification.class, "generation", bean::generation));
             registry.prepareService(preparation, key(id), bean);
+            registry.prepareService(preparation, OperationHookCapabilityAdapter.key(id), bean);
         }
         return new Prepared(preparation.owner());
     }

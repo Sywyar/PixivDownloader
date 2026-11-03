@@ -16,7 +16,7 @@ import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.i18n.AppLocaleResolver;
 import top.sywyar.pixivdownload.i18n.TestI18nBeans;
 import top.sywyar.pixivdownload.plugin.api.security.*;
-import top.sywyar.pixivdownload.plugin.security.OperationVerificationGate;
+import top.sywyar.pixivdownload.plugin.security.*;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.OperationVerificationCapabilityAdapter;
 import top.sywyar.pixivdownload.plugin.lifecycle.capability.runtime.*;
 import top.sywyar.pixivdownload.plugin.registry.route.RouteAccessRegistry;
@@ -45,6 +45,9 @@ class OperationVerificationGateTest {
     LoginRateLimitService limits;
     MockMvc mvc;
     Clock clock = Clock.systemUTC();
+    final Map<String, jakarta.servlet.http.Cookie> cookies = new HashMap<>();
+
+    final java.util.concurrent.ExecutorService hookExecutor = java.util.concurrent.Executors.newFixedThreadPool(8);
 
     @BeforeEach
     void initialize() throws Exception {
@@ -61,6 +64,7 @@ class OperationVerificationGateTest {
 
     @AfterEach
     void close() throws java.io.IOException {
+        hookExecutor.shutdownNow();
         contexts.forEach(AnnotationConfigApplicationContext::close);
         System.clearProperty(RuntimeFiles.CONFIG_DIR_PROPERTY);
         System.clearProperty(RuntimeFiles.STATE_DIR_PROPERTY);
@@ -69,19 +73,32 @@ class OperationVerificationGateTest {
 
     private void configure(String policies) throws java.io.IOException {
         var messages = TestI18nBeans.appMessages();
-        var gate = new OperationVerificationGate(registry, Map.of("core:login",
-                policies.isBlank() ? List.of() : Arrays.asList(policies.split(","))), clock,
-                new top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore(
-                        temporary.resolve("publications"), temporary.resolve("config/enrolled")),
-                new top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry(
-                        List.of(new LoginPageContribution().loginEditablePage()), registry),
-                new top.sywyar.pixivdownload.plugin.security.OperationAdmissions());
-        var controller = new SetupController(setup, limits, new MultiModeConfig(), mock(ProxySetupService.class), messages, gate);
+        var store = new top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore(temporary.resolve("publications"), temporary.resolve("config/enrolled"));
+        var pages = new top.sywyar.pixivdownload.plugin.registry.web.PageContributionRegistry(List.of(new LoginPageContribution().loginEditablePage()), registry);
+        var factory = new org.springframework.beans.factory.support.StaticListableBeanFactory();
+        var routes = new RouteAccessRegistry(new top.sywyar.pixivdownload.plugin.registry.PluginRegistry(List.of()));
+        routes.register("core", List.of(top.sywyar.pixivdownload.plugin.api.web.WebRouteContribution.publicRoute("/api/auth/**")));
+        var endpoints = new OperationEndpoints(factory.getBeanProvider(org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping.class), routes, pages);
+        endpoints.publications(store);
+        var admissions = new OperationAdmissions();
+        var contracts = new top.sywyar.pixivdownload.plugin.web.page.HookPublications(registry, endpoints, pages, store, admissions);
+        var interception = new HttpOperationHooks(endpoints, store, registry, admissions, new HookChallenges(clock), contracts,
+                List.of(new OperationRequirement("core:login", policies.isBlank() ? List.of() : Arrays.asList(policies.split(",")))), hookExecutor);
+        var controller = new SetupController(setup, new MultiModeConfig(), mock(ProxySetupService.class), messages,
+                mock(top.sywyar.pixivdownload.setup.guest.GuestInviteService.class));
         var locale = mock(AppLocaleResolver.class);
         when(locale.resolveLocale(any())).thenReturn(Locale.US);
+        var csrf = new CsrfProtectionFilter(locale, messages, routes); factory.addBean("csrf", csrf);
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler(messages))
-                .addFilters(new CsrfProtectionFilter(locale, messages, mock(RouteAccessRegistry.class))).build();
+                .addInterceptors(interception)
+                .addFilters(new HookRequestFilter(factory.getBeanProvider(org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping.class),
+                        factory.getBeanProvider(CsrfProtectionFilter.class)), csrf, new LoginAdmissionFilter(limits, locale, messages))
+                .alwaysDo(result -> {
+                    interception.requestDestroyed(new jakarta.servlet.ServletRequestEvent(result.getRequest().getServletContext(), result.getRequest()));
+                    for (var cookie : result.getResponse().getCookies()) cookies.put(cookie.getName(), cookie);
+                }).build();
+        factory.addBean("mapping", mvc.getDispatcherServlet().getWebApplicationContext().getBean(org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping.class));
     }
 
     private ExternalCapabilityPublication install(String owner, String policy,
@@ -114,7 +131,11 @@ class OperationVerificationGateTest {
     }
 
     private org.springframework.test.web.servlet.ResultActions login(Map<String, Object> value) throws Exception {
+        return login(value, "");
+    }
+    private org.springframework.test.web.servlet.ResultActions login(Map<String, Object> value, String ticket) throws Exception {
         return mvc.perform(post("/api/auth/login").header("Origin", "http://localhost")
+                .header("X-Pixiv-Hook-Ticket", ticket).with(request -> { if (!cookies.isEmpty()) request.setCookies(cookies.values().toArray(jakarta.servlet.http.Cookie[]::new)); return request; })
                 .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsBytes(value)));
     }
 
@@ -123,7 +144,7 @@ class OperationVerificationGateTest {
     void rejectsBeforeSideEffects() throws Exception {
         Path state = temporary.resolve("state/setup_config.json");
         byte[] original = Files.readAllBytes(state);
-        login(request()).andExpect(status().isServiceUnavailable()).andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
+        login(request()).andExpect(status().isServiceUnavailable()).andExpect(cookie().doesNotExist("pixiv_session"));
         var first = install("provider-a", "neutral", attempt -> approve());
         var second = install("provider-b", "neutral", attempt -> approve());
         login(request()).andExpect(status().isServiceUnavailable());
@@ -176,23 +197,23 @@ class OperationVerificationGateTest {
         registry.forgetRetirementAcknowledgement(drain);
         install("provider", "neutral", challenge);
         var answer = request();
-        answer.put("operationToken", old);
-        answer.put("operationProofs", Map.of("neutral", "neutral-answer"));
-        login(answer).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("setup.login.verification.stale"));
+        prepare(old, Map.of("neutral", "neutral-answer")).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("HOOK_STALE"));
         verify(setup, never()).createSession(anyBoolean());
-        answer.put("operationToken", challengeToken());
-        login(answer).andExpect(status().isOk()).andExpect(cookie().exists("pixiv_session"));
-        login(answer).andExpect(status().isConflict()).andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
+        String current = challengeToken(); prepare(current, Map.of("neutral", "neutral-answer")).andExpect(status().isOk());
+        login(answer, current).andExpect(status().isOk()).andExpect(cookie().exists("pixiv_session"));
+        login(answer, current).andExpect(status().isConflict()).andExpect(cookie().doesNotExist("pixiv_session"));
         verify(setup, times(1)).createSession(true);
     }
 
     private String challengeToken() throws Exception {
-        var response = mvc.perform(post("/api/auth/login/prepare").header("Origin", "http://localhost")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(json.writeValueAsBytes(Map.of("username", "admin", "rememberMe", true))))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CHALLENGE"))
-                .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE)).andReturn().getResponse();
+        var response = prepare("", Map.of()).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("HOOK_CHALLENGE"))
+                .andExpect(cookie().doesNotExist("pixiv_session")).andReturn().getResponse();
         return json.readTree(response.getContentAsByteArray()).get("token").asText();
+    }
+    private org.springframework.test.web.servlet.ResultActions prepare(String token, Map<String, String> proofs) throws Exception {
+        return mvc.perform(post(HookRequestFilter.PREPARE_PATH).header("Origin", "http://localhost")
+                .with(request -> { if (!cookies.isEmpty()) request.setCookies(cookies.values().toArray(jakarta.servlet.http.Cookie[]::new)); return request; }).contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsBytes(Map.of("method", "POST", "url", "/api/auth/login", "headers", Map.of("content-type", "application/json"), "token", token, "proofs", proofs))));
     }
 
     @Test
@@ -201,37 +222,34 @@ class OperationVerificationGateTest {
         install("provider", "neutral", attempt -> attempt.response() && attempt.proof().equals("answer")
                 ? approve() : new OperationVerificationResult(OperationVerificationResult.Status.CHALLENGE, "question"));
         var answer = request();
-        answer.put("operationToken", challengeToken());
+        String token = challengeToken();
         verify(setup, never()).checkLogin(anyString(), anyString());
         verify(setup, never()).createSession(anyBoolean());
-        answer.put("operationProofs", Map.of("neutral", "answer"));
+        prepare(token, Map.of("neutral", "answer")).andExpect(status().isOk());
         answer.put("password", "wrong");
-        login(answer).andExpect(status().isUnauthorized()).andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
+        login(answer, token).andExpect(status().isUnauthorized()).andExpect(cookie().doesNotExist("pixiv_session"));
         verify(setup, times(1)).checkLogin("admin", "wrong");
         answer.put("password", "password1234");
-        login(answer).andExpect(status().isConflict());
+        login(answer, token).andExpect(status().isConflict());
         verify(setup, never()).checkLogin("admin", "password1234");
-        answer.put("operationToken", challengeToken());
-        login(answer).andExpect(status().isOk()).andExpect(cookie().exists("pixiv_session"));
+        token = challengeToken(); prepare(token, Map.of("neutral", "answer")).andExpect(status().isOk());
+        login(answer, token).andExpect(status().isOk()).andExpect(cookie().exists("pixiv_session"));
     }
 
     @Test
     @DisplayName("无需验证的准备也不创建会话，准备入口仍执行输入、CSRF 和限流检查")
     void preparationDoesNotExecuteLogin() throws Exception {
         configure("");
-        mvc.perform(post("/api/auth/login/prepare").header("Origin", "http://localhost")
-                .contentType(MediaType.APPLICATION_JSON).content("{\"username\":\"admin\",\"rememberMe\":false}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("APPROVED"))
-                .andExpect(header().doesNotExist(HttpHeaders.SET_COOKIE));
+        prepare("", Map.of()).andExpect(status().isOk()).andExpect(jsonPath("$.code").value("HOOK_APPROVED"))
+                .andExpect(cookie().doesNotExist("pixiv_session"));
         verify(setup, never()).checkLogin(anyString(), anyString());
         verify(setup, never()).createSession(anyBoolean());
-        mvc.perform(post("/api/auth/login/prepare").header("Origin", "http://localhost")
-                .contentType(MediaType.APPLICATION_JSON).content("{\"username\":\"\"}")).andExpect(status().isBadRequest());
-        mvc.perform(post("/api/auth/login/prepare").header("Origin", "https://foreign.example")
-                .contentType(MediaType.APPLICATION_JSON).content("{\"username\":\"admin\"}")).andExpect(status().isForbidden());
+        mvc.perform(post(HookRequestFilter.PREPARE_PATH).header("Origin", "http://localhost")
+                .contentType(MediaType.APPLICATION_JSON).content("{\"method\":\"POST\",\"url\":\"//foreign.example\"}")).andExpect(status().isBadRequest());
+        mvc.perform(post(HookRequestFilter.PREPARE_PATH).header("Origin", "https://foreign.example")
+                .contentType(MediaType.APPLICATION_JSON).content("{}")).andExpect(status().isForbidden());
         when(limits.isAllowed(anyString())).thenReturn(false);
-        mvc.perform(post("/api/auth/login/prepare").header("Origin", "http://localhost")
-                .contentType(MediaType.APPLICATION_JSON).content("{\"username\":\"admin\"}")).andExpect(status().isTooManyRequests());
+        prepare("", Map.of()).andExpect(status().isTooManyRequests());
     }
 
     @Test
@@ -248,10 +266,9 @@ class OperationVerificationGateTest {
         install("a", "neutral", attempt -> approve());
         login(request()).andExpect(status().isServiceUnavailable());
         install("b", "second", attempt -> new OperationVerificationResult(OperationVerificationResult.Status.CHALLENGE, "question"));
-        var answer = request();
-        answer.put("operationToken", challengeToken());
+        String token = challengeToken();
         current.set(now.plusSeconds(301));
-        login(answer).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("setup.login.verification.stale"));
+        login(request(), token).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("HOOK_STALE"));
         verify(setup, never()).createSession(anyBoolean());
     }
 

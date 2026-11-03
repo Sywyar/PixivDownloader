@@ -173,6 +173,39 @@ class GuestCollectionVisibilityTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"sqlite", "postgresql"})
+    @DisplayName("邀请码不能冒充会话，随机会话只保存摘要并复核权限和撤销")
+    void opaqueSessions(String engine) throws Exception {
+        setUp(engine);
+        long id = invites.createInvite(request());
+        String code = invites.detail(id).code();
+        assertThat(invites.resolveSession(code)).isEmpty();
+        String token = invites.redeem(code).orElseThrow();
+        String other = invites.redeem(code).orElseThrow();
+        assertThat(token).startsWith("v1.").isNotEqualTo(code).isNotEqualTo(other);
+        assertThat(jdbc.queryForList("SELECT token_hash FROM guest_invite_sessions", String.class))
+                .hasSize(2).allMatch(value -> value.matches("[a-f0-9]{64}")).doesNotContain(token, code);
+        assertThat(invites.resolveSession(token).orElseThrow().id()).isEqualTo(id);
+        assertThat(invites.resolveSession(token + "x")).isEmpty();
+        var reopened = new GuestInviteService(mapper, mock(ServerAddressProvider.class), initializer);
+        assertThat(reopened.resolveSession(token)).isPresent();
+        invites.pause(id);
+        assertThat(invites.resolveSession(token)).isEmpty();
+        invites.resume(id);
+        assertThat(invites.resolveSession(token)).isPresent();
+        invites.revokeSession(token);
+        assertThat(invites.resolveSession(token)).isEmpty();
+        assertThat(invites.resolveSession(other)).isPresent();
+        jdbc.update("UPDATE guest_invite_sessions SET expires=0");
+        assertThat(invites.resolveSession(other)).isEmpty();
+        String fresh = invites.redeem(code).orElseThrow();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM guest_invite_sessions", Integer.class)).isEqualTo(1);
+        invites.delete(id);
+        assertThat(invites.resolveSession(fresh)).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM guest_invite_sessions", Integer.class)).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"sqlite", "postgresql"})
     @DisplayName("旧邀请自动补列后保留原有范围，非法收藏夹输入拒绝且不修改现有规则")
     void migrationAndInvalidInputPreservePermissions(String engine) throws Exception {
         setUp(engine);

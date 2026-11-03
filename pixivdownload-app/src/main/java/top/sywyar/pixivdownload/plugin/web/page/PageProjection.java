@@ -16,7 +16,7 @@ final class PageProjection {
 
     static void validate(JsonNode view) {
         fields(view, Set.of("format", "pageId", "title", "namespace", "publication", "revision", "previewModuleUrl",
-                "stylesheets", "targets", "body", "styles", "connections", "defaultLayout", "ownerContract"));
+                "stylesheets", "targets", "actions", "body", "styles", "connections", "defaultLayout", "ownerContract"));
         if (!view.path("format").isIntegralNumber() || view.path("format").asInt() != 1
                 || !view.path("title").isTextual() || view.path("title").textValue().length() > 256)
             invalid("PAGE_DOCUMENT_INVALID");

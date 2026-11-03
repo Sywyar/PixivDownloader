@@ -19,10 +19,6 @@ import top.sywyar.pixivdownload.i18n.AppMessages;
 import top.sywyar.pixivdownload.i18n.LocalizedException;
 import top.sywyar.pixivdownload.core.appconfig.MultiModeConfig;
 import top.sywyar.pixivdownload.setup.request.LoginRequest;
-import top.sywyar.pixivdownload.setup.request.LoginPreparationRequest;
-import top.sywyar.pixivdownload.plugin.api.security.OperationGuard;
-import top.sywyar.pixivdownload.plugin.api.web.ApiErrorResponse;
-import top.sywyar.pixivdownload.plugin.security.OperationVerificationGate;
 import top.sywyar.pixivdownload.setup.guest.GuestInviteSession;
 import top.sywyar.pixivdownload.setup.request.SetupInitRequest;
 import top.sywyar.pixivdownload.setup.response.AuthCheckResponse;
@@ -38,22 +34,20 @@ import java.time.Duration;
 public class SetupController {
 
     private final SetupService setupService;
-    private final LoginRateLimitService loginRateLimitService;
     private final MultiModeConfig multiModeConfig;
     private final ProxySetupService proxySetupService;
     private final AppMessages messages;
-    private final OperationVerificationGate verification;
+    private final top.sywyar.pixivdownload.setup.guest.GuestInviteService invites;
 
     @org.springframework.beans.factory.annotation.Autowired
-    public SetupController(SetupService setupService, LoginRateLimitService loginRateLimitService,
+    public SetupController(SetupService setupService,
                            MultiModeConfig multiModeConfig, ProxySetupService proxySetupService, AppMessages messages,
-                           OperationVerificationGate verification) {
+                           top.sywyar.pixivdownload.setup.guest.GuestInviteService invites) {
         this.setupService = setupService;
-        this.loginRateLimitService = loginRateLimitService;
         this.multiModeConfig = multiModeConfig;
         this.proxySetupService = proxySetupService;
         this.messages = messages;
-        this.verification = verification;
+        this.invites = invites;
     }
 
     @Value("${server.ssl.enabled:false}")
@@ -145,67 +139,15 @@ public class SetupController {
     private record ProxySettings(boolean enabled, String host, int port) {
     }
 
-    @PostMapping("/api/auth/login/prepare")
-    public ResponseEntity<?> prepareLogin(@Valid @RequestBody LoginPreparationRequest request,
-                                         HttpServletRequest httpRequest) throws IOException {
-        checkLoginRateLimit(httpRequest);
-        var result = verification.host().prepare("core:login", request.username(),
-                loginContext(httpRequest, request.rememberMe()));
-        if (result.status() == OperationGuard.Status.APPROVED || result.status() == OperationGuard.Status.CHALLENGE)
-            return ResponseEntity.ok(result);
-        return verificationFailure(result);
-    }
-
-    private void checkLoginRateLimit(HttpServletRequest httpRequest) {
-        if (!loginRateLimitService.isAllowed(httpRequest.getRemoteAddr())) {
-            throw new LocalizedException(
-                    HttpStatus.TOO_MANY_REQUESTS,
-                    "setup.login.rate-limit.exceeded",
-                    "Too many login attempts. Please try again later."
-            );
-        }
-    }
-
-    private String loginContext(HttpServletRequest httpRequest, boolean rememberMe) {
-        // 上下文只包含可信地址与会话时效选择，密码和整个请求不离开登录 owner。
-        return com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode()
-                .put("clientAddress", httpRequest.getRemoteAddr()).put("rememberMe", rememberMe).toString();
-    }
-
     @PostMapping("/api/auth/login")
+    @top.sywyar.pixivdownload.plugin.api.operation.OperationEndpoint(operation = "core:login")
     public ResponseEntity<?> login(@Valid @RequestBody LoginRequest request,
                                    HttpServletRequest httpRequest) throws IOException {
-        checkLoginRateLimit(httpRequest);
-        var result = verification.host().execute("core:login", request.getUsername(),
-                loginContext(httpRequest, request.isRememberMe()),
-                request.getOperationToken(), request.getOperationProofs(), () -> {
-                    if (!setupService.checkLogin(request.getUsername(), request.getPassword()))
-                        throw new LocalizedException(HttpStatus.UNAUTHORIZED,
-                                "setup.login.invalid-credentials", "Invalid username or password");
-                    return createLoginSession(request);
-                });
-        if (result.status() == OperationGuard.Status.APPROVED) return result.value();
-        return verificationFailure(result);
+        if (!setupService.checkLogin(request.getUsername(), request.getPassword()))
+            throw new LocalizedException(HttpStatus.UNAUTHORIZED, "setup.login.invalid-credentials", "Invalid username or password");
+        revokeInviteSession(httpRequest);
+        return createLoginSession(request);
     }
-
-    private ResponseEntity<?> verificationFailure(OperationGuard.Result<?> result) {
-        if (result.status() == OperationGuard.Status.CHALLENGE) {
-            String code = "setup.login.verification.required";
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(
-                    new OperationChallengeResponse(code, messages.get(code), result.token(), result.revision(), result.challenges()));
-        }
-        HttpStatus status = switch (result.status()) {
-            case INVALID -> HttpStatus.BAD_REQUEST;
-            case STALE -> HttpStatus.CONFLICT;
-            case REJECTED -> HttpStatus.FORBIDDEN;
-            default -> HttpStatus.SERVICE_UNAVAILABLE;
-        };
-        throw new LocalizedException(status,
-                "setup.login.verification." + result.status().name().toLowerCase(java.util.Locale.ROOT), null);
-    }
-
-    public record OperationChallengeResponse(String code, String error, String token, String revision,
-            java.util.Map<String, String> challenges) implements ApiErrorResponse { }
 
     private ResponseEntity<AuthResponse> createLoginSession(LoginRequest request) throws IOException {
         String token = setupService.createSession(request.isRememberMe());
@@ -228,6 +170,7 @@ public class SetupController {
     @PostMapping("/api/auth/logout")
     public ResponseEntity<AuthResponse> logout(HttpServletRequest request) throws IOException {
         if (GuestInviteSession.isGuestRequest(request)) {
+            revokeInviteSession(request);
             return ResponseEntity.ok()
                     .header(HttpHeaders.SET_COOKIE, clearedInviteCookie())
                     .body(new AuthResponse(true));
@@ -256,6 +199,11 @@ public class SetupController {
     private String clearedInviteCookie() {
         return ResponseCookie.from(AuthFilter.INVITE_COOKIE, "")
                 .path("/").httpOnly(true).secure(sslEnabled).sameSite("Strict").maxAge(0).build().toString();
+    }
+
+    private void revokeInviteSession(HttpServletRequest request) {
+        if (request.getCookies() != null) for (var cookie : request.getCookies())
+            if (GuestInviteSession.COOKIE_NAME.equals(cookie.getName())) invites.revokeSession(cookie.getValue());
     }
 
     private static String safeMessage(Throwable e) {

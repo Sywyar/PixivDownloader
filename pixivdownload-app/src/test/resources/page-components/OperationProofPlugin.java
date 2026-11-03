@@ -4,6 +4,7 @@ import org.pf4j.*;
 import org.springframework.context.annotation.Bean;
 import top.sywyar.pixivdownload.plugin.api.plugin.*;
 import top.sywyar.pixivdownload.plugin.api.security.*;
+import top.sywyar.pixivdownload.plugin.api.operation.OperationHook;
 import top.sywyar.pixivdownload.plugin.api.web.*;
 import top.sywyar.pixivdownload.plugin.api.web.page.*;
 import java.util.List;
@@ -13,6 +14,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class OperationProofPlugin extends Plugin implements PixivPluginProvider {
     public static final AtomicInteger issued = new AtomicInteger(), verified = new AtomicInteger();
     public static volatile String generation = "one", revision = "one", mode = "normal";
+    public static volatile String hookMode = "normal";
+    public static final java.util.List<String> hookEvents = new java.util.concurrent.CopyOnWriteArrayList<>();
     public OperationProofPlugin(PluginWrapper wrapper) { super(wrapper); }
     public PixivFeaturePlugin featurePlugin() {
         return new PixivFeaturePlugin() {
@@ -29,6 +32,23 @@ public final class OperationProofPlugin extends Plugin implements PixivPluginPro
     }
     @org.springframework.context.annotation.Configuration(proxyBeanMethods=false)
     public static class Wiring {
+        @Bean OperationHook callback() {
+            return new OperationHook() {
+                public String id() { return "fixture-generic"; }
+                public String generation() { return "one"; }
+                public Definition definition() {
+                    return new Definition("one", java.util.Set.of(Phase.BEFORE_INVOKE, Phase.AFTER_COMPLETION),
+                            "{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}", "", "", null, List.of());
+                }
+                public Decision invoke(Invocation invocation) {
+                    if (hookEvents.size() >= 256) throw new IllegalStateException("fixture-budget");
+                    if (!invocation.input().equals("{}") || !invocation.result().equals("{}")) throw new IllegalArgumentException("fixture-private-data");
+                    hookEvents.add(invocation.phase() + ":" + invocation.outcome());
+                    if (invocation.phase() == Phase.AFTER_COMPLETION && hookMode.equals("after-fail")) throw new IllegalStateException("fixture-after-failure");
+                    return new Decision(invocation.phase() == Phase.BEFORE_INVOKE && hookMode.equals("reject") ? Verdict.REJECT : Verdict.CONTINUE, "");
+                }
+            };
+        }
         @Bean OperationVerification proof() {
             return new OperationVerification() {
                 public String policyId() { return "fixture-proof"; }

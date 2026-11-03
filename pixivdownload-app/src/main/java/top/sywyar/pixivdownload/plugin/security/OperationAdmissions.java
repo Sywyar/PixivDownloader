@@ -14,29 +14,40 @@ public final class OperationAdmissions {
     private final Set<String> closed = new HashSet<>();
 
     public synchronized Lease enter(String operation) {
-        if (closed.contains(operation)) throw new IllegalStateException("OPERATION_PUBLICATION_BUSY");
-        active.merge(operation, 1, Integer::sum);
-        return new Lease(operation);
+        return enter(Set.of(operation));
+    }
+    public synchronized Lease enter(Set<String> operations) {
+        if (operations.stream().anyMatch(closed::contains)) throw new IllegalStateException("OPERATION_PUBLICATION_BUSY");
+        operations.forEach(operation -> active.merge(operation, 1, Integer::sum));
+        return new Lease(Set.copyOf(operations));
     }
 
     public final class Lease implements AutoCloseable {
-        private String operation;
-        private Lease(String operation) { this.operation = operation; }
+        private Set<String> operations;
+        private Lease(Set<String> operations) { this.operations = operations; }
+        private OperationAdmissions owner() { return OperationAdmissions.this; }
         @Override public void close() {
             synchronized (OperationAdmissions.this) {
-                if (operation == null) return;
-                active.compute(operation, (key, count) -> count == 1 ? null : count - 1);
-                operation = null; OperationAdmissions.this.notifyAll();
+                if (operations == null) return;
+                operations.forEach(operation -> active.compute(operation, (key, count) -> count == 1 ? null : count - 1));
+                operations = null; OperationAdmissions.this.notifyAll();
             }
         }
     }
 
-    public synchronized void closeAndDrain(Set<String> operations, Duration timeout) {
+    public void closeAndDrain(Set<String> operations, Duration timeout) {
+        closeAndDrain(operations, timeout, null);
+    }
+
+    /** 当前发布请求只免于等待自身，租约计数仍保留到请求和回调实际结束。 */
+    public synchronized void closeAndDrain(Set<String> operations, Duration timeout, Lease publisher) {
+        if (publisher != null && publisher.owner() != this) throw new IllegalArgumentException("OPERATION_ADMISSION_INVALID");
         if (operations.stream().anyMatch(closed::contains)) throw new IllegalStateException("OPERATION_PUBLICATION_BUSY");
         closed.addAll(operations);
         long until = System.nanoTime() + timeout.toNanos();
         try {
-            while (operations.stream().anyMatch(active::containsKey)) {
+            while (operations.stream().anyMatch(operation -> active.getOrDefault(operation, 0)
+                    > (publisher != null && publisher.operations != null && publisher.operations.contains(operation) ? 1 : 0))) {
                 long left = until - System.nanoTime();
                 if (left <= 0) throw new IllegalStateException("OPERATION_DRAIN_TIMEOUT");
                 java.util.concurrent.TimeUnit.NANOSECONDS.timedWait(this, left);

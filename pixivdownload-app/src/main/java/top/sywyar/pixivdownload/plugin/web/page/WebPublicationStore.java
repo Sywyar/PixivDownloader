@@ -28,16 +28,61 @@ public final class WebPublicationStore {
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     public record Requirement(String operation, String contextSchema, String policy, String provider,
             String packageId, OperationVerification.Policy plan) { }
-    public record Page(String document, String projection, String previousDocument,
-            List<Requirement> requirements, List<PagePublications.Permission> permissions) {
-        public Page { requirements = List.copyOf(requirements); permissions = List.copyOf(permissions); }
+    public record HookRequirement(top.sywyar.pixivdownload.plugin.api.operation.OperationBinding binding,
+            String operation, String inputSchema, String resultSchema, String provider, String packageId,
+            top.sywyar.pixivdownload.plugin.api.operation.OperationHook.Definition definition, String targetContract, Set<String> targetAnchors) {
+        public HookRequirement {
+            targetAnchors = targetAnchors == null ? Set.of() : Set.copyOf(targetAnchors);
+            if (targetAnchors.size() > 8192 || targetAnchors.stream().anyMatch(value -> value.length() > 1100))
+                throw new IllegalArgumentException("PAGE_HOOK_CAPACITY");
+        }
+        public HookRequirement(top.sywyar.pixivdownload.plugin.api.operation.OperationBinding binding,
+                String operation, String inputSchema, String resultSchema, String provider, String packageId,
+                top.sywyar.pixivdownload.plugin.api.operation.OperationHook.Definition definition, String targetContract) {
+            this(binding, operation, inputSchema, resultSchema, provider, packageId, definition, targetContract, Set.of());
+        }
+        public boolean matches(String operation, String endpoint, Map<String, List<String>> groups) {
+            return binding.endpoint().isEmpty() ? this.operation.equals(operation) || groups.getOrDefault(this.operation, List.of()).contains(endpoint)
+                    : binding.endpoint().equals(endpoint);
+        }
     }
-    public record Snapshot(long revision, String epoch, Map<String, Page> pages) {
-        public Snapshot { pages = Map.copyOf(pages); UUID.fromString(epoch); }
+    public record Page(String document, String projection, String previousDocument,
+            List<Requirement> requirements, List<PagePublications.Permission> permissions, List<HookRequirement> hooks) {
+        public Page {
+            requirements = List.copyOf(requirements); permissions = List.copyOf(permissions);
+            hooks = hooks == null ? List.of() : List.copyOf(hooks);
+        }
+        public Page(String document, String projection, String previousDocument,
+                List<Requirement> requirements, List<PagePublications.Permission> permissions) {
+            this(document, projection, previousDocument, requirements, permissions, List.of());
+        }
+    }
+    public record HookSettings(Map<String, List<String>> groups, List<top.sywyar.pixivdownload.plugin.api.operation.OperationBinding> bindings) {
+        public HookSettings {
+            var copy = new TreeMap<String, List<String>>(); groups.forEach((id, endpoints) -> copy.put(id, List.copyOf(endpoints)));
+            groups = Map.copyOf(copy); bindings = List.copyOf(bindings);
+        }
+    }
+    public record HookState(HookSettings settings, List<HookRequirement> requirements, List<PagePublications.Permission> permissions) {
+        public HookState { requirements = List.copyOf(requirements); permissions = List.copyOf(permissions); }
+        public static HookState empty() { return new HookState(new HookSettings(Map.of(), List.of()), List.of(), List.of()); }
+    }
+    public record Snapshot(long revision, String epoch, Map<String, Page> pages, HookState configuration) {
+        public Snapshot { pages = Map.copyOf(pages); UUID.fromString(epoch); configuration = configuration == null ? HookState.empty() : configuration; }
+        public Snapshot(long revision, String epoch, Map<String, Page> pages) { this(revision, epoch, pages, HookState.empty()); }
         public String identity() { return epoch + ":" + revision; }
         public List<Requirement> requirements(String operation) {
             return pages.values().stream().flatMap(page -> page.requirements().stream())
                     .filter(item -> item.operation().equals(operation)).distinct().toList();
+        }
+        public List<HookRequirement> hooks(String operation, String endpoint) {
+            return hooks()
+                    .filter(item -> item.matches(operation, endpoint, configuration.settings().groups()))
+                    .distinct().sorted(Comparator.comparing((HookRequirement item) -> item.binding().phase())
+                            .thenComparingInt(item -> item.binding().order()).thenComparing(item -> item.binding().id())).toList();
+        }
+        public java.util.stream.Stream<HookRequirement> hooks() {
+            return java.util.stream.Stream.concat(pages.values().stream().flatMap(page -> page.hooks().stream()), configuration.requirements().stream());
         }
     }
     private record Commit(int format, long revision, String file, String digest) { }
@@ -92,9 +137,13 @@ public final class WebPublicationStore {
                 var operations = new TreeMap<String, List<String>>();
                 value.pages().values().stream().flatMap(page -> page.requirements().stream()).forEach(requirement ->
                         operations.computeIfAbsent(requirement.operation(), ignored -> new ArrayList<>()).add(requirement.policy()));
+                java.util.stream.Stream.concat(value.pages().values().stream().flatMap(page -> page.hooks().stream()), value.configuration().requirements().stream()).forEach(requirement ->
+                        operations.computeIfAbsent(requirement.operation(), ignored -> new ArrayList<>())
+                                .add(requirement.binding().hook() + "@" + requirement.binding().phase()));
                 operations.replaceAll((operation, policies) -> policies.stream().distinct().sorted().toList());
                 candidates.add(new RecoveryCandidate(name, hash(bytes), value.revision(), value.pages().keySet(), operations,
-                        value.pages().values().stream().flatMap(page -> page.permissions().stream()).distinct().toList()));
+                        java.util.stream.Stream.concat(value.pages().values().stream().flatMap(page -> page.permissions().stream()),
+                                value.configuration().permissions().stream()).distinct().toList()));
             }
         }
         return candidates.stream().sorted(Comparator.comparingLong(RecoveryCandidate::revision).reversed()).toList();
@@ -118,7 +167,7 @@ public final class WebPublicationStore {
             if (!hash(bytes).equals(expectedHash)) throw new IllegalStateException("PAGE_RECOVERY_DIGEST_CHANGED");
             Snapshot selected = parseSnapshot(bytes);
             // 独立恢复代际防止旧文档与新发布重复使用相同计数修订。
-            write(new Snapshot(0, UUID.randomUUID().toString(), selected.pages()));
+            write(new Snapshot(0, UUID.randomUUID().toString(), selected.pages(), selected.configuration()));
             Path marker = enrollment.resolveSibling(".enrollment-" + UUID.randomUUID() + ".tmp");
             try {
                 forceNew(marker, "1\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
