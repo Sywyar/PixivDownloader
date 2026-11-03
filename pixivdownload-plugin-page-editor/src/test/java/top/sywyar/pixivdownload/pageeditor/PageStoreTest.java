@@ -347,19 +347,16 @@ class PageStoreTest {
         assertThat(saved.has("draftSaveFailed")).isFalse();
     }
     @Test
-    @DisplayName("覆盖旧编辑器存档前保留原始内容，旧发布字段不恢复安全状态")
-    void retainsExistingContentBeforeFirstWrite() throws Exception {
+    @DisplayName("草稿存储拒绝额外发布字段，不迁移或覆盖无效状态")
+    void rejectsPublicationFieldsInDraftState() throws Exception {
         var original = PageDocuments.JSON.createObjectNode().put("revision", 4);
         original.set("draft", source()); original.set("published", source()); original.set("previous", source());
         byte[] bytes = original.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
         Files.write(directory.resolve("owner_page.json"), bytes);
         var store = store();
-        assertThat(store.read("owner:page").has("published")).isFalse();
-        store.save("owner:page", 4, source());
-        assertThat(Files.readAllBytes(directory.resolve("owner_page.retained.json"))).isEqualTo(bytes);
-        store.save("owner:page", 5, source());
-        assertThat(Files.readAllBytes(directory.resolve("owner_page.retained.json"))).isEqualTo(bytes);
-        assertThat(PageDocuments.parse(Files.readString(directory.resolve("owner_page.json"))).has("published")).isFalse();
+        assertThatThrownBy(() -> store.read("owner:page")).hasMessage("PAGE_STORAGE_FAILED");
+        assertThatThrownBy(() -> store.save("owner:page", 4, source())).hasMessage("PAGE_STORAGE_FAILED");
+        assertThat(Files.readAllBytes(directory.resolve("owner_page.json"))).isEqualTo(bytes);
     }
     private ObjectNode source() { return new PageDocuments(catalog).initial("owner:page"); }
     private static ArrayNode children(JsonNode source) {

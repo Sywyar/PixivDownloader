@@ -248,7 +248,8 @@ final class OperationHookCalls implements AutoCloseable {
                 RemoteValues.validateConfiguration(item.definition().resultSchema(), safeResult);
         } catch (RuntimeException invalid) { throw new NotInvoked("DATA_INCOMPATIBLE"); }
         String invocation = UUID.randomUUID().toString();
-        String callback = callbacks.get(item.binding().hook()) + "#invoke";
+        String callback = callbacks.get(item.binding().hook());
+        if (!callback.contains("#")) callback += "#invoke";
         String previous = org.slf4j.MDC.get("operationVerificationId");
         org.slf4j.MDC.put("operationVerificationId", correlation);
         long started = clock.getAsLong();

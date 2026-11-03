@@ -232,6 +232,11 @@ class AuthFilterServletTest {
                         assertThat(asset.body()).isEqualTo(new ClassPathResource("static" + path).getContentAsByteArray());
                     }
                 }
+                for (String path : List.of("/i18n-static/meta.json", "/i18n-static/login.zh-CN.json")) {
+                    var fallback = request("GET", path, cookie, !setupComplete);
+                    assertThat(fallback.statusCode()).as(path).isEqualTo(200);
+                    assertThat(fallback.body()).isEqualTo(new ClassPathResource("static" + path).getContentAsByteArray());
+                }
             }
         } finally {
             when(setup.isSetupComplete()).thenReturn(true);

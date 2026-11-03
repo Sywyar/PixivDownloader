@@ -30,10 +30,10 @@ public final class WebPublicationStore {
             String packageId, OperationVerification.Policy plan) { }
     public record HookRequirement(top.sywyar.pixivdownload.plugin.api.operation.OperationBinding binding,
             String operation, String inputSchema, String resultSchema, String provider, String packageId,
-            top.sywyar.pixivdownload.plugin.api.operation.OperationHook.Definition definition, String targetContract, Set<String> targetAnchors) {
+            top.sywyar.pixivdownload.plugin.api.operation.OperationHook.Definition definition, String targetContract, Set<HookTarget> targetAnchors) {
         public HookRequirement {
-            targetAnchors = targetAnchors == null ? Set.of() : Set.copyOf(targetAnchors);
-            if (targetAnchors.size() > 8192 || targetAnchors.stream().anyMatch(value -> value.length() > 1100))
+            targetAnchors = Set.copyOf(targetAnchors);
+            if (targetAnchors.size() > 8192 || targetAnchors.stream().mapToInt(HookTarget::entries).sum() > 8192)
                 throw new IllegalArgumentException("PAGE_HOOK_CAPACITY");
         }
         public HookRequirement(top.sywyar.pixivdownload.plugin.api.operation.OperationBinding binding,
@@ -46,11 +46,57 @@ public final class WebPublicationStore {
                     : binding.endpoint().equals(endpoint);
         }
     }
+    /** 只持有原批准映射的纯值；实际请求条件仍交给 MVC 判定。 */
+    public record HookTarget(String owner, String handler, Set<String> routes, List<String> parameters, List<String> headers,
+            List<String> consumes, List<String> produces, boolean bodyRequired, Set<String> paths, Set<String> methods, Set<String> alternatives) {
+        public HookTarget {
+            routes = Set.copyOf(routes); parameters = List.copyOf(parameters); headers = List.copyOf(headers);
+            consumes = List.copyOf(consumes); produces = List.copyOf(produces);
+            paths = Set.copyOf(paths); methods = Set.copyOf(methods); alternatives = Set.copyOf(alternatives);
+            if (owner.length() > 128 || handler.length() > 512 || routes.size() > 64
+                    || routes.stream().anyMatch(value -> value.length() > 1100)
+                    || paths.size() > 64 || paths.stream().anyMatch(value -> value.length() > 1024)
+                    || methods.size() > 8 || methods.stream().anyMatch(value -> !value.matches("GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS|TRACE"))
+                    || alternatives.size() > 4096 || alternatives.stream().anyMatch(value -> !value.matches("[a-f0-9]{64}"))
+                    || java.util.stream.Stream.of(parameters, headers, consumes, produces).flatMap(Collection::stream)
+                            .mapToLong(String::length).sum() > 16384) throw new IllegalArgumentException("PAGE_HOOK_CAPACITY");
+            routes = routes.stream().map(HookTarget::routeShape).collect(java.util.stream.Collectors.toUnmodifiableSet());
+        }
+        public int entries() { return 1 + routes.size() + paths.size() + methods.size() + alternatives.size(); }
+        public HookTarget withAlternatives(Set<String> values) {
+            return new HookTarget(owner, handler, routes, parameters, headers, consumes, produces, bodyRequired, paths, methods, values);
+        }
+        public boolean relatedTo(String currentOwner, String currentHandler, String method, String route) {
+            // 同名方法属于原 owner；同一路由被其它 owner 接管时仍须重新批准。
+            return owner.equals(currentOwner) && handler.equals(currentHandler) && routes.stream().anyMatch(value -> value.startsWith(method + ":"))
+                    || routes.contains(routeShape(method + ":" + route));
+        }
+        private static String routeShape(String anchor) {
+            if (anchor.indexOf('{') < 0) return anchor;
+            // 变量名不改变路径范围；正则中的嵌套量词和转义必须原样保留。
+            var result = new StringBuilder(anchor.length());
+            int depth = 0;
+            for (int index = 0; index < anchor.length(); index++) {
+                char ch = anchor.charAt(index);
+                result.append(ch);
+                if (ch == '\\' && depth > 0 && index + 1 < anchor.length()) {
+                    result.append(anchor.charAt(++index));
+                } else if (ch == '{') {
+                    depth++;
+                    if (depth == 1) {
+                        if (index + 1 < anchor.length() && anchor.charAt(index + 1) == '*') result.append(anchor.charAt(++index));
+                        while (index + 1 < anchor.length() && anchor.charAt(index + 1) != ':' && anchor.charAt(index + 1) != '}') index++;
+                    }
+                } else if (ch == '}' && depth > 0) depth--;
+            }
+            return result.toString();
+        }
+    }
     public record Page(String document, String projection, String previousDocument,
             List<Requirement> requirements, List<PagePublications.Permission> permissions, List<HookRequirement> hooks) {
         public Page {
             requirements = List.copyOf(requirements); permissions = List.copyOf(permissions);
-            hooks = hooks == null ? List.of() : List.copyOf(hooks);
+            hooks = List.copyOf(hooks);
         }
         public Page(String document, String projection, String previousDocument,
                 List<Requirement> requirements, List<PagePublications.Permission> permissions) {
@@ -68,7 +114,7 @@ public final class WebPublicationStore {
         public static HookState empty() { return new HookState(new HookSettings(Map.of(), List.of()), List.of(), List.of()); }
     }
     public record Snapshot(long revision, String epoch, Map<String, Page> pages, HookState configuration) {
-        public Snapshot { pages = Map.copyOf(pages); UUID.fromString(epoch); configuration = configuration == null ? HookState.empty() : configuration; }
+        public Snapshot { pages = Map.copyOf(pages); UUID.fromString(epoch); Objects.requireNonNull(configuration); }
         public Snapshot(long revision, String epoch, Map<String, Page> pages) { this(revision, epoch, pages, HookState.empty()); }
         public String identity() { return epoch + ":" + revision; }
         public List<Requirement> requirements(String operation) {
@@ -92,6 +138,7 @@ public final class WebPublicationStore {
     private final Path enrollment;
     private Snapshot cached;
     private Commit cachedCommit;
+    private boolean unavailable;
     private final java.util.function.Consumer<String> probe;
 
     public WebPublicationStore() { this(RuntimeFiles.webPublicationDirectory(), RuntimeFiles.webPublicationEnrollment()); }
@@ -106,9 +153,9 @@ public final class WebPublicationStore {
         this.directory = directory.toAbsolutePath().normalize();
         this.enrollment = enrollment.toAbsolutePath().normalize();
         this.probe = probe;
-        try { if (initialize) initialize(); }
+        try { if (initialize) { initialize(); snapshot(); } }
         catch (IOException | RuntimeException failure) {
-            org.slf4j.LoggerFactory.getLogger(getClass()).error(top.sywyar.pixivdownload.i18n.MessageBundles.getForLog("web-publication.log.unavailable"));
+            reportUnavailable("INITIALIZE", -1, failure);
         }
     }
 
@@ -199,29 +246,53 @@ public final class WebPublicationStore {
     }
 
     public synchronized Snapshot snapshot() {
+        String stage = "ENROLLMENT";
+        long revision = -1;
         try {
             PlainFilePathGuard.requirePlainRegularFile(enrollment);
             if (!Arrays.equals(read(enrollment, 8), "1\n".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
                 throw new IOException("publication enrollment invalid");
+            stage = "COMMIT";
             Commit commit = JSON.readValue(read(directory.resolve("current.json"), 1024), Commit.class);
             if (commit.format() != 1 || commit.revision() < 0 || !commit.file().matches("[a-f0-9-]{36}\\.json")
                     || !commit.digest().matches("[a-f0-9]{64}")) throw new IOException("publication commit invalid");
+            revision = commit.revision();
+            stage = "DIGEST";
             Path file = directory.resolve(commit.file());
             // 即使快照已缓存，仍校验磁盘字节；缺失或损坏不能保留可放行的旧状态。
             if (!hashFile(file).equals(commit.digest())) throw new IOException("publication digest mismatch");
             if (!commit.equals(cachedCommit)) {
                 byte[] bytes = read(file, MAX_BYTES);
                 if (!hash(bytes).equals(commit.digest())) throw new IOException("publication changed during read");
+                stage = "SNAPSHOT";
                 Snapshot snapshot = parseSnapshot(bytes);
                 if (snapshot.revision() != commit.revision())
                     throw new IOException("publication snapshot invalid");
                 cached = snapshot; cachedCommit = commit;
             }
+            if (unavailable) {
+                unavailable = false;
+                try {
+                    org.slf4j.LoggerFactory.getLogger(getClass()).info(top.sywyar.pixivdownload.i18n.MessageBundles.getForLog(
+                            "web-publication.log.available", cached.identity()));
+                } catch (RuntimeException ignored) { /* 日志故障不改变已验证的发布状态。 */ }
+            }
             return cached;
         } catch (IOException | RuntimeException failure) {
             cached = null; cachedCommit = null;
+            reportUnavailable(stage, revision, failure);
             throw new IllegalStateException("PAGE_PUBLICATION_UNAVAILABLE", failure);
         }
+    }
+
+    private void reportUnavailable(String stage, long revision, Exception failure) {
+        // 同一次不可用区间只记一次，恢复后重新允许记录；不保留可能包含页面内容的异常。
+        if (unavailable) return;
+        unavailable = true;
+        try {
+            org.slf4j.LoggerFactory.getLogger(getClass()).error(top.sywyar.pixivdownload.i18n.MessageBundles.getForLog(
+                    "web-publication.log.unavailable", stage, Long.toString(revision), failure.getClass().getSimpleName()));
+        } catch (RuntimeException ignored) { /* 保留原始失败与拒绝语义。 */ }
     }
 
     /** CAS 在跨进程文件锁内复核；激活失败也只能恢复已提交修订。 */

@@ -277,3 +277,5 @@ Windows 下已实测 IntelliJ Application 一键 Debug 和当前源码断点，�
 HTTP 回调使用 `OperationHook` Bean 声明身份、代际、数据合同、阶段和 `invoke`。宿主自动发现实际 Spring 控制器；管理员正式绑定后执行 `BEFORE_INVOKE` / `AFTER_COMPLETION`，业务方法和 DTO 无需调用 Guard 或加入证明字段。`OperationVerification` 是可交互前置 Hook 的适配合同。页面使用 `attachPage` 加载统一提交运行时；表单动作与接口的关系可以由编辑器配置。完整配置、权限、异步完成和资源边界见[插件开发文档](https://sywyar.github.io/PixivDownloader/#/zh-cn/plugin-development)。
 
 回调默认只接收接口和调用元数据；JSON、参数及结果字段须经过独立白名单授权。HTTP 完成不代表后台任务或数据库事务成功，后置回调失败不会重放业务。`OperationGuard` 保留给显式的本地同步操作，不能在同一个 HTTP 入口再次验证或消费证明。
+
+固定 HTTP 目标可在插件单例 Bean 的 public 回调方法上声明 `@HttpHook(id=..., targetOwner=..., method=..., path=..., phase=...)`，唯一参数为 `OperationHook.Invocation`；前置返回 `Decision`，后置可返回 void。管理员在插件详情的「HTTP Hook 声明」预览并批准后生效，相同声明在重新启用后恢复；变更需重新批准。普通方法只接收元数据，复杂合同继续实现 `OperationHook` 并注解 `invoke`。方法必须同步完成，不支持 `@Async`；多个路由别名属于同一 handler 时共用绑定。目标缺席或歧义不能批准，停用插件不会撤销已发布的前置保护。

@@ -392,6 +392,7 @@
         });
         document.getElementById('refreshBtn').addEventListener('click', function () { load(true); });
         window.addEventListener('pagehide', function () {
+            if (PM.hooks) PM.hooks.close();
             pageActive = false;
             if (statusRequest) statusRequest.abort();
             statusRequest = null;
@@ -400,6 +401,9 @@
         window.addEventListener('pageshow', function () {
             if (pageActive) return;
             pageActive = true;
+            var detail = document.getElementById('pm-detail-content');
+            var hookHost = detail.querySelector('[data-pm-hooks]');
+            if (PM.hooks && hookHost && document.getElementById('pm-detail-modal').open) PM.hooks.open(hookHost, detail.dataset.pluginId);
             load();
         });
         wireInstall();

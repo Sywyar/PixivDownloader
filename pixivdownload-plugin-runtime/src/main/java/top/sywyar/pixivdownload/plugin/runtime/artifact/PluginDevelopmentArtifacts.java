@@ -54,6 +54,11 @@ public final class PluginDevelopmentArtifacts {
     private PluginDevelopmentArtifacts() {
     }
 
+    /** 随机会话 marker 只用于清理授权，不属于已冻结的插件部署内容。 */
+    public static String deploymentFingerprint(Path snapshot) throws IOException {
+        return DeploymentFingerprint.of(snapshot, java.util.Set.of(SNAPSHOT_MARKER));
+    }
+
     public static boolean enabled() {
         return Boolean.parseBoolean(System.getProperty(ENABLED_PROPERTY));
     }

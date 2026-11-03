@@ -65,7 +65,7 @@ public final class OperationHooksController {
         } catch (IOException | RuntimeException failure) { return failure(failure); }
         finally { configurations.release(); }
     }
-    private static <T> T read(HttpServletRequest request, Class<T> type) throws IOException {
+    static <T> T read(HttpServletRequest request, Class<T> type) throws IOException {
         byte[] bytes = request.getInputStream().readNBytes(1024 * 1024 + 1);
         if (bytes.length > 1024 * 1024) throw new IllegalArgumentException("PAGE_HOOK_CAPACITY");
         return JSON.readValue(bytes, type);

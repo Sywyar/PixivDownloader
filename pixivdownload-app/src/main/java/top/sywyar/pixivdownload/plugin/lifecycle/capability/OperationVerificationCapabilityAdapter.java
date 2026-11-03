@@ -34,7 +34,11 @@ public final class OperationVerificationCapabilityAdapter implements ExternalRun
             OperationPolicies.validate(registry.captureMetadata(preparation, OperationVerification.class, "policy", bean::policy));
             OperationPolicies.identity(registry.captureMetadata(preparation, OperationVerification.class, "generation", bean::generation));
             registry.prepareService(preparation, key(id), bean);
-            registry.prepareService(preparation, OperationHookCapabilityAdapter.key(id), bean);
+            var invoke = org.springframework.util.ReflectionUtils.findMethod(org.springframework.aop.support.AopUtils.getTargetClass(bean),
+                    "invoke", top.sywyar.pixivdownload.plugin.api.operation.OperationHook.Invocation.class);
+            if (invoke == null || !org.springframework.core.annotation.AnnotatedElementUtils.hasAnnotation(invoke,
+                    top.sywyar.pixivdownload.plugin.api.operation.HttpHook.class))
+                registry.prepareService(preparation, OperationHookCapabilityAdapter.key(id), bean);
         }
         return new Prepared(preparation.owner());
     }

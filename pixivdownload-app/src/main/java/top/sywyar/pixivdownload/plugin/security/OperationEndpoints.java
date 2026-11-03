@@ -25,6 +25,11 @@ public final class OperationEndpoints {
     private List<Endpoint> catalog = List.of();
     private long catalogRevision = -1;
     private List<RouteAccessRegistry.RegisteredRoute> catalogRoutes = List.of();
+    private String coreDeployment;
+    private top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager runtime;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void runtime(top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager value) { runtime = value; }
 
     @org.springframework.beans.factory.annotation.Autowired
     public void publications(top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore value) { publications = value; }
@@ -33,8 +38,7 @@ public final class OperationEndpoints {
     public void requests(top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLeaseRegistry requests) { this.requests = requests; }
 
     public top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLease retain(Endpoint endpoint) {
-        var owner = routes.routes().stream().filter(route -> route.pluginId().equals(endpoint.owner()))
-                .map(RouteAccessRegistry.RegisteredRoute::requestOwner).filter(Objects::nonNull).distinct().findFirst().orElse(null);
+        var owner = requestOwner(endpoint);
         if (owner == null) {
             if (!endpoint.owner().equals("core")) throw new IllegalStateException("OPERATION_ENDPOINT_UNAVAILABLE");
             return null;
@@ -43,6 +47,11 @@ public final class OperationEndpoints {
         var lease = requests.prepareLease(owner).orElseThrow(() -> new IllegalStateException("OPERATION_ENDPOINT_UNAVAILABLE"));
         if (!requests.activate(lease)) { lease.close(); throw new IllegalStateException("OPERATION_ENDPOINT_UNAVAILABLE"); }
         return lease;
+    }
+
+    private top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner requestOwner(Endpoint endpoint) {
+        return routes.routes().stream().filter(route -> route.pluginId().equals(endpoint.owner()))
+                .map(RouteAccessRegistry.RegisteredRoute::requestOwner).filter(Objects::nonNull).distinct().findFirst().orElse(null);
     }
 
     public OperationEndpoints(@Qualifier("requestMappingHandlerMapping") ObjectProvider<RequestMappingHandlerMapping> mappings,
@@ -119,6 +128,98 @@ public final class OperationEndpoints {
         return snapshot(null, null).stream().filter(value -> caller == null || value.owner().equals(caller)).toList();
     }
 
+    public Set<top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore.HookTarget> targetAnchors(List<Endpoint> targets) {
+        var mapping = mappings.getIfAvailable();
+        if (mapping == null) throw new IllegalArgumentException("OPERATION_ENDPOINT_UNAVAILABLE");
+        var selected = targets.stream().collect(java.util.stream.Collectors.toMap(Endpoint::id, value -> value));
+        var handlers = targets.stream().map(Endpoint::handler).collect(java.util.stream.Collectors.toSet());
+        var directory = catalog(null);
+        int entries = 0;
+        var anchors = new HashSet<top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore.HookTarget>();
+        for (var entry : mapping.getHandlerMethods().entrySet()) {
+            if (!handlers.contains(entry.getValue().getBeanType().getName() + "#" + entry.getValue().getMethod().getName())) continue;
+            var endpoint = materialize(mapping, entry.getKey(), entry.getValue());
+            if (!endpoint.equals(selected.get(endpoint.id()))) continue;
+            var anchor = new top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore.HookTarget(endpoint.owner(), endpoint.handler(),
+                    endpoint.routes().stream().map(route -> route.method() + ":" + route.template()).collect(java.util.stream.Collectors.toSet()),
+                    endpoint.parameters(), endpoint.headers(), endpoint.consumes(), endpoint.produces(), entry.getKey().getConsumesCondition().isBodyRequired(),
+                    entry.getKey().getPatternValues(), entry.getKey().getMethodsCondition().getMethods().stream().map(Enum::name)
+                            .collect(java.util.stream.Collectors.toSet()), Set.of());
+            var alternatives = directory.stream().filter(candidate -> !candidate.id().equals(endpoint.id()))
+                    .filter(candidate -> candidate.routes().stream().anyMatch(route -> anchor.relatedTo(candidate.owner(), candidate.handler(), route.method().name(), route.template())))
+                    .map(this::identity).collect(java.util.stream.Collectors.toSet());
+            var captured = anchor.withAlternatives(alternatives);
+            if ((entries += captured.entries()) > 8192) throw new IllegalArgumentException("PAGE_HOOK_CAPACITY");
+            anchors.add(captured);
+        }
+        if (anchors.size() != selected.size()) throw new IllegalArgumentException("OPERATION_ENDPOINT_STALE");
+        return Set.copyOf(anchors);
+    }
+
+    private String identity(Endpoint endpoint) {
+        // 进程 epoch、generation 和 servingId 只管租约；持久化候选复核冻结部署内容。
+        String deployment;
+        if (endpoint.owner().equals("core")) deployment = coreDeployment();
+        else {
+            var owner = requestOwner(endpoint);
+            if (runtime == null || owner == null || !owner.toString().equals(endpoint.publication()))
+                throw new IllegalArgumentException("OPERATION_ENDPOINT_UNAVAILABLE");
+            deployment = runtime.deploymentIdentity(owner.pluginId(), owner.generation())
+                    .orElseThrow(() -> new IllegalArgumentException("OPERATION_ENDPOINT_UNAVAILABLE"));
+        }
+        return hash(endpoint.id() + "\n" + deployment + "\n" + endpoint.revision());
+    }
+
+    private synchronized String coreDeployment() {
+        if (coreDeployment == null) {
+            coreDeployment = "";
+            try {
+                var location = OperationEndpoints.class.getProtectionDomain().getCodeSource().getLocation();
+                var connection = location.openConnection(); connection.setUseCaches(false);
+                java.nio.file.Path source;
+                if (connection instanceof java.net.JarURLConnection archive) {
+                    try (var jar = archive.getJarFile()) {
+                        String name = jar.getName(); int nested = name.indexOf("!/");
+                        source = java.nio.file.Path.of(nested < 0 ? name : name.substring(0, nested));
+                    }
+                } else source = java.nio.file.Path.of(location.toURI());
+                coreDeployment = top.sywyar.pixivdownload.plugin.runtime.artifact.DeploymentFingerprint.of(source);
+            } catch (Exception unavailable) { throw new IllegalArgumentException("OPERATION_ENDPOINT_UNAVAILABLE"); }
+        }
+        if (coreDeployment.isEmpty()) throw new IllegalArgumentException("OPERATION_ENDPOINT_UNAVAILABLE");
+        return coreDeployment;
+    }
+
+    public boolean anchoredAt(top.sywyar.pixivdownload.plugin.web.page.WebPublicationStore.HookRequirement requirement,
+            Endpoint endpoint, String route, jakarta.servlet.http.HttpServletRequest request) {
+        for (var anchor : requirement.targetAnchors()) {
+            if (!anchor.relatedTo(endpoint.owner(), endpoint.handler(), request.getMethod(), route)) continue;
+            var mapping = mappings.getIfAvailable();
+            if (mapping == null) throw new IllegalArgumentException("OPERATION_ENDPOINT_UNAVAILABLE");
+            var conditions = RequestMappingInfo.paths(anchor.paths().toArray(String[]::new)).options(mapping.getBuilderConfiguration())
+                    .methods(anchor.methods().stream().map(org.springframework.web.bind.annotation.RequestMethod::valueOf)
+                            .toArray(org.springframework.web.bind.annotation.RequestMethod[]::new))
+                    .params(anchor.parameters().toArray(String[]::new)).headers(anchor.headers().toArray(String[]::new))
+                    .consumes(anchor.consumes().toArray(String[]::new)).produces(anchor.produces().toArray(String[]::new)).build();
+            conditions.getConsumesCondition().setBodyRequired(anchor.bodyRequired());
+            boolean unchanged;
+            try { unchanged = anchor.alternatives().contains(identity(endpoint)); }
+            catch (IllegalArgumentException unavailable) { unchanged = false; }
+            var previous = conditions.getMatchingCondition(request);
+            // 新增别名仍受原 handler 的保护；已存在的其它映射只按原声明比较。
+            if (previous == null && !unchanged) previous = conditions.mutate().paths(route).build().getMatchingCondition(request);
+            if (previous == null) continue;
+            if (unchanged && request.getAttribute(top.sywyar.pixivdownload.plugin.web.mapping.PluginAwareRequestMappingHandlerMapping.MATCH_ATTRIBUTE)
+                    instanceof RequestMappingInfo selected) {
+                var matched = selected.getMatchingCondition(request);
+                // 只有发布时已存在且身份未变的候选，才能凭 Spring 的实际优先级排除旧保护。
+                if (matched != null && matched.compareTo(previous, request) < 0) continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
     public Endpoint matched(jakarta.servlet.http.HttpServletRequest request, HandlerMethod handler) {
         var mapping = mappings.getIfAvailable();
         if (mapping == null) throw new IllegalArgumentException("OPERATION_ENDPOINT_UNAVAILABLE");
@@ -134,6 +235,7 @@ public final class OperationEndpoints {
                     .map(Map.Entry::getKey).toList();
         var matches = candidates.stream().filter(candidate -> candidate.getMatchingCondition(request) != null).toList();
         if (matches.size() != 1) throw new IllegalArgumentException("OPERATION_ENDPOINT_AMBIGUOUS");
+        request.setAttribute(top.sywyar.pixivdownload.plugin.web.mapping.PluginAwareRequestMappingHandlerMapping.MATCH_ATTRIBUTE, matches.get(0));
         return materialize(mapping, matches.get(0), handler);
     }
 

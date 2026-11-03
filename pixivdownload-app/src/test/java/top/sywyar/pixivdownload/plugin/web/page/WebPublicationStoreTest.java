@@ -108,6 +108,62 @@ class WebPublicationStoreTest {
         assertThat(Files.exists(enrollment())).isFalse();
     }
 
+    @Test @DisplayName("不完整快照保持拒绝，启动与恢复诊断为英文且不重复泄露正文")
+    void rejectsIncompleteStateAndReportsRecovery() throws Exception {
+        var store = new WebPublicationStore(directory(), enrollment());
+        store.commit(0, next());
+        Path current = directory().resolve("current.json");
+        byte[] committed = Files.readAllBytes(current);
+        var commit = (com.fasterxml.jackson.databind.node.ObjectNode) JSON.readTree(committed);
+        Path file = directory().resolve(commit.path("file").asText());
+        byte[] original = Files.readAllBytes(file);
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(WebPublicationStore.class);
+        var capture = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        capture.start();
+        logger.addAppender(capture);
+        var locale = java.util.Locale.getDefault();
+        try {
+            java.util.Locale.setDefault(java.util.Locale.JAPANESE);
+            for (String field : List.of("configuration", "hooks")) {
+                var incomplete = (com.fasterxml.jackson.databind.node.ObjectNode) JSON.readTree(original);
+                if (field.equals("configuration")) incomplete.remove(field);
+                else ((com.fasterxml.jackson.databind.node.ObjectNode) incomplete.path("pages").path("owner:page")).remove(field);
+                // 文件摘要仍然正确；拒绝的是缺少安全字段，不能归因于损坏摘要。
+                byte[] bytes = JSON.writeValueAsBytes(incomplete);
+                Files.write(file, bytes);
+                commit.put("digest", hash(bytes));
+                Files.write(current, JSON.writeValueAsBytes(commit));
+                capture.list.clear();
+                var restarted = new WebPublicationStore(directory(), enrollment());
+                for (int poll = 0; poll < 3; poll++)
+                    assertThatThrownBy(restarted::snapshot).hasMessage("PAGE_PUBLICATION_UNAVAILABLE");
+                assertThat(capture.list).hasSize(1);
+                assertThat(capture.list.get(0).getLevel()).isEqualTo(ch.qos.logback.classic.Level.ERROR);
+                assertThat(capture.list.get(0).getFormattedMessage()).contains("stage=SNAPSHOT", "revision=1", "failure=")
+                        .doesNotContain("web-publication.log.", "利用", "draft");
+                assertThat(capture.list.get(0).getThrowableProxy()).isNull();
+                Files.write(file, original);
+                Files.write(current, committed);
+                assertThat(restarted.snapshot()).isEqualTo(store.snapshot());
+                restarted.snapshot();
+                assertThat(capture.list).hasSize(2);
+                assertThat(capture.list.get(1).getLevel()).isEqualTo(ch.qos.logback.classic.Level.INFO);
+            }
+            capture.list.clear();
+            Files.writeString(current, "{\"secret-proof\":\"not-a-log-value\"");
+            for (int poll = 0; poll < 3; poll++)
+                assertThatThrownBy(store::snapshot).hasMessage("PAGE_PUBLICATION_UNAVAILABLE");
+            assertThat(capture.list).hasSize(1);
+            assertThat(capture.list.get(0).getFormattedMessage()).contains("stage=COMMIT", "failure=")
+                    .doesNotContain("secret-proof", "not-a-log-value");
+            assertThat(capture.list.get(0).getThrowableProxy()).isNull();
+        } finally {
+            java.util.Locale.setDefault(locale);
+            logger.detachAppender(capture);
+            capture.stop();
+        }
+    }
+
     @Test @DisplayName("重复发布只保留有界快照，清理不影响其它文件或当前提交")
     void boundsSnapshotRetention() throws Exception {
         var store = new WebPublicationStore(directory(), enrollment());

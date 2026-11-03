@@ -65,8 +65,7 @@ public final class HttpOperationHooks implements AsyncHandlerInterceptor, Servle
         // 只比较 MVC 实际选中的声明；旧保护失效时拒绝关联的新 handler，不把旧回调套给它。
         var displaced = snapshot.hooks().filter(binding -> !selectedBindings.contains(binding)
                 && binding.binding().phase() == OperationHook.Phase.BEFORE_INVOKE
-                && (binding.targetAnchors().contains("handler:" + endpoint.handler())
-                    || binding.targetAnchors().contains("route:" + request.getMethod() + ":" + route)))
+                && endpoints.anchoredAt(binding, endpoint, route, request))
                 .filter(binding -> !contracts.current(binding)).findFirst();
         if (displaced.isPresent()) {
             OperationHookCalls.skipped(displaced.get(), endpoint.id(), "TARGET_STALE");

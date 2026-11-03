@@ -934,6 +934,12 @@ public class PluginRuntimeManager {
         return packageIndex.generation(packageId);
     }
 
+    /** 精确已加载 generation 的冻结内容身份；不读取可被替换的公开安装路径。 */
+    public synchronized Optional<String> deploymentIdentity(String packageId, long generation) {
+        Entry entry = packageIndex.get(packageId);
+        return entry == null || entry.generation() != generation ? Optional.empty() : entry.deploymentIdentity();
+    }
+
     public synchronized Optional<Path> artifactPath(String packageId) {
         return packageIndex.artifactPath(packageId);
     }

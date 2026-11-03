@@ -26,6 +26,8 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.head;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 @DisplayName("真实 MVC 分发表中的通用前置后置回调与租约")
@@ -96,11 +98,374 @@ class OperationHooksTest {
         };
         child = new AnnotationConfigApplicationContext(); child.registerBean(OperationHook.class, () -> hook); child.refresh();
         var preparation = registry.allocatePreparation("unknown-owner", "unknown-owner", 1); registry.installPreparation(preparation);
-        new OperationHookCapabilityAdapter(registry).prepare(preparation, child); provider = registry.publish(preparation);
+        new OperationHookCapabilityAdapter(registry, new HttpHookDeclarations()).prepare(preparation, child); provider = registry.publish(preparation);
         publish("");
     }
 
     @AfterEach void close() { if (released != null) released.countDown(); if (afterReleased != null) afterReleased.countDown(); hookExecutor.shutdownNow(); child.close(); }
+
+    @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(strings = {"core", "operation-form"})
+    @DisplayName("独立 JVM 重启保留候选身份，真实部署变化仍不能越过失效保护")
+    void restartedTarget(String owner) throws Exception {
+        String classpath = System.getProperty("surefire.test.class.path", System.getProperty("java.class.path"));
+        var classes = owner.equals("core")
+                ? java.nio.file.Path.of(OperationEndpoints.class.getProtectionDomain().getCodeSource().getLocation().toURI()) : formClasses(classpath);
+        var artifact = root.resolve("deployment.jar");
+        for (String phase : List.of("seed", "restart", "changed")) {
+            if (!phase.equals("restart")) {
+                try (var output = new java.util.jar.JarOutputStream(java.nio.file.Files.newOutputStream(artifact));
+                        var files = java.nio.file.Files.walk(classes)) {
+                    for (var file : files.filter(java.nio.file.Files::isRegularFile).sorted().toList()) {
+                        output.putNextEntry(new java.util.jar.JarEntry(classes.relativize(file).toString().replace('\\', '/')));
+                        java.nio.file.Files.copy(file, output); output.closeEntry();
+                    }
+                    output.putNextEntry(new java.util.jar.JarEntry("hooks-deployment.txt"));
+                    output.write(phase.getBytes(java.nio.charset.StandardCharsets.UTF_8)); output.closeEntry();
+                }
+            }
+            var entries = Arrays.stream(classpath.split(java.util.regex.Pattern.quote(java.io.File.pathSeparator)))
+                    .map(entry -> java.nio.file.Path.of(entry).equals(classes) ? artifact.toString() : entry).toList();
+            if (owner.equals("core")) assertThat(entries).contains(artifact.toString());
+            var arguments = root.resolve(phase + ".args"); var log = root.resolve(phase + ".log");
+            java.nio.file.Files.writeString(arguments, "-cp\n" + argument(String.join(java.io.File.pathSeparator, entries))
+                    + "\n" + RestartedTarget.class.getName() + "\n" + argument(root.toString()) + "\n" + phase + "\n" + owner,
+                    java.nio.charset.StandardCharsets.UTF_8);
+            var process = new ProcessBuilder(java.nio.file.Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                    "@" + arguments).redirectErrorStream(true).redirectOutput(log.toFile()).start();
+            try {
+                assertThat(process.waitFor(60, TimeUnit.SECONDS)).as(phase).isTrue();
+                String output = java.nio.file.Files.readString(log, java.nio.charset.StandardCharsets.UTF_8);
+                assertThat(process.exitValue()).withFailMessage(output).isZero();
+                output.lines().filter(line -> line.startsWith("HOOK_RESTART_")).forEach(System.out::println);
+            } finally { if (process.isAlive()) process.destroyForcibly().waitFor(); }
+        }
+    }
+
+    private static String argument(String value) { return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""; }
+
+    private java.nio.file.Path formClasses(String classpath) throws Exception {
+        var source = root.resolve("OperationFormPlugin.java");
+        try (var input = getClass().getResourceAsStream("/page-components/OperationFormPlugin.java")) {
+            java.nio.file.Files.copy(Objects.requireNonNull(input), source);
+        }
+        var classes = java.nio.file.Files.createDirectory(root.resolve("form-classes"));
+        assertThat(javax.tools.ToolProvider.getSystemJavaCompiler().run(null, null, null, "-encoding", "UTF-8", "-parameters",
+                "--release", "17", "-classpath", classpath, "-d", classes.toString(), source.toString())).isZero();
+        java.nio.file.Files.writeString(classes.resolve("plugin.properties"), """
+                plugin.id=operation-form
+                plugin.version=0.0.1
+                plugin.requires=%s
+                plugin.class=example.operation.OperationFormPlugin
+                plugin.provider=fixture
+                plugin.description=Operation form fixture
+                pixiv.display-namespace=operation-form
+                pixiv.display-name-key=name
+                pixiv.description-key=name
+                pixiv.kind=feature
+                pixiv.configuration-classes=example.operation.OperationFormPlugin$Wiring
+                pixiv.lifecycle-policy=hot-reload
+                pixiv.execution-mode=host-process-full-trust
+                """.formatted(top.sywyar.pixivdownload.sdk.SdkVersion.current()), java.nio.charset.StandardCharsets.UTF_8);
+        return classes;
+    }
+
+    public static final class RestartedTarget {
+        public static void main(String[] args) throws Exception {
+            top.sywyar.pixivdownload.common.Utf8ConsoleStreams.install();
+            var fixture = new OperationHooksTest();
+            fixture.root = java.nio.file.Path.of(args[0]).resolve("provider-" + args[1]);
+            top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager runtime = null;
+            try {
+                fixture.start(); fixture.root = java.nio.file.Path.of(args[0]);
+                if (!args[2].equals("core")) {
+                    var plugins = java.nio.file.Files.createDirectory(fixture.root.resolve("plugins-" + args[1]));
+                    var installed = java.nio.file.Files.copy(fixture.root.resolve("deployment.jar"), plugins.resolve("operation-form.jar"));
+                    top.sywyar.pixivdownload.plugin.PluginTestProvenance.writeVerifiedLocalUpload(plugins, installed);
+                    runtime = new top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager(plugins,
+                            top.sywyar.pixivdownload.plugin.PluginTestProvenance.verifier());
+                    runtime.loadPlugin(installed); runtime.startPlugin(args[2]);
+                    if (args[1].equals("seed")) { runtime.stopPlugin(args[2]); runtime.startPlugin(args[2]); }
+                }
+                fixture.restart(args[1], args[2], runtime);
+            } finally {
+                fixture.close();
+                if (runtime != null) {
+                    runtime.shutdown(); assertThat(runtime.deploymentIdentity(args[2], 1)).isEmpty();
+                }
+            }
+        }
+    }
+
+    private void restart(String phase, String owner, top.sywyar.pixivdownload.plugin.runtime.PluginRuntimeManager runtime) throws Exception {
+        var publications = new WebPublicationStore(root.resolve("restart"), root.resolve("restart-enrolled"));
+        var pages = new PageContributionRegistry(List.of(), registry);
+        var factory = new StaticListableBeanFactory();
+        var routes = new RouteAccessRegistry(new PluginRegistry(List.of()));
+        routes.register("core", List.of(WebRouteContribution.admin("/automatic/**")));
+        var requests = new top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestLeaseRegistry();
+        var requestOwner = runtime == null ? null : new top.sywyar.pixivdownload.plugin.lifecycle.request.PluginRequestOwner(
+                owner, runtime.generation(owner).orElseThrow(), phase.equals("restart") ? 1 : 2);
+        if (requestOwner != null) {
+            routes.register(requestOwner, List.of(WebRouteContribution.admin("/api/operation-form/**")));
+            requests.publish(requestOwner);
+        }
+        var catalog = new OperationEndpoints(factory.getBeanProvider(RequestMappingHandlerMapping.class), routes, pages);
+        catalog.publications(publications); catalog.requests(requests); catalog.runtime(runtime);
+        var admissions = new OperationAdmissions();
+        var contracts = new top.sywyar.pixivdownload.plugin.web.page.HookPublications(registry, catalog, pages, publications, admissions);
+        var interception = new HttpOperationHooks(catalog, publications, registry, admissions, new HookChallenges(), contracts, List.of(), hookExecutor);
+        Object controller = new PlainController(), other = new PlainController();
+        var originalMethod = PlainController.class.getMethod("draft");
+        var replacement = PlainController.class.getMethod("replacement", PlainController.Input.class);
+        var siblingMethod = replacement;
+        var businessCalls = ((PlainController) other).executions;
+        if (runtime != null) {
+            var loader = runtime.initializePlugin(owner).inventory().installations().get(0).classLoader();
+            var type = loader.loadClass("example.operation.OperationFormPlugin$FormController");
+            var command = loader.loadClass("example.operation.OperationFormPlugin$FormController$Command");
+            controller = type.getConstructor().newInstance(); other = type.getConstructor().newInstance();
+            originalMethod = type.getMethod("alpha", command); replacement = type.getMethod("beta", command);
+            siblingMethod = type.getMethod("secondary", command);
+            businessCalls = (AtomicInteger) loader.loadClass("example.operation.OperationFormPlugin").getField("calls").get(null);
+        }
+        var http = MockMvcBuilders.standaloneSetup(controller)
+                .setCustomHandlerMapping(top.sywyar.pixivdownload.plugin.web.mapping.PluginAwareRequestMappingHandlerMapping::new)
+                .addInterceptors(interception)
+                .alwaysDo(result -> interception.requestDestroyed(new jakarta.servlet.ServletRequestEvent(result.getRequest().getServletContext(), result.getRequest())))
+                .build();
+        var mapping = http.getDispatcherServlet().getWebApplicationContext().getBean(
+                top.sywyar.pixivdownload.plugin.web.mapping.PluginAwareRequestMappingHandlerMapping.class);
+        factory.addBean("mapping", mapping);
+        String path = runtime == null ? "/automatic/restart" : "/api/operation-form/restart";
+        var original = org.springframework.web.servlet.mvc.method.RequestMappingInfo.paths(path + "/{id}")
+                .options(mapping.getBuilderConfiguration()).methods(RequestMethod.POST).params("mode=a").build();
+        var sibling = original.mutate().paths(path + "/{key}").params("mode=a", "detail=yes").build();
+        var renamed = original.mutate().paths(path + "/{value}").build();
+        mapping.registerPluginMapping(owner, sibling, other, siblingMethod);
+        boolean seed = phase.equals("seed");
+        mapping.registerPluginMapping(owner, seed ? original : renamed, controller, seed ? originalMethod : replacement);
+        java.util.function.Supplier<org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder> affected =
+                () -> post(path + "/123").param("mode", "a").contentType("application/json").content("{\"value\":\"restart\"}");
+        java.util.function.Supplier<org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder> unaffected =
+                () -> affected.get().param("detail", "yes");
+        verdict = OperationHook.Verdict.REJECT;
+        if (seed) {
+            String target = catalog.catalog(null).stream().filter(endpoint -> endpoint.routes().stream()
+                    .anyMatch(route -> route.template().equals(path + "/{id}"))).findFirst().orElseThrow().id();
+            var binding = new OperationBinding("gate", hook.id(), "", target, OperationHook.Phase.BEFORE_INVOKE, 0, OperationHook.Completion.ALL, "{}");
+            var plan = contracts.prepareConfiguration(0, new WebPublicationStore.HookSettings(Map.of(), List.of(binding)));
+            contracts.publishConfiguration(plan, plan.permissions());
+            http.perform(affected.get()).andExpect(status().isForbidden());
+            http.perform(unaffected.get()).andExpect(status().isOk());
+            mapping.unregisterMapping(original); mapping.registerPluginMapping(owner, renamed, controller, replacement);
+        }
+        var endpoint = catalog.catalog(null).stream().filter(value -> value.routes().stream()
+                .anyMatch(route -> route.template().equals(path + "/{key}"))).findFirst().orElseThrow();
+        String contract = top.sywyar.pixivdownload.plugin.web.page.HookPublications.targetContract(List.of(endpoint));
+        var state = root.resolve("restart-state.json");
+        if (seed) HookRequestFilter.JSON.writeValue(state.toFile(), Map.of("pid", ProcessHandle.current().pid(),
+                "contract", contract, "publication", endpoint.publication(), "snapshot", publications.snapshot().identity()));
+        else {
+            var before = HookRequestFilter.JSON.readTree(state.toFile());
+            assertThat(ProcessHandle.current().pid()).isNotEqualTo(before.path("pid").asLong());
+            assertThat(contract).isEqualTo(before.path("contract").asText());
+            if (runtime != null && phase.equals("changed")) assertThat(endpoint.publication()).isEqualTo(before.path("publication").asText());
+            else assertThat(endpoint.publication()).isNotEqualTo(before.path("publication").asText());
+            assertThat(publications.snapshot().identity()).isEqualTo(before.path("snapshot").asText());
+        }
+        events.clear();
+        http.perform(affected.get()).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("HOOK_TARGET_STALE"));
+        http.perform(unaffected.get()).andExpect(status().is(phase.equals("changed") ? 409 : 200));
+        assertThat(businessCalls).hasValue(seed ? 2 : phase.equals("changed") ? 0 : 1);
+        if (controller instanceof PlainController plain) assertThat(plain.executions).hasValue(0);
+        assertThat(events).isEmpty();
+        if (phase.equals("restart")) {
+            for (boolean changedOwner : List.of(true, false)) {
+                mapping.unregisterMapping(sibling);
+                var changed = changedOwner ? sibling : sibling.mutate().headers("X-Changed=yes").build();
+                mapping.registerPluginMapping(changedOwner ? "other-owner" : owner, changed, other, siblingMethod);
+                http.perform(unaffected.get().header("X-Changed", "yes")).andExpect(status().isConflict());
+                mapping.unregisterMapping(changed); mapping.registerPluginMapping(owner, sibling, other, siblingMethod);
+            }
+            http.perform(unaffected.get()).andExpect(status().isOk());
+            assertThat(businessCalls).hasValue(2);
+        }
+        admissions.closeAndDrain(catalog.catalog(null).stream().map(OperationTargets.Endpoint::id).collect(java.util.stream.Collectors.toSet()), java.time.Duration.ZERO);
+        if (requestOwner != null) {
+            assertThat(requests.withdraw(requestOwner).orElseThrow().isDrained()).isTrue();
+            assertThat(requests.retire(requestOwner)).isTrue();
+        }
+        assertThat(publications.snapshot().revision()).isEqualTo(1);
+        System.out.println("HOOK_RESTART_PASSED owner=" + owner + " phase=" + phase + " pid=" + ProcessHandle.current().pid()
+                + " affected=409 sibling=" + (phase.equals("changed") ? 409 : 200) + " unchangedContract=true revision=1");
+    }
+
+    @Test @DisplayName("路径变量与处理方法同时改名仍保留旧保护，显式重绑或撤销后才生效")
+    void renamedTarget() throws Exception {
+        var publications = new WebPublicationStore(root.resolve("renamed"), root.resolve("renamed-enrolled"));
+        var pages = new PageContributionRegistry(List.of(), registry);
+        var factory = new StaticListableBeanFactory();
+        var routes = new RouteAccessRegistry(new PluginRegistry(List.of()));
+        routes.register("core", List.of(WebRouteContribution.admin("/automatic/**")));
+        var catalog = new OperationEndpoints(factory.getBeanProvider(RequestMappingHandlerMapping.class), routes, pages);
+        catalog.publications(publications);
+        var admissions = new OperationAdmissions();
+        var contracts = new top.sywyar.pixivdownload.plugin.web.page.HookPublications(registry, catalog, pages, publications, admissions);
+        var interception = new HttpOperationHooks(catalog, publications, registry, admissions, new HookChallenges(), contracts, List.of(), hookExecutor);
+        var controller = new PlainController();
+        var http = MockMvcBuilders.standaloneSetup(controller)
+                .setCustomHandlerMapping(top.sywyar.pixivdownload.plugin.web.mapping.PluginAwareRequestMappingHandlerMapping::new)
+                .addInterceptors(interception)
+                .alwaysDo(result -> interception.requestDestroyed(new jakarta.servlet.ServletRequestEvent(result.getRequest().getServletContext(), result.getRequest())))
+                .build();
+        var mapping = http.getDispatcherServlet().getWebApplicationContext().getBean(
+                top.sywyar.pixivdownload.plugin.web.mapping.PluginAwareRequestMappingHandlerMapping.class);
+        factory.addBean("mapping", mapping);
+        for (String[] scenario : List.of(new String[]{"item", "/automatic/items/123"},
+                new String[]{"code", "/automatic/codes/AB12.json"}, new String[]{"files", "/automatic/files/a/b"})) {
+            var original = mapping.getHandlerMethods().entrySet().stream()
+                    .filter(entry -> entry.getValue().getMethod().getName().equals(scenario[0])).findFirst().orElseThrow();
+            String oldPath = original.getKey().getPatternValues().iterator().next();
+            var renamed = original.getKey().mutate().paths(oldPath.replace("{id", "{key").replace("{*path}", "{*remaining}"))
+                    .build();
+            String target = catalog.catalog(null).stream().filter(endpoint -> endpoint.handler().endsWith("#" + scenario[0])).findFirst().orElseThrow().id();
+            var binding = new OperationBinding("gate", hook.id(), "", target, OperationHook.Phase.BEFORE_INVOKE, 0, OperationHook.Completion.ALL, "{}");
+            var plan = contracts.prepareConfiguration(publications.snapshot().revision(), new WebPublicationStore.HookSettings(Map.of(), List.of(binding)));
+            contracts.publishConfiguration(plan, plan.permissions());
+            verdict = OperationHook.Verdict.REJECT;
+            http.perform(post(scenario[1])).andExpect(status().isForbidden());
+            events.clear();
+            int executed = controller.executions.get();
+            mapping.unregisterMapping(original.getKey());
+            try {
+                mapping.registerMapping(renamed, controller, PlainController.class.getMethod("replacement", PlainController.Input.class));
+                http.perform(post(scenario[1])).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("HOOK_TARGET_STALE"));
+                assertThat(controller.executions).hasValue(executed); assertThat(events).isEmpty();
+                http.perform(post("/automatic/observe")).andExpect(status().isOk());
+                http.perform(post("/automatic/conditional").param("mode", "draft")).andExpect(status().isOk());
+                String replacement = catalog.catalog(null).stream().filter(endpoint -> endpoint.routes().stream()
+                        .anyMatch(route -> route.template().equals(renamed.getPatternValues().iterator().next()))).findFirst().orElseThrow().id();
+                var rebound = new OperationBinding("gate", hook.id(), "", replacement, OperationHook.Phase.BEFORE_INVOKE, 0, OperationHook.Completion.ALL, "{}");
+                plan = contracts.prepareConfiguration(publications.snapshot().revision(), new WebPublicationStore.HookSettings(Map.of(), List.of(rebound)));
+                contracts.publishConfiguration(plan, plan.permissions());
+                http.perform(post(scenario[1])).andExpect(status().isForbidden());
+                verdict = OperationHook.Verdict.CONTINUE;
+                http.perform(post(scenario[1])).andExpect(status().isOk());
+                assertThat(controller.executions).hasValue(executed + 1);
+                verdict = OperationHook.Verdict.REJECT;
+                plan = contracts.prepareConfiguration(publications.snapshot().revision(), new WebPublicationStore.HookSettings(Map.of(), List.of()));
+                contracts.publishConfiguration(plan, plan.permissions());
+                http.perform(post(scenario[1])).andExpect(status().isOk());
+                assertThat(controller.executions).hasValue(executed + 2);
+                admissions.closeAndDrain(Set.of(target, replacement), java.time.Duration.ZERO);
+                admissions.reopen(Set.of(target, replacement));
+            } finally {
+                mapping.unregisterMapping(renamed);
+                mapping.registerMapping(original.getKey(), controller, original.getValue().getMethod());
+            }
+        }
+        var base = mapping.getHandlerMethods().entrySet().stream()
+                .filter(entry -> entry.getValue().getMethod().getName().equals("draft")).findFirst().orElseThrow();
+        for (String condition : List.of("params", "headers", "consumes", "produces", "absent-param", "absent-header", "optional-body",
+                "overlap-params", "value-param", "overlap-headers", "value-header", "overlap-consumes", "overlap-produces", "overlap-method", "overlap-head")) {
+            String path = "/automatic/scoped-" + condition;
+            var first = base.getKey().mutate().paths(path + "/{id}").params(new String[0]);
+            var second = base.getKey().mutate().paths(path + "/{key}").params(new String[0]);
+            switch (condition) {
+                case "params" -> { first.params("mode=a"); second.params("mode=b"); }
+                case "headers" -> { first.headers("X-Mode=a"); second.headers("X-Mode=b"); }
+                case "consumes" -> { first.consumes("application/json"); second.consumes("text/plain"); }
+                case "produces" -> { first.produces("application/json"); second.produces("application/vnd.fixture+json"); }
+                case "absent-param" -> { first.params("!mode"); second.params("mode"); }
+                case "absent-header" -> { first.headers("!X-Mode"); second.headers("X-Mode"); }
+                case "optional-body" -> { first.params("mode=a").consumes("application/json"); second.params("mode=b"); }
+                case "overlap-params" -> { first.params("mode=a"); second.params("mode=a", "detail=yes"); }
+                case "value-param" -> { first.params("mode"); second.params("mode=a"); }
+                case "overlap-headers" -> { first.headers("X-Mode=a"); second.headers("X-Mode=a", "X-Detail=yes"); }
+                case "value-header" -> { first.headers("X-Mode"); second.headers("X-Mode=a"); }
+                case "overlap-consumes" -> { first.consumes("application/*"); second.consumes("application/json"); }
+                case "overlap-produces" -> { first.produces("application/*"); second.produces("application/json"); }
+                case "overlap-method" -> { first.methods(new RequestMethod[0]); second.methods(RequestMethod.POST); }
+                case "overlap-head" -> { first.methods(RequestMethod.GET); second.methods(RequestMethod.HEAD); }
+            }
+            var original = first.build(); var sibling = second.build();
+            if (condition.equals("optional-body")) original.getConsumesCondition().setBodyRequired(false);
+            var renamed = original.mutate().paths(path + "/{value}").build();
+            if (condition.equals("params")) renamed = renamed.mutate().headers("X-Extra=present").build();
+            var other = new PlainController();
+            var replacement = PlainController.class.getMethod("replacement", PlainController.Input.class);
+            java.util.function.Function<Boolean, org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder> request = protectedRoute -> {
+                var value = post(path + "/123");
+                return switch (condition) {
+                    case "params" -> value.param("mode", protectedRoute ? "a" : "b").header("X-Extra", "present");
+                    case "headers" -> value.header("X-Mode", protectedRoute ? "a" : "b");
+                    case "consumes" -> value.contentType(protectedRoute ? "application/json" : "text/plain").content("{}");
+                    case "produces" -> value.accept(protectedRoute ? "application/json" : "application/vnd.fixture+json");
+                    case "absent-param" -> protectedRoute ? value : value.param("mode", "b");
+                    case "absent-header" -> protectedRoute ? value : value.header("X-Mode", "b");
+                    case "overlap-params" -> protectedRoute ? value.param("mode", "a") : value.param("mode", "a").param("detail", "yes");
+                    case "value-param" -> value.param("mode", protectedRoute ? "b" : "a");
+                    case "overlap-headers" -> protectedRoute ? value.header("X-Mode", "a") : value.header("X-Mode", "a").header("X-Detail", "yes");
+                    case "value-header" -> value.header("X-Mode", protectedRoute ? "b" : "a");
+                    case "overlap-consumes" -> value.contentType(protectedRoute ? "application/xml" : "application/json").content("{}");
+                    case "overlap-produces" -> value.accept(protectedRoute ? "application/vnd.fixture+json" : "application/json");
+                    case "overlap-method" -> protectedRoute ? get(path + "/123") : value;
+                    case "overlap-head" -> protectedRoute ? get(path + "/123") : head(path + "/123");
+                    default -> value.param("mode", protectedRoute ? "a" : "b");
+                };
+            };
+            mapping.registerMapping(original, controller, base.getValue().getMethod());
+            mapping.registerMapping(sibling, other, replacement);
+            try {
+                var target = catalog.catalog(null).stream().filter(endpoint -> endpoint.routes().stream()
+                        .anyMatch(route -> route.template().equals(path + "/{id}"))).findFirst().orElseThrow();
+                var beforeSibling = catalog.catalog(null).stream().filter(endpoint -> endpoint.routes().stream()
+                        .anyMatch(route -> route.template().equals(path + "/{key}"))).findFirst().orElseThrow();
+                var binding = new OperationBinding("conditional", hook.id(), "", target.id(), OperationHook.Phase.BEFORE_INVOKE,
+                        0, OperationHook.Completion.ALL, "{}");
+                var plan = contracts.prepareConfiguration(publications.snapshot().revision(), new WebPublicationStore.HookSettings(Map.of(), List.of(binding)));
+                contracts.publishConfiguration(plan, plan.permissions());
+                assertThat(new WebPublicationStore(root.resolve("renamed"), root.resolve("renamed-enrolled")).snapshot().configuration())
+                        .isEqualTo(publications.snapshot().configuration());
+                verdict = OperationHook.Verdict.REJECT;
+                http.perform(request.apply(true)).andExpect(status().isForbidden());
+                http.perform(request.apply(false)).andExpect(status().isOk());
+                assertThat(other.executions).hasValue(1);
+                events.clear(); int executed = controller.executions.get();
+                mapping.unregisterMapping(original);
+                mapping.registerMapping(renamed, controller, replacement);
+                assertThat(catalog.catalog(null)).contains(beforeSibling);
+                http.perform(request.apply(true)).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("HOOK_TARGET_STALE"));
+                http.perform(request.apply(false)).andExpect(status().isOk());
+                assertThat(other.executions).as(condition).hasValue(2);
+                assertThat(controller.executions).hasValue(executed); assertThat(events).isEmpty();
+                mapping.unregisterMapping(sibling);
+                mapping.registerPluginMapping("other-owner", sibling, other, replacement);
+                boolean overlapping = condition.startsWith("overlap-") || condition.startsWith("value-");
+                http.perform(request.apply(false)).andExpect(status().is(overlapping ? 409 : 200));
+                assertThat(other.executions).hasValue(overlapping ? 2 : 3);
+                if (overlapping) {
+                    mapping.unregisterMapping(sibling);
+                    mapping.registerMapping(sibling, other, replacement);
+                    http.perform(request.apply(false)).andExpect(status().isOk());
+                    assertThat(other.executions).hasValue(3);
+                    var revoke = contracts.prepareConfiguration(publications.snapshot().revision(), new WebPublicationStore.HookSettings(Map.of(), List.of()));
+                    contracts.publishConfiguration(revoke, revoke.permissions());
+                    http.perform(request.apply(true)).andExpect(status().isOk());
+                    assertThat(controller.executions).hasValue(executed + 1);
+                }
+                if (condition.equals("params")) {
+                    var foreign = original.mutate().paths("/automatic/foreign/{id}").build();
+                    mapping.registerPluginMapping("other-owner", foreign, other, base.getValue().getMethod());
+                    try { http.perform(post("/automatic/foreign/123").param("mode", "a")).andExpect(status().isOk()); }
+                    finally { mapping.unregisterMapping(foreign); }
+                }
+                admissions.closeAndDrain(Set.of(target.id()), java.time.Duration.ZERO); admissions.reopen(Set.of(target.id()));
+            } finally {
+                mapping.unregisterMapping(original); mapping.unregisterMapping(renamed); mapping.unregisterMapping(sibling);
+            }
+        }
+    }
 
     @Test @DisplayName("配置发布可修改自身接口或分组的 Hook，仍排空其它请求及其后置回调")
     void selfPublication() throws Exception {
@@ -424,7 +789,7 @@ class OperationHooksTest {
                 new OperationBinding("binding-" + phase, hook.id(), endpoint.isEmpty() ? "core:save" : "", endpoint,
                         phase, 0, OperationHook.Completion.ALL, "{}"), "core:save", SCHEMA, SCHEMA,
                 "unknown-owner", "unknown-owner", hook.definition(), top.sywyar.pixivdownload.plugin.web.page.HookPublications.targetContract(resolution.endpoints()),
-                top.sywyar.pixivdownload.plugin.web.page.HookPublications.targetAnchors(resolution.endpoints())));
+                endpoints.targetAnchors(resolution.endpoints())));
         var before = store.snapshot();
         store.commit(before.revision(), new WebPublicationStore.Snapshot(before.revision() + 1, before.epoch(),
                 Map.of("core:form", new WebPublicationStore.Page("{}", "{}", "", List.of(), List.of(), bindings))));

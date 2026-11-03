@@ -30,7 +30,6 @@ public final class PageStore {
     public synchronized ObjectNode read(String id) {
         if (publishing) throw new IllegalStateException("PAGE_REVISION_CONFLICT");
         ObjectNode state = draft(id);
-        state.remove(List.of("published", "previous"));
         state.put("publicationRevision", publications.revision());
         publications.read(id).ifPresent(value -> {
             state.set("published", PageDocuments.parse(value.document()));
@@ -51,7 +50,7 @@ public final class PageStore {
                 byte[] bytes = input.readNBytes(3 * PageDocuments.MAX_BYTES + 1025);
                 if (bytes.length > 3 * PageDocuments.MAX_BYTES + 1024) throw new IOException("page state budget");
                 JsonNode state = PageDocuments.JSON.readTree(bytes);
-                if (!state.isObject() || !state.path("revision").canConvertToLong() || !state.has("draft"))
+                if (!state.isObject() || state.size() != 2 || !state.path("revision").canConvertToLong() || !state.has("draft"))
                     throw new IOException("invalid page state");
                 return (ObjectNode) state;
             }
@@ -221,7 +220,6 @@ public final class PageStore {
         try {
             Files.createDirectories(directory);
             if (Files.isSymbolicLink(directory)) throw new IOException("linked page directory");
-            retainPreviousState(id);
             temporary = Files.createTempFile(directory, ".page-", ".tmp");
             byte[] bytes = state.toString().getBytes(StandardCharsets.UTF_8);
             try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
@@ -240,29 +238,4 @@ public final class PageStore {
         }
     }
 
-    /** 首次覆盖旧编辑器存档前保留原始字节；它只供管理员取回内容，不参与正式安全状态。 */
-    private void retainPreviousState(String id) throws IOException {
-        Path source = file(id);
-        if (!Files.exists(source, LinkOption.NOFOLLOW_LINKS)) return;
-        if (!Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)) throw new IOException("invalid page file");
-        byte[] bytes;
-        try (var input = Files.newInputStream(source, LinkOption.NOFOLLOW_LINKS)) {
-            bytes = input.readNBytes(3 * PageDocuments.MAX_BYTES + 1025);
-        }
-        if (bytes.length > 3 * PageDocuments.MAX_BYTES + 1024) throw new IOException("page state budget");
-        JsonNode state = PageDocuments.JSON.readTree(bytes);
-        if (!state.has("published") && !state.has("previous")) return;
-        Path retained = directory.resolve(id.replace(':', '_') + ".retained.json");
-        if (Files.exists(retained, LinkOption.NOFOLLOW_LINKS)) {
-            if (!Files.isRegularFile(retained, LinkOption.NOFOLLOW_LINKS) || Files.size(retained) != bytes.length
-                    || !java.util.Arrays.equals(Files.readAllBytes(retained), bytes))
-                throw new IOException("retained page state conflict");
-            return;
-        }
-        try (var channel = FileChannel.open(retained, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
-            ByteBuffer buffer = ByteBuffer.wrap(bytes);
-            while (buffer.hasRemaining()) channel.write(buffer);
-            channel.force(true);
-        }
-    }
 }

@@ -213,6 +213,7 @@ public class CorePlugin implements PixivFeaturePlugin {
                 WebRouteContribution.publicRoute("/vendor/fonts/**"),
                 WebRouteContribution.publicRoute("/api/auth/**"),
                 WebRouteContribution.publicRoute("/api/i18n/**"),
+                WebRouteContribution.publicRoute("/i18n-static/**"),
                 WebRouteContribution.publicRoute("/api/onboarding/**"),
                 // ── VISITOR：multi 游客可达 / solo 需会话 / 邀请访客 403 / 不入 monitor ────────────
                 // 目录兜底不覆盖更具体的文件声明。

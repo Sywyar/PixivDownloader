@@ -119,10 +119,13 @@ public final class ExternalCapabilityInvocationRegistry {
         private final java.util.concurrent.atomic.AtomicBoolean failureReported = new java.util.concurrent.atomic.AtomicBoolean();
 
         private TargetEntry(Class<?> capabilityType, Object target) {
+            this(capabilityType, target, null);
+        }
+        private TargetEntry(Class<?> capabilityType, Object target, String source) {
             this.capabilityType = capabilityType;
             this.target = target;
-            String type = org.springframework.aop.support.AopUtils.getTargetClass(target).getName();
-            if (type.length() > 512) throw new IllegalArgumentException("SERVICE_SOURCE_LIMIT");
+            String type = source == null ? org.springframework.aop.support.AopUtils.getTargetClass(target).getName() : source;
+            if (type.isBlank() || type.length() > 512 || type.chars().anyMatch(Character::isISOControl)) throw new IllegalArgumentException("SERVICE_SOURCE_LIMIT");
             this.source = type;
         }
 
@@ -543,6 +546,12 @@ public final class ExternalCapabilityInvocationRegistry {
     /** 具名导出留在同一准备批次中，发布、撤回和排空复用现有 owner 状态。 */
     public <T> void prepareService(ExternalCapabilityPreparation preparation,
             ServiceKey<T> key, T target) {
+        prepareService(preparation, key, target, null);
+    }
+
+    /** 方法适配器传入注册时冻结的入口身份，日志不持有额外实现引用。 */
+    public <T> void prepareService(ExternalCapabilityPreparation preparation,
+            ServiceKey<T> key, T target, String source) {
         ServiceValueBoundary.validate(key.type());
         if (!key.type().isInstance(target)) throw new IllegalArgumentException("SERVICE_EXPORT_TYPE_MISMATCH");
         synchronized (lock) {
@@ -550,7 +559,7 @@ public final class ExternalCapabilityInvocationRegistry {
             if (state.targets.values().stream().anyMatch(entry -> key.equals(entry.serviceKey))) {
                 throw new IllegalArgumentException("SERVICE_EXPORT_DUPLICATE");
             }
-            TargetEntry entry = new TargetEntry(key.type(), target);
+            TargetEntry entry = new TargetEntry(key.type(), target, source);
             entry.serviceKey = key;
             long token = Math.incrementExact(nextCapabilityToken);
             state.targets.put(token, entry);

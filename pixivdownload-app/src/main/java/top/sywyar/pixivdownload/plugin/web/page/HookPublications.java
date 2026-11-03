@@ -105,10 +105,7 @@ public final class HookPublications {
             Map<String, List<String>> groups, List<PagePublications.Permission> permissions, List<String> identities) throws IOException {
         var hook = HookContracts.definition(provider.service().definition());
         HookContracts.binding(declared, hook);
-        var configuration = JSON.readTree(declared.configuration());
-        var binding = new OperationBinding("hook-" + contract(List.of(declared.hook(), declared.operation(), declared.endpoint(), declared.phase(),
-                declared.order(), declared.completion(), configuration, declared.fields())), declared.hook(), declared.operation(), declared.endpoint(), declared.phase(),
-                declared.order(), declared.completion(), configuration.toString(), declared.fields());
+        var binding = canonicalBinding(declared);
         if (!binding.hook().equals(provider.service().id())) throw invalid("PAGE_HOOK_ID_INVALID");
         var resolution = endpoints.resolve(null, reference(binding), groups);
         if (resolution.status() != OperationTargets.Status.AVAILABLE || resolution.operations().size() != 1) throw invalid("PAGE_HOOK_TARGET_UNAVAILABLE");
@@ -118,10 +115,9 @@ public final class HookPublications {
             throw invalid("PAGE_HOOK_CONTRACT_MISMATCH");
         top.sywyar.pixivdownload.plugin.security.HookFields.contract(binding, hook);
         identities.add(resolution.revision()); identities.add(provider.publication().toString());
-        permissions.add(new PagePublications.Permission(provider.publication().pluginId(), binding.hook(), new PageResourceProfile("hook-binding", contract(binding), List.of())));
-        for (var resource : hook.resources()) permissions.add(new PagePublications.Permission(provider.publication().pluginId(), binding.hook(), resource));
+        permissions.addAll(permissions(provider.publication().pluginId(), binding, hook));
         return new HookRequirement(binding, resolution.operations().get(0), input, result, provider.publication().pluginId(), provider.publication().packageId(),
-                hook, targetContract(resolution.endpoints()), targetAnchors(resolution.endpoints()));
+                hook, targetContract(resolution.endpoints()), endpoints.targetAnchors(resolution.endpoints()));
     }
 
     public record ConfigurationPlan(long revision, String fingerprint, HookSettings settings,
@@ -178,12 +174,31 @@ public final class HookPublications {
                 if (!group.getKey().startsWith(endpoint.owner() + ":")) throw invalid("PAGE_HOOK_TARGET_FORBIDDEN");
             }
         }
-        var ids = settings.bindings().stream().map(OperationBinding::hook).distinct().sorted().toList();
+        var available = registry.serviceKeys(OperationHook.class);
+        var retained = new HashMap<OperationBinding, HookRequirement>();
+        for (var binding : settings.bindings()) {
+            if (before.configuration().settings().bindings().contains(binding)
+                    && (!binding.endpoint().isEmpty() || Objects.equals(before.configuration().settings().groups().get(binding.operation()),
+                            settings.groups().get(binding.operation())))
+                    && (DeclaredHttpHookBindings.declarationId(binding.id()) != null || !available.contains(OperationHookCapabilityAdapter.key(binding.hook())))) {
+                var canonical = canonicalBinding(binding);
+                before.configuration().requirements().stream().filter(value -> value.binding().equals(canonical)).findFirst()
+                        .ifPresent(value -> retained.put(binding, value));
+            }
+        }
+        var ids = settings.bindings().stream().filter(binding -> !retained.containsKey(binding)).map(OperationBinding::hook).distinct().sorted().toList();
         var keys = ids.stream().map(OperationHookCapabilityAdapter::key).toList();
         return registry.withServices(null, OperationHook.IMPORT, keys, List.of(), providers -> {
             var requirements = new ArrayList<HookRequirement>(); var permissions = new ArrayList<PagePublications.Permission>(); var identities = new ArrayList<String>();
             identities.add(contract(catalog));
-            for (var binding : settings.bindings()) requirements.add(compileBinding(binding, providers.get(ids.indexOf(binding.hook())), settings.groups(), permissions, identities));
+            for (var binding : settings.bindings()) {
+                var previous = retained.get(binding);
+                if (previous == null) requirements.add(compileBinding(binding, providers.get(ids.indexOf(binding.hook())), settings.groups(), permissions, identities));
+                else {
+                    requirements.add(previous);
+                    permissions.addAll(permissions(previous.provider(), previous.binding(), previous.definition()));
+                }
+            }
             if (requirements.stream().map(value -> value.binding().id()).distinct().count() != requirements.size()) throw invalid("PAGE_HOOK_DUPLICATE");
             var next = new Snapshot(revision + 1, before.epoch(), before.pages(), new HookState(settings, requirements, permissions.stream().distinct().toList()));
             validate(next, catalog);
@@ -200,6 +215,18 @@ public final class HookPublications {
             var gates = requirements.stream().filter(item -> item.binding().phase() == OperationHook.Phase.BEFORE_INVOKE).toList();
             if (gates.stream().map(item -> item.binding().hook()).distinct().count() != gates.size()) throw invalid("PAGE_HOOK_DUPLICATE");
         }
+    }
+    private static OperationBinding canonicalBinding(OperationBinding declared) throws IOException {
+        var configuration = JSON.readTree(declared.configuration());
+        return new OperationBinding("hook-" + contract(List.of(declared.hook(), declared.operation(), declared.endpoint(), declared.phase(),
+                declared.order(), declared.completion(), configuration, declared.fields())), declared.hook(), declared.operation(), declared.endpoint(), declared.phase(),
+                declared.order(), declared.completion(), configuration.toString(), declared.fields());
+    }
+    private static List<PagePublications.Permission> permissions(String provider, OperationBinding binding, OperationHook.Definition definition) {
+        var permissions = new ArrayList<PagePublications.Permission>();
+        permissions.add(new PagePublications.Permission(provider, binding.hook(), new PageResourceProfile("hook-binding", contract(binding), List.of())));
+        for (var resource : definition.resources()) permissions.add(new PagePublications.Permission(provider, binding.hook(), resource));
+        return permissions;
     }
     void validate(Snapshot snapshot) { validate(snapshot, endpoints.catalog(null)); }
     List<OperationTargets.Endpoint> targets() { return endpoints.catalog(null); }
@@ -243,15 +270,6 @@ public final class HookPublications {
         var resolution = endpoints.resolve(null, reference);
         if (resolution.status() != OperationTargets.Status.AVAILABLE) return false;
         return requirement.targetContract().equals(targetContract(resolution.endpoints()));
-    }
-
-    public static Set<String> targetAnchors(List<OperationTargets.Endpoint> endpoints) {
-        var anchors = new TreeSet<String>();
-        for (var endpoint : endpoints) {
-            anchors.add("handler:" + endpoint.handler());
-            endpoint.routes().forEach(route -> anchors.add("route:" + route.method() + ":" + route.template()));
-        }
-        return Set.copyOf(anchors);
     }
 
     public static String targetContract(List<OperationTargets.Endpoint> endpoints) {
