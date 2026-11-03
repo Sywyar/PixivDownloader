@@ -187,6 +187,42 @@ java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-repo
 - **挑戰與生命週期**：`POST /api/operation-hooks/prepare` 與 `X-Pixiv-Hook-Ticket` 處理挑戰準備、正式修訂核對和單次消費，業務 DTO 不增加證明欄位，框架不盲目重放請求。必需前置提供者缺席、故障或逾時時拒絕執行；後置失敗保留原 HTTP 結果，不保證持久送達。Java 工作逾時不代表已停止，精確代際租約保留至實際退出。每頁上限 16 個綁定、128 個表單關係，每個綁定 16 個獲批欄位；HTTP 上限為 64 個在途請求、8 個執行緒、64 個排隊任務，前置累計等待與後置等待各 10 秒。
 - **診斷與本地呼叫**：預設英文日誌記錄關聯與單次呼叫 ID、可信外掛 generation/publication、回呼入口、綁定來源、handler/方法/路由範本、階段及結果，不記錄證明或正文。`OperationVerification` 適配互動式前置 Hook；`OperationGuard` 保留給明確的本地同步操作，不在同一 HTTP 入口重複呼叫。元件見[操作驗證碼](/zh-hant/captcha)。
 
+### 以註解宣告固定 HTTP 目標
+
+SDK 1.4+ 可在外掛回呼方法上使用 `@HttpHook`。將下例的 `StatusObserver` 透過外掛子上下文的 `@Bean` 註冊，宿主就會探索宣告；目標控制器不需修改。本例計算成功的本機健康探針請求；`/api/download/status` 不代表作品下載完成。
+
+```java
+import java.util.concurrent.atomic.AtomicLong;
+import top.sywyar.pixivdownload.plugin.api.operation.HttpHook;
+import top.sywyar.pixivdownload.plugin.api.operation.OperationHook;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
+
+public final class StatusObserver {
+    private final AtomicLong completed = new AtomicLong();
+
+    @HttpHook(id = "example-status-observer", targetOwner = "core",
+            method = HttpMethod.GET, path = "/api/download/status",
+            phase = OperationHook.Phase.AFTER_COMPLETION,
+            completion = OperationHook.Completion.SUCCEEDED)
+    public void onStatus(OperationHook.Invocation invocation) {
+        completed.incrementAndGet();
+    }
+
+    public long count() { return completed.get(); }
+}
+```
+
+管理員在「外掛管理 → 外掛詳細資料 → HTTP Hook 宣告」選擇「預覽核准」，核對目標、時機、欄位權限及受影響頁面，再「確認並發布」。相同宣告在外掛重新啟用後自動恢復；宣告、資料契約或目標映射變更時需重新核准。核准只更新目前選取的宣告，不會自動更新其他宣告。停用或卸載不會刪除已核准的前置要求；管理員須明確預覽撤銷並發布，才會解除保護。
+
+方法須為單例 Bean 的 public 同步實例方法，唯一參數為 `OperationHook.Invocation`。前置回傳 `Decision`，後置可回傳 void；不支援 `@Async` 或提早回傳後繼續工作的回呼。宿主日誌會記錄實際回呼類別與方法。每個外掛合計最多 16 個介面或註解 Hook。
+
+`targetOwner/method/path` 從實際目錄選擇 handler；相同路徑有多個候選時，以 `params/headers/consumes/produces` 指定目錄中的完整條件。非空清單精確匹配條件集合，空清單不篩選該條件；找不到或仍有歧義時不能核准。同一 handler 的所有路由別名共用綁定。
+
+一般方法僅接收中繼資料，設定為 `{}`。需要欄位、設定 schema、資源或互動挑戰時，實作 `OperationHook` 並在 `invoke` 方法加註解，保持 `id()` 與註解 id 相同。`fields` 仍須核准並通過敏感欄位及預算檢查。動態設定與頁面編輯器綁定仍使用原介面，不依賴註解。
+
+管理 API 為 `GET /api/web/operation-hooks/declarations?provider=<pluginId>` 與 `POST /api/web/operation-hooks/declarations/prepare`；後者接收 `{revision, provider, id, fingerprint, remove}`。回傳的計畫仍提交至原 `publish`；目錄、外掛或正式修訂變更後須重新取得計畫。
+
+
 ## 一般插槽與頁面元件
 
 一般頁面透過 `/js/pixiv-ui-slots.js` 的 `PixivUiSlots.connect(...)` 掛載 `data-ui-slot`，外掛模組呼叫 `registerModule(moduleUrl, mount)`，並在 `onCleanup` 中釋放 DOM、監聽器與請求。頁面編輯器元件與可編輯頁面的接入方式見[頁面編輯器與外掛元件](/zh-hant/page-editor#開發第三方外掛元件與接入頁面)。

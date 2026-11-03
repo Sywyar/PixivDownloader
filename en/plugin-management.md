@@ -2,6 +2,13 @@
 
 Administrators browse and install plugins at `/plugin-market.html`, and use `/plugin-manage.html` to check installed versions, what the current process has loaded and restart requirements, or to upload local packages. Successful installation on disk does not mean the current process has loaded the plugin. Some plugins require a backend restart or a complete application exit and restart.
 
+## Approve a plugin's HTTP Hook
+
+In plugin details, HTTP Hook declarations shows each callback, target endpoint, phase and requested fields. Choose Preview approval, review permissions and affected pages, then Confirm and publish. Cancel leaves the published configuration unchanged. New declarations do not run by default.
+
+Approved, unchanged declarations resume when the plugin is enabled again. Target or contract changes require approval again; missing or ambiguous targets cannot be approved. Disabling a plugin retains approved before guards and blocks the protected business requests. To remove a guard, choose Preview removal and confirm publication. Each action updates only the selected declaration. See [Plugin development](/en/plugin-development) for the SDK contract.
+
+
 ## Install plugins and add custom repositories
 
 1. Select a plugin from a trusted repository in the market, or upload a local `.jar` / `.zip` on the management page (optionally with a `.sig`).

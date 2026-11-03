@@ -187,6 +187,42 @@ java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-repo
 - **挑战与生命周期**：宿主 `POST /api/operation-hooks/prepare` 与统一证明头 `X-Pixiv-Hook-Ticket` 负责挑战准备、正式修订核对和一次消费，业务 DTO 不增加证明字段；框架不会盲目重放请求。必需前置提供者缺席、故障或超时会拒绝执行。后置失败保留原 HTTP 结果，不保证持久送达；超时不代表 Java 工作已停止，精确代际租约在实际退出后释放。每页最多 16 个绑定、128 个表单关系，每个绑定最多 16 个获批字段；HTTP 执行最多 64 个在途请求、8 个工作线程、64 个排队任务，前置累计等待及后置等待各 10 秒。
 - **诊断与本地调用**：默认英文日志记录 correlationId、单次调用、可信插件及 generation/publication、注册回调入口、绑定来源、目标 handler/方法/路由模板、阶段和结果，不记录证明或请求正文。`OperationVerification` 适配可交互前置 Hook；`OperationGuard` 保留给显式的本地同步操作，不在同一 HTTP 入口重复调用。验证组件见[操作验证码](/zh-cn/captcha)。
 
+### 用注解声明固定 HTTP 目标
+
+SDK 1.4+ 可在插件回调方法上使用 `@HttpHook`。把下例的 `StatusObserver` 通过插件子上下文的 `@Bean` 注册，宿主会发现声明；目标控制器不需要修改。这个例子统计成功的本机健康探针请求，`/api/download/status` 不表示一次作品下载完成。
+
+```java
+import java.util.concurrent.atomic.AtomicLong;
+import top.sywyar.pixivdownload.plugin.api.operation.HttpHook;
+import top.sywyar.pixivdownload.plugin.api.operation.OperationHook;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
+
+public final class StatusObserver {
+    private final AtomicLong completed = new AtomicLong();
+
+    @HttpHook(id = "example-status-observer", targetOwner = "core",
+            method = HttpMethod.GET, path = "/api/download/status",
+            phase = OperationHook.Phase.AFTER_COMPLETION,
+            completion = OperationHook.Completion.SUCCEEDED)
+    public void onStatus(OperationHook.Invocation invocation) {
+        completed.incrementAndGet();
+    }
+
+    public long count() { return completed.get(); }
+}
+```
+
+管理员在「插件管理 → 插件详情 → HTTP Hook 声明」选择「预览并批准」，核对目标、时机、字段权限及受影响页面，再「确认并发布」。相同声明在插件重新启用后自动恢复；声明、数据合同或目标映射变化时需重新批准。只批准当前选择，不自动更新其它声明。停用或卸载不会删除已批准的前置要求；要解除保护，管理员须显式预览撤销并发布。
+
+方法必须是单例 Bean 的 public 同步实例方法，唯一参数为 `OperationHook.Invocation`。前置返回 `Decision`，后置可返回 void；不支持 `@Async` 或提前返回后继续工作的回调。宿主日志记录实际回调类与方法。每个插件合计最多 16 个普通或注解 Hook。
+
+`targetOwner/method/path` 选择真实目录中的 handler；同一路径有多个候选时，用 `params/headers/consumes/produces` 指定目录中的完整条件。非空条件列表按集合精确匹配，空列表不筛选该条件；未找到或仍歧义时不能批准。同一 handler 的多个路由别名共享绑定。
+
+普通方法仅接收元数据，配置为 `{}`。需要字段、配置 schema、资源或交互挑战时，实现 `OperationHook` 并在其 `invoke` 方法上加注解，保持 `id()` 与注解 id 相同；`fields` 声明仍须批准并通过敏感字段和预算检查。动态配置和页面编辑器绑定继续使用原接口，不依赖注解。
+
+管理 API 为 `GET /api/web/operation-hooks/declarations?provider=<pluginId>`，以及 `POST /api/web/operation-hooks/declarations/prepare`，后者接收 `{revision, provider, id, fingerprint, remove}`。返回的计划仍提交到原 `publish`；不要持有旧计划跨越目录、插件或正式修订变化。
+
+
 ## 普通槽位与页面组件
 
 普通页面通过 `/js/pixiv-ui-slots.js` 的 `PixivUiSlots.connect(...)` 挂载 `data-ui-slot`，插件模块调用 `registerModule(moduleUrl, mount)` 并在 `onCleanup` 中释放 DOM、监听器与请求。页面编辑器组件与可编辑页面的接入方式见[页面编辑器与插件组件](/zh-cn/page-editor#开发第三方插件组件与接入页面)。

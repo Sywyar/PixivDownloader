@@ -187,6 +187,42 @@ java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-repo
 - **챌린지와 수명 주기**: 호스트의 `POST /api/operation-hooks/prepare`와 `X-Pixiv-Hook-Ticket`이 준비, 게시 리비전 확인과 일회 소비를 처리합니다. DTO에 증명 필드를 넣거나 요청을 무조건 재전송하지 않습니다. 필수 전처리 provider가 없거나 실패·시간 초과되면 실행을 거부합니다. 후처리 실패는 원래 HTTP 결과를 바꾸지 않으며 영구 전달을 보장하지 않습니다. 시간 초과 뒤에도 Java 작업이 계속되면 같은 세대의 임대를 실제 종료까지 유지합니다. 한도는 페이지당 연결 16개와 양식 관계 128개, 연결당 필드 16개, 실행 중 HTTP 요청 64개, worker 8개, 대기 작업 64개입니다. 전처리 누적 대기와 후처리 대기는 각각 10초입니다.
 - **진단과 로컬 호출**: 기본 영어 로그에 상관 ID, 호출 ID, 신뢰된 플러그인 generation/publication, 콜백 진입점, 연결 출처, handler·메서드·경로 템플릿, 단계와 결과를 기록합니다. 증명이나 본문은 기록하지 않습니다. `OperationVerification`은 대화형 전처리 Hook에 연결됩니다. `OperationGuard`는 명시적인 로컬 동기 작업에 사용하며 같은 HTTP 진입점에서 중복 호출하지 않습니다. 컴포넌트는 [작업 CAPTCHA](/ko/captcha)를 참고하세요.
 
+### 어노테이션으로 고정 HTTP 대상 선언하기
+
+SDK 1.4+에서는 플러그인의 콜백 메서드에 `@HttpHook`을 사용할 수 있습니다. 아래 `StatusObserver`를 플러그인 자식 컨텍스트에 `@Bean`으로 등록하면 호스트가 선언을 발견합니다. 대상 컨트롤러는 수정할 필요가 없습니다. 이 예제는 성공한 로컬 상태 확인 요청을 셉니다. `/api/download/status`는 작품 다운로드 완료를 뜻하지 않습니다.
+
+```java
+import java.util.concurrent.atomic.AtomicLong;
+import top.sywyar.pixivdownload.plugin.api.operation.HttpHook;
+import top.sywyar.pixivdownload.plugin.api.operation.OperationHook;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
+
+public final class StatusObserver {
+    private final AtomicLong completed = new AtomicLong();
+
+    @HttpHook(id = "example-status-observer", targetOwner = "core",
+            method = HttpMethod.GET, path = "/api/download/status",
+            phase = OperationHook.Phase.AFTER_COMPLETION,
+            completion = OperationHook.Completion.SUCCEEDED)
+    public void onStatus(OperationHook.Invocation invocation) {
+        completed.incrementAndGet();
+    }
+
+    public long count() { return completed.get(); }
+}
+```
+
+플러그인 관리에서 상세 정보를 열고 HTTP Hook 선언의 '승인 내용 미리 보기'를 선택합니다. 대상, 단계, 필드 권한과 영향받는 페이지를 검토한 뒤 '확인 후 게시'를 누릅니다. 동일한 선언은 플러그인을 다시 활성화하면 복구됩니다. 선언, 데이터 계약 또는 대상 매핑이 바뀌면 재승인이 필요합니다. 선택한 선언만 갱신하며 다른 선언은 자동 갱신하지 않습니다. 비활성화나 언로드 후에도 승인된 사전 보호는 유지됩니다. 해제하려면 관리자가 해제 내용을 미리 보고 게시해야 합니다.
+
+싱글턴 Bean의 public 동기 인스턴스 메서드를 사용하고, 유일한 매개변수는 `OperationHook.Invocation`이어야 합니다. 사전 콜백은 `Decision`을 반환하며 완료 콜백은 void도 가능합니다. `@Async`나 작업 완료 전에 반환하는 콜백은 지원하지 않습니다. 호스트 로그에는 실제 클래스와 메서드가 기록됩니다. 인터페이스 방식과 어노테이션 방식을 합쳐 플러그인당 최대 16개 Hook을 제공합니다.
+
+`targetOwner/method/path`는 실제 카탈로그에서 handler를 선택합니다. 같은 경로에 후보가 여러 개이면 `params/headers/consumes/produces`에 카탈로그의 전체 조건을 지정합니다. 비어 있지 않은 목록은 조건 집합과 정확히 일치해야 하며, 빈 목록은 해당 조건을 필터링하지 않습니다. 대상이 없거나 모호하면 승인할 수 없습니다. 같은 handler의 모든 경로 별칭은 바인딩을 공유합니다.
+
+일반 메서드는 메타데이터만 받으며 설정은 `{}`입니다. 필드, 설정 schema, 리소스 또는 대화형 챌린지가 필요하면 `OperationHook`을 구현하고 `invoke`에 어노테이션을 추가합니다. `id()`는 어노테이션 ID와 같아야 합니다. `fields`에는 승인, 민감 필드 검사와 예산이 적용됩니다. 동적 설정과 페이지 편집기 바인딩은 어노테이션 없이도 사용할 수 있습니다.
+
+관리 API는 `GET /api/web/operation-hooks/declarations?provider=<pluginId>`와 `POST /api/web/operation-hooks/declarations/prepare`입니다. 후자는 `{revision, provider, id, fingerprint, remove}`를 받고 반환한 계획은 기존 `publish`에 제출합니다. 카탈로그, 플러그인 또는 게시 리비전이 바뀌면 계획을 다시 받아야 합니다.
+
+
 ## 일반 슬롯 및 페이지 컴포넌트
 
 일반 페이지는 `/js/pixiv-ui-slots.js`의 `PixivUiSlots.connect(...)`로 `data-ui-slot`을 마운트합니다. 플러그인 모듈은 `registerModule(moduleUrl, mount)`를 호출하고 `onCleanup`에서 DOM, 리스너와 요청을 해제합니다. 페이지 편집기 컴포넌트와 편집 가능한 페이지 연결은 [페이지 편집기 및 플러그인 컴포넌트](/ko/page-editor#서드파티-플러그인-컴포넌트-개발-및-페이지-연결)를 참고하세요.

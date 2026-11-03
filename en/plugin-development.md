@@ -187,6 +187,42 @@ Annotate large-integer record fields with `@ValueProperty(encoding = ValueEncodi
 - **Challenges and lifecycle**: the host uses `POST /api/operation-hooks/prepare` and `X-Pixiv-Hook-Ticket` for preparation, publication checks and one-time consumption. Business DTOs need no proof fields; the framework does not blindly replay requests. Missing, failed or timed-out required before providers reject execution. After failures preserve the HTTP result without promising durable delivery. A timeout does not stop Java work: leases retain the exact generation until actual exit. Limits are 16 bindings and 128 form relations per page, 16 approved fields per binding, 64 active HTTP requests, 8 workers, 64 queued tasks, and 10 seconds each for cumulative before waiting and after waiting.
 - **Diagnostics and local calls**: default English logs record correlation and invocation IDs, trusted plugin generation/publication, callback entry, binding source, handler/method/route template, phase and outcome. Proofs and request bodies are excluded. `OperationVerification` adapts interactive before Hooks. Keep `OperationGuard` for explicit local synchronous operations; do not call it again at the same HTTP entry. See [Operation CAPTCHA](/en/captcha) for verification components.
 
+### Declare a fixed HTTP target with an annotation
+
+SDK 1.4+ supports `@HttpHook` on a plugin callback method. Register this `StatusObserver` with `@Bean` in the plugin child context so the host discovers it. The target controller needs no changes. This example counts successful local health-probe requests; `/api/download/status` does not mean a work download has completed.
+
+```java
+import java.util.concurrent.atomic.AtomicLong;
+import top.sywyar.pixivdownload.plugin.api.operation.HttpHook;
+import top.sywyar.pixivdownload.plugin.api.operation.OperationHook;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
+
+public final class StatusObserver {
+    private final AtomicLong completed = new AtomicLong();
+
+    @HttpHook(id = "example-status-observer", targetOwner = "core",
+            method = HttpMethod.GET, path = "/api/download/status",
+            phase = OperationHook.Phase.AFTER_COMPLETION,
+            completion = OperationHook.Completion.SUCCEEDED)
+    public void onStatus(OperationHook.Invocation invocation) {
+        completed.incrementAndGet();
+    }
+
+    public long count() { return completed.get(); }
+}
+```
+
+In Plugin management, open the plugin details and HTTP Hook declarations. Choose Preview approval, review the target, phase, field permissions and affected pages, then Confirm and publish. The same declaration resumes when the plugin is enabled again. Changes to the declaration, data contract or target mapping require approval again. Approval only updates the selected declaration. Disabling or unloading a plugin retains approved before requirements; an administrator must preview and publish their removal to release the guard.
+
+Use a public synchronous instance method on a singleton Bean with one `OperationHook.Invocation` parameter. Before callbacks return `Decision`; after callbacks may return void. `@Async` and callbacks that return before their work ends are unsupported. Host logs identify the actual callback class and method. Each plugin can provide at most 16 interface or annotated Hooks in total.
+
+`targetOwner/method/path` selects a handler from the actual catalog. For multiple candidates at the same path, specify the complete catalog conditions using `params/headers/consumes/produces`. Nonempty lists match the exact condition sets; empty lists leave that condition unfiltered. Missing or ambiguous targets cannot be approved. All route aliases of the selected handler share the binding.
+
+Ordinary methods receive metadata only and use `{}` configuration. For fields, configuration schemas, resources or interactive challenges, implement `OperationHook` and annotate its `invoke` method, keeping `id()` equal to the annotation ID. Declared `fields` still require approval, sensitive-field checks and budgets. Dynamic configuration and page-editor bindings remain available without annotations.
+
+The management API is `GET /api/web/operation-hooks/declarations?provider=<pluginId>` and `POST /api/web/operation-hooks/declarations/prepare`. The latter accepts `{revision, provider, id, fingerprint, remove}`. Submit its plan to the existing `publish` endpoint. Refresh plans after catalog, plugin or publication changes.
+
+
 ## Ordinary slots and page components
 
 Ordinary pages mount `data-ui-slot` through `PixivUiSlots.connect(...)` from `/js/pixiv-ui-slots.js`. Plugin modules call `registerModule(moduleUrl, mount)` and release DOM nodes, listeners and requests in `onCleanup`. For page editor components and editable pages, see [Page editor and plugin components](/en/page-editor#develop-third-party-plugin-components-and-integrate-pages).

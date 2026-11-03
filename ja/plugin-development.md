@@ -187,6 +187,42 @@ java -jar sdk-tools.jar contract-evolution <old-api.jar> <new-api.jar> <new-repo
 - **チャレンジと終了処理**：ホストの `POST /api/operation-hooks/prepare` と `X-Pixiv-Hook-Ticket` が準備、公開リビジョンの確認、一度限りの消費を行います。DTO に証明フィールドを追加せず、リクエストを無条件に再送しません。必須の前処理 provider が不在、故障、タイムアウトの場合は実行を拒否します。後処理の失敗は HTTP 結果を変えず、永続的な配送も保証しません。タイムアウト後も Java 処理が続く間は同じ世代のリースを保持します。上限はページ当たり 16 関連付けと 128 フォーム関係、関連付け当たり 16 フィールド、実行中 HTTP 64 件、worker 8 個、待機 64 件です。前処理の累積待機と後処理の待機はそれぞれ 10 秒です。
 - **ログとローカル呼び出し**：既定の英語ログに相関 ID、呼び出し ID、信頼済み plugin と generation/publication、コールバック入口、関連付け元、handler・メソッド・ルートテンプレート、段階、結果を記録します。証明や本文は記録しません。`OperationVerification` は対話式の前処理 Hook に適応し、`OperationGuard` は明示的なローカル同期操作に使用します。同じ HTTP 入口で重ねて呼び出さないでください。コンポーネントは[操作 CAPTCHA](/ja/captcha)を参照してください。
 
+### 注釈で固定 HTTP 対象を宣言する
+
+SDK 1.4+ ではプラグインのコールバックメソッドに `@HttpHook` を付けられます。以下の `StatusObserver` をプラグインの子コンテキストで `@Bean` 登録すると、ホストが宣言を検出します。対象コントローラーの変更は不要です。この例は成功したローカルヘルスチェックを数えます。`/api/download/status` は作品のダウンロード完了を示しません。
+
+```java
+import java.util.concurrent.atomic.AtomicLong;
+import top.sywyar.pixivdownload.plugin.api.operation.HttpHook;
+import top.sywyar.pixivdownload.plugin.api.operation.OperationHook;
+import top.sywyar.pixivdownload.plugin.api.web.HttpMethod;
+
+public final class StatusObserver {
+    private final AtomicLong completed = new AtomicLong();
+
+    @HttpHook(id = "example-status-observer", targetOwner = "core",
+            method = HttpMethod.GET, path = "/api/download/status",
+            phase = OperationHook.Phase.AFTER_COMPLETION,
+            completion = OperationHook.Completion.SUCCEEDED)
+    public void onStatus(OperationHook.Invocation invocation) {
+        completed.incrementAndGet();
+    }
+
+    public long count() { return completed.get(); }
+}
+```
+
+プラグイン管理で詳細を開き、HTTP Hook 宣言の「承認内容を確認」を選びます。対象、段階、フィールド権限、影響するページを確認し、「確認して公開」を実行します。同じ宣言はプラグインの再有効化後に復帰します。宣言、データ契約、対象マッピングが変わった場合は再承認が必要です。選択した宣言だけを更新し、他の宣言は自動更新しません。無効化やアンロードでも承認済みの事前検査は残ります。解除するには管理者が解除内容を確認して公開します。
+
+シングルトン Bean の public 同期インスタンスメソッドを使い、引数は `OperationHook.Invocation` 一つにします。事前コールバックは `Decision` を返し、完了コールバックは void も使えます。`@Async` や処理終了前に戻るコールバックは非対応です。ホストログには実際のクラスとメソッドを記録します。インターフェース方式と注釈方式を合わせて、プラグイン当たり最大 16 Hook です。
+
+`targetOwner/method/path` は実際のカタログから handler を選びます。同じパスに複数候補がある場合、`params/headers/consumes/produces` にカタログの条件を完全に指定します。空でないリストは条件集合と完全一致し、空リストはその条件を絞り込みません。対象がない場合や一意に決まらない場合は承認できません。同じ handler の全ルート別名で関連付けを共有します。
+
+通常のメソッドはメタデータのみ受け取り、設定は `{}` です。フィールド、設定 schema、リソース、対話式チャレンジが必要な場合は `OperationHook` を実装して `invoke` に注釈を付け、`id()` を注釈の ID と一致させます。`fields` は承認、機密フィールド検査、上限の対象です。動的設定とページエディターの関連付けは注釈なしでも利用できます。
+
+管理 API は `GET /api/web/operation-hooks/declarations?provider=<pluginId>` と `POST /api/web/operation-hooks/declarations/prepare` です。後者は `{revision, provider, id, fingerprint, remove}` を受け取り、返された計画を既存の `publish` に送ります。カタログ、プラグイン、公開リビジョンが変わったら計画を再取得してください。
+
+
 ## 通常のスロットとページコンポーネント
 
 通常のページは `/js/pixiv-ui-slots.js` の `PixivUiSlots.connect(...)` で `data-ui-slot` をマウントします。プラグインモジュールは `registerModule(moduleUrl, mount)` を呼び、`onCleanup` で DOM、リスナー、リクエストを解放します。ページエディターのコンポーネントと編集可能なページの接続方法は[ページエディターとプラグインコンポーネント](/ja/page-editor#サードパーティープラグインのコンポーネントとページを接続する)を参照してください。
