@@ -118,6 +118,8 @@ export async function checkCustomComponents({page, context, origin, phase, work,
     await creator.locator('#custom-new').click();
     await creator.locator('#custom-name').waitFor();
     await creator.waitForFunction(() => !document.querySelector('#component-fields').inert);
+    const failedMessage = await creator.evaluate(async () =>
+        (await window.PixivI18n.create({namespaces: ['page-editor']})).t('page-editor:failed'));
     await checkComponentMotion(creator);
     const editSource = async (tab, value) => {
         await creator.locator('#custom-tab-' + tab).click();
@@ -189,12 +191,18 @@ export async function checkCustomComponents({page, context, origin, phase, work,
     await creator.evaluate(() => window.PixivTheme.apply('light', false, false));
     await editSource('javascript', "throw new Error('test failure');");
     await creator.locator('#custom-run').click();
-    await creator.waitForFunction(() => document.querySelector('#custom-message').textContent.includes('PAGE_COMPONENT_SCRIPT_FAILED'));
+    await creator.waitForFunction(expected => {
+        const message = document.querySelector('#custom-message');
+        return message.dataset.state === 'error' && message.textContent === expected;
+    }, failedMessage);
     await creator.frameLocator('#custom-preview iframe').locator('footer').waitFor();
     await editSource('javascript', "root.querySelector('span').textContent = context.properties.title;");
     await editSource('html', '<p onclick="alert(1)">invalid</p>');
     await creator.locator('#custom-run').click();
-    await creator.waitForFunction(() => document.querySelector('#custom-message').textContent.includes('PAGE_COMPONENT_HTML_INVALID'));
+    await creator.waitForFunction(expected => {
+        const message = document.querySelector('#custom-message');
+        return message.dataset.state === 'error' && message.textContent === expected;
+    }, failedMessage);
     await creator.frameLocator('#custom-preview iframe').locator('footer').waitFor();
     await editSource('html', '<footer><span></span></footer>');
     await creator.locator('#custom-publish').click(); await creator.locator('.pixiv-feedback-backdrop[open] .pixiv-feedback-button--primary').click();

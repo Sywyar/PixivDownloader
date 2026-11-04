@@ -15,6 +15,8 @@ try {
     page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
     await page.goto(origin + '/page-editor/index.html');
     await page.waitForFunction(() => window.pageEditorReady);
+    const targetLabel = await page.evaluate(async () =>
+        (await window.PixivI18n.create({namespaces: ['page-editor']})).t('page-editor:binding-target'));
     await page.locator('#page').selectOption('core:login');
     const frame = page.frameLocator('iframe.gjs-frame');
     await frame.locator('[data-page-region="admin-card"]').waitFor();
@@ -33,7 +35,7 @@ try {
         await page.waitForFunction(region => window.grapesjs.editors[0].Canvas.getSpots({type: 'target'})
             .some(spot => spot.get('component')?.get('region') === region), region);
         await page.mouse.up();
-        assert.equal(await page.getByLabel('Protected operation', {exact: true}).inputValue(), target);
+        assert.equal(await page.getByLabel(targetLabel, {exact: true}).inputValue(), target);
     }
     await page.locator('#preview').click();
     await page.frameLocator('#preview-root').getByRole('button', {name: 'Respond to challenge'}).first().waitFor();
@@ -42,6 +44,7 @@ try {
     await page.locator('#publish').click();
     const dialog = page.locator('.pixiv-feedback-backdrop[open]');
     await dialog.waitFor();
+    await dialog.locator('details > summary').click();
     assert.match(await dialog.innerText(), /core:invite-redeem/);
     assert.match(await dialog.innerText(), /core:login/);
     await dialog.locator('.pixiv-feedback-button--primary').click();

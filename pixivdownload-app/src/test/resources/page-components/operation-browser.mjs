@@ -22,6 +22,12 @@ try {
     let preparations = 0;
     page.on('request', request => { if (new URL(request.url()).pathname === '/api/operation-hooks/prepare') preparations++; });
     await page.goto(origin + '/page-editor/index.html'); await ready();
+    const labels = await page.evaluate(async () => {
+        const i18n = await window.PixivI18n.create({namespaces: ['page-editor', 'operation-form', 'operation-proof']});
+        return Object.fromEntries(['page-editor:binding-target', 'page-editor:hook.fields', 'operation-proof:name', 'operation-form:alpha']
+            .map(key => [key, i18n.t(key)]));
+    });
+    const targetLabel = labels['page-editor:binding-target'];
     if (phase === 'configured-actions') {
         const id = 'operation-form:configured';
         await page.locator('#page').selectOption(id);
@@ -120,7 +126,7 @@ try {
             await page.evaluate(() => window.grapesjs.editors[0].getWrapper().findType('page-component').forEach(model => model.remove()));
             await page.locator('#hooks-section').evaluate(element => { element.open = true; });
             await page.locator('#hooks > form').waitFor();
-            const proofBindings = page.locator('#hooks > div > p').filter({hasText: 'fixture-proof'});
+            const proofBindings = page.locator('#hooks > div > p').filter({hasText: labels['operation-proof:name']});
             while (await proofBindings.count()) await proofBindings.first().getByRole('button').click();
             await page.locator('#hooks-section').evaluate(element => { element.open = false; });
             await page.locator('#save').click();
@@ -212,7 +218,7 @@ try {
         };
         await choose();
         const confirmation = page.locator('.pixiv-feedback-backdrop[open]');
-        for (const id of ids) await confirmation.getByText(id, {exact: true}).first().waitFor();
+        for (const id of ids) await confirmation.getByText('(' + id + ')').first().waitFor();
         await page.screenshot({path: path.join(work, 'history-confirmation.png'), fullPage: true, animations: 'disabled'});
         await confirmation.locator('.pixiv-feedback-button--secondary').click();
         assert.deepEqual(await Promise.all(ids.map(read)), before, 'confirmation cancellation has no writes');
@@ -246,7 +252,7 @@ try {
         await page.locator('#publish').click();
         const plan = await (await prepare).json();
         assert.deepEqual(plan.pages, ['operation-form:page', 'operation-form:other']);
-        for (const id of plan.pages) await dialog.getByText(id, {exact: true}).first().waitFor();
+        for (const id of plan.pages) await dialog.getByText('(' + id + ')').first().waitFor();
         await dialog.evaluate(async element => Promise.all(element.getAnimations({subtree: true})
             .filter(animation => Number.isFinite(animation.effect.getComputedTiming().endTime))
             .map(animation => animation.finished.catch(() => {}))));
@@ -262,7 +268,8 @@ try {
         });
         await page.locator('#hooks-section').evaluate(element => { element.open = true; });
         await page.locator('#hooks > form').waitFor();
-        await page.locator('#hooks > div > p').filter({hasText: 'fixture-proof'}).filter({hasText: 'operation-form:alpha'}).getByRole('button').click();
+        await page.locator('#hooks > div > p').filter({hasText: labels['operation-proof:name']})
+            .filter({hasText: labels['operation-form:alpha']}).getByRole('button').click();
         await page.locator('#save').click();
         await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Draft saved');
         const conflict = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/operation-form:page/prepare'));
@@ -275,7 +282,7 @@ try {
         await hooks.locator('select').nth(0).selectOption('alpha');
         await hooks.locator('select').nth(1).locator('option').first().waitFor({state: 'attached'});
         await hooks.locator('select').nth(2).selectOption('fixture-proof');
-        await hooks.getByLabel('Allowed fields (JSON)').fill('[{"source":"JSON","path":"/value","name":"value"}]');
+        await hooks.getByLabel(labels['page-editor:hook.fields']).fill('[{"source":"JSON","path":"/value","name":"value"}]');
         await hooks.locator('button[type="submit"]').click();
         await page.locator('#save').click();
         await page.waitForFunction(() => document.querySelector('#status')?.textContent === 'Draft saved');
@@ -311,7 +318,7 @@ try {
     }
     await drag('alpha-fields', 'alpha');
     await frame.getByRole('button', {name: 'Respond to challenge', exact: true}).waitFor();
-    assert.equal(await page.getByLabel('Protected operation', {exact: true}).inputValue(), 'alpha');
+    assert.equal(await page.getByLabel(targetLabel, {exact: true}).inputValue(), 'alpha');
     assert.equal(await frame.getByRole('button', {name: 'Respond to challenge', exact: true}).isDisabled(), true, 'preview does not issue a challenge');
     await page.evaluate(() => {
         const editor = window.grapesjs.editors[0]; editor.select(editor.getWrapper().findType('page-component')[0]); editor.runCommand('tlb-clone');
@@ -325,13 +332,13 @@ try {
     });
     await page.waitForFunction(() => window.grapesjs.editors[0].getWrapper().findType('page-component').some(model => model.parent().get('region') === 'beta'));
     instances = await models(); assert.deepEqual(instances.map(item => item.region).sort(), ['alpha', 'beta']);
-    assert.equal(await page.getByLabel('Protected operation', {exact: true}).inputValue(), 'beta');
+    assert.equal(await page.getByLabel(targetLabel, {exact: true}).inputValue(), 'beta');
     await page.locator('#undo').click();
     assert.deepEqual((await models()).map(item => item.region), ['alpha', 'alpha']);
-    assert.equal(await page.getByLabel('Protected operation', {exact: true}).inputValue(), 'alpha');
+    assert.equal(await page.getByLabel(targetLabel, {exact: true}).inputValue(), 'alpha');
     await page.locator('#redo').click();
     assert.deepEqual((await models()).map(item => item.region).sort(), ['alpha', 'beta']);
-    assert.equal(await page.getByLabel('Protected operation', {exact: true}).inputValue(), 'beta');
+    assert.equal(await page.getByLabel(targetLabel, {exact: true}).inputValue(), 'beta');
     await page.locator('#delete').click();
     assert.equal((await models()).length, 1);
     await page.locator('#undo').click();
@@ -341,7 +348,8 @@ try {
         const editor = window.grapesjs.editors[0], model = editor.getWrapper().findType('page-component')[1];
         editor.select(model); model.move(editor.getWrapper());
     });
-    await page.waitForFunction(() => document.querySelector('#properties [aria-label="Protected operation"]')?.value === '');
+    await page.waitForFunction(label => [...document.querySelectorAll('#properties select')]
+        .some(select => select.getAttribute('aria-label') === label && select.value === ''), targetLabel);
     const unmatchedSave = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/operation-form:page/save'));
     await page.locator('#save').click();
     assert.equal((await unmatchedSave).status(), 200, 'unmatched participant can remain in a draft');
@@ -365,7 +373,7 @@ try {
         await hooks.locator('select').nth(0).selectOption(action);
         await hooks.locator('select').nth(1).locator('option').first().waitFor({state: 'attached'});
         await hooks.locator('select').nth(2).selectOption('fixture-proof');
-        await hooks.getByLabel('Allowed fields (JSON)').fill('[{"source":"JSON","path":"/value","name":"value"}]');
+        await hooks.getByLabel(labels['page-editor:hook.fields']).fill('[{"source":"JSON","path":"/value","name":"value"}]');
         await hooks.locator('button[type="submit"]').click();
     }
     await page.locator('#save').click();
@@ -401,7 +409,7 @@ try {
     await page.locator('#page').selectOption('operation-form:ambiguous');
     await frame.locator('[data-page-region="shared"]').waitFor();
     await drag('shared', 'shared');
-    const selection = page.getByLabel('Protected operation', {exact: true});
+    const selection = page.getByLabel(targetLabel, {exact: true});
     await selection.waitFor();
     assert.equal(await selection.inputValue(), '', 'multiple compatible targets require an explicit choice');
     assert.deepEqual(await selection.locator('option').evaluateAll(options => options.map(option => option.value)), ['', 'alpha', 'beta']);

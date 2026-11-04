@@ -41,6 +41,10 @@ try {
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(origin + '/page-editor/index.html');
     await page.waitForFunction(() => window.pageEditorReady);
+    const labels = await page.evaluate(async () => {
+        const i18n = await window.PixivI18n.create({namespaces: ['page-editor']});
+        return {target: i18n.t('page-editor:binding-target'), self: i18n.t('page-editor:publication-self')};
+    });
     if (await page.locator('#page').inputValue() !== 'core:login') {
         const loaded = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/core:login/preview'));
         await page.locator('#page').selectOption('core:login'); await loaded;
@@ -67,7 +71,7 @@ try {
     await page.waitForFunction(() => window.grapesjs.editors[0].Canvas.getSpots({type: 'target'}).some(spot => spot.get('component')?.get('region') === 'admin-card'));
     await page.mouse.up();
     await page.waitForFunction(() => window.grapesjs.editors[0].getWrapper().findType('page-component').length === 1);
-    assert.equal(await page.getByLabel('Protected operation', {exact: true}).inputValue(), 'login.verification');
+    assert.equal(await page.getByLabel(labels.target, {exact: true}).inputValue(), 'login.verification');
     await frame.locator('.captcha-button').waitFor();
     assert.equal(await frame.locator('.captcha-status').innerText(), '', 'editor preview has no repeated instructions');
     assert.equal(await frame.locator('.captcha-button').isDisabled(), true);
@@ -89,7 +93,7 @@ try {
     await dialog.waitFor();
     const approval = await dialog.innerText();
     if (localImage) assert.ok(!approval.includes('https://'), 'local images require no third-party resource approval');
-    else assert.ok(approval.includes(pow ? 'self' : remoteOrigin), 'publisher sees the exact resource approval');
+    else assert.ok(approval.includes(pow ? labels.self : remoteOrigin), 'publisher sees the exact resource approval');
     await dialog.locator('.pixiv-feedback-button--primary').click();
     assert.equal((await published).status(), 200);
     const anonymous = await browser.newContext({locale: 'en-US', viewport: {width: 390, height: 844}, colorScheme: 'dark'});

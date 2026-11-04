@@ -182,17 +182,16 @@ try {
         state = await commit(state);
         state = await post('/save', {revision: state.revision, document: {...defaults, title: 'Second publication'}});
         const file = path.join(work, 'runtime/data/page-editor/pages/core_login.json');
-        const retained = path.join(path.dirname(file), 'core_login.retained.json');
         const original = fs.readFileSync(file);
-        const originalRetained = fs.existsSync(retained) ? fs.readFileSync(retained) : null;
+        // Windows 拒绝替换只读目标；Unix 通过目录写权限阻止原子替换，保留草稿可读。
+        const blockedPath = process.platform === 'win32' ? file : path.dirname(file);
+        const mode = fs.statSync(blockedPath).mode;
         try {
-            fs.writeFileSync(file, JSON.stringify({...JSON.parse(original), published: defaults}));
-            fs.writeFileSync(retained, 'conflicting retained state');
-            const blocked = fs.readFileSync(file);
+            fs.chmodSync(blockedPath, process.platform === 'win32' ? 0o444 : 0o500);
             state = await commit(state);
             assert.equal(state.publicationRevision > 0, true);
             assert.equal(state.previous.title, 'First publication');
-            assert.deepEqual(fs.readFileSync(file), blocked, 'ordinary publication never rewrites the draft');
+            assert.deepEqual(fs.readFileSync(file), original, 'ordinary publication never rewrites the draft');
             await editor();
             const response = page.waitForResponse(response => decodeURIComponent(response.url()).endsWith('/core:login/restore'));
             await page.locator('#document-more > summary').click();
@@ -212,9 +211,8 @@ try {
             assert.equal(persisted.published.title, 'First publication');
             assert.equal(persisted.draft.title, 'Second publication');
             assert.deepEqual(persisted.previous, restored.previous);
-            assert.deepEqual(fs.readFileSync(file), blocked, 'failed restore draft save preserves existing bytes');
-            fs.writeFileSync(file, original);
-            if (originalRetained) fs.writeFileSync(retained, originalRetained); else fs.unlinkSync(retained);
+            assert.deepEqual(fs.readFileSync(file), original, 'failed restore draft save preserves existing bytes');
+            fs.chmodSync(blockedPath, mode);
             await page.locator('#save').click(); await waitStatus('Draft saved');
             const saved = await documentState();
             assert.equal(saved.draft.title, 'First publication');
@@ -224,10 +222,7 @@ try {
             await page.reload(); await page.waitForFunction(() => window.pageEditorReady);
             assert.equal((await documentState()).draft.title, 'First publication');
         } finally {
-            if (fs.existsSync(retained) && fs.readFileSync(retained, 'utf8') === 'conflicting retained state') {
-                fs.writeFileSync(file, original);
-                if (originalRetained) fs.writeFileSync(retained, originalRetained); else fs.unlinkSync(retained);
-            }
+            fs.chmodSync(blockedPath, mode);
         }
     } else if (phase === 'unchanged') {
         await checkEditorLayout();
@@ -449,11 +444,16 @@ try {
             }, {factor, origin});
         });
         await page.locator('.connections-section > summary').click();
+        await page.waitForFunction(() => !document.querySelector('.connections-section').getAnimations({subtree: true})
+            .some(animation => animation.playState === 'running'));
+        await page.locator('#from').selectOption(await page.locator('#from option').first().getAttribute('value'));
         await page.locator('#to').selectOption(await page.locator('#to option').nth(1).getAttribute('value'));
         await page.locator('#connect button').click();
+        await page.waitForFunction(() => document.querySelectorAll('#connections > p').length === 1);
         await page.locator('#from').selectOption(await page.locator('#from option').nth(1).getAttribute('value'));
         await page.locator('#to').selectOption(await page.locator('#to option').nth(2).getAttribute('value'));
         await page.locator('#connect button').click();
+        await page.waitForFunction(() => document.querySelectorAll('#connections > p').length === 2);
         await selectLayer('page-box', 'header');
         await page.locator('.gjs-sm-property__padding-top input').fill('20');
         await page.locator('.gjs-sm-property__padding-top input').press('Tab');
@@ -477,6 +477,10 @@ try {
         const find = node => node && typeof node === 'object' ? [node, ...Object.values(node).flatMap(find)] : [];
         const instances = find(state.draft).filter(node => node.type === 'page-component');
         assert.equal(instances.length, 3); assert.equal(new Set(instances.map(instance => instance.instanceId)).size, 3);
+        assert.deepEqual(state.draft.connections, [
+            {from: instances[0].instanceId, to: instances[1].instanceId, output: 'result', input: 'selection'},
+            {from: instances[1].instanceId, to: instances[2].instanceId, output: 'result', input: 'selection'}
+        ]);
         assert.ok(find(state.draft).some(node => node.type === 'page-box' && node.components?.[0]?.content === 'Layout note'));
         assert.equal(find(state.draft).find(node => node.region === 'admin-card').components.filter(node => node.type === 'page-component').length, 3,
             'both independent components are inside the original login card');
