@@ -223,6 +223,21 @@ final class LegacySchemaBaseline {
                 )
         ));
 
+        tables.put("guest_invite_sessions", new TableSpec(
+                "guest_invite_sessions",
+                List.of(
+                        column("slot", "INTEGER", true, null, 1),
+                        column("token_hash", "TEXT", true, null, 0),
+                        column("invite_id", "INTEGER", true, null, 0),
+                        column("expires", "INTEGER", true, null, 0)
+                ),
+                List.of(
+                        uniqueConstraint("token_hash"),
+                        explicitIndex("idx_guest_invite_sessions_invite", false, "invite_id"),
+                        explicitIndex("idx_guest_invite_sessions_expiry", false, "expires")
+                )
+        ));
+
         tables.put("guest_invites", new TableSpec(
                 "guest_invites",
                 List.of(

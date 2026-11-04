@@ -6,6 +6,9 @@ import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
@@ -38,8 +41,23 @@ class ArtworksBackFillDatabaseTest {
     }
 
     @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    @DisplayName("完整受管主库回填不会把其他领域表误报为未受管")
+    void doesNotWarnAboutOtherManagedTables(CapturedOutput output) throws Exception {
+        var target = DatabaseProviderTestFixtures.sqlite(directory.resolve("managed.db"));
+        try (var connection = target.openConnection()) {
+            top.sywyar.pixivdownload.core.db.schema.DatabaseInitializer.prepareOffline(connection, target);
+        }
+        try (var database = ArtworksBackFillDatabase.open(target)) {
+            assertThat(database.currentCandidate(1).artworkId()).isEqualTo(1);
+        }
+        assertThat(output.getAll()).doesNotContain("WARN");
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
     @DisplayName("回填保留附加对象且不修补无关的核心表")
-    void ignoresUnrelatedSchema() throws Exception {
+    void ignoresUnrelatedSchema(CapturedOutput output) throws Exception {
         var target = DatabaseProviderTestFixtures.sqlite(directory.resolve("unrelated.db"));
         try (var connection = target.openConnection(); var sql = connection.createStatement()) {
             sql.execute(legacyArtworks());
@@ -63,6 +81,9 @@ class ArtworksBackFillDatabaseTest {
             assertThat(queryInt(sql, "SELECT count(*) FROM pragma_table_info('statistics')")).isEqualTo(2);
             assertThat(queryInt(sql, "SELECT count(*) FROM sqlite_schema WHERE name='auxiliary'")).isEqualTo(1);
         }
+        assertThat(output.getAll()).contains("WARN",
+                top.sywyar.pixivdownload.i18n.MessageBundles.getForLog("download.db.schema.unmanaged-column", "artworks", "extra"))
+                .doesNotContain("unmanaged table", "statistics", "absent_plugin");
     }
 
     @ParameterizedTest

@@ -4,158 +4,50 @@
 
 中文 | [繁體中文](./README_zh-Hant.md) | [日本語](./README_ja.md) | [한국어](./README_ko.md) | [English](./README_en.md)
 
-> [!NOTE]
-> 此文档中提及的作品范围包括 插画/漫画/动图/小说
-
-### 本地 Pixiv 作品批量下载工具，支持小说/漫画的各种类型下载
-
-- 批量通过作品链接下载作品
-- 通过用户ID批量下载作品
-- 通过内置搜索代理批量下载作品
-- 通过输入作品系列链接或者系列中作品链接批量下载整个系列作品
-- 通过油猴脚本在 Pixiv 网页上抓取插画/漫画/动图/小说，或在单作品页直接下载
-- 强大的作品/小说画廊
-
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![GitHub Repo stars](https://img.shields.io/github/stars/Sywyar/PixivDownloader)](https://github.com/Sywyar/PixivDownloader/stargazers)
 [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Sywyar/PixivDownloader)](../../releases)
 
-## 功能特点
+PixivDownloader 是本地运行的 Pixiv 插画、漫画、动图（Ugoira）与小说批量下载及本地画廊管理工具，支持桌面界面（Compose / Swing）、浏览器下载工作台与 Tampermonkey 脚本。
 
-- 一站式下载网页，支持快捷获取、批量导入单作品、User 模式、Search 模式、系列模式
-- 快捷获取：凭已保存的 Cookie 一键拉取本账户的收藏（插画/小说，含不公开）、自己的作品（含不公开）、关注列表、珍藏集，可钻取查看并加入下载队列
-- 页面批量下载脚本 — 抓取搜索页、关注动态、排行榜等 Pixiv 页面中的插画/漫画/动图/小说
-- 体验增强工具箱脚本（已下载标记、Cookie 导入）
-- 强大的作品/小说画廊，支持搜索范围选择、筛选排序和收藏夹
-- 小说画廊支持「正文」全文检索（基于本地全文索引，可与年龄分级/标签/作者等筛选叠加）
-- 统计仪表盘：总览卡片、按月下载量折线、下载量 Top 作者、热门标签词云，作者/标签可点击直达画廊筛选
-- 疑似重复检测：基于感知哈希（dHash）识别实质重复的已下载图片，支持阈值调节、跨作品/全部范围切换与手动扫描回填
-- 插件管理页：卡片列表展示所有插件的状态/来源/版本/依赖，支持加载、启动、静默、停止、卸下、删除、重启和重载
-- 插件市场：浏览、搜索并安装受信仓库插件，查看版本说明和截图。
-- [页面编辑器](https://sywyar.github.io/PixivDownloader/#/zh-cn/page-editor)：拖拽插件组件，制作可复用的自定义组件，编辑布局与样式，预览、保存草稿、发布和恢复页面。
-- 计划任务：后台按周期或 Cron 自动发现并下载新作品，支持画师新作、保存的搜索、系列等来源，并可由插件扩展
-- 邮件/推送通知：需人工介入的事件（鉴权失效、熔断等）通过邮件与推送通道告知；可在通知配置页按类型开关
-- 小说下载与系列合订（TXT/HTML/EPUB，EPUB 支持多级目录和内嵌图片）
-- 小说 AI 翻译（需配置大模型）：把正文或整个系列翻译成指定语言并保存到本地，可在原文与译文之间切换查看
-- 小说 AI 多角色朗读（beta）：大模型逐句归属说话人，各角色固定音色合成并连续播放跟随高亮，分析结果可缓存重播
-- 图片可多选原始格式、PNG、JPG、WebP；Ugoira 可多选 WebP、GIF、APNG、MP4 和原始 ZIP
-- 自定义文件名模板（11 个变量）
-- 已下载校验：数据库与磁盘不一致时自动清理脏记录或反向恢复记录
-- 多用户场景配额和限流功能
-- 访客邀请系统（分级/标签/作者白名单）
-- 多语言/暗色模式
-- 桌面 GUI（Swing + FlatLaf），在线更新
+## 核心功能
 
-## 使用截图
+- **多方式获取与批量下载**：支持[快捷获取](https://sywyar.github.io/PixivDownloader/#/zh-cn/quick-access)（收藏、投稿、约稿、关注新作、珍藏集）、[URL 批量导入](https://sywyar.github.io/PixivDownloader/#/zh-cn/batch-download)、[画师批量下载](https://sywyar.github.io/PixivDownloader/#/zh-cn/user-download)、[关键词搜索下载](https://sywyar.github.io/PixivDownloader/#/zh-cn/search)、漫画/小说系列下载与 [Tampermonkey 油猴脚本](https://sywyar.github.io/PixivDownloader/#/zh-cn/userscripts)。
+- **媒体转码与小说能力**：图片支持原始格式、PNG、JPG、WebP 多选保存；动图支持转码为 WebP、GIF、APNG、MP4 或保留原始 ZIP；[小说](https://sywyar.github.io/PixivDownloader/#/zh-cn/novel)支持保存为 TXT / HTML / EPUB（含系列合订本）、正文全文检索、AI / 有道 / LibreTranslate 翻译与 AI 多角色朗读。
+- **本地画廊与整理工具**：[作品画廊](https://sywyar.github.io/PixivDownloader/#/zh-cn/gallery)与小说画廊支持多条件筛选、三态标签/作者组合、本地收藏夹、批量 ZIP 导出、统计看板、基于感知哈希（dHash）的疑似重复检测及只读访客邀请码。
+- **计划任务与通知**：[计划任务](https://sywyar.github.io/PixivDownloader/#/zh-cn/scheduled-tasks)支持固定周期或 6 位 Cron 后台增量追更，遇到登录态失效、过度访问警告或连续失败熔断时通过邮件与多通道推送告警。
+- **插件与界面扩展**：提供 Compose 与 Swing 桌面界面、SQLite 与可选 PostgreSQL 数据库支持、[插件管理与市场](https://sywyar.github.io/PixivDownloader/#/zh-cn/plugin-management)、[PixivBatchDownloader 导入支持](https://sywyar.github.io/PixivDownloader/#/zh-cn/pixiv-batch-downloader-import)及公开 [第三方插件 SDK](https://sywyar.github.io/PixivDownloader/#/zh-cn/plugin-development)。
+- **页面编辑与表单验证**：按需安装[页面编辑器](https://sywyar.github.io/PixivDownloader/#/zh-cn/page-editor)，调整登录与邀请码兑换布局、制作可复用组件，发布或恢复页面；[操作验证码](https://sywyar.github.io/PixivDownloader/#/zh-cn/captcha)提供在线与离线组件，拖入表单并发布后由服务端强制验证。
 
-> [!NOTE]
-> 少许截图设备启用了 HDR，颜色效果可能不同
->
-> 应用支持简体中文界面；以下截图为简体中文版。
+## 界面预览
+
+> 少许截图设备启用了 HDR，颜色效果可能不同；以下为简体中文界面截图（点击动图查看完整静态截图）。
 
 [![PixivDownloader 浅色界面预览](./readme/image/zh-CN-overview.webp)](./readme/zh-CN/md/light-screenshot.md)
 
-点击动图查看完整静态截图。
-
-### [浅色模式使用截图](./readme/zh-CN/md/light-screenshot.md)
-
-### [暗色模式使用截图](./readme/zh-CN/md/dark-screenshot.md)
+- [浅色模式使用截图](./readme/zh-CN/md/light-screenshot.md) · [暗色模式使用截图](./readme/zh-CN/md/dark-screenshot.md)
 
 ## 快速开始
 
-### 下载
+### 1. 下载发行包
 
-从 [Releases](../../releases) 下载最新版：
+从 [Releases](../../releases) 下载最新版，按该版本发行说明中的表格选择适合的发行包。
 
-| 类型                                  | 说明                                 |
-|-------------------------------------|------------------------------------|
-| `PixivDownload-*-win-x64-setup.exe` | Windows 安装包，内置 JRE，支持修复/更改/卸载，可选安装 FFmpeg；预置官方插件分发集合，不含 Douyin |
-| `PixivDownload-*-java.zip`          | Java 标准包（跨平台），需 Java 17；与 Windows 安装包插件集合一致，不含 Douyin |
-| `PixivDownload-*-full-offline.zip`  | 离线全量包（跨平台），需 Java 17；在 Java 标准包基础上增加 PostgreSQL 数据库和 Pixiv Batch Downloader 导入插件，不含 Douyin |
+### 2. 启动与初始化
 
-Java 标准包和离线全量包必须**完整解压**后使用，不要只提取其中的 JAR：启动脚本与 `plugins/` 目录
-缺一不可，程序启动时会从工作目录的 `plugins/` 加载官方外置插件。
-
-### 启动
-
-```bash
-# Windows 安装包
-PixivDownload.exe
-
-# Java 标准包 / 离线全量包（Windows）
-run.bat
-
-# Java 标准包 / 离线全量包（Linux/macOS，需 Java 17）
-sh run.sh
-
-# 可选参数
---no-gui    # 禁用 GUI，纯命令行运行（适合服务器/Docker）
---intro     # 启动时打开产品介绍页
-```
-
-首次启动后按引导完成配置，即可访问 `http://localhost:6999/pixiv-batch.html` 开始下载。
+按照[安装与启动](https://sywyar.github.io/PixivDownloader/#/zh-cn/installation)运行程序，再依照[首次配置](https://sywyar.github.io/PixivDownloader/#/zh-cn/first-setup)完成初始化。
 
 ## 在线文档
 
-详细的安装步骤、使用指南、配置参考、开发指南等请查阅[在线文档](https://sywyar.github.io/PixivDownloader/#/zh-cn/)，也可切换到[繁體中文文檔](https://sywyar.github.io/PixivDownloader/#/zh-hant/)。各章节快速跳转：
+完整配置、迁移、排障与开发参考请查阅[在线文档](https://sywyar.github.io/PixivDownloader/#/zh-cn/)：
 
-**快速上手**
+- **开始使用**：[安装与启动](https://sywyar.github.io/PixivDownloader/#/zh-cn/installation) · [首次配置](https://sywyar.github.io/PixivDownloader/#/zh-cn/first-setup) · [第一次下载](https://sywyar.github.io/PixivDownloader/#/zh-cn/first-download)
+- **取得与下载**：[快捷获取](https://sywyar.github.io/PixivDownloader/#/zh-cn/quick-access) · [URL 批量下载](https://sywyar.github.io/PixivDownloader/#/zh-cn/batch-download) · [画师批量下载](https://sywyar.github.io/PixivDownloader/#/zh-cn/user-download) · [搜索下载](https://sywyar.github.io/PixivDownloader/#/zh-cn/search) · [小说与朗读](https://sywyar.github.io/PixivDownloader/#/zh-cn/novel) · [计划任务](https://sywyar.github.io/PixivDownloader/#/zh-cn/scheduled-tasks) · [油猴脚本](https://sywyar.github.io/PixivDownloader/#/zh-cn/userscripts) · [导入外部下载](https://sywyar.github.io/PixivDownloader/#/zh-cn/pixiv-batch-downloader-import)
+- **管理与排障**：[作品画廊](https://sywyar.github.io/PixivDownloader/#/zh-cn/gallery) · [配置参考](https://sywyar.github.io/PixivDownloader/#/zh-cn/configuration) · [存储与备份](https://sywyar.github.io/PixivDownloader/#/zh-cn/storage) · [CLI 与进阶参考](https://sywyar.github.io/PixivDownloader/#/zh-cn/usage-guide) · [网络访问与第三方服务](https://sywyar.github.io/PixivDownloader/#/zh-cn/network-access) · [常见问题](https://sywyar.github.io/PixivDownloader/#/zh-cn/faq)
+- **插件与开发**：[插件管理](https://sywyar.github.io/PixivDownloader/#/zh-cn/plugin-management) · [页面编辑器](https://sywyar.github.io/PixivDownloader/#/zh-cn/page-editor) · [操作验证码](https://sywyar.github.io/PixivDownloader/#/zh-cn/captcha) · [第三方插件 SDK](https://sywyar.github.io/PixivDownloader/#/zh-cn/plugin-development) · [主仓库开发](https://sywyar.github.io/PixivDownloader/#/zh-cn/development) · [SDK Releases](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
 
-- [📥 安装与启动](https://sywyar.github.io/PixivDownloader/#/zh-cn/installation)
-- [⚙️ 首次配置](https://sywyar.github.io/PixivDownloader/#/zh-cn/first-setup)
-- [⬇️ 第一次下载](https://sywyar.github.io/PixivDownloader/#/zh-cn/first-download)
+## 许可证、致谢与免责声明
 
-**功能指南**
-
-- [⚡ 快捷获取](https://sywyar.github.io/PixivDownloader/#/zh-cn/quick-access)
-- [📋 URL 批量下载](https://sywyar.github.io/PixivDownloader/#/zh-cn/batch-download)
-- [👤 画师批量下载](https://sywyar.github.io/PixivDownloader/#/zh-cn/user-download)
-- [🔍 搜索下载](https://sywyar.github.io/PixivDownloader/#/zh-cn/search)
-- [📖 小说下载](https://sywyar.github.io/PixivDownloader/#/zh-cn/novel)
-- [🖼️ 作品画廊](https://sywyar.github.io/PixivDownloader/#/zh-cn/gallery)
-- [⏰ 计划任务](https://sywyar.github.io/PixivDownloader/#/zh-cn/scheduled-tasks)
-- [🧩 油猴脚本](https://sywyar.github.io/PixivDownloader/#/zh-cn/userscripts)
-
-**参考**
-
-- [⚙️ 配置参考](https://sywyar.github.io/PixivDownloader/#/zh-cn/configuration)
-- [🔌 插件管理](https://sywyar.github.io/PixivDownloader/#/zh-cn/plugin-management)
-- [🧩 第三方插件 SDK](https://sywyar.github.io/PixivDownloader/#/zh-cn/plugin-development)
-- [📦 插件 SDK 下载与版本记录](https://github.com/Sywyar/PixivDownloader-Plugin-SDK/releases)
-- [💾 存储原理](https://sywyar.github.io/PixivDownloader/#/zh-cn/storage)
-- [❓ 常见问题](https://sywyar.github.io/PixivDownloader/#/zh-cn/faq)
-- [🛠️ 开发指南](https://sywyar.github.io/PixivDownloader/#/zh-cn/development)
-
----
-
-## 许可证与插件
-
-本项目及官方插件采用 [AGPL-3.0](LICENSE)，符合[插件链接例外](PLUGIN-LINKING-EXCEPTION.txt)条件的独立第三方插件可选择 MIT 许可证。
-
-## 免责声明
-
-- 本项目仅供个人学习和研究使用，请勿用于任何商业用途。
-- 使用本工具下载的内容版权归原作者所有，请尊重创作者权益，不得二次传播或商业使用。
-- 本工具通过用户自行提供的 Cookie 或在经过用户允许下通过油猴脚本提取 Cookie 来访问 Pixiv，使用者需自行承担账号风险
-- 本项目与 Pixiv 官方无任何关联，使用本工具产生的一切后果由使用者自行负责。
-- 请合理设置下载间隔，避免对 Pixiv 服务器造成过大压力。
-
----
-
-## 闲言碎语
-
-说真的我其实并不推荐这个工具的多人模式，因为所有的请求走的都是服务器网络的IP，就算cookie不一样请求量大也有可能封IP，我也在考虑在多人模式下添加一个登录机制，但与项目方便的初衷背道而驰，目前只会继续打磨这个项目
-
-## 友情链接
-
-**[PixivBatchDownloader](https://github.com/xuejianxianzun/PixivBatchDownloader)**
-如果希望直接在浏览器中下载、不依赖后端程序，可以使用这个扩展。
-
-在本软件中具有 **PixivBatchDownloader 导入支持** 插件及油猴脚本，可将此后下载完成的插画、漫画、动图和小说自动加入本机画廊，保留原文件。详见[使用说明](https://sywyar.github.io/PixivDownloader/#/zh-cn/pixiv-batch-downloader-import)。
-
-功能介绍：
-
-- 超多筛选支持
-- 有一些辅助功能，如去除广告、快速收藏、看图模式等 `(可以当作一个 Pixiv 的辅助插件？)`
-- 下载不依赖第三方工具 `(与本项目最大的区别！安装十分方便！我也在努力将我的项目的使用变得简洁)`
-- 支持多语言
+- **许可证**：本项目及官方插件采用 [AGPL-3.0](LICENSE)；符合[插件链接例外](PLUGIN-LINKING-EXCEPTION.txt)条件的独立第三方插件可选用 MIT 等开源许可证。
+- **外部扩展协作**：若希望在浏览器内直接下载而不启动本地后端，可使用 [PixivBatchDownloader](https://github.com/xuejianxianzun/PixivBatchDownloader)；本软件提供官方 [PixivBatchDownloader 导入支持](https://sywyar.github.io/PixivDownloader/#/zh-cn/pixiv-batch-downloader-import)，可将其下载的作品以只读引用方式自动登记到本地画廊。
+- **免责声明**：本项目仅供个人学习与研究，请勿用于商业用途。下载作品的著作权归原作者所有，请勿二次传播或商业使用。本工具通过用户自行提供的 Cookie 访问 Pixiv，与 Pixiv 官方无任何关联；请合理控制下载间隔并自行承担账号使用风险。

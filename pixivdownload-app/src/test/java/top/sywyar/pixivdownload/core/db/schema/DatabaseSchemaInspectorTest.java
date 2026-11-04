@@ -15,6 +15,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -363,22 +364,36 @@ class DatabaseSchemaInspectorTest {
     class SummaryTests {
 
         @Test
-        @DisplayName("差异多于 limit 时应附加 more-differences 提示")
+        @DisplayName("截断摘要与明细分别遵守界面语言和固定日志语言")
         void shouldTruncateSummaryAndAppendMoreHint() {
             DatabaseSchemaInspector.SchemaDifference d1 = new DatabaseSchemaInspector.SchemaDifference(
-                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t1", null, "first difference");
+                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t1", null,
+                    "download.db.schema.missing-table", List.of("t1"));
             DatabaseSchemaInspector.SchemaDifference d2 = new DatabaseSchemaInspector.SchemaDifference(
-                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t2", null, "second difference");
+                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t2", null,
+                    "download.db.schema.missing-table", List.of("t2"));
             DatabaseSchemaInspector.SchemaDifference d3 = new DatabaseSchemaInspector.SchemaDifference(
-                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t3", null, "third difference");
+                    DatabaseSchemaInspector.SchemaDifferenceKind.MISSING_TABLE, "t3", null,
+                    "download.db.schema.missing-table", List.of("t3"));
 
             DatabaseSchemaInspector.SchemaComparison comparison =
                     new DatabaseSchemaInspector.SchemaComparison(false, List.of(d1, d2, d3));
 
-            String summary = comparison.summary(2);
-
-            assertThat(summary.lines()).containsExactly("first difference", "second difference",
-                    MessageBundles.get("download.db.schema.more-differences", 1));
+            var locale = Locale.getDefault();
+            try {
+                Locale.setDefault(Locale.SIMPLIFIED_CHINESE);
+                assertThat(comparison.summary(2).lines()).containsExactly(
+                        MessageBundles.get("download.db.schema.missing-table", "t1"),
+                        MessageBundles.get("download.db.schema.missing-table", "t2"),
+                        MessageBundles.get("download.db.schema.more-differences", 1));
+                assertThat(comparison.summaryForLog(2).lines()).containsExactly(
+                        MessageBundles.getForLog("download.db.schema.missing-table", "t1"),
+                        MessageBundles.getForLog("download.db.schema.missing-table", "t2"),
+                        MessageBundles.getForLog("download.db.schema.more-differences", 1));
+                assertThat(comparison.summary(2)).isNotEqualTo(comparison.summaryForLog(2));
+            } finally {
+                Locale.setDefault(locale);
+            }
         }
 
         @Test

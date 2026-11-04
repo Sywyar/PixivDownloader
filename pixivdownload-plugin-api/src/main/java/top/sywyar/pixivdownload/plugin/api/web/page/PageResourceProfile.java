@@ -12,7 +12,7 @@ public record PageResourceProfile(String id, String revision, List<Source> sourc
         /** 样式。 */ STYLE,
         /** 图片。 */ IMAGE,
         /** 字体。 */ FONT,
-        /** Worker。 */ WORKER
+        /** 浏览器工作线程。 */ WORKER
     }
     /** origin 只接受同源标记 self、HTTPS origin 或明确申请的 blob Worker。 */
     public record Source(Kind kind, String origin) { }
