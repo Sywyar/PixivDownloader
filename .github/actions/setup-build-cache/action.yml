@@ -1,0 +1,25 @@
+name: Cache build dependencies
+description: Reuse third-party Maven dependencies and Gradle state without restoring project artifacts
+runs:
+  using: composite
+  steps:
+    - name: Cache third-party Maven artifacts
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: |
+          ~/.m2/repository
+          !~/.m2/repository/io/github/sywyar/pixivdownloader/**
+          !~/.m2/repository/top/sywyar/lovepopup/**
+          ~/.m2/wrapper
+        key: maven-dependencies-v1-${{ runner.os }}-${{ runner.arch }}-jdk17-${{ hashFiles('**/pom.xml', '.mvn/**') }}
+        restore-keys: |
+          maven-dependencies-v1-${{ runner.os }}-${{ runner.arch }}-jdk17-
+    - name: Cache Gradle dependencies and compiled build scripts
+      uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
+      with:
+        cache-read-only: false
+        # 不恢复测试任务输出；配置缓存仅在同一 job 内复用，无需向 PR 注入密钥。
+        gradle-home-cache-excludes: |
+          caches/build-cache-*
+        dependency-graph: disabled
+        build-scan-publish: false

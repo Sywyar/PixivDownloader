@@ -213,7 +213,8 @@ test('Quality Gate preserves required roles and the active event contract', () =
 });
 
 test('SDK 门禁必须取得固定旧插件并执行浏览器验收，入口失败不能变成成功', () => {
-    const steps = load('.github/actions/verify-sdk/action.yml').runs.steps;
+    const { jobs } = load('.github/workflows/quality-gate.yml');
+    const steps = Object.values(jobs).flatMap(executionSteps);
     const fixtures = steps.find(step => /sdk-legacy-plugin\.mjs/.test(step.run || ''));
     const services = steps.find(step => /sdk-typed-services\.mjs/.test(step.run || ''));
     const browser = steps.find(step => /page-editor-acceptance\.mjs/.test(step.run || ''));
@@ -222,7 +223,7 @@ test('SDK 门禁必须取得固定旧插件并执行浏览器验收，入口失�
         assert.equal(step.if, undefined);
         assert.equal(step['continue-on-error'], undefined);
     }
-    assert.ok(steps.indexOf(fixtures) < steps.indexOf(services));
+    assert.ok(jobs['sdk-services'].steps.indexOf(fixtures) < jobs['sdk-services'].steps.indexOf(services));
     assert.equal(services.env.SDK_OLD_PLUGIN_JAR, 'target/sdk-legacy-original.jar');
     assert.match(fixtures.run, /playwright install --with-deps chromium/);
     assert.throws(() => execFileSync('bash', ['-e', '-o', 'pipefail', '-c',
@@ -231,7 +232,17 @@ test('SDK 门禁必须取得固定旧插件并执行浏览器验收，入口失�
 });
 
 test('模板构建收到与 SDK 暂存相同的精确源码参数', () => {
-    const steps = load('.github/actions/verify-sdk/action.yml').runs.steps;
+    const sequential = load('.github/actions/verify-sdk/action.yml');
+    assert.equal(sequential.inputs.source_sha.required, true);
+    assert.deepEqual(sequential.runs.steps.slice(0, 2).map(step => step.uses), [
+        './.github/actions/build-sdk', './.github/actions/verify-sdk-consumers',
+    ]);
+    assert.equal(sequential.runs.steps[0].with.source_sha, '${{ inputs.source_sha }}');
+    const sequentialCommands = executionSteps({ steps: sequential.runs.steps }).map(step => step.run || '').join('\n');
+    for (const command of ['sdk-legacy-plugin.mjs', 'sdk-typed-services.mjs', 'page-editor-acceptance.mjs']) {
+        assert.ok(sequentialCommands.includes(command), `protected predecessor still executes ${command}`);
+    }
+    const steps = load('.github/actions/build-sdk/action.yml').runs.steps;
     const stage = steps.find(step => /altDeploymentRepository=sdk-staging/u.test(step.run || ''));
     const templates = steps.find(step => /plugin-templates\/pom.xml/u.test(step.run || ''));
     assert.equal(stage.env.SOURCE_SHA, '${{ inputs.source_sha }}');
@@ -267,9 +278,17 @@ test('Java tests and ProGuard run independently and both gate the required Java 
         assert.equal(ancestors(jobs, b).has(a), false);
     }
     const required = ancestors(jobs, 'java-tests');
-    for (const id of [tests, build, owner(/DistributionPackagingBoundaryTest/u), owner(/sdk-contract\.mjs/u)]) {
+    for (const id of [tests, build, owner(/DistributionPackagingBoundaryTest/u), owner(/sdk-contract\.mjs/u),
+        'sdk-consumers', 'sdk-services', 'sdk-pages', 'windows-runtime-tests']) {
         assert.ok(required.has(id), `java-tests must require ${id}`);
     }
+    for (const id of ['sdk-consumers', 'sdk-services', 'sdk-pages']) {
+        assert.deepEqual([jobs[id].needs].flat(), [sdk]);
+        const restore = jobs[id].steps.find(step => step.uses === './.github/actions/restore-sdk-verification');
+        assert.equal(restore?.with?.artifact_id, '${{ needs.sdk-build.outputs.verification_id }}');
+        assert.equal(restore?.with?.sha256, '${{ needs.sdk-build.outputs.verification_sha256 }}');
+    }
+    assert.equal(jobs['windows-runtime-tests'].needs, undefined);
     for (const id of required) {
         assert.equal(jobs[id].if, undefined, `${id} must preserve dependency success`);
         assert.ok(Number.isInteger(jobs[id]['timeout-minutes']) && jobs[id]['timeout-minutes'] > 0);
@@ -287,7 +306,7 @@ test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构
     assert.equal(artifacts[compose]['working-directory'], 'pixivdownload-plugin-gui-compose');
     assert.doesNotMatch(artifacts[compose].run, /-Pmaven(?:SkipTests|TestSkip)=true|(?:^|\s)-x(?:\s|$)/u);
     assert.equal(jobs['release-artifacts']['runs-on'], 'windows-latest');
-    assert.ok(artifacts.some(step => step.shell === 'pwsh'
+    assert.ok(executionSteps(jobs['windows-runtime-tests']).some(step => step.shell === 'pwsh'
         && /scripts\/release-e2e\/runtime\.test\.ps1/u.test(step.run || '')));
     const boundaryCall = artifacts.find(step => step.uses === './.github/actions/verify-release-boundaries');
     assert.deepEqual(boundaryCall.with.additional_tests.split(',').sort(),
@@ -295,18 +314,19 @@ test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构
             'PluginReleaseScriptsTest#releaseArtifactCleanupHandlesSealedPermissions+releaseArtifactFailurePrintsDiagnosticTail',
             'StagedFileDeletionTest#rejectsWindowsJunctionBeforeStaging',
             'WorkDeletionFileRollbackTest#novelJunctionAbortsFilesAndSoftDelete']);
-    const sources = executionSteps(jobs['sdk-tests']);
+    const sources = executionSteps(jobs['sdk-build']);
     const stage = sources.findIndex(step => /altDeploymentRepository=sdk-staging/u.test(step.run || ''));
     const templates = sources.findIndex(step => /plugin-templates\/pom.xml/u.test(step.run || ''));
-    const consumer = sources.findIndex(step => /node scripts\/ci\/sdk-consumer\.mjs/u.test(step.run || ''));
+    const consumer = executionSteps(jobs['sdk-consumers']).find(step => /node scripts\/ci\/sdk-consumer\.mjs/u.test(step.run || ''));
     const contract = sources.findIndex(step => /sdk-contract\.mjs/u.test(step.run || ''));
-    assert.ok(stage >= 0 && templates > stage && consumer > stage && contract > stage);
+    assert.ok(stage >= 0 && templates > stage && consumer && contract > stage);
+    assert.ok(ancestors(jobs, 'sdk-consumers').has('sdk-build'));
     assert.doesNotMatch(sources[templates].run, /-D(?:skipTests|maven\.test\.skip)(?:=true)?(?:\s|$)/u);
     assert.match(sources[templates].run, /verifyTypedServiceArtifacts\("plugin-templates\/typed-service-plugin", process.argv\[1\]\)/u);
     assert.match(sources[templates].run, /node scripts\/ci\/sdk-remote.mjs/u);
-    assert.ok(sources.some(step => /node scripts\/ci\/sdk-typed-services.mjs/u.test(step.run || '')));
+    assert.ok(executionSteps(jobs['sdk-services']).some(step => /node scripts\/ci\/sdk-typed-services.mjs/u.test(step.run || '')));
     assert.doesNotMatch(sources[templates].run, /-pl\s/u);
-    assert.match(sources[consumer].run, /sdk-release\.mjs/u);
+    assert.ok(sources.some(step => /node scripts\/ci\/sdk-release\.mjs/u.test(step.run || '')));
     const scripts = Object.values(jobs).flatMap(executionSteps)
         .filter(step => /check-powershell\.ps1/u.test(step.run || ''));
     assert.deepEqual(scripts.map(step => step.shell).sort(), ['powershell', 'pwsh']);
@@ -319,7 +339,7 @@ test('QG 覆盖 Compose、SDK 消费者和两种 PowerShell，并顺序复用构
 test('SDK 发布串行消费本次完整 QG 验证的候选，恢复继续使用原始冻结附件', () => {
     const qg = load('.github/workflows/quality-gate.yml');
     const sdk = load('.github/workflows/publish-sdk.yml');
-    const producer = qg.jobs['sdk-tests'];
+    const producer = qg.jobs['sdk-build'];
     const upload = producer.steps.find(step => step.id === 'sdk-candidate');
     assert.equal(qg.on.workflow_call.inputs.export_sdk_candidates.default, false);
     assert.equal(sdk.jobs['quality-gate'].with.export_sdk_candidates,
@@ -329,6 +349,10 @@ test('SDK 发布串行消费本次完整 QG 验证的候选，恢复继续使用
     assert.equal(upload.with.path, 'target/sdk-publication-inputs/');
     assert.equal(upload.with['if-no-files-found'], 'error');
     assert.equal(producer.outputs.candidate_id, '${{ steps.sdk-candidate.outputs.artifact-id }}');
+    assert.equal(qg.jobs['sdk-tests'].outputs.candidate_id, '${{ needs.sdk-build.outputs.candidate_id }}');
+    for (const id of ['sdk-build', 'sdk-consumers', 'sdk-services', 'sdk-pages']) {
+        assert.ok(ancestors(qg.jobs, 'sdk-tests').has(id), `SDK publication waits for ${id}`);
+    }
     assert.equal(qg.on.workflow_call.outputs.sdk_candidate_id.value,
         '${{ jobs.sdk-tests.outputs.candidate_id }}');
     const steps = executionSteps(sdk.jobs.publish);
@@ -338,7 +362,7 @@ test('SDK 发布串行消费本次完整 QG 验证的候选，恢复继续使用
         path: 'target/sdk-publication-inputs', 'merge-multiple': true,
     });
     assert.equal(download.if, "${{ steps.state.outputs.reuse_release == 'false' }}");
-    assert.ok(!steps.some(step => step.uses === './.github/actions/verify-sdk'));
+    assert.ok(!steps.some(step => step.uses === './.github/actions/verify-sdk-consumers'));
     const freeze = steps.findIndex(step => step.name === 'Freeze signed SDK assets before Central publication');
     assert.ok(steps.indexOf(download) < freeze);
     assert.match(steps[freeze].run, /--verify-directory target\/sdk-release --source-sha/u);
@@ -715,7 +739,7 @@ test('PR 使用真实已发布 SDK 严格校验，Nightly 保留独立构建合�
     const plugins = load('.github/workflows/publish-plugins.yml');
     const nightly = load('.github/workflows/nightly.yml');
     const release = load('.github/workflows/release.yml');
-    const sdkSteps = qualityGate.jobs['sdk-tests'].steps;
+    const sdkSteps = qualityGate.jobs['sdk-build'].steps;
     const predecessor = sdkSteps.find(step => step.name === 'Resolve SDK contract predecessor');
     const published = sdkSteps.find(step => step.name === 'Resolve published SDK baseline');
     const contract = sdkSteps.find(step => step.name === 'Compare SDK public contract');
@@ -729,7 +753,7 @@ test('PR 使用真实已发布 SDK 严格校验，Nightly 保留独立构建合�
         ['schedule', undefined, 'none'], ['workflow_dispatch', undefined, 'none'],
         ['push', 'current', 'current'], ['push', 'latest', 'latest']
     ]) {
-        const env = { SDK_PUBLICATION_MODE: evaluate(qualityGate.jobs['sdk-tests'].env.SDK_PUBLICATION_MODE,
+        const env = { SDK_PUBLICATION_MODE: evaluate(qualityGate.jobs['sdk-build'].env.SDK_PUBLICATION_MODE,
             { github: { event_name: event }, inputs: { sdk_publication_mode: requested } }) };
         assert.equal(env.SDK_PUBLICATION_MODE, expected);
         assert.equal(evaluate(published.if, { env }), expected !== 'none');
@@ -758,7 +782,8 @@ test('PR 使用真实已发布 SDK 严格校验，Nightly 保留独立构建合�
         '${{ needs.resolve-version.outputs.trusted_base_sha }}');
     assert.doesNotMatch(JSON.stringify(nightly), /sdk-release-plan|publish-sdk|CENTRAL_USERNAME|CENTRAL_PASSWORD|MAVEN_GPG/u);
     assert.ok(qualityGate.jobs['java-tests'].needs.includes('sdk-tests'));
-    assert.ok(sdkSteps.some(step => step.uses === './.github/actions/verify-sdk'));
+    assert.ok(sdkSteps.some(step => step.uses === './.github/actions/build-sdk'));
+    assert.ok(qualityGate.jobs['sdk-consumers'].steps.some(step => step.uses === './.github/actions/verify-sdk-consumers'));
     assert.equal(release.jobs['publish-plugins'].with.sdk_publication_mode, "${{ needs.sdk-release-plan.outputs.publish == 'true' && 'latest' || 'current' }}");
 });
 

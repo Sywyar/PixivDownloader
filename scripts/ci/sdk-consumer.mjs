@@ -407,6 +407,10 @@ function parseArguments(argv) {
     const options = { repoRoot: '.', sdkZip: '', sdkRepository: '', workDirectory: '', douyinSource: '' };
     for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index];
+        if (argument === '--typed-service-only') {
+            options.typedServiceOnly = true;
+            continue;
+        }
         const value = argv[index + 1];
         if (argument === '--repo-root') options.repoRoot = value;
         else if (argument === '--sdk-zip') options.sdkZip = value;
@@ -496,6 +500,20 @@ export function verifyConsumer(options) {
         cwd,
         env: mavenEnvironment,
     });
+    // HTTP 验收独立从原始 SDK 创建夹具，不等待或共享另一 job 的可变工程。
+    if (options.typedServiceOnly) {
+        const typedProject = path.join(project, 'examples', 'typed-service-plugin');
+        const toolsJar = path.join(project, 'tools', 'sdk-tools.jar');
+        const buildTypedService = offline => runMaven([...(offline ? ['-o'] : []),
+            '-s', settings, `-Dmaven.repo.local=${localRepository}`,
+            `-Dpixivdownload.sdk.tools=${toolsJar}`, '-f', path.join(typedProject, 'pom.xml'), 'clean', 'verify']);
+        buildTypedService(false);
+        stageSdkArtifacts(localRepository, sdkRepository, identity.version);
+        buildTypedService(true);
+        assertSdkResolution(localRepository, sdkRepository, identity.version);
+        verifyTypedServiceArtifacts(typedProject, toolsJar);
+        return { project: typedProject, sdkVersion: identity.version };
+    }
     const douyinSource = prepareDouyinSource(repoRoot, work, options.douyinSource);
     const douyinPom = path.join(douyinSource, 'pom.xml');
     const douyinBuildDirectory = path.join(douyinSource, 'target');

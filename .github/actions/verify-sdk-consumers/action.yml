@@ -1,0 +1,27 @@
+name: Verify SDK consumers
+description: Validate isolated consumers and both plugin modes against the frozen SDK
+runs:
+  using: composite
+  steps:
+    - name: Verify integrated SDK and isolated consumers
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        sdk_version="$(node scripts/ci/sdk-version.mjs --repo-root . --json | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).version')"
+        node scripts/ci/sdk-consumer.mjs --repo-root . \
+          --sdk-zip "target/sdk-release/PixivDownloader-Plugin-SDK-$sdk_version.zip" \
+          --sdk-repository target/sdk-staging --work-dir target/sdk-staged-consumer
+        node scripts/ci/sdk-build-tools.mjs --sdk-repository target/sdk-staging \
+          --sdk-zip "target/sdk-release/PixivDownloader-Plugin-SDK-$sdk_version.zip" \
+          --sbt-launcher target/sbt-launch.jar
+
+    - name: Run both SDK plugin modes with the fixed complete host
+      shell: pwsh
+      run: |
+        $release = Get-Content -Raw -Encoding UTF8 target/sdk-release/sdk-release.json | ConvertFrom-Json
+        ./scripts/ci/sdk-runtime-consumer.ps1 -BuiltProject target/sdk-staged-consumer/project `
+          -WorkDirectory target/sdk-host-consumer `
+          -RuntimeArchive (Join-Path target/sdk-release $release.developmentRuntime.archive.file) `
+          -TestRepositoryConfig build/sdk-development-runtime/ci-repository.yaml
