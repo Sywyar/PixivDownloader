@@ -93,7 +93,13 @@ function verifyRecoveryCli() {
             ...(snapshot.configuration?.requirements || [])];
         for (const hook of hooks) {
             hook.definition.phases.sort();
-            hook.targetAnchors.sort();
+            for (const anchor of hook.targetAnchors) {
+                for (const field of ['routes', 'paths', 'methods', 'alternatives']) anchor[field].sort();
+            }
+            hook.targetAnchors.sort((left, right) => {
+                const a = JSON.stringify(left), b = JSON.stringify(right);
+                return a < b ? -1 : a > b ? 1 : 0;
+            });
         }
     }
     assert.deepEqual(after.pages, before.pages, 'recovery preserves page, operation and resource facts');

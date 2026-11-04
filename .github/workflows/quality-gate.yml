@@ -151,7 +151,8 @@ jobs:
         run: |
           set -euo pipefail
           tar -cf target/sdk-verification.tar target/sdk-publication-inputs target/sdk-release \
-            build/sdk-development-runtime/ci-repository.yaml target/sbt-launch.jar
+            build/sdk-development-runtime/ci-repository.yaml target/sbt-launch.jar \
+            pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-*.jar
           echo "sha256=$(sha256sum target/sdk-verification.tar | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
       - name: Upload frozen SDK verification inputs
         id: sdk-verification

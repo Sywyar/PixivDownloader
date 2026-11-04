@@ -67,7 +67,13 @@ try {
         for (const region of ['alpha', 'beta']) {
             const form = page.locator('#' + region + '-form');
             const proof = page.locator('[data-page-region="' + region + '"]').getByRole('button', {name: 'Respond to challenge'});
+            await page.evaluate(() => {
+                window.hookBlockCode = null;
+                document.addEventListener('pixiv:hook-blocked', event => { window.hookBlockCode = event.detail.code; }, {once: true});
+            });
             await form.locator('button').click();
+            await page.waitForFunction(() => window.hookBlockCode !== null);
+            assert.equal(await page.evaluate(() => window.hookBlockCode), 'HOOK_VERIFICATION_REQUIRED');
             await proof.click();
             const response = page.waitForResponse(response => response.url().endsWith('/api/operation-form/' + region));
             await form.locator('button').click();

@@ -14,6 +14,36 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 const action = YAML.parse(fs.readFileSync(path.join(root, '.github/actions/restore-sdk-verification/action.yml'), 'utf8'));
 const steps = action.runs.steps;
 
+test('SDK 冻结归档向独立消费者交接签名工具，缺失时构建失败', () => {
+    const workflow = YAML.parse(fs.readFileSync(path.join(root, '.github/workflows/quality-gate.yml'), 'utf8'));
+    const archive = workflow.jobs['sdk-build'].steps.find(step => step.id === 'sdk-archive');
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sdk-archive-'));
+    const signature = 'pixivdownload-plugin-signature/target/pixivdownload-plugin-signature-fixture.jar';
+    const files = ['target/sdk-publication-inputs/inputs.json', 'target/sdk-release/sdk-release.json',
+        'build/sdk-development-runtime/ci-repository.yaml', 'target/sbt-launch.jar', signature];
+    try {
+        for (const file of files) {
+            fs.mkdirSync(path.dirname(path.join(directory, file)), {recursive: true});
+            fs.writeFileSync(path.join(directory, file), `frozen ${file}`, 'utf8');
+        }
+        const run = () => spawnSync('bash', ['-e', '-o', 'pipefail', '-s'], {
+            cwd: directory, input: archive.run, encoding: 'utf8', env: {...process.env, GITHUB_OUTPUT: 'outputs.txt'},
+        });
+        const result = run();
+        assert.equal(result.status, 0, result.stderr);
+        const restored = path.join(directory, 'restored');
+        fs.mkdirSync(restored);
+        execFileSync('tar', ['-xf', path.join(directory, 'target/sdk-verification.tar'), '-C', restored]);
+        for (const file of files) assert.equal(fs.readFileSync(path.join(restored, file), 'utf8'), `frozen ${file}`);
+        const digest = createHash('sha256').update(fs.readFileSync(path.join(directory, 'target/sdk-verification.tar'))).digest('hex');
+        assert.equal(fs.readFileSync(path.join(directory, 'outputs.txt'), 'utf8').trim(), `sha256=${digest}`);
+        fs.unlinkSync(path.join(directory, signature));
+        assert.notEqual(run().status, 0, 'Missing signature tool must reject the producer');
+    } finally {
+        fs.rmSync(directory, {recursive: true, force: true});
+    }
+});
+
 test('页面验收的冻结产物参数保留默认、发布恢复及验证码入口', () => {
     const entry = path.join(root, 'scripts/ci/page-editor-acceptance.mjs');
     const source = fs.readFileSync(entry, 'utf8').replace(/^import .*;\r?$/gm, '')
@@ -46,6 +76,55 @@ test('页面验收的冻结产物参数保留默认、发布恢复及验证码�
                 : mode.length ? 'captcha' : path.join(root, 'pixivdownload-app/src/test/resources/page-components/browser.mjs'));
             assert.equal(copied.some(([from]) => from === path.resolve('fixture-captcha.jar')), mode[0] === 'fixture-captcha.jar');
         }
+    }
+});
+
+test('页面恢复比较接受无序端点集合，仍拒绝成员、字段及有序列表变化', () => {
+    const entry = path.join(root, 'scripts/ci/page-editor-acceptance.mjs');
+    const source = fs.readFileSync(entry, 'utf8').replace(/^import .*;\r?$/gm, '')
+        .replaceAll('import.meta.url', JSON.stringify(pathToFileURL(entry).href));
+    const anchor = {owner: 'fixture', handler: 'Controller#first', routes: ['POST:/a', 'GET:/b'],
+        paths: ['/a', '/b'], methods: ['POST', 'GET'], alternatives: ['b', 'a'],
+        parameters: ['first', 'second'], headers: [], consumes: [], produces: [], bodyRequired: true};
+    const hook = {definition: {phases: ['BEFORE_INVOKE', 'AFTER_COMPLETION']}, targetContract: 'contract',
+        targetAnchors: [anchor, {...anchor, handler: 'Controller#second'}]};
+    const before = {epoch: 'old', pages: {fixture: {document: 'document', hooks: [hook]}},
+        configuration: {requirements: [hook]}};
+    for (const change of [null, value => value.targetAnchors[0].routes.pop(),
+        value => { value.targetAnchors[0].bodyRequired = false; },
+        value => value.targetAnchors[0].parameters.reverse(),
+        value => { value.targetContract = 'changed'; }]) {
+        const after = JSON.parse(JSON.stringify(before)); after.epoch = 'new';
+        for (const value of [after.pages.fixture.hooks[0], after.configuration.requirements[0]]) {
+            value.definition.phases.reverse(); value.targetAnchors.reverse();
+            for (const target of value.targetAnchors)
+                for (const field of ['routes', 'paths', 'methods', 'alternatives']) target[field].reverse();
+        }
+        if (change) change(after.configuration.requirements[0]);
+        let current = JSON.stringify({file: 'before.json', digest: 'valid'}), invocations = 0;
+        const stop = new Error('External acceptance boundary reached');
+        const context = vm.createContext({path, fileURLToPath, parseArgs, createHash, assert,
+            process: {...process, argv: [process.execPath, entry, path.join(root, 'target/page-recovery-fixture')]},
+            console: {log() {}}, fs: {existsSync: () => false, mkdirSync() {}, copyFileSync() {}, appendFileSync() {},
+                readdirSync: () => ['before.json'],
+                writeFileSync(file, value) { if (file.endsWith('current.json')) current = value; },
+                readFileSync(file) {
+                    if (file.endsWith('current.json')) return current;
+                    if (file.endsWith('before.json')) return JSON.stringify(before);
+                    if (file.endsWith('after.json')) return JSON.stringify(after);
+                    throw new Error('Unexpected fixture read: ' + file);
+                }},
+            spawnSync(command, args) {
+                if (command !== 'java') throw stop;
+                invocations++;
+                if (args.includes('--publication-sha256=' + '0'.repeat(64))) return {status: 1, stdout: '', stderr: ''};
+                if (args.includes('--publication-sha256=valid')) current = JSON.stringify({file: 'after.json'});
+                return {status: 0, stdout: current.includes('corrupt') ? 'unavailable' : 'Current publication:', stderr: ''};
+            }});
+        assert.throws(() => vm.runInContext(source, context), error => error === stop);
+        const recover = () => vm.runInContext('verifyRecoveryCli()', context);
+        if (change) assert.throws(recover, /recovery preserves standalone Hook bindings/);
+        else { recover(); assert.equal(invocations, 5); }
     }
 });
 
