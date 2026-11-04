@@ -133,11 +133,11 @@ async function checkEditorLayout() {
     assert.equal(await page.locator('#delete').isDisabled(), false);
     await page.locator('#delete').click(); await page.locator('#undo').click();
     assert.equal(await page.locator('#redo').isDisabled(), false);
-    for (const viewport of [{width: 390, height: 844}, {width: 900, height: 500}, {width: 1280, height: 720}, {width: 1920, height: 500}]) {
+    for (const viewport of [{width: 320, height: 844}, {width: 390, height: 844}, {width: 900, height: 500}, {width: 1280, height: 720}, {width: 1920, height: 500}]) {
         await page.setViewportSize(viewport);
         await more.click();
         const menu = await page.locator('.action-menu-content').boundingBox();
-        assert.ok(menu.x >= 0 && menu.x + menu.width <= viewport.width + 2, 'menu fits ' + JSON.stringify(viewport));
+        assert.ok(menu.x >= 0 && menu.x + menu.width <= viewport.width + 2, 'menu fits ' + JSON.stringify({viewport, menu}));
         await more.press('Escape');
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 2), JSON.stringify(viewport));
     }

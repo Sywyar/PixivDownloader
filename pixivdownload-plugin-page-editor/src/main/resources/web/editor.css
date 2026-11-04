@@ -263,6 +263,7 @@ button:disabled { opacity: .45; cursor: default; }
     .editor-actions { order: 1; }
     .page-field { flex-basis: 100%; }
     .document-buttons { justify-content: flex-start; width: 100%; }
+    .document-buttons .action-menu { margin-left: auto; }
     .canvas-notice, .preview-caption { align-items: start; flex-direction: column; }
 }
 @container editor-workspace (max-width: 37.5rem) {
