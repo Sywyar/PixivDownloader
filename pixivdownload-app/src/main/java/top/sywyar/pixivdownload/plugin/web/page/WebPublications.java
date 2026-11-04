@@ -204,13 +204,23 @@ public final class WebPublications implements PagePublications {
                 Snapshot candidate = new Snapshot(Math.addExact(expected, 1), before.epoch(), next, before.configuration());
                 if (this.hooks != null) this.hooks.validate(candidate);
                 String fingerprint = hash(JSON.writeValueAsBytes(List.of(candidate, identities)));
-                Plan plan = new Plan(expected, fingerprint, changes, impacts, permissions.stream().distinct().toList());
+                var hookChanges = changes.stream().map(change -> new HookChange(change.page(),
+                        hookAccess(before.pages().get(change.page())), hookAccess(next.get(change.page())))).toList();
+                Plan plan = new Plan(expected, fingerprint, changes, impacts, permissions.stream().distinct().toList(), hookChanges);
                 return action.run(plan, candidate);
             });
         } catch (IOException failure) { throw new IllegalStateException("PAGE_PUBLICATION_FAILED", failure); }
     }
 
     private record Binding(String policy, PageInteraction protocol, PageInteraction.Target target) { }
+    private static List<HookAccess> hookAccess(Page page) {
+        if (page == null) return List.of();
+        return page.hooks().stream().map(requirement -> {
+            var binding = requirement.binding();
+            return new HookAccess(requirement.provider(), binding.hook(), requirement.operation(), binding.endpoint(),
+                    binding.phase(), binding.order(), binding.completion(), binding.fields());
+        }).toList();
+    }
     private static boolean targets(HookRequirement hook, String reference) {
         return hook.operation().equals(reference) || hook.binding().endpoint().equals(reference);
     }

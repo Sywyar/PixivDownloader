@@ -2,9 +2,9 @@ import {mountComponent, renderPage, pureValue} from '/js/pixiv-pages.mjs';
 import {installCssEditor} from './editor-css.mjs';
 import {installEditorMotion} from './editor-motion.mjs';
 import {icon, decorateIcons} from './editor-icons.mjs';
-import {createEditorFeedback} from './editor-feedback.mjs';
-import {resolveBinding, publicationSections} from './editor-bindings.mjs';
-import {selectPages} from './editor-publication.mjs';
+import {createEditorFeedback, errorMessage} from './editor-feedback.mjs';
+import {resolveBinding} from './editor-bindings.mjs';
+import {selectPages, publicationSections, publicationLabels} from './editor-publication.mjs';
 import {mountHooks} from './editor-hooks.mjs';
 
 const $ = id => document.getElementById(id);
@@ -59,11 +59,12 @@ const status = (key, detail = '') => {
         : ['failed', 'conflict', 'required-region', 'css-pending', 'repair-title', 'unavailable', 'restored-unsaved', 'restored-unsaved-pages'].includes(key) ? 'error'
         : ['working', 'saving', 'publishing', 'restoring'].includes(key) ? 'busy' : 'idle';
     feedback.dataset.state = kind;
-    $('status').textContent = t(key);
+    const message = (key === 'failed' || key === 'conflict') && detail ? errorMessage(detail, t) : t(key);
+    $('status').textContent = message;
     $('status').dataset.state = kind;
     if (key === 'unsaved') return;
-    const description = detail || (['saved', 'published'].includes(key) ? t(key + '-help') : '');
-    notify(kind, t(key), description);
+    const description = ['failed', 'conflict'].includes(key) ? '' : detail || (['saved', 'published'].includes(key) ? t(key + '-help') : '');
+    notify(kind, message, description);
 };
 
 function canMove(model, target) {
@@ -92,6 +93,7 @@ async function api(path, data, signal = lifetime.signal) {
 }
 async function action(work, progress = 'working') {
     if (busy) return;
+    const trigger = document.activeElement;
     busy = true; syncActions();
     status(progress);
     document.querySelector('.document-buttons').setAttribute('aria-busy', 'true');
@@ -103,6 +105,10 @@ async function action(work, progress = 'working') {
     } finally {
         busy = false; syncActions(); document.querySelector('.document-buttons').setAttribute('aria-busy', 'false');
         if ($('status').dataset.state === 'busy') { notify('idle', ''); status(dirty ? 'unsaved' : 'loaded'); }
+        requestAnimationFrame(() => {
+            if ((document.activeElement === document.body || document.activeElement.closest('dialog[data-closing]'))
+                && !lifetime.signal.aborted && trigger?.isConnected && !trigger.disabled) trigger.focus({preventScroll: true});
+        });
     }
 }
 
@@ -384,7 +390,7 @@ async function properties(model) {
                 if (current === configuration) return;
                 configuration = current;
                 instance.update(current).catch(error => {
-                    if (generation === inspectorGeneration && error.name !== 'AbortError') status('failed');
+                    if (generation === inspectorGeneration && error.name !== 'AbortError') status('failed', error.message);
                 });
             };
             refreshProperties();
@@ -598,7 +604,7 @@ function syncConnections() {
         const previous = $(id).value; $(id).replaceChildren();
         for (const model of models) {
             const option = document.createElement('option'); option.value = model.get('instanceId');
-            option.textContent = model.get('componentType') + ' · ' + option.value.slice(0, 8); $(id).append(option);
+            option.textContent = model.getName() + ' · ' + option.value.slice(0, 8); $(id).append(option);
         }
         if (models.some(model => model.get('instanceId') === previous)) $(id).value = previous;
     }
@@ -666,7 +672,8 @@ async function showHooks() {
     hooksAbort.abort(); hooksAbort = new AbortController();
     const signal = hooksAbort.signal;
     try { await mountHooks($('hooks'), activePage().definition, hooks, value => { hooks = value; changed(); }, t, signal,
-        {actions, canvas: editor.Canvas.getDocument(), update: value => { actions = value; changed(); refreshBinding?.(); void showHooks(); }}); }
+        {actions, canvas: editor.Canvas.getDocument(), update: value => { actions = value; changed(); refreshBinding?.(); void showHooks(); }},
+        publicationLabels(catalog, label, t)); }
     catch (error) { if (!signal.aborted) $('hooks').textContent = t('hook.unavailable'); }
 }
 
@@ -711,7 +718,7 @@ async function showPreview(source, recovery = false) {
             preview = await renderPage(root, view, {mode: 'preview', signal: abort.signal, t, pageT, onUnavailable: () => status('unavailable')});
             if (!abort.signal.aborted) { $('preview-panel').classList.remove('loading'); $('preview-loading').hidden = true; }
         } catch (error) {
-            if (!abort.signal.aborted) $('preview-loading').textContent = t('failed') + ' (' + error.message + ')';
+            if (!abort.signal.aborted) $('preview-loading').textContent = errorMessage(error, t);
             throw error;
         }
     })();
@@ -744,8 +751,10 @@ async function saveDraft() {
 async function publishDraft(restoring, drafts = []) {
     const path = 'documents/' + encodeURIComponent(pageId);
     const plan = await api(path + '/prepare', {revision: state.revision, restoring, drafts});
+    notify('idle', '');
     const confirmed = await window.PixivFeedback.confirm({message: t(restoring ? 'restore-confirm' : 'publish-confirm'),
-        sections: publicationSections(plan, t, restoring), confirmLabel: t('confirm'), cancelLabel: t('cancel'), signal: lifetime.signal});
+        sections: publicationSections(plan, t, restoring, publicationLabels(catalog, label, t)),
+        confirmLabel: t(restoring ? 'restore' : 'publish'), cancelLabel: t('cancel'), signal: lifetime.signal});
     if (!confirmed) return;
     status(restoring ? 'restoring' : 'publishing');
     state = await api(path + (restoring ? '/restore' : '/publish'), {revision: state.revision, drafts,
@@ -755,7 +764,7 @@ async function publishDraft(restoring, drafts = []) {
         savedSource = state.draftSaveFailed ? '' : JSON.stringify(documentSource());
         dirty = Boolean(state.draftSaveFailed);
     }
-    if (state.draftSaveFailures?.some(id => id !== pageId)) status('restored-unsaved-pages', state.draftSaveFailures.join(', '));
+    if (state.draftSaveFailures?.some(id => id !== pageId)) status('restored-unsaved-pages', state.draftSaveFailures.map(publicationLabels(catalog, label, t).page).join(', '));
     else status(state.draftSaveFailed ? 'restored-unsaved' : restoring ? 'restored' : 'published');
 }
 function manipulate(action) {
@@ -901,7 +910,7 @@ async function start() {
             syncSelection();
             const opening = properties(editor.getSelected()), generation = inspectorGeneration;
             opening.catch(error => {
-                if (generation === inspectorGeneration && error.name !== 'AbortError') status('failed');
+                if (generation === inspectorGeneration && error.name !== 'AbortError') status('failed', error.message);
             });
         });
     });

@@ -1,6 +1,6 @@
 import {decorateIcons} from './editor-icons.mjs';
 import {createViewMotion} from './view-motion.mjs';
-import {createEditorFeedback} from './editor-feedback.mjs';
+import {createEditorFeedback, errorMessage} from './editor-feedback.mjs';
 export const $ = id => document.getElementById(id);
 export const lifetime = new AbortController();
 export const motion = createViewMotion(lifetime.signal);
@@ -18,10 +18,11 @@ export async function api(path, data) {
     return result;
 }
 export function message(key, code = '') {
-    $('custom-message').textContent = key ? t(key) + (code ? ' (' + code + ')' : '') : '';
+    const text = code ? errorMessage(code, t) : key ? t(key) : '';
+    $('custom-message').textContent = text;
     $('custom-message').dataset.state = ['failed', 'conflict'].includes(key) ? 'error'
         : key === 'working' ? 'busy' : ['saved', 'custom.published', 'custom.withdrawn', 'custom.version-loaded'].includes(key) ? 'success' : 'idle';
-    notify($('custom-message').dataset.state, key ? t(key) : '', code);
+    notify($('custom-message').dataset.state, text);
 }
 export function failure(error) {
     if (error.name !== 'AbortError') message(error.message === 'PAGE_REVISION_CONFLICT' ? 'conflict' : 'failed', error.message);

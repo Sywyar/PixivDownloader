@@ -64,7 +64,8 @@ public final class PageStore {
     }
 
     public record Preview(long revision, String fingerprint, List<PagePublications.Impact> impacts,
-            List<PagePublications.Permission> permissions, List<String> pages, List<Draft> drafts) { }
+            List<PagePublications.Permission> permissions, List<String> pages, List<Draft> drafts,
+            List<PagePublications.HookChange> hooks) { }
     /** 所选页面的草稿修订；恢复内容由正式历史提供，不由此记录指定。 */
     public record Draft(String page, long revision) { }
     public record Decision(long revision, String fingerprint, List<PagePublications.Permission> approvals) { }
@@ -77,7 +78,7 @@ public final class PageStore {
         var selected = selected(id, revision, drafts);
         var plan = plan(candidates(id, revision, selected, restoring), restoring);
         return new Preview(plan.revision(), fingerprint(plan, selected, restoring), plan.impacts(), plan.permissions(),
-                plan.changes().stream().map(PagePublications.Change::page).toList(), selected);
+                plan.changes().stream().map(PagePublications.Change::page).toList(), selected, plan.hooks());
     }
 
     private static List<Draft> selected(String id, long revision, List<Draft> drafts) {

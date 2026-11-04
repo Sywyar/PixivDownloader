@@ -205,7 +205,7 @@ textarea.pixiv-feedback-input { resize: vertical; }
 .pixiv-feedback-fields { margin: 0; font-size: .875rem; }
 .pixiv-feedback-fields > div { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(0, 2fr); gap: .75rem; padding: .375rem 0; }
 .pixiv-feedback-fields dt { color: var(--muted, GrayText); }
-.pixiv-feedback-fields dd { margin: 0; overflow-wrap: anywhere; }
+.pixiv-feedback-fields dd { margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
 .pixiv-feedback-mono { font-family: ui-monospace, monospace; }
 .pixiv-feedback-section summary:focus-visible { outline: 2px solid var(--accent-blue, Highlight); outline-offset: 3px; }
 .pixiv-feedback-dialog--structured .pixiv-feedback-actions { position: sticky; bottom: -1.5rem; background: var(--surface, Canvas); padding-block: 1rem; margin-bottom: -1.5rem; }

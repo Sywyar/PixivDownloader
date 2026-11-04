@@ -17,6 +17,18 @@
         element.disabled = busy;
         return element;
     }
+    function technical(parent, row, permissions) {
+        var details = document.createElement('details');
+        details.appendChild(text('summary', PM.t('hooks.technical')));
+        details.appendChild(text('p', row.hook + ' · ' + (row.callback || row.provider) + ' · ' + row.endpoint));
+        ['params', 'headers', 'consumes', 'produces'].forEach(function (key) {
+            if (row.target && row.target[key].length) details.appendChild(text('p', key + ': ' + row.target[key].join(', ')));
+        });
+        (permissions || []).forEach(function (permission) {
+            details.appendChild(text('p', permission.owner + ' / ' + permission.policy + ' / ' + permission.profile.id));
+        });
+        parent.appendChild(details);
+    }
     function render() {
         if (!host) return;
         host.replaceChildren(text('h3', PM.t('hooks.title')), text('p', PM.t('hooks.description')));
@@ -25,22 +37,28 @@
         status.setAttribute('role', 'status');
         host.appendChild(status);
         if (plan) {
-            host.appendChild(text('p', selected.hook + ' · ' + selected.callback));
-            host.appendChild(text('p', selected.target ? selected.target.owner + ' · ' + selected.target.method + ' ' + selected.target.path : selected.endpoint));
+            host.appendChild(text('p', selected.target ? PM.pluginLabel(selected.target.owner) + ' · ' + selected.target.method + ' ' + selected.target.path : selected.endpoint));
             host.appendChild(text('p', PM.t('hooks.phase.' + selected.phase)));
             host.appendChild(text('p', selected.fields.length ? selected.fields.map(function (field) {
-                return field.source + ' ' + field.path + ' → ' + field.name;
+                return PM.t('hooks.field.' + field.source) + ': ' + field.path + ' → ' + field.name;
             }).join(', ') : PM.t('hooks.metadata')));
             host.appendChild(text('p', PM.t('hooks.confirm')));
             var permissions = document.createElement('ul');
+            var resources = new Map();
             plan.permissions.forEach(function (permission) {
-                permissions.appendChild(text('li', permission.owner + ' · ' + permission.policy + ' · '
-                    + permission.profile.id + ' · ' + permission.profile.sources.map(function (resource) {
-                        return resource.kind + ': ' + resource.origin;
-                    }).join(', ')));
+                if (!resources.has(permission.owner)) resources.set(permission.owner, new Set());
+                permission.profile.sources.forEach(function (resource) {
+                    var origin = resource.origin === 'self' ? PM.t('hooks.resource.self')
+                        : resource.origin === 'blob:' ? PM.t('hooks.resource.local') : resource.origin;
+                    resources.get(permission.owner).add(PM.t('hooks.resource.' + resource.kind) + ': ' + origin);
+                });
+            });
+            resources.forEach(function (sources, owner) {
+                permissions.appendChild(text('li', PM.pluginLabel(owner) + ': ' + (Array.from(sources).join('; ') || PM.t('hooks.resource.none'))));
             });
             host.appendChild(permissions);
             if (plan.pages.length) host.appendChild(text('p', PM.t('hooks.pages') + ': ' + plan.pages.join(', ')));
+            technical(host, selected, plan.permissions);
             host.appendChild(button('hooks.publish', 'publish'));
             host.appendChild(button('hooks.cancel', 'cancel'));
             return;
@@ -51,17 +69,14 @@
             var section = document.createElement('section');
             section.className = 'pm-detail-section';
             section.appendChild(text('h4', row.hook + ' · ' + PM.t('hooks.state.' + row.status)));
-            section.appendChild(text('p', row.callback || row.provider));
             if (row.target) {
-                section.appendChild(text('p', row.target.owner + ' · ' + row.target.method + ' ' + row.target.path));
-                ['params', 'headers', 'consumes', 'produces'].forEach(function (key) {
-                    if (row.target[key].length) section.appendChild(text('p', key + ': ' + row.target[key].join(', ')));
-                });
+                section.appendChild(text('p', PM.pluginLabel(row.target.owner) + ' · ' + row.target.method + ' ' + row.target.path));
             }
-            section.appendChild(text('p', row.endpoint + ' · ' + PM.t('hooks.phase.' + row.phase)));
+            section.appendChild(text('p', PM.t('hooks.phase.' + row.phase)));
             section.appendChild(text('p', row.fields.length ? row.fields.map(function (field) {
-                return field.source + ' ' + field.path + ' → ' + field.name;
+                return PM.t('hooks.field.' + field.source) + ': ' + field.path + ' → ' + field.name;
             }).join(', ') : PM.t('hooks.metadata')));
+            technical(section, row);
             if (row.status === 'PENDING_APPROVAL' || row.status === 'CHANGED')
                 section.appendChild(button('hooks.prepare', 'prepare', row.id));
             if (row.approved) section.appendChild(button('hooks.revoke', 'revoke', row.id));

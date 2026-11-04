@@ -369,6 +369,8 @@ class PluginApiOwnershipGuardTest {
             API_PREFIX + "web.page.PagePublications$Impact",
             API_PREFIX + "web.page.PagePublications$Conflict",
             API_PREFIX + "web.page.PagePublications$Plan",
+            API_PREFIX + "web.page.PagePublications$HookAccess",
+            API_PREFIX + "web.page.PagePublications$HookChange",
             API_PREFIX + "web.page.PageCatalog$AvailableComponent",
             API_PREFIX + "web.page.PageCatalog$AvailablePage",
             API_PREFIX + "web.RemoteOperations$Response",

@@ -22,17 +22,3 @@ export function resolveBinding(component, region, page, selected = '') {
     }
     return {candidates: [], target: '', status: 'unmatched'};
 }
-
-export function publicationSections(plan, t, restoring = false) {
-    return [
-        {title: t('publication-pages'), paragraphs: [t('publication-pages-help')],
-            fields: plan.pages.map(page => ({label: page,
-                value: plan.drafts?.some(draft => draft.page === page)
-                    ? t(restoring ? 'publication-previous' : 'publication-draft') : t('publication-refresh')}))},
-        {title: t('publication-operations'), fields: plan.impacts.map(impact => ({label: impact.operation,
-            value: `${impact.before.join(', ') || t('publication-none')} → ${impact.after.join(', ') || t('publication-none')} (${impact.pages.join(', ')})`}))},
-        {title: t('publication-resources'), paragraphs: [t('publication-resources-help')],
-            fields: plan.permissions.map(permission => ({label: `${permission.owner} / ${permission.policy} / ${permission.profile.id}`,
-                value: permission.profile.sources.map(source => `${source.kind}: ${source.origin}`).join('\n')}))}
-    ];
-}

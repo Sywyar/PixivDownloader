@@ -565,8 +565,7 @@ class OperationHooksTest {
         }
     }
 
-    @Test @DisplayName("真实页面编辑器自身发布恢复及可选输入观察保留业务正文和安全检查")
-    void pageSelfPublication() throws Exception {
+    private java.net.URLClassLoader editorLoader() throws Exception {
         // 编译当前插件源码，既不把可选插件加入宿主依赖，也不复用旧 target/classes。
         var source = java.nio.file.Path.of("../pixivdownload-plugin-page-editor/src/main/java").toAbsolutePath().normalize();
         var output = java.nio.file.Files.createDirectory(root.resolve("editor-classes"));
@@ -576,7 +575,132 @@ class OperationHooksTest {
                 "-sourcepath", source.toString(), "-d", output.toString(),
                 source.resolve("top/sywyar/pixivdownload/pageeditor/PageEditorController.java").toString());
         assertThat(compiled).withFailMessage(diagnostics.toString(java.nio.charset.StandardCharsets.UTF_8)).isZero();
-        try (var loader = new java.net.URLClassLoader(new java.net.URL[]{output.toUri().toURL()}, getClass().getClassLoader())) {
+        return new java.net.URLClassLoader(new java.net.URL[]{output.toUri().toURL()}, getClass().getClassLoader());
+    }
+
+    @Test @DisplayName("页面字段授权经真实编辑器批量预检、发布和恢复，过期确认不能写入")
+    void pageFieldPermissions() throws Exception {
+        try (var loader = editorLoader()) {
+            var documentsType = loader.loadClass("top.sywyar.pixivdownload.pageeditor.PageDocuments");
+            var storeType = loader.loadClass("top.sywyar.pixivdownload.pageeditor.PageStore");
+            var controllerType = loader.loadClass("top.sywyar.pixivdownload.pageeditor.PageEditorController");
+            var libraryType = loader.loadClass("top.sywyar.pixivdownload.pageeditor.components.ComponentLibrary");
+            var declarations = List.of("core:a", "core:b").stream().map(id -> new EditablePage(id, "page", "test", "/" + id, true,
+                    List.of(new PageRegion("form", "form", "", true, false)), "", "", List.of(),
+                    List.of(new PageInteraction.Target("save", "save", "core:save", "form", SCHEMA,
+                            List.of(OperationVerification.INTERACTION), 16)))).toList();
+            var pages = new PageContributionRegistry(declarations, registry);
+            var shared = new WebPublicationStore(root.resolve("field-pages"), root.resolve("field-enrolled"));
+            var admissions = new OperationAdmissions();
+            var publisher = new top.sywyar.pixivdownload.plugin.web.page.WebPublications(shared, pages, registry, admissions, List.of());
+            publisher.hooks(new top.sywyar.pixivdownload.plugin.web.page.HookPublications(registry, endpoints, pages, shared, admissions));
+            var documents = documentsType.getConstructor(PageCatalog.class).newInstance(pages);
+            var drafts = storeType.getConstructor(java.nio.file.Path.class, documentsType, PagePublications.class)
+                    .newInstance(root.resolve("field-drafts"), documents, publisher);
+            var messages = org.mockito.Mockito.mock(top.sywyar.pixivdownload.i18n.MessageResolver.class);
+            org.mockito.Mockito.when(messages.get("error.request.param.invalid")).thenReturn("Invalid request");
+            var controller = controllerType.getConstructor(PageCatalog.class, storeType,
+                    top.sywyar.pixivdownload.i18n.MessageResolver.class, libraryType)
+                    .newInstance(pages, drafts, messages, null);
+            var http = MockMvcBuilders.standaloneSetup(controller).build();
+            inputSchema = "{\"type\":\"object\",\"properties\":{\"tag\":{\"type\":\"string\"},\"email\":{\"type\":\"string\"}},\"required\":[],\"additionalProperties\":false}";
+            resultSchema = "{\"type\":\"object\",\"properties\":{\"display\":{\"type\":\"string\"}},\"required\":[],\"additionalProperties\":false}";
+            class Client {
+                String base(String id) { return "/api/page-editor/documents/" + id; }
+                com.fasterxml.jackson.databind.JsonNode read(String id) throws Exception {
+                    return HookRequestFilter.JSON.readTree(http.perform(get(base(id))).andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray());
+                }
+                com.fasterxml.jackson.databind.JsonNode send(String id, String action, com.fasterxml.jackson.databind.JsonNode body) throws Exception {
+                    return HookRequestFilter.JSON.readTree(http.perform(post(base(id) + "/" + action).contentType("application/json").content(body.toString()))
+                            .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray());
+                }
+                void save(List<OperationBinding.Field> fields) throws Exception {
+                    for (String id : List.of("core:a", "core:b")) {
+                        var state = read(id);
+                        var document = (com.fasterxml.jackson.databind.node.ObjectNode) state.path("draft");
+                        document.putArray("hooks").add(HookRequestFilter.JSON.valueToTree(new OperationBinding("observer", hook.id(), "core:save", "",
+                                OperationHook.Phase.AFTER_COMPLETION, 2, OperationHook.Completion.SUCCEEDED, "{}", fields)));
+                        send(id, "save", HookRequestFilter.JSON.createObjectNode().put("revision", state.path("revision").asLong()).set("document", document));
+                    }
+                }
+                com.fasterxml.jackson.databind.node.ObjectNode selection(boolean restoring) throws Exception {
+                    var body = HookRequestFilter.JSON.createObjectNode().put("revision", read("core:a").path("revision").asLong()).put("restoring", restoring);
+                    body.putArray("drafts").addObject().put("page", "core:b").put("revision", read("core:b").path("revision").asLong());
+                    return body;
+                }
+                com.fasterxml.jackson.databind.node.ObjectNode decision(com.fasterxml.jackson.databind.node.ObjectNode selection,
+                        com.fasterxml.jackson.databind.JsonNode preview) {
+                    var command = selection.deepCopy();
+                    command.putObject("decision").put("revision", preview.path("revision").asLong()).put("fingerprint", preview.path("fingerprint").asText())
+                            .set("approvals", preview.path("permissions"));
+                    return command;
+                }
+                void verify(com.fasterxml.jackson.databind.JsonNode preview, List<OperationBinding.Field> before, List<OperationBinding.Field> after) {
+                    assertThat(preview.path("hooks")).hasSize(2);
+                    for (var change : preview.path("hooks")) {
+                        assertThat(change.path("page").asText()).isIn("core:a", "core:b");
+                        for (String side : List.of("before", "after")) {
+                            var access = change.path(side).get(0);
+                            assertThat(access.path("owner").asText()).isEqualTo("unknown-owner");
+                            assertThat(access.path("fields")).isEqualTo(HookRequestFilter.JSON.valueToTree(side.equals("before") ? before : after));
+                            assertThat(access.path("completion").asText()).isEqualTo("SUCCEEDED");
+                            assertThat(access.path("order").asInt()).isEqualTo(2);
+                            assertThat(access.has("configuration")).isFalse();
+                        }
+                    }
+                }
+            }
+            var client = new Client();
+            client.save(List.of());
+            var selection = client.selection(false);
+            client.send("core:a", "publish", client.decision(selection, client.send("core:a", "prepare", selection)));
+            var all = List.of(new OperationBinding.Field(OperationBinding.Source.QUERY, "tag", "tag"),
+                    new OperationBinding.Field(OperationBinding.Source.JSON, "/email", "email"),
+                    new OperationBinding.Field(OperationBinding.Source.RESULT, "/displayName", "display"));
+            List<OperationBinding.Field> previous = List.of();
+            for (var fields : List.of(all, List.of(new OperationBinding.Field(OperationBinding.Source.JSON, "/alias", "email")), List.<OperationBinding.Field>of())) {
+                client.save(fields);
+                selection = client.selection(false);
+                var snapshot = shared.snapshot();
+                var preview = client.send("core:a", "prepare", selection);
+                client.verify(preview, previous, fields);
+                assertThat(shared.snapshot()).isEqualTo(snapshot); // 预检后取消不写正式状态。
+                var command = client.decision(selection, preview);
+                var denied = command.deepCopy();
+                ((com.fasterxml.jackson.databind.node.ObjectNode) denied.path("decision")).putArray("approvals");
+                http.perform(post(client.base("core:a") + "/publish").contentType("application/json").content(denied.toString()))
+                        .andExpect(status().isUnprocessableEntity());
+                String originalSchema = inputSchema;
+                inputSchema += " ";
+                http.perform(post(client.base("core:a") + "/publish").contentType("application/json").content(command.toString()))
+                        .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.code").value("PAGE_PUBLICATION_STALE"));
+                inputSchema = originalSchema;
+                assertThat(shared.snapshot()).isEqualTo(snapshot);
+                client.save(fields);
+                http.perform(post(client.base("core:a") + "/publish").contentType("application/json").content(command.toString()))
+                        .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PAGE_REVISION_CONFLICT"));
+                selection = client.selection(false);
+                command = client.decision(selection, client.send("core:a", "prepare", selection));
+                client.send("core:a", "publish", command);
+                for (String id : List.of("core:a", "core:b")) {
+                    assertThat(shared.snapshot().pages().get(id).hooks().get(0).binding().fields()).isEqualTo(fields);
+                    assertThat(publisher.render(id, shared.snapshot()).orElseThrow().projection()).doesNotContain("/email", "/displayName", "/alias");
+                }
+                var restore = client.selection(true);
+                var historical = client.send("core:a", "prepare", restore);
+                client.verify(historical, fields, previous);
+                client.send("core:a", "restore", client.decision(restore, historical));
+                for (var page : shared.snapshot().pages().values()) assertThat(page.hooks().get(0).binding().fields()).isEqualTo(previous);
+                restore = client.selection(true);
+                client.send("core:a", "restore", client.decision(restore, client.send("core:a", "prepare", restore)));
+                previous = fields;
+            }
+        } finally { inputSchema = ""; resultSchema = ""; }
+    }
+
+    @Test @DisplayName("真实页面编辑器自身发布恢复及可选输入观察保留业务正文和安全检查")
+    void pageSelfPublication() throws Exception {
+        try (var loader = editorLoader()) {
             var documentsType = loader.loadClass("top.sywyar.pixivdownload.pageeditor.PageDocuments");
             var storeType = loader.loadClass("top.sywyar.pixivdownload.pageeditor.PageStore");
             var controllerType = loader.loadClass("top.sywyar.pixivdownload.pageeditor.PageEditorController");

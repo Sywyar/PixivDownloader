@@ -42,7 +42,7 @@ class PageStoreTest {
         }
         public Plan prepare(long expected, List<Change> changes) {
             if (expected != revision) throw new IllegalStateException("PAGE_REVISION_CONFLICT");
-            return new Plan(expected, Integer.toString(changes.hashCode()), changes, List.of(), List.of());
+            return new Plan(expected, Integer.toString(changes.hashCode()), changes, List.of(), List.of(), List.of());
         }
         public long publish(Plan plan, List<Permission> approvals) {
             if (plan.revision() != revision) throw new IllegalStateException("PAGE_REVISION_CONFLICT");

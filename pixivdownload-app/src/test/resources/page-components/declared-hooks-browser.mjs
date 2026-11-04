@@ -7,7 +7,8 @@ const root = process.env.HOOK_STATIC_ROOT || fileURLToPath(new URL('../../../mai
 const browser = await chromium.launch({headless: true, ...(process.env.PAGE_EDITOR_CHROMIUM ? {executablePath: process.env.PAGE_EDITOR_CHROMIUM} : {})});
 const row = {id: 'declaration-one', provider: 'unfamiliar', hook: 'observe-status', callback: 'fixture.Observer#completed',
     target: {owner: 'core', method: 'GET', path: '/api/download/status', params: [], headers: [], consumes: [], produces: []},
-    phase: 'AFTER_COMPLETION', fields: [], endpoint: 'core:endpoint', status: 'PENDING_APPROVAL', approved: false, fingerprint: 'fixture'};
+    phase: 'AFTER_COMPLETION', fields: [{source: 'RESULT', path: '/displayName', name: 'display'}],
+    endpoint: 'core:endpoint', status: 'PENDING_APPROVAL', approved: false, fingerprint: 'fixture'};
 let revision = 0, published = 0, stale = false, selected;
 const permission = {owner: 'unfamiliar', policy: 'observe-status', profile: {id: 'hook-binding', revision: 'fixture', sources: []}};
 try {
@@ -47,7 +48,14 @@ try {
     await panel.locator('[data-hook-action="prepare"]').click();
     await panel.locator('[data-hook-action="publish"]').waitFor();
     assert.match(await panel.innerText(), /GET \/api\/download\/status/);
+    assert.match(await panel.innerText(), /\/displayName → display/);
+    assert.doesNotMatch(await panel.innerText(), /fixture.Observer#completed/);
+    const details = panel.locator('details');
+    assert.equal(await details.evaluate(node => node.open), false);
+    await details.locator('summary').click();
+    assert.equal(await details.evaluate(node => node.open), true);
     assert.match(await panel.innerText(), /fixture.Observer#completed/);
+    assert.match(await details.innerText(), /unfamiliar \/ observe-status \/ hook-binding/);
     await panel.locator('[data-hook-action="cancel"]').click();
     assert.equal(published, 0);
     await panel.locator('[data-hook-action="prepare"]').click();

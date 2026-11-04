@@ -2,6 +2,8 @@ package top.sywyar.pixivdownload.plugin.api.web.page;
 
 import java.util.List;
 import java.util.Optional;
+import top.sywyar.pixivdownload.plugin.api.operation.OperationBinding;
+import top.sywyar.pixivdownload.plugin.api.operation.OperationHook;
 
 /**
  * 正式页面、操作要求及资源权限的同一权威修订。编辑器只保存草稿。
@@ -61,8 +63,35 @@ public interface PagePublications {
          */
         public Impact { before = List.copyOf(before); after = List.copyOf(after); pages = List.copyOf(pages); }
     }
+    /** 管理员确认使用的可信绑定摘要；不含配置、字段值或凭据，不用于公开页面投影。 */
+    record HookAccess(String owner, String hook, String operation, String endpoint, OperationHook.Phase phase,
+            int order, OperationHook.Completion completion, List<OperationBinding.Field> fields) {
+        /**
+         * 固定字段白名单；只展示来源、路径和回调接收名。
+         * @param owner 宿主确认的提供者身份
+         * @param hook 回调定义身份
+         * @param operation 操作身份
+         * @param endpoint 端点身份；空值表示整个操作
+         * @param phase 执行时机
+         * @param order 执行顺序
+         * @param completion 后置回调的结果筛选
+         * @param fields 允许读取的字段
+         */
+        public HookAccess { fields = List.copyOf(fields); }
+    }
+    /** 本次候选页面的绑定前后状态；历史恢复同样取正式状态与实际候选，不读取未选草稿。 */
+    record HookChange(String page, List<HookAccess> before, List<HookAccess> after) {
+        /**
+         * 固定本次确认快照。
+         * @param page 页面身份
+         * @param before 当前正式绑定
+         * @param after 候选绑定
+         */
+        public HookChange { before = List.copyOf(before); after = List.copyOf(after); }
+    }
     /** 指纹固定全部输入和依赖；提交时重新预检，不能以客户端提交的清单代替校验。 */
-    record Plan(long revision, String fingerprint, List<Change> changes, List<Impact> impacts, List<Permission> permissions) {
+    record Plan(long revision, String fingerprint, List<Change> changes, List<Impact> impacts, List<Permission> permissions,
+            List<HookChange> hooks) {
         /**
          * 固定预检结果。
          * @param revision 预检依据的正式修订
@@ -70,7 +99,11 @@ public interface PagePublications {
          * @param changes 本次提交的文档
          * @param impacts 操作保护变化
          * @param permissions 必须明确授权的资源权限
+         * @param hooks 来自正式状态和候选状态的绑定权限摘要
          */
-        public Plan { changes = List.copyOf(changes); impacts = List.copyOf(impacts); permissions = List.copyOf(permissions); }
+        public Plan {
+            changes = List.copyOf(changes); impacts = List.copyOf(impacts);
+            permissions = List.copyOf(permissions); hooks = List.copyOf(hooks);
+        }
     }
 }

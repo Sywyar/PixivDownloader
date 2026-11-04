@@ -1,3 +1,5 @@
+import {errorMessage} from './editor-feedback.mjs';
+
 export async function mountProperties(root, context) {
     let configuration = structuredClone(context.properties);
     let renderAbort, applyAbort, epoch = 0;
@@ -68,7 +70,7 @@ export async function mountProperties(root, context) {
             for (const [name, property] of Object.entries(source.properties)) next[name] = String(property.default);
             context.change({...configuration, version, properties: next});
         } catch (error) {
-            if (!pending.signal.aborted && !context.signal.aborted && current === epoch) fields.textContent = context.t('failed');
+            if (!pending.signal.aborted && !context.signal.aborted && current === epoch) fields.textContent = errorMessage(error, context.t);
         } finally { if (applyAbort === pending) { applyAbort = undefined; apply.disabled = false; } }
     }, {signal: context.signal});
     context.onCleanup(() => { renderAbort?.abort(); applyAbort?.abort(); inputs.clear(); });
